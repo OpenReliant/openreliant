@@ -1239,6 +1239,10 @@ test "menu scripts register game modes as OpenReliant starts, and player scripts
                 \\assert(not ok and string.find(message, "needs missions", 1, true), message)
                 \\ok, message = pcall(core.register_game_mode, { name = "tour", label = "TOUR", missions = { 1 }, loop = true, campaign = true })
                 \\assert(not ok and string.find(message, "can't loop", 1, true), message)
+                \\ok, message = pcall(core.register_game_mode, { name = "own", label = "OWN", missions = { 1 }, records = "missing.luau" })
+                \\assert(not ok and string.find(message, "has no script missing.luau", 1, true), message)
+                \\assert(core.register_game_mode({ name = "own", label = "OWN", records = "PLAYER", briefing_room = "yamato",
+                \\    missions = { 90, { number = 91, as = 1, objectives = { "Patrol", "Caf\u{e9}" }, hologram = "own_m01.bik" } } }) == "a:own")
                 \\assert(core.game_mode == nil and core.game_mode_mission == nil)
             },
             .{
@@ -1254,10 +1258,26 @@ test "menu scripts register game modes as OpenReliant starts, and player scripts
     }}, .{ .modes = &modes });
     defer fixture.deinit();
     modes.close();
-    try std.testing.expectEqual(1, modes.modes.items.len);
+    try std.testing.expectEqual(2, modes.modes.items.len);
+    // The records script is found whatever its case, without its extension.
+    const own = modes.modes.items[1];
+    try std.testing.expectEqualStrings("player.luau", own.records.?);
+    // A mission given as a number, and one given as a table, flown as mission 1 and naming two of
+    // its objectives in the game's code page.
+    try std.testing.expectEqual(game_modes.Entry{ .file = 90, .number = 90 }, own.missions[0]);
+    try std.testing.expectEqual(91, own.missions[1].file);
+    try std.testing.expectEqual(1, own.missions[1].number);
+    const names = own.missions[1].objectives.?;
+    try std.testing.expectEqualStrings("Patrol", names[0].?);
+    try std.testing.expectEqualStrings("Caf\xe9", names[1].?);
+    try std.testing.expectEqual(null, names[2]);
+    // Briefed in the Yamato's briefing room, with the mod's movie, and Enriquez silent.
+    try std.testing.expectEqual(.yamato, own.briefing_room.?);
+    try std.testing.expectEqualStrings("own_m01.bik", own.missions[1].hologram.?);
+    try std.testing.expectEqual(null, own.missions[1].last_word);
     const arena = modes.modes.items[0];
     try std.testing.expectEqualStrings("a:arena", arena.name);
-    try std.testing.expectEqualSlices(u16, &.{ 29, 30 }, arena.missions);
+    try std.testing.expectEqualDeep(&[_]game_modes.Entry{ .{ .file = 29, .number = 29 }, .{ .file = 30, .number = 30 } }, arena.missions);
     try std.testing.expectEqual(engine.game.gameobj.Type.of(.phoenix), arena.ship.?);
     try std.testing.expectEqual(.loop, arena.kind);
     try std.testing.expectEqualStrings("ARENA", modes.shown.items[0].label);
@@ -1283,7 +1303,7 @@ test "the arena example registers its game mode, and its board runs within it" {
     } }}, .{ .storage = &storage, .modes = &modes });
     defer fixture.deinit();
     try std.testing.expectEqualStrings("arena:arena", modes.modes.items[0].name);
-    try std.testing.expectEqualSlices(u16, &.{29}, modes.modes.items[0].missions);
+    try std.testing.expectEqualDeep(&[_]game_modes.Entry{.{ .file = 29, .number = 29 }}, modes.modes.items[0].missions);
     try std.testing.expectEqual(engine.game.gameobj.Type.of(.phoenix), modes.modes.items[0].ship.?);
     modes.start(0);
     try fixture.shown.startGame(null, fixture.mission.objects, false);
@@ -1361,7 +1381,7 @@ test "the campaign example briefs each of its missions, and plays its movie firs
     const tour = modes.modes.items[0];
     try std.testing.expectEqualStrings("campaign:first_tour", tour.name);
     try std.testing.expectEqual(.campaign, tour.kind);
-    try std.testing.expectEqualSlices(u16, &.{ 1, 2, 3 }, tour.missions);
+    try std.testing.expectEqualDeep(&[_]game_modes.Entry{ .{ .file = 1, .number = 1 }, .{ .file = 2, .number = 2 }, .{ .file = 3, .number = 3 } }, tour.missions);
     // Its briefing stands in for the mode's briefing only while the mode runs.
     const scripted = fixture.shown.scripted();
     try std.testing.expect(!scripted.vtable.replaces(scripted.context, .mode_briefing));
@@ -1380,6 +1400,14 @@ test "the campaign example briefs each of its missions, and plays its movie firs
     fixture.frame(0.016, .{ 640, 480 });
     try std.testing.expectEqual(null, fixture.shown.takeMovie());
     fixture.shown.key(.escape, true);
+    try std.testing.expectEqual(interf.Request{ .go = .main_menu }, scripted.vtable.take(scripted.context).?);
+    fixture.shown.key(.escape, false);
+    // After its last mission, its ending, which a key leaves for the main menu.
+    try std.testing.expectEqualStrings("campaign:ending", tour.ending.?);
+    try std.testing.expect(scripted.vtable.replaces(scripted.context, .mode_ending));
+    scripted.vtable.show(scripted.context, .mode_ending);
+    fixture.frame(0.016, .{ 640, 480 });
+    fixture.shown.key(.enter, true);
     try std.testing.expectEqual(interf.Request{ .go = .main_menu }, scripted.vtable.take(scripted.context).?);
     for (fixture.shown.runtime.contexts.items) |context| try std.testing.expect(!context.closed);
 }

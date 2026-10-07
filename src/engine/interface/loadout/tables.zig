@@ -13,6 +13,7 @@ const hud = @import("../../game/hud.zig");
 const missiles_mod = @import("../../game/missiles.zig");
 const additions = @import("../../game/additions.zig");
 const create = @import("../../game/create.zig");
+const gameobj = @import("../../game/gameobj.zig");
 const guns = @import("../../game/guns.zig");
 const objects = @import("../../game/objects.zig");
 const shp = @import("../../../formats/shp.zig");
@@ -168,8 +169,7 @@ pub fn offers(tier: u2, game_count: usize, buffer: *[arc_slot_count]Offer) struc
     }
     var left_out: usize = 0;
     for (additions.ships.all(), additions.ships.first..) |mod, number| {
-        const base: usize = @backingInt(mod.base);
-        if (base >= ship_count) continue;
+        if (!flyable(&mod)) continue;
         if (tier < mod.extra.tier orelse 0) continue;
         if (count == arc_slot_count) {
             left_out += 1;
@@ -179,6 +179,47 @@ pub fn offers(tier: u2, game_count: usize, buffer: *[arc_slot_count]Offer) struc
         count += 1;
     }
     return .{ buffer[0..count], left_out };
+}
+
+/// The ships a game mode lists for the loadout, into `buffer`, in the list's order. It keeps the
+/// ones the player can fly: the game's twelve, and the mods' ship types based on one of them or on
+/// none, whatever tier a mod gives. Each is kept once, and no more than the arc has room for.
+/// Returns them, and how many it leaves out.
+///
+/// **Improvement:** the original offers the ships the campaign's tier and the pilot's rank open.
+pub fn listedOffers(listed: []const gameobj.Type, buffer: *[arc_slot_count]Offer) struct { []Offer, usize } {
+    var count: usize = 0;
+    var left_out: usize = 0;
+    for (listed) |ship_type| {
+        const offer = offerOf(ship_type) orelse {
+            left_out += 1;
+            continue;
+        };
+        const twice = for (buffer[0..count]) |kept| {
+            if (kept.ship_type == offer.ship_type) break true;
+        } else false;
+        if (twice or count == arc_slot_count) {
+            left_out += 1;
+            continue;
+        }
+        buffer[count] = offer;
+        count += 1;
+    }
+    return .{ buffer[0..count], left_out };
+}
+
+/// The offer of `ship_type`, if the player can fly it.
+fn offerOf(ship_type: gameobj.Type) ?Offer {
+    const number = ship_type.number();
+    if (number < ship_count) return .{ .ship_type = @intCast(number), .record = ships[number] };
+    const mod = ship_type.added() orelse return null;
+    if (!flyable(mod)) return null;
+    return .{ .ship_type = @intCast(number), .record = modRecord(mod) };
+}
+
+/// Whether the player can fly a mod's ship type: one based on one of the twelve, or on none.
+fn flyable(mod: *const additions.ships.Added) bool {
+    return @backingInt(mod.base) < ship_count;
 }
 
 /// The record of a mod's ship type the player can fly: its own name and model; its class, access
@@ -917,6 +958,14 @@ test "the mods' ship types" {
     const full, const dropped = offers(3, ship_count, &buffer);
     try std.testing.expectEqual(ship_count, full.len);
     try std.testing.expectEqual(2, dropped);
+    // A game mode's list keeps its order, and leaves out a capital ship's type, which the player
+    // can't fly, and a ship listed twice.
+    const listed, const unlisted = listedOffers(&.{ .of(.grendel), @fromBackingInt(additions.ships.first + 2), @fromBackingInt(additions.ships.first), .of(.predator), .of(.grendel) }, &buffer);
+    try std.testing.expectEqual(3, listed.len);
+    try std.testing.expectEqual(2, unlisted);
+    try std.testing.expectEqual(2, listed[0].ship_type);
+    try std.testing.expectEqual(900, listed[1].record.name);
+    try std.testing.expectEqual(0, listed[2].ship_type);
     // A saved game keeps a mod's ship type as its base.
     try std.testing.expectEqual(0, savedShip(additions.ships.first));
     try std.testing.expectEqual(11, savedShip(11));

@@ -683,6 +683,11 @@ pub const Itac = struct {
     context: Context,
     run: Run,
     pilot: Pilot,
+    /// The sections its buttons open: all of them, but in a game mode's debriefing only
+    /// DEBRIEFINGS and EXIT, as the StarLancer trial's ITAC opens.
+    ///
+    /// **Improvement:** the original's ITAC opens every section.
+    sections: std.EnumSet(Section) = .full,
     /// Its fonts, shapes and sounds.
     large: ?hud.FontFile = null,
     small: ?hud.FontFile = null,
@@ -813,7 +818,7 @@ pub const Itac = struct {
                 }
                 if (escape) return itac.close();
                 itac.nowAndThen(in.ticks);
-                if (itac.left) if (canvas_module.itemAt(Section, &buttons, in.pointer.at)) |section| if (section != itac.section) itac.choose(section, in.now);
+                if (itac.left) if (canvas_module.itemAt(Section, &buttons, in.pointer.at)) |section| if (section != itac.section and itac.sections.contains(section)) itac.choose(section, in.now);
                 itac.pointer_clock.advance(in.ticks, pointer_wrap);
                 if (itac.stage == .shown) {
                     itac.wipePanes();
@@ -1386,6 +1391,12 @@ test Itac {
     try std.testing.expectEqual(.debriefings, itac.section.?);
     try std.testing.expectEqual(0, itac.debriefings.selected.?);
     try std.testing.expect(itac.panes[0].shown);
+    // A section it doesn't offer, as a game mode's debriefing offers none but DEBRIEFINGS and
+    // EXIT, stays shut.
+    itac.sections = .initMany(&.{ .debriefings, .exit });
+    try std.testing.expectEqual(null, pass(&itac, &keyboard, .{ .at = .{ 100, 440 }, .down = true }));
+    try std.testing.expectEqual(.shown, std.meta.activeTag(itac.stage));
+    try std.testing.expectEqual(null, pass(&itac, &keyboard, .{}));
     // The last button closes it, through DEBRIEFINGS' movie out and its own movie in, then its
     // closing sound, which with no sound has faded at once.
     try std.testing.expectEqual(null, pass(&itac, &keyboard, .{ .at = .{ 600, 440 }, .down = true }));

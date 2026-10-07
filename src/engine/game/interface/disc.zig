@@ -37,6 +37,8 @@ pub const Disc = struct {
     /// The game folder, which has both CD archives in a full install.
     directory: Io.Dir,
     hog: ?bigfile.Hog = null,
+    /// The disc whose archive is open, if one is.
+    number: ?Number = null,
     /// Added by OpenReliant: the mods, which take priority over the archive (`bigfile.Mods`).
     mods: *const bigfile.Mods = &bigfile.Mods.none,
 
@@ -58,11 +60,20 @@ pub const Disc = struct {
         };
         opened.mods = disc.mods;
         disc.hog = opened;
+        disc.number = number;
     }
 
     pub fn close(disc: *Disc) void {
         if (disc.hog) |*hog| hog.close(disc.gpa);
         disc.hog = null;
+        disc.number = null;
+    }
+
+    /// Whether a mod or the open archive has the member `name`, as `readStored` reads it.
+    pub fn has(disc: Disc, name: []const u8) bool {
+        if (disc.mods.has(name)) return true;
+        const hog = disc.hog orelse return false;
+        return hog.archive.find(name) != null;
     }
 
     /// Reads the member `name` of the open archive as stored (`bigfile.Hog.readStored`), with a
@@ -100,8 +111,11 @@ test Disc {
     var disc: Disc = .{ .gpa = gpa, .io = io, .directory = tmp.dir };
     defer disc.close();
     try std.testing.expectEqual(null, try disc.readStored(gpa, "r_h_ta.bik"));
+    try std.testing.expect(!disc.has("r_h_ta.bik"));
     disc.open(.two);
     try std.testing.expect(disc.hog != null);
+    try std.testing.expectEqual(.two, disc.number.?);
+    try std.testing.expect(disc.has("R_H_TA.BIK") and !disc.has("y_h_ta.bik"));
     const movie = (try disc.readStored(gpa, "R_H_TA.BIK")).?;
     defer gpa.free(movie);
     try std.testing.expectEqualStrings("BIKf", movie);
@@ -114,6 +128,7 @@ test Disc {
     // The first disc's archive is missing: the second is closed all the same, and nothing is open.
     disc.open(.one);
     try std.testing.expectEqual(null, disc.hog);
+    try std.testing.expectEqual(null, disc.number);
 }
 
 test "a mod's movies replace the CD archives' movies" {
@@ -135,6 +150,7 @@ test "a mod's movies replace the CD archives' movies" {
     // The mod's movie, even with no archive open, and the archive's when no mod has one.
     for ([_]?Number{ null, .two }) |number| {
         if (number) |opened| disc.open(opened);
+        try std.testing.expect(disc.has("r_h_ta.bik"));
         const movie = (try disc.readStored(gpa, "r_h_ta.bik")).?;
         defer gpa.free(movie);
         try std.testing.expectEqualStrings("a mod's", movie);

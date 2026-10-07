@@ -6,7 +6,7 @@
 
 -- Names of values. A value without a name is a number.
 
-type ShipType = "predator" | "grendel" | "wolverine" | "reaper" | "phoenix" | "reliant" | "yamato" | "victorious" | "endeavour" | "mitchell" | "bremen" | "ulysses" | "nanny" | "limpet_car" | "prowler" | "ripper" | "mammoth" | "stork" | "sabre" | "kamov" | "scimitar" | "ramases" | "badanov" | "pukov" | "kurgan" | "sharov" | "gurevich" | "saladin" | "darkreign" | "stalag" | "antanov" | "kronstadt" | "boridin" | "troop_car" | "torpedo" | "escape_pod" | "debris" | "crewman" | "russian_torpedo" | "neptune_hi" | "uranus_hi" | "jupiter_hi" | "venus_hi" | "proto_gate" | "advanced_gate" | "proximity_mine" | "black_box" | "satellite" | "mammoth_wreck_front" | "mammoth_wreck_back" | "badanov_wreck_back" | "badanov_wreck_front" | "kurgan_wreck" | "krasnaya" | "latov" | "czar_docked" | "dm_beacon" | "kafelnikof" | "krasny" | "varyag" | "other_ramases" | "other_mitchell" | "rogue_base" | "boridin_breakaway" | "other_escape_pod" | "cargo_pod" | "zakov" | "shell" | "rock_chunk" | "limpet_pod" | "kiev" | "neptune_lo" | "uranus_lo" | "jupiter_lo" | "venus_lo" | "yamato_hangar" | "reliant_hangar" | "comms_relay" | "late_escape_pod" | "other_late_escape_pod" | "fuel_pod" | "t_phoenix" | "sun_marker" | "nebula_marker" | "marker" | "stand_in" | number | string
+type ShipType = "predator" | "grendel" | "wolverine" | "reaper" | "phoenix" | "reliant" | "yamato" | "victorious" | "endeavour" | "mitchell" | "bremen" | "ulysses" | "nanny" | "limpet_car" | "prowler" | "ripper" | "mammoth" | "stork" | "sabre" | "kamov" | "scimitar" | "ramases" | "badanov" | "pukov" | "kurgan" | "sharov" | "gurevich" | "saladin" | "darkreign" | "stalag" | "antanov" | "kronstadt" | "boridin" | "troop_car" | "torpedo" | "escape_pod" | "debris" | "crewman" | "russian_torpedo" | "neptune_hi" | "uranus_hi" | "jupiter_hi" | "venus_hi" | "proto_gate" | "advanced_gate" | "proximity_mine" | "black_box" | "satellite" | "mammoth_wreck_front" | "mammoth_wreck_back" | "badanov_wreck_back" | "badanov_wreck_front" | "kurgan_wreck" | "krasnaya" | "latov" | "czar_docked" | "dm_beacon" | "kafelnikof" | "krasny" | "varyag" | "other_ramases" | "other_mitchell" | "rogue_base" | "boridin_breakaway" | "other_escape_pod" | "cargo_pod" | "zakov" | "shell" | "rock_chunk" | "limpet_pod" | "kiev" | "neptune_lo" | "uranus_lo" | "jupiter_lo" | "venus_lo" | "yamato_hangar" | "yamato_landing_bay" | "reliant_hangar" | "comms_relay" | "late_escape_pod" | "other_late_escape_pod" | "fuel_pod" | "t_phoenix" | "sun_marker" | "nebula_marker" | "marker" | "stand_in" | number | string
 type ShipClass = "fighter" | "capital" | "support" | "other" | "torpedo" | "debris" | "mine" | "planet" | number
 type PilotNumber = "none" | number | string
 type Side = "friendly" | "hostile" | "neutral" | number
@@ -14,9 +14,10 @@ type Invulnerability = "none" | "player_can_hit" | "full" | "eject_before_explod
 type MissileType = "none" | "screamer" | "raptor" | "havoc" | "jack_hammer" | "bandit" | "vagabond" | "solomon" | "imp" | "hawk" | "torpedo" | "fuel_pod" | number | string
 type TurretKind = "aimed" | "spinning" | "launcher"
 type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
+type Carrier = "reliant" | "yamato"
 type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "centre" | "right" | number
-type FrontEndScreen = "main_menu" | "game_options" | "audio" | "briefing" | "landing_movie" | "pilot_roster" | "saved_games" | "connection" | "video" | "controls" | "mods" | "mod_options" | "game_modes" | "mode_briefing" | number
+type FrontEndScreen = "main_menu" | "game_options" | "audio" | "briefing" | "landing_movie" | "pilot_roster" | "saved_games" | "connection" | "video" | "controls" | "mods" | "mod_options" | "game_modes" | "mode_briefing" | "mode_ending" | number
 type Key = "escape" | "one" | "two" | "three" | "four" | "five" | "six" | "seven" | "eight" | "nine" | "zero" | "minus" | "equals" | "backspace" | "tab" | "q" | "w" | "e" | "r" | "t" | "y" | "u" | "i" | "o" | "p" | "left_bracket" | "right_bracket" | "enter" | "left_control" | "a" | "s" | "d" | "f" | "g" | "h" | "j" | "k" | "l" | "semicolon" | "apostrophe" | "grave" | "left_shift" | "backslash" | "z" | "x" | "c" | "v" | "b" | "n" | "m" | "comma" | "period" | "slash" | "right_shift" | "keypad_multiply" | "left_alt" | "space" | "caps_lock" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "num_lock" | "scroll_lock" | "keypad_7" | "keypad_8" | "keypad_9" | "keypad_minus" | "keypad_4" | "keypad_5" | "keypad_6" | "keypad_plus" | "keypad_1" | "keypad_2" | "keypad_3" | "keypad_0" | "keypad_period" | "non_us_backslash" | "f11" | "f12" | "keypad_enter" | "right_control" | "keypad_divide" | "print_screen" | "right_alt" | "pause" | "home" | "up" | "page_up" | "left" | "right" | "end" | "down" | "page_down" | "insert" | "delete" | "left_windows" | "right_windows" | "menu" | number
 type Modifier = "none" | "shift" | "control" | "alt" | number
 type GamepadButton = "south" | "east" | "west" | "north" | "back" | "guide" | "start" | "left_stick" | "right_stick" | "left_shoulder" | "right_shoulder" | "dpad_up" | "dpad_down" | "dpad_left" | "dpad_right" | "misc1" | "right_paddle1" | "left_paddle1" | "right_paddle2" | "left_paddle2" | "touchpad" | "misc2" | "misc3" | "misc4" | "misc5" | "misc6" | "left_trigger" | "right_trigger" | "right_stick_up" | "right_stick_down" | "right_stick_left" | "right_stick_right"
@@ -33,11 +34,13 @@ type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "unnamed_3" | "
 type OrderPushed = "refused" | "taken" | "conflict"
 type MissionCommand = "print_ship_name" | "create_timer" | "destroy_timer" | "create_flight_group" | "destroy_flight_group" | "wait" | "play_speech" | "wait_for_speech" | "play_comms_movie" | "wait_for_movie" | "print_debug_message" | "set_ai" | "clear_ai" | "set_patrol_route" | "set_pilot" | "set_trigger_state" | "start_director_cam" | "start_ship_animation" | "ship_follow_curve" | "setup_launch" | "start_launch" | "display_sub_title" | "reset_code_priority" | "interrupt_trigger_code" | "comms_from_ship" | "comms_from_pilot" | "set_invulnerability" | "moving_ship_follow_curve" | "disable_object" | "position_relative" | "when_player_last_jumped" | "start_missile_cam" | "start_chase_cam" | "set_player_target" | "set_targetable" | "play_music" | "stop_director_cam" | "set_action_centre" | "dock" | "disable_taunts" | "fly" | "comms_from_ship_once" | "comms_from_pilot_once" | "disable_lights" | "set_environment_fx" | "multi_player_sync" | "disable_generic_comms" | "disable_guns" | "set_nav_point" | "set_escort_point" | "reset_after_burners" | "disable_missiles" | "disable_engines" | "disable_eject" | "set_hostile" | "reset_to_spawn_positions" | "update_environment_fx_state" | "set_primary_target" | "wait_for_jump_or_launch" | "do_not_disturb" | "set_environment_fx_nebula" | "start_ship_animation_reverse" | "snap_to_point" | "play_fosters_last_stand" | "open_instrument" | "close_instrument" | "destroy_sub_object" | "set_objective" | "set_rescue_probabilities" | "is_ship_this_player" | "set_flyback_marker" | "reset_flyback_marker" | "stop_ship_animation" | "set_ship_avoidance" | "match_speed" | "moving_ship_backup_curve" | "wait_for_key" | "terminate_mission" | "turret_set_target" | "set_any_trigger_state" | "wait_for_director_cam" | "kill_all_script_execution_execpt_me" | "stack_director_cam" | "scanner" | "replace_sub_object" | "fire" | "multiplayer_script_sync" | "friendly_fire" | "cloak" | "replenish_weapons" | "wills_blag" | "show_hud_icon" | "disable_listing" | "disable_object_at_next_jump" | "darrens_naughty_blag"
 type MissionCommandResult = "wait" | "run_on" | number
+type RestartChoice = "replay_from_briefing" | "replay_from_launch" | "main_menu"
+type Medal = "silver" | "black_eagle" | "valour" | "legion" | "navy_cross" | "medal_of_honour"
 type Condition = "shot_at" | "destroyed" | "launched" | "camera_reached" | "ship_reached" | "proximity_close" | "proximity_general" | "object_scooped" | "player_ready_to_jump" | "jumped_in" | "fixed_gate_jumped_in" | "player_ready_to_warp" | "jumped_through_hoop" | "player_wants_backup" | "ripper_grabbed_object" | "ripper_dropped_object" | "cloaked" | "decloaked" | "targetted" | "player_l1_doubletap" | "player_l2_doubletap" | "player_r1_doubletap" | "player_r2_doubletap" | "player_l1_l2_r1_r2_pressed" | "player_l1_r1_pressed" | "game_timer_expired" | "tractor_beam_locked" | "tractor_beam_broken" | "inside_object" | "outside_object" | "docked" | "undocked" | "being_chased" | "call_reinforcements" | "explosion_ship" | number
 type PilotTier = "level_0" | "level_1" | "level_2" | number
 type PilotSkill = "low" | "medium" | "high" | number
 type Action = "cockpit_camera" | "left_view_camera" | "right_view_camera" | "rear_view_camera" | "flyby_camera" | "target_camera" | "external_camera" | "missile_camera" | "next_enemy_target" | "previous_enemy_target" | "next_friendly_target" | "previous_friendly_target" | "next_subtarget" | "previous_subtarget" | "target_under_reticule" | "target_nearest_enemy" | "target_nearest_friendly" | "target_torpedo" | "smart_target" | "primary_target" | "afterburners" | "afterburner_toggle" | "reverse_thrust" | "jump_drive" | "match_speed" | "accelerate" | "decelerate" | "zero_throttle" | "full_throttle" | "roll_ship_clockwise" | "roll_ship_anti_clockwise" | "nose_up" | "nose_down" | "rotate_clockwise" | "rotate_anti_clockwise" | "strafe_left" | "strafe_right" | "joystick_roll" | "fire_lasers" | "full_guns" | "gunnery_window" | "gunnery_window_locked" | "synchronise_guns" | "toggle_blindfire" | "launch_missile" | "missile_window" | "rotate_missiles_clockwise" | "rotate_missiles_anticlockwise" | "comms_window" | "powerball_window" | "powerball_window_locked" | "full_power_to_gunnery" | "full_power_to_engines" | "full_power_to_shields" | "equalize_power" | "objectives_window" | "wing_status_window" | "wing_status_window_locked" | "damage_window" | "damage_window_locked" | "radar_ranges" | "shield_balancing" | "countermeasures" | "eject" | "cloak_ship" | "ecm" | "spectral_shields" | "attack_my_target" | "back_off" | "help_me" | "permission_to_land" | "display_kills" | "send_comms_message" | "key_config"
-type View = "cockpit" | "cockpit_left" | "cockpit_right" | "cockpit_rear" | "chase" | "chase_too" | "launch_bay" | "launch_below" | "launch_aside" | "landing_tube" | "landing_aside" | "jump_out" | "jump_in_close" | "jump_in_ahead" | "jump_in_aside" | "target" | "external" | "director" | "pull_back" | "missile" | "eject" | "pickup" | "pod_shot" | "watch" | "watch_marker" | "flyby" | "nanny_dock" | "warp_prepare" | "warp_depart" | "warp_arrive" | "yamato_beside" | "yamato_ahead" | "yamato_aside" | number
+type View = "cockpit" | "cockpit_left" | "cockpit_right" | "cockpit_rear" | "chase" | "chase_too" | "launch_bay" | "launch_below" | "launch_aside" | "landing_tube" | "landing_aside" | "jump_out" | "jump_in_close" | "jump_in_ahead" | "jump_in_aside" | "target" | "external" | "director" | "pull_back" | "missile" | "eject" | "pickup" | "pod_shot" | "watch" | "watch_marker" | "flyby" | "nanny_dock" | "warp_prepare" | "warp_depart" | "warp_arrive" | "landing_bay" | "landing_ship" | "yamato_beside" | "yamato_ahead" | "yamato_aside" | number
 
 -- Tables of values, which scripts can only read.
 
@@ -67,11 +70,16 @@ type GameMode = {
     name: string,
     label: string,
     description: string?,
-    missions: { number },
+    missions: { number | GameModeMissionTable },
     ship: ShipType?,
     loop: boolean?,
     campaign: boolean?,
     briefing: string?,
+    briefing_room: Carrier?,
+    loadout_ships: { ShipType }?,
+    debriefing: boolean?,
+    ending: string?,
+    records: string?,
 }
 type Mission = {
     number: number,
@@ -364,11 +372,19 @@ declare class Pilot
     tier_c: PilotTier
     skill: PilotSkill
 end
+declare class Face
+    name: number
+    talking: string
+    laughing: string
+    squadron: string
+    dying: string
+end
 type Records = {
     ships: { [number | string]: Ship },
     guns: { [number | string]: Gun },
     missiles: { [number | string]: Missile },
     pilots: { [number | string]: Pilot },
+    faces: { [number | string]: Face },
     text: { [number | string]: string },
     itac_text: { [number | string]: string },
 }
@@ -383,7 +399,7 @@ type Core = {
     game_mode: string?,
     -- The mission the game mode that runs is at: the one flown, or between missions the one flown next. nil where no game mode runs.
     game_mode_mission: GameModeMission?,
-    -- Registers a game mode, which the main menu's GAME MODES lists: a `name`, which the mod's name qualifies; a `label` and a `description` for the screen; the `missions` it flies in turn, by their numbers, each a standard `.DTE` file of the game's or a mod's; the `ship` the player flies them in, or the ship each mission gives; whether it starts again after its last mission (`loop`), or is a `campaign`, which flies a lost mission again and carries on from the mission the player reached; and the `briefing`, the name of the mod's registered screen that the front end shows before each mission. Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name.
+    -- Registers a game mode, which the main menu's GAME MODES lists. The mod's name qualifies its `name`, and the screen shows its `label` and `description`. `missions` lists the missions it flies in turn: each is the number of a standard `.DTE` file of the game's or a mod's, or a table that also gives the number the mission flies as, the names of its objectives, and its `hologram` and `last_word` in the briefing room. `ship` is the ship the player flies them in; without it, each mission gives the ship. With `loop`, the mode starts again after its last mission. A `campaign` shows the restart screen after a mission is lost or left, and carries on from the mission the player reached. `briefing` names the mod's registered screen that the front end shows before each mission. `briefing_room`, `reliant` or `yamato`, then briefs each mission in that game's briefing room, with the loadout. `loadout_ships` lists the ships that loadout offers, in order, starting on the first. With `debriefing`, the ITAC debriefs each mission that goes on to the next. `ending` names the mod's registered screen that the front end shows after the last mission. `records` names the mod's script that changes the records for the mode's missions alone: it runs as a load script before each of them, and its changes go back as the mission ends. Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name.
     register_game_mode: (definition: GameMode) -> string,
     -- Sends the event `name` to the global and mission scripts, with `data`, which must be plain data. It arrives at the next update.
     send_global_event: (name: string, data: any) -> (),
@@ -833,6 +849,13 @@ declare class VmCommand
     function original(self): MissionCommandResult?
 end
 
+-- The restart screen, after a mission is lost or left. Its result is the player's choice: `replay_from_briefing`, `replay_from_launch` or `main_menu`. A handler that stops it chooses without the screen: `main_menu`, unless it sets `e.result`.
+declare class RestartScreen
+    result: RestartChoice
+    -- Runs the rest of the call now: the handlers after this one, then the function.
+    function original(self): RestartChoice?
+end
+
 -- `object`, a fighter, turns on whoever last hit it, once it has taken enough damage lately and its order allows it.
 declare class OrderRetaliate
     object: Object
@@ -845,6 +868,38 @@ declare class OrderRoutine
     object: Object
     -- Runs the rest of the call now: the handlers after this one, then the function.
     function original(self): ()
+end
+
+-- A mission is lost or left, and `movie` plays before the restart screen. In the game's campaign, it is the pilot's funeral where `ending` is `destroyed`, the pilot in the enemy's hands where it is `captured`, the pilot's execution where it is `friendly_fire`, and none where the player left the mission. A game mode's mission plays none. `rating` is how the mission's script rated it, and `mission` is its number.
+declare class MissionLost
+    ending: Ending
+    rating: Rating
+    mission: number
+    movie: string?
+    result: string?
+    -- Runs the rest of the call now: the handlers after this one, then the function.
+    function original(self): string??
+end
+
+-- The pilot's career in the game's campaign ends after mission `mission`, and `movie` plays before the main menu: the pilot's transfer where `ending` is `rescued`, after too many pickups, and for a total failure (`ending` `total_failure`) the transfer or, after missions 25 and 27 without the Yamato, the shuttle at Fort Bear. `rating` is how the mission's script rated it.
+declare class CareerOver
+    ending: Ending
+    rating: Rating
+    mission: number
+    movie: string?
+    result: string?
+    -- Runs the rest of the call now: the handlers after this one, then the function.
+    function original(self): string??
+end
+
+-- Mission `mission` of the game's campaign awards the pilot `medal`, and `movie`, the medal's ceremony, plays.
+declare class MedalCeremony
+    medal: Medal
+    mission: number
+    movie: string?
+    result: string?
+    -- Runs the rest of the call now: the handlers after this one, then the function.
+    function original(self): string??
 end
 
 -- `attacker` hits `object`: its component number `component`, or the object as a whole when `component` is nil.
@@ -1027,6 +1082,7 @@ type HooksAdd =
     ((name: "order_pop", handler: (e: OrderPop) -> boolean?, filter: (Filter | (e: OrderPop) -> boolean)?) -> HookHandle) &
     ((name: "object_orders", handler: (e: ObjectOrders) -> boolean?, filter: (Filter | (e: ObjectOrders) -> boolean)?) -> HookHandle) &
     ((name: "vm_command", handler: (e: VmCommand) -> boolean?, filter: ((e: VmCommand) -> boolean)?) -> HookHandle) &
+    ((name: "restart_screen", handler: (e: RestartScreen) -> boolean?, filter: ((e: RestartScreen) -> boolean)?) -> HookHandle) &
     ((name: "order_retaliate", handler: (e: OrderRetaliate) -> boolean?, filter: (Filter | (e: OrderRetaliate) -> boolean)?) -> HookHandle) &
     ((name: "order_do_nothing", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_fly_aimlessly_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
@@ -1144,6 +1200,9 @@ type HooksAdd =
     ((name: "order_deathmatch_respawn_effect", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_deathmatch_respawn_effect_exit", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_first_step_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "mission_lost", handler: (e: MissionLost) -> boolean?, filter: ((e: MissionLost) -> boolean)?) -> HookHandle) &
+    ((name: "career_over", handler: (e: CareerOver) -> boolean?, filter: ((e: CareerOver) -> boolean)?) -> HookHandle) &
+    ((name: "medal_ceremony", handler: (e: MedalCeremony) -> boolean?, filter: ((e: MedalCeremony) -> boolean)?) -> HookHandle) &
     ((name: "shot_at", handler: (e: ShotAt) -> boolean?, filter: (Filter | (e: ShotAt) -> boolean)?) -> HookHandle) &
     ((name: "destroyed", handler: (e: Destroyed) -> boolean?, filter: (Filter | (e: Destroyed) -> boolean)?) -> HookHandle) &
     ((name: "launched", handler: (e: Launched) -> boolean?, filter: (Filter | (e: Launched) -> boolean)?) -> HookHandle) &
@@ -1188,6 +1247,7 @@ type HooksAfter =
     ((name: "order_pop", handler: (e: OrderPop) -> boolean?, filter: (Filter | (e: OrderPop) -> boolean)?) -> HookHandle) &
     ((name: "object_orders", handler: (e: ObjectOrders) -> boolean?, filter: (Filter | (e: ObjectOrders) -> boolean)?) -> HookHandle) &
     ((name: "vm_command", handler: (e: VmCommand) -> boolean?, filter: ((e: VmCommand) -> boolean)?) -> HookHandle) &
+    ((name: "restart_screen", handler: (e: RestartScreen) -> boolean?, filter: ((e: RestartScreen) -> boolean)?) -> HookHandle) &
     ((name: "order_retaliate", handler: (e: OrderRetaliate) -> boolean?, filter: (Filter | (e: OrderRetaliate) -> boolean)?) -> HookHandle) &
     ((name: "order_do_nothing", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_fly_aimlessly_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
@@ -1304,7 +1364,10 @@ type HooksAfter =
     ((name: "order_deathmatch_respawn_effect_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_deathmatch_respawn_effect", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_deathmatch_respawn_effect_exit", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_first_step_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle)
+    ((name: "order_first_step_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "mission_lost", handler: (e: MissionLost) -> boolean?, filter: ((e: MissionLost) -> boolean)?) -> HookHandle) &
+    ((name: "career_over", handler: (e: CareerOver) -> boolean?, filter: ((e: CareerOver) -> boolean)?) -> HookHandle) &
+    ((name: "medal_ceremony", handler: (e: MedalCeremony) -> boolean?, filter: ((e: MedalCeremony) -> boolean)?) -> HookHandle)
 type Hooks = {
     -- Adds a handler that runs before the hook's function, or when its event happens.
     add: HooksAdd,

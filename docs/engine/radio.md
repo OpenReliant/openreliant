@@ -46,6 +46,10 @@ asks for. OpenReliant generates the table from the payload (`make face-tables`).
 head past the four or a pilot past the table, which the game reads beside them, OpenReliant plays
 the dead channel's film, with no name.
 
+**Improvement:** OpenReliant loads the table from the records (`pilots.Faces`), where mods' scripts
+can change each face's name and films (`records.faces`, [The records](../guide/scripting.md#the-records)).
+The pilots mods add follow the game's 194.
+
 `radio_reset` (`0x004560F0`), as `hud_init` readies a mission, empties the queue and names nobody;
 it also clears the remarks' state and the script's switches over them. **Fix:** the game leaves a
 film playing into the next mission, whose first line then starts before its window has opened;

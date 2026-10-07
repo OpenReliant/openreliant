@@ -52,6 +52,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Run scripts with one mission | [Kinds of scripts](scripting.md#kinds-of-scripts) | |
 | Add game modes to the main menu, with rules of their own | [Game modes](scripting.md#game-modes) | [`arena`](../../examples/mods/arena), [`interceptor`](../../examples/mods/interceptor) |
 | Add campaigns, with briefing screens and movies | [Campaigns](scripting.md#campaigns) | [`campaign`](../../examples/mods/campaign) |
+| Change the stats and the text for a game mode's missions alone, leaving the game's campaign as it is | [Game modes](scripting.md#game-modes) | |
 
 ## Change how the game plays
 

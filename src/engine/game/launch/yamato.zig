@@ -329,9 +329,10 @@ fn switchView(world: gameobj.World, view: camera.View) void {
     _ = watching.setYamato(view, player, world.clock.viewTime(), .of(&world.objects.slots[player]));
 }
 
-/// Places the original's camera marker at the hardware renderer's position. None of the three
-/// launch views reads it (`launch_yamato_run`, step 5).
+/// Places the camera's marker (`create.Objects.camera_marker`) at the hardware renderer's position.
+/// None of the three launch views reads it (`launch_yamato_run`, step 5).
 fn setMarker(world: gameobj.World, slot: *create.Slot) void {
+    const marker = &world.objects.slots[world.objects.camera_marker orelse return];
     const carrier = slot.orders[0].target.slotIn(world.objects) orelse return;
     const holder = &world.objects.slots[carrier];
     const model = if (holder.model) |*held| held else return;
@@ -342,10 +343,7 @@ fn setMarker(world: gameobj.World, slot: *create.Slot) void {
         bounds[0][1] - marker_margin,
         bounds[0][2],
     };
-    for (&world.objects.slots) |*marker| if (marker.object.type.base() == .marker) {
-        objects.setPosition(&marker.object, &marker.drawn, model.frameAt(gate + first_bay, holder.drawn).point(local));
-        break;
-    };
+    objects.setPosition(&marker.object, &marker.drawn, model.frameAt(gate + first_bay, holder.drawn).point(local));
 }
 
 /// A Yamato's model for the tests: every part's level has these bounds, and every part the doors'
@@ -421,6 +419,9 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     const player = try mission.add(.of(.predator), @splat(0));
     const carrier = try mission.add(.of(.yamato), .{ 1000, 0, 10000 });
     try carrier_model.parts.fit(gpa, mission.slot(carrier));
+    // A nav point among the mission's ships, and the camera's marker after them.
+    const nav_point = try mission.add(.of(.marker), .{ 5000, 0, 0 });
+    mission.objects.camera_marker = try mission.add(.of(.marker), .{ 0, 0, -8000 });
     var view: camera.Camera = .{ .setting = .chase };
     var display: @import("../hud.zig").State = .{};
     var ctx = mission.orders();
@@ -448,6 +449,9 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     launch.testing.pastDue(&mission, ctx, player);
     try std.testing.expect(display.caption.on);
     try std.testing.expectEqual(.everything, mission.player.showing);
+    // The camera's marker stands outside the bay, and the nav point stays where it was.
+    try std.testing.expect(mission.slot(mission.objects.camera_marker.?).drawn.position[2] != -8000);
+    try std.testing.expectEqual(math.Vector{ 5000, 0, 0 }, mission.slot(nav_point).drawn.position);
     try std.testing.expectEqual(gameobj.Type.of(.stand_in), mission.slot(create.cutaway_slot).object.type);
     // Force the delayed beside cutaway, which starts only in step 6's last 50 ticks.
     mission.player.yamato_launch.cutaway = .beside;

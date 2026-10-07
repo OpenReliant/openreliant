@@ -423,7 +423,7 @@ fn writeEventClass(w: *Writer, comptime hook: Hook, comptime class: []const u8) 
     }
     inline for (comptime values.shownFields(declared.Fields)) |field| try w.print("    {s}: {s}\n", .{ field.name, comptime luauType(field.type) });
     if (declared.Result != void) try w.print("    result: {s}\n", .{comptime luauType(declared.Result)});
-    if (declared.on == .function) {
+    if (declared.on.isFunction()) {
         const returned = comptime if (declared.Result == void) api.nothing else luauType(declared.Result) ++ "?";
         try w.print("    -- Runs the rest of the call now: the handlers after this one, then the function.\n    function original(self): {s}\n", .{returned});
     }
@@ -436,7 +436,7 @@ fn writeAdd(w: *Writer, comptime functions_only: bool) Writer.Error!void {
     var first = true;
     inline for (comptime std.enums.values(Hook)) |hook| {
         const declared = comptime engine_hooks.declaration(hook);
-        if (functions_only and declared.on != .function) continue;
+        if (functions_only and comptime !declared.on.isFunction()) continue;
         const class = comptime eventClass(hook);
         const filter = if (declared.subject != null) "Filter | " else "";
         try w.print("{s}\n    ((name: \"{s}\", handler: (e: {s}) -> boolean?, filter: ({s}(e: {s}) -> boolean)?) -> HookHandle)", .{
@@ -601,6 +601,17 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
     inline for (comptime std.enums.values(Hook)) |hook| {
         const declared = comptime engine_hooks.declaration(hook);
         if (declared.on == .function and engine_hooks.Fields(hook) != engine_hooks.RoutineFields) try writeHookSection(w, hook);
+    }
+    try w.writeAll(
+        \\
+        \\## OpenReliant's functions
+        \\
+        \\Steps that the original takes inside a larger function, which OpenReliant makes functions of its
+        \\own so that scripts can hook them. Handlers change them as they change the game's functions.
+        \\
+    );
+    inline for (comptime std.enums.values(Hook)) |hook| {
+        if (comptime engine_hooks.declaration(hook).on == .engine_function) try writeHookSection(w, hook);
     }
     try w.writeAll(
         \\
@@ -798,6 +809,7 @@ pub fn writeList(w: *Writer, only: ?[]const u8) Writer.Error!bool {
                 if (last != null) try w.writeAll("\n");
                 try w.writeAll(switch (declared.on) {
                     .function => "The game's functions. hooks.add runs a handler before the function, hooks.after after it.\n",
+                    .engine_function => "OpenReliant's own functions, steps that the original takes inside a larger function. Handlers change them as they change the game's functions.\n",
                     .mission_event => "The mission's events, for the mission's ships. Their fields can only be read.\n",
                     .engine_event => "The engine's events. Their fields can only be read.\n",
                 });

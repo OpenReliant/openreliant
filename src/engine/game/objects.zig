@@ -2543,7 +2543,8 @@ pub const Timing = struct {
     }
 };
 
-/// When the frame places a ship riding a node on it (`main.frameObjects`, `launch.hold`).
+/// When the frame places a ship riding a node on it (`main.frameObjects`, `launch.hold`,
+/// `ailand.hold`).
 pub const Riders = enum {
     /// **Improvement:** once more after every object is framed, so that it keeps with a node
     /// framed after it, as the player's ship keeps with the hangar's retainer that lowers it.

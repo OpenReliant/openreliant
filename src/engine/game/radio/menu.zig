@@ -327,7 +327,7 @@ pub const Menu = struct {
             if (slot == all.player) continue;
             const object = &all.slots[slot].object;
             if (object.flags.exploding) continue;
-            const name = pilots.nameOf(object.pilot);
+            const name = all.faces.nameOf(object.pilot);
             menu.add(.{ .pilot = .{ .name = name, .call_sign = call_sign } }, .ship, @intCast(slot));
         }
         if (menu.count > 1) menu.add(.{ .string = strings.whole_wing }, .wing, picked);
@@ -446,7 +446,7 @@ fn status(world: gameobj.World, addressed: i16) void {
     const all = world.objects;
     const index = std.math.cast(u16, addressed) orelse return;
     const slot = &all.slots[index];
-    const face = pilots.faceOf(slot.object.pilot) orelse return;
+    const face = all.faces.of(slot.object.pilot) orelse return;
     if (@as(i16, @bitCast(all.pilots.get(slot.object.pilot)._unknown_1e)) <= 0) return;
     const combat = slot.combat orelse return;
     const level = condition(slot.object.armor, combat.armor_class);

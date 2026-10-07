@@ -38,6 +38,7 @@ const joysticks = @import("joysticks.zig");
 const log_file = @import("log_file.zig");
 const mission0 = @import("mission0.zig");
 const missions = @import("missions.zig");
+const mode_records = @import("mode_records.zig");
 const Movies = @import("movies.zig").Movies;
 const presenting = @import("presenter.zig");
 const Presenter = presenting.Presenter;
@@ -259,14 +260,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     textures.files = mods.pictures();
     textures.largest = details.texture.largest();
     // The records: the ship stats `stats_load_ships` reads, the gun stats `stats_load_guns` reads,
-    // the missile stats `stats_load_missiles` reads, the pilots, the strings `language_init` reads
-    // from `language.dll` at startup, and the ITAC's strings from `itaclang.dll` (without it the
-    // ITAC shows no text). The mods' load scripts can change them before the game uses them.
+    // the missile stats `stats_load_missiles` reads, the pilots, their faces, the strings
+    // `language_init` reads from `language.dll` at startup, and the ITAC's strings from
+    // `itaclang.dll` (without it the ITAC shows no text). The mods' load scripts can change them
+    // before the game uses them.
     var records: scripting.Records = try .init(arena, .{
         .ships = try game.additions.ships.records(stats.Ship, arena, try readStats(io, arena, directory, &mods, .ships), 0),
         .guns = try game.additions.guns.records(stats.Gun, arena, try readStats(io, arena, directory, &mods, .guns), 1),
         .missiles = try game.additions.missiles.records(stats.Missile, arena, try readStats(io, arena, directory, &mods, .missiles), 0),
         .pilots = try game.additions.pilots.records(stats.Pilot, arena, try readStats(io, arena, directory, &mods, .pilots), 0),
+        .faces = try game.pilots.faceRecords(arena),
         .text = try game.additions.addNames(arena, (try readStrings(io, arena, directory, &mods, game.language.file_name)).strings),
         .itac_text = if (readStrings(io, arena, directory, &mods, game.itac.strings_name)) |read| read.strings else |err| blank: {
             std.log.warn("can't read {s}: {s}", .{ game.itac.strings_name, @errorName(err) });
@@ -295,10 +298,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer if (presentation) |shown| shown.stop();
     option_pages.close();
     game_modes.close();
-    const ship_stats = records.ships;
-    const gun_stats = records.guns;
-    const missile_stats = records.missiles;
-    const pilot_stats = records.pilots;
+    // The records a game mode's script changes for its missions alone, which go back as each ends.
+    var own_records: scripting.game_modes.ModeRecords = .init(gpa, io, mods.list, &records, version.string, shared);
+    defer own_records.deinit();
     const strings = records.language(.text);
     const itac_strings = records.language(.itac_text);
 
@@ -455,12 +457,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The display's shapes, whose global palette the ships' schematics are drawn with too.
     const shapes = try spr.Sprite.parse(try resources.readFile(arena, game.hud.hardware_shapes));
     const global_palette = game.hud.globalPalette(shapes);
-    // The ship types' stats as `stats_load_ships` leaves them, their models, loaded as the objects
-    // need them, and the cockpit a mission's start loads for the player's ship.
+    // The ship types' stats, loaded from the records with the objects' below, their models, loaded
+    // as the objects need them, and the cockpit a mission's start loads for the player's ship.
     const tables = try arena.create(game.create.Stats);
     tables.* = .initial;
     tables.addTypes();
-    tables.load(ship_stats);
     var cockpit: game.main.cockpit.Cockpit = .{};
     defer cockpit.deinit();
     var types: game.create.library.TypeCache = .{
@@ -474,14 +475,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     };
     defer types.deinit();
     // The objects, every slot standing in until a mission's start makes them, with every gun's,
-    // missile's and pilot's figures; the loadout's ship, where one is chosen.
+    // missile's and pilot's figures, loaded from the records with the ship types'; the loadout's
+    // ship, where one is chosen.
     const objects = try game.create.Objects.create(gpa, &rand);
     defer objects.destroy();
     objects.gun_stats.addTypes();
-    objects.gun_stats.load(gun_stats);
     objects.missile_stats.addTypes();
-    objects.missile_stats.load(missile_stats);
-    objects.pilots.load(pilot_stats);
+    mode_records.loadTables(tables, objects, &records);
     if (asked_ship) |chosen| objects.loadout_ships[objects.player] = @fromBackingInt(chosen);
     // What the shots are drawn with, built once (`guns_init`); the Turret Flak's shell is loaded as
     // each mission starts.
@@ -696,7 +696,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // What the front end draws with, and where the game is between it and the missions.
     var front_resources: ?engine.genilib.interf.Resources = null;
     defer if (front_resources) |*open| open.close();
-    var flow: Flow = .{ .in_front_end = options.mission == null, .scripts = &game_scripts, .modes = &game_modes };
+    var flow: Flow = .{
+        .in_front_end = options.mission == null,
+        .scripts = &game_scripts,
+        .modes = &game_modes,
+        .mode_tables = .{ .own = &own_records, .tables = tables, .objects = objects },
+    };
     // The campaign's saved loadout, which `campaign_new` starts in the Predator, and which the
     // saved games keep.
     var saved_loadout: engine.interface.loadout.Saved = .{};
@@ -842,7 +847,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             } else if (ScriptConsole.asked(&devices.keyboard)) try shown.bringUp(pausing, mission, &typed);
             if (reloading) try game_scripts.reload(if (mission) .{
                 .orders = .{ .world = world, .devices = &devices },
-                .mission = game.main.scriptMission(&reload_file, objects, play.number),
+                .mission = game.main.scriptMission(&reload_file, objects, play.number, play.file_number),
                 .seed = game.main.scriptSeed(world.random, play.number),
             } else null);
         }
@@ -917,6 +922,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     // The scripts start knowing the mode and its mission (`core.game_mode`).
                     .game_mode => |mode| {
                         game_modes.start(mode);
+                        flow.mode_campaign = .begin();
+                        through.mode_saved = .unchosen;
                         try game_scripts.start();
                     },
                     .quit, .briefing, .mode_mission, .mode_left => {},
@@ -935,7 +942,30 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         front.brief();
                         continue;
                     },
-                    .mode_mission => .{ .flight = modeFlight(&game_modes) },
+                    // With the mode's own records, which go back as the mission ends, after its
+                    // briefing in the game's briefing room where it has one.
+                    .mode_mission => mode: {
+                        const current = game_modes.current().?;
+                        try flow.mode_tables.apply(current);
+                        var flight = modeFlight(&game_modes);
+                        if (current.briefing_room) |carrier| {
+                            const entry = game_modes.mission().?;
+                            const room: game.interface.briefing.Own = .{ .carrier = carrier, .movie = entry.hologram, .last_word = entry.last_word };
+                            switch (try through.modeBriefing(flight.mission, room, current.loadout_ships) orelse return) {
+                                // The loadout's ship and racks, unless the mode gives the ship.
+                                .fly => |flown| if (flown.result) |result| if (flight.ship == null) {
+                                    flight.ship = result.ship;
+                                    flight.racks = result.racks;
+                                },
+                                .main_menu, .simulator => {
+                                    flow.mode_tables.restore();
+                                    flow.toFrontEnd(&front);
+                                    continue;
+                                },
+                            }
+                        }
+                        break :mode .{ .flight = flight };
+                    },
                     // The player left the mode from its briefing, for the screen the front end
                     // shows.
                     .mode_left => {
@@ -984,7 +1014,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             const flight = launch.flight;
             flow.flown = flight;
             play.number = flight.mission;
-            play.file = missionFile(io, arena, directory, &resources, flight.mission, objects.mission25_second_part) catch |err| switch (err) {
+            play.file_number = flight.file orelse flight.mission;
+            play.objectives = flight.objectives;
+            play.file = missionFile(io, arena, directory, &resources, play.file_number, objects.mission25_second_part) catch |err| switch (err) {
                 error.MissingMission => {
                     flow.toFrontEnd(&front);
                     continue;
@@ -1529,14 +1561,18 @@ const Flow = struct {
     restart_point: ?save.Save = null,
     /// The game modes the mods registered, and the one running while it does.
     modes: *scripting.game_modes.Registry,
+    /// The records the mode's script changes for its missions alone.
+    mode_tables: mode_records.ModeTables,
+    /// The game mode's own record of its missions, which its debriefings show, kept apart from
+    /// the campaign's; set as each mode starts.
+    mode_campaign: ?game.gameflow.Campaign = null,
 
     /// Back to the front end's main menu, out of the campaign or the game mode, which ends the
     /// game's scripts.
     fn toFrontEnd(flow: *Flow, front: *engine.genilib.interf.Interface) void {
         flow.scripts.stop();
         front.back();
-        flow.in_front_end = true;
-        flow.from_front_end = false;
+        flow.intoFrontEnd();
         flow.campaign = null;
         flow.modes.running = null;
     }
@@ -1545,17 +1581,33 @@ const Flow = struct {
     /// game's scripts go on running.
     fn toBriefing(flow: *Flow, front: *engine.genilib.interf.Interface) void {
         front.brief();
+        flow.intoFrontEnd();
+    }
+
+    /// To the ending of the game mode that runs, after its last mission, which leaves for the main
+    /// menu. The game's scripts go on running until then.
+    fn toEnding(flow: *Flow, front: *engine.genilib.interf.Interface) void {
+        front.ending();
+        flow.intoFrontEnd();
+    }
+
+    /// Back into the front end from a mission, at the screen the front end was set to.
+    fn intoFrontEnd(flow: *Flow) void {
         flow.in_front_end = true;
         flow.from_front_end = false;
     }
 };
 
 /// The flight of the mission the game mode that runs is at, which the main menu flies, in the
-/// mode's ship.
+/// mode's ship: from its file, as the number the mode flies it as, with the names it gives its
+/// objectives.
 fn modeFlight(modes: *const scripting.game_modes.Registry) game.interface.main_menu.Flight {
     const ship = modes.current().?.ship;
+    const entry = modes.mission().?;
     return .{
-        .mission = modes.mission().?,
+        .mission = entry.number,
+        .file = entry.file,
+        .objectives = if (entry.objectives) |*names| names else null,
         .ship = if (ship) |chosen| @intCast(@backingInt(chosen)) else null,
         .flier = .main_menu,
     };
@@ -1647,12 +1699,51 @@ fn missionEnded(flow: *Flow, front: *engine.genilib.interf.Interface, play: *Pla
         flow.next = .{ .flight = flight };
         return true;
     }
-    // A game mode goes on to the briefing of its next mission, or back to the main menu once it
-    // is over (`game_modes.Registry.goesOn`).
-    if (flow.modes.running != null) {
+    // A game mode goes on to the briefing of its next mission, to the restart screen after a
+    // campaign's mission is lost or left, or to its ending once it is over
+    // (`game_modes.Registry.goesOn`). A mission that goes on has its debriefing first where the
+    // mode asks for one, while the mode's records still stand, since they give its text. Then the
+    // records go back to what they were before the mode's script changed them.
+    if (flow.modes.running) |running| {
+        const mode = flow.modes.modes.items[running];
         const rating = if (play.loaded) |loaded| loaded.script.variables.mission_success else .failure;
+        const kills = player.kills.mission;
         if (!try letGo(play, all, sound, null, movies, resources)) return false;
-        if (flow.modes.goesOn(player.ending, rating) != null) flow.toBriefing(front) else flow.toFrontEnd(front);
+        const place = flow.modes.at;
+        const next = flow.modes.goesOn(player.ending, rating);
+        if (mode.debriefing and (next == .mission or next == .over)) {
+            if (flow.mode_campaign == null) flow.mode_campaign = .begin();
+            const record = &flow.mode_campaign.?;
+            if (record.record(play.number)) |kept| kept.* = .{ .rating = rating, .kills = kills };
+            record.mission = game.gameflow.nextMission(play.number);
+            // REPLAY MISSION takes the mode back to the mission, from its briefing.
+            const debriefed = try rooms.modeItac(record) orelse return false;
+            if (debriefed == .replay) {
+                flow.modes.replay(place);
+                flow.mode_tables.restore();
+                flow.toBriefing(front);
+                return true;
+            }
+        }
+        flow.mode_tables.restore();
+        switch (next) {
+            .mission => flow.toBriefing(front),
+            .over => if (mode.ending != null) flow.toEnding(front) else flow.toFrontEnd(front),
+            .left => flow.toFrontEnd(front),
+            // Like the trial, no movie plays unless a script's hook chooses one. A replay from the
+            // launch flies the ship and the missiles the loadout chose again.
+            .restart => {
+                if (!try movies.playChosen(game.winmain.lostMovie(all, player.ending, rating, play.number, null))) return false;
+                switch (try rooms.restart(all) orelse return false) {
+                    .replay_from_briefing => flow.toBriefing(front),
+                    .replay_from_launch => {
+                        try flow.mode_tables.apply(flow.modes.current().?);
+                        flow.next = .{ .flight = flow.flown, .hangar = false };
+                    },
+                    .main_menu => flow.toFrontEnd(front),
+                }
+            },
+        }
         return true;
     }
     if (flow.campaign) |*campaign| {
@@ -1741,7 +1832,10 @@ fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms,
     switch (after) {
         .goes_on => |record| {
             all.campaign_tier = record.tier;
-            if (record.medal) |medal| _ = try movies.play(medal.movie(), .cleared_from_disc) orelse return null;
+            if (record.medal) |medal| {
+                const ceremony = game.gameflow.ceremonyMovie(all, medal, play.number, game.xtrabits.movie.nameOf(medal.movie()));
+                if (!try movies.playChosen(ceremony)) return null;
+            }
             saving.saveRecord(campaign);
             switch (try rooms.itac(.after_mission, record.next) orelse return null) {
                 .closed => return .briefed(try rooms.goOn(record.next) orelse return null, all, ship),
@@ -1753,9 +1847,10 @@ fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms,
             }
         },
         .second_part => return .{ .fly = .{ .flight = flown } },
-        .restart => |ending| {
-            if (ending) |name| _ = try movies.play(name, .cleared_from_disc) orelse return null;
-            switch (try rooms.restart() orelse return null) {
+        .restart => |movie| {
+            const lost = game.winmain.lostMovie(all, player.ending, variables.mission_success, play.number, if (movie) |name| game.xtrabits.movie.nameOf(name) else null);
+            if (!try movies.playChosen(lost)) return null;
+            switch (try rooms.restart(all) orelse return null) {
                 // Each replay loads the restart point (`0x0043ECDB`, `0x0043ECEC`); from the briefing,
                 // it starts from mission 25's first part (`0x004AA2EC`).
                 .replay_from_briefing => {
@@ -1770,8 +1865,9 @@ fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms,
                 .main_menu => return .main_menu,
             }
         },
-        .career_over => |name| {
-            _ = try movies.play(name, .cleared_from_disc) orelse return null;
+        .career_over => |movie| {
+            const over = game.winmain.careerOverMovie(all, player.ending, variables.mission_success, play.number, game.xtrabits.movie.nameOf(movie));
+            if (!try movies.playChosen(over)) return null;
             return .main_menu;
         },
         // The end briefing, the story's end and the credits, then the main menu with the campaign
@@ -1879,7 +1975,12 @@ const Loading = struct {
 /// starts again as each attempt ends, with what each start readies (`game.main.startMission`).
 const Play = struct {
     gpa: Allocator,
+    /// The number the mission is flown as, and the number of the file it is read from, which a
+    /// game mode can set apart (`game.interface.main_menu.Flight.file`).
     number: u16,
+    file_number: u16 = 0,
+    /// The names a game mode gives the mission's objectives, if it gives any.
+    objectives: ?*const game.hud.Objectives.Names = null,
     /// The mission's file as read, of which each start binds a copy, as the game reads the file
     /// again for each.
     file: []const u8,
@@ -1929,11 +2030,13 @@ const Play = struct {
             .campaign = play.campaign,
             .profile = play.pilot_profile,
             .call_sign = play.pilot.call_sign.slice(),
+            .file = play.file_number,
+            .objectives = play.objectives,
         }, try play.gpa.dupe(u8, play.file), play.number);
         const all = orders.world.objects;
         if (play.presentation) |shown| {
             var file_buffer: [game.winmain.mission_path_size]u8 = undefined;
-            shown.missionStarted(game.main.scriptMission(&file_buffer, all, play.number));
+            shown.missionStarted(game.main.scriptMission(&file_buffer, all, play.number, play.file_number));
         }
         // A launch holds the camera until the ship is out; a ship that does not launch starts in
         // its view at once.
@@ -2123,6 +2226,7 @@ test {
     _ = log_file;
     _ = mission0;
     _ = missions;
+    _ = mode_records;
     _ = hooks_command;
     _ = test_keys;
     _ = version;

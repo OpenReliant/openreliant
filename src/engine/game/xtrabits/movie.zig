@@ -51,6 +51,21 @@ pub const main_to_options = "interface\\main2opt.bik";
 /// A movie to play in a loop of its own: its name, and how it plays.
 pub const Named = struct { name: []const u8, kind: Kind };
 
+/// The longest name of a movie that scripts ask for (`ui.play_movie`) or choose in a hook, such as
+/// `mission_lost` (`winmain.lostMovie`).
+pub const max_name = 64;
+
+/// The name of a movie that a hook chooses, with a zero after it.
+pub const Name = [max_name + 1]u8;
+
+/// `text` as a `Name`, or null where it is longer than one holds.
+pub fn nameOf(text: []const u8) ?Name {
+    if (text.len > max_name) return null;
+    var name: Name = @splat(0);
+    @memcpy(name[0..text.len], text);
+    return name;
+}
+
 /// What plays a movie, which decides where it is read from, the rate it plays at, whether it plays
 /// at all, and what ends it.
 pub const Kind = enum {
@@ -381,4 +396,10 @@ test Hangar {
     // Past mission 18, the Yamato's, from the first disc.
     try std.testing.expectEqualDeep(OnDisc{ .disc = .one, .name = "y_h_ta.bik" }, hangar.next(19));
     try std.testing.expectEqualStrings("y_h_tb.bik", hangar.next(24).name);
+}
+
+test nameOf {
+    try std.testing.expectEqualStrings("new_funeral.bik", std.mem.sliceTo(&nameOf("new_funeral.bik").?, 0));
+    const long: [max_name + 1]u8 = @splat('x');
+    try std.testing.expectEqual(null, nameOf(&long));
 }

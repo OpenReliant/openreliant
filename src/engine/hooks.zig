@@ -1,8 +1,8 @@
 //! What mods' scripts can hook ([#498](https://github.com/OpenReliant/openreliant/issues/498)): the
-//! original game's functions, under the names `ghidra/names/LANCER.EXE.tsv` gives them, the events
-//! of the missions, and the engine's own events. The engine declares the hooks here and calls them
-//! where they happen. The scripting module runs the handlers that mods add (`src/scripting`),
-//! through `Scripts`.
+//! original game's functions, under the names `ghidra/names/LANCER.EXE.tsv` gives them,
+//! OpenReliant's own functions, the events of the missions, and the engine's own events. The engine
+//! declares the hooks here and calls them where they happen. The scripting module runs the handlers
+//! that mods add (`src/scripting`), through `Scripts`.
 //!
 //! A hookable function starts with one line, which only checks a flag while no script hooks it:
 //!
@@ -32,7 +32,10 @@ const gameobj = @import("game/gameobj.zig");
 const guns = @import("game/guns.zig");
 const main = @import("game/main.zig");
 const objects = @import("game/objects.zig");
+const gameflow = @import("game/gameflow.zig");
 const radio = @import("game/radio.zig");
+const restart = @import("game/interface/restart.zig");
+const movie = @import("game/xtrabits/movie.zig");
 const orders = ai.orders;
 const routines = ai.routines;
 
@@ -116,17 +119,29 @@ pub const Target = struct {
 pub const On = enum {
     /// A function of the original game, which handlers can change, wrap or replace.
     function,
+    /// A function of OpenReliant's own: a step that the original takes inside a larger function.
+    /// Handlers change it as they change the game's functions.
+    engine_function,
     /// An event of the mission, one its triggers can wait for (`dte.Condition`).
     mission_event,
     /// An event of the engine.
     engine_event,
+
+    /// Whether handlers can change its fields and its result, and run it (`e:original()`), as they
+    /// can a function's.
+    pub fn isFunction(on: On) bool {
+        return switch (on) {
+            .function, .engine_function => true,
+            .mission_event, .engine_event => false,
+        };
+    }
 };
 
 /// A hook, as the engine declares it.
 pub const Declaration = struct {
     /// What it's on, which the list it's declared in gives (`declaration`).
     on: On = .function,
-    /// The function's address in the original, for a hook on a function.
+    /// The function's address in the original, for a hook on one of the original's functions.
     address: ?u32 = null,
     /// What its handlers see in `e`.
     Fields: type,
@@ -288,12 +303,61 @@ pub const functions = struct {
         .subject = null,
     };
 
+    pub const restart_screen: Declaration = .{
+        .address = 0x0043EB80,
+        .about = "The restart screen, after a mission is lost or left. Its result is the player's choice: `replay_from_briefing`, `replay_from_launch` or `main_menu`. A handler that stops it chooses without the screen: `main_menu`, unless it sets `e.result`.",
+        .Fields = struct { _shown: restart.Shown },
+        .Result = restart.Choice,
+        .subject = null,
+    };
+
     pub const order_retaliate: Declaration = .{
         .address = 0x0040C520,
         .about = "`object`, a fighter, turns on whoever last hit it, once it has taken enough damage lately and its order allows it.",
         .Fields = struct {
             object: Object,
         },
+    };
+};
+
+/// OpenReliant's own functions: steps that the original takes inside a larger function, which
+/// OpenReliant makes functions of so that scripts can hook them. Those that choose a movie take the
+/// one the game plays, which a handler can change to the name of another Bink file, the game's or a
+/// mod's, or to nil for none. A handler that stops the call plays none.
+pub const engine_functions = struct {
+    pub const mission_lost: Declaration = .{
+        .about = "A mission is lost or left, and `movie` plays before the restart screen. In the game's campaign, it is the pilot's funeral where `ending` is `destroyed`, the pilot in the enemy's hands where it is `captured`, the pilot's execution where it is `friendly_fire`, and none where the player left the mission. A game mode's mission plays none. `rating` is how the mission's script rated it, and `mission` is its number.",
+        .Fields = struct {
+            ending: main.Ending,
+            rating: vm.Variables.Outcome,
+            mission: u16,
+            movie: ?movie.Name,
+        },
+        .Result = ?movie.Name,
+        .subject = null,
+    };
+
+    pub const career_over: Declaration = .{
+        .about = "The pilot's career in the game's campaign ends after mission `mission`, and `movie` plays before the main menu: the pilot's transfer where `ending` is `rescued`, after too many pickups, and for a total failure (`ending` `total_failure`) the transfer or, after missions 25 and 27 without the Yamato, the shuttle at Fort Bear. `rating` is how the mission's script rated it.",
+        .Fields = struct {
+            ending: main.Ending,
+            rating: vm.Variables.Outcome,
+            mission: u16,
+            movie: ?movie.Name,
+        },
+        .Result = ?movie.Name,
+        .subject = null,
+    };
+
+    pub const medal_ceremony: Declaration = .{
+        .about = "Mission `mission` of the game's campaign awards the pilot `medal`, and `movie`, the medal's ceremony, plays.",
+        .Fields = struct {
+            medal: gameflow.Medal,
+            mission: u16,
+            movie: ?movie.Name,
+        },
+        .Result = ?movie.Name,
+        .subject = null,
     };
 };
 
@@ -519,11 +583,13 @@ pub const engine_events = struct {
     };
 };
 
-/// Every hook: the functions', the order table's routines', the mission's events and the engine's.
+/// Every hook: the functions', the order table's routines', OpenReliant's functions', the mission's
+/// events and the engine's.
 pub const Hook = hook: {
     var names: []const []const u8 = &.{};
     for (std.meta.declarations(functions)) |decl_name| names = names ++ .{decl_name};
     for (routine_hooks) |routine| names = names ++ .{routine.name};
+    for (std.meta.declarations(engine_functions)) |decl_name| names = names ++ .{decl_name};
     for (std.meta.declarations(mission_events)) |decl_name| names = names ++ .{decl_name};
     for (std.meta.declarations(engine_events)) |decl_name| names = names ++ .{decl_name};
     const Int = std.math.IntFittingRange(0, names.len - 1);
@@ -536,13 +602,22 @@ pub fn declaration(comptime hook: Hook) Declaration {
         const name = @tagName(hook);
         var declared: Declaration = if (@hasDecl(functions, name))
             @field(functions, name)
+        else if (@hasDecl(engine_functions, name))
+            @field(engine_functions, name)
         else if (@hasDecl(mission_events, name))
             @field(mission_events, name)
         else if (@hasDecl(engine_events, name))
             @field(engine_events, name)
         else
             routineDeclaration(routineNamed(name).?);
-        declared.on = if (@hasDecl(mission_events, name)) .mission_event else if (@hasDecl(engine_events, name)) .engine_event else .function;
+        declared.on = if (@hasDecl(mission_events, name))
+            .mission_event
+        else if (@hasDecl(engine_events, name))
+            .engine_event
+        else if (@hasDecl(engine_functions, name))
+            .engine_function
+        else
+            .function;
         return declared;
     }
 }
@@ -674,7 +749,7 @@ pub inline fn enterRoutine(comptime role: routines.Role, comptime function: anyt
 /// Tells the handlers of `hook`, an event, that it has happened, with `fields`. `source` reaches
 /// the scripts: the world, the context the orders run in, or the objects.
 pub fn tell(source: anytype, comptime hook: Hook, fields: Fields(hook)) void {
-    comptime assert(declaration(hook).on != .function);
+    comptime assert(!declaration(hook).on.isFunction());
     const scripts = scriptsOf(source) orelse return;
     if (!scripts.hooked.contains(hook)) return;
     var told = fields;
@@ -790,7 +865,7 @@ fn checkFunction(comptime hook: Hook, comptime Function: type) void {
     const info = @typeInfo(Function).@"fn";
     const fields = @typeInfo(Fields(hook)).@"struct";
     const name = @tagName(hook);
-    if (declaration(hook).on != .function) @compileError(name ++ " is an event, which `tell` tells");
+    if (!declaration(hook).on.isFunction()) @compileError(name ++ " is an event, which `tell` tells");
     if (info.param_types.len != fields.field_names.len + 1) @compileError("the fields of " ++ name ++ " don't follow its function's parameters");
     for (fields.field_names, fields.field_types, info.param_types[1..]) |field_name, Field, Param| {
         if (Param.? != ParameterType(Field)) @compileError("the field " ++ field_name ++ " of " ++ name ++ " doesn't follow its parameter");
@@ -845,7 +920,8 @@ comptime {
     for (std.enums.values(Hook)) |hook| {
         const declared = declaration(hook);
         const name = @tagName(hook);
-        // A hook on a function names its function, and an event doesn't.
+        // A hook on one of the original's functions names its function. One on OpenReliant's own
+        // functions or on an event doesn't.
         if ((declared.on == .function) != (declared.address != null)) @compileError(name ++ " is declared wrong");
         // Each mission event is one of the mission's conditions.
         if (declared.on == .mission_event and !@hasField(dte.Condition, name)) @compileError(name ++ " is not a condition");
@@ -854,7 +930,7 @@ comptime {
             const Subject = @FieldType(declared.Fields, subject);
             if (Subject != Object and Subject != ?Object) @compileError("the subject of " ++ name ++ " isn't an object");
         }
-        if (declared.on != .function and declared.Result != void) @compileError("the event " ++ name ++ " has a result");
+        if (!declared.on.isFunction() and declared.Result != void) @compileError("the event " ++ name ++ " has a result");
     }
 }
 
@@ -897,6 +973,8 @@ test declaration {
     try std.testing.expectEqual(RoutineFields, Fields(.order_fight));
     try std.testing.expectEqualStrings("The update of order 19, Jump In, and of order 40, Jump In, which `object` runs.", comptime declaration(.order_jump_in).about);
     try std.testing.expectEqual(On.engine_event, declaration(.mission_started).on);
+    try std.testing.expectEqual(On.engine_function, declaration(.mission_lost).on);
+    try std.testing.expectEqual(null, declaration(.mission_lost).address);
     try std.testing.expectEqual(null, declaration(.camera_reached).subject);
 }
 

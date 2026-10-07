@@ -583,6 +583,10 @@ pub const Objects = struct {
     players: u16 = 1,
     /// `player_index` (`0x005883FA`): the player's slot, the first in a single-player game.
     player: u16 = 0,
+    /// `camera_marker` (`0x00588390`): the slot of the camera's marker, which the mission's start
+    /// makes in the slot after the mission's ships, and which the Yamato's launch moves beside the
+    /// player's bay; null until a mission's start makes it.
+    camera_marker: ?u16 = null,
     types: [max_ship_types]TypeUse = @splat(.{}),
     /// Each ship type's gun groups (`0x00545900`), which `gun_groups_build` works out from an
     /// object of the type.
@@ -604,8 +608,11 @@ pub const Objects = struct {
     /// `pilot_stats` (`0x0058A968`): every pilot, which `stats_load_pilots` fills from
     /// `pilotstats.bin`.
     pilots: pilots.Table = .{},
-    /// The shots in flight (`0x00563148`), which the game keeps in `guns.cpp`'s own globals. The
-    /// port keeps them here, beside the objects they fly among.
+    /// `pilot_faces` (`0x005048D8`): every pilot's face, which the game keeps in its data and
+    /// OpenReliant loads from the records.
+    faces: pilots.Faces = .{},
+    /// The shots in flight (`0x00563148`), which the game keeps in `guns.cpp`'s own globals.
+    /// OpenReliant keeps them here, beside the objects they fly among.
     bullets: guns.Bullets = .{},
     /// The missiles in flight (`0x005887F0`), which the game keeps in `missiles.cpp`'s own globals.
     /// OpenReliant keeps them here too.
@@ -689,6 +696,7 @@ pub const Objects = struct {
         for (&all.reuses) |*count| count.* +%= 1;
         all.types = @splat(.{});
         all.count = 0;
+        all.camera_marker = null;
         // The game lets the exhaust's list go as the mission before ends (`exhaust_ships_reset`).
         all.exhaust.reset();
     }

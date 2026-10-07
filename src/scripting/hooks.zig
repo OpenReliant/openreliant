@@ -112,7 +112,7 @@ pub const Hooks = struct {
             function(call);
             dispatch.ran = true;
         };
-        if (access.on == .function) dispatch.after();
+        if (access.on.isFunction()) dispatch.after();
     }
 
     /// Tells the handlers of `hook`, an event, that it has happened, with `fields`.
@@ -435,7 +435,7 @@ fn eventField(state: *State) i32 {
     const dispatch = Event.of(state, 1);
     const key = state.toString(2) orelse state.raise("e: expected a field name, got {s}", .{state.typeName(2)});
     const access = dispatch.access;
-    if (access.on == .function and std.mem.eql(u8, key, "original")) {
+    if (access.on.isFunction() and std.mem.eql(u8, key, "original")) {
         state.pushFunction(luau.wrap(original), "original");
         return 1;
     }
@@ -546,7 +546,7 @@ fn addFrom(hooks: *Hooks, state: *State, comptime when: When, comptime verb: []c
     const name = state.toString(first) orelse state.raise("{s}: expected a hook's name, got {s}", .{ verb, state.typeName(first) });
     const hook = std.meta.stringToEnum(Hook, name) orelse state.raise("{s}: there's no hook named '{s}' ('openreliant hooks' lists them)", .{ verb, name });
     const access = accesses.getPtrConst(hook);
-    if (when == .after and access.on != .function) state.raise("hooks.after: {s} is an event; hooks.add adds its handlers", .{name});
+    if (when == .after and !access.on.isFunction()) state.raise("hooks.after: {s} is an event; hooks.add adds its handlers", .{name});
     if (state.typeOf(first + 1) != .function) state.raise("{s}: expected a function for the handler, got {s}", .{ verb, state.typeName(first + 1) });
     var filter = readFilter(state, verb, access, first + 2);
     if (only) |handle| {
@@ -701,7 +701,7 @@ fn accessOf(comptime hook: Hook) Access {
         .on = declared.on,
         .subject = if (declared.subject != null) Functions.subject else null,
         .push = Functions.push,
-        .set = if (declared.on == .function) Functions.set else null,
+        .set = if (declared.on.isFunction()) Functions.set else null,
         .size = @sizeOf(F),
         .result_size = @sizeOf(R),
     };

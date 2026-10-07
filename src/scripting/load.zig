@@ -4,6 +4,9 @@
 //! After all of them, each script's `on_records_loaded` handler runs, in the same order. If a
 //! script or handler fails, the error is logged and its changes are undone. If no mod has a load
 //! script, no Luau state is created.
+//!
+//! A game mode's records script (`game_modes.Mode.records`) is a load script too, which runs on its
+//! own before each of the mode's missions (`runOne`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -41,12 +44,8 @@ fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records
     } else false;
     if (!any) return;
 
-    const scripts = try runtime.Runtime.create(gpa, io, opened, .{ .side = .game, .limits = within, .seed = seed, .version = version, .shared = shared });
+    const scripts = try start(gpa, io, opened, held, version, within, shared);
     defer scripts.destroy();
-    records.register(scripts.state);
-    records.push(scripts.state, held, true);
-    scripts.setPackage(.records);
-    packages.push(scripts);
 
     var pending: std.ArrayList(Pending) = .empty;
     defer pending.deinit(gpa);
@@ -56,19 +55,8 @@ fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records
         listed = loadScripts(mod);
         const context = try scripts.open(@intCast(at), .load, null);
         while (listed.next()) |name| {
-            const saved = try held.snapshot(gpa);
-            defer saved.deinit(gpa);
-            const returned = scripts.run(context, name) orelse {
-                saved.restore(held);
-                continue;
-            };
-            defer scripts.release(returned);
-            const offered = context.offerOf(name, returned) orelse {
-                saved.restore(held);
-                continue;
-            };
+            const offered = try runScript(gpa, scripts, context, name, held) orelse continue;
             if (offered.handlers.get(.on_records_loaded)) |handler| try pending.append(gpa, .{ .context = context, .handler = handler });
-            log.info("{s}: ran {s}", .{ mod.name, name });
         }
     }
     for (pending.items) |entry| {
@@ -76,6 +64,45 @@ fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records
         defer saved.deinit(gpa);
         if (scripts.call(entry.context, entry.handler, .{}) == .failed) saved.restore(held);
     }
+}
+
+/// Runs one load script, `name` of the mod at `mod` in `opened`, on `held`, as a game mode's
+/// records script runs before each of its missions (`game_modes.Mode.records`). Its
+/// `on_records_loaded` handler doesn't run: that is for the load scripts as OpenReliant starts. If
+/// it fails, the error is logged and its changes are undone.
+pub fn runOne(gpa: Allocator, io: Io, opened: []const Mod, mod: u16, name: []const u8, held: *records.Records, version: []const u8, shared: runtime.Shared) Allocator.Error!void {
+    const scripts = try start(gpa, io, opened, held, version, limits, shared);
+    defer scripts.destroy();
+    const context = try scripts.open(mod, .load, null);
+    _ = try runScript(gpa, scripts, context, name, held);
+}
+
+/// A Luau state for load scripts, which can change `held`.
+fn start(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records, version: []const u8, within: runtime.Limits, shared: runtime.Shared) Allocator.Error!*runtime.Runtime {
+    const scripts = try runtime.Runtime.create(gpa, io, opened, .{ .side = .game, .limits = within, .seed = seed, .version = version, .shared = shared });
+    records.register(scripts.state);
+    records.push(scripts.state, held, true);
+    scripts.setPackage(.records);
+    packages.push(scripts);
+    return scripts;
+}
+
+/// Runs the load script `name` in `context`, and returns what it offers; null where it fails,
+/// after its changes to `held` are undone.
+fn runScript(gpa: Allocator, scripts: *runtime.Runtime, context: *runtime.Context, name: []const u8, held: *records.Records) Allocator.Error!?runtime.Offered {
+    const saved = try held.snapshot(gpa);
+    defer saved.deinit(gpa);
+    const returned = scripts.run(context, name) orelse {
+        saved.restore(held);
+        return null;
+    };
+    defer scripts.release(returned);
+    const offered = context.offerOf(name, returned) orelse {
+        saved.restore(held);
+        return null;
+    };
+    log.info("{s}: ran {s}", .{ context.modOf().name, name });
+    return offered;
 }
 
 /// An `on_records_loaded` handler, which runs after all load scripts.
@@ -116,7 +143,7 @@ pub const testing = struct {
     pub fn records3(arena: Allocator) !records.Records {
         var guns: [3]openreliant.stats.Gun = @splat(std.mem.zeroes(openreliant.stats.Gun));
         for (&guns, 0..) |*gun, at| gun.range = @floatFromInt(at + 1);
-        return .init(arena, .{ .ships = &.{}, .guns = &guns, .missiles = &.{}, .pilots = &.{}, .text = &.{"Laser Cannon"}, .itac_text = &.{} });
+        return .init(arena, .{ .ships = &.{}, .guns = &guns, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{"Laser Cannon"}, .itac_text = &.{} });
     }
 };
 
@@ -296,6 +323,7 @@ test "the interceptor example adds a ship type, and its load script changes its 
         .guns = &.{},
         .missiles = &.{},
         .pilots = &.{},
+        .faces = &.{},
         .text = &.{},
         .itac_text = &.{},
     });
@@ -348,6 +376,7 @@ test "the bananas example adds a gun, a missile, a pilot and a ship that names t
         .guns = try game.additions.guns.records(stats.Gun, arena.allocator(), &guns, 1),
         .missiles = try game.additions.missiles.records(stats.Missile, arena.allocator(), &missiles, 0),
         .pilots = try game.additions.pilots.records(stats.Pilot, arena.allocator(), &.{}, 0),
+        .faces = &.{},
         .text = &.{},
         .itac_text = &.{},
     });

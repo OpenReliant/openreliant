@@ -154,6 +154,25 @@ pub const Movies = struct {
         return try movies.play(next.name, .cleared_from_disc) != null;
     }
 
+    /// The movie a step that scripts can hook chose (`game.xtrabits.movie.Name`), where it chose
+    /// one, on a cleared screen: a mod's, or one of the discs' archives'. Where the archive open
+    /// doesn't hold it, the other disc's opens for it, and the one open before opens again after
+    /// it. False where the window was closed meanwhile.
+    pub fn playChosen(movies: *Movies, chosen: ?movie.Name) !bool {
+        const held = chosen orelse return true;
+        const name = std.mem.sliceTo(&held, 0);
+        const before = movies.disc.number;
+        defer if (movies.disc.number != before) {
+            if (before) |number| movies.disc.open(number) else movies.disc.close();
+        };
+        if (!movies.disc.has(name)) for (std.enums.values(game.interface.disc.Number)) |number| {
+            if (number == before) continue;
+            movies.disc.open(number);
+            if (movies.disc.has(name)) break;
+        };
+        return try movies.play(name, .cleared_from_disc) != null;
+    }
+
     /// In mission `mission`, Foster's last stand (`game.hud.fosters_last_stand_movie`), from the
     /// disc's archive open, with the game on `clock`, its sound and the radio held still around it
     /// (`game.hud.MovieHold`). With `--mission`, which flies the mission without the hangar's

@@ -136,6 +136,8 @@ has closed, it runs each section's handler for leaving it (`0x0043FA4B`).
 
 ## DEBRIEFINGS
 
+**Improvement:** a game mode with `debriefing` opens the ITAC after each mission that goes on to the next, as the StarLancer trial does ([Game modes](../guide/scripting.md#game-modes)). Only DEBRIEFINGS and EXIT open (`Itac.sections`), and the other buttons do nothing. The debriefings come from the mode's own record of its missions, kept apart from the campaign's, in the text of the mode's records (`records.itac_text`). REPLAY MISSION flies the mission again from its briefing.
+
 Enriquez's debriefing of each mission the pilot has flown, as text alone (`debrief_text_draw`,
 `0x00424CF0`). The list at the right names the missions flown, "Mission" and each one's place in
 the campaign's order counted from 1 (`campaign_missions`, `0x004E4954`), so that its Mission 12 is

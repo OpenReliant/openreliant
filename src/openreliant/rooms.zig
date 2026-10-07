@@ -145,6 +145,9 @@ pub const Driver = struct {
     rooms_mission: u16 = 0,
     pod: ?simulator_pod.Pod = null,
     pod_kills: i32 = 0,
+    /// The saved loadout of the game modes' missions, kept apart from the campaign's, and made
+    /// anew as each mode starts.
+    mode_saved: loadout.Saved = .unchosen,
     /// The CD player's volume, and which of the Yamato's second crew comes next, which last while
     /// the game runs.
     cd_volume: cd_player.Volume = cd_player.full_volume,
@@ -192,9 +195,42 @@ pub const Driver = struct {
         };
     }
 
-    /// The restart screen (`restart_screen`) in its loop, with its shapes: what it chose, or null
-    /// where the game quits meanwhile.
-    pub fn restart(driver: *Driver) !?restart_screen.Choice {
+    /// A game mode's briefing of mission `mission` in one of the game's briefing rooms
+    /// (`briefing.Own`): where it leads, or null where the game quits meanwhile. The loadout
+    /// offers what a new pilot gets, or the `ships` the mode lists. It stands on the room's
+    /// carrier, leaves out the first mission's lesson, and keeps the modes' own saved loadout.
+    ///
+    /// Not ported: the rank the pilot's kills over the mode's missions reach, which the trial's
+    /// loadout goes by ([#821](https://github.com/OpenReliant/openreliant/issues/821)).
+    pub fn modeBriefing(driver: *Driver, mission: u16, own: briefing.Own, ships: ?[]const game.gameobj.Type) !?End {
+        driver.turnTo(own.carrier.disc());
+        var hologram = driver.loadoutContext(mission);
+        hologram.tier = 0;
+        hologram.rank = 0;
+        hologram.saved = &driver.mode_saved;
+        hologram.carrier = own.carrier;
+        hologram.tutorial = false;
+        hologram.ships = ships;
+        return switch (try driver.briefWith(mission, false, hologram, own) orelse return null) {
+            .fly => |flown| .{ .fly = flown },
+            // Outside a campaign, the in-game options load no game.
+            .main_menu, .loaded => .main_menu,
+        };
+    }
+
+    /// The restart screen (`restart_screen.choose`), unless a script's hook chooses without it:
+    /// what the player chose, or null where the game quits meanwhile. `all` reaches the scripts.
+    pub fn restart(driver: *Driver, all: *game.create.Objects) !?restart_screen.Choice {
+        var loop: RestartLoop = .{ .driver = driver };
+        const choice = restart_screen.choose(all, loop.shown());
+        if (loop.failure) |err| return err;
+        if (loop.quit) return null;
+        return choice;
+    }
+
+    /// The restart screen in its loop, with its shapes: what it chose, or null where the game quits
+    /// meanwhile.
+    fn restartLoop(driver: *Driver) !?restart_screen.Choice {
         const gpa = driver.movies.gpa;
         var screen: Restarting = .{ .shapes = .read(gpa, driver.resources, restart_screen.shapes_name) };
         defer if (screen.shapes) |*shapes| shapes.deinit(gpa);
@@ -248,8 +284,7 @@ pub const Driver = struct {
     /// changed (`0x0043FC31`). With none flown, it closes at once.
     pub fn itac(driver: *Driver, run: itac_module.Run, mission: u16) !?ItacEnd {
         const flown = if (driver.campaign_flown.*) |*going| going else return .closed;
-        defer driver.movies.disc.open(rooms.Carrier.of(mission).disc());
-        const pilot: itac_module.Pilot = .{
+        return driver.runItac(run, .{
             .call_sign = driver.pilot.call_sign.slice(),
             .kills = driver.player.kills.count,
             .rank = driver.player.rank,
@@ -257,10 +292,33 @@ pub const Driver = struct {
             .campaign = flown,
             .mission = mission,
             .female = driver.pilot.female,
-        };
+        }, .full);
+    }
+
+    /// A game mode's debriefing in the ITAC, as the StarLancer trial's ITAC debriefs its missions:
+    /// after a mission, from the mode's own record of its missions, `record`, with DEBRIEFINGS and
+    /// EXIT alone. How it ends, or null where the game quits meanwhile.
+    pub fn modeItac(driver: *Driver, record: *const game.gameflow.Campaign) !?ItacEnd {
+        var kills: i32 = 0;
+        for (record.records) |mission| kills += mission.kills;
+        return driver.runItac(.after_mission, .{
+            .call_sign = driver.pilot.call_sign.slice(),
+            .kills = kills,
+            .rank = driver.player.rank,
+            .tier = 0,
+            .campaign = record,
+            .mission = record.mission,
+            .female = driver.pilot.female,
+        }, .initMany(&.{ .debriefings, .exit }));
+    }
+
+    /// The ITAC for `pilot`, with `sections` to open, in its loop.
+    fn runItac(driver: *Driver, run: itac_module.Run, pilot: itac_module.Pilot, sections: std.EnumSet(itac_module.Section)) !?ItacEnd {
+        defer driver.movies.disc.open(rooms.Carrier.of(pilot.mission).disc());
         const with: itac_module.Context = .{ .rooms = driver.context(), .strings = driver.itac_strings, .language = driver.strings, .stats = driver.stats };
         driver.startTimer();
         var terminal: itac_module.Itac = .open(with, run, pilot, platform.window.nanoseconds(), driver.clock.game_ticks);
+        terminal.sections = sections;
         defer terminal.deinit();
         defer driver.sound.endAll();
         while (true) {
@@ -590,7 +648,13 @@ pub const Driver = struct {
     /// options its Escape opens. How it ends: the mission flown, in the ship the loadout chose; the
     /// main menu; or null where the game quits meanwhile.
     fn brief(driver: *Driver, mission: u16, from_loadout: bool) !?Briefed {
-        var meeting: briefing.Briefing = .open(driver.context(), mission, from_loadout, driver.loadoutContext(mission));
+        return driver.briefWith(mission, from_loadout, driver.loadoutContext(mission), null);
+    }
+
+    /// The briefing of mission `mission` with the loadout `hologram`, in a game mode's room where
+    /// it gives `own`.
+    fn briefWith(driver: *Driver, mission: u16, from_loadout: bool, hologram: loadout.Context, own: ?briefing.Own) !?Briefed {
+        var meeting: briefing.Briefing = .open(driver.context(), mission, from_loadout, hologram, own);
         defer meeting.close();
         try driver.present(.{ .briefing = &meeting });
         while (true) {
@@ -931,6 +995,32 @@ const Restarting = struct {
     fn draw(screen: *Restarting, target: canvas.Canvas, pointer: canvas.Pointer) canvas.Error!void {
         const shapes = if (screen.shapes) |*loaded| &loaded.art else return;
         try screen.state.draw(target, shapes, pointer);
+    }
+};
+
+/// The restart screen's loop as `restart_screen.choose` runs it, and how it ended where the player
+/// chose nothing: the game quitting, or an error.
+const RestartLoop = struct {
+    driver: *Driver,
+    quit: bool = false,
+    failure: ?Error = null,
+
+    const Error = @typeInfo(@typeInfo(@TypeOf(Driver.restartLoop)).@"fn".return_type.?).error_union.error_set;
+
+    fn shown(loop: *RestartLoop) restart_screen.Shown {
+        return .{ .context = loop, .run = run };
+    }
+
+    fn run(context: *anyopaque) restart_screen.Choice {
+        const loop: *RestartLoop = @ptrCast(@alignCast(context));
+        const chosen = loop.driver.restartLoop() catch |err| {
+            loop.failure = err;
+            return .main_menu;
+        };
+        return chosen orelse {
+            loop.quit = true;
+            return .main_menu;
+        };
     }
 };
 

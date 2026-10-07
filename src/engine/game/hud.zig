@@ -2306,7 +2306,7 @@ pub const view_name_down: i32 = 10;
 /// Yamato's landing's second and the Reliant's landing's from aside.
 pub fn namesView(last_view: camera.View) bool {
     return switch (last_view) {
-        .cockpit, .flyby, ._unknown_37, .landing_aside => false,
+        .cockpit, .flyby, .landing_ship, .landing_aside => false,
         else => true,
     };
 }
@@ -2490,6 +2490,9 @@ pub const Caption = struct {
 pub const Objectives = struct {
     /// The mission's row of the table, null for a mission the table has none for.
     row: ?usize = null,
+    /// OpenReliant's: the names a game mode gives the mission's objectives, in the game's code
+    /// page, which stand in for the table's row (`scripting.game_modes`); null where it gives none.
+    own: ?*const Names = null,
     states: [per_mission]Status = @splat(.hidden),
     /// `objectives_shown` (`0x0056997E`): the objective the window shows.
     shown: Index = 0,
@@ -2501,6 +2504,15 @@ pub const Objectives = struct {
 
     /// An objective's place among the mission's.
     pub const Index = std.math.IntFittingRange(0, per_mission - 1);
+
+    /// The names a game mode gives a mission's objectives, null for one it names nothing for.
+    pub const Names = [per_mission]?[]const u8;
+
+    /// What names an objective: a language string of the table's, or a game mode's own text.
+    pub const Name = union(enum) {
+        string: u16,
+        text: []const u8,
+    };
 
     /// How the window shows an objective. **Unknown:** what else sets an objective hidden than a
     /// mission's script.
@@ -2527,13 +2539,20 @@ pub const Objectives = struct {
 
     /// `objectives_reset` (`0x00499180`), as `hud_init` readies the display for mission `mission`,
     /// and its second part where `second_part`: the first objective is the current one, and
-    /// each other that has a name is listed; the window shows the first (`0x00483AC0`).
-    pub fn reset(objectives: *Objectives, mission: u16, second_part: bool) void {
-        objectives.* = .{ .row = rowOf(mission, second_part) };
-        const row = objectives.row orelse return;
-        for (&objectives.states, objectives_table.rows[row], 0..) |*state, named, n| {
-            state.* = if (n == 0) .current else if (named != null) .listed else .hidden;
+    /// each other that has a name is listed; the window shows the first (`0x00483AC0`). Where a
+    /// game mode gives the mission's objectives names of its own, `own`, they stand in for the
+    /// table's row.
+    pub fn reset(objectives: *Objectives, mission: u16, second_part: bool, own: ?*const Names) void {
+        objectives.* = .{ .row = rowOf(mission, second_part), .own = own };
+        if (!objectives.named()) return;
+        for (&objectives.states, 0..) |*state, n| {
+            state.* = if (n == 0) .current else if (objectives.name(@intCast(n)) != null) .listed else .hidden;
         }
+    }
+
+    /// Whether anything names the mission's objectives: its row of the table, or a game mode.
+    fn named(objectives: *const Objectives) bool {
+        return objectives.row != null or objectives.own != null;
     }
 
     /// The first of the objectives in the current state, which PRIMARY TARGET opens the window on
@@ -2545,11 +2564,13 @@ pub const Objectives = struct {
         return null;
     }
 
-    /// The language string that names objective `objective`, or null for one the table names
-    /// nothing for, or a mission it has no row for.
-    pub fn name(objectives: *const Objectives, objective: Index) ?u16 {
+    /// What names objective `objective`: the game mode's own name where it gives the mission
+    /// names, or else the table's language string; null for one nothing names, or a mission the
+    /// table has no row for.
+    pub fn name(objectives: *const Objectives, objective: Index) ?Name {
+        if (objectives.own) |own| return if (own[objective]) |text| .{ .text = text } else null;
         const row = objectives.row orelse return null;
-        return objectives_table.rows[row][objective];
+        return if (objectives_table.rows[row][objective]) |string| .{ .string = string } else null;
     }
 
     /// OBJECTIVES WINDOW on the open window (`frame_controls`, `0x00414AD7`): the window shows the
@@ -2581,7 +2602,7 @@ pub const Objectives = struct {
     /// **Fix:** the game writes an objective past the ten into the next mission's, and mission 0's
     /// before the table.
     pub fn set(objectives: *Objectives, objective: u32, state: Status) void {
-        if (objectives.row == null or objective >= per_mission) return;
+        if (!objectives.named() or objective >= per_mission) return;
         objectives.states[objective] = state;
         if (state == .current) objectives.shown = @intCast(objective);
     }
@@ -2664,7 +2685,7 @@ test Caption {
 test Objectives {
     var objectives: Objectives = .{};
     // Mission 1 lists its two objectives, the first current.
-    objectives.reset(1, false);
+    objectives.reset(1, false, null);
     try std.testing.expectEqual(.current, objectives.states[0]);
     try std.testing.expectEqual(.listed, objectives.states[1]);
     try std.testing.expectEqual(.hidden, objectives.states[2]);
@@ -2679,15 +2700,35 @@ test Objectives {
     try std.testing.expectEqual(35, Objectives.rowOf(25, true));
     try std.testing.expectEqual(24, Objectives.rowOf(25, false));
     try std.testing.expectEqual(null, Objectives.rowOf(0, false));
-    objectives.reset(0, false);
+    objectives.reset(0, false, null);
     objectives.set(0, .listed);
     try std.testing.expectEqual(.hidden, objectives.states[0]);
+}
+
+test "a game mode names a mission's objectives" {
+    var objectives: Objectives = .{};
+    var names: Objectives.Names = @splat(null);
+    names[0] = "Patrol";
+    names[2] = "Land";
+    // Mission 91, which the table has no row for, lists what the mode names, the first current.
+    objectives.reset(91, false, &names);
+    try std.testing.expectEqual(.current, objectives.states[0]);
+    try std.testing.expectEqual(.hidden, objectives.states[1]);
+    try std.testing.expectEqual(.listed, objectives.states[2]);
+    try std.testing.expectEqualStrings("Land", objectives.name(2).?.text);
+    try std.testing.expectEqual(null, objectives.name(1));
+    // Its script sets them as the game's missions' scripts set theirs.
+    objectives.set(2, .current);
+    try std.testing.expectEqual(2, objectives.shown);
+    // Mission 1 named by the mode shows the mode's names, not the table's.
+    objectives.reset(1, false, &names);
+    try std.testing.expectEqualStrings("Patrol", objectives.name(0).?.text);
 }
 
 test "Objectives.page" {
     var objectives: Objectives = .{};
     // Mission 9 names all ten; hidden ones are passed over.
-    objectives.reset(9, false);
+    objectives.reset(9, false, null);
     objectives.states[1] = .hidden;
     objectives.page();
     try std.testing.expectEqual(2, objectives.shown);

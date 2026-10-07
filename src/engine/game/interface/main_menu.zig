@@ -132,7 +132,13 @@ pub const Choice = union(enum) {
 /// A mission to fly: its number, the ship type the loadout gives the player, or null for the ship
 /// the mission gives, the simulator it runs in, and what flies it.
 pub const Flight = struct {
+    /// The number the mission is flown as, which the game's rules go by.
     mission: u16,
+    /// OpenReliant's: the number of the file it is read from, `mission<file>.dte`, where a game
+    /// mode flies a mod's mission as one of the game's numbers; `mission`'s own where null.
+    file: ?u16 = null,
+    /// OpenReliant's: the names a game mode gives its objectives (`hud.Objectives.reset`).
+    objectives: ?*const hud.Objectives.Names = null,
     ship: ?create.TypeIndex = null,
     /// The racks the loadout fitted the ship with, where it ran (`player_loadouts + 4` on); none
     /// where the mission starts without it, when the player's ship is fitted by its tier

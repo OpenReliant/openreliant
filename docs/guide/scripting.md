@@ -86,7 +86,7 @@ Each example mod shows one part of the scripting, with comments in its files:
 | [`arena`](../../examples/mods/arena) | A [game mode](#game-modes) with its own rules, a [HUD display](#hud-displays) fed from [storage](#storage), and the [`radio_say`](#changing-what-the-radio-says) hook |
 | [`balance`](../../examples/mods/balance) | [The records](#the-records), changed from a load script |
 | [`bananas`](../../examples/mods/bananas) | A mod's own gun, missile, pilot and ship type, tuned in [the records](#the-records), and a [pilot set](#objects) on enemy ships |
-| [`campaign`](../../examples/mods/campaign) | A [campaign](#campaigns) with a briefing screen and a movie |
+| [`campaign`](../../examples/mods/campaign) | A [campaign](#campaigns) with a briefing screen, a movie and an ending screen |
 | [`cel-shading`](../../examples/mods/cel-shading) | [Surface and lighting functions](#surface-and-lighting-functions) |
 | [`crt`](../../examples/mods/crt) | A [post effect](#post-effects) |
 | [`custom-order`](../../examples/mods/custom-order) | A [custom AI order](#custom-ai-orders) started by a [mod action](#keys-and-actions) |
@@ -236,6 +236,8 @@ is one of:
 
 - **a function of the original game**, by its name, such as `object_damage` or `bullet_fire`.
   The [developer documentation](../README.md) describes them.
+- **a function of OpenReliant's own**: a step that the original takes inside a larger function,
+  such as `mission_lost`, which OpenReliant makes a function of so that scripts can hook it.
 - **an order routine**: what a ship does each frame for an order, such as `order_fight`.
 - **a mission event**, which a mission's triggers can wait for, such as `destroyed` or `launched`.
 - **an engine event**, such as `mission_started` or `object_added`.
@@ -316,6 +318,35 @@ The game's functions that have hooks:
 | `order_retaliate` | A fighter turns on whoever last hit it | `object` |
 | `radio_say` | The radio says a line | Only a function filter |
 | `vm_command` | The mission's script runs one of its commands; its result is what the command gives | Only a function filter |
+| `restart_screen` | The restart screen after a mission is lost or left; its result is the player's choice | Only a function filter |
+
+OpenReliant's functions that have hooks choose the movies that play as a mission ends. Each takes
+the movie the game would play as `e.movie`, which a handler can change to the name of another Bink
+file, the game's or a mod's, or set to nil for none. They run once the mission is over, so only the
+handlers of global scripts see them, as `restart_screen`'s do:
+
+| Hook | What it is |
+|---|---|
+| `mission_lost` | A mission is lost or left, before the restart screen: the campaign's funeral, capture or execution, and nothing for a game mode's mission |
+| `career_over` | The pilot's career in the campaign ends, before the main menu |
+| `medal_ceremony` | A mission of the campaign awards a medal, and its ceremony plays |
+
+```lua
+local hooks = require("openreliant.hooks")
+
+-- A funeral of the mod's own when the player's ship is destroyed.
+hooks.add("mission_lost", function(e)
+    if e.ending == "destroyed" then
+        e.movie = "my_funeral.bik"
+    end
+end)
+
+-- No restart screen: a lost mission is flown again from its launch at once.
+hooks.add("restart_screen", function(e)
+    e.result = "replay_from_launch"
+    return false
+end)
+```
 
 ### Targets
 
@@ -844,12 +875,19 @@ scripts can only read them.
 | `guns` | Gun stats, `gunstats.bin`, then the guns the mods add | 1 | `laser_cannon`, `pulse_cannon` and the rest, and the qualified names of the mods' guns |
 | `missiles` | Missile stats, `missilestats.bin`, then the missiles the mods add | 0 | `screamer`, `raptor` and the rest, and the qualified names of the mods' missiles |
 | `pilots` | Pilot stats, `pilotstats.bin`, then the pilots the mods add | 0 | The qualified names of the mods' pilots |
+| `faces` | The pilots' faces, which the game keeps in its executable, then those of the pilots the mods add | 0 | The qualified names of the mods' pilots |
 | `text` | The game's text, `language.dll`, by string id | 1 | |
 | `itac_text` | The ITAC's text, `itaclang.dll`, by string id | 1 | |
 
 Records are looked up by number or by name, with the field names of the [stat
 tables](../formats/stats.md). The definitions file for editors ([Editors](#editors)) lists every
 field of `Ship`, `Gun`, `Missile` and `Pilot`.
+
+A pilot's face (`Face`) has `name`, the id of the string the radio's window shows over the face,
+and the film the face plays for each way it moves as the pilot speaks: `talking`, `laughing`,
+`squadron` (the 45th's own pilot, in most faces) and `dying`. A film is the name of a face film
+`pilots\<film>.fm8` in `pilots.hog`, or `<film>.fm8` in a mod ([Face films](../formats/fm8.md)), at
+most 116 characters long. An empty name plays the dead channel's static.
 
 ```lua
 local records = require("openreliant.records")
@@ -858,6 +896,7 @@ records.guns.laser_cannon.damage.hull = 30   -- by name
 records.ships[12].max_speed *= 1.1           -- by number
 records.pilots[66].skill = "high"            -- values with names use their names
 records.text[568] = "Laser Cannon Mk II"     -- text is a string
+records.faces[4].talking = "45Tigers_Plt"    -- a face's film
 
 for number, missile in records.missiles do  -- every record, in order
     missile.lock_time *= 0.8
@@ -1350,6 +1389,34 @@ hooks.add("object_damage", function(e)
 end)
 ```
 
+A mode can also change the records for its own missions ([The records](#the-records)). `records`
+names a script of the mod that runs as a load script before each of the mode's missions. It can
+read `core.game_mode_mission` to know which mission is next. When the mission ends, the records go
+back to what they were. The game's campaign, the other modes and the mode's own briefing screens
+never see the changes.
+
+```lua
+-- menu.luau: a campaign of two missions the mod brings, mission91.dte and mission92.dte.
+core.register_game_mode({
+    name = "prequel",
+    label = "PREQUEL",
+    missions = { 91, 92 },
+    campaign = true,
+    records = "prequel_records.luau",
+})
+```
+
+```lua
+-- prequel_records.luau: in the prequel, the Yakob Shuttle flies as a pirate fighter.
+local records = require("openreliant.records")
+
+local shuttle = records.ships[153]
+shuttle.max_speed = 300
+shuttle.shield_power = 14
+shuttle.armor_class = 16
+records.text[1104] = "PIRATE"
+```
+
 [`examples/mods/arena`](../../examples/mods/arena) adds a game mode with rules and a HUD of its
 own, and [`examples/mods/interceptor`](../../examples/mods/interceptor),
 [`teapot`](../../examples/mods/teapot) and [`bananas`](../../examples/mods/bananas) each fly a mode
@@ -1359,9 +1426,10 @@ in a mod's ship.
 
 A game mode with `campaign = true` is a campaign:
 
-- It flies its missions in order. A lost mission is flown again: the player's ship destroyed, the
-  pilot captured or sent home for shooting a friend, or the mission's script rating it a total
-  failure.
+- It flies its missions in order. When a mission is lost or left from the pause menu, the restart
+  screen offers to fly it again from its briefing or from its launch, or to go back to the main
+  menu. A mission is lost when the player's ship is destroyed, the pilot is captured or sent home
+  for shooting a friend, or the mission's script rates it a total failure.
 - The mission the player has reached is kept in the mod's global storage, in the section
   `campaigns`, under the mode's name without the mod's prefix ([Storage](#storage)). GAME MODES
   shows it, and the campaign carries on from it the next time. After the last mission, the campaign
@@ -1398,11 +1466,50 @@ core.register_game_mode({
 })
 ```
 
-The missions are flown as INSTANT ACTION flies its mission: without the game's rooms, ITAC,
-medals or saved games ([#641](https://github.com/OpenReliant/openreliant/issues/641)).
+A game mode can also brief its missions in the game's briefing room, as the StarLancer trial
+briefs its two: `briefing_room = "reliant"` or `"yamato"`. Before each mission, after the mod's
+`briefing` screen where the mode has one, the player sees the room's door, then Enriquez at the
+room's screen playing the mission's `hologram`, then the loadout on the same ship, and last her
+`last_word`. The hologram is a Bink file, the game's or the mod's, and the last word a speech
+file, such as `ms_speech\enrbr_tag01.ut`; without one, her animation plays without a line. Give a
+mod's movie a name of its own, such as `prequel_m01.bik`, since a file in a mod replaces the game's
+file with the same name everywhere.
+
+The loadout offers what a new pilot gets for the number the mission flies as. It keeps its choices
+apart from the campaign's, and starts fresh as the mode starts. A mode can list the ships its
+loadout offers instead, in its own order, with `loadout_ships`, such as `{ "grendel", "predator" }`
+or ship type numbers. The loadout then starts on the first, and later on the ship the player chose
+last. Ships the player can't fly, such as capital ships, are left out.
+
+```lua
+core.register_game_mode({
+    name = "prequel",
+    label = "PREQUEL",
+    missions = {
+        { number = 91, as = 1, hologram = "prequel_m01.bik", last_word = "ms_speech\\enrbr_tag01.ut" },
+        { number = 92, as = 2, hologram = "prequel_m02.bik", last_word = "ms_speech\\enrbr_tag02.ut" },
+    },
+    campaign = true,
+    briefing_room = "yamato",
+    debriefing = true,
+})
+```
+
+With `debriefing = true`, the ITAC debriefs each mission that goes on to the next, as the trial's
+ITAC does. It opens DEBRIEFINGS alone, with the debriefing of the number the mission flies as for
+its rating, and REPLAY MISSION, which flies the mission again from its briefing. The mode's records
+still stand then, so its records script can give the debriefing's text (`records.itac_text`). The
+ITAC keeps the mode's missions apart from the campaign's.
+
+An `ending` names one of the mod's registered screens, which the front end shows after the mode's
+last mission. It leaves for the main menu with `ui.go_to("main_menu")`. Without one, the main menu
+follows at once.
+
+The missions are flown as INSTANT ACTION flies its mission: without the game's rooms, medals or
+saved games ([#641](https://github.com/OpenReliant/openreliant/issues/641)).
 
 [`examples/mods/campaign`](../../examples/mods/campaign) is a short campaign of the game's first
-three missions, with a briefing and a movie.
+three missions, with a briefing, a movie and an ending.
 
 ## Options
 

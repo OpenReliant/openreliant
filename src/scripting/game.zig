@@ -507,7 +507,7 @@ pub fn addScript(call: Call, object: Object, name: []const u8, payload: ?data.Da
         call.raise("add_script can only be used while a game runs", .{});
     };
     const mod = call.context.modOf();
-    const file = scriptNamed(mod, name) orelse {
+    const file = script.find(mod, name) orelse {
         drop(scripts, payload);
         call.raise("add_script: mod {s} has no script {s}", .{ mod.name, name });
     };
@@ -537,7 +537,7 @@ pub fn removeScript(call: Call, object: Object, name: []const u8) bool {
     const list = game.onObject(object.slot());
     for (list.items, 0..) |held, at| {
         if (held.stopped or held.context.mod != call.context.mod) continue;
-        if (!sameScript(held.name, name)) continue;
+        if (!script.isNamed(held.name, name)) continue;
         game.runner.stopScript(list, at);
         return true;
     }
@@ -561,24 +561,6 @@ pub fn sendGlobalEvent(call: Call, name: []const u8, payload: data.Data) void {
         call.raise("send_global_event: events can only be sent while a game runs", .{});
     };
     game.runner.events.send(call, .global, name, payload);
-}
-
-/// The file name of `mod`'s script `name`, given with or without its extension and in any case, as
-/// the mod has it.
-fn scriptNamed(mod: *const Mod, name: []const u8) ?[]const u8 {
-    var names = mod.scripts();
-    while (names.next()) |file| {
-        if (sameScript(file, name)) return file;
-    }
-    return null;
-}
-
-/// Whether the script file `file` is the one `name` names, with or without its extension and in
-/// any case (`require`).
-fn sameScript(file: []const u8, name: []const u8) bool {
-    if (std.ascii.eqlIgnoreCase(file, name)) return true;
-    const stem = file[0 .. file.len - std.Io.Dir.path.extension(file).len];
-    return std.ascii.eqlIgnoreCase(stem, name);
 }
 
 /// A game with the mods `made`, each a folder of files, over a mission that holds the player's
@@ -957,6 +939,53 @@ test "a script stops or changes the radio's lines" {
     try std.testing.expectEqualStrings("moolnd_001.ut", radio.queue[0].speech.slice());
     try std.testing.expectEqualStrings("pilots\\static.fm8", radio.queue[0].film.slice());
     try std.testing.expectEqualStrings("mphud_001.ut", radio.queue[1].speech.slice());
+}
+
+test "a script chooses the movies of a mission's end, and the restart screen's choice" {
+    const engine_game = openreliant.engine.game;
+    const movie = engine_game.xtrabits.movie;
+    const restart = engine_game.interface.restart;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local hooks = require("openreliant.hooks")
+                \\hooks.add("mission_lost", function(e)
+                \\    if e.ending == "destroyed" and e.movie == nil then e.movie = "prequel_funeral.bik" end
+                \\end)
+                \\hooks.after("career_over", function(e) e.result = nil end)
+                \\hooks.add("medal_ceremony", function(e)
+                \\    if e.medal == "silver" then return false end
+                \\end)
+                \\hooks.add("restart_screen", function(e)
+                \\    e.result = "replay_from_launch"
+                \\    return false
+                \\end)
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const all = fixture.mission.objects;
+
+    // A game mode's lost mission plays the script's movie, and the campaign's capture its own.
+    try std.testing.expectEqualStrings("prequel_funeral.bik", std.mem.sliceTo(&engine_game.winmain.lostMovie(all, .destroyed, .failure, 1, null).?, 0));
+    const capture = movie.nameOf("int.bik").?;
+    try std.testing.expectEqual(capture, engine_game.winmain.lostMovie(all, .captured, .failure, 5, capture).?);
+    // The career ends without a movie, and the silver medal's ceremony doesn't play.
+    try std.testing.expectEqual(null, engine_game.winmain.careerOverMovie(all, .rescued, .success, 5, capture));
+    try std.testing.expectEqual(null, engine_game.gameflow.ceremonyMovie(all, .silver, 6, movie.nameOf("new_silver.bik")));
+    const valour = movie.nameOf("new_valour.bik").?;
+    try std.testing.expectEqual(valour, engine_game.gameflow.ceremonyMovie(all, .valour, 16, valour).?);
+    // The script flies the mission again from its launch without showing the restart screen.
+    const never: restart.Shown = .{ .context = undefined, .run = struct {
+        fn run(_: *anyopaque) restart.Choice {
+            unreachable;
+        }
+    }.run };
+    try std.testing.expectEqual(.replay_from_launch, restart.choose(all, never));
 }
 
 test "built-in interfaces provide existing APIs beneath mod overrides" {

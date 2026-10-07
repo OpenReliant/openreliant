@@ -280,7 +280,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 5 | Warp Out | A ship aligns with its target, opens its tunnel and enters it, then queues Warp In with the same sequence number. | Yes |
 | 6 | Fly | Flies at the speed in its data, or at full throttle for zero. With a target it flies to it and pops within 2000 units; otherwise it keeps the heading it had when it started, steering at a point 20000 units along it. It steers with flags `0x7` and halves the throttle while avoiding. An object without flight stats is moved along that heading instead; **Improvement:** OpenReliant draws it gliding on between the ticks ([The game loop](loop.md#porting)). | Yes |
 | 7 | Run Away | Flies away from the target at half throttle, for a point on the far side of the ship from the target, 100000 times as far from the ship as the target is. It moves the point round what is near (`avoid_near`), then steers at it with flags `0x3` and an ease of 0.1, which go round what is near and ahead again. Pops when the target's slot holds a stand-in. | Yes |
-| 8 | Land | The player's ship lands on its carrier, which ends the mission ([Landing](#landing)). | Partly: the Yamato's style is not ([#349](https://github.com/OpenReliant/openreliant/issues/349)) |
+| 8 | Land | The player's ship lands on its carrier, which ends the mission ([Landing](#landing)). | Yes |
 | 9 | Escort | On starting, takes the ship its target names, or the ship at the order's number among a flight group's or a squad's ships, counting round them again past the last (`escort_count_place`, `0x0040AA50`); OpenReliant takes none where the group has no ships, which the game walks for ever (**Fix**). Each update, it pops once that ship's slot holds a stand-in; otherwise it steers for a point 10000 ahead of the ship: within 5000 of it with half its turn and flags `0x4`, and farther off with its full turn and flags `0x3`. Its throttle is the escorted ship's speed over its own cruise speed, and 0.0001 more for each unit the escorted ship lies ahead along its own heading. | Yes |
 | 10 | Find New Target | Walks the ships its target names, weighing each it can aim at, cloaked or not, by the square of its node's distance from where the ship will be next ([Picking a fight](#picking-a-fight)). It fights the lightest to fight, pushing Fight, or Torpedo (103) for a ship of the torpedo class; with none, it mills round the lightest to mill round, pushing Mill (120); with neither it pops. | Yes |
 | 11 | Explode | A destroyed object's end, by what it is and in one of three styles ([Destruction](objects.md#destruction)). | Yes |
@@ -565,8 +565,37 @@ of a door closing (`0x36`, `doorclos`).
 PERMISSION TO LAND does nothing where the player's ship launched from no carrier, where the game
 reads through a null pointer.
 
-Not ported: the Yamato's style, whose landing OpenReliant lets go of at once
-([#349](https://github.com/OpenReliant/openreliant/issues/349)).
+The Yamato's style lands the ship in the Yamato's landing bay, ship type `0xD5` (Jap Yam Landing
+Bay, `yamhanger.shp`), whose part 6 is the hangar and part 1 the pad. Its init
+(`land_yamato_init`, `0x0040EB60`) sets the first step, due in 700 ticks, and for the player's ship
+makes the bay in the cutaway slot, passing through everything. Its update (`land_yamato_update`,
+`0x0040EE80`, steps from the table at `0x0040F59C`) keeps the pad's due time at `+0x08`, and once
+the ship stands on the pad, where it stands on it, and how it is turned. A ship other than the
+player's lets its landing go at once.
+
+| Step | What it does |
+|---|---|
+| 0 | Until the step is due, the player flies on. Then the cutaway, and the ship flies by its nose and passes through everything; the scene becomes the landing's, and every other object is disabled |
+| 1 | The ship steers at a point 1000 above the hangar's middle, upright, at a throttle that flies it at 100 by its cruise speed, until it is within 2000 of it |
+| 2 | It steers 500 ahead along its nose from the point 500 beyond the pad's middle, level with its own underside, its throttle 0.0001 for each unit it has to go less 0.02, at most the bay's, and stops within 500 of it |
+| 3 | Stopped, it turns straight along the bay and level: its yaw and its pitch inputs are each the angle off the bay's Z axis less 4 times its rate of turn, times 0.3 over its type's rate. Once both are within 0.05, it stands on the pad and rides it |
+| 4 | It waits 200 ticks |
+| 5 | The pad plays its `floor` track (`0x004E2048`), lowering the ship, with the landing's sound (`shipland`) |
+| 6 | 400 ticks later, the mission is over |
+
+The cutaway (`land_yamato_cutaway`, `0x0040EBC0`) moves the bay to (0, -1000000, 0), turned as the
+world is, lights its hangar through mask `0x3B`, and switches to one of the [Yamato's landing's
+views](camera.md#the-landings-views) at random, which it keeps (`0x0051863C`) and nothing reads. The
+ship stands in the bay at a fifth of the bay's width and height from their minimums and three
+tenths of its length, looking at the hangar's middle, stopped at a throttle of 0.5 with its power
+shared evenly.
+
+**Fix:** where the bay's model lacks the hangar, the game reads past its list of parts; OpenReliant
+leaves the ship turned as it was.
+
+**Improvement:** the angles come from `std.math.atan2` rather than the engine's table (`sr_atan2`).
+OpenReliant has no parent frames, so the ship on the pad is put back on it each frame
+(`ailand.hold`), as the launches hold their ships ([Launches](launch.md)).
 
 ### Friendly fire
 

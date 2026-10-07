@@ -231,9 +231,10 @@ selects the improvement, which is the default.
 
 **Fix:** a model missing a bay or door is handled without reading past its child list.
 
-The original also places a camera marker at step 5. None of these three views reads it.
-OpenReliant uses its hardware-renderer position: 1000 outside the bay's X edge, 1000 above
-its minimum Y and at minimum Z. The software renderer places it 2000 beyond maximum Z.
+Step 5 also moves the camera's marker, which the mission's start makes in the slot after the
+mission's ships ([Missions](missions.md)). None of these three views reads it. OpenReliant uses
+the hardware renderer's position: 1000 outside the bay's X edge, 1000 above its minimum Y and at
+its minimum Z. The software renderer places it 2000 beyond its maximum Z.
 
 ## The torpedoes
 

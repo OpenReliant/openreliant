@@ -71,6 +71,22 @@ pub const Context = struct {
     missile_stats: *const missiles.Table,
     /// The mission the loadout comes before (`mission_number`).
     mission: u16,
+    /// The carrier whose backdrop it shows: a game mode's briefing room's, so that the room and
+    /// the loadout are on the same ship. Null picks it by the mission's number (`backdrop`).
+    ///
+    /// **Improvement:** the original picks the backdrop by the mission's number alone, so the
+    /// StarLancer trial's missions 1 and 2 go from the Yamato's briefing room to the Reliant's
+    /// loadout.
+    carrier: ?rooms.Carrier = null,
+    /// Whether the first mission's loadout teaches: says `loadout.ut` and blinks its exit
+    /// (`tutors`). A game mode's loadout doesn't, like the StarLancer trial's: the trial's
+    /// `loadout_enter` (`0x00408920` in its executable) has no speech, and its exit's blink times
+    /// from a speech start it leaves at 0, so the exit never blinks.
+    tutorial: bool = true,
+    /// The ships it offers, in order, where a game mode lists them (`tables.listedOffers`), in
+    /// place of those the tier and the rank open. It then starts on the ship chosen last where the
+    /// list has it, else on the first (`chosenFor`).
+    ships: ?[]const gameobj.Type = null,
     /// The campaign's tier as the loadout finds it (`campaign_tier`, `0x00562DF0`), which it raises
     /// by the mission (`tierBefore`).
     tier: u2 = 0,
@@ -89,14 +105,28 @@ pub const Context = struct {
     models: srofiles.Settings = .{},
     /// How it draws the models the original draws solid.
     look: Look = .original,
+
+    /// Whether the loadout teaches, in the first mission: speaks `loadout.ut` and blinks its exit
+    /// (`0x00441B6F`, `0x004433D2`), unless the lesson is left out (`tutorial`).
+    fn tutors(context: Context) bool {
+        return context.tutorial and context.mission == first_mission;
+    }
 };
 
 /// The campaign's saved loadout (`0x00562F18`): the ship the pilot last chose and the missiles on
 /// its racks (`0x00562F1A`), which `campaign_new` makes the Predator with none, and a restart keeps.
 pub const Saved = struct {
-    /// The ship type chosen: one of the game's twelve, or a mod's (`tables.Offer`).
-    ship: create.TypeIndex = predator,
+    /// The ship type chosen: one of the game's twelve, or a mod's (`tables.Offer`). Null before a
+    /// game mode's first loadout (`unchosen`), which then starts on the first ship it offers with
+    /// the tier's missiles.
+    ship: ?create.TypeIndex = predator,
     racks: racks.Saved = @splat(null),
+
+    /// A game mode's saved loadout as the mode starts, before the player has chosen anything.
+    ///
+    /// **Improvement:** the original's only saved loadout is the campaign's, which `campaign_new`
+    /// makes the Predator with no missiles.
+    pub const unchosen: Saved = .{ .ship = null };
 };
 
 /// What the loadout leaves the mission (`player_loadouts[player_index]`, `0x00588400`): the ship
@@ -116,14 +146,14 @@ pub const Frame = struct {
     mouse: i3d.Interface.Mouse,
 };
 
-/// The first mission, whose loadout offers the Predator alone, speaks `loadout.ut` and blinks its
+/// The first mission, whose loadout starts on the Predator, speaks `loadout.ut` and blinks its
 /// exit (`0x00441B6F`, `0x0044340C`), and the mission whose loadout offers the Shroud alone
 /// (`0x0044341E`).
 const first_mission = 1;
 const shroud_mission = 23;
 
 /// The Predator and the Shroud, ship types 0 and 10 (`0x00523994`, the Shroud's object).
-const predator = 0;
+pub const predator = 0;
 const shroud = 10;
 
 /// The last mission whose loadout stands on the Reliant, before the Yamato's (`0x004426A0`,
@@ -602,8 +632,16 @@ pub const Loadout = struct {
         const loadout = try gpa.create(Loadout);
         const tier = @max(context.tier, tierBefore(context.mission));
         var offers: [tables.arc_slot_count]tables.Offer = undefined;
-        const offered, const left_out = tables.offers(tier, offeredShips(tier, context.rank), &offers);
-        if (left_out > 0) log.warn("{d} of the mods' ship types are left out of the loadout: the arc has no room for them", .{left_out});
+        const offered = offered: {
+            if (context.ships) |listed| {
+                const offered, const left_out = tables.listedOffers(listed, &offers);
+                if (left_out > 0) log.warn("{d} of the game mode's ships are left out of the loadout: they are listed twice, or the player can't fly them", .{left_out});
+                if (offered.len > 0) break :offered offered;
+            }
+            const offered, const left_out = tables.offers(tier, offeredShips(tier, context.rank), &offers);
+            if (left_out > 0) log.warn("{d} of the mods' ship types are left out of the loadout: the arc has no room for them", .{left_out});
+            break :offered offered;
+        };
         loadout.* = .{
             .context = context,
             .arena = .init(gpa),
@@ -679,8 +717,7 @@ pub const Loadout = struct {
             if (index != loadout.chosen) i3d.scaleTree(&ship.model, arc_share * loadout.shipRecord(index).scale);
         }
 
-        const backdrop_name = if (context.mission <= last_reliant_mission) reliant_backdrop else yamato_backdrop;
-        loadout.backdrop = try matmanager.readImage(arena, resources.*, backdrop_name);
+        loadout.backdrop = try matmanager.readImage(arena, resources.*, backdrop(context));
         loadout.panels_art = try arena.create(panels.Image);
         loadout.panels_art.* = @splat(.{ 0, 0, 0, 0 });
         const art = try matmanager.readPixels(arena, resources.*, panels_name);
@@ -1022,7 +1059,7 @@ pub const Loadout = struct {
         loadout.showBackdrop();
         loadout.placeShips();
         loadout.speech_start = 0;
-        if (loadout.context.mission == first_mission) {
+        if (loadout.context.tutors()) {
             loadout.say();
             loadout.speech_start = now;
         }
@@ -1087,7 +1124,7 @@ pub const Loadout = struct {
         const arena = loadout.frame_arena.allocator();
         const gpa = loadout.context.rooms.gpa;
         loadout.now = in.now;
-        if (loadout.context.mission == first_mission) {
+        if (loadout.context.tutors()) {
             const since = in.now -% loadout.speech_start;
             const blinking = since > blink_from and since < blink_until and in.now % blink_period < blink_off;
             loadout.buttons.getPtr(.exit).object.shown = !blinking;
@@ -1732,7 +1769,7 @@ pub const Loadout = struct {
     /// Mission 1's speech paused, as the in-game options open over the loadout (`0x004377C0`,
     /// `AIL_stop_sample`), and resumed as they close (`AIL_resume_sample`).
     pub fn pauseSpeech(loadout: *Loadout, paused: bool) void {
-        if (loadout.context.mission != first_mission) return;
+        if (!loadout.context.tutors()) return;
         loadout.speech.pause(loadout.context.rooms.sound, paused);
     }
 
@@ -2626,6 +2663,17 @@ fn tierBefore(mission: u16) u2 {
     return tier;
 }
 
+/// The backdrop the loadout shows: the given carrier's (`Context.carrier`), or else by the
+/// mission's number, the Reliant's up to `last_reliant_mission` and the Yamato's after it
+/// (`0x004426A0`).
+fn backdrop(context: Context) []const u8 {
+    const carrier = context.carrier orelse if (context.mission <= last_reliant_mission) rooms.Carrier.reliant else .yamato;
+    return switch (carrier) {
+        .reliant => reliant_backdrop,
+        .yamato => yamato_backdrop,
+    };
+}
+
 /// How many ships the loadout offers at `tier` and `rank` (`loadout_ships_create`, `0x00444760`):
 /// as many as the more generous of the two opens, from the Predator on.
 fn offeredShips(tier: u2, rank: gameflow.Rank) usize {
@@ -2642,13 +2690,14 @@ fn reach(model: *const shp.Model) f32 {
 }
 
 /// Which of the `offered` ships the loadout starts on (`loadout_reset`, `0x004439D0`): the Shroud
-/// in mission 23, the Predator in the first, and the campaign's saved one otherwise.
+/// in mission 23, the Predator in the first, and the campaign's saved one otherwise. Where a game
+/// mode lists the ships (`Context.ships`), the saved one in every mission.
 ///
 /// **Fix:** a saved ship the loadout does not offer, as a campaign begun again at an earlier
 /// mission leaves it, leaves the game without the chosen ship's object, which it then writes to.
-/// OpenReliant starts on the Predator, the first offered.
+/// OpenReliant starts on the first offered, the Predator unless a game mode lists the ships.
 fn chosenFor(context: Context, offered: []const tables.Offer) u8 {
-    const wanted: create.TypeIndex = switch (context.mission) {
+    const wanted: ?create.TypeIndex = if (context.ships != null) context.saved.ship else switch (context.mission) {
         shroud_mission => shroud,
         first_mission => predator,
         else => context.saved.ship,
@@ -2825,6 +2874,21 @@ test chosenFor {
     try std.testing.expectEqual(predator, chosenFor(context, every));
     context.mission = shroud_mission;
     try std.testing.expectEqual(shroud, chosenFor(context, every));
+    // Where a game mode lists the ships, the saved one in any mission, else the first listed.
+    const listed = [_]gameobj.Type{ .of(.grendel), .of(.predator) };
+    context.ships = &listed;
+    try std.testing.expectEqual(7, chosenFor(context, every));
+    saved.ship = 2;
+    const first, _ = tables.listedOffers(&listed, &buffer);
+    try std.testing.expectEqual(0, chosenFor(context, first));
+    saved.ship = 7;
+    try std.testing.expectEqual(0, chosenFor(context, first));
+    // A game mode's first loadout has no choice saved yet.
+    saved = .unchosen;
+    try std.testing.expectEqual(0, chosenFor(context, first));
+    context.ships = null;
+    context.mission = 5;
+    try std.testing.expectEqual(predator, chosenFor(context, every));
 }
 
 test offeredShips {
@@ -2950,4 +3014,28 @@ test litBlend {
     litSolid(&loaded, true, .original);
     try std.testing.expectEqual(srapiext.Material.Blend.off, meshes[0].surfaces[0].material.blend[0]);
     try std.testing.expect(!meshes[0].surfaces[0].hologram);
+}
+
+test backdrop {
+    var saved: Saved = .{};
+    var context: Context = .{ .rooms = undefined, .cache = undefined, .strings = undefined, .stats = undefined, .missile_stats = undefined, .mission = 1, .saved = &saved };
+    // By the mission's number, as the game has it, or by the carrier a game mode gives.
+    try std.testing.expectEqualStrings(reliant_backdrop, backdrop(context));
+    context.mission = 19;
+    try std.testing.expectEqualStrings(yamato_backdrop, backdrop(context));
+    context.mission = 1;
+    context.carrier = .yamato;
+    try std.testing.expectEqualStrings(yamato_backdrop, backdrop(context));
+}
+
+test "Context.tutors" {
+    var saved: Saved = .{};
+    var context: Context = .{ .rooms = undefined, .cache = undefined, .strings = undefined, .stats = undefined, .missile_stats = undefined, .mission = 1, .saved = &saved };
+    // The first mission teaches, unless a game mode leaves the lesson out; no other does.
+    try std.testing.expect(context.tutors());
+    context.tutorial = false;
+    try std.testing.expect(!context.tutors());
+    context.tutorial = true;
+    context.mission = 2;
+    try std.testing.expect(!context.tutors());
 }

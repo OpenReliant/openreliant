@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 const stats = @import("../../formats/stats.zig");
 const additions = @import("additions.zig");
@@ -241,10 +242,12 @@ pub const Face = struct {
 
     pub const heads = 4;
 
-    /// Its film for `head`, or null for a head past the four, which the game reads beside them.
+    /// Its film for `head`, or null for a head past the four, which the game reads beside them,
+    /// and for an empty name, which a record can give (`FaceRecord`).
     pub fn film(face: *const Face, head: Head) ?[]const u8 {
         const index = @backingInt(head);
-        return if (index < heads) face.films[index] else null;
+        if (index >= heads or face.films[index].len == 0) return null;
+        return face.films[index];
     }
 
     /// The record as the payload lays it out, 24 bytes. **Unknown:** the halfword at `+0x02`, 0x53
@@ -322,21 +325,107 @@ comptime {
     assert(faces.len == Table.count);
 }
 
-/// The face of pilot `pilot`, or null for a number past the table, which the game reads beside it.
-pub fn faceOf(pilot: i32) ?*const Face {
-    if (pilot < 0) return null;
-    // A pilot a mod adds has its base's face, under its own name where it has one.
-    if (additions.pilots.get(@intCast(pilot))) |added| return &added.extra.face;
-    if (pilot >= faces.len) return null;
-    return &faces[@intCast(pilot)];
+/// The longest name a face's film can have. The radio writes the film's path,
+/// `pilots\<film>.fm8`, and a terminating zero into 128 bytes (`radio.film_path_size`).
+pub const max_film = 116;
+
+/// A pilot's face as the records hold it (`openreliant.records.faces`), where scripts can change
+/// it: the string that names the pilot, and the name of the film its face plays for each way it
+/// moves (`Head`). An empty name plays the dead channel's film.
+pub const FaceRecord = struct {
+    name: u16,
+    talking: Film = @splat(0),
+    laughing: Film = @splat(0),
+    squadron: Film = @splat(0),
+    dying: Film = @splat(0),
+
+    /// The name scripts know these records by.
+    pub const script_name = "Face";
+
+    /// A film's name and the zero after it.
+    pub const Film = [max_film + 1]u8;
+
+    /// The record of `face`.
+    pub fn of(face: *const Face) FaceRecord {
+        var record: FaceRecord = .{ .name = face.name };
+        inline for (comptime std.enums.values(Head)) |head| {
+            @field(record, @tagName(head)) = filmOf(face.films[@backingInt(head)]);
+        }
+        return record;
+    }
+
+    /// The film `name` as a record holds it. A name too long for the radio's path is left empty:
+    /// the dead channel's film plays, as it does when the radio has no room for the path.
+    pub fn filmOf(name: []const u8) Film {
+        var film: Film = @splat(0);
+        if (name.len <= max_film) @memcpy(film[0..name.len], name);
+        return film;
+    }
+
+    comptime {
+        // A film for each way the face moves.
+        for (std.enums.values(Head)) |head| assert(@FieldType(FaceRecord, @tagName(head)) == Film);
+    }
+};
+
+/// The records of every pilot's face (`FaceRecord`): the game's pilots', then those of the pilots
+/// mods add (`additions.pilots`).
+pub fn faceRecords(gpa: Allocator) Allocator.Error![]FaceRecord {
+    const added = additions.pilots.all();
+    const records = try gpa.alloc(FaceRecord, faces.len + added.len);
+    for (records[0..faces.len], &faces) |*record, *face| record.* = .of(face);
+    for (records[faces.len..], added) |*record, *each| record.* = .of(&each.extra.face);
+    return records;
 }
 
-/// The string that names pilot `pilot` (`Face.name`), as the radio's window and the target display
-/// show it; null for a number past the table.
-pub fn nameOf(pilot: i32) ?u16 {
-    const face = faceOf(pilot) orelse return null;
-    return face.name;
-}
+/// `pilot_faces` (`0x005048D8`): every pilot's face, by the pilot's number. The game's table is
+/// fixed; OpenReliant loads it from the records (`load`), so that scripts can change the faces.
+pub const Faces = struct {
+    faces: [Table.max_pilots]Face = initial,
+    /// How many pilots have a face. A pilot past them has none.
+    count: usize = faces.len,
+
+    /// The game's faces, then blank ones for the pilots mods add.
+    const initial = faces ++ @as([Table.max_pilots - faces.len]Face, @splat(blank));
+    const blank: Face = .{ .name = 0, .side = .friendly, .films = @splat("") };
+
+    /// A face for each record of `records` in turn, the game's pilots' and then the mods'. Each
+    /// keeps the side and the voices that the game or the pilot's mod gives it, and takes its name
+    /// and films from the record. The films' names are read in place, so the records must
+    /// outlive the table.
+    pub fn load(table: *Faces, records: []const FaceRecord) void {
+        const loaded = @min(records.len, Table.max_pilots);
+        for (table.faces[0..loaded], records[0..loaded], 0..) |*face, *record, pilot| {
+            face.* = given(pilot);
+            face.name = record.name;
+            inline for (comptime std.enums.values(Head)) |head| {
+                face.films[@backingInt(head)] = std.mem.sliceTo(&@field(record, @tagName(head)), 0);
+            }
+        }
+        table.count = @max(table.count, loaded);
+    }
+
+    /// The face that the game or the mod that adds pilot `pilot` gives it.
+    fn given(pilot: usize) Face {
+        if (pilot < faces.len) return faces[pilot];
+        const added = additions.pilots.get(@intCast(pilot)) orelse return blank;
+        return added.extra.face;
+    }
+
+    /// The face of pilot `pilot`, or null for a number past the table, which the game reads
+    /// beside it.
+    pub fn of(table: *const Faces, pilot: i32) ?*const Face {
+        const index = std.math.cast(usize, pilot) orelse return null;
+        return if (index < table.count) &table.faces[index] else null;
+    }
+
+    /// The string that names pilot `pilot` (`Face.name`), as the radio's window and the target
+    /// display show it; null for a number past the table.
+    pub fn nameOf(table: *const Faces, pilot: i32) ?u16 {
+        const face = table.of(pilot) orelse return null;
+        return face.name;
+    }
+};
 
 /// A pilot of the pool that replaces the wingmen who die (`pilot_pool`, `0x005047D0`): a pilot, by
 /// the pilot stats' number, and whether the pilot is free, in the wing or dead, as `update_pilots`
@@ -485,21 +574,50 @@ test Wingmen {
     try std.testing.expectEqual(-1, wingmen.alpha[2]);
 }
 
-test nameOf {
+test Faces {
+    var table: Faces = .{};
     // Bandit and Diceman, the 45th Tigers' wing leaders, and SABERS, the hostile ships' default.
-    try std.testing.expectEqual(33, nameOf(0).?);
-    try std.testing.expectEqual(37, nameOf(1).?);
-    try std.testing.expectEqual(81, nameOf(66).?);
-    try std.testing.expectEqual(null, nameOf(-1));
-}
-
-test faceOf {
-    // The first pilot of the table is the 45th Tigers' wing leader Bandit, with a film for each way
-    // the face moves; a pilot past the table has none.
-    const bandit = faceOf(0).?;
+    try std.testing.expectEqual(33, table.nameOf(0).?);
+    try std.testing.expectEqual(37, table.nameOf(1).?);
+    try std.testing.expectEqual(81, table.nameOf(66).?);
+    try std.testing.expectEqual(null, table.nameOf(-1));
+    // The first pilot of the table is Bandit, with a film for each way the face moves; a pilot
+    // past the table has none.
+    const bandit = table.of(0).?;
     try std.testing.expectEqual(.friendly, bandit.side);
     try std.testing.expectEqualStrings("45TigersWL_Bandit_L", bandit.film(.laughing).?);
     try std.testing.expectEqual(null, bandit.film(@fromBackingInt(4)));
-    try std.testing.expectEqual(null, faceOf(Table.count));
-    try std.testing.expectEqual(null, faceOf(-1));
+    try std.testing.expectEqual(null, table.of(Table.count));
+
+    // The records give the faces their names and films, and a mod's pilot its mod's face.
+    var face = faces[21];
+    face.films[@backingInt(Head.talking)] = "trooper";
+    face.own_voice = "trp";
+    var list = [_]additions.pilots.Added{.{ .name = "a:trooper", .mod = "a", .base = 21, .extra = .{ .face = face } }};
+    additions.pilots.install(&list);
+    defer additions.pilots.reset();
+    const records = try faceRecords(std.testing.allocator);
+    defer std.testing.allocator.free(records);
+    try std.testing.expectEqual(Table.count + 1, records.len);
+    records[4] = .{ .name = 1104, .talking = FaceRecord.filmOf("Ronin_Plt"), .dying = FaceRecord.filmOf("Ronin_Plt_D") };
+    table.load(records);
+    const copilot = table.of(4).?;
+    try std.testing.expectEqual(1104, copilot.name);
+    try std.testing.expectEqualStrings("Ronin_Plt", copilot.film(.talking).?);
+    try std.testing.expectEqual(null, copilot.film(.laughing));
+    try std.testing.expectEqual(faces[4].voice, copilot.voice);
+    const trooper = table.of(additions.pilots.first).?;
+    try std.testing.expectEqualStrings("trooper", trooper.film(.talking).?);
+    try std.testing.expectEqualStrings("trp", trooper.own_voice.?);
+    try std.testing.expectEqual(null, table.of(additions.pilots.first + 1));
+}
+
+test FaceRecord {
+    // A film too long for the radio's path is left empty.
+    var face = faces[0];
+    const long: [max_film + 1]u8 = @splat('x');
+    face.films[@backingInt(Head.dying)] = &long;
+    const record: FaceRecord = .of(&face);
+    try std.testing.expectEqualStrings("45TigersWL_Bandit", std.mem.sliceTo(&record.talking, 0));
+    try std.testing.expectEqual(0, record.dying[0]);
 }

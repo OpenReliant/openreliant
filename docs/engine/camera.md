@@ -172,8 +172,20 @@ launch tube the ship lands in, which the landing keeps, turned as the carrier is
   the view's object.
 
 The display names view `0x23`, but not `0x26`. **Improvement:** from within the tube, the sound is
-heard as in a hangar ([Sound](../port/sound.md)). The Yamato's landing picks views `0x0E` and `0x25`,
-which OpenReliant has not ported ([#349](https://github.com/OpenReliant/openreliant/issues/349)).
+heard as in a hangar ([Sound](../port/sound.md)).
+
+The Yamato's landing picks one of two views at random in the same way:
+
+- View `0x0E` (`landing_bay`): halfway across the bay's hangar and 0.95 of the way down it, and
+  along it, sliding over 1100 ticks from the landing's due tick, eased by a cosine. It is turned
+  level to face the ship.
+- View `0x25` (`landing_ship`): for its first 700 ticks, 1600 above the player's ship and rising by
+  2.5 a tick, 500 behind it, looking down at it; then, until tick 1500, 1000 to its left, 470 above
+  and 3000 ahead and on by a unit a tick, looking back at it. After that the camera stays where it
+  was. The display names this view.
+
+**Improvement:** the cosine and the angles come from `std.math` rather than the engine's tables
+(`sr_cos`, `sr_atan2`).
 
 ## The director's view
 

@@ -40,6 +40,7 @@ Ported so far: the screen loop, the main menu, QUIT's dialog, INSTANT ACTION, GA
 | 101, a mod's options ([The mod's options](#the-mods-options)), which OpenReliant adds | | |
 | 102, the game modes screen ([The game modes screen](#the-game-modes-screen)), which OpenReliant adds | | |
 | 103, a game mode's briefing ([The game modes screen](#the-game-modes-screen)), which OpenReliant adds | | |
+| 104, a game mode's ending ([The game modes screen](#the-game-modes-screen)), which OpenReliant adds | | |
 | 7, the briefing ([Briefing](briefing.md)) | `interface_briefing` (`0x00437010`) | |
 | 8, the landing movie: a second's wait, then `play_landing_movie` ([Movies](movies.md#the-landing)), and 3 | `landing_movie_screen` (`0x0043CA30`) | |
 | 10 and 11, the multiplayer sessions | `0x0043CA50`, with `0x0051D54C` set or clear | [#404](https://github.com/OpenReliant/openreliant/issues/404) |
@@ -353,7 +354,12 @@ It has the mods screen's shapes, background and layout ([The mods screen](#the-m
 A mode's missions are flown as INSTANT ACTION's is, one after the other. Where the mode names a
 briefing, the front end shows its screen 103 before each mission, with the mods screen's background:
 the mod's screen stands in for it, and flies the mission or goes back to the main menu. Without a
-briefing, or once its script has stopped, the mission follows at once.
+briefing, or once its script has stopped, the mission follows at once. A mode can also brief each
+mission in the game's briefing room ([A game mode's briefing](briefing.md#a-game-modes-briefing)),
+debrief it in the ITAC ([DEBRIEFINGS](itac.md#debriefings)), and show the restart screen after a
+lost mission ([The restart screen](rooms.md#the-restart-screen)). After its last mission, where the
+mode names an ending, the front end shows its screen 104, which the mod's screen stands in for until
+it goes back to the main menu. Without an ending, the main menu follows at once.
 
 Mods' screens can also stand in for the front end's own screens (`interf.Scripted`): the front end
 then draws the screen's background, the mod's screen over it, and the pointer on top, and goes where

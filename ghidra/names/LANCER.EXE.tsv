@@ -293,7 +293,7 @@ address	kind	name	type	comment
 00428300	function	node_tree_scale_all	void __fastcall (void *node, float factor)	node_tree_scale with flags 3: the scene objects' scales and their places
 00428320	function	node_tree_scale	void __fastcall (void *node, int flags, float factor)	Scales each part of a node tree by a factor, and its place from what it hangs from with it (node_scale)
 00428390	function	node_scale	void __fastcall (void *node, int flags, float factor)	A child node's part scaled, and its children's
-004c1ab0	function	sr_atan2_pair	float (float y, float x)	sr_atan2 of its two arguments, the caller popping them
+004c1ab0	function	sr_atan2_pair	float __stdcall (float y, float x)	sr_atan2 of its two arguments, passed on as they are; it pops its own arguments too
 00442720	function	loadout_enter	void __fastcall (void *sr)	Once the movie into the hologram has played: near plane 1, far 1000, palette3 given to the device, page 1, the backdrop as the device's background, the five lights, the ships placed, loadout.ut spoken in mission 1, the CAMERA object, the ships scaled back from the arc's share, the first Button Appears and the intro started, the four portals made
 00442cc0	function	loadout_leave	void (void)	Writes the chosen ship and its racks to player_loadouts and the racks to the campaign's saved loadout; frees the textures, fonts, objects, animations, lights, portals and models; gives the device its palette back; ends every sound and reads stdsmp.fat again
 004433c0	function	loadout_frame	bool __fastcall (int now, void *mouse)	A frame of the loadout: mission 1's exit blinking, mission 23's ships but the Shroud put away, the scene made, the interface stepped, the cursor shown while not busy, the ships' rectangles made again once due, the red light faded, the chosen ship turned, the hover's sound, the portals put in the scene, O's screenshot; returns loadout_running
@@ -891,7 +891,7 @@ address	kind	name	type	comment
 004c2190	function	mat3_turn_y	void __thiscall (float angle)	Turns the matrix in ECX about Y
 004c2100	function	mat3_turn_x	void __thiscall (float angle)	Turns the matrix in ECX about X
 004c2220	function	mat3_turn_z	void __thiscall (float angle)	Turns the matrix in ECX about Z
-004c3200	function	sr_atan2	float __cdecl (float y, float x)	The angle whose tangent is y / x, from a table
+004c3200	function	sr_atan2	float __stdcall (float y, float x)	The angle whose tangent is y / x, from a table; it pops its own arguments
 00595a30	data	star_fields	Stars *[100]	
 00595bc8	data	star_field_count	int	
 00595a28	data	space_dust	Stars *	
@@ -1840,7 +1840,7 @@ address	kind	name	type	comment
 00537418	data	for_each_ship_first	MissionShip *	The first ship the running for_each_ship has run its callback for
 00537575	data	for_each_ship_count	byte	The ships the running for_each_ship has run its callback for
 0045d8e0	function	vm_tag_pop	void (void)	Takes the last tag off vm_component_tag_list
-00588390	data	camera_marker	short	The camera's marker, which mission_start makes at (0, 0, -8000) in the slot after the mission's ships, and the flyby and target views move about
+00588390	data	camera_marker	short	The camera's marker, which mission_start makes at (0, 0, -8000) in the slot after the mission's ships, and the flyby and target views move about, and the Yamato's launch moves beside the player's bay (0x00419C57)
 00401cb0	function	order_target_walk	bool __fastcall (int slot, void *visit)	Hands each ship the slot's current order's target names to a routine until it returns true: the ship itself, a flight group's ships whole, a squad's by squad_walk
 00401d80	function	squad_walk	bool __fastcall (int slot, uint squad, void *visit)	order_target_walk's walk of a squad: its members in turn while they are its own, a ship as the member names its component, a flight group's ships whole, a squad's own walk
 00418a70	function	launches_init	void (void)	Clears the cutaway the player's launch picked, and makes the six particle emitters of the Yamato's launch
@@ -1966,9 +1966,12 @@ address	kind	name	type	comment
 005458fc	data	planet_atmosphere_texture	void *	atmos, which objects_reset loads and the atmospheres are drawn over
 00595bc0	data	planets_turned_at	int	The frame_start the planets with an atmosphere last turned at, in backdrop_frame
 004e1fe8	data	land_styles	uint[12]	Land's two styles, the Yamato's and the Reliant's: init, update, exit, 0, name and 0 each
-0040eb60	function	land_yamato_init	void __fastcall (int slot)	The init of Land's Yamato style
-0040ebc0	function	land_yamato_cutaway	void __fastcall (int slot)	The cutaway of the Yamato's landing: the hangar, type 0xD5, made in the cutaway slot, the player's ship stood in it, and view 0x0E or 0x25
-0040ee80	function	land_yamato_update	void __fastcall (int slot)	The update of Land's Yamato style, which sets the scene to the landing's
+0040eb60	function	land_yamato_init	void __fastcall (int slot)	The init of Land's Yamato style: the first step, due 700 ticks on, and for the player's ship the landing bay, type 0xD5 (yamhanger.shp), made in the cutaway slot, the ship passing through everything
+0040ebc0	function	land_yamato_cutaway	void __fastcall (int slot)	The cutaway of the Yamato's landing: the landing bay, type 0xD5, moved far below and turned as the world is, its hangar (part 6) lit through mask 0x3B, the ship stood in it, stopped at a throttle of 0.5, and view 0x0E or 0x25 picked at random (land_yamato_view)
+0040ee80	function	land_yamato_update	void __fastcall (int slot)	The update of Land's Yamato style, by the step table at 0x0040F59C: the cutaway, the ship steered over the hangar, then to the pad (part 1), turned along the bay and level, stood on the pad, which its floor track lowers (land_yamato_pad_track), and the mission over; a ship other than the player's lets the landing go at once
+004c1e40	function	mat3_multiply_transposed	void __fastcall (float *out, float *a, float *b)	out = a times the transpose of b, as land_yamato_update works out the ship's turn on the pad
+0051863c	data	land_yamato_view	int	The view land_yamato_cutaway picked, 0x0E or 0x25, which nothing reads
+004e2048	data	land_yamato_pad_track	char[6]	floor: the track of the landing bay's pad (part 1 of yamhanger.shp) that land_yamato_update plays to lower the ship
 0040f5c0	function	land_reliant_init	void __fastcall (int slot)	The init of Land's Reliant style: the first step, due in 700 ticks, or at once for a ship sent home for its friendly fire
 0040f600	function	land_reliant_cutaway	void __fastcall (int slot)	The cutaway of the Reliant's landing: view 0x23 or 0x26, the carrier moved to (0, -1000000, 0), the middle of its first launch tube, and the ship stood 20000 ahead of it and 5000 above
 0040f940	function	land_reliant_update	void __fastcall (int slot)	The update of Land's Reliant style: the cutaway, the approach over the first launch tube, the sink into it through its upper door, and the mission's end 270 ticks after the ship is down

@@ -159,6 +159,8 @@ ship picked the pilot up (`mission_end_record`, `0x00475B57` on), before the ITA
 | 23 | 5 | `new_navy_cross.bik` |
 | 27 | 6 | `new_medal_of_honour.bik` |
 
+**Improvement:** scripts can choose each of these movies, or none, with the hooks `mission_lost`, `career_over` and `medal_ceremony` ([Hooks](../guide/scripting.md#hooks)). A movie a hook chooses plays from a mod or from either disc's archive: where the archive open doesn't hold it, the other disc's opens for it, and the first opens again after it (`Movies.playChosen`).
+
 ### The story's end
 
 As mission 28 is won, the campaign moves on to mission 29, the story's end. `WinMain` runs mission
