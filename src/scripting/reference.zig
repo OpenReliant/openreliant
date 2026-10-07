@@ -20,6 +20,7 @@ const values = @import("values.zig");
 const objects = @import("objects.zig");
 const missiles = @import("missiles.zig");
 const turrets = @import("turrets.zig");
+const instruments = @import("instruments.zig");
 const records = @import("records.zig");
 const bind = @import("bind.zig");
 const script = @import("script.zig");
@@ -60,8 +61,9 @@ const roots: []const type = list: {
         if (declared.Result != void) found = found ++ .{declared.Result};
     }
     // The game's actions (`on_action`) and camera views (`camera.view`), which scripts pass and get
-    // as strings, since mods add their own.
-    break :list found ++ records.Values.kinds ++ .{ engine.input.controls.Action, engine.game.camera.View };
+    // as strings, since mods add their own; and the layout a HUD display gives an instrument, which
+    // only `register_display`'s definition takes.
+    break :list found ++ records.Values.kinds ++ .{ engine.input.controls.Action, engine.game.camera.View, instruments.Layout };
 };
 
 /// The types of what scripts pass the functions and methods declared, which `given` follows.

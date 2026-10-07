@@ -1273,7 +1273,7 @@ test drawFrame {
     var cockpit_model = try cockpit.create(arena, &model.source, &model.loaded);
 
     var context: srapi.Context = .{ .projection = .init(640, 480, srapi.full_screen, camera.factors) };
-    backing.place(context.projection, .{}, 1);
+    backing.place(context.projection, .{}, 1, .{});
     var idle: IdleDriver = .{};
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
@@ -1415,9 +1415,10 @@ pub const RadarBacking = struct {
         return backing;
     }
 
-    /// Puts the corners on the radar for this frame's `projection`, and the object at the camera.
-    pub fn place(backing: *RadarBacking, projection: srapi.Projection, at: camera.Place, scale: f32) void {
-        backing.positions = corners(projection, scale);
+    /// Puts the corners on the radar for this frame's `projection`, as a mod's display places the
+    /// radar (`hud.Placement`), and the object at the camera.
+    pub fn place(backing: *RadarBacking, projection: srapi.Projection, at: camera.Place, scale: f32, placement: hud.Placement) void {
+        backing.positions = corners(projection, scale, placement);
         srapi.findBoundingBox(&backing.mesh);
         backing.object.radius = backing.mesh.radius;
         backing.object.position = at.position;
@@ -1425,14 +1426,17 @@ pub const RadarBacking = struct {
     }
 
     /// The corners in the camera's frame: across from the middle of the screen and down from the
-    /// radar's height, in the display's pixels, unprojected to `depth`.
-    pub fn corners(projection: srapi.Projection, scale: f32) [4]math.Vector {
-        const radar = hud.place(projection.screen, hud.Radar.offset, hud.Radar.across, hud.Radar.down, scale);
+    /// radar's height, in the display's pixels, unprojected to `depth`. A placement's scale draws
+    /// the radar larger from its place, and its offset moves it, as the display draws it.
+    pub fn corners(projection: srapi.Projection, scale: f32, placement: hud.Placement) [4]math.Vector {
+        const drawn = scale * placement.scale;
+        const shift = placement.shift(scale);
+        const radar = hud.place(projection.screen, hud.Radar.offset, hud.Radar.across, hud.Radar.down, drawn);
         const around = [4][2]i32{ .{ across[0], down[0] }, .{ across[1], down[0] }, .{ across[1], down[1] }, .{ across[0], down[1] } };
         var out: [4]math.Vector = undefined;
         for (&out, around) |*position, corner| {
-            const x = @as(f32, @floatFromInt(corner[0])) * scale;
-            const y = @as(f32, @floatFromInt(radar[1])) + @as(f32, @floatFromInt(corner[1])) * scale - projection.centre[1];
+            const x = @as(f32, @floatFromInt(corner[0])) * drawn + shift[0];
+            const y = @as(f32, @floatFromInt(radar[1])) + @as(f32, @floatFromInt(corner[1])) * drawn - projection.centre[1] + shift[1];
             position.* = .{ x * depth / projection.scale[0], y * depth / projection.scale[1], depth };
         }
         return out;
@@ -1474,7 +1478,7 @@ test "the radar's backing stands where the radar does" {
     // At 640 by 480 and the game's scale, the corners project back to 65 left of the middle to
     // 67 right, and 32 either side of the radar's height, 68 above the foot.
     const projection = srapi.Projection.init(640, 480, .{ 0, 0, 1, 1 }, camera.factors);
-    const corners = RadarBacking.corners(projection, 1);
+    const corners = RadarBacking.corners(projection, 1, .{});
     for (corners, [4][2]f32{ .{ 320 - 65, 480 - 68 - 32 }, .{ 320 + 67, 480 - 68 - 32 }, .{ 320 + 67, 480 - 68 + 32 }, .{ 320 - 65, 480 - 68 + 32 } }) |corner, expected| {
         const screen = projection.transform(corner);
         try std.testing.expectApproxEqAbs(expected[0], screen.x, 0.01);

@@ -21,6 +21,7 @@ const api = @import("api.zig");
 const Call = api.Call;
 const presentation = @import("presentation.zig");
 const front_end = @import("front_end.zig");
+const instruments = @import("instruments.zig");
 const runtime = @import("runtime.zig");
 const srtexture = engine.surrender.surrenderlib.srtexture;
 
@@ -451,12 +452,21 @@ fn recordLine(call: Call, which: Which, from: Where, to: Where, given: ?LineStyl
 /// `openreliant.ui`).
 pub fn Package(comptime which: Which) type {
     return struct {
-        pub const register_display = if (which == .hud) api.Native("Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> ()}", "string", @import("registries.zig").registration(.display)) else {};
+        pub const register_display = if (which == .hud) api.Native("Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?}", "string", @import("registries.zig").registration(.display)) else {};
         pub const set_display_enabled = if (which == .hud) api.Function("Enables or disables a registered HUD display by qualified name. Returns whether it exists.", &.{ "name", "enabled" }, struct {
             fn set(call: Call, name: []const u8, enabled: bool) bool {
                 return @import("registries.zig").show(call, .display, name, enabled);
             }
         }.set) else {};
+        pub const replaced = if (which == .hud) instruments.replaced else {};
+        pub const bounds = if (which == .hud) instruments.bounds else {};
+        pub const instruments_shown = if (which == .hud) instruments.instruments_shown else {};
+        pub const guns = if (which == .hud) instruments.guns else {};
+        pub const missiles = if (which == .hud) instruments.missiles else {};
+        pub const target = if (which == .hud) instruments.target else {};
+        pub const radar = if (which == .hud) instruments.radar else {};
+        pub const kills = if (which == .hud) instruments.kills else {};
+        pub const open_windows = if (which == .hud) instruments.open_windows else {};
         pub const register_screen = if (which == .ui) api.Native("Registers a screen, which `name` qualified with the mod's name names. While it's shown (`show_screen`), `frame` draws it with this package's functions each frame, and `key` gets each key as it goes down and up. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?}", "string", @import("registries.zig").registration(.screen)) else {};
         pub const replace_screen = if (which == .ui) front_end.functions.replace_screen else {};
         pub const go_to = if (which == .ui) front_end.functions.go_to else {};

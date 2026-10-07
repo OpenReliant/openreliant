@@ -60,6 +60,13 @@ middle rather than exactly on it, the inset having grown. Since the offsets are 
 screen chosen sets how far in the elements stand: at 640 by 480 the clock, 130 above the foot,
 stands near two thirds of the way down, and at 1024 by 768 near four fifths.
 
+**Improvement:** a mod's display can stand in for any of the instruments, or move and scale them
+([The game's instruments](../guide/scripting.md#the-games-instruments)). Each instrument draws through
+a device of its own each frame (`hud.Placings`), which notes the box it covers, moves its draws by
+whole pixels of the window, or leaves them out for one a display stands in for. An instrument that
+is scaled is drawn with the display's scale times its own, so that it stays as sharp as the
+display. Either way the instrument does its work as before: only what it draws changes.
+
 ## Text
 
 `hud_text` (`0x00480E40`) draws a line through `VFX_string_draw`, left where its alignment is 0,

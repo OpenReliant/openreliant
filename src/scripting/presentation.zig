@@ -74,10 +74,18 @@ pub const Host = struct {
     views: std.EnumArray(drawing.Which, ?drawing.View) = .initFill(null),
     /// The camera, while a mission is shown.
     camera: ?Camera = null,
+    /// The flight display's state and the player's, which `openreliant.hud` reads, while a
+    /// mission is shown.
+    flight: ?Flight = null,
     /// The sound, where any is heard.
     sound: ?*hog_snd.Sound = null,
     /// Whether the player is flying, which is when the controls' actions mean anything.
     flying: bool = false,
+
+    pub const Flight = struct {
+        hud: *const hud.State,
+        player: *const input.Player,
+    };
 
     pub const Camera = struct {
         camera: *camera.Camera,
@@ -302,6 +310,14 @@ pub const Presentation = struct {
         shown.runtime.registries.frame(shown.runtime, host.seconds);
     }
 
+    /// Where the mods' displays put the game's instruments of the flight display this frame, and
+    /// which they stand in for: none while the display's layer isn't shown, as the displays don't
+    /// draw then.
+    pub fn instrumentPlacements(shown: *const Presentation) std.EnumArray(hud.Instrument, hud.Placement) {
+        if (shown.views.get(.hud) == null) return .initFill(.{});
+        return shown.runtime.registries.placements();
+    }
+
     /// Draws what the scripts drew on `which` this frame into `into`, where it's shown. `sight`
     /// places what they drew in the world. First, `into` lets go of the pictures taken out of the
     /// cache (`drawing.Assets.release`).
@@ -495,6 +511,70 @@ test "registered views, displays and screens execute and close with their contex
     try std.testing.expect(fixture.shown.runtime.registries.find(.screen, "a:panel") != null);
 }
 
+test "a display stands in for the game's instruments and reads what they show" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=player.luau\n" },
+            .{
+                "player.luau",
+                \\local hud = require("openreliant.hud")
+                \\local frames = 0
+                \\hud.register_display("radar", {replaces = {"gunnery", "radar"}, layout = {clock = {offset = vector.create(10, -5, 0), scale = 1.5}}, frame = function()
+                \\    frames += 1
+                \\    if frames == 3 then error("broken") end
+                \\end})
+                \\assert(not pcall(hud.register_display, "bad", {replaces = {"nothing"}, frame = function() end}))
+                \\assert(not pcall(hud.register_display, "small", {layout = {clock = {scale = 0}}, frame = function() end}))
+                \\assert(not pcall(hud.register_display, "where", {layout = {nothing = {scale = 2}}, frame = function() end}))
+                \\return {engine_handlers = {on_frame = function()
+                \\    local guns, missiles, radar, target = hud.guns, hud.missiles, hud.radar, hud.target
+                \\    hud.text(vector.zero, string.format("%s %s %d %s %d %s %d %d %s %s %d %d %s", tostring(hud.instruments_shown),
+                \\        table.concat(hud.replaced, ","), radar.range, tostring(radar.zooming), hud.kills, missiles.armed,
+                \\        missiles.left, #missiles.ring, table.concat(hud.open_windows, ","), tostring(guns.all), target.component,
+                \\        hud.bounds("radar").right, tostring(hud.bounds("clock"))))
+                \\end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    var state: hud.State = .{};
+    state.radar_range = 1;
+    state.missiles.entries[0] = .{ .count = 2, .type = .of(.screamer) };
+    state.missiles.entries[1] = .{ .count = 4, .type = .of(.raptor) };
+    state.missiles.armed = 1;
+    state.windows.status.getPtr(.gunnery).phase = .open;
+    state.target = .{ .target = .at(0, 3), .slot = 0 };
+    state.bounds.set(.radar, .{ .left = 1, .top = 2, .right = 30, .bottom = 40 });
+    var player: input.Player = .{};
+    player.kills.count = 7;
+    var view: engine.game.camera.Camera = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player } };
+    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
+    fixture.shown.frame(host);
+    // The scripts read the replaced instruments in the game's order, as the display has them.
+    const placed = fixture.shown.instrumentPlacements();
+    try std.testing.expect(placed.get(.radar).hidden and placed.get(.gunnery).hidden and !placed.get(.clock).hidden);
+    try std.testing.expectEqual(hud.Placement{ .offset = .{ 10, -5 }, .scale = 1.5 }, placed.get(.clock));
+    try std.testing.expectEqualStrings("true radar,gunnery 1 false 7 raptor 4 2 gunnery true 3 30 nil", fixture.shown.layers.get(.hud).text.items);
+    // While the display's layer isn't shown, the displays don't draw, and the instruments are as
+    // the game has them.
+    var shut = host;
+    shut.views.set(.hud, null);
+    fixture.shown.frame(shut);
+    try std.testing.expectEqual(hud.Placement{}, fixture.shown.instrumentPlacements().get(.radar));
+    // As its frame fails, the game's instruments come back as they were.
+    fixture.shown.frame(host);
+    try std.testing.expect(fixture.shown.instrumentPlacements().get(.radar).hidden);
+    fixture.shown.frame(host);
+    try std.testing.expectEqual(hud.Placement{}, fixture.shown.instrumentPlacements().get(.radar));
+    try std.testing.expectEqual(hud.Placement{}, fixture.shown.instrumentPlacements().get(.clock));
+    fixture.shown.endGame();
+}
+
 test "a player script's self follows the player's ship from mission to mission" {
     const gpa = std.testing.allocator;
     var fixture: Fixture = undefined;
@@ -607,6 +687,42 @@ test "presentation names isolate mods and failed loads remove only new registrat
     try std.testing.expect(fixture.shown.runtime.registries.find(.screen, "a:panel") != null);
     try std.testing.expect(fixture.shown.runtime.registries.find(.screen, "b:panel") != null);
     try std.testing.expectEqual(null, fixture.shown.runtime.registries.find(.screen, "a:discard"));
+}
+
+test "the hud-layout example stands in for the radar and places the cluster and the clock" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "hud-layout", &.{
+        .{ "mod.ini", @embedFile("hud-layout/mod.ini") },
+        .{ "hud.luau", @embedFile("hud-layout/hud.luau") },
+    } }});
+    defer fixture.deinit();
+    // A ship ahead of the player's, within the radar's reach.
+    _ = try fixture.mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    defer fixture.shown.endGame();
+    var state: hud.State = .{};
+    state.bounds.set(.radar, .{ .left = 270, .top = 380, .right = 370, .bottom = 470 });
+    var player: input.Player = .{};
+    var view: engine.game.camera.Camera = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player } };
+    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
+    fixture.shown.frame(host);
+    const placed = fixture.shown.instrumentPlacements();
+    try std.testing.expect(placed.get(.radar).hidden);
+    try std.testing.expectEqual(1.25, placed.get(.gauges).scale);
+    try std.testing.expectEqual([2]f32{ -120, 70 }, placed.get(.clock).offset);
+    // Its radar's ring and the line ahead, the ship on it, and the guns' line.
+    var lines: usize = 0;
+    var blips: usize = 0;
+    for (fixture.shown.layers.get(.hud).commands.items) |command| switch (command) {
+        .line => lines += 1,
+        .rectangle => blips += 1,
+        else => {},
+    };
+    try std.testing.expectEqual(33, lines);
+    try std.testing.expectEqual(1, blips);
+    try std.testing.expectEqualStrings("ALL GUNS  100%", fixture.shown.layers.get(.hud).text.items);
 }
 
 test "the strafe-run example combines registries and built-in interfaces" {

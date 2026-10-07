@@ -1170,9 +1170,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
                 if (script_font) |*file| frames.show(&host, layer, &file.font, game.hud.scaleFor(size), &display.resources.art);
                 host.camera = .{ .camera = &view, .now = clock.viewTime(), .player = objects.player };
+                host.flight = .{ .hud = &display.state, .player = display.player };
             }
             if (shown.runtime.registries.selected_screen != null and host.views.get(.ui) == null) host.views.set(.ui, host.views.get(.hud));
             shown.frame(host);
+            display.placements = shown.instrumentPlacements();
             if (host.camera != null) {
                 objects.slots[objects.player].object.flags.hidden = view.inside(objects.player);
             }
@@ -1191,7 +1193,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             context.projection = view.projection(size[0], size[1]);
             // The cockpit's model hangs from the camera, and the radar's backing stands on the radar.
             if (cockpit.shown) |*shown| if (view.cockpit_place) |placed| game.main.cockpit.place(&shown.model, view.place, placed);
-            backing.place(context.projection, view.place, game.hud.scaleFor(size));
+            backing.place(context.projection, view.place, game.hud.scaleFor(size), display.placements.get(.radar));
             display.device = gpu.interface();
             display.screen = size;
             display.sight = .{ .place = view.place, .projection = context.projection };
@@ -1212,8 +1214,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .cut = view.cut,
                 .overlay = display.overlay(),
                 .cockpit = if (cockpit.shown) |*shown| &shown.model else null,
-                // The paused frame hides the radar's backing, whose radar the menu stands in place of.
-                .backing = if (clock.paused) null else backing,
+                // The paused frame hides the radar's backing, whose radar the menu stands in place of,
+                // as does a mod's display that stands in for the radar.
+                .backing = if (clock.paused or display.placements.get(.radar).hidden) null else backing,
                 .kills_shown = devices.active(.display_kills, false),
                 .particles = &particles,
                 .smoke = &smoke,
@@ -2155,6 +2158,9 @@ const Display = struct {
     settings: game.hudoptions.Settings,
     /// The player and menu scripts, which draw over the display and the pause menu.
     presentation: ?*scripting.Presentation = null,
+    /// Where the mods' displays put the instruments this frame, and which they stand in for, as
+    /// the scripts' frame leaves them (`hud.Frame.placements`).
+    placements: std.EnumArray(game.hud.Instrument, game.hud.Placement) = .initFill(.{}),
     /// The scripting console, which stands in the pause menu's place while it's up.
     console: ?*ScriptConsole = null,
 
@@ -2218,6 +2224,7 @@ const Display = struct {
             .ready = if (display.play.loaded) |loaded| &loaded.script.variables.ready else &display.idle,
             .edge_line = display.edge_line,
             .variables = if (display.play.loaded) |loaded| &loaded.script.variables else null,
+            .placements = display.placements,
         });
     }
 };

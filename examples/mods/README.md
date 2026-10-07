@@ -15,6 +15,7 @@ or go away in any release. Copy one as a starting point for your own mod.
 | [`crt`](crt) | A post effect (`openreliant.postprocessing`) |
 | [`custom-order`](custom-order) | Registering an AI order |
 | [`drawing-assets`](drawing-assets) | Drawing a mod's pictures, the game's shapes and fonts |
+| [`hud-layout`](hud-layout) | A HUD display that stands in for the game's radar, moves and scales other instruments, and reads what they show |
 | [`dvd`](dvd) | A menu script that draws over the menus |
 | [`interceptor`](interceptor) | A new ship type, based on the Predator, flown in a game mode |
 | [`main-menu`](main-menu) | A main menu of the mod's own in place of the game's |
