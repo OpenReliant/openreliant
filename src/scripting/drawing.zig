@@ -27,17 +27,40 @@ const srtexture = engine.surrender.surrenderlib.srtexture;
 /// Built-in font choices; the layer's default remains the default for existing scripts.
 pub const Font = enum { default, hud, menu_small, menu_large };
 
-/// Assets are cached by context and filename. Keep them until presentation shutdown because the
-/// renderer may still hold images used by a preceding frame. Limits include retired contexts.
+/// The most files the mods' pictures and fonts can keep in the cache at once.
 pub const max_assets = 128;
-pub const max_asset_bytes = 64 * 1024 * 1024;
+/// The most bytes their pixels and font files can take at once. A picture takes 4 bytes a pixel,
+/// so a 4096x4096 picture takes 64 MiB.
+pub const max_asset_bytes = 128 * 1024 * 1024;
+/// How many frames a drawn picture stays in the cache, whatever needs room: the device may still
+/// be drawing one drawn in the last frame.
+pub const kept_frames = 2;
 
+/// The scripts' pictures and fonts, cached by script context and file name. Each picture notes the
+/// frame it was last drawn in. When a new picture or font needs room, the pictures drawn longest
+/// ago make room for it (`makeRoom`), but never one drawn in the last `kept_frames`. A font stays
+/// until the presentation stops.
+///
+/// Once the device holds a picture's pixels (`srtexture.Image.held`), the cache lets go of its own
+/// copy, so a picture takes its memory only once.
 pub const Assets = struct {
     pictures: std.ArrayList(Picture) = .empty,
     fonts: std.ArrayList(CustomFont) = .empty,
     bytes: usize = 0,
+    /// The frame the scripts draw, from 1 for the first (`startFrame`).
+    frame: u64 = 0,
+    /// The pictures taken out of the cache, which `release` frees once the device lets go of them.
+    taken_out: std.ArrayList(*srtexture.Image) = .empty,
 
-    const Picture = struct { context: *runtime.Context, name: []u8, image: *srtexture.Image };
+    const Picture = struct {
+        context: *runtime.Context,
+        name: []u8,
+        image: *srtexture.Image,
+        /// What its pixels take of `max_asset_bytes`.
+        bytes: usize,
+        /// The frame it was last drawn in.
+        drawn: u64,
+    };
     const CustomFont = struct {
         context: *runtime.Context,
         name: []u8,
@@ -49,11 +72,12 @@ pub const Assets = struct {
 
     pub fn deinit(assets: *Assets, gpa: Allocator) void {
         for (assets.pictures.items) |picture| {
-            picture.image.deinit(gpa);
-            gpa.destroy(picture.image);
+            picture.image.destroy(gpa);
             gpa.free(picture.name);
         }
         assets.pictures.deinit(gpa);
+        for (assets.taken_out.items) |image| image.destroy(gpa);
+        assets.taken_out.deinit(gpa);
         for (assets.fonts.items) |font| {
             font.opened.deinit(gpa);
             gpa.destroy(font.opened);
@@ -68,16 +92,41 @@ pub const Assets = struct {
         assets.* = .{};
     }
 
-    fn loadPicture(assets: *Assets, call: Call, path: []const u8) !*srtexture.Image {
+    /// Counts a new frame of drawing.
+    pub fn startFrame(assets: *Assets) void {
+        assets.frame += 1;
+    }
+
+    /// Hands the device `into` the pictures taken out of the cache, so that it lets go of what it
+    /// made of them, and frees them. Lets go of the pixels of the pictures the device now holds.
+    pub fn release(assets: *Assets, gpa: Allocator, into: device.Device) void {
+        for (assets.taken_out.items) |image| {
+            into.release(image);
+            image.destroy(gpa);
+        }
+        assets.taken_out.clearRetainingCapacity();
         for (assets.pictures.items) |picture| {
-            if (picture.context == call.context and std.ascii.eqlIgnoreCase(picture.name, path)) return picture.image;
+            if (picture.image.held and picture.image.readable()) picture.image.releasePixels(gpa);
+        }
+    }
+
+    /// The picture `path` of the script of `call`, loaded the first time, and noted as drawn this
+    /// frame.
+    fn loadPicture(assets: *Assets, call: Call, path: []const u8) !*srtexture.Image {
+        for (assets.pictures.items) |*picture| {
+            if (picture.context != call.context or !std.ascii.eqlIgnoreCase(picture.name, path)) continue;
+            picture.drawn = assets.frame;
+            return picture.image;
         }
         const gpa = call.runtime().gpa;
-        if (assets.pictures.items.len + assets.fonts.items.len == max_assets) return error.TooManyAssets;
         const file = try readAsset(call, path);
         defer gpa.free(file);
-        const pixels = try openreliant.png.readLimited(gpa, file, max_asset_bytes - assets.bytes);
-        const needed = pixels.rgba.len;
+        // The header gives the room the pixels need, so that room is made before they're read.
+        const across, const down = try openreliant.png.size(file);
+        const needed = srtexture.Level.Format.rgba8.size(across, down);
+        if (needed > max_asset_bytes) return error.PictureTooLarge;
+        try assets.makeRoom(gpa, needed);
+        const pixels = try openreliant.png.readLimited(gpa, file, needed);
         errdefer pixels.deinit(gpa);
         const name = try gpa.dupe(u8, path);
         errdefer gpa.free(name);
@@ -85,9 +134,36 @@ pub const Assets = struct {
         errdefer gpa.destroy(image);
         try assets.pictures.ensureUnusedCapacity(gpa, 1);
         image.* = try srtexture.Image.single(gpa, pixels.width, pixels.height, pixels.rgba);
-        assets.pictures.appendAssumeCapacity(.{ .context = call.context, .name = name, .image = image });
-        assets.bytes += needed;
+        assets.pictures.appendAssumeCapacity(.{ .context = call.context, .name = name, .image = image, .bytes = pixels.rgba.len, .drawn = assets.frame });
+        assets.bytes += pixels.rgba.len;
         return image;
+    }
+
+    /// Takes pictures out of the cache until one more file of `needed` bytes fits, the one drawn
+    /// longest ago first. Fails where the fonts and the pictures drawn in the last `kept_frames`
+    /// leave no room.
+    fn makeRoom(assets: *Assets, gpa: Allocator, needed: usize) !void {
+        while (true) {
+            const full = assets.pictures.items.len + assets.fonts.items.len == max_assets;
+            if (!full and assets.bytes + needed <= max_asset_bytes) return;
+            const index = assets.stalest() orelse return if (full) error.TooManyAssets else error.AssetsTooLarge;
+            try assets.taken_out.ensureUnusedCapacity(gpa, 1);
+            const picture = assets.pictures.swapRemove(index);
+            assets.taken_out.appendAssumeCapacity(picture.image);
+            assets.bytes -= picture.bytes;
+            gpa.free(picture.name);
+        }
+    }
+
+    /// The cached picture drawn longest ago, if one wasn't drawn in the last `kept_frames`.
+    fn stalest(assets: *const Assets) ?usize {
+        var found: ?usize = null;
+        for (assets.pictures.items, 0..) |picture, index| {
+            if (picture.drawn + kept_frames > assets.frame) continue;
+            if (found) |oldest| if (assets.pictures.items[oldest].drawn <= picture.drawn) continue;
+            found = index;
+        }
+        return found;
     }
 
     /// The mod's font `path` of the script of `call`, laid out as the built-in font `base` where
@@ -103,12 +179,11 @@ pub const Assets = struct {
             const same_layout = if (is_bitmap) !font.outline_layout else font.outline_layout and std.meta.activeTag(font.opened.paint) == bitmap.paint and std.mem.eql(u8, font.bytes, bitmap.font.bytes);
             if (font.context == call.context and same_layout and std.ascii.eqlIgnoreCase(font.name, path)) return font.opened;
         }
-        if (assets.pictures.items.len + assets.fonts.items.len == max_assets) return error.TooManyAssets;
         const gpa = call.runtime().gpa;
         const file = try readAsset(call, path);
         defer gpa.free(file);
         const needed = if (is_bitmap) file.len else file.len + bitmap.font.bytes.len;
-        if (needed > max_asset_bytes - assets.bytes) return error.AssetsTooLarge;
+        try assets.makeRoom(gpa, needed);
         const bytes = try gpa.dupe(u8, if (is_bitmap) file else bitmap.font.bytes);
         errdefer gpa.free(bytes);
         const opened = try gpa.create(hud.Opened);
@@ -148,8 +223,9 @@ fn problem(err: anyerror) []const u8 {
     return switch (err) {
         error.InvalidAssetName => "a file's name must be printable ASCII",
         error.AssetNotFound => "the mod has no file with that name",
-        error.TooManyAssets => std.fmt.comptimePrint("the mods' pictures and fonts already use the most files they can, {d}", .{max_assets}),
-        error.AssetsTooLarge => std.fmt.comptimePrint("the mods' pictures and fonts would take more than {d} MiB", .{max_asset_bytes >> 20}),
+        error.TooManyAssets => std.fmt.comptimePrint("the mods' fonts and the pictures drawn in the last {d} frames already take the {d} files the cache holds", .{ kept_frames, max_assets }),
+        error.AssetsTooLarge => std.fmt.comptimePrint("the mods' fonts and the pictures drawn in the last {d} frames would take more than {d} MiB", .{ kept_frames, max_asset_bytes >> 20 }),
+        error.PictureTooLarge => std.fmt.comptimePrint("its pixels alone would take more than {d} MiB", .{max_asset_bytes >> 20}),
         error.FontUnavailable => "its base font isn't loaded this frame",
         error.InvalidFontExtension => "a font must be a .fnt, .ttf or .otf file",
         error.NotAFont, error.BadGlyph => "it isn't a valid .fnt font",
@@ -394,7 +470,7 @@ pub fn Package(comptime which: Which) type {
                 return @import("registries.zig").show(call, .screen, name, true);
             }
         }.show) else {};
-        pub const picture = api.Function("Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.", &.{ "at", "file", "size", "style" }, struct {
+        pub const picture = api.Function("Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for " ++ std.fmt.comptimePrint("{d}", .{kept_frames}) ++ " frames makes room for others when the cache is full.", &.{ "at", "file", "size", "style" }, struct {
             fn draw(call: Call, at: @Vector(3, f32), path: []const u8, size: ?@Vector(3, f32), given: ?FillStyle) void {
                 const scripts = presentation.Presentation.of(call, "picture");
                 const image = scripts.assets.loadPicture(call, path) catch |err| call.raise("picture {s}: {s}", .{ path, problem(err) });
@@ -497,6 +573,64 @@ pub const debug = struct {
         }
     }.draw);
 };
+
+/// Adds a picture of one pixel to `assets` for a test, which takes `bytes` of the budget and was
+/// last drawn in frame `drawn`.
+fn testPicture(assets: *Assets, context: *runtime.Context, bytes: usize, drawn: u64) !void {
+    const gpa = std.testing.allocator;
+    try assets.pictures.ensureUnusedCapacity(gpa, 1);
+    const name = try gpa.dupe(u8, "a.png");
+    errdefer gpa.free(name);
+    const pixels = try gpa.alloc(u8, srtexture.Level.Format.rgba8.size(1, 1));
+    errdefer gpa.free(pixels);
+    const image = try gpa.create(srtexture.Image);
+    errdefer gpa.destroy(image);
+    image.* = try srtexture.Image.single(gpa, 1, 1, pixels);
+    assets.pictures.appendAssumeCapacity(.{ .context = context, .name = name, .image = image, .bytes = bytes, .drawn = drawn });
+    assets.bytes += bytes;
+}
+
+test "the pictures drawn longest ago make room" {
+    const gpa = std.testing.allocator;
+    var assets: Assets = .{ .frame = 10 };
+    defer assets.deinit(gpa);
+    var context: runtime.Context = undefined;
+    const quarter = max_asset_bytes / 4;
+    // Three pictures, each a quarter of the budget, last drawn in frames 3, 9 and 5.
+    for ([_]u64{ 3, 9, 5 }) |drawn| try testPicture(&assets, &context, quarter, drawn);
+    // Half the budget takes out the one drawn longest ago.
+    try assets.makeRoom(gpa, 2 * quarter);
+    try std.testing.expectEqual(2, assets.pictures.items.len);
+    try std.testing.expectEqual(1, assets.taken_out.items.len);
+    try std.testing.expectEqual(2 * quarter, assets.bytes);
+    // One drawn in the last frame stays, so the whole budget can't be made.
+    try std.testing.expectError(error.AssetsTooLarge, assets.makeRoom(gpa, max_asset_bytes));
+    try std.testing.expectEqual(1, assets.pictures.items.len);
+    try std.testing.expectEqual(9, assets.pictures.items[0].drawn);
+
+    // The device lets go of what was taken out, and the cache of the pixels the device holds.
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    assets.pictures.items[0].image.held = true;
+    assets.release(gpa, recorder.interface());
+    try std.testing.expectEqual(2, recorder.released);
+    try std.testing.expectEqual(0, assets.taken_out.items.len);
+    try std.testing.expect(!assets.pictures.items[0].image.readable());
+    try std.testing.expectEqual(1, assets.pictures.items[0].image.width());
+}
+
+test "the fonts and the pictures drawn lately fill the cache" {
+    const gpa = std.testing.allocator;
+    var assets: Assets = .{ .frame = 2 };
+    defer assets.deinit(gpa);
+    var context: runtime.Context = undefined;
+    for (0..max_assets) |_| try testPicture(&assets, &context, 4, 1);
+    try std.testing.expectError(error.TooManyAssets, assets.makeRoom(gpa, 4));
+    // A frame on, the first drawn makes room.
+    assets.startFrame();
+    try assets.makeRoom(gpa, 4);
+    try std.testing.expectEqual(max_assets - 1, assets.pictures.items.len);
+}
 
 test rgba {
     try std.testing.expectEqual([4]f32{ 1, 0, 0.5, 1 }, rgba(.{ 2, -1, 0.5 }, 3));

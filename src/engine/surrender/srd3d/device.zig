@@ -233,6 +233,9 @@ pub const Device = struct {
         /// null. Gives the face's side in pixels, or null where it draws no reflections this frame.
         /// A device without it draws none.
         reflections: ?*const fn (*anyopaque, ?u3) ?u32 = null,
+        /// OpenReliant's: lets go of what it made of `image`, which is about to be freed, so that
+        /// another texture can take its place. A device without it keeps nothing of an image.
+        release: ?*const fn (*anyopaque, *srtexture.Image) void = null,
     };
 
     pub fn begin(device: Device) void {
@@ -293,6 +296,12 @@ pub const Device = struct {
         const send = device.vtable.reflections orelse return null;
         return send(device.ptr, face);
     }
+
+    /// Lets the device go of what it made of `image`, before `image` is freed.
+    pub fn release(device: Device, image: *srtexture.Image) void {
+        const let_go = device.vtable.release orelse return;
+        let_go(device.ptr, image);
+    }
 };
 
 test pack {
@@ -318,6 +327,8 @@ pub const testing = struct {
         /// How many of the frame's lights it adds to each pixel, and the lights it was last handed.
         room: usize = 0,
         lights: std.ArrayList(Light) = .empty,
+        /// How many images it was told to let go of.
+        released: usize = 0,
 
         /// A draw: its states, and its vertices in `vertices`, as the indices pick them.
         pub const Draw = struct { state: State, primitive: Primitive, first: usize, count: usize };
@@ -350,7 +361,11 @@ pub const testing = struct {
             return recorder.drawn(recorder.draws.items.len - 1);
         }
 
-        const vtable: Device.VTable = .{ .begin = nothing, .end = nothing, .draw = draw, .overlay = nothing, .lights = take };
+        const vtable: Device.VTable = .{ .begin = nothing, .end = nothing, .draw = draw, .overlay = nothing, .lights = take, .release = release };
+
+        fn release(ptr: *anyopaque, _: *srtexture.Image) void {
+            from(ptr).released += 1;
+        }
 
         fn from(ptr: *anyopaque) *Recorder {
             return @ptrCast(@alignCast(ptr));

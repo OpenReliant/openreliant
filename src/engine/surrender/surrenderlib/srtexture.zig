@@ -90,8 +90,8 @@ pub const Image = struct {
     /// Added by OpenReliant: the mod's surface function its draws are shaded with, if any.
     surface: ?ModSurface = null,
     /// Added by OpenReliant: set by a device that keeps its own copy of the pixels, such as the
-    /// GPU, once it has taken them. The texture table can then let go of its own
-    /// (`Table.releaseHeld`).
+    /// GPU, once it has taken them. Whoever made the image can then let go of its own
+    /// (`releasePixels`).
     held: bool = false,
 
     /// The maps of a material, each as many levels as its image and of its size, in linear values;
@@ -213,6 +213,19 @@ pub const Image = struct {
         freeLevels(gpa, image.levels);
         image.maps.deinit(gpa);
     }
+
+    /// Frees an image made with `gpa.create`, and what it holds.
+    pub fn destroy(image: *Image, gpa: Allocator) void {
+        image.deinit(gpa);
+        gpa.destroy(image);
+    }
+
+    /// OpenReliant's: lets go of its pixels and its maps', keeping their sizes, once the device
+    /// holds its own copy (`held`) and nothing else reads them.
+    pub fn releasePixels(image: *Image, gpa: Allocator) void {
+        releaseLevels(gpa, image.levels);
+        for (image.maps.list()) |map| if (map) |levels| releaseLevels(gpa, levels);
+    }
 };
 
 /// Frees `levels` and their pixels.
@@ -221,8 +234,8 @@ pub fn freeLevels(gpa: Allocator, levels: []const Level) void {
     gpa.free(levels);
 }
 
-/// Lets go of `levels`' pixels, which the table made, keeping their sizes.
-fn releasePixels(gpa: Allocator, levels: []Level) void {
+/// Lets go of `levels`' pixels, keeping their sizes.
+fn releaseLevels(gpa: Allocator, levels: []Level) void {
     for (levels) |*level| {
         gpa.free(level.texels);
         level.texels = &.{};
@@ -385,10 +398,7 @@ pub const Table = struct {
         var it = table.images.iterator();
         while (it.next()) |entry| {
             table.gpa.free(entry.key_ptr.*);
-            if (entry.value_ptr.*) |image| {
-                image.deinit(table.gpa);
-                table.gpa.destroy(image);
-            }
+            if (entry.value_ptr.*) |image| image.destroy(table.gpa);
         }
         table.images.deinit(table.gpa);
         table.unreleased.deinit(table.gpa);
@@ -568,8 +578,7 @@ pub const Table = struct {
                 kept += 1;
                 continue;
             }
-            releasePixels(table.gpa, image.levels);
-            for (image.maps.list()) |map| if (map) |levels| releasePixels(table.gpa, levels);
+            image.releasePixels(table.gpa);
         }
         table.unreleased.shrinkRetainingCapacity(kept);
     }

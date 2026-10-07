@@ -318,6 +318,9 @@ const Array = struct {
     /// Its textures' maps of each kind, each at its texture's layer (`mapFormat`): made as the
     /// first texture with such a map goes up.
     maps: std.EnumArray(MapKind, ?*c.SDL_GPUTexture) = .initFill(null),
+    /// The layers whose textures were let go of (`Gpu.release`), which the next textures of its
+    /// shape take before it grows.
+    free: std.ArrayList(u16) = .empty,
 };
 
 /// The kinds of map a texture can have (`srtexture.Image.Maps`).
@@ -796,9 +799,10 @@ pub const Gpu = struct {
         var pipelines = gpu.pipelines.valueIterator();
         while (pipelines.next()) |made| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, made.*);
         gpu.pipelines.deinit(gpu.gpa);
-        for (gpu.arrays.items) |array| {
+        for (gpu.arrays.items) |*array| {
             c.SDL_ReleaseGPUTexture(gpu.handle, array.texture);
             for (array.maps.values) |texture| if (texture) |made| c.SDL_ReleaseGPUTexture(gpu.handle, made);
+            array.free.deinit(gpu.gpa);
         }
         c.SDL_ReleaseGPUTexture(gpu.handle, gpu.no_maps);
         if (gpu.reflections) |cube| c.SDL_ReleaseGPUTexture(gpu.handle, cube);
@@ -923,6 +927,7 @@ pub const Gpu = struct {
         .gamma = setGamma,
         .materials = materials,
         .reflections = reflectionsFace,
+        .release = release,
     };
 
     /// The gamma ramp, which the frame goes to the screen through (`present`).
@@ -1057,10 +1062,29 @@ pub const Gpu = struct {
         return slot;
     }
 
-    /// Gives a texture a layer in an array of its shape with room, or in a new one, to go up to the
-    /// GPU with the frame with its maps.
+    /// Gives a texture a layer to go up to the GPU with the frame with its maps: one let go of in
+    /// an array of its shape, or else one in an array of its shape with room, or in a new one.
     fn place(gpu: *Gpu, levels: []const srtexture.Level, maps: srtexture.Image.Maps, image: ?*srtexture.Image) Error!Slot {
         const shape: Shape = .{ .width = levels[0].width, .height = levels[0].height, .levels = @intCast(levels.len), .format = levels[0].format };
+        try gpu.uploads.ensureUnusedCapacity(gpu.gpa, 1);
+        const slot = gpu.reused(shape) orelse try gpu.newLayer(shape);
+        gpu.uploads.appendAssumeCapacity(.{ .levels = levels, .maps = maps, .slot = slot, .image = image });
+        if (maps.orm != null) gpu.has_materials = true;
+        return slot;
+    }
+
+    /// A layer let go of in an array of `shape` (`release`), if there is one.
+    fn reused(gpu: *Gpu, shape: Shape) ?Slot {
+        for (gpu.arrays.items, 0..) |*array, index| {
+            if (!std.meta.eql(array.shape, shape)) continue;
+            const layer = array.free.pop() orelse continue;
+            return .{ .array = @intCast(index), .layer = layer };
+        }
+        return null;
+    }
+
+    /// The next layer of an array of `shape` with room, or the first of a new one.
+    fn newLayer(gpu: *Gpu, shape: Shape) Error!Slot {
         const index = for (gpu.arrays.items, 0..) |array, i| {
             if (std.meta.eql(array.shape, shape) and array.count < max_layers) break i;
         } else made: {
@@ -1070,13 +1094,25 @@ pub const Gpu = struct {
             gpu.arrays.appendAssumeCapacity(.{ .shape = shape, .texture = try gpu.arrayTexture(shape, capacity, sdlFormat(shape.format, gpu.linear)), .capacity = capacity, .count = 0 });
             break :made index;
         };
-        try gpu.uploads.ensureUnusedCapacity(gpu.gpa, 1);
         const array = &gpu.arrays.items[index];
         const slot: Slot = .{ .array = @intCast(index), .layer = @intCast(array.count) };
         array.count += 1;
-        gpu.uploads.appendAssumeCapacity(.{ .levels = levels, .maps = maps, .slot = slot, .image = image });
-        if (maps.orm != null) gpu.has_materials = true;
         return slot;
+    }
+
+    /// Lets go of `image`'s layer, which the next texture of its shape takes, and drops its pixels
+    /// from the frame's uploads if they haven't gone up yet. Without the memory to note the layer
+    /// as free, the layer stays taken.
+    fn release(ptr: *anyopaque, image: *srtexture.Image) void {
+        const gpu = from(ptr);
+        const slot = Slot.of(image.*) orelse return;
+        var index = gpu.uploads.items.len;
+        while (index > 0) {
+            index -= 1;
+            if (gpu.uploads.items[index].image == image) _ = gpu.uploads.orderedRemove(index);
+        }
+        image.device = 0;
+        gpu.arrays.items[slot.array].free.append(gpu.gpa, slot.layer) catch {};
     }
 
     /// Whether it takes textures of `format`: every compressed one it takes (`compressed`), and 8-bit
@@ -1959,6 +1995,38 @@ test "Lighting.take in linear light" {
     try std.testing.expectApproxEqAbs(srgb.decoded(0.5), lighting.lights[0].colour[1], 1e-6);
     try std.testing.expectApproxEqAbs(2 * srgb.decoded(0.5), lighting.lights[1].colour[0], 1e-6);
     try std.testing.expectEqual(1, lighting.lights[0].shadowed);
+}
+
+test "a layer let go of goes to the next texture of its shape" {
+    const gpa = std.testing.allocator;
+    var gpu: Gpu = undefined;
+    gpu.gpa = gpa;
+    gpu.arrays = .empty;
+    gpu.uploads = .empty;
+    defer {
+        for (gpu.arrays.items) |*array| array.free.deinit(gpa);
+        gpu.arrays.deinit(gpa);
+        gpu.uploads.deinit(gpa);
+    }
+    const shape: Shape = .{ .width = 1, .height = 1, .levels = 1 };
+    try gpu.arrays.append(gpa, .{ .shape = shape, .texture = undefined, .capacity = 4, .count = 2 });
+    var levels = blank_levels;
+    var image: srtexture.Image = .{ .levels = &levels };
+    const slot: Slot = .{ .array = 0, .layer = 1 };
+    image.device = @as(u32, @bitCast(slot));
+    try gpu.uploads.append(gpa, .{ .levels = &levels, .slot = slot, .image = &image });
+    try std.testing.expectEqual(null, gpu.reused(shape));
+
+    // Its pixels no longer go up, and its layer goes to the next texture of the shape, once.
+    Gpu.release(&gpu, &image);
+    try std.testing.expectEqual(0, gpu.uploads.items.len);
+    try std.testing.expectEqual(null, Slot.of(image));
+    try std.testing.expectEqual(null, gpu.reused(.{ .width = 2, .height = 2, .levels = 1 }));
+    try std.testing.expectEqual(slot, gpu.reused(shape).?);
+    try std.testing.expectEqual(null, gpu.reused(shape));
+    // An image without a layer has none to let go of.
+    Gpu.release(&gpu, &image);
+    try std.testing.expectEqual(0, gpu.arrays.items[0].free.items.len);
 }
 
 test Slot {

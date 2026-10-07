@@ -459,7 +459,7 @@ type Hud = {
     register_display: (name: string, definition: {frame: (seconds: number) -> ()}) -> string,
     -- Enables or disables a registered HUD display by qualified name. Returns whether it exists.
     set_display_enabled: (name: string, enabled: boolean) -> boolean,
-    -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.
+    -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
     -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
@@ -499,7 +499,7 @@ type Ui = {
     quit: () -> (),
     -- Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists.
     show_screen: (name: string?) -> boolean,
-    -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context.
+    -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
     -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
