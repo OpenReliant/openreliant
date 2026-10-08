@@ -985,7 +985,6 @@ fn require(state: *State) i32 {
     const name = state.toString(1) orelse state.raise("require: expected a string, got {s}", .{state.typeName(1)});
     if (script.Package.parse(name)) |package| {
         if (!package.reachableFrom(context.family)) state.raise("{s} is not available to {t} scripts", .{ name, context.family });
-        if (!package.ready()) state.raise("{s} is not available in this version of OpenReliant", .{name});
         // The script's own object, missile or turret, or the player's ship.
         if (package == .self) {
             if (context.runs_on) |own| switch (own) {

@@ -119,6 +119,17 @@ pub fn Native(comptime about: []const u8, comptime parameters: []const u8, compt
     };
 }
 
+/// A function like `Native`, whose Luau type is `luau_type`, a type the definitions name, such as
+/// an overloaded function's.
+pub fn NativeTyped(comptime about: []const u8, comptime luau_type: []const u8, comptime function: fn (*State) i32) type {
+    return struct {
+        pub const declaration: Declaration = .function;
+        pub const description = about;
+        pub const luau_function = luau_type;
+        pub const wrapped = function;
+    };
+}
+
 /// Whether `D` is a declaration of `kind` (`Field`, `Function`).
 pub fn is(comptime D: anytype, comptime kind: Declaration) bool {
     return @TypeOf(D) == type and @hasDecl(D, "declaration") and D.declaration == kind;

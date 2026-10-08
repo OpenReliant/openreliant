@@ -17,6 +17,7 @@ const engine_hooks = engine.hooks;
 const Hook = engine_hooks.Hook;
 const Object = engine_hooks.Object;
 const values = @import("values.zig");
+const hooks = @import("hooks.zig");
 const objects = @import("objects.zig");
 const missiles = @import("missiles.zig");
 const turrets = @import("turrets.zig");
@@ -224,6 +225,27 @@ fn resultType(comptime F: type) []const u8 {
     return if (@hasDecl(F, "luau_result")) F.luau_result else luauType(F.Result);
 }
 
+/// The Luau type of the declared function `F`: the type it's declared as (`api.NativeTyped`), or
+/// its parameters and its result.
+fn functionType(comptime F: type) []const u8 {
+    if (@hasDecl(F, "luau_function")) return F.luau_function;
+    return "(" ++ parameterList(F, 0) ++ ") -> " ++ resultType(F);
+}
+
+/// How `openreliant hooks` writes the declared function `F`, called `name`: as a call with its
+/// result, or with the type it's declared as (`api.NativeTyped`).
+fn helpCall(comptime name: []const u8, comptime F: type) []const u8 {
+    if (@hasDecl(F, "luau_function")) return name ++ ": " ++ F.luau_function;
+    return name ++ "(" ++ parameterList(F, 0) ++ ") -> " ++ resultType(F);
+}
+
+/// How the reference page writes a call of the declared function `F`, called `name`: with its
+/// parameters, or its name alone where it's declared as a type (`api.NativeTyped`).
+fn markdownCall(comptime name: []const u8, comptime F: type) []const u8 {
+    if (@hasDecl(F, "luau_function")) return name;
+    return name ++ "(" ++ cell(parameterList(F, 0)) ++ ")";
+}
+
 /// The name of the class of `hook`'s `e`: its name in Pascal case, or `OrderRoutine` for the
 /// order table's routines, which all see the same fields.
 fn eventClass(comptime hook: Hook) []const u8 {
@@ -331,7 +353,7 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
             }
             inline for (comptime api.declared(Namespace, .function)) |name| {
                 const function = @field(Namespace, name);
-                try w.print("    -- {s}\n    {s}: ({s}) -> {s},\n", .{ function.description, name, comptime parameterList(function, 0), comptime resultType(function) });
+                try w.print("    -- {s}\n    {s}: {s},\n", .{ function.description, name, comptime functionType(function) });
             }
             try w.writeAll("}\n");
         }
@@ -346,7 +368,7 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         }
         inline for (comptime api.declared(Namespace, .function)) |name| {
             const function = @field(Namespace, name);
-            try w.print("        {s}: ({s}) -> {s},\n", .{ name, comptime parameterList(function, 0), comptime resultType(function) });
+            try w.print("        {s}: {s},\n", .{ name, comptime functionType(function) });
         }
         try w.writeAll("    },\n");
     }
@@ -384,17 +406,17 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     }
     try writeAdd(w, false);
     try writeAdd(w, true);
-    try w.writeAll(
-        \\type Hooks = {
+    try w.print(
+        \\type Hooks = {{
         \\    -- Adds a handler that runs before the hook's function, or when its event happens.
-        \\    add: HooksAdd,
+        \\    add: {s},
         \\    -- Adds a handler that runs after the hook's function, which sees its result in e.result.
-        \\    after: HooksAfter,
-        \\}
+        \\    after: {s},
+        \\}}
         \\
         \\-- What scripts return.
         \\
-    );
+    , .{ hooks.add_type, hooks.after_type });
     inline for (running_families) |family| {
         try w.print("\ntype {s}Script = {{\n    engine_handlers: {{\n", .{comptime pascal(@tagName(family))});
         inline for (comptime std.enums.values(script.Handler)) |handler| {
@@ -434,7 +456,7 @@ fn writeEventClass(w: *Writer, comptime hook: Hook, comptime class: []const u8) 
 
 /// Writes the type of `hooks.add`, or of `hooks.after`, whose hooks are only the functions'.
 fn writeAdd(w: *Writer, comptime functions_only: bool) Writer.Error!void {
-    try w.print("\ntype Hooks{s} = ", .{if (functions_only) "After" else "Add"});
+    try w.print("\ntype {s} = ", .{if (functions_only) hooks.after_type else hooks.add_type});
     var first = true;
     inline for (comptime std.enums.values(Hook)) |hook| {
         const declared = comptime engine_hooks.declaration(hook);
@@ -541,7 +563,7 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
         \\
     );
     inline for (comptime std.enums.values(script.Package)) |package| {
-        if (comptime package.ready()) try writePackageSection(w, package);
+        try writePackageSection(w, package);
     }
 
     try w.writeAll(
@@ -587,7 +609,7 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
         }
         inline for (comptime api.declared(Namespace, .function)) |name| {
             const function = @field(Namespace, name);
-            try w.print("| `{s}({s})` | {s} | {s} |\n", .{ name, comptime cell(parameterList(function, 0)), comptime markdownResult(function), function.description });
+            try w.print("| `{s}` | {s} | {s} |\n", .{ comptime markdownCall(name, function), comptime markdownResult(function), function.description });
         }
     }
 
@@ -702,6 +724,7 @@ fn cell(comptime text: []const u8) []const u8 {
 
 /// What the declared function `F` returns, for the reference page.
 fn markdownResult(comptime F: type) []const u8 {
+    if (@hasDecl(F, "luau_function")) return cell(F.luau_function);
     if (!@hasDecl(F, "Result")) return if (comptime std.mem.eql(u8, F.luau_result, api.nothing)) "nothing" else cell(F.luau_result);
     return if (F.Result == void) "nothing" else markdownType(F.Result);
 }
@@ -749,7 +772,7 @@ fn writePackageSection(w: *Writer, comptime package: script.Package) Writer.Erro
     }
     inline for (comptime api.declared(Namespace, .function)) |name| {
         const function = @field(Namespace, name);
-        try w.print("| `{s}({s})` | {s} | {s} |\n", .{ name, comptime cell(parameterList(function, 0)), comptime markdownResult(function), function.description });
+        try w.print("| `{s}` | {s} | {s} |\n", .{ comptime markdownCall(name, function), comptime markdownResult(function), function.description });
     }
 }
 
@@ -859,7 +882,6 @@ fn writePackageHelp(w: *Writer, comptime package: script.Package) Writer.Error!v
     try w.print("{s}{t}\n    {s}\n    For ", .{ script.Package.prefix, package, package.about() });
     try writePackageFamilies(w, package);
     try w.writeAll(" scripts.\n");
-    if (!package.ready()) return w.writeAll("    Not available in this version of OpenReliant.\n");
     const declared = comptime packages.namespace(package);
     if (declared == null) return;
     const Namespace = declared.?;
@@ -869,7 +891,7 @@ fn writePackageHelp(w: *Writer, comptime package: script.Package) Writer.Error!v
     }
     inline for (comptime api.declared(Namespace, .function)) |function_name| {
         const function = @field(Namespace, function_name);
-        try w.print("{s}({s}) -> {s}\n    {s}\n", .{ function_name, comptime parameterList(function, 0), comptime resultType(function), function.description });
+        try w.print("{s}\n    {s}\n", .{ comptime helpCall(function_name, function), function.description });
     }
 }
 

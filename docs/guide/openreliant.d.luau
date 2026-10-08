@@ -833,18 +833,18 @@ type Interfaces = {
         give_order: (self: Object, order: string | number, target: Object?, component: number?) -> boolean,
     },
     Combat: {
-        add_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
-        after_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
+        add_hook: HooksAdd,
+        after_hook: HooksAfter,
     },
     Weapons: {
-        add_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
-        after_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
+        add_hook: HooksAdd,
+        after_hook: HooksAfter,
     },
     Carriers: {
         give_order: (self: Object, order: string | number, target: Object?, component: number?) -> boolean,
         start_launch: (self: Object) -> boolean,
-        add_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
-        after_hook: (name: string, handler: (e: any) -> boolean?, filter: any?) -> HookHandle,
+        add_hook: HooksAdd,
+        after_hook: HooksAfter,
     },
     Camera: {
         view: (string | number)?,

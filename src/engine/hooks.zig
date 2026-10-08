@@ -762,7 +762,7 @@ pub inline fn enterRoutine(comptime role: routines.Role, comptime function: anyt
 }
 
 /// Tells the handlers of `hook`, an event, that it has happened, with `fields`. `source` reaches
-/// the scripts: the world, the context the orders run in, or the objects.
+/// the scripts (`scriptsOf`).
 pub fn tell(source: anytype, comptime hook: Hook, fields: Fields(hook)) void {
     comptime assert(!declaration(hook).on.isFunction());
     const scripts = scriptsOf(source) orelse return;
@@ -888,9 +888,11 @@ fn checkFunction(comptime hook: Hook, comptime Function: type) void {
     if (info.return_type.? != Result(hook)) @compileError("the result of " ++ name ++ " isn't its function's");
 }
 
-/// The scripts `source` reaches: the world's, the orders' context's, or the objects'.
+/// The scripts `source` reaches: the scripts themselves, or those of the world, the context the
+/// orders run in, the radio's context, the objects or the mission's script machine.
 fn scriptsOf(source: anytype) ?*Scripts {
     return switch (@TypeOf(source)) {
+        *Scripts => source,
         gameobj.World => source.objects.scripts,
         aigeneric.Context => source.world.objects.scripts,
         radio.Context => source.all.scripts,

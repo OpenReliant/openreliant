@@ -426,15 +426,15 @@ turret, and a turret's own scripts on their turret.
 
 | Member | Type or returns | Description |
 |---|---|---|
-| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.add`: adds a handler to the hook `name`. |
-| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.after`: adds a handler that runs after the function `name`. |
+| `add_hook` | HooksAdd | `hooks.add`: adds a handler to the hook `name`. |
+| `after_hook` | HooksAfter | `hooks.after`: adds a handler that runs after the function `name`. |
 
 ### I.Weapons
 
 | Member | Type or returns | Description |
 |---|---|---|
-| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.add`: adds a handler to the hook `name`. |
-| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.after`: adds a handler that runs after the function `name`. |
+| `add_hook` | HooksAdd | `hooks.add`: adds a handler to the hook `name`. |
+| `after_hook` | HooksAfter | `hooks.after`: adds a handler that runs after the function `name`. |
 
 ### I.Carriers
 
@@ -442,8 +442,8 @@ turret, and a turret's own scripts on their turret.
 |---|---|---|
 | `give_order(self: Object, order: string \| number, target: Object?, component: number?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. `component` aims it at one part of `target` instead of the whole ship, as a mission's orders can: for Launch, the carrier's launch gate, counting from 0; for Dock, the port. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
 | `start_launch(self: Object)` | boolean | Starts its Launch, as a mission's StartLaunch does: the first Launch among its orders goes after the short random wait the game gives each ship. Returns whether it had a Launch to start. Global scripts can start any object's launch, and an object's scripts their own. |
-| `add_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.add`: adds a handler to the hook `name`. |
-| `after_hook(name: string, handler: (e: any) -> boolean?, filter: any?)` | HookHandle | `hooks.after`: adds a handler that runs after the function `name`. |
+| `add_hook` | HooksAdd | `hooks.add`: adds a handler to the hook `name`. |
+| `after_hook` | HooksAfter | `hooks.after`: adds a handler that runs after the function `name`. |
 
 ### I.Camera
 

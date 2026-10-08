@@ -56,10 +56,3 @@ pub fn push(scripts: *runtime.Runtime) void {
         }
     }
 }
-
-comptime {
-    // A declared package is one this version has.
-    for (std.enums.values(script.Package)) |package| {
-        if (namespace(package) != null and !package.ready()) @compileError("the package " ++ @tagName(package) ++ " is declared but not ready");
-    }
-}
