@@ -1,16 +1,15 @@
 //! The extras a few types carry on one of their parts beyond their model, in
 //! `C:\lancer\game\Create.cpp`: the Dark Reign's hat, which `create_object` hangs on its `Dark Hat`
-//! as it makes the ship (`0x00467E20`). The game keeps an extra in a record of 0x1C bytes that
-//! hangs on its part's frame (`+0x16C`): a first object (`+0x00`), a second (`+0x04`), four
-//! electric rays (`+0x08`) and a particle emitter (`+0x18`). OpenReliant keeps it with the
-//! object's slot (`create.Slot.extra`).
+//! as it makes the ship (`0x00467E20`), and the glows of the prototype gate's and the Boridin
+//! breakaway's cores, which `explode_component_lost` lights as their components go
+//! (`explode.extras`). The game keeps an extra in a record of 0x1C bytes that hangs on its part's
+//! frame (`+0x16C`): a first object (`+0x00`), a second (`+0x04`), four electric rays (`+0x08`) and
+//! a particle emitter (`+0x18`). OpenReliant keeps it with the object's slot
+//! (`create.Slot.extra`).
 //!
 //! `mission_frame`'s pass over the objects draws it (`main.drawObjects`), the explosions put it out
-//! (`explode.extras.putOutHat`), and `object_free` (`0x00475EF0`) lets it go with the object
+//! (`explode.extras.putOut`), and `object_free` (`0x00475EF0`) lets it go with the object
 //! (`create.Slot.release`).
-//!
-//! Not ported: the extras that the prototype gate's and the Boridin breakaway's components light
-//! as they go ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -27,6 +26,7 @@ const gameobj = @import("../gameobj.zig");
 const guns = @import("../guns.zig");
 const matmanager = @import("../matmanager.zig");
 const objects = @import("../objects.zig");
+const particles = @import("../particles.zig");
 
 const log = std.log.scoped(.create);
 
@@ -34,30 +34,89 @@ const log = std.log.scoped(.create);
 pub const Extra = union(enum) {
     /// The Dark Reign's hat.
     hat: Hat,
+    /// The glow of the prototype gate's or the Boridin breakaway's core.
+    glow: Glow,
 
-    /// Lets go of it and what it draws, as `object_free` does (`scene_object_free`). Its rays and
-    /// its sparks are left to go with their parts, as the game leaves them.
+    /// The template of the sparks it streams, by which they are found among the burning wrecks'
+    /// smoke (`explode.Explosions.dropStream`).
+    pub fn sparks(extra: *const Extra) *const particles.Template {
+        return switch (extra.*) {
+            .hat => &explode.hat_sparks,
+            .glow => |glow| glow.sparks,
+        };
+    }
+
+    /// Lets go of it and what it draws, as `object_free` does (`scene_object_free`,
+    /// `sprite_set_free`). Its rays and its sparks are left to go with their parts.
     pub fn destroy(extra: *Extra, gpa: Allocator) void {
         switch (extra.*) {
             .hat => |*hat| hat.deinit(gpa),
+            .glow => {},
         }
         gpa.destroy(extra);
     }
 };
 
-/// The textures the extras are drawn over, which the game requires as it makes them: the band's,
-/// `gunflare\partic5` (`0x004F9D40`), and the star's, `laser4` (`0x004F9D20`).
+/// The textures the extras are drawn over, which the game requires as it makes them: the hat's
+/// band's and the cores' glows', `gunflare\partic5` (`0x004F9D40`), and the hat's star's, `laser4`
+/// (`0x004F9D20`).
 pub const Images = struct {
-    band: *srtexture.Image,
+    glow: *srtexture.Image,
     star: *srtexture.Image,
 
     pub fn load(textures: *srtexture.Table) matmanager.Error!Images {
         return .{
-            .band = try matmanager.textureRequire(textures, "gunflare\\partic5"),
+            .glow = try matmanager.textureRequire(textures, "gunflare\\partic5"),
             .star = try matmanager.textureRequire(textures, "laser4"),
         };
     }
 };
+
+/// A core's glow (`Explode Powercore BMO`): a set of one sprite over `gunflare\partic5`, unlit and
+/// added, 2500 either way as it is made, which the objects pass sizes each frame. It hangs from the
+/// node of a part or of an object's root, or stands in the world.
+pub const Glow = struct {
+    /// What it hangs from; null for nothing, so that it stands in the world.
+    parent: ?objects.NodeOf,
+    /// Where it stands in that frame, or in the world.
+    at: Vector,
+    /// The sparks it streams (`Extra.sparks`).
+    sparks: *const particles.Template,
+    set: srapiext.SpriteSet,
+    sprite: [1]srapiext.Sprite,
+
+    /// Sizes it `half` either way, sorted as if it stood `bias` farther.
+    pub fn size(glow: *Glow, half: f32, bias: f32) void {
+        glow.sprite[0].half_size = @splat(half);
+        glow.sprite[0].bias = bias;
+    }
+
+    /// Stands it where its parent puts it: false where its parent is gone.
+    pub fn stand(glow: *Glow, all: *const create.Objects) bool {
+        const parent = glow.parent orelse {
+            glow.set.position = glow.at;
+            return true;
+        };
+        const place = parent.place(all) orelse return false;
+        glow.set.position = place.point(glow.at);
+        return true;
+    }
+};
+
+/// How large a glow is as it is made (`0x0046DED5`, `0x0046E140`).
+const glow_made_size: f32 = 2500;
+
+/// The record of a core's glow over `images`, made in `gpa`, hanging from `parent` at `at`
+/// (`Glow`), and streaming `sparks`.
+pub fn makeGlow(gpa: Allocator, images: *const Images, parent: ?objects.NodeOf, at: Vector, sparks: *const particles.Template) Allocator.Error!*Extra {
+    const extra = try gpa.create(Extra);
+    extra.* = .{ .glow = .{ .parent = parent, .at = at, .sparks = sparks, .set = .{ .sprites = &.{} }, .sprite = .{.{}} } };
+    const glow = &extra.glow;
+    glow.size(glow_made_size, 0);
+    glow.set.sprites = &glow.sprite;
+    glow.set.surface.textures = .{ .{ .image = images.glow }, .none };
+    return extra;
+}
 
 /// A mesh of its own hanging from a part, where it stands in the part's frame, and the object that
 /// draws it (`mesh_object_create`).
@@ -102,7 +161,7 @@ pub const Hat = struct {
         hat.band.mesh = try loadout.bandMesh(gpa, band_segments, band_radius, band_depth);
         errdefer hat.band.mesh.deinit(gpa);
         const band = &hat.band.mesh;
-        band.surfaces[0] = .{ .polygons = @intCast(band.polygons.len), .material = band_material, .textures = .{ .{ .image = images.band }, .none } };
+        band.surfaces[0] = .{ .polygons = @intCast(band.polygons.len), .material = band_material, .textures = .{ .{ .image = images.glow }, .none } };
         @memset(band.uv[0].?, band_uv);
         hat.band.show(band_flags);
         hat.band.place = .{ .position = Vector{ 0, -band_drop, 0 } + middle, .orientation = math.fromAngles(band_turn, 0, 0) };
@@ -201,7 +260,7 @@ pub fn hatMade(world: gameobj.World, index: u16) void {
     slot.extra = extra;
     const hat = &extra.hat;
     hangRays(world, index, hat);
-    if (world.explosions) |explosions| explosions.hangStream(hat.coil, .{
+    if (world.explosions) |explosions| explosions.hangStream(.{ .part = hat.coil }, .{
         .life = explode.forever_life,
         .born = world.clock.frame_start,
         .place = .{ .position = hat.sparksAt() },
@@ -250,6 +309,10 @@ test {
 }
 
 pub const testing = struct {
+    /// Textures that are never looked into, for the extras' records in tests.
+    var image: srtexture.Image = undefined;
+    pub const images: Images = .{ .glow = &image, .star = &image };
+
     /// A Dark Reign wearing its hat (`hatMade`), in the mission of an `explode.testing.Stage`: its
     /// `Dark Coil` at its origin, its `Dark Hat` 1000 above it, each with four ray points about its
     /// own origin, and its `Dark Low Body`. It is set up where it stays, since its records point
@@ -258,8 +321,6 @@ pub const testing = struct {
         named: objects.testing.NamedParts(3),
         kind: create.Type,
         rays: erayfx.testing.Built,
-        image: srtexture.Image,
-        images: Images,
         /// Its slot.
         index: u16,
 
@@ -284,10 +345,9 @@ pub const testing = struct {
         pub fn make(ship: *DarkReign, gpa: Allocator, stage: *explode.testing.Stage, at: Vector) !gameobj.World {
             ship.rays = try .init(gpa);
             errdefer ship.rays.deinit(gpa);
-            ship.images = .{ .band = &ship.image, .star = &ship.image };
             var world = stage.world();
             world.rays = &ship.rays.rays;
-            world.extras = &ship.images;
+            world.extras = &images;
             ship.index = try stage.mission.addWith(create.testing.oneType(&ship.kind), .of(.darkreign), at);
             stage.mission.slot(ship.index).model.?.parts[1].origin = hat_height;
             hatMade(world, ship.index);
@@ -304,6 +364,7 @@ pub const testing = struct {
             const extra = stage.mission.slot(ship.index).extra orelse return null;
             return switch (extra.*) {
                 .hat => |*worn| worn,
+                .glow => null,
             };
         }
     };
@@ -344,7 +405,7 @@ test hatMade {
     try std.testing.expectEqual(&explode.hat_sparks, stream.emitter.template);
     try std.testing.expectEqual(Vector{ 0, -band_drop - star_drop - sparks_drop, 0 }, stream.emitter.place.position);
     try std.testing.expectEqual(explode.forever_life, stream.emitter.life);
-    try std.testing.expectEqual(0, stream.on.part.index);
+    try std.testing.expectEqual(0, stream.on.part.part.index);
 
     // Another type wears none.
     const other = try stage.mission.add(.of(.predator), @splat(0));

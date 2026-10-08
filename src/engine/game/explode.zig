@@ -250,7 +250,7 @@ pub const Explosions = struct {
             for (list.points) |point| {
                 const slot = table.firstFree(Stream, &explosions.streams) orelse return;
                 const normal: Vector = if (mesh) |from| if (point.vertex < from.normals.len) from.normals[point.vertex] else @splat(0) else @splat(0);
-                slot.* = .{ .on = on, .emitter = .{
+                slot.* = .{ .on = .{ .part = on }, .emitter = .{
                     .life = if (forever) forever_life else burn_life,
                     .born = world.clock.frame_start,
                     .place = .{ .position = gameobj.vector(point.position) },
@@ -264,13 +264,13 @@ pub const Explosions = struct {
         }
     }
 
-    /// Streams `emitter` from `on`'s frame among the burning wrecks' smoke (`burn_streams`), as the
-    /// extras a few types carry do (`create.extra`): in the first free slot, or in the first where
-    /// all are taken, in place of what streams there.
+    /// Streams `emitter`, hanging from or standing as `on` says, among the burning wrecks' smoke
+    /// (`burn_streams`), as the extras a few types carry do (`create.extra`): in the first free
+    /// slot, or in the first where all are taken, in place of what streams there.
     ///
     /// **Fix:** the game always puts it in the first slot, where a burning wreck's smoke may be
     /// streaming already, which then stops.
-    pub fn hangStream(explosions: *Explosions, on: objects.PartOf, emitter: particles.Emitter) void {
+    pub fn hangStream(explosions: *Explosions, on: Stream.On, emitter: particles.Emitter) void {
         const slot = table.firstFree(Stream, &explosions.streams) orelse &explosions.streams[0];
         slot.* = .{ .on = on, .emitter = emitter };
     }
@@ -281,13 +281,14 @@ pub const Explosions = struct {
     pub fn dropStream(explosions: *Explosions, index: u16, template: *const particles.Template) void {
         for (&explosions.streams) |*slot| {
             const stream = &(slot.* orelse continue);
-            if (stream.on.object == index and stream.emitter.template == template) slot.* = null;
+            if (stream.on.object() == index and stream.emitter.template == template) slot.* = null;
         }
     }
 
     /// The burning wrecks' part of `explosions_update`, `ticks` since the bits last moved on: each
-    /// stream sends its smoke out (`particles.Pool.stream`) and goes once its life is over, and
-    /// each light fades and goes once it is spent, flickering meanwhile.
+    /// stream sends its smoke or sparks out (`particles.Pool.stream`), from where its part stands or
+    /// where it stands in the world, and goes once its life is over, and each light fades and goes
+    /// once it is spent, flickering meanwhile.
     ///
     /// **Fix:** the game keeps a light or a stream hanging from its part's frame after the wreck is
     /// gone; OpenReliant lets it go with the wreck.
@@ -295,11 +296,14 @@ pub const Explosions = struct {
         const all = world.objects;
         for (&explosions.streams) |*slot| {
             const stream = &(slot.* orelse continue);
-            const part = stream.on.live(all) orelse {
-                slot.* = null;
-                continue;
+            const parent: ?math.Place = switch (stream.on) {
+                .part => |on| (on.live(all) orelse {
+                    slot.* = null;
+                    continue;
+                }).drawn(),
+                .world => null,
             };
-            if (!streamWithin(world, &stream.emitter, part.drawn())) slot.* = null;
+            if (!streamWithin(world, &stream.emitter, parent)) slot.* = null;
         }
         for (&explosions.burn_lights) |*slot| {
             const burning = &(slot.* orelse continue);
@@ -1238,14 +1242,37 @@ pub const big_smoke: particles.Template = .{
     .colour = .{ .through(0.3, 0.1, 0), .through(0.3, 0.1, 0), .through(0.3, 0.1, 0) },
 };
 
+/// The red of the sparks the extras stream (`create.extra`): from full red through 0.8 to nothing.
+const sparks_red = [3]particles.Curve{ .through(1, 0.8, 0), .through(0, 0, 0), .through(0, 0, 0) };
+
 /// The red sparks the Dark Reign's hat streams (`0x0055AD00`, its emitter named `emitter core`):
-/// 400 across, fading from full red to nothing over 1.3 to 1.5 seconds, one and a half a tick.
+/// 400 across, fading out over 1.3 to 1.5 seconds, one and a half a tick.
 pub const hat_sparks: particles.Template = .{
     .life = 130,
     .life_spread = 20,
     .rate = .through(150, 150, 150),
     .size = .through(200, 200, 200),
-    .colour = .{ .through(1, 0.8, 0), .through(0, 0, 0), .through(0, 0, 0) },
+    .colour = sparks_red,
+};
+
+/// The red sparks the prototype gate's power core streams once it is lit (`0x005586E8`): 400
+/// across, fading out over 2 to 2.2 seconds, nine tenths of one a tick.
+pub const gate_core_sparks: particles.Template = .{
+    .life = 200,
+    .life_spread = 20,
+    .rate = .through(90, 90, 90),
+    .size = .through(200, 200, 200),
+    .colour = sparks_red,
+};
+
+/// The red sparks the Boridin breakaway's core streams once it is lit (`0x0055ACF8`): 1000 across,
+/// fading out over 1.3 to 1.5 seconds, one and a half a tick.
+pub const breakaway_core_sparks: particles.Template = .{
+    .life = 130,
+    .life_spread = 20,
+    .rate = .through(150, 150, 150),
+    .size = .through(500, 500, 500),
+    .colour = sparks_red,
 };
 
 /// `part_streams` (`0x004715D0`) on its own: `template`'s smoke from each point of each of the
@@ -1300,10 +1327,26 @@ pub const BurnLight = struct {
     left: f32 = 1,
 };
 
-/// A burning wreck's smoke streaming from a point of a part (`part_streams`).
+/// A stream among the burning wrecks' smoke (`burn_streams`): a burning wreck's smoke from a point
+/// of a part (`part_streams`), or the sparks of a few types' extras (`create.extra`).
 pub const Stream = struct {
-    on: objects.PartOf,
+    on: On,
     emitter: particles.Emitter,
+
+    /// What a stream hangs from: a part of an object, or nothing, so that it stands in the world
+    /// where the object in slot `world` set it streaming.
+    pub const On = union(enum) {
+        part: objects.PartOf,
+        world: u16,
+
+        /// The object that set it streaming.
+        pub fn object(on: On) u16 {
+            return switch (on) {
+                .part => |part| part.object,
+                .world => |index| index,
+            };
+        }
+    };
 };
 
 /// `explode_part_burn` (`0x00471290`): the part named `name` of the object in slot `index`, as
