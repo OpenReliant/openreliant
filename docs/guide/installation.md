@@ -94,9 +94,10 @@ While flying:
 ### The log file
 
 OpenReliant writes what it does to the terminal it runs in, and to `openreliant.log` in the game
-folder. When something goes wrong, attach that file to your
+folder, along with what the libraries it uses say: SDL's messages, OpenAL Soft's, and FFmpeg's
+warnings and errors. When something goes wrong, attach that file to your
 [bug report](https://github.com/OpenReliant/openreliant/issues/new/choose). If OpenReliant crashes,
-the file ends with what the crash says.
+or one of those libraries does, the file ends with what the crash says.
 
 - Each run starts the file afresh, so attach it before you start the game again.
 - A message that comes again straight after itself, such as one a mod's script writes every frame,
