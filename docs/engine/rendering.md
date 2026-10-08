@@ -252,13 +252,16 @@ rest take the throttle itself, negated where the attachment's Z axis and its len
 way, since such a glow reaches forward and so burns on reverse thrust alone; one that comes to
 nothing is left out. A burning glow is then flickered by `rand` to between 0.8 and 1 of its length.
 
-The Ripper is the exception, and `node_draw` names its parts outright: while it flies forward it
-draws only `Ripper_l_thrust` and `Ripper_r_thrust`, and while it backs up only its four
-`Ripper_Back_pincer` parts, whose plumes burn the other way.
+The Ripper (type `0x1F`) is the exception, and `node_draw` knows its glows by the names of the
+parts that carry them (`0x0049AA9E` on). It draws a Ripper's glows whatever the throttle, even
+where the length comes to nothing or less, and flickers each. While the Ripper flies forward, only
+the glows on `Ripper l thrust` and `Ripper r thrust` are drawn. While it backs up, as
+`motion_backward` and `motion_follow_backwards` move it, only those on `Ripper Back pincer 2`,
+`Ripper Back pincer 03`, `04` and `05` are, their plumes turned round, so that they burn the way
+the ship faces and push it back.
 
 OpenReliant builds the meshes and draws the glows in `engine/game/environfx.zig` and
-`engine/game/objects.zig`. Not ported: the Ripper's rule, which needs the motion routines it tells
-its states apart by.
+`engine/game/objects.zig` (`objects.Model.Glow`).
 
 ## What is too far off to draw
 

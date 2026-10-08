@@ -1072,8 +1072,8 @@ pub const DetailReach = enum {
 /// and jumping ones, has its cloak's frame run where it has one (`cloak.frame`), and is drawn with
 /// `object_draw` (`objects.Model.draw`), with its own offset into its lights' blinks, its lights
 /// unless `lights_disabled`, its engine glows burning by the throttle of its last update times the
-/// share of its engines left, but none while it is among `splits`, and nothing at all while it is
-/// `hidden`, as the ship the camera sits in is. That ship, `seat`, still casts its shadow
+/// share of its engines left, a Ripper's by which way it goes (`objects.View.ripper`), but none
+/// while it is among `splits`, and nothing at all while it is `hidden`, as the ship the camera sits in is. That ship, `seat`, still casts its shadow
 /// (`objects.Model.castShadows`), cloaked as its hull stands (`cloak.shadeUnseen`). A cloaked
 /// object is drawn with neither lights nor glows, its parts as its cloak draws them
 /// (`cloak.Drawing`).
@@ -1101,6 +1101,7 @@ pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, a
         view.blink_offset = object.blink_offset;
         view.lights = !object.flags.lights_disabled;
         view.throttle = object.last_throttle * object.engines_intact;
+        view.ripper = ripperWay(slot);
         if (splits) |under_way| view.glows = !under_way.splitting(index);
         // A cloaked object's lights and engine glows are out, and its cloak draws its parts.
         if (slot.cloak) |*cloaking| {
@@ -1110,6 +1111,39 @@ pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, a
         }
         try model.draw(gpa, scene, .world, view);
     }
+}
+
+/// The way the Ripper in `slot` goes, which its glows are drawn by (`objects.View.ripper`):
+/// backing up while `motion_backward` or `motion_follow_backwards` moves it, and forward otherwise
+/// (`node_draw`, `0x0049AA9E`); null for any other object.
+fn ripperWay(slot: *const create.Slot) ?objects.View.Way {
+    if (slot.object.type.base() != .ripper) return null;
+    const backing = slot.motion == .backward or slot.motion == .follow_backwards;
+    return if (backing) .backward else .forward;
+}
+
+test ripperWay {
+    const gpa = std.testing.allocator;
+    var random: Random = .{};
+    const all = try create.Objects.create(gpa, &random);
+    defer all.destroy();
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    var tables = create.testing.tables();
+    const ripper = &all.slots[try create.createObject(all, &tables, model.types(), null, .of(.ripper), 0, @splat(0), &random)];
+    const predator = &all.slots[try create.createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random)];
+    // A Ripper goes forward until it backs up, or follows a path tail first.
+    try std.testing.expectEqual(objects.View.Way.forward, ripperWay(ripper).?);
+    ripper.motion = .backward;
+    try std.testing.expectEqual(objects.View.Way.backward, ripperWay(ripper).?);
+    ripper.motion = .follow_backwards;
+    try std.testing.expectEqual(objects.View.Way.backward, ripperWay(ripper).?);
+    ripper.motion = .follow;
+    try std.testing.expectEqual(objects.View.Way.forward, ripperWay(ripper).?);
+    // Any other ship burns by its throttle alone.
+    predator.motion = .backward;
+    try std.testing.expectEqual(null, ripperWay(predator));
 }
 
 test "the objects are framed and drawn, save those left out" {

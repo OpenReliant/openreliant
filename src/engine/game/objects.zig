@@ -1290,11 +1290,8 @@ pub const Model = struct {
 
     /// An engine glow a model carries, which `node_draw` draws for node kind 2: an attachment of
     /// kind `engine_glow`, drawn as the mesh its id names (`node_mount_glow`, `0x00499540`), scaled
-    /// by the attachment's size and stretched along the plume by the throttle.
-    ///
-    /// Not ported: the Ripper's own rule, which draws its thrusters only while it flies forward and
-    /// its back pincers only while it backs up, their plumes burning the other way. It knows them
-    /// by their parts' names, and needs the motion it is not ported to tell apart.
+    /// by the attachment's size and stretched along the plume by the throttle (`plume`), or on a
+    /// Ripper by its own rule (`ripperPlume`).
     pub const Glow = struct {
         /// The part that carries it, whose node `node_draw` walks to reach it.
         part: usize,
@@ -1310,6 +1307,9 @@ pub const Model = struct {
         retro: bool,
         /// Burning at its full length whatever the throttle, as the last of the glows does.
         steady: bool,
+        /// Which of the Ripper's glows it is, by the name of the part that carries it; null for
+        /// any other.
+        ripper: ?Ripper = null,
         /// The one mesh it draws, which every glow of its kind shares.
         level: [1]srapiext.Level,
         object: srapiext.MeshObject,
@@ -1322,6 +1322,42 @@ pub const Model = struct {
             if (!(lit > 0)) return null;
             return lit * flicker(random);
         }
+
+        /// How far along its length the plume burns on a Ripper going `way`, or null while it
+        /// isn't drawn (`node_draw`, `0x0049AA9E` on). A Ripper draws a glow whatever the
+        /// throttle, even at nothing or the wrong way, flickered as any other is: only its
+        /// thrusters while it flies forward, and only its back pincers while it backs up, their
+        /// plumes the other way round.
+        pub fn ripperPlume(glow: Glow, throttle: f32, random: ?*Random, way: View.Way) ?f32 {
+            const lit: f32 = if (glow.steady) 1 else (if (glow.retro) -throttle else throttle) * flicker(random);
+            const which = glow.ripper orelse return null;
+            return switch (way) {
+                .forward => if (which == .thruster) lit else null,
+                .backward => if (which == .back_pincer) -lit else null,
+            };
+        }
+
+        /// The Ripper's glows, which `node_draw` tells apart by the names of the parts that carry
+        /// them.
+        pub const Ripper = enum {
+            /// On `Ripper l thrust` and `Ripper r thrust` (`0x00504758`, `0x00504748`): drawn while
+            /// the Ripper flies forward.
+            thruster,
+            /// On `Ripper Back pincer 2`, `03`, `04` and `05` (`0x004E235C`, `0x004E2344`,
+            /// `0x004E232C`, `0x004E2314`): drawn while it backs up.
+            back_pincer,
+
+            const thrusters = [_][]const u8{ "Ripper l thrust", "Ripper r thrust" };
+            const back_pincers = [_][]const u8{ "Ripper Back pincer 2", "Ripper Back pincer 03", "Ripper Back pincer 04", "Ripper Back pincer 05" };
+
+            /// The glow a part named `name` carries, compared letter for letter as `node_draw`
+            /// compares it (`strcmp`); null for any other part.
+            pub fn of(name: []const u8) ?Ripper {
+                for (thrusters) |each| if (std.mem.eql(u8, name, each)) return .thruster;
+                for (back_pincers) |each| if (std.mem.eql(u8, name, each)) return .back_pincer;
+                return null;
+            }
+        };
 
         /// Whether an `engine_glow` attachment burns forward: its plume reaches the way the model
         /// faces, so it is a retro thruster, and pushes the ship back. `node_mount_glow` lets the
@@ -2054,6 +2090,7 @@ pub const Model = struct {
                 .size = size,
                 .retro = Glow.burnsForward(attachment),
                 .steady = attachment.id == steady_glow,
+                .ripper = .of(model.parts[found.part].part.name()),
                 .level = .{.{ .mesh = built.mesh(attachment.id), .until = std.math.inf(f32) }},
                 .object = .{
                     // Neither culled nor given a level of detail by how far off it is.
@@ -2506,7 +2543,8 @@ pub const Model = struct {
             if (!view.glows) break;
             // A glow goes out with the part that carries it, as a light does.
             if (model.parts[glow.part].hidden) continue;
-            const burning = glow.plume(view.throttle, view.random) orelse continue;
+            const plume = if (view.ripper) |way| glow.ripperPlume(view.throttle, view.random, way) else glow.plume(view.throttle, view.random);
+            const burning = plume orelse continue;
             const carrier = model.parts[glow.part].drawn();
             glow.object.position = carrier.point(glow.origin);
             // The plume stands as its attachment does, drawn to the size it gives it.
@@ -2597,6 +2635,9 @@ pub const View = struct {
     throttle: f32 = 0,
     /// Where the glows' flicker comes from; without one they burn steady.
     random: ?*Random = null,
+    /// The way a Ripper goes, which its glows are drawn by (`Model.Glow.ripperPlume`); null for
+    /// any other object.
+    ripper: ?Way = null,
     /// Pixels to a view unit across the screen (`srapi.Projection.scale`), which says how far off
     /// an object stops being worth drawing. Zero draws one however far off it stands.
     scale: f32 = 0,
@@ -2605,6 +2646,10 @@ pub const View = struct {
     cloak: ?cloak.Drawing = null,
     /// Whether the game is paused, which a cloak draws by (`cloak.Drawing`).
     paused: bool = false,
+
+    /// Which way a Ripper goes: forward, or backing up, as `motion_backward` and
+    /// `motion_follow_backwards` move it.
+    pub const Way = enum { forward, backward };
 
     /// Whether an object of `radius` standing at `at` is too far off to be worth drawing
     /// (`node_draw`): its radius no longer covers a pixel, since the radius over the distance,
@@ -3398,6 +3443,46 @@ test "a model draws the muzzle flashes a shot has lit" {
     parts[0].hidden = true;
     try model.draw(gpa, &scene, .overlay, .{ .frame_start = 10 });
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
+}
+
+test "a Ripper's glows burn by the way it goes" {
+    const thruster: Model.Glow = .{
+        .part = 0,
+        .origin = @splat(0),
+        .orientation = math.identity,
+        .size = .{ 80, 50, -300 },
+        .retro = false,
+        .steady = false,
+        .ripper = .thruster,
+        .level = undefined,
+        .object = undefined,
+    };
+    var pincer = thruster;
+    pincer.size = .{ 80, 50, 300 };
+    pincer.retro = true;
+    pincer.ripper = .back_pincer;
+    var other = thruster;
+    other.ripper = null;
+    // Flying forward, only the thrusters burn, even with nothing on the throttle.
+    try std.testing.expectEqual(0.5, thruster.ripperPlume(0.5, null, .forward));
+    try std.testing.expectEqual(0, thruster.ripperPlume(0, null, .forward));
+    try std.testing.expectEqual(null, pincer.ripperPlume(0.5, null, .forward));
+    try std.testing.expectEqual(null, other.ripperPlume(0.5, null, .forward));
+    // Backing up, only the back pincers burn, the way the ship faces, which pushes it back.
+    try std.testing.expectEqual(null, thruster.ripperPlume(0.5, null, .backward));
+    try std.testing.expectEqual(0.5, pincer.ripperPlume(0.5, null, .backward));
+    // Each takes a random number for its flicker, the ones left out too, as `node_draw` takes it
+    // before it reads the part's name.
+    var random: Random = .{};
+    _ = other.ripperPlume(0.5, &random, .forward);
+    try std.testing.expect((Random{}).fingerprint() != random.fingerprint());
+    // The parts' names, letter for letter.
+    const Ripper = Model.Glow.Ripper;
+    try std.testing.expectEqual(Ripper.thruster, Ripper.of("Ripper l thrust").?);
+    try std.testing.expectEqual(Ripper.back_pincer, Ripper.of("Ripper Back pincer 2").?);
+    try std.testing.expectEqual(Ripper.back_pincer, Ripper.of("Ripper Back pincer 05").?);
+    try std.testing.expectEqual(null, Ripper.of("Ripper Back pincer 02"));
+    try std.testing.expectEqual(null, Ripper.of("ripper l thrust"));
 }
 
 test "a model draws the glows its parts carry" {
