@@ -101,6 +101,12 @@ pub const Call = struct {
     pub fn againItself(call: Call) u32 {
         return call.again(command_size);
     }
+
+    /// The slot of the object of the ship its argument `index` names, where it is one of `all`'s;
+    /// null where it names none (`ship_object`, `mission.shipSlot`).
+    pub fn argumentShip(call: Call, all: *const create.Objects, index: usize) ?u16 {
+        return mission.shipSlot(call.machine.mission, all, call.args[index]);
+    }
 };
 
 /// What ends a thread where the game faults or reads past a table.

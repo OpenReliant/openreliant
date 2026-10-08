@@ -2,7 +2,7 @@
 
 `C:\lancer\game\hud.cpp` holds the display drawn over the view: the panels, the gauges, the target display and the text. Its code lies between `hog_SND.CPP`'s and `hudmovie.cpp`'s, about 40KB of it; only `hud_init` asserts, so the source map places that stretch alone.
 
-OpenReliant draws the readouts, the clock, the status lights with the devices' charges, the jump prompt, the player's target, the eject marker, the scanner, the ship status indicator, the targeting cluster, the radar, and the windows and what they show ([`engine/game/hud.zig`](../../src/engine/game/hud.zig), [`engine/game/hud/windows.zig`](../../src/engine/game/hud/windows.zig)), reaching them as the engine does, through the overlay `srcore.render` runs after a frame's layers and before the scene ends.
+OpenReliant draws the readouts, the clock, the status lights with the devices' charges, the jump prompt, the player's target, the eject marker, the scanner, the ship status indicator, the targeting cluster, the radar, the launch's date, the key prompt, the subtitle, and the windows and what they show ([`engine/game/hud.zig`](../../src/engine/game/hud.zig), [`engine/game/hud/windows.zig`](../../src/engine/game/hud/windows.zig)), reaching them as the engine does, through the overlay `srcore.render` runs after a frame's layers and before the scene ends.
 
 ## The elements
 
@@ -122,11 +122,11 @@ views, 1 to 3, do not. In its order:
 
 | Drawn | In |
 | --- | --- |
-| the launch's typed text, and a key's prompt | every view |
+| the launch's date ([The launch's date](#the-launchs-date)), and `WaitForKey`'s prompt ([The key prompt](#the-key-prompt)) | every view |
 | the devices' charges, which run | every view |
 | the jump prompt, the target, the radar, the eject marker, the scanner and the status lights | view 0 |
 | the view's name, centred half of the way across and 10 down: the view table's string for it | every view but 0, and but the fly-bys, `0x24` to `0x26` |
-| a string of `0x0057BF34`'s, `0x3C` above the foot, unless it is `0x90` | view `0xD` |
+| the subtitle ([The subtitle](#the-subtitle)) | view `0xD`, the director's |
 | the message lines (`hud_messages_draw`, `0x0048CF20`), placed `(-110, -140)` from the middle | every view |
 | the readouts, the ship status indicator, the targeting cluster's arcs and markers, the radar and the clock | view 0 |
 | the reticle (`0xD7`) at the middle, and the blind fire sight (`0xD8`) that closes on a target | view 0, but not in the chase mode |
@@ -609,7 +609,9 @@ table of twenty (`hud_icons`, `0x00566558`) off, on or flashing, and `hud_icon_l
 says whether one is lit this frame. A flashing icon is lit for the first 50 ticks of every 100; one
 that runs past 100 carries what it ran over into the next hundred, lit. `hud_draw` asks only when
 the light's own condition does not already hold, so an icon's flash stands still while it does. The
-display reads icons 0 to 5: 3 is the countermeasures readout, 5 the eject marker.
+display reads icons 0 to 5: 3 is the countermeasures readout, 5 the eject marker. `hud_init` turns
+every icon off as a mission starts. **Fix:** the game writes past the table for an icon of 20 or
+more; OpenReliant leaves such an icon alone.
 
 `enemy_lock` is set by `mission_frame` each frame, in its pass that draws the objects, when a ship
 whose order is Fight, against the player, has its missile ready (byte `0x2F` of its fight state,
@@ -999,6 +1001,36 @@ count kept at `0x005799E0`, and a cursor, `_`, follows the letters until the who
 letter's time after its last. `hud_init` clears it, and the launch's start and end set and clear the
 flag at `0x00569934` that shows it.
 
+## The key prompt
+
+While a mission's script waits on `WaitForKey`, `hud_draw` prompts for the action it waits for
+(`hud_key_awaited`, `0x005799BC`, -1 for none), in every view, after the launch's date
+(`0x0048473D` to `0x00484ABC`), reading the action's binding each frame:
+
+- PRESS (string `0x5AE`), centred `0x8F` above the middle of the screen.
+- `0x7B` above the middle, the action's name as the controls screens show it, followed by ` = `.
+- Then the key's name, as the keyboard's layout gives it, on a key cap `0x80` above the middle: the
+  narrow cap, shape `0x174`, for a name of one or two letters, centred 10 in from the cap's left,
+  and the wide one, `0x175`, for a longer name, centred `0x2E` in. The names on the caps stand
+  `0x7D` above the middle.
+- A key bound with a modifier has the modifier's name, `SHIFT`, `CONTROL` or `ALT`, on a wide cap
+  first, then ` + ` on the name's line.
+- An action without a key has its joystick button written instead, if it has one, as the controls
+  screens write it, JOY and its number (`%s %d`), 4 right of the name.
+
+The line is centred: it starts left of the middle by half of its width, the name's, then for a
+modifier a wide cap's `0x5C` and ` + `'s, then the key's cap's, `0x1C` for a narrow one, counted
+whether or not a cap is drawn. `hud_init` clears the action, and `WaitForKey` clears it as the
+player presses the key. **Fix:** the game takes the name of a modifier past Alt from past its four
+names; OpenReliant writes none.
+
+## The subtitle
+
+`DisplaySubTitle` sets a language string (`hud_subtitle`, `0x0057BF34`) that `hud_draw` writes
+centred `0x3C` above the foot of the screen, after the view's name (`0x004853D1`), while last
+frame's view is the director's, `0xD`. String `0x90`, a blank, stands for none, which `hud_init`
+sets (`0x00483AB6`). No shipped mission sets one.
+
 ## The objectives
 
 Each mission has ten objectives (`mission_objectives`, `0x00504120`, four bytes each): a state and
@@ -1065,7 +1097,6 @@ the instruments and the windows.
 - What windows 5, 6, 9, 12 and 14 are for, which no key opens and a mission's script may, and
   what window 14 shows ([#105](https://github.com/OpenReliant/openreliant/issues/105)).
 - Why blind fire leaves the Nova Cannon alone.
-- What sets `0x0057BF34`, whose string view `0xD` shows.
 - What `hud_palette_ramp` (`0x0048D590`) colours, and whether the display's text takes its palette
   from it rather than from the font.
 - How the display reaches the screen in the game, which is `vfx.dll`'s panes rather than anything

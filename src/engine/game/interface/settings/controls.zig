@@ -66,21 +66,17 @@ const divider_spans = [_][2]i32{ .{ 45, 367 }, .{ 401, 594 } };
 const yellow = hud.rgb(0xFFFF00);
 
 /// The strings the list and the conflict's question are written with: SHIFT and CONTROL before a
-/// key, AND before a button, JOY and its number, and the empty binding's ! NOT ASSIGNED !
-/// (`0x0042D22A`, `0x0042D255`, `0x0042D2AC`, `0x0042D2E9`, `0x0042D38B`); CONTROL as the question
-/// writes it (`0x0042C0BC`), This Key is already assigned to and Redefine Anyway? (`0x0042C143`).
+/// key, AND before a button, which `input.ButtonName` names, and the empty binding's
+/// ! NOT ASSIGNED ! (`0x0042D22A`, `0x0042D255`, `0x0042D2AC`, `0x0042D2E9`, `0x0042D38B`); CONTROL
+/// as the question writes it (`0x0042C0BC`), This Key is already assigned to and Redefine Anyway?
+/// (`0x0042C143`).
 const shift_string = 0x311;
 const control_string = 0x312;
 const and_string = 0x545;
-const joy_string = 0x32C;
 const not_assigned = 0x5B1;
 const question_control_string = 0x17C;
 const assigned_string = 0x5AF;
 const anyway_string = 0x5B0;
-
-/// What a row waiting with nothing taken shows: the game's PRESS, which its training's prompts
-/// write (`0x5AE`).
-const press_string = 0x5AE;
 
 /// The list's arrows (`0x0042D8CA` on): one at the top right of the actions' pane, the other
 /// below it.
@@ -657,7 +653,7 @@ pub const Controls = struct {
             if (shown.len != 0) {
                 try canvas.text(small, .{ binding_x, y }, shown, colour, .left);
             } else if (waiting) {
-                try canvas.string(small, .{ binding_x, y }, press_string, colour, .left);
+                try canvas.string(small, .{ binding_x, y }, input.press_string, colour, .left);
             } else {
                 try canvas.string(small, .{ binding_x, y }, not_assigned, yellow, .left);
             }
@@ -697,7 +693,7 @@ fn capitals(buffer: []u8, text: []const u8) []const u8 {
 /// (`0x0042CA2B`).
 fn bindingText(buffer: []u8, binding: Binding, strings: *const language.Language, names: *const input.KeyNames) []const u8 {
     var writer: std.Io.Writer = .fixed(buffer);
-    const name = if (binding.key == 0) "" else names.of(binding.key);
+    const name = names.ofBound(binding.key);
     const modifier: ?u32 = switch (binding.modifier) {
         .shift => shift_string,
         .control => control_string,
@@ -710,7 +706,7 @@ fn bindingText(buffer: []u8, binding: Binding, strings: *const language.Language
     }
     if (binding.button) |button| {
         if (writer.end != 0) writer.writeAll(strings.string(and_string) orelse "") catch {};
-        writer.print("{s} {d}", .{ strings.string(joy_string) orelse "", button }) catch {};
+        writer.print("{f}", .{input.ButtonName{ .strings = strings, .button = button }}) catch {};
     }
     return writer.buffered();
 }
@@ -734,7 +730,7 @@ fn question(buffer: []u8, conflict: Conflict, strings: *const language.Language,
                 writer.print("\"{s}\"", .{name}) catch {};
             }
         },
-        .button => |button| writer.print("\"{s} {d}\"", .{ strings.string(joy_string) orelse "", button }) catch {},
+        .button => |button| writer.print("\"{f}\"", .{input.ButtonName{ .strings = strings, .button = button }}) catch {},
     }
     const holder = conflict.holder.label(devices, strings);
     writer.print("\n{s} {s}\n{s}", .{ strings.string(assigned_string) orelse "", holder, strings.string(anyway_string) orelse "" }) catch {};

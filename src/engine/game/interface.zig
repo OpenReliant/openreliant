@@ -209,13 +209,6 @@ const Buffer = [0x80]u8;
 /// The prefix of a value that names a joystick button, followed by the button number.
 const button_name = "JOY BUTTON ";
 
-/// The modifier names used in values. The key's scan code follows the name and a space.
-const modifier_names = [_]struct { name: []const u8, modifier: Modifier }{
-    .{ .name = "SHIFT", .modifier = .shift },
-    .{ .name = "CONTROL", .modifier = .control },
-    .{ .name = "ALT", .modifier = .alt },
-};
-
 /// `load_key_config` (`0x0042C800`): loads the input settings from the `KeyConfig` section of
 /// `starlancer.ini`, then each action's bindings from both sections, using the action's name as the
 /// key (`loadBinding`).
@@ -379,14 +372,15 @@ fn isButton(buffer: *const Buffer) bool {
     return std.mem.eql(u8, buffer[0..button_name.len], button_name);
 }
 
-/// The key a value names, after its modifier's name, into `binding`.
+/// The key a value names, after its modifier's word (`Modifier.word`) and a space, into `binding`.
 fn readKey(binding: *controls.Binding, buffer: *const Buffer) void {
     binding.modifier = .none;
     var skipped: usize = 0;
-    for (modifier_names) |named| {
-        if (!std.mem.eql(u8, buffer[0..named.name.len], named.name)) continue;
-        binding.modifier = named.modifier;
-        skipped = named.name.len + 1;
+    for (std.enums.values(Modifier)) |modifier| {
+        const name = modifier.word() orelse continue;
+        if (!std.mem.eql(u8, buffer[0..name.len], name)) continue;
+        binding.modifier = modifier;
+        skipped = name.len + 1;
         break;
     }
     binding.key = @truncate(@as(u32, @bitCast(read(buffer[skipped..]))));
@@ -444,12 +438,10 @@ fn buttonValue(buffer: *[32]u8, button: ?u8) []const u8 {
     return writer.buffered();
 }
 
-/// A key as the game writes it to `KeyConfig`: its scan code, after the modifier's name.
+/// A key as the game writes it to `KeyConfig`: its scan code, after the modifier's word and a space.
 fn keyValue(writer: *std.Io.Writer, binding: controls.Binding) void {
     const code: i16 = @bitCast(binding.key);
-    for (modifier_names) |named| {
-        if (named.modifier == binding.modifier) writer.print("{s} ", .{named.name}) catch {};
-    }
+    if (binding.modifier.word()) |name| writer.print("{s} ", .{name}) catch {};
     writer.print("{d}", .{code}) catch {};
 }
 

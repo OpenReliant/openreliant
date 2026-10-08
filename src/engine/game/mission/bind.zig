@@ -203,6 +203,16 @@ pub const Mission = struct {
         return mission.group_ships[first..][0..@min(group.ship_count, mission.group_ships.len - first)];
     }
 
+    /// `waypoint_first` (`0x00458940`): the index among the waypoints (`waypoints`) of flight
+    /// group `group`'s first, where it has any, which `SetPatrolRoute` aims the Patrol Route order
+    /// at.
+    pub fn firstWaypoint(mission: Mission, group: u16) ?u16 {
+        for (mission.waypoints, 0..) |waypoint, index| {
+            if (waypoint.group == group) return @intCast(index);
+        }
+        return null;
+    }
+
     /// The record object `id` of the object table stands for: null past the table, or where no
     /// record stands for it.
     pub fn recordOf(mission: Mission, id: usize) ?Record {
@@ -592,6 +602,10 @@ test "Mission.bind" {
     // The waypoints a group at a time, each group's in order; one in no group is left out.
     try std.testing.expectEqualSlices(Mission.Waypoint, &.{ .{ .group = 1, .ship = 1 }, .{ .group = 1, .ship = 3 }, .{ .group = 2, .ship = 2 } }, mission.waypoints);
     try std.testing.expectEqual(0, ships[5].waypoint_listed);
+    // Each group's first waypoint, by its place among them; none for a group without.
+    try std.testing.expectEqual(0, mission.firstWaypoint(1));
+    try std.testing.expectEqual(2, mission.firstWaypoint(2));
+    try std.testing.expectEqual(null, mission.firstWaypoint(0));
 
     // Each group's ships, and their place in the list.
     const groups = try mission.flightGroups();

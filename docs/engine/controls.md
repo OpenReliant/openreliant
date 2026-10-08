@@ -174,6 +174,13 @@ latch once the key is up, and a modifier's once both its keys are up.
   latched, or with one, while either key of the modifier is down. Then it clears the key's latch
   and the modifier's.
 
+`WaitForKey` (`cmd_WaitForKey`, `0x00459AE0`), which a mission's script waits on, checks an action
+its own way and latches nothing: its key counts while it is down, with either key of its modifier
+where it has one, and whatever modifier keys are down where it has none; otherwise its joystick
+button counts while it is down. **Fix:** the game never takes a key bound with Alt, so that a
+script waiting for one waits for ever unless the action has a button. OpenReliant takes Alt as it
+takes Shift and Control (`input.Keyboard.heldWith`).
+
 ## The hat
 
 `frame_controls` reads the joystick's first hat while `hat_enabled` is set and the joystick has a
