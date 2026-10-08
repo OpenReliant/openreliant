@@ -918,17 +918,16 @@ pub const testing = struct {
     };
 };
 
-/// A Boridin's cannon for the tests: its one part, `Bor Ion Cannon`, with its barrel along its Y
-/// axis, two pairs of points for rays, two for lights, and where its beam and its laser leave.
+/// A cannon for the tests: its one part, named `name`, with its barrel along its Y axis, two pairs
+/// of points for rays, two for lights, and where its beam and its laser leave.
 const TestCannon = struct {
     parts: objects.testing.Parts(1),
     lists: [5]shp.PointList,
     points: [5][4]shp.Point,
 
-    fn init(cannon: *TestCannon) void {
+    fn init(cannon: *TestCannon, name: []const u8) void {
         cannon.parts.init();
         const data = &cannon.parts.data[0];
-        const name = "Bor Ion Cannon";
         @memcpy(data.part.name_bytes[0..name.len], name);
         const kinds = [5]shp.PointList.Kind{ .ion_barrel, .ion_rays, .ion_lights, .ion_beam, .ion_laser };
         const at = [5][]const Vector{
@@ -946,27 +945,29 @@ const TestCannon = struct {
     }
 };
 
-/// A mission with the player's ship, a Boridin at the origin with the test cannon (`TestCannon`),
-/// and a Sabre straight ahead of it, whose world reaches the explosions, the rays and the cannons.
-/// It is set up where it stays, since its records point into it.
+/// A mission with the player's ship 50000 behind the origin, an object of type `ship_type` at the
+/// origin with the test cannon (`TestCannon`), its part named as the type's cannon is
+/// (`Kind.of`), and a Sabre 50000 straight ahead of it, whose world reaches the explosions, the
+/// rays and the cannons. It is set up where it stays, since its records point into it.
 const Fixture = struct {
     stage: explode.testing.Stage,
     built: testing.Built,
     model: TestCannon,
     kind: create.Type,
-    boridin: u16,
+    /// The cannon's ship.
+    ship: u16,
     sabre: u16,
 
-    fn init(fixture: *Fixture) !void {
+    fn init(fixture: *Fixture, ship_type: gameobj.Type) !void {
         try fixture.stage.init();
         errdefer fixture.stage.deinit();
         try fixture.built.init(std.testing.allocator);
         errdefer fixture.built.deinit(std.testing.allocator);
-        fixture.model.init();
+        fixture.model.init(Kind.of(ship_type).cannon);
         fixture.kind = .{ .model = &fixture.model.parts.source, .loaded = &fixture.model.parts.loaded };
         const mission = &fixture.stage.mission;
         _ = try mission.add(.of(.predator), .{ 0, 0, -50000 });
-        fixture.boridin = try mission.addWith(create.testing.oneType(&fixture.kind), .of(.boridin), @splat(0));
+        fixture.ship = try mission.addWith(create.testing.oneType(&fixture.kind), ship_type, @splat(0));
         fixture.sabre = try mission.add(.of(.sabre), .{ 0, 0, 50000 });
     }
 
@@ -985,10 +986,10 @@ const Fixture = struct {
 
 test "the Boridin's cannon charges, fires and destroys a ship" {
     var fixture: Fixture = undefined;
-    try fixture.init();
+    try fixture.init(.of(.boridin));
     defer fixture.deinit();
     const mission = &fixture.stage.mission;
-    const boridin = fixture.boridin;
+    const boridin = fixture.ship;
     const sabre = fixture.sabre;
     mission.slot(sabre).object.flags.targetable = true;
     const ctx: aigeneric.Context = .of(fixture.world());
@@ -1064,10 +1065,10 @@ test "the Boridin's cannon charges, fires and destroys a ship" {
 
 test "the cannon starts again as its ship cloaks, unless the script holds the lock" {
     var fixture: Fixture = undefined;
-    try fixture.init();
+    try fixture.init(.of(.boridin));
     defer fixture.deinit();
     const mission = &fixture.stage.mission;
-    const boridin = fixture.boridin;
+    const boridin = fixture.ship;
     var world = fixture.world();
     const ctx: aigeneric.Context = .of(world);
     const cannons = &fixture.built.cannons;
@@ -1113,4 +1114,141 @@ test lockBreaks {
     try std.testing.expect(lockBreaks(world, mission.slot(other), other, @splat(0), dark_reign, 0.9));
     // The Boridin's reach is longer.
     try std.testing.expect(!lockBreaks(world, mission.slot(other), other, .{ 0, 0, -2000 }, .of(.of(.boridin)), 1));
+}
+
+test "the cannons, by their ships' types" {
+    const boridin: Kind = .of(.of(.boridin));
+    try std.testing.expectEqualStrings("Bor Ion Cannon", boridin.cannon);
+    try std.testing.expectEqual(null, boridin.focus);
+    try std.testing.expectEqual(400000, boridin.reach);
+    try std.testing.expectEqual(3, boridin.rays);
+    try std.testing.expect(boridin.effects);
+    const base: Kind = .of(.of(.rogue_base));
+    try std.testing.expectEqualStrings("cannon", base.cannon);
+    try std.testing.expect(!base.effects);
+    const dark_reign: Kind = .of(.of(.darkreign));
+    try std.testing.expectEqualStrings(dark_low_body, dark_reign.cannon);
+    try std.testing.expectEqualStrings("Dark Focus", dark_reign.focus.?);
+    // Any other type is taken for the Dark Reign with no focus.
+    const other: Kind = .of(.of(.sabre));
+    try std.testing.expectEqualStrings(dark_low_body, other.cannon);
+    try std.testing.expectEqual(null, other.focus);
+    try std.testing.expectEqual(190000, other.reach);
+}
+
+test Step {
+    // A step lasts its ticks, and one that ends on something else lasts none and is no way through.
+    try std.testing.expectEqual(300, Step.charge.ticks());
+    try std.testing.expectEqual(0, Step.aim.ticks());
+    try std.testing.expectApproxEqAbs(0.5, Step.charge.through(100, 250), 1e-6);
+    try std.testing.expectEqual(0, Step.aim.through(100, 250));
+    // The steps come in their numbers' order.
+    try std.testing.expect(Step.charge.before(.fire));
+    try std.testing.expect(!Step.fire.before(.charge));
+}
+
+test "the order's end lets go of the cannon's record and its rays" {
+    var fixture: Fixture = undefined;
+    try fixture.init(.of(.boridin));
+    defer fixture.deinit();
+    const mission = &fixture.stage.mission;
+    const boridin = fixture.ship;
+    const ctx: aigeneric.Context = .of(fixture.world());
+    try std.testing.expect(try aigeneric.push(ctx, boridin, .dark_reign_shoot_110, .at(fixture.sabre, null)));
+    for ([_]i32{ 0, 0, 300, 300 }) |ticks| mission.ordersAfter(ctx, boridin, ticks);
+    try std.testing.expectEqual(.ready, mission.slot(boridin).state.ion_cannon.step);
+    try std.testing.expect(fixture.built.cannons.of(boridin).?.rays[0] != null);
+
+    // Ended as it crackles, its record and its rays go, and its sequence points start again.
+    mission.slot(boridin).object.sync_points = @splat(1);
+    aigeneric.end(ctx, boridin);
+    try std.testing.expectEqual(null, fixture.built.cannons.of(boridin));
+    for (fixture.built.rays.slots) |held| try std.testing.expectEqual(null, held);
+    try std.testing.expectEqual(@as([16]u8, @splat(0)), mission.slot(boridin).object.sync_points);
+}
+
+test "a cannon that searches too long for its lock gives up" {
+    var fixture: Fixture = undefined;
+    try fixture.init(.of(.boridin));
+    defer fixture.deinit();
+    const mission = &fixture.stage.mission;
+    const boridin = fixture.ship;
+    const ctx: aigeneric.Context = .of(fixture.world());
+    try std.testing.expect(try aigeneric.push(ctx, boridin, .dark_reign_shoot_110, .at(fixture.sabre, null)));
+    mission.ordersAfter(ctx, boridin, 0);
+    try std.testing.expectEqual(.aim, mission.slot(boridin).state.ion_cannon.step);
+
+    // Searching for longer than `longest_search` before its barrel glows, it gives up: not at
+    // `longest_search` itself, the count starting from -1, but past it.
+    mission.ordersAfter(ctx, boridin, longest_search + 1);
+    try std.testing.expectEqual(1, mission.slot(boridin).object.order_count);
+    mission.ordersAfter(ctx, boridin, 1);
+    try std.testing.expectEqual(0, mission.slot(boridin).object.order_count);
+    try std.testing.expectEqual(null, fixture.built.cannons.of(boridin));
+}
+
+test "the rogue base's cannon fires with no crackle, lights or glow, in its own colours" {
+    var fixture: Fixture = undefined;
+    try fixture.init(.of(.rogue_base));
+    defer fixture.deinit();
+    const mission = &fixture.stage.mission;
+    const base = fixture.ship;
+    const ctx: aigeneric.Context = .of(fixture.world());
+    const state = &mission.slot(base).state.ion_cannon;
+    try std.testing.expect(try aigeneric.push(ctx, base, .dark_reign_shoot_110, .at(fixture.sabre, null)));
+
+    // It neither crackles nor lights up as it charges and powers up, and once it is ready no glow
+    // comes.
+    for ([_]i32{ 0, 0, 300, 300 }) |ticks| mission.ordersAfter(ctx, base, ticks);
+    try std.testing.expectEqual(.ready, state.step);
+    const held = fixture.built.cannons.of(base).?;
+    for (held.rays) |ray| try std.testing.expectEqual(null, ray);
+    try std.testing.expectEqual(0, held.shown.lights.count());
+    mission.ordersAfter(ctx, base, 150);
+    try std.testing.expectEqual(.glow, state.step);
+    try std.testing.expectEqual(null, held.glow);
+
+    // It fires a beam of its own colours, and as it fires its laser is no longer kept up.
+    mission.ordersAfter(ctx, base, 200);
+    try std.testing.expectEqual(.fire, state.step);
+    const beam = fixture.built.rays.kept(held.beam.?).?;
+    try std.testing.expectEqual([4]f32{ 0.5, 0, 1, beam.strands[0].colours[0][3] }, beam.strands[0].colours[0]);
+    held.shown = .{};
+    mission.ordersAfter(ctx, base, 10);
+    try std.testing.expect(!held.shown.laser);
+}
+
+test "Moose warns the player of the charge, and the director's view holds the shot at the player" {
+    var fixture: Fixture = undefined;
+    try fixture.init(.of(.boridin));
+    defer fixture.deinit();
+    const mission = &fixture.stage.mission;
+    const boridin = fixture.ship;
+    const player = mission.objects.player;
+    var world = fixture.world();
+    const ctx: aigeneric.Context = .of(world);
+    const cannons = &fixture.built.cannons;
+    const state = &mission.slot(boridin).state.ion_cannon;
+    try std.testing.expect(try aigeneric.push(ctx, boridin, .dark_reign_shoot_110, .at(player, null)));
+    mission.ordersAfter(ctx, boridin, 0);
+    mission.ordersAfter(ctx, boridin, 0);
+    try std.testing.expectEqual(.charge, state.step);
+
+    // As it charges at the player's ship, Moose warns the player, and not again for a while.
+    mission.ordersAfter(ctx, boridin, 10);
+    const warned = cannons.warned_until;
+    try std.testing.expectEqual(mission.clock.frame_start + warning_gap, warned);
+    mission.ordersAfter(ctx, boridin, 10);
+    try std.testing.expectEqual(warned, cannons.warned_until);
+
+    // Its shot done, the director's view of the player's ship holds the player's end.
+    for ([_]i32{ 280, 300, 150, 200, 100 }) |ticks| mission.ordersAfter(ctx, boridin, ticks);
+    try std.testing.expectEqual(.destroy, state.step);
+    world.view = .director;
+    mission.ordersAfter(.of(world), boridin, 0);
+    try std.testing.expectEqual(.destroy, state.step);
+    try std.testing.expect(mission.slot(player).orders[0].order != .explode);
+    world.view = .chase;
+    mission.ordersAfter(.of(world), boridin, 0);
+    try std.testing.expectEqual(0, mission.slot(boridin).object.order_count);
 }

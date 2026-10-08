@@ -92,7 +92,9 @@ test run {
     aigeneric.objectOrders(ctx, torpedo);
     const slot = mission.slot(torpedo);
     const state = &slot.state.launch;
+    // In its tube it rides its carrier, passing through everything.
     try std.testing.expect(state.attached);
+    try std.testing.expect(slot.object.flags.no_collisions);
 
     // Past its wait, it leaves the tube, boosting at the carrier's velocity with nothing to ride.
     launch.testing.pastDue(&mission, ctx, torpedo);
