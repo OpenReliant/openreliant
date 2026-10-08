@@ -114,6 +114,12 @@ test run {
     try std.testing.expectEqual(.plain, slot.motion.?);
     try std.testing.expectEqual(out_throttle, slot.object.throttle);
 
+    // It flies out for the whole of its ticks: at the tick they end it still does.
+    mission.clock.frame_start = state.due;
+    aigeneric.objectOrders(ctx, satellite);
+    try std.testing.expectEqual(Step.out, state.step.as(Step));
+    try std.testing.expectEqual(out_throttle, slot.object.throttle);
+
     // Its throttle drops to 0 once it has flown out.
     launch.testing.pastDue(&mission, ctx, satellite);
     try std.testing.expectEqual(Step.deploy, state.step.as(Step));

@@ -94,6 +94,12 @@ test "a ship backs out of the rogue base" {
     try std.testing.expectEqual(.downward, slot.motion.?);
     try std.testing.expectEqual(back_throttle, slot.object.throttle);
 
+    // It backs away for the whole of its ticks: at the tick they end it still does.
+    mission.clock.frame_start = state.due;
+    aigeneric.objectOrders(ctx, ship);
+    try std.testing.expectEqual(Step.back, state.step.as(Step));
+    try std.testing.expectEqual(.downward, slot.motion.?);
+
     // After 100 ticks, normal flight resumes and the ship stops passing through the base.
     slot.object.yaw_input = 0.5;
     launch.testing.pastDue(&mission, ctx, ship);

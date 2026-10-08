@@ -291,23 +291,42 @@ test {
     std.testing.refAllDecls(@This());
 }
 
+/// A mission for the tests: the player's ship, and a Boridin breakaway at the origin given Start
+/// warp projection from Boridin, its projector's list holding four points, 10 apart up its Y axis,
+/// for the six beams. It stays where `init` fills it in, as its records point into it.
+const TestProjection = struct {
+    run: wgate.testing.Run,
+    named: objects.testing.NamedParts(1),
+    kind: create.Type,
+    breakaway: u16,
+
+    fn init(t: *TestProjection, gpa: Allocator) !void {
+        try t.run.init(gpa);
+        errdefer t.run.deinit(gpa);
+        t.named.init(.{aifuncs.breakaway_projector}, .{.warp_projectors}, .{&.{ .{ 0, 0, 0 }, .{ 0, 10, 0 }, .{ 0, 20, 0 }, .{ 0, 30, 0 } }});
+        t.kind = .{ .model = &t.named.parts.source, .loaded = &t.named.parts.loaded };
+        const mission = &t.run.mission;
+        _ = try mission.add(.of(.predator), @splat(0));
+        t.breakaway = try mission.addWith(create.testing.oneType(&t.kind), .of(.boridin_breakaway), @splat(0));
+        try std.testing.expect(try aigeneric.push(t.run.orders(), t.breakaway, .start_warp_projection_from_boridin, .none));
+    }
+
+    fn deinit(t: *TestProjection, gpa: Allocator) void {
+        t.run.deinit(gpa);
+    }
+};
+
 test "the Boridin breakaway projects its beams and its tunnel" {
     const gpa = std.testing.allocator;
-    var run: wgate.testing.Run = undefined;
-    try run.init(gpa);
-    defer run.deinit(gpa);
-    // The breakaway's projector, its list holding four points for the six beams.
-    var named: objects.testing.NamedParts(1) = undefined;
-    named.init(.{aifuncs.breakaway_projector}, .{.warp_projectors}, .{&.{ .{ 0, 0, 0 }, .{ 0, 10, 0 }, .{ 0, 20, 0 }, .{ 0, 30, 0 } }});
-    const kind: create.Type = .{ .model = &named.parts.source, .loaded = &named.parts.loaded };
-    const mission = &run.mission;
-    _ = try mission.add(.of(.predator), @splat(0));
-    const breakaway = try mission.addWith(create.testing.oneType(&kind), .of(.boridin_breakaway), @splat(0));
-    const ctx = run.orders();
-    try std.testing.expect(try aigeneric.push(ctx, breakaway, .start_warp_projection_from_boridin, .none));
+    var t: TestProjection = undefined;
+    try t.init(gpa);
+    defer t.deinit(gpa);
+    const mission = &t.run.mission;
+    const breakaway = t.breakaway;
+    const ctx = t.run.orders();
     mission.slot(breakaway).object.throttle = 1;
     mission.ordersAfter(ctx, breakaway, 0);
-    const projection = run.built.gates.projection.?;
+    const projection = t.run.built.gates.projection.?;
     try std.testing.expectEqual(0, mission.slot(breakaway).object.throttle);
 
     // At the start the spread is nothing: the first beam ends `end_step` out and `end_ahead`
@@ -352,4 +371,46 @@ test "the Boridin breakaway projects its beams and its tunnel" {
     try projection.draw(gpa, &scene);
     try std.testing.expectEqual(beams + tunnels, scene.layers.get(.world).items.len);
     try std.testing.expectEqual(0, projection.shown_beams.count());
+}
+
+test "past its ease-in the spread holds, and the emitters ride the beams' ends" {
+    const gpa = std.testing.allocator;
+    var t: TestProjection = undefined;
+    try t.init(gpa);
+    defer t.deinit(gpa);
+    const mission = &t.run.mission;
+    const ctx = t.run.orders();
+    mission.ordersAfter(ctx, t.breakaway, 0);
+    const projection = t.run.built.gates.projection.?;
+    const tube = &projection.tunnel;
+
+    // Twice the spread's ticks on, its rings stand the full spread further out for each square of
+    // their number, and later still they stand there yet.
+    mission.ordersAfter(ctx, t.breakaway, 2 * spread_ticks);
+    try std.testing.expectApproxEqAbs(tunnel_ahead + 4 * full_spread, tube.gamePosition(2, 0)[2], 1e-2);
+    mission.ordersAfter(ctx, t.breakaway, spread_ticks);
+    try std.testing.expectApproxEqAbs(tunnel_ahead + 4 * full_spread, tube.gamePosition(2, 0)[2], 1e-2);
+    for (projection.beams, projection.emitters) |beam, emitter| try math.testing.expectVector(beam.end, emitter.place.position);
+    // The order never ends.
+    try std.testing.expectEqual(1, mission.slot(t.breakaway).object.order_count);
+}
+
+test "a breakaway with no projector projects nothing" {
+    const gpa = std.testing.allocator;
+    var run: wgate.testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    const mission = &run.mission;
+    _ = try mission.add(.of(.predator), @splat(0));
+    const breakaway = try mission.add(.of(.boridin_breakaway), @splat(0));
+    const ctx = run.orders();
+    try std.testing.expect(try aigeneric.push(ctx, breakaway, .start_warp_projection_from_boridin, .none));
+    mission.ordersAfter(ctx, breakaway, 0);
+    mission.ordersAfter(ctx, breakaway, 10);
+
+    // The gates make the projection, but with no projector to stand at nothing of it shows.
+    const projection = run.built.gates.projection.?;
+    try std.testing.expectEqual(0, projection.shown_beams.count());
+    try std.testing.expect(!projection.shown_tunnel);
+    try std.testing.expectEqual(1, mission.slot(breakaway).object.order_count);
 }

@@ -418,6 +418,10 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     try std.testing.expectEqual(gameobj.Type.of(.yamato_hangar), mission.slot(create.cutaway_slot).object.type);
     try std.testing.expectEqual(.launch, mission.player.showing);
     try std.testing.expect(view.locked);
+    // The hangar's front edge, a hangar with no bounds' middle, stands at the bay's far side, at its
+    // middle across and along, and its steam is the soft steam the settings start with.
+    try math.testing.expectVector(.{ 1400, 200, 10200 }, mission.slot(create.cutaway_slot).drawn.position);
+    try std.testing.expectEqual(&soft_steam, mission.player.yamato_launch.emitters[0].template);
     launch.start(mission.objects, player);
     aigeneric.objectOrders(ctx, player);
     launch.testing.pastDue(&mission, ctx, player);
@@ -433,8 +437,9 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     launch.testing.pastDue(&mission, ctx, player);
     try std.testing.expect(display.caption.on);
     try std.testing.expectEqual(.everything, mission.player.showing);
-    // The camera's marker stands outside the bay, and the nav point stays where it was.
-    try std.testing.expect(mission.slot(mission.objects.camera_marker.?).drawn.position[2] != -8000);
+    // The camera's marker stands outside the bay, `marker_margin` past its far side and below it,
+    // level with its back, and the nav point stays where it was.
+    try math.testing.expectVector(.{ 2400, -1200, 9700 }, mission.slot(mission.objects.camera_marker.?).drawn.position);
     try std.testing.expectEqual(math.Vector{ 5000, 0, 0 }, mission.slot(nav_point).drawn.position);
     try std.testing.expectEqual(gameobj.Type.of(.stand_in), mission.slot(create.cutaway_slot).object.type);
     // Force the delayed beside cutaway, which starts only in step 6's last 50 ticks.
@@ -472,4 +477,46 @@ fn stream(world: gameobj.World) void {
         }
         if (model.rootChild(vent.part) != null) _ = explode.streamWithin(world, emitter, model.frameAt(vent.part, hangar.drawn));
     }
+}
+
+test "the hangar's outer vents puff steam at random, each burst and pause in its range" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var carrier_model: TestCarrier = undefined;
+    try carrier_model.init(gpa, test_bounds);
+    defer carrier_model.deinit(gpa);
+    // A hangar with the three parts its vents stand on.
+    var hangar_parts: objects.testing.Parts(3) = undefined;
+    hangar_parts.init();
+    const hangar_kind: create.Type = .{ .model = &hangar_parts.source, .loaded = &hangar_parts.loaded };
+    const player = try mission.add(.of(.predator), @splat(0));
+    const carrier = try mission.add(.of(.yamato), .{ 1000, 0, 10000 });
+    try carrier_model.parts.fit(gpa, mission.slot(carrier));
+    var ctx = mission.orders();
+    ctx.world.spawn = mission.spawn(create.testing.oneType(&hangar_kind));
+    _ = try aigeneric.pushShip(ctx, player, .launch, carrier, 0);
+    aigeneric.objectOrders(ctx, player);
+    try std.testing.expect(mission.slot(create.cutaway_slot).model != null);
+
+    // Due, each outer vent bursts now, for `vent_min` and up to `vent_spread` more ticks, and is due
+    // again that long after, `vent_min` and up to `vent_pause` more ticks on.
+    const effects = &mission.player.yamato_launch;
+    effects.due = .{ 0, 0 };
+    mission.clock.frame_start = 10;
+    stream(ctx.world);
+    for ([_]usize{ 0, vents.len - 1 }, effects.due) |vent, due| {
+        const emitter = effects.emitters[vent];
+        try std.testing.expectEqual(10, emitter.born);
+        try std.testing.expect(emitter.life >= vent_min and emitter.life < vent_min + vent_spread);
+        const pause = due - 10 - emitter.life - vent_min;
+        try std.testing.expect(pause >= 0 and pause < vent_pause);
+    }
+    // Until its next burst is past due, a vent keeps the one it has.
+    const kept = effects.emitters[0];
+    mission.clock.frame_start = effects.due[0];
+    stream(ctx.world);
+    try std.testing.expectEqual(kept.born, effects.emitters[0].born);
+    try std.testing.expectEqual(kept.life, effects.emitters[0].life);
 }

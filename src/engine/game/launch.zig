@@ -513,6 +513,29 @@ pub fn makeHangar(world: gameobj.World, kind: gameobj.Type, carrier: []const u8)
     return hangar;
 }
 
+test makeHangar {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var parts: objects.testing.Parts(hangar_lit_parts + 1) = undefined;
+    parts.init();
+    const kind: create.Type = .{ .model = &parts.source, .loaded = &parts.loaded };
+    var world = mission.world();
+    world.spawn = mission.spawn(create.testing.oneType(&kind));
+    _ = try mission.add(.of(.predator), @splat(0));
+
+    // The hangar stands in the cutaway slot, passing through everything, its hull and its doors
+    // lit by its dim light alone and its other parts as any part is.
+    const hangar = makeHangar(world, .of(.reliant_hangar), "the Reliant").?;
+    try std.testing.expectEqual(create.cutaway_slot, hangar);
+    const shown = mission.slot(hangar);
+    try std.testing.expect(shown.object.flags.no_collisions);
+    const model = &shown.model.?;
+    for (model.parts[0..hangar_lit_parts]) |part| try std.testing.expectEqual(hangar_light_mask, part.object.light_mask);
+    try std.testing.expect(model.parts[hangar_lit_parts].object.light_mask != hangar_light_mask);
+}
+
 /// `launch_attach` (`0x0041B9F0`): places the ship in slot `index` at launch point `gate` of the
 /// object in slot `on`, counting from 0 over its points (`Points`). The ship's centre of mass stands
 /// at the point and it is turned as the point is, and it rides the part that holds the point

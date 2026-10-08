@@ -822,6 +822,38 @@ test choose {
     try std.testing.expectEqual(20005, fighter.state.maneuver_end);
 }
 
+test byPosition {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    // Within its pursuit of a player at rest, and outside close quarters.
+    const fighter = try testFight(&mission, 30000);
+    const player = &fighter.enemy().object;
+    const about = math.rotation(.y, std.math.pi);
+    const Case = struct { ship: math.Matrix, player: math.Matrix, list: []const Maneuver };
+    const cases = [_]Case{
+        // Head on, each ahead of the other: it picks among the defensive maneuvers.
+        .{ .ship = about, .player = math.identity, .list = maneuvers.choices[0][0] },
+        // The player ahead of it and it behind the player: it pursues.
+        .{ .ship = about, .player = about, .list = maneuvers.choices[0][2] },
+        // The player ahead of it and it abeam of the player: it pursues.
+        .{ .ship = about, .player = math.rotation(.y, std.math.pi / 2.0), .list = maneuvers.choices[0][1] },
+        // The player behind it and it ahead of the player: it defends.
+        .{ .ship = math.identity, .player = math.identity, .list = maneuvers.choices[2][0] },
+    };
+    for (cases) |case| {
+        fighter.ship().root.next_orientation = case.ship;
+        player.root.next_orientation = case.player;
+        // Its pick is one of the list's, whatever its random numbers draw.
+        for (0..8) |_| {
+            const maneuver = byPosition(fighter).maneuver;
+            try std.testing.expect(std.mem.findScalar(Maneuver, case.list, maneuver) != null);
+        }
+    }
+    try std.testing.expectEqualSlices(Maneuver, &.{.attack_pursue}, cases[1].list);
+    try std.testing.expect(std.mem.findScalar(Maneuver, cases[0].list, .attack_pursue) == null);
+}
+
 test "a target that can't be fought ends the order" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);

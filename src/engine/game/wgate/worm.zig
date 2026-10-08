@@ -151,3 +151,21 @@ test Worm {
     const after = worm.mesh.uv[0].?[3];
     try std.testing.expect(after[0] > before[0] and after[1] < before[1]);
 }
+
+test "the worm sways no further than worm_sway, its rings where they stand" {
+    const gpa = std.testing.allocator;
+    var image: srtexture.Image = undefined;
+    const worm = try Worm.create(gpa, &image);
+    defer worm.destroy(gpa);
+    const grid = Worm.grid;
+    for ([_]i32{ 0, 137, 50000 }) |tick| {
+        worm.wobble(tick);
+        for (0..worm_rings) |ring| for (0..worm_segments) |segment| {
+            const turn = tunnel.segmentTurn(segment, worm_segments);
+            const at = worm.mesh.positions[grid.vertex(ring, segment)];
+            try std.testing.expect(@abs(at[0] - @sin(turn) * worm_radius) <= worm_sway);
+            try std.testing.expect(@abs(at[1] - @cos(turn) * worm_radius) <= worm_sway);
+            try std.testing.expectEqual(@as(f32, @floatFromInt(ring)) * worm_ring_spacing, at[2]);
+        };
+    }
+}
