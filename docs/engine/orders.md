@@ -327,7 +327,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 45 | Fly ship backwards | Throttle -0.5, no turning. | Yes |
 | 100 | Player Control | The player's controls fly the ship ([Controls](controls.md)). | Yes |
 | 101 | Multiplayer Control | Disables the object once it has object flag `0x10000000`. | No ([#55](https://github.com/OpenReliant/openreliant/issues/55)) |
-| 102 | Avoid Target | Not read yet. | No |
+| 102 | Avoid Target | While on course to hit its target (`ai_collision_course`, 75 steps ahead with a margin of 2000), pitches at full input away from it at half throttle. Once clear, it flies straight at full throttle until 50 ticks after it started, or 50 to 150 after it last turned away, the extra drawn from its own random numbers, and pops. It pops at once where its target is not a ship. No shipped mission gives it. | Yes |
 | 103 | Torpedo | Find New Target's for a ship of the torpedo class. On starting, full throttle. Each update it pops once it can aim at its target no more; otherwise it steers with a limit of 2 and no ease at the target's node, led along the target's nose by the target's speed times the ticks the torpedo takes to get there at its top speed, less its own velocity times half those ticks, 25 at most. It goes off against what it meets ([Collisions](loop.md#collisions)). | Yes |
 | 104 | Launch | The ship leaves its carrier, in the style the carrier's type picks ([Launches](launch.md)). | Yes |
 | 105 | Fight | Fights its target by running [combat maneuvers](maneuvers.md), one after another. | Yes |
