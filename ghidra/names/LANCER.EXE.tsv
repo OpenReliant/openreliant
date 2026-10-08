@@ -799,10 +799,10 @@ address	kind	name	type	comment
 004c9df0	function	path_file_name	char * __fastcall (char *path)	What follows the last \, / or : of a path
 004c9e20	function	texture_find	TextureImage * __fastcall (char *name)	The texture of that file name, ignoring case, its pixels read and uploaded on first use; null when absent
 004c9f40	function	texture_add	TextureImage * __fastcall (char *name, int width, int height, int bytes, uint flags)	Appends an entry and allocates its pixels. No callers
-004c9ff0	function	texture_create_transient	TextureImage * __fastcall (char *name, int width, int height, int bytes, uint flags)	Makes or remakes an entry kept in memory only
+004c9ff0	function	texture_create_transient	TextureImage * __fastcall (char *name, int width, int height, int bytes, uint flags)	Makes or remakes an entry kept in memory only. Remaking one in use hands its device texture to the driver's release (sr + 0x4C) and frees its pixels first
 004ca120	function	texture_commit	void __fastcall (TextureImage *image)	Builds a new texture's mipmaps if flagged, keeps its pixels, in memory when transient, else appended to the file with the directory rewritten, and uploads it
-004ca2b0	function	texture_release	void __fastcall (TextureImage *image)	Drops a use; the last frees the pixels
-004ca320	function	textures_unload	void __fastcall (void)	Frees the pixels of every texture in use
+004ca2b0	function	texture_release	void __fastcall (TextureImage *image)	Drops a use. The last hands the image to the driver's release (sr + 0x4C), which frees its device texture, then frees the pixels
+004ca320	function	textures_unload	void __fastcall (void)	Hands every texture in use to the driver's release (sr + 0x4C) and frees its pixels
 004ca370	function	textures_reload	void __fastcall (void)	Reads and uploads the pixels of every texture in use again
 00494a30	function	texture_require	TextureImage * __fastcall (char *name)	texture_find, asserting Could not find image %s on a miss
 005e83d0	data	texture_cache_header	TextureCacheHeader	

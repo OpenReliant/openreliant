@@ -1,9 +1,9 @@
 //! `C:\lancer\surrender\surrenderlib\srTexture.cpp`: the texture table. `texture_find`
 //! (`0x004C9E20`) looks a name up in the texture cache and reads the pixels on first use; the
-//! driver makes its device texture when it first draws with it (`texture_upload`, `0x004C9C90`).
-//! OpenReliant keeps each image as 8-bit RGBA mip levels, and uses a mod's picture with a
-//! texture's name instead of the cache's image (`Files`), along with the material maps next to it
-//! (`Image.Maps`).
+//! driver makes its device texture when it first draws with it (`texture_upload`, `0x004C9C90`),
+//! and frees it when the image is freed (`texture_release`, `0x004CA2B0`). OpenReliant keeps each
+//! image as 8-bit RGBA mip levels, and uses a mod's picture with a texture's name instead of the
+//! cache's image (`Files`), along with the material maps next to it (`Image.Maps`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -72,12 +72,24 @@ pub const ModSurface = struct {
     writes_depth: bool = true,
 };
 
+/// A device that keeps the textures it makes of images (`Image.texture`). `texture_release`
+/// (`0x004CA2B0`) hands the driver an image's device texture as it frees the image's pixels,
+/// through the driver's hook in Surrender's state (`sr + 0x4C`). OpenReliant has no such global
+/// state: an image keeps the device that made its texture, and hands the texture back to it when
+/// it is freed (`Image.deinit`).
+pub const Holder = struct {
+    ptr: *anyopaque,
+    /// Frees the texture `handle`, as its image is freed or made again in another size.
+    release: *const fn (ptr: *anyopaque, handle: usize) void,
+};
+
 /// An image as OpenReliant holds it, the counterpart of `TextureImage`.
 pub const Image = struct {
     /// The full-size level first.
     levels: []Level,
-    /// What the driver made of it, `TextureImage.device_texture`: 0 until it first draws with it.
-    device: usize = 0,
+    /// What the driver made of it, `TextureImage.device_texture`: none until a device first draws
+    /// with it.
+    texture: ?Texture = null,
     /// Set by whoever changes its pixels after the driver has made a texture of them, such as the
     /// display's power ball, which is drawn afresh every frame. The driver sends the pixels up
     /// again and clears it.
@@ -93,6 +105,19 @@ pub const Image = struct {
     /// GPU, once it has taken them. Whoever made the image can then let go of its own
     /// (`releasePixels`).
     held: bool = false,
+
+    /// What a device made of an image: the device's own handle for the texture, and the device
+    /// that holds it.
+    pub const Texture = struct {
+        handle: usize,
+        holder: Holder,
+
+        /// Hands it back to the device that holds it. `deinit` does this; an image freed in
+        /// another way, such as a backdrop's redrawn texture, does it itself.
+        pub fn release(texture: Texture) void {
+            texture.holder.release(texture.holder.ptr, texture.handle);
+        }
+    };
 
     /// The maps of a material, each as many levels as its image and of its size, in linear values;
     /// either may be missing.
@@ -209,9 +234,20 @@ pub const Image = struct {
         return out;
     }
 
+    /// Frees its levels and its maps, and hands its texture back to the device that made it
+    /// (`texture_release`, `0x004CA2B0`).
     pub fn deinit(image: Image, gpa: Allocator) void {
+        if (image.texture) |texture| texture.release();
         freeLevels(gpa, image.levels);
         image.maps.deinit(gpa);
+    }
+
+    /// Hands its texture back to the device that made it, keeping its pixels: for an image whose
+    /// owner frees the pixels itself, such as one in an arena, or keeps them, as a film does. A
+    /// device makes a texture of it again the next time it draws it.
+    pub fn releaseTexture(image: *Image) void {
+        if (image.texture) |texture| texture.release();
+        image.texture = null;
     }
 
     /// Frees an image made with `gpa.create`, and what it holds.
@@ -1280,7 +1316,50 @@ pub const testing = struct {
             gpa.destroy(textures);
         }
     };
+
+    /// A stand-in device for the tests: it makes a texture of an image as a device does the first
+    /// time it draws it (`make`), and counts the textures handed back.
+    pub const Device = struct {
+        made: usize = 0,
+        released: usize = 0,
+
+        /// Gives `image` a texture, unless it has one.
+        pub fn make(device: *Device, image: *Image) void {
+            if (image.texture != null) return;
+            device.made += 1;
+            image.texture = .{ .handle = device.made, .holder = .{ .ptr = device, .release = release } };
+        }
+
+        /// How many of the textures it made it still holds.
+        pub fn held(device: Device) usize {
+            return device.made - device.released;
+        }
+
+        fn release(ptr: *anyopaque, _: usize) void {
+            const device: *Device = @ptrCast(@alignCast(ptr));
+            device.released += 1;
+        }
+    };
 };
+
+test "an image hands its texture back to the device that made it" {
+    const gpa = std.testing.allocator;
+    var device: testing.Device = .{};
+    var image: Image = try .single(gpa, 1, 1, try gpa.dupe(u8, &.{ 1, 2, 3, 4 }));
+    // An image never drawn has no texture to hand back.
+    image.releaseTexture();
+    try std.testing.expectEqual(0, device.released);
+    // Its texture goes back once, and the next draw makes another.
+    device.make(&image);
+    image.releaseTexture();
+    image.releaseTexture();
+    try std.testing.expectEqual(1, device.released);
+    device.make(&image);
+    try std.testing.expectEqual(2, device.made);
+    // Freed, it hands back the texture it holds, as `texture_release` does.
+    image.deinit(gpa);
+    try std.testing.expectEqual(0, device.held());
+}
 
 test {
     _ = srimage;

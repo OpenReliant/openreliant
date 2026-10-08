@@ -1950,7 +1950,7 @@ pub const Resources = struct {
         closeFont(&resources.font, gpa);
         closeFont(&resources.target_fonts.small, gpa);
         closeFont(&resources.target_fonts.new, gpa);
-        gpa.destroy(resources.ball);
+        resources.ball.destroy(gpa);
         resources.* = undefined;
     }
 
@@ -1985,20 +1985,26 @@ test Resources {
     defer archive.close(gpa);
     const set = try spr.testing.paletteAndShape(gpa);
     defer gpa.free(set);
-    var resources: Resources = try .load(gpa, archive, try .parse(set), null);
-    defer resources.deinit(gpa);
-
-    // The images made of the shapes and glyphs drawn, as the pause menu draws them, are freed with
-    // the rest.
-    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    var recorder: device.testing.Recorder = .{ .gpa = gpa, .textures = .{} };
     defer recorder.deinit();
-    try drawShape(&resources.art, gpa, recorder.interface(), 1, .{ 0, 0 }, .{ 1, 1, 1, 1 }, 1);
-    for ([_]*Opened{ &resources.font, &resources.target_fonts.small, &resources.target_fonts.new }) |opened| {
-        _ = try drawText(opened, gpa, recorder.interface(), .{ 0, 0 }, "\x01", .{ 1, 1, 1, 1 }, .left, 1);
-        try std.testing.expect(opened.images[1] != null);
+    {
+        var resources: Resources = try .load(gpa, archive, try .parse(set), null);
+        defer resources.deinit(gpa);
+        // The images made of the shapes and glyphs drawn, as the pause menu draws them, are freed
+        // with the rest.
+        try drawShape(&resources.art, gpa, recorder.interface(), 1, .{ 0, 0 }, .{ 1, 1, 1, 1 }, 1);
+        for ([_]*Opened{ &resources.font, &resources.target_fonts.small, &resources.target_fonts.new }) |opened| {
+            _ = try drawText(opened, gpa, recorder.interface(), .{ 0, 0 }, "\x01", .{ 1, 1, 1, 1 }, .left, 1);
+            try std.testing.expect(opened.images[1] != null);
+        }
+        try std.testing.expect(resources.art.images[1] != null);
+        try std.testing.expectEqual(4, recorder.draws.items.len);
+        // And the power ball's, as the power display draws it.
+        recorder.textures.?.make(&resources.ball.image);
     }
-    try std.testing.expect(resources.art.images[1] != null);
-    try std.testing.expectEqual(4, recorder.draws.items.len);
+    // Their textures went back to the device.
+    try std.testing.expectEqual(5, recorder.textures.?.made);
+    try std.testing.expectEqual(0, recorder.textures.?.held());
 
     // A font that can't be read makes the load fail, and frees what it had loaded.
     try bigfile.testing.write(gpa, io, tmp.dir, "broken.hog", &.{

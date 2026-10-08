@@ -18,10 +18,10 @@ and selected bitmap or outline fonts (#590). `drawing.Assets` caches the mods' p
 by script context and file name, while `drawing.View` borrows the current game's fonts, sprite set
 and rasterizer. Custom outline fonts reuse `hud.outline.Fit` and its atlas path. Measurement uses
 the same bitmap layout as drawing. When a new picture or font needs room, the pictures drawn
-longest ago are taken out of the cache, but never one drawn in the last two frames; the device
-lets go of their textures (`device.Device.release`) at the next draw, and they are freed. Fonts,
-and the rest at shutdown, are released before the rasterizer and the renderer; a reload makes new
-entries for the new contexts without invalidating earlier frames.
+longest ago are taken out of the cache, but never one drawn in the last two frames, and freed at
+the next draw, which hands their textures back to the device. Fonts, and the rest at shutdown,
+are released before the rasterizer and the renderer; a reload makes new entries for the new
+contexts without invalidating earlier frames.
 
 ## Registries and built-in interfaces
 

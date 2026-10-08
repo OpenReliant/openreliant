@@ -233,9 +233,6 @@ pub const Device = struct {
         /// null. Gives the face's side in pixels, or null where it draws no reflections this frame.
         /// A device without it draws none.
         reflections: ?*const fn (*anyopaque, ?u3) ?u32 = null,
-        /// OpenReliant's: lets go of what it made of `image`, which is about to be freed, so that
-        /// another texture can take its place. A device without it keeps nothing of an image.
-        release: ?*const fn (*anyopaque, *srtexture.Image) void = null,
     };
 
     pub fn begin(device: Device) void {
@@ -296,12 +293,6 @@ pub const Device = struct {
         const send = device.vtable.reflections orelse return null;
         return send(device.ptr, face);
     }
-
-    /// Lets the device go of what it made of `image`, before `image` is freed.
-    pub fn release(device: Device, image: *srtexture.Image) void {
-        const let_go = device.vtable.release orelse return;
-        let_go(device.ptr, image);
-    }
 };
 
 test pack {
@@ -327,8 +318,9 @@ pub const testing = struct {
         /// How many of the frame's lights it adds to each pixel, and the lights it was last handed.
         room: usize = 0,
         lights: std.ArrayList(Light) = .empty,
-        /// How many images it was told to let go of.
-        released: usize = 0,
+        /// When set, it makes a texture of each image it draws, as the GPU does, and counts the
+        /// textures handed back. Null leaves the images as they are.
+        textures: ?srtexture.testing.Device = null,
 
         /// A draw: its states, and its vertices in `vertices`, as the indices pick them.
         pub const Draw = struct { state: State, primitive: Primitive, first: usize, count: usize };
@@ -361,11 +353,7 @@ pub const testing = struct {
             return recorder.drawn(recorder.draws.items.len - 1);
         }
 
-        const vtable: Device.VTable = .{ .begin = nothing, .end = nothing, .draw = draw, .overlay = nothing, .lights = take, .release = release };
-
-        fn release(ptr: *anyopaque, _: *srtexture.Image) void {
-            from(ptr).released += 1;
-        }
+        const vtable: Device.VTable = .{ .begin = nothing, .end = nothing, .draw = draw, .overlay = nothing, .lights = take };
 
         fn from(ptr: *anyopaque) *Recorder {
             return @ptrCast(@alignCast(ptr));
@@ -375,6 +363,7 @@ pub const testing = struct {
 
         fn draw(ptr: *anyopaque, state: State, primitive: Primitive, vertices: []const Vertex, indices: ?[]const u16) void {
             const recorder = from(ptr);
+            if (recorder.textures) |*textures| if (state.texture) |image| textures.make(image);
             const first = recorder.vertices.items.len;
             if (indices) |picked| {
                 for (picked) |index| recorder.vertices.append(recorder.gpa, vertices[index]) catch @panic("out of memory");
@@ -408,4 +397,15 @@ test "testing.Recorder" {
     recorder.room = 1;
     try std.testing.expectEqual(1, target.lights(&.{ .{ .mask = 1, .kind = .{ .directional = .{ .toward = .{ 0, 0, 1 }, .colour = .{ 1, 1, 1 } } } }, .{ .mask = 2, .kind = .{ .directional = .{ .toward = .{ 0, 1, 0 }, .colour = .{ 1, 1, 1 } } } } }));
     try std.testing.expectEqual(2, recorder.lights.items.len);
+
+    // Making textures, it makes one of an image the first time it draws it, as the GPU does.
+    var levels = [1]srtexture.Level{.{ .width = 0, .height = 0, .texels = &.{} }};
+    var image: srtexture.Image = .{ .levels = &levels };
+    target.draw(.{ .texture = &image, .depth = state.depth, .blend = null }, .fan, &corners, null);
+    try std.testing.expectEqual(null, image.texture);
+    recorder.textures = .{};
+    for (0..2) |_| target.draw(.{ .texture = &image, .depth = state.depth, .blend = null }, .fan, &corners, null);
+    try std.testing.expectEqual(1, recorder.textures.?.made);
+    image.releaseTexture();
+    try std.testing.expectEqual(0, recorder.textures.?.held());
 }

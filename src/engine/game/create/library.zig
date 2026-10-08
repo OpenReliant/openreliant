@@ -8,6 +8,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const spr = @import("../../../formats/spr.zig");
+const device = @import("../../surrender/srd3d/device.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const bigfile = @import("../bigfile.zig");
 const create = @import("../create.zig");
@@ -186,6 +187,9 @@ pub const TypeCache = struct {
     }
 
     fn free(cache: *TypeCache, cached: *Cached) void {
+        // The type's own shapes go first, so that their textures go back to the device.
+        const gpa = cached.arena.allocator();
+        for ([_]*?hud.Art{ &cached.schematic, &cached.wire_frame, &cached.wing_icon }) |art| if (art.*) |*made| made.deinit(gpa);
         cached.arena.deinit();
         cache.gpa.destroy(cached);
     }
@@ -257,7 +261,17 @@ test TypeCache {
     try std.testing.expectEqual(null, types.load(types.context, modelless));
     try std.testing.expect(cache.missing.isSet(modelless));
 
-    // Swept while an object is of it, the type stays; once none is, it goes.
+    // A schematic of its own, drawn, which the device makes a texture of.
+    const cached = cache.loaded[torpedo].?;
+    const arena = cached.arena.allocator();
+    cached.schematic = try .init(arena, try .parse(try spr.testing.paletteAndShape(arena)), null, null);
+    var recorder: device.testing.Recorder = .{ .gpa = gpa, .textures = .{} };
+    defer recorder.deinit();
+    try hud.drawShape(&cached.schematic.?, arena, recorder.interface(), 1, .{ 0, 0 }, .{ 1, 1, 1, 1 }, 1);
+    try std.testing.expectEqual(1, recorder.textures.?.held());
+
+    // Swept while an object is of it, the type stays; once none is, it goes, and its own shapes
+    // hand their textures back to the device.
     var uses: [create.max_ship_types]create.TypeUse = @splat(.{});
     uses[torpedo].objects = 1;
     cache.sweep(&uses);
@@ -265,4 +279,5 @@ test TypeCache {
     uses[torpedo].objects = 0;
     cache.sweep(&uses);
     try std.testing.expectEqual(null, cache.loaded[torpedo]);
+    try std.testing.expectEqual(0, recorder.textures.?.held());
 }

@@ -280,7 +280,6 @@ const prepared = keys: {
     break :keys found[0..count].*;
 };
 
-/// A texture's size and levels: textures alike share arrays.
 /// A texture's size, levels and format: textures alike share arrays.
 const Shape = struct { width: u32, height: u32, levels: u32, format: srtexture.Level.Format = .rgba8 };
 
@@ -393,16 +392,26 @@ fn reflectionSampler(handle: *c.SDL_GPUDevice) sdl.Error!*c.SDL_GPUSampler {
     return c.SDL_CreateGPUSampler(handle, &info) orelse fail("SDL_CreateGPUSampler");
 }
 
-/// Where a texture lies: its array and its layer. The device keeps it in the image's `device`, as
-/// the driver's `texture_upload` keeps the device texture it makes; an image never drawn holds 0.
+/// Where a texture lies: its array and its layer. The device keeps it as the handle of the image's
+/// texture (`srtexture.Image.texture`), as the driver's `texture_upload` keeps the device texture
+/// it makes.
 const Slot = packed struct(u32) {
     layer: u16,
-    array: u15,
-    placed: bool = true,
+    array: u16,
 
+    /// Where the texture made of `image` lies; null for an image never drawn.
     fn of(image: srtexture.Image) ?Slot {
-        const slot: Slot = @bitCast(@as(u32, @truncate(image.device)));
-        return if (slot.placed) slot else null;
+        const texture = image.texture orelse return null;
+        return .ofHandle(texture.handle);
+    }
+
+    fn ofHandle(handle: usize) Slot {
+        return @bitCast(@as(u32, @intCast(handle)));
+    }
+
+    /// The handle an image keeps for it.
+    fn asHandle(slot: Slot) usize {
+        return @as(u32, @bitCast(slot));
     }
 };
 
@@ -414,7 +423,7 @@ const Run = struct {
     /// The face of the reflections' cube it is drawn into, or null for the frame.
     face: ?u3 = null,
     /// Null while no vertex of the run has a texture.
-    array: ?u15,
+    array: ?u16,
     /// Read held at its texture's edges (`edge_sampler`): a point-filtered draw's, which the
     /// original never filtered past its edges.
     held: bool = false,
@@ -423,7 +432,7 @@ const Run = struct {
 };
 
 /// A texture placed in its layer this frame, with its maps, to go up to the GPU before the frame is
-/// drawn.
+/// drawn. An image freed before then takes its upload with it (`Gpu.release`).
 const Upload = struct {
     levels: []const srtexture.Level,
     maps: srtexture.Image.Maps = .{},
@@ -477,6 +486,13 @@ pub const Gpu = struct {
     pipelines: std.AutoHashMapUnmanaged(PipelineKey, *c.SDL_GPUGraphicsPipeline) = .empty,
     arrays: std.ArrayList(Array) = .empty,
     uploads: std.ArrayList(Upload) = .empty,
+    /// The layers of the textures handed back this frame (`release`), which go to their arrays'
+    /// free lists as the next frame begins, since this frame may still draw from them.
+    released: std.ArrayList(Slot) = .empty,
+    /// Set by `deinit`. Textures handed back after that are ignored: the texture table's images are
+    /// freed after the GPU when openreliant quits. The GPU's memory outlasts them, since openreliant
+    /// makes it in the arena that lasts the whole run.
+    closed: bool = false,
     /// A white texel, bound for runs with no texture.
     blank: Slot = undefined,
     /// A texel bound for the maps of an array without them, which the shader never reads.
@@ -810,6 +826,7 @@ pub const Gpu = struct {
         c.SDL_ReleaseGPUSampler(gpu.handle, gpu.reflection_sampler);
         gpu.arrays.deinit(gpu.gpa);
         gpu.uploads.deinit(gpu.gpa);
+        gpu.released.deinit(gpu.gpa);
         gpu.vertices.deinit(gpu.gpa);
         gpu.indices.deinit(gpu.gpa);
         gpu.runs.deinit(gpu.gpa);
@@ -828,6 +845,7 @@ pub const Gpu = struct {
         c.SDL_ReleaseGPUSampler(gpu.handle, gpu.edge_sampler);
         c.SDL_ReleaseGPUShader(gpu.handle, gpu.vertex_shader);
         c.SDL_ReleaseGPUShader(gpu.handle, gpu.fragment_shader);
+        gpu.closed = true;
     }
 
     /// The shaders and pipelines the screen's passes draw with: a triangle over the whole screen,
@@ -927,7 +945,6 @@ pub const Gpu = struct {
         .gamma = setGamma,
         .materials = materials,
         .reflections = reflectionsFace,
-        .release = release,
     };
 
     /// The gamma ramp, which the frame goes to the screen through (`present`).
@@ -981,6 +998,7 @@ pub const Gpu = struct {
 
     fn begin(ptr: *anyopaque) void {
         const gpu = from(ptr);
+        gpu.freeReleased();
         gpu.vertices.clearRetainingCapacity();
         gpu.indices.clearRetainingCapacity();
         gpu.runs.clearRetainingCapacity();
@@ -1057,12 +1075,17 @@ pub const Gpu = struct {
         // texture table compresses only to formats the GPU takes (`takes`).
         if (!gpu.takes(image.levels[0].format)) return null;
         const slot = try gpu.place(image.levels, image.maps, image);
-        image.device = @as(u32, @bitCast(slot));
+        image.texture = .{ .handle = slot.asHandle(), .holder = gpu.holder() };
         image.changed = false;
         return slot;
     }
 
-    /// Gives a texture a layer to go up to the GPU with the frame with its maps: one let go of in
+    /// What the images it made textures of hand them back to (`release`).
+    fn holder(gpu: *Gpu) srtexture.Holder {
+        return .{ .ptr = gpu, .release = release };
+    }
+
+    /// Gives a texture a layer to go up to the GPU with the frame with its maps: one handed back in
     /// an array of its shape, or else one in an array of its shape with room, or in a new one.
     fn place(gpu: *Gpu, levels: []const srtexture.Level, maps: srtexture.Image.Maps, image: ?*srtexture.Image) Error!Slot {
         const shape: Shape = .{ .width = levels[0].width, .height = levels[0].height, .levels = @intCast(levels.len), .format = levels[0].format };
@@ -1073,7 +1096,7 @@ pub const Gpu = struct {
         return slot;
     }
 
-    /// A layer let go of in an array of `shape` (`release`), if there is one.
+    /// A layer handed back in an array of `shape` (`release`), if there is one.
     fn reused(gpu: *Gpu, shape: Shape) ?Slot {
         for (gpu.arrays.items, 0..) |*array, index| {
             if (!std.meta.eql(array.shape, shape)) continue;
@@ -1088,7 +1111,7 @@ pub const Gpu = struct {
         const index = for (gpu.arrays.items, 0..) |array, i| {
             if (std.meta.eql(array.shape, shape) and array.count < max_layers) break i;
         } else made: {
-            const index = std.math.cast(u15, gpu.arrays.items.len) orelse return error.OutOfMemory;
+            const index = std.math.cast(u16, gpu.arrays.items.len) orelse return error.OutOfMemory;
             try gpu.arrays.ensureUnusedCapacity(gpu.gpa, 1);
             const capacity = firstLayers(shape);
             gpu.arrays.appendAssumeCapacity(.{ .shape = shape, .texture = try gpu.arrayTexture(shape, capacity, sdlFormat(shape.format, gpu.linear)), .capacity = capacity, .count = 0 });
@@ -1100,19 +1123,27 @@ pub const Gpu = struct {
         return slot;
     }
 
-    /// Lets go of `image`'s layer, which the next texture of its shape takes, and drops its pixels
-    /// from the frame's uploads if they haven't gone up yet. Without the memory to note the layer
-    /// as free, the layer stays taken.
-    fn release(ptr: *anyopaque, image: *srtexture.Image) void {
+    /// Takes back the texture `handle` of an image that is being freed (`srtexture.Holder`), as the
+    /// driver's `texture_release` (`srd3d.dll`, `0x10003840`) frees a device texture: its pixels no
+    /// longer go up, and its layer goes to the next texture of its shape from the next frame on
+    /// (`freeReleased`). Without the memory to note the layer, the layer stays taken.
+    fn release(ptr: *anyopaque, handle: usize) void {
         const gpu = from(ptr);
-        const slot = Slot.of(image.*) orelse return;
+        if (gpu.closed) return;
+        const slot: Slot = .ofHandle(handle);
         var index = gpu.uploads.items.len;
         while (index > 0) {
             index -= 1;
-            if (gpu.uploads.items[index].image == image) _ = gpu.uploads.orderedRemove(index);
+            if (gpu.uploads.items[index].slot == slot) _ = gpu.uploads.orderedRemove(index);
         }
-        image.device = 0;
-        gpu.arrays.items[slot.array].free.append(gpu.gpa, slot.layer) catch {};
+        gpu.released.append(gpu.gpa, slot) catch {};
+    }
+
+    /// Hands the layers released last frame to the next textures of their shapes, as a frame
+    /// begins. Without the memory to note a layer, it stays taken.
+    fn freeReleased(gpu: *Gpu) void {
+        for (gpu.released.items) |slot| gpu.arrays.items[slot.array].free.append(gpu.gpa, slot.layer) catch {};
+        gpu.released.clearRetainingCapacity();
     }
 
     /// Whether it takes textures of `format`: every compressed one it takes (`compressed`), and 8-bit
@@ -1997,46 +2028,53 @@ test "Lighting.take in linear light" {
     try std.testing.expectEqual(1, lighting.lights[0].shadowed);
 }
 
-test "a layer let go of goes to the next texture of its shape" {
+test "a texture handed back goes to the next texture of its shape, from the next frame on" {
     const gpa = std.testing.allocator;
     var gpu: Gpu = undefined;
     gpu.gpa = gpa;
     gpu.arrays = .empty;
     gpu.uploads = .empty;
+    gpu.released = .empty;
+    gpu.closed = false;
     defer {
         for (gpu.arrays.items) |*array| array.free.deinit(gpa);
         gpu.arrays.deinit(gpa);
         gpu.uploads.deinit(gpa);
+        gpu.released.deinit(gpa);
     }
     const shape: Shape = .{ .width = 1, .height = 1, .levels = 1 };
     try gpu.arrays.append(gpa, .{ .shape = shape, .texture = undefined, .capacity = 4, .count = 2 });
     var levels = blank_levels;
     var image: srtexture.Image = .{ .levels = &levels };
     const slot: Slot = .{ .array = 0, .layer = 1 };
-    image.device = @as(u32, @bitCast(slot));
+    image.texture = .{ .handle = slot.asHandle(), .holder = gpu.holder() };
     try gpu.uploads.append(gpa, .{ .levels = &levels, .slot = slot, .image = &image });
-    try std.testing.expectEqual(null, gpu.reused(shape));
+    try gpu.uploads.append(gpa, .{ .levels = &levels, .slot = .{ .array = 0, .layer = 0 } });
 
-    // Its pixels no longer go up, and its layer goes to the next texture of the shape, once.
-    Gpu.release(&gpu, &image);
-    try std.testing.expectEqual(0, gpu.uploads.items.len);
+    // Handed back, its pixels no longer go up, and the frame may still draw from its layer.
+    image.releaseTexture();
+    try std.testing.expectEqual(1, gpu.uploads.items.len);
     try std.testing.expectEqual(null, Slot.of(image));
+    try std.testing.expectEqual(null, gpu.reused(shape));
+    // As the next frame begins, the layer goes to the next texture of the shape, once.
+    gpu.freeReleased();
     try std.testing.expectEqual(null, gpu.reused(.{ .width = 2, .height = 2, .levels = 1 }));
     try std.testing.expectEqual(slot, gpu.reused(shape).?);
     try std.testing.expectEqual(null, gpu.reused(shape));
-    // An image without a layer has none to let go of.
-    Gpu.release(&gpu, &image);
-    try std.testing.expectEqual(0, gpu.arrays.items[0].free.items.len);
+    // After `deinit`, a texture handed back is ignored.
+    image.texture = .{ .handle = slot.asHandle(), .holder = gpu.holder() };
+    gpu.closed = true;
+    image.releaseTexture();
+    try std.testing.expectEqual(0, gpu.released.items.len);
 }
 
 test Slot {
     var levels = blank_levels;
-    var image: srtexture.Image = .{ .levels = &levels };
+    const image: srtexture.Image = .{ .levels = &levels };
+    // An image never drawn lies nowhere.
     try std.testing.expectEqual(null, Slot.of(image));
-    const slot: Slot = .{ .array = 3, .layer = 200 };
-    image.device = @as(u32, @bitCast(slot));
-    try std.testing.expectEqual(slot, Slot.of(image).?);
-    // The first layer of the first array is still told from an image never drawn.
-    image.device = @as(u32, @bitCast(Slot{ .array = 0, .layer = 0 }));
-    try std.testing.expect(Slot.of(image) != null);
+    // A slot comes back from its handle, the first layer of the first array too.
+    for ([_]Slot{ .{ .array = 0, .layer = 0 }, .{ .array = 3, .layer = 200 } }) |slot| {
+        try std.testing.expectEqual(slot, Slot.ofHandle(slot.asHandle()));
+    }
 }

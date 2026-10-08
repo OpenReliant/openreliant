@@ -112,8 +112,9 @@ pub fn redraw(gpa: Allocator, image: *const srtexture.Image, detail: Detail) All
     return .{ .levels = made };
 }
 
-/// Lets go of what `redraw` made.
+/// Frees what `redraw` made, and hands its texture back to the device.
 pub fn free(gpa: Allocator, image: srtexture.Image) void {
+    if (image.texture) |texture| texture.release();
     var total: usize = 0;
     for (image.levels) |level| total += level.texels.len;
     gpa.free(image.levels[0].texels.ptr[0..total]);
@@ -593,6 +594,23 @@ test redraw {
     for (0..source.level[0].texels.len / 4) |i| before += @floatFromInt(source.level[0].texels[i * 4]);
     for (0..fine.texels.len / 4) |i| after += @floatFromInt(fine.texels[i * 4]);
     try std.testing.expectApproxEqRel(before, after / (scale * scale), 0.01);
+}
+
+test free {
+    const gpa = std.testing.allocator;
+    const white = struct {
+        fn colour(_: f32, _: usize, _: usize) [4]u8 {
+            return @splat(255);
+        }
+    };
+    var source: Synthetic = try .init(gpa, 8, white.colour);
+    defer source.deinit(gpa);
+    var drawn = try redraw(gpa, &source.image(), .round);
+    // A redrawn texture that was drawn hands its texture back as it is freed.
+    var device: srtexture.testing.Device = .{};
+    device.make(&drawn);
+    free(gpa, drawn);
+    try std.testing.expectEqual(0, device.held());
 }
 
 test "redraw smooths a gradient's rounding" {

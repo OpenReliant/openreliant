@@ -330,10 +330,10 @@ pub const Presentation = struct {
     }
 
     /// Draws what the scripts drew on `which` this frame into `into`, where it's shown. `sight`
-    /// places what they drew in the world. First, `into` lets go of the pictures taken out of the
-    /// cache (`drawing.Assets.release`).
+    /// places what they drew in the world. First, the pictures taken out of the cache are freed
+    /// (`drawing.Assets.release`).
     pub fn draw(shown: *Presentation, which: drawing.Which, into: device.Device, sight: ?hud.Sight) Allocator.Error!void {
-        shown.assets.release(shown.gpa, into);
+        shown.assets.release(shown.gpa);
         const view = shown.views.get(which) orelse return;
         try shown.layers.getPtrConst(which).draw(into, view, sight);
     }
@@ -1157,15 +1157,21 @@ test "a script draws more pictures over time than the cache holds" {
     defer fixture.deinit();
     var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 } };
     host.views.set(.ui, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
-    for (0..pictures) |_| fixture.shown.frame(host);
+    // Each frame is drawn, and the device makes a texture of each picture.
+    var recorder: device.testing.Recorder = .{ .gpa = gpa, .textures = .{} };
+    defer recorder.deinit();
+    for (0..pictures - 1) |_| {
+        fixture.shown.frame(host);
+        try fixture.shown.draw(.ui, recorder.interface(), null);
+    }
+    fixture.shown.frame(host);
     // The last picture drew, and the first, drawn longest ago, made room for it.
     try std.testing.expectEqual(1, fixture.shown.layers.get(.ui).commands.items.len);
     try std.testing.expectEqual(drawing.max_assets, fixture.shown.assets.pictures.items.len);
     try std.testing.expectEqual(1, fixture.shown.assets.taken_out.items.len);
-    var recorder: device.testing.Recorder = .{ .gpa = gpa };
-    defer recorder.deinit();
+    // Drawing the frame frees it, and its texture goes back to the device.
     try fixture.shown.draw(.ui, recorder.interface(), null);
-    try std.testing.expectEqual(1, recorder.released);
+    try std.testing.expectEqual(1, recorder.textures.?.released);
     try std.testing.expectEqual(0, fixture.shown.assets.taken_out.items.len);
 }
 
