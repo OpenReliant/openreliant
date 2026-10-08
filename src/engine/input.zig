@@ -1608,18 +1608,53 @@ pub fn setEcm(display: *hud.State, object: *gameobj.GameObject, on: bool) void {
     ecm.setting = if (on) .on else .off;
 }
 
-/// `player_spectral_shields_set` (`0x00415430`): turns the spectral shields on or off, on a ship
-/// that carries them: the object's `spectral_shields` flag and the display's setting. Turning
-/// them on tunes them, into `spectral_gun_type`, to the gun type most dangerous near the ship: it
-/// counts the guns of every hostile ship within range, weights each type's count by its first
-/// damage value, and takes the highest, leaving out types 13 and 14. Not yet ported: the tuning,
-/// which needs the other ships' guns ([#530](https://github.com/OpenReliant/openreliant/issues/530)),
-/// and what it tells a multiplayer game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-pub fn setSpectralShields(display: *hud.State, object: *gameobj.GameObject, on: bool) void {
+/// `player_spectral_shields_set` (`0x00415430`): turns the spectral shields of the player's ship,
+/// `object`, on or off, where it carries them: the object's `spectral_shields` flag and the
+/// display's setting. Turning them on tunes them to the gun most dangerous near the ship among
+/// `near`'s objects (`spectralTuning`); turning them off needs none.
+///
+/// Not ported: what it tells a multiplayer game
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+pub fn setSpectralShields(display: *hud.State, object: *gameobj.GameObject, on: bool, near: ?*const create.Objects) void {
     const shields = display.devices.getPtr(.spectral_shields);
     if (shields.setting == .absent) return;
     object.flags.spectral_shields = on;
     shields.setting = if (on) .on else .off;
+    if (on) if (near) |all| {
+        object.spectral_gun_type = @backingInt(spectralTuning(all));
+    };
+}
+
+/// The gun the spectral shields are tuned to as they turn on (`player_spectral_shields_set`,
+/// `0x00415430`), which the player's object keeps (`spectral_gun_type`): of the guns of every
+/// hostile ship within `hud.pick_range` of the player's, as both stand next, but those exploding
+/// or disabled, the type whose count times the damage its shot does to a shield is the highest,
+/// the first of them where they tie, and the Laser Cannon where there is none. The Huge Guns aren't
+/// picked. Nothing in a single-player game reads the tuning: the shots deflect whatever hits, and
+/// only a multiplayer game is told it.
+///
+/// A gun a mod adds counts as the game's gun it is based on.
+pub fn spectralTuning(all: *const create.Objects) guns.GameGun {
+    var weights: std.EnumArray(guns.GameGun, f32) = .initFill(0);
+    const from = all.slots[all.player].object.nextPosition();
+    for (all.slots[0..all.count]) |*slot| {
+        const object = &slot.object;
+        if (object.flags.stand_in or object.flags.exploding or object.flags.disabled) continue;
+        if (object.side != .hostile) continue;
+        const away = object.nextPosition() - from;
+        if (@reduce(.Add, away * away) > hud.pick_range * hud.pick_range) continue;
+        for (slot.guns) |*gun| {
+            const barrel = gun.barrel() orelse continue;
+            weights.getPtr(barrel.type.base()).* += 1;
+        }
+    }
+    var best: guns.GameGun = .laser_cannon;
+    for (std.enums.values(guns.GameGun)) |gun| {
+        const weight = weights.getPtr(gun);
+        weight.* *= guns.GunType.of(gun).stats(&all.gun_stats).damage.shield;
+        if (!gun.huge() and weight.* > weights.get(best)) best = gun;
+    }
+    return best;
 }
 
 /// `player_cloak_set` (`0x004153E0`): cloaks the player's ship or uncloaks it, as `on` says, where
@@ -1694,6 +1729,38 @@ pub fn nextNavPoint(world: gameobj.World) void {
         }
         if (math.distance(marked.drawn.position, ship.drawn.position) > marker.reach) break .of(index);
     } else .none;
+}
+
+test spectralTuning {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    _ = try mission.add(.of(.predator), @splat(0));
+    // With no hostile guns near, the Laser Cannon.
+    try std.testing.expectEqual(.laser_cannon, spectralTuning(all));
+    // Two Pulse Cannons near, against one Proton Cannon of three times the damage to a shield.
+    all.gun_stats.types[guns.GunType.of(.pulse_cannon).number()].damage.shield = 10;
+    all.gun_stats.types[guns.GunType.of(.proton_cannon).number()].damage.shield = 30;
+    all.gun_stats.types[guns.GunType.of(.coalition_huge_gun).number()].damage.shield = 1000;
+    const enemy = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    const slot = mission.slot(enemy);
+    slot.object.side = .hostile;
+    const barrel = guns.testing.barrel;
+    var fitted = [_]guns.Fitted{ barrel(.of(.pulse_cannon)), barrel(.of(.pulse_cannon)), barrel(.of(.proton_cannon)), barrel(.of(.coalition_huge_gun)) };
+    const kept = slot.guns;
+    slot.guns = &fitted;
+    defer slot.guns = kept;
+    try std.testing.expectEqual(.proton_cannon, spectralTuning(all));
+    // Three Pulse Cannons outweigh it; the Huge Gun never counts.
+    fitted[2] = barrel(.of(.pulse_cannon));
+    try std.testing.expectEqual(.pulse_cannon, spectralTuning(all));
+    // A friendly ship's guns, or a hostile ship's out of range, don't count.
+    slot.object.side = .friendly;
+    try std.testing.expectEqual(.laser_cannon, spectralTuning(all));
+    slot.object.side = .hostile;
+    objects.setPosition(&slot.object, &slot.drawn, .{ 0, 0, 2 * hud.pick_range });
+    try std.testing.expectEqual(.laser_cannon, spectralTuning(all));
 }
 
 test nextNavPoint {
@@ -2403,7 +2470,7 @@ pub fn frameKeys(keys: FrameKeys) void {
         const on = !object.flags.spectral_shields;
         hud.beep(keys.world, if (on) .on else .off);
         betty.sayIn(keys.world, spectral_shields_said.of(on));
-        setSpectralShields(display, object, on);
+        setSpectralShields(display, object, on, keys.all);
     }
 }
 

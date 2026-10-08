@@ -3450,7 +3450,7 @@ pub const State = struct {
         if (state.devices.getPtr(.ecm).run(.ecm, frame_duration)) input.setEcm(state, object, false);
         if (!multiplayer and state.devices.getPtr(.cloak).run(.cloak, frame_duration)) state.cloak_spent = true;
         if (state.devices.getPtr(.spectral_shields).run(.spectral_shields, frame_duration)) {
-            input.setSpectralShields(state, object, false);
+            input.setSpectralShields(state, object, false, null);
         }
     }
 
