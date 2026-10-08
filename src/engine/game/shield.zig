@@ -581,7 +581,7 @@ pub const Bubble = struct {
             @memset(colours, @splat(0));
             return true;
         };
-        const lit = numbers.rand() % flicker_odds == 0;
+        const lit = numbers.oneIn(flicker_odds);
         for (colours) |*colour| {
             const grey = numbers.fraction();
             colour.* = if (lit) .{ grey, grey, grey, 0 } else @splat(0);

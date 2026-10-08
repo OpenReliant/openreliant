@@ -80,7 +80,7 @@ pub const Cutaway = enum(i32) {
     /// (`0x0041B2C5` to `0x0041B2D6`): the remainder of `random`'s next over `cutaways`, counted
     /// from the first, the bay's.
     pub fn pick(random: *Random) Cutaway {
-        return @fromBackingInt(@as(i32, random.rand() % cutaways) + @backingInt(Cutaway.bay));
+        return @fromBackingInt(@as(i32, random.below(cutaways)) + @backingInt(Cutaway.bay));
     }
 };
 

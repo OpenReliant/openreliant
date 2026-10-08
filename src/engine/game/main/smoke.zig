@@ -215,7 +215,7 @@ pub const Stream = struct {
         stream.emitter.born = sending.clock.frame_start;
         stream.emitter.inherited = carried;
         _ = pool.stream(&stream.emitter, .{ .position = carrier.position, .orientation = carrier.orientation }, sending);
-        if (slot.object.smoke_level != .burning or sending.random.rand() % fireball_odds != 0) return;
+        if (slot.object.smoke_level != .burning or !sending.random.oneIn(fireball_odds)) return;
         const at = slot.drawn.point(stream.emitter.place.position);
         const size = (sending.random.fraction() * fireball_size_range + fireball_size) * slot.object.radius;
         explode.fireballAt(world, at, .{ .size = size, .life = fireball_life, .velocity = carried });

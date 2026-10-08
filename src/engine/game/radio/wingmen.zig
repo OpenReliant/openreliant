@@ -130,7 +130,7 @@ pub fn give(world: gameobj.World, command: Command, to: Addressee) void {
             setAside(world, wingman);
         },
         .help_me => {
-            const attacker = aim.attackers[world.random.rand() % aim.attackers.len];
+            const attacker = world.random.pick(aim.attackers);
             _ = aigeneric.giveShip(ctx, wingman, .fight, attacker, null);
         },
     }
@@ -183,7 +183,7 @@ fn pick(world: gameobj.World, command: Command, aim: Aim) ?u16 {
     }
     const free = found[0..count];
     if (free.len == 0) return null;
-    if (command == .back_off) return free[world.random.rand() % free.len];
+    if (command == .back_off) return world.random.pick(free);
     const player = all.slots[all.player].object.nextPosition();
     var reach: [mission.wing_size]f32 = undefined;
     var total: f32 = 0;

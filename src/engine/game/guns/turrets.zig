@@ -245,7 +245,7 @@ fn aimedStep(world: gameobj.World, index: u16, gun: *guns.Fitted, aimed: *Aimed)
     }
     if (aimed.looks_at < clock.frame_start) {
         if (aimed.target.slot() == null) pickTarget(world, index, aimed);
-        aimed.looks_at = clock.frame_start + look_least + @rem(world.random.rand(), look_spread);
+        aimed.looks_at = clock.frame_start + look_least + world.random.below(look_spread);
     }
 }
 

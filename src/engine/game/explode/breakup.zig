@@ -476,7 +476,7 @@ fn breakUpPart(explosions: *explode.Explosions, world: gameobj.World, slot: *con
             const speed = random.fraction() * first_speed_range + first_speed;
             const tumble = random.centredVector(@splat(first_tumble));
             explosions.pieces.add(.{
-                .until = @as(i32, random.rand() % flight_range) + first_flight + now,
+                .until = @as(i32, random.below(flight_range)) + first_flight + now,
                 .velocity = away(piece.object.position, centre, speed, carried, objects.tick_share),
                 .tumble = tumble,
                 .trail = trailFrom(kind, now),
@@ -491,7 +491,7 @@ fn breakUpPart(explosions: *explode.Explosions, world: gameobj.World, slot: *con
             const flying = small.* orelse continue;
             const tumble = random.centredVector(@splat(count * kind.tumble()));
             explosions.pieces.add(.{
-                .until = @as(i32, random.rand() % flight_range) + kind.flight() + now,
+                .until = @as(i32, random.below(flight_range)) + kind.flight() + now,
                 .velocity = away(flying.object.position, centre, count * second_speed, carried, objects.tick_share),
                 .tumble = tumble,
                 .piece = flying,
@@ -557,7 +557,7 @@ fn burstPart(explosions: *explode.Explosions, world: gameobj.World, slot: *const
         for (&pieces) |*small| {
             const piece = small.* orelse continue;
             const velocity = away(piece.object.position, centre, count * reach * part_speed, carried, part_share);
-            const flight = @as(i32, random.rand() % part_flight_range) + part_flight;
+            const flight = @as(i32, random.below(part_flight_range)) + part_flight;
             const end = piece.object.position + velocity * @as(Vector, @splat(@floatFromInt(flight)));
             explode.fireballAt(world, end, .{ .size = piece.object.radius, .light = true, .delay = flight });
             explosions.pieces.add(.{
