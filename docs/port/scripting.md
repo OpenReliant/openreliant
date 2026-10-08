@@ -139,7 +139,7 @@ object, is calling. Coroutines created by a script inherit this.
 with or without the `.luau` extension, in any case. Circular requires are an error. Names starting
 with `openreliant.` load a package ([`script.Package`](../../src/scripting/script.zig)), and
 `openreliant.self` gives the handle of the context's object. Requiring a package that isn't
-available to that kind of script, or isn't implemented yet, raises an error saying which.
+available to that kind of script raises an error saying which.
 
 ### Limits
 

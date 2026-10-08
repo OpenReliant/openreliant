@@ -43,6 +43,10 @@ const objects = @import("objects.zig");
 const values = @import("values.zig");
 const api = @import("api.zig");
 
+/// The Luau types the definitions give `hooks.add` and `hooks.after`: each hook's own overload.
+pub const add_type = "HooksAdd";
+pub const after_type = "HooksAfter";
+
 /// The handlers mods have added, by hook.
 pub const Hooks = struct {
     gpa: Allocator,
@@ -113,14 +117,6 @@ pub const Hooks = struct {
             dispatch.ran = true;
         };
         if (access.on.isFunction()) dispatch.after();
-    }
-
-    /// Tells the handlers of `hook`, an event, that it has happened, with `fields`.
-    pub fn tell(hooks: *Hooks, comptime hook: Hook, fields: engine_hooks.Fields(hook)) void {
-        if (!hooks.scripts.hooked.contains(hook)) return;
-        var told = fields;
-        var call: engine_hooks.Call = .{ .scripts = hooks.scripts, .hook = hook, .fields = &told, .result = null, .original = null };
-        hooks.run(&call);
     }
 
     /// Removes every handler the mod opened as `context` has added, as its scripts stop.

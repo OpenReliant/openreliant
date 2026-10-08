@@ -425,13 +425,13 @@ pub const Game = struct {
     fn started(context: *anyopaque, mission: engine_hooks.Mission) void {
         const game = ofScripts(context);
         game.runner.callEach(game.global(), .on_mission_start, .{ .mission = mission });
-        game.hooks.tell(.mission_started, mission);
+        engine_hooks.tell(&game.scripts, .mission_started, mission);
     }
 
     fn ended(context: *anyopaque, outcome: engine_hooks.Outcome) void {
         const game = ofScripts(context);
         game.runner.callEach(game.global(), .on_mission_end, .{ .outcome = outcome });
-        game.hooks.tell(.mission_ended, outcome);
+        engine_hooks.tell(&game.scripts, .mission_ended, outcome);
         game.runtime.custom_orders.endMission(game.runtime);
         game.stopObjectScripts();
         game.stopMissionScripts();

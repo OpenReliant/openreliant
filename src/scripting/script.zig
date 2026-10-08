@@ -2,7 +2,7 @@
 //! [#498](https://github.com/OpenReliant/openreliant/issues/498): the script kinds a manifest's
 //! `[Scripts]` section accepts, the engine handlers each kind may use, and the packages each kind
 //! may require. They cover the whole design so that scripts written now keep working as later
-//! versions add features. `Package.ready` says which packages this version supports.
+//! versions add features.
 
 const std = @import("std");
 
@@ -352,13 +352,6 @@ pub const Package = enum {
             .debug => "Lines and text placed in the world, drawn over the flight display where the camera sees them, for debugging.",
         };
     }
-
-    /// Whether this version implements this package.
-    pub fn ready(package: Package) bool {
-        return switch (package) {
-            .core, .records, .hooks, .world, .self, .nearby, .orders, .interfaces, .hud, .ui, .input, .camera, .audio, .debug, .storage, .async, .util, .vfs, .settings, .postprocessing, .shaders => true,
-        };
-    }
 };
 
 /// `name` with its first letter capitalized, as manifest keys are written.
@@ -421,10 +414,6 @@ test Package {
     try std.testing.expectEqual(null, Package.parse("records"));
     try std.testing.expect(Package.records.reachableFrom(.load));
     try std.testing.expect(!Package.world.reachableFrom(.load));
-    try std.testing.expect(Package.records.ready());
-    try std.testing.expect(Package.hooks.ready());
-    try std.testing.expect(Package.world.ready());
-    try std.testing.expect(Package.shaders.ready());
 }
 
 test Offer {
