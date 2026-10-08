@@ -295,7 +295,7 @@ fn limpetCarUpdate(ctx: Context, index: u16) void {
     model.parts[0].hidden = true;
     const place = model.partPlace(0, .next).within(slot.object.placeAt(.next));
     explode.blast(world, index);
-    all.resetSlot(index, world.random);
+    create.resetSlot(ctx, index);
     const pod = create.make(world, index, .of(.limpet_pod)) catch null orelse return;
     const replaced = &all.slots[pod];
     objects.setPlace(&replaced.object, &replaced.drawn, place);

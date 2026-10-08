@@ -281,7 +281,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
         .clear => {
             if (player) {
                 if (world.display) |display| display.caption.start(world.clock.game_ticks);
-                all.resetSlot(create.cutaway_slot, world.random);
+                create.resetSlot(ctx, create.cutaway_slot);
                 world.player.showing = .everything;
                 setMarker(world, slot);
                 effects.cutaway = .pick(world.random);

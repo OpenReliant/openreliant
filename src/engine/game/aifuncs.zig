@@ -1378,7 +1378,7 @@ test runAway {
     try std.testing.expect(@abs(all.slots[index].object.yaw_input) > 0 or @abs(all.slots[index].object.roll_input) > 0);
 
     // A slot that has gone back to standing in is nothing to run from.
-    all.resetSlot(other, &mission.random);
+    create.resetSlot(ctx, other);
     aigeneric.objectOrders(ctx, index);
     try std.testing.expectEqual(0, all.slots[index].object.order_count);
 

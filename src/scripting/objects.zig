@@ -640,7 +640,7 @@ test "handles name objects until they are removed" {
     try bind.testing.expectSourceError(thread, "sabre.orientation = { right = vector.zero, down = vector.zero, forward = vector.zero }", "aren't zero or parallel");
 
     // Once its slot is reset, the handle is no longer valid.
-    mission.objects.resetSlot(sabre, &mission.random);
+    create.resetSlot(mission.orders(), sabre);
     try bind.testing.runSource(thread, "assert(not sabre:is_valid() and tostring(sabre) == 'object 1 (gone)')");
     try bind.testing.expectSourceError(thread, "local x = sabre.type", "no longer in the mission");
 }
