@@ -1085,7 +1085,9 @@ pack <folder> <archive> --checksum` writes a checksum file next to the archive i
 ## Log messages
 
 OpenReliant writes its log to the terminal it runs in, and to `openreliant.log` in the game folder
-([The log file](installation.md#the-log-file)). As it
+([The log file](installation.md#the-log-file)). Attach it to a
+[mod or scripting problem](https://github.com/OpenReliant/openreliant/issues/new?template=mod_problem.yml)
+when you report one. As it
 starts, it lists each mod it loads, in order, by its manifest's name if it has one, and then what
 each of the mod's files does: which game file, texture, shape, picture, font or line it replaces,
 which earlier mod's file it replaces, or which file it adds. A mod that the mods screen has turned

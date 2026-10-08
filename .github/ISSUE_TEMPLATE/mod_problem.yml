@@ -1,0 +1,66 @@
+name: Mod or scripting problem
+description: A mod that doesn't load or work as it should, or a problem with the scripting API.
+labels: [bug, mods]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! This form is for problems with mods: one that doesn't load, one that doesn't work as its author describes, or a scripting function or hook that doesn't do what the [reference](https://github.com/OpenReliant/openreliant/blob/main/docs/guide/reference.md) says. For a problem in the game itself, please use the bug report, and to ask for something mods can't do yet, the feature request.
+  - type: input
+    id: mod
+    attributes:
+      label: Mod
+      description: The mod's name and version as the mods screen shows them, and where you got it. For your own mod, a link to its files helps.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What goes wrong
+      options:
+        - The mod doesn't load, or the mods screen shows it in red
+        - The mod loads but doesn't work as it should
+        - A scripting function or hook doesn't do what the reference says
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and any error the mods screen or the log shows.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen
+      description: What you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: The script or files
+      description: For a scripting problem, the smallest script that shows it, pasted or dragged in. For a mod you made, its manifest (`mod.ini`) and the files involved.
+  - type: input
+    id: version
+    attributes:
+      label: OpenReliant version
+      description: What `openreliant --version` prints, or the release you downloaded.
+      placeholder: openreliant 0.8.0
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Your operating system, and your graphics card for a problem with what's drawn.
+      placeholder: Windows 11, NVIDIA GeForce RTX 3060
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Drag in `openreliant.log` from your game folder, from the run where the problem happened. It lists each mod as it loads and what its files do. Each run starts the file afresh, so attach it before you play again.

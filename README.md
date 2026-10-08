@@ -43,6 +43,19 @@ OpenReliant is in active development. The first campaign missions are playable f
 
 ---
 
+## Bugs & Feedback
+
+Open an issue with the form that fits:
+
+- [Bug report](../../issues/new?template=bug_report.yml): something doesn't work, or works differently from the original game.
+- [Feedback](../../issues/new?template=feedback.yml): how the game plays, and anything that feels wrong or unlike the original.
+- [Mod or scripting problem](../../issues/new?template=mod_problem.yml): a mod that doesn't load or work as it should, or a problem with the scripting API.
+- [Feature request](../../issues/new?template=feature_request.yml): something OpenReliant doesn't do yet.
+
+A bug report asks for `openreliant.log` from your game folder ([The log file](docs/guide/installation.md#the-log-file)).
+
+---
+
 ## Quickstart
 
 Download the archive for your system from the [latest release](../../releases/latest) and extract it, then follow the [installation guide](docs/guide/installation.md): it installs the game's files from your StarLancer discs or disc images, and starts the game.
