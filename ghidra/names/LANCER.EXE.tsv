@@ -953,6 +953,10 @@ address	kind	name	type	comment
 0052a3f4	data	warp_ready	int	As jump_ready, for a warp, which the prompt shows first
 005656a8	data	hud_shapes	void *	The display's shapes: hudhard.spr under the hardware renderers, hudsoft.spr under the software one
 00566558	data	hud_icons	int[40]	ShowHudIcon's table: twenty icons, each a state (0 off, 1 on, 2 flash) and the count its flash is at. hud_init turns them off; the display reads icons 0 to 5
+005799bc	data	hud_key_awaited	int	The action WaitForKey waits for, which hud_draw prompts for after the caption: PRESS, the action's name, then its key on a key cap after its modifier's, or its joystick button; -1 for none, as hud_init leaves it
+0057bf34	data	hud_subtitle	int	The language string DisplaySubTitle shows, which hud_draw writes 60 up from the foot of the screen in the director's view; 0x90 for none, as hud_init leaves it
+00458940	function	waypoint_first	void * __fastcall (void *group)	The first entry of waypoints whose flight group is group, or null for none
+00452470	function	waypoint_index	int __fastcall (void *waypoint)	The index among waypoints of an entry of it
 00566620	data	spectral_shields_charge	int	The spectral shields' charge in ticks, 6000 when full: it drains 6 a tick while they are on and fills 1 a tick while off; hud_draw turns them off when it runs dry
 00566638	data	cloak_state	int	-1 when the player's ship has no cloak, else 0 off and 1 on. The mission's start sets 0 for a ship whose model can cloak; object_set_cloak sets it for the player
 0056663c	data	cloak_charge	int	The cloak's charge in ticks, 10000 when full: it drains and fills 1 a tick, outside a multiplayer game; hud_draw uncloaks the ship when it runs dry
@@ -1721,7 +1725,7 @@ address	kind	name	type	comment
 0041ad10	function	launch_stork_run	void __fastcall (int slot)	A launch from the Stork: at step 2 the ship lets go and flies out at throttle 2 by motion_plain; 400 ticks later its throttle drops to 0; at the next update each of its parts plays deploy, and it flies itself by motion_forward, its order popped, targetable again, and Launched posted
 0041b8b0	function	launch_zakov_init	void __fastcall (int slot)	A launch from the Zakov: places the ship at the Zakov's launch point its gate names (launch_attach), riding the part that holds it, then moves it forward along its nose by how far its bounds reach behind its centre (bounds_min)
 0041b940	function	launch_zakov_run	void __fastcall (int slot)	A launch from the Zakov: at step 2 the ship lets go and flies straight out at throttle 2 by motion_plain; past 100 ticks it flies itself by motion_forward, its throttle and yaw input zeroed, its order popped, targetable again, and Launched posted
-00461c40	function	camera_set_view_call	void __fastcall (int view, int object, bool force, bool unknown)	Calls camera_set_view
+00461c40	function	camera_set_view_call	void __fastcall (int view, int object, char lock, char force)	Calls camera_set_view with the same arguments
 00494e10	function	missiles_free	void (void)	Frees the missile and trail pools and clears missiles_initialised
 0057e020	data	missile_lock_target	OrderEntry	The target and component the lock began on, at +4 and +6, laid out as an order entry for ai_target_node
 0057dfe8	data	missile_lock_unused	int	Counted in lock states 2, 3 and 5, capped at 90; never read

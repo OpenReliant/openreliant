@@ -2229,6 +2229,7 @@ const Display = struct {
             .edge_line = display.edge_line,
             .variables = if (display.play.loaded) |loaded| &loaded.script.variables else null,
             .placements = display.placements,
+            .devices = display.devices,
         });
     }
 };

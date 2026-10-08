@@ -112,11 +112,9 @@ pub const max_arguments = most: {
 /// A command's arguments, the first first. Those past the ones it takes are 0.
 pub const Arguments = [max_arguments]u32;
 
-/// The implementation of command `number`, or null for one not ported yet: those only the
-/// simulator's and the multiplayer arenas' missions use
-/// ([#533](https://github.com/OpenReliant/openreliant/issues/533),
-/// [#554](https://github.com/OpenReliant/openreliant/issues/554)), and those no shipped mission
-/// uses ([#806](https://github.com/OpenReliant/openreliant/issues/806)).
+/// The implementation of command `number`, or null for the one not ported yet:
+/// `ResetToSpawnPositions`, which only the multiplayer arenas' missions use
+/// ([#554](https://github.com/OpenReliant/openreliant/issues/554)).
 pub fn implementation(number: u8) ?vm.Implementation {
     return if (number < implementations.len) implementations[number] else null;
 }
@@ -135,6 +133,7 @@ const implementations = table: {
     @setEvalBranchQuota(10_000);
     var table: [commands.table.len]?vm.Implementation = @splat(null);
     for ([_]struct { []const u8, Entry }{
+        .{ "PrintShipName", .{ .command = printShipName } },
         .{ "CreateTimer", .{ .command = vm.Machine.createTimer } },
         .{ "DestroyTimer", .{ .command = vm.Machine.destroyTimer } },
         .{ "CreateFlightGroup", .{ .in_game = createFlightGroup } },
@@ -142,6 +141,10 @@ const implementations = table: {
         .{ "SetAI", .{ .numbered = setAIShip } },
         .{ "InterruptTriggerCode", .{ .command = vm.Machine.interruptTriggerCode } },
         .{ "Fly", .{ .per_ship = flyShip } },
+        .{ "SetPatrolRoute", .{ .per_ship = setPatrolRouteShip } },
+        .{ "SetPilot", .{ .in_game = setPilot } },
+        .{ "DisplaySubTitle", .{ .in_game = displaySubTitle } },
+        .{ "ResetCodePriority", .{ .per_ship = resetCodePriorityShip } },
         .{ "SetRescueProbabilities", .{ .in_game = setRescueProbabilities } },
         .{ "KillAllScriptExecutionExecptMe", .{ .command = vm.Machine.killAllScriptExecutionExceptMe } },
         .{ "PlaySpeech", .{ .in_game = playSpeech } },
@@ -184,6 +187,8 @@ const implementations = table: {
         .{ "SetHostile", .{ .per_ship = setHostileShip } },
         .{ "DoNotDisturb", .{ .per_ship = flagShip("do_not_disturb") } },
         .{ "SetEscortPoint", .{ .per_ship = setEscortPointShip } },
+        .{ "SetNavPoint", .{ .per_ship = setNavPointShip } },
+        .{ "ResetAfterBurners", .{ .in_game = resetAfterBurners } },
         .{ "SetPrimaryTarget", .{ .in_game = setPrimaryTarget } },
         .{ "SnapToPoint", .{ .in_game = snapToPoint } },
         .{ "IsShipThisPlayer", .{ .command = isShipThisPlayer } },
@@ -211,6 +216,9 @@ const implementations = table: {
         .{ "Cloak", .{ .per_ship = cloakShip } },
         .{ "PrintDebugMessage", .{ .command = printDebugMessage } },
         .{ "StartMissileCam", .{ .command = startMissileCam } },
+        .{ "StartChaseCam", .{ .command = startChaseCam } },
+        .{ "WaitForKey", .{ .command = waitForKey } },
+        .{ "ShowHudIcon", .{ .in_game = showHudIcon } },
         .{ "MultiPlayerSync", .{ .command = multiPlayerSync } },
         .{ "DisableMissiles", .{ .per_ship = flagShip("missiles_disabled") } },
         .{ "DisableEngines", .{ .per_ship = flagShip("engines_disabled") } },
@@ -273,6 +281,12 @@ fn numbered(comptime each: vm.Machine.ShipImplementation) vm.Implementation {
             return run_on;
         }
     }.run;
+}
+
+/// `cmd_PrintShipName` (`0x00458AB0`, command `0x00`): the developers' test command, which does
+/// nothing and lets the thread run on. Its code is `cmd_ResetCodePriority_ship`'s too.
+fn printShipName(_: Call) u32 {
+    return run_on;
 }
 
 /// `cmd_CreateFlightGroup` (`0x00457C40`, command `0x03`): creates each ship of the flight group
@@ -408,6 +422,44 @@ fn flyShip(call: Call, ship: Ship) void {
     const entry = given(ship, .fly, target) orelse return;
     entry.data.fly = @bitCast(call.args[1]);
 }
+
+/// `cmd_SetPatrolRoute` (`0x00458860`, command `0x0D`) and `cmd_SetPatrolRoute_ship`
+/// (`0x00458880`), for each ship the first argument names (`perShip`): the ship takes the Patrol
+/// Route order, aimed at the first waypoint of the flight group the command's second argument names
+/// (`bind.Mission.firstWaypoint`), as a ship's target holds it, where the group has any.
+///
+/// Not ported: the Patrol Route order itself, which does nothing yet
+/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
+fn setPatrolRouteShip(call: Call, ship: Ship) void {
+    const bound = call.machine.mission;
+    const route = bound.flightGroupIndex(call.args[0]) orelse return;
+    const first = bound.firstWaypoint(route) orelse return;
+    _ = aigeneric.giveShip(ship.game, ship.index, .patrol_route, first, null);
+}
+
+/// `cmd_SetPilot` (`0x00458830`, command `0x0E`): the ship the first argument names is flown by
+/// the pilot the second numbers, a record of `pilotstats.bin` (`pilots.setPilot`).
+///
+/// **Fix:** where the first argument names no ship, the game gives the pilot to an object past the
+/// objects' table; OpenReliant gives it to none.
+fn setPilot(call: Call, game: aigeneric.Context) void {
+    const all = game.world.objects;
+    const ship = call.argumentShip(all, 0) orelse return;
+    pilots.setPilot(&all.slots[ship].object, @bitCast(call.args[1]));
+}
+
+/// `cmd_DisplaySubTitle` (`0x00458A80`, command `0x15`): the display shows the language string the
+/// argument numbers as its subtitle, or none for `hud.Subtitle.none` (`hud.Subtitle.show`).
+fn displaySubTitle(call: Call, game: aigeneric.Context) void {
+    const display = game.world.display orelse return;
+    display.subtitle.show(call.args[0]);
+}
+
+/// `cmd_ResetCodePriority` (`0x00458A90`, command `0x16`) and `cmd_ResetCodePriority_ship`
+/// (`0x00458AB0`), for each ship the argument names (`perShip`): the walk does what every such
+/// command's does (`vm.Machine.forEachShip`), and the routine does nothing for each ship. Whatever
+/// its description says, the orders' priorities stay as they are.
+fn resetCodePriorityShip(_: Call, _: Ship) void {}
 
 /// `cmd_SetRescueProbabilities` (`0x004598D0`, command `0x44`): the odds of how the player fares
 /// after ejecting: picked up by a nanny ship, by the enemy, and killed, each the whole signed
@@ -584,7 +636,7 @@ const never_ejects = 100;
 fn willsBlag(call: Call, game: aigeneric.Context) void {
     const machine = call.machine;
     const all = game.world.objects;
-    const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
+    const ship = call.argumentShip(all, 0) orelse return;
     if (machine.mission.ship(ship)) |record| record.flags.destroyed = false;
     const object = &all.slots[ship].object;
     object.eject_roll = never_ejects;
@@ -600,7 +652,7 @@ fn willsBlag(call: Call, game: aigeneric.Context) void {
 /// OpenReliant does nothing.
 fn disableObjectAtNextJump(call: Call, game: aigeneric.Context) void {
     const environment = game.world.environment orelse return;
-    const ship = mission.shipSlot(call.machine.mission, game.world.objects, call.args[0]) orelse return;
+    const ship = call.argumentShip(game.world.objects, 0) orelse return;
     environment.next_jump[ship] = if (call.args[1] != 0) .disable else .enable;
 }
 
@@ -613,8 +665,8 @@ fn disableObjectAtNextJump(call: Call, game: aigeneric.Context) void {
 /// does nothing.
 fn darrensNaughtyBlag(call: Call, game: aigeneric.Context) void {
     const all = game.world.objects;
-    const turned = mission.shipSlot(call.machine.mission, all, call.args[0]) orelse return;
-    const faced = mission.shipSlot(call.machine.mission, all, call.args[1]) orelse return;
+    const turned = call.argumentShip(all, 0) orelse return;
+    const faced = call.argumentShip(all, 1) orelse return;
     const slot = &all.slots[turned];
     const from = gameobj.vector(slot.object.root.next_position);
     const to = gameobj.vector(all.slots[faced].object.root.next_position);
@@ -682,7 +734,7 @@ fn comms(comptime speaker: Speaker, comptime flags: hudmovie.Flags) vm.Implement
             const name = argumentText(call, 2) orelse return yield;
             switch (speaker) {
                 .ship => {
-                    const ship = mission.shipSlot(machine.mission, ctx.all, call.args[0]) orelse return yield;
+                    const ship = call.argumentShip(ctx.all, 0) orelse return yield;
                     radio.sayShip(ctx, ship, head, name, .now, flags, radio_module.no_expiry);
                 },
                 .pilot => radio.sayPilot(ctx, @truncate(call.args[0]), head, name, .now, flags, radio_module.no_expiry),
@@ -748,8 +800,9 @@ fn setEnvironmentFX(call: Call, game: aigeneric.Context) void {
     if (game.world.environment) |environment| environment.setEffect(call.args[0], call.args[1] != 0);
 }
 
-/// How far back `WaitForJumpOrLaunch` runs again (`0x004595C6`): over itself
-/// (`vm.machine.command_size`) and its push of the ships before it, which then pushes them afresh.
+/// How far back `WaitForJumpOrLaunch` (`0x004595C6`) and `WaitForKey` (`0x00459BA7`) run again:
+/// over the command (`vm.machine.command_size`) and the push of its argument before it, which then
+/// pushes it afresh.
 const wait_back = 4;
 
 /// `cmd_WaitForJumpOrLaunch` (`0x004595A0`, command `0x3A`): the thread waits while any ship the
@@ -802,9 +855,60 @@ fn setShipAvoidanceShip(call: Call, ship: Ship) void {
 fn startMissileCam(call: Call) u32 {
     const game = call.machine.game orelse return yield;
     const view = game.world.camera orelse return yield;
-    const ship = mission.shipSlot(call.machine.mission, game.world.objects, call.args[0]) orelse return yield;
+    const ship = call.argumentShip(game.world.objects, 0) orelse return yield;
     _ = view.setView(.missile, ship, true, true, game.world.clock.viewTime());
     return yield;
+}
+
+/// `cmd_StartChaseCam` (`0x00458B80`, command `0x20`): the camera follows the ship the argument
+/// names in the chase view, locked and forced (`camera.Camera.setView`), or goes back to the
+/// player's cockpit, forced, where it names none. The thread then yields until it runs next.
+///
+/// **Fix:** where the argument names a ship past the objects' slots, the game follows an object
+/// past their table; OpenReliant goes back to the cockpit, as for none.
+fn startChaseCam(call: Call) u32 {
+    const game = call.machine.game orelse return yield;
+    const view = game.world.camera orelse return yield;
+    const all = game.world.objects;
+    const now = game.world.clock.viewTime();
+    if (call.argumentShip(all, 0)) |ship| {
+        _ = view.setView(.chase, ship, true, true, now);
+    } else {
+        _ = view.setView(.cockpit, all.player, false, true, now);
+    }
+    return yield;
+}
+
+/// `cmd_WaitForKey` (`0x00459AE0`, command `0x4C`): the thread waits until the player holds down
+/// the key of the action the argument numbers, with its modifier (`input.Keyboard.heldWith`), or
+/// its joystick button, running the command again each time with its argument pushed afresh
+/// (`wait_back`). Meanwhile the display prompts for the action (`hud.key_prompt`).
+///
+/// **Fix:** the game reads the bindings past their table for a number past the actions;
+/// OpenReliant lets the thread run on.
+fn waitForKey(call: Call) u32 {
+    const game = call.machine.game orelse return run_on;
+    const action = std.enums.fromInt(input.controls.Action, call.args[0]) orelse return run_on;
+    const held = if (game.devices) |devices| bindingHeld(devices, devices.bindings.get(action)) else false;
+    if (game.world.display) |display| display.key_prompt.action = if (held) null else action;
+    return if (held) run_on else call.again(wait_back);
+}
+
+/// Whether the player holds down `binding` as `WaitForKey` asks: its key with its modifier, or its
+/// joystick button.
+fn bindingHeld(devices: *const input.Devices, binding: input.controls.Binding) bool {
+    if (std.math.cast(u8, binding.key)) |key| {
+        if (devices.keyboard.heldWith(key, binding.modifier)) return true;
+    }
+    const button = binding.button orelse return false;
+    return devices.joystick.down(button);
+}
+
+/// `cmd_ShowHudIcon` (`0x0045A1F0`, command `0x5B`): sets the display's icon the first argument
+/// numbers off, on or flashing, as the second says, its flash from the start (`hud.Icons.show`).
+fn showHudIcon(call: Call, game: aigeneric.Context) void {
+    const display = game.world.display orelse return;
+    display.icons.show(@fromBackingInt(call.args[0]), @fromBackingInt(call.args[1]));
 }
 
 /// `cmd_MultiPlayerSync` (`0x004591E0`, command `0x2D`): the thread yields until it runs next. In a
@@ -908,9 +1012,8 @@ const Playing = enum {
 /// in the root's child list of the model of the ship the command's first argument names plays its
 /// track the second names (`objects.Model.playNamedTree`) as `playing` says.
 fn playShipAnimation(call: Call, game: aigeneric.Context, playing: Playing) void {
-    const machine = call.machine;
     const all = game.world.objects;
-    const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
+    const ship = call.argumentShip(all, 0) orelse return;
     const model = if (all.slots[ship].model) |*live| live else return;
     const name = argumentText(call, 1) orelse return;
     switch (playing) {
@@ -960,7 +1063,7 @@ fn disableObjectShip(call: Call, ship: Ship) void {
 fn positionRelativeShip(call: Call, ship: Ship) void {
     const machine = call.machine;
     const all = ship.game.world.objects;
-    const marker = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
+    const marker = call.argumentShip(all, 0) orelse return;
     const placed = machine.mission.ship(marker) orelse return;
     const moved = gameobj.vector(all.slots[marker].object.root.position) - placed.position;
     const record = machine.mission.ship(ship.index) orelse return;
@@ -980,7 +1083,7 @@ fn setPlayerTarget(call: Call, game: aigeneric.Context) void {
     const machine = call.machine;
     const world = game.world;
     const all = world.objects;
-    if (mission.shipSlot(machine.mission, all, call.args[0]) != all.player) return;
+    if (call.argumentShip(all, 0) != all.player) return;
     const aimed = shipTarget(machine, call.thread, call.args[1], 1);
     if (!ai.targetValid(all, aimed, .{})) return;
     const entry = ai.playerControlEntry(all) orelse return;
@@ -1010,10 +1113,9 @@ fn setTargetableShip(call: Call, ship: Ship) void {
 /// **Fix:** where the first argument names no object, the game centres the sphere on the slot
 /// before the objects; OpenReliant keeps its centre.
 fn setActionCentre(call: Call, game: aigeneric.Context) void {
-    const machine = call.machine;
     const all = game.world.objects;
     const sphere = &all.action_sphere;
-    if (mission.shipSlot(machine.mission, all, call.args[0])) |centre| sphere.centre = centre;
+    if (call.argumentShip(all, 0)) |centre| sphere.centre = centre;
     const radius: f32 = @floatFromInt(call.args[1]);
     sphere.radius = if (radius == 0) aigeneric.ActionSphere.default.radius else radius;
 }
@@ -1059,7 +1161,7 @@ fn playFostersLastStand(_: Call, game: aigeneric.Context) void {
 fn destroySubObject(call: Call, game: aigeneric.Context) void {
     const machine = call.machine;
     const all = game.world.objects;
-    const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
+    const ship = call.argumentShip(all, 0) orelse return;
     const slot = &all.slots[ship];
     const component = slot.component(machine.argumentComponent(call.thread, 0) orelse return) orelse return;
     const model = if (slot.model) |*live| live.holding(component) orelse return else return;
@@ -1089,10 +1191,10 @@ fn destroySubObject(call: Call, game: aigeneric.Context) void {
 fn replaceSubObject(call: Call, game: aigeneric.Context) void {
     const machine = call.machine;
     const all = game.world.objects;
-    const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
+    const ship = call.argumentShip(all, 0) orelse return;
     const slot = &all.slots[ship];
     const component = slot.component(machine.argumentComponent(call.thread, 0) orelse return) orelse return;
-    const taking = mission.shipSlot(machine.mission, all, call.args[1]) orelse return;
+    const taking = call.argumentShip(all, 1) orelse return;
     const replacement = &all.slots[taking];
     var place = slot.partPlace(component) orelse return;
     if (replacement.object.type.base() == .cargo_pod) {
@@ -1169,10 +1271,9 @@ fn turretSetTargetShip(call: Call, ship: Ship) void {
 /// ship by its `loadout_tier`; and made whole (`create.makeWhole`); the display's missiles follow
 /// the player's (`hud.missile_display.Ring.build`).
 fn replenishWeapons(call: Call, game: aigeneric.Context) void {
-    const machine = call.machine;
     const world = game.world;
     const all = world.objects;
-    const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
+    const ship = call.argumentShip(all, 0) orelse return;
     const slot = &all.slots[ship];
     const fit: create.Fit = if (all.loadoutRacks(ship)) |racks| .{ .loadout = racks } else .{
         .tier = if (ship < all.players) 0 else std.math.lossyCast(u2, slot.object.loadout_tier),
@@ -1190,9 +1291,8 @@ fn replenishWeapons(call: Call, game: aigeneric.Context) void {
 /// **Fix:** where the first argument names no ship, the game writes past the objects; OpenReliant
 /// sets nothing.
 fn disableListing(call: Call, game: aigeneric.Context) void {
-    const machine = call.machine;
     const all = game.world.objects;
-    const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
+    const ship = call.argumentShip(all, 0) orelse return;
     all.slots[ship].object.flags.listing_disabled = call.args[1] != 0;
 }
 
@@ -1200,9 +1300,8 @@ fn disableListing(call: Call, game: aigeneric.Context) void {
 /// or is off where it names none (`main.scanner.Scanner.set`), and the display's scanner starts
 /// from its first frame (`hud.State.restartScanner`).
 fn scanner(call: Call, game: aigeneric.Context) void {
-    const machine = call.machine;
     const world = game.world;
-    world.player.scanner.set(mission.shipSlot(machine.mission, world.objects, call.args[0]));
+    world.player.scanner.set(call.argumentShip(world.objects, 0));
     if (world.display) |display| display.restartScanner();
 }
 
@@ -1213,10 +1312,9 @@ fn scanner(call: Call, game: aigeneric.Context) void {
 /// **Fix:** where the first argument names no ship, the game reads past the objects; OpenReliant
 /// fires nothing.
 fn fire(call: Call, game: aigeneric.Context) void {
-    const machine = call.machine;
     const world = game.world;
     const all = world.objects;
-    const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
+    const ship = call.argumentShip(all, 0) orelse return;
     const slot = &all.slots[ship];
     var trigger = slot.trigger(world.clock.frame_start);
     if (ship == all.player) trigger.shake = world.shake;
@@ -1227,7 +1325,24 @@ fn fire(call: Call, game: aigeneric.Context) void {
 /// (`0x00459310`), for each ship the first argument names (`perShip`): the ship's escort point
 /// becomes the object the command's second argument names, or none (`GameObject.escort_point`).
 fn setEscortPointShip(call: Call, ship: Ship) void {
-    ship.slot.object.escort_point = .from(mission.shipSlot(call.machine.mission, ship.game.world.objects, call.args[0]));
+    ship.slot.object.escort_point = .from(call.argumentShip(ship.game.world.objects, 0));
+}
+
+/// `cmd_SetNavPoint` (`0x00459270`, command `0x30`) and `cmd_SetNavPoint_ship` (`0x00459290`), for
+/// each ship the first argument names (`perShip`): the ship's nav point becomes the object the
+/// command's second argument names, or none (`GameObject.nav_point`), which the display points the
+/// player's ship to.
+fn setNavPointShip(call: Call, ship: Ship) void {
+    ship.slot.object.nav_point = .from(call.argumentShip(ship.game.world.objects, 0));
+}
+
+/// `cmd_ResetAfterBurners` (`0x004594C0`, command `0x32`): fills the player's afterburner fuel to
+/// its ship type's (`create.ShipCombat.fullFuel`), fuel pods aside.
+fn resetAfterBurners(_: Call, game: aigeneric.Context) void {
+    const all = game.world.objects;
+    const slot = &all.slots[all.player];
+    const combat = slot.combat orelse return;
+    slot.object.afterburner_fuel = combat.fullFuel();
 }
 
 /// `cmd_SetPrimaryTarget` (`0x00459550`, command `0x39`): the ship the argument names, or its
@@ -1236,7 +1351,7 @@ fn setEscortPointShip(call: Call, ship: Ship) void {
 fn setPrimaryTarget(call: Call, game: aigeneric.Context) void {
     const machine = call.machine;
     const all = game.world.objects;
-    const index = mission.shipSlot(machine.mission, all, call.args[0]) orelse {
+    const index = call.argumentShip(all, 0) orelse {
         game.world.player.primary_target = null;
         return;
     };
@@ -1250,13 +1365,12 @@ fn setPrimaryTarget(call: Call, game: aigeneric.Context) void {
 /// Not ported: in a multiplayer game, the move told to the other players
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn snapToPoint(call: Call, game: aigeneric.Context) void {
-    const machine = call.machine;
     const all = game.world.objects;
-    const ship = mission.shipSlot(machine.mission, all, call.args[0]) orelse return;
+    const ship = call.argumentShip(all, 0) orelse return;
     const slot = &all.slots[ship];
     const flags = slot.object.flags;
     if (flags.exploding or flags.ejected or flags.sent_off) return;
-    const point = mission.shipSlot(machine.mission, all, call.args[1]) orelse return;
+    const point = call.argumentShip(all, 1) orelse return;
     objects.setPlace(&slot.object, &slot.drawn, all.slots[point].object.placeAt(.next));
     ai.stop(&slot.object);
 }
@@ -1317,7 +1431,7 @@ fn matchSpeed(call: Call, game: aigeneric.Context) void {
 /// of a flight group or a squad the second names.
 fn dock(call: Call, game: aigeneric.Context) void {
     const machine = call.machine;
-    const ship = mission.shipSlot(machine.mission, game.world.objects, call.args[0]) orelse return;
+    const ship = call.argumentShip(game.world.objects, 0) orelse return;
     const port: aigeneric.Target = .of(.ship, machine.mission.shipIndex(call.args[1]), halfword(call.args[2]));
     const target = recordTarget(machine, call.args[1], port);
     _ = aigeneric.give(game, ship, .dock, target);
@@ -1426,8 +1540,11 @@ test MissionCommand {
 }
 
 test implementation {
-    try std.testing.expect(implementation(commandIndex("Wait")) != null);
-    try std.testing.expectEqual(null, implementation(commandIndex("PrintShipName")));
+    // Every command runs but the deathmatch's.
+    for (commands.table, 0..) |entry, number| {
+        const ported = implementation(@intCast(number)) != null;
+        try std.testing.expectEqual(!std.mem.eql(u8, entry.name, "ResetToSpawnPositions"), ported);
+    }
     try std.testing.expectEqual(null, implementation(0xFF));
 }
 
@@ -1949,6 +2066,109 @@ test "the commands of the campaign's later missions" {
     try std.testing.expectEqual(.enable, environment.next_jump[2]);
     try std.testing.expect(display.fosters_last_stand);
     try std.testing.expect(!game.fixture.machine.finished);
+}
+
+test "the commands of the simulator's training, and those no shipped mission runs" {
+    const gpa = std.testing.allocator;
+    var routine: Routine = .init(gpa);
+    defer routine.deinit();
+    try createFlightGroups(&routine, &.{ 0, 1 });
+    // The developers' test command and ResetCodePriority do nothing.
+    try routine.op(.push_ship, &.{1});
+    try routine.op(.push_byte, &.{0});
+    try routine.command("PrintShipName");
+    try routine.op(.push_flight_group, &.{1});
+    try routine.command("ResetCodePriority");
+    // The countermeasures' icon flashes; an icon past the table is left alone.
+    try routine.op(.push_byte, &.{@backingInt(hud.Icon.countermeasures)});
+    try routine.op(.push_byte, &.{@backingInt(hud.IconState.flash)});
+    try routine.command("ShowHudIcon");
+    try routine.op(.push_byte, &.{25});
+    try routine.op(.push_byte, &.{@backingInt(hud.IconState.on)});
+    try routine.command("ShowHudIcon");
+    // The first Sabre's nav point is the second, which pilot 5 flies along the waypoints of
+    // flight group 2.
+    try routine.op(.push_ship, &.{1});
+    try routine.op(.push_ship, &.{2});
+    try routine.command("SetNavPoint");
+    try routine.op(.push_ship, &.{2});
+    try routine.op(.push_byte, &.{5});
+    try routine.command("SetPilot");
+    try routine.op(.push_ship, &.{2});
+    try routine.op(.push_flight_group, &.{2});
+    try routine.command("SetPatrolRoute");
+    // A subtitle, and the chase view on the second Sabre, which yields.
+    try routine.pushConstant(0x3A0);
+    try routine.command("DisplaySubTitle");
+    try routine.op(.push_ship, &.{2});
+    try routine.command("StartChaseCam");
+    // The afterburner fills, then the thread waits for AFTERBURNERS; an action past the actions
+    // holds nothing.
+    try routine.command("ResetAfterBurners");
+    try routine.op(.push_byte, &.{@intCast(@backingInt(input.controls.Action.afterburners))});
+    try routine.command("WaitForKey");
+    try routine.op(.select_global, &.{0});
+    try routine.op(.push_byte, &.{1});
+    try routine.op(.assign, &.{});
+    try routine.op(.push_byte, &.{200});
+    try routine.command("WaitForKey");
+    try routine.op(.select_global, &.{1});
+    try routine.op(.push_byte, &.{1});
+    try routine.op(.assign, &.{});
+    const code = try finishPart(&routine);
+    defer gpa.free(code);
+
+    const waypoint = dte.Ship.waypoint_kind;
+    var game: vm.machine.testing.Game = undefined;
+    try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
+        .globals = &.{ 0, 0 },
+        .ships = &.{
+            shipRecord(0, 0, @backingInt(gameobj.GameType.predator)),
+            shipRecord(1, 1, @backingInt(gameobj.GameType.sabre)),
+            shipRecord(2, 1, @backingInt(gameobj.GameType.sabre)),
+            shipRecord(3, 2, waypoint),
+            shipRecord(4, 2, waypoint),
+        },
+        .flight_groups = &.{ groupRecord(5, .player), groupRecord(6, .none), groupRecord(7, .none) },
+    });
+    defer game.deinit();
+    const fixture = &game.fixture;
+    var display: hud.State = .{};
+    var view: camera.Camera = .{};
+    var devices: input.Devices = .{};
+    var ctx = game.spawning();
+    ctx.world.display = &display;
+    ctx.world.camera = &view;
+    ctx.devices = &devices;
+    try game.start(ctx);
+
+    const all = game.mission.objects;
+    try std.testing.expectEqual(.flash, display.icons.stateOf(.countermeasures));
+    try std.testing.expectEqual(.off, display.icons.stateOf(@fromBackingInt(25)));
+    try std.testing.expectEqual(2, all.slots[1].object.nav_point.index());
+    try std.testing.expectEqual(5, all.slots[2].object.pilot);
+    const patrol = all.slots[2].current().?;
+    try std.testing.expectEqual(Order.patrol_route, patrol.order);
+    try std.testing.expectEqual(0, patrol.target.index);
+    try std.testing.expectEqual(0x3A0, display.subtitle.string);
+    try std.testing.expectEqual(camera.View.chase, view.view);
+    try std.testing.expectEqual(2, view.object);
+    try std.testing.expect(view.locked);
+
+    // On, the afterburner fills, and the script waits for the key, prompting for it.
+    const player = &all.slots[all.player];
+    player.object.afterburner_fuel = 0;
+    fixture.second();
+    try std.testing.expectEqual(player.combat.?.fullFuel(), player.object.afterburner_fuel);
+    try std.testing.expectEqual(input.controls.Action.afterburners, display.key_prompt.action);
+    fixture.second();
+    try std.testing.expectEqual(0, fixture.global(0));
+    // Pressed, the script runs on, past the action that holds nothing, and the prompt goes.
+    devices.keyboard.down[input.controls.binding(.afterburners).key] = true;
+    fixture.second();
+    try std.testing.expectEqual(1, fixture.global(0));
+    try std.testing.expectEqual(1, fixture.global(1));
+    try std.testing.expectEqual(null, display.key_prompt.action);
 }
 
 test "the flyback markers and the Grendels go, and the action sphere takes its default" {

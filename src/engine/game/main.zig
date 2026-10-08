@@ -1732,10 +1732,11 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 /// (`0x004934F0`), for the mission `image`, made in `gpa`, which the mission then owns, played as
 /// mission `number`. Returns the mission loaded for play, which the caller destroys once it ends.
 ///
-/// The loading readies the display's objectives and the launch's caption for the mission, drops the
-/// flyback markers, and empties the radio's queue, its reports and its remarks, the script's
-/// switches among them (`hud_init`, `radio_reset`), and Moose's warnings of the player's hits on
-/// friends (`mission_run`, `0x00474B20`), empties the effects' pools and the missiles in flight,
+/// The loading readies the display's objectives and the launch's caption for the mission, turns its
+/// icons off and clears `WaitForKey`'s prompt and the subtitle, drops the flyback markers, and
+/// empties the radio's queue, its reports and its remarks, the script's switches among them
+/// (`hud_init`, `radio_reset`), and Moose's warnings of the player's hits on friends
+/// (`mission_run`, `0x00474B20`), empties the effects' pools and the missiles in flight,
 /// puts a stand-in in every object's slot (`create.Objects.reset`), loads the Turret Flak's
 /// shell and the debris (`guns_load_shell`, `explosions_init`), and clears the mark of the player's
 /// ship jumping in (`jump_init`). Then the start:
@@ -1799,6 +1800,9 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     start.display.fosters_last_stand = false;
     start.display.caption = .{};
     start.display.messages = .{};
+    start.display.icons = .{};
+    start.display.key_prompt = .{};
+    start.display.subtitle = .{};
     start.display.objectives.reset(number, all.mission25_second_part, start.objectives);
     if (world.countermeasures) |dropped| dropped.reset();
     // The subtarget's parts picked out in red are put back before the objects go, which the game

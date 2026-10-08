@@ -54,7 +54,8 @@ Then it sets each ship's run-time place and angles to those it is placed at
    group, a group at a time, in `waypoints` (`0x00525710`), a flight group and a ship each. It
    takes the first waypoint not yet listed, then every later one of its group, marking each
    listed at the ship's `+0x1B`, until none is left. A Patrol Route flies a group's waypoints from
-   the entry its target names (`order_patrol_route_init`).
+   the entry its target names (`order_patrol_route_init`), which `SetPatrolRoute` makes the
+   group's first (`waypoint_first`, `0x00458940`).
 3. Each flight group's ships (`mission_list_group_ships`, `0x00452EC0`), in the order the mission
    lists them, into one list, `flight_group_ships` (`0x004EF2F8`): the group's count at `+0x09` and
    its first ship's place at `+0x0C`, or -1 for none.

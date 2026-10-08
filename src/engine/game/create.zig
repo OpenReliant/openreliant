@@ -346,6 +346,13 @@ pub const ShipCombat = extern struct {
         return @floatFromInt(combat.shield_power * 6);
     }
 
+    /// The afterburner's fuel of a ship of the type, in the game's ticks: its `afterburner_fuel`
+    /// in seconds, which a new object starts with (`arm`, fuel pods aside) and
+    /// `ResetAfterBurners` fills again.
+    pub fn fullFuel(combat: *const ShipCombat) i32 {
+        return combat.afterburner_fuel * main.ticks_per_second;
+    }
+
     /// OpenReliant's: the share of its armour a ship has left, its weakest quadrant of `armor`
     /// against `fullArmor`. A ship starts a little under 1 (`startingArmor`), and one with no
     /// armour class has nothing to lose, so it stays at 1.
@@ -1326,7 +1333,7 @@ pub fn arm(gpa: Allocator, slot: *Slot, fit: Fit) Allocator.Error!void {
         try fitRacks(gpa, object, model, if (slot.type) |loaded| loaded.effects else .{});
     }
     object.countermeasures = gameobj.countermeasures_when_created;
-    object.afterburner_fuel = combat.afterburner_fuel * 100;
+    object.afterburner_fuel = combat.fullFuel();
     for (object.fittedRacks()) |rack| {
         if (rack.type.base() == .fuel_pod) object.afterburner_fuel += fuel_pod_fuel;
     }

@@ -1426,7 +1426,7 @@ number. A script can set a field to either.
 
 ### HudInstrument
 
-`caption`, `jump_prompt`, `target_markers`, `eject_marker`, `scanner`, `lights`, `view_name`, `messages`, `nav_marker`, `fuel`, `kills`, `countermeasures`, `ship_status`, `gauges`, `radar`, `reticle`, `clock`, `radio`, `gunnery`, `missiles`, `target_display`, `damage`, `power`, `big_target_display`, `objectives`, `comms`, `wing_status`.
+`caption`, `key_prompt`, `jump_prompt`, `target_markers`, `eject_marker`, `scanner`, `lights`, `view_name`, `subtitle`, `messages`, `nav_marker`, `fuel`, `kills`, `countermeasures`, `ship_status`, `gauges`, `radar`, `reticle`, `clock`, `radio`, `gunnery`, `missiles`, `target_display`, `damage`, `power`, `big_target_display`, `objectives`, `comms`, `wing_status`.
 
 ### Font
 

@@ -299,6 +299,19 @@ pub const ControlBinding = extern struct {
         alt = 3,
         _,
 
+        /// The word the game reads and writes the modifier by in `starlancer.ini` and
+        /// `default.txt`, and shows on `WaitForKey`'s prompt (`0x004E8550`, `0x004E8548`,
+        /// `0x004E8544`); null for none, and for one past them.
+        pub fn word(modifier: Modifier) ?[]const u8 {
+            return switch (modifier) {
+                .none => null,
+                .shift => "SHIFT",
+                .control => "CONTROL",
+                .alt => "ALT",
+                _ => null,
+            };
+        }
+
         pub fn format(modifier: Modifier, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             return switch (modifier) {
                 _ => writer.print("modifier {d}", .{@backingInt(modifier)}),
@@ -315,6 +328,30 @@ pub const ControlBinding = extern struct {
         assert(@sizeOf(ControlBinding) == 0x4E);
     }
 };
+
+/// The language strings the game writes bindings with, on the controls screens and in the prompt
+/// `WaitForKey` shows: PRESS, before what to press, and JOY, before a joystick button's number
+/// (`ButtonName`).
+pub const press_string = 0x5AE;
+pub const joy_string = 0x32C;
+
+/// A joystick button as the game writes it: JOY and the button's number, as it holds it (`%s %d`,
+/// `0x004E5444`). Print it with `{f}`.
+pub const ButtonName = struct {
+    strings: *const language.Language,
+    button: u8,
+
+    pub fn format(name: ButtonName, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.print("{s} {d}", .{ name.strings.string(joy_string) orelse "", name.button });
+    }
+};
+
+test ButtonName {
+    var buffer: [16]u8 = undefined;
+    const strings: language.Language = .{ .strings = &.{} };
+    // Without the strings, only the number shows.
+    try std.testing.expectEqualStrings(" 3", try std.mem.print(&buffer, "{f}", .{ButtonName{ .strings = &strings, .button = 3 }}));
+}
 
 /// A key an action can be bound to, an entry of `key_names` (`0x004E5CD0`): its DirectInput scan
 /// code and its name, which `WinMain` renames by the keyboard's own (`key_names_rename`,
@@ -368,6 +405,12 @@ pub const KeyNames = struct {
         if (code >= names.names.len) return unknown;
         const name = &names.names[code];
         return name.bytes[0..name.len];
+    }
+
+    /// The name of a binding's key `code` (`of`), and none for a binding without a key, which the
+    /// loaders leave without a name (`0x0042CA2B`).
+    pub fn ofBound(names: *const KeyNames, code: u16) []const u8 {
+        return if (code == 0) "" else names.of(code);
     }
 
     /// Names the key of scan code `code` `text`, UTF-8 as the platform gives a name, in the game's
@@ -610,6 +653,24 @@ pub const Keyboard = struct {
         }
         keyboard.latched[key] = true;
         return true;
+    }
+
+    /// Whether `key` is down with `modifier` as `cmd_WaitForKey` (`0x00459AE0`) asks: with either
+    /// of the modifier's keys down where it has one, and whatever modifier keys are down where it
+    /// has none. Unlike `pressed`, it latches nothing.
+    ///
+    /// **Fix:** the game never takes a key bound with Alt, so that a script waiting for one waits
+    /// for ever unless the action has a joystick button. OpenReliant takes Alt as it takes Shift
+    /// and Control.
+    pub fn heldWith(keyboard: Keyboard, key: u8, modifier: ControlBinding.Modifier) bool {
+        if (!keyboard.down[key]) return false;
+        return switch (modifier) {
+            .none => true,
+            .shift => keyboard.shift(),
+            .control => keyboard.control(),
+            .alt => keyboard.alt(),
+            _ => false,
+        };
     }
 };
 
@@ -898,6 +959,26 @@ test Keyboard {
     try std.testing.expect(!keyboard.pressed(scan.up, .none, true));
 }
 
+test "Keyboard.heldWith" {
+    var keyboard: Keyboard = .{};
+    // A key up isn't held, whatever the modifier.
+    try std.testing.expect(!keyboard.heldWith(scan.up, .none));
+    keyboard.down[scan.up] = true;
+    try std.testing.expect(keyboard.heldWith(scan.up, .none));
+    try std.testing.expect(!keyboard.heldWith(scan.up, .control));
+    // With no modifier it counts with Shift down too, and with Shift it needs either Shift.
+    keyboard.down[scan.left_shift] = true;
+    try std.testing.expect(keyboard.heldWith(scan.up, .none));
+    try std.testing.expect(keyboard.heldWith(scan.up, .shift));
+    // Alt counts as the other two do, and latches nothing.
+    try std.testing.expect(!keyboard.heldWith(scan.up, .alt));
+    keyboard.down[scan.right_alt] = true;
+    try std.testing.expect(keyboard.heldWith(scan.up, .alt));
+    try std.testing.expect(!keyboard.latched[scan.up] and !keyboard.alt_latched);
+    // A modifier past the named ones never counts.
+    try std.testing.expect(!keyboard.heldWith(scan.up, @fromBackingInt(9)));
+}
+
 test "Devices.active with the keyboard" {
     var devices: Devices = .{};
     const keyboard = &devices.keyboard;
@@ -933,6 +1014,13 @@ test "Key.format" {
     try std.testing.expectEqualStrings("f2", try std.mem.print(&buffer, "{f}", .{Key.f2}));
     try std.testing.expectEqualStrings("key 0xFF", try std.mem.print(&buffer, "{f}", .{@as(Key, @fromBackingInt(0xFF))}));
     try std.testing.expectEqual(0xCB, scan.left);
+}
+
+test "ControlBinding.Modifier.word" {
+    try std.testing.expectEqualStrings("CONTROL", ControlBinding.Modifier.control.word().?);
+    try std.testing.expectEqualStrings("ALT", ControlBinding.Modifier.alt.word().?);
+    try std.testing.expectEqual(null, ControlBinding.Modifier.none.word());
+    try std.testing.expectEqual(null, @as(ControlBinding.Modifier, @fromBackingInt(9)).word());
 }
 
 test "ControlBinding.Modifier.format and ControlMode.format" {
@@ -1114,6 +1202,9 @@ test KeyNames {
     try std.testing.expectEqualStrings(KeyNames.unknown, names.of(0x39));
     names.set(0x1C, "Keypad Enter, the one on the right");
     try std.testing.expectEqual(KeyNames.room, names.of(0x1C).len);
+    // A binding without a key has no name.
+    try std.testing.expectEqualStrings("", names.ofBound(0));
+    try std.testing.expectEqualStrings("A", names.ofBound(0x10));
 }
 
 test defaultBindings {

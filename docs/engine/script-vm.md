@@ -213,19 +213,17 @@ read the number, a ship's place among its group's.
 
 A command that waits runs again when its thread runs next: it moves the thread's instruction pointer
 back over itself and returns zero. `WaitForSpeech`, `WaitForMovie` and `WaitForDirectorCam` move it
-back 2 bytes, over the command alone; `WaitForJumpOrLaunch` 4, over the push of its argument too,
-which then pushes it afresh.
+back 2 bytes, over the command alone; `WaitForJumpOrLaunch` and `WaitForKey` 4, over the push of
+the argument too, which then pushes it afresh.
 
 Every command, by the number `command` takes, with what it does and whether OpenReliant runs it.
-One that OpenReliant does not run yet does nothing and lets the script go on: those only the
-simulator's and the multiplayer arenas' missions use ([#533](https://github.com/OpenReliant/openreliant/issues/533),
-[#554](https://github.com/OpenReliant/openreliant/issues/554)), and those no shipped mission uses
-([#806](https://github.com/OpenReliant/openreliant/issues/806)). Its description is the developers'
-own, from the catalogue.
+The one OpenReliant does not run yet, `ResetToSpawnPositions`, which only the multiplayer arenas'
+missions use ([#554](https://github.com/OpenReliant/openreliant/issues/554)), does nothing and lets
+the script go on. Its description is the developers' own, from the catalogue.
 
 | Number | Command | What it does | Ported |
 |---|---|---|---|
-| `0x00` | `PrintShipName` | The developers' test command, with two test arguments | No |
+| `0x00` | `PrintShipName` | The developers' test command, with two test arguments, which does nothing | Yes |
 | `0x01` | `CreateTimer` | Starts the part the second argument names after the seconds the third gives, as many times as the fourth says or, for 0, for ever, under the ID the first gives, in place of any timer of that ID ([The clock and timers](#the-clock-and-timers)) | Yes |
 | `0x02` | `DestroyTimer` | Destroys the timers of the ID the argument gives | Yes |
 | `0x03` | `CreateFlightGroup` | Makes each ship of the flight group the argument names, in the mission's order, and lists the flight groups in their wings ([Missions](missions.md)) | Yes |
@@ -238,16 +236,16 @@ own, from the catalogue.
 | `0x0A` | `PrintDebugMessage` | Writes `DEBUG: ` and the text the argument names for the screen and the debug log, neither of which the retail build shows. **Improvement:** OpenReliant writes it to its log | Yes |
 | `0x0B` | `SetAI` | Each ship the first argument names takes the order the second gives, aimed at what the fourth names, the orders numbered as they are given; the third, whether it starts at once, is not read ([Orders](orders.md)) | Yes |
 | `0x0C` | `ClearAI` | Each ship the argument names, past the players' slots, drops its orders, where its current one gives way (`orders_clear`, [Orders](orders.md)) | Yes |
-| `0x0D` | `SetPatrolRoute` | Each ship the first argument names follows the patrol route the second names | No |
-| `0x0E` | `SetPilot` | The ship the first argument names is flown by the pilot the second names | No |
+| `0x0D` | `SetPatrolRoute` | Each ship the first argument names takes the Patrol Route order, aimed at the first waypoint of the flight group the second names, where it has any ([Missions](missions.md)). The order itself does nothing yet ([#30](https://github.com/OpenReliant/openreliant/issues/30)) | Yes |
+| `0x0E` | `SetPilot` | The ship the first argument names is flown by the pilot the second numbers, a record of `pilotstats.bin` ([Objects](objects.md)). **Fix:** where it names no ship, the game gives the pilot to an object past the objects' table; OpenReliant gives it to none | Yes |
 | `0x0F` | `SetTriggerState` | Arms or disarms the trigger of the condition the second argument gives on the entity the first names ([Events](#events)) | Yes |
 | `0x10` | `StartDirectorCam` | The director's camera takes a shot along the mission's curves or at a ship, at once ([The director's camera](director.md#the-commands)) | Yes |
 | `0x11` | `StartShipAnimation` | Each part of the ship the first argument names, but those taken out of its model, plays its track the second names from its start, in the track's own mode, at 4 a step (`node_play_named`) | Yes |
 | `0x12` | `ShipFollowCurve` | Each ship the first argument names flies the path from the curve the second names over the seconds the third gives ([Following a path](orders.md#following-a-path)). **Fix:** where a ship refuses the order, the game writes the path into the order on top of its stack; OpenReliant writes none | Yes |
 | `0x13` | `SetupLaunch` | Readies each ship the first argument names to launch from the ship the second names, through the gate the third gives ([Launches](launch.md)) | Yes |
 | `0x14` | `StartLaunch` | Launches each ship the argument names ([Launches](launch.md)) | Yes |
-| `0x15` | `DisplaySubTitle` | Writes the string the argument numbers as a subtitle | No |
-| `0x16` | `ResetCodePriority` | Clears the priority of the orders of the entity the argument names | No |
+| `0x15` | `DisplaySubTitle` | The display writes the string the argument numbers as a subtitle in the director's view, or none for `0x90` ([Display](hud.md#the-subtitle)) | Yes |
+| `0x16` | `ResetCodePriority` | Walks the ships the argument names, and does nothing for each: whatever its description says, the orders' priorities stay as they are | Yes |
 | `0x17` | `InterruptTriggerCode` | The thread stops, and runs on when its trigger fires again | Yes |
 | `0x18` | `CommsFromShip` | The ship the first argument names says the speech file the third names, at once, its face moving as the second says, the film looping while the line plays ([Radio](radio.md)) | Yes |
 | `0x19` | `CommsFromPilot` | As `CommsFromShip`, for a pilot of the pilots' table, the first argument | Yes |
@@ -257,7 +255,7 @@ own, from the catalogue.
 | `0x1D` | `PositionRelative` | Each ship the first argument names moves as far as the ship or point the second names stands from where the mission places it, its record's run-time place with it ([Missions](missions.md#the-missions-ships)) | Yes |
 | `0x1E` | `WhenPlayerLastJumped` | How many seconds of the script's clock ago JUMP DRIVE last took a jump or a warp, at least 1 | Yes |
 | `0x1F` | `StartMissileCam` | The camera switches to the missile view, locked and forced, following the next missile in flight the ship the argument names launched, or stays as it is where there's none; the thread then yields | Yes |
-| `0x20` | `StartChaseCam` | The camera follows the ship the argument names from behind | No |
+| `0x20` | `StartChaseCam` | The camera follows the ship the argument names in the chase view, locked and forced, or goes back to the cockpit, forced, where it names none; the thread then yields | Yes |
 | `0x21` | `SetPlayerTarget` | Where the first argument names the player's ship, the ship the second names, or its component, becomes the player's target, where the player can aim at it; the display follows, and MATCH SPEED stops ([Display](hud.md#the-target)) | Yes |
 | `0x22` | `SetTargetable` | Each ship the first argument names can be targeted, where its type allows, or not; for the component `push_component` named, whether it can be picked as a subtarget | Yes |
 | `0x23` | `PlayMusic` | Plays `music\` and the name the first argument points at, for ever at level 80, at once where the second is 1, or for any other value once the music playing has faded out ([Sound](sound.md#music)) | Yes |
@@ -273,9 +271,9 @@ own, from the catalogue.
 | `0x2D` | `MultiPlayerSync` | The thread yields; in a network game, the local player's script first waits for the others' ([#55](https://github.com/OpenReliant/openreliant/issues/55)) | Yes |
 | `0x2E` | `DisableGenericComms` | Keeps the remarks the radio makes by itself (`0x00529538`) quiet while the argument is set; a mission's start clears it ([Radio](radio.md#remarks)) | Yes |
 | `0x2F` | `DisableGuns` | Each ship the first argument names fires no guns while the second is set, its turrets resting too | Yes |
-| `0x30` | `SetNavPoint` | Sets the nav point of each ship the first argument names to the one the second names | No |
+| `0x30` | `SetNavPoint` | Each ship the first argument names takes the object the second names as its nav point (`+0x720`), which the display points the player's ship to, or none | Yes |
 | `0x31` | `SetEscortPoint` | Each ship the first argument names takes the object the second names as its escort point (`+0x724`), whose marker the player's ship shows ([The escort point's marker](missions.md#the-escort-points-marker)) | Yes |
-| `0x32` | `ResetAfterBurners` | Fills the player's afterburner fuel | No |
+| `0x32` | `ResetAfterBurners` | Fills the player's afterburner fuel to its ship type's, fuel pods aside | Yes |
 | `0x33` | `DisableMissiles` | Each ship the first argument names launches no missiles while the second is set | Yes |
 | `0x34` | `DisableEngines` | Each ship the first argument names has its engines off while the second is set | Yes |
 | `0x35` | `DisableEject` | The pilot of each ship the first argument names cannot eject while the second is set | Yes |
@@ -301,7 +299,7 @@ own, from the catalogue.
 | `0x49` | `SetShipAvoidance` | Each ship the first argument names, unless a stand-in, keeps clear of others no more while the second is set (`no_avoidance`, [Orders](orders.md#avoidance)) | Yes |
 | `0x4A` | `MatchSpeed` | Where the first argument names the player's ship, MATCH SPEED turns on, matching at once where it already was, while the second is set, and off otherwise | Yes |
 | `0x4B` | `MovingShipBackupCurve` | As `MovingShipFollowCurve`, the path flown backwards | Yes |
-| `0x4C` | `WaitForKey` | The thread waits for the key the argument numbers | No |
+| `0x4C` | `WaitForKey` | The thread waits until the player holds down the key or the joystick button of the action the argument numbers ([Controls](controls.md#whether-an-action-is-active)), while the display prompts for it ([Display](hud.md#the-key-prompt)). **Fix:** the game reads past the bindings for a number past the actions; OpenReliant runs on | Yes |
 | `0x4D` | `TerminateMission` | The mission ends once the frame is over, as one the player's ship is destroyed in where it is numbered below 28 (`0x00588338`, [The loop](loop.md)) | Yes |
 | `0x4E` | `TurretSetTarget` | Each aimed turret on the component the first argument names, of each ship it names, aims at the ship the second names | Yes |
 | `0x4F` | `SetAnyTriggerState` | As `SetTriggerState`, for the one of the triggers of a condition the fourth argument counts | Yes |
@@ -316,7 +314,7 @@ own, from the catalogue.
 | `0x58` | `Cloak` | Cloaks each ship the first argument names while the second is set, or uncloaks it. Uses the shared cloak setter, including launching ships | Yes |
 | `0x59` | `ReplenishWeapons` | The ship the argument names is armed again, a player's with the racks its loadout chose, or by loadout tier 0 in the simulator or where the briefing was skipped, and any other by its own tier; and made whole ([Missiles](missiles.md#the-loadout)) | Yes |
 | `0x5A` | `WillsBlag` | The mission's record of the ship the argument names is no longer destroyed, and its pilot is no longer ejected and never ejects | Yes |
-| `0x5B` | `ShowHudIcon` | Shows one of the display's icons, off, on or flashing | No |
+| `0x5B` | `ShowHudIcon` | Sets one of the display's icons off, on or flashing, its flash from the start ([Display](hud.md#the-status-lights)) | Yes |
 | `0x5C` | `DisableListing` | The ship the first argument names, a ship alone, does not lurch as a torpedo strikes it while the second is set (`listing_disabled`, [Collisions](loop.md#collisions)) | Yes |
 | `0x5D` | `DisableObjectAtNextJump` | Disables the object the first argument names, such as a planet, at the next jump or warp while the second is set, or enables it | Yes |
 | `0x5E` | `DarrensNaughtyBlag` | Turns the ship the first argument names to face the ship the second names, with no roll | Yes |

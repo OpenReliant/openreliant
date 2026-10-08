@@ -64,6 +64,7 @@ pub const outline = @import("hud/outline.zig");
 pub const chase = @import("hud/chase.zig");
 pub const damage = @import("hud/damage.zig");
 pub const gunnery = @import("hud/gunnery.zig");
+pub const key_prompt = @import("hud/key_prompt.zig");
 pub const missile_display = @import("hud/missile_display.zig");
 const missile_lock = @import("main/lock.zig");
 pub const objectives_window = @import("hud/objectives_window.zig");
@@ -78,12 +79,14 @@ test {
     _ = damage;
     _ = outline;
     _ = gunnery;
+    _ = key_prompt;
     _ = missile_display;
     _ = windows;
     _ = objectives_window;
     _ = power;
     _ = radio;
     _ = target_display;
+    _ = subtarget;
     _ = wing_status;
 }
 
@@ -2045,6 +2048,11 @@ pub const Pen = struct {
     pub fn middle(pen: Pen) [2]i32 {
         return .{ @as(i32, @intCast(pen.screen[0])) >> 1, @as(i32, @intCast(pen.screen[1])) >> 1 };
     }
+
+    /// `n` of the display's own pixels up from the foot of the screen.
+    pub fn fromFoot(pen: Pen, n: i32) i32 {
+        return @as(i32, @intCast(pen.screen[1])) - pen.span(n);
+    }
 };
 
 /// The tint the display draws in: none, white, its shapes and its fonts in their own colours.
@@ -2093,6 +2101,9 @@ pub const Frame = struct {
     variables: ?*const vm.Variables = null,
     /// Where the mods' displays put each instrument this frame, and which they stand in for.
     placements: std.EnumArray(Instrument, Placement) = .initFill(.{}),
+    /// The bindings and the keys' names, which `WaitForKey`'s prompt shows (`key_prompt`); none
+    /// where nothing reads them.
+    devices: ?*const input.Devices = null,
 };
 
 /// Where a mod's display puts one of the instruments, or whether it stands in for it.
@@ -2224,6 +2235,8 @@ pub const Instrument = enum {
 
     /// The date the player's launch types out (`Caption`).
     caption,
+    /// The prompt `WaitForKey` shows (`key_prompt`).
+    key_prompt,
     jump_prompt,
     /// What `drawTarget` marks in the scene: the target's brackets and range, the lead cursor and
     /// its line, the arrows toward a target or a nav point off the screen, and the corners round
@@ -2235,6 +2248,8 @@ pub const Instrument = enum {
     lights,
     /// The view's name, in the views but the one ahead.
     view_name,
+    /// The line `DisplaySubTitle` shows in the director's view (`Subtitle`).
+    subtitle,
     /// The message lines.
     messages,
     nav_marker,
@@ -2284,10 +2299,11 @@ pub const Instrument = enum {
 
 /// `hud_draw` (`0x004843B0`): the display for a frame, in its order. First it takes the player's
 /// target, plays or ends the missile lock's tone (`missile_lock.Lock.sound`) and runs the devices'
-/// charges, in every view. In the view ahead from the cockpit it
-/// then draws the jump prompt, the target, the eject marker, the scanner and the status lights.
-/// In every view a line said waits for the radio's window (`radio.Radio.waitForWindow`);
-/// in the views but the one ahead the view's name follows. Then, in the view ahead, the
+/// charges, in every view, and draws the launch's caption and `WaitForKey`'s prompt. In the view
+/// ahead from the cockpit it then draws the jump prompt, the target, the eject marker, the scanner
+/// and the status lights. In every view a line said waits for the radio's window
+/// (`radio.Radio.waitForWindow`); in the views but the one ahead the view's name follows, and in
+/// the director's view the subtitle. Then, in the view ahead, the
 /// instruments: the readouts, the ship status indicator, the targeting cluster, the radar, the
 /// reticle and the clock. Last, in every view, the windows move on, and in the view ahead are
 /// drawn.
@@ -2317,6 +2333,7 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
     if (frame.sound) |sound| state.lock.sound(sound, frame.view);
     state.runCharges(live, frame_duration, frame.multiplayer);
     try state.caption.draw(placing.pen(pen, .caption), frame.all.mission_number, frame.clock.game_ticks);
+    try state.key_prompt.draw(placing.pen(pen, .key_prompt), frame.devices);
     // Where the lead cursor stands, which the reticle closes on, and whether the enemy lock's
     // light shows.
     var lead: Cursor = .none;
@@ -2337,6 +2354,7 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
     if (frame.sound) |sound| state.warnOfLock(sound, lock_lit, live.missile_homing != 0);
     if (frame.radio) |on_air| on_air.waitForWindow(frame.sound, frame_duration);
     try drawViewName(placing.pen(pen, .view_name), frame.last_view);
+    try state.subtitle.draw(placing.pen(pen, .subtitle), frame.last_view);
     try state.messages.draw(placing.pen(pen, .messages), &resources.target_fonts.new);
     if (ahead) try state.drawInstruments(pen, &placing, frame, lead, speaker);
     const contents: windows.Contents = .{
@@ -2559,6 +2577,43 @@ pub fn drawViewName(pen: Pen, last_view: camera.View) Allocator.Error!void {
     _ = try pen.text(.{ pen.middle()[0], pen.span(view_name_down) }, text, .centre);
 }
 
+/// The line `DisplaySubTitle` shows (`hud_subtitle`, `0x0057BF34`): a language string, written
+/// near the foot of the screen in the director's view, whichever view the script sets it in. A
+/// mission's start clears it, as `hud_init` does (`0x00483AB6`).
+pub const Subtitle = struct {
+    /// The string shown; null for none.
+    string: ?u32 = null,
+
+    /// The string the game takes for none, which `hud_init` starts with: a blank one.
+    pub const none = 0x90;
+    /// How far up from the foot of the screen it stands, in the display's own pixels, centred
+    /// across it (`0x00485412`).
+    const up = 60;
+
+    /// Shows `string`, as `DisplaySubTitle` does; `none` hides it.
+    pub fn show(subtitle: *Subtitle, string: u32) void {
+        subtitle.string = if (string == none) null else string;
+    }
+
+    /// Draws it where `hud_draw` does, after the view's name (`0x004853D1`), where last frame's
+    /// view is the director's. A string past the strings draws nothing; the game stops with a fatal
+    /// error for one.
+    pub fn draw(subtitle: Subtitle, pen: Pen, last_view: camera.View) Allocator.Error!void {
+        if (last_view != .director) return;
+        const text = pen.strings.string(subtitle.string orelse return) orelse return;
+        _ = try pen.text(.{ pen.middle()[0], pen.fromFoot(up) }, text, .centre);
+    }
+};
+
+test Subtitle {
+    var subtitle: Subtitle = .{};
+    subtitle.show(0x3A0);
+    try std.testing.expectEqual(0x3A0, subtitle.string);
+    // The game's none hides it.
+    subtitle.show(Subtitle.none);
+    try std.testing.expectEqual(null, subtitle.string);
+}
+
 /// The display's message lines (`hud_messages`, `0x0057BC5C`, and `hud_message_count`,
 /// `0x0057BF48`): up to four, oldest first, each shown until its time is up
 /// (`hud_message_until`, `0x0056679C`). The multiplayer kill messages come through them, and a
@@ -2705,7 +2760,7 @@ pub const Caption = struct {
         if (!caption.on) return;
         const text = pen.strings.string(date(mission) orelse return) orelse return;
         const shows, const typing = caption.typed(text, game_ticks);
-        const at: [2]i32 = .{ pen.span(left), @as(i32, @intCast(pen.screen[1])) - pen.span(up) };
+        const at: [2]i32 = .{ pen.span(left), pen.fromFoot(up) };
         const end = try pen.text(at, shows, .left);
         if (typing) _ = try pen.text(.{ end, at[1] }, cursor, .left);
     }
@@ -3105,7 +3160,7 @@ pub const Flash = struct {
 
 /// The display's elements `ShowHudIcon` (mission command `0x5B`, `0x0045A1F0`) can light or flash
 /// through `hud_icon_lit`, numbered as the command numbers them.
-pub const Icon = enum(u5) {
+pub const Icon = enum(u32) {
     enemy_lock = 0,
     missile_incoming = 1,
     ecm = 2,
@@ -3147,21 +3202,31 @@ pub const Icons = struct {
 
     /// Sets an icon as `ShowHudIcon` does, its flash starting from the beginning.
     ///
-    /// **Improvement.** The game writes past the table for an icon of 20 or more; OpenReliant
-    /// leaves such an icon alone.
+    /// **Fix:** the game writes past the table for an icon of 20 or more; OpenReliant leaves such
+    /// an icon alone.
     pub fn show(icons: *Icons, icon: Icon, state: IconState) void {
+        const slot = icons.slotOf(icon) orelse return;
+        slot.* = .{ .state = state };
+    }
+
+    /// What `icon` is set to; off for one past the table.
+    pub fn stateOf(icons: *const Icons, icon: Icon) IconState {
+        const slot = icons.slotOf(icon) orelse return .off;
+        return slot.state;
+    }
+
+    /// The table's entry for `icon`, through `icons`, a pointer to the table that may be const;
+    /// null past the table.
+    fn slotOf(icons: anytype, icon: Icon) ?@TypeOf(&icons.slots[0]) {
         const at = @backingInt(icon);
-        if (at >= count) return;
-        icons.slots[at] = .{ .state = state };
+        return if (at < count) &icons.slots[at] else null;
     }
 
     /// Whether `icon` is lit in a frame of `frame_duration` (`hud_icon_lit`, `0x00482F50`): always
     /// when on, and when flashing for the first 50 ticks of every 100. Unlike the display's other
     /// flashes, one that runs past 100 carries what it ran over into the next and is lit.
     pub fn lit(icons: *Icons, icon: Icon, frame_duration: i32) bool {
-        const at = @backingInt(icon);
-        if (at >= count) return false;
-        const slot = &icons.slots[at];
+        const slot = icons.slotOf(icon) orelse return false;
         switch (slot.state) {
             .on => return true,
             .flash => {
@@ -3296,6 +3361,10 @@ pub const State = struct {
     interference: Interference = .{},
     /// The date the player's launch types out.
     caption: Caption = .{},
+    /// The action `WaitForKey` waits for, which the display prompts for.
+    key_prompt: key_prompt.KeyPrompt = .{},
+    /// The line `DisplaySubTitle` shows.
+    subtitle: Subtitle = .{},
     /// The message lines.
     messages: Messages = .{},
     /// The mission's objectives.
@@ -3483,8 +3552,7 @@ pub const State = struct {
     /// while their icon is not flashing them dark.
     pub fn shows(state: *State, readout: Readout, frame_duration: i32) bool {
         return switch (readout) {
-            .coil => state.icons.slots[@backingInt(Icon.countermeasures)].state == .off or
-                state.icons.lit(.countermeasures, frame_duration),
+            .coil => state.icons.stateOf(.countermeasures) == .off or state.icons.lit(.countermeasures, frame_duration),
             else => true,
         };
     }
@@ -4246,9 +4314,11 @@ test Icons {
     // Setting it again starts the flash over.
     icons.show(.ecm, .flash);
     try std.testing.expectEqual(0, icons.slots[2].ticks);
-    // Past the table, an icon is left alone.
+    try std.testing.expectEqual(.flash, icons.stateOf(.ecm));
+    // Past the table, an icon is left alone, and off.
     icons.show(@fromBackingInt(25), .on);
     try std.testing.expect(!icons.lit(@fromBackingInt(25), 1));
+    try std.testing.expectEqual(.off, icons.stateOf(@fromBackingInt(25)));
 }
 
 test Charge {
