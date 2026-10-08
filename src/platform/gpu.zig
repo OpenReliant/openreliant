@@ -1589,7 +1589,7 @@ pub const Gpu = struct {
                 if (map != null) try gpu.make(index, @fromBackingInt(@intCast(kind)), capacity);
             }
         }
-        var bytes: usize = 0;
+        var sizing: Packing = .{};
         for (gpu.uploads.items) |item| {
             const array = gpu.arrays.items[item.slot.array];
             for (item.maps.list(), array.maps.values, 0..) |levels, map, kind| {
@@ -1598,10 +1598,10 @@ pub const Gpu = struct {
                 try gpu.make(item.slot.array, map_kind, if (array.count > array.capacity) grownCapacity(array.count) else array.capacity);
             }
             for ([_]?[]const srtexture.Level{item.levels} ++ item.maps.list()) |each| {
-                for (each orelse &.{}) |level| bytes += level.texels.len;
+                for (each orelse &.{}) |level| _ = sizing.place(level.texels.len);
             }
         }
-        const size = std.math.cast(u32, bytes) orelse return error.OutOfMemory;
+        const size = std.math.cast(u32, sizing.end) orelse return error.OutOfMemory;
         const transfer = c.SDL_CreateGPUTransferBuffer(gpu.handle, &.{ .usage = c.SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = size }) orelse return fail("SDL_CreateGPUTransferBuffer");
         defer c.SDL_ReleaseGPUTransferBuffer(gpu.handle, transfer);
         const mapped: [*]u8 = @ptrCast(c.SDL_MapGPUTransferBuffer(gpu.handle, transfer, false) orelse return fail("SDL_MapGPUTransferBuffer"));
@@ -1612,12 +1612,12 @@ pub const Gpu = struct {
         for (gpu.arrays.items) |*array| {
             if (array.count > array.capacity) array.capacity = grownCapacity(array.count);
         }
-        var at: u32 = 0;
+        var filling: Packing = .{};
         for (gpu.uploads.items) |item| {
             const array = gpu.arrays.items[item.slot.array];
-            uploadLevels(copy, transfer, mapped, &at, array.texture, item.slot.layer, item.levels);
+            uploadLevels(copy, transfer, mapped, &filling, array.texture, item.slot.layer, item.levels);
             for (item.maps.list(), array.maps.values) |map, texture| {
-                if (map) |levels| if (texture) |into| uploadLevels(copy, transfer, mapped, &at, into, item.slot.layer, levels);
+                if (map) |levels| if (texture) |into| uploadLevels(copy, transfer, mapped, &filling, into, item.slot.layer, levels);
             }
         }
         c.SDL_UnmapGPUTransferBuffer(gpu.handle, transfer);
@@ -1975,21 +1975,56 @@ fn clearTexture(commands: *c.SDL_GPUCommandBuffer, texture: *c.SDL_GPUTexture) v
     c.SDL_EndGPURenderPass(pass);
 }
 
-/// Copies `levels`, a texture's every level, through `transfer`, mapped at `mapped`, from `at` on,
-/// into layer `layer` of `texture`, and moves `at` past them.
-fn uploadLevels(copy: *c.SDL_GPUCopyPass, transfer: *c.SDL_GPUTransferBuffer, mapped: [*]u8, at: *u32, texture: *c.SDL_GPUTexture, layer: u16, levels: []const srtexture.Level) void {
+/// Where the levels a frame sends up go in its transfer buffer: one after another, each from a
+/// multiple of `alignment`. Vulkan takes a texture's data only from a multiple of its block size,
+/// and SDL realigns uploads only on Direct3D 12, so a BC7 texture placed right after an RGBA mip
+/// chain that ends in a 1x1 level would start 4 bytes off. `uploadTextures` sizes the buffer with
+/// one and fills it with another, so that both lay the levels out alike.
+const Packing = struct {
+    /// Where the last level placed ends.
+    end: usize = 0,
+
+    /// The largest block of any format: BC3's, BC5's and BC7's.
+    const alignment = 16;
+
+    comptime {
+        for (std.enums.values(srtexture.Level.Format)) |format| std.debug.assert(alignment % format.blockBytes() == 0);
+    }
+
+    /// Where a level of `len` bytes goes, after the levels placed before it.
+    fn place(packing: *Packing, len: usize) usize {
+        const at = std.mem.alignForward(usize, packing.end, alignment);
+        packing.end = at + len;
+        return at;
+    }
+};
+
+test Packing {
+    var packing: Packing = .{};
+    // An RGBA texture of 4 by 4 and its levels: 64, 16 and 4 bytes, each from a multiple of 16.
+    try std.testing.expectEqual(0, packing.place(64));
+    try std.testing.expectEqual(64, packing.place(16));
+    try std.testing.expectEqual(80, packing.place(4));
+    // A BC7 texture after it starts at the next multiple of 16, not at 84.
+    try std.testing.expectEqual(96, packing.place(16));
+    try std.testing.expectEqual(112, packing.end);
+}
+
+/// Copies `levels`, a texture's every level, through `transfer`, mapped at `mapped`, where
+/// `packing` places them, into layer `layer` of `texture`.
+fn uploadLevels(copy: *c.SDL_GPUCopyPass, transfer: *c.SDL_GPUTransferBuffer, mapped: [*]u8, packing: *Packing, texture: *c.SDL_GPUTexture, layer: u16, levels: []const srtexture.Level) void {
     for (levels, 0..) |level, index| {
-        @memcpy(mapped[at.*..][0..level.texels.len], level.texels);
+        const at = packing.place(level.texels.len);
+        @memcpy(mapped[at..][0..level.texels.len], level.texels);
         // A compressed level's rows are whole blocks, though the level may be smaller than one.
         const across: u32 = if (level.format.compressed()) @intCast(srtexture.Level.blocks(level.width) * srtexture.Level.block_side) else level.width;
         const down: u32 = if (level.format.compressed()) @intCast(srtexture.Level.blocks(level.height) * srtexture.Level.block_side) else level.height;
         c.SDL_UploadToGPUTexture(
             copy,
-            &.{ .transfer_buffer = transfer, .offset = at.*, .pixels_per_row = across, .rows_per_layer = down },
+            &.{ .transfer_buffer = transfer, .offset = @intCast(at), .pixels_per_row = across, .rows_per_layer = down },
             &.{ .texture = texture, .mip_level = @intCast(index), .layer = layer, .w = level.width, .h = level.height, .d = 1 },
             false,
         );
-        at.* += @intCast(level.texels.len);
     }
 }
 
