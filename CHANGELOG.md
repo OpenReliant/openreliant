@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.1](https://github.com/OpenReliant/openreliant/compare/v0.8.0...v0.8.1) (2026-10-08)
+
+
+### Fixes
+
+* mods' mission scripts run in a mission started with --mission ([#978](https://github.com/OpenReliant/openreliant/issues/978)) ([c8b7f48](https://github.com/OpenReliant/openreliant/commit/c8b7f4843a408790ff28574ecef104e42bdcd33a))
+
+
+### Documentation
+
+* the website and the README for 0.8, with the roadmap to 2.0 ([#970](https://github.com/OpenReliant/openreliant/issues/970)) ([4a78b6c](https://github.com/OpenReliant/openreliant/commit/4a78b6c33508e55ccbd3ed57fe9ebf33c1bb6056))
+
 ## [0.8.0](https://github.com/OpenReliant/openreliant/compare/v0.7.0...v0.8.0) (2026-10-08)
 
 
