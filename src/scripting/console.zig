@@ -202,9 +202,6 @@ pub const Scripts = struct {
 /// The most bytes of a line typed, in the game's code page.
 pub const max_typed = 200;
 
-/// The most bytes UTF-8 takes for a character, which a line typed takes as it runs.
-const max_utf8 = 4;
-
 /// A line typed, in the game's code page, as the front end keeps one (`pilot_roster.Text`).
 pub const Typed = pilot_roster.Text(max_typed);
 
@@ -281,8 +278,8 @@ pub const Console = struct {
     /// Runs the line typed, and empties it: a command, Luau, or a line for the scripts.
     pub fn run(console: *Console, scripts: Scripts) Allocator.Error!?Request {
         const typed = console.typed.slice();
-        var utf8_buffer: [max_typed * max_utf8]u8 = undefined;
-        const utf8 = toUtf8(&utf8_buffer, typed);
+        var utf8_buffer: [max_typed * language.max_utf8_bytes]u8 = undefined;
+        const utf8 = language.decode(&utf8_buffer, typed);
         if (typed.len > 0) console.history.add(typed);
         console.typed.len = 0;
         console.recalled = null;
@@ -495,13 +492,6 @@ fn contextOf(target: Target, scripts: Scripts) ?*Context {
         if (!context.closed and context.mod == target.mod and context.family == target.family and context.runs_on == null) return context;
     }
     return null;
-}
-
-/// `typed`, in the game's code page, as UTF-8 in `buffer`.
-fn toUtf8(buffer: *[max_typed * max_utf8]u8, typed: []const u8) []const u8 {
-    var len: usize = 0;
-    for (typed) |byte| len += std.unicode.utf8Encode(language.toUnicode(byte), buffer[len..]) catch continue;
-    return buffer[0..len];
 }
 
 test Output {

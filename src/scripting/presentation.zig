@@ -85,6 +85,14 @@ pub const Host = struct {
     pub const Flight = struct {
         hud: *const hud.State,
         player: *const input.Player,
+        /// What the display's frame draws the clock, the view's name, the caption and the status
+        /// lights from (`hud.Frame`): the time played, the game's variables, last frame's view, the
+        /// game's strings, and whether the game is a network one.
+        play: engine.game.main.PlayTime = .{},
+        variables: ?*const engine.vm.Variables = null,
+        last_view: camera.View = .cockpit,
+        strings: ?*const engine.game.language.Language = null,
+        multiplayer: bool = false,
     };
 
     pub const Camera = struct {
@@ -572,6 +580,79 @@ test "a display stands in for the game's instruments and reads what they show" {
     fixture.shown.frame(host);
     try std.testing.expectEqual(hud.Placement{}, fixture.shown.instrumentPlacements().get(.radar));
     try std.testing.expectEqual(hud.Placement{}, fixture.shown.instrumentPlacements().get(.clock));
+    fixture.shown.endGame();
+}
+
+test "a display reads the cockpit's instruments in any view" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=player.luau\n" },
+            .{
+                "player.luau",
+                \\local hud = require("openreliant.hud")
+                \\return {engine_handlers = {on_frame = function()
+                \\    local g, s, c = hud.gauges, hud.ship_status, hud.clock
+                \\    hud.text(vector.zero, string.format("%d %d %.2f %.2f %.2f %.2f %s|%d %d %d %d %d %d|%d %d|%s|%d:%02d|%s|%s|%d %d",
+                \\        g.speed, g.asked, g.speed_share, g.throttle_share, g.throttle_brightness, g.charge, tostring(g.nova),
+                \\        s.shields.left, s.shields.aft, s.armor.left, s.armor.right, s.reserve_fore, s.reserve_aft,
+                \\        hud.fuel, hud.countermeasures, table.concat(hud.lights, ","), c.minutes, c.seconds,
+                \\        hud.view_name, hud.caption, #hud.view_name, #hud.caption))
+                \\end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    const all = fixture.mission.objects;
+    all.mission_number = 1;
+    const slot = fixture.mission.slot(0);
+    const combat = slot.combat.?;
+    // Half throttle at a quarter of its top speed, and its guns half charged.
+    slot.object.throttle = 0.5;
+    slot.object.speed = slot.flight.?.max_speed / 4;
+    slot.object.gun_charge = combat.gun_energy / 2;
+    slot.object.afterburner_fuel = 7 * engine.game.main.ticks_per_second + 50;
+    slot.object.countermeasures = 12;
+    slot.object.reverse_thrust = true;
+    // Full shields, its left armour down to two arcs' worth, and five arcs' worth shifted fore.
+    slot.object.shields = .all(combat.fullShields());
+    slot.object.armor = .all(combat.fullArmor());
+    slot.object.armor.left = @floatFromInt(combat.armor_class * 2);
+    var player: input.Player = .{};
+    player.matching_speed = true;
+    player.shield_reserves = .{ .fore = 5 * @as(f32, @floatFromInt(combat.shield_power)) };
+    var state: hud.State = .{};
+    state.smart_targeting = true;
+    state.icons.show(.ecm, .flash);
+    state.devices.getPtr(.cloak).setting = .absent;
+    state.caption = .{ .on = true, .shown = 6 };
+    // The strings for the date of mission 1 and the name of the chase view.
+    var strings_table: [1000][]const u8 = @splat(" ");
+    strings_table[hud.Caption.date(1).? - 1] = "Mai 3\xE9";
+    const chase_name = engine.game.camera.View.chase.name().?;
+    strings_table[chase_name - 1] = "Chase";
+    const strings: engine.game.language.Language = .{ .strings = &strings_table };
+    var view: engine.game.camera.Camera = .{};
+    view.view = .chase;
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{
+        .hud = &state,
+        .player = &player,
+        .play = .{ .minutes = 3, .seconds = 7 },
+        .last_view = .chase,
+        .strings = &strings,
+    } };
+    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
+    fixture.shown.frame(host);
+    const asked, const made = hud.Cluster.Gauges.of(slot).?.figures();
+    var expected: [256]u8 = undefined;
+    // In the chase view, where the game draws none of them, the readings are as the instruments
+    // would show them; the caption has typed the date's six letters, the last from the game's code
+    // page, which takes two bytes in UTF-8 and goes back to one as the display draws it.
+    const text = try std.fmt.bufPrint(&expected, "{d} {d} 0.25 0.50 0.75 0.50 false|5 5 1 5 4 0|7 12|match_speed,smart_targeting,ecm,reverse_thrust|3:07|Chase|Mai 3\xE9|5 7", .{ made, asked });
+    try std.testing.expectEqualStrings(text, fixture.shown.layers.get(.hud).text.items);
     fixture.shown.endGame();
 }
 

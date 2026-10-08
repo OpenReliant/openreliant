@@ -1189,7 +1189,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
                 if (script_font) |*file| frames.show(&host, layer, &file.font, game.hud.scaleFor(size), &display.resources.art);
                 host.camera = .{ .camera = &view, .now = clock.viewTime(), .player = objects.player };
-                host.flight = .{ .hud = &display.state, .player = display.player };
+                host.flight = .{
+                    .hud = &display.state,
+                    .player = display.player,
+                    .play = display.clock.play,
+                    .variables = if (display.play.loaded) |loaded| &loaded.script.variables else null,
+                    .last_view = display.last_view,
+                    .strings = display.strings,
+                };
             }
             if (shown.runtime.registries.selected_screen != null and host.views.get(.ui) == null) host.views.set(.ui, host.views.get(.hud));
             shown.frame(host);

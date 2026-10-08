@@ -1202,13 +1202,27 @@ hud.register_display("radar", {
 - `hud.bounds(instrument)` gives where an instrument last drew, in the window's pixels, as the
   layouts place it, and also while a display stands in for it, so that a display can draw its own
   in the game's instrument's place.
-- What the instruments show can be read, for a display that stands in for one: `hud.guns`, the
-  gun group, how the guns fire and their charge; `hud.missiles`, the ring of missiles and the armed
-  one; `hud.target`, the target the display shows and its subtarget; `hud.radar`, the radar's
-  range and reach; `hud.kills`; and `hud.open_windows`. `hud.instruments_shown` says whether the
-  game's instruments show this frame, which is in the view ahead from the cockpit. The scripts run
-  before the flight display draws, so these are as the instruments last drew them. Each is nil, or
-  empty, outside a mission.
+- What the instruments show can be read in any view during a mission, for a display that stands in
+  for one or one drawn outside the game:
+  - `hud.guns`, the gun group, how the guns fire and their charge; `hud.missiles`, the ring of
+    missiles and the armed one; `hud.target`, the target the display shows and its subtarget;
+    `hud.radar`, the radar's range and reach; and `hud.open_windows`.
+  - The readouts: `hud.fuel`, the seconds of afterburner fuel; `hud.kills`; and
+    `hud.countermeasures`.
+  - `hud.gauges`, the targeting cluster: the speed and the speed the throttle asks for, as their
+    figures show them; where the speed's and the throttle's markers stand on the left arc, from 0
+    to 1, and how bright the throttle's is (nil while it doesn't show); and how far up the right
+    arc is lit, from 0 to 1, and whether it shows the Nova Cannon's charge.
+  - `hud.ship_status`: how many of the shields' and the armour's five arcs show in each quadrant,
+    and the arcs for what SHIELD BALANCING has shifted fore and aft.
+  - `hud.lights`, the status lights that show, steady or flashing; `hud.clock`, the minutes and
+    seconds the clock shows; `hud.view_name`, the name written at the top of the screen in the
+    views that have one; and `hud.caption`, the launch's date as far as it has typed it.
+
+  `hud.instruments_shown` says whether the game's instruments show this frame, which is in the view
+  ahead from the cockpit. Each reading is worked out as its instrument works it out, when the
+  scripts run, before the flight display draws; what the display keeps between frames, such as its
+  target, is as it last drew it. Each is nil, or empty, outside a mission.
 
 [`examples/mods/hud-layout`](../../examples/mods/hud-layout) draws a radar of its own in the game's
 radar's place, with the guns and missiles beside it.

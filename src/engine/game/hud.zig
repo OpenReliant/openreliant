@@ -2513,14 +2513,23 @@ pub const Readout = enum {
         };
     }
 
-    /// Draws the readout, showing `value`: its shape shaken, its number still.
-    pub fn draw(readout: Readout, pen: Pen, value: i32) Error!void {
+    /// The number the readout shows for the player's ship of `slot`, flown by `player`.
+    pub fn value(readout: Readout, slot: *const create.Slot, player: *const input.Player) i32 {
+        return switch (readout) {
+            .fuel => @divTrunc(slot.object.afterburner_fuel, main.ticks_per_second),
+            .skull => player.kills.count,
+            .coil => slot.object.countermeasures,
+        };
+    }
+
+    /// Draws the readout, showing `shown`: its shape shaken, its number still.
+    pub fn draw(readout: Readout, pen: Pen, shown: i32) Error!void {
         const at = readout.spec();
         const point = pen.placed(at.offset, at.across, at.down);
         try pen.shaky(at.shape, pen.moved(point, at.shape_offset));
 
         var buffer: [16]u8 = undefined;
-        const text = std.mem.print(&buffer, "{d}", .{value}) catch return;
+        const text = std.mem.print(&buffer, "{d}", .{shown}) catch return;
         _ = try pen.text(pen.moved(point, at.text_offset), text, .centre);
     }
 };
@@ -2568,12 +2577,18 @@ pub fn namesView(last_view: camera.View) bool {
     };
 }
 
+/// The language string of `last_view`'s name, where `hud_draw` names it (`namesView`); null for
+/// the rest, and for a view past the table.
+pub fn viewName(last_view: camera.View) ?u16 {
+    if (!namesView(last_view)) return null;
+    return last_view.name();
+}
+
 /// Draws the name of `last_view` where `hud_draw` does, the view table's string for it out of the
 /// pen's strings. A view past the table, or a string past the strings, draws nothing; the game
 /// stops with a fatal error for either.
 pub fn drawViewName(pen: Pen, last_view: camera.View) Allocator.Error!void {
-    if (!namesView(last_view)) return;
-    const text = pen.strings.string(last_view.name() orelse return) orelse return;
+    const text = pen.strings.string(viewName(last_view) orelse return) orelse return;
     _ = try pen.text(.{ pen.middle()[0], pen.span(view_name_down) }, text, .centre);
 }
 
@@ -2751,6 +2766,12 @@ pub const Caption = struct {
             caption.due = game_ticks + letter_ticks;
             if (caption.shown < text.len + 1) caption.shown += 1;
         }
+        return caption.showing(text);
+    }
+
+    /// What shows of `text` as the caption stands: the letters typed so far, and whether the
+    /// cursor follows them.
+    pub fn showing(caption: Caption, text: []const u8) struct { []const u8, bool } {
         return .{ text[0..@min(caption.shown, text.len)], caption.shown < text.len + 1 };
     }
 
@@ -3075,6 +3096,9 @@ test instrumented {
 /// valued by its shape. A light takes the next place only while its condition holds, so the ones
 /// after a light that is out close up. A flashing light keeps its place while it is dark.
 pub const Light = enum(u16) {
+    /// The name scripts know these by.
+    pub const script_name = "HudLight";
+
     /// MATCH SPEED holds the ship to its target's speed: `matching_speed`.
     match_speed = 0xCC,
     /// Blind fire, which aims the guns at whatever stands in the middle of the display: the ship
@@ -3485,14 +3509,38 @@ pub const State = struct {
     /// in its order: an icon's flash moves on only when `hud_draw` asks for it. `matching` is
     /// `matching_speed`.
     pub fn lit(state: *State, object: *const gameobj.GameObject, matching: bool, multiplayer: bool, frame_duration: i32) Lit {
+        return state.lightsWith(object, matching, multiplayer, .{ .step = .{ .icons = &state.icons, .frame_duration = frame_duration } });
+    }
+
+    /// Which lights show for the player's `object`, steady or flashing, as `lit` tests them but
+    /// with every icon `ShowHudIcon` sets counted as lit, and no flash moved on.
+    pub fn lightsShown(state: *const State, object: *const gameobj.GameObject, matching: bool, multiplayer: bool) Lit {
+        return state.lightsWith(object, matching, multiplayer, .{ .set = &state.icons });
+    }
+
+    /// How a test of the lights reads `ShowHudIcon`'s icons: moving their flashes on by a frame of
+    /// `frame_duration`, as `hud_draw` does, or taking each that is set at all as lit.
+    const IconTest = union(enum) {
+        step: struct { icons: *Icons, frame_duration: i32 },
+        set: *const Icons,
+
+        fn lit(icon_test: IconTest, icon: Icon) bool {
+            return switch (icon_test) {
+                .step => |step| step.icons.lit(icon, step.frame_duration),
+                .set => |icons| icons.stateOf(icon) != .off,
+            };
+        }
+    };
+
+    fn lightsWith(state: *const State, object: *const gameobj.GameObject, matching: bool, multiplayer: bool, icons: IconTest) Lit {
         const homing = object.missile_homing != 0;
         var found: Lit = .{};
         found.match_speed = matching;
         found.blind_fire = state.blind_fire_fitted and state.blind_fire and !object.gun_mode.all;
-        found.smart_targeting = state.smart_targeting or state.icons.lit(.smart_targeting, frame_duration);
-        found.enemy_lock = (state.enemy_lock and !homing) or state.icons.lit(.enemy_lock, frame_duration);
-        found.missile_incoming = homing or state.icons.lit(.missile_incoming, frame_duration);
-        found.ecm = state.devices.get(.ecm).setting == .on or state.icons.lit(.ecm, frame_duration);
+        found.smart_targeting = state.smart_targeting or icons.lit(.smart_targeting);
+        found.enemy_lock = (state.enemy_lock and !homing) or icons.lit(.enemy_lock);
+        found.missile_incoming = homing or icons.lit(.missile_incoming);
+        found.ecm = state.devices.get(.ecm).setting == .on or icons.lit(.ecm);
         found.cloak = !multiplayer and state.devices.get(.cloak).setting != .absent;
         found.spectral_shields = state.devices.get(.spectral_shields).setting == .on;
         found.reverse_thrust = object.reverse_thrust;
@@ -3628,29 +3676,16 @@ pub const State = struct {
         const frame_duration = frame.clock.frame_duration;
         const slot = &frame.all.slots[frame.all.player];
         const live = &slot.object;
-        const flight = slot.flight orelse return;
-        const combat = slot.combat orelse return;
+        const gauges = Cluster.Gauges.of(slot) orelse return;
         if (frame.sight) |sight| try drawNavMarker(placing.pen(pen, .nav_marker), sight, frame.all);
         for (std.enums.values(Readout)) |readout| {
             if (!state.shows(readout, frame_duration)) continue;
-            const value: i32 = switch (readout) {
-                .fuel => @divTrunc(live.afterburner_fuel, main.ticks_per_second),
-                .skull => frame.player.kills.count,
-                .coil => live.countermeasures,
-            };
-            try readout.draw(placing.pen(pen, readout.instrument()), value);
+            try readout.draw(placing.pen(pen, readout.instrument()), readout.value(slot, frame.player));
         }
         const status = ShipStatus.ofPlayer(slot, frame.all.mission_number, &state.ship_hits, frame.player.shield_reserves);
         const status_pen = placing.pen(pen, .ship_status);
         try ShipStatus.draw(status, .player, status_pen, status_pen.placed(ShipStatus.offset, ShipStatus.across, ShipStatus.down), null);
-        try drawCluster(placing.pen(pen, .gauges), .{
-            .throttle = live.throttle,
-            .speed = live.speed,
-            .max_speed = flight.max_speed,
-            .charge = live.gun_charge,
-            .full_charge = combat.gun_energy,
-            .nova = if (novaShown(slot)) live.nova_charge else null,
-        });
+        try drawCluster(placing.pen(pen, .gauges), gauges);
         try drawRadar(placing.pen(pen, .radar), state, frame.all, speaker);
         stepRadarZoom(state, frame.clock.game_ticks);
         const aims = try drawReticle(state, placing.pen(pen, .reticle), frame.mode, lead, blindFire(state, slot), frame_duration);
@@ -4444,8 +4479,11 @@ pub const ShipStatus = struct {
     /// Whose ship `hud_ship_status` draws, its mode.
     pub const Mode = enum(u1) { player = 0, target = 1 };
 
+    /// The levels an arc has shapes for, one a level: a full arc's five.
+    pub const arc_levels = 5;
+
     /// One arc of a ring: where it hangs from the point, and the shape a level of 0 would be, each
-    /// level above it drawing the shape one before. Five shapes an arc.
+    /// level above it drawing the shape one before, `arc_levels` shapes an arc.
     pub const Arc = struct { offset: [2]i32, base: u16 };
 
     /// Where a mode draws each part from the indicator's point: the schematic, the hits on it, and
@@ -4550,15 +4588,22 @@ pub const ShipStatus = struct {
         return found;
     }
 
+    /// The rings of the player's ship of `slot` (`rings`), and the levels of what SHIELD BALANCING
+    /// has shifted fore and aft of it (`reserves`), which mode 0 draws outside them; both null for
+    /// a ship without rings.
+    pub fn playerRings(slot: *const create.Slot, reserves: gameobj.ShieldReserves) struct { ?Rings, ?[2]i32 } {
+        const found = rings(slot) orelse return .{ null, null };
+        const combat = slot.combat orelse return .{ found, null };
+        return .{ found, .{ level(reserves.fore, combat.shield_power), level(reserves.aft, combat.shield_power) } };
+    }
+
     /// Mode 0 for the player's ship of `slot`, in mission `mission`: its schematic, the hits taken
     /// out of `hits` for a type the target display shows in its small form, its rings, and what
     /// SHIELD BALANCING has shifted. In mission 25, a Kamov's schematic is drawn mirrored across,
     /// but not its hits (`0x004895BE`, `0x00489600`).
     pub fn ofPlayer(slot: *const create.Slot, mission: u16, hits: *Hits, reserves: gameobj.ShieldReserves) Shown {
-        var shown: Shown = .{ .rings = rings(slot) };
-        if (slot.combat) |combat| if (shown.rings) |_| {
-            shown.reserves = .{ level(reserves.fore, combat.shield_power), level(reserves.aft, combat.shield_power) };
-        };
+        const found, const shifted = playerRings(slot, reserves);
+        var shown: Shown = .{ .rings = found, .reserves = shifted };
         const loaded = slot.type orelse return shown;
         shown.schematic = loaded.schematic orelse return shown;
         shown.schematic_mirrored = mission == create.kamov_mission and slot.object.type.base() == .kamov;
@@ -4663,6 +4708,47 @@ test ShipStatus {
     try std.testing.expectEqual(4, ShipStatus.level(5 * 3, 3));
     try std.testing.expectEqual(0xAE, ShipStatus.reserve_arcs.fore.base - 4);
     try std.testing.expectEqual(0xB3, ShipStatus.reserve_arcs.aft.base - 4);
+}
+
+test "what the instruments show, worked out without drawing" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const slot = mission.slot(try mission.add(.of(.sabre), @splat(0)));
+    const combat = slot.combat.?;
+    // The cluster: half throttle at a quarter of the top speed, the guns half charged.
+    slot.object.throttle = 0.5;
+    slot.object.speed = slot.flight.?.max_speed / 4;
+    slot.object.gun_charge = combat.gun_energy / 2;
+    const gauges = Cluster.Gauges.of(slot).?;
+    try std.testing.expectEqual(0.5, gauges.chargeShare());
+    try std.testing.expectEqual([2]i32{ round(slot.flight.?.max_speed / 2), round(slot.flight.?.max_speed / 4) }, gauges.figures());
+    // The throttle's marker shows as bright as three times the gap, and not once the gap is small.
+    try std.testing.expectApproxEqAbs(0.75, Cluster.throttleBrightness(0.5, 0.25).?, 1e-6);
+    try std.testing.expectEqual(null, Cluster.throttleBrightness(0.5, 0.49));
+    // A ship without its figures shows no instruments.
+    var bare: create.Slot = .{ .object = slot.object };
+    try std.testing.expectEqual(null, Cluster.Gauges.of(&bare));
+    // The readouts.
+    slot.object.afterburner_fuel = 3 * main.ticks_per_second + 1;
+    var player: input.Player = .{};
+    player.kills.count = 4;
+    try std.testing.expectEqual(3, Readout.fuel.value(slot, &player));
+    try std.testing.expectEqual(4, Readout.skull.value(slot, &player));
+    // The view's name in a view the display names, and none in the view ahead.
+    try std.testing.expectEqual(null, viewName(.cockpit));
+    try std.testing.expectEqual(camera.View.chase.name(), viewName(.chase));
+    // The caption's letters typed so far, with the cursor until the whole date shows.
+    const caption: Caption = .{ .on = true, .shown = 2 };
+    const shows, const typing = caption.showing("abc");
+    try std.testing.expectEqualStrings("ab", shows);
+    try std.testing.expect(typing);
+    // A light `ShowHudIcon` flashes shows, and reading it moves no flash on.
+    var state: State = .{};
+    state.icons.show(.ecm, .flash);
+    const before = state.icons;
+    try std.testing.expect(state.lightsShown(&slot.object, false, false).ecm);
+    try std.testing.expectEqual(before, state.icons);
 }
 
 test "in mission 25, a Kamov's schematic is drawn mirrored, but not its hits" {
@@ -4790,13 +4876,49 @@ pub const Cluster = struct {
         /// place of the guns' on a Phoenix firing a group the cannon leads (`novaShown`).
         nova: ?f32 = null,
 
+        /// What the cluster shows of the player's ship of `slot`; null for a ship without its
+        /// flight or its combat figures, for which `hud_draw` draws none of the instruments.
+        pub fn of(slot: *const create.Slot) ?Gauges {
+            const flight = slot.flight orelse return null;
+            const combat = slot.combat orelse return null;
+            const object = &slot.object;
+            return .{
+                .throttle = object.throttle,
+                .speed = object.speed,
+                .max_speed = flight.max_speed,
+                .charge = object.gun_charge,
+                .full_charge = combat.gun_energy,
+                .nova = if (novaShown(slot)) object.nova_charge else null,
+            };
+        }
+
         /// How far down from the arcs' top the charge arc is unlit: for the Nova Cannon, as far
         /// as it has charged.
         pub fn unlit(gauges: Gauges) i32 {
             if (gauges.nova) |nova| return round(nova * charge_height);
             return chargeLevel(gauges.charge, gauges.full_charge);
         }
+
+        /// How much of the charge arc is lit, from its foot: what `unlit` leaves of its height,
+        /// from 0 to 1. The Nova Cannon's empties the arc as it charges.
+        pub fn chargeShare(gauges: Gauges) f32 {
+            const unlit_height: f32 = @floatFromInt(gauges.unlit());
+            return std.math.clamp(1 - unlit_height / charge_height, 0, 1);
+        }
+
+        /// The figures by the markers: the speed the throttle asks for, and the speed made.
+        pub fn figures(gauges: Gauges) [2]i32 {
+            return .{ round(gauges.max_speed * gauges.throttle), round(gauges.speed) };
+        }
     };
+
+    /// How bright the throttle's marker is, from the shares of the arc its throttle and speed
+    /// stand at (`shares`): their gap three times over, to full; null where it doesn't show, at
+    /// `throttle_shown` or less.
+    pub fn throttleBrightness(throttle: f32, speed: f32) ?f32 {
+        const brightness = @min(@abs(throttle - speed) * throttle_fade, 1);
+        return if (brightness > throttle_shown) brightness else null;
+    }
 
     /// Where a marker for `share` of the arc stands from the circle's centre, in the display's
     /// own pixels, rounded as `0x004C3330` does.
@@ -4835,23 +4957,23 @@ pub fn drawCluster(pen: Pen, gauges: Cluster.Gauges) Error!void {
 
     const centre = pen.moved(left, Cluster.circle);
     const throttle, const speed = Cluster.shares(gauges);
+    const asked, const made = gauges.figures();
     var buffer: [16]u8 = undefined;
 
     // The throttle's marker, dimmed as it nears the speed.
-    const brightness = @min(@abs(throttle - speed) * Cluster.throttle_fade, 1);
-    if (brightness > Cluster.throttle_shown) {
+    if (Cluster.throttleBrightness(throttle, speed)) |brightness| {
         const dim = pen.dimmed(brightness);
         const marker = pen.moved(centre, Cluster.markerOffset(throttle));
         try dim.shape(Cluster.marker_shape, marker);
-        const asked = std.mem.print(&buffer, "{d}", .{round(gauges.max_speed * gauges.throttle)}) catch return;
-        _ = try dim.text(pen.moved(marker, Cluster.figure_offset), asked, .right);
+        const figure = std.mem.print(&buffer, "{d}", .{asked}) catch return;
+        _ = try dim.text(pen.moved(marker, Cluster.figure_offset), figure, .right);
     }
 
     const offset = Cluster.markerOffset(speed);
     const marker = pen.moved(centre, offset);
     try pen.shape(Cluster.marker_shape, marker);
-    const made = std.mem.print(&buffer, "{d}", .{round(gauges.speed)}) catch return;
-    _ = try pen.text(pen.moved(marker, Cluster.figure_offset), made, .right);
+    const figure = std.mem.print(&buffer, "{d}", .{made}) catch return;
+    _ = try pen.text(pen.moved(marker, Cluster.figure_offset), figure, .right);
 
     // The speed's fill is lit below its marker, the charge's below its level.
     try drawFill(pen, Cluster.speed_fill, left, offset[1] + Cluster.circle[1]);
