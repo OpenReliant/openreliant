@@ -35,6 +35,8 @@ pub const orders = @import("ai/orders.zig");
 pub const routines = @import("ai/routines.zig");
 /// Ship Follow Curve and its backwards twin.
 pub const follow = @import("ai/follow.zig");
+/// Formation Regroup and Patrol Route, which fly a flight group in its formation.
+pub const formations = @import("ai/formations.zig");
 
 /// A record of the order table. `order_groups` points at the records of each hundred order
 /// numbers: order `n` is record `n % 100` of group `n / 100`.

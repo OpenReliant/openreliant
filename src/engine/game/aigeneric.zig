@@ -21,6 +21,7 @@ const aiioncan = @import("aiioncan.zig");
 const ailand = @import("ailand.zig");
 const airipper = @import("airipper.zig");
 const follow = @import("ai/follow.zig");
+const formations = @import("ai/formations.zig");
 const friendly_fire = @import("friendly_fire.zig");
 const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
@@ -279,6 +280,8 @@ pub const State = extern union {
     launch: launch.State,
     jump: jump.State,
     follow: follow.State,
+    regroup: formations.RegroupState,
+    patrol: formations.PatrolState,
     dock: aidock.State,
     nanny_dock: aidock.NannyState,
     warp: wgate.warp_orders.State,
@@ -786,8 +789,7 @@ pub fn retaliate(ctx: Context, index: u16) void {
 }
 
 /// The `init` of the order, where OpenReliant runs it, which scripts can hook under the routine's
-/// name (`hooks.routine_hooks`). The orders whose `init` isn't ported yet do nothing
-/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), multiplayer's among them
+/// name (`hooks.routine_hooks`). Multiplayer's orders aren't ported yet and do nothing
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runInit(ctx: Context, index: u16, info: orders.Info) void {
     if (hooks.enterRoutine(.init, runInit, ctx, index, info)) |done| return done;
@@ -839,10 +841,8 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .make_boridin_section_break_away => aifuncs.breakAwayInit(ctx, index),
         .rotate_boridin_breakaway_warp_projector => aifuncs.rotateProjectorInit(ctx, index),
         .start_warp_projection_from_boridin => wgate.projection.init(ctx, index),
-        // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
-        .formation_regroup,
-        .patrol_route,
-        => {},
+        .formation_regroup => formations.regroupInit(ctx, index),
+        .patrol_route => formations.patrolInit(ctx, index),
         // The table gives these no `init`, or only `noop` (`0x004983A0`).
         .do_nothing,
         .launch_missile,
@@ -870,8 +870,7 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
 }
 
 /// The `update` of the order, where OpenReliant runs it, which scripts can hook under the routine's
-/// name (`hooks.routine_hooks`). The orders whose update isn't ported yet do nothing
-/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), multiplayer's among them
+/// name (`hooks.routine_hooks`). Multiplayer's orders aren't ported yet and do nothing
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
     if (hooks.enterRoutine(.update, runUpdate, ctx, index, info)) |done| return done;
@@ -935,11 +934,10 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .dark_reign_shoot_110 => aiioncan.update(ctx, index),
         .avoid_target => aifuncs.avoidTarget(ctx, index),
         .start_warp_projection_from_boridin => wgate.projection.update(ctx, index),
-        // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
-        .formation_regroup,
-        .patrol_route,
-        .move_to_spawn_pos,
-        => {},
+        .formation_regroup => formations.regroup(ctx, index),
+        .patrol_route => formations.patrol(ctx, index),
+        // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+        .move_to_spawn_pos => {},
         // The table gives these no update, or only `noop` (`0x004983A0`).
         .random_spin_slow,
         .random_spin_medium,
