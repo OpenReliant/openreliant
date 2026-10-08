@@ -1,5 +1,6 @@
 //! `C:\lancer\surrender\surrenderlib\srAPI.cpp`: Surrender's interface to the game: its state,
-//! `sr` (`0x005E6B50`), the camera's projection, and what a mesh works out from its vertices.
+//! `sr_context` (`0x005E6B50`, `sr` for short), the camera's projection, and what a mesh works out
+//! from its vertices.
 
 const std = @import("std");
 
@@ -170,8 +171,9 @@ pub const original_budget = 19999;
 /// budget, since the original's would leave such a ship out without a word.
 pub const budget = 200_000;
 
-/// Surrender's state, `sr` (`0x005E6B50`), as OpenReliant keeps it: the camera and its projection,
-/// the level-of-detail divisor, and the sun's point the driver checks triangles against.
+/// Surrender's state, `sr_context` (`0x005E6B50`, whose fields the docs cite as `sr + 0x..`), as
+/// OpenReliant keeps it: the camera and its projection, the level-of-detail divisor, and the sun's
+/// point the driver checks triangles against.
 pub const Context = struct {
     /// The camera's frame (`sr + 0x30`): its orientation's columns are its right, down and
     /// forward axes in the world.

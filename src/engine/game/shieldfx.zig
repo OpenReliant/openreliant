@@ -3,7 +3,7 @@
 //!
 //! | Kind | Struck by | What it leaves |
 //! |---|---|---|
-//! | 2 | A shot or a missile through to a hull (`bullet_hull_hit`, `missile_hit_hull`) | The hit's sound (`hullHit`), and an emitter of `0x0049FD20`'s orange template on the part's surface nearest the point (`0x0049FEF0`), facing out from it |
+//! | 2 | A shot or a missile through to a hull (`bullet_hull_hit`, `missile_hit_hull`) | The hit's sound (`hullHit`), and an emitter of the orange template (`shieldfx_orange`) on the part's surface nearest the point (`0x0049FEF0`), facing out from it |
 //! | 3 | A shot or a missile on a component (`bullet_hit`, `0x0047B840`, `0x00495AC0`) | On an object with a shield generator that isn't exploding, its capital shield instead (`componentHit`); otherwise a burst of 20 of the orange template's particles |
 //! | 4 | Nothing | An emitter of the grey template |
 //! | 5 | A shot on a component of an asteroid, a turret asteroid or a hole (`bullet_hit`, `0x0047B840`) | Sound 71, and `0x00472780` |
@@ -70,8 +70,9 @@ pub fn componentHit(world: gameobj.World, index: u16, crossing: objects.Crossing
     }
 }
 
-/// What a component's hit bursts into (`shieldfx_orange`, `0x0049FD20`): orange puffs growing from
-/// 50 to 100 across as they fade over about a second.
+/// What a component's hit bursts into (`shieldfx_orange`, `0x00593790`, which `shieldfx_init` sets
+/// up at `0x0049FD20`): orange puffs growing from 50 to 100 across as they fade over about a
+/// second.
 pub const orange: particles.Template = .{
     .life = 100,
     .life_spread = 10,

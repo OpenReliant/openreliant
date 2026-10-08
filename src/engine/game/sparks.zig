@@ -235,10 +235,10 @@ pub const Sparks = struct {
         slot.*.?.object.baked = &slot.*.?.colours;
     }
 
-    /// `0x004A1BB0`, which `particles_frame` runs first: each spark flies on by its velocity and
-    /// what it carries times the ticks since they last moved, slows by its drag for each of them,
-    /// and fades from its first colour to its last over its life (`vec3_lerp`, `0x004C1070`), after
-    /// which it is gone.
+    /// `sparks_update` (`0x004A1BB0`), which `particles_frame` runs first: each spark flies on by
+    /// its velocity and what it carries times the ticks since they last moved, slows by its drag
+    /// for each of them, and fades from its first colour to its last over its life (`vec3_lerp`,
+    /// `0x004C1070`), after which it is gone.
     pub fn frame(all: *Sparks, clock: *const Clock) void {
         const ticks: f32 = @floatFromInt(clock.frame_start - all.moved_at);
         for (&all.sparks.slots) |*slot| {

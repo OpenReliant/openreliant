@@ -1212,7 +1212,8 @@ pub fn make(world: gameobj.World, wanted: ?u16, object_type: gameobj.Type) Error
 ///
 /// A single type, such as an asteroid, is set up as its own (`typeMade`).
 ///
-/// Not ported: the components (#40); and what differs in a multiplayer game.
+/// Not ported: what differs in a multiplayer game
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, asked: gameobj.Type, tier: i32, at: Vector, random: *Random) Error!u16 {
     const index = wanted orelse all.count;
     if (index >= gameobj.max_objects) return error.Overrun;
@@ -1550,8 +1551,10 @@ fn hang(gpa: Allocator, effects: objects.Effects, hardpoint: Hardpoint, file: ?[
 /// each live object of a ship type (`motion.move`), in the loops' order, passing over stand-ins
 /// and disabled and frozen objects. The player's shakes the camera (`shake`).
 ///
-/// Not ported yet: the collision sweep that follows (#40), and in a multiplayer game, what places
-/// the other players' ships (#55).
+/// Then the collision sweep runs over every object that collides (`Sweep.run`).
+///
+/// Not ported: in a multiplayer game, what places the other players' ships
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn objectsUpdate(world: gameobj.World) void {
     const all = world.objects;
     var sweep = &all.sweep;

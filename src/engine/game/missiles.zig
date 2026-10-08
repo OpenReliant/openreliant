@@ -204,7 +204,8 @@ pub const Order = enum(u32) {
 pub const Stats = extern struct {
     /// 30 for every type. **Unknown:** nothing reads it.
     _unknown_00: f32,
-    /// The 3D sound its launch plays, which follows the missile (`sound3d.sounds`); 0 for none.
+    /// The 3D sound its launch plays, which follows the missile (`sound3d.sounds`). The fuel pod's
+    /// is 0, `GUN01`, which the game plays at its launch as it plays any other.
     launch_sound: i32,
     /// `Missile.flight_time`, in ticks: the file's seconds times `main.ticks_per_second`
     /// (`0x004DC440`), truncated.
@@ -983,7 +984,7 @@ fn stop(world: gameobj.World, at: u8) bool {
 /// hull damage, but a Havoc's or an Imp's, and the hit is heard (`shieldfx.hullHit`), and the
 /// missile stops and ends.
 ///
-/// **Fix.** Where the segment meets no part's box, the game still reports contact without ending
+/// **Fix:** Where the segment meets no part's box, the game still reports contact without ending
 /// the missile, which is then left out of the frame's drawing and flies on; OpenReliant reports
 /// none, and draws it.
 fn hitHull(world: gameobj.World, at: u8, index: u16, struck: collision.Quadrant) bool {

@@ -5,7 +5,8 @@
 //! colour. A template of kind `sometimes_sparks` or `sparks` sends sparks as well, which are
 //! `explode.cpp`'s small bits of debris (`explode.Explosions.throwSpark`).
 //!
-//! **Not ported:** what `particles_frame` runs first (`0x004A1BB0`).
+//! `particles_frame` first moves the sparks on (`sparks_update`, `0x004A1BB0`), which
+//! [`sparks.zig`](sparks.zig) ports (`Sparks.frame`).
 
 const std = @import("std");
 const assert = std.debug.assert;

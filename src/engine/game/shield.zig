@@ -401,10 +401,11 @@ pub const Shields = struct {
         random: ?*Random,
     };
 
-    /// `0x0049F0A0`, once a frame (`mission_frame`): the bubble of each ship struck in the last
-    /// `shown_for` ticks, into the world's layer, at the level of detail its distance from the
-    /// camera gives, save the player's while the camera is in its cockpit. Each bubble's colours
-    /// and texture move on by the ticks since they last did (`0x0049F450`, `shield_bubble_update`).
+    /// `shield_bubbles_draw` (`0x0049F0A0`), once a frame (`mission_frame`): the bubble of each
+    /// ship struck in the last `shown_for` ticks, into the world's layer, at the level of detail its
+    /// distance from the camera gives, save the player's while the camera is in its cockpit. Each
+    /// bubble's colours and texture move on by the ticks since they last did, as it is drawn
+    /// (`shield_bubble_drawn`, `0x0049F450`, which runs `shield_bubble_update`, `0x0049E7D0`).
     ///
     /// Then the capital shields (`Capital.draw`).
     ///

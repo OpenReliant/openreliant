@@ -388,9 +388,9 @@ pub const Mission = struct {
     }
 
     /// The members of squad `squad` from member `first` of the squads' members on, as
-    /// `for_each_ship` (`0x0045D480`) takes them, reading where the squad's members start from the
-    /// place the script names it by: none from past the squads' members, or where the file's
-    /// members cannot be read.
+    /// `for_each_ship`'s walk (`for_each_ship_walk`, `0x0045D480`) takes them, reading where the
+    /// squad's members start from the place the script names it by: none from past the squads'
+    /// members, or where the file's members cannot be read.
     pub fn squadMembersFrom(mission: *const Mission, squad: u16, first: usize) SquadMembers {
         const members = mission.file.records(dte.SquadMember, .squad_members) catch &.{};
         return .{ .mission = mission, .squad = squad, .members = members[@min(first, members.len)..] };

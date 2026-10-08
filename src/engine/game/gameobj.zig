@@ -2063,8 +2063,6 @@ pub const World = struct {
 ///
 /// The player's own order runs here as well as once a frame, while its top order is Player
 /// Control, so the controls are read on every step.
-///
-/// Not ported yet: the mouse.
 pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool {
     clock.simulation_counter += 1;
     if (clock.simulation_counter < ticks_per_step) return false;
