@@ -161,7 +161,7 @@ at 0.1 of the size, flying at the velocity it is given, turning as a bit does, f
 ticks. One whose flight is over before it starts is let go before it is drawn, having still taken
 the oldest bit's place.
 
-A throw can also ask for a body by a chance: a split's bits take its sequence's `bodies`, 0.05 for most sweeps ([Splits](#splits)), and the Ulysses' 0.1. A body is one of the crewmen, types `0x58` to `0x5B` (`0x00553388`), which `explosions_init` loads drawn 2.5 times as far before a coarser level. It is picked by one number `r` from 0 to 1 as the first three, `3r` rounded down, with the fourth only at exactly 1; the game works that out as `r` times -3 back from the first. It is drawn 2.5 times as large, or 0.75 for a throw of size 0.1 or less. A chance of 1 is a body without drawing a number. The game can also throw a rock chunk (types `0xB2` to `0xB6`), which no caller asks for.
+A throw can also ask for a body by a chance: a split's bits take its sequence's `bodies`, 0.05 for most sweeps ([Splits](#splits)), and the Ulysses' 0.1 ([The Ulysses' end](#the-ulysses-end)). A body is one of the crewmen, types `0x58` to `0x5B` (`0x00553388`), which `explosions_init` loads drawn 2.5 times as far before a coarser level. It is picked by one number `r` from 0 to 1 as the first three, `3r` rounded down, with the fourth only at exactly 1; the game works that out as `r` times -3 back from the first. It is drawn 2.5 times as large, or 0.75 for a throw of size 0.1 or less. A chance of 1 is a body without drawing a number. The game can also throw a rock chunk (types `0xB2` to `0xB6`), which no caller asks for.
 
 The game makes a bit with a light mask of 0, so every one of the backdrop's lights reaches it,
 both key lights and both fill lights, where a ship's part takes one of each pair.
@@ -301,7 +301,50 @@ When the time is up, the split ends once (`GameObject` `0x610` bit 1) and the po
 
 The flash (`0x00587CC8`) lasts 100 ticks. Once a frame, `mission_frame` draws it and counts it down by the frame's ticks (`0x00494940`): a sprite over the whole view, just beyond the near plane in the overlay's layer, untextured and added to what is drawn, white at 0.012 for each tick left, at most 1. So it holds white for 17 ticks and fades out over the rest. The same sprite shows red while the player's display is shaken by a hit ([The interference](hud.md#the-interference)).
 
-[`explode/split.zig`](../../src/engine/game/explode/split.zig) ports the splits, and [`main/flash.zig`](../../src/engine/game/main/flash.zig) the flash. Not ported: the Dark Reign's hat, the Krasnaya's arms and the Boridin breakaway's core, which a split takes apart first ([#238](https://github.com/OpenReliant/openreliant/issues/238)). The Ulysses' own routine is [#232](https://github.com/OpenReliant/openreliant/issues/232).
+[`explode/split.zig`](../../src/engine/game/explode/split.zig) ports the splits, and [`main/flash.zig`](../../src/engine/game/main/flash.zig) the flash. Not ported: the Dark Reign's hat, the Krasnaya's arms and the Boridin breakaway's core, which a split takes apart first ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+
+### The Ulysses' end
+
+The Ulysses (type `0x16`) runs a routine of its own as it loses a component (`explode_ulysses_component`, `0x0046EA50`). Every component it loses leaves it unpowered and stops the pass over its parts.
+
+When its top, `Ulysses Top`, is destroyed:
+
+- The front's wreck, `Uly frnt dest`, shows.
+- The top starts coming away, in one of the splits' ten slots (`ulysses_split_create`, `0x0046BC30`).
+- The ship's back is made where the ship stands (type `0x4B`), unpowered and exploding.
+- Two portals cut the ship, facing back and ahead along it as it stands. The first cuts the top, keeping what lies ahead of the cut. The second cuts the front's wreck and the back's wreck, `Uly back dest`, keeping what lies behind it.
+- Component 0 posts its Destroyed event, and the ship is lost (`object_hull_lost`).
+
+When its top or its fin, `Ulysses Fin`, is destroyed and the fin is still on (`GameObject` `0x610` bit 0):
+
+- A piece of the fin is made where the ship stands (type `0x4C`), unpowered and exploding. It turns by `(0.002, -0.0002, -0.0001)` a step and drifts at `(5, 15, -1)` a step, in the world's axes.
+- Two lit fireballs, 0.3 of the ship's radius across, go off at each of the fin's first three `fireballs` points, the second 60, 90 and 120 ticks late.
+- `Uly mid sec dest` shows, and `Ulysses Low gen`, the fin, `Uly mid sec` and `Uly mid dest` are hidden.
+- Where the fin goes alone, the view flashes near the ship and `CAPEXP` is heard from it.
+- The piece's `Uly bfin dest` burns for 5000 ticks, flickering, with its burn lights and smoke ([Burning wrecks](#burning-wrecks)), and component 1 posts its Destroyed event.
+
+`ulysses_split_update` (`0x0046EF00`) runs the top's coming away once a frame for 900 ticks:
+
+- The cut steps along the top's `cut` points at 0.0744 steps a tick, at most one step a frame. Each step sets off a lit fireball 3200 across and five burning bits heading back along the ship, six on odd steps, each a body one time in ten. Every 15th step an explosion is heard.
+- The portals stand at whichever of the last two points reached is nearer the stern, and are in the scene for the first 66 steps.
+- The ship is held where it stood, shaking by 25 on each axis.
+
+When the 900 ticks are up, it ends once (`0x610` bit 1):
+
+- The portals go, and the back drifts away as a split's other half does, but in the world's axes.
+- The top and `Uly mid sec dest` are hidden, the view flashes near the ship, an explosion is heard, and the ship is recentred.
+- Three fireballs go off at the top's `fireballs` points, 50 ticks apart, as at a split's end.
+- Where the fin is gone too, the ship drifts away at `(-2, 3, 20)` a step, turning slowly, and the back's wreck burns. The front's wreck burns either way. Both burn as the fin's piece does.
+
+The game has code to throw the fin off at the end if it is still on, but its test can never pass, so the fin stays on.
+
+**Fixes:**
+
+- The game reads the top's first list of points, whatever it holds; the shipped model lists its cut points first. OpenReliant reads the cut points wherever they are listed.
+- At the first step the game reads the point before the first, and at the last step one past the last. OpenReliant reads the first and the last.
+- The game reads three of the fin's `fireballs` points whatever the list holds.
+
+[`explode/ulysses.zig`](../../src/engine/game/explode/ulysses.zig) ports the routine and the top's coming away.
 
 ### Burning wrecks
 

@@ -394,7 +394,10 @@ pub const GameType = enum(u32) {
     /// The Russian troop car (`rus_troopcar.shp`).
     troop_car = 0x49,
     torpedo = 0x4A,
+    /// The Ulysses' back (`ulysses2.shp`), which it throws off as its top goes
+    /// (`explode/ulysses.zig`).
     ulysses_back = 0x4B,
+    /// The Ulysses' fin (`ulysses3.shp`), which it throws off as its fin or its top goes.
     ulysses_fin = 0x4C,
     /// An escape pod (`uly_escape.shp`).
     escape_pod = 0x4D,
@@ -1195,7 +1198,8 @@ pub const GameObject = extern struct {
     pub const Ends = packed struct(u32) {
         /// The Ulysses has lost its fin (`explode_ulysses_component`).
         fin_lost: bool = false,
-        /// Its split has ended (`split_update`), which it does once.
+        /// Its split has ended (`split_update`), or the Ulysses' top has come away
+        /// (`ulysses_split_update`), which each does once.
         split_ended: bool = false,
         _unknown_2: u30 = 0,
     };

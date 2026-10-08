@@ -654,9 +654,8 @@ A ship's end, and the limpet car's, posts its Destroyed event for the mission's 
 [`create.zig`](../../src/engine/game/create.zig) `object_retire` as `retire`.
 
 The blasts' break-up, particles, fireballs, burning bits and shockwaves are in
-[Effects](effects.md). Not ported: what a few types set off first
-([#238](https://github.com/OpenReliant/openreliant/issues/238)); the Ulysses' own end
-([#232](https://github.com/OpenReliant/openreliant/issues/232)).
+[Effects](effects.md), with the capital ships' splits and the Ulysses' end. Not ported: what a few
+types set off first ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 ## The wing's pilots
 
@@ -763,15 +762,15 @@ table at `+0x518`.
 `explode_ulysses_component` (`0x0046EA50`). The first answers true for any part but one of class
 hull; for that one, it marks the ship unpowered and exploding, hides its force fields, splits it in
 two ([Effects](effects.md#splits)), credits the kill as above and ends it with `object_hull_lost`.
-The second answers false for every part.
+The second throws off the Ulysses' fin and its top ([Effects](effects.md#the-ulysses-end)), and
+answers false for every part.
 
 Each part the pass takes out that the object lists as a component posts the component's Destroyed
 event first ([Script VM](script-vm.md#events)).
 
 [`objects.zig`](../../src/engine/game/objects.zig) ports the pass as `loseComponents` and
 `node_destroy` as `destroyPart`. Not ported: the types' own extras
-([#238](https://github.com/OpenReliant/openreliant/issues/238)) and the Ulysses' routine
-([#232](https://github.com/OpenReliant/openreliant/issues/232)).
+([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 OpenReliant lists them in [`create.zig`](../../src/engine/game/create.zig) as the parts themselves,
 since a mounted turret's parts are not the hull's, and marks each one as a component and, where the
