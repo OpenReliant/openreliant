@@ -651,10 +651,13 @@ same twelve. The same switch picks the cockpit's frame model
 - ECM turns the ECM the other way from the object's flag `0x4000000` through `player_ecm_set`
   (`0x00415370`), which sets the flag and `ecm_state`.
 - SPECTRAL SHIELDS, outside a multiplayer game, does the same through
-  `player_spectral_shields_set` (`0x00415430`) and flag `0x8000000`. Turning the shields on also
-  tunes them, into the object's `+0x670`, to the gun type most dangerous near the ship: it counts
-  the guns of each hostile ship in range, weights each type's count by its shield damage, and
-  takes the highest, leaving out types 13 and 14. Betty says which.
+  `player_spectral_shields_set` (`0x00415430`) and flag `0x8000000`, and Betty says whether they
+  are on or off. Turning the shields on also tunes them, into the object's `+0x670`, to the gun
+  most dangerous near the ship: of the guns of each hostile ship within `pick_range` (330000) that
+  isn't exploding or disabled, the type whose count times its shot's damage to a shield is the
+  highest, the first where they tie, and never a Huge Gun. Nothing in a single-player game reads
+  the tuning: the shots deflect whatever hits ([Guns](guns.md)), and only a multiplayer game is
+  told it.
 - CLOAK SHIP is read by `player_controls`; `player_cloak_set` (`0x004153E0`) cloaks or uncloaks the
   ship through `object_set_cloak`, which sets `cloak_state` for the player
   ([The cloak](cloak.md#who-cloaks)). The cloak running dry uncloaks the ship the same way.
@@ -662,8 +665,7 @@ same twelve. The same switch picks the cockpit's frame model
 Ported: the charges, the fitting, SMART TARGET, TOGGLE BLINDFIRE, ECM, SPECTRAL SHIELDS and CLOAK
 SHIP ([`input.zig`](../../src/engine/input.zig)), with their sounds ([The display's
 sounds](#the-displays-sounds)). OpenReliant uncloaks the ship a frame after the cloak runs dry ([In
-OpenReliant](cloak.md#in-openreliant)). Not yet: the tuning of the spectral shields
-([#530](https://github.com/OpenReliant/openreliant/issues/530)).
+OpenReliant](cloak.md#in-openreliant)).
 
 ## The display's sounds
 
