@@ -93,9 +93,11 @@ pub const Assets = struct {
         assets.* = .{};
     }
 
-    /// Counts a new frame of drawing.
+    /// Counts a new frame of drawing, and starts it for the mods' outline fonts
+    /// (`hud.outline.Outline.startFrame`), so that each keeps the sizes the frame draws it at.
     pub fn startFrame(assets: *Assets) void {
         assets.frame += 1;
+        for (assets.fonts.items) |font| if (font.outline) |outline| outline.startFrame();
     }
 
     /// Frees the pictures taken out of the cache, which hand their textures back to the device, and
