@@ -1136,7 +1136,10 @@ pub const GameObject = extern struct {
     /// the pilot eject, it does below `ai.eject_below` (`object_destroyed`). The `WillsBlag`
     /// command sets it to 100, which never does.
     eject_roll: i32,
-    _unknown_710: [4]u32,
+    /// For each point of an order's sequence, a bit for each player who has reached it, which a
+    /// network game waits on (`ai_sequence_sync`, `0x00401000`). Dark reign shoot's exit clears
+    /// them all.
+    sync_points: [16]u8,
     /// The object of the nav point the display points to, set by the mission's `SetNavPoint` and
     /// `nav_point_next` (`0x004152A0`), which passes on to the next the player's ship has not
     /// reached; none when created.
@@ -1468,6 +1471,7 @@ pub const GameObject = extern struct {
         assert(@offsetOf(GameObject, "avoid_near") == 0x6B4);
         assert(@offsetOf(GameObject, "avoid_ahead") == 0x6E0);
         assert(@offsetOf(GameObject, "eject_roll") == 0x70C);
+        assert(@offsetOf(GameObject, "sync_points") == 0x710);
         assert(@offsetOf(GameObject, "nav_point") == 0x720);
         assert(@offsetOf(GameObject, "wing") == 0x74C);
         assert(@offsetOf(GameObject, "_unknown_764") == 0x764);
@@ -1969,6 +1973,8 @@ pub const World = struct {
     jump_effects: ?*@import("jump/effect.zig").Effects = null,
     /// The gates' tunnels and the worm (`wgate.cpp`); null where no gate opens.
     gates: ?*@import("wgate.zig").Gates = null,
+    /// The ion cannons firing (`aiioncan.cpp`); null where none fire.
+    ion_cannons: ?*@import("aiioncan.zig").Cannons = null,
     /// The planets' atmospheres (`create.atmosphere`); null where no planet has one drawn.
     atmospheres: ?*@import("create/atmosphere.zig").Atmospheres = null,
     /// The escort point's marker (`create.escort`), whose pulse each mission starts again.

@@ -336,11 +336,9 @@ pub const Variables = extern struct {
     /// (`xtrabits.landing.lastWithoutLanding`), and a total failure in them ends the career in the
     /// shuttle at Fort Bear.
     yamato_alive: u32 = 0,
-    /// `ion_cannons_hold_lock` (37): while it is set, the Dark Reign's ion cannon keeps its target
-    /// (`aiioncan.cpp`, order 110): it loses it neither as the target flies into its cone or out of
-    /// the angle it fires in, nor, in a multiplayer game, after a long search (`0x0040D40F`,
-    /// `0x0040D7D9`). **Not ported:** the order
-    /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
+    /// `ion_cannons_hold_lock` (37): while it is set, an ion cannon keeps its lock on its ship
+    /// whatever would break it (`aiioncan.update`), and a tower in a network game doesn't give up a
+    /// long search (`0x0040D40F`, `0x0040D7D9`).
     ion_cannons_hold_lock: u32 = 0,
     /// The rest of the block, which neither the engine nor the shipped missions use.
     spare: [26]u32 = @splat(0),

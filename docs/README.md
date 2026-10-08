@@ -60,6 +60,7 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`engine/launch.md`](engine/launch.md) | Launches: the Launch order, its styles, the Reliant's launch and its cutaways, the torpedoes'. |
 | [`engine/jump.md`](engine/jump.md) | Jumps: Jump Out and Jump In, the player's formation, their motions and views, and the JumpedIn event. |
 | [`engine/gates.md`](engine/gates.md) | Gates: the tunnels ships jump through, the worm, and the orders that open, close and collapse them. |
+| [`engine/ion-cannon.md`](engine/ion-cannon.md) | The ion cannon: how the Dark Reign, the Boridin and the rogue base pick a ship, lock on, charge and fire. |
 | [`engine/director.md`](engine/director.md) | The director's camera: the script's shots, the mission's curves they fly along, and the ships they hold. |
 | [`engine/maneuvers.md`](engine/maneuvers.md) | Combat maneuvers: the scripts Fight runs, their language, and how it chooses them. |
 | [`port/platform.md`](port/platform.md) | The platform: the `openreliant` executable on SDL3, how to build and run it on each system, the installer, and joysticks and gamepads. |

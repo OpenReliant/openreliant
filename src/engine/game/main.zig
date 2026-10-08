@@ -27,6 +27,7 @@ const wgate = @import("wgate.zig");
 const camera = @import("camera.zig");
 const ai = @import("ai.zig");
 const aigeneric = @import("aigeneric.zig");
+const aiioncan = @import("aiioncan.zig");
 const ailand = @import("ailand.zig");
 const create = @import("create.zig");
 const pilots = @import("pilots.zig");
@@ -361,6 +362,9 @@ pub const Frame = struct {
     gates: ?*wgate.Gates = null,
     /// The electric rays, which go into the world's layer after the explosions.
     rays: ?*erayfx.Rays = null,
+    /// The ion cannons' lasers, glows, rings and lights, which go into the world's layer after the
+    /// rays.
+    ion_cannons: ?*aiioncan.Cannons = null,
     /// The tractors, which go into the world's layer after the objects.
     tractors: ?*tractor.Tractors = null,
     /// The Rippers' beams, which go into the world's layer after the objects.
@@ -979,6 +983,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     if (frame.gun_particles) |pools| try pools.draw(gpa, scene, frame.ahead);
     if (frame.explosions) |explosions| try explosions.draw(gpa, scene, frame.ahead);
     if (frame.rays) |rays| if (attachments.random) |random| try rays.draw(gpa, scene, frame.objects, attachments.frame_start, random);
+    if (frame.ion_cannons) |cannons| try cannons.draw(gpa, scene, frame.objects);
     if (frame.flash) |lit| if (!frame.paused) {
         const shaken = frame.interference;
         // In a capital ship's exhaust the flash is white alone (`exhaust_burning`).
@@ -1827,6 +1832,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     world.player.terminated = 0;
     if (world.environment) |environment| environment.resetEffects();
     if (world.gates) |gates| gates.reset();
+    if (world.ion_cannons) |cannons| cannons.reset();
     world.player.showing = .everything;
     world.player.rescue_odds = .{};
     world.player.carrier = null;

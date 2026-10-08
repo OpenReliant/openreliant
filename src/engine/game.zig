@@ -13,6 +13,7 @@ pub const aiexplode = @import("game/aiexplode.zig");
 pub const aifight = @import("game/aifight.zig");
 pub const aifuncs = @import("game/aifuncs.zig");
 pub const aigeneric = @import("game/aigeneric.zig");
+pub const aiioncan = @import("game/aiioncan.zig");
 pub const ailand = @import("game/ailand.zig");
 pub const backdrop = @import("game/backdrop.zig");
 pub const bigfile = @import("game/bigfile.zig");

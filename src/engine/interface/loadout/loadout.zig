@@ -2788,6 +2788,20 @@ pub fn spanWhole(mesh: *srapiext.Mesh) void {
     for (square_span_corners) |corner| uv[corner][0] = 1;
 }
 
+/// A one-sided square `width` by `height` (`squareMesh`) over the whole of `image` (`spanWhole`),
+/// added to what is behind it, and coloured by its lighting where `lit`: a jump's flare, a gate's
+/// flashes and the ion cannon's rings.
+pub fn addedSquare(gpa: Allocator, width: f32, height: f32, lit: bool, image: *srtexture.Image) Allocator.Error!srapiext.Mesh {
+    var mesh = try squareMesh(gpa, false, width, height);
+    spanWhole(&mesh);
+    mesh.surfaces[0] = .{
+        .polygons = @intCast(mesh.polygons.len),
+        .material = .onePass(.{ .coordinates = .mesh, .lit = lit, .blend = .add }),
+        .textures = .{ .{ .image = image }, .none },
+    };
+    return mesh;
+}
+
 /// How far across its texture `squareMesh` spans (`0x3F3F0000`), and the coordinates of its one
 /// side that span it.
 pub const square_span: f32 = 0.74609375;

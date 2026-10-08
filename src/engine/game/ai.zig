@@ -463,8 +463,8 @@ pub fn setTargetable(object: *gameobj.GameObject, combat: ?*const create.ShipCom
 /// until a visit returns true: the ship itself, as the target names it; each ship of a flight
 /// group, whole; and each ship of a squad (`squadWalk`). Whether a visit ended the walk. A flight
 /// group or a squad names no ship where no mission is bound (`gameobj.World.mission`). Dock,
-/// Escort, the search for a new target, the search for a pod to scoop up, the Dark Reign's guns and
-/// Launch walk their targets so.
+/// Escort, the search for a new target, the search for a pod to scoop up, Dark Reign shoot's search
+/// for a ship to fire at and Launch walk their targets so.
 pub fn eachShip(world: gameobj.World, target: aigeneric.Target, visitor: anytype) bool {
     switch (target.kind) {
         .ship => return visitor.visit(target),

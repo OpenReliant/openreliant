@@ -142,9 +142,12 @@ pub const Ray = struct {
     light: srlight.Light = .{ .mask = 0, .intensity = 1, .colour = .{ 0, 0, 0 }, .kind = .{ .point = .{ .position = .{ 0, 0, 0 }, .range = light_range } } },
     /// Its strands (`+0x44`, 0x48 bytes each; their count at `+0x1AC`).
     strands: []Strand,
+    /// OpenReliant's: the number `Rays.add` made it with, which tells it from a ray made later in
+    /// its slot (`Rays.Kept`).
+    serial: u32 = 0,
 
-    /// A strand: the game's 17 meshes, one a segment and one more it never places or lights; the
-    /// port's one mesh of all 16 segments in the frame of what the ray hangs from, with its
+    /// A strand: the game's 17 meshes, one a segment and one more it never places or lights;
+    /// OpenReliant's one mesh of all 16 segments in the frame of what the ray hangs from, with its
     /// colours; and its alpha (`+0x44`).
     pub const Strand = struct {
         mesh: srapiext.Mesh,
@@ -259,6 +262,12 @@ pub const Ray = struct {
         if (index == 0) ray.light.colour = rgb;
     }
 
+    /// Strand `index`'s quads drawn over `image` rather than `laser2`, as the ion cannon draws its
+    /// beam's first strand (`0x0040E00D`).
+    pub fn quadsOver(ray: *Ray, index: usize, image: *srtexture.Image) void {
+        ray.strands[index].mesh.surfaces[1].textures[0] = .{ .image = image };
+    }
+
     /// The timing part of `0x0046AF40`, at `now`: whether it lives on. A timed ray loses the ticks
     /// since it last moved on, and goes once none are left; any goes once its owner's slot stands
     /// in. A flickering one lit past its time goes dark, or starts to fade, for up to
@@ -354,6 +363,33 @@ pub const Rays = struct {
     gpa: Allocator,
     slots: [max_rays]?*Ray = @splat(null),
     laser: *srtexture.Image,
+    /// OpenReliant's: how many rays it has made, which numbers the next (`Ray.serial`).
+    made: u32 = 0,
+
+    /// OpenReliant's: a ray kept from one frame to the next, as the ion cannon keeps its own: its
+    /// slot and its number (`Ray.serial`). The rays let a ray go on their own, as its owner goes or
+    /// a new ray takes its slot, so the keeper finds it again through them (`kept`).
+    ///
+    /// **Fix:** the game keeps the ray's address, and once the ray has gone, it writes to what is
+    /// there, or lets go of the ray made next at that address.
+    pub const Kept = struct {
+        slot: u8,
+        serial: u32,
+    };
+
+    /// `ray`, one of the rays, as kept (`Kept`).
+    pub fn keep(rays: *const Rays, ray: *const Ray) ?Kept {
+        for (rays.slots, 0..) |held, slot| {
+            if (held == ray) return .{ .slot = @intCast(slot), .serial = ray.serial };
+        }
+        return null;
+    }
+
+    /// The ray `which` keeps, while the rays still hold it.
+    pub fn kept(rays: *const Rays, which: Kept) ?*Ray {
+        const ray = rays.slots[which.slot] orelse return null;
+        return if (ray.serial == which.serial) ray else null;
+    }
 
     /// `0x0046ABE0`, as a mission starts: `laser2`, and no rays.
     pub fn init(gpa: Allocator, textures: *srtexture.Table) matmanager.Error!Rays {
@@ -380,6 +416,8 @@ pub const Rays = struct {
             break :first &rays.slots[0];
         };
         const ray = try Ray.create(rays.gpa, spec, rays.laser, random);
+        ray.serial = rays.made;
+        rays.made +%= 1;
         slot.* = ray;
         return ray;
     }
@@ -530,4 +568,25 @@ test Rays {
     try std.testing.expectApproxEqAbs(100, strand.mesh.positions[5][2], 1e-3);
     try std.testing.expectEqual(strand_alpha, strand.colours[0][3]);
     try std.testing.expectEqual(0.6, strand.colours[0][0]);
+}
+
+test "Rays.Kept" {
+    const gpa = std.testing.allocator;
+    var built: testing.Built = try .init(gpa);
+    defer built.deinit(gpa);
+    const rays = &built.rays;
+    var random: Random = .{};
+    const spec: Spec = .{ .life = 0, .jitter = 0, .width = 10, .flags = .{} };
+
+    // A ray kept is found again while the rays hold it.
+    const first = try rays.add(spec, &random);
+    const kept = rays.keep(first).?;
+    try std.testing.expectEqual(first, rays.kept(kept).?);
+
+    // Once a new ray takes its slot, it is gone, however alike the two are.
+    for (1..max_rays) |_| _ = try rays.add(spec, &random);
+    _ = try rays.add(spec, &random);
+    try std.testing.expectEqual(0, kept.slot);
+    try std.testing.expect(rays.slots[0] != null);
+    try std.testing.expectEqual(null, rays.kept(kept));
 }

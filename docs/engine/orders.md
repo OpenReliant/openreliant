@@ -8,9 +8,9 @@ callbacks use the scripting bridge in `hooks.Scripts`; the engine and tools do n
 
 What each object is doing: flying in formation, escorting, docking, exploding, or following the player's controls. An object keeps a stack of orders, the current one on top, which the AI, the mission scripts and the player's controls push and pop, and `object_orders` runs the current one.
 
-[`aigeneric.zig`](../../src/engine/game/aigeneric.zig) holds the stack and runs the orders, [`ai.zig`](../../src/engine/game/ai.zig) the steering they turn by, [`aifuncs.zig`](../../src/engine/game/aifuncs.zig) the orders that fly a ship, a capital ship's lurch and orders 44 and 45, [`aieject.zig`](../../src/engine/game/aieject.zig) and [`tractor.zig`](../../src/engine/game/tractor.zig) those of the [ejection](ejection.md), [`launch.zig`](../../src/engine/game/launch.zig) the [launches](launch.md) and [`jump.zig`](../../src/engine/game/jump.zig) the [jumps](jump.md), and [`ai/orders.zig`](../../src/engine/game/ai/orders.zig) lists every order with its flags, priorities and routines; `make order-tables` transcribes that table from the executable. The names below are those `make ghidra-annotate` gives the Ghidra project, which names each order's routines `order_` and the order's name, with `_init` and `_exit` for those two.
+[`aigeneric.zig`](../../src/engine/game/aigeneric.zig) holds the stack and runs the orders, [`ai.zig`](../../src/engine/game/ai.zig) the steering they turn by, [`aifuncs.zig`](../../src/engine/game/aifuncs.zig) the orders that fly a ship, a capital ship's lurch and orders 44 and 45, [`aieject.zig`](../../src/engine/game/aieject.zig) and [`tractor.zig`](../../src/engine/game/tractor.zig) those of the [ejection](ejection.md), [`launch.zig`](../../src/engine/game/launch.zig) the [launches](launch.md) and [`jump.zig`](../../src/engine/game/jump.zig) the [jumps](jump.md), [`aiioncan.zig`](../../src/engine/game/aiioncan.zig) the [ion cannon](ion-cannon.md), and [`ai/orders.zig`](../../src/engine/game/ai/orders.zig) lists every order with its flags, priorities and routines; `make order-tables` transcribes that table from the executable. The names below are those `make ghidra-annotate` gives the Ghidra project, which names each order's routines `order_` and the order's name, with `_init` and `_exit` for those two.
 
-Ported so far: the stack (`order_push`, `order_pop`, `orders_clear`, `orders_pop_all`), what runs it (`object_orders`, `orders_update`, `order_retaliate`), the steering (`ai_steer`, `ai_roll_upright`) with its avoidance, and the orders Do Nothing, Fly, Run Away, Slow Rotate, the Random Spins, Match Speed, 44 and 45, Explode, the ejection's (Eject, 106, Scoop Up, Eject Spin, Eject Fighter Attack and Eject Player), Launch, the jumps (Jump In and Jump Out, each under both its numbers), Escort, Find New Target, Torpedo, Object Attach, Toggle Cloak, Mill, Make capship list left and right, and Fight with its [combat maneuvers](maneuvers.md), with Player Control being the player's [controls](controls.md). An order OpenReliant does not run yet still holds its place on the stack, and pushing it still pops and starts what it should ([#30](https://github.com/OpenReliant/openreliant/issues/30)). Not ported: the orders other players' machines queue ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+Ported so far: the stack (`order_push`, `order_pop`, `orders_clear`, `orders_pop_all`), the queue (`order_queue`), what runs them (`object_orders`, `orders_update`, `order_retaliate`), and the steering (`ai_steer`, `ai_roll_upright`) with its avoidance. [The orders](#the-orders) says which orders are ported, Player Control being the player's [controls](controls.md). An order OpenReliant does not run yet still holds its place on the stack, and pushing it still pops and starts what it should ([#30](https://github.com/OpenReliant/openreliant/issues/30)). Not ported: the orders sent to and from the other machines in a network game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 OpenReliant keeps each object's stack and order state in its slot rather than allocating them with its first order, and hands a fatal "Cannot set ai" back to its caller as an error. **Fix:** where the game stops with it, OpenReliant logs it in the game's words and the order is not taken (`aigeneric.give`).
 
@@ -91,17 +91,18 @@ each ship it applies to, and `ClearAI` clears the orders of each ship that is no
 routine says to stop: the ship itself, as the target names it; each ship of a flight group, whole;
 and each ship of a squad (`squad_walk`, `0x00401D80`): its members in turn from its first, while
 they are its own, a ship as the member names its component, a flight group's ships whole, and a
-squad's own walk. Dock, Escort, the search for a new target, the search for a pod to scoop up, the
-Dark Reign's guns and [Launch](launch.md#the-order) walk their targets so. **Fix:** the game walks a
-squad that holds itself round for ever, reads a member no record stands for from address zero, and
-stops with a fatal error at a member of a kind it does not know; OpenReliant gives a squad no
-members once the walk has gone down more squads than the mission has, and passes over such a member.
+squad's own walk. Dock, Escort, the search for a new target, the search for a pod to scoop up,
+[Dark Reign shoot](ion-cannon.md#picking-a-ship) and [Launch](launch.md#the-order) walk their
+targets so. **Fix:** the game walks a squad that holds itself round for ever, reads a member no
+record stands for from address zero, and stops with a fatal error at a member of a kind it does
+not know; OpenReliant gives a squad no members once the walk has gone down more squads than the
+mission has, and passes over such a member.
 
 ## Running orders
 
 `object_orders` (`0x0040C5F0`) runs an object's current order:
 
-1. It starts the queued orders from other players that are due (see [below](#orders-from-other-players)).
+1. It starts the queued orders that are due (see [below](#the-queue)).
 2. With a `retaliate` order, it runs `order_retaliate`.
 3. It clears the object's `afterburner` and `reverse_thrust`, so an order that burns sets them
    again each time it runs.
@@ -135,17 +136,28 @@ only when the attacker is on the other side, is not already the current order's 
 ships are fighters (class 1, the word at `+0x28` of the combat stats, see
 [Objects](objects.md)), and not while the ship has `do_not_disturb` (`DoNotDisturb`).
 
-## Orders from other players
+## The queue
 
-In a multiplayer game, orders from the other machines wait in a queue of up to 20, `queued_orders`
-(`0xB90`) with `queued_order_count` (`0xB8C`). A `QueuedOrder` is the order's entry, a value the
-sender passes, and the tick it is due. `order_queue` (`0x00402660`) adds one due a given number of
-ticks after `frame_start` (see [the game loop](loop.md#ticks)). An equal order already queued stays
-if it is due no sooner, and is replaced otherwise; a full queue is a fatal error.
+An object's orders can wait in a queue of up to 20 for their tick, `queued_orders` (`0xB90`) with
+`queued_order_count` (`0xB8C`): Dark Reign shoot queues the ion cannon's order there
+([The ion cannon](ion-cannon.md)), and in a network game the orders from the other machines wait
+there, as do Fight's next maneuver and Find Scoop Up's Scoop Up on the machine that sends them. A
+`QueuedOrder` is the order's entry, a byte the sender passes, and the tick it is due.
+`order_queue` (`0x00402660`) adds one due a given number of ticks after `frame_start` (see
+[the game loop](loop.md#ticks)). An equal order already queued, the same order at the same target,
+stays if it is due no sooner, and is replaced otherwise.
 
 `object_orders` takes each queued order that is due by `mission_ticks` and has a priority no lower
 than the current order's, pushes it with its data, and removes it from the queue. It removes a due
 order without pushing it while the object has not been created.
+
+**Fixes:** a full queue is a fatal error in the game; OpenReliant logs it and leaves the order
+out. The game writes the queued order's data over the order on top of the stack even where the
+push did not take; OpenReliant writes it to the order pushed alone.
+
+[`aigeneric.zig`](../../src/engine/game/aigeneric.zig) ports the queue (`queue`, `startQueued`).
+Not ported: the orders sent to and from the other machines
+([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 ## Steering
 
@@ -302,7 +314,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 30 | Eject | The pilot leaves the ship in its cockpit, which becomes the pod, and the rest of the ship a new object; the pod clears the ship, and the player's waits to be picked up ([Ejection](ejection.md#the-pod)). | Yes |
 | 31 | Fixed Gate Collapse | The gate comes down in fireballs, its tunnel burning out ([Gates](gates.md#collapse)). | Yes |
 | 32 | Match Speed | Sets the throttle to the target's speed over the ship's cruise speed. Pops when the target is no longer valid. | Yes |
-| 33 | Dark Reign shoot | Not read yet. | No |
+| 33 | Dark Reign shoot | Picks the nearest ship of its target it can fire at and queues 110 at it; with none, pops ([The ion cannon](ion-cannon.md#picking-a-ship)). | Yes |
 | 34 | Move to spawn pos | A deathmatch's (`deathmatch.cpp`). Not read yet. | No ([#55](https://github.com/OpenReliant/openreliant/issues/55)) |
 | 35 | Turns object lights on | Turns on the light maps of the parts flagged `lightmap` (the second pass of their surfaces), heard (`bigon`), and pops. The rogue base (165) turns on a surface of its first part each 100 ticks, four of them, then those of its other parts, heard at each step, and pops after 500 ticks. Where the light maps aren't drawn (`Lmaps`, `0x5D5618`) it pops at once. A ship type shares its meshes, so every ship of the type goes with it. **Fix:** the game turns on only the level of detail each part is drawn at, and a second pass for every surface, drawing those with no second texture flat; OpenReliant turns them on at every level, and only where a surface has a second texture. | Yes |
 | 36 | Make Boridin section break away | Not read yet. | No |
@@ -323,7 +335,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 107 | Scoop Up | A nanny ship or the Antanov takes the player's pod aboard with its tractor beams ([Ejection](ejection.md#scoop-up)). | Yes |
 | 108 | Eject Spin | An AI pilot's ship spins, unpowered, for 200 ticks; then the pilot ejects (Eject). | Yes |
 | 109 | Dock | Docks at a port of its target ([Docking](#docking)). | Yes |
-| 110 | Dark reign shoot | The Dark Reign's ion cannon; `ion_cannons_hold_lock` keeps its target ([Script VM](script-vm.md#the-games-variables)). Not read in full yet. | No |
+| 110 | Dark reign shoot | Fires the ion cannon of the Dark Reign, the Boridin or the rogue base at its ship, which it destroys; `ion_cannons_hold_lock` keeps its lock ([The ion cannon](ion-cannon.md)). | Yes |
 | 111 | Ripper end drop object | A Ripper draws its forearms back once it has let go ([The Ripper](#the-ripper)). | Yes |
 | 112 | Ripper attach cargo pod to Mammoth | A Ripper fits a cargo pod onto a Mammoth ([The Ripper](#the-ripper)). | Yes |
 | 113 | Eject fighter attack | A Sabre flies at the player's pod and shoots it down ([Ejection](ejection.md#eject-fighter-attack)). | Yes |
