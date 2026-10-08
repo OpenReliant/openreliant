@@ -333,8 +333,8 @@ fn createFlightGroup(call: Call, game: aigeneric.Context) void {
 ///
 /// Any other ship is an object of its kind (`shipType`), fitted by its loadout tier, at its place,
 /// with its atmosphere where it is a planet that has one (`atmosphere.Atmospheres.made`), set up as
-/// a planet where it is one (`create.planetMade`), and as a gate where it is one
-/// (`create.gateMade`). It gets its first order: Player Control for the player's ship, whose view
+/// a planet where it is one (`create.planetMade`), as a gate where it is one (`create.gateMade`),
+/// and with its hat where it is the Dark Reign (`create.extra.hatMade`). It gets its first order: Player Control for the player's ship, whose view
 /// the camera takes (view 0), Multiplayer Control for another player's, and Do Nothing for the
 /// rest. A ship that launches gets a Launch order through the gate it names of the first of the
 /// mission's ships of the kind it launches from, which starts at once (`aigeneric.objectOrders`),
@@ -360,6 +360,7 @@ pub fn createShip(game: aigeneric.Context, bound: *const mission.Mission, index:
     if (game.world.atmospheres) |atmospheres| atmospheres.made(all, made);
     create.planetMade(all, made);
     create.gateMade(game.world, made);
+    create.extra.hatMade(game.world, made);
     const first: Order = if (made >= all.players) .do_nothing else if (made == all.player) .player_control else .multiplayer_control;
     _ = aigeneric.give(game, made, first, .none);
     if (made == all.player) if (game.world.camera) |view| {

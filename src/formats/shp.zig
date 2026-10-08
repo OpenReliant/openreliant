@@ -404,7 +404,9 @@ pub const PointList = struct {
         /// Where a ship takes in what it picks up: the list's first point, which Scoop Up draws a
         /// pilot's pod toward (`order_scoop_up`).
         door = 0,
-        /// Pairs of points an electric ray runs between as a wreck burns (`explode_part_burn`).
+        /// Pairs of points an electric ray runs between as a wreck burns (`explode_part_burn`). On
+        /// the Dark Reign's `Dark Coil` and `Dark Hat`, the two ends of each of its hat's rays,
+        /// point by point (`create_object`).
         rays = 1,
         /// Where a capital ship is cut as it splits in two (`split_create`).
         cut = 2,

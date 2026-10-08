@@ -251,7 +251,7 @@ The kinds the game reads:
 | Kind | Read by | What the points are |
 |---|---|---|
 | 0 | `order_scoop_up` (`0x0041BCC0`) | Where a ship takes in a pilot's pod: the first point, which the pod is drawn toward along the part's Z axis ([Ejection](../engine/ejection.md#scoop-up)) |
-| 1 | `explode_part_burn` (`0x00471290`) | Pairs of points an electric ray runs between as a wreck burns |
+| 1 | `explode_part_burn` (`0x00471290`), `create_object` (`0x00467E20`) | Pairs of points an electric ray runs between as a wreck burns; on the Dark Reign's `Dark Coil` and `Dark Hat`, the two ends of each of its hat's rays, point by point |
 | 2 | `split_create` (`0x0046F480`) | Where a capital ship is cut as it splits in two |
 | 3 | `part_streams` (`0x004715D0`) | Where smoke streams from a burning wreck, along each point's vertex's normal |
 | 4 | `part_burn_lights` (`0x00471470`) | Where a burning wreck's light stands: the first point |

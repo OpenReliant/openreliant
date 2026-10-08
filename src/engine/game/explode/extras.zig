@@ -3,12 +3,11 @@
 //! Boridin throws its gun dome off, the Kronstadt an arm, the Krasnaya an arm with its engine
 //! block (`krasnaya_left_arm_off`, `0x00472140`, and `krasnaya_right_arm_off`, `0x00472420`, which
 //! its split runs too), the Stalag a door, and the prototype gate a panel of its core; the Stalag's
-//! cargo pods burst in a red flame.
+//! cargo pods burst in a red flame; and the Dark Reign's hat goes out with its coil (`putOutHat`),
+//! as it does when the ship splits.
 //!
 //! Not ported: what lights the prototype gate's power core and the Boridin breakaway's core as
-//! their components go, and what puts out the Dark Reign's hat, all of which hang on what
-//! `create_object` sets up for those types
-//! ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+//! their components go ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 const std = @import("std");
 
@@ -42,9 +41,35 @@ pub fn componentLost(world: gameobj.World, index: u16, model: *objects.Model, li
         .proto_gate => if (link >= first_panel_link and link <= last_panel_link) {
             return !panelLost(world, index, model, link);
         },
+        .darkreign => if (link == hat_link and model.partNamed(create.extra.dark_hat) != null) putOutHat(world, index),
         else => {},
     }
     return true;
+}
+
+/// The assembly of the Dark Reign's `Dark Coil`, whose loss puts its hat out (`0x0046DFC9`).
+const hat_link = 17;
+
+/// Puts out the Dark Reign's hat (`create.extra.Hat`), as the loss of its coil does
+/// (`0x0046DFD4`) and its split (`explode_capship_component`, `0x0046F8A7`): its four rays go
+/// (`eray_remove`), its sparks stop (`particle_emitter_free`), and its band, its star and the
+/// record go with them. The object in slot `index` has its hat no more.
+///
+/// **Fix:** losing a component of the coil's assembly, the game looks for the hat under the model
+/// that held the component, and a turret mounted on the ship has none: the game reads through
+/// nothing and fails. OpenReliant puts nothing out.
+pub fn putOutHat(world: gameobj.World, index: u16) void {
+    const slot = &world.objects.slots[index];
+    const extra = slot.extra orelse return;
+    const hat = switch (extra.*) {
+        .hat => |*worn| worn,
+    };
+    if (world.rays) |rays| for (hat.rays) |kept| {
+        if (rays.kept(kept orelse continue)) |ray| rays.remove(ray);
+    };
+    if (world.explosions) |explosions| explosions.dropStream(index, &explode.hat_sparks);
+    extra.destroy(world.objects.gpa);
+    slot.extra = null;
 }
 
 /// The Boridin's gun dome, its assembly and its wreck's part (`0x00500400`); and the assembly whose
@@ -433,4 +458,23 @@ test "the Boridin throws its gun dome off, and gets its power back" {
     object.flags.unpowered = true;
     try std.testing.expect(componentLost(world, ship, model, power_link));
     try std.testing.expect(!object.flags.unpowered);
+}
+
+test putOutHat {
+    const gpa = std.testing.allocator;
+    var stage: explode.testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    var ship: create.extra.testing.DarkReign = undefined;
+    const world = try ship.init(gpa, &stage, @splat(0));
+    defer ship.deinit(gpa);
+    const model = &stage.mission.slot(ship.index).model.?;
+    // Another assembly's loss leaves the hat on.
+    try std.testing.expect(componentLost(world, ship.index, model, hat_link + 1));
+    try std.testing.expect(ship.hat(&stage) != null);
+    // The coil's puts it out, its rays and its sparks with it, and the coil's assembly goes up.
+    try std.testing.expect(componentLost(world, ship.index, model, hat_link));
+    try std.testing.expectEqual(null, ship.hat(&stage));
+    for (ship.rays.rays.slots) |slot| try std.testing.expectEqual(null, slot);
+    try std.testing.expectEqual(null, stage.explosions.streams[0]);
 }

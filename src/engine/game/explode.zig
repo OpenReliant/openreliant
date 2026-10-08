@@ -264,6 +264,27 @@ pub const Explosions = struct {
         }
     }
 
+    /// Streams `emitter` from `on`'s frame among the burning wrecks' smoke (`burn_streams`), as the
+    /// extras a few types carry do (`create.extra`): in the first free slot, or in the first where
+    /// all are taken, in place of what streams there.
+    ///
+    /// **Fix:** the game always puts it in the first slot, where a burning wreck's smoke may be
+    /// streaming already, which then stops.
+    pub fn hangStream(explosions: *Explosions, on: objects.PartOf, emitter: particles.Emitter) void {
+        const slot = table.firstFree(Stream, &explosions.streams) orelse &explosions.streams[0];
+        slot.* = .{ .on = on, .emitter = emitter };
+    }
+
+    /// Lets go of the stream of `template` that hangs from the object in slot `index`, where there
+    /// is one (`particle_emitter_free` on the extra's emitter, which the game finds among
+    /// `burn_streams`). The particles it sent live on.
+    pub fn dropStream(explosions: *Explosions, index: u16, template: *const particles.Template) void {
+        for (&explosions.streams) |*slot| {
+            const stream = &(slot.* orelse continue);
+            if (stream.on.object == index and stream.emitter.template == template) slot.* = null;
+        }
+    }
+
     /// The burning wrecks' part of `explosions_update`, `ticks` since the bits last moved on: each
     /// stream sends its smoke out (`particles.Pool.stream`) and goes once its life is over, and
     /// each light fades and goes once it is spent, flickering meanwhile.
@@ -1217,6 +1238,16 @@ pub const big_smoke: particles.Template = .{
     .colour = .{ .through(0.3, 0.1, 0), .through(0.3, 0.1, 0), .through(0.3, 0.1, 0) },
 };
 
+/// The red sparks the Dark Reign's hat streams (`0x0055AD00`, its emitter named `emitter core`):
+/// 400 across, fading from full red to nothing over 1.3 to 1.5 seconds, one and a half a tick.
+pub const hat_sparks: particles.Template = .{
+    .life = 130,
+    .life_spread = 20,
+    .rate = .through(150, 150, 150),
+    .size = .through(200, 200, 200),
+    .colour = .{ .through(1, 0.8, 0), .through(0, 0, 0), .through(0, 0, 0) },
+};
+
 /// `part_streams` (`0x004715D0`) on its own: `template`'s smoke from each point of each of the
 /// lists of them on `ref`, a part of the object in slot `index`, for good or for `burn_life` ticks,
 /// where the world has explosions (`Explosions.smoke`), as the Boridin's main body smokes when its
@@ -1243,7 +1274,7 @@ pub const Burn = struct {
 const burn_ray: erayfx.Spec = .{ .life = burn_life, .jitter = 0.2, .width = 260, .flags = .{ .fades = true } };
 const burn_ray_colour: [3]f32 = .{ 0.6, 1, 1 };
 const burn_life = 5000;
-const forever_life = 9_999_999;
+pub const forever_life = 9_999_999;
 
 /// A burn light's red, how bright it is and how far it reaches (`part_burn_lights`), and how fast
 /// it fades, a tick (`0x004DC688`): it goes after 10000 ticks. Each frame it flickers down by up

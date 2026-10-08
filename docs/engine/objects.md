@@ -160,10 +160,12 @@ beside it where the record holds the original's pointers. It fits the guns and t
 fully invulnerable and attached, so that a knock leaves them where they are and a ship that bumps
 one takes a fiftieth of the damage; gives the Victorious, the Kurgan and the Washington a shield
 generator whatever their parts; draws the Rogue base's meshes with their first texture pass alone;
-and loops the Saladin's `middle spin` track (`typeMade`). The wrecks, the gates and the planets are
-set up once the mission has made them (`wreckMade`, `gateMade`, `planetMade`). Not ported yet:
-Titan's Planet Bombard and the Dark Reign's hat
-([#238](https://github.com/OpenReliant/openreliant/issues/238)), and the multiplayer cases
+loops the Saladin's `middle spin` track; and has the Dark Reign take the mass of its `Dark Low Body`,
+and of the turrets mounted on it, a second time (`node_mass_add`, `0x004764A0`), which stands until
+the next recentring sums its mass again (`typeMade`). The wrecks, the gates, the planets and the
+Dark Reign's hat ([Effects](effects.md#the-dark-reigns-hat)) are set up once the mission has made
+them (`wreckMade`, `gateMade`, `planetMade`, `extra.hatMade`). Not ported yet: Titan's Planet
+Bombard ([#238](https://github.com/OpenReliant/openreliant/issues/238)), and the multiplayer cases
 ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 ## Flags
@@ -261,6 +263,11 @@ The centre of mass:
   `object_bounds` (`0x00476680`) takes it off the position of each part hung from the root.
 - `object_bounds` then finds the object's bounding box and radius, its farthest vertex from the
   origin, over the vertices of every part node's current level, and sums its moment of inertia.
+
+A gun or a pod mounted on a part hangs its model's root among the part node's children
+(`node_mount`, `0x00499A10`), so the sums take in the mounted models' shown parts too. Not ported:
+OpenReliant sums the ship's own parts only
+([#896](https://github.com/OpenReliant/openreliant/issues/896)).
 
 An object's root holds the object's place in the world: `object_set_position` (`0x0049B600`) and
 `object_set_orientation` (`0x0049B650`) set it, together with the root's frame and further copies
@@ -655,8 +662,9 @@ A ship's end, and the limpet car's, posts its Destroyed event for the mission's 
 `resetSlot`.
 
 The blasts' break-up, particles, fireballs, burning bits and shockwaves are in
-[Effects](effects.md), with the capital ships' splits, the Ulysses' end and the pieces a few types
-throw off. Not ported: the lights and smoke a few types' extras start or put out
+[Effects](effects.md), with the capital ships' splits, the Ulysses' end, the pieces a few types
+throw off and the [extras](effects.md#extras) a few types carry. Not ported: the extras the
+prototype gate's and the Boridin breakaway's components light as they go
 ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 ## The wing's pilots
@@ -771,7 +779,8 @@ Each part the pass takes out that the object lists as a component posts the comp
 event first ([Script VM](script-vm.md#events)).
 
 [`objects.zig`](../../src/engine/game/objects.zig) ports the pass as `loseComponents` and
-`node_destroy` as `destroyPart`. Not ported: the lights and smoke of the types' extras
+`node_destroy` as `destroyPart`. Not ported: the extras the prototype gate's and the Boridin
+breakaway's components light as they go
 ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 OpenReliant lists them in [`create.zig`](../../src/engine/game/create.zig) as the parts themselves,

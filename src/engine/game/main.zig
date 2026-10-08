@@ -1087,12 +1087,13 @@ pub const DetailReach = enum {
 /// object is drawn with neither lights nor glows, its parts as its cloak draws them
 /// (`cloak.Drawing`).
 ///
+/// After it, each object's extra is drawn (`drawExtra`).
+///
 /// While the player's ship rides the worm between gates, the pass draws nothing (`drawFrame`).
 ///
-/// Not ported yet: what else the pass draws for a few types, the protogate's power core
-/// pulsing, the Boridin breakaway's core and the Dark Reign's hat
-/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)). The pass's smoke is
-/// `smoke.frame`.
+/// Not ported yet: the protogate's power core pulsing and the Boridin breakaway's core, which the
+/// pass draws too ([#238](https://github.com/OpenReliant/openreliant/issues/238)). The pass's
+/// smoke is `smoke.frame`.
 pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, attachments: objects.View, seat: ?u16, splits: ?*const explode.split.Splits, shown: Shown) Allocator.Error!void {
     var walk = all.walk();
     while (walk.next()) |index| {
@@ -1121,6 +1122,27 @@ pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, a
             view.cloak = .{ .cloak = cloaking, .kafelnikof = object.type.base() == .kafelnikof };
         }
         try model.draw(gpa, scene, .world, view);
+        if (slot.extra) |extra| try drawExtra(gpa, scene, all, object, extra);
+    }
+}
+
+/// What the objects pass adds to the world's layer for an object's extra (`create.extra`): the
+/// Dark Reign's hat, its band and its star where its `Dark Coil` stands, unless the ship is
+/// exploding (`0x00493159`).
+///
+/// **Fix:** the game adds an extra even while it leaves its object out, as the ejection's cutaway
+/// leaves out every ship but two, so that the Dark Reign's hat would hang there without its ship.
+/// OpenReliant draws an extra only with its object.
+fn drawExtra(gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, object: *const gameobj.GameObject, extra: *create.extra.Extra) Allocator.Error!void {
+    switch (extra.*) {
+        .hat => |*hat| {
+            if (object.flags.exploding) return;
+            const coil = hat.coil.live(all) orelse return;
+            for ([_]*create.extra.Hanging{ &hat.band, &hat.star }) |hanging| {
+                hanging.stand(coil.drawn());
+                try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &hanging.object }, .world);
+            }
+        },
     }
 }
 
@@ -1204,6 +1226,38 @@ test "the objects are framed and drawn, save those left out" {
     try drawObjects(gpa, &scene, all, .{}, null, null, .{ .showing = .launch, .carrier = 3 });
     for (scene.layers.get(.world).items) |item| try std.testing.expect(!std.meta.eql(item.mesh.position, all.slots[3].drawn.position));
     try std.testing.expectEqual(2, scene.layers.get(.world).items.len);
+}
+
+test "the Dark Reign's hat is drawn where its coil stands, but not as the ship explodes or is left out" {
+    const gpa = std.testing.allocator;
+    var stage: explode.testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    var ship: create.extra.testing.DarkReign = undefined;
+    _ = try ship.init(gpa, &stage, .{ 0, 0, 5000 });
+    defer ship.deinit(gpa);
+    const all = stage.mission.objects;
+    const hat = ship.hat(&stage).?;
+    frameObjects(all, .{}, 0);
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    try drawObjects(gpa, &scene, all, .{}, null, null, .{});
+    // The band and the star come after the ship, the band 1800 down the coil.
+    const drawn = scene.layers.get(.world).items;
+    try std.testing.expect(drawn[drawn.len - 2].mesh == &hat.band.object);
+    try std.testing.expect(drawn[drawn.len - 1].mesh == &hat.star.object);
+    try std.testing.expectEqual(math.Vector{ 0, -1800, 5000 }, hat.band.object.position);
+
+    // Exploding, or left out, it draws no hat.
+    const flags = &stage.mission.slot(ship.index).object.flags;
+    const kept = flags.*;
+    for ([_]gameobj.GameObject.Flags{ kept.with(.{ .exploding = true }), kept.with(.{ .hidden = true }) }) |set| {
+        flags.* = set;
+        scene.clear();
+        try drawObjects(gpa, &scene, all, .{}, null, null, .{});
+        for (scene.layers.get(.world).items) |item| try std.testing.expect(item.mesh != &hat.band.object);
+    }
+    flags.* = kept;
 }
 
 test "the camera is in a hangar while a launch shows the bay, or a landing the tube, from within" {

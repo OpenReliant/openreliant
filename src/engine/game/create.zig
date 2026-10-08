@@ -53,6 +53,7 @@ pub const combat_stats = @import("create/combat.zig");
 pub const library = @import("create/library.zig");
 pub const atmosphere = @import("create/atmosphere.zig");
 pub const escort = @import("create/escort.zig");
+pub const extra = @import("create/extra.zig");
 
 /// Ship types: the records of `shipstats.bin`, and the entries of the tables they index. Types
 /// above the last have no stats, markers and nav points among them, except the types mods add
@@ -502,14 +503,19 @@ pub const Slot = struct {
     cloak: ?cloak.Cloak = null,
     /// Its smoke, while its damage shows (`GameObject.smoke`).
     smoke: ?smoke.Stream = null,
+    /// What its type carries on one of its parts beyond its model, such as the Dark Reign's hat
+    /// (`extra.Extra`, which the game hangs on the part's frame).
+    extra: ?*extra.Extra = null,
 
-    /// Lets go of what the slot holds for its object: its cloak (`cloak.drop`), its model, its guns
-    /// and its shield bubble (`object_free`).
+    /// Lets go of what the slot holds for its object: its cloak (`cloak.drop`), its model, its
+    /// guns, its shield bubble and its extra (`object_free`).
     pub fn release(slot: *Slot, gpa: Allocator) void {
         cloak.drop(slot);
         if (slot.model) |model| model.deinit(gpa);
         slot.dropGuns(gpa);
         slot.dropShield(gpa);
+        if (slot.extra) |held| held.destroy(gpa);
+        slot.extra = null;
     }
 
     /// Its current order, the first of its stack, where it has one (`stack`): as mutable as
@@ -1025,15 +1031,19 @@ fn wreckOf(object_type: gameobj.Type) ?Wreck {
 ///   `0x004683D4`).
 /// - The Saladin's parts loop their `middle spin` track from its start (`objects.Model.playNamedTree`,
 ///   `0x00467DF1`), outside a multiplayer game.
+/// - The Dark Reign takes the mass of its `Dark Low Body`, and of the turrets mounted on it, a
+///   second time (`gameobj.nodeMass`, `0x00467E94`), until the next recentring sums its mass again.
 ///
 /// The routine that most capital ships, bases and stations get for a destroyed component, the
 /// Ulysses' its own, OpenReliant picks by type as it needs it (`explode.ComponentLoss`).
 ///
-/// Not ported: the Dark Reign's hat ([#238](https://github.com/OpenReliant/openreliant/issues/238));
-/// Titan's Planet Bombard routine on its parts (`0x0046841D`); and the comms relay, the deathmatch's
-/// power-ups and beacons and multiplayer map 83, which only the multiplayer arenas have
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The wrecks, the gates and the
-/// planets are set up once they are in the world (`wreckMade`, `gateMade`, `planetMade`).
+/// Not ported: Titan's Planet Bombard routine on its parts (`0x0046841D`)
+/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)); and the comms relay, the
+/// deathmatch's power-ups and beacons, multiplayer map 83 and the Dark Reign's slot in a
+/// multiplayer game (`0x005DB500`), which only the multiplayer arenas have
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The wrecks, the gates, the planets
+/// and the Dark Reign's hat are set up once they are in the world (`wreckMade`, `gateMade`,
+/// `planetMade`, `extra.hatMade`).
 fn typeMade(slot: *Slot, ship_type: gameobj.Type) void {
     const object = &slot.object;
     switch (ship_type.base()) {
@@ -1043,6 +1053,9 @@ fn typeMade(slot: *Slot, ship_type: gameobj.Type) void {
         .victorious, .kurgan, .washington => object.flags.shield_generator = true,
         .rogue_base => wgate.secondPasses(slot, false),
         .saladin => if (slot.model) |*model| model.playNamedTree(saladin_spin, 0, .loop, 1),
+        .darkreign => if (slot.model) |*model| if (model.partNamed(extra.dark_low_body)) |body| {
+            object.mass += gameobj.nodeMass(body.model, body.index);
+        },
         else => {},
     }
 }
@@ -1159,17 +1172,15 @@ pub fn planetMade(all: *Objects, index: u16) void {
     }
 }
 
-/// `0x00467C43`: a planet's level moved to stand on the middle of its vertices, their positions
-/// summed and scaled by one over their count; then its polygons' planes, its vertices' normals and
-/// its bounds are worked out again (`SR_mesh_calc_poly_normals`, `SR_mesh_calc_vertex_normals`,
-/// `SR_mesh_find_bounding_box`). The models' levels are shared by every object of the type, so a
-/// second planet of a type moves them by what is left, next to nothing.
+/// `0x00467C43`: a planet's level moved to stand on the middle of its vertices (`Mesh.middle`);
+/// then its polygons' planes, its vertices' normals and its bounds are worked out again
+/// (`SR_mesh_calc_poly_normals`, `SR_mesh_calc_vertex_normals`, `SR_mesh_find_bounding_box`). The
+/// models' levels are shared by every object of the type, so a second planet of a type moves them
+/// by what is left, next to nothing.
 fn recentreMesh(mesh: *@import("../surrender/surrenderlib/srapiext.zig").Mesh) void {
     const srapi = @import("../surrender/surrenderlib/srapi.zig");
     if (mesh.positions.len == 0) return;
-    var middle: Vector = @splat(0);
-    for (mesh.positions) |position| middle += position;
-    middle *= @splat(1 / @as(f32, @floatFromInt(mesh.positions.len)));
+    const middle = mesh.middle();
     for (mesh.positions) |*position| position.* -= middle;
     srapi.calcPolyNormals(mesh);
     srapi.calcVertexNormals(mesh);

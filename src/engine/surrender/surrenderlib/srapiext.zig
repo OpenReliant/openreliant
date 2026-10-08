@@ -346,6 +346,15 @@ pub const Mesh = struct {
         return uv;
     }
 
+    /// The middle of its vertices: their positions summed, then scaled by one over their count,
+    /// as the game works it out; the origin for a mesh with none.
+    pub fn middle(mesh: Mesh) Vector {
+        if (mesh.positions.len == 0) return @splat(0);
+        var sum: Vector = @splat(0);
+        for (mesh.positions) |position| sum += position;
+        return sum * @as(Vector, @splat(1 / @as(f32, @floatFromInt(mesh.positions.len))));
+    }
+
     /// Makes the polygons triangles, or fans merged into one, of `corners` indices each, one after
     /// another, as the game's own builders number them.
     pub fn numberPolygons(mesh: Mesh, corners: u16) void {
@@ -601,6 +610,19 @@ test "Mesh.create" {
     mesh.numberPolygons(4);
     try std.testing.expectEqual(4, mesh.polygons[1].first);
     try std.testing.expectEqual(4, mesh.polygons[1].count);
+}
+
+test "Mesh.middle" {
+    const gpa = std.testing.allocator;
+    var mesh: Mesh = try .create(gpa, .{ .polygons = 0, .vertices = 4, .indices = 0 });
+    defer mesh.deinit(gpa);
+    // The middle of four corners of a square off the origin.
+    mesh.positions[0..4].* = .{ .{ 0, 0, 10 }, .{ 20, 0, 10 }, .{ 20, 40, 10 }, .{ 0, 40, 10 } };
+    try std.testing.expectEqual(Vector{ 10, 20, 10 }, mesh.middle());
+    // With no vertices, the origin.
+    var empty: Mesh = try .create(gpa, .{ .polygons = 0, .vertices = 0, .indices = 0 });
+    defer empty.deinit(gpa);
+    try std.testing.expectEqual(Vector{ 0, 0, 0 }, empty.middle());
 }
 
 test "Mesh.copy" {
