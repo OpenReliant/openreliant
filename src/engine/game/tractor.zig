@@ -385,7 +385,7 @@ pub const State = extern struct {
     updated: i32,
     /// How far behind the first the second beam comes on, as a share of the time.
     lag: f32,
-    _unknown_18: [0x90 - 0x18]u8,
+    _unknown_18: [aigeneric.state_size - 0x18]u8,
 
     comptime {
         assert(@offsetOf(State, "stage") == 0x4);
@@ -393,7 +393,7 @@ pub const State = extern struct {
         assert(@offsetOf(State, "pod") == 0xC);
         assert(@offsetOf(State, "updated") == 0x10);
         assert(@offsetOf(State, "lag") == 0x14);
-        assert(@sizeOf(State) == 0x90);
+        assert(@sizeOf(State) == aigeneric.state_size);
     }
 
     /// Its `tractor` where it holds none, as `tractor_create` returns with none free.

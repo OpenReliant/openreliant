@@ -125,7 +125,13 @@ pub const Mount = struct {
 /// The slots a ship's record has for its guns.
 pub const gun_slots = 4;
 
+/// The ships the loadout offers by number: the player's twelve fighters, the Predator to the
+/// Phoenix, as the campaign's tier counts them (`create.last_fighter`).
 pub const ship_count = 12;
+
+comptime {
+    assert(ship_count == create.last_fighter.number() + 1);
+}
 
 /// A ship the loadout offers: its ship type, and its record (`modRecord` for a mod's).
 pub const Offer = struct {

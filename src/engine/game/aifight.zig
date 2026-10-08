@@ -88,7 +88,7 @@ pub const FightState = extern struct {
         assert(@offsetOf(FightState, "afterburner") == 0x3C);
         assert(@offsetOf(FightState, "point") == 0x40);
         assert(@offsetOf(FightState, "ship") == 0x4E);
-        assert(@sizeOf(FightState) == 0x90);
+        assert(@sizeOf(FightState) == aigeneric.state_size);
     }
 };
 

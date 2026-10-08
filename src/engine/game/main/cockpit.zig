@@ -23,9 +23,14 @@ const log = std.log.scoped(.cockpit);
 /// The cockpit loaded for the player's ship, in an arena of its own, so that another ship's can
 /// take its place.
 pub const Cockpit = struct {
-    arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator),
+    arena: std.heap.ArenaAllocator,
     /// Null for a ship the player can't fly, or one whose cockpit the game lacks.
     shown: ?Shown = null,
+
+    /// No cockpit yet, its arena on `gpa`.
+    pub fn init(gpa: Allocator) Cockpit {
+        return .{ .arena = .init(gpa) };
+    }
 
     pub const Shown = struct {
         /// The frame model as read, whose eye and hands the camera moves the cockpit by.

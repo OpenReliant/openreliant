@@ -231,7 +231,7 @@ pub const State = extern struct {
     /// The nodes of a bay's doors, which `launch_bay_init` keeps. OpenReliant looks them up from
     /// the carrier and the gate instead (`bay.Doors`).
     doors: [2]engine.Pointer(objects.Node),
-    _unknown_58: [0x90 - 0x58]u8,
+    _unknown_58: [aigeneric.state_size - 0x58]u8,
 
     comptime {
         assert(@offsetOf(State, "due") == 0x04);
@@ -244,7 +244,7 @@ pub const State = extern struct {
         assert(@offsetOf(State, "carrier") == 0x48);
         assert(@offsetOf(State, "gate") == 0x4C);
         assert(@offsetOf(State, "doors") == 0x50);
-        assert(@sizeOf(State) == 0x90);
+        assert(@sizeOf(State) == aigeneric.state_size);
     }
 
     /// Moves on to step `next`, which runs once `wait` more ticks have passed from `now`.

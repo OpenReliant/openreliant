@@ -189,6 +189,10 @@ pub const Damage = extern struct {
     pub fn hullShare(damage: Damage) f32 {
         return damage.hull / damage.shield;
     }
+
+    comptime {
+        assert(@sizeOf(Damage) == 8);
+    }
 };
 
 /// One gun. The loader reads until the end of the file into `gun_stats`, whose first record is

@@ -141,6 +141,10 @@ pub const Function = extern struct {
         /// **Unknown.**
         extra: u32,
         label: Pointer(u8),
+
+        comptime {
+            assert(@sizeOf(Param) == 0x0C);
+        }
     };
 
     comptime {

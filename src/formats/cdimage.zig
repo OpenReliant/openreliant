@@ -61,6 +61,10 @@ pub const Msf = extern struct {
             .frame = .from(@intCast(frames % frames_per_second)),
         };
     }
+
+    comptime {
+        assert(@sizeOf(Msf) == 3);
+    }
 };
 
 pub const Mode = enum(u8) {

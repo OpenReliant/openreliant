@@ -3826,6 +3826,10 @@ pub const State = struct {
 pub const Readiness = extern struct {
     jump: Ready = .no,
     warp: Ready = .no,
+
+    comptime {
+        assert(@sizeOf(Readiness) == 8);
+    }
 };
 
 /// Where the jump prompt stands, from the middle of the screen, and its two shapes.

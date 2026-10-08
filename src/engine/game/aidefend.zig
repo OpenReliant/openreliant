@@ -139,6 +139,10 @@ pub const Instruction = extern union {
         _pad: [3]u8,
         min: f32 align(1),
         max: f32 align(1),
+
+        comptime {
+            assert(@sizeOf(Range) == 0x0C);
+        }
     };
 
     pub const Ticks = extern struct {

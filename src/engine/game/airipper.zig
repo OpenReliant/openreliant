@@ -345,7 +345,7 @@ pub const GrabState = extern struct {
     /// Where the object is lifted from, and where to: 300 from the Ripper toward it.
     from: [3]f32,
     to: [3]f32,
-    _unknown_54: [0x90 - 0x54]u8,
+    _unknown_54: [aigeneric.state_size - 0x54]u8,
 
     comptime {
         assert(@offsetOf(GrabState, "step") == 0x04);
@@ -358,7 +358,7 @@ pub const GrabState = extern struct {
         assert(@offsetOf(GrabState, "own_angles") == 0x30);
         assert(@offsetOf(GrabState, "from") == 0x3C);
         assert(@offsetOf(GrabState, "to") == 0x48);
-        assert(@sizeOf(GrabState) == 0x90);
+        assert(@sizeOf(GrabState) == aigeneric.state_size);
     }
 
     /// Keeps the Ripper's motion `kept`, or none.
@@ -419,11 +419,11 @@ pub const GrabStep = enum(u32) {
 pub const DropState = extern struct {
     since: i32,
     step: DropStep,
-    _unknown_08: [0x90 - 0x08]u8,
+    _unknown_08: [aigeneric.state_size - 0x08]u8,
 
     comptime {
         assert(@offsetOf(DropState, "step") == 0x04);
-        assert(@sizeOf(DropState) == 0x90);
+        assert(@sizeOf(DropState) == aigeneric.state_size);
     }
 };
 
@@ -444,12 +444,12 @@ pub const EndDropState = extern struct {
     _unknown_08: [4]u8,
     /// Where the Ripper turns to face as it leaves.
     ahead: [3]f32,
-    _unknown_18: [0x90 - 0x18]u8,
+    _unknown_18: [aigeneric.state_size - 0x18]u8,
 
     comptime {
         assert(@offsetOf(EndDropState, "step") == 0x04);
         assert(@offsetOf(EndDropState, "ahead") == 0x0C);
-        assert(@sizeOf(EndDropState) == 0x90);
+        assert(@sizeOf(EndDropState) == aigeneric.state_size);
     }
 };
 
@@ -494,7 +494,7 @@ pub const AttachState = extern struct {
     /// Where the pod is let go from, and how it is turned there.
     from: [3]f32,
     from_angles: [3]f32,
-    _unknown_54: [0x90 - 0x54]u8,
+    _unknown_54: [aigeneric.state_size - 0x54]u8,
 
     comptime {
         assert(@offsetOf(AttachState, "step") == 0x04);
@@ -505,7 +505,7 @@ pub const AttachState = extern struct {
         assert(@offsetOf(AttachState, "fitted_angles") == 0x30);
         assert(@offsetOf(AttachState, "from") == 0x3C);
         assert(@offsetOf(AttachState, "from_angles") == 0x48);
-        assert(@sizeOf(AttachState) == 0x90);
+        assert(@sizeOf(AttachState) == aigeneric.state_size);
     }
 };
 

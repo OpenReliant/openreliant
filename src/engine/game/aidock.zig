@@ -647,12 +647,12 @@ pub const NannyState = extern struct {
     until: i32,
     point: [3]f32,
     part: u32,
-    _unknown_18: [0x90 - 0x18]u8,
+    _unknown_18: [aigeneric.state_size - 0x18]u8,
 
     comptime {
         assert(@offsetOf(NannyState, "point") == 0x08);
         assert(@offsetOf(NannyState, "part") == 0x14);
-        assert(@sizeOf(NannyState) == 0x90);
+        assert(@sizeOf(NannyState) == aigeneric.state_size);
     }
 };
 

@@ -1449,7 +1449,7 @@ pub fn makeWhole(object: *GameObject, combat: *const ShipCombat) void {
 
 /// The last ship type the campaign's tier fits: the player's twelve fighters, the Predator to the
 /// Phoenix.
-const last_fighter: gameobj.GameType = .phoenix;
+pub const last_fighter: gameobj.GameType = .phoenix;
 
 /// The loadout tier `create_object` settles on for an object of `ship_type` asked for `asked`: 5
 /// is 4, and what lies outside 0 to 4 is 0. A fighter asked for 0 takes the campaign's `campaign`,
