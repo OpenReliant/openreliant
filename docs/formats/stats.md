@@ -108,6 +108,13 @@ fighters ([Loadout](../engine/loadout.md#the-figures)).
 
 The loader stores `100 / fire_rate`, the interval between shots.
 
+**Fix:** the original turns a fire rate of 0 into an interval of `0x80000000`, and a very low rate
+or a very long range overflows the tick sums the interval and a shot's life go into. OpenReliant
+keeps both at most `2^23` ticks, about 23 hours (`guns.longest_ticks`), and logs which gun it
+changed, so a gun with a rate of 0 fires once in a mission. A negative interval becomes 0, which
+fires as often, every frame. This holds for a mod's `gunstats.bin` and for the records load scripts
+and game modes change.
+
 `gun_stats` is indexed by the gun type in a model's muzzle, from 1 to 15, so the file's first record
 is type 1, and type 0 means no gun. The loader only fills `+0x14` to `+0x28` of each record. The
 first five words come from the executable, and say what a shot costs the ship (energy for types 1
