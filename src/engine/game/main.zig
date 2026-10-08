@@ -1734,6 +1734,10 @@ pub const Start = struct {
     /// OpenReliant's: the pilots a game mode seats in the player's wing, from Alpha 2
     /// (`pilots.Wingmen.seat`).
     wing: []const pilots.Number = &.{},
+    /// The seed the game's random numbers start again from as the mission starts, where the game
+    /// takes the time (`srand(time(NULL))`, `0x004936AE`): the driver gives the clock's, or a
+    /// fixed one for a run that comes out the same each time.
+    seed: u64 = Random.default_seed,
 };
 
 /// Where the mission's start makes the camera's marker (`create.Objects.camera_marker`), which the
@@ -1756,8 +1760,9 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 /// ship jumping in (`jump_init`). Then the start:
 /// 1. ends the 3D sounds, has the mission play with everything shown, no ship the player launched
 ///    from, no primary target, the camera free in view 0 on the player's ship, in the cockpit mode
-///    the options' setting picks, and the ejected pilot always picked up, and puts back the pilot's
-///    kills (`winmain.startMission`);
+///    the options' setting picks, and the ejected pilot always picked up, puts back the pilot's
+///    kills (`winmain.startMission`), and starts the game's random numbers again from the start's
+///    seed (`Start.seed`);
 /// 2. binds the mission, whose records the orders then reach (`gameobj.World.mission`), gives its
 ///    script the game's variables an attempt starts with (`Start.campaign`) and the number
 ///    of players, which WinMain sets before the mission loads (`script_set_players`,
@@ -1849,6 +1854,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
         view.cockpit_mode = view.setting.mode();
     }
     winmain.startMission(world.player, if (start.campaign) |campaign| campaign.kept(number).kills else 0);
+    world.random.* = .init(start.seed);
     all.mission_number = number;
     var file_buffer: [winmain.mission_path_size]u8 = undefined;
     const mission = scriptMission(&file_buffer, all, number, start.file orelse number);
@@ -1912,10 +1918,8 @@ fn givePilots(all: *create.Objects, number: u16, wing: []const pilots.Number) vo
 
 /// The seed of the mods' scripts' random numbers for mission `number`: a number made from the state
 /// of the game's random number generator (`Random.fingerprint`, which reads the state without
-/// drawing a number), combined with the mission's number.
-///
-/// Not ported: `mission_start` seeds the game's own numbers with the time (`0x004936AE`)
-/// ([#582](https://github.com/OpenReliant/openreliant/issues/582)).
+/// drawing a number), combined with the mission's number. The mission's start seeds that
+/// generator first (`Start.seed`), so the scripts' numbers follow its seed.
 pub fn scriptSeed(random: *const Random, number: u16) u64 {
     return random.fingerprint() << 16 | number;
 }
@@ -2071,34 +2075,49 @@ test startMission {
     try mission.init(gpa);
     defer mission.deinit();
     mission.player.rescue_odds = .{ .rescued = 1, .captured = 1, .killed = 1 };
-    const loaded = try startMission(gpa, .{
+    const start: Start = .{
         .orders = mission.orders(),
         .clock = &mission.clock,
         .tables = &mission.tables,
         .types = &types,
         .cockpit = &shown,
         .display = &state,
-    }, image, 0);
-    defer loaded.destroy();
+    };
+    {
+        const loaded = try startMission(gpa, start, image, 0);
+        defer loaded.destroy();
 
-    // The mission's ships in the first slots, the player's with its model, then the camera's marker.
-    const all = mission.objects;
-    try std.testing.expectEqual(3, all.count);
-    // The script knows the mission is flown by one player, and has a new campaign's variables.
-    try std.testing.expectEqual(all.players, loaded.script.variables.players);
-    try std.testing.expectEqual(1, loaded.script.variables.players);
-    try std.testing.expectEqual(1, loaded.script.variables.ghost_alive);
-    try std.testing.expect(all.slots[0].type != null);
-    try std.testing.expectEqual(2, all.camera_marker.?);
-    try std.testing.expectEqual(gameobj.Type.of(.marker), all.slots[2].object.type);
-    try std.testing.expectEqual(camera_marker_at[2], all.slots[2].object.root.position.z);
-    // The player's ship on its controls, and the other under the order the script gave it.
-    try std.testing.expectEqual(ai.orders.Order.player_control, all.slots[0].orders[0].order);
-    try std.testing.expectEqual(ai.orders.Order.fight, all.slots[1].orders[0].order);
-    // The player first in the wing, the pilot always picked up, and the display readied.
-    try std.testing.expectEqual(0, all.wing[0].?);
-    try std.testing.expectEqual(100, mission.player.rescue_odds.rescued);
-    try std.testing.expect(!state.ejected);
+        // The mission's ships in the first slots, the player's with its model, then the camera's marker.
+        const all = mission.objects;
+        try std.testing.expectEqual(3, all.count);
+        // The script knows the mission is flown by one player, and has a new campaign's variables.
+        try std.testing.expectEqual(all.players, loaded.script.variables.players);
+        try std.testing.expectEqual(1, loaded.script.variables.players);
+        try std.testing.expectEqual(1, loaded.script.variables.ghost_alive);
+        try std.testing.expect(all.slots[0].type != null);
+        try std.testing.expectEqual(2, all.camera_marker.?);
+        try std.testing.expectEqual(gameobj.Type.of(.marker), all.slots[2].object.type);
+        try std.testing.expectEqual(camera_marker_at[2], all.slots[2].object.root.position.z);
+        // The player's ship on its controls, and the other under the order the script gave it.
+        try std.testing.expectEqual(ai.orders.Order.player_control, all.slots[0].orders[0].order);
+        try std.testing.expectEqual(ai.orders.Order.fight, all.slots[1].orders[0].order);
+        // The player first in the wing, the pilot always picked up, and the display readied.
+        try std.testing.expectEqual(0, all.wing[0].?);
+        try std.testing.expectEqual(100, mission.player.rescue_odds.rescued);
+        try std.testing.expect(!state.ejected);
+    }
+
+    // Each start seeds the game's random numbers afresh: the same seed gives the same numbers
+    // whatever was drawn before, and another seed others.
+    const started = mission.random.fingerprint();
+    _ = mission.random.rand();
+    for ([_]u64{ Random.default_seed, 99 }) |seed| {
+        var reseeded = start;
+        reseeded.seed = seed;
+        const again = try startMission(gpa, reseeded, try dte.write.write(gpa, &sections, .{}), 0);
+        defer again.destroy();
+        try std.testing.expectEqual(seed == Random.default_seed, mission.random.fingerprint() == started);
+    }
 }
 
 test missionFrame {

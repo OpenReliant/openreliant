@@ -3,7 +3,8 @@
 //! **Improvement:** they come from Zig's `std.Random`, its default generator, where the game
 //! draws them from the C runtime's `rand` (`0x004CF555`), a linear congruential generator seeded
 //! by `srand` (`0x004CF548`). They keep `rand`'s range, 0 to 32767, so the game's code uses them
-//! unchanged. The sequences differ from the original's.
+//! unchanged. The sequences differ from the original's. Each mission's start seeds them afresh, as
+//! the game's does (`main.Start.seed`).
 
 const std = @import("std");
 

@@ -81,6 +81,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--developer-mode` | The tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading when they or their shaders are saved ([Scripting](scripting.md#the-console)) |
 | `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls, the `[OpenReliant]` settings and the details in `[Device]` are not read, so that it comes out the same each time |
 | `--screenshot-ticks <ticks>` | With `--screenshot`, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default |
+| `--seed <number>` | Start each mission's random numbers from this seed, so that a run comes out the same each time, for testing; by default, as in the game, from the clock as the mission starts, and from a fixed seed with `--screenshot` |
 | `--version` | Show the version |
 | `-h`, `--help` | Show the help page |
 

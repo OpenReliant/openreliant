@@ -326,8 +326,10 @@ while a game runs, null otherwise:
 `math.random` starts again from a seed made from the state of the game's random number generator
 when the mission begins (`Random.fingerprint`, which reads the state without drawing a number) and
 the mission's number, so the game's own numbers don't change and every machine gets the same.
-Before the first mission it starts from load scripts' fixed seed. The original seeds `rand` with the time as each mission starts, which
-OpenReliant doesn't port yet ([#582](https://github.com/OpenReliant/openreliant/issues/582)).
+Before the first mission it starts from load scripts' fixed seed. As in the original, the mission's
+start first seeds the game's generator from the clock, so both differ from one start to the next;
+`--seed` fixes the seed for a run that comes out the same each time
+([Configuration](../guide/configuration.md)).
 
 ## Hooks
 
