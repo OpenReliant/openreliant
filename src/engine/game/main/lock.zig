@@ -92,7 +92,8 @@ pub const Lock = struct {
     /// the sound never plays and the game ends the first voice every frame instead, cutting what
     /// plays there. OpenReliant leaves the first voice alone, and the sound unplayed.
     ///
-    /// Not ported: in a multiplayer game, the power-up a lock needs.
+    /// Not ported: in a multiplayer game, the power-up a lock needs
+    /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
     pub fn frame(lock: *Lock, world: gameobj.World, ring: *missile_display.Ring) void {
         const entry = ai.playerControlEntry(world.objects) orelse return;
         const elapsed = world.clock.frame_duration;
