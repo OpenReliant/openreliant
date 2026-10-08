@@ -645,6 +645,74 @@ fn segmentMeetsTriangle(from: Vector, to: Vector, triangle: [3]Vector) ?Vector {
     return from + span * @as(Vector, @splat(t));
 }
 
+/// A trigger polygon of a part, as `model_load` (`0x004A483E`) builds it from the file's record
+/// (`shp.TriggerPolygon`): its corners, from the part's first level, in the part's frame, and the
+/// plane they stand in, facing along `(c1 - c0) × (c2 - c0)`.
+pub const Trigger = struct {
+    corners: [4]Vector,
+    quad: bool,
+    normal: Vector,
+    offset: f32,
+
+    /// The trigger of `polygon`, its corners from `mesh`'s vertices; null where it names a vertex
+    /// the mesh lacks.
+    pub fn of(polygon: shp.TriggerPolygon, mesh: shp.Mesh) ?Trigger {
+        var corners: [4]Vector = @splat(@splat(0));
+        const count: usize = if (polygon.quad()) 4 else 3;
+        for (polygon.vertices[0..count], corners[0..count]) |number, *at| {
+            at.* = corner(mesh, std.math.cast(u32, number) orelse return null) orelse return null;
+        }
+        const normal = math.normalize(math.cross(corners[1] - corners[0], corners[2] - corners[0]));
+        return .{ .corners = corners, .quad = polygon.quad(), .normal = normal, .offset = math.dot(normal, corners[0]) };
+    }
+
+    /// Which way the step from `from` to `to`, both in the part's frame, crosses it: in, to the
+    /// back of its plane, or out, to its front; null where it doesn't (`collision_test_hull`). A
+    /// step crosses it where it crosses its plane through it: through its triangle, or a quad's
+    /// second triangle (`segmentMeetsTriangle`).
+    ///
+    /// **Fix:** the game takes a step that crosses a triangle's plane anywhere as crossing the
+    /// triangle; OpenReliant only where it goes through it. Only quads ship.
+    pub fn crossing(trigger: Trigger, from: Vector, to: Vector) ?Way {
+        const ahead = trigger.height(to) >= 0;
+        if (ahead == (trigger.height(from) >= 0)) return null;
+        const c = trigger.corners;
+        const through = segmentMeetsTriangle(from, to, .{ c[0], c[1], c[2] }) != null or
+            (trigger.quad and segmentMeetsTriangle(from, to, .{ c[0], c[2], c[3] }) != null);
+        if (!through) return null;
+        return if (ahead) .outside else .inside;
+    }
+
+    pub const Way = enum { inside, outside };
+
+    /// How far `point` stands in front of its plane.
+    fn height(trigger: Trigger, point: Vector) f32 {
+        return math.dot(point, trigger.normal) - trigger.offset;
+    }
+};
+
+test Trigger {
+    // A square in the plane z = 0, its corners anticlockwise seen from +Z, which it faces.
+    var vertices: [4]shp.Vertex = @splat(std.mem.zeroes(shp.Vertex));
+    for (&vertices, [_]shp.Vec3{ .{ .x = 0, .y = 0, .z = 0 }, .{ .x = 10, .y = 0, .z = 0 }, .{ .x = 10, .y = 10, .z = 0 }, .{ .x = 0, .y = 10, .z = 0 } }) |*vertex, at| vertex.position = at;
+    const mesh: shp.Mesh = .{ .lod = std.mem.zeroes(shp.Lod), .vertices = &vertices, .faces = &.{}, .materials = &.{} };
+    const square = Trigger.of(.{ .vertices = .{ 0, 1, 2, 3 } }, mesh).?;
+    try std.testing.expectEqual(Vector{ 0, 0, 1 }, square.normal);
+    // Going in from its front through either triangle, and out again; passing beside it, or
+    // staying on one side, crosses nothing.
+    try std.testing.expectEqual(.inside, square.crossing(.{ 8, 2, 5 }, .{ 8, 2, -5 }).?);
+    try std.testing.expectEqual(.inside, square.crossing(.{ 2, 8, 5 }, .{ 2, 8, -5 }).?);
+    try std.testing.expectEqual(.outside, square.crossing(.{ 2, 8, -5 }, .{ 2, 8, 5 }).?);
+    try std.testing.expectEqual(null, square.crossing(.{ 20, 2, 5 }, .{ 20, 2, -5 }));
+    try std.testing.expectEqual(null, square.crossing(.{ 2, 2, 5 }, .{ 2, 2, 1 }));
+    // A triangle is crossed only through it, unlike in the game.
+    const triangle = Trigger.of(.{ .vertices = .{ 0, 1, 2, -1 } }, mesh).?;
+    try std.testing.expectEqual(null, triangle.crossing(.{ 2, 8, 5 }, .{ 2, 8, -5 }));
+    try std.testing.expectEqual(.inside, triangle.crossing(.{ 8, 2, 5 }, .{ 8, 2, -5 }).?);
+    // A corner the mesh lacks makes none.
+    try std.testing.expectEqual(null, Trigger.of(.{ .vertices = .{ 0, 1, 9, -1 } }, mesh));
+}
+
 /// A segment from `from` to `to`, for what it passes.
 pub const Segment = struct {
     from: Vector,
@@ -734,7 +802,8 @@ pub fn boxEntry(from: Vector, to: Vector, bounds: [2]Vector) ?f32 {
     return near;
 }
 
-/// A face's corner, or null where the file names a vertex the level does not hold.
+/// A face's or a trigger polygon's corner, or null where the file names a vertex the level does not
+/// hold.
 fn corner(level: shp.Mesh, vertex: u32) ?Vector {
     if (vertex >= level.vertices.len) return null;
     return gameobj.vector(level.vertices[vertex].position);

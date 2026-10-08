@@ -779,10 +779,16 @@ pub const Material = extern struct {
     }
 };
 
-/// Tag `0x0F`. A trigger polygon, kept as the file holds it: its fields are not decoded yet
-/// ([#11](https://github.com/OpenReliant/openreliant/issues/11)).
+/// Tag `0x0F`. A trigger polygon: the numbers of its corners among the vertices of its part's
+/// first level, the fourth negative for a triangle. `model_load` (`0x004A483E`) builds from it the
+/// plane a ship crosses into or out of (`objects.Trigger`).
 pub const TriggerPolygon = extern struct {
-    _unknown_00: [16]u8,
+    vertices: [4]i32,
+
+    /// Whether it is a quad, rather than a triangle.
+    pub fn quad(polygon: TriggerPolygon) bool {
+        return polygon.vertices[3] >= 0;
+    }
 
     comptime {
         assert(@sizeOf(TriggerPolygon) == 16);
@@ -1493,7 +1499,7 @@ test "a model built by hand reads back as it was written" {
     var tracks = [_]Track{.{ .clip = fire, .keyframes = &keyframes, .events = &events }};
     var points = [_]Point{.{ ._unknown_00 = 0, .vertex = 1, .position = vertices[1].position }};
     var point_lists = [_]PointList{.{ .kind = .light, .points = &points }};
-    var triggers = [_]TriggerPolygon{.{ ._unknown_00 = .{ 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF } }};
+    var triggers = [_]TriggerPolygon{.{ .vertices = .{ 1, 2, 0, -1 } }};
 
     var parts = [_]PartData{
         testPart("Hull", false, &attachments),

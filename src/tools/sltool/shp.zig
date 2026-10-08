@@ -256,6 +256,12 @@ fn info(ctx: Context, model: shp.Model) !void {
         for (entry.point_lists) |list| {
             try ctx.stdout.print("          points kind {d}: {d}\n", .{ @backingInt(list.kind), list.points.len });
         }
+        for (entry.triggers) |polygon| {
+            const corners: usize = if (polygon.quad()) 4 else 3;
+            try ctx.stdout.writeAll(if (polygon.quad()) "          trigger quad on vertices" else "          trigger triangle on vertices");
+            for (polygon.vertices[0..corners]) |vertex| try ctx.stdout.print(" {d}", .{vertex});
+            try ctx.stdout.writeByte('\n');
+        }
         for (entry.tracks) |track| {
             try ctx.stdout.print("          clip '{s}' length {d} mode {d}, {d} keyframes, {d} events\n", .{
                 track.clip.name(), track.clip.length, track.clip.mode, track.keyframes.len, track.events.len,

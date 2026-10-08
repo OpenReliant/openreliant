@@ -452,6 +452,13 @@ pub fn cloaked(world: gameobj.World, index: u16, on: bool) void {
     if (on) postOwn(world, index, .cloaked) else postOwn(world, index, .decloaked);
 }
 
+/// The player's ship in slot `index` has crossed a trigger polygon of a hull
+/// (`collision_test_hull`, `0x00465581`): its InsideObject where it went in behind the polygon,
+/// where `inside`, or its OutsideObject where it came out in front, for its own triggers.
+pub fn insideObject(world: gameobj.World, index: u16, inside: bool) void {
+    if (inside) postOwn(world, index, .inside_object) else postOwn(world, index, .outside_object);
+}
+
 /// `event_post_ship_reached` (`0x0045AC10`): the object in slot `index` has reached mission ship
 /// `ship`, the end of a curve it followed or a point that marks a place on one. The ship's
 /// ShipReached, with the ship of the object that reached it, for its own triggers.

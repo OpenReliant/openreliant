@@ -88,6 +88,19 @@ The pair is then separated along that line: each object is placed at 1.1 times i
 
 A ship colliding with an object that lists components tests against that object's collision tree ([Models](../formats/shp.md#tree-node-tag-0x07)): parts are traversed down to leaf nodes, and leaf faces within reach of the ship's sphere determine the nearest contact point. These are the file's own indexed faces, not the merged polygons the renderer draws. The ship is shoved at its center and the hull at the hit point, rotating the hull around the impact while the ship does not rotate.
 
+Before that, the player's ship is tested against the trigger polygons of the hull's parts
+([Models](../formats/shp.md#trigger-polygon-tag-0x0f)), each part's in turn (`collision_test_hull`,
+`0x00465380`). Where its step, from where it stands to where it goes next, each in the part's frame
+as the part stands then, changes side of a polygon's plane and goes through the polygon, through
+one of its triangles or a quad's second, the ship posts its InsideObject (`0x1C`) going to the back
+of the plane, or its OutsideObject (`0x1D`) to the front ([Script VM](script-vm.md#events)).
+Going into a Stalag (`0x45`) sets `0x005883F8` and coming out clears it, as does a mission's start.
+While it is set, the Stalag's turrets aim anywhere, whatever their firing arcs
+([Guns](guns.md)), and its shots may strike the Stalag itself. Only the Stalag's model ships trigger
+polygons, which mission 14 waits on to let the player target the Stalag's interior turrets.
+**Fix:** the game takes a step that crosses a triangle's plane anywhere as going through the
+triangle; OpenReliant only one that goes through it. No shipped polygon is a triangle.
+
 A torpedo that strikes a hull (`collision_test_hull`, `0x004656CF`) takes no damage of its own:
 
 - The hull lurches, unless its listing is disabled (`DisableListing`), or its current order is already a lurch, a jump or a warp: it takes Make capship list left (115) where the torpedo came in heading to its left, and right (116) otherwise ([Orders](orders.md)).
@@ -97,7 +110,7 @@ A torpedo that strikes a hull (`collision_test_hull`, `0x004656CF`) takes no dam
 
 Impact damage is calculated from the collision impulse (`collision_damage`, `0x00465CA0`): 1/5 of the impulse divided by the lighter mass, halved, applied to the struck quadrant. The Ripper takes no damage. The player's fore or aft [shield reserve](controls.md#the-shield-balance) absorbs damage first. If the reserve is depleted, the shield takes damage; when down, armor absorbs the damage, updating armor condition, and the shield [flares](effects.md#shields). A ship striking a hull takes damage similarly, drawing twice the damage from reserve. Collisions do not count toward recent damage taken from an attacker, so they do not trigger retaliatory orders; weapon hits do.
 
-Ported so far: the sweep, ignored pairs, shove impulse, object separation, hull collision tree tests, a torpedo's strike on a hull, and damage ([`collision.zig`](../../src/engine/game/collision.zig)). Collisions do not damage components but for a torpedo's strike.
+Ported so far: the sweep, ignored pairs, shove impulse, object separation, hull collision tree tests, the trigger polygons, a torpedo's strike on a hull, and damage ([`collision.zig`](../../src/engine/game/collision.zig)). Collisions do not damage components but for a torpedo's strike.
 
 A destroyed torpedo or mine runs Explode ([Destruction](objects.md#destruction)), through `object_destroyed_net` (`0x00402100`), which first tells the other players where a network session runs a mission that is not multiplayer's. Not ported: that message, and a mine's 5000 in a multiplayer game, which credits the kill to its owner ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 

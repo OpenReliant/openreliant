@@ -265,6 +265,17 @@ pod's part `Cargo pod`, four, the middles of whose two pairs its beams reach for
 
 `shp.PointList` holds a list, and `sltool shp info` counts each part's lists.
 
+### Trigger polygon (tag `0x0F`)
+
+A part can carry polygons that a ship crosses into or out of. Each record is four `i32` numbers of
+vertices of the part's first level, the fourth negative for a triangle. `model_load` (`0x004A483E`)
+copies the corners, notes 3 or 4 of them, and takes the plane they stand in, facing along
+`(c1 - c0) × (c2 - c0)` and through `c0`, which the collision test reads
+([Collisions](../engine/loop.md#collisions)).
+
+Only `stalag.SHP` ships any: a quad on its part `Stalag Duct` and one on `Stalag Outer`.
+`shp.TriggerPolygon` holds a record, and `sltool shp info` lists each part's with their vertices.
+
 ### Firing arc (tag `0x10`)
 
 One for each of the model's [components](../engine/objects.md#components), in the order the
@@ -418,17 +429,14 @@ moved from each part's origin to the object's. **Unverified:** that they are int
 part's volume; the engine uses them as such
 ([Live objects](../engine/objects.md#the-model-hierarchy)).
 
-**Unknown:** the interpretation of trigger polygons (`0x0F`). The reader keeps their records as the
-file holds them (`shp.TriggerPolygon`), and the writer writes them back, but their fields are not
-decoded here ([#11](https://github.com/OpenReliant/openreliant/issues/11)). One model carries two of
-them; the engine tests the player's ship against them before it descends the collision tree.
-
 ## Prior art
 
 The container and chunk framing here were read from the files directly. The record field
 semantics, the loader's search-forward rule and the chunk catalogue come from the independent
 analysis in
 [Starlancer-OSS `docs/shp-format.md`](https://github.com/LordBlacksun/Starlancer-OSS/blob/main/docs/shp-format.md),
-which traced them to the engine's own loader. Every structure offset and count in this document was
+which traced them to the engine's own loader, and the trigger polygons' fields come from its
+author's notes on [#11](https://github.com/OpenReliant/openreliant/issues/11). Every structure offset
+and count in this document was
 re-verified against the 440 shipped models; the bounding-box frames above are a refinement, since
 the box does not always match the vertex extent as stored.

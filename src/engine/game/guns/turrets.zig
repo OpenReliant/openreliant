@@ -280,7 +280,7 @@ fn track(world: gameobj.World, index: u16, gun: *guns.Fitted, aimed: *Aimed) voi
     const model = aimed.model;
     const base = &model.parts[aimed.base];
     const aim = ai.leadAimWithGun(all, base.object.position, valid, aimed.barrel.type, lead) orelse return drop(aimed);
-    const angles = aimAngles(aimed, aim) orelse return drop(aimed);
+    const angles = aimAngles(aimed, aim, all.holdsPlayer(index)) orelse return drop(aimed);
     aimed.to_turn = .{
         .yaw = math.halfTurn(angles.yaw - base.animation.turret[0]),
         .pitch = math.halfTurn(angles.pitch - model.parts[aimed.pitch].animation.turret[1]),
@@ -325,7 +325,8 @@ comptime {
 /// as its model and its base stand drawn: in the model's root's frame and the base's part's own,
 /// the yaw about X, then the pitch about Y. Null where they fall outside the base's yaw limits,
 /// where it has any, or the pitching part's pitch limits, or where the direction from the pitching
-/// part falls outside the turret's firing arc. A Huge Gun aimed up to `huge_overshoot` past a
+/// part falls outside the turret's firing arc, but `anywhere`, as for a Stalag with the player's
+/// ship inside it (`create.Objects.holdsPlayer`). A Huge Gun aimed up to `huge_overshoot` past a
 /// pitch limit aims at the limit. A turret whose muzzle faces back aims in its base's frame turned
 /// a half turn about X (`Aimed.reversed`).
 ///
@@ -335,11 +336,7 @@ comptime {
 /// **Fix:** the game finds the angle from Y of the direction in the arc by dividing across by the
 /// sine of its angle about Y, which is nothing for a direction straight ahead or behind;
 /// OpenReliant takes the length across itself.
-///
-/// Not ported: the Stalag's turrets fire anywhere while the byte at `0x005883F8` is set, which the
-/// hull's triggers set, perhaps with the player inside it
-/// ([#220](https://github.com/OpenReliant/openreliant/issues/220)).
-fn aimAngles(aimed: *const Aimed, aim: Vector) ?Angles {
+fn aimAngles(aimed: *const Aimed, aim: Vector, anywhere: bool) ?Angles {
     const model = aimed.model;
     const base = &model.parts[aimed.base];
     const in_base = math.transformTransposed(base.animation.orientation, math.transformTransposed(model.orientation, aim - base.object.position));
@@ -370,7 +367,7 @@ fn aimAngles(aimed: *const Aimed, aim: Vector) ?Angles {
     }
     if (degrees > most or degrees < least) return null;
 
-    if (aimed.arc) |arc| {
+    if (!anywhere) if (aimed.arc) |arc| {
         const w = math.transformTransposed(model.orientation, aim - pitching.object.position);
         const around = std.math.atan2(w[0], w[2]);
         const from = std.math.atan2(@sqrt(w[0] * w[0] + w[2] * w[2]), w[1]);
@@ -379,7 +376,7 @@ fn aimAngles(aimed: *const Aimed, aim: Vector) ?Angles {
         const rows = [2]u5{ @truncate(row), @truncate(row +% 1) };
         const columns = [2]u4{ @truncate(@as(u32, @bitCast(-%column))), @truncate(@as(u32, @bitCast(1 -% column))) };
         for (rows) |r| for (columns) |c| if (!arc.open(r, c)) return null;
-    }
+    };
     return .{ .yaw = math.halfTurn(yaw), .pitch = pitch };
 }
 
@@ -403,6 +400,7 @@ fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed) void {
     aimed.to_turn = .{};
     const huge = aimed.barrel.type.base().huge();
     const from = aimed.model.parts[aimed.base].object.position;
+    const anywhere = all.holdsPlayer(index);
     const components_aimed = own.flags.components and switch (own.type.base()) {
         .kurgan, .antanov, .nanny, .prowler => false,
         else => true,
@@ -415,12 +413,12 @@ fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed) void {
         if (huge and !object.flags.components) continue;
         aimed.target = .at(candidate, null);
         if (object.component_count < 1 or huge) {
-            if (reaches(all, aimed, from)) return;
+            if (reaches(all, aimed, from, anywhere)) return;
         } else if (components_aimed) {
             for (slot.listed(), 0..) |component, number| {
                 if (component == null) continue;
                 aimed.target = .at(candidate, @intCast(number));
-                if (reaches(all, aimed, from)) return;
+                if (reaches(all, aimed, from, anywhere)) return;
             }
         }
     }
@@ -428,11 +426,11 @@ fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed) void {
 }
 
 /// Whether an aimed turret can lead its target, where it is valid, from `from`, and aim at where it
-/// leads it.
-fn reaches(all: *const create.Objects, aimed: *const Aimed, from: Vector) bool {
+/// leads it, its firing arc aside where it aims `anywhere` (`aimAngles`).
+fn reaches(all: *const create.Objects, aimed: *const Aimed, from: Vector, anywhere: bool) bool {
     const valid = ai.ValidTarget.of(all, aimed.target, .{}) orelse return false;
     const aim = ai.leadAimWithGun(all, from, valid, aimed.barrel.type, 1) orelse return false;
-    return aimAngles(aimed, aim) != null;
+    return aimAngles(aimed, aim, anywhere) != null;
 }
 
 /// How fast a spinning gun's barrels spin up and down a tick, and at most (`0x004DC420`,
@@ -763,21 +761,21 @@ test aimAngles {
     // Its zero aim is along -Z of its base's frame; it yaws toward Y about X, and pitches toward X
     // about Y.
     try std.testing.expect(!aimed.reversed);
-    try std.testing.expectEqual(Angles{}, aimAngles(aimed, .{ 0, 0, -1000 }).?);
-    const up = aimAngles(aimed, .{ 0, 1000, -1000 }).?;
+    try std.testing.expectEqual(Angles{}, aimAngles(aimed, .{ 0, 0, -1000 }, false).?);
+    const up = aimAngles(aimed, .{ 0, 1000, -1000 }, false).?;
     try std.testing.expectApproxEqAbs(std.math.pi / 4.0, up.yaw, 1e-6);
     try std.testing.expectApproxEqAbs(0, up.pitch, 1e-6);
-    const aside = aimAngles(aimed, .{ 1000, 0, -1000 }).?;
+    const aside = aimAngles(aimed, .{ 1000, 0, -1000 }, false).?;
     try std.testing.expectApproxEqAbs(0, aside.yaw, 1e-6);
     try std.testing.expectApproxEqAbs(-std.math.pi / 4.0, aside.pitch, 1e-6);
     // Past the pitching part's limit it can't aim; nor past its base's, where it has any.
-    try std.testing.expectEqual(null, aimAngles(aimed, .{ 3000, 0, -1000 }));
+    try std.testing.expectEqual(null, aimAngles(aimed, .{ 3000, 0, -1000 }, false));
     aimed.model.parts[0].animation.angles_min[0] = -30;
     aimed.model.parts[0].animation.angles_max[0] = 30;
-    try std.testing.expectEqual(null, aimAngles(aimed, .{ 0, 1000, -1000 }));
+    try std.testing.expectEqual(null, aimAngles(aimed, .{ 0, 1000, -1000 }, false));
     // A Huge Gun up to 20 degrees past its pitch limit aims at the limit.
     aimed.barrel.type = .of(.allied_huge_gun);
-    const past = aimAngles(aimed, .{ 1000, 0, -500 }).?;
+    const past = aimAngles(aimed, .{ 1000, 0, -500 }, false).?;
     try std.testing.expectApproxEqAbs(-60 * std.math.rad_per_deg, past.pitch, 1e-6);
     aimed.barrel.type = .of(.turret_lasers);
     aimed.model.parts[0].animation.angles_min[0] = 0;
@@ -786,10 +784,13 @@ test aimAngles {
     // the turret's aim, lets it fire there, where the game divides nothing by nothing.
     var arc = std.mem.zeroes(shp.FiringArc);
     aimed.arc = &arc;
-    try std.testing.expectEqual(null, aimAngles(aimed, .{ 0, 0, -1000 }));
+    try std.testing.expectEqual(null, aimAngles(aimed, .{ 0, 0, -1000 }, false));
+    // A turret that aims anywhere, as a Stalag's with the player's ship inside, leaves its arc
+    // aside.
+    try std.testing.expect(aimAngles(aimed, .{ 0, 0, -1000 }, true) != null);
     arc.rows[16] = 0b11;
     arc.rows[17] = 0b11;
-    try std.testing.expect(aimAngles(aimed, .{ 0, 0, -1000 }) != null);
+    try std.testing.expect(aimAngles(aimed, .{ 0, 0, -1000 }, false) != null);
 }
 
 test "a turret whose muzzle faces back aims along it" {
@@ -809,8 +810,8 @@ test "a turret whose muzzle faces back aims along it" {
     try std.testing.expect(aimed.model.parts[0].animation.reversed);
 
     // It aims along its muzzle, and turns its pitch the other way round as it poses.
-    try std.testing.expectEqual(Angles{}, aimAngles(aimed, .{ 0, 0, 1000 }).?);
-    const aside = aimAngles(aimed, .{ 1000, 0, 1000 }).?;
+    try std.testing.expectEqual(Angles{}, aimAngles(aimed, .{ 0, 0, 1000 }, false).?);
+    const aside = aimAngles(aimed, .{ 1000, 0, 1000 }, false).?;
     try std.testing.expectApproxEqAbs(-std.math.pi / 4.0, aside.pitch, 1e-6);
     aimed.model.swivel(0, .{ 0, aside.pitch, 0 });
     aimed.model.pose(0);

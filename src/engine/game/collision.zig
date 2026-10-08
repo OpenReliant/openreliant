@@ -672,17 +672,15 @@ const hull_passes = 9;
 /// the reserve by the damage before the ship takes its share of it (`taken_share`).
 const reserve_drain: f32 = 1 / taken_share;
 
-/// `collision_test_hull` (`0x00465380`): the nearest face of the hull to the ship's sphere. The
+/// `collision_test_hull` (`0x00465380`): first the player's ship is tested against the hull's
+/// trigger polygons (`crossTriggers`). Then the nearest face of the hull to the ship's sphere: the
 /// ship is shoved at its own centre and the hull at the face, so the hull turns about the hit and
 /// the ship does not. A torpedo then strikes the hull (`torpedoStrikes`). Any other ship takes the
 /// damage on the quadrant it was struck in (`knockDamage`); its shield reserve is drawn by twice
 /// that, as the game halves the damage only once it has drawn the reserve. A force field the ship
 /// hits glows whole (`shield.flareCapital`).
-///
-/// Not ported: the game first tests the player's ship against each part's trigger polygons, which
-/// one shipped model carries, the Stalag's, and posts its trigger events as the ship crosses them
-/// ([#220](https://github.com/OpenReliant/openreliant/issues/220)).
 fn hullHit(world: gameobj.World, ship: u16, hull: u16, pass: u8) bool {
+    crossTriggers(world, ship, hull);
     const all = world.objects;
     const model = if (all.slots[hull].model) |*live| live else return false;
     const object = &all.slots[hull].object;
@@ -709,6 +707,35 @@ fn hullHit(world: gameobj.World, ship: u16, hull: u16, pass: u8) bool {
     knockDamage(world, ship, struck, value, value * reserve_drain, hull, contact, .after);
     if (found.part.part().force_field) shield.flareCapital(world, hull, found.part, null);
     return true;
+}
+
+/// `collision_test_hull`'s first part (`0x0046539D`): where the ship in slot `ship` is the
+/// player's, its step crossing a trigger polygon of one of the hull's parts (`objects.Trigger`),
+/// from where it stands to where it goes next, each in the part's frame as the part stands then,
+/// posts its InsideObject or its OutsideObject (`events.insideObject`); and where the hull is a
+/// Stalag, the player's ship is inside it from then on, or no longer
+/// (`create.Objects.in_stalag`). Only the Stalag's model ships trigger polygons.
+fn crossTriggers(world: gameobj.World, ship: u16, hull: u16) void {
+    const all = world.objects;
+    if (ship != all.player) return;
+    const slot = &all.slots[hull];
+    const model = if (slot.model) |*live| live else return;
+    const mover = &all.slots[ship].object;
+    var children = model.rootChildren();
+    while (children.next()) |child| {
+        const data = model.partData(child.index) orelse continue;
+        if (data.triggers.len == 0 or data.meshes.len == 0) continue;
+        const now = model.placeOf(slot.object.placeAt(.now), child.part, .now) orelse continue;
+        const next = model.placeOf(slot.object.placeAt(.next), child.part, .next) orelse continue;
+        const from = now.inverse(gameobj.vector(mover.root.position));
+        const to = next.inverse(mover.nextPosition());
+        for (data.triggers) |polygon| {
+            const trigger = objects.Trigger.of(polygon, data.meshes[0]) orelse continue;
+            const way = trigger.crossing(from, to) orelse continue;
+            if (slot.object.type.base() == .stalag) all.in_stalag = way == .inside;
+            events.insideObject(world, ship, way == .inside);
+        }
+    }
 }
 
 /// An assembly part holding more armour than this passes a torpedo's hit on to no hull part
@@ -1275,4 +1302,40 @@ test "what never collides" {
     all.slots[far].object.flags.components = true;
     try std.testing.expect(!collide(world, near, far, 0));
     try std.testing.expectEqual(0, all.slots[near].object.root.position.x);
+}
+
+test crossTriggers {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const all = mission.objects;
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    // The square part's face is a trigger polygon, facing along +Z.
+    var polygons = [_]@import("../../formats/shp.zig").TriggerPolygon{.{ .vertices = .{ 0, 1, 2, 3 } }};
+    model.data[0].triggers = &polygons;
+    const world = mission.world();
+    const player = try mission.add(.of(.predator), .{ 0, 0, 50 });
+    const stalag = try mission.addWith(model.types(), .of(.stalag), @splat(0));
+    const other = try mission.add(.of(.predator), .{ 0, 0, 50 });
+    const ship = &all.slots[player].object;
+
+    // The player's ship going through it from the front is inside the Stalag, whose turrets then
+    // aim anywhere; going back out, it isn't.
+    ship.root.next_position = .{ .x = 0, .y = 0, .z = -50 };
+    crossTriggers(world, player, stalag);
+    try std.testing.expect(all.in_stalag and all.holdsPlayer(stalag) and !all.holdsPlayer(player));
+    ship.root.position = .{ .x = 0, .y = 0, .z = -50 };
+    ship.root.next_position = .{ .x = 0, .y = 0, .z = 50 };
+    crossTriggers(world, player, stalag);
+    try std.testing.expect(!all.in_stalag);
+    // Passing beside it, or another ship going through it, does nothing.
+    ship.root.position = .{ .x = 500, .y = 0, .z = 50 };
+    ship.root.next_position = .{ .x = 500, .y = 0, .z = -50 };
+    crossTriggers(world, player, stalag);
+    all.slots[other].object.root.next_position = .{ .x = 0, .y = 0, .z = -50 };
+    crossTriggers(world, other, stalag);
+    try std.testing.expect(!all.in_stalag);
 }
