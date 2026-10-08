@@ -102,9 +102,8 @@ pub const Facts = struct {
 
     pub fn of(all: *const create.Objects, index: u16) Facts {
         const slot = &all.slots[index];
-        const name = if (slot.combat) |combat| combat.name else 0;
         return .{
-            .name = if (name != 0) name else null,
+            .name = if (slot.combat) |combat| combat.nameString() else null,
             .range = hud.kilometres(all, index),
             .speed = hud.round(slot.object.speed),
         };

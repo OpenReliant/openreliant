@@ -520,11 +520,11 @@ fn flashNear(world: gameobj.World, index: u16) void {
 /// **Fix:** the Victorious' front half takes its own drift and turn, where the game goes on
 /// into the Kronstadt's wreck's and takes that instead.
 fn otherHalfEnd(half: *gameobj.GameObject, orientation: math.Matrix) void {
-    const drift: Vector, const tumble: Vector = switch (@backingInt(half.type.base())) {
-        0x6B => .{ .{ -1.5, 20, -2 }, @splat(0) },
-        0xAD, 0xB7 => .{ .{ -1.5, -40, -2 }, @splat(0) },
-        0xBD => .{ .{ 0, -20, 0 }, .{ 0, 0.0005, 0 } },
-        0xC5 => .{ .{ 30, 20, 4 }, .{ 0, 0, 0.001 } },
+    const drift: Vector, const tumble: Vector = switch (half.type.base()) {
+        .kronstadt_wreck => .{ .{ -1.5, 20, -2 }, @splat(0) },
+        .rogue_base_wreck_top, .latov_wreck_1 => .{ .{ -1.5, -40, -2 }, @splat(0) },
+        .stalag_wreck_1 => .{ .{ 0, -20, 0 }, .{ 0, 0.0005, 0 } },
+        .victorious_wreck_front => .{ .{ 30, 20, 4 }, .{ 0, 0, 0.001 } },
         else => .{ Split.other_drift, Split.other_tumble },
     };
     half.rotation = math.fromAngleVector(tumble);

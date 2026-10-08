@@ -14,8 +14,9 @@
 //! [`damage.zig`](damage.zig), [`power.zig`](power.zig),
 //! [`objectives_window.zig`](objectives_window.zig), the radio's menu
 //! ([`radio/menu.zig`](../radio/menu.zig)), [`wing_status.zig`](wing_status.zig)).
-//! Not yet: what windows 5, 6, 9, 12 and 14 are for, and what window 14 shows
-//! ([#105](https://github.com/OpenReliant/openreliant/issues/105)).
+//! Window 14 shows the radio's menu too. **Unknown:** what windows 5, 6, 9, 12 and 14 were meant
+//! for. Nothing in the shipped game opens them: no key, no call of the executable's own, and no
+//! shipped mission's `OpenInstrument`, which opens only window 10.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -39,15 +40,15 @@ pub const Window = enum(u4) {
     target = 3,
     /// A bar each for the weapons, the engines and the shields.
     damage = 4,
-    /// Frames alone, which no key opens and a mission's script may (`OpenInstrument`).
-    /// **Unknown:** what they are for.
+    /// Frames alone, as are windows 9 and 12, which only a mission's script can open
+    /// (`OpenInstrument`), and no shipped mission does. **Unknown:** what they were meant for.
     _unknown_5 = 5,
     _unknown_6 = 6,
     /// The power distribution: the ball and the shares of the guns, the engines and the shields.
     power = 7,
     /// The target display's large form, for a big target: its own picture and its subtarget.
     big_target = 8,
-    /// A frame alone, which never opens in a multiplayer game. **Unknown:** what it is for.
+    /// A frame alone, which never opens in a multiplayer game.
     _unknown_9 = 9,
     /// The mission's objectives.
     objectives = 10,
@@ -56,8 +57,10 @@ pub const Window = enum(u4) {
     _unknown_12 = 12,
     /// The wing's fighters, each with a bar for its damage.
     wing_status = 13,
-    /// **Unknown:** what it shows.
-    _unknown_14 = 14,
+    /// The radio's menu again, further into its frame than window 11's, and in every view
+    /// (`0x0048801A`). **Unknown:** what it is for: only a mission's script can open it, and no
+    /// shipped mission does.
+    other_comms = 14,
 
     /// Whether it is one of the windows that stand still and unseen in mission 25's first part,
     /// where the player flies a Kamov (`hud_draw`, `0x00486408`): the gunnery, missile and wing
@@ -142,7 +145,7 @@ pub const layouts: std.EnumArray(Window, Layout) = .init(.{
     .comms = .{ .at = .{ 0, 0 }, .in_buffer = .{ 0, 0 }, .frame = &.{ pieces.p1, pieces.p0 }, .stay = 1500 },
     ._unknown_12 = .{ .at = .{ 0, 0 }, .in_buffer = .{ 0, 0 }, .frame = &.{ pieces.p0, pieces.p1 }, .stay = 1000 },
     .wing_status = .{ .at = .{ 1, 0.5 }, .in_buffer = .{ 1, 0.5 }, .frame = &.{pieces.p16}, .stay = 1000 },
-    ._unknown_14 = .{ .at = .{ 0, 0 }, .in_buffer = .{ 0, 0 }, .frame = &.{ pieces.p1, pieces.p0 }, .stay = 2000 },
+    .other_comms = .{ .at = .{ 0, 0 }, .in_buffer = .{ 0, 0 }, .frame = &.{ pieces.p1, pieces.p0 }, .stay = 2000 },
 });
 
 /// What a window's record holds as the game runs.
@@ -467,6 +470,12 @@ fn draw(windows: *Windows, pen: hud.Pen, window: Window, shown: Shown, ahead: bo
         if (contents.radio) |radio| try hud.radio.frame(radio, windows, canvas, ahead);
         return;
     }
+    // Window 14 shows the radio's menu in any view, where window 11 shows it only in the view
+    // ahead (`0x0048801A`).
+    if (window == .other_comms) {
+        if (contents.comms) |comms| try radio_module.menu.draw(comms, canvas, radio_module.menu.other_window_at);
+        return;
+    }
     if (!ahead) return;
     const phase = windows.status.get(window).phase;
     switch (window) {
@@ -475,7 +484,7 @@ fn draw(windows: *Windows, pen: hud.Pen, window: Window, shown: Shown, ahead: bo
         .damage => if (contents.damage) |damage| try hud.damage.draw(damage, canvas),
         .power => if (contents.power) |power| try hud.power.draw(power, canvas),
         .objectives => if (contents.objectives) |objectives| try hud.objectives_window.draw(objectives, canvas),
-        .comms => if (contents.comms) |comms| try radio_module.menu.draw(comms, canvas),
+        .comms => if (contents.comms) |comms| try radio_module.menu.draw(comms, canvas, radio_module.menu.window_at),
         .wing_status => if (contents.wing_status) |wing| try hud.wing_status.draw(wing, canvas),
         else => if (hud.target_display.Form.of(window)) |form| if (contents.target_display) |scene| {
             try scene.draw(form, phase == .closing, canvas);

@@ -812,6 +812,12 @@ pub const Type = enum(u32) {
         return additions.ships.get(object_type.number());
     }
 
+    /// The game's type it is; null for one a mod adds.
+    pub fn gameType(object_type: Type) ?GameType {
+        if (object_type.added() != null) return null;
+        return @fromBackingInt(object_type.number());
+    }
+
     pub fn number(object_type: Type) u32 {
         return @backingInt(object_type);
     }
@@ -898,7 +904,7 @@ pub const GameObject = extern struct {
     /// The renderer's object for it, or null.
     render: Pointer(anyopaque),
     /// The shape the wing status window shows it by, which the mission's start gives each ship of
-    /// the player's wing by its type (`main.startWing`); 0 for none, as created.
+    /// the player's wing by its type (`main.startWing`); 0 for none, as created (`wingIcon`).
     wing_icon: u16,
     _unknown_26: u16,
     /// The root of its model hierarchy.
@@ -1325,6 +1331,11 @@ pub const GameObject = extern struct {
 
     /// Where it will stand at the next step (`root.next_position`), which the AI, the collisions
     /// and the sounds go by.
+    /// The shape the wing status window shows it by (`wing_icon`), if it has one.
+    pub fn wingIcon(object: *const GameObject) ?u16 {
+        return if (object.wing_icon != 0) object.wing_icon else null;
+    }
+
     pub fn nextPosition(object: *const GameObject) Vector {
         return vector(object.root.next_position);
     }
@@ -1502,6 +1513,24 @@ pub const GunMode = packed struct(u16) {
         return .{ .group = 0, ._unknown_3 = false, .all = groups != 1, .synchronised = true, ._unknown_6 = 0 };
     }
 };
+
+test "Type.gameType" {
+    try std.testing.expectEqual(GameType.kiev, Type.of(.kiev).gameType().?);
+    // A type a mod adds is none of the game's, though it acts as its base.
+    var list = [_]additions.ships.Added{.{ .name = "a:pot", .mod = "a", .base = .predator, .extra = .{ .model = "pot.shp" } }};
+    additions.ships.install(&list);
+    defer additions.ships.reset();
+    const pot: Type = @fromBackingInt(additions.ships.first);
+    try std.testing.expectEqual(null, pot.gameType());
+    try std.testing.expectEqual(GameType.predator, pot.base());
+}
+
+test "GameObject.wingIcon" {
+    var object = std.mem.zeroes(GameObject);
+    try std.testing.expectEqual(null, object.wingIcon());
+    object.wing_icon = 0xFC;
+    try std.testing.expectEqual(0xFC, object.wingIcon().?);
+}
 
 test "Type.untwinned" {
     try std.testing.expectEqual(Type.of(.predator), Type.untwinned(.of(.t_predator)));

@@ -68,8 +68,8 @@ A path runs on from the ship a curve ends at through the curve that carries it o
 **Fix:** the game walks a path that comes round on itself for ever, so that measuring it never
 ends. Two curves that end at the same ship are enough, as each carries the path on into the other.
 OpenReliant stops measuring and flying such a path once it has taken as many curves as the mission
-has, so that the shot ends. Ship Follow Curve still flies one for ever
-([#535](https://github.com/OpenReliant/openreliant/issues/535)).
+has, so that the shot ends, and Ship Follow Curve's path ends there too
+([Orders](orders.md)).
 
 Ships follow the same paths by Ship Follow Curve and its backwards twin
 ([Following a path](orders.md#following-a-path)).

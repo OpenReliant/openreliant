@@ -474,8 +474,9 @@ clears the mark.
 | 0 | the player's own ship: the schematic; the hits, for a type of the target display's small form; the shields, what [SHIELD BALANCING](controls.md#the-shield-balance) shifted beyond the fore and aft shields (shapes `0xB2` and `0xB7` less the level, at `(-0x1A, -0x24)` and `(-0x26, 0x1D)`), then the armour | 0.3 of the way across the screen, at the foot, 2 right and 44 up; the schematic and the hits at `(-0x22, -0x1B)` from there |
 | 1 | the target, in the target display's small form: for a type of the small form, the schematic and the hits, mirrored across unless the type is hostile, where a comms relay or a deathmatch beacon leaves out the hits; the shields and the armour mirrored across, the left arcs the player's right ones and on the left | `(-4, -0x2C)` from window 3's place; the schematic at `(-0x1C, -0x1A)` and the hits at `(-0x1E, -0x1B)` from there |
 
-In mode 1 a stand-in target closes window 3. **Not ported:** in mission 25, a Kamov's schematic
-drawn mirrored in mode 0 ([#528](https://github.com/OpenReliant/openreliant/issues/528)).
+In mode 1 a stand-in target closes window 3. In mode 0, in mission 25 (`mission_number`,
+`0x00562DC8`), the schematic of a ship of type `0x2D`, the Kamov, is drawn mirrored across, still or
+shaken (`0x004895BE`, `0x00489600`), but its hits are not.
 
 ## The target display
 
@@ -784,14 +785,19 @@ status window where it is up, and opening the radio's menu starts it afresh (`co
 | 2 | top, middle | 200 | the missile display |
 | 3 | foot, `0.7` across | 2000 | the target display's small form |
 | 4 | top, right | 1000 | the damage display |
-| 5, 6, 12 | top, left | 200, 200, 1000 | its frame alone; no key opens them |
+| 5, 6, 12 | top, left | 200, 200, 1000 | its frame alone |
 | 7 | left, middle | 1000 | the power distribution |
 | 8 | foot, right | 2000 | the target display's large form |
-| 9 | right, middle | 1000 | its frame alone; no key opens it |
+| 9 | right, middle | 1000 | its frame alone, and it never opens in a multiplayer game |
 | 10 | right, middle | 1000 | the mission objectives |
 | 11 | top, left | 1500 | the communications menu |
 | 13 | right, middle | 1000 | the wing status |
-| 14 | top, left | 2000 | **Unknown:** what it shows |
+| 14 | top, left | 2000 | the communications menu again, `(0xF, 0x15)` from its place where window 11 draws it at `(2, 2)`, and in every view, where window 11 shows it only in the view ahead (`0x0048801A`) |
+
+Nothing in the shipped game opens windows 5, 6, 9, 12 and 14. No key opens them; every call of
+`hud_window_open` in the executable names one of windows 1, 2, 3, 4, 7, 8, 10, 11 and 13, but
+`OpenInstrument`'s, which passes the script's number; and every `OpenInstrument` in the shipped
+missions opens window 10. A custom mission can open them.
 
 The phases are 0 shut, 1 opening, 2 closing and 3 open.
 
@@ -1094,8 +1100,7 @@ the instruments and the windows.
 ## What is not known yet
 
 - The names of the display's elements, which `hud_init` copies from `0x00515D70`.
-- What windows 5, 6, 9, 12 and 14 are for, which no key opens and a mission's script may, and
-  what window 14 shows ([#105](https://github.com/OpenReliant/openreliant/issues/105)).
+- What windows 5, 6, 9, 12 and 14 were meant for, which nothing in the shipped game opens.
 - Why blind fire leaves the Nova Cannon alone.
 - What `hud_palette_ramp` (`0x0048D590`) colours, and whether the display's text takes its palette
   from it rather than from the font.
