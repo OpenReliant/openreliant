@@ -8,6 +8,7 @@
 const std = @import("std");
 
 const openreliant = @import("openreliant");
+const shp = openreliant.shp;
 const engine = openreliant.engine;
 const hud = engine.game.hud;
 const target_forms = hud.target_display;
@@ -21,8 +22,10 @@ const gameobj = engine.game.gameobj;
 const Object = engine.hooks.Object;
 const gun_types = engine.game.guns;
 const missile_display = hud.missile_display;
+const gunnery = hud.gunnery;
 const create = engine.game.create;
 const Target = engine.hooks.Target;
+const Quadrant = engine.game.collision.Quadrant;
 const api = @import("api.zig");
 const Call = api.Call;
 const values = @import("values.zig");
@@ -68,14 +71,24 @@ pub const Guns = struct {
     /// The guns' charge, and the most they hold.
     charge: f32,
     full_charge: f32,
+    /// Whether the gunnery window shows how the chosen group's pair of guns fires, together or in
+    /// turn as `synchronised` says: while one group fires, of two guns, but not the Nova Cannon's.
+    paired: bool,
+    /// The rounds left, which the gunnery window shows on the ships whose guns fire them: the
+    /// Grendel, the Wolverine and the Reaper; nil on the others.
+    rounds: ?i32,
 };
 
-/// A missile type on the missile window's ring, and how many are left.
+/// A missile type on the missile window's ring, how many are left, and where it stands.
 pub const RingMissile = struct {
     pub const script_name = "HudMissile";
 
     type: engine.game.missiles.Type,
     left: i16,
+    /// Its place round the ring, from 0, the armed one's at six o'clock, to 9. ROTATE MISSILES
+    /// CLOCKWISE moves each one place on at once, and ANTICLOCKWISE one place back: the ring
+    /// doesn't turn smoothly.
+    place: i16,
 };
 
 /// The player's missiles as the missile window shows them.
@@ -100,6 +113,9 @@ pub const Radar = struct {
     reach: f32,
     /// Whether its rings are still moving to that range's.
     zooming: bool,
+    /// Where the rings stand, in ranges: the range's own while still, and between two ranges'
+    /// while they move, a fifth of a range on each frame in the view ahead from the cockpit.
+    rings: f32,
     /// What it shows, in the objects' slots' order: the display's nav point, and the objects
     /// within its reach.
     contacts: Contacts,
@@ -141,9 +157,13 @@ pub const TargetDisplay = struct {
     /// the small form shows them; nil for a ship without them.
     shields: ?Arcs,
     armor: ?Arcs,
-    /// The class of the subtarget's part, as the large form names it, and how much of the bar for
-    /// its armour is lit, from 0 to 1, nil for a part without armour; both nil without a
-    /// subtarget the form shows.
+    /// Its own quadrants that flashed on its schematic as the small form last drew: those its armour
+    /// had been hit on since the form drew before. None in the large form.
+    hits: Hits,
+    /// The class of the subtarget's part, which picks the icon the large form draws for it, the
+    /// name the form writes for the class, and how much of the bar for its armour is lit, from 0
+    /// to 1, nil for a part without armour; all nil without a subtarget the form shows.
+    subtarget_class: ?shp.Part.Class,
     subtarget: ?Text,
     subtarget_armor: ?f32,
     /// How much of the large form's bar for the hull is lit, from 0 to 1; nil for a ship with none.
@@ -206,7 +226,21 @@ pub const ShipStatus = struct {
     /// 0 to 5.
     reserve_fore: i32,
     reserve_aft: i32,
+    /// The quadrants that flashed on the ship's schematic as the indicator last drew: those its
+    /// armour had been hit on since it drew before.
+    hits: Hits,
 };
+
+/// Quadrants of a ship hit since a display last drew, which hold them all.
+pub const Hits = values.List(Quadrant, std.enums.values(Quadrant).len);
+
+/// The quadrants in `set`, in their order: left, right, fore and aft.
+fn hitsOf(set: hud.Hits) Hits {
+    var list: Hits = .{};
+    var each = set.iterator();
+    while (each.next()) |quadrant| list.append(quadrant);
+    return list;
+}
 
 /// The damage window: how well each system still works as the armour wears, from 0 to 1.
 pub const Damage = struct {
@@ -344,6 +378,8 @@ pub const guns = api.Field(?Guns, "The player's guns as the gunnery window and t
             .gun = slot.groupLead(mode.group),
             .charge = slot.object.gun_charge,
             .full_charge = combat.gun_energy,
+            .paired = gunnery.pairShown(slot),
+            .rounds = gunnery.roundsShown(&slot.object),
         };
     }
 });
@@ -355,7 +391,7 @@ pub const missiles = api.Field(?Missiles, "The player's missiles as the missile 
         var shown: Missiles = .{ .armed = null, .left = 0, .ring = .{} };
         for (ring.entries) |entry| {
             const left = entry.left() orelse continue;
-            shown.ring.append(.{ .type = entry.type, .left = left });
+            shown.ring.append(.{ .type = entry.type, .left = left, .place = entry.place });
         }
         if (ring.entries[ring.armed].left()) |left| {
             shown.armed = ring.entries[ring.armed].type;
@@ -378,7 +414,13 @@ pub const radar = api.Field(?Radar, "The radar: its range, and the contacts it s
         const flight, _ = flightOf(call, "radar") orelse return null;
         const all = call.runtime().objects orelse return null;
         const state = flight.hud;
-        var shown: Radar = .{ .range = state.radar_range, .reach = hud.Radar.ranges[state.radar_range].reach, .zooming = state.radar_zoom != null, .contacts = .{} };
+        var shown: Radar = .{
+            .range = state.radar_range,
+            .reach = hud.Radar.ranges[state.radar_range].reach,
+            .zooming = state.radar_zoom != null,
+            .rings = hud.Radar.ringsAt(state.radar_rings),
+            .contacts = .{},
+        };
         var contacts: hud.Radar.Contacts = .of(all, state.radar_range, flight.speaker);
         while (contacts.next()) |contact| shown.contacts.append(.{
             .object = .of(contact.slot),
@@ -410,6 +452,8 @@ pub const target_display = api.Field(?TargetDisplay, "What the target display sh
             .speed = facts.speed,
             .shields = if (rings) |found| .of(found.shields) else null,
             .armor = if (rings) |found| .of(found.armor) else null,
+            .hits = hitsOf(flight.hud.flashes.target_hits),
+            .subtarget_class = if (part) |found| found.class else null,
             .subtarget = if (part) |found| stringOf(flight.strings, found.named.name) else null,
             .subtarget_armor = if (part) |found| if (found.unlit) |unlit| hud.windows.litShare(unlit, target_forms.armor_bar.rows) else null else null,
             .hull = if (bar) |found| hud.windows.litShare(found.unlit, target_forms.hull_bar.rows) else null,
@@ -465,19 +509,67 @@ pub const ship_status = api.Field(?ShipStatus, "The ship status indicator, as it
         const found, const shifted = hud.ShipStatus.playerRings(slot, flight.player.shield_reserves);
         const rings = found orelse return null;
         const reserves = shifted orelse .{ 0, 0 };
-        return .{ .shields = .of(rings.shields), .armor = .of(rings.armor), .reserve_fore = shownArcs(reserves[0]), .reserve_aft = shownArcs(reserves[1]) };
+        return .{
+            .shields = .of(rings.shields),
+            .armor = .of(rings.armor),
+            .reserve_fore = shownArcs(reserves[0]),
+            .reserve_aft = shownArcs(reserves[1]),
+            .hits = hitsOf(flight.hud.flashes.hits),
+        };
     }
 });
 
 pub const lights = api.Field(Lights, "The status lights that show, steady or flashing, in the order the display packs them; none outside a mission.", struct {
     pub fn get(call: Call) Lights {
-        var list: Lights = .{};
-        const flight, const slot = flightOf(call, "lights") orelse return list;
-        const lit = flight.hud.lightsShown(&slot.object, flight.player.matching_speed, flight.multiplayer);
-        inline for (comptime std.enums.values(hud.Light)) |light| {
-            if (@field(lit, @tagName(light))) list.append(light);
-        }
-        return list;
+        const flight, const slot = flightOf(call, "lights") orelse return .{};
+        return lightsOf(flight.hud.lightsShown(&slot.object, flight.player.matching_speed, flight.multiplayer));
+    }
+});
+
+pub const lights_lit = api.Field(Lights, "The status lights lit as the display last drew them, in the order it packs them: those of `lights`, but a flashing one only while it's lit. A warning that flashes keeps its place in the grid while it's dark; a light that `ShowHudIcon` flashes gives its place up. None outside the view ahead from the cockpit, where the display draws no lights, and outside a mission.", struct {
+    pub fn get(call: Call) Lights {
+        const flight, _ = flightOf(call, "lights_lit") orelse return .{};
+        return lightsOf(flight.hud.flashes.lights);
+    }
+});
+
+/// The lights `lit` has, in the order the display packs them.
+fn lightsOf(lit: hud.Lit) Lights {
+    var list: Lights = .{};
+    inline for (comptime std.enums.values(hud.Light)) |light| {
+        if (@field(lit, @tagName(light))) list.append(light);
+    }
+    return list;
+}
+
+/// The charges of the devices whose lights show them as bars, each from 0 to 1.
+pub const Charges = struct {
+    pub const script_name = "HudCharges";
+
+    ecm: ?f32,
+    cloak: ?f32,
+    spectral_shields: ?f32,
+};
+
+pub const charges = api.Field(?Charges, "The charges of the player's ECM, cloak and spectral shields, which their lights show as bars under them, each from 0 to 1, or nil where the ship doesn't carry the device; nil outside a mission.", struct {
+    pub fn get(call: Call) ?Charges {
+        const flight, _ = flightOf(call, "charges") orelse return null;
+        const state = flight.hud;
+        return .{ .ecm = chargeOf(state, .ecm), .cloak = chargeOf(state, .cloak), .spectral_shields = chargeOf(state, .spectral_shields) };
+    }
+});
+
+/// How much of a full charge the device `kind` has left, from 0 to 1; null where the ship doesn't
+/// carry it.
+fn chargeOf(state: *const hud.State, kind: hud.Device) ?f32 {
+    const charge = state.devices.get(kind);
+    return if (charge.setting == .absent) null else charge.share(kind);
+}
+
+pub const countermeasures_lit = api.Field(bool, "Whether the countermeasures readout was lit as the display last drew it: always in the view ahead from the cockpit, except while it's dark in a flash that `ShowHudIcon` sets; false outside the view ahead, and outside a mission.", struct {
+    pub fn get(call: Call) bool {
+        const flight, _ = flightOf(call, "countermeasures_lit") orelse return false;
+        return flight.hud.flashes.countermeasures;
     }
 });
 
@@ -603,7 +695,7 @@ pub const caption = api.Field(?Text, "The date the launch types out at the foot 
     }
 });
 
-pub const open_windows = api.Field(Instruments, "The game's windows that are open, opening or closing; none outside a mission.", struct {
+pub const open_windows = api.Field(Instruments, "The game's windows that are open, opening or closing (`window_state`); none outside a mission.", struct {
     pub fn get(call: Call) Instruments {
         var list: Instruments = .{};
         const flight, _ = flightOf(call, "open_windows") orelse return list;
@@ -616,3 +708,30 @@ pub const open_windows = api.Field(Instruments, "The game's windows that are ope
         return list;
     }
 });
+
+/// One of the game's windows, as it opens and closes.
+pub const WindowState = struct {
+    pub const script_name = "HudWindowState";
+
+    /// Where it stands in its opening and closing.
+    phase: hud.windows.Phase,
+    /// How far it has opened, from 0 to 1: rising as it opens, and falling as it closes. The game
+    /// draws it at twice its size at 0 and its own at 1, and as many times farther from the middle
+    /// of the screen.
+    opened: f32,
+};
+
+pub const window_state = api.Function("How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission.", &.{"instrument"}, struct {
+    fn get(call: Call, instrument: hud.Instrument) ?WindowState {
+        const flight, _ = flightOf(call, "window_state") orelse return null;
+        var found: ?WindowState = null;
+        for (std.enums.values(hud.windows.Window)) |window| {
+            if (hud.Instrument.ofWindow(window) != instrument) continue;
+            const status = flight.hud.windows.status.get(window);
+            const state: WindowState = .{ .phase = status.phase, .opened = status.opened() };
+            if (found) |further| if (further.opened >= state.opened) continue;
+            found = state;
+        }
+        return found;
+    }
+}.get);

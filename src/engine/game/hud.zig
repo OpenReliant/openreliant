@@ -2421,6 +2421,7 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
     // in for, and which notes where it drew.
     var placing: Placings = .init(frame, pen.scale);
     defer placing.keep(state);
+    state.flashes = .{};
     state.messages.expire(frame.clock.frame_start);
     state.followTarget(frame.all, frame.multiplayer);
     if (frame.sound) |sound| state.lock.sound(sound, frame.view);
@@ -3255,6 +3256,22 @@ pub const Lit = packed struct(u9) {
     }
 };
 
+/// What flashes in the display this frame, as `hud_draw` moves the flashes on, kept for the mods'
+/// displays (`State.flashes`). All dark outside the view ahead from the cockpit, where none of it
+/// draws.
+///
+/// **Improvement:** OpenReliant's, for the scripts.
+pub const Flashes = struct {
+    /// The lights lit: those that show, but a flashing one only while it's lit (`State.drawLights`).
+    lights: Lit = .{},
+    /// Whether the countermeasures readout is lit, which `ShowHudIcon` can flash (`State.shows`).
+    countermeasures: bool = false,
+    /// The quadrants that flash on the player's schematic, and on the target's in the target
+    /// display's small form (`ShipStatus.Shown.hits`).
+    hits: Hits = .empty,
+    target_hits: Hits = .empty,
+};
+
 /// How the display flashes a shape: lit for the first `on` ticks of every `period`.
 pub const Flash = struct {
     on: i32,
@@ -3433,6 +3450,11 @@ pub const Charge = struct {
         const length = @as(f32, @floatFromInt(charge.ticks)) * kind.spec().bar_scale;
         return if (length < 0) 0 else round(length);
     }
+
+    /// How much of a full charge is left, from 0 to 1, which the bar shows.
+    pub fn share(charge: Charge, kind: Device) f32 {
+        return @as(f32, @floatFromInt(charge.ticks)) / @as(f32, @floatFromInt(kind.spec().full));
+    }
 };
 
 /// The colour the charge bars are drawn in: `hud_colour(0xE7, 0x68, 0x00)` (`0x0048D780`).
@@ -3555,6 +3577,8 @@ pub const State = struct {
     /// Where each instrument last drew, in the window's pixels, as the mods' displays place it
     /// (`Placings`); null for one that hasn't drawn yet. Kept for the scripts.
     bounds: std.EnumArray(Instrument, ?Clip) = .initFill(null),
+    /// What flashes this frame. Kept for the scripts.
+    flashes: Flashes = .{},
 
     /// `hud_draw`'s work on the devices' charges for a frame, which it does in every view: a
     /// device that runs dry is turned off. The cloak's charge runs only outside a multiplayer
@@ -3711,6 +3735,7 @@ pub const State = struct {
                     .missile_incoming => Flash.fast.step(&state.warning_ticks, frame_duration),
                     else => true,
                 };
+                @field(state.flashes.lights, @tagName(light)) = drawn;
                 // Every light shakes but reverse thrust's.
                 const how: Draw = .{ .shake = if (light == .reverse_thrust) null else pen.shake };
                 if (drawn) try pen.shapeWith(@backingInt(light), at, how);
@@ -3772,10 +3797,13 @@ pub const State = struct {
         const gauges = Cluster.Gauges.of(slot) orelse return;
         if (frame.sight) |sight| try drawNavMarker(placing.pen(pen, .nav_marker), sight, frame.all);
         for (std.enums.values(Readout)) |readout| {
-            if (!state.shows(readout, frame_duration)) continue;
+            const shown = state.shows(readout, frame_duration);
+            if (readout == .coil) state.flashes.countermeasures = shown;
+            if (!shown) continue;
             try readout.draw(placing.pen(pen, readout.instrument()), readout.value(slot, frame.player));
         }
         const status = ShipStatus.ofPlayer(slot, frame.all.mission_number, &state.ship_hits, frame.player.shield_reserves);
+        state.flashes.hits = status.hits;
         const status_pen = placing.pen(pen, .ship_status);
         try ShipStatus.draw(status, .player, status_pen, status_pen.placed(ShipStatus.offset, ShipStatus.across, ShipStatus.down), null);
         try drawCluster(placing.pen(pen, .gauges), gauges);
@@ -4486,6 +4514,7 @@ test Charge {
         const charge: Charge = .full(kind);
         try std.testing.expectEqual(.off, charge.setting);
         try std.testing.expectEqual(32, charge.bar(kind));
+        try std.testing.expectEqual(1, charge.share(kind));
     }
     // On, the spectral shields spend six ticks a tick, so ten seconds run them dry.
     var shields: Charge = .full(.spectral_shields);
@@ -4495,6 +4524,7 @@ test Charge {
     try std.testing.expect(shields.run(.spectral_shields, 2));
     try std.testing.expectEqual(0, shields.ticks);
     try std.testing.expectEqual(0, shields.bar(.spectral_shields));
+    try std.testing.expectEqual(0, shields.share(.spectral_shields));
     // Off, a device charges a tick a tick and stops at full.
     shields.setting = .off;
     try std.testing.expect(!shields.run(.spectral_shields, 7000));
@@ -4503,6 +4533,25 @@ test Charge {
     var absent: Charge = .{ .setting = .absent, .ticks = 5 };
     try std.testing.expect(!absent.run(.ecm, 100));
     try std.testing.expectEqual(5, absent.ticks);
+}
+
+test "drawLights notes the lights it lights" {
+    const gpa = std.testing.allocator;
+    const bytes = try spr.testing.paletteAndShape(gpa);
+    defer gpa.free(bytes);
+    var art: Art = try .init(gpa, try .parse(bytes), null, null);
+    defer art.deinit(gpa);
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    const pen = testing.pen(&art, gpa, recorder.interface());
+    var state: State = .{};
+    // The lock warning is lit for the first 50 ticks of its flash, and the ECM's light steady.
+    const shown: Lit = .{ .enemy_lock = true, .ecm = true };
+    try state.drawLights(pen, shown, 10);
+    try std.testing.expectEqual(shown, state.flashes.lights);
+    // Past them, the warning is dark, though it keeps its place.
+    try state.drawLights(pen, shown, 50);
+    try std.testing.expectEqual(Lit{ .ecm = true }, state.flashes.lights);
 }
 
 test "the lights hold as hud_draw tests them" {
@@ -5609,6 +5658,18 @@ pub const Radar = struct {
     /// The ticks `hud_radar_zoom` keeps its next step ahead of `game_ticks`.
     pub const zoom_ticks: u32 = 50;
 
+    comptime {
+        // The same number of steps between each range and the next.
+        assert(range_rings[2] - range_rings[1] == range_rings[1] - range_rings[0]);
+    }
+
+    /// Where the rings' shape `rings` stands, in ranges: 0 at the closest range's, 1 at the
+    /// middle's and 2 at the widest's, and the shapes between in even steps between them.
+    pub fn ringsAt(rings: u16) f32 {
+        const steps: f32 = @floatFromInt(range_rings[1] - range_rings[0]);
+        return @as(f32, @floatFromInt(rings - range_rings[0])) / steps;
+    }
+
     /// How far each range reaches (`0x00501CA8`), and the share of a unit of the world a display
     /// pixel stands for at it (`0x00501CB8`), 0 the closest. The ranges' scales run wider than
     /// their reach.
@@ -6041,6 +6102,15 @@ test nextRadarRange {
     for (0..5) |_| stepRadarZoom(&state, 1000);
     try std.testing.expectEqual(0x166, state.radar_rings);
     try std.testing.expectEqual(null, state.radar_zoom);
+}
+
+test "Radar.ringsAt" {
+    // Each range's rings stand at the range, and the shapes between them in fifths of a range.
+    for (Radar.range_rings, 0..) |rings, range| {
+        try std.testing.expectEqual(@as(f32, @floatFromInt(range)), Radar.ringsAt(rings));
+    }
+    try std.testing.expectApproxEqAbs(0.4, Radar.ringsAt(Radar.range_rings[0] + 2), 1e-6);
+    try std.testing.expectApproxEqAbs(1.8, Radar.ringsAt(Radar.range_rings[2] - 1), 1e-6);
 }
 
 test Cluster {

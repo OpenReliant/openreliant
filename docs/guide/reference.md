@@ -121,9 +121,12 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `kills` | number, or nil | The kills the skull readout shows; nil outside a mission. |
 | `fuel` | number, or nil | The seconds of afterburner fuel the fuel readout shows; nil outside a mission. |
 | `countermeasures` | number, or nil | The countermeasures the coil readout shows; nil outside a mission. |
+| `countermeasures_lit` | boolean | Whether the countermeasures readout was lit as the display last drew it: always in the view ahead from the cockpit, except while it's dark in a flash that `ShowHudIcon` sets; false outside the view ahead, and outside a mission. |
 | `gauges` | [HudGauges](#hudgauges), or nil | The targeting cluster about the middle of the screen, as it shows the player's speed, throttle and guns; nil outside a mission. |
 | `ship_status` | [HudShipStatus](#hudshipstatus), or nil | The ship status indicator, as it shows the player's shields and armour; nil for a ship without them, or outside a mission. |
 | `lights` | list of [HudLight](#hudlight) | The status lights that show, steady or flashing, in the order the display packs them; none outside a mission. |
+| `lights_lit` | list of [HudLight](#hudlight) | The status lights lit as the display last drew them, in the order it packs them: those of `lights`, but a flashing one only while it's lit. A warning that flashes keeps its place in the grid while it's dark; a light that `ShowHudIcon` flashes gives its place up. None outside the view ahead from the cockpit, where the display draws no lights, and outside a mission. |
+| `charges` | [HudCharges](#hudcharges), or nil | The charges of the player's ECM, cloak and spectral shields, which their lights show as bars under them, each from 0 to 1, or nil where the ship doesn't carry the device; nil outside a mission. |
 | `clock` | [HudClock](#hudclock), or nil | The mission's clock as the display shows it: the countdown where the mission counts down, and the time played otherwise; nil outside a mission. |
 | `view_name` | string, or nil | The view's name the display writes at the top of the screen, in the views it names; nil in the others, the view ahead from the cockpit among them, and outside a mission. |
 | `caption` | string, or nil | The date the launch types out at the foot of the screen, as far as it has typed it; nil while it isn't shown, and outside a mission. |
@@ -136,13 +139,14 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `subtitle` | string, or nil | The line `DisplaySubTitle` shows near the foot of the screen in the director's view, whichever view it's in; nil for none, and outside a mission. |
 | `key_prompt` | [Action](#action), or nil | The action whose key `WaitForKey`'s prompt asks the player to press; nil while nothing waits, and outside a mission. |
 | `jump_prompt` | [HudJumpPrompt](#hudjumpprompt), or nil | The prompt that flashes in the view ahead for what the mission has ready: the warp's or the jump's; nil for none, and outside a mission. |
-| `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing; none outside a mission. |
+| `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing (`window_state`); none outside a mission. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
 | `register_display(name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name. |
 | `set_display_enabled(name: string, enabled: boolean)` | boolean | Enables or disables a registered HUD display by qualified name. Returns whether it exists. |
 | `bounds(instrument: HudInstrument)` | [HudBounds](#hudbounds), or nil | Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission. |
+| `window_state(instrument: HudInstrument)` | [HudWindowState](#hudwindowstate), or nil | How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
@@ -471,9 +475,12 @@ turret, and a turret's own scripts on their turret.
 | `kills` | number, or nil | The kills the skull readout shows; nil outside a mission. |
 | `fuel` | number, or nil | The seconds of afterburner fuel the fuel readout shows; nil outside a mission. |
 | `countermeasures` | number, or nil | The countermeasures the coil readout shows; nil outside a mission. |
+| `countermeasures_lit` | boolean | Whether the countermeasures readout was lit as the display last drew it: always in the view ahead from the cockpit, except while it's dark in a flash that `ShowHudIcon` sets; false outside the view ahead, and outside a mission. |
 | `gauges` | [HudGauges](#hudgauges), or nil | The targeting cluster about the middle of the screen, as it shows the player's speed, throttle and guns; nil outside a mission. |
 | `ship_status` | [HudShipStatus](#hudshipstatus), or nil | The ship status indicator, as it shows the player's shields and armour; nil for a ship without them, or outside a mission. |
 | `lights` | list of [HudLight](#hudlight) | The status lights that show, steady or flashing, in the order the display packs them; none outside a mission. |
+| `lights_lit` | list of [HudLight](#hudlight) | The status lights lit as the display last drew them, in the order it packs them: those of `lights`, but a flashing one only while it's lit. A warning that flashes keeps its place in the grid while it's dark; a light that `ShowHudIcon` flashes gives its place up. None outside the view ahead from the cockpit, where the display draws no lights, and outside a mission. |
+| `charges` | [HudCharges](#hudcharges), or nil | The charges of the player's ECM, cloak and spectral shields, which their lights show as bars under them, each from 0 to 1, or nil where the ship doesn't carry the device; nil outside a mission. |
 | `clock` | [HudClock](#hudclock), or nil | The mission's clock as the display shows it: the countdown where the mission counts down, and the time played otherwise; nil outside a mission. |
 | `view_name` | string, or nil | The view's name the display writes at the top of the screen, in the views it names; nil in the others, the view ahead from the cockpit among them, and outside a mission. |
 | `caption` | string, or nil | The date the launch types out at the foot of the screen, as far as it has typed it; nil while it isn't shown, and outside a mission. |
@@ -486,13 +493,14 @@ turret, and a turret's own scripts on their turret.
 | `subtitle` | string, or nil | The line `DisplaySubTitle` shows near the foot of the screen in the director's view, whichever view it's in; nil for none, and outside a mission. |
 | `key_prompt` | [Action](#action), or nil | The action whose key `WaitForKey`'s prompt asks the player to press; nil while nothing waits, and outside a mission. |
 | `jump_prompt` | [HudJumpPrompt](#hudjumpprompt), or nil | The prompt that flashes in the view ahead for what the mission has ready: the warp's or the jump's; nil for none, and outside a mission. |
-| `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing; none outside a mission. |
+| `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing (`window_state`); none outside a mission. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
 | `register_display(name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name. |
 | `set_display_enabled(name: string, enabled: boolean)` | boolean | Enables or disables a registered HUD display by qualified name. Returns whether it exists. |
 | `bounds(instrument: HudInstrument)` | [HudBounds](#hudbounds), or nil | Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission. |
+| `window_state(instrument: HudInstrument)` | [HudWindowState](#hudwindowstate), or nil | How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
@@ -1260,6 +1268,8 @@ A table a script gives, which may leave out a field with a default.
 | `gun` | [GunType](#guntype), or nil |
 | `charge` | number |
 | `full_charge` | number |
+| `paired` | boolean |
+| `rounds` | number, or nil |
 
 ### HudMissiles
 
@@ -1275,6 +1285,7 @@ A table a script gives, which may leave out a field with a default.
 |---|---|
 | `type` | [MissileType](#missiletype) |
 | `left` | number |
+| `place` | number |
 
 ### HudTargetDisplay
 
@@ -1287,6 +1298,8 @@ A table a script gives, which may leave out a field with a default.
 | `speed` | number |
 | `shields` | [HudArcs](#hudarcs), or nil |
 | `armor` | [HudArcs](#hudarcs), or nil |
+| `hits` | list of [Quadrant](#quadrant) |
+| `subtarget_class` | [PartClass](#partclass), or nil |
 | `subtarget` | string, or nil |
 | `subtarget_armor` | number, or nil |
 | `hull` | number, or nil |
@@ -1307,6 +1320,7 @@ A table a script gives, which may leave out a field with a default.
 | `range` | number |
 | `reach` | number |
 | `zooming` | boolean |
+| `rings` | number |
 | `contacts` | list of [HudContact](#hudcontact) |
 
 ### HudContact
@@ -1338,6 +1352,15 @@ A table a script gives, which may leave out a field with a default.
 | `armor` | [HudArcs](#hudarcs) |
 | `reserve_fore` | number |
 | `reserve_aft` | number |
+| `hits` | list of [Quadrant](#quadrant) |
+
+### HudCharges
+
+| Field | Type |
+|---|---|
+| `ecm` | number, or nil |
+| `cloak` | number, or nil |
+| `spectral_shields` | number, or nil |
 
 ### HudClock
 
@@ -1393,6 +1416,13 @@ A table a script gives, which may leave out a field with a default.
 | `top` | number |
 | `right` | number |
 | `bottom` | number |
+
+### HudWindowState
+
+| Field | Type |
+|---|---|
+| `phase` | [HudWindowPhase](#hudwindowphase) |
+| `opened` | number |
 
 ### FillStyle
 
@@ -1594,6 +1624,14 @@ number. A script can set a field to either.
 
 `small`, `large`.
 
+### Quadrant
+
+`left`, `right`, `fore`, `aft`.
+
+### PartClass
+
+`hull`, `cockpit`, `turret`, `engine`, `shield_generator`, `comms_transmitter`, `gravity_drive`, `laser_turret`, `missile_turret`, `power_core`, `satellite_dish`, `service_door`, `shaft`, `surface_building`, `twin_power_cores`, `vent_hatch`, `ion_cannon`, `armored_plate`, `cap_gun`, `warp_projector`, `fuel_pod`, or a number.
+
 ### HudContactLook
 
 `other`, `hostile`, `speaker`, `target`, `nav_point`.
@@ -1609,6 +1647,10 @@ number. A script can set a field to either.
 ### HudJumpPrompt
 
 `jump`, `warp`.
+
+### HudWindowPhase
+
+`shut`, `opening`, `closing`, `open`.
 
 ### Font
 
@@ -1657,10 +1699,6 @@ number. A script can set a field to either.
 ### Rating
 
 `total_failure`, `failure`, `partial_failure`, `partial_success`, `success`, `success_bonus`, or a number.
-
-### Quadrant
-
-`left`, `right`, `fore`, `aft`.
 
 ### DamageKind
 

@@ -1204,26 +1204,33 @@ hud.register_display("radar", {
   in the game's instrument's place.
 - What the instruments show can be read in any view during a mission, for a display that stands in
   for one or one drawn outside the game:
-  - `hud.guns`, the gun group, how the guns fire and their charge; `hud.missiles`, the ring of
-    missiles and the armed one; `hud.target`, the target the display shows and its subtarget; and
-    `hud.open_windows`.
-  - `hud.radar`, the radar's range and reach, and its contacts: each object it shows, where its
-    dot stands from the radar's middle in the game's pixels, how far below the rings' plane it
-    stands, and how it shows: the target, the ship whose line the radio's window names, a hostile,
-    the nav point or another.
+  - `hud.guns`, the gun group, how the guns fire, their charge, whether the gunnery window shows
+    how a pair fires, and the rounds left on the ships whose guns fire them; `hud.missiles`, the
+    ring of missiles, each in its place round the ring, and the armed one; `hud.target`, the target
+    the display shows and its subtarget; and `hud.open_windows`, with `hud.window_state(instrument)`
+    for how far a window has opened and whether it's opening or closing.
+  - `hud.radar`, the radar's range and reach, where its rings stand as they move between the
+    ranges', and its contacts: each object it shows, where its dot stands from the radar's middle in
+    the game's pixels, how far below the rings' plane it stands, and how it shows: the target, the
+    ship whose line the radio's window names, a hostile, the nav point or another.
   - `hud.target_display`, what the target display shows of its target in either form, open or not:
     the form, the type's and the pilot's names, the range and the speed, the arcs of its shields
-    and armour, the subtarget's name and the share of its armour's bar lit, and the share of the
-    hull's bar lit.
+    and armour, the quadrants that flash as its armour is hit, the class of the subtarget's part
+    ([PartClass](reference.md#partclass)), its name and the share of its armour's bar lit, and the
+    share of the hull's bar lit.
   - The readouts: `hud.fuel`, the seconds of afterburner fuel; `hud.kills`; and
-    `hud.countermeasures`.
+    `hud.countermeasures`, with `hud.countermeasures_lit`, false while a mission's script flashes
+    the readout dark.
   - `hud.gauges`, the targeting cluster: the speed and the speed the throttle asks for, as their
     figures show them; where the speed's and the throttle's markers stand on the left arc, from 0
     to 1, and how bright the throttle's is (nil while it doesn't show); and how far up the right
     arc is lit, from 0 to 1, and whether it shows the Nova Cannon's charge.
   - `hud.ship_status`: how many of the shields' and the armour's five arcs show in each quadrant,
-    and the arcs for what SHIELD BALANCING has shifted fore and aft.
-  - `hud.lights`, the status lights that show, steady or flashing; `hud.clock`, the minutes and
+    the arcs for what SHIELD BALANCING has shifted fore and aft, and the quadrants that flash as
+    the armour is hit.
+  - `hud.lights`, the status lights that show, steady or flashing; `hud.lights_lit`, those lit,
+    which leaves out a flashing light while it's dark; `hud.charges`, the ECM's, the cloak's and
+    the spectral shields' charges, which their lights show as bars; `hud.clock`, the minutes and
     seconds the clock shows; `hud.view_name`, the name written at the top of the screen in the
     views that have one; and `hud.caption`, the launch's date as far as it has typed it.
   - The windows, whether or not they're open: `hud.damage`, how well the weapons, engines and
@@ -1239,7 +1246,8 @@ hud.register_display("radar", {
   `hud.instruments_shown` says whether the game's instruments show this frame, which is in the view
   ahead from the cockpit. Each reading is worked out as its instrument works it out, when the
   scripts run, before the flight display draws; what the display keeps between frames, such as its
-  target, is as it last drew it. Each is nil, or empty, outside a mission.
+  target, how far its windows have opened and what flashes, is as it last drew it. Each is nil, or
+  empty, outside a mission.
 
 [`examples/mods/hud-layout`](../../examples/mods/hud-layout) draws a radar of its own in the game's
 radar's place, with the guns and missiles beside it.
