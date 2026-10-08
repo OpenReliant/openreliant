@@ -123,8 +123,9 @@ levels is moved to stand on the middle of its vertices, their sum over their cou
 polygons' planes, its vertices' normals and its bounds are worked out again; the node takes the
 radius of its last level. A planet's part stands off its model's origin, Neptune's some 218000 back
 along Z, and none has a mass to move the origin to, so it is this that brings each sphere to its
-object's place. Titan's parts, `0x63` and `0xCD`, are also given the routine of the environment
-effect Planet Bombard (`0x0046A300`). **Unknown:** what bit 20 of the flags does.
+object's place. Titan, `0x63` and `0xCD`, also has the last of its parts drawn with the Planet
+Bombard's routine (`0x0046841D`), which moves ten flashes over its surface that nothing draws
+([Planet Bombard](backdrop.md#planet-bombard)). **Unknown:** what bit 20 of the flags does.
 
 The words of each `ship_combat_stats` entry from `+0x1C` on come from the executable rather than
 from `shipstats.bin`: the gun groups, which the gun code fills in at run time (`gun_groups_build`,
@@ -164,8 +165,8 @@ loops the Saladin's `middle spin` track; and has the Dark Reign take the mass of
 and of the turrets mounted on it, a second time (`node_mass_add`, `0x004764A0`), which stands until
 the next recentring sums its mass again (`typeMade`). The wrecks, the gates, the planets and the
 Dark Reign's hat ([Effects](effects.md#the-dark-reigns-hat)) are set up once the mission has made
-them (`wreckMade`, `gateMade`, `planetMade`, `extra.hatMade`). Not ported yet: Titan's Planet
-Bombard ([#238](https://github.com/OpenReliant/openreliant/issues/238)), and the multiplayer cases
+them (`wreckMade`, `gateMade`, `planetMade`, `extra.hatMade`). Titan's Planet Bombard shows
+nothing, and OpenReliant leaves it out. Not ported: the multiplayer cases
 ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 ## Flags
