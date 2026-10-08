@@ -352,10 +352,15 @@ pub const Atlas = struct {
     }
 };
 
-/// How many sizes of its glyphs an outline font keeps at once, more than a frame uses: the front
-/// end draws its small font at the size of its screens, and at the flight display's size for the
-/// version (`hud.drawVersion`).
+/// How many sizes of its glyphs an outline font keeps from frame to frame: the front end draws its
+/// small font at the size of its screens, and at the flight display's size for the version
+/// (`hud.drawVersion`).
 const kept_sizes = 4;
+
+/// How many sizes of its glyphs an outline font holds at most, for a frame that draws it at more
+/// sizes than are kept, as a mod's display may: a size drawn in a frame stays until the frame is
+/// done, since what the frame drew with it is drawn after.
+const max_sizes = 16;
 
 /// An outline font that replaces one bitmap font, and its glyphs at the most recently used sizes.
 pub const Outline = struct {
@@ -368,14 +373,18 @@ pub const Outline = struct {
     /// built in, and whose face `Outlines` keeps.
     file: ?[]u8,
     fit: Fit,
-    atlases: [kept_sizes]?Atlas = @splat(null),
+    atlases: [max_sizes]?Atlas = @splat(null),
     /// The textures of atlases that outgrew them, kept until the next frame starts, as the frame
-    /// that replaced them may have drawn them before (`freeRetired`).
+    /// that replaced them may have drawn them before (`startFrame`).
     retired: std.ArrayList(srtexture.Image) = .empty,
-    /// A count of its draws, used to find the least recently used atlas.
+    /// A count of its draws, used to find the least recently used atlas, and the count as the frame
+    /// started, after which an atlas drawn is in use this frame (`startFrame`).
     draws: u64 = 0,
+    frame_draws: u64 = 0,
     /// Set once its glyphs can't be drawn, so the bitmap glyphs are used.
     failed: bool = false,
+    /// Set once a frame has drawn it at more sizes than it holds, which the log says once.
+    crowded: bool = false,
 
     pub fn deinit(outline: *Outline) void {
         const gpa = outline.gpa;
@@ -388,16 +397,23 @@ pub const Outline = struct {
         }
     }
 
-    /// Frees the atlases retired before this frame, which hand their textures back to the device.
-    /// Called as a frame starts, before anything is drawn.
-    pub fn freeRetired(outline: *Outline) void {
+    /// As a frame starts, before anything is drawn: frees the atlases retired before this frame
+    /// (`freeRetired`), and marks the frame's start, so that what it draws keeps its atlases until
+    /// it is done.
+    pub fn startFrame(outline: *Outline) void {
+        outline.freeRetired();
+        outline.frame_draws = outline.draws;
+    }
+
+    /// Frees the atlases retired, which hand their textures back to the device.
+    fn freeRetired(outline: *Outline) void {
         for (outline.retired.items) |image| image.deinit(outline.gpa);
         outline.retired.clearRetainingCapacity();
     }
 
     /// Its glyphs for the bitmap font drawn at `scale` times its size. They are rendered the first
-    /// time that size is used, replacing the least recently used size if all `kept_sizes` are in
-    /// use. Null once they can't be drawn, which the log says.
+    /// time that size is used (`slotFor`). Null once they can't be drawn, which the log says, and
+    /// while every slot holds a size drawn this frame, so that the bitmap glyphs stand in.
     pub fn at(outline: *Outline, scale: f32) Allocator.Error!?Sized {
         if (outline.failed) return null;
         outline.draws += 1;
@@ -406,15 +422,11 @@ pub const Outline = struct {
             atlas.drawn = outline.draws;
             return .{ .outline = outline, .atlas = atlas };
         };
-        // An empty slot, or else the least recently used atlas.
-        var chosen = &outline.atlases[0];
-        for (&outline.atlases) |*held| {
-            const atlas = if (held.*) |*atlas| atlas else {
-                chosen = held;
-                break;
-            };
-            if (atlas.drawn < chosen.*.?.drawn) chosen = held;
-        }
+        const chosen = outline.slotFor() orelse {
+            if (!outline.crowded) log.warn("an outline font is drawn at more than {d} sizes in a frame; the rest are drawn in its bitmap font", .{max_sizes});
+            outline.crowded = true;
+            return null;
+        };
         render(outline, chosen, outline.gpa, size) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             error.Rasterizing => {
@@ -426,6 +438,30 @@ pub const Outline = struct {
         const atlas = &chosen.*.?;
         atlas.drawn = outline.draws;
         return .{ .outline = outline, .atlas = atlas };
+    }
+
+    /// The slot a size's glyphs are rendered into: an empty one while fewer than `kept_sizes` are
+    /// held; else the least recently used atlas not drawn this frame, its texture reused where the
+    /// glyphs fit; else, while this frame has drawn every size held, an empty one; null once all
+    /// `max_sizes` are drawn this frame.
+    fn slotFor(outline: *Outline) ?*?Atlas {
+        var held: usize = 0;
+        var empty: ?*?Atlas = null;
+        var oldest: ?*?Atlas = null;
+        for (&outline.atlases) |*slot| {
+            const atlas = if (slot.*) |*atlas| atlas else {
+                if (empty == null) empty = slot;
+                continue;
+            };
+            held += 1;
+            if (atlas.drawn > outline.frame_draws) continue;
+            if (oldest) |older| {
+                if (atlas.drawn >= older.*.?.drawn) continue;
+            }
+            oldest = slot;
+        }
+        if (held < kept_sizes) return empty;
+        return oldest orelse empty;
     }
 };
 
@@ -471,8 +507,8 @@ pub const Sized = struct {
 ///
 /// The device keeps a texture for the rest of the run, so an atlas texture has power-of-two sides,
 /// which glyphs of a similar size fit into again when the window changes size; only a size too
-/// large for it needs a new texture. The atlas being replaced is the least recently used one, from
-/// an earlier frame, as long as a frame uses no more sizes than are kept.
+/// large for it needs a new texture. The atlas being replaced is one no earlier part of this frame
+/// drew with (`Outline.slotFor`).
 fn render(outline: *Outline, slot: *?Atlas, gpa: Allocator, size: u32) Error!void {
     const rasterizer = outline.rasterizer;
     const face = outline.face;
@@ -581,9 +617,9 @@ pub const Outlines = struct {
         return .{ .gpa = gpa, .rasterizer = rasterizer, .mods = mods };
     }
 
-    /// Frees every font's retired atlases (`Outline.freeRetired`), as a frame starts.
-    pub fn freeRetired(outlines: *Outlines) void {
-        for (outlines.fonts.items) |font| if (font.outline) |outline| outline.freeRetired();
+    /// Starts a frame for every font (`Outline.startFrame`).
+    pub fn startFrame(outlines: *Outlines) void {
+        for (outlines.fonts.items) |font| if (font.outline) |outline| outline.startFrame();
     }
 
     pub fn deinit(outlines: *Outlines) void {
@@ -849,8 +885,9 @@ test Outline {
     // The same size uses the same atlas, and each other size gets its own.
     try std.testing.expectEqual(atlas, (try outline.at(3)).?.atlas);
     for ([_]f32{ 3.1, 3.2, 3.3 }) |scale| try std.testing.expect((try outline.at(scale)).?.atlas != atlas);
-    // A fifth size replaces the least recently used atlas, reusing its texture since it fits, and
-    // the texture is uploaded to the GPU again.
+    // In the next frame, a fifth size replaces the least recently used atlas, reusing its texture
+    // since it fits, and the texture is uploaded to the GPU again.
+    outline.startFrame();
     const pixels = atlas.pixels.ptr;
     try std.testing.expectEqual(atlas, (try outline.at(3.4)).?.atlas);
     try std.testing.expectEqual(pixels, atlas.pixels.ptr);
@@ -863,9 +900,41 @@ test Outline {
     const large = (try outline.at(20)).?.atlas;
     try std.testing.expect(large.image.width() > 64);
     try std.testing.expectEqual(1, outline.retired.items.len);
-    outline.freeRetired();
+    outline.startFrame();
     try std.testing.expectEqual(0, outline.retired.items.len);
     try std.testing.expectEqual(1, drawn.released);
+}
+
+test "a frame that draws an outline font at more sizes than are kept keeps every size it drew" {
+    const gpa = std.testing.allocator;
+    var boxes: testing.Boxes = .{};
+    const rasterizer = boxes.rasterizer();
+    const font: fnt.Font = try .parse(testing.font);
+    var outline: Outline = .{ .gpa = gpa, .rasterizer = rasterizer, .face = rasterizer.open("face").?, .file = null, .fit = (try Fit.of(rasterizer, rasterizer.open("face").?, font, &level_cover, .bitmap, gpa)).? };
+    defer outline.deinit();
+
+    // Six sizes in one frame, as a mod's display may draw: each keeps its own atlas, and the first
+    // two still hold their glyphs once the last is drawn.
+    const scales = [_]f32{ 1, 1.2, 1.4, 1.6, 1.8, 2 };
+    var atlases: [scales.len]*Atlas = undefined;
+    var sizes: [scales.len]u32 = undefined;
+    for (scales, &atlases, &sizes) |scale, *atlas, *size| {
+        atlas.* = (try outline.at(scale)).?.atlas;
+        size.* = atlas.*.size;
+    }
+    for (atlases, sizes, 0..) |atlas, size, n| {
+        try std.testing.expectEqual(size, atlas.size);
+        for (atlases[n + 1 ..]) |other| try std.testing.expect(other != atlas);
+    }
+    // The next frame reuses the least recently drawn of them for a new size.
+    outline.startFrame();
+    try std.testing.expectEqual(atlases[0], (try outline.at(2.5)).?.atlas);
+
+    // Once a frame has drawn every slot, a further size draws in the bitmap font.
+    outline.startFrame();
+    for (0..max_sizes) |n| _ = (try outline.at(3 + @as(f32, @floatFromInt(n)) / 10)).?;
+    try std.testing.expectEqual(null, try outline.at(9));
+    try std.testing.expect(outline.crowded);
 }
 
 test Outlines {

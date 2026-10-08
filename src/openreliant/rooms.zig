@@ -794,12 +794,14 @@ pub const Driver = struct {
         return .{ .pointer = pointer, .keyboard = &driver.movies.devices.keyboard, .typed = driver.movies.typed, .ticks = driver.clock.game_ticks, .saves = saves };
     }
 
-    /// Reads the window's messages since the last pass, as the message pump does, reads the
-    /// keyboard, moves the pointer on and runs the timer, which steps the fades, and runs the
-    /// console's pass and the scripts' frame (`ScriptFrames.screenFrame`). Returns false if the
-    /// window was closed, which quits the game (`game_exit`).
+    /// Starts a frame for the outline fonts (`Outlines.startFrame`), reads the window's messages
+    /// since the last pass, as the message pump does, reads the keyboard, moves the pointer on and
+    /// runs the timer, which steps the fades, and runs the console's pass and the scripts' frame
+    /// (`ScriptFrames.screenFrame`). Returns false if the window was closed, which quits the game
+    /// (`game_exit`).
     fn pump(driver: *Driver) !bool {
         if (driver.closed) return false;
+        driver.outlines.startFrame();
         const movies = driver.movies;
         const devices = movies.devices;
         const pumped = movies.pump() orelse return false;

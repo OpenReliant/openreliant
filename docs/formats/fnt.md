@@ -82,6 +82,9 @@ renders the glyphs ([Platform](../port/platform.md#fonts)).
   set by its coverage, and the text colour tints it. Each glyph is drawn aligned to the window's
   pixels, so the text is as sharp as the window's resolution allows. FreeType's light hinting fits
   the glyphs' heights to the pixel grid.
+- **Sizes.** A font keeps four sizes from frame to frame, the least recently drawn giving way to a
+  new one. A frame that draws a font at more sizes, as a mod's display may, keeps every size it
+  draws until it is done, up to 16; past them, the text is drawn in the bitmap font.
 
 **Improvement:** the original draws its text with its bitmap fonts at 640x480. `--bitmap-fonts`,
 `--original` and the OUTLINE FONTS setting draw the bitmap fonts instead, scaled up, with opaque
