@@ -580,9 +580,10 @@ flags 15. Section 21 has no room there, starting where section 22 does, so OpenR
 after the template's end, which a loose file's buffer of `0xFA000` bytes still holds.
 
 A section's records are its count times its stride: bytes for the string pool, the script flags and
-OpenReliant's name, halfwords for the scripts, and the records' sizes for the rest. The strides of
-sections 9, 11 and 23, 4, 4 and 2 bytes, are **Unverified**: the engine reads nothing of 9 and 23,
-and 11 holds one record in every mission. Section 20's is not known, and no mission uses it.
+OpenReliant's name, halfwords for the scripts, and the records' sizes for the rest.
+**Unverified:** the strides of sections 9, 11 and 23, 4, 4 and 2 bytes, since the engine reads
+nothing of 9 and 23, and 11 holds one record in every mission. Section 20's is not known, and no
+mission uses it.
 
 `sltool dte check <mission>` writes a mission again and checks what comes back. The 36 missions of
 the template, written again from their sections' whole rooms, stale bytes and all, come back byte for

@@ -692,8 +692,8 @@ fn remove(slot: *create.Slot, at: usize) void {
 /// that are disabled hold the throttle at nothing, an empty tank stops both burns, and only a ship
 /// that can reverse keeps reverse thrust.
 ///
-/// **Improvement** (`input.force.Unread.played`): the player's afterburner lighting and going out
-/// starts and stops `Afterburn` on the controller (`input.force.Forces.afterburner`).
+/// **Improvement:** the player's afterburner lighting and going out starts and stops `Afterburn`
+/// on the controller (`input.force.Forces.afterburner`, `input.force.Unread.played`).
 ///
 /// **Improvement:** registered orders run protected script callbacks through the engine's script
 /// bridge. Completion or failure pops the order using the existing stack rules (#615).
