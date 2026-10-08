@@ -88,7 +88,9 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
   texture, that texture is cleared. The textures waiting to go up are copied all together, after
   every larger array and the transfer buffer they need have been made, so where one can't be made,
   nothing changes and they wait for the next frame. A texture that changes again while it waits,
-  such as the power ball, waits once.
+  such as the power ball, waits once. Each level starts in the transfer buffer at a multiple of 16
+  bytes, the largest block of any format (`Packing`): Vulkan takes a texture's data only from a
+  multiple of its block size, and SDL realigns uploads only on Direct3D 12.
 
 ## Shadows
 
