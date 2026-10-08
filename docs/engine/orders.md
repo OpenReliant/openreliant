@@ -298,7 +298,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 12 | Ripper grabs target object | A Ripper carries its target off ([The Ripper](#the-ripper)). | Yes |
 | 13 | Object Attach | On starting, keeps where the ship will stand next in the frame its target will stand in next. Each update it puts the ship there in the target's next frame, turned as the target will be, and gives it the target's turn, velocity, speed and rates of turn, so that it rides the target. | Yes |
 | 14 | Formation Regroup | The ships of a flight group meet at their places in its formation about its middle, 10000 back along Z, then turn to face their places, the formation's leader moving the group on ([Formations](#formations)). | Yes |
-| 15 | Patrol Route | The ships of a flight group fly round the waypoints of a route, in formation about their leader where they have points in one, and otherwise alone ([Formations](#formations)). | Yes |
+| 15 | Patrol Route | The ships of a flight group fly round the waypoints of a route, in formation about their leader where they have points in one, and otherwise alone ([Formations](#formations)). **Fix:** in formation it differs from the original's, whose ships hang back short of their places, so that the formation stops going round the route. | Yes |
 | 16 | Toggle Cloak | One-shot: cloaks or uncloaks the ship if its model's header allows a cloak, and the ships being launched from it do the same. | Yes |
 | 17 | Ship Follow Curve | Flies the path of the mission's curves from the curve in its data ([Following a path](#following-a-path)). | Yes |
 | 18 | Slow Rotate | Zero throttle, yaw input 0.1. | Yes |
