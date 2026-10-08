@@ -646,6 +646,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // A switch of view picks the subtarget's parts out in red or puts them back, and is refused
     // while the player's ship rides the worm between gates (`camera_set_view`).
     view.subtarget = .{ .shown = &display.state.subtarget, .all = objects };
+    // The parts picked out go back before the objects go, which lets their copies go: the next
+    // mission's start puts them back, and quitting in a mission or after one leaves none.
+    defer display.state.subtarget.clear(objects);
     view.gates = &gates;
 
     // The mods' global scripts, which run while a game runs: from the front end's start of a game,

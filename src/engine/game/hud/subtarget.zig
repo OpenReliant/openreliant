@@ -12,7 +12,8 @@
 //! other; `mission_frame` picks them out in view 0 where the target or its component changed
 //! (`main.keepPlayerTarget`); a component lost on the target puts them back (`objects.loseComponents`,
 //! `node_draw`); and the next mission's start puts them back, before its objects are reset, which
-//! the game does as the mission before ends (`mission_run`, at `0x00494260`).
+//! the game does as the mission before ends (`mission_run`, at `0x00494260`). `openreliant` puts
+//! them back as it quits, before the objects go, so that the copies go too.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
