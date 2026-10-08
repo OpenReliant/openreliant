@@ -6,7 +6,8 @@
 //! their fireballs, burning bits and shockwaves ([`shockwave.zig`](shockwave.zig)), the break-up
 //! that cuts a ship's parts into pieces that fly apart
 //! ([`explode/breakup.zig`](explode/breakup.zig)), the capital ships' splits
-//! ([`explode/split.zig`](explode/split.zig)), the chunks of rock
+//! ([`explode/split.zig`](explode/split.zig)), the Ulysses' end
+//! ([`explode/ulysses.zig`](explode/ulysses.zig)), the chunks of rock
 //! ([`explode/chunks.zig`](explode/chunks.zig)), the Uber Explode
 //! ([`explode/uber.zig`](explode/uber.zig)), the burning wrecks, and the point the camera watches a
 //! break-up from.
@@ -31,6 +32,7 @@ pub const breakup = @import("explode/breakup.zig");
 pub const rocks = @import("explode/chunks.zig");
 pub const split = @import("explode/split.zig");
 pub const uber = @import("explode/uber.zig");
+pub const ulysses = @import("explode/ulysses.zig");
 const shockwave = @import("shockwave.zig");
 const sound3d = @import("sound3d.zig");
 const table = @import("table.zig");
@@ -1144,13 +1146,11 @@ pub const ComponentLoss = enum {
 /// `objects.loseComponents` goes on with it. A capital ship lets it go on for any part but one of
 /// its hull, which ends the ship: it is marked unpowered and exploding, its force fields go dark
 /// (`shield.hideForceFields`), it splits in two (`split.start`), and is lost (`loseHull`). The
-/// Ulysses' stops it for every part.
-///
-/// Not ported: all the Ulysses' does ([#232](https://github.com/OpenReliant/openreliant/issues/232)).
-pub fn loseComponent(ctx: aigeneric.Context, index: u16, routine: ComponentLoss, part: *const objects.Model.Part) bool {
+/// Ulysses' (`ulysses.componentLost`) stops it for every part.
+pub fn loseComponent(ctx: aigeneric.Context, index: u16, routine: ComponentLoss, part: objects.PartRef) bool {
     switch (routine) {
         .capital_ship => {
-            if (part.class != .hull) return true;
+            if (part.part().class != .hull) return true;
             const flags = &ctx.world.objects.slots[index].object.flags;
             flags.unpowered = true;
             flags.exploding = true;
@@ -1159,7 +1159,10 @@ pub fn loseComponent(ctx: aigeneric.Context, index: u16, routine: ComponentLoss,
             loseHull(ctx, index);
             return false;
         },
-        .ulysses => return false,
+        .ulysses => {
+            ulysses.componentLost(ctx, index, part);
+            return false;
+        },
     }
 }
 

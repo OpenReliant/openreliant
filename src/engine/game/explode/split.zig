@@ -13,6 +13,8 @@
 //! flashes (`main/flash.zig`) as the split ends near the camera, and at moments of a Latov's and a
 //! Stalag's, and a split's burning bits may be bodies.
 //!
+//! The Ulysses' top coming away (`ulysses.zig`) takes a slot among the splits too.
+//!
 //! Not ported: the Dark Reign's hat, the Krasnaya's arms and the Boridin breakaway's core, which
 //! the split takes apart first ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
@@ -32,6 +34,7 @@ const sound3d = @import("../sound3d.zig");
 const table = @import("../table.zig");
 const xtrabits = @import("../xtrabits.zig");
 pub const sequences = @import("sequences.zig");
+const ulysses = @import("ulysses.zig");
 
 /// How a ship of `ship_type`, its own number, splits (`explode_sequence_find`), or null for a type
 /// with no record.
@@ -45,7 +48,7 @@ pub fn find(ship_type: gameobj.Type) ?*const sequences.Record {
 /// The splits under way (`0x0055335C`).
 pub const Splits = struct {
     gpa: Allocator,
-    slots: [max]?Split = @splat(null),
+    slots: [max]?UnderWay = @splat(null),
 
     pub const max = 10;
 
@@ -62,27 +65,39 @@ pub const Splits = struct {
         for (&splits.slots) |*slot| splits.free(slot);
     }
 
-    /// `split_free` (`0x0046F7D0`): lets a split go, and its points and portals with it.
-    fn free(splits: *Splits, slot: *?Split) void {
-        if (slot.*) |split| splits.gpa.free(split.points);
+    /// A split's free function: `split_free` (`0x0046F7D0`) lets a capital ship's go, and its
+    /// points and portals with it; `ulysses_split_free` (`0x0046BCC0`) the Ulysses', and its
+    /// portals.
+    fn free(splits: *Splits, slot: *?UnderWay) void {
+        if (slot.*) |under_way| switch (under_way) {
+            .capital => |split| splits.gpa.free(split.points),
+            .ulysses => {},
+        };
         slot.* = null;
     }
 
-    /// `explosions_update`'s pass over them, once a frame (`split_update`).
+    /// `explosions_update`'s pass over them, once a frame: each split's frame function
+    /// (`split_update`, `ulysses_split_update`).
     pub fn frame(splits: *Splits, world: gameobj.World) void {
         for (&splits.slots) |*slot| {
-            const split = &(slot.* orelse continue);
-            if (split.update(world)) splits.free(slot);
+            const under_way = &(slot.* orelse continue);
+            const over = switch (under_way.*) {
+                inline else => |*split| split.update(world),
+            };
+            if (over) splits.free(slot);
         }
     }
 
     /// The portals of each split cutting this frame, into the scene, which puts them in the
-    /// camera's frame (`scene_add` in `split_update`).
+    /// camera's frame (`scene_add` in each split's frame function).
     pub fn draw(splits: *Splits, gpa: Allocator, scene: *srcore.Scene) Allocator.Error!void {
         for (&splits.slots) |*slot| {
-            const split = &(slot.* orelse continue);
-            if (!split.cutting) continue;
-            for (&split.portals) |*portal| try xtrabits.sceneAdd(gpa, scene, .{ .portal = portal }, .world);
+            const under_way = &(slot.* orelse continue);
+            switch (under_way.*) {
+                inline else => |*split| if (split.cutting) {
+                    for (&split.portals) |*portal| try xtrabits.sceneAdd(gpa, scene, .{ .portal = portal }, .world);
+                },
+            }
         }
     }
 
@@ -90,25 +105,46 @@ pub const Splits = struct {
     /// drawn (`object_draw`'s flag 4).
     pub fn splitting(splits: *const Splits, index: u16) bool {
         for (splits.slots) |slot| {
-            if (slot) |split| if (split.object == index) return true;
+            const under_way = slot orelse continue;
+            switch (under_way) {
+                inline else => |split| if (split.object == index) return true,
+            }
         }
         return false;
     }
 
+    /// Puts `split` under way in a slot (`split_slot_free`, `take`), and returns it there.
+    pub fn add(splits: *Splits, world: gameobj.World, split: UnderWay) *UnderWay {
+        const slot = splits.take(world);
+        slot.* = split;
+        return &slot.*.?;
+    }
+
     /// `split_slot_free` (`0x0046BC00`): the first slot free, or the first where all are taken.
     ///
-    /// **Fix:** the game leaves the split it takes the slot of running on its portals once they
-    /// are freed; OpenReliant lets that split go first, its parts no longer cut.
-    fn take(splits: *Splits, world: gameobj.World) *?Split {
-        if (table.firstFree(Split, &splits.slots)) |slot| return slot;
+    /// **Fix:** where all are taken, the game forgets the split in the first slot, whose portals
+    /// go on cutting its ship's parts. OpenReliant ends that split first, so nothing is cut any
+    /// more.
+    fn take(splits: *Splits, world: gameobj.World) *?UnderWay {
+        if (table.firstFree(UnderWay, &splits.slots)) |slot| return slot;
         const first = &splits.slots[0];
-        if (first.*) |*split| split.release(world);
+        if (first.*) |*under_way| switch (under_way.*) {
+            inline else => |*split| split.release(world),
+        };
         splits.free(first);
         return first;
     }
 };
 
-/// A split under way (`split_create`, 0x44 bytes).
+/// A split under way: a capital ship's (`Split`), or the Ulysses' top coming away
+/// (`ulysses.Top`). The game keeps each kind's frame and free functions in its record (`+0x08`,
+/// `+0x0C`).
+pub const UnderWay = union(enum) {
+    capital: Split,
+    ulysses: ulysses.Top,
+};
+
+/// A capital ship's split (`split_create`, 0x44 bytes).
 pub const Split = struct {
     /// The ship splitting (`+0x00`), and the tick the split began on (`+0x04`).
     object: u16,
@@ -182,10 +218,8 @@ pub const Split = struct {
                 portal.position = reached;
                 portal.orientation = split.rootPlace(world).orientation;
             }
-            var at = split.at;
-            inline for (0..3) |axis| at[axis] += if (random.centred() >= 0) shake else -shake;
             split.cutting = split.step + 1 < count and slot.object.type.base() != .latov;
-            objects.setPosition(&slot.object, &slot.drawn, at);
+            holdShaking(world, slot, split.at, shake);
         }
         const duration: f32 = @floatFromInt(sequence.duration);
         const per_step = duration / @as(f32, @floatFromInt(count));
@@ -310,31 +344,15 @@ pub const Split = struct {
     }
 
     /// What every split's end does last: the ship's explosion heard from it, the ship recentred on
-    /// what is left of it, and `end_fireballs` fireballs at the first of its hull part's
-    /// `fireballs` points, each `end_fireball_gap` ticks after the last.
-    ///
-    /// **Fix:** the game reads three points whatever the list holds.
+    /// what is left of it, and fireballs at its hull part's `fireballs` points (`endFireballs`).
     fn ending(split: *Split, world: gameobj.World) void {
         const slot = &world.objects.slots[split.object];
         sound3d.playIn(world, null, null, split.object, .capexp, 1, .player_fx);
         gameobj.recentreObject(slot);
         const model = if (slot.model) |*live| live else return;
         const hull = split.hull orelse return;
-        const ref: objects.PartRef = .{ .model = model, .index = hull };
-        const data = ref.data() orelse return;
-        const list = data.pointList(.fireballs) orelse return;
-        const place = ref.part().drawn();
-        for (list.points[0..@min(list.points.len, end_fireballs)], 0..) |point, n| {
-            const at = place.point(gameobj.vector(point.position));
-            explode.fireballAt(world, at, .{ .size = slot.object.radius * end_fireball_share, .light = true, .delay = @intCast(n * end_fireball_gap) });
-        }
+        endFireballs(world, &slot.object, .{ .model = model, .index = hull });
     }
-
-    /// The fireballs at a split's end: how many, how many ticks apart (`split_update`), and this
-    /// share of the ship's radius (`0x004DC450`).
-    const end_fireballs = 3;
-    const end_fireball_gap = 50;
-    const end_fireball_share: f32 = 0.15;
 
     /// How a ship drifts once split, a step, in its own frame, and turns, a step
     /// (`split_update`).
@@ -344,12 +362,10 @@ pub const Split = struct {
     /// The parts of a docked Czar of this link id stay as it splits.
     const czar_kept_link = 10;
 
-    /// Lets the portals go, and with them what they cut (`node_tree_unclip` on both halves).
+    /// Lets the portals go, and with them what they cut (`unclip`).
     fn release(split: *Split, world: gameobj.World) void {
         split.cutting = false;
-        const all = world.objects;
-        if (all.slots[split.object].model) |*model| xtrabits.clipTree(model, null);
-        if (split.other) |other| if (all.slots[other].model) |*model| xtrabits.clipTree(model, null);
+        unclip(world, split.object, split.other);
     }
 
     /// A bursts split's frame: a Stalag flashes the view one frame in `stalag_flash_odds`; after
@@ -493,9 +509,10 @@ pub const Split = struct {
 
     /// How the other half of a split drifts off, a step, in the ship's frame, and turns, a step: a
     /// bursts split's, and a sweep's where its type has no way of its own (`otherHalfEnd`). A
-    /// Latov's other half drifts off as `latov_drift` instead.
-    const other_drift: Vector = .{ -1.5, -10, -2 };
-    const other_tumble: Vector = .{ 0.0005, 0.002, 0.002 };
+    /// Latov's other half drifts off as `latov_drift` instead. The Ulysses' back drifts off by
+    /// the same steps, in the world's axes (`ulysses.Top`).
+    pub const other_drift: Vector = .{ -1.5, -10, -2 };
+    pub const other_tumble: Vector = .{ 0.0005, 0.002, 0.002 };
     const latov_drift: Vector = .{ -5, 0, 0 };
 
     /// Which way a ship splits: always the first, as every sequence has only the one.
@@ -508,10 +525,61 @@ fn flash(world: gameobj.World) void {
 }
 
 /// `explode_flash_near` (`0x00471D70`) for the ship in slot `index`, as the camera stands.
-fn flashNear(world: gameobj.World, index: u16) void {
+pub fn flashNear(world: gameobj.World, index: u16) void {
     const lit = world.flash orelse return;
     const seen = world.camera orelse return;
     lit.near(&world.objects.slots[index].object, seen.place.position);
+}
+
+/// Holds the ship in `slot` at `at`, shaken by `by` along each axis, one way or the other at
+/// random, as a split under way does each frame.
+pub fn holdShaking(world: gameobj.World, slot: *create.Slot, at: Vector, by: f32) void {
+    var shaken = at;
+    inline for (0..3) |axis| shaken[axis] += if (world.random.centred() >= 0) by else -by;
+    objects.setPosition(&slot.object, &slot.drawn, shaken);
+}
+
+/// Lets a split's portals go: nothing of the ship in slot `index`, or of its other half, is cut
+/// any more (`node_tree_unclip` on both).
+pub fn unclip(world: gameobj.World, index: u16, other: ?u16) void {
+    const all = world.objects;
+    if (all.slots[index].model) |*model| xtrabits.clipTree(model, null);
+    if (other) |half| if (all.slots[half].model) |*model| xtrabits.clipTree(model, null);
+}
+
+/// Sets off the fireballs of a split's end at the `fireballs` points of `ref`, a part of `ship`:
+/// one at each of the first `end_fireballs`, lit, `end_fireball_share` of the ship's radius
+/// across, each `end_fireball_gap` ticks after the last (`split_update`, `ulysses_split_update`).
+///
+/// **Fix:** the game reads three points whatever the list holds.
+pub fn endFireballs(world: gameobj.World, ship: *const gameobj.GameObject, ref: objects.PartRef) void {
+    const data = ref.data() orelse return;
+    const list = data.pointList(.fireballs) orelse return;
+    const place = ref.part().drawn();
+    for (list.points[0..@min(list.points.len, end_fireballs)], 0..) |point, n| {
+        const at = place.point(gameobj.vector(point.position));
+        explode.fireballAt(world, at, .{ .size = ship.radius * end_fireball_share, .light = true, .delay = @intCast(n * end_fireball_gap) });
+    }
+}
+
+/// The fireballs as a split ends: how many, how many ticks apart, and this share of the ship's
+/// radius (`0x004DC450`).
+const end_fireballs = 3;
+const end_fireball_gap = 50;
+const end_fireball_share: f32 = 0.15;
+
+/// An object of `piece_type` made where the ship in slot `index` is drawn and turned as it is, its
+/// centre where the ship's own model has it: a split's other half, or a piece the Ulysses throws
+/// off. Null where it can't be made.
+pub fn makePiece(world: gameobj.World, index: u16, piece_type: gameobj.Type) ?u16 {
+    const all = world.objects;
+    const made = create.make(world, null, piece_type) catch null orelse return null;
+    const ship = &all.slots[index];
+    const piece = &all.slots[made];
+    const root = ship.drawn;
+    const offset = gameobj.vector(piece.object.centre) - gameobj.vector(ship.object.centre);
+    objects.setPlace(&piece.object, &piece.drawn, .{ .position = root.point(offset), .orientation = root.orientation });
+    return made;
 }
 
 /// How a sweep's other half drifts off at its end, by its type, a step in the ship's frame, and
@@ -563,16 +631,14 @@ pub fn start(world: gameobj.World, index: u16) void {
     const model = if (slot.model) |*live| live else return;
     const sequence = find(object.type) orelse return;
     const points = cutPoints(explosions.splits.gpa, model, object.type.base() != .latov) catch return;
-    const taken = explosions.splits.take(world);
-    taken.* = .{
+    const split = &explosions.splits.add(world, .{ .capital = .{
         .object = index,
         .started = world.clock.frame_start,
         .at = gameobj.vector(object.root.position),
         .portals = .{ .{}, .{} },
         .sequence = sequence,
         .points = points,
-    };
-    const split = &taken.*.?;
+    } }).capital;
     object.flags.engines_disabled = true;
     stopTracks(model);
 
@@ -666,19 +732,16 @@ fn stopTracks(model: *objects.Model) void {
     while (each.next()) |mount| stopTracks(&mount.model);
 }
 
-/// The other half of the ship in slot `index`, of `half_type`, made where the ship stands and
-/// turned as it is, its centre where the ship's own model has it; it turns as the ship turns,
-/// but still, unpowered and disabled; its first part shows, cut by `portal`. A wreck burns as it
-/// is made (`create.wreckMade`). Null where it can't be made.
+/// The other half of the ship in slot `index`, of `half_type`, made where the ship stands
+/// (`makePiece`); it turns as the ship turns, but still, unpowered and disabled; its first part
+/// shows, cut by `portal`. A wreck burns as it is made (`create.wreckMade`). Null where it can't
+/// be made.
 fn otherHalf(world: gameobj.World, index: u16, half_type: gameobj.Type, portal: *const srapiext.Portal) ?u16 {
     const all = world.objects;
-    const made = create.make(world, null, half_type) catch null orelse return null;
+    const made = makePiece(world, index, half_type) orelse return null;
     create.wreckMade(world, made);
     const main = &all.slots[index];
     const half = &all.slots[made];
-    const root = main.drawn;
-    const offset = gameobj.vector(half.object.centre) - gameobj.vector(main.object.centre);
-    objects.setPlace(&half.object, &half.drawn, .{ .position = root.point(offset), .orientation = root.orientation });
     const object = &half.object;
     object.throttle = 0;
     object.speed = 0;
@@ -733,7 +796,7 @@ test "a capital ship sweeps apart" {
     // Its points go from the stern; its other half is made, still and disabled, and cut by the
     // second portal; its hull is cut by the first.
     start(world, ship);
-    const split = &splits.slots[0].?;
+    const split = &splits.slots[0].?.capital;
     try std.testing.expectEqual(-100, split.points[0][2]);
     try std.testing.expectEqual(100, split.points[2][2]);
     const half = &mission.objects.slots[split.other.?];
@@ -783,7 +846,7 @@ test "a capital ship bursts apart" {
 
     // A Kurgan bursts at once, with no other half, and its portals never cut.
     start(world, ship);
-    const split = &splits.slots[0].?;
+    const split = &splits.slots[0].?.capital;
     try std.testing.expectEqual(.bursts, split.sequence.mode);
     try std.testing.expectEqual(null, split.other);
     var set_off: usize = 0;
@@ -815,10 +878,16 @@ test find {
 }
 
 test Splits {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
     var splits: Splits = .init(std.testing.allocator);
     defer splits.deinit();
-    // All taken, a new split takes the first slot.
-    for (&splits.slots, 0..) |*slot, n| slot.* = .{ .object = @intCast(n), .started = 0, .at = @splat(0), .portals = .{ .{}, .{} }, .sequence = find(.of(.badanov)).?, .points = try std.testing.allocator.alloc(Vector, 1) };
+    for (&splits.slots, 0..) |*slot, n| slot.* = .{ .capital = .{ .object = @intCast(n), .started = 0, .at = @splat(0), .portals = .{ .{}, .{} }, .sequence = find(.of(.badanov)).?, .points = try std.testing.allocator.alloc(Vector, 1) } };
     try std.testing.expect(splits.splitting(3));
     try std.testing.expect(!splits.splitting(Splits.max));
+    // All taken, a new split takes the first slot, and the one there is let go.
+    const added = splits.add(mission.world(), .{ .ulysses = .{ .object = Splits.max, .started = 0, .at = @splat(0), .portals = .{ .{}, .{} } } });
+    try std.testing.expect(added == &splits.slots[0].?);
+    try std.testing.expect(splits.splitting(Splits.max) and !splits.splitting(0));
 }

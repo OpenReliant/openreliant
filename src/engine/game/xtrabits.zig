@@ -1,9 +1,10 @@
 //! `C:\lancer\game\xtrabits.cpp`: odds and ends of the game's frame. `scene_add` (`0x004ADB30`)
 //! puts an object in the scene for the frame, `object_random15` (`0x004ADCE0`) draws an object's
-//! own random numbers, `0x004AAFC0` clips a line to a pane, and `node_tree_clip` (`0x004ADEE0`)
-//! has a portal cut an object's parts (`clipTree`). **Unverified:** that the third and the last
-//! are this file's: the third lies between the message pump and the first code the file's
-//! assertions place, the last after the last code they place.
+//! own random numbers, `0x004AAFC0` clips a line to a pane, and `node_clip_named` (`0x004ADEA0`)
+//! and `node_tree_clip` (`0x004ADEE0`) have a portal cut a part or all of an object's parts
+//! (`clipNamed`, `clipTree`). **Unverified:** that the third and the last two are this file's:
+//! the third lies between the message pump and the first code the file's assertions place, the
+//! last two after the last code they place.
 //!
 //! `renderer_start` (`0x004ACBE0`) caps the textures' sides by the texture detail
 //! (`TextureDetail`).
@@ -95,9 +96,9 @@ pub fn sceneAdd(gpa: Allocator, scene: *srcore.Scene, object: Object, layer: src
     }
 }
 
-/// Clips part `index` of `model` and every part of each model it carries, however deep, by
-/// `portal`, or, where null, by none, the flag left as it was (`node_tree_clip`, `0x004ADEE0`;
-/// `node_tree_unclip`, `0x004ADF40`).
+/// Clips part `index` of `model`, and every part of each model it carries however deep, by
+/// `portal`. A null portal clears the portal but leaves the flag as it was (`node_tree_clip`,
+/// `0x004ADEE0`; `node_tree_unclip`, `0x004ADF40`).
 pub fn clipPart(model: *objects.Model, index: usize, portal: ?*const srapiext.Portal) void {
     const part = &model.parts[index];
     part.object.portal = portal;
@@ -109,6 +110,16 @@ pub fn clipPart(model: *objects.Model, index: usize, portal: ?*const srapiext.Po
 /// `clipPart` for every part of `model`, as `node_tree_clip` clips an object from its root.
 pub fn clipTree(model: *objects.Model, portal: ?*const srapiext.Portal) void {
     for (0..model.parts.len) |index| clipPart(model, index, portal);
+}
+
+/// `node_clip_named` (`0x004ADEA0`): clips the first part of `model` named `name`
+/// (`objects.Model.partNamed`) by `portal`. A null portal clears both the portal and the flag. The
+/// parts that hang from it and the models it carries are left as they are.
+pub fn clipNamed(model: *objects.Model, name: []const u8, portal: ?*const srapiext.Portal) void {
+    const ref = model.partNamed(name) orelse return;
+    const object = &ref.part().object;
+    object.portal = portal;
+    object.flags.portal_clipped = portal != null;
 }
 
 test sceneAdd {
@@ -277,6 +288,24 @@ test clipLine {
     to = .{ -20, 50 };
     try std.testing.expect(!clipLine(last, &from, &to));
     try std.testing.expectEqual([2]i32{ -20, 50 }, to);
+}
+
+test clipNamed {
+    const gpa = std.testing.allocator;
+    var named: objects.testing.NamedParts(2) = undefined;
+    named.init(.{ "Hull", "Top" }, .{ .cut, .cut }, .{ &.{}, &.{} });
+    var model = try named.parts.create(gpa);
+    defer model.deinit(gpa);
+    const portal: srapiext.Portal = .{};
+    // The part of the name is clipped by the portal, and the other is left alone.
+    clipNamed(&model, "Top", &portal);
+    try std.testing.expect(model.parts[1].object.portal == &portal and model.parts[1].object.flags.portal_clipped);
+    try std.testing.expect(model.parts[0].object.portal == null and !model.parts[0].object.flags.portal_clipped);
+    // None clears its portal and its flag; a name no part has changes nothing.
+    clipNamed(&model, "Top", null);
+    try std.testing.expect(model.parts[1].object.portal == null and !model.parts[1].object.flags.portal_clipped);
+    clipNamed(&model, "Fin", &portal);
+    try std.testing.expect(model.parts[0].object.portal == null and model.parts[1].object.portal == null);
 }
 
 test TextureDetail {

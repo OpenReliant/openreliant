@@ -961,7 +961,7 @@ fn loseRoot(ctx: aigeneric.Context, index: u16, model: *Model, root: math.Place)
     const object = &slot.object;
     const shown = if (world.display) |display| &display.subtarget else null;
     if (shown) |subtarget| if (subtarget.object == index) subtarget.clear(world.objects);
-    for (model.parts) |*part| {
+    for (model.parts, 0..) |*part, n| {
         if (part.removed or part.spent or !(part.armor < 0)) continue;
         part.spent = true;
         if (part.class == .engine) loseEngine(object);
@@ -970,7 +970,7 @@ fn loseRoot(ctx: aigeneric.Context, index: u16, model: *Model, root: math.Place)
             if (object.flags.shield_generator) sound3d.playFrom(world, part.drawn(), .shlddown, .not_reserved);
             object.flags.shield_generator = false;
         } else if (explode.ComponentLoss.of(object.type)) |routine| {
-            if (!explode.loseComponent(ctx, index, routine, part)) return;
+            if (!explode.loseComponent(ctx, index, routine, .{ .model = model, .index = n })) return;
         }
         const link = part.link_id;
         explode.componentLost(world, index, model, root, link);
