@@ -839,7 +839,9 @@ const breakaway_parts = [_][]const u8{
     "Object02",
 };
 const break_off_section = "Bor break off section";
-const breakaway_projector = "Bor brkawy proj ";
+/// The breakaway's projector (`0x004E1AEC`), which Rotate Boridin breakaway warp projector turns
+/// and Start warp projection from Boridin projects from (`wgate.projection`).
+pub const breakaway_projector = "Bor brkawy proj ";
 
 /// The Boridin's part that smokes once the section has gone (`0x004E1A30`), and how far ahead of
 /// where the section stood, along its nose, the breakaway stands (`0x0040C058`).

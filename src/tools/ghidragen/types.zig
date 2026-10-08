@@ -198,6 +198,7 @@ pub const exported = [_]Export{
     .{ "DockState", engine.game.aidock.State },
     .{ "NannyDockState", engine.game.aidock.NannyState },
     .{ "WarpState", engine.game.wgate.warp_orders.State },
+    .{ "ProjectionState", engine.game.wgate.projection.State },
     .{ "NannyDockStep", engine.game.aidock.NannyStep },
     .{ "DockStep", engine.game.aidock.Step },
     .{ "DockStationStep", engine.game.aidock.StationStep },
