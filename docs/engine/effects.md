@@ -331,7 +331,7 @@ Each frame, `explosions_update` streams the smoke and fades the lights. A light 
 - The game keeps a burn light or a stream hanging from its part's frame after the wreck is gone. OpenReliant lets it go with the wreck.
 - The game stops with an assertion where the object has no part of the name. OpenReliant burns nothing.
 
-[`explode.zig`](../../src/engine/game/explode.zig) ports the burning as `burnPart`, and [`create.zig`](../../src/engine/game/create.zig) the wrecks' part of `create_object` as `wreckMade`. Not ported: the Protogate's power core, which burns with rays alone ([#233](https://github.com/OpenReliant/openreliant/issues/233)).
+[`explode.zig`](../../src/engine/game/explode.zig) ports the burning as `burnPart`, and [`create.zig`](../../src/engine/game/create.zig) the wrecks' part of `create_object` as `wreckMade`, and the Protogate's power core, which burns with rays alone, as part of `gateMade`.
 
 ## The Uber Explode
 
