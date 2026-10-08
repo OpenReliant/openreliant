@@ -30,6 +30,7 @@ const shield = @import("shield.zig");
 const particles = @import("particles.zig");
 pub const breakup = @import("explode/breakup.zig");
 pub const rocks = @import("explode/chunks.zig");
+pub const extras = @import("explode/extras.zig");
 pub const split = @import("explode/split.zig");
 pub const uber = @import("explode/uber.zig");
 pub const ulysses = @import("explode/ulysses.zig");
@@ -1092,22 +1093,28 @@ pub fn burst(world: gameobj.World, index: u16) void {
 }
 
 /// `explode_component_lost` (`0x0046D090`): what the destruction of a component of assembly `link`
-/// of `model`, its root standing at `root`, sets off, as `objects.loseComponents` finds it. Each
-/// part of the assembly, hidden or not, and each model mounted on it, goes up
-/// (`breakup.burstPart`), its pieces the faster the more the assembly's parts measure across
-/// together; and the root sends out a burst of flame and the explosion's sound.
-///
-/// Not ported: what it sets off first for a few types
-/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
-pub fn componentLost(world: gameobj.World, index: u16, model: *const objects.Model, root: math.Place, link: u32) void {
+/// of `model`, its root standing at `root`, sets off, as `objects.loseComponents` finds it. First a
+/// few types set off extras of their own (`extras.componentLost`), after which a prototype gate's
+/// panel goes up no further. Then each part of the assembly, hidden or not, and each model mounted
+/// on it, goes up (`breakup.burstPart`), its pieces the faster the more the assembly's parts
+/// measure across together; and the root sends out a burst of flame (`burstFlames`) and the
+/// explosion's sound.
+pub fn componentLost(world: gameobj.World, index: u16, model: *objects.Model, root: math.Place, link: u32) void {
+    if (!extras.componentLost(world, index, model, link)) return;
     const slot = &world.objects.slots[index];
     var reach: f32 = 0;
     var parts = model.assembly(link);
     while (parts.next()) |at| reach += model.parts[at].object.radius;
     parts = model.assembly(link);
     while (parts.next()) |at| breakup.burstTree(world, slot, model, at, reach);
-    _ = flames(world, root.position, gameobj.vector(slot.object.velocity), burst_flames);
+    _ = burstFlames(world, root.position, gameobj.vector(slot.object.velocity));
     sound(world, root.position, .explosions);
+}
+
+/// The burst of flame a component's loss sends out from `at`, something moving at `velocity` there
+/// (`burst_flames`): its emitter, or none without a camera.
+pub fn burstFlames(world: gameobj.World, at: Vector, velocity: Vector) ?particles.Emitter {
+    return flames(world, at, velocity, burst_flames);
 }
 
 /// What `create_object` gives an object at `+0x614`, by the type whose stats it takes

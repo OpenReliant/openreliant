@@ -13,10 +13,11 @@
 //! flashes (`main/flash.zig`) as the split ends near the camera, and at moments of a Latov's and a
 //! Stalag's, and a split's burning bits may be bodies.
 //!
-//! The Ulysses' top coming away (`ulysses.zig`) takes a slot among the splits too.
+//! The Ulysses' top coming away (`ulysses.zig`) takes a slot among the splits too. A Krasnaya
+//! throws its arms off as it splits (`extras.throwArm`).
 //!
-//! Not ported: the Dark Reign's hat, the Krasnaya's arms and the Boridin breakaway's core, which
-//! the split takes apart first ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+//! Not ported: the split putting out the Dark Reign's hat and the Boridin breakaway's core first
+//! ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -33,6 +34,7 @@ const shockwave = @import("../shockwave.zig");
 const sound3d = @import("../sound3d.zig");
 const table = @import("../table.zig");
 const xtrabits = @import("../xtrabits.zig");
+const extras = @import("extras.zig");
 pub const sequences = @import("sequences.zig");
 const ulysses = @import("ulysses.zig");
 
@@ -602,9 +604,10 @@ fn otherHalfEnd(half: *gameobj.GameObject, orientation: math.Matrix) void {
 /// `explode_capship_component`'s split of the ship in slot `index`, as its hull is destroyed
 /// (`split_create` first):
 ///
-/// 1. It takes a slot among the splits, with its portals, where its root stands, and its points,
-///    each part's `cut` list in the ship's frame, in order along it but for a Latov's; its
-///    engines stop, and every part stops playing its track.
+/// 1. A Krasnaya throws off each arm whose engine block is still on (`extras.throwArm`). It takes a
+///    slot among the splits, with its portals, where its root stands, and its points, each part's
+///    `cut` list in the ship's frame, in order along it but for a Latov's; its engines stop, and
+///    every part stops playing its track.
 /// 2. Its other half, where its sequence names one, stands where it does, turned as it is, turning
 ///    as it turns but unpowered, still and disabled, and shows its first part, cut by the second
 ///    portal.
@@ -620,8 +623,7 @@ fn otherHalfEnd(half: *gameobj.GameObject, orientation: math.Matrix) void {
 /// game puts one that belongs right after the first before it; and each part's are taken through
 /// its place in the ship, where the game takes them through its place in the part it hangs from.
 ///
-/// Not ported: the special parts a few types take apart first, the Dark Reign's hat, the
-/// Krasnaya's arms and the Boridin breakaway's core
+/// Not ported: putting out the Dark Reign's hat and the Boridin breakaway's core first
 /// ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 pub fn start(world: gameobj.World, index: u16) void {
     const explosions = world.explosions orelse return;
@@ -630,6 +632,9 @@ pub fn start(world: gameobj.World, index: u16) void {
     const object = &slot.object;
     const model = if (slot.model) |*live| live else return;
     const sequence = find(object.type) orelse return;
+    if (object.type.base() == .krasnaya) for (std.enums.values(extras.Side)) |side| {
+        if (model.partNamed(side.block()) != null) extras.throwArm(world, index, side, side.link());
+    };
     const points = cutPoints(explosions.splits.gpa, model, object.type.base() != .latov) catch return;
     const split = &explosions.splits.add(world, .{ .capital = .{
         .object = index,
