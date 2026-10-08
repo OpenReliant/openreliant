@@ -61,23 +61,22 @@ pub const permission_every: u32 = 500;
 /// multiplayer mission (`frame_controls`, `0x0041466A`), the timer at `game_ticks`: heard at most
 /// once in `permission_every` ticks (`permission_heard_from`).
 ///
-/// In a training mission (`create.Objects.training`), where the script's `landing_cleared` is
-/// set, the pilot asks (`playerSays`, `hud_012`), and the flight instructor answers in
-/// `report_delay` ticks (`trnglnd_001`) and clears the player's ship to land. In any other, unless
-/// the ship is landing already, the pilot asks, and the bridge of the carrier it launched from
-/// answers in `report_delay` ticks (`bridgeLine`): where `landing_cleared` is set it clears the
-/// ship, by a line the script's `mission_success` picks at random from its lines, and otherwise it
-/// refuses, by one of the refusals. A ship cleared lands on that carrier (`ailand`). A report
+/// In training (`create.Objects.training`), where the script's `landing_cleared` is set, the pilot
+/// asks (`playerSays`, `hud_012`), and the flight instructor answers in `report_delay` ticks
+/// (`trnglnd_001`) and clears the player's ship to land. Otherwise, unless the ship is landing
+/// already, the pilot asks, and the bridge of the carrier it launched from answers in
+/// `report_delay` ticks (`bridgeLine`): where `landing_cleared` is set it clears the ship, by a
+/// line the script's `mission_success` picks at random from its lines, and otherwise it refuses,
+/// by one of the refusals. A ship cleared lands on that carrier (`ailand`). A report
 /// that finds the radio's reports all taken is not said, and a ship refused that way is not
 /// cleared either. The radio's menu asks too (`menu.Page.permission_to_land`).
 ///
 /// **Fix:** the game reads through a null pointer where the player's ship launched from no
 /// carrier; OpenReliant asks nothing.
 ///
-/// Not ported: the debug line it writes naming the mission's rating, which nothing shows; a
+/// Not ported: the debug line it writes naming the mission's rating, which nothing shows; and a
 /// multiplayer game's side of it, in which a remote player's ship is cleared whatever the script
-/// says ([#55](https://github.com/OpenReliant/openreliant/issues/55)); and the game's mode
-/// `0x00524FE4` 1, in which the key works as in a training mission.
+/// says ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn permissionToLand(world: gameobj.World, game_ticks: u32) void {
     const player = world.player;
     if (game_ticks < player.permission_heard_from) return;
@@ -412,10 +411,8 @@ pub fn shipLine(buffer: []u8, all: *const create.Objects, ship: u16, suffix: []c
 
 /// `radio_remarks_frame` (`0x00456B90`), each frame after the reports (`Radio.stepReports`): the
 /// reminders to land (`landingReminder`) and to jump (`jumpReminder`), the missile warning
-/// (`missileWarning`) and the rescue's words (`rescue`).
-///
-/// Not ported: the game's mode `0x00524FE4` 1, in which the reminders and the launch's words are
-/// as in a training mission.
+/// (`missileWarning`) and the rescue's words (`rescue`). In training, which includes the
+/// simulator's (`create.Objects.training`), the flight instructor gives the reminders.
 pub fn remarksFrame(world: gameobj.World) void {
     landingReminder(world);
     jumpReminder(world);
@@ -432,9 +429,9 @@ const training_landing_reminder = "trnprm_001.ut";
 
 /// `radio_landing_reminder` (`0x00456710`), each frame, unless the player's ship is landing: while
 /// the script's `landing_cleared` is set and the mission goes on, the reminder runs, and otherwise
-/// it is over. As it begins, in a training mission, the flight instructor reminds the pilot to ask
-/// to land, and says no more. In any other, every `landing_wait` ticks from then, Moose reminds the
-/// pilot, unless the script has the remarks unsaid.
+/// it is over. As it begins, in training, the flight instructor reminds the pilot to ask to land,
+/// and says no more. Otherwise, every `landing_wait` ticks from then, Moose reminds the pilot,
+/// unless the script has the remarks unsaid.
 fn landingReminder(world: gameobj.World) void {
     const all = world.objects;
     if (landing(all)) return;
@@ -477,7 +474,7 @@ const jump_call_lines = [jump_call_count][4][]const u8{
 
 /// `radio_jump_reminder` (`0x00456860`), each frame: while the mission has a jump or a warp ready
 /// (`hud.Readiness`) and goes on, the reminder runs, and otherwise it is over. As it begins, the
-/// flight instructor in a training mission, or Moose in any other, says one is ready, a jump rather
+/// flight instructor in training, or Moose in any other mission, says one is ready, a jump rather
 /// than a warp where both are. Outside training, Moose then calls the pilot to jump every
 /// `jump_wait` ticks, `jump_call_count` times, and `jump_last_wait` ticks after the last, the
 /// player's ship jumps (`input.playerJump`). These are said whatever the script has unsaid.
@@ -682,7 +679,7 @@ const training_launch_line = "trnlch_001.ut";
 
 /// `radio_launch_line` (`0x00456E50`), as the player's ship's launch from the ship in slot
 /// `carrier` goes (`launch.update`), while the script lets the remarks be said and the radio is
-/// free: the flight instructor speaks in a training mission, and in any other the bridge officer
+/// free: the flight instructor speaks in training, and in any other mission the bridge officer
 /// of the carrier, a Reliant or a Yamato. A launch from anything else goes unremarked.
 pub fn launchLine(world: gameobj.World, carrier: u16) void {
     if (world.player.remarks.generic_comms_disabled) return;
@@ -1535,6 +1532,12 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     try std.testing.expectEqual(instructor, radio.reports[0].?.object);
     try std.testing.expectEqualStrings("pilots\\VirtFlt_Ins.fm8", radio.reports[0].?.film.slice());
     try std.testing.expectEqualStrings(instructor_line, radio.reports[0].?.speech.slice());
+    // So does the simulator's training, whatever its mission.
+    radio.reset(sound);
+    mission.objects.mission_number = 1;
+    mission.objects.simulator.mode = .training;
+    permissionToLand(world, 4000);
+    try std.testing.expectEqual(instructor, radio.reports[0].?.object);
 }
 
 test permissionToLand {

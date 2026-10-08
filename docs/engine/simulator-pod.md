@@ -67,6 +67,10 @@ loads (`mission_load`), puts the player in a Grendel, ship type 2 of `player_loa
 mission from `.\missions\%s.dte`, where the name is `mission31`, `mission30`, `mission32` or
 `mission29`. Then it puts back the pilot's kills (`skull_count`) and `mission_number` as they were.
 
+In its training, the player's ship takes a Vagabond, a Jack Hammer and a Raptor in turn on its
+missile hardpoints ([Missiles](missiles.md#the-loadout)), and the flight instructor speaks for the
+carrier and answers PERMISSION TO LAND, as in every training mission ([Radio](radio.md#remarks)).
+
 No hangar movie, landing, debriefing or medal comes with the mission, and the campaign's records
 keep nothing of it; the game's variables, which are the campaign's, keep what the mission left in
 them. The pause menu stands in for the debriefing, as for Instant Action's ([Pause

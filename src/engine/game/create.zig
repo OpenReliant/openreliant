@@ -783,11 +783,24 @@ pub const Objects = struct {
         return all.simulator.mode == .instant_action or all.mission_number == instant_action_mission;
     }
 
-    /// Whether the mission is one of the training missions (`training_missions`), in which the
-    /// flight instructor clears the player's ship to land and `SetInvulnerability` reaches the
-    /// players' ships too, as it does in the simulator's training (`Simulator.Mode.training`).
+    /// Whether the player trains: in the simulator's training (`Simulator.Mode.training`), or in
+    /// one of the training missions however it is flown (`training_missions`), as each of the
+    /// game's checks reads it (`simulator_mode` 1, or missions 30 to 35). The flight instructor
+    /// then speaks for the carrier and clears the player's ship to land (`radio`), the player's
+    /// ship takes the training's missiles (`tierFit`), and `SetInvulnerability` reaches the
+    /// players' ships too.
     pub fn training(all: *const Objects) bool {
+        if (all.simulator.mode == .training) return true;
         return all.mission_number >= training_missions[0] and all.mission_number <= training_missions[1];
+    }
+
+    /// What the ship in slot `index` takes on its missile hardpoints where it is fitted by its
+    /// loadout tier (`object_loadout_by_tier`, `0x0045E57A` on): the missiles `tier` names, but
+    /// for the player's ship in training (`training`), the training's (`training_racks`),
+    /// whatever the tier.
+    pub fn tierFit(all: *const Objects, index: u16, tier: u2) Fit {
+        if (index == all.player and all.training()) return .{ .loadout = &training_racks };
+        return .{ .tier = tier };
     }
 
     /// Whether the mission is mission 25's first part, in which the player's wing flies Kamovs.
@@ -799,8 +812,11 @@ pub const Objects = struct {
     /// player's slot, a Kamov in mission 25's first part, or else the ship the loadout chose, its
     /// `t_` twin from `twins_from_mission` on; in any other slot, `asked`.
     ///
-    /// Not ported: a multiplayer game, where every slot takes `asked`, and the rule of
-    /// `simulator_mode` by which a type 13 becomes a Reliant.
+    /// Left out: in the simulator's training, a Yamato the loadout chose becomes a Reliant
+    /// (`0x00466CDF`), which never happens: the training puts the player in a Grendel, and its
+    /// missions come after `twins_from_mission`, where the type is the twin already.
+    ///
+    /// Not ported: a multiplayer game, where every slot takes `asked`.
     pub fn slotType(all: *const Objects, index: u16, asked: gameobj.Type) gameobj.Type {
         if (index >= all.players or index >= all.loadout_ships.len) return asked;
         if (all.kamovPart()) return .of(.kamov);
@@ -1336,7 +1352,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
         if (guns.gunAt(slot.guns, second)) |other| other.side = .second;
     }
     object.gun_mode = .created(combat.gun_groups);
-    const fit: Fit = if (all.createdRacks(index)) |racks| .{ .loadout = racks } else .{ .tier = settledTier(tier, asked, all.campaign_tier) };
+    const fit: Fit = if (all.createdRacks(index)) |racks| .{ .loadout = racks } else all.tierFit(index, settledTier(tier, asked, all.campaign_tier));
     try arm(all.gpa, slot, fit);
     ai.setTargetable(object, combat, true);
     all.exhaust.offer(all, index);
@@ -1353,10 +1369,21 @@ pub const fuel_pod_fuel = 5000;
 pub const Racks = [gameobj.max_racks]missiles.Type;
 
 /// What `arm` fits a ship's racks by: a loadout tier (`object_loadout_by_tier`), or a player's
-/// loadout, which each rack takes its type from in turn.
+/// loadout, which each rack takes its type from in turn, as the training's missiles are fitted too
+/// (`Objects.tierFit`).
 pub const Fit = union(enum) {
     tier: u2,
     loadout: *const Racks,
+};
+
+/// The missiles the player's ship takes in training (`object_loadout_by_tier`, `0x0045E59F` to
+/// `0x0045E5D5`): a Vagabond, a Jack Hammer and a Raptor on its missile hardpoints in turn, and
+/// round again.
+pub const training_racks: Racks = racks: {
+    const turn = [_]missiles.GameMissile{ .vagabond, .jack_hammer, .raptor };
+    var racks: Racks = undefined;
+    for (&racks, 0..) |*rack, at| rack.* = .of(turn[at % turn.len]);
+    break :racks racks;
 };
 
 /// The weapons `create_object` gives the object in `slot`, which a re-arm gives it again
@@ -1396,7 +1423,7 @@ pub fn rearm(world: gameobj.World, index: u16) Allocator.Error!void {
     const fit: Fit = if (all.loadoutRacks(index)) |racks|
         .{ .loadout = racks }
     else
-        .{ .tier = std.math.cast(u2, slot.object.loadout_tier) orelse 0 };
+        all.tierFit(index, std.math.cast(u2, slot.object.loadout_tier) orelse 0);
     try arm(all.gpa, slot, fit);
     if (index == all.player) if (world.display) |display| display.missiles.build(&slot.object);
 }
@@ -1441,10 +1468,8 @@ fn isHardpoint(attachment: shp.Attachment, _: usize) bool {
 
 /// `object_loadout_by_tier` (`0x0045E500`): each missile hardpoint, in turn, takes a rack of the
 /// missile its attachment names for `tier`. A ship type a mod adds can name the missile all its
-/// hardpoints take, at every tier.
-///
-/// Not ported: the player's own ship in the simulator and in missions 30 to 35, which takes a
-/// Vagabond, a Jack Hammer and a Raptor in turn.
+/// hardpoints take, at every tier. The player's ship in training takes the training's missiles
+/// instead (`Objects.tierFit`).
 pub fn loadoutByTier(object: *GameObject, model: *const objects.Model, tier: u2) void {
     object.rack_count = 0;
     const named: ?missiles.Type = if (object.type.added()) |added| added.extra.missile else null;
@@ -2260,6 +2285,41 @@ test "a player's ship takes the racks its loadout fitted" {
     try std.testing.expect(all.loadoutRacks(0) != null);
     // Another slot has none.
     try std.testing.expectEqual(null, all.loadoutRacks(1));
+}
+
+test "the player's ship takes the training's missiles" {
+    const gpa = std.testing.allocator;
+    var random: Random = .{};
+    const all = try Objects.create(gpa, &random);
+    defer all.destroy();
+    var tables = testing.tables();
+    var model: testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    // Four hardpoints, each naming a Screamer at every tier.
+    var points: [4]shp.Attachment = @splat(std.mem.zeroes(shp.Attachment));
+    for (&points) |*point| point.kind = .missile;
+    model.data[0].attachments = &points;
+    // In the simulator's training, the player's ship takes a Vagabond, a Jack Hammer and a Raptor
+    // in turn, and round again, and any other ship its tier's.
+    all.simulator = .{ .mode = .training };
+    const player = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
+    const other = try createObject(all, &tables, model.types(), null, .of(.predator), 0, @splat(0), &random);
+    try std.testing.expectEqual(all.player, player);
+    const fitted = &all.slots[player].object;
+    try std.testing.expectEqual(4, fitted.rack_count);
+    for (fitted.racks[0..4], [_]missiles.GameMissile{ .vagabond, .jack_hammer, .raptor, .vagabond }) |rack, expected| {
+        try std.testing.expectEqual(missiles.Type.of(expected), rack.type);
+    }
+    try std.testing.expectEqual(missiles.Type.of(.screamer), all.slots[other].object.racks[0].type);
+    // So in a training mission flown without the loadout, as `--mission` flies it, and in no
+    // other.
+    all.simulator = .{};
+    all.mission_number = training_missions[1];
+    try std.testing.expectEqual(Fit{ .loadout = &training_racks }, all.tierFit(player, 2));
+    try std.testing.expectEqual(Fit{ .tier = 2 }, all.tierFit(other, 2));
+    all.mission_number = training_missions[1] + 1;
+    try std.testing.expectEqual(Fit{ .tier = 2 }, all.tierFit(player, 2));
 }
 
 test "a rack left empty on the loadout leaves its hardpoint bare" {

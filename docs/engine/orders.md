@@ -671,8 +671,8 @@ car's (`0x00408210`, `0x004084A0`).
 Land (8) brings the player's ship down on its carrier, and ends the mission. PERMISSION TO LAND
 gives it (`permission_to_land`, `0x00453DE0`), which `frame_controls` calls outside a multiplayer
 mission: heard at most once in 500 of the timer's ticks (`0x0052987C`), it aims Land at the ship
-the player launched from (`player_carrier`). In a training mission (30 to 35), the flight instructor
-clears the ship to land where the script's variable 10 (`landing_cleared`, `0x0052A418`) is set. In
+the player launched from (`player_carrier`). In training, the training missions (30 to 35) and the
+simulator's training, the flight instructor clears the ship to land where the script's variable 10 (`landing_cleared`, `0x0052A418`) is set. In
 any other, unless the ship is landing already, the carrier refuses it, or clears it where variable
 10 is set. Mission 1's script sets it as the Reliant jumps in. The pilot asks on the radio, and the
 answer comes as a report 300 ticks later ([Reports](radio.md#reports)); where the radio's reports
