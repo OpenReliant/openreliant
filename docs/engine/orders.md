@@ -281,6 +281,12 @@ Every order, by its number, with what it does and whether OpenReliant runs it. A
 OpenReliant does not run yet holds its place on the stack and does nothing
 ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
+The Order column holds the developers' names. Scripts and `ai/orders.zig` use them in lower case,
+with underscores, but for the orders the table names nothing, or names as an earlier one, which
+take OpenReliant's own names, for what they do differently (tablegen's `own_names`): 3
+`launch_jack_hammer`, 40 `jump_in_spread`, 41 `jump_out_spread`, 106 `abandoned` and 110
+`fire_ion_cannon`. Order 200 has no name, and goes by its number.
+
 | Number | Order | What it does | Ported |
 |---|---|---|---|
 | 0 | Do Nothing | Zeroes the throttle and the turning inputs. | Yes |
@@ -302,7 +308,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 16 | Toggle Cloak | One-shot: cloaks or uncloaks the ship if its model's header allows a cloak, and the ships being launched from it do the same. | Yes |
 | 17 | Ship Follow Curve | Flies the path of the mission's curves from the curve in its data ([Following a path](#following-a-path)). | Yes |
 | 18 | Slow Rotate | Zero throttle, yaw input 0.1. | Yes |
-| 19, 40 | Jump In | The ship arrives beside its target, flying in from far behind it; 40 first holds its place in the formation a while ([Jumps](jump.md#jump-in)). | Yes |
+| 19, 40 | Jump In | The ship arrives beside its target, flying in from far behind it; 40 then spreads the ships out for 200 ticks, each rolling and pitching away by its place in its group ([Jumps](jump.md#jump-in)). | Yes |
 | 20, 41 | Jump Out | The ship turns to where it goes, charges and jumps: to its target, where Jump In of the matching number brings it in, or out of the mission where it names none; a ship jumping with the player's goes in formation behind it ([Jumps](jump.md#jump-out)). | Yes |
 | 21 | Find Scoop Up | Starts at its first step, as 115 and 116 do (`0x0040B1C0`). The first goes on to the second, where a multiplayer game waits for every player unless the target is a ship (`ai_sequence_sync`, `0x00401000`). The second walks the ships its target names for the nearest to where the ship will be next that it can aim at, ejected or not (`0x0040B140`), and pushes Scoop Up (107) at it; with none it pops. Once Scoop Up is done, the order starts again from its first step. | Yes |
 | 22 to 24 | Random Spin Slow, Medium, Fast | On starting, zero throttle and each turning input 0.1 plus a random number times 0.3, 0.5 or 0.9. Its update does nothing. | Yes |

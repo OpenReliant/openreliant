@@ -38,7 +38,7 @@ type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total
 type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
 type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | number
 type RadioMode = "now" | "queued" | "if_idle" | number
-type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "unnamed_3" | "warp_in" | "warp_out" | "fly" | "run_away" | "land" | "escort" | "find_new_target" | "explode" | "ripper_grabs_target_object" | "object_attach" | "formation_regroup" | "patrol_route" | "toggle_cloak" | "ship_follow_curve" | "slow_rotate" | "jump_in" | "jump_out" | "find_scoop_up" | "random_spin_slow" | "random_spin_medium" | "random_spin_fast" | "fixed_gate_jump_in" | "fixed_gate_jump_out" | "formation" | "fixed_gate_open" | "fixed_gate_close" | "eject" | "fixed_gate_collapse" | "match_speed" | "dark_reign_shoot" | "move_to_spawn_pos" | "turns_object_lights_on" | "make_boridin_section_break_away" | "rotate_boridin_breakaway_warp_projector" | "start_warp_projection_from_boridin" | "make_ripper_drop_what_its_carrying" | "jump_in_40" | "jump_out_41" | "turns_object_lights_off" | "huuuuuuuge_explosion" | "immediately_set_ship_to_zero_velocity_and_rotation" | "fly_ship_backwards" | "player_control" | "multiplayer_control" | "avoid_target" | "torpedo" | "launch" | "fight" | "eject_106" | "scoop_up" | "eject_spin" | "dock" | "dark_reign_shoot_110" | "ripper_end_drop_object" | "ripper_attach_cargo_pod_to_mammoth" | "eject_fighter_attack" | "disrupted" | "make_capship_list_left" | "make_capship_list_right" | "friendly_fire" | "eject_player" | "ship_follow_curve_backwards" | "mill" | "deathmatch_respawn_effect" | "deathmatch_dark_reign_target" | "unnamed_200" | number
+type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "launch_jack_hammer" | "warp_in" | "warp_out" | "fly" | "run_away" | "land" | "escort" | "find_new_target" | "explode" | "ripper_grabs_target_object" | "object_attach" | "formation_regroup" | "patrol_route" | "toggle_cloak" | "ship_follow_curve" | "slow_rotate" | "jump_in" | "jump_out" | "find_scoop_up" | "random_spin_slow" | "random_spin_medium" | "random_spin_fast" | "fixed_gate_jump_in" | "fixed_gate_jump_out" | "formation" | "fixed_gate_open" | "fixed_gate_close" | "eject" | "fixed_gate_collapse" | "match_speed" | "dark_reign_shoot" | "move_to_spawn_pos" | "turns_object_lights_on" | "make_boridin_section_break_away" | "rotate_boridin_breakaway_warp_projector" | "start_warp_projection_from_boridin" | "make_ripper_drop_what_its_carrying" | "jump_in_spread" | "jump_out_spread" | "turns_object_lights_off" | "huuuuuuuge_explosion" | "immediately_set_ship_to_zero_velocity_and_rotation" | "fly_ship_backwards" | "player_control" | "multiplayer_control" | "avoid_target" | "torpedo" | "launch" | "fight" | "abandoned" | "scoop_up" | "eject_spin" | "dock" | "fire_ion_cannon" | "ripper_end_drop_object" | "ripper_attach_cargo_pod_to_mammoth" | "eject_fighter_attack" | "disrupted" | "make_capship_list_left" | "make_capship_list_right" | "friendly_fire" | "eject_player" | "ship_follow_curve_backwards" | "mill" | "deathmatch_respawn_effect" | "deathmatch_dark_reign_target" | number
 type OrderPushed = "refused" | "taken" | "conflict"
 type MissionCommand = "print_ship_name" | "create_timer" | "destroy_timer" | "create_flight_group" | "destroy_flight_group" | "wait" | "play_speech" | "wait_for_speech" | "play_comms_movie" | "wait_for_movie" | "print_debug_message" | "set_ai" | "clear_ai" | "set_patrol_route" | "set_pilot" | "set_trigger_state" | "start_director_cam" | "start_ship_animation" | "ship_follow_curve" | "setup_launch" | "start_launch" | "display_sub_title" | "reset_code_priority" | "interrupt_trigger_code" | "comms_from_ship" | "comms_from_pilot" | "set_invulnerability" | "moving_ship_follow_curve" | "disable_object" | "position_relative" | "when_player_last_jumped" | "start_missile_cam" | "start_chase_cam" | "set_player_target" | "set_targetable" | "play_music" | "stop_director_cam" | "set_action_centre" | "dock" | "disable_taunts" | "fly" | "comms_from_ship_once" | "comms_from_pilot_once" | "disable_lights" | "set_environment_fx" | "multi_player_sync" | "disable_generic_comms" | "disable_guns" | "set_nav_point" | "set_escort_point" | "reset_after_burners" | "disable_missiles" | "disable_engines" | "disable_eject" | "set_hostile" | "reset_to_spawn_positions" | "update_environment_fx_state" | "set_primary_target" | "wait_for_jump_or_launch" | "do_not_disturb" | "set_environment_fx_nebula" | "start_ship_animation_reverse" | "snap_to_point" | "play_fosters_last_stand" | "open_instrument" | "close_instrument" | "destroy_sub_object" | "set_objective" | "set_rescue_probabilities" | "is_ship_this_player" | "set_flyback_marker" | "reset_flyback_marker" | "stop_ship_animation" | "set_ship_avoidance" | "match_speed" | "moving_ship_backup_curve" | "wait_for_key" | "terminate_mission" | "turret_set_target" | "set_any_trigger_state" | "wait_for_director_cam" | "kill_all_script_execution_execpt_me" | "stack_director_cam" | "scanner" | "replace_sub_object" | "fire" | "multiplayer_script_sync" | "friendly_fire" | "cloak" | "replenish_weapons" | "wills_blag" | "show_hud_icon" | "disable_listing" | "disable_object_at_next_jump" | "darrens_naughty_blag"
 type MissionCommandResult = "wait" | "run_on" | number
@@ -1331,7 +1331,7 @@ type HooksAdd =
     ((name: "order_fly_aimlessly_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_fly_aimlessly", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_launch_missile", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_unnamed_3", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_launch_jack_hammer", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_warp_in_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_warp_in", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_warp_out_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
@@ -1407,8 +1407,8 @@ type HooksAdd =
     ((name: "order_launch", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_fight_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_fight", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_eject_106_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_eject_106", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_abandoned_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_abandoned", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_scoop_up_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_scoop_up", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_scoop_up_exit", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
@@ -1417,9 +1417,9 @@ type HooksAdd =
     ((name: "order_dock_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_dock", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_dock_exit", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_dark_reign_shoot_110_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_dark_reign_shoot_110", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_dark_reign_shoot_110_exit", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_fire_ion_cannon_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_fire_ion_cannon", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_fire_ion_cannon_exit", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_ripper_end_drop_object_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_ripper_end_drop_object", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_ripper_attach_cargo_pod_to_mammoth_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
@@ -1499,7 +1499,7 @@ type HooksAfter =
     ((name: "order_fly_aimlessly_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_fly_aimlessly", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_launch_missile", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_unnamed_3", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_launch_jack_hammer", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_warp_in_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_warp_in", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_warp_out_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
@@ -1575,8 +1575,8 @@ type HooksAfter =
     ((name: "order_launch", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_fight_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_fight", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_eject_106_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_eject_106", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_abandoned_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_abandoned", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_scoop_up_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_scoop_up", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_scoop_up_exit", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
@@ -1585,9 +1585,9 @@ type HooksAfter =
     ((name: "order_dock_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_dock", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_dock_exit", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_dark_reign_shoot_110_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_dark_reign_shoot_110", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
-    ((name: "order_dark_reign_shoot_110_exit", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_fire_ion_cannon_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_fire_ion_cannon", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
+    ((name: "order_fire_ion_cannon_exit", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_ripper_end_drop_object_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_ripper_end_drop_object", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &
     ((name: "order_ripper_attach_cargo_pod_to_mammoth_init", handler: (e: OrderRoutine) -> boolean?, filter: (Filter | (e: OrderRoutine) -> boolean)?) -> HookHandle) &

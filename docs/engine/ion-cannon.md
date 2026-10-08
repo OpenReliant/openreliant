@@ -56,7 +56,7 @@ on the cannon, one for each pair it lists.
 
 ## Each update
 
-Each update of order 110 (`order_dark_reign_shoot_110`), the Boridin stops dead, and the order pops
+Each update of order 110 (`order_fire_ion_cannon`), the Boridin stops dead, and the order pops
 where the cannon's part or its focus is gone. Then:
 
 1. Where the ship stands more than the angle whose cosine is 0.98 off the cannon's Z axis, either

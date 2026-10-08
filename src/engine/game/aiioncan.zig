@@ -163,7 +163,7 @@ const max_lights = 5;
 const white = [3]f32{ 1, 1, 1 };
 const violet = [3]f32{ 0.3, 0, 1 };
 
-/// What a type's cannon fires with (`order_dark_reign_shoot_110`, `0x0040E7A0`), by the type of
+/// What a type's cannon fires with (`order_fire_ion_cannon`, `0x0040E7A0`), by the type of
 /// its object: the Dark Reign's `Dark Low Body` (`0x004E1C88`) turns, and the `Dark Focus`
 /// (`0x004E1C7C`) on it fires; the Boridin's `Bor Ion Cannon` (`0x004E1C98`) and the rogue base's
 /// `cannon` (`0x004E1CA8`) do both. Any other type is taken for the Dark Reign with no focus, as
@@ -352,14 +352,14 @@ pub const Cannons = struct {
     }
 
     /// The effects the cannons' updates showed this frame, into the scene (`scene_add` in
-    /// `order_dark_reign_shoot_110`), where the parts they hang from stand as drawn: the laser from
+    /// `order_fire_ion_cannon`), where the parts they hang from stand as drawn: the laser from
     /// the focus, the glow, the rings and the lights from the cannon. Then none shows until the
     /// next update. A cannon whose object no longer fires shows nothing.
     pub fn draw(cannons: *Cannons, gpa: Allocator, scene: *srcore.Scene, all: *create.Objects) Allocator.Error!void {
         for (cannons.records.items) |record| {
             defer record.shown = .{};
             const slot = &all.slots[record.slot];
-            if (slot.running(.dark_reign_shoot_110) == null) continue;
+            if (slot.running(.fire_ion_cannon) == null) continue;
             const cannon = slot.partPlace(record.cannon.live(all) orelse continue) orelse continue;
             const focus = slot.partPlace(record.focus.live(all) orelse continue) orelse continue;
             const shown = record.shown;
@@ -648,7 +648,7 @@ fn pair(points: []const shp.Point, n: usize) ?[2]Vector {
     return .{ points[2 * n].position.vector(), points[2 * n + 1].position.vector() };
 }
 
-/// `order_dark_reign_shoot_110_init` (`0x0040D020`): the init of Dark reign shoot (110). Where the
+/// `order_fire_ion_cannon_init` (`0x0040D020`): the init of Dark reign shoot (110). Where the
 /// object's model has its kind's parts (`Kind`), the order starts at its first step, keeping its
 /// ship and the tick, and the cannon takes a record (`Cannons.make`); a record left from an object
 /// that stood in its slot before goes first.
@@ -674,7 +674,7 @@ pub fn init(ctx: Context, index: u16) void {
     };
 }
 
-/// `order_dark_reign_shoot_110_exit` (`0x0040D1E0`): the exit of Dark reign shoot (110). The
+/// `order_fire_ion_cannon_exit` (`0x0040D1E0`): the exit of Dark reign shoot (110). The
 /// object's sequence points start again (`GameObject.sync_points`), and the cannon lets go of its
 /// record and its effects (`Cannons.free`).
 pub fn exit(ctx: Context, index: u16) void {
@@ -683,7 +683,7 @@ pub fn exit(ctx: Context, index: u16) void {
     if (world.ion_cannons) |cannons| cannons.free(world.rays, index);
 }
 
-/// `order_dark_reign_shoot_110` (`0x0040D210`): the update of Dark reign shoot (110), the ion
+/// `order_fire_ion_cannon` (`0x0040D210`): the update of Dark reign shoot (110), the ion
 /// cannon of the object in slot `index` firing at the ship its order names, a step at a time
 /// (`Step`). The Boridin stops dead each update (`ai.stop`, which also clears the lateral input
 /// the game leaves). The order pops where the cannon or its focus is gone. Then:
@@ -749,7 +749,7 @@ pub fn update(ctx: Context, index: u16) void {
         const held = if (world.variables) |variables| variables.ion_cannons_hold_lock != 0 else false;
         if (!held) {
             stop(ctx, index, cannons);
-            _ = aigeneric.giveShip(ctx, index, .dark_reign_shoot_110, target_index, null);
+            _ = aigeneric.giveShip(ctx, index, .fire_ion_cannon, target_index, null);
             return;
         }
     }
@@ -851,7 +851,7 @@ fn stop(ctx: Context, index: u16, cannons: *Cannons) void {
 }
 
 /// Whether the cannon loses its lock on the ship in slot `target_index`, `target`, its beam leaving
-/// from `from` and the ship standing `off` the cannon's line (`order_dark_reign_shoot_110`'s
+/// from `from` and the ship standing `off` the cannon's line (`order_fire_ion_cannon`'s
 /// cosine): where the ship is cloaked, out of `kind`'s reach, a player's ship too near across the
 /// world's X and Z axes, or off the lock's cone.
 fn lockBreaks(world: gameobj.World, target: *const create.Slot, target_index: u16, from: Vector, kind: Kind, off: f32) bool {
@@ -998,7 +998,7 @@ test "the Boridin's cannon charges, fires and destroys a ship" {
     const state = &mission.slot(boridin).state.ion_cannon;
 
     // The order starts, takes a record, and goes on to aim at the Sabre, straight ahead.
-    try std.testing.expect(try aigeneric.push(ctx, boridin, .dark_reign_shoot_110, .at(sabre, null)));
+    try std.testing.expect(try aigeneric.push(ctx, boridin, .fire_ion_cannon, .at(sabre, null)));
     mission.ordersAfter(ctx, boridin, 0);
     try std.testing.expectEqual(.aim, state.step);
     const record = cannons.of(boridin).?;
@@ -1073,7 +1073,7 @@ test "the cannon starts again as its ship cloaks, unless the script holds the lo
     const ctx: aigeneric.Context = .of(world);
     const cannons = &fixture.built.cannons;
     const state = &mission.slot(boridin).state.ion_cannon;
-    try std.testing.expect(try aigeneric.push(ctx, boridin, .dark_reign_shoot_110, .at(fixture.sabre, null)));
+    try std.testing.expect(try aigeneric.push(ctx, boridin, .fire_ion_cannon, .at(fixture.sabre, null)));
     mission.ordersAfter(ctx, boridin, 0);
     mission.ordersAfter(ctx, boridin, 0);
     try std.testing.expectEqual(.charge, state.step);
@@ -1081,7 +1081,7 @@ test "the cannon starts again as its ship cloaks, unless the script holds the lo
     // Cloaked, the Sabre breaks the lock: the order starts again, its laser gone.
     mission.slot(fixture.sabre).object.flags.cloaked = true;
     mission.ordersAfter(ctx, boridin, 10);
-    try std.testing.expectEqual(.dark_reign_shoot_110, mission.slot(boridin).orders[0].order);
+    try std.testing.expectEqual(.fire_ion_cannon, mission.slot(boridin).orders[0].order);
     try std.testing.expectEqual(null, cannons.of(boridin));
     mission.ordersAfter(ctx, boridin, 0);
     try std.testing.expectEqual(.aim, state.step);
@@ -1154,7 +1154,7 @@ test "the order's end lets go of the cannon's record and its rays" {
     const mission = &fixture.stage.mission;
     const boridin = fixture.ship;
     const ctx: aigeneric.Context = .of(fixture.world());
-    try std.testing.expect(try aigeneric.push(ctx, boridin, .dark_reign_shoot_110, .at(fixture.sabre, null)));
+    try std.testing.expect(try aigeneric.push(ctx, boridin, .fire_ion_cannon, .at(fixture.sabre, null)));
     for ([_]i32{ 0, 0, 300, 300 }) |ticks| mission.ordersAfter(ctx, boridin, ticks);
     try std.testing.expectEqual(.ready, mission.slot(boridin).state.ion_cannon.step);
     try std.testing.expect(fixture.built.cannons.of(boridin).?.rays[0] != null);
@@ -1174,7 +1174,7 @@ test "a cannon that searches too long for its lock gives up" {
     const mission = &fixture.stage.mission;
     const boridin = fixture.ship;
     const ctx: aigeneric.Context = .of(fixture.world());
-    try std.testing.expect(try aigeneric.push(ctx, boridin, .dark_reign_shoot_110, .at(fixture.sabre, null)));
+    try std.testing.expect(try aigeneric.push(ctx, boridin, .fire_ion_cannon, .at(fixture.sabre, null)));
     mission.ordersAfter(ctx, boridin, 0);
     try std.testing.expectEqual(.aim, mission.slot(boridin).state.ion_cannon.step);
 
@@ -1195,7 +1195,7 @@ test "the rogue base's cannon fires with no crackle, lights or glow, in its own 
     const base = fixture.ship;
     const ctx: aigeneric.Context = .of(fixture.world());
     const state = &mission.slot(base).state.ion_cannon;
-    try std.testing.expect(try aigeneric.push(ctx, base, .dark_reign_shoot_110, .at(fixture.sabre, null)));
+    try std.testing.expect(try aigeneric.push(ctx, base, .fire_ion_cannon, .at(fixture.sabre, null)));
 
     // It neither crackles nor lights up as it charges and powers up, and once it is ready no glow
     // comes.
@@ -1229,7 +1229,7 @@ test "Moose warns the player of the charge, and the director's view holds the sh
     const ctx: aigeneric.Context = .of(world);
     const cannons = &fixture.built.cannons;
     const state = &mission.slot(boridin).state.ion_cannon;
-    try std.testing.expect(try aigeneric.push(ctx, boridin, .dark_reign_shoot_110, .at(player, null)));
+    try std.testing.expect(try aigeneric.push(ctx, boridin, .fire_ion_cannon, .at(player, null)));
     mission.ordersAfter(ctx, boridin, 0);
     mission.ordersAfter(ctx, boridin, 0);
     try std.testing.expectEqual(.charge, state.step);

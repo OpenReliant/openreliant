@@ -187,7 +187,7 @@ test orderRoutines {
     try std.testing.expect(std.mem.find(u8, rows, "\tfunction\torder_fly_aimlessly_init\tObjectRoutine\tThe init of order 1, Fly Aimlessly\n") != null);
     // Orders 19 and 40 are both Jump In and share their routines, which take the first's name.
     try std.testing.expect(std.mem.find(u8, rows, "\torder_jump_in\tObjectRoutine\tThe update of order 19, Jump In, and of order 40\n") != null);
-    try std.testing.expect(std.mem.find(u8, rows, "order_jump_in_40") == null);
+    try std.testing.expect(std.mem.find(u8, rows, "order_jump_in_spread") == null);
     // The empty routine that differently named orders share gets no order's name.
     try std.testing.expect(std.mem.find(u8, rows, "004983a0") == null);
 }

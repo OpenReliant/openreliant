@@ -169,7 +169,7 @@ fn separate(ctx: Context, index: u16, cockpit: usize) void {
     state.invulnerable = pod.object.invulnerable;
     const left = create.make(world, null, pod.object.type) catch null orelse return;
     const ship = &all.slots[left];
-    _ = aigeneric.giveShip(ctx, left, .eject_106, index, null);
+    _ = aigeneric.giveShip(ctx, left, .abandoned, index, null);
     pod.smoke = null;
     pod.object.smoke_level = .none;
     ship.object.flags = .{ .ejected = true, .abandoned = true };
@@ -447,13 +447,13 @@ pub fn spin(ctx: Context, index: u16) void {
     object.flags.ejected = true;
 }
 
-/// `order_eject_106_init` (`0x00416080`): the ship its pilot has left goes on for
+/// `order_abandoned_init` (`0x00416080`): the ship its pilot has left goes on for
 /// `abandoned_ticks`.
 pub fn abandonedInit(ctx: Context, index: u16) void {
     ctx.world.objects.slots[index].state.eject.until = ctx.world.clock.frame_start + abandoned_ticks;
 }
 
-/// `order_eject_106` (`0x004160A0`): then it is destroyed, as any ship is (`ai.objectDestroyed`).
+/// `order_abandoned` (`0x004160A0`): then it is destroyed, as any ship is (`ai.objectDestroyed`).
 pub fn abandoned(ctx: Context, index: u16) void {
     if (ctx.world.objects.slots[index].state.eject.until < ctx.world.clock.frame_start) ai.objectDestroyed(ctx, index, false, false);
 }
@@ -615,7 +615,7 @@ test "a pilot ejects in the cockpit, which leaves the ship as the pod" {
     const ship = mission.slot(left);
     try std.testing.expectEqual(gameobj.Slot.of(left), pod.object.passes_through[0]);
     try std.testing.expectEqual(gameobj.Slot.of(index), ship.object.passes_through[0]);
-    try std.testing.expectEqual(.eject_106, ship.orders[0].order);
+    try std.testing.expectEqual(.abandoned, ship.orders[0].order);
     try std.testing.expect(ship.object.flags.ejected and ship.object.flags.abandoned);
     try std.testing.expectEqual(.drift, ship.motion.?);
     try std.testing.expect(ship.model.?.parts[TestShip.cockpit].removed);

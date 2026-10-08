@@ -764,7 +764,7 @@ still run, and the function does nothing.
 | `order_fly_aimlessly_init` | The init of order 1, Fly Aimlessly, which `object` runs. |
 | `order_fly_aimlessly` | The update of order 1, Fly Aimlessly, which `object` runs. |
 | `order_launch_missile` | The update of order 2, Launch Missile, which `object` runs. |
-| `order_unnamed_3` | The update of order 3, which `object` runs. |
+| `order_launch_jack_hammer` | The update of order 3, which `object` runs. |
 | `order_warp_in_init` | The init of order 4, Warp In, which `object` runs. |
 | `order_warp_in` | The update of order 4, Warp In, which `object` runs. |
 | `order_warp_out_init` | The init of order 5, Warp Out, which `object` runs. |
@@ -840,8 +840,8 @@ still run, and the function does nothing.
 | `order_launch` | The update of order 104, Launch, which `object` runs. |
 | `order_fight_init` | The init of order 105, Fight, which `object` runs. |
 | `order_fight` | The update of order 105, Fight, which `object` runs. |
-| `order_eject_106_init` | The init of order 106, Eject, which `object` runs. |
-| `order_eject_106` | The update of order 106, Eject, which `object` runs. |
+| `order_abandoned_init` | The init of order 106, Eject, which `object` runs. |
+| `order_abandoned` | The update of order 106, Eject, which `object` runs. |
 | `order_scoop_up_init` | The init of order 107, Scoop Up, which `object` runs. |
 | `order_scoop_up` | The update of order 107, Scoop Up, which `object` runs. |
 | `order_scoop_up_exit` | The exit of order 107, Scoop Up, which `object` runs. |
@@ -850,9 +850,9 @@ still run, and the function does nothing.
 | `order_dock_init` | The init of order 109, Dock, which `object` runs. |
 | `order_dock` | The update of order 109, Dock, which `object` runs. |
 | `order_dock_exit` | The exit of order 109, Dock, which `object` runs. |
-| `order_dark_reign_shoot_110_init` | The init of order 110, Dark reign shoot, which `object` runs. |
-| `order_dark_reign_shoot_110` | The update of order 110, Dark reign shoot, which `object` runs. |
-| `order_dark_reign_shoot_110_exit` | The exit of order 110, Dark reign shoot, which `object` runs. |
+| `order_fire_ion_cannon_init` | The init of order 110, Dark reign shoot, which `object` runs. |
+| `order_fire_ion_cannon` | The update of order 110, Dark reign shoot, which `object` runs. |
+| `order_fire_ion_cannon_exit` | The exit of order 110, Dark reign shoot, which `object` runs. |
 | `order_ripper_end_drop_object_init` | The init of order 111, Ripper end drop object, which `object` runs. |
 | `order_ripper_end_drop_object` | The update of order 111, Ripper end drop object, which `object` runs. |
 | `order_ripper_attach_cargo_pod_to_mammoth_init` | The init of order 112, Ripper attach cargo pod to Mammoth, which `object` runs. |
@@ -1710,7 +1710,7 @@ number. A script can set a field to either.
 
 ### Order
 
-`do_nothing`, `fly_aimlessly`, `launch_missile`, `unnamed_3`, `warp_in`, `warp_out`, `fly`, `run_away`, `land`, `escort`, `find_new_target`, `explode`, `ripper_grabs_target_object`, `object_attach`, `formation_regroup`, `patrol_route`, `toggle_cloak`, `ship_follow_curve`, `slow_rotate`, `jump_in`, `jump_out`, `find_scoop_up`, `random_spin_slow`, `random_spin_medium`, `random_spin_fast`, `fixed_gate_jump_in`, `fixed_gate_jump_out`, `formation`, `fixed_gate_open`, `fixed_gate_close`, `eject`, `fixed_gate_collapse`, `match_speed`, `dark_reign_shoot`, `move_to_spawn_pos`, `turns_object_lights_on`, `make_boridin_section_break_away`, `rotate_boridin_breakaway_warp_projector`, `start_warp_projection_from_boridin`, `make_ripper_drop_what_its_carrying`, `jump_in_40`, `jump_out_41`, `turns_object_lights_off`, `huuuuuuuge_explosion`, `immediately_set_ship_to_zero_velocity_and_rotation`, `fly_ship_backwards`, `player_control`, `multiplayer_control`, `avoid_target`, `torpedo`, `launch`, `fight`, `eject_106`, `scoop_up`, `eject_spin`, `dock`, `dark_reign_shoot_110`, `ripper_end_drop_object`, `ripper_attach_cargo_pod_to_mammoth`, `eject_fighter_attack`, `disrupted`, `make_capship_list_left`, `make_capship_list_right`, `friendly_fire`, `eject_player`, `ship_follow_curve_backwards`, `mill`, `deathmatch_respawn_effect`, `deathmatch_dark_reign_target`, `unnamed_200`, or a number.
+`do_nothing`, `fly_aimlessly`, `launch_missile`, `launch_jack_hammer`, `warp_in`, `warp_out`, `fly`, `run_away`, `land`, `escort`, `find_new_target`, `explode`, `ripper_grabs_target_object`, `object_attach`, `formation_regroup`, `patrol_route`, `toggle_cloak`, `ship_follow_curve`, `slow_rotate`, `jump_in`, `jump_out`, `find_scoop_up`, `random_spin_slow`, `random_spin_medium`, `random_spin_fast`, `fixed_gate_jump_in`, `fixed_gate_jump_out`, `formation`, `fixed_gate_open`, `fixed_gate_close`, `eject`, `fixed_gate_collapse`, `match_speed`, `dark_reign_shoot`, `move_to_spawn_pos`, `turns_object_lights_on`, `make_boridin_section_break_away`, `rotate_boridin_breakaway_warp_projector`, `start_warp_projection_from_boridin`, `make_ripper_drop_what_its_carrying`, `jump_in_spread`, `jump_out_spread`, `turns_object_lights_off`, `huuuuuuuge_explosion`, `immediately_set_ship_to_zero_velocity_and_rotation`, `fly_ship_backwards`, `player_control`, `multiplayer_control`, `avoid_target`, `torpedo`, `launch`, `fight`, `abandoned`, `scoop_up`, `eject_spin`, `dock`, `fire_ion_cannon`, `ripper_end_drop_object`, `ripper_attach_cargo_pod_to_mammoth`, `eject_fighter_attack`, `disrupted`, `make_capship_list_left`, `make_capship_list_right`, `friendly_fire`, `eject_player`, `ship_follow_curve_backwards`, `mill`, `deathmatch_respawn_effect`, `deathmatch_dark_reign_target`, or a number.
 
 ### OrderPushed
 

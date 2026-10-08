@@ -814,15 +814,15 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .eject_player => aieject.playerInit(ctx, index),
         .eject => aieject.init(ctx, index),
         .eject_spin => aieject.spinInit(ctx, index),
-        .eject_106 => aieject.abandonedInit(ctx, index),
+        .abandoned => aieject.abandonedInit(ctx, index),
         .scoop_up => tractor.scoopUpInit(ctx, index),
         .fight => aifight.init(ctx, index),
         .torpedo => missiles.torpedoInit(ctx, index),
         .find_scoop_up, .make_capship_list_left, .make_capship_list_right => aifuncs.firstStepInit(ctx, index),
         .disrupted => aifuncs.disruptedInit(ctx, index),
         .launch => launch.init(ctx, index),
-        .jump_in, .jump_in_40 => jump.inInit(ctx, index),
-        .jump_out, .jump_out_41 => jump.outInit(ctx, index),
+        .jump_in, .jump_in_spread => jump.inInit(ctx, index),
+        .jump_out, .jump_out_spread => jump.outInit(ctx, index),
         .ship_follow_curve => follow.init(ctx, index),
         .ship_follow_curve_backwards => follow.backwardsInit(ctx, index),
         .dock => aidock.init(ctx, index),
@@ -843,7 +843,7 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
         .deathmatch_respawn_effect => {},
         .turns_object_lights_on => aifuncs.lightsOnInit(ctx, index),
-        .dark_reign_shoot_110 => aiioncan.init(ctx, index),
+        .fire_ion_cannon => aiioncan.init(ctx, index),
         .avoid_target => aifuncs.avoidTargetInit(ctx, index),
         .make_boridin_section_break_away => aifuncs.breakAwayInit(ctx, index),
         .rotate_boridin_breakaway_warp_projector => aifuncs.rotateProjectorInit(ctx, index),
@@ -853,7 +853,7 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         // The table gives these no `init`, or only `noop` (`0x004983A0`).
         .do_nothing,
         .launch_missile,
-        .unnamed_3,
+        .launch_jack_hammer,
         .run_away,
         .find_new_target,
         .toggle_cloak,
@@ -869,9 +869,8 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .multiplayer_control,
         .eject_fighter_attack,
         .deathmatch_dark_reign_target,
-        .unnamed_200,
         => {},
-        // A number the table does not hold.
+        // Order 200, which has no routines and no name, and any number the table does not hold.
         _ => {},
     }
 }
@@ -903,7 +902,7 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .eject_player => aieject.player(ctx, index),
         .eject => aieject.update(ctx, index),
         .eject_spin => aieject.spin(ctx, index),
-        .eject_106 => aieject.abandoned(ctx, index),
+        .abandoned => aieject.abandoned(ctx, index),
         .scoop_up => tractor.scoopUp(ctx, index),
         .eject_fighter_attack => aieject.fighterAttack(ctx, index),
         .fight => aifight.update(ctx, index),
@@ -912,10 +911,10 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .make_capship_list_right => aifuncs.capshipList(ctx, index, .right),
         .disrupted => aifuncs.disrupted(ctx, index),
         .launch_missile => aifuncs.launchMissile(ctx, index),
-        .unnamed_3 => aifuncs.launchJackHammer(ctx, index),
+        .launch_jack_hammer => aifuncs.launchJackHammer(ctx, index),
         .launch => launch.update(ctx, index),
-        .jump_in, .jump_in_40 => jump.inUpdate(ctx, index),
-        .jump_out, .jump_out_41 => jump.outUpdate(ctx, index),
+        .jump_in, .jump_in_spread => jump.inUpdate(ctx, index),
+        .jump_out, .jump_out_spread => jump.outUpdate(ctx, index),
         .ship_follow_curve => follow.update(ctx, index),
         .ship_follow_curve_backwards => follow.backwardsUpdate(ctx, index),
         .dock => aidock.update(ctx, index),
@@ -938,7 +937,7 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .turns_object_lights_on => aifuncs.lightsOn(ctx, index),
         .turns_object_lights_off => aifuncs.lightsOff(ctx, index),
         .dark_reign_shoot => aifuncs.darkReignShoot(ctx, index),
-        .dark_reign_shoot_110 => aiioncan.update(ctx, index),
+        .fire_ion_cannon => aiioncan.update(ctx, index),
         .avoid_target => aifuncs.avoidTarget(ctx, index),
         .start_warp_projection_from_boridin => wgate.projection.update(ctx, index),
         .formation_regroup => formations.regroup(ctx, index),
@@ -952,9 +951,8 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .make_boridin_section_break_away,
         .rotate_boridin_breakaway_warp_projector,
         .deathmatch_dark_reign_target,
-        .unnamed_200,
         => {},
-        // A number the table does not hold.
+        // Order 200, which has no routines and no name, and any number the table does not hold.
         _ => {},
     }
 }
@@ -975,7 +973,7 @@ fn runExit(ctx: Context, index: u16, info: orders.Info) void {
         .ship_follow_curve_backwards => follow.backwardsExit(ctx, index),
         .dock => aidock.exit(ctx, index),
         .ripper_grabs_target_object => airipper.grabExit(ctx, index),
-        .dark_reign_shoot_110 => aiioncan.exit(ctx, index),
+        .fire_ion_cannon => aiioncan.exit(ctx, index),
         // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
         .deathmatch_respawn_effect => {},
         // The table gives the others no `exit`, which the build checks, so that one it gives
@@ -984,7 +982,7 @@ fn runExit(ctx: Context, index: u16, info: orders.Info) void {
             @setEvalBranchQuota(orders.table.len * orders.table.len);
             assert(orders.info(order).?.exit == null);
         },
-        // A number the table does not hold.
+        // Order 200, which has no routines and no name, and any number the table does not hold.
         _ => {},
     }
 }
@@ -1189,8 +1187,10 @@ test give {
 test "Named.format" {
     var buffer: [64]u8 = undefined;
     try std.testing.expectEqualStrings("Eject", try std.mem.print(&buffer, "{f}", .{Named{ .order = .eject }}));
-    // A nameless order goes by OpenReliant's name for it, and one the table lacks by its number.
-    try std.testing.expectEqualStrings("unnamed_3", try std.mem.print(&buffer, "{f}", .{Named{ .order = .unnamed_3 }}));
+    // A nameless order goes by OpenReliant's name for it, where it has one, and otherwise by its
+    // number, as one the table lacks does.
+    try std.testing.expectEqualStrings("launch_jack_hammer", try std.mem.print(&buffer, "{f}", .{Named{ .order = .launch_jack_hammer }}));
+    try std.testing.expectEqualStrings("order 200", try std.mem.print(&buffer, "{f}", .{Named{ .order = @fromBackingInt(200) }}));
     try std.testing.expectEqualStrings("order 99", try std.mem.print(&buffer, "{f}", .{Named{ .order = @fromBackingInt(99) }}));
 }
 
