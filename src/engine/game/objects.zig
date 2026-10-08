@@ -4085,9 +4085,12 @@ test "a segment strikes a part of a model mounted on another" {
     try gun.init(gpa);
     defer gun.deinit(gpa);
     gun.withHull();
-    // The model carrying it: a part with a gun attachment 1000 along Z.
+    // The model carrying it: a part with a gun attachment 1000 along Z, heavy enough that the
+    // gun's mass leaves the centre where it is.
     var carrier: testing.Carrier = undefined;
     carrier.init(.{ 0, 0, 1000 });
+    carrier.parts.data[0].part.volume = 1;
+    carrier.parts.data[0].part.density = 1e9;
     var built = try carrier.build(gpa, &gun);
     defer built.deinit(gpa);
     gameobj.linkParts(&built, &carrier.parts.source);

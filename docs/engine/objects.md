@@ -265,9 +265,15 @@ The centre of mass:
   origin, over the vertices of every part node's current level, and sums its moment of inertia.
 
 A gun or a pod mounted on a part hangs its model's root among the part node's children
-(`node_mount`, `0x00499A10`), so the sums take in the mounted models' shown parts too. Not ported:
-OpenReliant sums the ship's own parts only
-([#896](https://github.com/OpenReliant/openreliant/issues/896)).
+(`node_mount`, `0x00499A10`), so both sums take in the mounted models' parts too: their mass and
+inertia where they are shown, their vertices whether or not. A hidden part's mounts count toward
+the inertia and the bounds but not the mass, as `node_mass_add` passes over a hidden node's
+children and `object_bounds` does not.
+
+**Fix:** `node_mass_add` adds up the places of a part's frames without turning each by the frame it
+hangs from, so a part under a turned frame, such as a turret mounted upside down, counts toward the
+centre where it does not stand. OpenReliant counts each part where it stands, as `object_bounds`
+does.
 
 An object's root holds the object's place in the world: `object_set_position` (`0x0049B600`) and
 `object_set_orientation` (`0x0049B650`) set it, together with the root's frame and further copies

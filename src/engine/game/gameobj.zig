@@ -2183,53 +2183,109 @@ pub fn recentreObject(slot: *create.Slot) void {
 }
 
 /// `node_mass_add` (`0x004764A0`) on the node of part `index` of `model`: the part's mass, its
-/// density times its volume, and that of each shown part of each model the part carries
-/// (`objects.Model.carriedBy`), however deep. A mounted model's root is one of the node's children,
-/// and its parts are its root's. The parts linked to the part are not among the node's children:
+/// density times its volume, and that of each shown part of each model the part carries, however
+/// deep (`MassSum.addCarried`). The parts linked to the part are not among the node's children:
 /// linking a part sets its node's parent and leaves it in the root's child list
-/// (`object_link_part`, `0x00476180`). The game also adds each part's first moment to the sums
-/// `object_recentre` divides, which nothing reads outside it.
+/// (`object_link_part`, `0x00476180`).
 pub fn nodeMass(model: *const objects.Model, index: usize) f32 {
-    var mass: f32 = if (model.partData(index)) |data| data.part.density * data.part.volume else 0;
-    var each = model.carriedBy(index);
-    while (each.next()) |mount| {
-        for (mount.model.parts, 0..) |part, at| {
-            if (!part.hidden) mass += nodeMass(&mount.model, at);
-        }
-    }
-    return mass;
+    var sum: MassSum = .{};
+    sum.addCarried(model, index);
+    if (model.partData(index)) |data| sum.add(@splat(0), data.part);
+    return sum.mass;
 }
 
+/// What `node_mass_add` (`0x004764A0`) sums over the nodes it walks, each node's children before
+/// it: their mass, and their first moments about the object's origin, which `object_recentre`
+/// divides by the mass for the centre.
+const MassSum = struct {
+    mass: f32 = 0,
+    moment: Vector = @splat(0),
+
+    /// Adds a part of record `part` whose origin stands `at` in the object's frame: its density
+    /// times its origin times its volume plus its own first moment, and its density times its
+    /// volume.
+    fn add(sum: *MassSum, at: Vector, part: shp.Part) void {
+        const first: Vector = part.first_moments;
+        sum.moment = (at * @as(Vector, @splat(part.volume)) + first) * @as(Vector, @splat(part.density)) + sum.moment;
+        sum.mass = part.density * part.volume + sum.mass;
+    }
+
+    /// Adds each shown part of each model that part `index` of `model` carries, however deep, where
+    /// the models were last placed: a mounted model's root is one of the node's children, and its
+    /// parts are its root's (`node_mount`, `0x00499A10`).
+    fn addCarried(sum: *MassSum, model: *const objects.Model, index: usize) void {
+        var each = model.carriedBy(index);
+        while (each.next()) |mount| for (mount.model.parts, 0..) |part, at| {
+            if (part.hidden) continue;
+            sum.addCarried(&mount.model, at);
+            if (mount.model.partData(at)) |data| sum.add(part.object.position, data.part);
+        };
+    }
+};
+
+/// What `object_bounds` (`0x00476680`) sums over every node under the root: the bounding box and
+/// the radius over the vertices of each part's current level, and the inertia tensor of the shown
+/// parts (`partInertia`).
+const Extent = struct {
+    bounds: [2]Vector = .{ @splat(std.math.floatMax(f32)), @splat(-std.math.floatMax(f32)) },
+    radius: f32 = 0,
+    tensor: math.Matrix = @splat(0),
+
+    /// Adds `part`, of record `data`, where the model was last placed.
+    fn add(extent: *Extent, part: *const objects.Model.Part, data: ?shp.PartData) void {
+        if (part.object.levels.len > 0) {
+            for (part.object.levels[part.object.level].mesh.positions) |position| {
+                const at = math.transform(part.object.orientation, position) + part.object.position;
+                const low = @min(extent.bounds[0], at);
+                const high = @max(extent.bounds[1], at);
+                extent.bounds = .{ low, high };
+                extent.radius = @max(extent.radius, math.length(at));
+            }
+        }
+        if (part.hidden) return;
+        const record = data orelse return;
+        for (&extent.tensor, partInertia(part.object.position, &record.part)) |*sum, term| sum.* += term;
+    }
+
+    /// Adds each part of each model that part `index` of `model` carries, however deep, but those
+    /// taken out of their model, hidden ones too.
+    fn addCarried(extent: *Extent, model: *const objects.Model, index: usize) void {
+        var each = model.carriedBy(index);
+        while (each.next()) |mount| for (mount.model.parts, 0..) |*part, at| {
+            if (part.removed) continue;
+            extent.add(part, mount.model.partData(at));
+            extent.addCarried(&mount.model, at);
+        };
+    }
+};
+
 /// Moves the object's origin to its parts' centre of mass, as `object_link_parts` ends
-/// (`object_recentre`, `0x004769F0`). `node_mass_add` (`0x004764A0`) sums, over the shown
-/// parts, the density times the part's first moment about the root, its origin times its
-/// volume plus its own first moment; over the parts' masses, density times volume, that is the
-/// centre. `object_bounds` (`0x00476680`) takes it off each part's origin, then finds the
-/// object's radius and bounding box over the vertices of each part's current level, hidden ones
-/// too but not those taken out of the model (`objects.Model.Part.removed`), whose nodes the game
-/// has gone from the root. `source` is the model the parts come from.
+/// (`object_recentre`, `0x004769F0`). `node_mass_add` (`0x004764A0`) sums, over the shown parts,
+/// and the shown parts of the models mounted on them, the density times the part's first moment
+/// about the root, its origin times its volume plus its own first moment; over the parts' masses,
+/// density times volume, that is the centre (`MassSum`). `object_bounds` (`0x00476680`) takes it off
+/// each part's origin, then finds the object's radius and bounding box over the vertices of each
+/// part's current level, hidden ones too but not those taken out of the model
+/// (`objects.Model.Part.removed`), whose nodes the game has gone from the root, and the mounted
+/// models' parts the same, and sums its inertia over the shown ones (`Extent`). `source` is the
+/// model the parts come from.
 ///
-/// Not ported: the shown parts of the models mounted on the parts, which the game's sums reach
-/// through each part's node (`nodeMass`)
-/// ([#896](https://github.com/OpenReliant/openreliant/issues/896)).
+/// **Fix:** the game adds up the places of a part's frames without turning each by the frame it
+/// hangs from, as it works out the centre, so a part under a turned frame, such as a turret mounted
+/// upside down, counts where it does not stand. OpenReliant counts each part where it stands, as the
+/// game does for the bounds and the inertia.
 pub fn recentre(model: *objects.Model, source: *const shp.Model) void {
     // Each part's origin in the model, which is where it stands with the root at rest.
     model.place(@splat(0), math.identity);
-    var moment: [3]f32 = @splat(0);
-    var mass: f32 = 0;
-    for (model.parts, source.parts) |part, data| {
+    var sum: MassSum = .{};
+    for (model.parts, source.parts, 0..) |part, data, index| {
         if (part.hidden) continue;
-        const p = data.part;
-        const origin: [3]f32 = part.object.position;
-        for (&moment, origin, p.first_moments) |*m, o, first| m.* = (o * p.volume + first) * p.density + m.*;
-        mass = p.density * p.volume + mass;
+        sum.addCarried(model, index);
+        sum.add(part.object.position, data.part);
     }
-    model.mass = mass;
-    if (mass > 0) {
-        const scale = 1 / mass;
-        for (&moment) |*m| m.* = scale * m.*;
-    }
-    const centre: Vector = moment;
+    model.mass = sum.mass;
+    if (sum.mass > 0) sum.moment *= @splat(1 / sum.mass);
+    const centre = sum.moment;
     model.centre += centre;
     // Only a part standing at the root moves: one hanging from another keeps the origin it has
     // in its parent, and follows it. What stands on a part likewise moves with the part.
@@ -2242,21 +2298,15 @@ pub fn recentre(model: *objects.Model, source: *const shp.Model) void {
     }
 
     model.place(@splat(0), math.identity);
-    model.radius = 0;
-    model.bounds = .{ @splat(std.math.floatMax(f32)), @splat(-std.math.floatMax(f32)) };
-    var tensor: math.Matrix = @splat(0);
-    for (model.parts, source.parts) |part, data| {
+    var extent: Extent = .{};
+    for (model.parts, source.parts, 0..) |*part, data, index| {
         if (part.removed) continue;
-        if (part.object.levels.len > 0) {
-            for (part.object.levels[part.object.level].mesh.positions) |position| {
-                const at = position + part.object.position;
-                model.bounds = .{ @min(model.bounds[0], at), @max(model.bounds[1], at) };
-                model.radius = @max(model.radius, math.length(at));
-            }
-        }
-        if (part.hidden) continue;
-        for (&tensor, partInertia(part.object.position, &data.part)) |*sum, term| sum.* += term;
+        extent.add(part, data);
+        extent.addCarried(model, index);
     }
+    model.bounds = extent.bounds;
+    model.radius = extent.radius;
+    var tensor = extent.tensor;
     // The tensor is built as its own lower half, which the upper half mirrors before it is
     // inverted, since the two are the same for it.
     tensor[1] = tensor[3];
@@ -2799,6 +2849,37 @@ test nodeMass {
     // The gun's part hidden counts for nothing.
     model.mounts[0].model.parts[0].hidden = true;
     try std.testing.expectEqual(10, nodeMass(&model, 0));
+}
+
+test "recentre counts the models mounted on the parts" {
+    const gpa = std.testing.allocator;
+    var gun: create.testing.Model = undefined;
+    try gun.init(gpa);
+    defer gun.deinit(gpa);
+    // A hull of mass 10 carrying a gun of mass 6, a square 200 across, 100 along X.
+    var carrier: objects.testing.Carrier = undefined;
+    carrier.init(.{ 100, 0, 0 });
+    carrier.parts.data[0].part.volume = 5;
+    carrier.parts.data[0].part.density = 2;
+    var model = try carrier.build(gpa, &gun);
+    defer model.deinit(gpa);
+    recentre(&model, &carrier.parts.source);
+    // The centre lies six sixteenths of the way to the gun, and the gun's square widens the bounds.
+    try std.testing.expectEqual(16, model.mass);
+    try std.testing.expectEqual(Vector{ 37.5, 0, 0 }, model.centre);
+    try std.testing.expectEqual(Vector{ -37.5, -100, 0 }, model.bounds[0]);
+    try std.testing.expectEqual(Vector{ 162.5, 100, 0 }, model.bounds[1]);
+    try std.testing.expectApproxEqAbs(@sqrt(162.5 * 162.5 + 100.0 * 100.0), model.radius, 1e-3);
+
+    // Turned a quarter turn about Y, the gun's square stands across Z instead.
+    var turned: objects.testing.Carrier = undefined;
+    turned.init(.{ 100, 0, 0 });
+    turned.attachments[0].orientation = math.rotation(.y, std.math.pi / 2.0);
+    var other = try turned.build(gpa, &gun);
+    defer other.deinit(gpa);
+    recentre(&other, &turned.parts.source);
+    try std.testing.expectApproxEqAbs(other.bounds[0][0], other.bounds[1][0], 1e-3);
+    try std.testing.expectApproxEqAbs(200, other.bounds[1][2] - other.bounds[0][2], 1e-3);
 }
 
 test orthonormalizeTurn {
