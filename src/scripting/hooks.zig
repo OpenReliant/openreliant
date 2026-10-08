@@ -702,3 +702,80 @@ fn accessOf(comptime hook: Hook) Access {
         .result_size = @sizeOf(R),
     };
 }
+
+/// A handler of `context`'s mod numbered `id`, whose function is a plain value of `runtime`'s.
+fn testHandler(runtime: *Runtime, context: *Context, id: u32) Handler {
+    const state = runtime.state;
+    state.pushBoolean(true);
+    defer state.pop(1);
+    return .{ .id = id, .context = context, .function = state.ref(-1), .when = .before, .filter = .{} };
+}
+
+/// The ids of `hook`'s handlers, in the order they run, in `buffer`.
+fn testIds(hooks: *const Hooks, hook: Hook, buffer: []u32) []const u32 {
+    const list = hooks.handlers.get(hook).items;
+    for (list, buffer[0..list.len]) |handler, *id| id.* = handler.id;
+    return buffer[0..list.len];
+}
+
+test "a hook's handlers run the later mods' first, each mod's in the order it added them" {
+    const gpa = std.testing.allocator;
+    const runtime = try Runtime.create(gpa, std.testing.io, &.{}, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });
+    defer runtime.destroy();
+    var scripts: engine_hooks.Scripts = .{ .context = undefined, .vtable = undefined };
+    var hooks: Hooks = .init(gpa, runtime, &scripts);
+    defer hooks.deinit();
+    var contexts: [3]Context = undefined;
+    for (&contexts, 0..) |*context, mod| context.* = .{ .runtime = runtime, .mod = @intCast(mod), .family = .global, .thread = runtime.state, .thread_ref = undefined };
+    var buffer: [8]u32 = undefined;
+
+    try hooks.addHandler(.object_damage, testHandler(runtime, &contexts[0], 1));
+    try hooks.addHandler(.object_damage, testHandler(runtime, &contexts[2], 2));
+    try hooks.addHandler(.object_damage, testHandler(runtime, &contexts[0], 3));
+    try hooks.addHandler(.object_damage, testHandler(runtime, &contexts[1], 4));
+    try std.testing.expectEqualSlices(u32, &.{ 2, 4, 1, 3 }, testIds(&hooks, .object_damage, &buffer));
+    try std.testing.expect(scripts.hooked.contains(.object_damage));
+
+    // While a hook runs, a handler added waits and one removed stays, until the hooks are done.
+    hooks.depth = 1;
+    try hooks.addHandler(.object_damage, testHandler(runtime, &contexts[2], 5));
+    try std.testing.expect(hooks.removeHandler(.object_damage, 4));
+    try std.testing.expect(!hooks.removeHandler(.object_damage, 4));
+    try std.testing.expectEqualSlices(u32, &.{ 2, 4, 1, 3 }, testIds(&hooks, .object_damage, &buffer));
+    hooks.leave();
+    try std.testing.expectEqualSlices(u32, &.{ 2, 5, 1, 3 }, testIds(&hooks, .object_damage, &buffer));
+
+    // Once its handlers are gone, the engine no longer checks the hook.
+    for ([_]u32{ 2, 5, 1, 3 }) |id| try std.testing.expect(hooks.removeHandler(.object_damage, id));
+    try std.testing.expect(!scripts.hooked.contains(.object_damage));
+}
+
+test "a filter passes the objects that hold each of its tests" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const predator = try mission.add(.of(.predator), @splat(0));
+    const sabre = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    mission.slot(sabre).object.side = .hostile;
+    const all = mission.objects;
+
+    // With no tests, any object passes.
+    var filter: Filter = .{};
+    try std.testing.expect(!filter.testsObject());
+    try std.testing.expect(filter.passes(all, predator));
+    // A type lets only that type's objects pass.
+    filter.types.items[0] = .of(.sabre);
+    filter.types.len = 1;
+    try std.testing.expect(filter.testsObject());
+    try std.testing.expect(filter.passes(all, sabre));
+    try std.testing.expect(!filter.passes(all, predator));
+    // A side too: both must hold.
+    filter.sides.items[0] = .friendly;
+    filter.sides.len = 1;
+    try std.testing.expect(!filter.passes(all, sabre));
+    // An object lets only that one pass.
+    filter = .{ .object = .of(all, predator) };
+    try std.testing.expect(filter.passes(all, predator));
+    try std.testing.expect(!filter.passes(all, sabre));
+}
