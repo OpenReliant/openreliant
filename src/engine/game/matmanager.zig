@@ -134,8 +134,10 @@ pub fn pictureName(buffer: []u8, picture_name: []const u8) error{NoSpaceLeft}![]
     return std.mem.print(buffer, "{s}" ++ srtexture.picture_extension, .{stem});
 }
 
-/// A picture of the game's in the tests, two pixels by one: blue, then green.
-const tested_tga = [_]u8{ 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1, 0, 24, 0 } ++ [_]u8{ 0xFF, 0, 0, 0, 0xFF, 0 };
+pub const testing = struct {
+    /// A TGA picture for the tests, two pixels by one: blue, then green.
+    pub const picture = [_]u8{ 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1, 0, 24, 0 } ++ [_]u8{ 0xFF, 0, 0, 0, 0xFF, 0 };
+};
 
 test Background {
     const gpa = std.testing.allocator;
@@ -143,7 +145,7 @@ test Background {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
     try bigfile.testing.write(gpa, io, tmp.dir, bigfile.resource_name, &.{
-        .{ .name = "back.tga", .data = &tested_tga },
+        .{ .name = "back.tga", .data = &testing.picture },
         .{ .name = "broken.tga", .data = "x" },
     });
     var archive: bigfile.Hog = try .open(gpa, io, tmp.dir, bigfile.resource_name);
@@ -165,8 +167,8 @@ test "a mod's picture replaces one of the game's pictures" {
     defer tmp.cleanup();
     // Two of the game's pictures.
     try bigfile.testing.write(gpa, io, tmp.dir, bigfile.resource_name, &.{
-        .{ .name = "back.tga", .data = &tested_tga },
-        .{ .name = "dome.tga", .data = &tested_tga },
+        .{ .name = "back.tga", .data = &testing.picture },
+        .{ .name = "dome.tga", .data = &testing.picture },
     });
     var archive: bigfile.Hog = try .open(gpa, io, tmp.dir, bigfile.resource_name);
     defer archive.close(gpa);

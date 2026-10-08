@@ -614,9 +614,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer pause_menu.close();
     // The head-up display: what it draws with, and what draws it over the finished scene.
     var display: Display = .{
-        .resources = try .load(arena, resources, shapes, &outlines),
+        .resources = try .load(gpa, resources, shapes, &outlines),
         .edge_line = options.edge_line,
-        .gpa = arena,
+        .gpa = gpa,
         .device = undefined,
         .screen = .{ 0, 0 },
         .objects = objects,
@@ -636,6 +636,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             .own = own.interface(),
         },
     };
+    defer display.resources.deinit(gpa);
     world.display = &display.state;
     // A switch of view picks the subtarget's parts out in red or puts them back (`camera_set_view`).
     view.subtarget = .{ .shown = &display.state.subtarget, .all = objects };
@@ -2168,6 +2169,8 @@ fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const ga
 /// `srcore.render` reaches it where Surrender reaches `hud_draw`, through the overlay it is handed.
 const Display = struct {
     resources: game.hud.Resources,
+    /// The allocator its resources were loaded in. The display, the pause menu and the scripts
+    /// make the images of its shapes and glyphs in it.
     gpa: Allocator,
     /// What it draws into, filled in each frame before the scene is drawn.
     device: srd3d.device.Device,
