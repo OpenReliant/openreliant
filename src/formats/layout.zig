@@ -40,8 +40,15 @@ pub fn arrayMut(comptime T: type, bytes: []u8, count: usize) Error![]align(1) T 
 /// Writes a value of an open enum read from a file: its tag's name, or its number where the enum
 /// names none. Printing with `{t}` would panic on such a value, which files hold often.
 pub fn formatTag(comptime T: type, value: T, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    return formatTagAs(T, value, "", writer);
+}
+
+/// `formatTag`, with `noun` before the number of a value the enum names none for, such as
+/// `class 25`.
+pub fn formatTagAs(comptime T: type, value: T, comptime noun: []const u8, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    const unnamed = if (noun.len == 0) "{d}" else noun ++ " {d}";
     return switch (value) {
-        _ => writer.print("{d}", .{@backingInt(value)}),
+        _ => writer.print(unnamed, .{@backingInt(value)}),
         inline else => |tag| writer.writeAll(@tagName(tag)),
     };
 }
@@ -98,6 +105,17 @@ test formatTag {
     try writer.writeByte(' ');
     try formatTag(Kind, @fromBackingInt(9), &writer);
     try std.testing.expectEqualStrings("wave 9", writer.buffered());
+}
+
+test formatTagAs {
+    const Kind = enum(u8) { pause = 1, wave = 2, _ };
+    var buffer: [16]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buffer);
+    // A named value is its name; another, the noun and its number.
+    try formatTagAs(Kind, .pause, "kind", &writer);
+    try writer.writeByte(' ');
+    try formatTagAs(Kind, @fromBackingInt(9), "kind", &writer);
+    try std.testing.expectEqualStrings("pause kind 9", writer.buffered());
 }
 
 test Big {

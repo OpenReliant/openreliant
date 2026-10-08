@@ -8,6 +8,7 @@ const std = @import("std");
 const log = std.log.scoped(.input);
 const assert = std.debug.assert;
 
+const layout = @import("../formats/layout.zig");
 const profile = @import("profile.zig");
 const language = @import("game/language.zig");
 
@@ -313,10 +314,7 @@ pub const ControlBinding = extern struct {
         }
 
         pub fn format(modifier: Modifier, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-            return switch (modifier) {
-                _ => writer.print("modifier {d}", .{@backingInt(modifier)}),
-                inline else => |named| writer.writeAll(@tagName(named)),
-            };
+            return layout.formatTagAs(Modifier, modifier, "modifier", writer);
         }
     };
 
@@ -434,10 +432,7 @@ pub const ControlMode = enum(u32) {
     _,
 
     pub fn format(mode: ControlMode, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return switch (mode) {
-            _ => writer.print("controller {d}", .{@backingInt(mode)}),
-            inline else => |named| writer.writeAll(@tagName(named)),
-        };
+        return layout.formatTagAs(ControlMode, mode, "controller", writer);
     }
 };
 

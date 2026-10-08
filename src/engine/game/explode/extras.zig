@@ -177,7 +177,7 @@ const kronstadt_arm = "Kron arm3";
 fn throwOff(world: gameobj.World, slot: *create.Slot, ref: objects.PartRef, piece_type: gameobj.Type, offset: Vector) void {
     const place = slot.partPlace(ref.part()) orelse return;
     const at: math.Place = .{ .position = place.point(offset), .orientation = place.orientation };
-    if (throwPiece(world, piece_type, at, arm_tumble)) |made| world.objects.slots[made].object.velocity = gameobj.vec3(back(world, place, arm_speed));
+    if (throwPiece(world, piece_type, at, arm_tumble)) |made| world.objects.slots[made].object.velocity = .of(back(world, place, arm_speed));
     fireballsAbout(world, place.position, ref.part().object.radius);
 }
 
@@ -329,7 +329,7 @@ fn doorLost(world: gameobj.World, index: u16, model: *objects.Model, link: u32) 
             for (doors, 1..) |name, n| if (n != link) doors_model.hideNamed(name);
         }
         const out: Vector = .{ 0, 0, world.random.fraction() * door_speed_range + door_speed };
-        door.object.velocity = gameobj.vec3(math.transform(place.orientation, out));
+        door.object.velocity = .of(math.transform(place.orientation, out));
         passThrough(world, index, made);
     }
     fireballsAbout(world, place.position, part.object.radius);
@@ -366,7 +366,7 @@ fn podLost(world: gameobj.World, slot: *create.Slot, model: *objects.Model) void
         .spread = @splat(std.math.pi),
         .speed = pod_flame_speed,
         .speed_range = pod_flame_speed_range,
-        .inherited = gameobj.vector(slot.object.velocity) * @as(Vector, @splat(pod_flame_carried)),
+        .inherited = slot.object.velocity.vector() * @as(Vector, @splat(pod_flame_carried)),
     };
     explode.burstFrom(world, &emitter, pod_flame_count);
     fireballsAbout(world, at, part.object.radius);
@@ -413,12 +413,12 @@ fn panelLost(world: gameobj.World, index: u16, model: *objects.Model, link: u32)
         }
         const speed = random.fraction() * panel_speed_range + panel_speed;
         if (model.partNamed(power_core)) |ref| if (slot.partPlace(ref.part())) |core| {
-            panel.object.velocity = gameobj.vec3(math.normalize(place.position - core.position) * @as(Vector, @splat(speed)));
+            panel.object.velocity = .of(math.normalize(place.position - core.position) * @as(Vector, @splat(speed)));
         };
         sound3d.playIn(world, place.position, math.forward(place.orientation), made, .plateoff, 1, .player_fx);
         passThrough(world, index, made);
     }
-    const flame = explode.burstFlames(world, place.position, gameobj.vector(slot.object.velocity));
+    const flame = explode.burstFlames(world, place.position, slot.object.velocity.vector());
     const drift: Vector = if (flame) |emitter| emitter.inherited else @splat(0);
     explode.fireballAt(world, place.position, .{ .size = part.object.radius, .light = true, .velocity = drift });
     objects.destroyPart(slot, panel_part);
@@ -472,7 +472,7 @@ test "the Krasnaya throws an arm off with its engine block" {
     try std.testing.expectEqual(count + 1, world.objects.count);
     const arm = &world.objects.slots[count].object;
     try std.testing.expectEqual(gameobj.GameType.krasnaya_left_arm, arm.type.base());
-    try std.testing.expect(arm.flags.unpowered and gameobj.vector(arm.velocity)[2] < -arm_speed + 1);
+    try std.testing.expect(arm.flags.unpowered and arm.velocity.vector()[2] < -arm_speed + 1);
     try std.testing.expect(lit.left > 0);
     // Its split finds no block left to throw off.
     try std.testing.expectEqual(null, model.partNamed(Side.left.block()));
@@ -497,7 +497,7 @@ test "the Stalag throws a door off" {
     const door = &world.objects.slots[count];
     try std.testing.expectEqual(gameobj.GameType.stalag_doors, door.object.type.base());
     try std.testing.expect(door.model.?.parts[1].hidden and !door.model.?.parts[2].hidden and door.model.?.parts[3].hidden);
-    try std.testing.expect(gameobj.vector(door.object.velocity)[2] >= door_speed);
+    try std.testing.expect(door.object.velocity.vector()[2] >= door_speed);
     try std.testing.expectEqual(ship, door.object.passes_through[0].index().?);
     try std.testing.expectEqual(count, world.objects.slots[ship].object.passes_through[0].index().?);
     // An assembly past its three doors throws nothing off.
@@ -524,7 +524,7 @@ test "the prototype gate throws a core panel off away from its power core" {
     try std.testing.expect(model.parts[1].removed);
     const panel = &world.objects.slots[count];
     try std.testing.expectEqual(gameobj.GameType.proto_gate_panel, panel.object.type.base());
-    const away = gameobj.vector(panel.object.velocity);
+    const away = panel.object.velocity.vector();
     try std.testing.expect(away[0] >= panel_speed and away[1] == 0 and away[2] == 0);
     try std.testing.expectEqual(gate, panel.object.passes_through[0].index().?);
     // An assembly outside the panels' goes up as usual.

@@ -175,7 +175,8 @@ pub fn onTurrets(gun_type: GunType) bool {
 ```
 
 A value read from a file may fall outside the named ones, so make its enum open (`_`) and give it a
-`format` method. The method covers every value, and callers print it with `{f}`:
+`format` method, which covers every value: `layout.formatTagAs` writes a tag's name, or a noun and
+the number for a value without one. Callers print it with `{f}`:
 
 ```zig
 pub const Format = enum(u16) {
@@ -184,10 +185,7 @@ pub const Format = enum(u16) {
     _,
 
     pub fn format(tag: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return switch (tag) {
-            _ => writer.print("format {d}", .{@backingInt(tag)}),
-            inline else => |named| writer.writeAll(@tagName(named)),
-        };
+        return layout.formatTagAs(Format, tag, "format", writer);
     }
 };
 ```

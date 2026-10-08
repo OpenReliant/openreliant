@@ -18,6 +18,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const layout = @import("../../formats/layout.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srcore = @import("../surrender/surrenderlib/srcore.zig");
 const srlight = @import("../surrender/surrenderlib/srlight.zig");
@@ -55,10 +56,7 @@ pub const TextureDetail = enum(u32) {
     const medium_side = 256;
 
     pub fn format(detail: TextureDetail, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return switch (detail) {
-            _ => writer.print("texture detail {d}", .{@backingInt(detail)}),
-            inline else => |named| writer.writeAll(@tagName(named)),
-        };
+        return layout.formatTagAs(TextureDetail, detail, "texture detail", writer);
     }
 };
 

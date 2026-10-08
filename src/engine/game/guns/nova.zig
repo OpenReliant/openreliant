@@ -343,7 +343,7 @@ fn strike(world: gameobj.World, owner: u16, fired: f32, kind: guns.GunType) void
         const model = if (slot.model) |*live| live else continue;
         const local_from = slot.drawn.inverse(from);
         const local_to = slot.drawn.inverse(to);
-        const along = objects.boxEntry(local_from, local_to, .{ gameobj.vector(object.bounds_min), gameobj.vector(object.bounds_max) }) orelse continue;
+        const along = objects.boxEntry(local_from, local_to, .{ object.bounds_min.vector(), object.bounds_max.vector() }) orelse continue;
         if (object.flags.components) {
             strikeParts(world, index, owner, model, from, to, record.damage.hull * fired);
             continue;

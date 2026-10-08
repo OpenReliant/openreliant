@@ -557,7 +557,7 @@ pub fn jumpInInit(ctx: aigeneric.Context, index: u16) void {
     state.let_go = false;
     if (slot.model) |*model| xtrabits.clipTree(model, &record.portal);
     const player = index == all.player;
-    state.from = gameobj.vec3(inTunnel(record, all, if (player) start_player else start_other));
+    state.from = .of(inTunnel(record, all, if (player) start_player else start_other));
     const friendly = if (slot.combat) |combat| combat.side == .friendly else false;
     const beyond: Vector = .{ 0, 0, if (friendly) end_friendly else end_other };
     const turn = if (krasnyRun(all, index)) math.identity else spread: {
@@ -565,7 +565,7 @@ pub fn jumpInInit(ctx: aigeneric.Context, index: u16) void {
         gates.spread += 1;
         break :spread math.fromAngles(0, step * spread_step, 0);
     };
-    state.to = gameobj.vec3(inTunnel(record, all, math.transform(turn, beyond)));
+    state.to = .of(inTunnel(record, all, math.transform(turn, beyond)));
     if (slot.model) |*model| showLightSprites(model, false);
     if (gates.spread > spread_most) gates.spread = -spread_most;
     if (player) {
@@ -576,7 +576,7 @@ pub fn jumpInInit(ctx: aigeneric.Context, index: u16) void {
     ai.setTargetable(&slot.object, slot.combat, false);
     slot.object.flags.unpowered = true;
     slot.object.flags.frozen = true;
-    objects.setOrientation(&slot.object, &slot.drawn, math.lookAt(gameobj.vector(state.to) - gameobj.vector(state.from)));
+    objects.setOrientation(&slot.object, &slot.drawn, math.lookAt(state.to.vector() - state.from.vector()));
     if (!slot.object.flags.components) slot.object.flags.no_collisions = true;
     state.linear = true;
     record.portalSetUp();
@@ -640,14 +640,14 @@ pub fn jumpIn(ctx: aigeneric.Context, index: u16) void {
             record.busy = true;
             for (&record.squares) |*square| square.depth = record.tunnel.throat()[2];
             state.next(.{ .in = .coming });
-            objects.setPosition(&slot.object, &slot.drawn, gameobj.vector(state.from));
+            objects.setPosition(&slot.object, &slot.drawn, state.from.vector());
             sound3d.playIn(world, null, null, index, .warpin, 1, .not_reserved);
             if (index == all.player) if (world.environment) |environment| environment.update(all);
         },
         .coming => {
             state.progress += elapsed * (if (krasnyRun(all, index)) krasny_rate else in_rate);
-            const from = gameobj.vector(state.from);
-            const to = gameobj.vector(state.to);
+            const from = state.from.vector();
+            const to = state.to.vector();
             const at = if (state.linear) ease.linear(from, to, state.progress) else ease.cosine(from, to, state.progress);
             objects.setPosition(&slot.object, &slot.drawn, at);
             slot.object.root.markMoved();
@@ -728,7 +728,7 @@ fn splitKrasny(ctx: aigeneric.Context, index: u16, gate: u16) void {
     object.flags.unpowered = true;
     object.flags.exploding = true;
     object.rotation = math.fromAngleVector(krasny_tumble);
-    object.velocity = gameobj.vec3(math.transform(object.root.orientation, krasny_drift));
+    object.velocity = .of(math.transform(object.root.orientation, krasny_drift));
     if (slot.model) |*model| {
         var children = model.rootChildren();
         while (children.next()) |child| {
@@ -757,7 +757,7 @@ fn sliceBursts(world: gameobj.World, slot: *create.Slot) void {
     const place = slot.partPlace(ref.part()) orelse return;
     const back = math.transform(slot.drawn.orientation, .{ 0, 0, -1 });
     for (list.points, 0..) |point, n| {
-        const at = place.point(gameobj.vector(point.position));
+        const at = place.point(point.position.vector());
         const roll = world.random.fraction() * slice_stray;
         const yaw = world.random.fraction() * slice_stray;
         const stray = math.fromAngles(world.random.fraction() * slice_stray, yaw, roll);
@@ -820,7 +820,7 @@ pub fn jumpOutInit(ctx: aigeneric.Context, index: u16) void {
     object.flags.frozen = true;
     object.flags.unpowered = true;
     if (slot.model) |*model| xtrabits.clipTree(model, &record.portal);
-    state.to = gameobj.vec3(inTunnel(record, all, .{ 0, 0, if (index == all.player) exit_player else exit_other }));
+    state.to = .of(inTunnel(record, all, .{ 0, 0, if (index == all.player) exit_player else exit_other }));
     record.portalSetUp();
     if (index == all.player) {
         if (gates.worm) |tube| tube.destroy(gates.gpa);
@@ -883,11 +883,11 @@ pub fn jumpOut(ctx: aigeneric.Context, index: u16) void {
             state.next(.{ .out = .entering });
         },
         .entering => {
-            const at = math.lerp(slot.object.position(), gameobj.vector(state.to), state.progress);
+            const at = math.lerp(slot.object.position(), state.to.vector(), state.progress);
             objects.setPosition(&slot.object, &slot.drawn, at);
             slot.object.root.markMoved();
             state.progress += elapsed * out_rate;
-            if (!(math.distance(slot.drawn.position, gameobj.vector(state.to)) < arrived_within)) return;
+            if (!(math.distance(slot.drawn.position, state.to.vector()) < arrived_within)) return;
             state.next(.{ .out = .riding });
             objects.setPosition(&slot.object, &slot.drawn, .{ @as(f32, @floatFromInt(index)) * away_spacing, 0, away_depth });
             if (!player) return;
@@ -1265,7 +1265,7 @@ fn cutPoint(slot: *create.Slot, hull: []const u8, point: usize) ?Vector {
     const data = ref.data() orelse return null;
     const cut = data.pointList(.cut) orelse return null;
     const at = cutIndex(point, cut.points.len) orelse return null;
-    return ref.part().drawn().point(gameobj.vector(cut.points[at].position));
+    return ref.part().drawn().point(cut.points[at].position.vector());
 }
 
 /// Point `point` of a list of `count`, counted on from its start again past its end; null for an
@@ -1527,7 +1527,7 @@ test "a ship comes in through a gate" {
     try std.testing.expectApproxEqAbs(-26000, object.position()[2], 1e-2);
     try std.testing.expect(record.busy);
     // It comes out beyond the mouth, a friend 53000 off, turned by the spread.
-    const to = gameobj.vector(slot.state.gate.to);
+    const to = slot.state.gate.to.vector();
     try std.testing.expectApproxEqRel(53000, math.length(to), 1e-4);
     try std.testing.expect(to[2] > 0);
     try std.testing.expectEqual(-1, run.built.gates.spread);
@@ -1565,7 +1565,7 @@ test "the player's ship goes out through the nearest gate and rides the worm" {
     aigeneric.objectOrders(ctx, player);
     const slot = mission.slot(player);
     // It goes down the nearest tunnel, whatever its order names.
-    try std.testing.expectApproxEqAbs(-12000, gameobj.vector(slot.state.gate.to)[2], 1e-2);
+    try std.testing.expectApproxEqAbs(-12000, slot.state.gate.to.vector()[2], 1e-2);
     try std.testing.expect(built.gates.exiting and built.gates.worm != null);
     var ticks: usize = 0;
     while (!built.gates.riding and ticks < 1000) : (ticks += 1) mission.ordersAfter(ctx, player, 1);

@@ -320,7 +320,7 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
     switch (state.step.out) {
         .aligning => {
             if (!state.with_player) {
-                _ = ai.steer(world, index, gameobj.vector(state.destination), aligning_limit, ai.no_ease, .{});
+                _ = ai.steer(world, index, state.destination.vector(), aligning_limit, ai.no_ease, .{});
                 const waited = now >= state.since + wing_patience and object.wing == .player;
                 if (!waited and !aligned.holds(object, false)) return;
             } else if (now < state.since + formation_wait) return;
@@ -411,7 +411,7 @@ fn end(ctx: aigeneric.Context, index: u16) void {
     object.flags.jumping = false;
     if (index != all.player or !object.flags.sent_off) object.flags.disabled = true;
     state.destination.y = gone_depth;
-    objects.setPosition(object, &slot.drawn, gameobj.vector(state.destination));
+    objects.setPosition(object, &slot.drawn, state.destination.vector());
     aigeneric.end(ctx, index);
 }
 
@@ -424,8 +424,8 @@ fn beginCourse(slot: *create.Slot) void {
     state.orientation = object.root.orientation;
     state.position = object.root.position;
     const here = slot.drawn.position;
-    const way = math.normalize(gameobj.vector(state.destination) - here);
-    state.to = gameobj.vec3(way * @as(Vector, @splat(going_reach)) + here);
+    const way = math.normalize(state.destination.vector() - here);
+    state.to = .of(way * @as(Vector, @splat(going_reach)) + here);
 }
 
 /// `model_show_finest` (`0x00417DC0`): each part of `model`, and of each model mounted on it,
@@ -464,7 +464,7 @@ fn placeOut(ctx: aigeneric.Context, index: u16) void {
             state.destination = all.slots[target].object.root.next_position;
             return;
         };
-        state.destination = gameobj.vec3(slot.object.placeAt(.next).ahead(nowhere_reach));
+        state.destination = .of(slot.object.placeAt(.next).ahead(nowhere_reach));
         return;
     }
     slot.object.flags.no_collisions = true;
@@ -476,7 +476,7 @@ fn placeOut(ctx: aigeneric.Context, index: u16) void {
     else
         player.object.placeAt(.next).ahead(formation_reach) else player.object.placeAt(.next).ahead(formation_reach);
     const facing = math.lookAt(to - from);
-    state.destination = gameobj.vec3(to);
+    state.destination = .of(to);
     var row: i32 = 1;
     var place: i32 = entry.sequence;
     while (row < formation_rows) : (row += 1) {
@@ -486,7 +486,7 @@ fn placeOut(ctx: aigeneric.Context, index: u16) void {
             const at = math.transform(facing, offset * @as(Vector, @splat(formation_spacing))) + from;
             objects.setPlace(&slot.object, &slot.drawn, .{ .position = at, .orientation = facing });
             ai.stop(&slot.object);
-            slot.object.velocity = gameobj.vec3(math.transform(slot.object.root.next_orientation, .{ 0, 0, formation_speed }));
+            slot.object.velocity = .of(math.transform(slot.object.root.next_orientation, .{ 0, 0, formation_speed }));
             if (ai.slotCruise(slot, world.view)) |cruise| slot.object.throttle = formation_speed / cruise;
             break;
         }
@@ -544,7 +544,7 @@ fn placeIn(all: *create.Objects, index: u16) void {
     const target = slot.orders[0].target.slotIn(all) orelse return;
     const beside = &all.slots[target].drawn;
     const across = @as(f32, @floatFromInt(slot.orders[0].abreast(1))) * aigeneric.abreast_spacing;
-    slot.state.jump.destination = gameobj.vec3(beside.point(.{ across, 0, 0 }));
+    slot.state.jump.destination = .of(beside.point(.{ across, 0, 0 }));
 }
 
 /// `order_jump_in` (`0x00416570`): Jump In's update, a step at a time (`InStep`).
@@ -583,7 +583,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
             const fx = takeEffect(world, state, index);
             state.orientation = all.slots[target].drawn.orientation;
             state.position = object.root.position;
-            const arrival: math.Place = .{ .position = gameobj.vector(state.destination), .orientation = state.orientation };
+            const arrival: math.Place = .{ .position = state.destination.vector(), .orientation = state.orientation };
             objects.setPlace(object, &slot.drawn, arrival);
             ai.stop(object);
             const back = if (object.flags.components) arrival_distance_components else arrival_distance;
@@ -705,13 +705,13 @@ test "a jump out that names nothing leaves the mission" {
     nextFrame(&mission, ctx, ship);
     // It lets its throttle go and aims far ahead, which it faces already, so it holds still.
     try std.testing.expectEqual(0, slot.object.throttle);
-    try expectVector(.{ 0, 0, 10000 + nowhere_reach }, gameobj.vector(slot.state.jump.destination));
+    try expectVector(.{ 0, 0, 10000 + nowhere_reach }, slot.state.jump.destination.vector());
     try std.testing.expectEqual(OutStep.stilling, slot.state.jump.step.out);
     // It charges, then goes by its own motion, colliding with nothing.
     while (slot.motion != .jump_out) nextFrame(&mission, ctx, ship);
     try std.testing.expectEqual(.forward, slot.motion_aside);
     try std.testing.expect(slot.object.flags.no_collisions);
-    try expectVector(.{ 0, 0, 10000 + going_reach }, gameobj.vector(slot.state.jump.to));
+    try expectVector(.{ 0, 0, 10000 + going_reach }, slot.state.jump.to.vector());
     // Gone, it flies ahead, jumping, and then leaves the mission, far below.
     while (slot.state.jump.step.out == .going) nextFrame(&mission, ctx, ship);
     try std.testing.expectEqual(.forward, slot.motion);
@@ -767,7 +767,7 @@ test "a jump out that names a ship gives way to a jump in beside it" {
     // fly in from.
     nextFrame(&mission, ctx, ship);
     const arrival = mission.slot(target).drawn.point(.{ -aigeneric.abreast_spacing, 0, 0 });
-    try expectVector(arrival, gameobj.vector(slot.state.jump.destination));
+    try expectVector(arrival, slot.state.jump.destination.vector());
     try expectVector(arrival - math.forward(turned) * @as(Vector, @splat(arrival_distance)), slot.drawn.position);
     try std.testing.expectEqual(turned, slot.drawn.orientation);
     try std.testing.expect(slot.object.flags.jumping);
@@ -844,7 +844,7 @@ test "the ships that jump out with the player's form up behind it" {
         try std.testing.expect(slot.object.flags.no_collisions);
         try std.testing.expectEqual(formation_speed, slot.object.velocity.z);
         try std.testing.expectEqual(formation_speed / gameobj.testing.flight.max_speed, slot.object.throttle);
-        try expectVector(.{ 0, 0, 100000 }, gameobj.vector(slot.state.jump.destination));
+        try expectVector(.{ 0, 0, 100000 }, slot.state.jump.destination.vector());
     }
     // They hold their places a while before they go.
     for (0..formation_wait / test_frame - 1) |_| nextFrame(&mission, ctx, wing[0]);

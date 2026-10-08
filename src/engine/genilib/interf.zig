@@ -9,6 +9,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const fat = @import("../../formats/fat.zig");
+const layout = @import("../../formats/layout.zig");
 const spr = @import("../../formats/spr.zig");
 const input = @import("../input.zig");
 const profile = @import("../profile.zig");
@@ -70,10 +71,7 @@ pub const Screen = enum(u8) {
     _,
 
     pub fn format(screen: Screen, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return switch (screen) {
-            _ => writer.print("screen {d}", .{@backingInt(screen)}),
-            inline else => |named| writer.writeAll(@tagName(named)),
-        };
+        return layout.formatTagAs(Screen, screen, "screen", writer);
     }
 };
 

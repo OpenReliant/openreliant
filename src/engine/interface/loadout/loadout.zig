@@ -2437,7 +2437,7 @@ pub const Loadout = struct {
         ship.model.hung[rack] = .{
             .part = hardpoint.part,
             .attachment = hardpoint.index,
-            .origin = gameobj.vector(hardpoint.attachment.position) * @as(Vector, @splat(scale)),
+            .origin = hardpoint.attachment.position.vector() * @as(Vector, @splat(scale)),
             .orientation = hardpoint.attachment.orientation,
             .model = model,
         };

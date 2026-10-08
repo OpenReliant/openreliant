@@ -60,7 +60,7 @@ pub const Vec3 = extern struct {
         return .{ v.x, v.y, v.z };
     }
 
-    /// The engine's vector `v`, as a model holds one.
+    /// The engine's vector `v`, as the game's models and records hold one.
     pub fn of(v: math.Vector) Vec3 {
         return .{ .x = v[0], .y = v[1], .z = v[2] };
     }
@@ -332,10 +332,7 @@ pub const Part = extern struct {
         _,
 
         pub fn format(class: Class, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-            return switch (class) {
-                _ => writer.print("class {d}", .{@backingInt(class)}),
-                inline else => |named| writer.writeAll(@tagName(named)),
-            };
+            return layout.formatTagAs(Class, class, "class", writer);
         }
 
         /// Whether a part of the class is a turret, which takes a gun of its own by its turret

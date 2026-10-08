@@ -106,9 +106,9 @@ pub fn move(object: *gameobj.GameObject, x: f32, y: f32, frame_duration: i32) vo
     object.power_setting.x -= ticks * x;
     object.power_setting.z = 0;
     object.power_setting.y -= ticks * y;
-    const setting = gameobj.vector(object.power_setting);
+    const setting = object.power_setting.vector();
     if (math.lengthSquared(setting) > radius * radius) {
-        object.power_setting = gameobj.vec3(math.normalize(setting) * @as(math.Vector, @splat(radius)));
+        object.power_setting = .of(math.normalize(setting) * @as(math.Vector, @splat(radius)));
     }
     distribute(object);
 }
@@ -218,7 +218,7 @@ test move {
     try std.testing.expectEqual(0, object.power_setting.z);
     // It stays in the disc, at its edge.
     move(&object, 1, 0, 100);
-    const setting = gameobj.vector(object.power_setting);
+    const setting = object.power_setting.vector();
     try std.testing.expectApproxEqAbs(radius, math.length(setting), 1e-4);
     try std.testing.expect(object.power_setting.x < 0);
     // Toward the engines' side, the ship flies faster.

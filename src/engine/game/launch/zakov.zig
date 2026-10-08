@@ -81,8 +81,8 @@ test init {
     try std.testing.expectEqual(launch.Style.zakov, slot.state.launch.style);
     try std.testing.expect(slot.state.launch.attached);
     try std.testing.expectEqual(carrier, slot.riding.?.object);
-    const point = gameobj.vector(carrier_model.attachments[1].position);
-    const expected = mission.slot(carrier).drawn.point(point + gameobj.vector(.{ .x = 100, .y = 0, .z = 0 }));
+    const point = carrier_model.attachments[1].position.vector();
+    const expected = mission.slot(carrier).drawn.point(point + @as(@TypeOf(point), .{ 100, 0, 0 }));
     try std.testing.expectApproxEqAbs(expected[0], slot.drawn.position[0], 1e-3);
     try std.testing.expectApproxEqAbs(expected[2] - 12, slot.drawn.position[2], 1e-3);
 }

@@ -473,7 +473,7 @@ fn collect(slot: *create.Slot, kind: shp.PointList.Kind, into: []Vector) usize {
                 log.warn("a ship has more points for its jump's trails or lights than the {d} it takes; the rest are left out", .{into.len});
                 return count;
             }
-            into[count] = stands.point(gameobj.vector(point.position));
+            into[count] = stands.point(point.position.vector());
             count += 1;
         }
     }

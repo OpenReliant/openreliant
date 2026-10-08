@@ -1100,7 +1100,7 @@ pub fn gateMade(world: gameobj.World, index: u16) void {
     const ref: objects.PartRef = .{ .model = model, .index = holder };
     const door = (ref.data() orelse return).pointList(.door) orelse return;
     if (door.points.len < 2) return;
-    const middle = (gameobj.vector(door.points[0].position) + gameobj.vector(door.points[1].position)) * @as(Vector, @splat(0.5));
+    const middle = (door.points[0].position.vector() + door.points[1].position.vector()) * @as(Vector, @splat(0.5));
     if (kind == .proto) explode.burnPart(world, index, proto_power_core, .{ .forever = true, .flickers = false, .lights = false });
     _ = gates.make(world, index, kind, ref.part().frameWithin(.{}).point(middle)) catch |err| {
         std.log.warn("the gate in slot {d} opens no tunnel: {s}", .{ index, @errorName(err) });
@@ -1305,11 +1305,11 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
         slot.model = model;
         // `object_recentre` puts what it works out in the record.
         object.mass = model.mass;
-        object.centre = gameobj.vec3(model.centre);
+        object.centre = .of(model.centre);
         object.radius = model.radius;
         object.angular_response = model.angular_response;
-        object.bounds_min = gameobj.vec3(model.bounds[0]);
-        object.bounds_max = gameobj.vec3(model.bounds[1]);
+        object.bounds_min = .of(model.bounds[0]);
+        object.bounds_max = .of(model.bounds[1]);
         objects.setPosition(object, &slot.drawn, at);
         switch (combat.class) {
             .debris => object.mass *= debris_mass,
@@ -1540,7 +1540,7 @@ fn hang(gpa: Allocator, effects: objects.Effects, hardpoint: Hardpoint, file: ?[
     return .{
         .part = hardpoint.part,
         .attachment = hardpoint.index,
-        .origin = gameobj.vector(hardpoint.attachment.position),
+        .origin = hardpoint.attachment.position.vector(),
         .orientation = hardpoint.attachment.orientation,
         .model = built,
     };

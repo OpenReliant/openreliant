@@ -575,19 +575,19 @@ fn aim(fighter: Fighter) void {
     if (state.next_aim < fighter.now()) {
         state.next_aim = @as(i32, fighter.pilot.aim_interval) + fighter.now();
         if (ai.leadAim(fighter.objects(), fighter.index, fighter.against, 1)) |led| {
-            state.aim = gameobj.vec3(led);
+            state.aim = .of(led);
             state.led = true;
         } else {
             state.led = false;
-            state.aim = if (fighter.target().part() == null) enemy.root.next_position else gameobj.vec3(fighter.aimed().position);
+            state.aim = if (fighter.target().part() == null) enemy.root.next_position else .of(fighter.aimed().position);
         }
-        var drift = gameobj.vector(enemy.velocity) * @as(Vector, @splat(aim_drift));
+        var drift = enemy.velocity.vector() * @as(Vector, @splat(aim_drift));
         var turns = @divTrunc(fighter.pilot.aim_interval, 2);
         while (turns > 0) : (turns -= 1) drift = math.transform(enemy.rotation, drift);
-        state.aim_velocity = gameobj.vec3(drift);
+        state.aim_velocity = .of(drift);
     }
     const step: f32 = @floatFromInt(fighter.ctx.world.clock.frame_duration);
-    state.aim = gameobj.vec3(gameobj.vector(state.aim) + gameobj.vector(state.aim_velocity) * @as(Vector, @splat(step)));
+    state.aim = .of(state.aim.vector() + state.aim_velocity.vector() * @as(Vector, @splat(step)));
     fire(fighter);
 }
 
@@ -621,7 +621,7 @@ fn fire(fighter: Fighter) void {
     if (fighter.now() > ship.fire_at) {
         const laser = guns.GunType.of(.laser_cannon).stats(&all.gun_stats);
         const range = @as(f32, @floatFromInt(laser.lifetime)) * laser.speed * fire_range;
-        if (ai.alongNose(fighter.slot.drawn, gameobj.vector(fighter.state.aim), radius * fighter.pilot.fire_spread) and
+        if (ai.alongNose(fighter.slot.drawn, fighter.state.aim.vector(), radius * fighter.pilot.fire_spread) and
             math.distance(fighter.position(), aimed.position) < range and
             !(ship.side == .friendly and playerInLine(fighter)))
         {

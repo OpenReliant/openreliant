@@ -21,6 +21,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+const layout = @import("../../../formats/layout.zig");
 const engine = @import("../../../engine.zig");
 const hog = @import("../../../formats/hog.zig");
 const bink = @import("../../bink.zig");
@@ -124,10 +125,7 @@ pub const Action = enum(i16) {
     }
 
     pub fn format(action: Action, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return switch (action) {
-            _ => writer.print("action {d}", .{@backingInt(action)}),
-            inline else => |named| writer.writeAll(@tagName(named)),
-        };
+        return layout.formatTagAs(Action, action, "action", writer);
     }
 };
 

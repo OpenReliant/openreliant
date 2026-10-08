@@ -323,7 +323,7 @@ pub const Subject = struct {
         return .{
             .position = slot.drawn.position,
             .orientation = slot.drawn.orientation,
-            .eye = if (slot.type) |loaded| gameobj.vector(loaded.model.header.eye) else @splat(0),
+            .eye = if (slot.type) |loaded| loaded.model.header.eye.vector() else @splat(0),
             .radius = live.radius,
             // The chase view sits farther back the more throttle the ship carries and swings
             // against its rates of turn, so it lags a turn rather than riding rigidly behind the

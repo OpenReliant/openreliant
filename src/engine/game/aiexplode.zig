@@ -483,7 +483,7 @@ fn haltInit(ctx: Context, index: u16) void {
         .kind = .torpedo,
         .size = torpedo_shockwave_size,
         .life = torpedo_shockwave_life,
-        .velocity = gameobj.vector(slot.object.velocity),
+        .velocity = slot.object.velocity.vector(),
         .owner = index,
     });
 }
@@ -526,7 +526,7 @@ fn stop(slot: *create.Slot) void {
 
 /// A turn a step either way about each axis, within `spin_range`.
 fn randomSpin(random: *Random) Vec3 {
-    return gameobj.vec3(random.centredVector(spin_range));
+    return .of(random.centredVector(spin_range));
 }
 
 /// `explode_spin` (`0x00408F70`), a spinning or halting ship's update: it leaves its trail, a ship
@@ -542,7 +542,7 @@ fn spin(world: gameobj.World, slot: *create.Slot) void {
         state.trail -= 1;
     }
     const share = @as(f32, @floatFromInt(left)) * spin_fade;
-    slot.object.rotation = math.fromAngleVector(gameobj.vector(state.spin) * @as(Vector, @splat(share)));
+    slot.object.rotation = math.fromAngleVector(state.spin.vector() * @as(Vector, @splat(share)));
 }
 
 test Mode {

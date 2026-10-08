@@ -260,7 +260,7 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
         const turn = @as(f32, @floatFromInt(n)) * end_turn + sway;
         beam.end = place.point(math.transform(math.rotation(.z, if (n % 2 == 0) turn else -turn), at));
         emitter.place.position = beam.end;
-        beam.object.position = place.point(gameobj.vector(points[@min(n, points.len - 1)].position));
+        beam.object.position = place.point(points[@min(n, points.len - 1)].position.vector());
     }
     for (&projection.beams) |*beam| {
         const length = math.distance(beam.end, beam.object.position);

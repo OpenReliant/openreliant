@@ -283,9 +283,9 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
         .missile => {
             const missile = scene.objects.missiles.get(owner orelse return null) orelse return null;
             position = missile.slot.object.nextPosition();
-            direction = math.normalize(gameobj.vector(missile.slot.object.velocity));
+            direction = math.normalize(missile.slot.object.velocity.vector());
             if (sound.missile_sound == .follows) {
-                velocity = gameobj.vector(missile.slot.object.velocity);
+                velocity = missile.slot.object.velocity.vector();
                 followed = &missile.slot.object;
                 min_distance *= followed_missile_reach;
             }
@@ -297,7 +297,7 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
             const slot = &scene.objects.slots[followed_at];
             position = slot.object.nextPosition();
             if (followed_at == scene.objects.player) position += math.transform(slot.drawn.orientation, player_sound_offset);
-            velocity = gameobj.vector(slot.object.velocity);
+            velocity = slot.object.velocity.vector();
             direction = math.forward(slot.drawn.orientation);
             if (slot.model) |model| radius = model.radius;
         },
@@ -311,8 +311,8 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     const voice = &sound.voices_3d[v];
     if (!voice.isFree()) sound.end3D(v);
     if (definition.follows == .point_facing) {
-        voice.position = gameobj.vec3(position);
-        voice.direction = gameobj.vec3(direction.?);
+        voice.position = .of(position);
+        voice.direction = .of(direction.?);
     }
     const sample = file orelse bank.sound(definition.entry) orelse return null;
     voice.follows = definition.follows;
@@ -561,7 +561,7 @@ fn flybys(sound: *Sound, scene: Scene) void {
         if (!(object.throttle >= flyby_throttle)) continue;
         const gap: i32 = if (own) own_flyby_gap else flyby_gap;
         if (scene.clock.frame_start < object.flyby_at + gap) continue;
-        const velocity = gameobj.vector(object.velocity);
+        const velocity = object.velocity.vector();
         if (!(math.length(velocity) >= flyby_speed)) continue;
         const cosine = math.dot(velocity, looking) / @sqrt(math.dot(velocity, velocity) * math.dot(looking, looking));
         const hostile = object.side == .hostile;
@@ -680,7 +680,7 @@ test playFrom {
         if (voice.sound == opening) break voice;
     } else return error.TestUnexpectedResult;
     try std.testing.expectEqual(Follows.point_facing, voice.follows);
-    try std.testing.expectEqual(gameobj.vec3(door.position), voice.position);
+    try std.testing.expectEqual(door.position, voice.position.vector());
     try std.testing.expectApproxEqAbs(1, voice.direction.x, 1e-6);
     try std.testing.expect(voice.isFree());
 }

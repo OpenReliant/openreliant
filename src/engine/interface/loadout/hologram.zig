@@ -228,7 +228,7 @@ pub const marker_nearer: f32 = 0.3;
 /// the part at the ship's scale, and the lift turned as the hardpoint is, turned and moved as the
 /// part stands.
 pub fn hardpointPlace(frame: math.Place, attachment: *const shp.Attachment, lift: Vector, scale: f32) Vector {
-    const on = math.transform(attachment.orientation, lift) + gameobj.vector(attachment.position) * @as(Vector, @splat(scale));
+    const on = math.transform(attachment.orientation, lift) + attachment.position.vector() * @as(Vector, @splat(scale));
     return frame.point(on);
 }
 

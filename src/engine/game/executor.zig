@@ -689,8 +689,8 @@ fn darrensNaughtyBlag(call: Call, game: aigeneric.Context) void {
     const turned = call.argumentShip(all, 0) orelse return;
     const faced = call.argumentShip(all, 1) orelse return;
     const slot = &all.slots[turned];
-    const from = gameobj.vector(slot.object.root.next_position);
-    const to = gameobj.vector(all.slots[faced].object.root.next_position);
+    const from = slot.object.root.next_position.vector();
+    const to = all.slots[faced].object.root.next_position.vector();
     objects.setOrientation(&slot.object, &slot.drawn, math.lookAt(to - from));
 }
 
@@ -2022,7 +2022,7 @@ test "the commands that move ships, change their sides and leave them be" {
         const at: [3]f32 = .{ -100, 0, z };
         try std.testing.expectEqual(at, ships[sabre].runtime_position);
         try std.testing.expectEqual(at, all.slots[sabre].object.position());
-        try std.testing.expectEqual(at, gameobj.vector(all.slots[sabre].object.root.next_position));
+        try std.testing.expectEqual(at, all.slots[sabre].object.root.next_position.vector());
         try std.testing.expectEqual(at, all.slots[sabre].drawn.position);
     }
     try std.testing.expectEqual([3]f32{ 0, 0, 0 }, all.slots[0].object.position());

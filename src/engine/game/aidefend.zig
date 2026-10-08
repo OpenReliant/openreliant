@@ -349,7 +349,7 @@ fn setInput(fighter: Fighter, axis: Axis, range: script.Range) void {
 
 /// The point the ship flies to, straight at it again (`maneuver_stop_weaving`, `0x00405C50`).
 fn flyTo(fighter: Fighter, point: Vector) void {
-    fighter.state.point = gameobj.vec3(point);
+    fighter.state.point = .of(point);
     fighter.state.weaving = false;
 }
 
@@ -367,7 +367,7 @@ fn flyOn(fighter: Fighter) bool {
 fn steerToPoint(fighter: Fighter) void {
     const state = fighter.state;
     const ship = fighter.ship();
-    const point = gameobj.vector(state.point);
+    const point = state.point.vector();
     if (ship.avoid_ahead.count >= 1 or ship.avoid_near.count != 0) {
         _ = ai.steer(fighter.ctx.world, fighter.index, point, ai.full_limit, ai.no_ease, .clear);
         return;
@@ -392,14 +392,14 @@ fn attack(fighter: Fighter) bool {
     if (timeUp(fighter)) return false;
     const ship = fighter.ship();
     const apart = math.distance(fighter.position(), fighter.enemyPosition());
-    fighter.steer(gameobj.vector(fighter.state.aim), .clear);
-    const ahead = fighter.position() + gameobj.vector(ship.velocity) * @as(Vector, @splat(lookahead));
+    fighter.steer(fighter.state.aim.vector(), .clear);
+    const ahead = fighter.position() + ship.velocity.vector() * @as(Vector, @splat(lookahead));
     const nose = math.forward(ship.root.orientation);
     if (math.dot(nose, fighter.enemyPosition() - ahead) >= 0) {
         ship.throttle = if (apart >= fighter.enemy().object.radius + ship.radius + close_in)
             ai.full_throttle
         else
-            math.dot(nose, gameobj.vector(fighter.state.aim_velocity)) / fighter.cruise();
+            math.dot(nose, fighter.state.aim_velocity.vector()) / fighter.cruise();
     } else if (fighter.pilot.skill == .high) {
         ship.afterburner = true;
     } else {
@@ -422,7 +422,7 @@ fn closeToPart(fighter: Fighter) bool {
 fn attackMassive(fighter: Fighter) bool {
     if (closeToPart(fighter)) return false;
     fighter.ship().throttle = ai.full_throttle;
-    fighter.steer(gameobj.vector(fighter.state.aim), .clear);
+    fighter.steer(fighter.state.aim.vector(), .clear);
     return true;
 }
 
@@ -455,7 +455,7 @@ fn attackMediumFighter(fighter: Fighter) bool {
     const direction = if (apart < aifight.close_quarters and math.dot(fighter.heading(), toward) < apart * medium_cone)
         fighter.heading()
     else lead: {
-        const closing = gameobj.vector(fighter.enemy().object.velocity) - gameobj.vector(ship.velocity) * @as(Vector, @splat(own_share));
+        const closing = fighter.enemy().object.velocity.vector() - ship.velocity.vector() * @as(Vector, @splat(own_share));
         break :lead math.normalize(closing * @as(Vector, @splat(apart / fighter.cruise())) + toward);
     };
     fighter.steer(fighter.position() + direction * @as(Vector, @splat(medium_reach)), .{ .avoid_near = true });
@@ -473,7 +473,7 @@ fn startAttackRun(fighter: Fighter) void {
         return;
     }
     const out = ai.escapeDirection(enemy, fighter.aimed().position);
-    fighter.state.point = gameobj.vec3(math.transformTransposed(enemy.object.root.next_orientation, out));
+    fighter.state.point = .of(math.transformTransposed(enemy.object.root.next_orientation, out));
 }
 
 /// The way out the firing arc of component `component` of the ship in `slot` names, where its
@@ -494,8 +494,8 @@ fn attackRun(fighter: Fighter, far: bool) bool {
     const ship = fighter.ship();
     const enemy = &fighter.enemy().object;
     const aimed = fighter.aimed();
-    const out = math.transform(aimed.orientation, gameobj.vector(fighter.state.point));
-    if (math.dot(out, gameobj.vector(ship.velocity)) >= 0) {
+    const out = math.transform(aimed.orientation, fighter.state.point.vector());
+    if (math.dot(out, ship.velocity.vector()) >= 0) {
         ship.throttle = ai.full_throttle;
         ship.afterburner = true;
     } else {
@@ -523,7 +523,7 @@ fn runToShip(fighter: Fighter) bool {
     const apart = math.distance(to.nextPosition(), fighter.position());
     if (to.flags.components) return apart >= to.radius + run_to_reach;
     const ship = fighter.ship();
-    const pace = math.dot(fighter.heading(), gameobj.vector(to.velocity)) / fighter.cruise();
+    const pace = math.dot(fighter.heading(), to.velocity.vector()) / fighter.cruise();
     ship.throttle = @max(pace + (apart - run_to_reach) * run_to_closing, least_throttle);
     return true;
 }
@@ -873,7 +873,7 @@ test start {
     state.weaving = true;
     try std.testing.expect(start(fighter, .{ .runaway = .{ .min = 10, .max = 10 } }));
     try std.testing.expect(!state.weaving);
-    try std.testing.expectEqual(gameobj.vec3(.{ 0, 0, 50000 + runaway_reach }), state.point);
+    try std.testing.expectEqual(math.Vector{ 0, 0, 50000 + runaway_reach }, state.point.vector());
     try std.testing.expectEqual(10, state.timer);
 
     // NewAttackRun, told to, has the ship fight nothing until the run is over; otherwise it keeps

@@ -802,7 +802,7 @@ pub const Countermeasures = struct {
         const tail = object.placeAt(.next);
         const orientation = tail.orientation;
         model.place(tail.point(.{ 0, 0, object.bounds_min.z }), orientation);
-        const velocity = gameobj.vector(object.velocity) * @as(Vector, @splat(carried)) + (math.yAxis(orientation) - math.forward(orientation)) * @as(Vector, @splat(drop_away));
+        const velocity = object.velocity.vector() * @as(Vector, @splat(carried)) + (math.yAxis(orientation) - math.forward(orientation)) * @as(Vector, @splat(drop_away));
         const bounds = if (model.parts.len > 0 and model.parts[0].object.levels.len > 0) model.parts[0].object.levels[0].mesh.bounds else [2]Vector{ @splat(0), @splat(0) };
         countermeasures.records[at] = .{
             .until = world.clock.frame_start + life,

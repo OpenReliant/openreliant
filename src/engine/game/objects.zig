@@ -5,6 +5,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+const layout = @import("../../formats/layout.zig");
 const engine = @import("../../engine.zig");
 const Pointer = engine.Pointer;
 const shp = @import("../../formats/shp.zig");
@@ -113,10 +114,7 @@ pub const Node = extern struct {
         _,
 
         pub fn format(kind: Kind, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-            return switch (kind) {
-                _ => writer.print("node kind {d}", .{@backingInt(kind)}),
-                inline else => |named| writer.writeAll(@tagName(named)),
-            };
+            return layout.formatTagAs(Kind, kind, "node kind", writer);
         }
     };
 
@@ -210,9 +208,9 @@ pub const Node = extern struct {
     pub fn framePlace(node: *Node, fraction: f32) ?Model.Local {
         if (!node.flags.committed and !node.flags.unframed) return null;
         node.flags.unframed = false;
-        const now: Model.Local = .{ .position = gameobj.vector(node.position), .orientation = node.orientation };
+        const now: Model.Local = .{ .position = node.position.vector(), .orientation = node.orientation };
         if (fraction == 0) return now;
-        const next: Model.Local = .{ .position = gameobj.vector(node.next_position), .orientation = node.next_orientation };
+        const next: Model.Local = .{ .position = node.next_position.vector(), .orientation = node.next_orientation };
         return between(now, next, fraction);
     }
 
@@ -250,7 +248,7 @@ pub const Node = extern struct {
 /// **Unverified:** it and the functions after it lie after this file's known code, before
 /// `particles.cpp`'s.
 pub fn setPosition(object: *GameObject, frame: *Model.Local, at: Vector) void {
-    const position = gameobj.vec3(at);
+    const position: shp.Vec3 = .of(at);
     frame.position = at;
     object.root.next_position = position;
     object.root.position = position;
@@ -268,8 +266,8 @@ pub fn setOrientation(object: *GameObject, frame: *Model.Local, orientation: mat
 /// move its step has left to make stays, where `setPosition` drops it.
 pub fn shift(object: *GameObject, frame: *Model.Local, by: Vector) void {
     frame.position += by;
-    object.root.next_position = gameobj.vec3(gameobj.vector(object.root.next_position) + by);
-    object.root.position = gameobj.vec3(object.position() + by);
+    object.root.next_position = .of(object.root.next_position.vector() + by);
+    object.root.position = .of(object.position() + by);
 }
 
 test shift {
@@ -280,7 +278,7 @@ test shift {
     shift(&object, &frame, .{ 5, 0, 0 });
     // It moves, and so does where its step takes it next, its move of 30 kept.
     try std.testing.expectEqual(Vector{ 5, 0, 100 }, object.position());
-    try std.testing.expectEqual(Vector{ 5, 0, 130 }, gameobj.vector(object.root.next_position));
+    try std.testing.expectEqual(Vector{ 5, 0, 130 }, object.root.next_position.vector());
     try std.testing.expectEqual(Vector{ 5, 0, 100 }, frame.position);
 }
 
@@ -315,7 +313,7 @@ pub const Box = struct {
 
     /// A box of a part's collision tree, in the part's frame.
     fn ofNode(node: shp.TreeNode) Box {
-        return .{ .centre = gameobj.vector(node.centre), .orientation = node.orientation, .half = gameobj.vector(node.half_size) };
+        return .{ .centre = node.centre.vector(), .orientation = node.orientation, .half = node.half_size.vector() };
     }
 
     /// The box `model` stands in, its bounding box, with its root at `root` (`node_hit_test` for a
@@ -619,7 +617,7 @@ fn visitFaces(level: shp.Mesh, faces: []const u32, part: usize, query: anytype) 
             corner(level, record.vertices[1]) orelse continue,
             corner(level, record.vertices[2]) orelse continue,
         };
-        query.face(part, face, triangle, gameobj.vector(record.normal));
+        query.face(part, face, triangle, record.normal.vector());
     }
 }
 
@@ -827,7 +825,7 @@ pub fn boxEntry(from: Vector, to: Vector, bounds: [2]Vector) ?f32 {
 /// hold.
 fn corner(level: shp.Mesh, vertex: u32) ?Vector {
     if (vertex >= level.vertices.len) return null;
-    return gameobj.vector(level.vertices[vertex].position);
+    return level.vertices[vertex].position.vector();
 }
 
 /// The point of a triangle nearest `from`.
@@ -861,7 +859,7 @@ fn closestOnTriangle(from: Vector, triangle: [3]Vector) Vector {
     const va = d3 * d6 - d5 * d4;
     if (va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0) {
         const along = (d4 - d3) / ((d4 - d3) + (d5 - d6));
-        return triangle[1] + (triangle[2] - triangle[1]) * @as(Vector, @splat(along));
+        return math.lerp(triangle[1], triangle[2], along);
     }
 
     const denominator = 1 / (va + vb + vc);
@@ -1001,7 +999,7 @@ pub fn frameTree(root: *Node, model: ?*Model, drawn: *Model.Local, fraction: f32
         drawn.* = place;
         if (glide) |on| drawn.position += on;
     } else if (glide) |on| {
-        drawn.position = gameobj.vector(root.position) + on;
+        drawn.position = root.position.vector() + on;
     }
     const parts = model orelse return;
     parts.frame(fraction);
@@ -1764,19 +1762,19 @@ pub const Model = struct {
                 .origin = @splat(0),
                 .object = .{
                     .flags = part.flags,
-                    .position = gameobj.vector(at),
+                    .position = at.vector(),
                     .radius = radius,
                     .light_mask = lightMask(model.header.flags.components),
                     .levels = part.levels,
                 },
                 .animation = .{
-                    .position = gameobj.vector(at),
-                    .mount = gameobj.vector(source.part.mount_point),
+                    .position = at.vector(),
+                    .mount = source.part.mount_point.vector(),
                     .orientation = source.part.orientation,
                     // Three whole numbers, which the game tests as floats against zero.
                     .still = source.part.still != @as(@Vector(3, u32), @splat(0)),
-                    .angles_min = gameobj.vector(source.part.angles_min),
-                    .angles_max = gameobj.vector(source.part.angles_max),
+                    .angles_min = source.part.angles_min.vector(),
+                    .angles_max = source.part.angles_max.vector(),
                     .tracks = source.tracks,
                     .slots = slotsOf(source.tracks),
                 },
@@ -1835,8 +1833,8 @@ pub const Model = struct {
         var key: Pose = .{};
         for (a.tracks[a.track].keyframes) |keyframe| {
             key = .{
-                .angles = gameobj.vector(keyframe.angles),
-                .offset = gameobj.vector(keyframe.offset),
+                .angles = keyframe.angles.vector(),
+                .offset = keyframe.offset.vector(),
             };
             const time: f32 = @floatFromInt(keyframe.time);
             if (at <= time) {
@@ -2009,7 +2007,7 @@ pub const Model = struct {
             const attachment = found.attachment;
             light.* = .{
                 .part = found.part,
-                .origin = gameobj.vector(attachment.position),
+                .origin = attachment.position.vector(),
                 .blink = .{ .times = attachment.blink, .phase = attachment.blink_phase },
                 .sprites = null,
                 .cast = null,
@@ -2087,7 +2085,7 @@ pub const Model = struct {
             const size: Vector = attachment.size;
             glow.* = .{
                 .part = found.part,
-                .origin = gameobj.vector(attachment.position),
+                .origin = attachment.position.vector(),
                 .orientation = attachment.orientation,
                 .size = size,
                 .retro = Glow.burnsForward(attachment),
@@ -2193,7 +2191,7 @@ pub const Model = struct {
                 try made.append(gpa, .{
                     .part = index,
                     .attachment = at,
-                    .origin = gameobj.vector(attachment.position),
+                    .origin = attachment.position.vector(),
                     .orientation = attachment.orientation,
                     .model = try build(gpa, mounted.model, mounted.loaded, effects, depth + 1),
                 });
@@ -2759,7 +2757,7 @@ pub const LightSprites = struct {
 /// Where `attachment` stands on its part, and how it is turned there: a muzzle's, a flash's, a case
 /// ejector's or an eject point's.
 pub fn attachmentPlace(attachment: *const shp.Attachment) math.Place {
-    return .{ .position = gameobj.vector(attachment.position), .orientation = attachment.orientation };
+    return .{ .position = attachment.position.vector(), .orientation = attachment.orientation };
 }
 
 test attachmentPlace {
@@ -2947,7 +2945,7 @@ pub const testing = struct {
                 model.parts.init();
                 for (&model.parts.data, &model.lists, &model.points, names, kinds, points) |*data, *list, *held, name, kind, at| {
                     @memcpy(data.part.name_bytes[0..name.len], name);
-                    for (held[0..at.len], at) |*point, position| point.* = .{ ._unknown_00 = 0, .vertex = 0, .position = gameobj.vec3(position) };
+                    for (held[0..at.len], at) |*point, position| point.* = .{ ._unknown_00 = 0, .vertex = 0, .position = .of(position) };
                     list.* = .{.{ .kind = kind, .points = held[0..at.len] }};
                     data.point_lists = if (at.len > 0) &list.* else &.{};
                 }
@@ -2965,7 +2963,7 @@ pub const testing = struct {
         pub fn init(carrier: *Carrier, at: Vector) void {
             carrier.attachments = .{std.mem.zeroes(shp.Attachment)};
             carrier.attachments[0].kind = .gun;
-            carrier.attachments[0].position = gameobj.vec3(at);
+            carrier.attachments[0].position = .of(at);
             carrier.attachments[0].orientation = math.identity;
             carrier.parts.init();
             carrier.parts.data[0].attachments = &carrier.attachments;
@@ -3784,7 +3782,7 @@ const Animated = struct {
 };
 
 fn testingKey(time: i32, angles: Vector, offset: Vector) shp.Keyframe {
-    return .{ .time = time, .angles = gameobj.vec3(angles), .offset = gameobj.vec3(offset) };
+    return .{ .time = time, .angles = .of(angles), .offset = .of(offset) };
 }
 
 fn testingClip(length: i32, mode: Model.Mode, name: []const u8) shp.Clip {

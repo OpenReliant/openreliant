@@ -234,11 +234,11 @@ fn separate(ctx: Context, index: u16, cockpit: usize) void {
         .spread = flash_spread,
         .speed = flash_speed,
         .speed_range = flash_speed_range,
-        .inherited = gameobj.vector(object.velocity) * @as(Vector, @splat(flash_carried)),
+        .inherited = object.velocity.vector() * @as(Vector, @splat(flash_carried)),
         .template = &flash,
     };
     explode.burstFrom(world, &emitter, flash_count);
-    object.velocity = gameobj.vec3(gameobj.vector(object.velocity) + math.forward(point.orientation) * @as(Vector, @splat(kick)));
+    object.velocity = .of(object.velocity.vector() + math.forward(point.orientation) * @as(Vector, @splat(kick)));
 }
 
 /// Where the last eject point of the pod's cockpit, part `cockpit`, stands in the world, and which

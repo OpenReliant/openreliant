@@ -742,7 +742,7 @@ pub fn flare(world: gameobj.World, index: u16, at: Vector) void {
     const bubble = slot.shield orelse return;
     const inside = if (world.camera) |watching| watching.inside(index) else false;
     if (!inside) {
-        const carried = gameobj.vector(object.velocity) * @as(Vector, @splat(sparks_carry));
+        const carried = object.velocity.vector() * @as(Vector, @splat(sparks_carry));
         sparks.spray(world, .shield, at, at - slot.drawn.position, carried, shield_sparks);
     }
     const shared = world.shields orelse return;

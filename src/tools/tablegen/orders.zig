@@ -116,6 +116,8 @@ pub fn emit(w: *Io.Writer, table: Table, names: []const []const u8) Io.Writer.Er
         \\
         \\const std = @import("std");
         \\
+        \\const layout = @import("../../../formats/layout.zig");
+        \\
         \\pub const Flags = @import("../ai.zig").Record.Flags;
         \\
         \\/// Every order in the table, by number.
@@ -130,10 +132,7 @@ pub fn emit(w: *Io.Writer, table: Table, names: []const []const u8) Io.Writer.Er
         \\
         \\    /// Its name in OpenReliant, or its number where the table holds no such order.
         \\    pub fn format(order: Order, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        \\        return switch (order) {
-        \\            _ => writer.print("order {d}", .{@backingInt(order)}),
-        \\            inline else => |named| writer.writeAll(@tagName(named)),
-        \\        };
+        \\        return layout.formatTagAs(Order, order, "order", writer);
         \\    }
         \\};
         \\

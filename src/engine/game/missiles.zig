@@ -509,11 +509,11 @@ fn spawn(world: gameobj.World, launcher: u16, kind: Type, built: objects.Model, 
     object.side = carrier.object.side;
     object.velocity = carrier.object.velocity;
     object.radius = built.radius;
-    object.bounds_min = gameobj.vec3(built.bounds[0]);
-    object.bounds_max = gameobj.vec3(built.bounds[1]);
-    object.root.position = gameobj.vec3(places.now.position);
+    object.bounds_min = .of(built.bounds[0]);
+    object.bounds_max = .of(built.bounds[1]);
+    object.root.position = .of(places.now.position);
     object.root.orientation = places.now.orientation;
-    object.root.next_position = gameobj.vec3(places.next.position);
+    object.root.next_position = .of(places.next.position);
     object.root.next_orientation = places.next.orientation;
     object.root.markMoved();
     slot.drawn = places.drawn;
@@ -587,7 +587,7 @@ const rail_drop: f32 = 0.005;
 const proximity: f32 = 10000;
 
 fn push(object: *GameObject, direction: Vector, by: f32) void {
-    object.velocity = gameobj.vec3(gameobj.vector(object.velocity) + direction * @as(Vector, @splat(by)));
+    object.velocity = .of(object.velocity.vector() + direction * @as(Vector, @splat(by)));
 }
 
 /// The missile's order for the frame (`missile_orders`, `0x00503D20`).
@@ -707,7 +707,7 @@ pub fn torpedo(ctx: aigeneric.Context, index: u16) void {
     const target = ai.targetOrPop(ctx, index, .{}) orelse return;
     const flight = slot.flight orelse return;
     const met = ai.intercept(all, target, slot.drawn.position, flight.max_speed, 1);
-    _ = ai.steer(world, index, torpedoAim(met, gameobj.vector(slot.object.velocity)), torpedo_turn_limit, ai.no_ease, .{});
+    _ = ai.steer(world, index, torpedoAim(met, slot.object.velocity.vector()), torpedo_turn_limit, ai.no_ease, .{});
 }
 
 /// Where a torpedo moving at `velocity` steers to meet its target where `met` has them meet: the
@@ -819,14 +819,14 @@ pub fn move(all: *create.Objects) void {
         object.yaw_rate = flight.yaw_inertia * object.yaw_rate + (1 - flight.yaw_inertia) * object.yaw_input * flight.yaw_rate;
         object.rotation = math.fromAngles(object.pitch_rate, object.yaw_rate, 0);
         root.next_orientation = math.product(root.orientation, object.rotation);
-        var velocity = gameobj.vector(object.velocity);
+        var velocity = object.velocity.vector();
         switch (missile.order) {
             .pod_launch, .rail_launch, .jettison => {},
             else => velocity *= @splat(flight.inertia),
         }
         velocity += math.forward(root.next_orientation) * @as(Vector, @splat((1 - flight.inertia) * object.throttle * flight.max_speed));
-        object.velocity = gameobj.vec3(velocity);
-        root.next_position = gameobj.vec3(gameobj.vector(root.next_position) + velocity);
+        object.velocity = .of(velocity);
+        root.next_position = .of(root.next_position.vector() + velocity);
         root.markMoved();
     }
 }
@@ -900,7 +900,7 @@ pub fn end(world: gameobj.World, at: u8) void {
         .owner = missile.launcher,
         .side = all.slots[missile.launcher].object.side,
     });
-    explode.missileBlast(world, missile.slot.drawn.position, gameobj.vector(object.velocity), object.radius);
+    explode.missileBlast(world, missile.slot.drawn.position, object.velocity.vector(), object.radius);
     if (missile.trail) |left| if (world.trails) |trails| if (trails.get(left)) |fading| {
         fading.follows = .nothing;
     };
@@ -936,7 +936,7 @@ fn collide(world: gameobj.World, at: u8) bool {
     const all = world.objects;
     const missile = all.missiles.get(at) orelse return false;
     const from = missile.slot.drawn.position;
-    const segment: objects.Segment = .between(from, gameobj.vector(missile.object().root.next_position));
+    const segment: objects.Segment = .between(from, missile.object().root.next_position.vector());
     const span = segment.span;
     const along = 1 / math.dot(span, span);
     var walk = all.walk();
@@ -973,7 +973,7 @@ fn damageKind(missile: Type) collision.Kind {
 
 /// The missile stopped where it touched, and ended: true, for `collide`.
 fn stop(world: gameobj.World, at: u8) bool {
-    if (world.objects.missiles.get(at)) |missile| missile.object().velocity = gameobj.vec3(@splat(0));
+    if (world.objects.missiles.get(at)) |missile| missile.object().velocity = .of(@splat(0));
     end(world, at);
     return true;
 }
@@ -991,11 +991,11 @@ fn hitHull(world: gameobj.World, at: u8, index: u16, struck: collision.Quadrant)
     const missile = all.missiles.get(at) orelse return false;
     const model = if (all.slots[index].model) |*live| live else return false;
     const from = missile.slot.drawn.position;
-    const to = gameobj.vector(missile.object().root.next_position);
+    const to = missile.object().root.next_position.vector();
     const entry = objects.partEntry(model, from, to, .first) orelse return false;
     if (missile.type.base().shockwave() == null) {
         collision.armorDamage(world, index, struck, missile.stats(&all.missile_stats).damage.hull, missile.launcher, damageKind(missile.type));
-        shieldfx.hullHit(world, index, from + (to - from) * @as(Vector, @splat(entry)));
+        shieldfx.hullHit(world, index, math.lerp(from, to, entry));
     }
     return stop(world, at);
 }
@@ -1009,7 +1009,7 @@ fn hitComponents(world: gameobj.World, at: u8, index: u16) bool {
     const missile = all.missiles.get(at) orelse return false;
     const slot = &all.slots[index];
     const model = if (slot.model) |*live| live else return false;
-    const hit = objects.hitSegment(model, slot.object.placeAt(.next), missile.slot.drawn.position, gameobj.vector(missile.object().root.next_position)) orelse return false;
+    const hit = objects.hitSegment(model, slot.object.placeAt(.next), missile.slot.drawn.position, missile.object().root.next_position.vector()) orelse return false;
     if (missile.type.base().shockwave() == null) {
         shieldfx.componentHit(world, index, hit, .component);
         collision.componentDamage(world, index, hit.part, missile.stats(&all.missile_stats).component_damage, missile.launcher, damageKind(missile.type));
@@ -1127,7 +1127,7 @@ test launchFromTurret {
     try std.testing.expectEqual(ship, missile.launcher);
     try std.testing.expectEqual(30, missile.object().velocity.z);
     const next = model.partPlace(0, .next).within(slot.object.placeAt(.next));
-    try std.testing.expectEqual(next.position, gameobj.vector(missile.object().root.next_position));
+    try std.testing.expectEqual(next.position, missile.object().root.next_position.vector());
     // A ship whose missiles are disabled launches none.
     slot.object.flags.missiles_disabled = true;
     launchFromTurret(world, ship, model, 0, target);
@@ -1280,7 +1280,7 @@ test "a torpedo flies at where it meets its target, less its own drift" {
     objects.setOrientation(&target.object, &target.drawn, math.rotation(.y, std.math.pi / 2.0));
     target.object.speed = 40;
     const velocity: Vector = .{ 0, 10, 50 };
-    for ([_]u16{ fired, twin }) |index| mission.slot(index).object.velocity = gameobj.vec3(velocity);
+    for ([_]u16{ fired, twin }) |index| mission.slot(index).object.velocity = .of(velocity);
 
     // Told to find a target, a ship of the torpedo class takes Torpedo, which starts it at full
     // throttle and steers it at where it meets the target, led along the target's nose by the

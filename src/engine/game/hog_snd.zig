@@ -836,7 +836,7 @@ pub const Sound = struct {
         // Not the game's, which opens no listener: the listener moves with the player's ship, for
         // the Doppler shifts. The software mixer's stays still.
         const player = &scene.objects.slots[scene.objects.player].object;
-        driver.set3DListenerVelocity(miles(math.transformTransposed(scene.camera.orientation, gameobj.vector(player.velocity)) * @as(Vector, @splat(velocity_scale))));
+        driver.set3DListenerVelocity(miles(math.transformTransposed(scene.camera.orientation, player.velocity.vector()) * @as(Vector, @splat(velocity_scale))));
         const frame_start = scene.clock.frame_start;
         for (sound.voices_3d[0..sound.voice_3d_count], 0..) |*voice, index| {
             if (voice.isFree()) continue;
@@ -866,7 +866,7 @@ pub const Sound = struct {
                 .missile => follow: {
                     if (sound.missile_sound == .follows) if (scene.objects.missiles.get(voice.ownerIndex().?)) |missile| if (missile.slot.object.sound_voice.index() == v) {
                         position = missile.slot.drawn.position;
-                        velocity = gameobj.vector(missile.slot.object.velocity);
+                        velocity = missile.slot.object.velocity.vector();
                         direction = math.forward(missile.slot.drawn.orientation);
                         break :follow;
                     };
@@ -875,8 +875,8 @@ pub const Sound = struct {
                     move = false;
                 },
                 .point_facing => {
-                    position = gameobj.vector(voice.position);
-                    direction = gameobj.vector(voice.direction);
+                    position = voice.position.vector();
+                    direction = voice.direction.vector();
                     move = false;
                 },
                 .point => {
@@ -892,7 +892,7 @@ pub const Sound = struct {
                         continue;
                     }
                     position = if (at == scene.objects.player) slot.drawn.point(-sound3d.player_sound_offset) else slot.drawn.position;
-                    velocity = gameobj.vector(slot.object.velocity);
+                    velocity = slot.object.velocity.vector();
                     direction = math.forward(slot.drawn.orientation);
                 },
             }

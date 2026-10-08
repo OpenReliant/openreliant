@@ -193,7 +193,7 @@ pub const Stream = struct {
                 // Set each frame before it streams.
                 .born = 0,
                 .template = &made.template,
-                .place = .{ .position = gameobj.vector(point.attachment.position), .orientation = orientation },
+                .place = .{ .position = point.attachment.position.vector(), .orientation = orientation },
                 .direction = .{ 0, 0, 1 },
                 .spread = made.spread,
                 .speed = speed,
@@ -211,7 +211,7 @@ pub const Stream = struct {
         const sending = world.sending() orelse return;
         const pool = pools.get(stream.level) orelse return;
         const carrier = (slot.model orelse return).parts[stream.part].object;
-        const carried = gameobj.vector(slot.object.velocity) * @as(Vector, @splat(carried_share));
+        const carried = slot.object.velocity.vector() * @as(Vector, @splat(carried_share));
         stream.emitter.born = sending.clock.frame_start;
         stream.emitter.inherited = carried;
         _ = pool.stream(&stream.emitter, .{ .position = carrier.position, .orientation = carrier.orientation }, sending);

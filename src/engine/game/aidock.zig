@@ -348,12 +348,12 @@ fn findPoints(ctx: Context, index: u16) bool {
     const own_model = if (slot.model) |*held| held else return missing(index);
     const own = DockPoints.nth(own_model, 0) orelse return missing(index);
     state.own_part = @intCast(own.part);
-    state.own_point = gameobj.vector(own.attachment.position);
+    state.own_point = own.attachment.position.vector();
     const at = entry.target.slotIn(all) orelse return missing(index);
     const model = if (all.slots[at].model) |*held| held else return missing(at);
     const port = DockPoints.nth(model, entry.target.part() orelse return missing(at)) orelse return missing(at);
     state.port_part = @intCast(port.part);
-    state.port_point = gameobj.vector(port.attachment.position);
+    state.port_point = port.attachment.position.vector();
     state.port_turn = port.attachment.orientation;
     model.playNamed(port.part, port_track, 0, null, port_speed);
     return true;
@@ -712,7 +712,7 @@ fn nannyInit(ctx: Context, index: u16) void {
     const at = target.slotIn(all) orelse return;
     const model = if (all.slots[at].model) |*held| held else return;
     const port = DockPoints.nth(model, std.math.cast(usize, target.component) orelse return) orelse return;
-    state.point = gameobj.vector(port.attachment.position) - Vector{ 0, slot.object.bounds_max.y, 0 };
+    state.point = port.attachment.position.vector() - Vector{ 0, slot.object.bounds_max.y, 0 };
     state.part = @intCast(port.part);
     state.step = .opening;
 }
@@ -835,11 +835,11 @@ fn TestModel(comptime count: usize) type {
                     const point = n < part.points.len;
                     attachment.* = std.mem.zeroes(shp.Attachment);
                     attachment.kind = if (point) .dock_point else .missile;
-                    attachment.position = gameobj.vec3(if (point) part.points[n] else @splat(0));
+                    attachment.position = .of(if (point) part.points[n] else @splat(0));
                     attachment.orientation = math.identity;
                 }
                 data.part.parent = if (part.parent) |up| up else -1;
-                data.part.position = gameobj.vec3(part.origin);
+                data.part.position = .of(part.origin);
                 data.attachments = attachments;
             }
         }

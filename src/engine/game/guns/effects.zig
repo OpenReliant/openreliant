@@ -258,7 +258,7 @@ pub fn throwCases(world: gameobj.World, owner: u16, model: *const objects.Model,
     const pools = world.gun_particles orelse return;
     const sending = world.sending() orelse return;
     const shown = model.partPlace(part, .next).within(world.objects.slots[owner].object.placeAt(.next));
-    const carried = gameobj.vector(world.objects.slots[owner].object.velocity) * @as(Vector, @splat(case_carried));
+    const carried = world.objects.slots[owner].object.velocity.vector() * @as(Vector, @splat(case_carried));
     for (model.parts[part].attachments) |*attachment| {
         if (attachment.kind != .case_ejector) continue;
         const random = world.random;

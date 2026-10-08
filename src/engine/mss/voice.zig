@@ -3,6 +3,8 @@
 
 const std = @import("std");
 
+const math = @import("../surrender/math.zig");
+const layout = @import("../../formats/layout.zig");
 const wave = @import("../../formats/wave.zig");
 
 /// A handle's state, as `AIL_sample_status` reports it (Miles's `SMP_` values).
@@ -17,10 +19,7 @@ pub const Status = enum(u32) {
     _,
 
     pub fn format(status: Status, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return switch (status) {
-            _ => writer.print("status {d}", .{@backingInt(status)}),
-            inline else => |named| writer.writeAll(@tagName(named)),
-        };
+        return layout.formatTagAs(Status, status, "status", writer);
     }
 };
 
@@ -88,7 +87,7 @@ pub const Voice = struct {
                 return;
             }
             for (frame, voice.current, voice.following, gains) |*sum, a, b, gain| {
-                sum.* += (a + (b - a) * voice.phase) * gain;
+                sum.* += math.lerp(a, b, voice.phase) * gain;
             }
             voice.phase += step;
             while (voice.phase >= 1 and !voice.ended) {
