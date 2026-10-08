@@ -93,6 +93,9 @@ pub const Host = struct {
         last_view: camera.View = .cockpit,
         strings: ?*const engine.game.language.Language = null,
         multiplayer: bool = false,
+        /// The ship whose line the radio's window names, which the radar marks
+        /// (`radio.Radio.speakingShip`); none for nobody's.
+        speaker: ?u16 = null,
     };
 
     pub const Camera = struct {
@@ -653,6 +656,66 @@ test "a display reads the cockpit's instruments in any view" {
     // page, which takes two bytes in UTF-8 and goes back to one as the display draws it.
     const text = try std.fmt.bufPrint(&expected, "{d} {d} 0.25 0.50 0.75 0.50 false|5 5 1 5 4 0|7 12|match_speed,smart_targeting,ecm,reverse_thrust|3:07|Chase|Mai 3\xE9|5 7", .{ made, asked });
     try std.testing.expectEqualStrings(text, fixture.shown.layers.get(.hud).text.items);
+    fixture.shown.endGame();
+}
+
+test "a display reads the radar's contacts and the target display" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=player.luau\n" },
+            .{
+                "player.luau",
+                \\local hud = require("openreliant.hud")
+                \\return {engine_handlers = {on_frame = function()
+                \\    local contact, shown = hud.radar.contacts[1], hud.target_display
+                \\    hud.text(vector.zero, string.format("%d %d %s %d %d %d|%s %s %s %d %d %d %d %s %s",
+                \\        #hud.radar.contacts, contact.object.slot, contact.look, contact.at.x, contact.at.y, contact.height,
+                \\        shown.form, shown.name, tostring(shown.pilot), shown.range, shown.speed, shown.shields.left,
+                \\        shown.armor.aft, tostring(shown.subtarget), tostring(shown.hull)))
+                \\end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    const all = fixture.mission.objects;
+    // A hostile Sabre ahead, which is the player's target and the display's, its type named.
+    const sabre = try fixture.mission.add(.of(.sabre), .{ 0, 0, 40000 });
+    const slot = fixture.mission.slot(sabre);
+    slot.object.flags.targetable = true;
+    slot.object.side = .hostile;
+    fixture.mission.slot(0).orders[0].target = .at(sabre, null);
+    fixture.mission.tables.combat[engine.game.gameobj.Type.of(.sabre).number()].name = 700;
+    var strings_table: [2000][]const u8 = @splat(" ");
+    strings_table[700 - 1] = "Sabre";
+    // Its pilot, as the game gives a hostile ship until the mission names another.
+    strings_table[hud.target_display.pilotName(all, slot).? - 1] = "Ace";
+    const strings: engine.game.language.Language = .{ .strings = &strings_table };
+    var state: hud.State = .{};
+    state.target = .{ .target = .at(sabre, null), .slot = sabre };
+    var player: input.Player = .{};
+    var view: engine.game.camera.Camera = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player, .strings = &strings } };
+    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
+    fixture.shown.frame(host);
+    // The radar shows the Sabre alone, as the target, up the screen; the target display its name,
+    // its pilot's, its range and its rings, and no subtarget or hull bar, the Sabre having no model.
+    var contacts: hud.Radar.Contacts = .of(all, state.radar_range, null);
+    const contact = contacts.next().?;
+    const facts: hud.target_display.Facts = .of(all, sabre);
+    const rings = hud.ShipStatus.rings(slot).?;
+    const form = hud.target_display.Form.of(hud.targetWindow(slot)).?;
+    var expected: [256]u8 = undefined;
+    const text = try std.fmt.bufPrint(&expected, "1 {d} target {d} {d} {d}|{s} Sabre Ace {d} {d} {d} {d} nil nil", .{
+        sabre,                                                        contact.at[0], contact.at[1], contact.height,
+        @tagName(form),                                               facts.range,   facts.speed,   std.math.clamp(rings.shields[0], 0, hud.ShipStatus.arc_levels),
+        std.math.clamp(rings.armor[3], 0, hud.ShipStatus.arc_levels),
+    });
+    try std.testing.expectEqualStrings(text, fixture.shown.layers.get(.hud).text.items);
+    try std.testing.expect(contact.at[1] < 0);
     fixture.shown.endGame();
 }
 

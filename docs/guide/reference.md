@@ -116,7 +116,8 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `guns` | [HudGuns](#hudguns), or nil | The player's guns as the gunnery window and the targeting cluster show them; nil outside a mission. |
 | `missiles` | [HudMissiles](#hudmissiles), or nil | The player's missiles as the missile window shows them; nil outside a mission. |
 | `target` | [Target](#target), or nil | The target the display shows, with its subtarget as `component`; nil for none, or outside a mission. |
-| `radar` | [HudRadar](#hudradar), or nil | The radar's range; nil outside a mission. |
+| `target_display` | [HudTargetDisplay](#hudtargetdisplay), or nil | What the target display shows of its target, in either form, whether or not its window is open; nil without a target or while the display hides it, and outside a mission. |
+| `radar` | [HudRadar](#hudradar), or nil | The radar: its range, and the contacts it shows; nil outside a mission. |
 | `kills` | number, or nil | The kills the skull readout shows; nil outside a mission. |
 | `fuel` | number, or nil | The seconds of afterburner fuel the fuel readout shows; nil outside a mission. |
 | `countermeasures` | number, or nil | The countermeasures the coil readout shows; nil outside a mission. |
@@ -456,7 +457,8 @@ turret, and a turret's own scripts on their turret.
 | `guns` | [HudGuns](#hudguns), or nil | The player's guns as the gunnery window and the targeting cluster show them; nil outside a mission. |
 | `missiles` | [HudMissiles](#hudmissiles), or nil | The player's missiles as the missile window shows them; nil outside a mission. |
 | `target` | [Target](#target), or nil | The target the display shows, with its subtarget as `component`; nil for none, or outside a mission. |
-| `radar` | [HudRadar](#hudradar), or nil | The radar's range; nil outside a mission. |
+| `target_display` | [HudTargetDisplay](#hudtargetdisplay), or nil | What the target display shows of its target, in either form, whether or not its window is open; nil without a target or while the display hides it, and outside a mission. |
+| `radar` | [HudRadar](#hudradar), or nil | The radar: its range, and the contacts it shows; nil outside a mission. |
 | `kills` | number, or nil | The kills the skull readout shows; nil outside a mission. |
 | `fuel` | number, or nil | The seconds of afterburner fuel the fuel readout shows; nil outside a mission. |
 | `countermeasures` | number, or nil | The countermeasures the coil readout shows; nil outside a mission. |
@@ -1256,6 +1258,30 @@ A table a script gives, which may leave out a field with a default.
 | `type` | [MissileType](#missiletype) |
 | `left` | number |
 
+### HudTargetDisplay
+
+| Field | Type |
+|---|---|
+| `form` | [HudTargetForm](#hudtargetform) |
+| `name` | string, or nil |
+| `pilot` | string, or nil |
+| `range` | number |
+| `speed` | number |
+| `shields` | [HudArcs](#hudarcs), or nil |
+| `armor` | [HudArcs](#hudarcs), or nil |
+| `subtarget` | string, or nil |
+| `subtarget_armor` | number, or nil |
+| `hull` | number, or nil |
+
+### HudArcs
+
+| Field | Type |
+|---|---|
+| `left` | number |
+| `right` | number |
+| `fore` | number |
+| `aft` | number |
+
 ### HudRadar
 
 | Field | Type |
@@ -1263,6 +1289,16 @@ A table a script gives, which may leave out a field with a default.
 | `range` | number |
 | `reach` | number |
 | `zooming` | boolean |
+| `contacts` | list of [HudContact](#hudcontact) |
+
+### HudContact
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
+| `at` | vector |
+| `height` | number |
+| `look` | [HudContactLook](#hudcontactlook) |
 
 ### HudGauges
 
@@ -1284,15 +1320,6 @@ A table a script gives, which may leave out a field with a default.
 | `armor` | [HudArcs](#hudarcs) |
 | `reserve_fore` | number |
 | `reserve_aft` | number |
-
-### HudArcs
-
-| Field | Type |
-|---|---|
-| `left` | number |
-| `right` | number |
-| `fore` | number |
-| `aft` | number |
 
 ### HudClock
 
@@ -1505,6 +1532,14 @@ number. A script can set a field to either.
 ### HudInstrument
 
 `caption`, `key_prompt`, `jump_prompt`, `target_markers`, `eject_marker`, `scanner`, `lights`, `view_name`, `subtitle`, `messages`, `nav_marker`, `fuel`, `kills`, `countermeasures`, `ship_status`, `gauges`, `radar`, `reticle`, `clock`, `radio`, `gunnery`, `missiles`, `target_display`, `damage`, `power`, `big_target_display`, `objectives`, `comms`, `wing_status`.
+
+### HudTargetForm
+
+`small`, `large`.
+
+### HudContactLook
+
+`other`, `hostile`, `speaker`, `target`, `nav_point`.
 
 ### HudLight
 

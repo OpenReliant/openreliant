@@ -4900,10 +4900,9 @@ pub const Cluster = struct {
         }
 
         /// How much of the charge arc is lit, from its foot: what `unlit` leaves of its height,
-        /// from 0 to 1. The Nova Cannon's empties the arc as it charges.
+        /// from 0 to 1 (`windows.litShare`). The Nova Cannon's empties the arc as it charges.
         pub fn chargeShare(gauges: Gauges) f32 {
-            const unlit_height: f32 = @floatFromInt(gauges.unlit());
-            return std.math.clamp(1 - unlit_height / charge_height, 0, 1);
+            return windows.litShare(gauges.unlit(), @intFromFloat(charge_height));
         }
 
         /// The figures by the markers: the speed the throttle asks for, and the speed made.
@@ -5510,6 +5509,9 @@ pub const Radar = struct {
         target,
         nav_point,
 
+        /// The name scripts know these by.
+        pub const script_name = "HudContactLook";
+
         pub fn line(look: Look) u8 {
             return switch (look) {
                 .target => 0xFF,
@@ -5537,6 +5539,8 @@ pub const Radar = struct {
         at: [2]i32,
         height: i32,
         look: Look,
+        /// The slot of the object it stands for.
+        slot: u16,
 
         /// Which side of the rings' plane `hud_radar` draws it on: level with the plane or below
         /// it, before the rings; above it, after them. OpenReliant draws the nav point after them;
@@ -5593,7 +5597,7 @@ pub const Radar = struct {
                     .hostile
                 else
                     .other;
-                return .{ .at = at, .height = height, .look = look };
+                return .{ .at = at, .height = height, .look = look, .slot = @intCast(index) };
             }
             return null;
         }
@@ -5881,7 +5885,7 @@ test "the radar's contacts" {
 
     // The closest range reaches less far, past the target, and draws closer at its own scale.
     contacts = .of(all, 0, null);
-    try std.testing.expectEqual(Radar.Contact{ .at = .{ 15, -4 }, .height = -4, .look = .hostile }, contacts.next().?);
+    try std.testing.expectEqual(Radar.Contact{ .at = .{ 15, -4 }, .height = -4, .look = .hostile, .slot = hostile }, contacts.next().?);
     try std.testing.expectEqual(Radar.Look.other, contacts.next().?.look);
     try std.testing.expectEqual(null, contacts.next());
     // A cloaked hostile, or anything exploding, is not shown.
