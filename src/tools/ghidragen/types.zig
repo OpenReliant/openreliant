@@ -155,6 +155,7 @@ pub const exported = [_]Export{
     .{ "DarkReignState", engine.game.aifuncs.DarkReignState },
     .{ "IonCannonState", engine.game.aiioncan.State },
     .{ "IonCannonStep", engine.game.aiioncan.Step },
+    .{ "AvoidState", engine.game.aifuncs.AvoidState },
     .{ "FormationState", engine.game.aifuncs.FormationState },
     .{ "AttachState", engine.game.aifuncs.AttachState },
     .{ "DisruptedState", engine.game.aifuncs.DisruptedState },

@@ -275,6 +275,7 @@ pub const State = extern union {
     lights: aifuncs.LightsState,
     dark_reign: aifuncs.DarkReignState,
     ion_cannon: aiioncan.State,
+    avoid: aifuncs.AvoidState,
     launch: launch.State,
     jump: jump.State,
     follow: follow.State,
@@ -833,13 +834,13 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .deathmatch_respawn_effect => {},
         .turns_object_lights_on => aifuncs.lightsOnInit(ctx, index),
         .dark_reign_shoot_110 => aiioncan.init(ctx, index),
+        .avoid_target => aifuncs.avoidTargetInit(ctx, index),
         // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .formation_regroup,
         .patrol_route,
         .make_boridin_section_break_away,
         .rotate_boridin_breakaway_warp_projector,
         .start_warp_projection_from_boridin,
-        .avoid_target,
         => {},
         // The table gives these no `init`, or only `noop` (`0x004983A0`).
         .do_nothing,
@@ -931,12 +932,12 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .turns_object_lights_off => aifuncs.lightsOff(ctx, index),
         .dark_reign_shoot => aifuncs.darkReignShoot(ctx, index),
         .dark_reign_shoot_110 => aiioncan.update(ctx, index),
+        .avoid_target => aifuncs.avoidTarget(ctx, index),
         // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .formation_regroup,
         .patrol_route,
         .move_to_spawn_pos,
         .start_warp_projection_from_boridin,
-        .avoid_target,
         => {},
         // The table gives these no update, or only `noop` (`0x004983A0`).
         .random_spin_slow,

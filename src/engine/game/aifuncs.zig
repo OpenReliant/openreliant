@@ -1,9 +1,9 @@
 //! `C:\lancer\game\aifuncs.cpp`: the orders a ship flies by: Mill, Do Nothing, Fly Aimlessly,
-//! Escort, Fly, Run Away, Find New Target, Find Scoop Up, Object Attach, Toggle Cloak, Slow Rotate,
-//! the Random Spins, Formation, Match Speed and Disrupted; the two that launch a missile; Dark
-//! Reign shoot, which aims an ion cannon (`aiioncan.zig`); a capital ship's lurch as a torpedo
-//! strikes it (Make capship list left and right); the two that turn a ship's lights on and off; and
-//! orders 44 and 45, which stop the ship dead and back it up.
+//! Escort, Fly, Run Away, Find New Target, Find Scoop Up, Avoid Target, Object Attach, Toggle
+//! Cloak, Slow Rotate, the Random Spins, Formation, Match Speed and Disrupted; the two that launch
+//! a missile; Dark Reign shoot, which aims an ion cannon (`aiioncan.zig`); a capital ship's lurch as
+//! a torpedo strikes it (Make capship list left and right); the two that turn a ship's lights on
+//! and off; and orders 44 and 45, which stop the ship dead and back it up.
 //! [`aigeneric.zig`](aigeneric.zig) runs them, [`ai.zig`](ai.zig) steers for them, and
 //! `docs/engine/orders.md` describes what each does.
 //!
@@ -14,8 +14,8 @@
 //! like it.
 //!
 //! Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)): of the order routines
-//! here, those of Avoid Target (`0x0040B310`, `0x0040B330`), Make Boridin section break away
-//! (`0x0040BF60`) and Rotate Boridin breakaway warp projector (`0x0040C100`).
+//! here, those of Make Boridin section break away (`0x0040BF60`) and Rotate Boridin breakaway
+//! warp projector (`0x0040C100`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -589,6 +589,72 @@ const Scooping = struct {
         return false;
     }
 };
+
+// --- Avoid Target ---------------------------------------------------------------------------
+
+/// What Avoid Target keeps in `order_state`.
+pub const AvoidState = extern struct {
+    /// Cleared as the order starts, and read by nothing.
+    cleared: f32,
+    /// The tick it flies on until once it is clear of its target.
+    until: i32,
+    _unknown_08: [0x90 - 0x08]u8,
+
+    comptime {
+        assert(@offsetOf(AvoidState, "until") == 0x04);
+        assert(@sizeOf(AvoidState) == 0x90);
+    }
+};
+
+/// How many ticks Avoid Target flies on at least once clear of its target (`0x0040B31D`,
+/// `0x0040B441`), and how many more at most, drawn from the ship's own random numbers each time it
+/// turns away (`0x004DC440`).
+const avoid_least = 50;
+const avoid_spread: f32 = 100;
+
+/// How far ahead Avoid Target looks for a collision with its target, in simulation steps, and the
+/// margin it keeps (`0x0040B369`, `0x0040B36E`); and the throttle it turns away at
+/// (`0x0040B414`).
+const avoid_steps: f32 = 75;
+const avoid_margin: f32 = 2000;
+const avoid_throttle: f32 = 0.5;
+
+/// `order_avoid_target_init` (`0x0040B310`): the init of Avoid Target (102), which flies on for
+/// `avoid_least` ticks unless it has to turn away first.
+pub fn avoidTargetInit(ctx: Context, index: u16) void {
+    const state = &ctx.world.objects.slots[index].state.avoid;
+    state.until = ctx.world.clock.frame_start + avoid_least;
+    state.cleared = 0;
+}
+
+/// `order_avoid_target` (`0x0040B330`): the update of Avoid Target (102), which no shipped
+/// mission gives. While the ship is on course to hit its target (`ai.collisionCourse`), it pitches
+/// at full input, positive where the target stands level with it or below it in its frame (its Y
+/// axis points down) and negative where it stands above, its yaw and roll held, at half throttle;
+/// and it will fly on for `avoid_least` ticks and up to `avoid_spread` more, drawn from its own
+/// random numbers, once clear. Clear of it, it flies straight at full throttle until then, and
+/// pops. It pops at once where its target is not a ship of one of the game's types or a mod's
+/// (`gameobj.Type.hasStats`).
+pub fn avoidTarget(ctx: Context, index: u16) void {
+    const all = ctx.world.objects;
+    const slot = &all.slots[index];
+    const object = &slot.object;
+    const now = ctx.world.clock.frame_start;
+    const target = slot.orders[0].target.slotIn(all) orelse return aigeneric.end(ctx, index);
+    if (!all.slots[target].object.type.hasStats()) return aigeneric.end(ctx, index);
+    if (ai.collisionCourse(ctx.world, index, target, avoid_steps, avoid_margin)) {
+        const toward = object.placeAt(.next).inverse(all.slots[target].object.nextPosition());
+        object.pitch_input = if (toward[1] >= 0) 1 else -1;
+        object.yaw_input = 0;
+        object.roll_input = 0;
+        object.throttle = avoid_throttle;
+        slot.state.avoid.until = math.round(xtrabits.objectRandom(object) * avoid_spread) + avoid_least + now;
+        return;
+    }
+    object.throttle = 1;
+    object.holdTurns();
+    if (now > slot.state.avoid.until) aigeneric.end(ctx, index);
+}
 
 // --- Object Attach and Toggle Cloak ---------------------------------------------------------
 
@@ -1593,6 +1659,33 @@ test "Dark Reign shoot queues the ion cannon's order at the nearest ship it may 
     game.slot(far).object.flags.targetable = false;
     darkReignShoot(ctx, dark_reign);
     try std.testing.expectEqual(0, slot.object.order_count);
+}
+
+test "Avoid Target pitches away while on course to hit its target, then flies on and pops" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    // A ship flying straight at a Sabre a little below it.
+    const ship = try mission.addOther(@splat(0));
+    const sabre = try mission.add(.of(.sabre), .{ 0, 100, 2000 });
+    const object = &mission.slot(ship).object;
+    object.velocity = .{ .x = 0, .y = 0, .z = 50 };
+    _ = try aigeneric.push(ctx, ship, .avoid_target, .at(sabre, null));
+    mission.ordersAfter(ctx, ship, 0);
+    try std.testing.expectEqual(1, object.pitch_input);
+    try std.testing.expectEqual(avoid_throttle, object.throttle);
+    const until = mission.slot(ship).state.avoid.until;
+    try std.testing.expect(until >= avoid_least and until <= avoid_least + avoid_spread);
+
+    // Clear of it, it flies straight at full throttle until then, and pops.
+    object.velocity = .{ .x = 0, .y = 0, .z = -50 };
+    mission.ordersAfter(ctx, ship, until);
+    try std.testing.expectEqual(0, object.pitch_input);
+    try std.testing.expectEqual(1, object.throttle);
+    try std.testing.expectEqual(1, object.order_count);
+    mission.ordersAfter(ctx, ship, 1);
+    try std.testing.expectEqual(0, object.order_count);
 }
 
 test "Escort takes its place in the group, follows, and ends with its ship" {
