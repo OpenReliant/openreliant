@@ -32,6 +32,10 @@ const Vector = math.Vector;
 
 pub const rings = @import("backdrop/rings.zig");
 
+test {
+    std.testing.refAllDecls(@This());
+}
+
 /// The star map, in `resource.hog`: grey pixels on black, one star each.
 pub const star_map_name = "space.tga";
 

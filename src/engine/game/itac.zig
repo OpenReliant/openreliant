@@ -1569,13 +1569,5 @@ test "the fighters and the capital ships switch sides, and the KILLBOARD steps t
 }
 
 test {
-    _ = debriefing;
-    _ = news_reports;
-    _ = fighters;
-    _ = ships;
-    _ = squadrons;
-    _ = personnel;
-    _ = killboard;
-    _ = tooltips;
-    _ = tables;
+    std.testing.refAllDecls(@This());
 }

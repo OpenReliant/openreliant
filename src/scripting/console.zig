@@ -26,7 +26,7 @@ const reference = @import("reference.zig");
 pub const screen = @import("console/screen.zig");
 
 test {
-    _ = screen;
+    std.testing.refAllDecls(@This());
 }
 
 /// The key that brings the console up and takes it away.

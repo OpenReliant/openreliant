@@ -728,9 +728,5 @@ test "the tabs' labels switch the tab" {
 }
 
 test {
-    _ = audio;
-    _ = controls;
-    _ = video;
-    _ = graphics;
-    _ = widgets;
+    std.testing.refAllDecls(@This());
 }

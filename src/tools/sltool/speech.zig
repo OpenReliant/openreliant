@@ -142,7 +142,3 @@ test Command {
     try std.testing.expectError(error.Usage, Command.parse(&.{"decode"}));
     try std.testing.expectEqualStrings("line.ut", (try Command.parse(&.{ "encode", "line.wav", "line.ut" })).encode.out);
 }
-
-test {
-    _ = encoder;
-}

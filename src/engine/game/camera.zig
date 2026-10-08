@@ -24,6 +24,10 @@ pub const shots = @import("camera/shots.zig");
 const director = @import("executor/director.zig");
 const Matrix = math.Matrix;
 
+test {
+    std.testing.refAllDecls(@This());
+}
+
 /// Where the camera is and which way it looks.
 pub const Place = math.Place;
 

@@ -26,6 +26,10 @@ const Rect = canvas_module.Rect;
 
 pub const tables = @import("locker/tables.zig");
 
+test {
+    std.testing.refAllDecls(@This());
+}
+
 /// The medals, and the ribbons, a pilot can have.
 const awards = 6;
 

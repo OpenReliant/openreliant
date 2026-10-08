@@ -8,6 +8,7 @@ pub const srapiext = @import("surrenderlib/srapiext.zig");
 pub const srbmo = @import("surrenderlib/srbmo.zig");
 pub const srclip = @import("surrenderlib/srclip.zig");
 pub const srcore = @import("surrenderlib/srcore.zig");
+pub const srimage = @import("surrenderlib/srimage.zig");
 pub const srlight = @import("surrenderlib/srlight.zig");
 pub const srmesh = @import("surrenderlib/srmesh.zig");
 pub const srshadow = @import("surrenderlib/srshadow.zig");

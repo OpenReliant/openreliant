@@ -1362,9 +1362,7 @@ test "an image hands its texture back to the device that made it" {
 }
 
 test {
-    _ = srimage;
-    _ = mod_pictures;
-    _ = copies;
+    std.testing.refAllDecls(@This());
 }
 
 test "the table lets go of the pixels the device holds" {

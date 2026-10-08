@@ -732,19 +732,5 @@ test deadZone {
 }
 
 test {
-    _ = briefing;
-    _ = canvas;
-    _ = cd_player;
-    _ = dialog;
-    _ = disc;
-    _ = game_options;
-    _ = in_game_options;
-    _ = induction;
-    _ = locker;
-    _ = main_menu;
-    _ = pilot_roster;
-    _ = restart;
-    _ = rooms;
-    _ = saved_games;
-    _ = settings;
+    std.testing.refAllDecls(@This());
 }

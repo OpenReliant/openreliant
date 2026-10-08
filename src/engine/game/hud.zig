@@ -75,19 +75,7 @@ pub const subtarget = @import("hud/subtarget.zig");
 pub const wing_status = @import("hud/wing_status.zig");
 
 test {
-    _ = chase;
-    _ = damage;
-    _ = outline;
-    _ = gunnery;
-    _ = key_prompt;
-    _ = missile_display;
-    _ = windows;
-    _ = objectives_window;
-    _ = power;
-    _ = radio;
-    _ = target_display;
-    _ = subtarget;
-    _ = wing_status;
+    std.testing.refAllDecls(@This());
 }
 
 /// The display's sounds (`hud_beep`), samples 15 to 20 of `bank_stdsmp` (the table at

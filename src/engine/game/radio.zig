@@ -35,8 +35,7 @@ pub const wingmen = @import("radio/wingmen.zig");
 pub const menu = @import("radio/menu.zig");
 
 test {
-    _ = wingmen;
-    _ = menu;
+    std.testing.refAllDecls(@This());
 }
 
 /// The lines `stem` numbered from `first` to `last`, as `_amt_001.ut`, as the radio's tables list

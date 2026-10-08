@@ -13,6 +13,7 @@ const layout = @import("../../formats/layout.zig");
 const refpack = @import("../../formats/refpack.zig");
 
 pub const mods = @import("bigfile/mods.zig");
+pub const order = @import("bigfile/order.zig");
 pub const Mods = mods.Mods;
 
 const log = std.log.scoped(.bigfile);
@@ -245,7 +246,7 @@ test "mods take priority over the archive" {
 }
 
 test {
-    _ = mods;
+    std.testing.refAllDecls(@This());
 }
 
 pub const testing = hog.testing;

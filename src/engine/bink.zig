@@ -20,6 +20,10 @@ pub const picture = @import("bink/picture.zig");
 pub const Picture = picture.Picture;
 pub const Look = picture.Look;
 
+test {
+    std.testing.refAllDecls(@This());
+}
+
 pub const Error = container.Error || Allocator.Error || error{Decoding};
 
 /// A stream a `Codec` decodes: a movie's video, or one of its audio tracks.

@@ -38,6 +38,10 @@ const sound3d = @import("sound3d.zig");
 
 pub const effect = @import("jump/effect.zig");
 
+test {
+    std.testing.refAllDecls(@This());
+}
+
 const log = std.log.scoped(.jump);
 
 /// What a jump keeps in the object's order state.

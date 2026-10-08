@@ -152,7 +152,3 @@ test Command {
     try std.testing.expectEqualStrings("frames", encoding.encode.frames_dir);
     try std.testing.expectEqualStrings("face.fm8", encoding.encode.film);
 }
-
-test {
-    _ = encoder;
-}

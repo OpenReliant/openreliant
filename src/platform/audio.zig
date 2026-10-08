@@ -15,6 +15,10 @@ const sdl = @import("sdl.zig");
 
 pub const openal = @import("openal.zig");
 
+test {
+    std.testing.refAllDecls(@This());
+}
+
 pub const Error = sdl.Error || Allocator.Error;
 const fail = sdl.fail;
 
