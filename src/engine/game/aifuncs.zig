@@ -1109,7 +1109,7 @@ pub fn darkReignShoot(ctx: Context, index: u16) void {
     _ = ai.eachShip(ctx.world, slot.orders[0].target, &shooting);
     const nearest = slot.state.dark_reign.nearest.kept() orelse return aigeneric.end(ctx, index);
     // The game queues it numbered 1 (`aigeneric.Entry.sequence`), which the push numbers anew.
-    const entry: aigeneric.Entry = .{ .order = .dark_reign_shoot_110, .target = nearest, .sequence = 1, .data = .{ .words = @splat(0) } };
+    const entry: aigeneric.Entry = .{ .order = .fire_ion_cannon, .target = nearest, .sequence = 1, .data = .{ .words = @splat(0) } };
     aigeneric.queue(ctx, index, entry, 0, @truncate(ctx.world.random.rand()));
 }
 
@@ -1732,7 +1732,7 @@ test "Dark Reign shoot queues the ion cannon's order at the nearest ship it may 
     const slot = game.slot(dark_reign);
     try std.testing.expectEqual(1, slot.waiting().len);
     const queued = slot.waiting()[0];
-    try std.testing.expectEqual(Order.dark_reign_shoot_110, queued.entry.order);
+    try std.testing.expectEqual(Order.fire_ion_cannon, queued.entry.order);
     try std.testing.expectEqual(far, queued.entry.target.slot());
     try std.testing.expectEqual(game.clock.frame_start, queued.due);
 

@@ -844,7 +844,7 @@ fn jumpingOrLaunching(call: Call, ship: Ship) void {
     if (ship.slot.object.flags.outOfSearch()) return;
     const entry = ship.slot.current() orelse return;
     switch (entry.order) {
-        .jump_in, .jump_out, .warp_in, .warp_out, .fixed_gate_jump_in, .fixed_gate_jump_out, .jump_in_40, .jump_out_41, .launch => call.machine.still_moving = true,
+        .jump_in, .jump_out, .warp_in, .warp_out, .fixed_gate_jump_in, .fixed_gate_jump_out, .jump_in_spread, .jump_out_spread, .launch => call.machine.still_moving = true,
         else => {},
     }
 }

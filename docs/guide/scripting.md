@@ -701,9 +701,9 @@ return {
 ## Orders
 
 A ship does what its orders say. `object:give_order(order, target)` gives it one, by the order's
-name ([Order](reference.md#order)) or a mod's order by its qualified name, aimed at `target` or at
-nothing. The new order goes on top of the ship's orders, as a mission's SetAI does, and the ones
-below carry on as it ends. Global scripts can give any object orders, and an object script its own
+name ([Order](reference.md#order)), a mod's order by its qualified name, or an order with no name,
+such as 200, by its number, aimed at `target` or at nothing. The new order goes on top of the ship's
+orders, as a mission's SetAI does, and the ones below carry on as it ends. Global scripts can give any object orders, and an object script its own
 object.
 
 A third argument aims the order at one part of `target`, as a mission's orders can: for a Launch,

@@ -402,7 +402,7 @@ fn end(ctx: aigeneric.Context, index: u16) void {
     freeEffect(ctx.world, state);
     if (slot.model) |*model| showFinest(model, false);
     if (entry.target.slotIn(all)) |target| if (target != index) {
-        const next: Order = if (entry.order == .jump_out_41) .jump_in_40 else .jump_in;
+        const next: Order = if (entry.order == .jump_out_spread) .jump_in_spread else .jump_in;
         aigeneric.end(ctx, index);
         const pushed = aigeneric.giveShip(ctx, index, next, target, null);
         if (pushed) slot.orders[0].sequence = entry.sequence;
@@ -629,7 +629,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
         },
         .settling => {
             const entry = slot.orders[0];
-            if (entry.order != .jump_in_40 or state.since <= now) {
+            if (entry.order != .jump_in_spread or state.since <= now) {
                 if (index == all.player) if (world.camera) |view| {
                     _ = view.setView(.cockpit, index, false, true, ctx.world.clock.viewTime());
                 };
@@ -754,11 +754,11 @@ test "a jump out that names a ship gives way to a jump in beside it" {
     const slot = mission.slot(ship);
     slot.motion = .forward;
     const ctx = mission.orders();
-    _ = try aigeneric.pushShip(ctx, ship, .jump_out_41, target, null);
+    _ = try aigeneric.pushShip(ctx, ship, .jump_out_spread, target, null);
     slot.orders[0].sequence = 1;
-    while (slot.orders[0].order == .jump_out_41) nextFrame(&mission, ctx, ship);
+    while (slot.orders[0].order == .jump_out_spread) nextFrame(&mission, ctx, ship);
     // Jump In of the matching number takes over, at the same place in the group.
-    try std.testing.expectEqual(Order.jump_in_40, slot.orders[0].order);
+    try std.testing.expectEqual(Order.jump_in_spread, slot.orders[0].order);
     try std.testing.expectEqual(1, slot.orders[0].sequence);
     try std.testing.expectEqual(target, slot.orders[0].target.slot());
     try std.testing.expect(!slot.object.flags.disabled);

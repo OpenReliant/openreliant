@@ -974,7 +974,7 @@ test routineHook {
     try std.testing.expectEqual(Hook.order_run_away, routineHook(.run_away, .update).?);
     try std.testing.expectEqual(Hook.order_fly_init, routineHook(.fly, .init).?);
     // Both Jump In orders reach the first's routine.
-    try std.testing.expectEqual(Hook.order_jump_in, routineHook(.jump_in_40, .update).?);
+    try std.testing.expectEqual(Hook.order_jump_in, routineHook(.jump_in_spread, .update).?);
     // The names table names two routines itself.
     try std.testing.expectEqual(Hook.player_controls, routineHook(.player_control, .update).?);
     try std.testing.expectEqual(Hook.order_first_step_init, routineHook(.make_capship_list_left, .init).?);

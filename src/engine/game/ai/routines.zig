@@ -96,8 +96,8 @@ test names {
     try std.testing.expect(names(fly_aimlessly, .update));
     // Orders 19 and 40 are both Jump In and share their routines, which take the first's name.
     try std.testing.expectEqualStrings("order_jump_in", comptime name(orders.info(.jump_in).?, .update).?);
-    try std.testing.expect(!names(orders.info(.jump_in_40).?, .update));
-    try std.testing.expectEqualStrings("order_jump_in", find(address(orders.info(.jump_in_40).?, .update).?).?.name);
+    try std.testing.expect(!names(orders.info(.jump_in_spread).?, .update));
+    try std.testing.expectEqualStrings("order_jump_in", find(address(orders.info(.jump_in_spread).?, .update).?).?.name);
     // The empty routine that orders of different names share gets no order's name.
     try std.testing.expectEqual(null, find(0x004983A0));
     try std.testing.expect(!names(orders.info(.do_nothing).?, .init));
