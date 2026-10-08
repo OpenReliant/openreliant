@@ -75,6 +75,8 @@ pub const Context = struct {
 pub const Frame = struct {
     target: device.Device,
     screen: [2]u32,
+    /// How large the menu and the settings screen are drawn, as the display is.
+    ui_scale: hud.UiScale,
     /// The display's set of shapes, and its font, the menus' font 0 (`hud_font`).
     art: *hud.Art,
     font: *hud.Opened,
@@ -88,9 +90,9 @@ pub const Frame = struct {
 };
 
 /// The controls, the audio and the video, pause screens 2, 3 and 4: OpenReliant's settings screen
-/// on its controls, its audio or its video, drawn as the front end draws it, fitted to the window,
-/// over the mission, which it darkens; with the front end's shapes and its dialog's, read as it
-/// opens, and a pointer of its own, which moves over it.
+/// on its controls, its audio or its video, drawn in the window's middle at the size the display
+/// is (`hud.UiScale`), over the mission, which it darkens; with the front end's shapes and its
+/// dialog's, read as it opens, and a pointer of its own, which moves over it.
 ///
 /// **Improvement:** OpenReliant shows the front end's settings screen in place of the pause menu's
 /// own controls, audio and video screens (`pause_screen_controls`, `0x0048FEF0`;
@@ -202,7 +204,7 @@ pub const PauseMenu = struct {
             .gpa = fonts.gpa,
             .target = frame.target,
             .screen = frame.screen,
-            .scale = hud.scaleFor(frame.screen),
+            .scale = frame.ui_scale.of(frame.screen),
             .art = frame.art,
             .fonts = .{ .display = frame.font, .small = &fonts.small.font, .large = &fonts.large.font },
             .strings = frame.strings,
@@ -227,7 +229,7 @@ pub const PauseMenu = struct {
             pause_menu.at = going;
         };
         if (tab != null) return;
-        if (frame.version) |version| try hud.drawVersion(ui.fonts.small, ui.gpa, ui.target, ui.screen, version);
+        if (frame.version) |version| try hud.drawVersion(ui.fonts.small, ui.gpa, ui.target, ui.screen, version, ui.scale);
         try ui.drawPointer(pause_menu.pointer);
     }
 
@@ -253,7 +255,7 @@ pub const PauseMenu = struct {
         const shown = if (pause_menu.settings) |*kept| kept else return .{ .screen = .main };
         const elapsed = frame.timer -| shown.timer;
         shown.timer = frame.timer;
-        shown.pointer.update(&frame.devices.mouse, frame.screen, std.math.lossyCast(i32, elapsed));
+        shown.pointer.update(&frame.devices.mouse, frame.screen, frame.ui_scale.share(), std.math.lossyCast(i32, elapsed));
         var pointer = shown.pointer;
         pointer.down = shown.press.pressed(pointer.down);
         const end = shown.screen.frame(settingsContext(frame, pointer));
@@ -264,6 +266,7 @@ pub const PauseMenu = struct {
             .gpa = fonts.gpa,
             .target = frame.target,
             .window = frame.screen,
+            .share = frame.ui_scale.share(),
             .fonts = .{ .large = &fonts.large.font, .small = &fonts.small.font },
             .strings = frame.strings,
             .version = frame.version,

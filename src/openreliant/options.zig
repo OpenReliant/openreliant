@@ -29,6 +29,8 @@ pub const Arg = enum {
     @"--size",
     @"--fps",
     @"--no-vsync",
+    @"--fov",
+    @"--ui-scale",
     @"--16-bit",
     @"--msaa",
     @"--filter",
@@ -113,6 +115,8 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--size" = .{ .section = .display, .value = "<width>x<height>|<percent>%", .text = "draw frames of this size in pixels whatever the window's, which shows them scaled, as for a screenshot larger than the display; or a share of the window's own, such as 50%, to draw faster; the window's own by default" },
     .@"--fps" = .{ .section = .display, .value = "<rate>", .text = "frames a second at most; without vsync, the display's rate by default; 0 for no limit" },
     .@"--no-vsync" = .{ .section = .display, .text = "draw without waiting for the display" },
+    .@"--fov" = .{ .section = .display, .value = "<degrees>", .text = std.fmt.comptimePrint("how far the views you fly in see up and down, from {d} to {d} degrees; the original's, about {d}, by default. A wider window shows more at the sides", .{ camera.least_field_of_view, camera.most_field_of_view, @round(camera.original_field_of_view) }) },
+    .@"--ui-scale" = .{ .section = .display, .value = "<percent>", .text = std.fmt.comptimePrint("how large the display and the pause menu are drawn, from {d} to {d} percent of the size the menus are drawn at; {d} by default, the original's size at 800 by 600", .{ game.hud.UiScale.least, game.hud.UiScale.most, (game.hud.UiScale{}).percent }) },
     .@"--16-bit" = .{ .section = .graphics, .text = "16-bit colour, dithered" },
     .@"--msaa" = .{ .section = .graphics, .value = "<1|2|4|8>", .text = "samples a pixel, for smooth edges; 4 by default" },
     .@"--filter" = .{ .section = .graphics, .value = "<original|trilinear|crisp>", .text = "how textures are filtered; crisp by default" },
@@ -261,6 +265,10 @@ pub const Options = struct {
     settings: platform.gpu.Settings = .{},
     /// Frames a second at most, 0 for no limit; null for the display's rate without vsync.
     fps: ?f32 = null,
+    /// How far the views the player flies in see up and down, in degrees (`camera.factorsFor`).
+    field_of_view: f32 = camera.original_field_of_view,
+    /// How large the display and the pause menu are drawn (`hud.UiScale`).
+    ui_scale: game.hud.UiScale = .{},
     /// Draw what moves between the game's ticks as well as between its steps
     /// (`Clock.stepFraction`).
     smooth_motion: bool = true,
@@ -466,6 +474,16 @@ pub const Options = struct {
                 options.fps = fps;
             },
             .@"--no-vsync" => options.settings.vsync = false,
+            .@"--fov" => {
+                const degrees = std.fmt.parseFloat(f32, value) catch return error.BadValue;
+                if (!(degrees >= camera.least_field_of_view and degrees <= camera.most_field_of_view)) return error.BadValue;
+                options.field_of_view = degrees;
+            },
+            .@"--ui-scale" => {
+                const percent = std.fmt.parseInt(u8, value, 10) catch return error.BadValue;
+                if (percent < game.hud.UiScale.least or percent > game.hud.UiScale.most) return error.BadValue;
+                options.ui_scale = .{ .percent = percent };
+            },
             .@"--16-bit" => options.settings.sixteen_bit = true,
             .@"--msaa" => {
                 const samples = std.fmt.parseInt(u8, value, 10) catch return error.BadValue;
@@ -728,6 +746,13 @@ test Options {
     try std.testing.expectError(error.Usage, parsed(&.{ "--filter", "sharp" }));
     try std.testing.expectError(error.Usage, parsed(&.{ "--fps", "-1" }));
     try std.testing.expectError(error.Usage, parsed(&.{ "--fps", "nan" }));
+    // The field of view and the UI's scale, the player's own, which `--original` leaves alone.
+    try std.testing.expectEqual(camera.original_field_of_view, plain.field_of_view);
+    try std.testing.expectEqual(80, (try parsed(&.{ "--fov", "80", "--original" })).field_of_view);
+    for ([_][:0]const u8{ "20", "120", "nan", "wide" }) |bad| try std.testing.expectError(error.Usage, parsed(&.{ "--fov", bad }));
+    try std.testing.expectEqual(game.hud.UiScale{}, plain.ui_scale);
+    try std.testing.expectEqual(100, (try parsed(&.{ "--ui-scale", "100", "--original" })).ui_scale.percent);
+    for ([_][:0]const u8{ "40", "101", "80%" }) |bad| try std.testing.expectError(error.Usage, parsed(&.{ "--ui-scale", bad }));
 }
 
 test "Options asks for help or the version, and says what is wrong" {

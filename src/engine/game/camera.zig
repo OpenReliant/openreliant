@@ -55,6 +55,25 @@ pub fn unstretched(width: u32, height: u32, base: [2]f32) [2]f32 {
     return .{ base[1] * (h - projection_trim) / (w - projection_trim), base[1] };
 }
 
+/// How far `factors` see up and down, in degrees: the screen spans 5/8 of a view unit either side
+/// of the middle, which is about 64 degrees.
+pub const original_field_of_view: f32 = 2 * std.math.radiansToDegrees(std.math.atan(0.5 / factors[1]));
+
+/// The narrowest and the widest field of view the settings screen's FIELD OF VIEW offers, in
+/// degrees up and down, the game's in the middle.
+pub const least_field_of_view: f32 = 34;
+pub const most_field_of_view: f32 = 94;
+
+/// The factors that see `degrees` up and down, in the game's shape: `factors` at
+/// `original_field_of_view`.
+///
+/// **Improvement:** the settings screen's FIELD OF VIEW sets how far the views the player flies in
+/// see (`Camera.projection`). The game always projects them with `factors`.
+pub fn factorsFor(degrees: f32) [2]f32 {
+    const down = 0.5 / @tan(std.math.degreesToRadians(degrees) / 2);
+    return .{ down * factors[0] / factors[1], down };
+}
+
 // --- Views --------------------------------------------------------------------------------------
 
 /// A view, numbered as the game numbers them (`camera_view`, `0x00539A34`). The numbers not named
@@ -796,10 +815,13 @@ pub const Camera = struct {
     }
 
     /// The projection for the view and the bars on a screen of `width` by `height`, unstretched:
-    /// the bay view's wide over the whole screen, whatever the bars (`camera_frame`).
-    pub fn projection(camera: Camera, width: u32, height: u32) srapi.Projection {
+    /// the bay view's wide over the whole screen, whatever the bars (`camera_frame`); the views
+    /// the player flies in, those without the bars, seeing `field_of_view` degrees up and down
+    /// (`factorsFor`); and the other cutaways the game's, as their shots were framed.
+    pub fn projection(camera: Camera, width: u32, height: u32, field_of_view: f32) srapi.Projection {
         if (camera.view == .launch_bay) return .init(width, height, .{ 0, 0, 1, 1 }, unstretched(width, height, wide_factors));
-        return .init(width, height, .{ 0, camera.bars, 1, 1 - camera.bars }, unstretched(width, height, factors));
+        const base = if (camera.view.letterboxed()) factors else factorsFor(field_of_view);
+        return .init(width, height, .{ 0, camera.bars, 1, 1 - camera.bars }, unstretched(width, height, base));
     }
 };
 
@@ -1673,16 +1695,32 @@ test unstretched {
     const four_three = unstretched(1024, 768, factors);
     try std.testing.expectApproxEqAbs(factors[0], four_three[0], 1e-4);
     const camera: Camera = .{};
-    const sixteen_nine = camera.projection(1920, 1080);
+    const sixteen_nine = camera.projection(1920, 1080, original_field_of_view);
     try std.testing.expectApproxEqAbs(sixteen_nine.scale[0], sixteen_nine.scale[1], 1e-3);
     try std.testing.expect(sixteen_nine.bounds[2] > 1.1);
     try std.testing.expectApproxEqAbs(0.625, sixteen_nine.bounds[3], 1e-4);
     // The bay view projects wider, over the whole screen whatever the bars.
     const wide: Camera = .{ .view = .launch_bay, .bars = letterbox };
-    const bay = wide.projection(1024, 768);
+    const bay = wide.projection(1024, 768, original_field_of_view);
     try std.testing.expect(bay.scale[1] < four_three[1] * 768);
     try std.testing.expectEqual(0, bay.viewport[1]);
     try std.testing.expectEqual(768, bay.viewport[3]);
+}
+
+test factorsFor {
+    // The game's own at its field of view, about 64 degrees up and down.
+    try std.testing.expectApproxEqAbs(64.01, original_field_of_view, 0.01);
+    const own = factorsFor(original_field_of_view);
+    for (factors, own) |expected, actual| try std.testing.expectApproxEqRel(expected, actual, 1e-6);
+    // At 90 degrees, the screen spans a view unit either side of the middle, up and down.
+    const square = factorsFor(90);
+    try std.testing.expectApproxEqAbs(0.5, square[1], 1e-6);
+    try std.testing.expectApproxEqAbs(0.375, square[0], 1e-6);
+    // The views the player flies in see what the setting says; the cutaways keep the game's.
+    const flying: Camera = .{};
+    try std.testing.expectApproxEqAbs(1, flying.projection(1024, 768, 90).bounds[3], 1e-4);
+    const cutaway: Camera = .{ .view = .director };
+    try std.testing.expectApproxEqAbs(0.625, cutaway.projection(1024, 768, 90).bounds[3], 1e-4);
 }
 
 test Camera {
@@ -1720,7 +1758,7 @@ test Camera {
     for (0..40) |_| _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 3 });
     try std.testing.expectEqual(letterbox, camera.bars);
     try std.testing.expectEqual(0, camera.bar_speed);
-    try std.testing.expectApproxEqAbs(76.8, camera.projection(1024, 768).viewport[1], 1e-3);
+    try std.testing.expectApproxEqAbs(76.8, camera.projection(1024, 768, original_field_of_view).viewport[1], 1e-3);
 
     // Forced to the external view: bars gone, orbiting the player at the nearest it may.
     try std.testing.expect(camera.setView(.external, 0, false, true, 40));

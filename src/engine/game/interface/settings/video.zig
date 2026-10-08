@@ -2,14 +2,16 @@
 //! front end (`video_screen`, `0x0042E9B0`), with its drawing (`video_screen_draw`, `0x0042F440`),
 //! and OpenReliant's graphics options. At the top, GRAPHICS and its presets, with the graphics
 //! options in a pane below it (`graphics.Graphics`); below that, rows laid out as the original's
-//! are: RESOLUTION, DEFAULT VIEW and BRIGHTNESS, and FRAME RATE LIMIT, with the check boxes FULL
-//! SCREEN, VSYNC and VR TRANSITIONS left of them, where the controls have their controllers. DEFAULT
-//! VIEW and VR TRANSITIONS change at once, and are written at once; the brightness changes the
-//! device's gamma ramp at once, and is written as the screen is left (`save`).
+//! are: RESOLUTION, DEFAULT VIEW and BRIGHTNESS, with FRAME RATE LIMIT and FIELD OF VIEW, and the
+//! check boxes FULL SCREEN, VSYNC and VR TRANSITIONS left of them, where the controls have their
+//! controllers. DEFAULT VIEW and VR TRANSITIONS change at once, and are written at once; the
+//! brightness changes the device's gamma ramp at once, and is written as the screen is left
+//! (`save`).
 //!
 //! **Improvement:** RESOLUTION chooses the size OpenReliant draws its frames at, a share of the
-//! window's own, where the game's chooses the display's mode. FULL SCREEN, VSYNC and FRAME RATE
-//! LIMIT are OpenReliant's own. They change at once, as the driver applies them (`settings.Own`).
+//! window's own, where the game's chooses the display's mode. FULL SCREEN, VSYNC, FRAME RATE LIMIT
+//! and FIELD OF VIEW are OpenReliant's own. They change at once, as the driver applies them
+//! (`settings.Own`).
 //!
 //! Not ported: 3D RENDER MODE, which chooses the game's Direct3D device; and TEXTURE DETAIL, GRAPHIC
 //! DETAIL and LIGHT MAPS, at whose highest OpenReliant draws
@@ -50,12 +52,13 @@ pub const gamma_scale = 100;
 
 /// The rows below the graphics, from the top, laid out as the game's are (`widgets.Line`), with
 /// the graphics' columns and spacing: the game's RESOLUTION, DEFAULT VIEW and BRIGHTNESS, in the
-/// game's order, with OpenReliant's FRAME RATE LIMIT after RESOLUTION.
+/// game's order, with OpenReliant's FRAME RATE LIMIT after RESOLUTION and FIELD OF VIEW last.
 pub const Row = enum {
     resolution,
     frame_rate,
     default_view,
     brightness,
+    field_of_view,
 
     fn line(row: Row) Line {
         return .{ .y = first_row + @as(i32, @backingInt(row)) * graphics.row_spacing, .edge = graphics.edge };
@@ -67,6 +70,7 @@ pub const Row = enum {
             .frame_rate => .{ .words = "FRAME RATE LIMIT" },
             .default_view => .{ .string = 0x28A },
             .brightness => .{ .string = 0x113 },
+            .field_of_view => .{ .words = "FIELD OF VIEW" },
         };
     }
 };
@@ -122,40 +126,75 @@ pub const Check = enum {
 /// Where the check boxes stand across: where the controls have their controllers' (`0x0042D9F8`).
 const toggles_x = 45;
 
-/// The brightness's slider, as the game places it beside its row (`0x0042FA39` on): its knob from
-/// x 347 at the least brightness to 175 further at the most (`0x004E7778`, where the pointer finds
-/// it), its track until 572, moved as far right as the tab's rows are.
-const brightness_slider: Slider = .{
-    .from = .{ 347 + rows_moved, Row.brightness.line().y },
-    .end = 572 + rows_moved,
+/// The tab's sliders: the game's BRIGHTNESS, and OpenReliant's FIELD OF VIEW.
+pub const Knob = enum {
+    brightness,
+    field_of_view,
+
+    fn row(knob: Knob) Row {
+        return switch (knob) {
+            inline else => |named| @field(Row, @tagName(named)),
+        };
+    }
+
+    /// Its slider: the brightness's as the game places it beside its row (`0x0042FA39` on), its
+    /// knob from x 347 at the least to 175 further at the most (`0x004E7778`, where the pointer
+    /// finds it), its track until 572, moved as far right as the tab's rows are; the field of
+    /// view's likewise beside its own row.
+    fn slider(knob: Knob) Slider {
+        return .{ .from = .{ 347 + rows_moved, knob.row().line().y }, .end = 572 + rows_moved };
+    }
+
+    /// What it sets, from its knob's start to its end.
+    fn range(knob: Knob) Range {
+        return switch (knob) {
+            .brightness => brightness_range,
+            .field_of_view => field_of_view_range,
+        };
+    }
 };
+
+/// The brightness's range (`0x004DC408`, `0x004DC480`), and the field of view's, in degrees.
+const brightness_range: Range = .{ .least = 0.5, .most = 2 };
+const field_of_view_range: Range = .{ .least = camera.least_field_of_view, .most = camera.most_field_of_view };
+
+/// FIELD OF VIEW's value, written past its track's end: its whole degrees, and the degree sign of
+/// the game's code page, 1252, which the menus' fonts have.
+fn degreesText(degrees: f32, buffer: []u8) []const u8 {
+    return std.mem.print(buffer, "{d}" ++ degree_sign, .{hud.round(degrees)}) catch "";
+}
+const degree_sign = "\xB0";
 
 /// How far right of the game's the tab's rows stand (`graphics.edge`).
 const rows_moved = graphics.edge - Line.original_edge;
-/// The brightness's range (`0x004DC408`, `0x004DC480`).
-const least_brightness: f32 = 0.5;
-const most_brightness: f32 = 2;
+
+/// The values a slider sets, from `least` at its knob's start to `most` at its end.
+const Range = struct {
+    least: f32,
+    most: f32,
+
+    /// The value of the knob `travelled` pixels along its travel.
+    ///
+    /// **Improvement:** it is the knob's place over its travel, exactly, where the game multiplies
+    /// the brightness's by its rounded reciprocal (`0x004DC6A4`).
+    fn at(range: Range, travelled: i32) f32 {
+        const share = @as(f32, @floatFromInt(travelled)) / Slider.original_travel;
+        return range.least + share * (range.most - range.least);
+    }
+
+    /// How far along its travel the knob of `value` stands, rounded to a whole pixel, as the game
+    /// rounds the brightness's (`0x0042EABE`), within the travel.
+    fn along(range: Range, value: f32) i32 {
+        const share = (value - range.least) / (range.most - range.least);
+        return std.math.clamp(hud.round(share * Slider.original_travel), 0, Slider.original_travel);
+    }
+};
 
 comptime {
-    // The rows stand below the graphics' pane, and the knob above the buttons.
+    // The rows stand below the graphics' pane, and the last knob above the buttons.
     std.debug.assert(Row.resolution.line().arrow(.back).y > graphics.pane_bottom);
-    std.debug.assert(brightness_slider.knob(0).y + brightness_slider.knob(0).height < settings.Button.ok.rect().y);
-}
-
-/// The brightness of the knob `along` its travel.
-///
-/// **Improvement:** it is the knob's place over its travel, exactly, where the game multiplies by
-/// its rounded reciprocal (`0x004DC6A4`).
-fn brightnessAt(along: i32) f32 {
-    const share = @as(f32, @floatFromInt(along)) / Slider.original_travel;
-    return least_brightness + share * (most_brightness - least_brightness);
-}
-
-/// How far along its travel the knob of `brightness` stands, rounded to a whole pixel, as the game
-/// rounds it (`0x0042EABE`), within the travel.
-fn knobAlong(brightness: f32) i32 {
-    const share = (brightness - least_brightness) / (most_brightness - least_brightness);
-    return std.math.clamp(hud.round(share * Slider.original_travel), 0, Slider.original_travel);
+    const last = Knob.field_of_view.slider().knob(0);
+    std.debug.assert(last.y + last.height < settings.Button.ok.rect().y);
 }
 
 /// What RESET DEFAULTS sets: the game's defaults for the view and the transitions (`0x004E5C08`,
@@ -245,8 +284,7 @@ fn rateText(rate: ?f32, refresh_rate: ?f32, buffer: []u8) []const u8 {
 pub const Item = union(enum) {
     arrow: Arrow,
     check: Check,
-    /// The brightness's knob.
-    knob,
+    knob: Knob,
     graphics: graphics.Item,
 };
 
@@ -274,8 +312,8 @@ pub const Video = struct {
     kept: Kept = .{},
     /// OpenReliant's display options as the driver has them, read again each pass.
     display: Display = .{},
-    /// Whether the pointer holds the brightness's knob (`options_held`, `0x005202B0`).
-    held: bool = false,
+    /// The knob the pointer holds (`options_held`, `0x005202B0`, the brightness's).
+    held: ?Knob = null,
     /// The arrow under the pointer, lit.
     arrow: ?Arrow = null,
     /// OpenReliant's graphics options.
@@ -299,16 +337,35 @@ pub const Video = struct {
         tab.kept.transitions = video.transitions.*;
     }
 
-    /// The item the pointer is over: the graphics', an arrow, a check box, or the brightness's
-    /// knob, where the device has a gamma ramp.
+    /// The item the pointer is over: the graphics', an arrow, a check box, or a knob.
     pub fn itemAt(tab: Video, context: Context, at: [2]i32) ?Item {
         if (tab.graphics.itemAt(at)) |item| return .{ .graphics = item };
         for (std.enums.values(Choice)) |choice| {
             if (choice.row().line().arrowAt(at)) |step| return .{ .arrow = .{ .choice = choice, .step = step } };
         }
         for (std.enums.values(Check)) |check| if (check.box().rect().holds(at)) return .{ .check = check };
-        const video = context.video orelse return null;
-        if (video.gamma and brightness_slider.knob(knobAlong(video.surrender.brightness)).holds(at)) return .knob;
+        return .{ .knob = tab.knobAt(context.video, at) orelse return null };
+    }
+
+    /// How far along its travel `knob` stands, or null where it is hidden: the brightness's, where
+    /// the device has no gamma ramp or the game's video settings are not given.
+    fn knobAlong(tab: Video, video: ?settings.Video, knob: Knob) ?i32 {
+        return knob.range().along(switch (knob) {
+            .brightness => brightness: {
+                const shown = video orelse return null;
+                if (!shown.gamma) return null;
+                break :brightness shown.surrender.brightness;
+            },
+            .field_of_view => tab.display.chosen.field_of_view,
+        });
+    }
+
+    /// The knob under `at`, of those shown.
+    fn knobAt(tab: Video, video: ?settings.Video, at: [2]i32) ?Knob {
+        for (std.enums.values(Knob)) |knob| {
+            const along = tab.knobAlong(video, knob) orelse continue;
+            if (knob.slider().knob(along).holds(at)) return knob;
+        }
         return null;
     }
 
@@ -328,18 +385,27 @@ pub const Video = struct {
         }
     }
 
-    /// A pass's knob, where the device has a gamma ramp (`0x0042EB15` on): the knob held follows
-    /// the pointer, and the brightness changes with it at once; while the pointer's button is
+    /// A pass's knobs (`0x0042EB15` on): the knob held follows the pointer, and the brightness, or
+    /// the field of view in whole degrees, changes with it at once; while the pointer's button is
     /// down, the knob under it is held. And OpenReliant's display options as they stand, which
     /// Alt and Enter and the window's size change too, and the keys and the wheel that scroll the
     /// graphics.
     pub fn slide(tab: *Video, context: Context) void {
         if (context.own) |own| tab.display = own.display();
         tab.graphics.scroll(context);
-        const video = context.video orelse return;
-        if (!video.gamma) return;
-        if (tab.held) video.surrender.brightness = brightnessAt(brightness_slider.held(context.pointer.at[0]));
-        tab.held = context.pointer.down and brightness_slider.knob(knobAlong(video.surrender.brightness)).holds(context.pointer.at);
+        if (tab.held) |knob| {
+            const value = knob.range().at(knob.slider().held(context.pointer.at[0]));
+            switch (knob) {
+                .brightness => if (context.video) |video| {
+                    video.surrender.brightness = value;
+                },
+                .field_of_view => if (@round(value) != tab.display.chosen.field_of_view) {
+                    tab.display.chosen.field_of_view = @round(value);
+                    tab.applyDisplay(context);
+                },
+            }
+        }
+        tab.held = if (context.pointer.down) tab.knobAt(context.video, context.pointer.at) else null;
     }
 
     /// A click on `item` (`0x0042EC50`): an arrow steps its row's choice back or on, round from the
@@ -432,8 +498,8 @@ pub const Video = struct {
     }
 
     /// The graphics, then `video_screen_draw`'s part (`0x0042F440`): the rows with their arrows
-    /// and values, the check boxes, BRIGHTNESS's label, track and knob only where the device has a
-    /// gamma ramp, and the arrow under the pointer lit.
+    /// and values, the check boxes, the sliders' labels, tracks and knobs, BRIGHTNESS's only where
+    /// the device has a gamma ramp, FIELD OF VIEW's degrees, and the arrow under the pointer lit.
     pub fn draw(tab: Video, canvas: Canvas, art: *hud.Art, shown: ?settings.Video) canvas_module.Error!void {
         try tab.graphics.draw(canvas, art);
         const told = tab.display.told;
@@ -455,12 +521,14 @@ pub const Video = struct {
             };
             try check.box().draw(canvas, art, check.words(), on, true);
         }
-        if (shown) |video| if (video.gamma) {
-            const brightness = Row.brightness.line();
-            try brightness.label(Row.brightness.text()).write(canvas, canvas.fonts.small, canvas_module.blue);
-            try brightness_slider.drawTrack(canvas, art);
-            try brightness_slider.drawKnob(canvas, art, knobAlong(video.surrender.brightness));
-        };
+        for (std.enums.values(Knob)) |knob| {
+            const along = tab.knobAlong(shown, knob) orelse continue;
+            try knob.row().line().label(knob.row().text()).write(canvas, canvas.fonts.small, canvas_module.blue);
+            try knob.slider().drawTrack(canvas, art);
+            try knob.slider().drawKnob(canvas, art, along);
+        }
+        const degrees: Label.Text = .{ .words = degreesText(chosen.field_of_view, &buffer) };
+        try Knob.field_of_view.slider().valueLabel(Row.field_of_view.line().y, degrees).write(canvas, canvas.fonts.small, canvas_module.blue);
         if (tab.arrow) |arrow| try arrow.choice.row().line().drawLit(canvas, art, arrow.step);
     }
 };
@@ -477,20 +545,33 @@ const GameVideo = struct {
 };
 
 test "the rows stand below the graphics" {
-    try std.testing.expectEqual(292, Row.resolution.line().y);
-    try std.testing.expectEqual(352, Row.default_view.line().y);
-    try std.testing.expectEqual(382, Row.brightness.line().y);
-    try std.testing.expectEqual([2]i32{ 45, 352 }, Check.transitions.box().at);
+    try std.testing.expectEqual(262, Row.resolution.line().y);
+    try std.testing.expectEqual(322, Row.default_view.line().y);
+    try std.testing.expectEqual(352, Row.brightness.line().y);
+    try std.testing.expectEqual(382, Row.field_of_view.line().y);
+    try std.testing.expectEqual([2]i32{ 45, 322 }, Check.transitions.box().at);
 }
 
-test "the brightness's knob" {
-    // From x 347 at 0.5 to 522 at 2; 1 stands a third of the way.
-    try std.testing.expectEqual(0, knobAlong(0.5));
-    try std.testing.expectEqual(Slider.original_travel, knobAlong(2));
-    try std.testing.expectEqual(58, knobAlong(1));
-    try std.testing.expectEqual(Slider.original_travel, knobAlong(3));
-    try std.testing.expectEqual(2, brightnessAt(Slider.original_travel));
-    try std.testing.expectApproxEqAbs(1.25, brightnessAt(87), 0.01);
+test Range {
+    // The brightness from 0.5 at the start of the knob's travel to 2 at its end; 1 stands a third
+    // of the way.
+    const brightness = brightness_range;
+    try std.testing.expectEqual(0, brightness.along(0.5));
+    try std.testing.expectEqual(Slider.original_travel, brightness.along(2));
+    try std.testing.expectEqual(58, brightness.along(1));
+    try std.testing.expectEqual(Slider.original_travel, brightness.along(3));
+    try std.testing.expectEqual(2, brightness.at(Slider.original_travel));
+    try std.testing.expectApproxEqAbs(1.25, brightness.at(87), 0.01);
+    // The game's field of view stands in the middle of its knob's travel.
+    try std.testing.expectEqual(88, field_of_view_range.along(camera.original_field_of_view));
+    try std.testing.expectEqual(camera.most_field_of_view, field_of_view_range.at(Slider.original_travel));
+}
+
+test degreesText {
+    // Whole degrees, the game's 64 among them, with the code page's degree sign.
+    var buffer: [8]u8 = undefined;
+    try std.testing.expectEqualStrings("64\xB0", degreesText(camera.original_field_of_view, &buffer));
+    try std.testing.expectEqualStrings("94\xB0", degreesText(camera.most_field_of_view, &buffer));
 }
 
 test stepped {
@@ -548,14 +629,14 @@ test "the arrows and the boxes change the video" {
     var tab: Video = .{};
     tab.enter(context);
     // DEFAULT VIEW's arrow on, found at its row, changes the view and its mode, written at once.
-    const view_on = tab.itemAt(context, .{ 342, 357 }).?;
+    const view_on = tab.itemAt(context, .{ 342, 327 }).?;
     try std.testing.expectEqual(Item{ .arrow = .{ .choice = .default_view, .step = .on } }, view_on);
     _ = try tab.choose(view_on, context);
     try std.testing.expectEqual(CockpitSetting.chase, kept.view.setting);
     try std.testing.expectEqual(camera.CockpitMode.chase, kept.view.cockpit_mode);
     try std.testing.expectEqualStrings("1", file.profile.value(section, view_key).?);
     // VR TRANSITIONS' box, left of it, turns them off, written at once.
-    const transitions = tab.itemAt(context, .{ 50, 358 }).?;
+    const transitions = tab.itemAt(context, .{ 50, 328 }).?;
     try std.testing.expectEqual(Item{ .check = .transitions }, transitions);
     _ = try tab.choose(transitions, context);
     try std.testing.expect(!kept.transitions);
@@ -592,17 +673,17 @@ test "the brightness's knob is dragged, and written as the screen is left" {
     tab.enter(context);
     // At 1, the knob stands from x 425, on BRIGHTNESS's row: held as the button goes down on it, it
     // follows the pointer from the next pass.
-    try std.testing.expectEqual(Item.knob, tab.itemAt(context, .{ 430, 393 }).?);
-    context.pointer = .{ .at = .{ 430, 393 }, .down = true };
+    try std.testing.expectEqual(Item{ .knob = .brightness }, tab.itemAt(context, .{ 430, 363 }).?);
+    context.pointer = .{ .at = .{ 430, 363 }, .down = true };
     tab.slide(context);
-    try std.testing.expect(tab.held);
-    context.pointer.at = .{ 620, 393 };
+    try std.testing.expectEqual(Knob.brightness, tab.held.?);
+    context.pointer.at = .{ 620, 363 };
     tab.slide(context);
     try std.testing.expectEqual(2, kept.surrender.brightness);
     // Let go, held no more; RESET DEFAULTS sets 1 again, and leaving writes it.
     context.pointer.down = false;
     tab.slide(context);
-    try std.testing.expect(!tab.held);
+    try std.testing.expectEqual(null, tab.held);
     try tab.reset(context);
     try std.testing.expectEqual(1, kept.surrender.brightness);
     try tab.save(context);
@@ -610,7 +691,40 @@ test "the brightness's knob is dragged, and written as the screen is left" {
     // Without a gamma ramp, there is no knob, and the brightness stays.
     context.video = kept.video(false);
     kept.surrender.brightness = 1.5;
-    try std.testing.expectEqual(null, tab.itemAt(context, .{ 430, 393 }));
+    try std.testing.expectEqual(null, tab.itemAt(context, .{ 430, 363 }));
     try tab.reset(context);
     try std.testing.expectEqual(1.5, kept.surrender.brightness);
+}
+
+test "the field of view's knob is dragged, and applied at once" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var file: profile.File = .{ .arena = arena.allocator(), .profile = .empty };
+    var devices: input.Devices = .{};
+    var recorder: settings.testing.Recorder = .{};
+    var kept: GameVideo = .{};
+    var context: Context = .{ .pointer = .{}, .devices = &devices, .settings_file = &file, .ticks = 0, .own = recorder.own(), .video = kept.video(false) };
+    var tab: Video = .{};
+    tab.enter(context);
+    // At the game's field of view, the knob stands half way along its travel, from x 455, on FIELD
+    // OF VIEW's row, whether the brightness shows or not.
+    try std.testing.expectEqual(Item{ .knob = .field_of_view }, tab.itemAt(context, .{ 460, 390 }).?);
+    context.pointer = .{ .at = .{ 460, 390 }, .down = true };
+    tab.slide(context);
+    try std.testing.expectEqual(Knob.field_of_view, tab.held.?);
+    // Dragged, it sets whole degrees, which the driver applies at once.
+    context.pointer.at = .{ 371, 390 };
+    tab.slide(context);
+    try std.testing.expectEqual(camera.least_field_of_view, recorder.display.chosen.field_of_view);
+    context.pointer.at = .{ 458, 390 };
+    tab.slide(context);
+    try std.testing.expectEqual(64, recorder.display.chosen.field_of_view);
+    const given = recorder.given;
+    tab.slide(context);
+    try std.testing.expectEqual(given, recorder.given);
+    // RESET DEFAULTS puts the game's back.
+    context.pointer.down = false;
+    tab.slide(context);
+    try tab.reset(context);
+    try std.testing.expectEqual(camera.original_field_of_view, recorder.display.chosen.field_of_view);
 }

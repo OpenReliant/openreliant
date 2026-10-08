@@ -139,9 +139,8 @@ pub const Line = struct {
 
     /// Where the value of a slider's row is written.
     pub fn sliderValue(line: Line, text: Label.Text) Label {
-        return .{ .text = text, .at = .{ line.slider().end + slider_value_gap, line.y } };
+        return line.slider().valueLabel(line.y, text);
     }
-    const slider_value_gap = 8;
 
     /// Where the pointer finds its check box.
     pub fn boxRect(line: Line) Rect {
@@ -419,6 +418,13 @@ pub const Slider = struct {
         const rect = slider.knob(along);
         try canvas.shape(art, knob_shape, .{ rect.x, rect.y });
     }
+
+    /// OpenReliant's: where its value is written, past its end, on the row whose label stands at
+    /// `y`.
+    pub fn valueLabel(slider: Slider, y: i32, text: Label.Text) Label {
+        return .{ .text = text, .at = .{ slider.end + value_gap, y } };
+    }
+    const value_gap = 8;
 };
 
 /// The box round a list, `interface_box`'s (`Canvas.box`): its corner at `at`, `extent` across and

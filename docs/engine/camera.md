@@ -16,6 +16,8 @@ The game runs in the display modes the device lists, which it keeps in `dmodes.b
 
 OpenReliant keeps the factor down and chooses the factor across that keeps pixels square, `0.8 * (height - 0.1) / (width - 0.1)`: on a 4:3 screen the game's 0.6, on a wider one a wider view.
 
+**Improvement:** the settings screen's FIELD OF VIEW sets how far the views the player flies in see up and down, from 34 to 94 degrees ([Video](front-end.md#video)): the views without the cinematic bars, which are the cockpit's, the chase view, the view around the target and the external view. The factor down is `0.5 / tan(degrees / 2)`, and the factor across follows as above. By default it is the game's, about 64 degrees, where the factor down is 0.8. The cutaways keep the game's factors, as their shots were framed for them (`camera.factorsFor`).
+
 ## Views
 
 `camera_view` (`0x539A34`) holds the view and `camera_object` (`0x539A8C`) the object it shows. `camera_set_view` (`0x0045F1B0`) switches view and places the camera at once; `camera_frame` (`0x0045FC90`) places it once a frame. Views from 7 on are the game's cutaways, of launches, landings, jumps and deaths among others.

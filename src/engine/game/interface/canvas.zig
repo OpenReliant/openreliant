@@ -18,8 +18,8 @@ const language = @import("../language.zig");
 const log = std.log.scoped(.interface);
 
 /// The front end's screen in pixels, the mode returning from a mission sets the display to
-/// (`0x004AD2E0`).
-pub const size: [2]u32 = .{ 640, 480 };
+/// (`0x004AD2E0`): the game's window's first size.
+pub const size: [2]u32 = hud.original_screen;
 
 /// The whole of the front end's screen.
 pub const whole_screen: Rect = .{ .x = 0, .y = 0, .width = size[0], .height = size[1] };
@@ -55,6 +55,10 @@ pub const Canvas = struct {
     target: device.Device,
     /// The window's size in pixels.
     window: [2]u32,
+    /// How large the screen is drawn, as a share of the size that fits the window: all of it, but
+    /// for the settings screen in the pause menu, which is drawn at the size the display is
+    /// (`hud.UiScale.share`).
+    share: f32 = fitted,
     fonts: Fonts,
     strings: *const language.Language,
     /// OpenReliant's version, which a screen writes in the window's corner (`drawVersion`); null
@@ -69,12 +73,12 @@ pub const Canvas = struct {
 
     /// How many of the window's pixels one of the front end's spans.
     pub fn scale(canvas: Canvas) f32 {
-        return scaleFor(canvas.window);
+        return Placement.of(canvas.window, canvas.share).scale;
     }
 
     /// Where the front end's top left corner stands in the window.
     pub fn corner(canvas: Canvas) [2]f32 {
-        return cornerFor(canvas.window);
+        return Placement.of(canvas.window, canvas.share).corner;
     }
 
     /// Where `at`, a point of the front end's screen, stands in the window.
@@ -212,11 +216,11 @@ pub const Canvas = struct {
     };
 
     /// **Improvement:** OpenReliant's version, where the canvas has one, in the window's bottom
-    /// right corner as the pause menu writes it (`hud.drawVersion`). A screen writes it before its
-    /// pointer.
+    /// right corner as the pause menu writes it (`hud.drawVersion`), as large as the screen's text.
+    /// A screen writes it before its pointer.
     pub fn drawVersion(canvas: Canvas) Allocator.Error!void {
         const shown = canvas.version orelse return;
-        try hud.drawVersion(canvas.fonts.small, canvas.gpa, canvas.target, canvas.window, shown);
+        try hud.drawVersion(canvas.fonts.small, canvas.gpa, canvas.target, canvas.window, shown, canvas.scale());
     }
 
     /// The canvas at half brightness where `usable` is false, as the front end dims what can't be
@@ -269,23 +273,39 @@ pub fn scaleFor(window: [2]u32) f32 {
 
 /// Where the front end's top left corner stands in a window of `window`, which centres it.
 pub fn cornerFor(window: [2]u32) [2]f32 {
-    return hud.centred(window, size, scaleFor(window));
+    return Placement.of(window, fitted).corner;
 }
+
+/// The share of the size that fits the window the front end's screens are drawn at: all of it.
+pub const fitted: f32 = 1;
+
+/// Where the front end's screen stands in a window: how many of the window's pixels one of the
+/// screen's spans, and where the screen's top left corner is.
+pub const Placement = struct {
+    scale: f32,
+    corner: [2]f32,
+
+    /// In a window of `window`, `share` as large as fits in it (`scaleFor`), in its middle.
+    pub fn of(window: [2]u32, share: f32) Placement {
+        const scale = scaleFor(window) * share;
+        return .{ .scale = scale, .corner = hud.centred(window, size, scale) };
+    }
+};
 
 /// How the renderer projects onto the front end's screen (`renderer_start`, `0x004ACC6B`): over
 /// the whole of it, by `factors`, carried into the part of a window of `window` the screen fills
 /// (`scaleFor`, `cornerFor`), so that what is drawn in 3D stands where the screen's pictures do.
 pub fn projection(window: [2]u32, factors: [2]f32) srapi.Projection {
-    var fitted: srapi.Projection = .init(size[0], size[1], srapi.full_screen, factors);
+    var projected: srapi.Projection = .init(size[0], size[1], srapi.full_screen, factors);
     const scale = scaleFor(window);
     const corner = cornerFor(window);
-    fitted.screen = window;
+    projected.screen = window;
     for (0..2) |axis| {
-        fitted.scale[axis] *= scale;
-        fitted.centre[axis] = corner[axis] + fitted.centre[axis] * scale;
-        for ([2]usize{ axis, axis + 2 }) |edge| fitted.viewport[edge] = corner[axis] + fitted.viewport[edge] * scale;
+        projected.scale[axis] *= scale;
+        projected.centre[axis] = corner[axis] + projected.centre[axis] * scale;
+        for ([2]usize{ axis, axis + 2 }) |edge| projected.viewport[edge] = corner[axis] + projected.viewport[edge] * scale;
     }
-    return fitted;
+    return projected;
 }
 
 /// Where the point `at` of the front end's screen stands in a window of `window`, in its pixels.
@@ -520,13 +540,14 @@ pub const Pointer = struct {
     ///
     /// **Improvement.** It takes the wheel's notches, which scroll the lists; the game reads no
     /// wheel.
-    pub fn update(pointer: *Pointer, mouse: *input.Mouse, window: [2]u32, elapsed: i32) void {
-        if (mouse.at) |share| {
-            const s = scaleFor(window);
-            const from = cornerFor(window);
-            for (&pointer.at, share, window, from, size) |*at, fraction, pixels, start, across| {
+    ///
+    /// `share` is how large the screen is drawn, as the canvas has it (`Canvas.share`).
+    pub fn update(pointer: *Pointer, mouse: *input.Mouse, window: [2]u32, share: f32, elapsed: i32) void {
+        if (mouse.at) |fractions| {
+            const placed: Placement = .of(window, share);
+            for (&pointer.at, fractions, window, placed.corner, size) |*at, fraction, pixels, start, across| {
                 const on_screen = fraction * @as(f32, @floatFromInt(pixels));
-                at.* = std.math.clamp(hud.round((on_screen - start) / s), 0, @as(i32, @intCast(across)) - 1);
+                at.* = std.math.clamp(hud.round((on_screen - start) / placed.scale), 0, @as(i32, @intCast(across)) - 1);
             }
         }
         pointer.down = mouse.buttons.left;
@@ -580,6 +601,10 @@ test scaleFor {
     try std.testing.expectEqual([2]f32{ 240, 0 }, cornerFor(.{ 1920, 1080 }));
     try std.testing.expectEqual([2]f32{ 0, 180 }, cornerFor(.{ 960, 1080 }));
     try std.testing.expectEqual([2]f32{ 0, 0 }, cornerFor(.{ 640, 480 }));
+    // Half as large, still centred.
+    const half: Placement = .of(.{ 1920, 1080 }, 0.5);
+    try std.testing.expectEqual(1.125, half.scale);
+    try std.testing.expectEqual([2]f32{ 600, 270 }, half.corner);
 }
 
 test "Canvas.onScreen" {
@@ -678,33 +703,40 @@ test Pointer {
     var pointer: Pointer = .{};
     var mouse: input.Mouse = .{};
     // With the system's pointer not yet over the window, it stays where it starts.
-    pointer.update(&mouse, .{ 1920, 1080 }, 1);
+    pointer.update(&mouse, .{ 1920, 1080 }, fitted, 1);
     try std.testing.expectEqual([2]i32{ 320, 200 }, pointer.at);
     // The middle of a wide window is the middle of the front end's screen.
     mouse.at = .{ 0.5, 0.5 };
-    pointer.update(&mouse, .{ 1920, 1080 }, 1);
+    pointer.update(&mouse, .{ 1920, 1080 }, fitted, 1);
     try std.testing.expectEqual([2]i32{ 320, 240 }, pointer.at);
     // Beside it, it keeps to its edge.
     mouse.at = .{ 0.9, 0 };
-    pointer.update(&mouse, .{ 1920, 1080 }, 1);
+    pointer.update(&mouse, .{ 1920, 1080 }, fitted, 1);
     try std.testing.expectEqual([2]i32{ 639, 0 }, pointer.at);
     // Out beside the front end's screen, it keeps to its edge.
     mouse.at = .{ 0.01, 0.5 };
-    pointer.update(&mouse, .{ 1920, 1080 }, 1);
+    pointer.update(&mouse, .{ 1920, 1080 }, fitted, 1);
     try std.testing.expectEqual(0, pointer.at[0]);
+    // Over a screen drawn half as large, 720 by 540 from (600, 270), as the canvas draws it.
+    mouse.at = .{ 712.5 / 1920.0, 326.25 / 1080.0 };
+    pointer.update(&mouse, .{ 1920, 1080 }, 0.5, 1);
+    try std.testing.expectEqual([2]i32{ 100, 50 }, pointer.at);
+    mouse.at = .{ 0.5, 0.5 };
+    pointer.update(&mouse, .{ 1920, 1080 }, 0.5, 1);
+    try std.testing.expectEqual([2]i32{ 320, 240 }, pointer.at);
     // The animation runs through the sixteen shapes, then from the first again.
     pointer.ticks = 0;
-    pointer.update(&mouse, .{ 640, 480 }, 3);
+    pointer.update(&mouse, .{ 640, 480 }, fitted, 3);
     try std.testing.expectEqual(1, pointer.shape());
-    pointer.update(&mouse, .{ 640, 480 }, 60);
+    pointer.update(&mouse, .{ 640, 480 }, fitted, 60);
     try std.testing.expectEqual(16, pointer.shape());
-    pointer.update(&mouse, .{ 640, 480 }, 1);
+    pointer.update(&mouse, .{ 640, 480 }, fitted, 1);
     try std.testing.expectEqual(0, pointer.ticks);
     // It takes the wheel's whole notches, once.
     mouse.wheel = -1.5;
-    pointer.update(&mouse, .{ 640, 480 }, 1);
+    pointer.update(&mouse, .{ 640, 480 }, fitted, 1);
     try std.testing.expectEqual(-1, pointer.wheel);
-    pointer.update(&mouse, .{ 640, 480 }, 1);
+    pointer.update(&mouse, .{ 640, 480 }, fitted, 1);
     try std.testing.expectEqual(0, pointer.wheel);
 }
 

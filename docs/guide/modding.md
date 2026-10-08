@@ -410,18 +410,19 @@ sltool spr extract files/HUDHARD.SPR shapes     # each shape as a picture at its
 - **Alpha and colour.** The template is transparent around the shape, and the picture's alpha
   channel is used, including soft edges. Pictures keep their colours, but are dimmed where the game
   dims the shape, such as a menu item that can't be selected.
-- **Resolution.** The flight display and the pause menu are designed for a 1024x768 window, and the
-  menus, briefing, ITAC and loadout screens for 640x480. Each is scaled to fit the window, as in the
-  table below. A picture is sharp when it's as many times larger than the template as the window
-  scales it: four times is enough for the flight display up to 3840x2160 and for the 640x480 screens
+- **Resolution.** The menus, briefing, ITAC and loadout screens are designed for 640x480, and each
+  is scaled to fit the window. The flight display and the pause menu are drawn at VIDEO's UI SCALE,
+  a share of that size, 80 percent by default and 100 at most, as in the table below. A picture is
+  sharp when it's as many times larger than the template as the window scales it: four times is
+  enough for the flight display up to 3840x2160 at the default UI SCALE, and for the 640x480 screens
   up to 2560x1440. Larger pictures gain nothing, and cost memory and loading time, which delays the
   first frame that shows them.
 
-| Window | Flight display and pause menu | 640x480 screens |
+| Window | Flight display and pause menu, at 80% | 640x480 screens, and the display at 100% |
 |---|---|---|
-| 1920x1080 | 1.4 times | 2.25 times |
-| 2560x1440 | 1.9 times | 3 times |
-| 3840x2160 | 2.8 times | 4.5 times |
+| 1920x1080 | 1.8 times | 2.25 times |
+| 2560x1440 | 2.4 times | 3 times |
+| 3840x2160 | 3.6 times | 4.5 times |
 
 ### Pictures
 

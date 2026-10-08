@@ -10,8 +10,8 @@ While a mission is paused, the game draws a configuration menu in place of the h
 
 **Improvements**, each marked so in the code:
 
-- The menu is drawn `hud.scaleFor` times larger, as the display is, so it keeps its proportions on a larger screen.
-- The audio, the video and the controls screens are the front end's, the settings screen, over the mission darkened, with CONTINUE in MAIN MENU's place ([The settings screen](front-end.md#the-settings-screen)).
+- The menu is drawn at the size the settings screen's UI SCALE sets, as the display is, so it keeps its proportions on a larger screen ([HUD](hud.md#where-an-element-stands)).
+- The audio, the video and the controls screens are the front end's, the settings screen, over the mission darkened, with CONTINUE in MAIN MENU's place ([The settings screen](front-end.md#the-settings-screen)). It is drawn in the window's middle at the size the menu is, where the front end draws it as large as fits.
 - The pointer is where the system's is over the window, rather than DirectInput's motion added up.
 - Losing the window's focus with a mission loaded pauses into the menu in single player too.
 - OpenReliant's version is written, dimmed, in the bottom right corner, as on the front end's menus ([Front end](front-end.md)).
