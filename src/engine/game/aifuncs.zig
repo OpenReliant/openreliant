@@ -238,6 +238,7 @@ const EscortCount = struct {
     state: *EscortState,
     visited: bool = false,
 
+    /// Counts `ship` off the place to go: whether it is the one to escort, which ends the walk.
     pub fn visit(count: *EscortCount, ship: aigeneric.Target) bool {
         count.visited = true;
         count.state.place -= 1;
@@ -463,6 +464,7 @@ const Weighing = struct {
     ctx: Context,
     index: u16,
 
+    /// Weighs `target` (`weighTarget`), and the walk goes on.
     pub fn visit(weighing: *Weighing, target: aigeneric.Target) bool {
         weighTarget(weighing.ctx, weighing.index, target);
         return false;
@@ -580,6 +582,8 @@ const Scooping = struct {
     ctx: Context,
     index: u16,
 
+    /// Offers `target` where it can be aimed at, ejected or not, by the square of how far it will
+    /// be from the ship at the next step, and the walk goes on.
     pub fn visit(scooping: *Scooping, target: aigeneric.Target) bool {
         const all = scooping.ctx.world.objects;
         const found = ai.ValidTarget.of(all, target, .{ .ejected = true }) orelse return false;
@@ -726,6 +730,7 @@ pub const Spin = enum(u8) {
     medium = 1,
     fast = 2,
 
+    /// The share of the turn each input takes at random.
     pub fn spread(spin: Spin) f32 {
         return switch (spin) {
             .slow => 0.3,
@@ -811,6 +816,9 @@ pub fn launchJackHammer(ctx: Context, index: u16) void {
     launchFrom(ctx, index, true);
 }
 
+/// What Launch Missile and order 3 share: a missile from the first of the ship's racks with any
+/// left, of Jack Hammers or of the other kinds as `jack_hammer` asks, at the order's target
+/// (`missiles.launch`).
 fn launchFrom(ctx: Context, index: u16, jack_hammer: bool) void {
     const slot = &ctx.world.objects.slots[index];
     const ship = &slot.object;
@@ -989,6 +997,7 @@ pub const Lurch = enum(i8) {
     left = -1,
     right = 1,
 
+    /// The order that lurches this way.
     pub fn order(lurch: Lurch) Order {
         return switch (lurch) {
             .left => .make_capship_list_left,
@@ -1112,6 +1121,8 @@ const DarkReignShooting = struct {
     all: *create.Objects,
     index: u16,
 
+    /// Offers `target` where the cannon can fire at it, as `DarkReignShooting` says, and the walk
+    /// goes on.
     pub fn visit(shooting: *DarkReignShooting, target: aigeneric.Target) bool {
         const all = shooting.all;
         const found = ai.ValidTarget.of(all, target, .{}) orelse return false;
@@ -1433,7 +1444,7 @@ test "a ship under a Fly order closes on its target and stops there" {
     try std.testing.expect(try aigeneric.pushShip(ctx, index, .fly, target, null));
     const slot = &all.slots[index];
     const to = all.slots[target].object.nextPosition();
-    const start = math.distance(gameobj.vector(slot.object.root.position), to);
+    const start = math.distance(slot.object.position(), to);
 
     // A frame of orders, then the step that moves what they steer, as the loop paces them.
     for (0..2000) |_| {
@@ -1442,13 +1453,13 @@ test "a ship under a Fly order closes on its target and stops there" {
         create.objectsUpdate(ctx.world);
         for (all.slots[0..all.count]) |*live| {
             gameobj.updateTree(&live.object.root, null, null);
-            live.drawn = .{ .position = gameobj.vector(live.object.root.position), .orientation = live.object.root.orientation };
+            live.drawn = .{ .position = live.object.position(), .orientation = live.object.root.orientation };
         }
         if (slot.object.order_count == 0) break;
     }
 
     // It flew there, and stopped once it arrived: the order popped and the throttle is off.
-    const reached = math.distance(gameobj.vector(slot.object.root.position), to);
+    const reached = math.distance(slot.object.position(), to);
     try std.testing.expect(reached < start / 10);
     try std.testing.expect(reached < fly_reach);
     try std.testing.expectEqual(0, slot.object.order_count);

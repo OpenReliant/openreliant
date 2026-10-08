@@ -156,7 +156,7 @@ fn shoveAt(world: gameobj.World, first: u16, second: u16, normal: Vector, levers
     for ([_]u16{ first, second }, now) |index, at| {
         if (!shoved(all, index)) continue;
         const object = &all.slots[index].object;
-        const lever = at - gameobj.vector(object.root.position);
+        const lever = at - object.position();
         const turn = math.transform(
             object.root.orientation,
             math.transform(object.angular_response, math.transformTransposed(object.root.orientation, math.cross(lever, normal))),
@@ -789,7 +789,7 @@ fn crossTriggers(world: gameobj.World, ship: u16, hull: u16) void {
         if (data.triggers.len == 0 or data.meshes.len == 0) continue;
         const now = model.placeOf(slot.object.placeAt(.now), child.part, .now) orelse continue;
         const next = model.placeOf(slot.object.placeAt(.next), child.part, .next) orelse continue;
-        const from = now.inverse(gameobj.vector(mover.root.position));
+        const from = now.inverse(mover.position());
         const to = next.inverse(mover.nextPosition());
         for (data.triggers) |polygon| {
             const trigger = objects.Trigger.of(polygon, data.meshes[0]) orelse continue;

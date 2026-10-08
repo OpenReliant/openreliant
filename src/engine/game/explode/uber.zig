@@ -298,7 +298,7 @@ pub const Blast = struct {
         if (slot.running(.explode) != null) return;
         if (math.distance(slot.drawn.position, blast.place.position) > blast.ball.scale) return;
         const random = world.random;
-        const centre = gameobj.vector(object.root.position);
+        const centre = object.position();
         const push = math.normalize(centre - blast.place.position) * @as(Vector, @splat(object.mass * knock_strength));
         const lever = math.transform(math.fromAngleVector(random.fractionVector(@splat(std.math.tau))), .{ 0, 0, object.radius * lever_share });
         object.rotation = math.fromAngleVector(random.centredVector(@splat(tumble)));

@@ -2310,7 +2310,7 @@ test createObject {
     const made = &all.slots[player];
     const object = &made.object;
     try std.testing.expect(object.created and !object.flags.stand_in);
-    try std.testing.expectEqual(math.Vector{ 0, 0, 500 }, gameobj.vector(object.root.position));
+    try std.testing.expectEqual(math.Vector{ 0, 0, 500 }, object.position());
     try std.testing.expectEqual(math.identity, object.root.orientation);
     try std.testing.expectEqual(motion.Motion.forward, made.motion.?);
     try std.testing.expectEqual(1, all.types[0].objects);

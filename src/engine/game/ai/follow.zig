@@ -151,7 +151,7 @@ fn start(world: gameobj.World, index: u16, path: motion.Follower.Path) void {
     state.step = .arriving;
     state.path_length = curves.pathLength(world.missionCurves(), data.curve);
     if (data.offsetShip()) |ship| if (ship < all.slots.len) {
-        state.start = gameobj.vector(all.slots[ship].object.root.position);
+        state.start = all.slots[ship].object.position();
     };
 }
 
@@ -305,7 +305,7 @@ pub fn curveWay(world: gameobj.World, index: u16) motion.Way {
     const slot = &world.objects.slots[index];
     const state = &slot.state.follow;
     const list = world.missionCurves();
-    const at = followed(state, list) orelse return .{ .point = gameobj.vector(slot.object.root.position) };
+    const at = followed(state, list) orelse return .{ .point = slot.object.position() };
     const curve = list[at];
     const t = share(world, state.*);
     const point = ride(world, entryData(world.objects, index), state.*, curves.point(curve, t));
@@ -340,7 +340,7 @@ pub fn backwardsWay(world: gameobj.World, index: u16) motion.Way {
     const slot = &world.objects.slots[index];
     const state = &slot.state.follow;
     const list = world.missionCurves();
-    const at = followed(state, list) orelse return .{ .point = gameobj.vector(slot.object.root.position) };
+    const at = followed(state, list) orelse return .{ .point = slot.object.position() };
     const data = entryData(world.objects, index);
     const t = 1 - share(world, state.*);
     const point = ride(world, data, state.*, curves.point(list[at], t));

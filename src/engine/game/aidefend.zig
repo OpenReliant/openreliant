@@ -203,6 +203,9 @@ pub fn run(fighter: Fighter) void {
     if (number < maneuvers.compiled.len) runScript(fighter, maneuvers.compiled[number]);
 }
 
+/// The work of `maneuver_run` on the maneuver's compiled lines, `program`: the afterburner stays on
+/// where the maneuver turned it on, lines start until one waits, `most_lines` at most in an update,
+/// the maneuver ends past its last line (`endManeuver`), and the line that waits runs.
 fn runScript(fighter: Fighter, program: []const script.Instruction) void {
     const state = fighter.state;
     if (state.afterburner) fighter.ship().afterburner = true;
@@ -306,6 +309,8 @@ fn endManeuver(fighter: Fighter) void {
     fighter.state.maneuver_end = fighter.now() - 1;
 }
 
+/// Whether the waiting instruction's time is up: its timer (`maneuver_start_timer`) lies before
+/// now.
 fn timeUp(fighter: Fighter) bool {
     return fighter.state.timer < fighter.now();
 }

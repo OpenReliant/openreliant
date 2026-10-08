@@ -1086,7 +1086,7 @@ fn positionRelativeShip(call: Call, ship: Ship) void {
     const all = ship.game.world.objects;
     const marker = call.argumentShip(all, 0) orelse return;
     const placed = machine.mission.ship(marker) orelse return;
-    const moved = gameobj.vector(all.slots[marker].object.root.position) - placed.position;
+    const moved = all.slots[marker].object.position() - placed.position;
     const record = machine.mission.ship(ship.index) orelse return;
     record.runtime_position = moved + record.runtime_position;
     objects.setPosition(&ship.slot.object, &ship.slot.drawn, record.runtime_position);
@@ -2019,11 +2019,11 @@ test "the commands that move ships, change their sides and leave them be" {
     for ([_]u16{ 2, 3 }, [_]f32{ 31000, 32000 }) |sabre, z| {
         const at: [3]f32 = .{ -100, 0, z };
         try std.testing.expectEqual(at, ships[sabre].runtime_position);
-        try std.testing.expectEqual(at, gameobj.vector(all.slots[sabre].object.root.position));
+        try std.testing.expectEqual(at, all.slots[sabre].object.position());
         try std.testing.expectEqual(at, gameobj.vector(all.slots[sabre].object.root.next_position));
         try std.testing.expectEqual(at, all.slots[sabre].drawn.position);
     }
-    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, gameobj.vector(all.slots[0].object.root.position));
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, all.slots[0].object.position());
     try std.testing.expectEqual(.hostile, all.slots[2].object.side);
     try std.testing.expectEqual(.friendly, all.slots[3].object.side);
     try std.testing.expect(all.slots[2].object.flags.do_not_disturb and !all.slots[3].object.flags.do_not_disturb);

@@ -34,7 +34,7 @@ fn objectsWithin(call: Call, radius: f32) handles.List {
     var walk = all.walk();
     while (walk.next()) |index| {
         if (index == itself or !world.inMission(all, index)) continue;
-        const apart = math.distance(centre, gameobj.vector(all.slots[index].object.root.position));
+        const apart = math.distance(centre, all.slots[index].object.position());
         if (apart > radius) continue;
         distances[found.len] = apart;
         found.append(.of(index));

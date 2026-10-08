@@ -350,6 +350,8 @@ fn depthOf(object_type: gameobj.Type) f32 {
     return 0;
 }
 
+/// The size of a warp at an object of `object_type`: its entry's in `warp_sizes`, found as
+/// `wgate_warp_sizes` (`0x00423020`) finds it, or `warp_default_size` for a type the table lacks.
 fn sizeOf(object_type: gameobj.Type) f32 {
     for (warp_sizes) |entry| if (entry.type == object_type) return entry.size;
     return warp_default_size;
@@ -870,7 +872,7 @@ pub fn jumpOut(ctx: aigeneric.Context, index: u16) void {
             state.next(.{ .out = .entering });
         },
         .entering => {
-            const at = math.lerp(gameobj.vector(slot.object.root.position), gameobj.vector(state.to), state.progress);
+            const at = math.lerp(slot.object.position(), gameobj.vector(state.to), state.progress);
             objects.setPosition(&slot.object, &slot.drawn, at);
             slot.object.root.markMoved();
             state.progress += elapsed * out_rate;
@@ -881,7 +883,7 @@ pub fn jumpOut(ctx: aigeneric.Context, index: u16) void {
             gates.riding = true;
             gates.rumbled_at = ctx.world.clock.frame_start;
             if (gates.worm) |tube| {
-                tube.object.position = gameobj.vector(slot.object.root.position);
+                tube.object.position = slot.object.position();
                 tube.object.orientation = slot.object.root.orientation;
             }
             if (world.flash) |flash| flash.start();
@@ -983,6 +985,10 @@ pub const SwingStep = enum(u32) {
     _,
 };
 
+/// What Fixed Gate Open and Close share: the tunnel at the object in slot `index` grows or shrinks
+/// as `way` says, easing between `closed_scale` and its full size by the time since it was last
+/// drawn. Once there, a closing tunnel is let go of (`Gates.freeRecord`), and the order ends; at an
+/// object with no tunnel, it ends at once (`open`'s **Fix**).
 fn swing(ctx: aigeneric.Context, index: u16, way: Swing) void {
     const gates = ctx.world.gates orelse return;
     const state = &ctx.world.objects.slots[index].state.gate;
@@ -1022,6 +1028,7 @@ const Collapsing = enum {
     advanced,
     other,
 
+    /// What a collapse at an object of `object_type` brings down.
     fn of(object_type: gameobj.Type) Collapsing {
         return switch (object_type.base()) {
             .proto_gate => .proto,
@@ -1499,7 +1506,7 @@ test "a ship comes in through a gate" {
     const object = &slot.object;
     // Held for the jump, it starts deep in the tunnel, which faces the gate's back: the gate's -Z.
     try std.testing.expect(object.flags.frozen and object.flags.unpowered and !object.flags.targetable);
-    try std.testing.expectApproxEqAbs(-26000, gameobj.vector(object.root.position)[2], 1e-2);
+    try std.testing.expectApproxEqAbs(-26000, object.position()[2], 1e-2);
     try std.testing.expect(record.busy);
     // It comes out beyond the mouth, a friend 53000 off, turned by the spread.
     const to = gameobj.vector(slot.state.gate.to);
@@ -1519,7 +1526,7 @@ test "a ship comes in through a gate" {
     try std.testing.expectEqual(0, object.order_count);
     try std.testing.expect(!object.flags.frozen and !object.flags.unpowered and object.flags.targetable);
     // It overshoots by the last update's step past the end, as the game's ships do.
-    try std.testing.expectApproxEqRel(53000, math.length(gameobj.vector(object.root.position)), 0.05);
+    try std.testing.expectApproxEqRel(53000, math.length(object.position()), 0.05);
 }
 
 test "the player's ship goes out through the nearest gate and rides the worm" {
@@ -1545,7 +1552,7 @@ test "the player's ship goes out through the nearest gate and rides the worm" {
     var ticks: usize = 0;
     while (!built.gates.riding and ticks < 1000) : (ticks += 1) mission.ordersAfter(ctx, player, 1);
     try std.testing.expect(built.gates.riding);
-    try std.testing.expectEqual(math.Vector{ 0, 0, away_depth }, gameobj.vector(slot.object.root.position));
+    try std.testing.expectEqual(math.Vector{ 0, 0, away_depth }, slot.object.position());
     // While it rides, the tunnels are left out of the scene and the worm is in it.
     mission.ordersAfter(ctx, player, 1);
     var scene: srcore.Scene = .{};

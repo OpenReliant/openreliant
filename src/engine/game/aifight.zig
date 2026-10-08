@@ -172,14 +172,17 @@ pub const Fighter = struct {
         return .of(ctx, index, .{ .target = read, .slot = slot });
     }
 
+    /// The objects of the world it fights in.
     pub fn objects(fighter: Fighter) *create.Objects {
         return fighter.ctx.world.objects;
     }
 
+    /// The tick the frame started at (`frame_start`), which the fighting times itself by.
     pub fn now(fighter: Fighter) i32 {
         return fighter.ctx.world.clock.frame_start;
     }
 
+    /// The fighting ship's object.
     pub fn ship(fighter: Fighter) *gameobj.GameObject {
         return &fighter.slot.object;
     }
@@ -199,10 +202,12 @@ pub const Fighter = struct {
         return math.lengthSquared(object.nextPosition() - fighter.position());
     }
 
+    /// Its current order, Fight.
     pub fn entry(fighter: Fighter) *aigeneric.Entry {
         return &fighter.slot.orders[0];
     }
 
+    /// Its target, as its order names it.
     pub fn target(fighter: Fighter) aigeneric.Target {
         return fighter.against.target;
     }
@@ -212,6 +217,7 @@ pub const Fighter = struct {
         return &fighter.objects().slots[fighter.against.slot];
     }
 
+    /// Where the target will be at the next step.
     pub fn enemyPosition(fighter: Fighter) Vector {
         return fighter.enemy().object.nextPosition();
     }
@@ -283,6 +289,7 @@ pub const Fighter = struct {
 pub const Players = struct {
     slots: []create.Slot,
 
+    /// The next player's ship still in the action, or null past the last.
     pub fn next(each: *Players) ?*gameobj.GameObject {
         while (each.slots.len > 0) {
             const object = &each.slots[0].object;
@@ -522,10 +529,12 @@ const Nearest = struct {
     index: ?u16 = null,
     apart: f32 = farthest,
 
+    /// Takes the ship at `index`, `apart` away, where it lies nearer than the nearest so far.
     fn offer(nearest: *Nearest, index: usize, apart: f32) void {
         if (apart < nearest.apart) nearest.take(index, apart);
     }
 
+    /// Takes the ship at `index`, `apart` away, as the nearest.
     fn take(nearest: *Nearest, index: usize, apart: f32) void {
         nearest.* = .{ .index = @intCast(index), .apart = apart };
     }

@@ -639,7 +639,7 @@ pub fn start(world: gameobj.World, index: u16) void {
     const split = &explosions.splits.add(world, .{ .capital = .{
         .object = index,
         .started = world.clock.frame_start,
-        .at = gameobj.vector(object.root.position),
+        .at = object.position(),
         .portals = .{ .{}, .{} },
         .sequence = sequence,
         .points = points,

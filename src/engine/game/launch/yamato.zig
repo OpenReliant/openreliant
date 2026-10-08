@@ -57,10 +57,6 @@ const quarter_turn = launch.quarter_turn;
 const door_count = 2;
 const hangar_first_door = 0;
 const hangar_sound_door = 1;
-/// The hangar's first three parts exclude every backdrop light but the first ambient
-/// (`0x00419670`).
-const hangar_light_mask: u32 = 0x3B;
-const lit_parts = 3;
 /// The throttle at step 4 (`launch_yamato_run`, `0x00419840`).
 const out_throttle: f32 = 2;
 /// View 15 starts in the last 50 ticks of step 6 (`0x00419884`).
@@ -135,6 +131,8 @@ pub const Cutaway = enum(i32) {
     }
 };
 
+/// The steam's emitters, one at each of the bay's `vents`, as `launches_init` makes them
+/// (`0x00418B61` onward), each sending out `steam` at `steam_speed`.
 fn makeEmitters() [vents.len]particles.Emitter {
     var result: [vents.len]particles.Emitter = undefined;
     for (&result, vents) |*emitter, vent| emitter.* = .{
@@ -191,16 +189,9 @@ fn showHangar(ctx: aigeneric.Context, frame: math.Place, bounds: [2]math.Vector)
         .original => &steam,
         .soft => &soft_steam,
     };
-    const hangar = create.make(world, create.cutaway_slot, .of(.yamato_hangar)) catch |err| {
-        std.log.scoped(.launch).warn("the Yamato's hangar is left out: {s}", .{@errorName(err)});
-        return;
-    } orelse return;
+    const hangar = launch.makeHangar(world, .of(.yamato_hangar), "the Yamato") orelse return;
     const shown = &all.slots[hangar];
-    shown.object.flags.no_collisions = true;
     for (&effects.due) |*due| due.* = world.clock.frame_start + @as(i32, world.random.rand() % vent_pause);
-    if (shown.model) |*model| for (model.parts[0..@min(lit_parts, model.parts.len)]) |*part| {
-        part.object.light_mask = hangar_light_mask;
-    };
     var at = (bounds[0] + bounds[1]) * @as(math.Vector, @splat(0.5));
     at[0] = bounds[1][0];
     var front = (gameobj.vector(shown.object.bounds_min) + gameobj.vector(shown.object.bounds_max)) * @as(math.Vector, @splat(0.5));
@@ -299,17 +290,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
                 if (std.math.cast(usize, slot.orders[0].target.component)) |gate| setBay(model, gate, false);
             };
             slot.object.letGo();
-            if (player) {
-                if (world.display) |display| display.caption.stop();
-                if (world.camera) |view| {
-                    view.cockpit_mode = view.setting.mode();
-                    switch (view.view) {
-                        .yamato_beside, .yamato_ahead, .yamato_aside => _ = view.setView(.cockpit, index, false, true, world.clock.viewTime()),
-                        else => {},
-                    }
-                }
-                world.player.showing = .everything;
-            }
+            if (player) launch.endForPlayer(world, index, &.{ .yamato_beside, .yamato_ahead, .yamato_aside });
             slot.motion = .forward;
             launch.letGo(ctx, index);
             return;
@@ -319,10 +300,13 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
     if (player and @backingInt(state.step) < @backingInt(Step.fly)) stream(world);
 }
 
+/// Moves the launch on to `step` at the tick `now`, to wait the step's ticks (`Step.wait`).
 fn advance(state: *launch.State, step: Step, now: i32) void {
     state.moveOn(step, now, step.wait());
 }
 
+/// Switches the camera to the Yamato launch's view `view` of the player's ship
+/// (`camera.Camera.setYamato`).
 fn switchView(world: gameobj.World, view: camera.View) void {
     const watching = world.camera orelse return;
     const player = world.objects.player;

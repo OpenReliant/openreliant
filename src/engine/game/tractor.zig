@@ -255,6 +255,7 @@ pub const Beam = struct {
         return beam;
     }
 
+    /// Frees the beam and its mesh.
     pub fn destroy(beam: *Beam, gpa: Allocator) void {
         beam.mesh.deinit(gpa);
         gpa.destroy(beam);
@@ -325,6 +326,8 @@ pub const Bubble = struct {
     colours: [][4]f32,
     uv: [][2]f32,
 
+    /// Makes the bubble in `gpa` on the shields' finest sphere, `scale` times its size, with
+    /// colours and texture coordinates of its own.
     fn create(gpa: Allocator, shields: *const shield.Shields, scale: f32) Allocator.Error!*Bubble {
         const sphere = shields.finest();
         const mesh = sphere.mesh;
@@ -348,6 +351,7 @@ pub const Bubble = struct {
         return bubble;
     }
 
+    /// Frees the bubble, its colours and its texture coordinates.
     fn destroy(bubble: *Bubble, gpa: Allocator) void {
         gpa.free(bubble.colours);
         gpa.free(bubble.uv);
@@ -615,7 +619,7 @@ pub fn scoopUp(ctx: Context, index: u16) void {
             const to = door.ahead(if (pulling) pull_out else scooper.stow);
             // Where the pod was placed, which the game's frame has it at; OpenReliant draws it on
             // between the ticks (`create.Slot.glide`).
-            const was = gameobj.vector(pod.object.root.position);
+            const was = pod.object.position();
             const reach = math.distance(to, was);
             const speed = if (pulling) @min(math.lerp(pull_slowest, pull_fastest, reach / pull_ramp), pull_fastest) else stow_speed;
             const way = math.normalize(to - was);
@@ -1099,7 +1103,7 @@ test scoopUp {
     scoopUp(ctx, nanny);
     try std.testing.expect(held.object.network.scooping);
     try std.testing.expectApproxEqAbs(-18, held.glide[2], 1e-3);
-    try std.testing.expectApproxEqAbs(4000 - 180, gameobj.vector(held.object.root.position)[2], 1e-2);
+    try std.testing.expectApproxEqAbs(4000 - 180, held.object.position()[2], 1e-2);
     // Halfway there, at 1350 a second.
     objects.setPosition(&held.object, &held.drawn, .{ 0, 0, 1500 });
     mission.clock.frame_start = 130;

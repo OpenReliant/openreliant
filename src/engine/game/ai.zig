@@ -101,6 +101,8 @@ pub const Aimed = struct {
     /// turn for the object itself (`maneuver_new_attack_run_run`, which walks up to it).
     orientation: math.Matrix,
 
+    /// Where part `part` of `model` stands and how far it reaches, turned as the part hanging from
+    /// the root that it is or hangs from.
     fn ofPart(model: *const objects.Model, part: *const objects.Model.Part) Aimed {
         return .{ .position = part.object.position, .radius = part.object.radius, .orientation = model.topOf(part).object.orientation };
     }
@@ -1402,7 +1404,7 @@ test "a ship steered at a point comes round to face it" {
     const off = struct {
         /// How far the point lies off the ship's nose, in radians.
         fn angle(ship: *const create.Slot, point: Vector) f32 {
-            const toward = math.normalize(point - gameobj.vector(ship.object.root.position));
+            const toward = math.normalize(point - ship.object.position());
             return std.math.acos(std.math.clamp(math.dot(toward, math.forward(ship.object.root.orientation)), -1, 1));
         }
     }.angle;
@@ -1414,7 +1416,7 @@ test "a ship steered at a point comes round to face it" {
         // What the next step commits, which the steering then reads.
         slot.object.root.position = slot.object.root.next_position;
         slot.object.root.orientation = slot.object.root.next_orientation;
-        slot.drawn = .{ .position = gameobj.vector(slot.object.root.position), .orientation = slot.object.root.orientation };
+        slot.drawn = .{ .position = slot.object.position(), .orientation = slot.object.root.orientation };
     }
     try std.testing.expect(off(slot, at) < before / 4);
 }

@@ -84,6 +84,8 @@ pub const Effect = struct {
     spin: f32 = 0,
     brightness: f32 = beam_bright,
 
+    /// The four beams (`warp_beam_build`, `0x0041D2B0`) and their emitters, born `now`, each at its
+    /// beam's end, a quarter turn round the axis from the last at `emitter_start_radius`.
     pub fn init(gpa: std.mem.Allocator, image: *srtexture.Image, now: i32) !Effect {
         var result: Effect = .{
             .meshes = undefined,
@@ -107,6 +109,10 @@ pub const Effect = struct {
         for (&effect.meshes) |*mesh| mesh.deinit(gpa);
     }
 
+    /// Adds the beams to `scene` while the ship of `record` opens its tunnel under Warp Out
+    /// (`warp_projector_beams`, `0x0041D510`): each from its projector point (`projectorSources`)
+    /// to its emitter's place in the warp's frame, red, clear at the projector and as bright as the
+    /// effect at the far end.
     pub fn draw(effect: *Effect, gpa: std.mem.Allocator, scene: *srcore.Scene, record: *wgate.Record, all: *const create.Objects) !void {
         const slot = &all.slots[record.slot];
         if (slot.running(.warp_out) == null or slot.state.warp.step != @backingInt(OutStep.open)) return;
@@ -135,6 +141,11 @@ pub const Effect = struct {
         }
     }
 
+    /// Moves the beams' ends with the warp, `progress` of the way and `delta` on since the last
+    /// time (`warp_endpoint_frames`, `0x0041FD50`): they spin round the axis, the even ones one way
+    /// and the odd ones the other, faster and then slower, out at the tunnel's radius and depth
+    /// once it reaches past its mouth, and each streams its particles. The beams fade past
+    /// `beam_fade_at` (`warp_beam_fade`, `0x0041DC20`).
     fn stream(effect: *Effect, world: gameobj.World, record: *wgate.Record, progress: f32, delta: f32) void {
         const radius_now = radius(record, progress);
         const slot = &world.objects.slots[record.slot];
@@ -304,6 +315,7 @@ pub fn inInit(ctx: aigeneric.Context, index: u16) void {
     }
 }
 
+/// The tunnel record of the object in slot `index`, where the gates hold one.
 fn recordFor(ctx: aigeneric.Context, index: u16) ?*wgate.Record {
     const gates = ctx.world.gates orelse return null;
     return gates.of(index);
@@ -316,6 +328,8 @@ fn elapsed(state: *State, now: i32) f32 {
     return @as(f32, @floatFromInt(ticks)) * gameobj.progress_per_tick;
 }
 
+/// Moves the order on to `step`, and the progress of its tunnel's record, where it has one, back to
+/// the start.
 fn advance(state: *State, step: anytype, record: ?*wgate.Record) void {
     state.step = @backingInt(step);
     if (record) |held| held.progress = 0;
@@ -569,6 +583,11 @@ fn radius(record: *const wgate.Record, progress: f32) f32 {
     return ease.cosine(record.warp_size * closed_radius, record.warp_size, progress);
 }
 
+/// The tunnel of `record` as Warp Out opens it, `progress` of the way: its depth grows by the
+/// square root of the progress (`warp_open_depth`, `0x0041DD50`) to as many spacings as it has
+/// rings, a capital ship's wider apart. Once past the mouth, its first ring stands at the mouth at
+/// the radius it opens from, and each ring the depth has reached stands at the depth, at the radius
+/// the opening has reached (`radius`); its last ring closes the end.
 fn openingShape(record: *wgate.Record, capital: bool, progress: f32) void {
     const tunnel = &record.tunnel;
     const spacing = if (capital) capital_spacing else fighter_spacing;
@@ -594,6 +613,9 @@ fn depthBetween(from: f32, to: f32, progress: f32) f32 {
     return math.lerp(from, to, amount);
 }
 
+/// The tunnel of `record` as Warp Out stretches it, `progress` of the way: each ring in turn, once
+/// the progress reaches its share, moves from where it stood to its mirror place about the tunnel's
+/// middle, eased (`depthBetween`), so that the tunnel stretches out ring by ring.
 fn extendedShape(record: *wgate.Record, capital: bool, progress: f32) void {
     const tunnel = &record.tunnel;
     const spacing = if (capital) capital_spacing else fighter_spacing;

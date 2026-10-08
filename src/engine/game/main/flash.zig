@@ -47,7 +47,7 @@ pub const Flash = struct {
     /// `explode_flash_near` (`0x00471D70`): lights the view where the camera, at `camera`, stands
     /// within `near_radii` of `object`.
     pub fn near(flash: *Flash, object: *const gameobj.GameObject, camera: Vector) void {
-        if (math.distance(gameobj.vector(object.root.position), camera) < object.radius * near_radii) flash.start();
+        if (math.distance(object.position(), camera) < object.radius * near_radii) flash.start();
     }
 
     /// `screen_flash_draw` (`0x00494940`), once a frame but while paused: while the flash lasts,

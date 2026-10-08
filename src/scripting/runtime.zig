@@ -76,12 +76,12 @@ pub const RunsOn = union(enum) {
     /// Where it is, while it's valid.
     pub fn position(runs_on: RunsOn, all: *const Objects) @Vector(3, f32) {
         return switch (runs_on) {
-            .object => |handle| gameobj.vector(all.slots[handle.slot].object.root.position),
-            .missile => |handle| gameobj.vector(all.missiles.records[handle.record].?.slot.object.root.position),
+            .object => |handle| all.slots[handle.slot].object.position(),
+            .missile => |handle| all.missiles.records[handle.record].?.slot.object.position(),
             .turret => |handle| if (all.slots[handle.object.slot].guns[handle.gun].turret.base()) |base|
                 base.part().drawn().position
             else
-                gameobj.vector(all.slots[handle.object.slot].object.root.position),
+                all.slots[handle.object.slot].object.position(),
         };
     }
 
