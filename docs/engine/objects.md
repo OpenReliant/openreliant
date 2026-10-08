@@ -663,9 +663,7 @@ A ship's end, and the limpet car's, posts its Destroyed event for the mission's 
 
 The blasts' break-up, particles, fireballs, burning bits and shockwaves are in
 [Effects](effects.md), with the capital ships' splits, the Ulysses' end, the pieces a few types
-throw off and the [extras](effects.md#extras) a few types carry. Not ported: the extras the
-prototype gate's and the Boridin breakaway's components light as they go
-([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+throw off and the [extras](effects.md#extras) a few types carry.
 
 ## The wing's pilots
 
@@ -779,9 +777,7 @@ Each part the pass takes out that the object lists as a component posts the comp
 event first ([Script VM](script-vm.md#events)).
 
 [`objects.zig`](../../src/engine/game/objects.zig) ports the pass as `loseComponents` and
-`node_destroy` as `destroyPart`. Not ported: the extras the prototype gate's and the Boridin
-breakaway's components light as they go
-([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+`node_destroy` as `destroyPart`.
 
 OpenReliant lists them in [`create.zig`](../../src/engine/game/create.zig) as the parts themselves,
 since a mounted turret's parts are not the hull's, and marks each one as a component and, where the

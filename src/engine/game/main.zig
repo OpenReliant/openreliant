@@ -1091,9 +1091,7 @@ pub const DetailReach = enum {
 ///
 /// While the player's ship rides the worm between gates, the pass draws nothing (`drawFrame`).
 ///
-/// Not ported yet: the protogate's power core pulsing and the Boridin breakaway's core, which the
-/// pass draws too ([#238](https://github.com/OpenReliant/openreliant/issues/238)). The pass's
-/// smoke is `smoke.frame`.
+/// The pass's smoke is `smoke.frame`.
 pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, attachments: objects.View, seat: ?u16, splits: ?*const explode.split.Splits, shown: Shown) Allocator.Error!void {
     var walk = all.walk();
     while (walk.next()) |index| {
@@ -1122,19 +1120,36 @@ pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, a
             view.cloak = .{ .cloak = cloaking, .kafelnikof = object.type.base() == .kafelnikof };
         }
         try model.draw(gpa, scene, .world, view);
-        if (slot.extra) |extra| try drawExtra(gpa, scene, all, object, extra);
+        if (slot.extra) |extra| try drawExtra(gpa, scene, all, object, extra, attachments.frame_start);
     }
 }
 
-/// What the objects pass adds to the world's layer for an object's extra (`create.extra`): the
-/// Dark Reign's hat, its band and its star where its `Dark Coil` stands, unless the ship is
-/// exploding (`0x00493159`).
+/// What the objects pass adds to the world's layer for an object's extra (`create.extra`), at tick
+/// `now`:
+///
+/// - The prototype gate's core's glow, pulsing `gate_glow_pulse` either way of `gate_glow_size`
+///   (`0x00492DC7`).
+/// - The Boridin breakaway's core's glow, `breakaway_glow_size` either way, and sorted as if it
+///   stood `breakaway_glow_bias` farther (`0x00492E30`).
+/// - The Dark Reign's hat, its band and its star where its `Dark Coil` stands, unless the ship is
+///   exploding (`0x00493159`).
+///
+/// **Improvement:** the pulse's sine comes from `std.math` rather than the engine's table
+/// (`sr_sin`).
 ///
 /// **Fix:** the game adds an extra even while it leaves its object out, as the ejection's cutaway
 /// leaves out every ship but two, so that the Dark Reign's hat would hang there without its ship.
 /// OpenReliant draws an extra only with its object.
-fn drawExtra(gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, object: *const gameobj.GameObject, extra: *create.extra.Extra) Allocator.Error!void {
+fn drawExtra(gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, object: *const gameobj.GameObject, extra: *create.extra.Extra, now: i32) Allocator.Error!void {
     switch (extra.*) {
+        .glow => |*glow| {
+            switch (object.type.base()) {
+                .proto_gate => glow.size(gatePulse(now), 0),
+                .boridin_breakaway => glow.size(breakaway_glow_size, breakaway_glow_bias),
+                else => {},
+            }
+            if (glow.stand(all)) try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &glow.set }, .world);
+        },
         .hat => |*hat| {
             if (object.flags.exploding) return;
             const coil = hat.coil.live(all) orelse return;
@@ -1145,6 +1160,22 @@ fn drawExtra(gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, o
         },
     }
 }
+
+/// How far either way the prototype gate's core's glow reaches at tick `now`: `gate_glow_size`, and
+/// up to `gate_glow_pulse` either way of it, the sine of a hundredth of the tick
+/// (`0x004DC518`, `0x004DC468`, `0x004DC7D0`).
+fn gatePulse(now: i32) f32 {
+    return @sin(@as(f32, @floatFromInt(now)) * gate_pulse_rate) * gate_glow_pulse + gate_glow_size;
+}
+
+const gate_pulse_rate: f32 = 0.01;
+const gate_glow_pulse: f32 = 200;
+const gate_glow_size: f32 = 2500;
+
+/// How far either way the Boridin breakaway's core's glow reaches, and how much farther it is
+/// sorted (`0x00492E32`, `0x00492E54`).
+const breakaway_glow_size: f32 = 4500;
+const breakaway_glow_bias: f32 = 28000;
 
 /// The way the Ripper in `slot` goes, which its glows are drawn by (`objects.View.ripper`):
 /// backing up while `motion_backward` or `motion_follow_backwards` moves it, and forward otherwise
@@ -1258,6 +1289,38 @@ test "the Dark Reign's hat is drawn where its coil stands, but not as the ship e
         for (scene.layers.get(.world).items) |item| try std.testing.expect(item.mesh != &hat.band.object);
     }
     flags.* = kept;
+}
+
+test gatePulse {
+    // At tick 0 the glow reaches 2500 either way; a quarter turn of the sine on, 200 more.
+    try std.testing.expectEqual(gate_glow_size, gatePulse(0));
+    try std.testing.expectApproxEqAbs(gate_glow_size + gate_glow_pulse, gatePulse(157), 0.1);
+}
+
+test "a core's glow is drawn as its type sizes it, where it stands" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    const ship = try mission.addWith(model.types(), .of(.boridin_breakaway), .{ 0, 0, 5000 });
+    const slot = mission.slot(ship);
+    slot.extra = try create.extra.makeGlow(gpa, &create.extra.testing.images, null, .{ 100, 0, 0 }, &explode.breakaway_core_sparks);
+    const all = mission.objects;
+    frameObjects(all, .{}, 0);
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    try drawObjects(gpa, &scene, all, .{}, null, null, .{});
+    // The breakaway's glow comes after the ship, 4500 either way, sorted 28000 farther, standing
+    // where it was lit.
+    const glow = &slot.extra.?.glow;
+    const drawn = scene.layers.get(.world).items;
+    try std.testing.expect(drawn[drawn.len - 1].sprites == &glow.set);
+    try std.testing.expectEqual(breakaway_glow_size, glow.sprite[0].half_size[0]);
+    try std.testing.expectEqual(breakaway_glow_bias, glow.sprite[0].bias);
+    try std.testing.expectEqual(math.Vector{ 100, 0, 0 }, glow.set.position);
 }
 
 test "the camera is in a hangar while a launch shows the bay, or a landing the tube, from within" {

@@ -300,11 +300,11 @@ part's size go off within a quarter of its size of it, 10 ticks apart.
   so only the block goes and the rest of the arm stays on the ship beside the arm thrown off.
   OpenReliant looks through the whole ship, as when the block is destroyed.
 
-The Dark Reign's hat goes out with its coil, assembly 17 ([The Dark Reign's hat](#the-dark-reigns-hat)).
+The Dark Reign's hat goes out with its coil, assembly 17 ([The Dark Reign's hat](#the-dark-reigns-hat)),
+and the prototype gate's power core and the Boridin breakaway's core light up with assemblies 1
+and 2, the breakaway's going out again with assembly 3 ([The cores' glows](#the-cores-glows)).
 
-[`explode/extras.zig`](../../src/engine/game/explode/extras.zig) ports them. Not ported: the extras
-that light the prototype gate's power core (assembly 1) and the Boridin breakaway's core
-(assemblies 2 and 3) ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+[`explode/extras.zig`](../../src/engine/game/explode/extras.zig) ports them.
 
 ## Splits
 
@@ -347,9 +347,9 @@ When the time is up, the split ends once (`GameObject` `0x610` bit 1) and the po
 
 The flash (`0x00587CC8`) lasts 100 ticks. Once a frame, `mission_frame` draws it and counts it down by the frame's ticks (`0x00494940`): a sprite over the whole view, just beyond the near plane in the overlay's layer, untextured and added to what is drawn, white at 0.012 for each tick left, at most 1. So it holds white for 17 ticks and fades out over the rest. The same sprite shows red while the player's display is shaken by a hit ([The interference](hud.md#the-interference)).
 
-A split puts out the Dark Reign's hat as it starts ([The Dark Reign's hat](#the-dark-reigns-hat)).
+A split puts out the Dark Reign's hat and the Boridin breakaway's core as it starts ([Extras](#extras)).
 
-[`explode/split.zig`](../../src/engine/game/explode/split.zig) ports the splits, and [`main/flash.zig`](../../src/engine/game/main/flash.zig) the flash. Not ported: putting out the Boridin breakaway's core, which a split does first ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+[`explode/split.zig`](../../src/engine/game/explode/split.zig) ports the splits, and [`main/flash.zig`](../../src/engine/game/main/flash.zig) the flash.
 
 ### The Ulysses' end
 
@@ -527,14 +527,25 @@ The ship also takes the mass of its `Dark Low Body`, and of the turrets mounted 
 
 The pass draws the band and the star while the ship isn't exploding. The hat goes out as the ship loses its `Dark Coil`, the component of assembly 17 (`explode_component_lost`), and as it splits (`explode_capship_component`): its rays go, its sparks stop, and its band and its star are let go.
 
+### The cores' glows
+
+`explode_component_lost` lights the cores of two types as they lose a component. Each glow (`Explode Powercore BMO`) is one sprite of `gunflare\partic5`, a soft red disc, unlit and added, and red sparks stream from it for good, leaving at 20 to 30 a tick:
+
+- **The prototype gate** (`0x6D`) lights its power core as it loses its `Inner Core01`, the component of assembly 1 (`0x0046DE71`). The glow hangs from what the inner core hangs from, where the inner core stands in it, and the first explosion's sound is heard from the `Protogate Power core`. The sparks (`0x005586E8`) are 400 across, fade out over 2 to 2.2 seconds, nine tenths of one a tick, and leave every way but little up and down, strayed up to a turn either way across X and Z and an eighth of one along Y. They stand in the world where the glow stands as it lights, and stay there as the power core turns with its looping `startup` track and the glow with it.
+- **The Boridin breakaway** (`0xA8`) lights its `Bor brk away CORE` as it loses its projector's generator, assembly 2 (`0x0046E07B`). The sparks (`0x0055ACF8`) are 1000 across, fade out over 1.3 to 1.5 seconds, one and a half a tick, and leave every way, from the core. The glow stands in the world where the core stands as it lights, and stays there as the ship moves.
+
+The pass sizes the gate's glow `sin(frame_start * 0.01) * 200 + 2500` either way, so that it pulses, and the breakaway's 4500 either way, sorted as if it stood 28000 farther; the game makes both 2500 either way. The breakaway's core goes out as it loses the core itself, assembly 3, as it splits (`split_create`), and as it starts to charge a Jump Out (`order_jump_out`): its glow goes, and the game ends its sparks' emitter, so that the next update lets them go. The gate's glow stays until the gate goes, and its sparks after it.
+
+**Improvement:** the pulse's sine comes from `std.math` rather than the engine's table (`sr_sin`).
+
 **Fixes:**
 
-- The game sums the coil's vertices onto a vector it never clears, starting from whatever its stack held. OpenReliant starts from nothing.
+- The game sums the Dark Reign's coil's vertices onto a vector it never clears, starting from whatever its stack held. OpenReliant starts from nothing.
 - The game always puts an extra's emitter in the first slot of the burning wrecks' smoke, and a wreck's smoke streaming there stops. OpenReliant takes the first free slot.
 - The game adds an extra even while it leaves its object out, as the ejection's cutaway leaves out every ship but two. OpenReliant draws an extra only with its object.
-- Losing a component of the coil's assembly on a turret mounted on the Dark Reign, the game looks for the hat under the turret's model, finds none and fails. OpenReliant puts nothing out.
+- Losing a component of the Dark Reign's coil's assembly or of the breakaway's core's on a turret mounted on the ship, the game looks for the extra's part under the turret's model, finds none and fails. OpenReliant puts nothing out.
 
-[`create/extra.zig`](../../src/engine/game/create/extra.zig) ports the extras and the hat, [`main.zig`](../../src/engine/game/main.zig) their drawing as `drawExtra`, and [`explode/extras.zig`](../../src/engine/game/explode/extras.zig) putting the hat out as `putOutHat`. Not ported: the extras the prototype gate's and the Boridin breakaway's components light as they go ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+[`create/extra.zig`](../../src/engine/game/create/extra.zig) ports the extras and the hat, [`main.zig`](../../src/engine/game/main.zig) their drawing as `drawExtra`, and [`explode/extras.zig`](../../src/engine/game/explode/extras.zig) lighting the cores (`lightGateCore`, `lightBreakawayCore`) and putting the extras out (`putOut`).
 
 ## Smoke
 

@@ -3,11 +3,9 @@
 //! Boridin throws its gun dome off, the Kronstadt an arm, the Krasnaya an arm with its engine
 //! block (`krasnaya_left_arm_off`, `0x00472140`, and `krasnaya_right_arm_off`, `0x00472420`, which
 //! its split runs too), the Stalag a door, and the prototype gate a panel of its core; the Stalag's
-//! cargo pods burst in a red flame; and the Dark Reign's hat goes out with its coil (`putOutHat`),
-//! as it does when the ship splits.
-//!
-//! Not ported: what lights the prototype gate's power core and the Boridin breakaway's core as
-//! their components go ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+//! cargo pods burst in a red flame. The prototype gate's power core and the Boridin breakaway's
+//! core light up (`lightGateCore`, `lightBreakawayCore`), and the Boridin breakaway's core and the
+//! Dark Reign's hat go out (`putOut`), as they also do when the ship splits.
 
 const std = @import("std");
 
@@ -40,8 +38,13 @@ pub fn componentLost(world: gameobj.World, index: u16, model: *objects.Model, li
         .stalag => if (own) doorLost(world, index, model, link) else podLost(world, slot, model),
         .proto_gate => if (link >= first_panel_link and link <= last_panel_link) {
             return !panelLost(world, index, model, link);
+        } else if (link == inner_core_link) lightGateCore(world, index),
+        .boridin_breakaway => switch (link) {
+            breakaway_light_link => lightBreakawayCore(world, index, model),
+            breakaway_core_link => if (model.partNamed(breakaway_core) != null) putOut(world, index),
+            else => {},
         },
-        .darkreign => if (link == hat_link and model.partNamed(create.extra.dark_hat) != null) putOutHat(world, index),
+        .darkreign => if (link == hat_link and model.partNamed(create.extra.dark_hat) != null) putOut(world, index),
         else => {},
     }
     return true;
@@ -50,26 +53,112 @@ pub fn componentLost(world: gameobj.World, index: u16, model: *objects.Model, li
 /// The assembly of the Dark Reign's `Dark Coil`, whose loss puts its hat out (`0x0046DFC9`).
 const hat_link = 17;
 
-/// Puts out the Dark Reign's hat (`create.extra.Hat`), as the loss of its coil does
-/// (`0x0046DFD4`) and its split (`explode_capship_component`, `0x0046F8A7`): its four rays go
-/// (`eray_remove`), its sparks stop (`particle_emitter_free`), and its band, its star and the
-/// record go with them. The object in slot `index` has its hat no more.
+/// Puts out the extra of the object in slot `index` (`create.extra`), as the game puts out the
+/// Dark Reign's hat as the ship loses its coil (`0x0046DFD4`) and as it splits
+/// (`explode_capship_component`, `0x0046F8A7`), and the Boridin breakaway's core as it loses the
+/// core (`0x0046E191`), as it splits (`split_create`, `0x0046F57D`) and as it charges its jump
+/// (`order_jump_out`, `0x004170D3`): the hat's four rays go (`eray_remove`), its sparks stop
+/// (`particle_emitter_free`; for the core the game ends the emitter's life, so that the next update
+/// lets it go), and what it draws and the record go with them.
 ///
-/// **Fix:** losing a component of the coil's assembly, the game looks for the hat under the model
-/// that held the component, and a turret mounted on the ship has none: the game reads through
-/// nothing and fails. OpenReliant puts nothing out.
-pub fn putOutHat(world: gameobj.World, index: u16) void {
+/// **Fix:** losing a component of the Dark Reign's coil's assembly or of the breakaway's core's,
+/// the game looks for the extra's part under the model that held the component, and a turret
+/// mounted on the ship has none: the game reads through nothing and fails. OpenReliant puts
+/// nothing out.
+pub fn putOut(world: gameobj.World, index: u16) void {
     const slot = &world.objects.slots[index];
     const extra = slot.extra orelse return;
-    const hat = switch (extra.*) {
-        .hat => |*worn| worn,
-    };
-    if (world.rays) |rays| for (hat.rays) |kept| {
-        if (rays.kept(kept orelse continue)) |ray| rays.remove(ray);
-    };
-    if (world.explosions) |explosions| explosions.dropStream(index, &explode.hat_sparks);
+    switch (extra.*) {
+        .hat => |*hat| if (world.rays) |rays| for (hat.rays) |kept| {
+            if (rays.kept(kept orelse continue)) |ray| rays.remove(ray);
+        },
+        .glow => {},
+    }
+    if (world.explosions) |explosions| explosions.dropStream(index, extra.sparks());
     extra.destroy(world.objects.gpa);
     slot.extra = null;
+}
+
+/// The prototype gate's inner core, the component of assembly `inner_core_link` whose loss lights
+/// its power core (`0x0046DE68`), and the part its glow stands at (`0x00500350`).
+const inner_core_link = 1;
+const inner_core = "Inner Core01";
+
+/// What lights the prototype gate's power core as it loses its inner core (`0x0046DE71`): the
+/// core's glow (`create.extra.Glow`) hangs from what the inner core hangs from, where the inner
+/// core stands in it (`0x0046DF04`), and the explosion's sound is heard from the power core. Red
+/// sparks (`explode.gate_core_sparks`) stream for good at 20 to 30 a tick, every way but little up
+/// and down: strayed up to a turn either way across X and Z, and an eighth of one along Y
+/// (`0x0046DF6F`). They stand in the world where the glow stands as it lights (`0x0046DF53`),
+/// and stay there as the power core turns with its looping `startup` track and the glow with it.
+fn lightGateCore(world: gameobj.World, index: u16) void {
+    const slot = &world.objects.slots[index];
+    const model = if (slot.model) |*live| live else return;
+    const inner = model.partNamed(inner_core) orelse return;
+    const core = model.partNamed(power_core) orelse return;
+    if (inner.model != model) return;
+    const parent: objects.NodeOf = .{ .object = index, .part = inner.part().parent };
+    const at = inner.part().origin;
+    const glow_place = (parent.place(world.objects) orelse return).point(at);
+    const core_place = slot.partPlace(core.part()) orelse return;
+    if (!hangGlow(world, index, parent, at, &explode.gate_core_sparks)) return;
+    explode.sound(world, core_place.position, .explosions);
+    streamSparks(world, .{ .world = index }, glow_place, gate_sparks_spread, &explode.gate_core_sparks);
+}
+
+/// How the gate's core's sparks stray as they leave (`0x0046DF6F`).
+const gate_sparks_spread: Vector = .{ std.math.tau, std.math.pi / 4.0, std.math.tau };
+
+/// The Boridin breakaway's core (`0x004E1B4C`), the component of assembly `breakaway_core_link`;
+/// and the assembly whose loss lights it (`0x0046E072`), its projector's generator's.
+const breakaway_core = "Bor brk away CORE";
+const breakaway_core_link = 3;
+const breakaway_light_link = 2;
+
+/// What lights the Boridin breakaway's core as it loses the component of assembly
+/// `breakaway_light_link` (`0x0046E07B`), where the core is found under the model that held the
+/// component: red sparks (`explode.breakaway_core_sparks`) stream for good from the core at 20 to
+/// 30 a tick, every way (`0x0046E0DA`), and the core's glow (`create.extra.Glow`) stands where the
+/// core stands in the world, and stays there (`0x0046E176`).
+///
+/// OpenReliant hangs the sparks from the core, where the game hangs them from what the core hangs
+/// from, where the core stands in it: the same place.
+fn lightBreakawayCore(world: gameobj.World, index: u16, model: *objects.Model) void {
+    const slot = &world.objects.slots[index];
+    const core = model.partNamed(breakaway_core) orelse return;
+    const stands = slot.partPlace(core.part()) orelse return;
+    if (!hangGlow(world, index, null, stands.position, &explode.breakaway_core_sparks)) return;
+    streamSparks(world, .{ .part = .{ .object = index, .part = core } }, @splat(0), @splat(std.math.tau), &explode.breakaway_core_sparks);
+}
+
+/// Hangs a core's glow on the object in slot `index` (`create.extra.makeGlow`), in place of any
+/// extra it has, as the game hangs its new record in place of the last: whether it is hung.
+fn hangGlow(world: gameobj.World, index: u16, parent: ?objects.NodeOf, at: Vector, sparks: *const particles.Template) bool {
+    const images = world.extras orelse return false;
+    const extra = create.extra.makeGlow(world.objects.gpa, images, parent, at, sparks) catch return false;
+    putOut(world, index);
+    world.objects.slots[index].extra = extra;
+    return true;
+}
+
+/// How fast a core's sparks leave it, a tick: `sparks_speed` and up to `sparks_speed_range` more
+/// (`0x0046DF89`, `0x0046DF93`).
+const sparks_speed: f32 = 20;
+const sparks_speed_range: f32 = 10;
+
+/// A core's sparks of `template`, streaming for good from `at`, in the frame of what `on` hangs
+/// them from or in the world, strayed by `spread` (`explode.Explosions.hangStream`).
+fn streamSparks(world: gameobj.World, on: explode.Stream.On, at: Vector, spread: Vector, template: *const particles.Template) void {
+    const explosions = world.explosions orelse return;
+    explosions.hangStream(on, .{
+        .life = explode.forever_life,
+        .born = world.clock.frame_start,
+        .place = .{ .position = at },
+        .spread = spread,
+        .speed = sparks_speed,
+        .speed_range = sparks_speed_range,
+        .template = template,
+    });
 }
 
 /// The Boridin's gun dome, its assembly and its wreck's part (`0x00500400`); and the assembly whose
@@ -460,7 +549,7 @@ test "the Boridin throws its gun dome off, and gets its power back" {
     try std.testing.expect(!object.flags.unpowered);
 }
 
-test putOutHat {
+test "the Dark Reign's hat goes out with its coil" {
     const gpa = std.testing.allocator;
     var stage: explode.testing.Stage = undefined;
     try stage.init();
@@ -476,5 +565,70 @@ test putOutHat {
     try std.testing.expect(componentLost(world, ship.index, model, hat_link));
     try std.testing.expectEqual(null, ship.hat(&stage));
     for (ship.rays.rays.slots) |slot| try std.testing.expectEqual(null, slot);
+    try std.testing.expectEqual(null, stage.explosions.streams[0]);
+}
+
+test "the prototype gate's power core lights as it loses its inner core" {
+    var stage: explode.testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    // The power core, and the inner core hanging from it, its component of assembly 1.
+    var named: objects.testing.NamedParts(2) = undefined;
+    named.init(.{ power_core, inner_core }, @splat(.cut), @splat(&.{}));
+    named.parts.data[1].part.parent = 0;
+    named.parts.member(1, inner_core_link, -1);
+    var kind: create.Type = undefined;
+    const gate, var world = try testingShip(&stage, &named, &kind, .of(.proto_gate));
+    world.extras = &create.extra.testing.images;
+    const model = &stage.mission.slot(gate).model.?;
+    model.parts[1].origin = .{ 0, 300, 0 };
+
+    // The glow hangs from the power core where the inner core stands, and the assembly goes up.
+    try std.testing.expect(componentLost(world, gate, model, inner_core_link));
+    const glow = &stage.mission.slot(gate).extra.?.glow;
+    try std.testing.expectEqual(0, glow.parent.?.part.?);
+    try std.testing.expectEqual(Vector{ 0, 300, 0 }, glow.at);
+    try std.testing.expect(glow.stand(world.objects));
+    try std.testing.expectEqual(Vector{ 0, 300, 5000 }, glow.set.position);
+    // Its sparks stand in the world where the glow stands.
+    const stream = stage.explosions.streams[0].?;
+    try std.testing.expectEqual(&explode.gate_core_sparks, stream.emitter.template);
+    try std.testing.expectEqual(gate, stream.on.world);
+    try std.testing.expectEqual(Vector{ 0, 300, 5000 }, stream.emitter.place.position);
+}
+
+test "the Boridin breakaway's core lights, stays where it lit, and goes out with the core" {
+    var stage: explode.testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    // The core, 200 to the right, and the projector's generator.
+    var named: objects.testing.NamedParts(2) = undefined;
+    named.init(.{ breakaway_core, "Bor brk projector gen" }, @splat(.cut), @splat(&.{}));
+    named.parts.member(0, breakaway_core_link, -1);
+    named.parts.member(1, breakaway_light_link, -1);
+    var kind: create.Type = undefined;
+    const ship, var world = try testingShip(&stage, &named, &kind, .of(.boridin_breakaway));
+    world.extras = &create.extra.testing.images;
+    const slot = stage.mission.slot(ship);
+    const model = &slot.model.?;
+    model.parts[0].origin = .{ 200, 0, 0 };
+    model.parts[0].animation.now.place.position = .{ 200, 0, 0 };
+
+    // The generator's loss lights the core: its glow stands in the world where the core stands.
+    try std.testing.expect(componentLost(world, ship, model, breakaway_light_link));
+    const glow = &slot.extra.?.glow;
+    try std.testing.expectEqual(null, glow.parent);
+    try std.testing.expectEqual(Vector{ 200, 0, 5000 }, glow.at);
+    const stream = stage.explosions.streams[0].?;
+    try std.testing.expectEqual(&explode.breakaway_core_sparks, stream.emitter.template);
+    try std.testing.expectEqual(0, stream.on.part.part.index);
+    // The ship moves on, and the glow stays.
+    objects.setPosition(&slot.object, &slot.drawn, .{ 0, 0, 9000 });
+    try std.testing.expect(glow.stand(world.objects));
+    try std.testing.expectEqual(Vector{ 200, 0, 5000 }, glow.set.position);
+
+    // The core's own loss puts it out, its sparks with it.
+    try std.testing.expect(componentLost(world, ship, model, breakaway_core_link));
+    try std.testing.expectEqual(null, slot.extra);
     try std.testing.expectEqual(null, stage.explosions.streams[0]);
 }

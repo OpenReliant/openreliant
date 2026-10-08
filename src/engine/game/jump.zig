@@ -31,6 +31,7 @@ const camera = @import("camera.zig");
 const cloak = @import("cloak.zig");
 const create = @import("create.zig");
 const events = @import("mission/events.zig");
+const explode = @import("explode.zig");
 const gameobj = @import("gameobj.zig");
 const objects = @import("objects.zig");
 const sound3d = @import("sound3d.zig");
@@ -298,8 +299,8 @@ pub fn outInit(ctx: aigeneric.Context, index: u16) void {
 /// player's ship sent off (`GameObject.Flags.sent_off`), and is put far below where it went, its
 /// order done.
 ///
-/// Not ported: the Boridin's breakaway letting go of its core's sprite as it charges
-/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+/// The Boridin breakaway lets go of its core's glow as it starts to charge (`0x004170D3`,
+/// `explode.extras.putOut`).
 pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -331,6 +332,7 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
             if (now <= state.since) return;
             beginCourse(slot);
             if (effectOf(world, state)) |held| state.lights = @intCast(held.effects.start(held.record, slot));
+            if (object.type.base() == .boridin_breakaway) explode.extras.putOut(world, index);
             state.next(.{ .out = .charging });
         },
         .charging => {
@@ -715,6 +717,25 @@ test "a jump out that names nothing leaves the mission" {
     try std.testing.expect(!slot.object.flags.jumping);
     try std.testing.expect(!slot.object.flags.no_collisions);
     try std.testing.expectEqual(gone_depth, slot.object.root.position.y);
+}
+
+test "the Boridin breakaway lets go of its core's glow as it charges" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.add(.of(.boridin_breakaway), .{ 0, 0, 10000 });
+    const slot = mission.slot(ship);
+    slot.extra = try create.extra.makeGlow(gpa, &create.extra.testing.images, null, @splat(0), &explode.breakaway_core_sparks);
+    const ctx = mission.orders();
+    _ = try aigeneric.push(ctx, ship, .jump_out, .none);
+    // Held still, it keeps its glow; as it starts to charge, the glow goes.
+    nextFrame(&mission, ctx, ship);
+    try std.testing.expectEqual(OutStep.stilling, slot.state.jump.step.out);
+    try std.testing.expect(slot.extra != null);
+    while (slot.state.jump.step.out == .stilling) nextFrame(&mission, ctx, ship);
+    try std.testing.expectEqual(null, slot.extra);
 }
 
 test "a jump out that names a ship gives way to a jump in beside it" {

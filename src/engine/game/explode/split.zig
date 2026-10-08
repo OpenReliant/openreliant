@@ -14,11 +14,8 @@
 //! Stalag's, and a split's burning bits may be bodies.
 //!
 //! The Ulysses' top coming away (`ulysses.zig`) takes a slot among the splits too. A Krasnaya
-//! throws its arms off as it splits (`extras.throwArm`), and the Dark Reign's hat goes out
-//! (`extras.putOutHat`).
-//!
-//! Not ported: the split putting out the Boridin breakaway's core first
-//! ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+//! throws its arms off as it splits (`extras.throwArm`), and the Boridin breakaway's core and the
+//! Dark Reign's hat go out (`extras.putOut`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -605,10 +602,11 @@ fn otherHalfEnd(half: *gameobj.GameObject, orientation: math.Matrix) void {
 /// `explode_capship_component`'s split of the ship in slot `index`, as its hull is destroyed
 /// (`split_create` first):
 ///
-/// 1. A Krasnaya throws off each arm whose engine block is still on (`extras.throwArm`). It takes a
-///    slot among the splits, with its portals, where its root stands, and its points, each part's
-///    `cut` list in the ship's frame, in order along it but for a Latov's; its engines stop, the
-///    Dark Reign's hat goes out (`extras.putOutHat`), and every part stops playing its track.
+/// 1. A Krasnaya throws off each arm whose engine block is still on (`extras.throwArm`), and the
+///    Boridin breakaway's core goes out (`extras.putOut`). It takes a slot among the splits, with its
+///    portals, where its root stands, and its points, each part's `cut` list in the ship's frame,
+///    in order along it but for a Latov's; its engines stop, the Dark Reign's hat goes out, and
+///    every part stops playing its track.
 /// 2. Its other half, where its sequence names one, stands where it does, turned as it is, turning
 ///    as it turns but unpowered, still and disabled, and shows its first part, cut by the second
 ///    portal.
@@ -623,9 +621,6 @@ fn otherHalfEnd(half: *gameobj.GameObject, orientation: math.Matrix) void {
 /// the text before the table, which never ends. The points are sorted along the ship, where the
 /// game puts one that belongs right after the first before it; and each part's are taken through
 /// its place in the ship, where the game takes them through its place in the part it hangs from.
-///
-/// Not ported: putting out the Boridin breakaway's core first
-/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 pub fn start(world: gameobj.World, index: u16) void {
     const explosions = world.explosions orelse return;
     const all = world.objects;
@@ -636,6 +631,7 @@ pub fn start(world: gameobj.World, index: u16) void {
     if (object.type.base() == .krasnaya) for (std.enums.values(extras.Side)) |side| {
         if (model.partNamed(side.block()) != null) extras.throwArm(world, index, side, side.link());
     };
+    if (object.type.base() == .boridin_breakaway) extras.putOut(world, index);
     const points = cutPoints(explosions.splits.gpa, model, object.type.base() != .latov) catch return;
     const split = &explosions.splits.add(world, .{ .capital = .{
         .object = index,
@@ -646,7 +642,7 @@ pub fn start(world: gameobj.World, index: u16) void {
         .points = points,
     } }).capital;
     object.flags.engines_disabled = true;
-    if (object.type.base() == .darkreign) extras.putOutHat(world, index);
+    if (object.type.base() == .darkreign) extras.putOut(world, index);
     stopTracks(model);
 
     if (sequence.other_half) |half_type| split.other = otherHalf(world, index, @fromBackingInt(half_type), &split.portals[1]);
@@ -912,4 +908,22 @@ test "the Dark Reign's hat goes out as it splits" {
     try std.testing.expect(stage.explosions.splits.splitting(ship.index));
     try std.testing.expectEqual(null, ship.hat(&stage));
     try std.testing.expectEqual(null, stage.explosions.streams[0]);
+}
+
+test "the Boridin breakaway's core goes out as it splits" {
+    const gpa = std.testing.allocator;
+    var stage: explode.testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    var fixture: create.testing.Model = undefined;
+    try fixture.init(gpa);
+    defer fixture.deinit(gpa);
+    fixture.data[0].part.class = .hull;
+    const mission = &stage.mission;
+    _ = try mission.add(.of(.kamov), @splat(0));
+    const ship = try mission.addWith(fixture.types(), .of(.boridin_breakaway), .{ 0, 0, 5000 });
+    mission.slot(ship).extra = try create.extra.makeGlow(gpa, &create.extra.testing.images, null, @splat(0), &explode.breakaway_core_sparks);
+    start(stage.world(), ship);
+    try std.testing.expect(stage.explosions.splits.splitting(ship));
+    try std.testing.expectEqual(null, mission.slot(ship).extra);
 }

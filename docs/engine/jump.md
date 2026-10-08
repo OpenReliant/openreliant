@@ -72,9 +72,8 @@ mission has ready (`jump_ready`, `0x0052A3F0`).
 | 4 | It flies ahead again, jumping, while its flare fades at 10; then it collides again |
 | 5 | It is turned back as it was, powered and free to move, and flies its own motion again at its usual detail. The player's jump ends every object's jumping. An order that names another object gives way to Jump In at it, 19 for 20 and 40 for 41, at the same number; one that names nothing leaves the mission: the ship stops jumping, is disabled, but for a player's ship in a multiplayer game's way (object flag `0x10000000`), and is put 9.9e6 below where it went, its order done |
 
-In step 1 the Boridin's breakaway (`boridin_breakaway`) lets go of the sprite of its core
-(`Bor brk away CORE`). Not ported: OpenReliant's Jump Out leaves the sprite be
-([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+In step 1 the Boridin breakaway (`boridin_breakaway`) lets go of its core's glow and its sparks
+(`Bor brk away CORE`, [The cores' glows](effects.md#the-cores-glows)).
 
 While the player's ship jumps out (`jump_player_going`, `0x0051D0B0`), `order_jump_out` counts
 `jump_countdown` (`0x0051D0B4`) down from 15 every 10 game ticks (`jump_countdown_next`,

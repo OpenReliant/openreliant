@@ -1778,6 +1778,8 @@ address	kind	name	type	comment
 005538c0	data	big_smoke_template		The particle template of great grey puffs 1000 to 2500 across, which the Boridin breakaway streams
 0055ad20	data	pod_flame_template		The particle template of the red flame a Stalag's cargo pod bursts into: 200 ticks and up to 20 more, 200 across shrinking to 150, red fading to nothing
 0055ad00	data	hat_sparks_template	ParticleTemplate *	The red sparks the Dark Reign's hat streams from below its star (emitter core): 130 ticks and up to 20 more, half-size 200, red fading to nothing, 1.5 a tick
+005586e8	data	gate_core_sparks_template	ParticleTemplate *	The red sparks a prototype gate's power core streams once its inner core goes: 200 ticks and up to 20 more, half-size 200, red fading to nothing, 0.9 a tick
+0055acf8	data	breakaway_core_sparks_template	ParticleTemplate *	The red sparks the Boridin breakaway's core streams once its projector generator goes: 130 ticks and up to 20 more, half-size 500, red fading to nothing, 1.5 a tick
 00472140	function	krasnaya_left_arm_off	void __fastcall (GameObject *object, ModelNode *node, int link)	Throws the Krasnaya left arm off as an object of type 0xA3 and shows its wreck parts, with fireballs and a flash
 00472420	function	krasnaya_right_arm_off	void __fastcall (GameObject *object, ModelNode *node, int link)	Throws the Krasnaya right arm off as an object of type 0xA3, the left arm's model, and shows its wreck parts, with fireballs and a flash
 00473fb0	function	node_tree_stop	void __fastcall (ModelNode *node)	Sets the animation speed of a node and all under it to 0
