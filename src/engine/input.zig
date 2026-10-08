@@ -1806,7 +1806,7 @@ test nextNavPoint {
 /// MISSILE does, once a press (`Player.mouse_launched`).
 ///
 /// Not ported: in a multiplayer game, FIRE LASERS firing from under the cloak, and typing a
-/// message, which leaves them unread.
+/// message, which leaves them unread ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
     const slot = &world.objects.slots[index];
     const object = &slot.object;
@@ -1862,7 +1862,8 @@ pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
 /// (`camera.Camera.setCutaway`), the ship uncloaks where it is cloaked, and Eject sends the pilot's
 /// pod out of it (`aieject.init`).
 ///
-/// Not ported: a multiplayer game, in which EJECT does nothing, and what it tells one.
+/// Not ported: a multiplayer game, in which EJECT does nothing, and what it tells one
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn eject(world: gameobj.World, index: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
@@ -1903,7 +1904,8 @@ const gone_pause = 500;
 /// player's Kamov, in mission 25, launches a torpedo from its tubes instead (`launchCarried`).
 ///
 /// Not ported: in a multiplayer game, the missile being a power-up, launching from under the cloak,
-/// and telling the other players of a Kamov's launch.
+/// and telling the other players of a Kamov's launch
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn launchMissile(world: gameobj.World, index: u16) void {
     const all = world.objects;
     const ship = &all.slots[index].object;
@@ -1975,7 +1977,8 @@ fn waitingLaunch(all: *const create.Objects, carrier: u16) ?u16 {
 /// **Unverified:** it first closes the target display's large form, or else its small one, where
 /// two words say it is open (`0x0057BEA8`, `0x0057BE44`); nothing writes them, so it never does.
 ///
-/// Not ported: a multiplayer game, where it waits on `0x00588735` and tells the other players.
+/// Not ported: a multiplayer game, where it waits on `0x00588735` and tells the other players
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn playerJump(world: gameobj.World) void {
     if (world.player.ending != .playing) return;
     const waiting = world.events orelse return;

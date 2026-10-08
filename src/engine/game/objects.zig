@@ -204,7 +204,8 @@ pub const Node = extern struct {
     /// `node_place` places part nodes alone.
     ///
     /// Not ported: in a multiplayer game, another player's ship, whose root has flag bit 9, is
-    /// drawn between the places its last two messages gave it (`+0x768`, `+0x798`).
+    /// drawn between the places its last two messages gave it (`+0x768`, `+0x798`)
+    /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
     pub fn framePlace(node: *Node, fraction: f32) ?Model.Local {
         if (!node.flags.committed and !node.flags.unframed) return null;
         node.flags.unframed = false;

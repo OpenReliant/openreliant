@@ -419,7 +419,8 @@ pub const Missiles = Linked(Missile, max_missiles);
 /// Where memory runs out for a pod's missile, nothing is launched, and for a trail, the missile
 /// flies without one.
 ///
-/// Not ported: what a multiplayer game sends.
+/// Not ported: what a multiplayer game sends
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn launch(world: gameobj.World, launcher: u16, rack: usize, target: aigeneric.Target) void {
     if (hooks.enter(.missile_launch, launch, .{ world, launcher, rack, target })) |done| return done;
     const all = world.objects;
@@ -840,7 +841,8 @@ pub fn move(all: *create.Objects) void {
 ///
 /// Then each trail's frame (`trail.Trails.frame`).
 ///
-/// Not ported: in a multiplayer game, a missile whose lock is lost or whose launcher is gone.
+/// Not ported: in a multiplayer game, a missile whose lock is lost or whose launcher is gone
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn frame(world: gameobj.World, fraction: f32) void {
     const all = world.objects;
     const missiles = &all.missiles;
@@ -885,7 +887,8 @@ pub fn draw(all: *create.Objects, gpa: Allocator, scene: *srcore.Scene, attachme
 /// side (`shockwave.Shockwave.strike`); its blast (`explode.missileBlast`); and its record freed.
 /// The scripts hear of it first, and a missile they end meanwhile ends only once.
 ///
-/// Its trail fades out from here. Not ported: in a multiplayer game, a remote missile's id.
+/// Its trail fades out from here. Not ported: in a multiplayer game, a remote missile's id
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn end(world: gameobj.World, at: u8) void {
     const all = world.objects;
     const missile = all.missiles.get(at) orelse return;
@@ -932,7 +935,8 @@ const end_wave_life = 500;
 /// hit on the player's shields, a shot's, a knock's and a shockwave's, draws the reserve of the
 /// side struck and then reaches the shield, so OpenReliant takes a missile's the same way.
 ///
-/// Not ported: in a multiplayer mission, the shield damage five times over.
+/// Not ported: in a multiplayer mission, the shield damage five times over
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn collide(world: gameobj.World, at: u8) bool {
     const all = world.objects;
     const missile = all.missiles.get(at) orelse return false;

@@ -487,7 +487,8 @@ test pauseKeys {
 /// pause once the frame is drawn.
 ///
 /// Not ported: the paused clock (`paused_clock`), the radar's backing's flag, and a multiplayer
-/// game's messages, its chat line and the players it drops.
+/// game's messages, its chat line and the players it drops
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn pausedFrame(devices: *input.Devices, hearing: hog_snd.Hearing, world: gameobj.World) void {
     devices.read();
     if (hearing.sound.stdsmp) |bank| hearing.sound.frame(bank, hearing.scene(world));
@@ -743,7 +744,8 @@ const shot_watched = 500;
 /// mission is over. Watching the pod shot down, the time counts from when it bursts. A watch view
 /// that lasts, as `--watch` sets, never ends it (`camera.Camera.lasting`).
 ///
-/// Not ported: a multiplayer game, where the camera goes on to watch another player.
+/// Not ported: a multiplayer game, where the camera goes on to watch another player
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn missionOver(world: gameobj.World) bool {
     const watching = world.camera orelse return false;
     const now = world.clock.viewTime();
@@ -876,7 +878,8 @@ const avoid_margin: f32 = 2000;
 /// stand-ins, disabled and jumping objects, planets, the ship itself, what it fights, and what
 /// either passes through the other.
 ///
-/// Not ported: in a multiplayer game, the other players' ships a ship passes by.
+/// Not ported: in a multiplayer game, the other players' ships a ship passes by
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn avoidanceScan(world: gameobj.World, index: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
@@ -1957,7 +1960,8 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 ///
 /// The caller shows the loading screen that goes before it (`xtrabits.loading.missionFrames`).
 /// Not ported: the renderer's and the textures' setting up, which OpenReliant does once as it
-/// starts; the chat line and a multiplayer game.
+/// starts; the chat line and a multiplayer game
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Loaded {
     const types = start.types.types();
     var orders = start.orders;

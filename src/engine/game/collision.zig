@@ -339,7 +339,8 @@ const player_share: f32 = 0.5;
 /// The game compares the damage's kind with the player's slot, which in a single-player game is 0,
 /// a shot's kind; OpenReliant asks for a shot.
 ///
-/// Not ported: multiplayer, where nothing is scaled.
+/// Not ported: multiplayer, where nothing is scaled
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn byDifficulty(world: gameobj.World, index: u16, kind: Kind, value: f32) f32 {
     if (hooks.enter(.damage_by_difficulty, byDifficulty, .{ world, index, kind, value })) |result| return result;
     const all = world.objects;

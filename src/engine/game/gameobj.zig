@@ -1774,7 +1774,7 @@ test ShieldReserves {
 /// the `no_shield_recharge` power-up. One whose `invulnerable` is `_unknown_5` has its shields
 /// emptied instead. **Unknown:** what that value means. Not ported: the case in a multiplayer game
 /// where the player's shields aren't recharged (`0x005D76F0` at 4 with `0x005DB538` naming the
-/// player).
+/// player) ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn rechargeShields(object: *GameObject, combat: *const create.ShipCombat, reserves: ?ShieldReserves) void {
     if (object.flags.components) return;
     if (object.invulnerable == ._unknown_5) {

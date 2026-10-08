@@ -8,7 +8,8 @@
 //! [`missiles.md`](../../../docs/engine/missiles.md#countermeasures) describes them, and
 //! [`cloak.md`](../../../docs/engine/cloak.md) the cloak.
 //!
-//! Not ported: in a network game, the host's choice of the missile a countermeasure draws away.
+//! Not ported: in a network game, the host's choice of the missile a countermeasure draws away
+//! ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

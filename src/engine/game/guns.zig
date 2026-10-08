@@ -1470,7 +1470,8 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
 /// blind, or of the Nova Cannon or a turret's gun.
 ///
 /// Not ported: another player's ship in a multiplayer game, which aims blind at the target of its
-/// order (`ai.leadAim`), or along its muzzle where it can't be aimed at.
+/// order (`ai.leadAim`), or along its muzzle where it can't be aimed at
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn blindAim(world: gameobj.World, owner: u16, kind: GunType) ?Vector {
     const all = world.objects;
     if (all.slots[owner].object.blind_fire_aim == 0) return null;
@@ -1691,7 +1692,8 @@ pub fn moveBullets(world: gameobj.World) void {
 /// Each shot is placed as far through the step as the frame is, its colour fading with its life
 /// (`fade`), and `drawBullets` adds it and its lights to the scene.
 ///
-/// Not ported: what multiplayer makes of a hit.
+/// Not ported: what multiplayer makes of a hit
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn bulletsFrame(world: gameobj.World, clock: *const Clock, fraction: f32) void {
     const bullets = &world.objects.bullets;
     for (&bullets.pool, 0..) |*bullet, index| {

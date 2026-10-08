@@ -822,7 +822,8 @@ pub const Objects = struct {
     /// (`0x00466CDF`), which never happens: the training puts the player in a Grendel, and its
     /// missions come after `twins_from_mission`, where the type is the twin already.
     ///
-    /// Not ported: a multiplayer game, where every slot takes `asked`.
+    /// Not ported: a multiplayer game, where every slot takes `asked`
+    /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
     pub fn slotType(all: *const Objects, index: u16, asked: gameobj.Type) gameobj.Type {
         if (index >= all.players or index >= all.loadout_ships.len) return asked;
         if (all.kamovPart()) return .of(.kamov);
@@ -1403,7 +1404,8 @@ pub const training_racks: Racks = racks: {
 /// afterburner's fuel of its type, 5000 more for each fuel pod; and its guns charged, with their
 /// rounds.
 ///
-/// Not ported: a multiplayer game, where a re-arm leaves the afterburner's fuel as it is.
+/// Not ported: a multiplayer game, where a re-arm leaves the afterburner's fuel as it is
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn arm(gpa: Allocator, slot: *Slot, fit: Fit) Allocator.Error!void {
     const object = &slot.object;
     const combat = slot.combat orelse return;

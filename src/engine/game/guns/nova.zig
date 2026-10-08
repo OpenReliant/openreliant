@@ -293,7 +293,7 @@ fn charged(ship: *const create.Slot) guns.GunType {
 /// kept.
 ///
 /// Not ported: the message a multiplayer game sends about it (`0x004BB9C0`), and the release it
-/// runs for another player's ship.
+/// runs for another player's ship ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn release(world: gameobj.World, index: u16) void {
     const now = world.clock.frame_start;
     const all = world.objects;
@@ -326,7 +326,8 @@ pub fn release(world: gameobj.World, index: u16) void {
 /// **Improvement:** the game strikes with the Nova Cannon's figures; a mod's gun based on the cannon
 /// (`kind`) strikes with its own.
 ///
-/// Not ported: in a multiplayer mission, a quarter of the damage.
+/// Not ported: in a multiplayer mission, a quarter of the damage
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn strike(world: gameobj.World, owner: u16, fired: f32, kind: guns.GunType) void {
     const all = world.objects;
     const shooter = &all.slots[owner];
