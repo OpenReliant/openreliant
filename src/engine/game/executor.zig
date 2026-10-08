@@ -531,8 +531,7 @@ fn startLaunchShip(call: Call, ship: Ship) void {
 /// `cmd_SetInvulnerability` (`0x00458BC0`, command `0x1A`) and `cmd_SetInvulnerability_ship`
 /// (`0x00458BE0`), for each ship the first argument names (`perShip`): the ship takes the
 /// invulnerability the command's second argument gives, or where the first names one of its
-/// components (`push_component`), that component does (`gameobj.Component.invulnerable`).
-/// Component damage checks this after resolving the linked assembly's armor-bearing part.
+/// components (`push_component`), that component does (`gameobj.Component.protects`).
 /// A ship in the players' slots is reached only in the training missions
 /// (`create.Objects.training`) and in the Reliant's simulator's training (`simulator_mode` 1,
 /// `create.Simulator.Mode.training`).
