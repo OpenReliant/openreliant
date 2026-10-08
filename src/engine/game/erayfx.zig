@@ -523,7 +523,7 @@ test "a ray flickers, fades and runs out" {
     const owner = try mission.add(.of(.predator), @splat(0));
     other.owner = owner;
     try std.testing.expect(other.update(all, 2, &random));
-    mission.objects.resetSlot(owner, &random);
+    @import("create.zig").resetSlot(mission.orders(), owner);
     try std.testing.expect(!other.update(all, 3, &random));
 }
 

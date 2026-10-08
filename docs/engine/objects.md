@@ -15,8 +15,8 @@ stand-in of type 1001, flagged `stand_in` and not created, sets `game_object_cou
 0, and forgets every ship type's objects and model. `create_object` (`0x00466C10`) fills a slot:
 the one it is given, such as a mission ship's index among the mission's ship records, or for -1 the
 next, which counts `game_object_count` up. It stops the game with a fatal error past the last slot
-or for a slot filled already. `object_reset` (`0x004688B0`) pops a slot's orders and puts a new
-stand-in in it, flagged `0x3C`.
+or for a slot filled already. `object_reset` (`0x004688B0`) pops a slot's orders, running their
+exits, and puts a new stand-in in it, flagged `0x3C`.
 
 `player_slots` (`0x58832C`) counts the slots from the first that belong to players, one in a
 single-player game, and `player_index` (`0x5883FA`) is the player's own, the first in a
@@ -651,7 +651,8 @@ A ship's end, and the limpet car's, posts its Destroyed event for the mission's 
 [`aiexplode.zig`](../../src/engine/game/aiexplode.zig) Explode,
 [`aieject.zig`](../../src/engine/game/aieject.zig) the [ejection](ejection.md)'s orders,
 [`explode.zig`](../../src/engine/game/explode.zig) the blasts, and
-[`create.zig`](../../src/engine/game/create.zig) `object_retire` as `retire`.
+[`create.zig`](../../src/engine/game/create.zig) `object_retire` as `retire` and `object_reset` as
+`resetSlot`.
 
 The blasts' break-up, particles, fireballs, burning bits and shockwaves are in
 [Effects](effects.md), with the capital ships' splits, the Ulysses' end and the pieces a few types

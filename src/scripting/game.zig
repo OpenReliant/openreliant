@@ -1151,7 +1151,7 @@ test "a handler that fails is removed, and its changes undone" {
     // An event's fields can't be changed, so its handler fails. The engine still tells the scripts
     // of objects that leave, whose own scripts stop with them.
     const hooked = &fixture.game.scripts.hooked;
-    fixture.mission.objects.resetSlot(fixture.sabre, &fixture.mission.random);
+    create.resetSlot(fixture.mission.orders(), fixture.sabre);
     try std.testing.expect(fixture.game.hooks.handlers.get(.object_removed).items.len == 0);
     try std.testing.expect(hooked.contains(.object_removed));
 }
@@ -1260,7 +1260,7 @@ test "object scripts run on the objects their manifest names, each with its own 
     fixture.game.scripts.update(0.1);
     try std.testing.expectEqual(0.25, all.slots[sabre].object.throttle);
     // As it leaves, its scripts stop with it.
-    all.resetSlot(sabre, &fixture.mission.random);
+    create.resetSlot(fixture.mission.orders(), sabre);
     try std.testing.expectEqual(0, fixture.game.onObject(sabre).items.len);
 }
 

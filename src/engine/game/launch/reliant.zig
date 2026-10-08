@@ -317,7 +317,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
                 playSample(world, opened_sample);
                 if (world.player.cutaway == .aside) {
                     switchView(ctx, .launch_aside, all.player);
-                    all.resetSlot(create.cutaway_slot, world.random);
+                    create.resetSlot(ctx, create.cutaway_slot);
                     world.player.showing = .everything;
                 }
             }
@@ -335,7 +335,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
             const in_bay = if (world.camera) |view| view.view == .launch_bay else false;
             if (player and !in_bay) {
                 world.player.showing = .everything;
-                all.resetSlot(create.cutaway_slot, world.random);
+                create.resetSlot(ctx, create.cutaway_slot);
                 if (world.player.cutaway == .below) switchView(ctx, .launch_below, index);
             }
             moveOn(state, .clear, now);
@@ -357,7 +357,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
                         else => {},
                     }
                 }
-                all.resetSlot(create.cutaway_slot, world.random);
+                create.resetSlot(ctx, create.cutaway_slot);
                 world.player.showing = .everything;
             }
             launch.letGo(ctx, index);

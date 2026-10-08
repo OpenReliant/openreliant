@@ -322,7 +322,7 @@ test "handles name missiles until their flight ends" {
 
     // Once its launcher leaves, the missile has none; once its record is freed, the handle is no
     // longer valid.
-    all.resetSlot(launcher, &mission.random);
+    create.resetSlot(mission.orders(), launcher);
     try bind.testing.runSource(thread, "assert(raptor.launcher == nil)");
     all.missiles.remove(gpa, record);
     try bind.testing.runSource(thread, "assert(not raptor:is_valid() and tostring(raptor) == 'missile 0 (gone)')");

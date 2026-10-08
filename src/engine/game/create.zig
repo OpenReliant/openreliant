@@ -767,23 +767,6 @@ pub const Objects = struct {
         return all.in_stalag and all.slots[index].object.type.base() == .stalag;
     }
 
-    /// `object_reset` (`0x004688B0`): replaces the object in slot `index` with a new stand-in
-    /// flagged as one (`GameObject.Flags.standing_in`), and lets its nodes go, its orders with
-    /// them. Its type's count of objects stays as it was. Mods' scripts are told first
-    /// (`object_removed`).
-    ///
-    /// Not ported: the game pops the orders first (`orders_pop_all`), which runs their `exit`
-    /// routines ([#856](https://github.com/OpenReliant/openreliant/issues/856)).
-    pub fn resetSlot(all: *Objects, index: u16, random: *Random) void {
-        const slot = &all.slots[index];
-        if (slot.object.type.base() != .stand_in) hooks.tell(all, .object_removed, .{ .object = .of(index) });
-        slot.release(all.gpa);
-        var object = gameobj.objectAlloc(.of(.stand_in), random);
-        object.flags = .standing_in;
-        slot.* = .{ .object = object };
-        all.reuses[index] +%= 1;
-    }
-
     /// A type's model, loaded for its first object where it isn't held, and one more object of it
     /// counted, so that it stays (`create_object`, `ship_type_first_levels`). Null where the game
     /// has no model for it.
@@ -1827,14 +1810,28 @@ pub const testing = struct {
     }
 };
 
-/// `0x004688E0`: what the Explode order leaves of an object once it has blown up. It stands in
-/// where it was, of type `stand_in`, as flagged as a slot's stand-in and exploding, and with no
-/// orders. Nothing moves, draws, collides with or targets it. Mods' scripts are told first
-/// (`object_removed`). **Unverified:** it lies after `object_reset`, before this
-/// file's known code.
-///
-/// Not ported: the `exit` routines popping its orders would run, none of which is ported yet
-/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
+/// `object_reset` (`0x004688B0`): pops the object's orders, running their `exit` routines
+/// (`aigeneric.popAll`), then puts a new stand-in in slot `index`, flagged
+/// `GameObject.Flags.standing_in`, and lets the old object's nodes go. Its type's count of objects
+/// stays as it was. Mods' scripts are told first (`object_removed`). **Unverified:** it lies just
+/// past this file's known code.
+pub fn resetSlot(ctx: aigeneric.Context, index: u16) void {
+    const all = ctx.world.objects;
+    const slot = &all.slots[index];
+    if (slot.object.type.base() != .stand_in) hooks.tell(ctx, .object_removed, .{ .object = .of(index) });
+    aigeneric.popAll(ctx, index);
+    slot.release(all.gpa);
+    var object = gameobj.objectAlloc(.of(.stand_in), ctx.world.random);
+    object.flags = .standing_in;
+    slot.* = .{ .object = object };
+    all.reuses[index] +%= 1;
+}
+
+/// `object_retire` (`0x004688E0`): what the Explode order leaves of an object once it has blown
+/// up: a stand-in in the same place, of type `stand_in`, flagged as a stand-in and as exploding.
+/// Its orders pop, running their `exit` routines (`aigeneric.popAll`). Nothing moves, draws,
+/// collides with or targets it. Mods' scripts are told first (`object_removed`).
+/// **Unverified:** it lies just past this file's known code, after `object_reset`.
 pub fn retire(ctx: aigeneric.Context, index: u16) void {
     const all = ctx.world.objects;
     const object = &all.slots[index].object;
@@ -1989,6 +1986,24 @@ test wreckMade {
     // Another type burns nothing.
     try std.testing.expectEqual(null, wreckOf(.of(.badanov)));
     try std.testing.expectEqualStrings("Box07", wreckOf(.of(.kurgan_wreck)).?.part);
+}
+
+test resetSlot {
+    const gpa = std.testing.allocator;
+    // A ship scooping up a pod: its Scoop Up claims the pod and holds a tractor.
+    var scoop: @import("tractor.zig").testing.Scoop = undefined;
+    try scoop.init(gpa);
+    defer scoop.deinit(gpa);
+    const pod = &scoop.mission.slot(scoop.pod).object;
+    try std.testing.expect(pod.flags.tractored);
+    // After the reset, the slot holds a stand-in with no orders, and Scoop Up's exit has let go of
+    // the pod and the tractor.
+    resetSlot(scoop.ctx, scoop.nanny);
+    const slot = scoop.mission.slot(scoop.nanny);
+    try std.testing.expectEqual(GameObject.Flags.standing_in, slot.object.flags);
+    try std.testing.expectEqual(0, slot.object.order_count);
+    try std.testing.expect(!pod.flags.tractored);
+    try std.testing.expectEqual(null, scoop.built.tractors.slots[0]);
 }
 
 test retire {
@@ -2336,7 +2351,7 @@ test createObject {
     try std.testing.expectEqual(null, stand_in.combat);
 
     // Reset, the slot stands in again, and can be filled anew.
-    all.resetSlot(player, &mission.random);
+    resetSlot(mission.orders(), player);
     try std.testing.expectEqual(GameObject.Flags.standing_in, all.slots[player].object.flags);
     try std.testing.expectEqual(null, all.slots[player].model);
     _ = try createObject(all, &mission.tables, model.types(), player, .of(.predator), 0, @splat(0), &mission.random);
