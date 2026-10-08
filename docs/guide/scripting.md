@@ -156,6 +156,28 @@ Some functions only work in some kinds of script:
 
 [Packages](reference.md#packages) lists which scripts can use each package.
 
+### In a network game
+
+Network games come in 1.1 ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The scripts
+are already split the way they will run in them, so a mod written now works there too if it keeps
+to these rules:
+
+- Global, mission, object, missile and turret scripts run where the game is hosted, and in a
+  network game only there.
+- Load scripts run on every machine, and must give the same records on each one with the same mods.
+  So they mustn't depend on the time, on storage, or on anything else that differs between
+  machines. Their `math.random` has a fixed seed, so it gives the same numbers everywhere. A load
+  script that changes the records by one of its mod's [options](#options) gives different records
+  where the options differ, and a network game will need them to match.
+- Player and menu scripts run on each player's machine. They read the game, and change it only by
+  sending events to the global scripts (`core.send_global_event`), whose data is copied as it would
+  be sent to another machine. They can't change objects or records. Menu scripts drive the menus of
+  the machine they run on.
+- Interfaces and timers stay within one side: the game's (load, global, mission, object, missile
+  and turret scripts) or the presentation's (player and menu scripts).
+- [Storage](#storage) is each machine's own, so keep game rules out of it. So are a mod's options:
+  the global scripts read the host's.
+
 ## Packages
 
 `require("name")` runs another script of the same mod once and returns what it returns. The name is

@@ -108,6 +108,14 @@ kinds of state:
 | Game | Load, global and object scripts, which affect what happens in the game | No `os` library. `math.random` uses a seeded generator so that every machine gets the same numbers, and `math.randomseed` is removed. |
 | Presentation | Player and menu scripts, which affect what the player sees and hears | Luau's standard libraries |
 
+The split is the one a network game needs
+([#55](https://github.com/OpenReliant/openreliant/issues/55)): global and object scripts will run
+only where the game is hosted, load scripts on every machine, and the presentation on each player's.
+The presentation reaches the game only through events to the global scripts, whose data is copied
+into the game's state (`data.transfer`), and it can't change objects (`objects.mayChange`) or
+records. The rules mods keep for it are in the scripting guide ([In a network
+game](../guide/scripting.md#in-a-network-game)).
+
 Load scripts run in their own game state, which is created at startup and closed once they finish.
 Global and object scripts run in another, which lasts for a game ([The game's
 scripts](#the-games-scripts)). Player and menu scripts run in a presentation state, which lasts
