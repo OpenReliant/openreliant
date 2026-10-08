@@ -11,7 +11,7 @@
 //! rest of `hud_draw`, whose other elements [`hud.md`](../../../docs/engine/hud.md) lists, and what
 //! a multiplayer game adds ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 //!
-//! **Improvement.** The game draws the display with the processor, whichever renderer is running:
+//! **Improvement:** The game draws the display with the processor, whichever renderer is running:
 //! `hud_text` hands its line to `VFX_string_draw`, out of `vfx.dll`, which blits each glyph into a
 //! pane a pixel at a time. OpenReliant draws a glyph as a textured rectangle through the device
 //! instead, so on the GPU the display costs the processor nothing and scales without blurring. What
@@ -150,7 +150,7 @@ const margin: i32 = 0x10;
 /// (`interface.canvas.size`).
 pub const original_screen: [2]u32 = .{ 640, 480 };
 
-/// **Improvement.** How large OpenReliant draws what it shows over a mission: the display, the
+/// **Improvement:** How large OpenReliant draws what it shows over a mission: the display, the
 /// pause menu and the settings screen the pause menu opens, all at one size, which the settings
 /// screen's UI SCALE sets. It is a percentage of the size the front end is drawn at, as large as
 /// `original_screen` fits in the window, so the display keeps its proportions on any window. The
@@ -5282,7 +5282,7 @@ pub const TargetScene = struct {
     speaker: ?u16 = null,
 };
 
-/// **Improvement.** Where the line starts that places the marker for a target out of sight on the
+/// **Improvement:** Where the line starts that places the marker for a target out of sight on the
 /// screen's edge (`drawTarget`). The game clips a line out to the edge from the arrow's tip across,
 /// but from the tip of one of the arrow's wings across again for down: a slip that starts the line
 /// as far down the screen as the middle is across, so the marker stands lower on the side edges

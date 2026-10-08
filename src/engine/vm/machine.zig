@@ -711,8 +711,9 @@ pub const Machine = struct {
         };
     }
 
-    /// `for_each_ship`'s walk of `entity` (`0x0045D480`), `depth` squads down, in `game`. A squad's
-    /// members run from the first its record at `entity` names (`bind.Mission.squadMembersFrom`).
+    /// `for_each_ship`'s walk (`for_each_ship_walk`, `0x0045D480`) of `entity`, `depth` squads
+    /// down, in `game`. A squad's members run from the first its record at `entity` names
+    /// (`bind.Mission.squadMembersFrom`).
     ///
     /// **Fix:** the game walks a squad that holds itself round for ever, and walks a member of the
     /// object table no record stands for from address zero; OpenReliant stops once the walk has

@@ -55,7 +55,7 @@ pub const App = struct {
 /// which it then leaves in its pause menu. The textures, which DirectDraw loses with the window,
 /// need nothing in OpenReliant.
 ///
-/// **Improvement.** OpenReliant pauses a mission `loaded` into its menu in single player too, where
+/// **Improvement:** OpenReliant pauses a mission `loaded` into its menu in single player too, where
 /// the game pauses only the sound and the timer's ticks pile up while the window is away. Active
 /// again, the music goes on; the rest waits for the menu's CONTINUE.
 pub fn followActivation(app: *App, pausing: main.Pausing, loaded: bool) !void {

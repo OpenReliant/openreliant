@@ -587,9 +587,9 @@ pub const Driver = struct {
         }
     }
 
-    /// `draw_polygon` (`0x10006F90`): one polygon as a fan, or its lines. **Improvement:** the
-    /// driver tests a sorted polygon's triangles against the sun with indices left over from the
-    /// last list it drew; OpenReliant tests the polygon's own, where it is solid (`hidesSun`).
+    /// `draw_polygon` (`0x10006F90`): one polygon as a fan, or its lines. **Fix:** the driver tests
+    /// a sorted polygon's triangles against the sun with indices left over from the last list it
+    /// drew; OpenReliant tests the polygon's own, where it is solid (`hidesSun`).
     fn drawPolygon(driver: *Driver, drawn: *const srmesh.Drawn, v: srmesh.Visible, material: Material, pass: u1, st: device.State) Allocator.Error!void {
         const p = drawn.mesh.polygons[v.polygon];
         driver.single.clearRetainingCapacity();

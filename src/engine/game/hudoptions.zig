@@ -82,7 +82,7 @@ pub const Frame = struct {
     strings: *const language.Language,
     devices: *input.Devices,
     settings: Settings,
-    /// **Improvement.** OpenReliant's version, written small in the menu's bottom right corner.
+    /// **Improvement:** OpenReliant's version, written small in the menu's bottom right corner.
     version: ?[]const u8 = null,
     /// The timer's ticks, which the settings screen's pointer and list run by.
     timer: u64 = 0,

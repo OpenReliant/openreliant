@@ -3,7 +3,7 @@
 //! the buttons the screens share.
 //! [`pause-menu.md`](../../../../docs/engine/pause-menu.md#menu-items) describes them.
 //!
-//! **Improvement.** The game lays a menu out in pixels about fractions of the screen, at the size
+//! **Improvement:** The game lays a menu out in pixels about fractions of the screen, at the size
 //! of its art whatever the screen's. OpenReliant multiplies the pixels by the UI's scale
 //! (`hud.UiScale`), as it does the display's, so the menu keeps its proportions on a larger screen;
 //! at a scale of 1 it is the game's own layout.
@@ -209,7 +209,7 @@ pub const Pointer = struct {
 
     /// `menu_mouse_update` (`0x0048D9F0`), once a paused frame.
     ///
-    /// **Improvement.** The pointer is where the system's is, over the window. The game adds up
+    /// **Improvement:** The pointer is where the system's is, over the window. The game adds up
     /// DirectInput's movements from where its pointer last stood, and puts the system's back
     /// near the window's corner after each.
     pub fn update(pointer: *Pointer, mouse: input.Mouse, screen: [2]u32) void {

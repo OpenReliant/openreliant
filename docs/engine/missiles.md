@@ -34,7 +34,7 @@ down:
 | Offset | Field | From |
 |---|---|---|
 | `0x00` | 30 for every type; nothing reads it | Executable |
-| `0x04` | The launch's 3D sound: 15 (`MISSILE01`) to 23 for types 0 to 8, 24 for 9, none for 10 | Executable |
+| `0x04` | The launch's 3D sound: 15 (`MISSILE01`) to 23 for types 0 to 8, 24 for 9, and 0 (`GUN01`) for 10, which a fuel pod's launch plays like any other | Executable |
 | `0x08` | Flight time, in ticks | `0x48 * 100` |
 | `0x0C` | Shield damage | `0x4C` |
 | `0x10` | Hull damage | `0x50` |

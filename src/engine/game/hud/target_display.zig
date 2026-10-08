@@ -12,7 +12,7 @@
 //! As a form closes, `hud_window_close` draws what it shows once more into a picture
 //! (`hud_window_picture`, `0x00566600`), and the window closes with that.
 //!
-//! **Improvement.** The game keeps one picture for both forms, and draws it again as a form
+//! **Improvement:** The game keeps one picture for both forms, and draws it again as a form
 //! starts closing: for the target it last showed, but with whatever target the display now has
 //! for the range, the name and the rest. OpenReliant keeps what each form last showed and closes it
 //! with that.

@@ -1532,7 +1532,7 @@ test "the passes draw a cloaked object through its cloak" {
 /// start unprojects its corners to 1000 in front of the camera, and the object stands in the
 /// camera's frame, so it keeps its place on the screen.
 ///
-/// **Improvement.** OpenReliant keeps it on the radar as the display is scaled: its corners are
+/// **Improvement:** OpenReliant keeps it on the radar as the display is scaled: its corners are
 /// measured in the display's pixels from where the radar stands, and worked out again each frame
 /// for the window's size.
 pub const RadarBacking = struct {

@@ -47,7 +47,7 @@ pub const Fonts = struct {
 
 /// Where the front end draws, and with what.
 ///
-/// **Improvement.** The game switches the display to 640 by 480 for its front end, which then
+/// **Improvement:** The game switches the display to 640 by 480 for its front end, which then
 /// fills the screen. OpenReliant keeps the window as it is and draws the front end as large as fits
 /// in it, centred, so that it keeps its shape (`scaleFor`).
 pub const Canvas = struct {
@@ -535,10 +535,10 @@ pub const Pointer = struct {
     /// `interface_pointer_update` (`0x004360D0`), once a frame, `elapsed` ticks after the last:
     /// the buttons as the mouse has them, and the animation on.
     ///
-    /// **Improvement.** The pointer is where the system's is, over the window, as the pause menu's
+    /// **Improvement:** The pointer is where the system's is, over the window, as the pause menu's
     /// is. The game adds up DirectInput's movements from where its pointer last stood.
     ///
-    /// **Improvement.** It takes the wheel's notches, which scroll the lists; the game reads no
+    /// **Improvement:** It takes the wheel's notches, which scroll the lists; the game reads no
     /// wheel.
     ///
     /// `share` is how large the screen is drawn, as the canvas has it (`Canvas.share`).
