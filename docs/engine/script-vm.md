@@ -386,6 +386,7 @@ event that a trigger's thread posts as it runs at once waits its turn in the sam
 | CameraReached | `event_camera_reached` (`0x00451180`), as the director's camera reaches the end of a curve, or a place a point marks on it ([The director's camera](director.md#a-shot)) | None |
 | CloseProximity, Proximity, ShipReached | The watches (below) | The ship close by; for the first two, how far, in the subject's radii |
 | ShipReached | `event_post_ship_reached` (`0x0045AC10`), as a ship following a path reaches the end of a curve, or a place a point marks on it ([Following a path](orders.md#following-a-path)) | The ship that reached it |
+| JumpedThroughHoop | `collision_test_hoop` (`0x00465B40`), on a training hoop's ship (type `0x83`) for its own triggers, as a ship it meets flies through it: before each of `objects_collide_parts`' tests ([Collisions](loop.md#collisions)), the ship stands behind the hoop's plane now and ahead of it next, in the hoop's frame, crossing it within half the hoop's height of its middle | None |
 
 A hit by an object that stands for no mission's ship posts no ShotAt: an object stands for the
 mission's ship of its slot's index (`object_ship`, `0x0045A970`). `0x00545860` is set while

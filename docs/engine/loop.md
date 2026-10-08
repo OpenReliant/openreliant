@@ -73,7 +73,7 @@ After moving objects, `objects_update` gathers colliding candidates: slot index,
 |---|---|
 | Two of one type, where either is a torpedo | Nothing |
 | A torpedo that is already going off | Nothing |
-| Either lists components, but not both, and neither is the limpet pod (`0xBC`) | The ship is tested against the other's collision tree, up to nine times over (`0x00465C50`), a torpedo once |
+| Either lists components, but not both, and neither is the limpet pod (`0xBC`) | The ship is tested against the other's collision tree, up to nine times over (`objects_collide_parts`, `0x00465C50`), a torpedo once. Before each test, a ship meeting a training hoop (`0x83`) may fly through it ([Events](script-vm.md#events)) |
 | Both list components | Nothing |
 | Two torpedoes, two pieces of debris, or two satellites (`0x71`) | Nothing |
 | Either is a mine, against a fighter | The fighter's fore quadrant takes 500 as a collision, the fighter named as its own attacker, and the mine is destroyed |

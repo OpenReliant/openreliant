@@ -1012,6 +1012,15 @@ The explosion that `object` set off is over.
 |---|---|
 | `object` | [object](#objects) |
 
+### jumped_through_hoop
+
+`flown_by` has flown through `object`, a training hoop, from behind it.
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
+| `flown_by` | [object](#objects) |
+
 ## The engine's events
 
 Their fields can only be read, and a handler that returns `false` stops the handlers after it.

@@ -640,11 +640,12 @@ fn counted(kind: Kind) bool {
     };
 }
 
-/// `0x00465C50`: a ship that meets an object listing components is tested against that object's
-/// parts, not its sphere; a torpedo once. The two are moved apart and tested again, up to nine
-/// times, the tests
-/// after the first holding back the ShotAt of the knocks they deal (`holdShots`). Two objects that
-/// both list components pass through each other, as does anything meeting the limpet pod.
+/// `objects_collide_parts` (`0x00465C50`), run up to nine times by `objects_collide`: a ship that
+/// meets an object listing components is tested against that object's parts, not its sphere; a
+/// torpedo once. The two are moved apart and tested again, the tests after the first holding back
+/// the ShotAt of the knocks they deal (`holdShots`). Before each test, a ship that meets a training
+/// hoop may fly through it (`throughHoop`). Two objects that both list components pass through each
+/// other, as does anything meeting the limpet pod.
 fn parts(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
     const all = world.objects;
     if (all.slots[first].object.flags.components and all.slots[second].object.flags.components) return false;
@@ -654,6 +655,7 @@ fn parts(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
 
     var tries: u8 = 0;
     while (tries < hull_passes) : (tries += 1) {
+        if (all.slots[hull].object.type.base() == .training_hoop) throughHoop(world, ship, hull);
         if (!hullHit(world, ship, hull, pass)) break;
         holdShots(world, false);
         // A torpedo is gone once it has struck.
@@ -667,6 +669,64 @@ fn parts(world: gameobj.World, first: u16, second: u16, pass: u8) bool {
 
 /// How many times a pair is tested against a hull before the sweep gives up on it.
 const hull_passes = 9;
+
+/// `collision_test_hoop` (`0x00465B40`): where the ship in slot `ship` flies through the training
+/// hoop in slot `hoop` this step (`crossesHoop`), the hoop has its JumpedThroughHoop
+/// (`events.jumpedThroughHoop`).
+fn throughHoop(world: gameobj.World, ship: u16, hoop: u16) void {
+    const all = world.objects;
+    if (crossesHoop(&all.slots[hoop].object, &all.slots[ship].object)) events.jumpedThroughHoop(world, hoop, ship);
+}
+
+/// Whether `flying` flies through the hoop `ring` this step: in the hoop's frame, it stands behind
+/// the hoop's plane now and ahead of it next, crossing it within half the hoop's height of its
+/// middle (`hoop_reach`).
+fn crossesHoop(ring: *const gameobj.GameObject, flying: *const gameobj.GameObject) bool {
+    const before = ring.placeAt(.now).inverse(flying.placeAt(.now).position);
+    if (before[2] > 0) return false;
+    const after = ring.placeAt(.next).inverse(flying.placeAt(.next).position);
+    if (after[2] <= 0) return false;
+    const step = after - before;
+    const crossing = before + step * @as(Vector, @splat(-before[2] / step[2]));
+    const reach = (ring.bounds_max.y - ring.bounds_min.y) * hoop_reach;
+    return crossing[0] * crossing[0] + crossing[1] * crossing[1] < reach * reach;
+}
+
+test crossesHoop {
+    // A hoop 200 high at the origin, facing +Z, standing still.
+    var ring = std.mem.zeroes(gameobj.GameObject);
+    ring.root.orientation = math.identity;
+    ring.root.next_orientation = math.identity;
+    ring.bounds_min.y = -100;
+    ring.bounds_max.y = 100;
+    var flying = std.mem.zeroes(gameobj.GameObject);
+    // Through the middle from behind, it flies through.
+    flying.root.position = .{ .x = 0, .y = 0, .z = -10 };
+    flying.root.next_position = .{ .x = 0, .y = 0, .z = 10 };
+    try std.testing.expect(crossesHoop(&ring, &flying));
+    // From ahead, back through it, it doesn't.
+    flying.root.position = .{ .x = 0, .y = 0, .z = 10 };
+    flying.root.next_position = .{ .x = 0, .y = 0, .z = -10 };
+    try std.testing.expect(!crossesHoop(&ring, &flying));
+    // A path crossing the plane past the hoop's reach misses it; a slanting one crossing within it
+    // goes through.
+    flying.root.position = .{ .x = 120, .y = 0, .z = -10 };
+    flying.root.next_position = .{ .x = 120, .y = 0, .z = 10 };
+    try std.testing.expect(!crossesHoop(&ring, &flying));
+    flying.root.position = .{ .x = 150, .y = 0, .z = -10 };
+    flying.root.next_position = .{ .x = -30, .y = 0, .z = 20 };
+    try std.testing.expect(crossesHoop(&ring, &flying));
+    // A hoop turned about Y faces +X, so it's flown through along X.
+    const turned = math.rotation(.y, std.math.pi / 2.0);
+    ring.root.orientation = turned;
+    ring.root.next_orientation = turned;
+    flying.root.position = .{ .x = -10, .y = 0, .z = 0 };
+    flying.root.next_position = .{ .x = 10, .y = 0, .z = 0 };
+    try std.testing.expect(crossesHoop(&ring, &flying));
+}
+
+/// How far from its middle a hoop takes a ship through it, a share of its height (`0x004DC408`).
+const hoop_reach: f32 = 0.5;
 
 /// What a ship's shield reserve is drawn by for each point of damage a hull does it: the game draws
 /// the reserve by the damage before the ship takes its share of it (`taken_share`).

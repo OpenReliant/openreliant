@@ -462,6 +462,16 @@ pub fn shipReached(world: gameobj.World, ship: u16, index: u16) void {
     events.post(ship, .{ .condition = .ship_reached, .values = &values });
 }
 
+/// The ship in slot `ship` has flown through the training hoop in slot `index`
+/// (`collision.throughHoop`, `0x00465C3F`): the hoop's ship's JumpedThroughHoop, with no values,
+/// for its own triggers.
+pub fn jumpedThroughHoop(world: gameobj.World, index: u16, ship: u16) void {
+    const events = world.events orelse return;
+    const own = events.shipOf(index) orelse return;
+    hooks.tell(world, .jumped_through_hoop, .{ .object = .of(index), .flown_by = .of(ship) });
+    events.post(own, .{ .condition = .jumped_through_hoop });
+}
+
 /// The object in slot `index` has docked (`order_dock`): its ship's Docked, with no values, for its
 /// own triggers.
 pub fn docked(world: gameobj.World, index: u16) void {
@@ -578,6 +588,28 @@ test "Docked and Undocked reach their own mission triggers" {
     try std.testing.expectEqual(2, mission.events.count);
     mission.events.flush();
     try std.testing.expectEqual(2, mission.game.fixture.global(0));
+}
+
+test "a ship flying through a training hoop reaches the hoop's own trigger" {
+    const gpa = std.testing.allocator;
+    const code = try vm.machine.testing.counting(gpa, 0);
+    defer gpa.free(code);
+    const parts = [_]vm.machine.testing.Part{.{ .code = code }};
+    var mission: TestMission = undefined;
+    try mission.init(&parts, .{
+        .globals = &.{0},
+        .ships = &dte.testing.ships(2, 0),
+        .objects = &.{ dte.testing.object(.ship, 0, 1), dte.testing.object(.ship, 1, 0) },
+        .triggers = &.{triggers.testing.trigger(&parts, 0, .jumped_through_hoop, .always)},
+    }, &.{ @splat(0), .{ 0, 0, -500 } });
+    defer mission.deinit();
+    // Ship 0 is the hoop: the ship flying through it posts nothing for itself.
+    jumpedThroughHoop(mission.world(), 1, 0);
+    try std.testing.expectEqual(0, mission.events.count);
+    jumpedThroughHoop(mission.world(), 0, 1);
+    try std.testing.expectEqual(1, mission.events.count);
+    mission.events.flush();
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
 }
 
 test "an event waits where only its flight group's trigger would answer it" {

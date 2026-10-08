@@ -529,6 +529,11 @@ pub const mission_events = struct {
         .about = "The explosion that `object` set off is over.",
         .Fields = struct { object: Object },
     };
+
+    pub const jumped_through_hoop: Declaration = .{
+        .about = "`flown_by` has flown through `object`, a training hoop, from behind it.",
+        .Fields = struct { object: Object, flown_by: Object },
+    };
 };
 
 /// The engine's events.
