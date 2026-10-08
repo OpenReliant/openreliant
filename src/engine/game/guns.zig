@@ -2628,26 +2628,24 @@ pub fn farCorner(corner: usize) bool {
     return std.mem.findScalar(usize, &blade_far, corner % blade_corners) != null;
 }
 
-/// The most blades a star is built with.
-const max_blades = max_corners / blade_corners;
-
-/// `mesh_build_star` (`0x004ADF90`): blades through the Z axis, spread evenly over half a turn,
-/// each a quad `radius` wide either side of the axis and running from `along[0]` to `along[1]`
-/// on it, drawn with `material` over `image`: the texture's `span` across each blade
-/// (`bladeCorners`), or the object's own coordinates where it has none. No more than `max_blades`
-/// are built.
-pub fn starMesh(gpa: Allocator, wanted: u8, radius: f32, along: [2]f32, span: ?[2][2]f32, material: srapiext.Material, image: *srtexture.Image) Allocator.Error!srapiext.Mesh {
-    const blades: usize = @min(wanted, max_blades);
-    var corners: [max_corners]Vector = undefined;
-    var uv: [max_corners][2]f32 = undefined;
-    var faces: [max_blades][blade_corners]u16 = undefined;
+/// `mesh_build_star` (`0x004ADF90`): `blades` blades through the Z axis, spread evenly over half a
+/// turn, each a quad `radius` wide either side of the axis and running from `along[0]` to
+/// `along[1]` on it, drawn with `material` over `image`: the texture's `span` across each blade
+/// (`bladeCorners`), or the object's own coordinates where it has none.
+pub fn starMesh(gpa: Allocator, blades: u8, radius: f32, along: [2]f32, span: ?[2][2]f32, material: srapiext.Material, image: *srtexture.Image) Allocator.Error!srapiext.Mesh {
+    const corners = @as(usize, blades) * blade_corners;
+    var mesh: srapiext.Mesh = try .create(gpa, .{ .polygons = blades, .vertices = corners, .indices = corners });
+    errdefer mesh.deinit(gpa);
+    mesh.numberPolygons(blade_corners);
+    const uv = if (span != null) try mesh.addCoordinates(gpa) else null;
     for (0..blades) |at| {
-        corners[at * blade_corners ..][0..blade_corners].* = blade(at, blades, radius, along);
-        if (span) |given| uv[at * blade_corners ..][0..blade_corners].* = bladeCorners(given);
-        faces[at] = quadFace(at);
+        mesh.positions[at * blade_corners ..][0..blade_corners].* = blade(at, blades, radius, along);
+        mesh.indices[at * blade_corners ..][0..blade_corners].* = quadFace(at);
+        if (span) |given| uv.?[at * blade_corners ..][0..blade_corners].* = bladeCorners(given);
     }
-    const count = blades * blade_corners;
-    return meshOf(blade_corners, gpa, corners[0..count], faces[0..blades], if (span != null) uv[0..count] else null, material, image);
+    mesh.surfaces[0] = .{ .polygons = blades, .material = material, .textures = .{ .{ .image = image }, .none } };
+    srapi.findBoundingBox(&mesh);
+    return mesh;
 }
 
 /// The corners of blade `index` of a star of `blades` (`starMesh`): turned `index` shares of half a
@@ -2668,6 +2666,27 @@ test blade {
         try std.testing.expectEqual(farCorner(at), farCorner(at + blade_corners));
     }
     try std.testing.expect(!farCorner(0) and farCorner(1) and farCorner(2) and !farCorner(3));
+}
+
+test starMesh {
+    const gpa = std.testing.allocator;
+    var image: srtexture.Image = undefined;
+    // Five blades, as the Dark Reign's hat has: each a quad of its own over the whole texture.
+    var mesh = try starMesh(gpa, 5, 1500, .{ -2500, 2500 }, .{ .{ 0, 0 }, .{ 1, 1 } }, meshMaterial(true), &image);
+    defer mesh.deinit(gpa);
+    try std.testing.expectEqual(5, mesh.polygons.len);
+    try std.testing.expectEqual(5, mesh.surfaces[0].polygons);
+    try std.testing.expectEqual(20, mesh.positions.len);
+    try std.testing.expectEqual(quadFace(4), mesh.indices[16..20].*);
+    try std.testing.expectEqual(bladeCorners(.{ .{ 0, 0 }, .{ 1, 1 } }), mesh.uv[0].?[16..20].*);
+    // The last blade is four fifths of half a turn round, and they run the whole length.
+    try std.testing.expectEqual(blade(4, 5, 1500, .{ -2500, 2500 }), mesh.positions[16..20].*);
+    try std.testing.expectEqual(2500, mesh.bounds[1][2]);
+
+    // Without a span, the object's own coordinates stand in.
+    var bare = try starMesh(gpa, 3, 10, .{ 0, 1 }, null, meshMaterial(true), &image);
+    defer bare.deinit(gpa);
+    try std.testing.expectEqual(null, bare.uv[0]);
 }
 
 /// The texture coordinates of a star's blade's four corners (`starMesh`), for the texture's `span`

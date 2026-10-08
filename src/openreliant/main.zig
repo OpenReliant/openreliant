@@ -583,6 +583,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var atmospheres: game.create.atmosphere.Atmospheres = try .init(gpa, &textures);
     defer atmospheres.deinit();
     atmospheres.style = options.atmospheres;
+    const extra_images: game.create.extra.Images = try .load(&textures);
     var flash: game.main.flash.Flash = .{};
     // The countermeasures' model, read once for the whole run, as `decoys_init` reads it.
     var effects_models: game.create.library.MountCache = .{ .gpa = arena, .resources = &resources, .textures = &textures, .models = models };
@@ -607,7 +608,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     const forces_library = engine.input.force.load(io, arena, directory, &mods);
     var force_feedback: engine.input.force.Forces = .{ .library = &forces_library, .settings = options.forces };
     // What the objects run in, the camera's view brought up to date each frame.
-    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .view = view.view, .last_view = view.view, .shake = &view.hit_shake, .random = &rand, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .trails = &trails, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .atmospheres = &atmospheres, .escort_marker = escort_marker, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
+    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .view = view.view, .last_view = view.view, .shake = &view.hit_shake, .random = &rand, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .trails = &trails, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .atmospheres = &atmospheres, .extras = &extra_images, .escort_marker = escort_marker, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
 
     world.launch_steam = options.launch_steam;
 

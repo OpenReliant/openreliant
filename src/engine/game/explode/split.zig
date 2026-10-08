@@ -14,9 +14,10 @@
 //! Stalag's, and a split's burning bits may be bodies.
 //!
 //! The Ulysses' top coming away (`ulysses.zig`) takes a slot among the splits too. A Krasnaya
-//! throws its arms off as it splits (`extras.throwArm`).
+//! throws its arms off as it splits (`extras.throwArm`), and the Dark Reign's hat goes out
+//! (`extras.putOutHat`).
 //!
-//! Not ported: the split putting out the Dark Reign's hat and the Boridin breakaway's core first
+//! Not ported: the split putting out the Boridin breakaway's core first
 //! ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 const std = @import("std");
@@ -606,8 +607,8 @@ fn otherHalfEnd(half: *gameobj.GameObject, orientation: math.Matrix) void {
 ///
 /// 1. A Krasnaya throws off each arm whose engine block is still on (`extras.throwArm`). It takes a
 ///    slot among the splits, with its portals, where its root stands, and its points, each part's
-///    `cut` list in the ship's frame, in order along it but for a Latov's; its engines stop, and
-///    every part stops playing its track.
+///    `cut` list in the ship's frame, in order along it but for a Latov's; its engines stop, the
+///    Dark Reign's hat goes out (`extras.putOutHat`), and every part stops playing its track.
 /// 2. Its other half, where its sequence names one, stands where it does, turned as it is, turning
 ///    as it turns but unpowered, still and disabled, and shows its first part, cut by the second
 ///    portal.
@@ -623,7 +624,7 @@ fn otherHalfEnd(half: *gameobj.GameObject, orientation: math.Matrix) void {
 /// game puts one that belongs right after the first before it; and each part's are taken through
 /// its place in the ship, where the game takes them through its place in the part it hangs from.
 ///
-/// Not ported: putting out the Dark Reign's hat and the Boridin breakaway's core first
+/// Not ported: putting out the Boridin breakaway's core first
 /// ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 pub fn start(world: gameobj.World, index: u16) void {
     const explosions = world.explosions orelse return;
@@ -645,6 +646,7 @@ pub fn start(world: gameobj.World, index: u16) void {
         .points = points,
     } }).capital;
     object.flags.engines_disabled = true;
+    if (object.type.base() == .darkreign) extras.putOutHat(world, index);
     stopTracks(model);
 
     if (sequence.other_half) |half_type| split.other = otherHalf(world, index, @fromBackingInt(half_type), &split.portals[1]);
@@ -895,4 +897,19 @@ test Splits {
     const added = splits.add(mission.world(), .{ .ulysses = .{ .object = Splits.max, .started = 0, .at = @splat(0), .portals = .{ .{}, .{} } } });
     try std.testing.expect(added == &splits.slots[0].?);
     try std.testing.expect(splits.splitting(Splits.max) and !splits.splitting(0));
+}
+
+test "the Dark Reign's hat goes out as it splits" {
+    const gpa = std.testing.allocator;
+    var stage: explode.testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    _ = try stage.mission.add(.of(.kamov), @splat(0));
+    var ship: create.extra.testing.DarkReign = undefined;
+    const world = try ship.init(gpa, &stage, .{ 0, 0, 5000 });
+    defer ship.deinit(gpa);
+    start(world, ship.index);
+    try std.testing.expect(stage.explosions.splits.splitting(ship.index));
+    try std.testing.expectEqual(null, ship.hat(&stage));
+    try std.testing.expectEqual(null, stage.explosions.streams[0]);
 }

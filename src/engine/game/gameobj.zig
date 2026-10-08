@@ -1982,6 +1982,9 @@ pub const World = struct {
     ion_cannons: ?*@import("aiioncan.zig").Cannons = null,
     /// The planets' atmospheres (`create.atmosphere`); null where no planet has one drawn.
     atmospheres: ?*@import("create/atmosphere.zig").Atmospheres = null,
+    /// The textures a few types' extras are drawn over (`create.extra`), such as the Dark Reign's
+    /// hat; null where no type has one made.
+    extras: ?*const @import("create/extra.zig").Images = null,
     /// The escort point's marker (`create.escort`), whose pulse each mission starts again.
     escort_marker: ?*@import("create/escort.zig").Marker = null,
     /// The screen's flash (`main.cpp`); null where nothing flashes.
@@ -2179,6 +2182,24 @@ pub fn recentreObject(slot: *create.Slot) void {
     object.bounds_max = vec3(model.bounds[1]);
 }
 
+/// `node_mass_add` (`0x004764A0`) on the node of part `index` of `model`: the part's mass, its
+/// density times its volume, and that of each shown part of each model the part carries
+/// (`objects.Model.carriedBy`), however deep. A mounted model's root is one of the node's children,
+/// and its parts are its root's. The parts linked to the part are not among the node's children:
+/// linking a part sets its node's parent and leaves it in the root's child list
+/// (`object_link_part`, `0x00476180`). The game also adds each part's first moment to the sums
+/// `object_recentre` divides, which nothing reads outside it.
+pub fn nodeMass(model: *const objects.Model, index: usize) f32 {
+    var mass: f32 = if (model.partData(index)) |data| data.part.density * data.part.volume else 0;
+    var each = model.carriedBy(index);
+    while (each.next()) |mount| {
+        for (mount.model.parts, 0..) |part, at| {
+            if (!part.hidden) mass += nodeMass(&mount.model, at);
+        }
+    }
+    return mass;
+}
+
 /// Moves the object's origin to its parts' centre of mass, as `object_link_parts` ends
 /// (`object_recentre`, `0x004769F0`). `node_mass_add` (`0x004764A0`) sums, over the shown
 /// parts, the density times the part's first moment about the root, its origin times its
@@ -2187,6 +2208,10 @@ pub fn recentreObject(slot: *create.Slot) void {
 /// object's radius and bounding box over the vertices of each part's current level, hidden ones
 /// too but not those taken out of the model (`objects.Model.Part.removed`), whose nodes the game
 /// has gone from the root. `source` is the model the parts come from.
+///
+/// Not ported: the shown parts of the models mounted on the parts, which the game's sums reach
+/// through each part's node (`nodeMass`)
+/// ([#896](https://github.com/OpenReliant/openreliant/issues/896)).
 pub fn recentre(model: *objects.Model, source: *const shp.Model) void {
     // Each part's origin in the model, which is where it stands with the root at rest.
     model.place(@splat(0), math.identity);
@@ -2756,6 +2781,24 @@ test recentreObject {
     try std.testing.expectEqual(0, slot.object.radius);
     try std.testing.expectEqual(0, slot.object.mass);
     try std.testing.expectEqual(Vector{ 0, 0, 100 }, slot.drawn.position);
+}
+
+test nodeMass {
+    const gpa = std.testing.allocator;
+    var gun: create.testing.Model = undefined;
+    try gun.init(gpa);
+    defer gun.deinit(gpa);
+    var carrier: objects.testing.Carrier = undefined;
+    carrier.init(.{ 100, 0, 0 });
+    carrier.parts.data[0].part.volume = 5;
+    carrier.parts.data[0].part.density = 2;
+    var model = try carrier.build(gpa, &gun);
+    defer model.deinit(gpa);
+    // The part's own 10, and the 6 of the one part of the gun mounted on it.
+    try std.testing.expectEqual(16, nodeMass(&model, 0));
+    // The gun's part hidden counts for nothing.
+    model.mounts[0].model.parts[0].hidden = true;
+    try std.testing.expectEqual(10, nodeMass(&model, 0));
 }
 
 test orthonormalizeTurn {

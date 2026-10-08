@@ -300,10 +300,11 @@ part's size go off within a quarter of its size of it, 10 ticks apart.
   so only the block goes and the rest of the arm stays on the ship beside the arm thrown off.
   OpenReliant looks through the whole ship, as when the block is destroyed.
 
+The Dark Reign's hat goes out with its coil, assembly 17 ([The Dark Reign's hat](#the-dark-reigns-hat)).
+
 [`explode/extras.zig`](../../src/engine/game/explode/extras.zig) ports them. Not ported: the extras
-that light or put out the prototype gate's power core (assembly 1), the Boridin breakaway's core
-(assemblies 2 and 3) and the Dark Reign's hat (assembly 17), which hang on what `create_object`
-sets up for those types ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+that light the prototype gate's power core (assembly 1) and the Boridin breakaway's core
+(assemblies 2 and 3) ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 ## Splits
 
@@ -346,7 +347,9 @@ When the time is up, the split ends once (`GameObject` `0x610` bit 1) and the po
 
 The flash (`0x00587CC8`) lasts 100 ticks. Once a frame, `mission_frame` draws it and counts it down by the frame's ticks (`0x00494940`): a sprite over the whole view, just beyond the near plane in the overlay's layer, untextured and added to what is drawn, white at 0.012 for each tick left, at most 1. So it holds white for 17 ticks and fades out over the rest. The same sprite shows red while the player's display is shaken by a hit ([The interference](hud.md#the-interference)).
 
-[`explode/split.zig`](../../src/engine/game/explode/split.zig) ports the splits, and [`main/flash.zig`](../../src/engine/game/main/flash.zig) the flash. Not ported: putting out the Dark Reign's hat and the Boridin breakaway's core, which a split does first ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+A split puts out the Dark Reign's hat as it starts ([The Dark Reign's hat](#the-dark-reigns-hat)).
+
+[`explode/split.zig`](../../src/engine/game/explode/split.zig) ports the splits, and [`main/flash.zig`](../../src/engine/game/main/flash.zig) the flash. Not ported: putting out the Boridin breakaway's core, which a split does first ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 ### The Ulysses' end
 
@@ -506,6 +509,32 @@ The game leaves unset when a ray last changed and how long it stays lit. OpenRel
 **Fix:** a ray hanging from a part that a split's portal cuts is cut by it too, so it shows only on what the sweep has laid bare. The game cuts the part alone, and its rays crackle over the stretch of the ship still whole.
 
 [`erayfx.zig`](../../src/engine/game/erayfx.zig) ports the rays.
+
+## Extras
+
+A few types carry an extra on one of their parts beyond their model. The game keeps it in a record of `0x1C` bytes that hangs on the part's frame (`+0x16C`): a first object (`+0x00`), a second (`+0x04`), four [electric rays](#electric-rays) (`+0x08`) and a particle emitter (`+0x18`), which streams among the burning wrecks' smoke (`burn_streams`, `0x0055AD60`). `mission_frame`'s pass over the objects draws it after its object, and `object_free` (`0x00475EF0`) lets it go with the object.
+
+### The Dark Reign's hat
+
+`create_object` gives the Dark Reign (`0x44`) its hat as it makes the ship (`0x00467E20`), and hangs it on its `Dark Hat`:
+
+- **Rays.** One runs from each of the four points of the rays list of the root's first part, the `Dark Coil`, to the same point of the second's, the `Dark Hat`, which it hangs from: one strand, 260 either way, straying by up to a fifth of its length, white and steady. Each plays over the ship.
+- **The band** (`darkreign extra mesh1`): 9 quads round its axis (`mesh_build_band`), 1000 out from it and 5000 along it, every corner at the middle of `gunflare\partic5`, unlit, added and never culled. It hangs from the `Dark Coil`, its axis turned a quarter turn about X to run down the coil's Y, starting 1800 below the middle of the vertices of the coil's drawn level.
+- **The star** (`darkreign extra mesh2`): 5 blades of `laser4` through its axis (`mesh_build_star`), 1500 either side of it and 2500 along it either way, red and added. It stands 2500 further down the coil than the band, turned as the band is, so that it fills the band.
+- **Sparks** (`emitter core`, its template at `0x0055AD00`) stream for good from 1150 below the star, in the coil's frame: 400 across, fading from full red to nothing over 1.3 to 1.5 seconds, one and a half a tick, leaving at 20 to 30 a tick every way, a little less along the coil's Y.
+
+The ship also takes the mass of its `Dark Low Body`, and of the turrets mounted on it, a second time (`node_mass_add`, `0x004764A0`), until the next recentring sums its mass again ([Live objects](objects.md#creating-an-object)).
+
+The pass draws the band and the star while the ship isn't exploding. The hat goes out as the ship loses its `Dark Coil`, the component of assembly 17 (`explode_component_lost`), and as it splits (`explode_capship_component`): its rays go, its sparks stop, and its band and its star are let go.
+
+**Fixes:**
+
+- The game sums the coil's vertices onto a vector it never clears, starting from whatever its stack held. OpenReliant starts from nothing.
+- The game always puts an extra's emitter in the first slot of the burning wrecks' smoke, and a wreck's smoke streaming there stops. OpenReliant takes the first free slot.
+- The game adds an extra even while it leaves its object out, as the ejection's cutaway leaves out every ship but two. OpenReliant draws an extra only with its object.
+- Losing a component of the coil's assembly on a turret mounted on the Dark Reign, the game looks for the hat under the turret's model, finds none and fails. OpenReliant puts nothing out.
+
+[`create/extra.zig`](../../src/engine/game/create/extra.zig) ports the extras and the hat, [`main.zig`](../../src/engine/game/main.zig) their drawing as `drawExtra`, and [`explode/extras.zig`](../../src/engine/game/explode/extras.zig) putting the hat out as `putOutHat`. Not ported: the extras the prototype gate's and the Boridin breakaway's components light as they go ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 ## Smoke
 
