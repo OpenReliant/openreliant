@@ -1443,8 +1443,9 @@ test PlayerLaunch {
 
 /// `--watch`: once the player's launch is over and the ship is there, the camera watches it
 /// (`camera.View.watch`) from `from`, in the ship's own axes, in multiples of its radius, and moves
-/// with it. The view is locked, so the player's keys leave it. The mission's script can still take
-/// the camera, as for a cutscene, and then keeps it.
+/// with it. The view is locked, so the player's keys leave it, and it lasts, so the mission goes
+/// on however long it watches (`camera.Camera.lasting`). The mission's script can still take the
+/// camera, as for a cutscene, and then keeps it.
 const Watch = struct {
     /// The ship's slot.
     slot: ?u16,
@@ -1461,6 +1462,7 @@ const Watch = struct {
         if (!slot.object.created or slot.object.flags.stand_in) return;
         if (!watch.started) {
             if (!view.setView(.watch, index, true, true, now)) return;
+            view.lasting = true;
             watch.started = true;
         } else if (view.view != .watch or view.object != index) {
             watch.slot = null;
@@ -1490,7 +1492,7 @@ test Watch {
     watch.frame(&view, mission.objects, 0);
     try std.testing.expectEqual(camera.View.watch, view.view);
     try std.testing.expectEqual(ship, view.object.?);
-    try std.testing.expect(view.locked);
+    try std.testing.expect(view.locked and view.lasting);
     try std.testing.expectEqual(math.Vector{ 100, 0, 20 }, view.place.position);
     slot.drawn.position = .{ 100, 0, 50 };
     watch.frame(&view, mission.objects, 1);

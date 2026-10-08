@@ -729,14 +729,16 @@ const shot_watched = 500;
 
 /// `mission_frame`'s end of the mission by what the camera watches (`0x00492651`): once the
 /// player's ship's end, the pod's pickup or the pod shot down has been watched its time, the
-/// mission is over. Watching the pod shot down, the time counts from when it bursts.
+/// mission is over. Watching the pod shot down, the time counts from when it bursts. A watch view
+/// that lasts, as `--watch` sets, never ends it (`camera.Camera.lasting`).
 ///
 /// Not ported: a multiplayer game, where the camera goes on to watch another player.
 pub fn missionOver(world: gameobj.World) bool {
     const watching = world.camera orelse return false;
     const now = world.clock.viewTime();
     const watched: u32 = switch (watching.view) {
-        .pull_back, .watch, .watch_marker => end_watched,
+        .watch => if (watching.lasting) return false else end_watched,
+        .pull_back, .watch_marker => end_watched,
         .pickup => pickup_watched,
         .pod_shot => watched: {
             if (world.objects.slots[world.objects.player].object.flags.exploding) break :watched shot_watched;
@@ -1468,6 +1470,13 @@ test missionOver {
         mission.clock.mission_ticks += 1;
         try std.testing.expect(missionOver(world));
     }
+    // A watch that lasts never ends the mission, but the end's own watch does.
+    _ = watching.setView(.watch, index, true, true, 1000);
+    watching.lasting = true;
+    mission.clock.mission_ticks = 100_000;
+    try std.testing.expect(!missionOver(world));
+    _ = watching.setView(.watch, index, true, true, 1000);
+    try std.testing.expect(missionOver(world));
     // The pod shot down is watched from when it bursts.
     _ = watching.setView(.pod_shot, index, true, true, 0);
     mission.clock.mission_ticks = 5000;

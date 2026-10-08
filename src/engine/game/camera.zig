@@ -391,6 +391,10 @@ pub const Camera = struct {
     bar_speed: f32 = 0,
     /// `frame_start` when the view last changed (`0x00539AA4`).
     switched: u32 = 0,
+    /// OpenReliant's: the watch view (`View.watch`) is one that lasts, as `--watch` sets it, rather
+    /// than the one the player's end switches to, so it doesn't end the mission
+    /// (`main.missionOver`). Any change of view clears it (`setView`).
+    lasting: bool = false,
     /// Where the ejection's views stand off from what they watch, as they are switched to
     /// (`0x00539A44`): the eject view's reach out to its object's right, the pickup's way to half
     /// between the picking ship and the pod, and the pod shot's way from the pod to the Sabre.
@@ -471,6 +475,7 @@ pub const Camera = struct {
         camera.object = object;
         camera.switched = now;
         camera.view = view;
+        camera.lasting = false;
         switch (view) {
             .cockpit => if (camera.cockpit_mode == .chase) camera.chase.resetTurns(),
             .chase, .chase_too => camera.chase.resetTurns(),
