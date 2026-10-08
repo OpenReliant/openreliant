@@ -74,7 +74,9 @@ pub const Scene = struct {
             scene.state.windows.close(.target);
             return null;
         }
-        return .{ .status = hud.ShipStatus.ofTarget(slot, &scene.state.target_hits), .facts = .of(scene.all, index), .pilot = pilotName(scene.all, slot) };
+        const status = hud.ShipStatus.ofTarget(slot, &scene.state.target_hits);
+        scene.state.flashes.target_hits = status.hits;
+        return .{ .status = status, .facts = .of(scene.all, index), .pilot = pilotName(scene.all, slot) };
     }
 
     /// What the large form shows now.
@@ -184,9 +186,10 @@ pub const Large = struct {
     }
 };
 
-/// The subtarget as the large form shows it: the name and the icon of its part's class, and how
-/// much of the bar for its armour is dark, where the part has armour.
+/// The subtarget as the large form shows it: its part's class, with the class's name and icon, and
+/// how much of the bar for its armour is dark, where the part has armour.
 pub const Subtarget = struct {
+    class: shp.Part.Class,
     named: Named,
     /// The rows of `armor_bar` its lost armour darkens, from the top: `armor_rows` less its share
     /// of its first armour, rounded.
@@ -259,7 +262,7 @@ pub fn subtarget(all: *const create.Objects) ?Subtarget {
         windows.unlitRows(part.armor / @as(f32, @floatFromInt(part.component_armor)), armor_bar.rows)
     else
         null;
-    return .{ .named = found, .unlit = unlit };
+    return .{ .class = part.class, .named = found, .unlit = unlit };
 }
 
 /// The hull as the large form's bar shows it. For a torpedo, its weakest armour quadrant, no more
@@ -397,6 +400,7 @@ test "the forms show the target" {
     slot.object.component_count = 1;
     mission.slot(player).orders[0].target = .at(sabre, 0);
     const shown = scene.large().?.subtarget.?;
+    try std.testing.expectEqual(.engine, shown.class);
     try std.testing.expectEqual(named(.engine).?, shown.named);
     try std.testing.expectEqual(armor_bar.rows - 10, shown.unlit.?);
     // A class the form has no icon for shows nothing.

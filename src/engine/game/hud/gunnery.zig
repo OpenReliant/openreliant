@@ -7,6 +7,7 @@
 const std = @import("std");
 
 const create = @import("../create.zig");
+const gameobj = @import("../gameobj.zig");
 const guns = @import("../guns.zig");
 const hud = @import("../hud.zig");
 
@@ -87,7 +88,7 @@ pub fn items(slot: *const create.Slot, wire_frame: ?u16, out: *[max_items]Item) 
             out[count] = .{ .shape = .{ .index = frame + @as(usize, mode.group) + 1, .at = frame_at, .own = true } };
             count += 1;
         }
-        if (slot.gun_groups[mode.group].paired() and !guns.GunType.leadCharges(lead)) {
+        if (pairShown(slot)) {
             out[count] = .{ .shape = .{ .index = if (mode.synchronised) together_shape else in_turn_shape, .at = pairing_at } };
             count += 1;
         }
@@ -100,15 +101,28 @@ pub fn items(slot: *const create.Slot, wire_frame: ?u16, out: *[max_items]Item) 
             count += 1;
         };
     }
-    switch (object.type.base()) {
-        .grendel, .wolverine, .reaper => {
-            out[count] = .{ .shape = .{ .index = rounds_shape, .at = rounds_shape_at } };
-            out[count + 1] = .{ .rounds = .{ .count = object.rounds, .at = rounds_at } };
-            count += 2;
-        },
-        else => {},
+    if (roundsShown(object)) |rounds| {
+        out[count] = .{ .shape = .{ .index = rounds_shape, .at = rounds_shape_at } };
+        out[count + 1] = .{ .rounds = .{ .count = rounds, .at = rounds_at } };
+        count += 2;
     }
     return out[0..count];
+}
+
+/// Whether the window shows how the chosen group's pair of guns fires, together or in turn: while
+/// one group fires, of two guns, but not the Nova Cannon's.
+pub fn pairShown(slot: *const create.Slot) bool {
+    const mode = slot.object.gun_mode;
+    return !mode.all and slot.gun_groups[mode.group].paired() and !guns.GunType.leadCharges(slot.groupLead(mode.group));
+}
+
+/// The rounds left that the window shows on the Grendel, the Wolverine and the Reaper, whose guns
+/// fire them; null on the other ships.
+pub fn roundsShown(object: *const gameobj.GameObject) ?i32 {
+    return switch (object.type.base()) {
+        .grendel, .wolverine, .reaper => object.rounds,
+        else => null,
+    };
 }
 
 /// `hud_window_draw`'s window 1, in the view ahead: each of the window's `items`, the text
@@ -129,8 +143,6 @@ pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!v
         .rounds => |rounds| try canvas.print("{d}", .{rounds.count}, rounds.at, .left),
     };
 }
-
-const gameobj = @import("../gameobj.zig");
 
 /// A ship of three groups of two guns each, as the Phoenix carries them: the Pulse Cannons, the
 /// Gattling Lasers and the Nova Cannons.
@@ -199,4 +211,35 @@ test items {
     try std.testing.expectEqual(null, gunName(.of(.turret_lasers)));
     try std.testing.expectEqual(rounds_shape, reaper[4].shape.index);
     try std.testing.expectEqual(250, reaper[5].rounds.count);
+}
+
+test pairShown {
+    var fitted = testing.fitted;
+    var slot: create.Slot = .{ .object = std.mem.zeroes(gameobj.GameObject), .combat = &testing.combat, .guns = &fitted, .gun_groups = &testing.table };
+    // A pair of Pulse Cannons shows how it fires, whether together or in turn.
+    try std.testing.expect(pairShown(&slot));
+    slot.object.gun_mode.synchronised = true;
+    try std.testing.expect(pairShown(&slot));
+    // The Nova Cannons don't, and nor does FULL GUNS.
+    slot.object.gun_mode.group = 2;
+    try std.testing.expect(!pairShown(&slot));
+    slot.object.gun_mode.group = 0;
+    slot.object.gun_mode.all = true;
+    try std.testing.expect(!pairShown(&slot));
+    // Nor does a group of one gun.
+    slot.object.gun_mode.all = false;
+    var single = testing.table;
+    single[0].second = -1;
+    slot.gun_groups = &single;
+    try std.testing.expect(!pairShown(&slot));
+}
+
+test roundsShown {
+    var object = std.mem.zeroes(gameobj.GameObject);
+    object.rounds = 3000;
+    // The Wolverine counts its rounds; a Phoenix has none to count.
+    object.type = .of(.wolverine);
+    try std.testing.expectEqual(3000, roundsShown(&object));
+    object.type = .of(.phoenix);
+    try std.testing.expectEqual(null, roundsShown(&object));
 }

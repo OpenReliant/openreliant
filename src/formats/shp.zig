@@ -294,6 +294,9 @@ pub const Part = extern struct {
     /// What a part is, going by what the engine does with each class and by the names the target
     /// display gives a subtarget of each (`hud_window_draw`). Classes 3, 9, 10 and 18 are turrets.
     pub const Class = enum(u32) {
+        /// The name scripts know these by.
+        pub const script_name = "PartClass";
+
         /// Hull sections, going by their names. The target display's large form shows the armour
         /// of the first a ship has (`hud_window_draw`).
         hull = 1,

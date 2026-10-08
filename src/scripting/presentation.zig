@@ -671,10 +671,11 @@ test "a display reads the radar's contacts and the target display" {
                 \\local hud = require("openreliant.hud")
                 \\return {engine_handlers = {on_frame = function()
                 \\    local contact, shown = hud.radar.contacts[1], hud.target_display
-                \\    hud.text(vector.zero, string.format("%d %d %s %d %d %d|%s %s %s %d %d %d %d %s %s",
+                \\    hud.text(vector.zero, string.format("%d %d %s %d %d %d|%s %s %s %d %d %d %d %s %s %.2f %s %s",
                 \\        #hud.radar.contacts, contact.object.slot, contact.look, contact.at.x, contact.at.y, contact.height,
                 \\        shown.form, shown.name, tostring(shown.pilot), shown.range, shown.speed, shown.shields.left,
-                \\        shown.armor.aft, tostring(shown.subtarget), tostring(shown.hull)))
+                \\        shown.armor.aft, shown.subtarget_class, shown.subtarget, shown.subtarget_armor, tostring(shown.hull),
+                \\        table.concat(shown.hits, ",")))
                 \\end}}
             },
         },
@@ -687,29 +688,40 @@ test "a display reads the radar's contacts and the target display" {
     const slot = fixture.mission.slot(sabre);
     slot.object.flags.targetable = true;
     slot.object.side = .hostile;
-    fixture.mission.slot(0).orders[0].target = .at(sabre, null);
     fixture.mission.tables.combat[engine.game.gameobj.Type.of(.sabre).number()].name = 700;
     var strings_table: [2000][]const u8 = @splat(" ");
     strings_table[700 - 1] = "Sabre";
+    // The player's order picks out its engine, a quarter of whose armour is left.
+    var part: engine.game.objects.Model.Part = .{ .hidden = false, .parent = null, .origin = @splat(0), .object = .{ .flags = .{}, .position = @splat(0), .radius = 0, .levels = &.{} } };
+    part.class = .engine;
+    part.component_armor = 200;
+    part.armor = 50;
+    slot.components[0] = &part;
+    slot.object.component_count = 1;
+    fixture.mission.slot(0).orders[0].target = .at(sabre, 0);
+    strings_table[hud.target_display.named(.engine).?.name - 1] = "Engine";
     // Its pilot, as the game gives a hostile ship until the mission names another.
     strings_table[hud.target_display.pilotName(all, slot).? - 1] = "Ace";
     const strings: engine.game.language.Language = .{ .strings = &strings_table };
     var state: hud.State = .{};
     state.target = .{ .target = .at(sabre, null), .slot = sabre };
+    // Its fore quadrant flashes on its schematic.
+    state.flashes.target_hits = .initOne(.fore);
     var player: input.Player = .{};
     var view: engine.game.camera.Camera = .{};
     var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player, .strings = &strings } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     // The radar shows the Sabre alone, as the target, up the screen; the target display its name,
-    // its pilot's, its range and its rings, and no subtarget or hull bar, the Sabre having no model.
+    // its pilot's, its range, its rings, its engine and the hit on it, and no hull bar, the Sabre
+    // having no model.
     var contacts: hud.Radar.Contacts = .of(all, state.radar_range, null);
     const contact = contacts.next().?;
     const facts: hud.target_display.Facts = .of(all, sabre);
     const rings = hud.ShipStatus.rings(slot).?;
     const form = hud.target_display.Form.of(hud.targetWindow(slot)).?;
     var expected: [256]u8 = undefined;
-    const text = try std.fmt.bufPrint(&expected, "1 {d} target {d} {d} {d}|{s} Sabre Ace {d} {d} {d} {d} nil nil", .{
+    const text = try std.fmt.bufPrint(&expected, "1 {d} target {d} {d} {d}|{s} Sabre Ace {d} {d} {d} {d} engine Engine 0.26 nil fore", .{
         sabre,                                                        contact.at[0], contact.at[1], contact.height,
         @tagName(form),                                               facts.range,   facts.speed,   std.math.clamp(rings.shields[0], 0, hud.ShipStatus.arc_levels),
         std.math.clamp(rings.armor[3], 0, hud.ShipStatus.arc_levels),
@@ -787,6 +799,60 @@ test "a display reads the windows and the display's text" {
     const text = try std.fmt.bufPrint(&expected, "0.25 0.50 1.00|{d} {d} {d}|1 0 1 {d:.2}|2 2 Patrol true 2 nil|Target|Bogey|Sub|comms_window|jump", .{
         shares.get(.shields), shares.get(.guns), shares.get(.engines), wing[0].armorShare(),
     });
+    try std.testing.expectEqualStrings(text, fixture.shown.layers.get(.hud).text.items);
+    fixture.shown.endGame();
+}
+
+test "a display reads what flashes, the charges, and how far the windows and the radar have moved" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=player.luau\n" },
+            .{
+                "player.luau",
+                \\local hud = require("openreliant.hud")
+                \\return {engine_handlers = {on_frame = function()
+                \\    local c, g, m = hud.charges, hud.guns, hud.missiles
+                \\    local gunnery, comms = hud.window_state("gunnery"), hud.window_state("comms")
+                \\    hud.text(vector.zero, string.format("%s|%s|%.2f %s %.2f|%s|%s %.2f %s %.2f %s|%.1f|%d %d|%s %d",
+                \\        table.concat(hud.lights_lit, ","), tostring(hud.countermeasures_lit),
+                \\        c.ecm, tostring(c.cloak), c.spectral_shields, table.concat(hud.ship_status.hits, ","),
+                \\        gunnery.phase, gunnery.opened, comms.phase, comms.opened, tostring(hud.window_state("radar")),
+                \\        hud.radar.rings, m.ring[1].place, m.ring[2].place, tostring(g.paired), g.rounds))
+                \\end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    const slot = fixture.mission.slot(0);
+    // A Wolverine, which counts its rounds.
+    slot.object.type = .of(.wolverine);
+    slot.object.rounds = 3000;
+    // The lock warning lit and the ECM's light, the countermeasures lit, and hits on the left and
+    // aft; the ECM half charged, no cloak, and the spectral shields full.
+    var state: hud.State = .{};
+    state.flashes = .{ .lights = .{ .enemy_lock = true, .ecm = true }, .countermeasures = true, .hits = .initMany(&.{ .left, .aft }) };
+    state.devices.getPtr(.ecm).ticks = @divExact(hud.Device.ecm.spec().full, 2);
+    state.devices.getPtr(.cloak).setting = .absent;
+    // The radar's rings two steps out from the closest range's.
+    state.radar_rings = hud.Radar.range_rings[0] + 2;
+    // A Screamer one place round from the armed Raptor.
+    state.missiles.entries[0] = .{ .count = 2, .place = 1, .type = .of(.screamer) };
+    state.missiles.entries[1] = .{ .count = 4, .place = 0, .type = .of(.raptor) };
+    state.missiles.armed = 1;
+    // The gunnery window half open, and the comms' second window open.
+    state.windows.status.set(.gunnery, .{ .phase = .opening, .progress = @divExact(hud.windows.opening_ticks, 2) });
+    state.windows.status.set(.other_comms, .{ .phase = .open, .progress = hud.windows.opening_ticks });
+    var player: input.Player = .{};
+    var view: engine.game.camera.Camera = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player } };
+    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
+    fixture.shown.frame(host);
+    var expected: [256]u8 = undefined;
+    const text = try std.fmt.bufPrint(&expected, "enemy_lock,ecm|true|0.50 nil 1.00|left,aft|opening 0.50 open 1.00 nil|0.4|1 0|{} 3000", .{hud.gunnery.pairShown(slot)});
     try std.testing.expectEqualStrings(text, fixture.shown.layers.get(.hud).text.items);
     fixture.shown.endGame();
 }

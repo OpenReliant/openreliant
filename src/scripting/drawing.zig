@@ -468,9 +468,12 @@ pub fn Package(comptime which: Which) type {
         pub const kills = if (which == .hud) instruments.kills else {};
         pub const fuel = if (which == .hud) instruments.fuel else {};
         pub const countermeasures = if (which == .hud) instruments.countermeasures else {};
+        pub const countermeasures_lit = if (which == .hud) instruments.countermeasures_lit else {};
         pub const gauges = if (which == .hud) instruments.gauges else {};
         pub const ship_status = if (which == .hud) instruments.ship_status else {};
         pub const lights = if (which == .hud) instruments.lights else {};
+        pub const lights_lit = if (which == .hud) instruments.lights_lit else {};
+        pub const charges = if (which == .hud) instruments.charges else {};
         pub const clock = if (which == .hud) instruments.clock else {};
         pub const view_name = if (which == .hud) instruments.view_name else {};
         pub const caption = if (which == .hud) instruments.caption else {};
@@ -484,6 +487,7 @@ pub fn Package(comptime which: Which) type {
         pub const key_prompt = if (which == .hud) instruments.key_prompt else {};
         pub const jump_prompt = if (which == .hud) instruments.jump_prompt else {};
         pub const open_windows = if (which == .hud) instruments.open_windows else {};
+        pub const window_state = if (which == .hud) instruments.window_state else {};
         pub const register_screen = if (which == .ui) api.Native("Registers a screen, which `name` qualified with the mod's name names. While it's shown (`show_screen`), `frame` draws it with this package's functions each frame, and `key` gets each key as it goes down and up. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?}", "string", @import("registries.zig").registration(.screen)) else {};
         pub const replace_screen = if (which == .ui) front_end.functions.replace_screen else {};
         pub const go_to = if (which == .ui) front_end.functions.go_to else {};

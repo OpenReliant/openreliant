@@ -75,6 +75,9 @@ pub const Window = enum(u4) {
 
 /// Where a window stands in its opening and closing (`+0x00`).
 pub const Phase = enum(u16) {
+    /// The name scripts know these by.
+    pub const script_name = "HudWindowPhase";
+
     shut = 0,
     opening = 1,
     closing = 2,
@@ -157,6 +160,13 @@ pub const Status = struct {
     progress: i32 = 0,
     /// Held open until its key is pressed again (`+0x24`).
     held: bool = false,
+
+    /// How far it has opened, from 0 to 1: its progress times a tick's share of `opening_ticks`, as
+    /// the game works out the scale it's drawn at (`openingScale`).
+    pub fn opened(status: Status) f32 {
+        const step: f32 = 1.0 / @as(f32, @floatFromInt(opening_ticks));
+        return @as(f32, @floatFromInt(status.progress)) * step;
+    }
 };
 
 /// How a window is drawn this frame.
@@ -251,7 +261,7 @@ pub const Windows = struct {
         }
         switch (status.phase) {
             .shut => return null,
-            .opening, .closing => return .{ .scale = openingScale(status.progress), .buffered = true },
+            .opening, .closing => return .{ .scale = openingScale(status.opened()), .buffered = true },
             .open => {
                 if (status.left < 0 and !status.held) {
                     status.left = 0;
@@ -282,11 +292,10 @@ pub const Windows = struct {
     }
 };
 
-/// How large a window is drawn `progress` ticks into its opening: twice its size at the start, its
-/// own at the end.
-fn openingScale(progress: i32) f32 {
-    const step: f32 = 1.0 / @as(f32, @floatFromInt(opening_ticks));
-    return (1 - @as(f32, @floatFromInt(progress)) * step) + 1;
+/// How large a window is drawn as far into its opening as `opened` says (`Status.opened`): twice
+/// its size at the start, its own at the end.
+fn openingScale(opened: f32) f32 {
+    return (1 - opened) + 1;
 }
 
 /// Where a window's place stands on the screen when it is drawn as `shown` says: its own place,
@@ -529,8 +538,10 @@ test "a window opens, stays its time and closes" {
     try std.testing.expectEqual(Phase.opening, windows.status.get(.damage).phase);
     // Half open, it is drawn one and a half times its size; open, its own.
     try std.testing.expectApproxEqAbs(1.5, windows.step(.damage, 30).?.scale, 1e-5);
+    try std.testing.expectApproxEqAbs(0.5, windows.status.get(.damage).opened(), 1e-6);
     try std.testing.expectEqual(Shown{ .scale = 1, .buffered = false }, windows.step(.damage, 30).?);
     try std.testing.expectEqual(Phase.open, windows.status.get(.damage).phase);
+    try std.testing.expectEqual(1, windows.status.get(.damage).opened());
     // It stays its 1000 ticks, counted from the frame it opened in.
     _ = windows.step(.damage, 969);
     try std.testing.expectEqual(1, windows.status.get(.damage).left);

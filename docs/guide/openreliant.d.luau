@@ -17,10 +17,13 @@ type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cann
 type Carrier = "reliant" | "yamato"
 type HudInstrument = "caption" | "key_prompt" | "jump_prompt" | "target_markers" | "eject_marker" | "scanner" | "lights" | "view_name" | "subtitle" | "messages" | "nav_marker" | "fuel" | "kills" | "countermeasures" | "ship_status" | "gauges" | "radar" | "reticle" | "clock" | "radio" | "gunnery" | "missiles" | "target_display" | "damage" | "power" | "big_target_display" | "objectives" | "comms" | "wing_status"
 type HudTargetForm = "small" | "large"
+type Quadrant = "left" | "right" | "fore" | "aft"
+type PartClass = "hull" | "cockpit" | "turret" | "engine" | "shield_generator" | "comms_transmitter" | "gravity_drive" | "laser_turret" | "missile_turret" | "power_core" | "satellite_dish" | "service_door" | "shaft" | "surface_building" | "twin_power_cores" | "vent_hatch" | "ion_cannon" | "armored_plate" | "cap_gun" | "warp_projector" | "fuel_pod" | number
 type HudContactLook = "other" | "hostile" | "speaker" | "target" | "nav_point"
 type HudLight = "match_speed" | "blind_fire" | "smart_targeting" | "enemy_lock" | "missile_incoming" | "ecm" | "cloak" | "spectral_shields" | "reverse_thrust"
 type Action = "cockpit_camera" | "left_view_camera" | "right_view_camera" | "rear_view_camera" | "flyby_camera" | "target_camera" | "external_camera" | "missile_camera" | "next_enemy_target" | "previous_enemy_target" | "next_friendly_target" | "previous_friendly_target" | "next_subtarget" | "previous_subtarget" | "target_under_reticule" | "target_nearest_enemy" | "target_nearest_friendly" | "target_torpedo" | "smart_target" | "primary_target" | "afterburners" | "afterburner_toggle" | "reverse_thrust" | "jump_drive" | "match_speed" | "accelerate" | "decelerate" | "zero_throttle" | "full_throttle" | "roll_ship_clockwise" | "roll_ship_anti_clockwise" | "nose_up" | "nose_down" | "rotate_clockwise" | "rotate_anti_clockwise" | "strafe_left" | "strafe_right" | "joystick_roll" | "fire_lasers" | "full_guns" | "gunnery_window" | "gunnery_window_locked" | "synchronise_guns" | "toggle_blindfire" | "launch_missile" | "missile_window" | "rotate_missiles_clockwise" | "rotate_missiles_anticlockwise" | "comms_window" | "powerball_window" | "powerball_window_locked" | "full_power_to_gunnery" | "full_power_to_engines" | "full_power_to_shields" | "equalize_power" | "objectives_window" | "wing_status_window" | "wing_status_window_locked" | "damage_window" | "damage_window_locked" | "radar_ranges" | "shield_balancing" | "countermeasures" | "eject" | "cloak_ship" | "ecm" | "spectral_shields" | "attack_my_target" | "back_off" | "help_me" | "permission_to_land" | "display_kills" | "send_comms_message" | "key_config"
 type HudJumpPrompt = "jump" | "warp"
+type HudWindowPhase = "shut" | "opening" | "closing" | "open"
 type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "centre" | "right" | number
 type FrontEndScreen = "main_menu" | "game_options" | "audio" | "briefing" | "landing_movie" | "pilot_roster" | "saved_games" | "connection" | "video" | "controls" | "mods" | "mod_options" | "game_modes" | "mode_briefing" | "mode_ending" | number
@@ -33,7 +36,6 @@ type Axis = "x" | "y" | "z"
 type OptionKind = "toggle" | "choice" | "number" | "slider" | "text" | "heading"
 type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total_failure" | "friendly_fire" | "ejecting" | number
 type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
-type Quadrant = "left" | "right" | "fore" | "aft"
 type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | number
 type RadioMode = "now" | "queued" | "if_idle" | number
 type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "unnamed_3" | "warp_in" | "warp_out" | "fly" | "run_away" | "land" | "escort" | "find_new_target" | "explode" | "ripper_grabs_target_object" | "object_attach" | "formation_regroup" | "patrol_route" | "toggle_cloak" | "ship_follow_curve" | "slow_rotate" | "jump_in" | "jump_out" | "find_scoop_up" | "random_spin_slow" | "random_spin_medium" | "random_spin_fast" | "fixed_gate_jump_in" | "fixed_gate_jump_out" | "formation" | "fixed_gate_open" | "fixed_gate_close" | "eject" | "fixed_gate_collapse" | "match_speed" | "dark_reign_shoot" | "move_to_spawn_pos" | "turns_object_lights_on" | "make_boridin_section_break_away" | "rotate_boridin_breakaway_warp_projector" | "start_warp_projection_from_boridin" | "make_ripper_drop_what_its_carrying" | "jump_in_40" | "jump_out_41" | "turns_object_lights_off" | "huuuuuuuge_explosion" | "immediately_set_ship_to_zero_velocity_and_rotation" | "fly_ship_backwards" | "player_control" | "multiplayer_control" | "avoid_target" | "torpedo" | "launch" | "fight" | "eject_106" | "scoop_up" | "eject_spin" | "dock" | "dark_reign_shoot_110" | "ripper_end_drop_object" | "ripper_attach_cargo_pod_to_mammoth" | "eject_fighter_attack" | "disrupted" | "make_capship_list_left" | "make_capship_list_right" | "friendly_fire" | "eject_player" | "ship_follow_curve_backwards" | "mill" | "deathmatch_respawn_effect" | "deathmatch_dark_reign_target" | "unnamed_200" | number
@@ -117,6 +119,8 @@ type HudGuns = {
     gun: GunType?,
     charge: number,
     full_charge: number,
+    paired: boolean,
+    rounds: number?,
 }
 type HudMissiles = {
     armed: MissileType?,
@@ -126,6 +130,7 @@ type HudMissiles = {
 type HudMissile = {
     type: MissileType,
     left: number,
+    place: number,
 }
 type HudTargetDisplay = {
     form: HudTargetForm,
@@ -135,6 +140,8 @@ type HudTargetDisplay = {
     speed: number,
     shields: HudArcs?,
     armor: HudArcs?,
+    hits: { Quadrant },
+    subtarget_class: PartClass?,
     subtarget: string?,
     subtarget_armor: number?,
     hull: number?,
@@ -149,6 +156,7 @@ type HudRadar = {
     range: number,
     reach: number,
     zooming: boolean,
+    rings: number,
     contacts: { HudContact },
 }
 type HudContact = {
@@ -171,6 +179,12 @@ type HudShipStatus = {
     armor: HudArcs,
     reserve_fore: number,
     reserve_aft: number,
+    hits: { Quadrant },
+}
+type HudCharges = {
+    ecm: number?,
+    cloak: number?,
+    spectral_shields: number?,
 }
 type HudClock = {
     minutes: number,
@@ -205,6 +219,10 @@ type HudBounds = {
     top: number,
     right: number,
     bottom: number,
+}
+type HudWindowState = {
+    phase: HudWindowPhase,
+    opened: number,
 }
 type FillStyle = {
     colour: vector?,
@@ -575,12 +593,18 @@ type Hud = {
     fuel: number?,
     -- The countermeasures the coil readout shows; nil outside a mission.
     countermeasures: number?,
+    -- Whether the countermeasures readout was lit as the display last drew it: always in the view ahead from the cockpit, except while it's dark in a flash that `ShowHudIcon` sets; false outside the view ahead, and outside a mission.
+    countermeasures_lit: boolean,
     -- The targeting cluster about the middle of the screen, as it shows the player's speed, throttle and guns; nil outside a mission.
     gauges: HudGauges?,
     -- The ship status indicator, as it shows the player's shields and armour; nil for a ship without them, or outside a mission.
     ship_status: HudShipStatus?,
     -- The status lights that show, steady or flashing, in the order the display packs them; none outside a mission.
     lights: { HudLight },
+    -- The status lights lit as the display last drew them, in the order it packs them: those of `lights`, but a flashing one only while it's lit. A warning that flashes keeps its place in the grid while it's dark; a light that `ShowHudIcon` flashes gives its place up. None outside the view ahead from the cockpit, where the display draws no lights, and outside a mission.
+    lights_lit: { HudLight },
+    -- The charges of the player's ECM, cloak and spectral shields, which their lights show as bars under them, each from 0 to 1, or nil where the ship doesn't carry the device; nil outside a mission.
+    charges: HudCharges?,
     -- The mission's clock as the display shows it: the countdown where the mission counts down, and the time played otherwise; nil outside a mission.
     clock: HudClock?,
     -- The view's name the display writes at the top of the screen, in the views it names; nil in the others, the view ahead from the cockpit among them, and outside a mission.
@@ -605,7 +629,7 @@ type Hud = {
     key_prompt: Action?,
     -- The prompt that flashes in the view ahead for what the mission has ready: the warp's or the jump's; nil for none, and outside a mission.
     jump_prompt: HudJumpPrompt?,
-    -- The game's windows that are open, opening or closing; none outside a mission.
+    -- The game's windows that are open, opening or closing (`window_state`); none outside a mission.
     open_windows: { HudInstrument },
     -- Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read.
     shown: boolean,
@@ -619,6 +643,8 @@ type Hud = {
     set_display_enabled: (name: string, enabled: boolean) -> boolean,
     -- Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission.
     bounds: (instrument: HudInstrument) -> HudBounds?,
+    -- How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission.
+    window_state: (instrument: HudInstrument) -> HudWindowState?,
     -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
     -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
@@ -841,9 +867,12 @@ type Interfaces = {
         kills: number?,
         fuel: number?,
         countermeasures: number?,
+        countermeasures_lit: boolean,
         gauges: HudGauges?,
         ship_status: HudShipStatus?,
         lights: { HudLight },
+        lights_lit: { HudLight },
+        charges: HudCharges?,
         clock: HudClock?,
         view_name: string?,
         caption: string?,
@@ -863,6 +892,7 @@ type Interfaces = {
         register_display: (name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?}) -> string,
         set_display_enabled: (name: string, enabled: boolean) -> boolean,
         bounds: (instrument: HudInstrument) -> HudBounds?,
+        window_state: (instrument: HudInstrument) -> HudWindowState?,
         picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
         shape: (at: vector, index: number, style: ShapeStyle?) -> (),
         text: (at: vector, text: string, style: TextStyle?) -> (),
