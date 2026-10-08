@@ -362,19 +362,9 @@ fn pushRecord(state: *State, records: *Records, comptime set: Set, place: usize,
 
 /// Pushes a string from the game's code page, converted to UTF-8.
 fn pushText(state: *State, text: []const u8) void {
-    var buffer: [language.max_length * max_utf8_bytes]u8 = undefined;
-    var len: usize = 0;
-    for (text[0..@min(text.len, language.max_length)]) |byte| {
-        len += std.unicode.utf8Encode(language.toUnicode(byte), buffer[len..]) catch encoded: {
-            buffer[len] = '?';
-            break :encoded 1;
-        };
-    }
-    state.pushString(buffer[0..len]);
+    var buffer: [language.max_length * language.max_utf8_bytes]u8 = undefined;
+    state.pushString(language.decode(&buffer, text[0..@min(text.len, language.max_length)]));
 }
-
-/// The most bytes a character from the game's code page needs in UTF-8.
-const max_utf8_bytes = 3;
 
 /// Converts the UTF-8 string at `given` to the game's code page and copies it into `arena`.
 /// Characters the code page doesn't have become `?` (`language.encode`). Raises an error if the

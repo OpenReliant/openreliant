@@ -118,6 +118,14 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `target` | [Target](#target), or nil | The target the display shows, with its subtarget as `component`; nil for none, or outside a mission. |
 | `radar` | [HudRadar](#hudradar), or nil | The radar's range; nil outside a mission. |
 | `kills` | number, or nil | The kills the skull readout shows; nil outside a mission. |
+| `fuel` | number, or nil | The seconds of afterburner fuel the fuel readout shows; nil outside a mission. |
+| `countermeasures` | number, or nil | The countermeasures the coil readout shows; nil outside a mission. |
+| `gauges` | [HudGauges](#hudgauges), or nil | The targeting cluster about the middle of the screen, as it shows the player's speed, throttle and guns; nil outside a mission. |
+| `ship_status` | [HudShipStatus](#hudshipstatus), or nil | The ship status indicator, as it shows the player's shields and armour; nil for a ship without them, or outside a mission. |
+| `lights` | list of [HudLight](#hudlight) | The status lights that show, steady or flashing, in the order the display packs them; none outside a mission. |
+| `clock` | [HudClock](#hudclock), or nil | The mission's clock as the display shows it: the countdown where the mission counts down, and the time played otherwise; nil outside a mission. |
+| `view_name` | string, or nil | The view's name the display writes at the top of the screen, in the views it names; nil in the others, the view ahead from the cockpit among them, and outside a mission. |
+| `caption` | string, or nil | The date the launch types out at the foot of the screen, as far as it has typed it; nil while it isn't shown, and outside a mission. |
 | `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing; none outside a mission. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
@@ -450,6 +458,14 @@ turret, and a turret's own scripts on their turret.
 | `target` | [Target](#target), or nil | The target the display shows, with its subtarget as `component`; nil for none, or outside a mission. |
 | `radar` | [HudRadar](#hudradar), or nil | The radar's range; nil outside a mission. |
 | `kills` | number, or nil | The kills the skull readout shows; nil outside a mission. |
+| `fuel` | number, or nil | The seconds of afterburner fuel the fuel readout shows; nil outside a mission. |
+| `countermeasures` | number, or nil | The countermeasures the coil readout shows; nil outside a mission. |
+| `gauges` | [HudGauges](#hudgauges), or nil | The targeting cluster about the middle of the screen, as it shows the player's speed, throttle and guns; nil outside a mission. |
+| `ship_status` | [HudShipStatus](#hudshipstatus), or nil | The ship status indicator, as it shows the player's shields and armour; nil for a ship without them, or outside a mission. |
+| `lights` | list of [HudLight](#hudlight) | The status lights that show, steady or flashing, in the order the display packs them; none outside a mission. |
+| `clock` | [HudClock](#hudclock), or nil | The mission's clock as the display shows it: the countdown where the mission counts down, and the time played otherwise; nil outside a mission. |
+| `view_name` | string, or nil | The view's name the display writes at the top of the screen, in the views it names; nil in the others, the view ahead from the cockpit among them, and outside a mission. |
+| `caption` | string, or nil | The date the launch types out at the foot of the screen, as far as it has typed it; nil while it isn't shown, and outside a mission. |
 | `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing; none outside a mission. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
@@ -1248,6 +1264,43 @@ A table a script gives, which may leave out a field with a default.
 | `reach` | number |
 | `zooming` | boolean |
 
+### HudGauges
+
+| Field | Type |
+|---|---|
+| `speed` | number |
+| `asked` | number |
+| `speed_share` | number |
+| `throttle_share` | number |
+| `throttle_brightness` | number, or nil |
+| `charge` | number |
+| `nova` | boolean |
+
+### HudShipStatus
+
+| Field | Type |
+|---|---|
+| `shields` | [HudArcs](#hudarcs) |
+| `armor` | [HudArcs](#hudarcs) |
+| `reserve_fore` | number |
+| `reserve_aft` | number |
+
+### HudArcs
+
+| Field | Type |
+|---|---|
+| `left` | number |
+| `right` | number |
+| `fore` | number |
+| `aft` | number |
+
+### HudClock
+
+| Field | Type |
+|---|---|
+| `minutes` | number |
+| `seconds` | number |
+
 ### HudBounds
 
 | Field | Type |
@@ -1452,6 +1505,10 @@ number. A script can set a field to either.
 ### HudInstrument
 
 `caption`, `key_prompt`, `jump_prompt`, `target_markers`, `eject_marker`, `scanner`, `lights`, `view_name`, `subtitle`, `messages`, `nav_marker`, `fuel`, `kills`, `countermeasures`, `ship_status`, `gauges`, `radar`, `reticle`, `clock`, `radio`, `gunnery`, `missiles`, `target_display`, `damage`, `power`, `big_target_display`, `objectives`, `comms`, `wing_status`.
+
+### HudLight
+
+`match_speed`, `blind_fire`, `smart_targeting`, `enemy_lock`, `missile_incoming`, `ecm`, `cloak`, `spectral_shields`, `reverse_thrust`.
 
 ### Font
 

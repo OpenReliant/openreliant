@@ -10,6 +10,7 @@ const std = @import("std");
 const openreliant = @import("openreliant");
 const engine = openreliant.engine;
 const hud = engine.game.hud;
+const language = engine.game.language;
 const gun_types = engine.game.guns;
 const missile_display = hud.missile_display;
 const create = engine.game.create;
@@ -92,6 +93,87 @@ pub const Radar = struct {
     /// Whether its rings are still moving to that range's.
     zooming: bool,
 };
+
+/// The targeting cluster about the middle of the screen, as it shows the player's speed, throttle
+/// and guns.
+pub const Gauges = struct {
+    pub const script_name = "HudGauges";
+
+    /// The speed made, as the speed's figure shows it.
+    speed: i32,
+    /// The speed the throttle asks for, as the throttle's figure shows it.
+    asked: i32,
+    /// Where the speed's marker stands on the left arc, and how far up the arc is lit: the speed
+    /// over the top speed, from 0 to 1.
+    speed_share: f32,
+    /// Where the throttle's marker stands on the left arc: the throttle's size, from 0 to 1.
+    throttle_share: f32,
+    /// How bright the throttle's marker and figure are, from 0 to 1; nil while they don't show,
+    /// as the throttle nears the speed.
+    throttle_brightness: ?f32,
+    /// How far up the right arc is lit, from 0 to 1: the guns' charge over the most they hold, or,
+    /// where `nova` is set, what the Nova Cannon's charge leaves of it, as the arc empties while
+    /// the cannon charges.
+    charge: f32,
+    /// Whether the right arc shows the Nova Cannon's charge rather than the guns'.
+    nova: bool,
+};
+
+/// How many of a ring's five arcs show in each quadrant, from 0 to 5.
+pub const Arcs = struct {
+    pub const script_name = "HudArcs";
+
+    left: i32,
+    right: i32,
+    fore: i32,
+    aft: i32,
+
+    /// The arcs that show for the levels of a ring, in the quadrants' order (`hud.ShipStatus.Rings`).
+    fn of(levels: [4]i32) Arcs {
+        return .{ .left = shownArcs(levels[0]), .right = shownArcs(levels[1]), .fore = shownArcs(levels[2]), .aft = shownArcs(levels[3]) };
+    }
+};
+
+/// How many arcs show for an arc's level (`hud.ShipStatus.level`): none at 0 or less.
+fn shownArcs(level: i32) i32 {
+    return std.math.clamp(level, 0, hud.ShipStatus.arc_levels);
+}
+
+/// The ship status indicator, as it shows the player's shields and armour.
+pub const ShipStatus = struct {
+    pub const script_name = "HudShipStatus";
+
+    /// The shields' ring and the armour's.
+    shields: Arcs,
+    armor: Arcs,
+    /// The arcs outside the fore and aft shields for what SHIELD BALANCING has shifted there, from
+    /// 0 to 5.
+    reserve_fore: i32,
+    reserve_aft: i32,
+};
+
+/// The mission's clock as the display shows it: the countdown where the mission counts down, and
+/// the time played otherwise.
+pub const Clock = struct {
+    pub const script_name = "HudClock";
+
+    minutes: u16,
+    seconds: u16,
+};
+
+/// The status lights, which hold them all.
+pub const Lights = values.List(hud.Light, std.enums.values(hud.Light).len);
+
+/// A short text of the game's, in UTF-8, which scripts get as a string: the bytes up to the first
+/// zero.
+const Text = [256]u8;
+
+/// `shown`, in the game's code page, as a `Text`.
+fn textOf(shown: []const u8) Text {
+    var held: Text = @splat(0);
+    _ = language.decode(held[0 .. held.len - 1], shown);
+    return held;
+}
 
 /// The flight display's state, and the player's ship, while a mission is shown; null otherwise.
 fn flightOf(call: Call, comptime label: []const u8) ?struct { presentation.Host.Flight, *const create.Slot } {
@@ -179,8 +261,95 @@ pub const radar = api.Field(?Radar, "The radar's range; nil outside a mission.",
 
 pub const kills = api.Field(?i32, "The kills the skull readout shows; nil outside a mission.", struct {
     pub fn get(call: Call) ?i32 {
-        const flight, _ = flightOf(call, "kills") orelse return null;
-        return flight.player.kills.count;
+        return readout(call, "kills", .skull);
+    }
+});
+
+pub const fuel = api.Field(?i32, "The seconds of afterburner fuel the fuel readout shows; nil outside a mission.", struct {
+    pub fn get(call: Call) ?i32 {
+        return readout(call, "fuel", .fuel);
+    }
+});
+
+pub const countermeasures = api.Field(?i32, "The countermeasures the coil readout shows; nil outside a mission.", struct {
+    pub fn get(call: Call) ?i32 {
+        return readout(call, "countermeasures", .coil);
+    }
+});
+
+/// The number `which` shows; null outside a mission.
+fn readout(call: Call, comptime label: []const u8, which: hud.Readout) ?i32 {
+    const flight, const slot = flightOf(call, label) orelse return null;
+    return which.value(slot, flight.player);
+}
+
+pub const gauges = api.Field(?Gauges, "The targeting cluster about the middle of the screen, as it shows the player's speed, throttle and guns; nil outside a mission.", struct {
+    pub fn get(call: Call) ?Gauges {
+        _, const slot = flightOf(call, "gauges") orelse return null;
+        const shown = hud.Cluster.Gauges.of(slot) orelse return null;
+        const throttle, const speed = hud.Cluster.shares(shown);
+        const asked, const made = shown.figures();
+        return .{
+            .speed = made,
+            .asked = asked,
+            .speed_share = speed,
+            .throttle_share = throttle,
+            .throttle_brightness = hud.Cluster.throttleBrightness(throttle, speed),
+            .charge = shown.chargeShare(),
+            .nova = shown.nova != null,
+        };
+    }
+});
+
+pub const ship_status = api.Field(?ShipStatus, "The ship status indicator, as it shows the player's shields and armour; nil for a ship without them, or outside a mission.", struct {
+    pub fn get(call: Call) ?ShipStatus {
+        const flight, const slot = flightOf(call, "ship_status") orelse return null;
+        const found, const shifted = hud.ShipStatus.playerRings(slot, flight.player.shield_reserves);
+        const rings = found orelse return null;
+        const reserves = shifted orelse .{ 0, 0 };
+        return .{ .shields = .of(rings.shields), .armor = .of(rings.armor), .reserve_fore = shownArcs(reserves[0]), .reserve_aft = shownArcs(reserves[1]) };
+    }
+});
+
+pub const lights = api.Field(Lights, "The status lights that show, steady or flashing, in the order the display packs them; none outside a mission.", struct {
+    pub fn get(call: Call) Lights {
+        var list: Lights = .{};
+        const flight, const slot = flightOf(call, "lights") orelse return list;
+        const lit = flight.hud.lightsShown(&slot.object, flight.player.matching_speed, flight.multiplayer);
+        inline for (comptime std.enums.values(hud.Light)) |light| {
+            if (@field(lit, @tagName(light))) list.append(light);
+        }
+        return list;
+    }
+});
+
+pub const clock = api.Field(?Clock, "The mission's clock as the display shows it: the countdown where the mission counts down, and the time played otherwise; nil outside a mission.", struct {
+    pub fn get(call: Call) ?Clock {
+        const flight, _ = flightOf(call, "clock") orelse return null;
+        const all = call.runtime().objects orelse return null;
+        const minutes, const seconds = hud.clockTime(all, flight.play, flight.variables);
+        return .{ .minutes = minutes, .seconds = seconds };
+    }
+});
+
+pub const view_name = api.Field(?Text, "The view's name the display writes at the top of the screen, in the views it names; nil in the others, the view ahead from the cockpit among them, and outside a mission.", struct {
+    pub fn get(call: Call) ?Text {
+        const flight, _ = flightOf(call, "view_name") orelse return null;
+        const strings = flight.strings orelse return null;
+        return textOf(strings.string(hud.viewName(flight.last_view) orelse return null) orelse return null);
+    }
+});
+
+pub const caption = api.Field(?Text, "The date the launch types out at the foot of the screen, as far as it has typed it; nil while it isn't shown, and outside a mission.", struct {
+    pub fn get(call: Call) ?Text {
+        const flight, _ = flightOf(call, "caption") orelse return null;
+        const typed = flight.hud.caption;
+        if (!typed.on) return null;
+        const all = call.runtime().objects orelse return null;
+        const strings = flight.strings orelse return null;
+        const date = strings.string(hud.Caption.date(all.mission_number) orelse return null) orelse return null;
+        const shows, _ = typed.showing(date);
+        return textOf(shows);
     }
 });
 

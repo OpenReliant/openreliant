@@ -73,6 +73,36 @@ pub fn encode(buffer: []u8, text: []const u8) []u8 {
     return buffer[0..length];
 }
 
+/// `text`, in the game's code page, 1252, as UTF-8 (`toUnicode`), as many whole characters of it
+/// as `buffer` holds.
+pub fn decode(buffer: []u8, text: []const u8) []u8 {
+    var length: usize = 0;
+    for (text) |byte| {
+        const character = utf8_of[byte];
+        if (length + character.len > buffer.len) break;
+        @memcpy(buffer[length..][0..character.len], character.bytes[0..character.len]);
+        length += character.len;
+    }
+    return buffer[0..length];
+}
+
+/// The most bytes a character of the game's code page takes in UTF-8.
+pub const max_utf8_bytes = 3;
+
+/// A character of the code page in UTF-8: its first `len` bytes.
+const Utf8 = struct { bytes: [max_utf8_bytes]u8, len: u8 };
+
+/// Each byte of the code page in UTF-8 (`toUnicode`), worked out as the build runs.
+const utf8_of: [256]Utf8 = table: {
+    @setEvalBranchQuota(10000);
+    var table: [256]Utf8 = undefined;
+    for (&table, 0..) |*entry, byte| {
+        entry.bytes = @splat(0);
+        entry.len = std.unicode.utf8Encode(toUnicode(byte), &entry.bytes) catch unreachable;
+    }
+    break :table table;
+};
+
 /// The character the game's code page, 1252, holds at `byte` (`codePage1252`): `byte` itself below
 /// `0x80` and from `0xA0`, and the page's own between.
 pub fn toUnicode(byte: u8) u21 {
@@ -156,6 +186,16 @@ test encode {
     // Cut to the buffer, and nothing where it isn't UTF-8.
     try std.testing.expectEqualStrings("Page", encode(&buffer, "Page Up"));
     try std.testing.expectEqualStrings("", encode(&buffer, "\xFF"));
+}
+
+test decode {
+    var buffer: [16]u8 = undefined;
+    // Plain letters stay, and the page's own characters become theirs: 0x80 is the euro sign.
+    try std.testing.expectEqualStrings("A\u{20AC}b\u{E9}", decode(&buffer, "A\x80b\xE9"));
+    // Only whole characters fit: the euro sign takes three bytes.
+    try std.testing.expectEqualStrings("ab", decode(buffer[0..4], "ab\x80"));
+    // Every byte has a character of at most `max_utf8_bytes`.
+    for (0..256) |byte| try std.testing.expect(utf8_of[byte].len >= 1 and utf8_of[byte].len <= max_utf8_bytes);
 }
 
 test toUnicode {

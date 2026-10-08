@@ -16,6 +16,7 @@ type TurretKind = "aimed" | "spinning" | "launcher"
 type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 type Carrier = "reliant" | "yamato"
 type HudInstrument = "caption" | "key_prompt" | "jump_prompt" | "target_markers" | "eject_marker" | "scanner" | "lights" | "view_name" | "subtitle" | "messages" | "nav_marker" | "fuel" | "kills" | "countermeasures" | "ship_status" | "gauges" | "radar" | "reticle" | "clock" | "radio" | "gunnery" | "missiles" | "target_display" | "damage" | "power" | "big_target_display" | "objectives" | "comms" | "wing_status"
+type HudLight = "match_speed" | "blind_fire" | "smart_targeting" | "enemy_lock" | "missile_incoming" | "ecm" | "cloak" | "spectral_shields" | "reverse_thrust"
 type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "centre" | "right" | number
 type FrontEndScreen = "main_menu" | "game_options" | "audio" | "briefing" | "landing_movie" | "pilot_roster" | "saved_games" | "connection" | "video" | "controls" | "mods" | "mod_options" | "game_modes" | "mode_briefing" | "mode_ending" | number
@@ -127,6 +128,31 @@ type HudRadar = {
     range: number,
     reach: number,
     zooming: boolean,
+}
+type HudGauges = {
+    speed: number,
+    asked: number,
+    speed_share: number,
+    throttle_share: number,
+    throttle_brightness: number?,
+    charge: number,
+    nova: boolean,
+}
+type HudShipStatus = {
+    shields: HudArcs,
+    armor: HudArcs,
+    reserve_fore: number,
+    reserve_aft: number,
+}
+type HudArcs = {
+    left: number,
+    right: number,
+    fore: number,
+    aft: number,
+}
+type HudClock = {
+    minutes: number,
+    seconds: number,
 }
 type HudBounds = {
     left: number,
@@ -497,6 +523,22 @@ type Hud = {
     radar: HudRadar?,
     -- The kills the skull readout shows; nil outside a mission.
     kills: number?,
+    -- The seconds of afterburner fuel the fuel readout shows; nil outside a mission.
+    fuel: number?,
+    -- The countermeasures the coil readout shows; nil outside a mission.
+    countermeasures: number?,
+    -- The targeting cluster about the middle of the screen, as it shows the player's speed, throttle and guns; nil outside a mission.
+    gauges: HudGauges?,
+    -- The ship status indicator, as it shows the player's shields and armour; nil for a ship without them, or outside a mission.
+    ship_status: HudShipStatus?,
+    -- The status lights that show, steady or flashing, in the order the display packs them; none outside a mission.
+    lights: { HudLight },
+    -- The mission's clock as the display shows it: the countdown where the mission counts down, and the time played otherwise; nil outside a mission.
+    clock: HudClock?,
+    -- The view's name the display writes at the top of the screen, in the views it names; nil in the others, the view ahead from the cockpit among them, and outside a mission.
+    view_name: string?,
+    -- The date the launch types out at the foot of the screen, as far as it has typed it; nil while it isn't shown, and outside a mission.
+    caption: string?,
     -- The game's windows that are open, opening or closing; none outside a mission.
     open_windows: { HudInstrument },
     -- Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read.
@@ -730,6 +772,14 @@ type Interfaces = {
         target: Target?,
         radar: HudRadar?,
         kills: number?,
+        fuel: number?,
+        countermeasures: number?,
+        gauges: HudGauges?,
+        ship_status: HudShipStatus?,
+        lights: { HudLight },
+        clock: HudClock?,
+        view_name: string?,
+        caption: string?,
         open_windows: { HudInstrument },
         shown: boolean,
         width: number,
