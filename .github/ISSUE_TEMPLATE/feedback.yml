@@ -1,0 +1,64 @@
+name: Feedback
+description: How the game plays in OpenReliant, and anything that feels wrong or unlike the original.
+labels: [feedback]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for playing! This form is for your impressions: something that feels wrong, plays differently from how you remember the original StarLancer, or could simply be better. If something is clearly broken, such as a crash or a mission that can't be finished, please use the bug report instead.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: What it's about.
+      options:
+        - Flying and combat
+        - Missions and story
+        - Graphics
+        - Sound and music
+        - Controls
+        - Menus and interface
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Your feedback
+      description: What you noticed, and where in the game, such as the mission, the screen or the moment.
+    validations:
+      required: true
+  - type: dropdown
+    id: original
+    attributes:
+      label: How does it compare with the original?
+      options:
+        - It feels different from the original
+        - It feels the same as the original, but could be better
+        - I haven't played the original
+    validations:
+      required: true
+  - type: dropdown
+    id: settings
+    attributes:
+      label: Were you playing with --original?
+      description: "`--original` turns off OpenReliant's improvements to the look and sound."
+      options:
+        - No, with OpenReliant's improvements
+        - Yes, with --original
+        - I don't know
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: OpenReliant version
+      description: What `openreliant --version` prints, or the release you downloaded.
+      placeholder: openreliant 0.8.0
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video
+      description: Optional. Drag them in here. A screenshot or recording of the original game at the same moment helps too.
