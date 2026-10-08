@@ -121,6 +121,12 @@ The state opens Luau's standard libraries, adds OpenReliant's `require` and `pri
 `package`, `dofile`, `loadfile` or `string.dump`, and doesn't load precompiled bytecode. `print`
 writes to the log, prefixed with the mod's name.
 
+Neither side has `getfenv` or `setfenv` (`Runtime.withheld`). A function's environment is the
+global table of the script that made it, so with them a mod could read and change another mod's
+globals through any function that mod's interface hands it. The metatables of handles and of
+packages are locked (`State.lockMetatable`): `getmetatable` gives "The metatable is locked" in
+their place, so a script can't call their metamethods by hand.
+
 ### Loading a mod's scripts
 
 The first time a mod is opened (`Runtime.open`), every `.luau` file in it is compiled, and the
@@ -310,9 +316,10 @@ next update.
 
 ### Interfaces
 
-A script that returns `interface_name` and `interface` offers the table under that name
-([`interfaces.zig`](../../src/scripting/interfaces.zig)). An interface is seen within its scope:
-the global and mission scripts', or one object's scripts'. `openreliant.interfaces` is one
+A script that returns `interface_name` and `interface` offers a read-only copy of the table under
+that name ([`interfaces.zig`](../../src/scripting/interfaces.zig)), taken as the script starts
+(`Context.offerOf`), so no other script can change what it offers. An interface is seen within its
+scope: the global and mission scripts', or one object's scripts'. `openreliant.interfaces` is one
 userdata for every script, whose `__index` looks up the latest interface of the name in the calling
 script's scope. A script that offers an interface of a name already offered in its scope gets the
 earlier one in `on_interface_override`. As a script stops, its interfaces go, and the earlier ones

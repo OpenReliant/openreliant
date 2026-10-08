@@ -421,7 +421,7 @@ const Event = struct {
     }
 
     fn of(state: *State, at: i32) *Dispatch {
-        const event = state.toUserdata(Event, at, tag) orelse state.raise("expected a hook's e, got {s}", .{state.typeName(at)});
+        const event = state.checkUserdata(Event, at, tag, "a hook's e");
         return event.dispatch orelse state.raise("e can only be used while its handler runs", .{});
     }
 };
@@ -450,7 +450,7 @@ fn setEventField(state: *State) i32 {
 }
 
 fn describeEvent(state: *State) i32 {
-    const event = state.toUserdata(Event, 1, Event.tag).?;
+    const event = state.checkUserdata(Event, 1, Event.tag, "a hook's e");
     const dispatch = event.dispatch orelse {
         state.pushString("e (done)");
         return 1;
@@ -467,12 +467,16 @@ fn original(state: *State) i32 {
     const run = dispatch.call.original orelse state.raise("{s} is an event, which has no original", .{dispatch.access.name});
     if (dispatch.ran or dispatch.stage == .after) state.raise("{s} has already run", .{dispatch.access.name});
     dispatch.before();
-    if (dispatch.stopped) {
-        state.pushNil();
-        return 1;
+    // Where a handler after this one wraps the function too, its own `e:original()` has run it:
+    // the function doesn't run again, and the result it left stands.
+    if (!dispatch.ran) {
+        if (dispatch.stopped) {
+            state.pushNil();
+            return 1;
+        }
+        run(dispatch.call);
+        dispatch.ran = true;
     }
-    run(dispatch.call);
-    dispatch.ran = true;
     if (!dispatch.access.push(state, dispatch.call, "result")) state.pushNil();
     return 1;
 }
@@ -501,7 +505,7 @@ fn removeHandle(state: *State) i32 {
 }
 
 fn describeHandle(state: *State) i32 {
-    const handle = state.toUserdata(Handle, 1, Handle.tag).?;
+    const handle = state.checkUserdata(Handle, 1, Handle.tag, "a hook's handle");
     var buffer: [80]u8 = undefined;
     state.pushString(std.mem.print(&buffer, "handler of {t}", .{handle.hook}) catch "handler");
     return 1;

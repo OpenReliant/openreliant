@@ -1050,6 +1050,40 @@ test "a handler can stop a call, or run the rest of it itself" {
     try std.testing.expectEqual(0, fixture.mission.objects.slots[fixture.sabre].object.order_count);
 }
 
+test "two mods that wrap a function run it once" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{
+        .{
+            "a",
+            &.{
+                .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+                .{
+                    "a.luau",
+                    \\require("openreliant.hooks").add("damage_by_difficulty", function(e)
+                    \\    e.result = e:original() + 1
+                    \\end)
+                },
+            },
+        },
+        .{
+            "b",
+            &.{
+                .{ "mod.ini", "[Scripts]\nGlobal=b.luau\n" },
+                .{
+                    "b.luau",
+                    \\require("openreliant.hooks").add("damage_by_difficulty", function(e)
+                    \\    e.result = e:original() * 10
+                    \\end)
+                },
+            },
+        },
+    });
+    defer fixture.deinit();
+    // b's handler runs first, as the newer mod's. The function runs inside a's `e:original()`,
+    // which b's runs, and b's then returns a's result rather than running the function again.
+    try std.testing.expectEqual(40, fixture.scaled(fixture.sabre, 3));
+}
+
 test "mods can intercept warp orders and receive filtered Undocked events" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{
@@ -1454,6 +1488,60 @@ test "global scripts add scripts to objects, send them events, and share interfa
     try std.testing.expectEqual(0, player.yaw_input);
     scripts.update(0.1);
     try std.testing.expectEqual(-1, player.yaw_input);
+}
+
+test "a mod can't reach another mod's globals or change its interface" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{
+        .{
+            "a",
+            &.{
+                .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+                .{
+                    "a.luau",
+                    \\secret = 1
+                    \\local offered = { secret = function() return secret end }
+                    \\return {
+                    \\    interface_name = "Secrets",
+                    \\    interface = offered,
+                    \\    -- Its own table stays its own to change, but the others got a copy.
+                    \\    engine_handlers = { on_update = function() offered.later = true end },
+                    \\}
+                },
+            },
+        },
+        .{
+            "b",
+            &.{
+                .{ "mod.ini", "[Scripts]\nGlobal=b.luau\n" },
+                .{
+                    "b.luau",
+                    \\local world = require("openreliant.world")
+                    \\local I = require("openreliant.interfaces")
+                    \\local updates = 0
+                    \\return {
+                    \\    engine_handlers = {
+                    \\        on_update = function()
+                    \\            updates += 1
+                    \\            assert(getfenv == nil and setfenv == nil)
+                    \\            assert(not pcall(function() I.Secrets.secret = function() return 2 end end))
+                    \\            assert(I.Secrets.secret() == 1 and I.Secrets.later == nil)
+                    \\            if updates == 2 then world.player.yaw_input = -1 end
+                    \\        end,
+                    \\    },
+                    \\}
+                },
+            },
+        },
+    });
+    defer fixture.deinit();
+    fixture.begin();
+    const scripts = &fixture.game.scripts;
+    scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    // By b's second update, a has changed its own table at least once.
+    scripts.update(0.1);
+    scripts.update(0.1);
+    try std.testing.expectEqual(-1, fixture.mission.objects.slots[0].object.yaw_input);
 }
 
 test "object scripts read the world around them, and give their object orders" {

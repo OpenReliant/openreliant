@@ -201,8 +201,13 @@ pub const Runtime = struct {
         started: Io.Clock.Timestamp,
     };
 
-    /// Creates a sandboxed state with Luau's standard libraries and OpenReliant's `require` and
-    /// `print`.
+    /// Luau's functions that scripts don't get, on either side: a function's environment is the
+    /// globals of the script that made it, so with them a mod could read and change another mod's
+    /// globals through any function an interface hands it.
+    const withheld = [_][:0]const u8{ "getfenv", "setfenv" };
+
+    /// Creates a sandboxed state with Luau's standard libraries, less `withheld`, and OpenReliant's
+    /// `require` and `print`.
     pub fn create(gpa: Allocator, io: Io, opened: []const Mod, options: Options) Allocator.Error!*Runtime {
         const runtime = try gpa.create(Runtime);
         errdefer gpa.destroy(runtime);
@@ -217,6 +222,10 @@ pub const Runtime = struct {
         state.setGlobal("require");
         state.pushFunction(luau.wrap(print), "print");
         state.setGlobal("print");
+        for (withheld) |name| {
+            state.pushNil();
+            state.setGlobal(name);
+        }
         storage_module.Storage.register(state);
         if (options.side == .game) {
             state.pushNil();
@@ -839,7 +848,12 @@ pub const Context = struct {
                     },
                     .interface => {
                         if (state.typeOf(-1) != .table) break :check .{ .table = .{ .offer = offer, .type_name = state.typeName(-1) } };
+                        // Other scripts get a read-only copy, so none can change what this one
+                        // offers.
+                        state.cloneTable(-1);
+                        state.setReadonly(-1, true);
                         offered.interface = .{ .name = .{}, .table = state.ref(-1) };
+                        state.pop(1);
                     },
                 }
                 state.pop(1);

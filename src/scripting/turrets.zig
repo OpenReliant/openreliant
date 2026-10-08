@@ -229,7 +229,7 @@ fn objectsOf(state: *State) *const create.Objects {
 
 /// `__index`: reads a field, or finds a method.
 fn getField(state: *State) i32 {
-    const handle = state.toUserdata(Handle, 1, Handle.tag).?;
+    const handle = state.checkUserdata(Handle, 1, Handle.tag, "a turret");
     const key = state.toString(2) orelse state.raise("turret: expected a field name, got {s}", .{state.typeName(2)});
     inline for (comptime api.declared(methods, .function)) |name| {
         if (std.mem.eql(u8, key, name)) {
@@ -252,7 +252,7 @@ fn getField(state: *State) i32 {
 /// `__newindex`: changes a field that has a setter, where the script may change the turret
 /// (`mayChange`).
 fn setField(state: *State) i32 {
-    const handle = state.toUserdata(Handle, 1, Handle.tag).?;
+    const handle = state.checkUserdata(Handle, 1, Handle.tag, "a turret");
     const key = state.toString(2) orelse state.raise("turret: expected a field name, got {s}", .{state.typeName(2)});
     var call: Call = .of(state, "turret");
     const all = call.runtime().objects orelse state.raise("turrets only exist while a game runs", .{});
@@ -272,7 +272,7 @@ fn setField(state: *State) i32 {
 
 /// `__tostring`: `turret 3 of object 12`, with what it is while its object is in the mission.
 fn describe(state: *State) i32 {
-    const handle = state.toUserdata(Handle, 1, Handle.tag).?;
+    const handle = state.checkUserdata(Handle, 1, Handle.tag, "a turret");
     const runtime = state.callbackData(Runtime).?;
     var buffer: [64]u8 = undefined;
     const valid = if (runtime.objects) |all| handle.valid(all) else false;

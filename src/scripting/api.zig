@@ -183,9 +183,10 @@ pub fn pushPackage(state: *State, comptime package: script.Package, comptime Pac
         state.rawSetField(-2, name ++ "");
     }
     if (comptime declared(Package, .field).len > 0) {
-        state.newTable(0, 1);
+        state.newTable(0, 2);
         state.pushFunction(luau.wrap(PackageFields(package, Package, prefix).get), "__index");
         state.rawSetField(-2, "__index");
+        state.lockMetatable();
         state.setReadonly(-1, true);
         state.setMetatable(-2);
     }

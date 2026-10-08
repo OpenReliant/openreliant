@@ -219,7 +219,7 @@ const SetProxy = struct {
     const tag = @backingInt(runtime.Tag.record_set);
 
     fn of(state: *State, at: i32) *const SetProxy {
-        return state.toUserdata(SetProxy, at, tag) orelse state.raise("expected a record table", .{});
+        return state.checkUserdata(SetProxy, at, tag, "a record table");
     }
 };
 
@@ -402,6 +402,7 @@ test "records can be read and changed by number and by name" {
     state.setGlobal("records");
     state.sandbox();
     const thread = state.newSandboxedThread();
+    luau.testing.exposeMetatables(thread);
 
     try bind.testing.runSource(thread,
         \\local guns = records.guns
@@ -414,7 +415,7 @@ test "records can be read and changed by number and by name" {
         \\assert(count == 3)
         \\assert(records.text[1] == "Laser Cannon" and records.text[2] == "Café")
         \\records.text[1] = "Ion Repeater €"
-        \\local step = getmetatable(guns).__iter(guns)
+        \\local step = rawgetmetatable(guns).__iter(guns)
         \\assert(step(guns, -1) == nil and step(guns, 0.5) == nil and step(guns, 1e30) == nil)
     );
     try std.testing.expectEqual(30, records.guns[0].damage.hull);

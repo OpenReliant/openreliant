@@ -299,7 +299,9 @@ end)
 
 `e:original()` runs the rest of the call at once (the handlers after this one, then the function,
 with the values in `e`) and returns the function's result, so a handler can do something both
-before and after it. The function runs only once.
+before and after it. The function runs only once: where a handler after this one calls
+`e:original()` too, the function runs there, and the earlier call returns its result. If a handler
+after this one stops the call before the function runs, `e:original()` returns nil.
 
 The game's functions that have hooks:
 
@@ -838,6 +840,8 @@ end
 - Global and mission scripts see each other's interfaces. The scripts on an object see the
   interfaces of the other scripts on that object, and player and menu scripts see each other's.
 - An interface that nobody offers is nil.
+- Other scripts get a read-only copy of `interface`, taken as the script starts. Keep what changes
+  in the script's own variables, as `fled` above, not in the table.
 - A later script that offers the same name takes its place, and gets the earlier interface in its
   `on_interface_override(base)` handler, so it can call through to it.
 
@@ -1962,8 +1966,10 @@ It may report that it can't find the packages themselves, which OpenReliant prov
 ## Limits
 
 Scripts run in a sandbox: they can't use the network or run programs, and the only files they can
-read are the game's and the mods' ([Files](#files)). An error in a script never stops the game: it's
-logged with the file and the line, and the game carries on.
+read are the game's and the mods' ([Files](#files)). Luau's `getfenv` and `setfenv` aren't there,
+so no mod can reach another's globals, and `getmetatable` on a handle or a package gives "The
+metatable is locked". An error in a script never stops the game: it's logged with the file and the
+line, and the game carries on.
 
 | What | Limit |
 |---|---|
