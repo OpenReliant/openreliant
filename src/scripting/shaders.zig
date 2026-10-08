@@ -255,30 +255,30 @@ const Drawing = struct {
 };
 
 fn register(call: Call, kind: Kind, local: []const u8, shader: []const u8, parameters: Parameters, enabled: bool, drawing: Drawing) []const u8 {
-    if (call.context.family != .player) call.raise("shaders: only player scripts can register functions", .{});
+    if (call.context.family != .player) call.raise("only player scripts can register functions", .{});
     const scripts = call.runtime();
     const gpa = scripts.gpa;
     const registry = &scripts.mod_shaders;
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const name = runtime_module.Name.of(call.qualified("shaders", local, &buffer)).?;
-    if (registry.find(name.slice()) != null) call.raise("shaders: the function '{s}' is registered already", .{name.slice()});
-    if (registry.entries.items.len == max_functions) call.raise("shaders: at most {d} functions can be registered", .{max_functions});
-    registry.entries.ensureUnusedCapacity(gpa, 1) catch call.raise("shaders: out of memory", .{});
+    const name = runtime_module.Name.of(call.qualified(local, &buffer)).?;
+    if (registry.find(name.slice()) != null) call.raise("the function '{s}' is registered already", .{name.slice()});
+    if (registry.entries.items.len == max_functions) call.raise("at most {d} functions can be registered", .{max_functions});
+    registry.entries.ensureUnusedCapacity(gpa, 1) catch call.raise("out of memory", .{});
     const mod = call.context.modOf();
-    const source = mod.readFile(gpa, shader) catch |err| call.raise("shaders: {s} can't be read: {s}", .{ shader, @errorName(err) }) orelse
-        call.raise("shaders: the mod {s} has no file {s}", .{ mod.name, shader });
+    const source = mod.readFile(gpa, shader) catch |err| call.raise("{s} can't be read: {s}", .{ shader, @errorName(err) }) orelse
+        call.raise("the mod {s} has no file {s}", .{ mod.name, shader });
     var file_buffer: [runtime_module.max_name * 2]u8 = undefined;
     const file = std.mem.print(&file_buffer, "{s}/{s}", .{ mod.name, shader }) catch shader;
     const compiled: ?ShaderHost.Compiled = if (registry.host) |host| host.vtable.add(host.context, kind, file, source) else null;
     gpa.free(source);
     const function: ?u16 = if (compiled) |result| switch (result) {
         .function => |made| made,
-        .failed => |message| call.raise("shaders: {s}", .{message}),
+        .failed => |message| call.raise("{s}", .{message}),
     } else null;
     // Copied last, as raising an error skips what would free them.
     const owned = copyTextures(gpa, drawing.textures) catch {
         if (registry.host) |host| if (function) |made| host.vtable.remove(host.context, made);
-        call.raise("shaders: out of memory", .{});
+        call.raise("out of memory", .{});
     };
     registry.entries.appendAssumeCapacity(.{
         .context = call.context,
@@ -314,7 +314,7 @@ fn copyTextures(gpa: Allocator, textures: []const []const u8) Allocator.Error![]
 fn setEnabled(call: Call, local: []const u8, enabled: bool) bool {
     var buffer: [runtime_module.max_name]u8 = undefined;
     const registry = registryOf(call);
-    const entry = registry.find(call.qualified("shaders", local, &buffer)) orelse return false;
+    const entry = registry.find(call.qualified(local, &buffer)) orelse return false;
     entry.enabled = enabled;
     registry.sync();
     return true;
@@ -323,7 +323,7 @@ fn setEnabled(call: Call, local: []const u8, enabled: bool) bool {
 fn setParameters(call: Call, local: []const u8, given: Parameters) bool {
     var buffer: [runtime_module.max_name]u8 = undefined;
     const registry = registryOf(call);
-    const entry = registry.find(call.qualified("shaders", local, &buffer)) orelse return false;
+    const entry = registry.find(call.qualified(local, &buffer)) orelse return false;
     entry.parameters = given.padded(0);
     registry.sync();
     return true;
@@ -333,14 +333,14 @@ fn setParameters(call: Call, local: []const u8, given: Parameters) bool {
 /// calling mod's by its own name or any mod's by the qualified one, reading `parameters`; nil
 /// draws it with its textures' again. Returns false if no function of that name is registered.
 pub fn setSurface(call: Call, object: Object, name: ?[]const u8, given: ?Parameters) bool {
-    if (call.context.family != .player) call.raise("set_surface: only player scripts can set an object's surface function", .{});
-    const all = call.runtime().objects orelse call.raise("set_surface: objects only exist while a game runs", .{});
+    if (call.context.family != .player) call.raise("only player scripts can set an object's surface function", .{});
+    const all = call.runtime().objects orelse call.raise("objects only exist while a game runs", .{});
     var surface: ?ModSurface = null;
     if (name) |wanted| {
         var buffer: [runtime_module.max_name]u8 = undefined;
-        const qualified = if (std.mem.findScalar(u8, wanted, ':') != null) wanted else call.qualified("set_surface", wanted, &buffer);
+        const qualified = if (std.mem.findScalar(u8, wanted, ':') != null) wanted else call.qualified(wanted, &buffer);
         const entry = registryOf(call).find(qualified) orelse return false;
-        if (entry.kind != .surface) call.raise("set_surface: {s} is a lighting function", .{qualified});
+        if (entry.kind != .surface) call.raise("{s} is a lighting function", .{qualified});
         const parameters = (given orelse Parameters{}).padded(0);
         // Without a host the function draws nothing, and the object draws as it is.
         if (entry.function) |function| surface = .{ .function = function, .parameters = parameters, .see_through = entry.see_through, .writes_depth = entry.writes_depth };

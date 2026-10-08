@@ -20,36 +20,40 @@ const runtime_module = @import("runtime.zig");
 const Runtime = runtime_module.Runtime;
 const Context = runtime_module.Context;
 
-/// What a declared function gets besides what the script passes: the state it runs on, and the
-/// script that calls it.
+/// What a declared function gets besides what the script passes: the state it runs on, the script
+/// that calls it, and what the script called.
 pub const Call = struct {
     state: *State,
     context: *Context,
+    /// What the script called, as scripts name it, such as `hud.text`, `object:give_order` or
+    /// `object.throttle`, which each error the call raises starts with.
+    label: []const u8,
 
     pub fn runtime(call: Call) *Runtime {
         return call.context.runtime;
     }
 
-    /// Raises an error from the script's call. Never returns.
+    /// Raises an error from the script's call, after the call's label. Never returns.
     pub fn raise(call: Call, comptime format: []const u8, arguments: anytype) noreturn {
-        call.state.raise(format, arguments);
+        call.state.raise("{s}: " ++ format, .{call.label} ++ arguments);
     }
 
     /// The calling mod's name `local` qualified with the mod's own, in `buffer`: `crt` in the mod
-    /// `retro` is `retro:crt`, and `retro:crt` stays as it is. Raises an error, starting with
-    /// `label`, if the name isn't an identifier.
-    pub fn qualified(call: Call, comptime label: []const u8, local: []const u8, buffer: *[runtime_module.max_name]u8) []const u8 {
+    /// `retro` is `retro:crt`, and `retro:crt` stays as it is. Raises an error if the name isn't an
+    /// identifier.
+    pub fn qualified(call: Call, local: []const u8, buffer: *[runtime_module.max_name]u8) []const u8 {
         const mod = call.context.modOf().qualifier();
         const own = if (std.mem.startsWith(u8, local, mod) and local.len > mod.len and local[mod.len] == ':') local[mod.len + 1 ..] else local;
-        if (!@import("openreliant").dte.source.validId(own)) call.raise(label ++ ": a name must be an identifier, not '{s}'", .{local});
-        return std.mem.print(buffer, "{s}:{s}", .{ mod, own }) catch call.raise(label ++ ": the name '{s}' is too long", .{local});
+        if (!@import("openreliant").dte.source.validId(own)) call.raise("a name must be an identifier, not '{s}'", .{local});
+        return std.mem.print(buffer, "{s}:{s}", .{ mod, own }) catch call.raise("the name '{s}' is too long", .{local});
     }
 
-    /// The call of the script running on `state`. Raises an error if no mod's script runs there.
+    /// The call of `label` by the script running on `state`. Raises an error if no mod's script
+    /// runs there.
     pub fn of(state: *State, label: []const u8) Call {
         const context = state.threadData(Context) orelse state.raise("{s} can only be used by mod scripts", .{label});
         if (context.closed) state.raise("{s}: this script has stopped", .{label});
-        return .{ .state = state, .context = context };
+        return .{ .state = state, .context = context, .label = label };
     }
 };
 
@@ -88,17 +92,21 @@ pub fn Function(comptime about: []const u8, comptime parameters: []const []const
         pub const Result = info.return_type.?;
         pub const call = function;
 
-        /// The C function that scripts call: reads the parameters, calls `function`, and pushes its
-        /// result.
-        pub fn wrapped(state: *State) i32 {
-            const caller: Call = .of(state, "this function");
-            var arguments: std.meta.ArgsTuple(@TypeOf(function)) = undefined;
-            arguments[0] = caller;
-            inline for (Parameters, parameters, 1..) |P, name, at| arguments[at] = values.read(state, P, at, name);
-            const result = @call(.auto, function, arguments);
-            if (Result == void) return 0;
-            values.push(state, Result, result);
-            return 1;
+        /// The C function that scripts call as `label`: reads the parameters, calls `function`,
+        /// and pushes its result.
+        pub fn wrapped(comptime label: []const u8) fn (*State) i32 {
+            return struct {
+                fn run(state: *State) i32 {
+                    const caller: Call = .of(state, label);
+                    var arguments: std.meta.ArgsTuple(@TypeOf(function)) = undefined;
+                    arguments[0] = caller;
+                    inline for (Parameters, parameters, 1..) |P, name, at| arguments[at] = values.read(state, P, at, name);
+                    const result = @call(.auto, function, arguments);
+                    if (Result == void) return 0;
+                    values.push(state, Result, result);
+                    return 1;
+                }
+            }.run;
         }
     };
 }
@@ -107,26 +115,44 @@ pub fn Function(comptime about: []const u8, comptime parameters: []const []const
 /// returns nothing.
 pub const nothing = "()";
 
-/// A function described by `about` that reads what scripts pass it itself, such as one that takes
-/// a script's function, with the Luau types of its `parameters` and its `result` for the reference.
-pub fn Native(comptime about: []const u8, comptime parameters: []const u8, comptime result: []const u8, comptime function: fn (*State) i32) type {
+/// A function described by `about` that reads what scripts pass it itself from the call's state,
+/// such as one that takes a script's function, with the Luau types of its `parameters` and its
+/// `result` for the reference.
+pub fn Native(comptime about: []const u8, comptime parameters: []const u8, comptime result: []const u8, comptime function: fn (Call) i32) type {
     return struct {
         pub const declaration: Declaration = .function;
         pub const description = about;
         pub const luau_parameters = parameters;
         pub const luau_result = result;
-        pub const wrapped = function;
+
+        /// The C function that scripts call as `label`.
+        pub fn wrapped(comptime label: []const u8) fn (*State) i32 {
+            return nativeCalled(function, label);
+        }
     };
+}
+
+/// The C function that scripts call as `label`, which hands `function` the call.
+fn nativeCalled(comptime function: fn (Call) i32, comptime label: []const u8) fn (*State) i32 {
+    return struct {
+        fn run(state: *State) i32 {
+            return function(.of(state, label));
+        }
+    }.run;
 }
 
 /// A function like `Native`, whose Luau type is `luau_type`, a type the definitions name, such as
 /// an overloaded function's.
-pub fn NativeTyped(comptime about: []const u8, comptime luau_type: []const u8, comptime function: fn (*State) i32) type {
+pub fn NativeTyped(comptime about: []const u8, comptime luau_type: []const u8, comptime function: fn (Call) i32) type {
     return struct {
         pub const declaration: Declaration = .function;
         pub const description = about;
         pub const luau_function = luau_type;
-        pub const wrapped = function;
+
+        /// The C function that scripts call as `label`.
+        pub fn wrapped(comptime label: []const u8) fn (*State) i32 {
+            return nativeCalled(function, label);
+        }
     };
 }
 
@@ -147,17 +173,18 @@ pub fn declared(comptime Namespace: type, comptime kind: Declaration) []const []
 }
 
 /// Pushes `package`, declared by `Package`: a read-only table of its functions, which reads its
-/// fields as scripts look them up.
-pub fn pushPackage(state: *State, comptime package: script.Package, comptime Package: type) void {
+/// fields as scripts look them up. Scripts call its functions and fields by `prefix`, a dot and
+/// their names, such as `hud.text`.
+pub fn pushPackage(state: *State, comptime package: script.Package, comptime Package: type, comptime prefix: []const u8) void {
     const functions = comptime declared(Package, .function);
     state.newTable(0, functions.len);
     inline for (functions) |name| {
-        state.pushFunction(luau.wrap(@field(Package, name).wrapped), name ++ "");
+        state.pushFunction(luau.wrap(@field(Package, name).wrapped(prefix ++ "." ++ name)), name ++ "");
         state.rawSetField(-2, name ++ "");
     }
     if (comptime declared(Package, .field).len > 0) {
         state.newTable(0, 1);
-        state.pushFunction(luau.wrap(PackageFields(package, Package).get), "__index");
+        state.pushFunction(luau.wrap(PackageFields(package, Package, prefix).get), "__index");
         state.rawSetField(-2, "__index");
         state.setReadonly(-1, true);
         state.setMetatable(-2);
@@ -165,17 +192,17 @@ pub fn pushPackage(state: *State, comptime package: script.Package, comptime Pac
     state.setReadonly(-1, true);
 }
 
-/// Reads the fields of `package`, declared by `Package`.
-fn PackageFields(comptime package: script.Package, comptime Package: type) type {
+/// Reads the fields of `package`, declared by `Package`, which scripts call by `prefix`, a dot and
+/// their names.
+fn PackageFields(comptime package: script.Package, comptime Package: type, comptime prefix: []const u8) type {
     return struct {
         /// `__index`: a field's value.
         fn get(state: *State) i32 {
             const key = state.toString(2) orelse state.raise("expected a field's name, got {s}", .{state.typeName(2)});
-            const caller: Call = .of(state, key);
             inline for (comptime declared(Package, .field)) |name| {
                 if (std.mem.eql(u8, key, name)) {
                     const field = @field(Package, name);
-                    values.push(state, field.Type, field.get(caller));
+                    values.push(state, field.Type, field.get(.of(state, prefix ++ "." ++ name)));
                     return 1;
                 }
             }

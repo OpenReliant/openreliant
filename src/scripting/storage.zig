@@ -342,7 +342,7 @@ fn setField(state: *State) i32 {
     const value = stored.capture(state, gpa, 3, "storage");
     storage.set(section, key, value) catch {
         value.deinit(gpa);
-        state.raise("storage: out of memory", .{});
+        call.raise("out of memory", .{});
     };
     return 0;
 }
@@ -371,7 +371,7 @@ fn storageOf(call: Call) *Storage {
 /// The handle of the calling mod's section `name` in `scope`.
 fn sectionOf(call: Call, name: []const u8, scope: Scope) Handle {
     const storage = storageOf(call);
-    return .{ .section = storage.obtain(call.context.modOf().name, name, scope) catch call.raise("storage: out of memory", .{}) };
+    return .{ .section = storage.obtain(call.context.modOf().name, name, scope) catch call.raise("out of memory", .{}) };
 }
 
 /// What `openreliant.storage` holds.
@@ -380,19 +380,19 @@ pub const package = struct {
     pub const global_section = api.Native("The section `name` of the calling mod's storage that's kept in the game folder, across every game. Any script changes it.", "name: string", "Section", globalSection);
 };
 
-fn gameSection(state: *State) i32 {
-    return pushSection(state, .game);
+fn gameSection(call: Call) i32 {
+    return pushSection(call, .game);
 }
 
-fn globalSection(state: *State) i32 {
-    const reserved = state.toString(1) orelse "";
-    if (std.mem.eql(u8, reserved, settings.section_name)) state.raise("storage: the section '{s}' keeps the mod's settings; read them with openreliant.settings", .{reserved});
-    return pushSection(state, .global);
+fn globalSection(call: Call) i32 {
+    const reserved = call.state.toString(1) orelse "";
+    if (std.mem.eql(u8, reserved, settings.section_name)) call.raise("the section '{s}' keeps the mod's settings; read them with openreliant.settings", .{reserved});
+    return pushSection(call, .global);
 }
 
-fn pushSection(state: *State, scope: Scope) i32 {
-    const call: Call = .of(state, "storage");
-    const name = state.toString(1) orelse state.raise("storage: expected a section's name, got {s}", .{state.typeName(1)});
+fn pushSection(call: Call, scope: Scope) i32 {
+    const state = call.state;
+    const name = state.toString(1) orelse call.raise("expected a section's name, got {s}", .{state.typeName(1)});
     const handle = sectionOf(call, name, scope);
     state.newUserdata(Handle, Handle.tag).* = handle;
     return 1;

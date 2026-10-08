@@ -248,8 +248,8 @@ test "camera orientation validation requires finite right-handed orthonormal axe
     try std.testing.expect(!validOrientation(axes));
 }
 
-pub fn register(comptime kind: Kind, state: *luau.State) i32 {
-    const call = api.Call.of(state, "register");
+pub fn register(comptime kind: Kind, call: api.Call) i32 {
+    const state = call.state;
     const scripts = call.runtime();
     if (scripts.presentation == null) call.raise("presentation registrations require player or menu scripts", .{});
     if (kind != .screen and call.context.family != .player) call.raise("camera views and HUD displays require player scripts", .{});
@@ -260,7 +260,7 @@ pub fn register(comptime kind: Kind, state: *luau.State) i32 {
     const name = runtime.Name.of(std.mem.print(&buffer, "{s}:{s}", .{ call.context.modOf().qualifier(), local }) catch call.raise("qualified name is too long", .{})).?;
     if (scripts.registries.find(kind, name.slice()) != null) call.raise("this name is already registered", .{});
     if (scripts.registries.entries.items.len == max_registered) call.raise("the presentation registry is full", .{});
-    if (state.typeOf(2) != .table) call.raise("registration expects a definition table", .{});
+    if (state.typeOf(2) != .table) call.raise("expected a definition table", .{});
     var letterbox = false;
     var replaces: std.EnumSet(hud.Instrument) = .empty;
     var layout: std.EnumArray(hud.Instrument, ?hud.Placement) = .initFill(null);
@@ -307,16 +307,16 @@ fn readLayout(call: api.Call, layout: *std.EnumArray(hud.Instrument, ?hud.Placem
     }
 }
 
-pub fn registration(comptime kind: Kind) fn (*luau.State) i32 {
+pub fn registration(comptime kind: Kind) fn (api.Call) i32 {
     return struct {
-        fn run(state: *luau.State) i32 {
-            return register(kind, state);
+        fn run(call: api.Call) i32 {
+            return register(kind, call);
         }
     }.run;
 }
 
 pub fn show(call: api.Call, kind: Kind, name: ?[]const u8, enabled: bool) bool {
-    _ = presentation.Presentation.of(call, "registered drawing");
+    _ = presentation.Presentation.of(call);
     const registry = &call.runtime().registries;
     if (kind == .screen and name == null) {
         registry.selected_screen = null;

@@ -228,11 +228,18 @@ reference are made from it at compile time ([`api.zig`](../../src/scripting/api.
 - `Field` declares a field: its type, a sentence for the reference, a getter, and a setter for a
   field scripts can change.
 - `Function` declares a function: a sentence and its parameters' names. Its Zig parameters give
-  their types: the first is the `Call` (the state and the calling context), and the rest are read
-  with `values.read`. Its result is pushed with `values.push`. The build checks that every
-  parameter has a name.
-- `Native` declares a function that reads what it's passed itself, such as one that takes a
-  script's function, with its Luau types written out for the reference.
+  their types: the first is the `Call` (the state, the calling context and what the script
+  called), and the rest are read with `values.read`. Its result is pushed with `values.push`. The
+  build checks that every parameter has a name.
+- `Native` declares a function that takes the `Call` and reads what it's passed itself from the
+  call's state, such as one that takes a script's function, with its Luau types written out for
+  the reference.
+
+A call is labelled with what the script called: a package's function or field by the package's
+name and its own, such as `hud.text`, and a handle's by the handle's kind, such as
+`object:give_order` for a method and `object.throttle` for a field. Each error the call raises
+starts with the label, which comes from the declaration's name where it's pushed, so no message
+types it by hand.
 
 A struct is a table of its fields ([`values.zig`](../../src/scripting/values.zig)). One a function
 returns is read-only; one a script passes must name each field that has no default, and may leave

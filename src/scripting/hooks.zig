@@ -527,12 +527,12 @@ fn addAs(state: *State, comptime when: When) i32 {
 
 /// `object:hook(name, handler, filter)`: `hooks.add`, for the calls that concern one object.
 /// Global scripts can hook any object, and an object's scripts their own.
-pub fn hookObject(state: *State) i32 {
-    const call: api.Call = .of(state, "hook");
+pub fn hookObject(call: api.Call) i32 {
+    const state = call.state;
     const index = objects.read(state, 1, "self");
-    if (!objects.mayChange(call.context, index)) state.raise("hook: {t} scripts can't hook this object", .{call.context.family});
-    const game = call.runtime().game orelse state.raise("hook: objects can only be hooked while a game runs", .{});
-    return addFrom(&game.hooks, state, .before, "hook", 2, .of(game.objects, index));
+    if (!objects.mayChange(call.context, index)) call.raise("{t} scripts can't hook this object", .{call.context.family});
+    const game = call.runtime().game orelse call.raise("objects can only be hooked while a game runs", .{});
+    return addFrom(&game.hooks, state, .before, "object:hook", 2, .of(game.objects, index));
 }
 
 /// Adds the handler whose hook's name is at `first`, the function after it and then the filter,

@@ -148,8 +148,8 @@ fn isValid(call: Call, handle: Handle) bool {
 
 /// `missile:detonate()`.
 fn setOff(call: Call, missile: engine.hooks.Missile) void {
-    if (!mayChange(call.context, missile.record())) call.raise("detonate: {t} scripts can't set this missile off", .{call.context.family});
-    const ctx = call.runtime().orders orelse call.raise("detonate: missiles only fly while a mission runs", .{});
+    if (!mayChange(call.context, missile.record())) call.raise("{t} scripts can't set this missile off", .{call.context.family});
+    const ctx = call.runtime().orders orelse call.raise("missiles only fly while a mission runs", .{});
     engine_missiles.end(ctx.world, missile.record());
 }
 
@@ -221,7 +221,7 @@ fn getField(state: *State) i32 {
     const key = state.toString(2) orelse state.raise("missile: expected a field name, got {s}", .{state.typeName(2)});
     inline for (comptime api.declared(methods, .function)) |name| {
         if (std.mem.eql(u8, key, name)) {
-            state.pushFunction(luau.wrap(@field(methods, name).wrapped), name ++ "");
+            state.pushFunction(luau.wrap(@field(methods, name).wrapped("missile:" ++ name)), name ++ "");
             return 1;
         }
     }
@@ -242,12 +242,13 @@ fn getField(state: *State) i32 {
 fn setField(state: *State) i32 {
     const handle = state.toUserdata(Handle, 1, Handle.tag).?;
     const key = state.toString(2) orelse state.raise("missile: expected a field name, got {s}", .{state.typeName(2)});
-    const call: Call = .of(state, key);
+    var call: Call = .of(state, "missile");
     const all = call.runtime().objects orelse state.raise("missiles only exist while a game runs", .{});
     if (!handle.valid(all)) state.raise("missile {d}'s flight has ended", .{handle.record});
     inline for (comptime api.declared(fields, .field)) |name| {
         const field = @field(fields, name);
         if (std.mem.eql(u8, key, name)) {
+            call.label = "missile." ++ name;
             if (!field.writable) state.raise("a missile's {s} can only be read", .{name});
             if (!mayChange(call.context, handle.record)) state.raise("{t} scripts can't change this missile's {s}", .{ call.context.family, name });
             field.set(call, all, handle.record, values.read(state, field.Type, 3, name));
@@ -307,7 +308,7 @@ test "handles name missiles until their flight ends" {
     );
     try bind.testing.expectSourceError(thread, "raptor.speed = 1", "can only be read");
     try bind.testing.expectSourceError(thread, "local x = raptor.fuel", "no field 'fuel'");
-    try bind.testing.expectSourceError(thread, "raptor:detonate()", "can't set this missile off");
+    try bind.testing.expectSourceError(thread, "raptor:detonate()", "missile:detonate: object scripts can't set this missile off");
     try bind.testing.expectSourceError(thread, "raptor.target = {}", "can't change this missile's target");
     // Its own scripts retarget, move and push it.
     context.runs_on = .{ .missile = .of(all, record) };

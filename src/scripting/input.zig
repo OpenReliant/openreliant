@@ -25,7 +25,7 @@ const Definition = struct {
 };
 
 fn registerAction(call: Call, name: []const u8, definition: Definition) []const u8 {
-    if (call.context.family != .menu) call.raise("input.register_action requires a menu script", .{});
+    if (call.context.family != .menu) call.raise("only menu scripts can register actions", .{});
     const scripts = call.runtime();
     if (!openreliant.dte.source.validId(name)) call.raise("action name must be an identifier", .{});
     switch (definition.modifier) {
@@ -35,7 +35,7 @@ fn registerAction(call: Call, name: []const u8, definition: Definition) []const 
     if (definition.button) |button| if (button >= engine_input.JoystickState.max_buttons) call.raise("action button is out of range", .{});
     var buffer: [engine_input.actions.name_size]u8 = undefined;
     const qualified = std.mem.print(&buffer, "{s}:{s}", .{ call.context.modOf().qualifier(), name }) catch call.raise("qualified action name is too long", .{});
-    const index = scripts.input_actions.add(call.context, qualified, definition.label, .{ .name = "", .string = 0, .key = if (definition.key) |key| @backingInt(key) else 0, .modifier = definition.modifier, .button = definition.button }) catch |err| call.raise("input.register_action: {s}", .{@errorName(err)});
+    const index = scripts.input_actions.add(call.context, qualified, definition.label, .{ .name = "", .string = 0, .key = if (definition.key) |key| @backingInt(key) else 0, .modifier = definition.modifier, .button = definition.button }) catch |err| call.raise("{s}", .{@errorName(err)});
     scripts.input_actions.entries[index].gamepad_button = if (definition.gamepad_button) |button| @backingInt(button) else null;
     var devices: engine_input.Devices = .{ .mod_actions = &scripts.input_actions };
     const file: openreliant.engine.profile.Profile = if (scripts.options.shared.bindings_file) |held| held.profile else .empty;
@@ -60,12 +60,12 @@ pub const package = struct {
 
 /// `input.key_down(key)`.
 fn keyDown(call: Call, key: engine_input.Key) bool {
-    return Presentation.hostOf(call, "input.key_down").devices.keyboard.down[@backingInt(key)];
+    return Presentation.hostOf(call).devices.keyboard.down[@backingInt(key)];
 }
 
 /// `input.action_down(action)`.
 fn actionDown(call: Call, identifier: Identifier) bool {
-    const host = Presentation.hostOf(call, "input.action_down");
+    const host = Presentation.hostOf(call);
     return switch (identifier) {
         .name => |name| if (values.byName(controls.Action, name)) |action| host.devices.active(action, false) else blk: {
             const index = call.runtime().input_actions.find(name) orelse call.raise("no registered action '{s}'", .{name});

@@ -25,11 +25,11 @@ pub const package = struct {
 };
 
 /// `async.register_timer(name, handler)`.
-fn registerTimer(state: *State) i32 {
-    const call: Call = .of(state, "async.register_timer");
-    const name = state.toString(1) orelse state.raise("async.register_timer: expected a name, got {s}", .{state.typeName(1)});
-    const key = Name.of(name) orelse state.raise("async.register_timer: a name has at most {d} bytes", .{runtime_module.max_name});
-    if (state.typeOf(2) != .function) state.raise("async.register_timer: expected a function, got {s}", .{state.typeName(2)});
+fn registerTimer(call: Call) i32 {
+    const state = call.state;
+    const name = state.toString(1) orelse call.raise("expected a name, got {s}", .{state.typeName(1)});
+    const key = Name.of(name) orelse call.raise("a name has at most {d} bytes", .{runtime_module.max_name});
+    if (state.typeOf(2) != .function) call.raise("expected a function, got {s}", .{state.typeName(2)});
     const context = call.context;
     if (context.callbacks == null) {
         state.newTable(0, 0);
@@ -48,14 +48,14 @@ fn startTimer(call: Call, seconds: f32, name: []const u8, payload: ?data.Data) v
     const scripts = call.runtime();
     const runner = scripts.runner orelse {
         if (payload) |given| scripts.release(given.ref);
-        call.raise("async.after: timers only run while scripts do", .{});
+        call.raise("timers only run while scripts do", .{});
     };
     const held = Name.of(name) orelse {
         if (payload) |given| scripts.release(given.ref);
-        call.raise("async.after: a name has at most {d} bytes", .{runtime_module.max_name});
+        call.raise("a name has at most {d} bytes", .{runtime_module.max_name});
     };
     runner.addTimer(.{ .context = call.context, .name = held, .left = @max(seconds, 0), .data = if (payload) |given| given.ref else null }) catch {
         if (payload) |given| scripts.release(given.ref);
-        call.raise("async.after: at most {d} timers can wait", .{max_timers});
+        call.raise("at most {d} timers can wait", .{max_timers});
     };
 }

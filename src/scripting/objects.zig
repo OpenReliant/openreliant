@@ -181,7 +181,7 @@ pub const fields = struct {
 
         pub fn set(call: Call, all: *create.Objects, index: u16, value: f32) void {
             if (value < motion.reverse_throttle or value > motion.afterburner_throttle) {
-                call.raise("throttle: expected a number from {d} to {d}, got {d}", .{ motion.reverse_throttle, motion.afterburner_throttle, value });
+                call.raise("expected a number from {d} to {d}, got {d}", .{ motion.reverse_throttle, motion.afterburner_throttle, value });
             }
             all.slots[index].object.throttle = value;
         }
@@ -203,7 +203,7 @@ pub const fields = struct {
         }
 
         pub fn set(call: Call, all: *create.Objects, index: u16, value: f32) void {
-            if (value < 0) call.raise("afterburner_fuel: expected a number from 0 up, got {d}", .{value});
+            if (value < 0) call.raise("expected a number from 0 up, got {d}", .{value});
             all.slots[index].object.afterburner_fuel = std.math.lossyCast(i32, value * main.ticks_per_second);
         }
     });
@@ -225,8 +225,8 @@ pub const fields = struct {
 
         pub fn set(call: Call, all: *create.Objects, index: u16, value: gameobj.Quadrants) void {
             const slot_held = &all.slots[index];
-            const combat = slot_held.combat orelse call.raise("shields: an object without stats has none", .{});
-            slot_held.object.shields = quadrantsUpTo(call, value, combat.fullShields() - 1, "shields");
+            const combat = slot_held.combat orelse call.raise("an object without stats has none", .{});
+            slot_held.object.shields = quadrantsUpTo(call, value, combat.fullShields() - 1);
         }
     });
 
@@ -237,8 +237,8 @@ pub const fields = struct {
 
         pub fn set(call: Call, all: *create.Objects, index: u16, value: gameobj.Quadrants) void {
             const slot_held = &all.slots[index];
-            const combat = slot_held.combat orelse call.raise("armor: an object without stats has none", .{});
-            slot_held.object.armor = quadrantsUpTo(call, value, combat.startingArmor(), "armor");
+            const combat = slot_held.combat orelse call.raise("an object without stats has none", .{});
+            slot_held.object.armor = quadrantsUpTo(call, value, combat.startingArmor());
             main.armorConditions(&slot_held.object, combat);
         }
     });
@@ -270,7 +270,7 @@ pub const fields = struct {
         }
 
         pub fn set(call: Call, _: *create.Objects, index: u16, value: bool) void {
-            const ctx = call.runtime().orders orelse call.raise("cloaked: ships only cloak while a mission runs", .{});
+            const ctx = call.runtime().orders orelse call.raise("ships only cloak while a mission runs", .{});
             engine.game.cloak.set(ctx.world, index, value);
         }
     });
@@ -351,18 +351,18 @@ pub fn moveTo(slot: *create.Slot, position: Vector) void {
 /// angles first (`math.orthonormalize`). Raises an error for axes that don't make an orientation.
 pub fn turnTo(call: Call, slot: *create.Slot, orientation: util.Orientation) void {
     if (!(math.lengthSquared(math.cross(orientation.forward, orientation.right)) > 0)) {
-        call.raise("orientation: expected forward and right axes that aren't zero or parallel", .{});
+        call.raise("expected forward and right axes that aren't zero or parallel", .{});
     }
     engine.game.objects.setOrientation(&slot.object, &slot.drawn, math.orthonormalize(orientation.matrix()));
 }
 
 /// `value`, a quadrant's figure in each, where each lies from 0 to `most`. Raises an error naming
-/// `label` otherwise.
-fn quadrantsUpTo(call: Call, value: gameobj.Quadrants, most: f32, comptime label: []const u8) gameobj.Quadrants {
+/// the quadrant otherwise.
+fn quadrantsUpTo(call: Call, value: gameobj.Quadrants, most: f32) gameobj.Quadrants {
     const top = @max(0, most);
     inline for (@typeInfo(gameobj.Quadrants).@"struct".field_names) |quadrant| {
         const figure = @field(value, quadrant);
-        if (figure < 0 or figure > top) call.raise(label ++ ".{s}: expected a number from 0 to {d}, got {d}", .{ quadrant, top, figure });
+        if (figure < 0 or figure > top) call.raise("{s}: expected a number from 0 to {d}, got {d}", .{ quadrant, top, figure });
     }
     return value;
 }
@@ -388,16 +388,16 @@ fn isValid(call: Call, handle: Handle) bool {
 
 /// `object:turrets()`.
 fn turretsOn(call: Call, object: Object) @import("turrets.zig").List {
-    const all = call.runtime().objects orelse call.raise("turrets: objects only exist while a game runs", .{});
+    const all = call.runtime().objects orelse call.raise("objects only exist while a game runs", .{});
     return @import("turrets.zig").on(all, object.slot());
 }
 
 /// `object:give_order(order, target, component)`.
 fn giveOrder(call: Call, object: Object, identifier: @import("orders.zig").Identifier, target: ?Object, component: ?u8) bool {
-    const ctx = ordersOf(call, object, "give_order");
+    const ctx = ordersOf(call, object);
     const given = @import("orders.zig").resolve(call, identifier);
     const aim: engine.game.aigeneric.Target = if (target) |aimed| .at(aimed.slot(), if (component) |part| part else null) else aim: {
-        if (component != null) call.raise("give_order: a component needs a target", .{});
+        if (component != null) call.raise("a component needs a target", .{});
         break :aim .none;
     };
     return engine.game.aigeneric.give(ctx, object.slot(), given, aim);
@@ -406,18 +406,18 @@ fn giveOrder(call: Call, object: Object, identifier: @import("orders.zig").Ident
 /// `object:start_launch()`: `launch.start` (`launch_start`, `0x00418DB0`), as a mission's
 /// StartLaunch runs it for each of its ships.
 fn startLaunch(call: Call, object: Object) bool {
-    const all = ordersOf(call, object, "start_launch").world.objects;
+    const all = ordersOf(call, object).world.objects;
     const had = all.slots[object.slot()].firstOrder(.launch) != null;
     engine.game.launch.start(all, object.slot());
     return had;
 }
 
 /// What orders run against, where the calling script may change `object`'s orders
-/// (`mayChange`). Raises an error naming `label` otherwise.
-pub fn ordersOf(call: Call, object: Object, comptime label: []const u8) engine.game.aigeneric.Context {
+/// (`mayChange`). Raises an error otherwise.
+pub fn ordersOf(call: Call, object: Object) engine.game.aigeneric.Context {
     if (call.runtime().custom_orders.running) call.raise("order callbacks cannot change order stacks; return false to finish", .{});
-    if (!mayChange(call.context, object.slot())) call.raise(label ++ ": {t} scripts can't change this object's orders", .{call.context.family});
-    return call.runtime().orders orelse call.raise(label ++ ": orders can only change while a mission runs", .{});
+    if (!mayChange(call.context, object.slot())) call.raise("{t} scripts can't change this object's orders", .{call.context.family});
+    return call.runtime().orders orelse call.raise("orders can only change while a mission runs", .{});
 }
 
 /// Whether the script of `context` may change the object in slot `index`: a global script may
@@ -510,7 +510,7 @@ fn getField(state: *State) i32 {
     const key = state.toString(2) orelse state.raise("object: expected a field name, got {s}", .{state.typeName(2)});
     inline for (comptime api.declared(methods, .function)) |name| {
         if (std.mem.eql(u8, key, name)) {
-            state.pushFunction(luau.wrap(@field(methods, name).wrapped), name ++ "");
+            state.pushFunction(luau.wrap(@field(methods, name).wrapped("object:" ++ name)), name ++ "");
             return 1;
         }
     }
@@ -531,12 +531,13 @@ fn getField(state: *State) i32 {
 fn setField(state: *State) i32 {
     const handle = state.toUserdata(Handle, 1, Handle.tag).?;
     const key = state.toString(2) orelse state.raise("object: expected a field name, got {s}", .{state.typeName(2)});
-    const call: Call = .of(state, key);
+    var call: Call = .of(state, "object");
     const all = call.runtime().objects orelse state.raise("objects only exist while a game runs", .{});
     if (!handle.valid(all)) state.raise("object {d} is no longer in the mission", .{handle.slot});
     inline for (comptime api.declared(fields, .field)) |name| {
         const field = @field(fields, name);
         if (std.mem.eql(u8, key, name)) {
+            call.label = "object." ++ name;
             if (!field.writable) state.raise("an object's {s} can only be read", .{name});
             if (!mayChange(call.context, handle.slot)) state.raise("{t} scripts can't change this object's {s}", .{ call.context.family, name });
             field.set(call, all, handle.slot, values.read(state, field.Type, 3, name));
@@ -601,7 +602,8 @@ test "handles name objects until they are removed" {
     try bind.testing.runSource(thread, "sabre.throttle = 0.5; sabre.yaw_input = -1");
     try std.testing.expectEqual(0.5, mission.objects.slots[sabre].object.throttle);
     try std.testing.expectEqual(-1, mission.objects.slots[sabre].object.yaw_input);
-    try bind.testing.expectSourceError(thread, "sabre.throttle = 3", "from -1 to 2");
+    // An error names the field it's about.
+    try bind.testing.expectSourceError(thread, "sabre.throttle = 3", "object.throttle: expected a number from -1 to 2");
     try bind.testing.expectSourceError(thread, "player.throttle = 1", "can't change this object's throttle");
 
     // Its place, side, flags and supplies change as a mission's commands change them. The handle is
@@ -634,9 +636,9 @@ test "handles name objects until they are removed" {
     const combat = changed.combat.?;
     try bind.testing.runSource(thread, "sabre.shields = { left = 0, right = 1, fore = 2, aft = 3 }");
     try std.testing.expectEqual(gameobj.Quadrants{ .left = 0, .right = 1, .fore = 2, .aft = 3 }, changed.object.shields);
-    try bind.testing.expectSourceError(thread, "sabre.shields = { left = -1, right = 0, fore = 0, aft = 0 }", "shields.left: expected a number from 0");
+    try bind.testing.expectSourceError(thread, "sabre.shields = { left = -1, right = 0, fore = 0, aft = 0 }", "object.shields: left: expected a number from 0");
     var whole: [96]u8 = undefined;
-    try bind.testing.expectSourceError(thread, try std.fmt.bufPrint(&whole, "sabre.armor = {{ left = {d}, right = 0, fore = 0, aft = 0 }}", .{combat.startingArmor() + 1}), "armor.left: expected a number from 0");
+    try bind.testing.expectSourceError(thread, try std.fmt.bufPrint(&whole, "sabre.armor = {{ left = {d}, right = 0, fore = 0, aft = 0 }}", .{combat.startingArmor() + 1}), "object.armor: left: expected a number from 0");
     try bind.testing.expectSourceError(thread, "sabre.orientation = { right = vector.zero, down = vector.zero, forward = vector.zero }", "aren't zero or parallel");
 
     // Once its slot is reset, the handle is no longer valid.

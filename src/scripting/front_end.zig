@@ -65,55 +65,54 @@ pub const functions = struct {
     pub const quit = api.Function("Asks the front end to quit the game. Only menu scripts can use it.", &.{}, quitGame);
     pub const pointer = api.Field(?Pointer, "Where the pointer is, in pixels from the window's top left corner, and whether its left button is down; nil before it has been over the window.", struct {
         pub fn get(call: Call) ?Pointer {
-            const host = Presentation.of(call, "pointer").host orelse return null;
+            const host = Presentation.of(call).host orelse return null;
             const at = host.devices.mouse.at orelse return null;
             return .{ .at = .{ at[0], at[1], 0 }, .down = host.devices.mouse.buttons.left };
         }
     });
 };
 
-/// The Presentation of a menu script's call, `label` naming the function in the error raised
-/// otherwise.
-fn menuOf(call: Call, comptime label: []const u8) *Presentation {
-    if (call.context.family != .menu) call.raise("ui." ++ label ++ ": only menu scripts can use it", .{});
-    return Presentation.of(call, label);
+/// The Presentation of a menu script's call. Raises an error from another script.
+fn menuOf(call: Call) *Presentation {
+    if (call.context.family != .menu) call.raise("only menu scripts can use it", .{});
+    return Presentation.of(call);
 }
 
 fn replaceScreen(call: Call, screen: interf.Screen, name: ?[]const u8) bool {
-    const shown = menuOf(call, "replace_screen");
+    const shown = menuOf(call);
     const standing = &shown.standing;
     const wanted = name orelse {
         _ = standing.screens.swapRemove(screen);
         return true;
     };
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const index = shown.runtime.registries.find(.screen, call.qualified("ui.replace_screen", wanted, &buffer)) orelse return false;
-    standing.screens.put(shown.gpa, screen, index) catch call.raise("ui.replace_screen: out of memory", .{});
+    const index = shown.runtime.registries.find(.screen, call.qualified(wanted, &buffer)) orelse return false;
+    standing.screens.put(shown.gpa, screen, index) catch call.raise("out of memory", .{});
     return true;
 }
 
 fn goTo(call: Call, screen: interf.Screen) void {
-    menuOf(call, "go_to").standing.request = .{ .go = screen };
+    menuOf(call).standing.request = .{ .go = screen };
 }
 
 fn startGameMode(call: Call, name: []const u8) bool {
-    const shown = menuOf(call, "start_game_mode");
+    const shown = menuOf(call);
     const modes = call.runtime().options.shared.modes orelse return false;
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const qualified = if (std.mem.findScalar(u8, name, ':') != null) name else call.qualified("ui.start_game_mode", name, &buffer);
+    const qualified = if (std.mem.findScalar(u8, name, ':') != null) name else call.qualified(name, &buffer);
     const index = modes.find(qualified) orelse return false;
     shown.standing.request = .{ .game_mode = @intCast(index) };
     return true;
 }
 
 fn launchMission(call: Call) void {
-    menuOf(call, "launch_mission").standing.request = .launch_mission;
+    menuOf(call).standing.request = .launch_mission;
 }
 
 fn playMovie(call: Call, name: []const u8) void {
-    const shown = menuOf(call, "play_movie");
-    if (name.len == 0) call.raise("ui.play_movie: expected a movie's name", .{});
-    if (name.len > max_movie_name) call.raise("ui.play_movie: the name '{s}' is longer than {d} characters", .{ name, max_movie_name });
+    const shown = menuOf(call);
+    if (name.len == 0) call.raise("expected a movie's name", .{});
+    if (name.len > max_movie_name) call.raise("the name '{s}' is longer than {d} characters", .{ name, max_movie_name });
     const standing = &shown.standing;
     @memcpy(standing.movie_name[0..name.len], name);
     standing.movie = name.len;
@@ -128,7 +127,7 @@ pub fn takeMovie(shown: *Presentation) ?[]const u8 {
 }
 
 fn quitGame(call: Call) void {
-    menuOf(call, "quit").standing.request = .quit;
+    menuOf(call).standing.request = .quit;
 }
 
 /// The registered screen that stands in for `screen`, where its script still runs: the one a script

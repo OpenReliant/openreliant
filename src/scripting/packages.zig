@@ -51,7 +51,7 @@ pub fn namespace(comptime package: script.Package) ?type {
 pub fn push(scripts: *runtime.Runtime) void {
     inline for (comptime std.enums.values(script.Package)) |package| {
         if (comptime namespace(package)) |Namespace| {
-            api.pushPackage(scripts.state, package, Namespace);
+            api.pushPackage(scripts.state, package, Namespace, @tagName(package));
             scripts.setPackage(package);
         }
     }

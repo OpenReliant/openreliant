@@ -19,7 +19,7 @@ pub const package = struct {
 
     pub const player = api.Field(?Object, "The player's ship, while a mission runs; nil between missions.", struct {
         pub fn get(call: Call) ?Object {
-            const held = game.Game.of(call, "world.player");
+            const held = game.Game.of(call);
             if (held.mission == null) return null;
             return .of(held.objects.player);
         }
@@ -27,7 +27,7 @@ pub const package = struct {
 
     pub const mission = api.Field(?engine_hooks.Mission, "The mission that runs, with its `number` and its `file`'s name; nil between missions.", struct {
         pub fn get(call: Call) ?engine_hooks.Mission {
-            const held = game.Game.of(call, "world.mission");
+            const held = game.Game.of(call);
             return if (held.mission) |*running| running.view() else null;
         }
     });
@@ -35,7 +35,7 @@ pub const package = struct {
 
 /// `world.objects()`.
 fn allObjects(call: Call) handles.List {
-    const held = game.Game.of(call, "world.objects");
+    const held = game.Game.of(call);
     var list: handles.List = .{};
     var walk = held.objects.walk();
     while (walk.next()) |index| {
@@ -46,7 +46,7 @@ fn allObjects(call: Call) handles.List {
 
 /// `world.missiles()`.
 fn allMissiles(call: Call) missile_handles.List {
-    const held = game.Game.of(call, "world.missiles");
+    const held = game.Game.of(call);
     var list: missile_handles.List = .{};
     var walk = held.objects.missiles.walk();
     while (walk.next()) |record| list.append(.of(record));

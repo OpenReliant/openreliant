@@ -21,10 +21,10 @@ const HookFunctions = struct {
     pub const after_hook = api.NativeTyped("`hooks.after`: adds a handler that runs after the function `name`.", hooks.after_type, forward("after"));
 };
 
-fn forward(comptime name: [:0]const u8) fn (*@import("luau.zig").State) i32 {
+fn forward(comptime name: [:0]const u8) fn (api.Call) i32 {
     return struct {
-        fn run(state: *@import("luau.zig").State) i32 {
-            const call = api.Call.of(state, "interface hook");
+        fn run(call: api.Call) i32 {
+            const state = call.state;
             if (call.context.family != .global and call.context.family != .object) call.raise("hook interfaces require game scripts", .{});
             const count = state.top();
             const package = call.runtime().packages.get(.hooks) orelse call.raise("hooks are unavailable in this context", .{});
@@ -115,5 +115,5 @@ pub const Group = enum {
 
 pub fn push(state: *@import("luau.zig").State, comptime group: Group) void {
     // Field getters use the existing package machinery; their original Call checks still apply.
-    api.pushPackage(state, comptime group.offer().package, group.namespace());
+    api.pushPackage(state, comptime group.offer().package, group.namespace(), "I." ++ @tagName(group));
 }

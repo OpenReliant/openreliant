@@ -148,7 +148,7 @@ pub const fields = struct {
             switch (gunOf(all, turret).turret) {
                 .aimed => |*aimed| aimed.target = aimed_at,
                 .missile => |*launcher| launcher.target = aimed_at,
-                .spin, .fixed, .gone => call.raise("target: only an aimed turret or a missile turret has a target", .{}),
+                .spin, .fixed, .gone => call.raise("only an aimed turret or a missile turret has a target", .{}),
             }
         }
     });
@@ -233,7 +233,7 @@ fn getField(state: *State) i32 {
     const key = state.toString(2) orelse state.raise("turret: expected a field name, got {s}", .{state.typeName(2)});
     inline for (comptime api.declared(methods, .function)) |name| {
         if (std.mem.eql(u8, key, name)) {
-            state.pushFunction(luau.wrap(@field(methods, name).wrapped), name ++ "");
+            state.pushFunction(luau.wrap(@field(methods, name).wrapped("turret:" ++ name)), name ++ "");
             return 1;
         }
     }
@@ -254,12 +254,13 @@ fn getField(state: *State) i32 {
 fn setField(state: *State) i32 {
     const handle = state.toUserdata(Handle, 1, Handle.tag).?;
     const key = state.toString(2) orelse state.raise("turret: expected a field name, got {s}", .{state.typeName(2)});
-    const call: Call = .of(state, key);
+    var call: Call = .of(state, "turret");
     const all = call.runtime().objects orelse state.raise("turrets only exist while a game runs", .{});
     if (!handle.valid(all)) state.raise("turret {d} of object {d} is no longer in the mission", .{ handle.gun, handle.object.slot });
     inline for (comptime api.declared(fields, .field)) |name| {
         const field = @field(fields, name);
         if (std.mem.eql(u8, key, name)) {
+            call.label = "turret." ++ name;
             if (!field.writable) state.raise("a turret's {s} can only be read", .{name});
             if (!mayChange(call.context, handle.turret())) state.raise("{t} scripts can't change this turret's {s}", .{ call.context.family, name });
             field.set(call, all, handle.turret(), values.read(state, field.Type, 3, name));
