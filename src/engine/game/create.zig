@@ -1121,7 +1121,7 @@ const planet_light_mask: u32 = 0x37;
 ///
 /// **Unknown:** what bit 20 of the parts' flags does. Not ported: Titan's Planet Bombard, which
 /// the game hangs on its models' parts as it makes them (`0x0046841D`)
-/// ([#233](https://github.com/OpenReliant/openreliant/issues/233)).
+/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 pub fn planetMade(all: *Objects, index: u16) void {
     const slot = &all.slots[index];
     if (!isPlanet(slot.object.type)) return;

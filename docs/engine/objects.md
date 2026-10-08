@@ -162,9 +162,9 @@ one takes a fiftieth of the damage; gives the Victorious, the Kurgan and the Was
 generator whatever their parts; draws the Rogue base's meshes with their first texture pass alone;
 and loops the Saladin's `middle spin` track (`typeMade`). The wrecks, the gates and the planets are
 set up once the mission has made them (`wreckMade`, `gateMade`, `planetMade`). Not ported yet:
-Titan's Planet Bombard ([#233](https://github.com/OpenReliant/openreliant/issues/233)), the Dark
-Reign's hat ([#238](https://github.com/OpenReliant/openreliant/issues/238)), and the multiplayer
-cases.
+Titan's Planet Bombard and the Dark Reign's hat
+([#238](https://github.com/OpenReliant/openreliant/issues/238)), and the multiplayer cases
+([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 ## Flags
 

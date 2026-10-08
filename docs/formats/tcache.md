@@ -121,11 +121,20 @@ A colour cube (`.ccb`, `SR_CCB_load`) holds, in order:
 |---|---|---|
 | `0x000` | 256 x 3 | The palette, in 6-bit levels |
 | `0x300` | 256 x 12 | The palette again, as floats: level / 64 |
-| `0xF00` | 4 | **Unknown** |
+| `0xF00` | 4 | `dacinfo`, which `SR_CCB_load` copies into a block of its own |
 | `0xF04` | 7 x 4 | Bits of red, green and blue (6 each), their maxima (63 each), the table's size (`0x40000`) |
 | `0xF20` | `0x40000` | A palette index for each colour, by the top 6 bits of red, green and blue, red outermost |
 
-`image_convert` quantizes to an index format through the table.
+`image_convert` quantizes to an index format through the table. The asserts of `SR_CCB_save`
+(`0x004CBBD0`), which writes a cube back and which nothing in the game calls, name the cube's
+fields: `lut` for the table, `palette`, `dacinfo` and `paletteinfo`, which the loader never sets.
+**Unverified:** that nothing reads the palettes or `dacinfo` once they are loaded. The four
+`dacinfo` words of the shipped files other than `palette3.ccb`'s look like addresses in a 32-bit
+program, probably left by the tool that wrote them.
+
+`resource.hog` holds five cubes, but the executable names only the three in the table above:
+`power.ccb` and `palette2.ccb` are never loaded. These findings come from LordBlacksun's notes
+([Starlancer-OSS](https://github.com/LordBlacksun/Starlancer-OSS), CC BY 4.0).
 
 ## Loading
 

@@ -85,11 +85,13 @@ A file may carry several, and a shape uses the nearest one at or before it, so a
 groups that each have their own. `CAPSHIPS.SPR` is a run of such groups, each a palette and two
 ships, so a pair of ships shares a national colour scheme.
 
-**Most sets carry no palette at all**, including every ship schematic. Those shapes are drawn with
-whatever palette the game has loaded, and `sltool spr extract` falls back to greyscale for them.
-
-**Unknown:** which palette that is. It is not the first 768 bytes of `palette.ccb`: those are 6-bit
-values, but they colour the schematics as noise while leaving the silhouettes clean.
+**Most sets carry no palette at all**, including every ship schematic. `VFX_shape_draw` draws a
+shape whose entry names no palette with VFX's global palette, and no entry of a shipped set names
+one. A screen makes the global palette of a palette block of a set (`palette_to_vfx`,
+`0x00428410`): the flight display makes it of block `0x77` of `HUDHARD.SPR` every frame, so the
+ships' schematics, which the display draws, take that block's palette
+([HUD](../engine/hud.md#art)). `sltool spr extract` falls back to greyscale for a set without a
+palette of its own.
 
 ## What sprites are not
 

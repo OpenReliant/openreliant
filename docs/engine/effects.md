@@ -303,8 +303,7 @@ part's size go off within a quarter of its size of it, 10 ticks apart.
 [`explode/extras.zig`](../../src/engine/game/explode/extras.zig) ports them. Not ported: the extras
 that light or put out the prototype gate's power core (assembly 1), the Boridin breakaway's core
 (assemblies 2 and 3) and the Dark Reign's hat (assembly 17), which hang on what `create_object`
-sets up for those types ([#238](https://github.com/OpenReliant/openreliant/issues/238),
-[#233](https://github.com/OpenReliant/openreliant/issues/233)).
+sets up for those types ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 ## Splits
 
