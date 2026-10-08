@@ -21,10 +21,6 @@ with their independent tunnels, projector beams and particles, and
 [`game/wgate/projection.zig`](../../src/engine/game/wgate/projection.zig) the Boridin breakaway's
 projection.
 
-Not ported: the collapse's second passes on the parts of models a gate carries, which the game's
-walk of its nodes reaches too ([#540](https://github.com/OpenReliant/openreliant/issues/540)). No
-shipped gate carries a model.
-
 **Improvements**, which `--original` turns off:
 
 - A tunnel is built four times as finely round and along, its rings a quarter as far apart so that
@@ -337,8 +333,8 @@ last frame:
 
 1. Over 10 seconds, 55 fireballs go off at the points of the hull's cut list in turn (`Protogate`,
    or `OuterRing` for any other gate), each 5500 to 8500 across and lit, every seventh heard
-   (`explosion02`). Past the end of the list, OpenReliant counts on from its start again. Each frame the second passes of the gate's type's meshes go off at random, 0.3
-   of the frames (`0x00422680`). Then they go off for good, and the screen flashes.
+   (`explosion02`). Past the end of the list, OpenReliant counts on from its start again. Each frame the second passes of the gate's type's meshes, and of the models it
+   carries, go off at random, 0.3 of the frames (`0x00422680`). Then they go off for good, and the screen flashes.
 2. Over the first fifth, its rings slow to a stop: a proto gate's `forcering` from 1, an advanced
    gate's `InnerRing` from 4 and `Tube11` from 1. One frame in 20 a fireball 3500 to 4500 across
    goes off at a random point among the first 56 of the cut list, counted on from its start again
