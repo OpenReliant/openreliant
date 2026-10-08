@@ -210,12 +210,17 @@ pub const Component = extern struct {
     node: Pointer(Node),
     /// Where the node's parent lists it.
     slot: Pointer(Pointer(Node)),
-    /// The invulnerability `SetInvulnerability` gives the component: under 2 no hit harms it, and
-    /// under 1 only a hit a player's ship deals, as `Invulnerability.protects` reads an object's
-    /// (`component_damage`, `0x004645C0`); 0 for none. Nothing reads it yet
-    /// (`collision.componentDamage`, [#538](https://github.com/OpenReliant/openreliant/issues/538)).
+    /// The invulnerability `SetInvulnerability` gives the component (`protects`); 0 for none.
     invulnerable: u16,
     _unknown_0a: u16,
+
+    /// Whether its invulnerability keeps off a hit, as `component_damage` (`0x004645C0`) compares
+    /// the halfword: 2 keeps off every hit, and 1 every hit a player's ship did not deal, as
+    /// `Invulnerability.protects` reads an object's. Any other value keeps off none.
+    pub fn protects(component: Component, by_player: bool) bool {
+        const invulnerable = std.math.cast(u8, component.invulnerable) orelse return false;
+        return @as(Invulnerability, @fromBackingInt(invulnerable)).protects(by_player);
+    }
 
     comptime {
         assert(@sizeOf(Component) == 0x0C);

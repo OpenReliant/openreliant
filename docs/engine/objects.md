@@ -707,11 +707,10 @@ first its children that are components, then, child by child, theirs. So the mod
 come first, in part order, and then, part by part and mount by mount, those of the mounted models.
 A component's entry holds its node, the slot of the parent's child list that holds it, and at `+8`
 the invulnerability `SetInvulnerability` gives the component, a halfword that `component_damage`
-reads as it reads an object's: 2 keeps off every hit, and 1 every hit but a player's ship's.
-OpenReliant checks it on the armor-bearing part after resolving a linked assembly. Value 2
-prevents lethal damage from every attacker; value 1 permits lethal damage only from player
-slots. Nonlethal damage still reduces armor, and ShotAt events still fire. Hit scoring remains
-in [#538](https://github.com/OpenReliant/openreliant/issues/538).
+compares as it reads an object's invulnerability, for the part that takes the hit: the assembly's
+first part with armour where the part struck has an assembly. 2 keeps off every hit that would take
+the armour below zero, and 1 every such hit but a player's ship's; any other value keeps off none. A
+hit that leaves armour to spare still wears it, and its ShotAt events still come.
 
 A component's armour comes from its part's record (`0x104`), and `component_damage`
 (`0x004645C0`) wears it down: the damage goes to the first part of the component's assembly that

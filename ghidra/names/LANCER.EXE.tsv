@@ -1555,6 +1555,8 @@ address	kind	name	type	comment
 0042caa0	function	key_config_defaults	void (void)	Sets the input settings to their defaults and reads each binding from the KeyConfig section of default.txt in the installation directory
 0042c630	function	save_key_config	void (void)	Writes the input settings and every binding to the KeyConfig and JoyConfig sections of starlancer.ini
 0042c5f0	function	control_binding_find	int __fastcall (int except, int key, int modifier)	The action other than except bound to a key with a modifier, or -1
+004ba810	function	net_component_damage	void __fastcall (GameObject *object, ModelNode *node, float damage)	In a network session, adds the damage component_damage deals a component to the object's records for the other players, by the node's +0xFC; or hands it to 0x004BA8B0 where 0x004B5590 says so
+004ba9f0	function	net_quadrant_damage	void __fastcall (GameObject *object, int quadrant, float damage)	In a network session, adds the damage object_damage and object_armor_damage deal a quadrant to the object's records for the other players; or hands it to 0x004BAA80 where 0x004B5590 says so. Asserts hmmmm for an object without combat stats
 004baae0	function	net_send_pause	void __fastcall (bool pause)	Sends packet 0x27 to the other players: the pause flag and pause_reason
 0049cfd0	function	frame_timing_hold	void __fastcall (bool hold)	Stops (1) or restarts (0) the timing of the frame's current section, nesting
 004aada0	function	typed_keys_clear	void (void)	Empties the queue of typed characters at 0x005D547C

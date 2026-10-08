@@ -362,7 +362,9 @@ pub fn byDifficulty(world: gameobj.World, index: u16, kind: Kind, value: f32) f3
 /// and its controller (`feedback`), and the display (`hud.Interference.start`). Last, the object's
 /// ShotAt is posted (`shotAt`).
 ///
-/// Not ported: the score a player's hit is worth, and what multiplayer makes of it.
+/// Not ported: what a multiplayer game adds, the damage a network session keeps for the other
+/// players among it (`net_quadrant_damage`, `0x004BA9F0`)
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn damage(world: gameobj.World, index: u16, struck: Quadrant, value: f32, factor: f32, attacker: u16, kind: Kind) void {
     if (hooks.enter(.object_damage, damage, .{ world, index, struck, value, factor, attacker, kind })) |done| return done;
     const all = world.objects;
@@ -555,8 +557,9 @@ const shielded_hit: f32 = 1000;
 ///
 /// Last, whether or not the part took the hit, come the ShotAt events (`componentShotAt`).
 ///
-/// Not ported: the score a player's hit is worth
-/// ([#538](https://github.com/OpenReliant/openreliant/issues/538)), and what multiplayer makes of it
+/// Not ported: what a multiplayer game adds: the object's turrets turning on a player who strikes
+/// it, and in a network session, a friend's engines kept from the player's hits and the damage the
+/// session keeps for the other players (`net_component_damage`, `0x004BA810`)
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn componentDamage(world: gameobj.World, index: u16, struck_part: objects.PartRef, value: f32, attacker: u16, kind: Kind) void {
     if (hooks.enter(.component_damage, componentDamage, .{ world, index, struck_part, value, attacker, kind })) |done| return done;
@@ -608,11 +611,10 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     if (object.invulnerable != ._unknown_5 and object.flags.shield_generator and share < shielded_hit) share *= shielded_damage;
     const player_hit = attacker < all.players;
     var protected = object.invulnerable.protects(player_hit);
-    // The original checks the armor-bearing part, after resolving a linked assembly
-    // (`0x00464800`), rather than the part that the shot first hit.
+    // The game reads the invulnerability of the part that takes the hit, the assembly's first with
+    // armour, rather than the part struck (`0x00464800`).
     if (std.mem.findScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
-        const protection: gameobj.Invulnerability = @fromBackingInt(@intCast(slot.object.components[n].invulnerable));
-        protected = protected or protection.protects(player_hit);
+        protected = protected or slot.object.components[n].protects(player_hit);
     }
 
     const left = struck.armor - share;
@@ -1209,6 +1211,11 @@ test componentDamage {
     componentDamage(world, index, struck, 100, 1, .bullet);
     try std.testing.expectEqual(60, part.armor);
     componentDamage(world, index, struck, 100, 0, .bullet);
+    try std.testing.expect(part.armor < 0);
+    // A halfword past the byte is none of the values, and keeps off nothing.
+    part.armor = 100;
+    all.slots[index].object.components[0].invulnerable = 0x102;
+    componentDamage(world, index, struck, 150, 1, .bullet);
     try std.testing.expect(part.armor < 0);
 }
 
