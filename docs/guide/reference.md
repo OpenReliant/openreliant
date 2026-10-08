@@ -127,6 +127,15 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `clock` | [HudClock](#hudclock), or nil | The mission's clock as the display shows it: the countdown where the mission counts down, and the time played otherwise; nil outside a mission. |
 | `view_name` | string, or nil | The view's name the display writes at the top of the screen, in the views it names; nil in the others, the view ahead from the cockpit among them, and outside a mission. |
 | `caption` | string, or nil | The date the launch types out at the foot of the screen, as far as it has typed it; nil while it isn't shown, and outside a mission. |
+| `damage` | [HudDamage](#huddamage), or nil | The damage window, as it shows how well the player's weapons, engines and shields still work as the armour wears, each from 0 to 1, whether or not the window is open; nil outside a mission. |
+| `power` | [HudPower](#hudpower), or nil | The power window, as it shows the shields', guns' and engines' shares of the player's power, as the whole percentages it writes, whether or not the window is open; nil outside a mission. |
+| `wingmen` | list of [HudWingman](#hudwingman) | The ships of the player's wing the wing status window shows, the player's first, whether or not the window is open; none outside a mission. |
+| `objectives` | [HudObjectives](#hudobjectives), or nil | The objectives window: the mission's objectives it can show, and the one it shows, whether or not the window is open; nil outside a mission. |
+| `comms` | list of string | The items of the radio's menu the comms window lists, in order, as the number keys pick them, whether or not the window is open; none outside a mission. |
+| `messages` | list of string | The message lines the display shows, oldest first; none outside a mission. |
+| `subtitle` | string, or nil | The line `DisplaySubTitle` shows near the foot of the screen in the director's view, whichever view it's in; nil for none, and outside a mission. |
+| `key_prompt` | [Action](#action), or nil | The action whose key `WaitForKey`'s prompt asks the player to press; nil while nothing waits, and outside a mission. |
+| `jump_prompt` | [HudJumpPrompt](#hudjumpprompt), or nil | The prompt that flashes in the view ahead for what the mission has ready: the warp's or the jump's; nil for none, and outside a mission. |
 | `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing; none outside a mission. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
@@ -468,6 +477,15 @@ turret, and a turret's own scripts on their turret.
 | `clock` | [HudClock](#hudclock), or nil | The mission's clock as the display shows it: the countdown where the mission counts down, and the time played otherwise; nil outside a mission. |
 | `view_name` | string, or nil | The view's name the display writes at the top of the screen, in the views it names; nil in the others, the view ahead from the cockpit among them, and outside a mission. |
 | `caption` | string, or nil | The date the launch types out at the foot of the screen, as far as it has typed it; nil while it isn't shown, and outside a mission. |
+| `damage` | [HudDamage](#huddamage), or nil | The damage window, as it shows how well the player's weapons, engines and shields still work as the armour wears, each from 0 to 1, whether or not the window is open; nil outside a mission. |
+| `power` | [HudPower](#hudpower), or nil | The power window, as it shows the shields', guns' and engines' shares of the player's power, as the whole percentages it writes, whether or not the window is open; nil outside a mission. |
+| `wingmen` | list of [HudWingman](#hudwingman) | The ships of the player's wing the wing status window shows, the player's first, whether or not the window is open; none outside a mission. |
+| `objectives` | [HudObjectives](#hudobjectives), or nil | The objectives window: the mission's objectives it can show, and the one it shows, whether or not the window is open; nil outside a mission. |
+| `comms` | list of string | The items of the radio's menu the comms window lists, in order, as the number keys pick them, whether or not the window is open; none outside a mission. |
+| `messages` | list of string | The message lines the display shows, oldest first; none outside a mission. |
+| `subtitle` | string, or nil | The line `DisplaySubTitle` shows near the foot of the screen in the director's view, whichever view it's in; nil for none, and outside a mission. |
+| `key_prompt` | [Action](#action), or nil | The action whose key `WaitForKey`'s prompt asks the player to press; nil while nothing waits, and outside a mission. |
+| `jump_prompt` | [HudJumpPrompt](#hudjumpprompt), or nil | The prompt that flashes in the view ahead for what the mission has ready: the warp's or the jump's; nil for none, and outside a mission. |
 | `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing; none outside a mission. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
@@ -1328,6 +1346,45 @@ A table a script gives, which may leave out a field with a default.
 | `minutes` | number |
 | `seconds` | number |
 
+### HudDamage
+
+| Field | Type |
+|---|---|
+| `weapons` | number |
+| `engines` | number |
+| `shields` | number |
+
+### HudPower
+
+| Field | Type |
+|---|---|
+| `shields` | number |
+| `guns` | number |
+| `engines` | number |
+
+### HudWingman
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
+| `number` | number |
+| `armor` | number |
+
+### HudObjectives
+
+| Field | Type |
+|---|---|
+| `shown` | number, or nil |
+| `list` | list of [HudObjective](#hudobjective) |
+
+### HudObjective
+
+| Field | Type |
+|---|---|
+| `number` | number |
+| `name` | string, or nil |
+| `current` | boolean |
+
 ### HudBounds
 
 | Field | Type |
@@ -1545,6 +1602,14 @@ number. A script can set a field to either.
 
 `match_speed`, `blind_fire`, `smart_targeting`, `enemy_lock`, `missile_incoming`, `ecm`, `cloak`, `spectral_shields`, `reverse_thrust`.
 
+### Action
+
+`cockpit_camera`, `left_view_camera`, `right_view_camera`, `rear_view_camera`, `flyby_camera`, `target_camera`, `external_camera`, `missile_camera`, `next_enemy_target`, `previous_enemy_target`, `next_friendly_target`, `previous_friendly_target`, `next_subtarget`, `previous_subtarget`, `target_under_reticule`, `target_nearest_enemy`, `target_nearest_friendly`, `target_torpedo`, `smart_target`, `primary_target`, `afterburners`, `afterburner_toggle`, `reverse_thrust`, `jump_drive`, `match_speed`, `accelerate`, `decelerate`, `zero_throttle`, `full_throttle`, `roll_ship_clockwise`, `roll_ship_anti_clockwise`, `nose_up`, `nose_down`, `rotate_clockwise`, `rotate_anti_clockwise`, `strafe_left`, `strafe_right`, `joystick_roll`, `fire_lasers`, `full_guns`, `gunnery_window`, `gunnery_window_locked`, `synchronise_guns`, `toggle_blindfire`, `launch_missile`, `missile_window`, `rotate_missiles_clockwise`, `rotate_missiles_anticlockwise`, `comms_window`, `powerball_window`, `powerball_window_locked`, `full_power_to_gunnery`, `full_power_to_engines`, `full_power_to_shields`, `equalize_power`, `objectives_window`, `wing_status_window`, `wing_status_window_locked`, `damage_window`, `damage_window_locked`, `radar_ranges`, `shield_balancing`, `countermeasures`, `eject`, `cloak_ship`, `ecm`, `spectral_shields`, `attack_my_target`, `back_off`, `help_me`, `permission_to_land`, `display_kills`, `send_comms_message`, `key_config`.
+
+### HudJumpPrompt
+
+`jump`, `warp`.
+
 ### Font
 
 `default`, `hud`, `menu_small`, `menu_large`.
@@ -1644,10 +1709,6 @@ number. A script can set a field to either.
 ### PilotSkill
 
 `low`, `medium`, `high`, or a number.
-
-### Action
-
-`cockpit_camera`, `left_view_camera`, `right_view_camera`, `rear_view_camera`, `flyby_camera`, `target_camera`, `external_camera`, `missile_camera`, `next_enemy_target`, `previous_enemy_target`, `next_friendly_target`, `previous_friendly_target`, `next_subtarget`, `previous_subtarget`, `target_under_reticule`, `target_nearest_enemy`, `target_nearest_friendly`, `target_torpedo`, `smart_target`, `primary_target`, `afterburners`, `afterburner_toggle`, `reverse_thrust`, `jump_drive`, `match_speed`, `accelerate`, `decelerate`, `zero_throttle`, `full_throttle`, `roll_ship_clockwise`, `roll_ship_anti_clockwise`, `nose_up`, `nose_down`, `rotate_clockwise`, `rotate_anti_clockwise`, `strafe_left`, `strafe_right`, `joystick_roll`, `fire_lasers`, `full_guns`, `gunnery_window`, `gunnery_window_locked`, `synchronise_guns`, `toggle_blindfire`, `launch_missile`, `missile_window`, `rotate_missiles_clockwise`, `rotate_missiles_anticlockwise`, `comms_window`, `powerball_window`, `powerball_window_locked`, `full_power_to_gunnery`, `full_power_to_engines`, `full_power_to_shields`, `equalize_power`, `objectives_window`, `wing_status_window`, `wing_status_window_locked`, `damage_window`, `damage_window_locked`, `radar_ranges`, `shield_balancing`, `countermeasures`, `eject`, `cloak_ship`, `ecm`, `spectral_shields`, `attack_my_target`, `back_off`, `help_me`, `permission_to_land`, `display_kills`, `send_comms_message`, `key_config`.
 
 ### View
 

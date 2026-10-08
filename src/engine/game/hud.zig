@@ -3632,10 +3632,10 @@ pub const State = struct {
     /// of `frame_duration`, if any. A warp the mission has ready comes before a jump. The frame one
     /// becomes ready the prompt starts its flash and draws nothing.
     pub fn jumpPrompt(state: *State, ready: *Readiness, frame_duration: i32) ?u16 {
-        const which: *Ready, const shape: u16 = if (ready.warp != .no)
-            .{ &ready.warp, JumpPrompt.warp_shape }
-        else
-            .{ &ready.jump, JumpPrompt.jump_shape };
+        const which: *Ready, const shape: u16 = switch (JumpPrompt.Kind.of(ready.*)) {
+            .warp => .{ &ready.warp, JumpPrompt.warp_shape },
+            .jump => .{ &ready.jump, JumpPrompt.jump_shape },
+        };
         switch (which.*) {
             .newly => {
                 state.prompt_ticks = 0;
@@ -3724,7 +3724,38 @@ pub const JumpPrompt = struct {
     pub const offset: [2]i32 = .{ -16, -90 };
     pub const warp_shape: u16 = 0xC9;
     pub const jump_shape: u16 = 0xCE;
+
+    /// Which prompt shows: the warp's where the mission has a warp ready at all, and the jump's
+    /// otherwise.
+    pub const Kind = enum {
+        jump,
+        warp,
+
+        /// The name scripts know these by.
+        pub const script_name = "HudJumpPrompt";
+
+        /// The prompt `ready` picks (`jumpPrompt`).
+        pub fn of(ready: Readiness) Kind {
+            return if (ready.warp != .no) .warp else .jump;
+        }
+    };
+
+    /// The prompt that is up for `ready`, flashing, as `jumpPrompt` draws it; null for none.
+    pub fn shown(ready: Readiness) ?Kind {
+        const kind: Kind = .of(ready);
+        return switch (if (kind == .warp) ready.warp else ready.jump) {
+            .newly, .shown => kind,
+            else => null,
+        };
+    }
 };
+
+test "JumpPrompt.shown" {
+    // Nothing ready, no prompt; a jump ready, the jump's; a warp ready, the warp's, over a jump's.
+    try std.testing.expectEqual(null, JumpPrompt.shown(.{}));
+    try std.testing.expectEqual(JumpPrompt.Kind.jump, JumpPrompt.shown(.{ .jump = .shown }).?);
+    try std.testing.expectEqual(JumpPrompt.Kind.warp, JumpPrompt.shown(.{ .jump = .shown, .warp = .newly }).?);
+}
 
 /// Where the eject marker and the scanner stand, from the middle of the screen; the marker hangs
 /// `eject_drop` below (`hud_eject_marker`, `0x004830B0`).

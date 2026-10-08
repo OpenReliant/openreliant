@@ -40,6 +40,8 @@ const bar_reach = 3;
 /// A ship of the wing as the window shows it: its number in the wing, from 1, where its bar
 /// stands, the rows lost from the bar's top, and its icon, if it has one.
 pub const Entry = struct {
+    /// The slot of its ship.
+    slot: u16,
     number: u8,
     bar_at: Offset,
     lost: i32,
@@ -47,6 +49,11 @@ pub const Entry = struct {
     /// The display's shapes with the pictures its type gives for its icon
     /// (`create.Type.wing_icon`), where a mod's type gives them.
     own_icon: ?hud.TypeArt = null,
+
+    /// How much of its bar is lit, from 0 to 1 (`windows.litShare`).
+    pub fn armorShare(entry: Entry) f32 {
+        return hud.windows.litShare(entry.lost, bar_height);
+    }
 };
 
 /// The wing's ships the window shows, into `out`: each slot's ship that is still there, is in the
@@ -58,11 +65,13 @@ pub const Entry = struct {
 pub fn entries(all: *const create.Objects, out: *[mission.wing_size]Entry) []Entry {
     var count: usize = 0;
     for (all.wing, bars_at, 1..) |listed, at, number| {
-        const slot = &all.slots[listed orelse continue];
+        const index = listed orelse continue;
+        const slot = &all.slots[index];
         const object = &slot.object;
         if (object.type.base() == .stand_in or object.wing != .player or object.flags.ejected) continue;
         const combat = slot.combat orelse continue;
         out[count] = .{
+            .slot = index,
             .number = @intCast(number),
             .bar_at = at,
             .lost = lostRows(object.armor, combat.startingArmor()),
@@ -125,11 +134,12 @@ test entries {
     // The player's ship and the one hurt, in their slots' places; not the ejected pilot's, nor a
     // ship outside the wing.
     try std.testing.expectEqual(2, shown.len);
-    try std.testing.expectEqual(Entry{ .number = 1, .bar_at = bars_at[0], .lost = 0, .icon = 0xFC }, shown[0]);
+    try std.testing.expectEqual(Entry{ .slot = player, .number = 1, .bar_at = bars_at[0], .lost = 0, .icon = 0xFC }, shown[0]);
     try std.testing.expectEqual(2, shown[1].number);
     try std.testing.expectEqual(bars_at[1], shown[1].bar_at);
     // Its weakest quadrant, at half, loses half the bar; it has no icon.
     try std.testing.expectEqual(bar_height / 2, shown[1].lost);
+    try std.testing.expectEqual(0.5, shown[1].armorShare());
     try std.testing.expectEqual(null, shown[1].icon);
 }
 

@@ -475,6 +475,15 @@ pub fn Package(comptime which: Which) type {
         pub const clock = if (which == .hud) instruments.clock else {};
         pub const view_name = if (which == .hud) instruments.view_name else {};
         pub const caption = if (which == .hud) instruments.caption else {};
+        pub const damage = if (which == .hud) instruments.damage else {};
+        pub const power = if (which == .hud) instruments.power else {};
+        pub const wingmen = if (which == .hud) instruments.wingmen else {};
+        pub const objectives = if (which == .hud) instruments.objectives else {};
+        pub const comms = if (which == .hud) instruments.comms else {};
+        pub const messages = if (which == .hud) instruments.messages else {};
+        pub const subtitle = if (which == .hud) instruments.subtitle else {};
+        pub const key_prompt = if (which == .hud) instruments.key_prompt else {};
+        pub const jump_prompt = if (which == .hud) instruments.jump_prompt else {};
         pub const open_windows = if (which == .hud) instruments.open_windows else {};
         pub const register_screen = if (which == .ui) api.Native("Registers a screen, which `name` qualified with the mod's name names. While it's shown (`show_screen`), `frame` draws it with this package's functions each frame, and `key` gets each key as it goes down and up. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> (), key: ((key: Key, down: boolean) -> ())?}", "string", @import("registries.zig").registration(.screen)) else {};
         pub const replace_screen = if (which == .ui) front_end.functions.replace_screen else {};

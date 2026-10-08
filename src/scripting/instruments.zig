@@ -11,6 +11,11 @@ const openreliant = @import("openreliant");
 const engine = openreliant.engine;
 const hud = engine.game.hud;
 const target_forms = hud.target_display;
+const wing_status = hud.wing_status;
+const power_window = hud.power;
+const power_systems = engine.input.power;
+const radio_menu = engine.game.radio.menu;
+const Action = engine.input.controls.Action;
 const language = engine.game.language;
 const gameobj = engine.game.gameobj;
 const Object = engine.hooks.Object;
@@ -202,6 +207,66 @@ pub const ShipStatus = struct {
     reserve_fore: i32,
     reserve_aft: i32,
 };
+
+/// The damage window: how well each system still works as the armour wears, from 0 to 1.
+pub const Damage = struct {
+    pub const script_name = "HudDamage";
+
+    weapons: f32,
+    engines: f32,
+    shields: f32,
+};
+
+/// The power window: each system's share of the power, as the whole percentage it writes.
+pub const Power = struct {
+    pub const script_name = "HudPower";
+
+    shields: i32,
+    guns: i32,
+    engines: i32,
+};
+
+/// A ship of the player's wing, as the wing status window shows it.
+pub const Wingman = struct {
+    pub const script_name = "HudWingman";
+
+    object: Object,
+    /// Its number in the wing, from 1, the player's first.
+    number: u8,
+    /// How much of the bar for its weakest armour quadrant is lit, from 0 to 1.
+    armor: f32,
+};
+
+/// The wing status window's ships, which hold the wing.
+pub const Wingmen = values.List(Wingman, engine.game.mission.wing_size);
+
+/// An objective the objectives window can show.
+pub const Objective = struct {
+    pub const script_name = "HudObjective";
+
+    /// Its number among the mission's objectives, from 1.
+    number: u8,
+    /// Its name; nil where the mission's table gives none, for which the window writes an error.
+    name: ?Text,
+    /// Whether it is the current objective.
+    current: bool,
+};
+
+/// The objectives window: the objectives it can show, and the one it shows.
+pub const Objectives = struct {
+    pub const script_name = "HudObjectives";
+
+    /// The objective the window shows, by its number; nil where it shows none.
+    shown: ?u8,
+    /// The objectives that aren't hidden, which paging through the window passes, in order.
+    list: values.List(Objective, hud.Objectives.per_mission),
+};
+
+/// The comms window's items, which hold a page of the radio's menu.
+pub const MenuItems = values.List(Text, radio_menu.Menu.capacity);
+
+/// The message lines, oldest first, which hold them all.
+pub const Messages = values.List(Text, hud.Messages.capacity);
 
 /// The mission's clock as the display shows it: the countdown where the mission counts down, and
 /// the time played otherwise.
@@ -422,6 +487,99 @@ pub const clock = api.Field(?Clock, "The mission's clock as the display shows it
         const all = call.runtime().objects orelse return null;
         const minutes, const seconds = hud.clockTime(all, flight.play, flight.variables);
         return .{ .minutes = minutes, .seconds = seconds };
+    }
+});
+
+pub const damage = api.Field(?Damage, "The damage window, as it shows how well the player's weapons, engines and shields still work as the armour wears, each from 0 to 1, whether or not the window is open; nil outside a mission.", struct {
+    pub fn get(call: Call) ?Damage {
+        _, const slot = flightOf(call, "damage") orelse return null;
+        const object = &slot.object;
+        return .{
+            .weapons = hud.damage.System.weapons.condition(object),
+            .engines = hud.damage.System.engines.condition(object),
+            .shields = hud.damage.System.shields.condition(object),
+        };
+    }
+});
+
+pub const power = api.Field(?Power, "The power window, as it shows the shields', guns' and engines' shares of the player's power, as the whole percentages it writes, whether or not the window is open; nil outside a mission.", struct {
+    pub fn get(call: Call) ?Power {
+        _, const slot = flightOf(call, "power") orelse return null;
+        const shares = power_window.percentages(power_systems.point(&slot.object));
+        return .{ .shields = shares.get(.shields), .guns = shares.get(.guns), .engines = shares.get(.engines) };
+    }
+});
+
+pub const wingmen = api.Field(Wingmen, "The ships of the player's wing the wing status window shows, the player's first, whether or not the window is open; none outside a mission.", struct {
+    pub fn get(call: Call) Wingmen {
+        var list: Wingmen = .{};
+        _ = flightOf(call, "wingmen") orelse return list;
+        const all = call.runtime().objects orelse return list;
+        var buffer: [engine.game.mission.wing_size]wing_status.Entry = undefined;
+        for (wing_status.entries(all, &buffer)) |entry| list.append(.{ .object = .of(entry.slot), .number = entry.number, .armor = entry.armorShare() });
+        return list;
+    }
+});
+
+pub const objectives = api.Field(?Objectives, "The objectives window: the mission's objectives it can show, and the one it shows, whether or not the window is open; nil outside a mission.", struct {
+    pub fn get(call: Call) ?Objectives {
+        const flight, _ = flightOf(call, "objectives") orelse return null;
+        const held = &flight.hud.objectives;
+        var shown: Objectives = .{ .shown = if (held.none_shown) null else @as(u8, held.shown) + 1, .list = .{} };
+        for (held.states, 0..) |status, index| {
+            if (status == .hidden) continue;
+            const name: ?Text = if (held.name(@intCast(index))) |named| switch (named) {
+                .string => |id| stringOf(flight.strings, id),
+                .text => |text| textOf(text),
+            } else null;
+            shown.list.append(.{ .number = @intCast(index + 1), .name = name, .current = status == .current });
+        }
+        return shown;
+    }
+});
+
+pub const comms = api.Field(MenuItems, "The items of the radio's menu the comms window lists, in order, as the number keys pick them, whether or not the window is open; none outside a mission.", struct {
+    pub fn get(call: Call) MenuItems {
+        var list: MenuItems = .{};
+        const flight, _ = flightOf(call, "comms") orelse return list;
+        const strings = flight.strings orelse return list;
+        for (flight.player.menu.shown()) |item| {
+            var buffer: [radio_menu.Label.room]u8 = undefined;
+            list.append(textOf(item.label.words(strings, &buffer)));
+        }
+        return list;
+    }
+});
+
+pub const messages = api.Field(Messages, "The message lines the display shows, oldest first; none outside a mission.", struct {
+    pub fn get(call: Call) Messages {
+        var list: Messages = .{};
+        const flight, _ = flightOf(call, "messages") orelse return list;
+        const held = &flight.hud.messages;
+        for (0..held.count) |at| list.append(textOf(held.line(at)));
+        return list;
+    }
+});
+
+pub const subtitle = api.Field(?Text, "The line `DisplaySubTitle` shows near the foot of the screen in the director's view, whichever view it's in; nil for none, and outside a mission.", struct {
+    pub fn get(call: Call) ?Text {
+        const flight, _ = flightOf(call, "subtitle") orelse return null;
+        return stringOf(flight.strings, flight.hud.subtitle.string orelse return null);
+    }
+});
+
+pub const key_prompt = api.Field(?Action, "The action whose key `WaitForKey`'s prompt asks the player to press; nil while nothing waits, and outside a mission.", struct {
+    pub fn get(call: Call) ?Action {
+        const flight, _ = flightOf(call, "key_prompt") orelse return null;
+        return flight.hud.key_prompt.action;
+    }
+});
+
+pub const jump_prompt = api.Field(?hud.JumpPrompt.Kind, "The prompt that flashes in the view ahead for what the mission has ready: the warp's or the jump's; nil for none, and outside a mission.", struct {
+    pub fn get(call: Call) ?hud.JumpPrompt.Kind {
+        const flight, _ = flightOf(call, "jump_prompt") orelse return null;
+        const variables = flight.variables orelse return null;
+        return hud.JumpPrompt.shown(variables.ready);
     }
 });
 
