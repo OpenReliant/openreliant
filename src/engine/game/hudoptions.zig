@@ -31,8 +31,7 @@ pub const menu = @import("hudoptions/menu.zig");
 pub const screens = @import("hudoptions/screens.zig");
 
 test {
-    _ = menu;
-    _ = screens;
+    std.testing.refAllDecls(@This());
 }
 
 /// How dark the mission stands behind the settings screen in the pause menu, and behind the

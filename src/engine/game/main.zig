@@ -69,6 +69,10 @@ const Loaded = @import("mission.zig").Loaded;
 
 pub const smoke = @import("main/smoke.zig");
 
+test {
+    std.testing.refAllDecls(@This());
+}
+
 // --- The clocks and the loop ---------------------------------------------------------------
 
 /// The play time `tick_timer` keeps (`play_time_ticks` to `play_time_hours`, `0x00565070` to

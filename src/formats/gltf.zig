@@ -654,5 +654,5 @@ test materials {
 }
 
 test {
-    _ = maps;
+    std.testing.refAllDecls(@This());
 }

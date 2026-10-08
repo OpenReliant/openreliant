@@ -153,5 +153,5 @@ test cut {
 }
 
 test {
-    _ = bc5;
+    std.testing.refAllDecls(@This());
 }

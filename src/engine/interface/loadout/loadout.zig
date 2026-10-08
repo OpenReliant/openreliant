@@ -2866,13 +2866,7 @@ test bandMesh {
 }
 
 test {
-    _ = anims;
-    _ = bars;
-    _ = panels;
-    _ = hologram;
-    _ = racks;
-    _ = simulator_pod;
-    _ = tables;
+    std.testing.refAllDecls(@This());
 }
 
 test tierBefore {

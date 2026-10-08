@@ -6,18 +6,22 @@ const Io = std.Io;
 const files = @import("openreliant").engine.files;
 const version = @import("version");
 
-const cd = @import("cd.zig");
-const dte = @import("dte.zig");
-const fat = @import("fat.zig");
-const fm8 = @import("fm8.zig");
-const fnt = @import("fnt.zig");
-const hog = @import("hog.zig");
-const save = @import("save.zig");
-const shp = @import("shp.zig");
-const speech = @import("speech.zig");
-const spr = @import("spr.zig");
-const stats = @import("stats.zig");
-const tcache = @import("tcache.zig");
+// The commands' files are `pub`, so that the test block at the end runs their tests.
+pub const cd = @import("cd.zig");
+pub const dte = @import("dte.zig");
+pub const fat = @import("fat.zig");
+pub const fm8 = @import("fm8.zig");
+pub const fm8_encode = @import("fm8_encode.zig");
+pub const fnt = @import("fnt.zig");
+pub const hog = @import("hog.zig");
+pub const library = @import("library.zig");
+pub const save = @import("save.zig");
+pub const shp = @import("shp.zig");
+pub const speech = @import("speech.zig");
+pub const speech_encode = @import("speech_encode.zig");
+pub const spr = @import("spr.zig");
+pub const stats = @import("stats.zig");
+pub const tcache = @import("tcache.zig");
 
 /// What every subcommand needs to do its work.
 pub const Context = struct {

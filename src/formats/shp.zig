@@ -2035,6 +2035,5 @@ test "a model that mounts itself stops at the depth limit" {
 }
 
 test {
-    _ = from_obj;
-    _ = to_gltf;
+    std.testing.refAllDecls(@This());
 }

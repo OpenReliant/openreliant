@@ -292,8 +292,10 @@ Look for an existing helper before writing one, and share code rather than copy 
 ### Tests with every change
 
 Add `test` blocks next to the code in the same change. Build their inputs by hand so that they run
-without the game's files. A new module's tests run once its parent's `test` block references it;
-`zig build test --summary all` shows the count. The Nova Cannon's charge, for example:
+without the game's files. Each parent module imports its children with `pub` and has
+`test { std.testing.refAllDecls(@This()); }`, which runs their tests, so a new module needs only
+its `pub` import; `zig build test --summary all` shows the count. The Nova Cannon's charge, for
+example:
 
 ```zig
 test charge {

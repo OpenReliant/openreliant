@@ -319,9 +319,5 @@ test TextureDetail {
 }
 
 test {
-    _ = ending;
-    _ = landing;
-    _ = loading;
-    _ = movie;
-    _ = screenshot;
+    std.testing.refAllDecls(@This());
 }

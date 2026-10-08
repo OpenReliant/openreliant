@@ -12,6 +12,10 @@ const assert = std.debug.assert;
 
 pub const tables = @import("voice/tables.zig");
 
+test {
+    std.testing.refAllDecls(@This());
+}
+
 /// The samples of a frame, and of each of its four subframes.
 pub const frame_samples = 432;
 pub const subframe_samples = 108;

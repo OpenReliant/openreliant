@@ -2221,9 +2221,5 @@ test "maps the script into trigger blocks and parts, with their constants" {
 }
 
 test {
-    _ = commands;
-    _ = opcodes;
-    _ = write;
-    _ = assemble;
-    _ = source;
+    std.testing.refAllDecls(@This());
 }

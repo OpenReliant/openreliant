@@ -87,30 +87,31 @@ const Io = std.Io;
 const openreliant = @import("openreliant");
 const max_file_size = openreliant.engine.files.max_file_size;
 
-const combat = @import("combat.zig");
-const commands = @import("commands.zig");
-const itac = @import("itac.zig");
-const conditions = @import("conditions.zig");
-const controls = @import("controls.zig");
-const eval = @import("eval.zig");
-const faces = @import("faces.zig");
-const pool = @import("pool.zig");
-const flight = @import("flight.zig");
-const gun_stats = @import("guns.zig");
-const sound_tables = @import("sounds.zig");
-const image = @import("image.zig");
-const locker = @import("locker.zig");
-const maneuvers = @import("maneuvers.zig");
-const models = @import("models.zig");
-const orders = @import("orders.zig");
-const rooms = @import("rooms.zig");
-const sources = @import("sources.zig");
-const sequences = @import("sequences.zig");
-const speech = @import("speech.zig");
-const views = @import("views.zig");
-const objectives = @import("objectives.zig");
-const x86 = @import("x86.zig");
-const zig_text = @import("zig_text.zig");
+// The tables' files are `pub`, so that the test block at the end runs their tests.
+pub const combat = @import("combat.zig");
+pub const commands = @import("commands.zig");
+pub const itac = @import("itac.zig");
+pub const conditions = @import("conditions.zig");
+pub const controls = @import("controls.zig");
+pub const eval = @import("eval.zig");
+pub const faces = @import("faces.zig");
+pub const pool = @import("pool.zig");
+pub const flight = @import("flight.zig");
+pub const gun_stats = @import("guns.zig");
+pub const sound_tables = @import("sounds.zig");
+pub const image = @import("image.zig");
+pub const locker = @import("locker.zig");
+pub const maneuvers = @import("maneuvers.zig");
+pub const models = @import("models.zig");
+pub const orders = @import("orders.zig");
+pub const rooms = @import("rooms.zig");
+pub const sources = @import("sources.zig");
+pub const sequences = @import("sequences.zig");
+pub const speech = @import("speech.zig");
+pub const views = @import("views.zig");
+pub const objectives = @import("objectives.zig");
+pub const x86 = @import("x86.zig");
+pub const zig_text = @import("zig_text.zig");
 
 /// Virtual address of the dispatch table, found from the `CALL dword ptr [...]` that the
 /// interpreter's inner loop makes.
@@ -549,27 +550,4 @@ test Mode {
 
 test {
     std.testing.refAllDecls(@This());
-    _ = combat;
-    _ = gun_stats;
-    _ = commands;
-    _ = conditions;
-    _ = controls;
-    _ = itac;
-    _ = eval;
-    _ = faces;
-    _ = pool;
-    _ = flight;
-    _ = image;
-    _ = locker;
-    _ = maneuvers;
-    _ = models;
-    _ = orders;
-    _ = rooms;
-    _ = sequences;
-    _ = sources;
-    _ = speech;
-    _ = views;
-    _ = objectives;
-    _ = x86;
-    _ = zig_text;
 }

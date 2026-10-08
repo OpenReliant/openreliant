@@ -1356,9 +1356,7 @@ test ridingWorm {
 }
 
 test {
-    _ = tunnel;
-    _ = worm;
-    _ = projection;
+    std.testing.refAllDecls(@This());
 }
 
 test recordTime {

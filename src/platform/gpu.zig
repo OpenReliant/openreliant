@@ -25,7 +25,7 @@ const srshadow = openreliant.engine.surrender.surrenderlib.srshadow;
 const srtexture = openreliant.engine.surrender.surrenderlib.srtexture;
 const srgb = openreliant.engine.surrender.colour;
 const Geometry = @import("gpu/geometry.zig").Geometry;
-const shadow = @import("gpu/shadows.zig");
+pub const shadow = @import("gpu/shadows.zig");
 pub const effects = @import("gpu/effects.zig");
 pub const variants = @import("gpu/variants.zig");
 pub const programs = @import("gpu/programs.zig");
@@ -2008,10 +2008,7 @@ test "Lighting.take" {
 }
 
 test {
-    _ = shadow;
-    _ = effects;
-    _ = variants;
-    _ = programs;
+    std.testing.refAllDecls(@This());
 }
 
 test "Lighting.take in linear light" {

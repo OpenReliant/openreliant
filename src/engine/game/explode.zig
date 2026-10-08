@@ -47,6 +47,10 @@ const cloak = @import("cloak.zig");
 const deathmatch = @import("deathmatch.zig");
 const radio = @import("radio.zig");
 
+test {
+    std.testing.refAllDecls(@This());
+}
+
 /// What the explosions leave for the frames after them.
 pub const Explosions = struct {
     images: Images,

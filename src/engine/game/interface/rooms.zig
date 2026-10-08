@@ -1101,8 +1101,7 @@ pub const Rooms = struct {
 };
 
 test {
-    _ = crew;
-    _ = views;
+    std.testing.refAllDecls(@This());
 }
 
 test "the views lead to views of the table" {

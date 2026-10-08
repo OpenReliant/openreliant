@@ -726,5 +726,5 @@ test ProfileFile {
 }
 
 test {
-    _ = save;
+    std.testing.refAllDecls(@This());
 }

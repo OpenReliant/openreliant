@@ -31,31 +31,32 @@ const srd3d = engine.surrender.srd3d;
 const game = engine.game;
 const save = game.gameflow.save;
 const camera = game.camera;
-const help = @import("help.zig");
-const hooks_command = @import("hooks.zig");
-const install = @import("install.zig");
-const joysticks = @import("joysticks.zig");
-const log_file = @import("log_file.zig");
-const mission0 = @import("mission0.zig");
-const missions = @import("missions.zig");
-const mode_records = @import("mode_records.zig");
-const Movies = @import("movies.zig").Movies;
-const presenting = @import("presenter.zig");
+// The program's own files are `pub`, so that the test block at the end runs their tests.
+pub const help = @import("help.zig");
+pub const hooks_command = @import("hooks.zig");
+pub const install = @import("install.zig");
+pub const joysticks = @import("joysticks.zig");
+pub const log_file = @import("log_file.zig");
+pub const mission0 = @import("mission0.zig");
+pub const missions = @import("missions.zig");
+pub const mode_records = @import("mode_records.zig");
+pub const Movies = @import("movies.zig").Movies;
+pub const presenting = @import("presenter.zig");
 const Presenter = presenting.Presenter;
-const ModShaders = @import("mod_shaders.zig").ModShaders;
-const whole_shaders = @import("whole_shaders.zig");
+pub const ModShaders = @import("mod_shaders.zig").ModShaders;
+pub const whole_shaders = @import("whole_shaders.zig");
 const WholeShaders = whole_shaders.Loaded;
 const drawn = presenting.drawn;
-const Rooms = @import("rooms.zig").Driver;
+pub const Rooms = @import("rooms.zig").Driver;
 const RoomsEnd = @import("rooms.zig").End;
-const test_keys = @import("test_keys.zig");
-const ScriptConsole = @import("console.zig").Driver;
-const ScriptFrames = @import("script_frames.zig").ScriptFrames;
-const GameScripts = @import("game_scripts.zig").GameScripts;
+pub const test_keys = @import("test_keys.zig");
+pub const ScriptConsole = @import("console.zig").Driver;
+pub const ScriptFrames = @import("script_frames.zig").ScriptFrames;
+pub const GameScripts = @import("game_scripts.zig").GameScripts;
 const version = @import("version");
-const options_page = @import("options.zig");
+pub const options_page = @import("options.zig");
 const Options = options_page.Options;
-const settings_module = @import("settings.zig");
+pub const settings_module = @import("settings.zig");
 
 /// Writes `text` to standard output, for a command that only says something: 0, its exit status.
 fn say(io: Io, text: []const u8) !u8 {
@@ -2297,19 +2298,5 @@ const Display = struct {
 };
 
 test {
-    _ = @import("mod_shaders.zig");
-    _ = @import("script_frames.zig");
-    _ = @import("game_scripts.zig");
-    _ = whole_shaders;
-    _ = options_page;
-    _ = settings_module;
-    _ = install;
-    _ = joysticks;
-    _ = log_file;
-    _ = mission0;
-    _ = missions;
-    _ = mode_records;
-    _ = hooks_command;
-    _ = test_keys;
-    _ = version;
+    std.testing.refAllDecls(@This());
 }
