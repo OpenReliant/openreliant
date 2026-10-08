@@ -3,7 +3,8 @@
 //! Cloak, Slow Rotate, the Random Spins, Formation, Match Speed and Disrupted; the two that launch
 //! a missile; Dark Reign shoot, which aims an ion cannon (`aiioncan.zig`); a capital ship's lurch as
 //! a torpedo strikes it (Make capship list left and right); the two that turn a ship's lights on
-//! and off; and orders 44 and 45, which stop the ship dead and back it up.
+//! and off; the two of the Boridin's breakaway (Make Boridin section break away, Rotate Boridin
+//! breakaway warp projector); and orders 44 and 45, which stop the ship dead and back it up.
 //! [`aigeneric.zig`](aigeneric.zig) runs them, [`ai.zig`](ai.zig) steers for them, and
 //! `docs/engine/orders.md` describes what each does.
 //!
@@ -12,10 +13,6 @@
 //! known code and it, and those from Rotate Boridin breakaway warp projector's (`0x0040C100`) to
 //! order 45's (`0x0040C4E0`) between it and `aigeneric.cpp`'s; they go with it as order routines
 //! like it.
-//!
-//! Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)): of the order routines
-//! here, those of Make Boridin section break away (`0x0040BF60`) and Rotate Boridin breakaway
-//! warp projector (`0x0040C100`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -29,12 +26,15 @@ const aigeneric = @import("aigeneric.zig");
 const Context = aigeneric.Context;
 const cloak = @import("cloak.zig");
 const create = @import("create.zig");
+const explode = @import("explode.zig");
 const gameobj = @import("gameobj.zig");
 const Order = @import("ai/orders.zig").Order;
 const missiles = @import("missiles.zig");
 const objects = @import("objects.zig");
 const sound3d = @import("sound3d.zig");
 const xtrabits = @import("xtrabits.zig");
+
+const log = std.log.scoped(.orders);
 
 // --- Mill -----------------------------------------------------------------------------------
 
@@ -819,6 +819,75 @@ fn launchFrom(ctx: Context, index: u16, jack_hammer: bool) void {
         missiles.launch(ctx.world, index, at, slot.orders[0].target);
         return;
     }
+}
+
+// --- The Boridin's breakaway ---------------------------------------------------------------
+
+/// The Boridin's parts that its breakaway section takes with it (`0x004E1B60` to `0x004E1AC0`): the
+/// section, its core, its cylinder, its projector generator and that generator's wreck, its
+/// projector, two of the launch doors and `Object02`. The projector's name ends in a space, as the
+/// models have it.
+const breakaway_parts = [_][]const u8{
+    break_off_section,
+    "Bor brk away CORE",
+    "Bor brk off sec Cylinder",
+    "Bor brk proj gen DEST",
+    "Bor brk projector gen",
+    breakaway_projector,
+    "Bor launch dr 1",
+    "Bor launch dr 2",
+    "Object02",
+};
+const break_off_section = "Bor break off section";
+const breakaway_projector = "Bor brkawy proj ";
+
+/// The Boridin's part that smokes once the section has gone (`0x004E1A30`), and how far ahead of
+/// where the section stood, along its nose, the breakaway stands (`0x0040C058`).
+const main_body = "Bor main body";
+const breakaway_ahead: f32 = 4000;
+
+/// `order_make_boridin_section_break_away_init` (`0x0040BF60`): the init of Make Boridin section
+/// break away (36), whose update does nothing. The Boridin hides the parts its section takes
+/// (`breakaway_parts`), its main body streams the breakaway's great smoke for 5000 ticks
+/// (`explode.partStreams`, `explode.big_smoke`), and the first Boridin breakaway among the objects
+/// stands where the section stood, `breakaway_ahead` along its nose, turned as it was, now and
+/// next.
+///
+/// **Fix:** the game stops with an assertion where there is no breakaway ("Error in Boridin
+/// Breakaway code"); OpenReliant logs it and moves nothing.
+pub fn breakAwayInit(ctx: Context, index: u16) void {
+    const world = ctx.world;
+    const all = world.objects;
+    const slot = &all.slots[index];
+    const model = if (slot.model) |*live| live else return;
+    for (breakaway_parts) |name| model.hideNamed(name);
+    const breakaway = for (all.slots[0..all.count]) |*other| {
+        if (other.object.type.base() == .boridin_breakaway) break other;
+    } else {
+        log.warn("Error in Boridin Breakaway code: object {d} breaks away, and there is no breakaway", .{index});
+        return;
+    };
+    if (model.partNamed(main_body)) |body| explode.partStreams(world, index, body, false, &explode.big_smoke);
+    const section = model.partNamed(break_off_section) orelse return;
+    const stands = slot.partPlace(section.part()) orelse return;
+    objects.setPlace(&breakaway.object, &breakaway.drawn, .{ .position = stands.ahead(breakaway_ahead), .orientation = stands.orientation });
+}
+
+/// The breakaway's projector's turning track, its name ending in a space as the model has it
+/// (`0x004E1B78`), and how fast it plays (`0x0040C122`).
+const rotate_projector = "Rotate Proj ";
+const projector_speed: f32 = 4;
+
+/// `order_rotate_boridin_breakaway_warp_projector_init` (`0x0040C100`): the init of Rotate Boridin
+/// breakaway warp projector (37), whose update does nothing and which no shipped mission gives: the
+/// object's projector loops its turning track from where it stands, at `projector_speed`, and the
+/// order pops.
+pub fn rotateProjectorInit(ctx: Context, index: u16) void {
+    const slot = &ctx.world.objects.slots[index];
+    if (slot.model) |*model| if (model.partNamed(breakaway_projector)) |projector| {
+        projector.model.playNamed(projector.index, rotate_projector, objects.Model.keep_time, .loop, projector_speed);
+    };
+    aigeneric.end(ctx, index);
 }
 
 // --- Disrupted ------------------------------------------------------------------------------
@@ -1686,6 +1755,56 @@ test "Avoid Target pitches away while on course to hit its target, then flies on
     try std.testing.expectEqual(1, object.order_count);
     mission.ordersAfter(ctx, ship, 1);
     try std.testing.expectEqual(0, object.order_count);
+}
+
+test "the Boridin's section breaks away: its parts hide, its body smokes, and the breakaway stands in its place" {
+    var stage: explode.testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    // The section, the main body with two points its smoke streams from, and a launch door.
+    var named: objects.testing.NamedParts(3) = undefined;
+    named.init(.{ break_off_section, main_body, "Bor launch dr 1" }, .{ .cut, .streams, .cut }, .{ &.{}, &.{ .{ 0, 0, 0 }, .{ 0, 100, 0 } }, &.{} });
+    const kind: create.Type = .{ .model = &named.parts.source, .loaded = &named.parts.loaded };
+    const mission = &stage.mission;
+    _ = try mission.add(.of(.predator), @splat(0));
+    const boridin = try mission.addWith(create.testing.oneType(&kind), .of(.boridin), .{ 0, 0, 1000 });
+    const breakaway = try mission.add(.of(.boridin_breakaway), .{ 50000, 0, 0 });
+    const ctx: aigeneric.Context = .of(stage.world());
+    try std.testing.expect(try aigeneric.push(ctx, boridin, .make_boridin_section_break_away, .none));
+    mission.ordersAfter(ctx, boridin, 0);
+    const model = &mission.slot(boridin).model.?;
+    try std.testing.expect(model.partNamed(break_off_section).?.part().hidden);
+    try std.testing.expect(model.partNamed("Bor launch dr 1").?.part().hidden);
+    try std.testing.expect(!model.partNamed(main_body).?.part().hidden);
+    // The breakaway stands 4000 ahead of where the section stood, now and next.
+    const stands: math.Place = .{ .position = .{ 0, 0, 1000 + breakaway_ahead } };
+    try std.testing.expectEqual(stands, mission.slot(breakaway).object.placeAt(.now));
+    try std.testing.expectEqual(stands, mission.slot(breakaway).object.placeAt(.next));
+    var streaming: usize = 0;
+    for (stage.explosions.streams) |stream| streaming += @intFromBool(stream != null);
+    try std.testing.expectEqual(2, streaming);
+}
+
+test "the breakaway's projector turns, and the order pops" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var tracks = [_]shp.Track{.{ .clip = objects.testing.clip(2000, .loop, rotate_projector), .keyframes = &.{}, .events = &.{} }};
+    var parts: objects.testing.Parts(1) = undefined;
+    parts.init();
+    @memcpy(parts.data[0].part.name_bytes[0..breakaway_projector.len], breakaway_projector);
+    parts.data[0].tracks = &tracks;
+    _ = try mission.add(.of(.predator), @splat(0));
+    const breakaway = try mission.add(.of(.boridin_breakaway), .{ 0, 0, 1000 });
+    try parts.fit(gpa, mission.slot(breakaway));
+    const ctx = mission.orders();
+    try std.testing.expect(try aigeneric.push(ctx, breakaway, .rotate_boridin_breakaway_warp_projector, .none));
+    mission.ordersAfter(ctx, breakaway, 0);
+    const animation = mission.slot(breakaway).model.?.parts[0].animation;
+    try std.testing.expectEqual(objects.Model.Mode.loop, animation.mode);
+    try std.testing.expectEqual(projector_speed, animation.speed);
+    try std.testing.expectEqual(0, mission.slot(breakaway).object.order_count);
 }
 
 test "Escort takes its place in the group, follows, and ends with its ship" {
