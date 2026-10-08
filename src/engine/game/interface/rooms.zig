@@ -591,6 +591,9 @@ pub const News = struct {
     /// only one (`0x0043BB43`).
     part: u8,
 
+    /// The mission whose report comes in three parts: the campaign's first.
+    pub const three_parts = gameflow.first_mission;
+
     /// Each mission's report, by its number from 1 (`0x0043BA60` on): Enriquez's scene, `%s.box`
     /// of its name.
     pub const scenes = [_][]const u8{ "0005a.box", "0015.box", "0025.box", "0035.box", "0045.box", "0055.box", "0065.box", "0075.box", "0085.box", "0095.box", "0105.box", "0115.box", "0125.box", "0135.box", "0145.box", "0155.box", "0165.box", "0175.box", "0185.box", "0195.box", "0205.box", "0215.box", "0225.box", "0235.box", "0245.box", "0255.box", "0265.box", "0275.box" };
@@ -967,7 +970,7 @@ pub const Rooms = struct {
             log.warn("mission {d} has no news report", .{mission});
             return false;
         }
-        rooms.news = .{ .part = if (mission == 1) 1 else 0 };
+        rooms.news = .{ .part = if (mission == News.three_parts) 1 else 0 };
         const television = switch (rooms.carrier) {
             .reliant => News.reliant_television,
             .yamato => News.yamato_television,

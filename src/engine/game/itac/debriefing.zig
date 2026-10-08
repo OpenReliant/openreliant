@@ -223,7 +223,7 @@ pub const Debriefing = struct {
     /// written, the list laid out, and the header's pane wiping in; with `wipe`, the body's and the
     /// list's too.
     fn build(debriefing: *Debriefing, itac: *Itac, wipe: bool) void {
-        if (itac.pilot.mission <= 1) return;
+        if (itac.pilot.mission <= gameflow.first_mission) return;
         itac.play(.text, itac_module.full_volume, 1);
         debriefing.write(itac);
         debriefing.layOut(itac);
@@ -279,7 +279,7 @@ pub const Debriefing = struct {
     fn layOut(debriefing: *Debriefing, itac: *Itac) void {
         debriefing.listed_count = 0;
         const font = &(itac.small orelse return).font;
-        if (itac.pilot.mission <= 1) return;
+        if (itac.pilot.mission <= gameflow.first_mission) return;
         const flown = std.math.sub(u8, placeOf(itac.pilot.mission + 1), 1) catch 0;
         var y: i32 = list_top;
         var place = debriefing.first;

@@ -736,7 +736,7 @@ pub const Camera = struct {
                 if (world.game) |game| {
                     const state = game.objects.slots[game.objects.player].state.launch;
                     const step = state.step.as(yamato_launch.Step);
-                    if (@backingInt(step) < @backingInt(yamato_launch.Step.clear) or
+                    if (!state.step.reached(yamato_launch.Step.clear) or
                         (step == .clear and state.due + yamato_look_delay >= game.clock.frame_start))
                         camera.place.orientation = world.player.orientation;
                 }

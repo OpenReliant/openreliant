@@ -192,7 +192,7 @@ pub const ProfileFile = struct {
 /// (`0x005009D8`, a byte a mission): the 11th's 1, the 19th's 2 and the 21st's 3, the rest none.
 /// The loadout raises `campaign_tier` to the highest of those before its mission, reading at most
 /// 28 (`loadout_load`, `0x00441AA9`).
-pub const mission_tiers = [28]u2{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0 };
+pub const mission_tiers = [last_mission]u2{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0 };
 
 /// `mission_reset_variables` (`0x00475620`) before each attempt at a mission: clears the variables
 /// that belong to the attempt.
@@ -380,7 +380,7 @@ pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16,
         if (promoted) |rank| kept.promotion = rank;
         kept.kills = player.kills.mission;
     }
-    const reached = if (mission >= 1 and mission <= mission_tiers.len and mission_tiers[mission - 1] != 0) mission_tiers[mission - 1] else tier;
+    const reached = if (mission >= first_mission and mission <= mission_tiers.len and mission_tiers[mission - 1] != 0) mission_tiers[mission - 1] else tier;
     const next = if (mission == last_mission) story_end else nextMission(mission);
     if (campaign) |going| going.mission = next;
     if (mission == last_mission) return .{ .next = next, .tier = reached };

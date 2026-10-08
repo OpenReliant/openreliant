@@ -185,6 +185,11 @@ fn reportsAfter(mission: u16, variables: *vm.Variables) Reports {
 /// Mission 27, which ends without the landing as mission 25's second part may.
 const mission27 = 27;
 
+/// The missions the ship lands on the Yamato after while the Reliant is its carrier, taking a
+/// failure's thread and bank: mission 7, and mission 8 where `reliant_alive` is clear.
+const yamato_visit = 7;
+const yamato_visit_without_reliant = 8;
+
 /// Whether mission `number` is mission 25 or 27 with `yamato_alive` clear (`0x004ABEA7`): no landing plays
 /// after it, where it is 25's second part, and a total failure in it ends the pilot's career in the
 /// shuttle at Fort Bear (`winmain.afterMission`).
@@ -216,7 +221,7 @@ pub fn landing(mission: u16, second_part: bool, ending: Ending, variables: *vm.V
         .movie = chapter_movies[chapter],
         .reports = reportsAfter(number, variables),
     } };
-    const visiting = number == 7 or (number == 8 and variables.reliant_alive == 0);
+    const visiting = number == yamato_visit or (number == yamato_visit_without_reliant and variables.reliant_alive == 0);
     if (visiting) return .{ .touchdown = yamato.touchdown(.failure) };
     return .{ .touchdown = (if (onYamato(number)) yamato else reliant).touchdown(rating) };
 }

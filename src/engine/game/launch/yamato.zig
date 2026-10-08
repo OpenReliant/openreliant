@@ -297,7 +297,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
         },
         _ => {},
     };
-    if (player and @backingInt(state.step) < @backingInt(Step.fly)) stream(world);
+    if (player and !state.step.reached(Step.fly)) stream(world);
 }
 
 /// Moves the launch on to `step` at the tick `now`, to wait the step's ticks (`Step.wait`).
