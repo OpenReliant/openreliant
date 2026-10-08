@@ -515,6 +515,16 @@ pub const mission_events = struct {
         .Fields = struct { object: Object },
     };
 
+    pub const inside_object: Declaration = .{
+        .about = "`object`, the player's ship, has gone into a ship through one of its trigger polygons, as into the Stalag's duct.",
+        .Fields = struct { object: Object },
+    };
+
+    pub const outside_object: Declaration = .{
+        .about = "`object`, the player's ship, has come out of a ship through one of its trigger polygons.",
+        .Fields = struct { object: Object },
+    };
+
     pub const undocked: Declaration = .{
         .about = "`object` has retrieved its limpet pod and left the docking port.",
         .Fields = struct { object: Object },

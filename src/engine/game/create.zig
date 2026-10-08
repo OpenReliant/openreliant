@@ -679,6 +679,10 @@ pub const Objects = struct {
     /// `mission25_second_part` (`0x00587CDC`): whether mission 25's first part is won and its
     /// second is played, before which the player flies a Kamov.
     mission25_second_part: bool = false,
+    /// `0x005883F8`: set while the player's ship is inside a Stalag, having crossed into one of the
+    /// Stalag's trigger polygons and not out again (`collision.crossTriggers`), which `holdsPlayer`
+    /// reads. A mission's start clears it (`0x004935D7`).
+    in_stalag: bool = false,
     /// The simulator the front end runs the mission in, where it does.
     simulator: Simulator = .{},
     /// The ship the loadout screen chose for each player's slot (`player_loadouts`, `0x00588400`,
@@ -741,8 +745,16 @@ pub const Objects = struct {
         all.types = @splat(.{});
         all.count = 0;
         all.camera_marker = null;
+        all.in_stalag = false;
         // The game lets the exhaust's list go as the mission before ends (`exhaust_ships_reset`).
         all.exhaust.reset();
+    }
+
+    /// Whether the object in slot `index` is a Stalag with the player's ship inside it
+    /// (`in_stalag`): its turrets aim anywhere, whatever their firing arcs (`turret_aim_angles`),
+    /// and its shots may strike the Stalag itself (`bullet_place`).
+    pub fn holdsPlayer(all: *const Objects, index: u16) bool {
+        return all.in_stalag and all.slots[index].object.type.base() == .stalag;
     }
 
     /// `object_reset` (`0x004688B0`): replaces the object in slot `index` with a new stand-in

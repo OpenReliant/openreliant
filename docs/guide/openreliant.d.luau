@@ -1071,6 +1071,16 @@ declare class Decloaked
     object: Object
 end
 
+-- `object`, the player's ship, has gone into a ship through one of its trigger polygons, as into the Stalag's duct.
+declare class InsideObject
+    object: Object
+end
+
+-- `object`, the player's ship, has come out of a ship through one of its trigger polygons.
+declare class OutsideObject
+    object: Object
+end
+
 -- `object` has retrieved its limpet pod and left the docking port.
 declare class Undocked
     object: Object
@@ -1297,6 +1307,8 @@ type HooksAdd =
     ((name: "ripper_dropped_object", handler: (e: RipperDroppedObject) -> boolean?, filter: (Filter | (e: RipperDroppedObject) -> boolean)?) -> HookHandle) &
     ((name: "cloaked", handler: (e: Cloaked) -> boolean?, filter: (Filter | (e: Cloaked) -> boolean)?) -> HookHandle) &
     ((name: "decloaked", handler: (e: Decloaked) -> boolean?, filter: (Filter | (e: Decloaked) -> boolean)?) -> HookHandle) &
+    ((name: "inside_object", handler: (e: InsideObject) -> boolean?, filter: (Filter | (e: InsideObject) -> boolean)?) -> HookHandle) &
+    ((name: "outside_object", handler: (e: OutsideObject) -> boolean?, filter: (Filter | (e: OutsideObject) -> boolean)?) -> HookHandle) &
     ((name: "undocked", handler: (e: Undocked) -> boolean?, filter: (Filter | (e: Undocked) -> boolean)?) -> HookHandle) &
     ((name: "docked", handler: (e: Docked) -> boolean?, filter: (Filter | (e: Docked) -> boolean)?) -> HookHandle) &
     ((name: "explosion_ship", handler: (e: ExplosionShip) -> boolean?, filter: (Filter | (e: ExplosionShip) -> boolean)?) -> HookHandle) &

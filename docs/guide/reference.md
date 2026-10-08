@@ -988,6 +988,22 @@ REQUEST BACKUP brought the mission's backup for `object`, the player's ship.
 |---|---|
 | `object` | [object](#objects) |
 
+### inside_object
+
+`object`, the player's ship, has gone into a ship through one of its trigger polygons, as into the Stalag's duct.
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
+
+### outside_object
+
+`object`, the player's ship, has come out of a ship through one of its trigger polygons.
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
+
 ### undocked
 
 `object` has retrieved its limpet pod and left the docking port.

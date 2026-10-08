@@ -585,6 +585,5 @@ nothing, where the game faults. The watches' lists are as long as the mission ne
 writes them into tables of a fixed size without looking. An event on a squad whose table or members
 can't be read is raised on none of its triggers, and logged once.
 
-Not ported: the script debugger; and the events that code OpenReliant does not run yet posts, such
-as FixedGateJumpedIn from the gates' jumps
+Not ported: the script debugger; and the events that code OpenReliant does not run yet posts
 ([#307](https://github.com/OpenReliant/openreliant/issues/307)).

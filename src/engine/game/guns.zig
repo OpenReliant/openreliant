@@ -1555,6 +1555,9 @@ fn shotSound(world: gameobj.World, index: u8, kind: GunType, sound: i32, player:
 /// collision tree's root box that path meets, or that plays a track, is a candidate of its own
 /// (`0x0047BC90`).
 ///
+/// A shot never strikes the ship that fired it, but for a Stalag's with the player's ship inside it
+/// (`create.Objects.holdsPlayer`).
+///
 /// **Quirk:** the object's velocity, a step's worth, is taken off the shot's, a tick's.
 fn candidates(world: gameobj.World, bullet: *Bullet, record: Gun, lifetime: i32) void {
     const all = world.objects;
@@ -1567,7 +1570,7 @@ fn candidates(world: gameobj.World, bullet: *Bullet, record: Gun, lifetime: i32)
         const slot = &all.slots[index];
         const object = &slot.object;
         if (!object.type.hasStats() or object.flags.no_collisions) continue;
-        if (index == bullet.owner) continue;
+        if (index == bullet.owner and !all.holdsPlayer(index)) continue;
         const to = object.nextPosition() - bullet.at;
         const when = std.math.clamp(math.dot(to, bullet.velocity) * along, 0, life);
         const nearest = bullet.velocity * @as(Vector, @splat(when));

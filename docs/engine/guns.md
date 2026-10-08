@@ -56,7 +56,7 @@ Special gun rules:
 - Two in five Turret Flak shots spawn as Turret Lasers shots instead (`bullet_fire`). Turret Flak shots have randomized lifetimes between 20% and 100% of their base duration, scattering up to 0.06 radians on each axis.
 - The two Huge Guns project reach 1200 and 3000 units past hit targets, and their shots penetrate shields even when shields are down.
 
-Potential targets are assigned at spawn: up to 20 objects whose radius, expanded by movement during flight time, intersects the projectile trajectory. Objects listing components are checked part by part ([The hit tests](objects.md#the-hit-tests)): along the projectile ray, each part whose collision tree root box intersects the path, or that plays a track, registers as a candidate with its node index (`bullet_candidate_test`, `0x0047BC90`). The target velocity subtracted is per-step, while the shot velocity is per-tick. Entities that move into the path after firing are not tested.
+Potential targets are assigned at spawn: up to 20 objects whose radius, expanded by movement during flight time, intersects the projectile trajectory, never the ship that fired it but a Stalag with the player's ship inside it ([Collisions](loop.md#collisions)). Objects listing components are checked part by part ([The hit tests](objects.md#the-hit-tests)): along the projectile ray, each part whose collision tree root box intersects the path, or that plays a track, registers as a candidate with its node index (`bullet_candidate_test`, `0x0047BC90`). The target velocity subtracted is per-step, while the shot velocity is per-tick. Entities that move into the path after firing are not tested.
 
 `bullets_move` (`0x0047A4E0`) advances all active shots by their velocity each simulation step, after objects move. `bullets_frame` (`0x0047A510`) renders them, tests collisions, and frees expired projectiles once per frame.
 
@@ -199,8 +199,8 @@ mechanical limits fail; Huge Guns aimed up to 20 degrees past a pitch limit clam
 firing arcs are defined, the direction in root space indexes a 32-row by 16-column bitmask table
 requiring four adjacent bits set. The original game calculated angle from Y by dividing X by
 `sin(yaw)`, which divides by zero when pointing straight forward or backward. **Fix:** OpenReliant
-calculates the transverse length directly. Not ported: Stalag turrets firing in all directions while
-`0x005883F8` is set ([#220](https://github.com/OpenReliant/openreliant/issues/220)). **Improvement:**
+calculates the transverse length directly. A Stalag's turrets leave their firing arcs aside while
+the player's ship is inside it (`0x005883F8`, [Collisions](loop.md#collisions)). **Improvement:**
 OpenReliant converts angles using exact mathematical constants rather than approximations
 (`57.2958`, `0.0174533`, `3.14159`, `6.28319`).
 
