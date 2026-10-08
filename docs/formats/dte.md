@@ -415,11 +415,18 @@ An entry is `0x74` bytes and describes itself in the developers' words:
 | `0x00` | Implementation |
 | `0x04` | Parameter count |
 | `0x08` | Name, such as `CreateTimer` |
-| `0x0C` | Up to eight parameters of 12 bytes: a kind mask, an unidentified word, a label |
+| `0x0C` | Up to eight parameters of 12 bytes: a kind mask, a second word, a label |
 | `0x6C` | Description, such as `Creates a timer to invoke a function` |
-| `0x70` | **Unknown.** Set on seven commands |
+| `0x70` | **Unknown.** 1 on seven commands: `Wait`, `WaitForSpeech`, `WaitForMovie`, `ResetAfterBurners`, `PlayFostersLastStand`, `WaitForKey` and `TerminateMission`; 0 on the rest |
 
-A parameter's kind mask says what it accepts. The bits are named from the labels that carry them:
+The game reads only the first two fields: `vm_command` (`0x0045BEA0`) and `vm_command_b`
+(`0x0045BF20`) take the parameter count at `+0x04` and call the implementation at `+0x00`, and
+`catalogue_count` (`0x00452A80`) counts the entries by their implementations. The names, the
+parameters and the descriptions are data for the developers' tools. What their bits mean shows in
+the labels that carry them, and in the arguments the shipped missions pass, as LordBlacksun counted
+them over the 44 missions ([#12](https://github.com/OpenReliant/openreliant/issues/12)).
+
+A parameter's kind mask says what it accepts:
 
 | Bit | Accepts |
 |---|---|
@@ -430,9 +437,17 @@ A parameter's kind mask says what it accepts. The bits are named from the labels
 | `0x800` | A flight group or patrol route |
 | `0x4000` | A function, meaning a part |
 | `0x80000` | A named constant: a pilot, an AI mode, a text ID |
-| `0x100000` | **Unknown**; set in entity parameters alongside ship and flight group |
+| `0x100000` | A squad: every squad a shipped mission passes a command goes to a parameter with this bit, and none to one without |
 | `0x200000` | A trigger condition |
 | `0x400000` | A camera or flight curve |
+
+A parameter's second word (`executor.Extra`):
+
+| Bits | Means |
+|---|---|
+| `0xFF` | What a file name or a named constant refers to: for a file name, 2 is speech, 4 a movie and 9 music; for a constant, 1 an effect type, 2 a text ID, 3 a pilot and 4 a head movement. **Unverified:** read off the labels |
+| `0x1000000` | The argument can be null. All but one of the shipped missions' null arguments go to a parameter with it: mission 15 passes null as `CommsFromShip`'s ship |
+| `0x2000000` | Set only on the parameters of the six commands whose words of section 24 the template's missions leave 0 ([Directory](#directory)). **Unverified:** that the tools built section 24 from it |
 
 `make vm-commands` regenerates
 [`src/engine/game/executor/commands.zig`](../../src/engine/game/executor/commands.zig) from the
