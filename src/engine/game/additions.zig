@@ -647,8 +647,7 @@ pub fn addNames(arena: Allocator, text: []const []const u8) Allocator.Error![]co
 pub fn remapMission(image: []u8, mod: []const u8) void {
     const mission = dte.Mission.parse(image) catch return;
     const records = mission.ships() catch return;
-    if (records.len == 0) return;
-    const start = @intFromPtr(records.ptr) - @intFromPtr(image.ptr);
+    const start = (mission.span(.ships) catch return orelse return).offset;
     for (records, 0..) |record, at| {
         const place = start + at * @sizeOf(dte.Ship);
         if (ships.remapped(mod, record.kind)) |number| {

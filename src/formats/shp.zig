@@ -1558,7 +1558,8 @@ test "the bytes of an attachment's record past those the engine keeps come back 
     const data = file.written();
     var reader: Reader = .init(data);
     const chunk = (try reader.take(.attachment)).?;
-    const record = @intFromPtr(chunk.data.ptr) - @intFromPtr(data.ptr);
+    // The chunk's records end where the reader now stands.
+    const record = reader.pos - chunk.data.len;
     for (data[record + @sizeOf(Attachment) ..][0 .. 168 - @sizeOf(Attachment)], 0..) |*byte, i| byte.* = @intCast(i + 1);
 
     var written: std.Io.Writer.Allocating = .init(arena);

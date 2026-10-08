@@ -2425,18 +2425,23 @@ pub const Model = struct {
     /// the world at `step`, with this model's root at `root` (`partAt`); null for a part of
     /// neither.
     pub fn placeOf(model: *Model, root: math.Place, part: *const Part, step: Step) ?math.Place {
-        const held = model.holding(part) orelse return null;
-        const index = (@intFromPtr(part) - @intFromPtr(held.parts.ptr)) / @sizeOf(Part);
+        const held, const index = model.holder(part) orelse return null;
         return model.partAt(root, held, index, step);
     }
 
     /// The model holding `part`, the model itself or one it carries however deep (`node_holder`,
     /// for the root it hangs from); null for a part of neither.
     pub fn holding(model: *Model, part: *const Part) ?*Model {
-        for (model.parts) |*own| if (own == part) return model;
+        const held, _ = model.holder(part) orelse return null;
+        return held;
+    }
+
+    /// The model holding `part` (`holding`), and where the part stands among its parts.
+    fn holder(model: *Model, part: *const Part) ?struct { *Model, usize } {
+        for (model.parts, 0..) |*own, index| if (own == part) return .{ model, index };
         for (0..model.parts.len) |index| {
             var each = model.carriedBy(index);
-            while (each.next()) |mount| if (mount.model.holding(part)) |found| return found;
+            while (each.next()) |mount| if (mount.model.holder(part)) |found| return found;
         }
         return null;
     }

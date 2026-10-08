@@ -91,8 +91,8 @@ pub const Profile = struct {
         var location: Location = .{};
         var in_section = false;
         var lines = std.mem.splitScalar(u8, text, '\n');
-        while (lines.next()) |raw| {
-            const start = @intFromPtr(raw.ptr) - @intFromPtr(text.ptr);
+        while (lines.index) |start| {
+            const raw = lines.next().?;
             const end = start + std.mem.trimEnd(u8, raw, "\r").len;
             const line = std.mem.trim(u8, text[start..end], " \t");
             if (line.len == 0) continue;

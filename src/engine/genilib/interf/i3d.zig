@@ -54,11 +54,12 @@ pub const Rect = struct {
 
 /// Where the pointer is as an object's callback is made: the button, 1 for the left, the only one
 /// the interface hands on; the pointer's place on the screen; and the object's place in the
-/// interface's list (`iinterface_object_index`).
+/// interface's list (`iinterface_object_index`), null where it isn't in it, which the game hands on
+/// as -1.
 pub const Press = struct {
     button: i32 = 1,
     at: [2]i32,
-    index: i32,
+    index: ?usize,
 };
 
 /// A callback of an object's, made with the interface's context.
@@ -585,11 +586,10 @@ pub const Interface = struct {
         if (interface.pressed == object) interface.pressed = null;
     }
 
-    /// `iinterface_object_index` (`0x00427E50`): `object`'s place in the list, -1 where it is not
-    /// in it.
-    pub fn indexOf(interface: Interface, object: *Object) i32 {
-        const at = std.mem.findScalar(*Object, interface.objects.items, object) orelse return -1;
-        return @intCast(at);
+    /// `iinterface_object_index` (`0x00427E50`): `object`'s place in the list; null where it isn't
+    /// in it, for which the game returns -1.
+    pub fn indexOf(interface: Interface, object: *Object) ?usize {
+        return std.mem.findScalar(*Object, interface.objects.items, object);
     }
 
     /// `iinterface_add_anim` (`0x00427DE0`): `anim` at the end of the list.
@@ -646,7 +646,7 @@ pub const Interface = struct {
         for (interface.objects.items, 0..) |object, index| {
             if (!object.clickable or !try object.hit(arena, context, at)) continue;
             under = object;
-            const press: Press = .{ .at = at, .index = @intCast(index) };
+            const press: Press = .{ .at = at, .index = index };
             if (pressing) if (object.press) |callback| {
                 interface.pressed = object;
                 callback(interface.context, object, press);
@@ -662,7 +662,7 @@ pub const Interface = struct {
             }
             break;
         } else interface.pressed = null;
-        if (hovered) |left| if (under != left and interface.indexOf(left) != -1) {
+        if (hovered) |left| if (under != left and interface.indexOf(left) != null) {
             if (left.leave) |callback| callback(interface.context, left, .{ .at = at, .index = interface.indexOf(left) });
             if (!tooltip_hover) interface.hovered = null;
         };

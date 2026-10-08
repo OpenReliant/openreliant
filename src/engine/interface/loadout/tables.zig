@@ -98,14 +98,19 @@ pub const Specials = packed struct(u32) {
     super_charge: bool = false,
     _unused: u24 = 0,
 
-    /// Whether it has the special of `bit`.
-    pub fn has(specials: Specials, bit: u5) bool {
-        return @as(u32, @bitCast(specials)) >> bit & 1 != 0;
-    }
+    /// The names of its bits, in their order, which `special_names` names in turn.
+    pub const bits = fields: {
+        const all = @typeInfo(Specials).@"struct".field_names;
+        break :fields all[0 .. all.len - 1];
+    };
 };
 
 /// The strings that name the specials, bit by bit (`loadout_special_names`, `0x004EDA90`).
 pub const special_names = [_]u16{ 0x1EF, 0x1F0, 0x1F1, 0x1F2, 0x1F3, 0x1F4, 0x1F5, 0x1F6 };
+
+comptime {
+    assert(Specials.bits.len == special_names.len);
+}
 
 comptime {
     const info = @typeInfo(Specials).@"struct";
@@ -916,8 +921,8 @@ test ships {
     // The Shroud's specials word is 0x71, the Phoenix's 0x29.
     try std.testing.expectEqual(0x71, @as(u32, @bitCast(ships[10].specials)));
     try std.testing.expectEqual(0x29, @as(u32, @bitCast(ships[11].specials)));
-    try std.testing.expect(ships[10].specials.has(6));
-    try std.testing.expect(!ships[10].specials.has(7));
+    try std.testing.expect(ships[10].specials.cloaking_device);
+    try std.testing.expect(!ships[10].specials.super_charge);
     try std.testing.expectEqual(0x553, ships[10].class.string());
     try std.testing.expectEqual(0x22C, ships[11].access.string());
 }

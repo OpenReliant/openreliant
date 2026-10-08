@@ -276,11 +276,12 @@ pub fn drawGuns(image: *Image, kit: Kit, record: tables.Ship) void {
 fn specialsLine(kit: Kit, specials: tables.Specials) Line {
     var line: Line = .{};
     var first = true;
-    for (tables.special_names, 0..) |name, bit| {
-        if (!specials.has(@intCast(bit))) continue;
-        if (!first) line.append(specials_separator);
-        first = false;
-        line.append(kit.string(name));
+    inline for (tables.Specials.bits, tables.special_names) |bit, name| {
+        if (@field(specials, bit)) {
+            if (!first) line.append(specials_separator);
+            first = false;
+            line.append(kit.string(name));
+        }
     }
     return line;
 }

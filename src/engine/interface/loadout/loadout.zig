@@ -1439,7 +1439,7 @@ pub const Loadout = struct {
     /// to open again once the ship has arrived (`selectEnded`).
     fn pressShip(context: *anyopaque, _: *i3d.Object, press: i3d.Press) void {
         const loadout = of(context);
-        const ship: u8 = @intCast(press.index);
+        const ship: u8 = @intCast(press.index orelse return);
         if (loadout.guns_open and ship == loadout.chosen) return;
         if (loadout.select) |select| if (!select.stopped()) return;
         if (!loadout.guns_open) {
