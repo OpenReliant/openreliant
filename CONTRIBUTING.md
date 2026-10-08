@@ -323,7 +323,7 @@ Document each finding under [`docs/`](docs/README.md), by topic, in the same cha
 - **Plain English.** Use ordinary technical English in normal sentence order: "the key bindings",
   "is presented to the game as a joystick device".
 - **Punctuation.** Use colons, commas, parentheses or a second sentence. The project's text keeps
-  to these in place of em and en dashes.
+  to these in place of em and en dashes, which `make check-files` refuses.
 
 For example, from [docs/engine/guns.md](docs/engine/guns.md):
 
@@ -345,7 +345,7 @@ the reverse-engineering toolchain.
 
 The repository holds the engine and its tools. The game's files, and everything extracted or
 derived from them, live in the git-ignored `game/` directory. The pre-commit hook, `make
-check-files` and CI keep it that way.
+check-files` and CI keep it that way, and keep em and en dashes out of the text.
 
 The example mods can hold pictures, sounds, models and face films of their own, PNG, WAV, OBJ, SHP
 and FM8 files directly in a mod's folder, such as the bananas example's shot, the teapot and the

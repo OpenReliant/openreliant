@@ -11,6 +11,9 @@
 # compiled shaders, or is over 1 MiB. The example mods' manifests, `mod.ini`, and their own
 # pictures, sounds, models and face films, PNG, WAV, OBJ, SHP and FM8 files directly in an example
 # mod's folder, are OpenReliant's own: they pass all but the size.
+#
+# It also fails on a line of text with an em or en dash (U+2014, U+2013), which the project's text
+# does without (CONTRIBUTING.md), in any text file but a licence, which is copied as it is.
 set -euo pipefail
 # Bytes as they are, which the signatures and the binary data are told by.
 export LC_ALL=C
@@ -31,6 +34,8 @@ game_types='hog|shp|fm8|spr|dte|fat|fnt|frc|tga|bik|icd|exe|dll|m3d|asi|ccb|cab|
 # and their own pictures, sounds, models and face films, which are original work (CONTRIBUTING.md).
 own_files='^examples/mods/[^/]+/(mod\.ini|[^/]+\.(png|wav|obj|shp|fm8))$'
 max_size=$((1024 * 1024))
+# The licences, the only text that keeps its dashes.
+licences='(^|/)LICENSE[^/]*$'
 
 failed=0
 fail() { # fail <path> <reason>
@@ -47,8 +52,10 @@ paths() {
 }
 
 # Each path first, by where it lies and its extension, whatever its case; then the files that lie
-# in the working tree, a tracked file taken out of it leaving nothing to read.
+# in the working tree, a tracked file taken out of it leaving nothing to read. The text files among
+# them are checked for dashes last.
 files=()
+texts=()
 while IFS= read -r path; do
     [[ -n $path ]] || continue
     shopt -s nocasematch
@@ -93,9 +100,12 @@ for ((at = 0; at < ${#files[@]}; at++)); do
         $'\x89PNG' | $'\xff\xd8\xff'* | GIF8) fail "$path" "starts like an image" ;;
         OggS | ID3*) fail "$path" "starts like a sound" ;;
         $'PK\x03\x04' | MSCF | $'\xd0\xcf\x11\xe0' | %PDF) fail "$path" "starts like an archive or a document" ;;
-        # A NUL anywhere: reading up to one finds it before the end.
-        *) if ! [[ $path =~ $allowed_binary ]] && IFS= read -r -d '' _ <"$path"; then
+        *) [[ $path =~ $allowed_binary ]] && continue
+           # A NUL anywhere: reading up to one finds it before the end.
+           if IFS= read -r -d '' _ <"$path"; then
                fail "$path" "holds binary data"
+           elif ! [[ $path =~ $licences ]]; then
+               texts+=("$path")
            fi ;;
     esac
 done
@@ -103,5 +113,21 @@ done
 if ((failed)); then
     echo "These look like the game's files, or work derived from them, which never go in the" >&2
     echo "repository. OpenReliant reads the game's files from the player's own installation." >&2
+fi
+
+# Each line with a dash, as its file, its number and its text.
+dashed=0
+if ((${#texts[@]})); then
+    while IFS= read -r line; do
+        printf '  %s\n' "$line" >&2
+        dashed=1
+    done < <(grep -H -n -e $'\xe2\x80\x94' -e $'\xe2\x80\x93' -- "${texts[@]}" || true)
+fi
+if ((dashed)); then
+    echo "These lines hold an em or en dash. The project's text uses a colon, a comma, parentheses" >&2
+    echo "or a second sentence instead (CONTRIBUTING.md)." >&2
+fi
+
+if ((failed || dashed)); then
     exit 1
 fi
