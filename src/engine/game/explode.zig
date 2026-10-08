@@ -238,11 +238,11 @@ pub const Explosions = struct {
         }
     }
 
-    /// `part_streams` (`0x004715D0`) with the wreck's smoke: a stream from each point of each of
+    /// `part_streams` (`0x004715D0`): a stream of `template`'s smoke from each point of each of
     /// the part's lists of them, hanging from the part and leaving along the normal of the vertex
     /// the point stands on, for good or for `burn_life` ticks, in the first free slots while there
     /// are.
-    fn smoke(explosions: *Explosions, world: gameobj.World, on: objects.PartOf, data: shp.PartData, forever: bool) void {
+    fn smoke(explosions: *Explosions, world: gameobj.World, on: objects.PartOf, data: shp.PartData, forever: bool, template: *const particles.Template) void {
         const levels = on.part.part().object.levels;
         const mesh = if (levels.len > 0) levels[0].mesh else null;
         for (data.point_lists) |list| {
@@ -258,7 +258,7 @@ pub const Explosions = struct {
                     .spread = stream_spread,
                     .speed = stream_speed,
                     .speed_range = stream_speed_range,
-                    .template = &wreck_smoke,
+                    .template = template,
                 } };
             }
         }
@@ -1206,6 +1206,27 @@ pub const wreck_smoke: particles.Template = .{
     .colour = .{ .through(0.5, 0.2, 0), .through(0.5, 0.2, 0), .through(0.5, 0.2, 0) },
 };
 
+/// The smoke the Boridin's main body streams as its section breaks away (`big_smoke_template`,
+/// `0x005538C0`): grey puffs growing from 1000 across to 2500 over two to 2.2 seconds as they fade
+/// out, eight hundredths of one a tick at first and two at the end.
+pub const big_smoke: particles.Template = .{
+    .life = 200,
+    .life_spread = 20,
+    .rate = .through(8, 5, 2),
+    .size = .through(1000, 1500, 2500),
+    .colour = .{ .through(0.3, 0.1, 0), .through(0.3, 0.1, 0), .through(0.3, 0.1, 0) },
+};
+
+/// `part_streams` (`0x004715D0`) on its own: `template`'s smoke from each point of each of the
+/// lists of them on `ref`, a part of the object in slot `index`, for good or for `burn_life` ticks,
+/// where the world has explosions (`Explosions.smoke`), as the Boridin's main body smokes when its
+/// section breaks away.
+pub fn partStreams(world: gameobj.World, index: u16, ref: objects.PartRef, forever: bool, template: *const particles.Template) void {
+    const explosions = world.explosions orelse return;
+    const data = ref.data() orelse return;
+    explosions.smoke(world, .{ .object = index, .part = ref }, data, forever, template);
+}
+
 /// How a part burns (`explode_part_burn`'s last three arguments).
 pub const Burn = struct {
     /// For good, where its rays and smoke would go after 5000 ticks.
@@ -1288,7 +1309,7 @@ pub fn burnPart(world: gameobj.World, index: u16, name: []const u8, how: Burn) v
     if (!how.lights) return;
     const explosions = world.explosions orelse return;
     explosions.burnLights(on, data);
-    explosions.smoke(world, on, data, how.forever);
+    explosions.smoke(world, on, data, how.forever, &wreck_smoke);
 }
 
 const Texture = srapiext.Texture;

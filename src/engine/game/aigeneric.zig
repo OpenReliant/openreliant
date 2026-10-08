@@ -835,11 +835,11 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .turns_object_lights_on => aifuncs.lightsOnInit(ctx, index),
         .dark_reign_shoot_110 => aiioncan.init(ctx, index),
         .avoid_target => aifuncs.avoidTargetInit(ctx, index),
+        .make_boridin_section_break_away => aifuncs.breakAwayInit(ctx, index),
+        .rotate_boridin_breakaway_warp_projector => aifuncs.rotateProjectorInit(ctx, index),
         // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .formation_regroup,
         .patrol_route,
-        .make_boridin_section_break_away,
-        .rotate_boridin_breakaway_warp_projector,
         .start_warp_projection_from_boridin,
         => {},
         // The table gives these no `init`, or only `noop` (`0x004983A0`).
