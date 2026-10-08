@@ -1210,11 +1210,10 @@ pub fn lightsOff(ctx: Context, index: u16) void {
 /// goes with it, as they share its meshes.
 fn lightMaps(slot: *create.Slot, from: usize, on: bool) void {
     const model = if (slot.model) |*live| live else return;
-    const loaded = (slot.type orelse return).loaded;
     var children = model.rootChildren();
     while (children.next()) |child| {
-        if (child.index < from or !child.part.flags.lightmap or child.index >= loaded.parts.len) continue;
-        loaded.parts[child.index].secondPasses(on);
+        if (child.index < from or !child.part.flags.lightmap or child.index >= model.loaded.parts.len) continue;
+        model.loaded.parts[child.index].secondPasses(on);
     }
 }
 

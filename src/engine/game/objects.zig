@@ -284,6 +284,7 @@ test setPlace {
 
 /// The file of a model made from none, as in a test.
 const no_source: shp.Model = .{ .header = std.mem.zeroes(shp.Header), .parts = &.{}, .trailing_bytes = 0 };
+const no_loaded: srofiles.Loaded = .{ .parts = &.{} };
 
 /// A box: its centre, how it is turned, and how far it reaches from its centre along each of its
 /// own axes.
@@ -1128,6 +1129,9 @@ pub const door_track = "opendoor";
 pub const Model = struct {
     /// The file the model was made from, which its parts' collision trees are read from.
     source: *const shp.Model = &no_source,
+    /// What its type's model loaded for its parts, a `srofiles.LoadedPart` each, whose meshes its
+    /// parts are drawn with and whose second passes can be switched on and off.
+    loaded: *const srofiles.Loaded = &no_loaded,
     /// The root's place (`object_set_position`, `object_set_orientation`).
     position: Vector = @splat(0),
     orientation: math.Matrix = math.identity,
@@ -1731,7 +1735,7 @@ pub const Model = struct {
         }
         const order = try linkOrder(gpa, model);
         errdefer gpa.free(order);
-        var built: Model = .{ .source = model, .parts = parts, .order = order, .lights = &.{}, .glows = &.{}, .mounts = &.{} };
+        var built: Model = .{ .source = model, .loaded = loaded, .parts = parts, .order = order, .lights = &.{}, .glows = &.{}, .mounts = &.{} };
         const lights = try createLights(gpa, model, effects.light_sprites, loaded.real_lights);
         errdefer gpa.free(lights);
         const glows = try createGlows(gpa, model, effects.glows);

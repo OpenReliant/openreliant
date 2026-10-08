@@ -1264,16 +1264,24 @@ fn setSpeed(model: *objects.Model, name: []const u8, speed: f32) void {
 }
 
 /// `node_tree_second_passes` (`0x00422680`): turns the second pass on or off of each surface with a
-/// second texture of every part of the object in `slot`, which its type's meshes hold, so that
-/// every object of the type goes with it. A gate's collapse flickers them, and the Rogue base is
+/// second texture of every part of the object in `slot`, then of every part of the models it
+/// carries, however deep, as the game walks its nodes. Their types' meshes hold them, so that
+/// every object of each type goes with it. A gate's collapse flickers them, and the Rogue base is
 /// made with them off (`create.typeMade`).
-///
-/// Not ported: the parts of models the object carries, which the game's walk of its nodes reaches
-/// too; no shipped gate or Rogue base carries any
-/// ([#540](https://github.com/OpenReliant/openreliant/issues/540)).
 pub fn secondPasses(slot: *create.Slot, on: bool) void {
-    const loaded = (slot.type orelse return).loaded;
-    for (loaded.parts) |*part| part.secondPasses(on);
+    const model = if (slot.model) |*live| live else return;
+    treeSecondPasses(model, on);
+}
+
+/// `node_tree_second_passes` from `model`'s root: each of its parts, then the models the part
+/// carries.
+fn treeSecondPasses(model: *const objects.Model, on: bool) void {
+    var children = model.rootChildren();
+    while (children.next()) |child| {
+        if (child.index < model.loaded.parts.len) model.loaded.parts[child.index].secondPasses(on);
+        var each = model.carriedBy(child.index);
+        while (each.next()) |mount| treeSecondPasses(&mount.model, on);
+    }
 }
 
 pub const testing = struct {
@@ -1657,29 +1665,37 @@ test showLightSprites {
 
 test secondPasses {
     const gpa = std.testing.allocator;
+    // The gate's own part, with a surface with a second texture and one without.
     var meshes = [1]srapiext.Mesh{try .create(gpa, .{ .polygons = 0, .vertices = 0, .indices = 0, .surfaces = 2 })};
     defer meshes[0].deinit(gpa);
     meshes[0].surfaces[0].material.two_pass = true;
     meshes[0].surfaces[0].textures[1] = .{ .highlight = 7 };
-    var parts = [1]@import("srofiles.zig").LoadedPart{.{ .flags = .{}, .meshes = &meshes, .levels = &.{} }};
-    const loaded: @import("srofiles.zig").Loaded = .{ .parts = &parts };
-    const source: shp.Model = .{ .header = std.mem.zeroes(shp.Header), .parts = &.{}, .trailing_bytes = 0 };
-    const gate_type: create.Type = .{ .model = &source, .loaded = &loaded };
+    // A gun mounted on that part, whose surface has a second texture too.
+    var gun: create.testing.Model = undefined;
+    try gun.init(gpa);
+    defer gun.deinit(gpa);
+    gun.loaded_parts[0].meshes = (&gun.mesh)[0..1];
+    const gun_surface = &gun.mesh.surfaces[0];
+    gun_surface.material.two_pass = true;
+    gun_surface.textures[1] = .{ .highlight = 7 };
+    var carrier: objects.testing.Carrier = undefined;
+    carrier.init(.{ 50, 0, 0 });
+    carrier.parts.loaded_parts[0].meshes = &meshes;
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
     const gate = mission.slot(try mission.add(.of(.proto_gate), @splat(0)));
-    gate.type = &gate_type;
-    // Each surface with a second texture loses its second pass, and takes it again; the rest are
-    // left as they are.
+    gate.model = try carrier.build(gpa, &gun);
+    // Each surface with a second texture loses its second pass, the carried gun's among them, and
+    // takes it again; the rest are left as they are.
     secondPasses(gate, false);
-    try std.testing.expect(!meshes[0].surfaces[0].material.two_pass);
+    try std.testing.expect(!meshes[0].surfaces[0].material.two_pass and !gun_surface.material.two_pass);
     meshes[0].surfaces[1].material.two_pass = true;
     secondPasses(gate, true);
     try std.testing.expect(meshes[0].surfaces[0].material.two_pass and meshes[0].surfaces[1].material.two_pass);
+    try std.testing.expect(gun_surface.material.two_pass);
     secondPasses(gate, false);
     try std.testing.expect(meshes[0].surfaces[1].material.two_pass);
-    gate.type = null;
 }
 
 test "a collapsing gate catches the Krasny coming through, which splits" {
