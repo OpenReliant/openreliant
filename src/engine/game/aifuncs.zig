@@ -320,8 +320,8 @@ pub fn flyInit(ctx: Context, index: u16) void {
 /// throttle while it goes round something. An object with no flight stats is moved along that
 /// heading instead of flown, so that a body which has no flight of its own still travels.
 ///
-/// **Improvement** (`main.frameObjects`): an object it moves without flight stats glides on between
-/// the ticks (`create.Slot.glide`); the game draws it where it is placed.
+/// **Improvement:** an object it moves without flight stats glides on between the ticks
+/// (`create.Slot.glide`, `main.frameObjects`); the game draws it where it is placed.
 pub fn fly(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];

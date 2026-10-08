@@ -491,10 +491,10 @@ const shot_shake_most: f32 = 1;
 /// of the damage, up to that. Any other pushes the ship (`input.force.Forces.hit`) and shakes the
 /// camera as much more, up to `camera.Cockpit.shake_most`.
 ///
-/// **Improvement** (`input.force.HitShake.always`): the camera shakes whatever the controller.
+/// **Improvement:** the camera shakes whatever the controller (`input.force.HitShake.always`).
 ///
-/// **Improvement** (`input.force.Unread.played`): a collision plays `landhard`, any other blow the
-/// shields take `Shield`, and one on the hull the `Hullshock` of the side struck.
+/// **Improvement:** a collision plays `landhard` on the controller, any other blow the shields take
+/// `Shield`, and one on the hull the `Hullshock` of the side struck (`input.force.Unread.played`).
 fn feedback(world: gameobj.World, struck: Quadrant, kind: Kind, value: f32, shielded: bool) void {
     const forces = world.forces;
     const settings = if (forces) |playing| playing.settings else input.force.Settings{};
