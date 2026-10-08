@@ -325,6 +325,22 @@ const Array = struct {
 /// The kinds of map a texture can have (`srtexture.Image.Maps`).
 const MapKind = std.meta.FieldEnum(srtexture.Image.Maps);
 
+/// A texture `Gpu.uploadTextures` made for an array, which takes its place once nothing can fail
+/// any more: a larger one for the array's texture or for one of its maps, which takes its layers,
+/// or the first texture of a kind of map.
+const Made = struct {
+    array: u16,
+    /// The kind of map it holds, or null for the array's own texture.
+    map: ?MapKind,
+    texture: *c.SDL_GPUTexture,
+};
+
+/// The layers an array that holds `count` textures grows to: the next power of two, at most
+/// `max_layers`.
+fn grownCapacity(count: u32) u32 {
+    return @min(std.math.ceilPowerOfTwoAssert(u32, count), max_layers);
+}
+
 /// The format of the arrays of material maps, whose values are linear.
 const map_format = c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
 
@@ -485,7 +501,14 @@ pub const Gpu = struct {
     gamma_failed: bool = false,
     pipelines: std.AutoHashMapUnmanaged(PipelineKey, *c.SDL_GPUGraphicsPipeline) = .empty,
     arrays: std.ArrayList(Array) = .empty,
+    /// The textures placed and changed that wait to go up to the GPU, oldest first.
     uploads: std.ArrayList(Upload) = .empty,
+    /// How many of `uploads`, from the first, the frame being recorded copies up. They are done,
+    /// and their images told that the GPU holds their pixels, only once the frame has gone to the
+    /// GPU (`sent`); until then they wait, so that a frame that fails loses none of them.
+    sending: usize = 0,
+    /// The textures `uploadTextures` has made, which nothing has taken yet (`Made`).
+    made: std.ArrayList(Made) = .empty,
     /// The layers of the textures handed back this frame (`release`), which go to their arrays'
     /// free lists as the next frame begins, since this frame may still draw from them.
     released: std.ArrayList(Slot) = .empty,
@@ -826,6 +849,7 @@ pub const Gpu = struct {
         c.SDL_ReleaseGPUSampler(gpu.handle, gpu.reflection_sampler);
         gpu.arrays.deinit(gpu.gpa);
         gpu.uploads.deinit(gpu.gpa);
+        gpu.made.deinit(gpu.gpa);
         gpu.released.deinit(gpu.gpa);
         gpu.vertices.deinit(gpu.gpa);
         gpu.indices.deinit(gpu.gpa);
@@ -1066,7 +1090,7 @@ pub const Gpu = struct {
         if (image.levels.len == 0) return null;
         if (Slot.of(image.*)) |slot| {
             if (image.changed) {
-                try gpu.uploads.append(gpu.gpa, .{ .levels = image.levels, .maps = image.maps, .slot = slot, .image = image });
+                try gpu.queue(.{ .levels = image.levels, .maps = image.maps, .slot = slot, .image = image });
                 image.changed = false;
             }
             return slot;
@@ -1078,6 +1102,17 @@ pub const Gpu = struct {
         image.texture = .{ .handle = slot.asHandle(), .holder = gpu.holder() };
         image.changed = false;
         return slot;
+    }
+
+    /// Queues `item`, in place of one for the same layer that still waits, which it supersedes:
+    /// a texture that changes every frame, such as the power ball, waits once while frames fail to
+    /// go to the GPU, as it stands now.
+    fn queue(gpu: *Gpu, item: Upload) Allocator.Error!void {
+        for (gpu.uploads.items) |*waiting| if (waiting.slot == item.slot) {
+            waiting.* = item;
+            return;
+        };
+        try gpu.uploads.append(gpu.gpa, item);
     }
 
     /// What the images it made textures of hand them back to (`release`).
@@ -1231,33 +1266,53 @@ pub const Gpu = struct {
     }
 
     /// Draws the recorded frame and shows it: the new textures and the frame's vertices go up, the
-    /// runs are drawn in order, and the frame goes to the window.
+    /// runs are drawn in order, and the frame goes to the window (`render`).
+    ///
+    /// Once its command buffer is acquired, the frame goes to the GPU whatever fails as it is
+    /// recorded: SDL forbids cancelling a command buffer once its swapchain texture is acquired, and
+    /// the copies already recorded put up the textures placed this frame, which a cancelled frame
+    /// would lose. Only once it has gone are those uploads done (`sent`); where even that fails,
+    /// they wait for the next frame.
     fn submit(gpu: *Gpu) Error!void {
         if (gpu.failed) return;
         const size = gpu.frameSize();
         try gpu.ensureTargets(size);
         const targets = gpu.targets.?;
         const commands = c.SDL_AcquireGPUCommandBuffer(gpu.handle) orelse return fail("SDL_AcquireGPUCommandBuffer");
-        gpu.encode(commands, size, targets) catch |err| {
-            _ = c.SDL_CancelGPUCommandBuffer(commands);
-            return err;
-        };
+        gpu.sending = 0;
+        const rendered = gpu.render(commands, size, targets);
+        if (!c.SDL_SubmitGPUCommandBuffer(commands)) return fail("SDL_SubmitGPUCommandBuffer");
+        gpu.sent();
+        return rendered;
+    }
 
+    /// Records the frame into `commands`: its copies and its passes (`encode`), then, once the
+    /// display has a swapchain texture free, the finished frame put on it (`present`). Where that
+    /// fails, the texture is cleared, so that the window shows nothing rather than what it held.
+    fn render(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, size: [2]u32, targets: Targets) Error!void {
+        try gpu.encode(commands, size, targets);
         // The swapchain's texture, once the display has one free: with vsync, what paces the frames.
         var swapchain: ?*c.SDL_GPUTexture = null;
         var width: u32 = 0;
         var height: u32 = 0;
-        if (!c.SDL_WaitAndAcquireGPUSwapchainTexture(commands, gpu.window, &swapchain, &width, &height)) {
-            _ = c.SDL_CancelGPUCommandBuffer(commands);
-            return fail("SDL_WaitAndAcquireGPUSwapchainTexture");
-        }
-        if (swapchain) |texture| {
-            gpu.present(commands, targets, texture, width, height) catch |err| {
-                _ = c.SDL_CancelGPUCommandBuffer(commands);
-                return err;
-            };
-        }
-        if (!c.SDL_SubmitGPUCommandBuffer(commands)) return fail("SDL_SubmitGPUCommandBuffer");
+        if (!c.SDL_WaitAndAcquireGPUSwapchainTexture(commands, gpu.window, &swapchain, &width, &height)) return fail("SDL_WaitAndAcquireGPUSwapchainTexture");
+        const texture = swapchain orelse return;
+        gpu.present(commands, targets, texture, width, height) catch |err| {
+            clearTexture(commands, texture);
+            return err;
+        };
+    }
+
+    /// As the frame has gone to the GPU: the uploads it copied up are done, and their images are
+    /// told that the GPU holds their pixels (`Image.held`), so that their owners can let go of
+    /// their own.
+    fn sent(gpu: *Gpu) void {
+        std.debug.assert(gpu.sending <= gpu.uploads.items.len);
+        for (gpu.uploads.items[0..gpu.sending]) |item| if (item.image) |image| {
+            image.held = true;
+        };
+        gpu.uploads.replaceRangeAssumeCapacity(0, gpu.sending, &.{});
+        gpu.sending = 0;
     }
 
     /// Puts the finished frame on the screen, with the display drawn over it: through the gamma
@@ -1514,26 +1569,33 @@ pub const Gpu = struct {
         try gpu.shadows.upload(gpu.handle, copy);
     }
 
-    /// Puts the textures placed this frame in their layers, every level, with their maps, first
+    /// Puts the textures that wait (`uploads`) in their layers, every level, with their maps, first
     /// making larger any array that has run out of layers, and making the arrays of maps the first
-    /// maps of an array need.
+    /// maps of an array need. Every texture it needs and the transfer buffer are made before
+    /// anything changes, so that where one can't be, nothing changes, and the uploads wait for the
+    /// next frame. They are done once the frame has gone to the GPU (`sent`).
     fn uploadTextures(gpu: *Gpu, copy: *c.SDL_GPUCopyPass) Error!void {
         if (gpu.uploads.items.len == 0) return;
-        defer gpu.uploads.clearRetainingCapacity();
-        for (gpu.arrays.items) |*array| {
+        gpu.made.clearRetainingCapacity();
+        errdefer {
+            for (gpu.made.items) |made| c.SDL_ReleaseGPUTexture(gpu.handle, made.texture);
+            gpu.made.clearRetainingCapacity();
+        }
+        for (gpu.arrays.items, 0..) |array, index| {
             if (array.count <= array.capacity) continue;
-            const capacity = @min(std.math.ceilPowerOfTwoAssert(u32, array.count), max_layers);
-            array.texture = try gpu.grown(copy, array.*, array.texture, capacity, sdlFormat(array.shape.format, gpu.linear));
-            for (&array.maps.values, 0..) |*map, kind| {
-                if (map.*) |texture| map.* = try gpu.grown(copy, array.*, texture, capacity, mapFormat(@fromBackingInt(@intCast(kind)), array.shape.format, gpu.linear));
+            const capacity = grownCapacity(array.count);
+            try gpu.make(index, null, capacity);
+            for (array.maps.values, 0..) |map, kind| {
+                if (map != null) try gpu.make(index, @fromBackingInt(@intCast(kind)), capacity);
             }
-            array.capacity = capacity;
         }
         var bytes: usize = 0;
         for (gpu.uploads.items) |item| {
-            const array = &gpu.arrays.items[item.slot.array];
-            for (item.maps.list(), &array.maps.values, 0..) |levels, *map, kind| {
-                if (levels != null and map.* == null) map.* = try gpu.arrayTexture(array.shape, array.capacity, mapFormat(@fromBackingInt(@intCast(kind)), array.shape.format, gpu.linear));
+            const array = gpu.arrays.items[item.slot.array];
+            for (item.maps.list(), array.maps.values, 0..) |levels, map, kind| {
+                const map_kind: MapKind = @fromBackingInt(@intCast(kind));
+                if (levels == null or map != null or gpu.making(item.slot.array, map_kind)) continue;
+                try gpu.make(item.slot.array, map_kind, if (array.count > array.capacity) grownCapacity(array.count) else array.capacity);
             }
             for ([_]?[]const srtexture.Level{item.levels} ++ item.maps.list()) |each| {
                 for (each orelse &.{}) |level| bytes += level.texels.len;
@@ -1543,27 +1605,63 @@ pub const Gpu = struct {
         const transfer = c.SDL_CreateGPUTransferBuffer(gpu.handle, &.{ .usage = c.SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = size }) orelse return fail("SDL_CreateGPUTransferBuffer");
         defer c.SDL_ReleaseGPUTransferBuffer(gpu.handle, transfer);
         const mapped: [*]u8 = @ptrCast(c.SDL_MapGPUTransferBuffer(gpu.handle, transfer, false) orelse return fail("SDL_MapGPUTransferBuffer"));
+
+        // Nothing fails from here on.
+        for (gpu.made.items) |made| gpu.install(copy, made);
+        gpu.made.clearRetainingCapacity();
+        for (gpu.arrays.items) |*array| {
+            if (array.count > array.capacity) array.capacity = grownCapacity(array.count);
+        }
         var at: u32 = 0;
         for (gpu.uploads.items) |item| {
             const array = gpu.arrays.items[item.slot.array];
             uploadLevels(copy, transfer, mapped, &at, array.texture, item.slot.layer, item.levels);
-            for (item.maps.list(), array.maps.values) |map, made| {
-                if (map) |levels| if (made) |texture| uploadLevels(copy, transfer, mapped, &at, texture, item.slot.layer, levels);
+            for (item.maps.list(), array.maps.values) |map, texture| {
+                if (map) |levels| if (texture) |into| uploadLevels(copy, transfer, mapped, &at, into, item.slot.layer, levels);
             }
-            if (item.image) |image| image.held = true;
         }
         c.SDL_UnmapGPUTransferBuffer(gpu.handle, transfer);
+        gpu.sending = gpu.uploads.items.len;
     }
 
-    /// `texture`, an array of `array`'s shape and layers, made `capacity` layers long: a new one,
-    /// its layers copied over, the old let go.
-    fn grown(gpu: *Gpu, copy: *c.SDL_GPUCopyPass, array: Array, texture: *c.SDL_GPUTexture, capacity: u32, format: c.SDL_GPUTextureFormat) sdl.Error!*c.SDL_GPUTexture {
-        const larger = try gpu.arrayTexture(array.shape, capacity, format);
+    /// Makes a texture `layers` layers long for the array at `index`, its own or a map of `kind`'s,
+    /// which takes the array's place once nothing can fail (`install`).
+    fn make(gpu: *Gpu, index: usize, kind: ?MapKind, layers: u32) Error!void {
+        try gpu.made.ensureUnusedCapacity(gpu.gpa, 1);
+        const shape = gpu.arrays.items[index].shape;
+        const format = if (kind) |map| mapFormat(map, shape.format, gpu.linear) else sdlFormat(shape.format, gpu.linear);
+        gpu.made.appendAssumeCapacity(.{ .array = @intCast(index), .map = kind, .texture = try gpu.arrayTexture(shape, layers, format) });
+    }
+
+    /// Whether a texture for the map of `kind` of the array at `index` has been made this frame.
+    fn making(gpu: *const Gpu, index: u16, kind: MapKind) bool {
+        for (gpu.made.items) |made| {
+            if (made.array == index and made.map == kind) return true;
+        }
+        return false;
+    }
+
+    /// Puts `made` in its array's place: a larger texture takes the layers of the one it replaces
+    /// (`outgrow`).
+    fn install(gpu: *Gpu, copy: *c.SDL_GPUCopyPass, made: Made) void {
+        const array = &gpu.arrays.items[made.array];
+        if (made.map) |kind| {
+            if (array.maps.get(kind)) |smaller| gpu.outgrow(copy, array.*, smaller, made.texture);
+            array.maps.set(kind, made.texture);
+        } else {
+            gpu.outgrow(copy, array.*, array.texture, made.texture);
+            array.texture = made.texture;
+        }
+    }
+
+    /// Copies every layer of `smaller`, a texture of `array` as long as its capacity, at every
+    /// level, into the same layers of `larger`, and lets `smaller` go.
+    fn outgrow(gpu: *Gpu, copy: *c.SDL_GPUCopyPass, array: Array, smaller: *c.SDL_GPUTexture, larger: *c.SDL_GPUTexture) void {
         for (0..array.capacity) |layer| {
             for (0..array.shape.levels) |level| {
                 c.SDL_CopyGPUTextureToTexture(
                     copy,
-                    &.{ .texture = texture, .mip_level = @intCast(level), .layer = @intCast(layer) },
+                    &.{ .texture = smaller, .mip_level = @intCast(level), .layer = @intCast(layer) },
                     &.{ .texture = larger, .mip_level = @intCast(level), .layer = @intCast(layer) },
                     @max(array.shape.width >> @intCast(level), 1),
                     @max(array.shape.height >> @intCast(level), 1),
@@ -1572,8 +1670,7 @@ pub const Gpu = struct {
                 );
             }
         }
-        c.SDL_ReleaseGPUTexture(gpu.handle, texture);
-        return larger;
+        c.SDL_ReleaseGPUTexture(gpu.handle, smaller);
     }
 
     /// The frame's colour and depth targets for `size`, made again when it changes.
@@ -1866,6 +1963,18 @@ pub fn shader(handle: *c.SDL_GPUDevice, spirv: bool, stage: c.SDL_GPUShaderStage
     return c.SDL_CreateGPUShader(handle, &info) orelse fail("SDL_CreateGPUShader");
 }
 
+/// Clears `texture` to black in a pass of its own: a swapchain texture the frame couldn't be put
+/// on, which must still go to the window.
+fn clearTexture(commands: *c.SDL_GPUCommandBuffer, texture: *c.SDL_GPUTexture) void {
+    var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
+    colour.texture = texture;
+    colour.clear_color = .{ .r = 0, .g = 0, .b = 0, .a = 1 };
+    colour.load_op = c.SDL_GPU_LOADOP_CLEAR;
+    colour.store_op = c.SDL_GPU_STOREOP_STORE;
+    const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, null) orelse return;
+    c.SDL_EndGPURenderPass(pass);
+}
+
 /// Copies `levels`, a texture's every level, through `transfer`, mapped at `mapped`, from `at` on,
 /// into layer `layer` of `texture`, and moves `at` past them.
 fn uploadLevels(copy: *c.SDL_GPUCopyPass, transfer: *c.SDL_GPUTransferBuffer, mapped: [*]u8, at: *u32, texture: *c.SDL_GPUTexture, layer: u16, levels: []const srtexture.Level) void {
@@ -2063,6 +2172,45 @@ test "a texture handed back goes to the next texture of its shape, from the next
     gpu.closed = true;
     image.releaseTexture();
     try std.testing.expectEqual(0, gpu.released.items.len);
+}
+
+test "uploads are done, and their images held, only once their frame has gone to the GPU" {
+    const gpa = std.testing.allocator;
+    var gpu: Gpu = undefined;
+    gpu.gpa = gpa;
+    gpu.uploads = .empty;
+    gpu.sending = 0;
+    defer gpu.uploads.deinit(gpa);
+    var levels = blank_levels;
+    var first: srtexture.Image = .{ .levels = &levels };
+    var second: srtexture.Image = .{ .levels = &levels };
+    try gpu.queue(.{ .levels = &levels, .slot = .{ .array = 0, .layer = 0 }, .image = &first });
+    try gpu.queue(.{ .levels = &levels, .slot = .{ .array = 0, .layer = 1 }, .image = &second });
+
+    // A frame whose copies weren't recorded leaves every upload waiting, and no image held.
+    gpu.sent();
+    try std.testing.expectEqual(2, gpu.uploads.items.len);
+    try std.testing.expect(!first.held and !second.held);
+    // A frame that copied the first up: once it has gone, the first is held and done, and the
+    // second still waits.
+    gpu.sending = 1;
+    gpu.sent();
+    try std.testing.expect(first.held and !second.held);
+    try std.testing.expectEqual(1, gpu.uploads.items.len);
+    try std.testing.expectEqual(&second, gpu.uploads.items[0].image.?);
+    try std.testing.expectEqual(0, gpu.sending);
+
+    // A texture that changes again while its upload waits waits once, as it stands now.
+    var changed = blank_levels;
+    try gpu.queue(.{ .levels = &changed, .slot = .{ .array = 0, .layer = 1 }, .image = &second });
+    try std.testing.expectEqual(1, gpu.uploads.items.len);
+    try std.testing.expectEqual(@as([*]const srtexture.Level, &changed), gpu.uploads.items[0].levels.ptr);
+}
+
+test grownCapacity {
+    try std.testing.expectEqual(32, grownCapacity(17));
+    try std.testing.expectEqual(16, grownCapacity(16));
+    try std.testing.expectEqual(max_layers, grownCapacity(max_layers));
 }
 
 test Slot {

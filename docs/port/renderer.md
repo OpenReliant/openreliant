@@ -79,9 +79,16 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
 - A BC5 normal map holds x and y alone. The shader works out z, and reads the length of the
   normals' mean from the material map's alpha, where the table moved it before compressing
   (`Shading.two_channel_normals`).
-- Once the GPU has copied an image's pixels for upload, it marks the image held (`Image.held`), and
-  the texture table lets go of its own copy after the frame (`Table.releaseHeld`). Code that reads
-  an image's pixels checks `Image.readable` first, as the sun's redrawing does.
+- Once the frame that copies an image's pixels up has gone to the GPU, the device marks the image
+  held (`Image.held`), and the texture table lets go of its own copy after the frame
+  (`Table.releaseHeld`). Code that reads an image's pixels checks `Image.readable` first, as the
+  sun's redrawing does.
+- A frame goes to the GPU whatever fails as it is recorded, as SDL wants once a swapchain texture
+  is acquired, so the copies it recorded still run; where the frame couldn't be put on the swapchain
+  texture, that texture is cleared. The textures waiting to go up are copied all together, after
+  every larger array and the transfer buffer they need have been made, so where one can't be made,
+  nothing changes and they wait for the next frame. A texture that changes again while it waits,
+  such as the power ball, waits once.
 
 ## Shadows
 
