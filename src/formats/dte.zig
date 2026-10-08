@@ -57,10 +57,9 @@ pub const Section = enum(u8) {
     /// Squad membership records, stride `0x0C`: the member's object ID at `+0` and the owning
     /// squad's index at `+4`. A squad's records are consecutive.
     squad_members = 13,
-    /// Ship formations, stride 8: each names its first point in `formation_points` at `+4`, which
-    /// the formation orders read (`0x00404230`).
+    /// The formations ([`Formation`]), which the formation orders fly flight groups into.
     formations = 14,
-    /// The points of the formations, stride `0x10` (`order_formation_regroup_init`).
+    /// The formations' points ([`FormationPoint`]).
     formation_points = 15,
     /// The curves, stride `0x44` ([`Curve`]): paths from one of the mission's ships to another,
     /// which the director's camera flies along.
@@ -102,10 +101,10 @@ pub const Section = enum(u8) {
             .strings, .script_flags, .openreliant_name => 1,
             .operands_a, .script, .script_b, .operands_b, .operands_c, .unknown_23, .command_flags, .command_flags_b => 2,
             .unknown_9, .targets => 4,
-            .formations => 8,
+            .formations => @sizeOf(Formation),
             .objects => @sizeOf(Object),
             .globals, .squads, .squad_members, .unused_19 => 0x0C,
-            .formation_points => 0x10,
+            .formation_points => @sizeOf(FormationPoint),
             .flight_groups => @sizeOf(FlightGroup),
             .parts, .parts_b => @sizeOf(Part),
             .triggers => @sizeOf(Trigger),
@@ -208,8 +207,8 @@ pub const Ship = extern struct {
     /// `all_intact` when the mission's script starts; destroying component `n` clears bit `n & 31`
     /// (`loseComponent`).
     intact_components: u32,
-    /// The point of section `formation_points` that Formation Regroup flies the ship to
-    /// (`order_formation_regroup_init`), or `no_formation_point`.
+    /// Its place in a formation, by its index in `formation_points`, which the formation orders
+    /// fly it to, or `no_formation_point`.
     formation_point: u16,
     _unknown_36: u16,
     runtime_pitch: i16,
@@ -247,6 +246,11 @@ pub const Ship = extern struct {
     /// Its flight group, where it is in one.
     pub fn flightGroup(ship: Ship) ?u8 {
         return if (ship.flight_group == no_flight_group) null else ship.flight_group;
+    }
+
+    /// Its point in a formation, where it has one.
+    pub fn formationPoint(ship: Ship) ?u16 {
+        return if (ship.formation_point == no_formation_point) null else ship.formation_point;
     }
 
     /// Its pilot, where it has one.
@@ -843,6 +847,38 @@ pub const SquadMember = extern struct {
     comptime {
         assert(@offsetOf(SquadMember, "squad") == 0x04);
         assert(@sizeOf(SquadMember) == 0x0C);
+    }
+};
+
+/// A formation, in section `formations`: places for ships about an origin, which the formation
+/// orders fly a flight group into (Formation Regroup and Patrol Route). Its points follow one
+/// another in `formation_points` from its first, each naming the formation.
+pub const Formation = extern struct {
+    /// Byte offset into the string pool, such as `sabres`.
+    name: u16,
+    _unknown_02: u16,
+    /// Its first point, by its index in `formation_points`.
+    first_point: u16,
+    _unknown_06: u16,
+
+    comptime {
+        assert(@offsetOf(Formation, "first_point") == 0x04);
+        assert(@sizeOf(Formation) == 8);
+    }
+};
+
+/// A point of a formation, in section `formation_points`: the place of the ship whose
+/// `Ship.formation_point` names it.
+pub const FormationPoint = extern struct {
+    /// Its formation, by its index in `formations`.
+    formation: u16,
+    _unknown_02: u16,
+    /// Where it stands from the formation's origin.
+    offset: [3]f32,
+
+    comptime {
+        assert(@offsetOf(FormationPoint, "offset") == 0x04);
+        assert(@sizeOf(FormationPoint) == 0x10);
     }
 };
 
@@ -1563,6 +1599,14 @@ pub const Mission = struct {
         return mission.records(Curve, .curves);
     }
 
+    pub fn formations(mission: Mission) Error![]align(1) const Formation {
+        return mission.records(Formation, .formations);
+    }
+
+    pub fn formationPoints(mission: Mission) Error![]align(1) const FormationPoint {
+        return mission.records(FormationPoint, .formation_points);
+    }
+
     /// For each trigger, the ID of the object whose slice holds it, or null when none does and
     /// the trigger can never fire. No shipped trigger is in two slices; for one that is, the first
     /// object's, as the engine finds it (`0x00453530`).
@@ -1920,17 +1964,21 @@ test "the records' none values" {
     ship.kind = Ship.waypoint_kind;
     ship.pilot = Ship.no_pilot;
     ship.launch_gate = Ship.no_launch;
+    ship.formation_point = Ship.no_formation_point;
     try std.testing.expectEqual(null, ship.flightGroup());
     try std.testing.expect(ship.isWaypoint());
     try std.testing.expect(ship.isMarker());
     try std.testing.expectEqual(null, ship.pilotRecord());
     try std.testing.expectEqual(null, ship.launchGate());
+    try std.testing.expectEqual(null, ship.formationPoint());
     ship.flight_group = 3;
     ship.pilot = 42;
     ship.launch_gate = 2;
+    ship.formation_point = 5;
     try std.testing.expectEqual(3, ship.flightGroup());
     try std.testing.expectEqual(42, ship.pilotRecord());
     try std.testing.expectEqual(2, ship.launchGate());
+    try std.testing.expectEqual(5, ship.formationPoint());
 
     var group = std.mem.zeroes(FlightGroup);
     group.first_ship = FlightGroup.no_ship;

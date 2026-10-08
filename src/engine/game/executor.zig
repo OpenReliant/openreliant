@@ -450,10 +450,8 @@ fn flyShip(call: Call, ship: Ship) void {
 /// `cmd_SetPatrolRoute` (`0x00458860`, command `0x0D`) and `cmd_SetPatrolRoute_ship`
 /// (`0x00458880`), for each ship the first argument names (`perShip`): the ship takes the Patrol
 /// Route order, aimed at the first waypoint of the flight group the command's second argument names
-/// (`bind.Mission.firstWaypoint`), as a ship's target holds it, where the group has any.
-///
-/// Not ported: the Patrol Route order itself, which does nothing yet
-/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
+/// (`bind.Mission.firstWaypoint`), as a ship's target holds it, where the group has any. The order
+/// flies the route ([`ai/formations.zig`](ai/formations.zig)).
 fn setPatrolRouteShip(call: Call, ship: Ship) void {
     const bound = call.machine.mission;
     const route = bound.flightGroupIndex(call.args[0]) orelse return;

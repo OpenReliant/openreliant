@@ -53,6 +53,8 @@ pub const exported = [_]Export{
     .{ "Squad", dte.Squad },
     .{ "SquadMember", dte.SquadMember },
     .{ "Curve", dte.Curve },
+    .{ "Formation", dte.Formation },
+    .{ "FormationPoint", dte.FormationPoint },
 
     // The script VM.
     .{ "VmHandler", engine.vm.Handler },
@@ -157,6 +159,10 @@ pub const exported = [_]Export{
     .{ "IonCannonStep", engine.game.aiioncan.Step },
     .{ "AvoidState", engine.game.aifuncs.AvoidState },
     .{ "FormationState", engine.game.aifuncs.FormationState },
+    .{ "RegroupState", engine.game.ai.formations.RegroupState },
+    .{ "RegroupStep", engine.game.ai.formations.RegroupStep },
+    .{ "PatrolState", engine.game.ai.formations.PatrolState },
+    .{ "PatrolMode", engine.game.ai.formations.PatrolMode },
     .{ "AttachState", engine.game.aifuncs.AttachState },
     .{ "DisruptedState", engine.game.aifuncs.DisruptedState },
     .{ "DisruptedData", engine.game.aifuncs.DisruptedData },

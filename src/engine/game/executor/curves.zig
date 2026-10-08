@@ -30,6 +30,20 @@ pub fn point(curve: Curve, t: f32) Vector {
         leaving * @as(Vector, @splat(t3 - 2 * t2 + t));
 }
 
+/// `curve_init` (`0x00457460`): a curve from `from` to `to` that names no ships, its ends and the
+/// ships of its tangents every bit set, with no tangents.
+pub fn between(from: Vector, to: Vector) Curve {
+    const none: dte.Reference = @bitCast(@as(u32, std.math.maxInt(u32)));
+    var curve = std.mem.zeroes(Curve);
+    curve.start = none;
+    curve.end = none;
+    curve.leaving_handle = none;
+    curve.arriving_handle = none;
+    curve.from = from;
+    curve.to = to;
+    return curve;
+}
+
 /// How many times longer a curve's tangents weigh than the record has them (`curve_axis`,
 /// `0x00457090`, whose `PUSH 0x41200000` at `0x004570B6` gives it).
 pub const tangent_scale: f32 = 10;
@@ -173,6 +187,18 @@ pub fn pathShare(list: []align(1) const Curve, curve: ?u16, path_length: f32) f3
     const index = curve orelse return 0;
     if (index >= list.len) return 0;
     return length(list[index]) / path_length;
+}
+
+test between {
+    // From one point to the other, with no ships at its ends or for its tangents, and no tangents.
+    const curve = between(.{ 1, 2, 3 }, .{ 4, 5, 6 });
+    try std.testing.expectEqual([3]f32{ 1, 2, 3 }, curve.from);
+    try std.testing.expectEqual([3]f32{ 4, 5, 6 }, curve.to);
+    try std.testing.expectEqual(null, curve.startShip());
+    try std.testing.expectEqual(null, curve.endShip());
+    try std.testing.expectEqual(dte.Reference.unset, curve.leaving_handle.index);
+    try std.testing.expectEqual([3]f32{ 0, 0, 0 }, curve.leaving);
+    try std.testing.expectEqual(Vector{ 4, 5, 6 }, point(curve, 1));
 }
 
 test "a curve runs from its start to its end, bowed by its tangents" {

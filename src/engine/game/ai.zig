@@ -35,6 +35,8 @@ pub const orders = @import("ai/orders.zig");
 pub const routines = @import("ai/routines.zig");
 /// Ship Follow Curve and its backwards twin.
 pub const follow = @import("ai/follow.zig");
+/// Formation Regroup and Patrol Route, which fly a flight group in its formation.
+pub const formations = @import("ai/formations.zig");
 
 /// A record of the order table. `order_groups` points at the records of each hundred order
 /// numbers: order `n` is record `n % 100` of group `n / 100`.
@@ -195,8 +197,9 @@ pub fn alongNose(place: math.Place, point: Vector, radius: f32) bool {
 }
 
 /// The cosine of the angle between `toward` and the nose of something turned as `orientation`:
-/// `toward` normalized, dotted with the nose, as the ejection's Sabre, the Ripper and Scoop Up work
-/// it out (`order_eject_fighter_attack`, `order_ripper_grabs_target_object`, `order_scoop_up`).
+/// `toward` normalized, dotted with the nose, as the ejection's Sabre, the Ripper, Scoop Up and the
+/// formation orders work it out (`order_eject_fighter_attack`, `order_ripper_grabs_target_object`,
+/// `order_scoop_up`, `formation_face`).
 /// `math.cosineOff` divides by the length instead, which rounds differently.
 pub fn noseCosine(orientation: math.Matrix, toward: Vector) f32 {
     return math.dot(math.normalize(toward), math.forward(orientation));

@@ -1278,6 +1278,8 @@ pub const testing = struct {
         /// Each trigger's block is a part's, as `link` names it (`Fixture.link`).
         triggers: []const dte.Trigger = &.{},
         curves: []const dte.Curve = &.{},
+        formations: []const dte.Formation = &.{},
+        formation_points: []const dte.FormationPoint = &.{},
         /// Section 24, a word for each command (`dte.CommandFlags`); none where it is empty, as
         /// the words past the section lie in the file's zeros.
         command_flags: []const dte.CommandFlags = &.{},
@@ -1319,6 +1321,8 @@ pub const testing = struct {
             section(&sections, .squad_members, records.squad_members.len, std.mem.sliceAsBytes(records.squad_members));
             section(&sections, .triggers, records.triggers.len, std.mem.sliceAsBytes(records.triggers));
             section(&sections, .curves, records.curves.len, std.mem.sliceAsBytes(records.curves));
+            section(&sections, .formations, records.formations.len, std.mem.sliceAsBytes(records.formations));
+            section(&sections, .formation_points, records.formation_points.len, std.mem.sliceAsBytes(records.formation_points));
             section(&sections, .command_flags, records.command_flags.len, std.mem.sliceAsBytes(records.command_flags));
             const image = try write.write(gpa, &sections, .{});
             fixture.mission = try .bind(gpa, image);

@@ -2165,10 +2165,7 @@ pub fn recentreObject(slot: *create.Slot) void {
     const object = &slot.object;
     const before = model.centre;
     recentre(model, source);
-    const shift = math.transform(object.root.orientation, model.centre - before);
-    object.root.position = vec3(vector(object.root.position) + shift);
-    object.root.next_position = vec3(vector(object.root.next_position) + shift);
-    slot.drawn.position += shift;
+    objects.shift(object, &slot.drawn, math.transform(object.root.orientation, model.centre - before));
     object.mass = model.mass;
     object.centre = vec3(model.centre);
     object.radius = model.radius;

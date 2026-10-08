@@ -50,7 +50,7 @@ the count says how much of the reserved room is filled, so most missions are exa
 | 10 | script_flags | 1 | One flag per script byte, which the interpreter consults for the script debugger |
 | 12 | squads | `0x0C` | Squads |
 | 13 | squad_members | `0x0C` | Squad membership records |
-| 14 | formations | 8 | Ship formations: the first of each one's points in section 15 at `+4` |
+| 14 | formations | 8 | The formations a flight group's ships fly in: see [Formations](#formations) |
 | 15 | formation_points | `0x10` | The formations' points |
 | 16 | curves | `0x44` | The curves the director's camera flies along: see [Curves](#curves) |
 | 17 | parts_b | `0x1C` | Part descriptors for section 18 |
@@ -124,7 +124,7 @@ Stride `0x4C`, one per placed object, nav points included.
 | `0x2B` | u8 | The gate of that ship it launches through, or `0xFF` for a ship that does not launch |
 | `0x2E`, `0x3A`, `0x4A` | i16 | Yaw, pitch, roll, in whole degrees |
 | `0x30` | u32 | The ship's intact components, a bit each |
-| `0x34` | u16 | The formation point Formation Regroup flies the ship to, or `0xFFFF` for none |
+| `0x34` | u16 | Its point in a formation, by its index in section 15, or `0xFFFF` for none ([Formations](#formations)) |
 | `0x3D` | u8 | The loadout tier its missile racks are fitted by (`create.settledTier`): 0 or 255, as most records hold, asks for the campaign's |
 | `0x40` | i16 | For a point of kind `0x3E3`, the index of the curve it marks a place on, or -1 for none |
 | `0x44` | f32 | The share of the way along that curve the place lies at |
@@ -171,6 +171,29 @@ director's camera flies along ([The director's camera](../engine/director.md)).
 
 Its ships are points of kind `0x3E4` in the shipped missions, and the record holds their places as
 the mission placed them. The engine weighs each tangent ten times as it stands.
+
+## Formations
+
+A formation holds places for ships about its origin, which the formation orders, Formation Regroup
+and Patrol Route, fly a flight group into ([Formations](../engine/orders.md#formations)). Section 14
+holds the formations, stride 8:
+
+| Offset | Type | Field |
+|---|---|---|
+| `0x00` | u16 | Name, as a string pool offset, such as `sabres` |
+| `0x04` | u16 | Its first point, by its index in section 15 |
+
+Section 15 holds their points, stride `0x10`, each formation's following one another from its
+first:
+
+| Offset | Type | Field |
+|---|---|---|
+| `0x00` | u16 | Its formation, by its index in section 14 |
+| `0x04` | f32 x3 | Where it stands from the formation's origin |
+
+A ship takes a place in a formation by naming a point at its `0x34`. The shipped missions hold
+`0xFF1A` at a formation's `0x06` and `0xFF19` at a point's `0x02`. Missions 8, 21 and 28 have
+formations, which no order flies, since no shipped mission gives the formation orders.
 
 ## Objects
 

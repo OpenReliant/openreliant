@@ -8,9 +8,9 @@ callbacks use the scripting bridge in `hooks.Scripts`; the engine and tools do n
 
 What each object is doing: flying in formation, escorting, docking, exploding, or following the player's controls. An object keeps a stack of orders, the current one on top, which the AI, the mission scripts and the player's controls push and pop, and `object_orders` runs the current one.
 
-[`aigeneric.zig`](../../src/engine/game/aigeneric.zig) holds the stack and runs the orders, [`ai.zig`](../../src/engine/game/ai.zig) the steering they turn by, [`aifuncs.zig`](../../src/engine/game/aifuncs.zig) the orders that fly a ship, a capital ship's lurch and orders 44 and 45, [`aieject.zig`](../../src/engine/game/aieject.zig) and [`tractor.zig`](../../src/engine/game/tractor.zig) those of the [ejection](ejection.md), [`launch.zig`](../../src/engine/game/launch.zig) the [launches](launch.md) and [`jump.zig`](../../src/engine/game/jump.zig) the [jumps](jump.md), [`aiioncan.zig`](../../src/engine/game/aiioncan.zig) the [ion cannon](ion-cannon.md), and [`ai/orders.zig`](../../src/engine/game/ai/orders.zig) lists every order with its flags, priorities and routines; `make order-tables` transcribes that table from the executable. The names below are those `make ghidra-annotate` gives the Ghidra project, which names each order's routines `order_` and the order's name, with `_init` and `_exit` for those two.
+[`aigeneric.zig`](../../src/engine/game/aigeneric.zig) holds the stack and runs the orders, [`ai.zig`](../../src/engine/game/ai.zig) the steering they turn by, [`aifuncs.zig`](../../src/engine/game/aifuncs.zig) the orders that fly a ship, a capital ship's lurch and orders 44 and 45, [`aieject.zig`](../../src/engine/game/aieject.zig) and [`tractor.zig`](../../src/engine/game/tractor.zig) those of the [ejection](ejection.md), [`launch.zig`](../../src/engine/game/launch.zig) the [launches](launch.md) and [`jump.zig`](../../src/engine/game/jump.zig) the [jumps](jump.md), [`aiioncan.zig`](../../src/engine/game/aiioncan.zig) the [ion cannon](ion-cannon.md), [`ai/formations.zig`](../../src/engine/game/ai/formations.zig) the [formations](#formations), and [`ai/orders.zig`](../../src/engine/game/ai/orders.zig) lists every order with its flags, priorities and routines; `make order-tables` transcribes that table from the executable. The names below are those `make ghidra-annotate` gives the Ghidra project, which names each order's routines `order_` and the order's name, with `_init` and `_exit` for those two.
 
-Ported so far: the stack (`order_push`, `order_pop`, `orders_clear`, `orders_pop_all`), the queue (`order_queue`), what runs them (`object_orders`, `orders_update`, `order_retaliate`), and the steering (`ai_steer`, `ai_roll_upright`) with its avoidance. [The orders](#the-orders) says which orders are ported, Player Control being the player's [controls](controls.md). An order OpenReliant does not run yet still holds its place on the stack, and pushing it still pops and starts what it should ([#30](https://github.com/OpenReliant/openreliant/issues/30)). Not ported: the orders sent to and from the other machines in a network game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+Ported so far: the stack (`order_push`, `order_pop`, `orders_clear`, `orders_pop_all`), the queue (`order_queue`), what runs them (`object_orders`, `orders_update`, `order_retaliate`), and the steering (`ai_steer`, `ai_roll_upright`) with its avoidance. [The orders](#the-orders) says which orders are ported, Player Control being the player's [controls](controls.md). Not ported: the multiplayer orders, which still hold their place on the stack, pushing one still popping and starting what it should, and the orders sent to and from the other machines in a network game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 OpenReliant keeps each object's stack and order state in its slot rather than allocating them with its first order, and hands a fatal "Cannot set ai" back to its caller as an error. **Fix:** where the game stops with it, OpenReliant logs it in the game's words and the order is not taken (`aigeneric.give`).
 
@@ -277,9 +277,9 @@ choices come from `object_random` (`0x004ADD10`), each object's own generator: a
 set from C's `rand()` when the object is created, that steps as `seed * 0x343FD + 0x269EC3`, bits
 16 to 30 of it over 32767 giving a number from 0 to 1.
 
-Every order, by its number, with what it does and whether OpenReliant runs it. An order
+Every order, by its number, with what it does and whether OpenReliant runs it. A multiplayer order
 OpenReliant does not run yet holds its place on the stack and does nothing
-([#30](https://github.com/OpenReliant/openreliant/issues/30)).
+([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
 | Number | Order | What it does | Ported |
 |---|---|---|---|
@@ -297,8 +297,8 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 11 | Explode | A destroyed object's end, by what it is and in one of three styles ([Destruction](objects.md#destruction)). | Yes |
 | 12 | Ripper grabs target object | A Ripper carries its target off ([The Ripper](#the-ripper)). | Yes |
 | 13 | Object Attach | On starting, keeps where the ship will stand next in the frame its target will stand in next. Each update it puts the ship there in the target's next frame, turned as the target will be, and gives it the target's turn, velocity, speed and rates of turn, so that it rides the target. | Yes |
-| 14 | Formation Regroup | Not read yet. | No |
-| 15 | Patrol Route | Not read yet. | No |
+| 14 | Formation Regroup | The ships of a flight group meet at their places in its formation about its middle, 10000 back along Z, then turn to face their places, the formation's leader moving the group on ([Formations](#formations)). | Yes |
+| 15 | Patrol Route | The ships of a flight group fly round the waypoints of a route, in formation about their leader where they have points in one, and otherwise alone ([Formations](#formations)). **Fix:** in formation it differs from the original's, whose ships hang back short of their places, so that the formation stops going round the route. | Yes |
 | 16 | Toggle Cloak | One-shot: cloaks or uncloaks the ship if its model's header allows a cloak, and the ships being launched from it do the same. | Yes |
 | 17 | Ship Follow Curve | Flies the path of the mission's curves from the curve in its data ([Following a path](#following-a-path)). | Yes |
 | 18 | Slow Rotate | Zero throttle, yaw input 0.1. | Yes |
@@ -400,6 +400,148 @@ the game takes them round from nothing. The game moves the step on, and forward 
 ShipReached, at every move past the path's end, so that a second move before the order's update, a
 collision's or that of a second step in the same pass, leaves the order running, to fly the path
 again once the step comes round; OpenReliant moves it on once.
+
+### Formations
+
+Formation Regroup (14) and Patrol Route (15) fly a flight group's ships in the formation their
+points give them ([Formations](../formats/dte.md#formations)): a ship's place is its point's place
+about the formation's origin. The formation's leader is the first of the mission's ships of the
+group that stands at the formation's point nearest its origin (`formation_leader`, `0x00404230`),
+and the leader's update moves the whole group on (`regroup_sync`, `0x00403DE0`; `patrol_sync`,
+`0x00404330`): once every ship of the group still in the mission is ready, they go on together.
+Missions give Formation Regroup with `SetAI` and Patrol Route with `SetPatrolRoute`
+([Commands](script-vm.md#commands)); no shipped mission gives either.
+
+Both set the throttle by a pace (`formation_set_pace`, `0x00404210`): a pace of `p` is a speed of
+`200p`, over the ship's top speed. They turn a ship toward a point in one of two ways
+(`formation_face`, `0x004044D0`): with `ai_steer` eased by 0.1 and held within a limit, or on the
+level (`object_turn_level`, `0x00404750`). On the level, its yaw input is five degrees, in radians,
+toward the side the point lies on, or the angle to it off the nose on the level where that is less;
+its pitch input the angle up or down to it, less 6 times its pitch rate, times 0.05 over its flight
+stats' pitch rate; and its roll input nothing. Either way the point is ahead once the cosine of its
+angle off the nose is 0.9 or more.
+
+**Formation Regroup** gathers the group at its places about its middle: the middle of the box round
+where its ships stood at the mission's last sync. Each ship meets the group at its place about the
+middle, 10000 back along Z, and its throttle goes to nothing. Its state:
+
+| Offset | What it holds |
+|---|---|
+| `+0x00` | Where it meets the group |
+| `+0x0C` | Its place about the group's middle, 10000 on along Z from there |
+| `+0x18` | The formation's leader |
+| `+0x1C` | The step |
+| `+0x1D` | Whether it is ready |
+| `+0x1E` | Whether it flies straight to its meeting point, rather than along a curve |
+| `+0x1F` | How many of the leader's updates in a row the group has been ready |
+| `+0x20` | The curve it flies along, laid out as the mission's are ([Curves](../formats/dte.md#curves)) |
+| `+0x64` | How it follows the curve: whether it has come to the curve's start (`+0x6E`), and the step along it it flies toward (`+0x74`) |
+
+| Step | What it does |
+|---|---|
+| 0 | It turns to face its meeting point with `ai_steer` at a limit of 0.75, and is ready once that lies ahead |
+| 1 | It flies to its meeting point, straight with `ai_steer` at a limit of 0.75, or along its curve, and is ready within two of its radii of it, its throttle then nothing |
+| 2 | It turns to face its place, and is ready once that lies ahead |
+| 3 | It lets go of the turns and the order pops |
+
+Once the group has been ready for 15 of the leader's updates in a row, each ship is ready no more
+and goes on to its next step; while any is not ready, the count starts again. Setting off for its
+meeting point, a ship flies along a curve where the point lies from 20000 to 400000 away, and
+otherwise straight, at a pace of 0.3. The curve runs from where the ship stands to its meeting point
+and names no ships, its leaving tangent half the way across, turned a right angle about Y, so that
+the ship swings out to the side (`regroup_lay_curve`, `0x00403F20`). The ship first flies to the
+curve's start at a pace of 0.3, with `ai_steer` at a limit of 0.5, then toward the curve's point at
+each 32nd of the way in turn, the next once within two of its radii of one, its nose turned straight
+at the point each update (`curve_path_follow`, `0x00404BE0`). Past the curve's end the order pops,
+its throttle and its turns nothing; the ship is at its meeting point and ready before that.
+
+A ship in no formation, or in no flight group or an empty one, takes none of this: its state stays
+empty, so that it turns toward the world's origin, its throttle as it was.
+
+**Patrol Route** flies the group round the waypoints of a route: the route's waypoints in the order
+the mission lists them ([Binding](missions.md#binding)), from the one the order's target names, and
+after the last its first again (`waypoint_next`, `0x00404000`). Its state:
+
+| Offset | What it holds |
+|---|---|
+| `+0x00` | The leader's mark, the point ahead of it that it turns toward |
+| `+0x0C` | Where the leader stood at the mission's last sync |
+| `+0x18` | The point it flies to at its waypoint |
+| `+0x24` | Its place about the leader |
+| `+0x30` | That place 8 of the leader's radii on ahead of the leader |
+| `+0x3C` | The way from the leader to its mark |
+| `+0x48` | The waypoint |
+| `+0x4C` | The formation's leader |
+| `+0x50` | The leader's state |
+| `+0x54` | Its formation point |
+| `+0x56` | The mode: 1 in formation, 2 alone, and 0, which nothing sets, turning to face its place ahead |
+| `+0x57` | Whether the group's ships lie near their places alike, within 5000 of each other, which nothing reads |
+| `+0x58` | How far it stood from its place ahead as it set off, which nothing reads |
+| `+0x5C` | The leader's pace |
+| `+0x60` | The size of its formation: how far apart the corners of the box round its points lie |
+| `+0x64` | Whether it is in place |
+| `+0x65` | Whether the leader is to aim at its waypoint again |
+| `+0x66` | Whether the leader has come to its waypoint |
+
+Each waypoint starts the pace at 0.15. A ship without a point in a formation flies alone: to its
+place in a line of its group's ships through the waypoint, along the way from the next waypoint,
+three widths of the group's widest apart, the group's first nearest the next waypoint. It steers
+there with `ai_steer` at a limit of 0.5, and within two of its radii sets off for the next waypoint.
+
+In formation, each ship's place is its point's place, turned as the leader is, about where the
+leader stands, and it turns on the level toward that place 8 of the leader's radii on ahead of the
+leader. Turned to it and within 3.2 of its radii of its place, it slides 0.005 of the way there each
+update. Until it is in place, it flies at 3 of the leader's paces while its place lies ahead of it,
+and at a twentieth of the leader's pace while its place lies behind it; within two of its radii of
+its place and turned to it, it is in place, and flies at the leader's pace and a tenth more. The
+leader is always in place, flies at its own pace, and has come to its waypoint within half its
+formation's size of it. It turns on the level toward its mark.
+
+Once every ship of the group is in place, each is no longer. Where the leader has come to its
+waypoint, each sets off for the next waypoint, stopped, its places taken anew. Otherwise the leader
+aims at its waypoint again: it turns toward it, takes its mark 8 of its radii along its nose turned
+by its yaw input, at the waypoint's height, and its pace by how far it must turn: 0.5 under 12
+degrees, 0.25 under 60, and otherwise 0.15. Each ship reads whether the leader has come to its
+waypoint in turn, and the leader setting off clears it, so that the ships after the leader in the
+group's list aim again rather than set off; they keep their places about the leader all the same.
+
+**Fix:** the game slides a ship toward its place by placing it (`object_place`), which drops the
+move its step has left to make, so that the ship moves by the slide alone, 0.005 of the way each
+frame, and hangs back where that pull meets the leader's pace: as far back as the leader's speed
+over 0.005 times the frame rate. At 60 frames a second that lies beyond two of a Sabre's radii at
+the pace each waypoint starts at, so that the ships are never all in place and the formation never
+moves on. OpenReliant slides the ship and the move it has left together, so that it flies on into
+its place.
+
+**Fix:** the leader reads and writes the order state of each ship of its group, whatever order the
+ship follows, so that a ship given another order since has that order's state taken for the
+formation's and changed; OpenReliant counts and moves only the ships that follow the leader's order,
+and a ship whose leader follows another takes its pace as nothing. The game looks for the leader,
+and measures a formation's size, among the points from the formation's first to the mission's last,
+so that a later formation's point nearer its origin can take the lead, which no ship of the group
+stands at; OpenReliant looks among the formation's own points. Where no ship stands at the lead,
+Patrol Route follows a null pointer, as Formation Regroup does for a ship in a formation but no
+flight group; OpenReliant has the ship fly the route alone, and leaves Formation Regroup's state
+empty. The game takes the group's spread from its first ship, and where that ship is no longer in
+the mission, from whatever its stack holds; OpenReliant takes it from the first it counts.
+
+**Fix:** Formation Regroup's state runs past the 0x90 bytes the game allocates for it: the curve's
+next marker lies at `+0x94`. The game looks for the points that mark places on that curve by its
+address's place among the mission's curves, which it isn't one of, and so takes the points of
+whatever curve that happens to give; OpenReliant keeps no marker, and takes it that none does. Where
+the curve ends the order, the game goes on to check the meeting point in the state of the order
+below; OpenReliant stops there.
+
+**Fix:** the game takes a Patrol Route's waypoint wherever the order's target points, past the
+mission's waypoints or before them, and reads past the table's ends for the waypoint after the last
+and before the first; OpenReliant ends an order whose target is past the waypoints, and stays within
+them. The game follows a null pointer for a ship with no flight stats, a stand-in, whose pace or
+level turn the orders set; OpenReliant leaves its throttle and its inputs as they are.
+
+**Improvement:** the points along a curve are computed rather than taken from the table of the
+curves' weights, as for the curves' lengths ([Curves](director.md#curves)); the five degrees and the
+turns by which the leader picks its pace are exact; and the angle up or down comes from
+`std.math.atan2` rather than the engine's table (`sr_atan2`).
 
 ### Docking
 

@@ -98,8 +98,9 @@ address	kind	name	type	comment
 004529d0	function	mission_operand	void * __fastcall (ushort index, char bank)	Operand index of the table bank names: 0 section 1, 1 section 22, 2 section 26
 00525278	data	mission_operands_b		Section 22, the second operand table
 0052570c	data	mission_operands_c		Section 26, the third operand table
-00525f18	data	mission_formations		Section 14, 8 bytes each: +4 is the first of the formation's points in section 15
-005256b8	data	mission_formation_points		Section 15, 0x10 bytes each
+00525f18	data	mission_formations	Formation *	Section 14, the formations
+005256b8	data	mission_formation_points	FormationPoint *	Section 15, the formations' points
+0052527c	data	mission_formation_points_count	ushort	
 00525f90	data	mission_command_flags_b	ushort *	Section 25, one per command_b entry
 0045cbc0	function	mission_script_start	void __fastcall (void)	Installs conditions and commands, runs the start part, arms every trigger an object's slice holds
 0045cea0	function	trigger_match	void __fastcall (ushort object, byte qualifier, Condition condition, uint *values, ushort count)	Fires the object's armed triggers whose condition, qualifier and operands match an event
@@ -461,7 +462,7 @@ address	kind	name	type	comment
 004c22b0	function	vec3_turn	void __fastcall (Vec3 *v, float *m)	v = m times v
 004c2310	function	vec3_turn_back	void __fastcall (Vec3 *v, float *m)	v = the transpose of m, times v
 004c0db0	function	sr_clamp	float __cdecl (float x, float low, float high)	x, kept between low and high
-004c30a0	function	sr_fabs	float __cdecl (float x)	
+004c30a0	function	sr_fabs	float __stdcall (float x)	The absolute value of x; it pops its own argument
 004c30c0	function	sr_sqrt	float __cdecl (float x)	
 004c30e0	function	sr_sin	float __cdecl (float x)	
 004c3100	function	sr_cos	float __cdecl (float x)	
@@ -1942,6 +1943,35 @@ address	kind	name	type	comment
 00403580	function	follow_back_curve	void __fastcall (int slot, Curve *before)	Begins the curve before one on a Follow Curve path backwards, or the path's last for none
 00403600	function	follow_back_way	void __fastcall (int slot, Vec3 *point, Vec3 *up)	Ship Follow Curve Backwards' path for motion_follow: the curve's point as far back from its end as its ticks have gone, then the curve before
 00458600	function	follow_curve_give	uint __fastcall (MissionShip *ship, uint *args, MissionShip *offset)	Gives a ship Ship Follow Curve with the command's curve, seconds and carrying ship as its data
+00403de0	function	regroup_sync	void __fastcall (MissionShip *leader)	Formation Regroup's leader moves its flight group on: once every ship still in the mission has been ready for 15 of its updates, each goes on to its next step, setting off for its meeting point along a curve from 20000 to 400000 away and straight otherwise
+00403f20	function	regroup_lay_curve	void __fastcall (RegroupState *state, Vec3 *from, Vec3 *to, MissionShip *ship)	The curve a regrouping ship flies to its meeting point from where it stands, its leaving tangent half the way across turned a right angle about Y, followed a step at a time
+00403fb0	function	object_hold_turns	void __fastcall (GameObject *object)	Lets go of an object's turns: no roll, pitch or yaw input
+00403fd0	function	formation_steer_to	bool __fastcall (GameObject *object, Vec3 *point, float limit)	Steers an object at a point with ai_steer within limit, and whether it is within two of its radii of it
+00404000	function	waypoint_next	void * __fastcall (void *waypoint, bool *wrapped)	The waypoint after one on its route: the next of its flight group's, or after the last, its first again, which sets wrapped
+00404040	function	patrol_set_off	void __fastcall (GameObject *object, PatrolState *state, void *waypoint)	A patrolling ship sets off for a waypoint at a pace of 0.15: in its formation about the leader, or alone to its place in a line of its group's ships through the waypoint
+00404210	function	formation_set_pace	void __thiscall (GameObject *object, float pace, float more)	Sets an object's throttle for a speed of (pace * more + pace) * 200 over its top speed
+00404230	function	formation_leader	MissionShip * __fastcall (FlightGroup *group, FormationPoint *point)	The ship of a flight group at the point nearest its formation's origin, among the points from the formation's first to the mission's last
+004042e0	function	formation_ship_at	MissionShip * __fastcall (FlightGroup *group, FormationPoint *point)	The first of the mission's ships of a flight group that stands at a formation point, or null
+00404330	function	patrol_sync	void __fastcall (MissionShip *leader)	Patrol Route's leader moves its flight group on: each ship takes where the leader stood; once every one is in place, each sets off for the next waypoint where the leader has come to its waypoint, and otherwise the leader aims at it again
+004044d0	function	formation_face	bool __fastcall (GameObject *object, Vec3 *point, float limit, float *angle, bool steer)	Turns an object toward a point, with ai_steer eased by 0.1 or on the level, and whether the point then lies ahead
+00404570	function	object_point_ahead	bool __fastcall (GameObject *object, Vec3 *point)	Whether a point lies ahead of an object: the cosine of its angle off the nose 0.9 or more
+004045d0	function	object_within	bool __fastcall (GameObject *object, Vec3 *point, float *distance, float reach)	Whether an object stands nearer a point than reach, or two of its radii for 0, its distance in distance where given
+00404620	function	patrol_places	void __fastcall (GameObject *object, PatrolState *state, bool keep)	A patrolling ship's places about its formation's leader, its point turned as the leader is and that 8 of the leader's radii ahead, and the leader's mark
+00404700	function	object_point_in_front	bool __fastcall (GameObject *object, Vec3 *point)	Whether a point lies in front of an object, not behind its nose
+00404750	function	object_turn_level	float10 __fastcall (short slot, Vec3 *point)	Turns an object toward a point on the level: yaw five degrees toward its side or the angle where less, pitch toward its height damped by the pitch rate, no roll; the angle off the nose on the level
+004048c0	function	object_point_on_right	bool __fastcall (GameObject *object, Vec3 *point)	Whether a point lies to the right of an object's nose on the level, or dead ahead or astern
+00404950	function	formation_size	float10 __fastcall (MissionShip *ship)	How far apart the corners of the box round a ship's formation's points lie, the points from the formation's first to the mission's last
+00404a00	function	flight_group_widest	float10 __fastcall (FlightGroup *group)	The largest radius of a flight group's ships' objects
+00404a60	function	regroup_curve_end	void __fastcall (int slot)	Ends Formation Regroup at its curve's end: no throttle, no turns, and the order popped
+00404a90	function	curve_path_init	void __fastcall (Curve *curve, MissionShip *ship, int seconds, void *path, bool stepped, MissionShip *relative, MissionShip *offset)	Sets a ship to follow a curve, over seconds or a step at a time, offset by a ship and riding with another; Formation Regroup's go a step at a time with neither
+00404b50	function	curve_path_begin	void __fastcall (void *path, Curve *curve)	Begins a curve of a path: from its first step, or now for its share of the path's ticks, and its next marker
+00404be0	function	curve_path_follow	void __fastcall (GameObject *object, void *path)	Flies an object along its path: to the curve's start, then a step at a time turned at each point, or timed and placed on the curve; ShipReached at marked places and the curve's end, then the next curve or the order's end
+004522f0	function	flight_group_middle	bool __fastcall (FlightGroup *group, Vec3 *middle)	The middle of the box round where a flight group's ships stood at the mission's last sync; false for a group without ships
+004523b0	function	box_include	void __fastcall (Vec3 *least, Vec3 *most, Vec3 *point)	Widens a box, its least and its most corner, to hold a point
+00452430	function	vec3_halfway	void __fastcall (Vec3 *a, Vec3 *b)	a = the point half way from a to b
+00452480	function	ship_position	void __fastcall (MissionShip *ship, Vec3 *out)	Where a mission ship stood at the last sync: its runtime position
+004524a0	function	flight_group_place	byte __fastcall (MissionShip *ship, FlightGroup *group)	A ship's place among its flight group's ships, or 0xFF
+00452090	function	formation_point_index	int __fastcall (FormationPoint *point)	A formation point's index in section 15
 00406a90	function	dock_port_search	bool __fastcall (int slot, OrderEntry *entry)	Dock's walk: the first port of a ship at which no other object's current order is Dock, into the order's data
 00406c80	function	dock_find_points	void __fastcall (int slot)	Dock's station style: the ship's own first docking point and the port its target names, whose part plays deploy
 00406e70	function	dock_berth	void __fastcall (int slot, Vec3 *position, float *orientation)	Where a docking ship's origin stands docked: the port less its own docking point, in the station's drawn frame, turned as the port
