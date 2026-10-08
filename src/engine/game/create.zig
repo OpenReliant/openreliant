@@ -1037,10 +1037,10 @@ fn wreckOf(object_type: gameobj.Type) ?Wreck {
 /// The routine that most capital ships, bases and stations get for a destroyed component, the
 /// Ulysses' its own, OpenReliant picks by type as it needs it (`explode.ComponentLoss`).
 ///
-/// Not ported: Titan's Planet Bombard routine on its parts (`0x0046841D`)
-/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)); and the comms relay, the
-/// deathmatch's power-ups and beacons, multiplayer map 83 and the Dark Reign's slot in a
-/// multiplayer game (`0x005DB500`), which only the multiplayer arenas have
+/// Titan's last part takes the Planet Bombard's routine (`0x0046841D`), which moves ten flashes that
+/// nothing draws, so OpenReliant leaves it out. Not ported: the comms relay, the deathmatch's
+/// power-ups and beacons, multiplayer map 83 and the Dark Reign's slot in a multiplayer game
+/// (`0x005DB500`), which only the multiplayer arenas have
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The wrecks, the gates, the planets
 /// and the Dark Reign's hat are set up once they are in the world (`wreckMade`, `gateMade`,
 /// `planetMade`, `extra.hatMade`).
@@ -1148,9 +1148,8 @@ const planet_light_mask: u32 = 0x37;
 /// its levels is moved to stand on the middle of its vertices (`recentreMesh`), and the part
 /// takes the radius of its last.
 ///
-/// **Unknown:** what bit 20 of the parts' flags does. Not ported: Titan's Planet Bombard, which
-/// the game hangs on its models' parts as it makes them (`0x0046841D`)
-/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+/// **Unknown:** what bit 20 of the parts' flags does. Titan's Planet Bombard, which the game hangs
+/// on its model's last part as it makes it (`0x0046841D`), shows nothing (`typeMade`).
 pub fn planetMade(all: *Objects, index: u16) void {
     const slot = &all.slots[index];
     if (!isPlanet(slot.object.type)) return;

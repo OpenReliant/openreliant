@@ -2229,8 +2229,15 @@ address	kind	name	type	comment
 0046a170	function	ice_field_frame	void (void)	While the ice field is on, each rock within about 49 degrees of the camera's axis stands at its place from the camera, facing it and turned by its rate, in the background layer
 0046a250	function	ice_rock_mesh	void * (void)	The ice field's triangle: its point at its place, its base a unit up, drawn with farast2 by the coordinates each rock gives it, lit, and blended by the rock's colours
 0046a500	function	bombard_flashes_create	void (void)	Planet Bombard's ten flashes (Boom_Mesh, pbang), 25000 across one time in ten and 3000 to 18000 otherwise, which nothing draws
-0046a312	function	bombard_flashes_frame	void (void)	Planet Bombard's flashes' frame, which nothing calls
-0046a6f0	function	environment_effect_2	uint (void)	Whether effect 2 is on, which nothing reads
+0046a300	function	bombard_hook	int (void)	The routine create_object gives Titan's last part at +0x170, which its object runs as it is drawn: returns 0, and while environment effect 2 is on, as mission 25 sets it, first moves the Planet Bombard flashes on (bombard_flashes_frame)
+0046a4b0	function	bombard_flash_shade	void __thiscall (void *object, float grey)	Colours each vertex of a Planet Bombard flash's object its own grey, alpha 1
+0046a6d0	function	bombard_flashes_free	void (void)	Frees the ten Planet Bombard flashes' objects, from environment_effects_free
+0046a700	function	bombard_flash_start	void __fastcall (int flash)	Starts a Planet Bombard flash: hung from the root of Titan (bombard_planet) at its first part's radius, turned at random within 0.3 of a half turn about each axis of one of three spots
+005524a8	data	bombard_flashes		The ten Planet Bombard flashes, 0xC bytes each: the mesh object, whether it shows, and the tick it started or starts next
+005531a8	data	bombard_planet	int	The slot of the Titan create_object made last, which the Planet Bombard flashes stand on
+00552520	data	bombard_flashes_framed_at	int	frame_start at the flashes' last frame, which nothing reads
+0046a312	function	bombard_flashes_frame	void (void)	The body of bombard_hook, which jumps into it: each of the ten flashes idle past its time starts (bombard_flash_start), one shown 35 ticks goes idle up to 1000 ticks at random, and one showing takes its size from the pbang sheet's cells and a grey of 0.1, then 0.3 down to nothing; nothing draws them
+0046a6f0	function	environment_effect_2	uint (void)	Whether effect 2 is on, which nothing calls; bombard_hook reads the bit itself
 0051d1a4	data	wgate_records	void *[32]	The gates' records (wgate_create, 0x88 bytes each)
 0051d224	data	wgate_mask	uint	A bit for each record in use
 0051d198	data	wgate_segments	int	The tunnels' segments round, by the detail

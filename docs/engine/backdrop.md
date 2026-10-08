@@ -183,7 +183,8 @@ each whether it waits, two routines to turn it on and off, which none has, and a
 Planet Bombard, then "not defined". The ice field and Planet Bombard wait: turning one on or off asks
 for it, and `environment_update` turns the effects on and off as asked, at the next jump or on
 `UpdateEnvironmentFXState`. Any other goes on or off at once, and what is asked for is then what is
-on. Nothing reads effect 2 (`0x0046A6F0`).
+on. Titan's Planet Bombard reads effect 2 ([Planet Bombard](#planet-bombard)), and
+`0x0046A6F0`, which answers whether it is on, is never called.
 
 The same update first disables or enables each object that `DisableObjectAtNextJump` asked about
 (`0x0055230C`, a byte an object: 1 to disable it, 2 to enable it again), which leaves a disabled
@@ -191,12 +192,30 @@ object out of the mission's work ([Objects](objects.md)). Mission 11 disables Sa
 has it back at the next jump so.
 
 The renderer's start clears the effects and drops what was asked of the objects
-(`backdrop_create`, `0x00469C30`), and builds the ice field and ten flashes for Planet Bombard
-(`0x0046A500`, `Boom_Mesh`, `pbang`), which nothing draws: their frame (`0x0046A312`) is never
-called.
+(`backdrop_create`, `0x00469C30`), and builds the ice field and Planet Bombard's ten flashes.
 
 **Fix:** since nothing else clears them, an effect one mission leaves on shows in the next, the ice
 field of Instant Action's last wave among them; OpenReliant clears them as each mission starts.
+
+### Planet Bombard
+
+Ten flashes stand ready from the renderer's start (`bombard_flashes_create`, `0x0046A500`,
+`Boom_Mesh`): each a square over `pbang`, 25000 across one time in ten and 3000 to 18000
+otherwise, coloured by colours of its own and added. `create_object` gives the last part of Titan,
+`0x63` and `0xCD`, a routine that its object runs as it is drawn (`0x0046A300`, at `+0x170`), and
+keeps Titan's slot (`0x005531A8`). While effect 2 is on, as mission 25 turns it on, the routine
+moves the flashes on (`0x0046A312`); effect 1, which the table names Planet Bombard, the game
+refuses.
+
+- One idle past its time starts (`0x0046A700`): it hangs from Titan's root at its first part's
+  radius, turned at random within 0.3 of a half turn about each axis of one of three spots, picked
+  at random.
+- One that has shown for 35 ticks goes idle until a random time up to 1000 ticks on.
+- One showing takes its size from the cells of `pbang` in turn, and its grey is 0.1 for the first
+  half of its time, then from 0.3 down to nothing; an idle one's is nothing.
+
+Nothing adds the flashes to the scene, so the game never shows them, and OpenReliant leaves Planet
+Bombard out.
 
 ### The ice field
 

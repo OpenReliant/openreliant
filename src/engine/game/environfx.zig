@@ -146,8 +146,9 @@ pub const Effect = enum(u5) {
     planet_bombard = 1,
     _,
 
-    /// The one effect beside the ice field that the game has implemented: it has no name, and
-    /// nothing reads it (`0x0046A6F0`).
+    /// The one effect beside the ice field that the game has implemented. It has no name, and only
+    /// Titan's Planet Bombard reads it (`0x0046A300`), whose flashes nothing draws; `0x0046A6F0`,
+    /// which answers whether it is on, is never called.
     const unnamed = 2;
 
     /// Whether the game has implemented it (`0x004FF748`): the ice field and effect 2.
