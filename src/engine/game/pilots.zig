@@ -78,6 +78,10 @@ pub const Pilot = extern struct {
     pub const Range = extern struct {
         least: i16,
         most: i16,
+
+        comptime {
+            assert(@sizeOf(Range) == 4);
+        }
     };
 
     /// The pilot a record makes, starting from the defaults: each tier field selects a preset if it

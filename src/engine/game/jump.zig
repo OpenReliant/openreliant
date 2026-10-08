@@ -78,7 +78,7 @@ pub const State = extern struct {
     /// Whether it jumps out with the player's ship, in formation behind it (`placeOut`).
     with_player: bool,
     _unknown_7d: [3]u8,
-    _unknown_80: [0x90 - 0x80]u8,
+    _unknown_80: [aigeneric.state_size - 0x80]u8,
 
     comptime {
         assert(@offsetOf(State, "step") == 0x04);
@@ -94,7 +94,7 @@ pub const State = extern struct {
         assert(@offsetOf(State, "motion") == 0x74);
         assert(@offsetOf(State, "effect") == 0x78);
         assert(@offsetOf(State, "with_player") == 0x7C);
-        assert(@sizeOf(State) == 0x90);
+        assert(@sizeOf(State) == aigeneric.state_size);
     }
 
     /// Moves on to `step`, `progress` from nothing.

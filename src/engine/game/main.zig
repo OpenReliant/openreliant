@@ -2235,7 +2235,7 @@ test startMission {
     defer files.deinit(gpa);
     var types: create.library.TypeCache = .{ .gpa = gpa, .resources = &files.resources, .textures = &files.textures.table, .looks = .{}, .global_palette = null };
     defer types.deinit();
-    var shown: cockpit.Cockpit = .{};
+    var shown: cockpit.Cockpit = .init(gpa);
     defer shown.deinit();
     var state: hud.State = .{ .ejected = true };
     var mission: gameobj.testing.Mission = undefined;

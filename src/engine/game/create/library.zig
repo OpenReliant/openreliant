@@ -126,7 +126,7 @@ pub const TypeCache = struct {
     fn build(cache: *TypeCache, ship_type: create.TypeIndex, name: []const u8, schematic: ?Schematic) !*Cached {
         const cached = try cache.gpa.create(Cached);
         errdefer cache.gpa.destroy(cached);
-        cached.arena = .init(std.heap.page_allocator);
+        cached.arena = .init(cache.gpa);
         errdefer cached.arena.deinit();
         const gpa = cached.arena.allocator();
         const file = try srofiles.readModel(gpa, cache.resources, cache.textures, name, cache.models);

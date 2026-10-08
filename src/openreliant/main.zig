@@ -483,7 +483,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     const tables = try arena.create(game.create.Stats);
     tables.* = .initial;
     tables.addTypes();
-    var cockpit: game.main.cockpit.Cockpit = .{};
+    var cockpit: game.main.cockpit.Cockpit = .init(gpa);
     defer cockpit.deinit();
     var types: game.create.library.TypeCache = .{
         .gpa = gpa,

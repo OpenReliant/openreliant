@@ -223,13 +223,13 @@ pub const State = extern struct {
     orientation: math.Matrix,
     _unknown_30: [0x3c - 0x30]u8,
     position: [3]f32,
-    _unknown_48: [0x90 - 0x48]u8,
+    _unknown_48: [aigeneric.state_size - 0x48]u8,
 
     comptime {
         std.debug.assert(@offsetOf(State, "step") == 4);
         std.debug.assert(@offsetOf(State, "orientation") == 0x0c);
         std.debug.assert(@offsetOf(State, "position") == 0x3c);
-        std.debug.assert(@sizeOf(State) == 0x90);
+        std.debug.assert(@sizeOf(State) == aigeneric.state_size);
     }
 };
 

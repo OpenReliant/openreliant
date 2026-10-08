@@ -71,7 +71,7 @@ pub const RegroupState = extern struct {
     _unknown_6f: [5]u8,
     /// The point of its curve it flies toward: this many `curves.steps`ths of the way along.
     along: u16,
-    _unknown_76: [0x90 - 0x76]u8,
+    _unknown_76: [aigeneric.state_size - 0x76]u8,
 
     comptime {
         assert(@offsetOf(RegroupState, "place") == 0x0C);
@@ -83,7 +83,7 @@ pub const RegroupState = extern struct {
         assert(@offsetOf(RegroupState, "curve") == 0x20);
         assert(@offsetOf(RegroupState, "started") == 0x64 + 0x0A);
         assert(@offsetOf(RegroupState, "along") == 0x64 + 0x10);
-        assert(@sizeOf(RegroupState) == 0x90);
+        assert(@sizeOf(RegroupState) == aigeneric.state_size);
     }
 };
 
@@ -349,7 +349,7 @@ pub const PatrolState = extern struct {
     aim: u8,
     /// Whether the leader has come to its waypoint, within half its formation's size of it.
     arrived: bool,
-    _unknown_67: [0x90 - 0x67]u8,
+    _unknown_67: [aigeneric.state_size - 0x67]u8,
 
     /// What `waypoint` holds for none.
     pub const no_waypoint: u32 = std.math.maxInt(u32);
@@ -376,7 +376,7 @@ pub const PatrolState = extern struct {
         assert(@offsetOf(PatrolState, "in_place") == 0x64);
         assert(@offsetOf(PatrolState, "aim") == 0x65);
         assert(@offsetOf(PatrolState, "arrived") == 0x66);
-        assert(@sizeOf(PatrolState) == 0x90);
+        assert(@sizeOf(PatrolState) == aigeneric.state_size);
     }
 };
 

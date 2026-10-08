@@ -308,6 +308,10 @@ pub const MissileBars = extern struct {
     pub fn figures(bars: MissileBars) tables.MissileFigures {
         return .{ bars.lock_seconds, bars.speed, bars.range, bars.damage };
     }
+
+    comptime {
+        assert(@sizeOf(MissileBars) == 0x10);
+    }
 };
 
 /// A locking time of `ticks` in whole seconds (`0x0044B6E0`): `ticks` times

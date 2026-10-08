@@ -47,6 +47,10 @@ pub const RecordingTime = extern struct {
             @as(u16, time.years_since_1900) + 1900, time.month, time.day, time.hour, time.minute,
         });
     }
+
+    comptime {
+        assert(@sizeOf(RecordingTime) == 7);
+    }
 };
 
 pub const FileFlags = packed struct(u8) {

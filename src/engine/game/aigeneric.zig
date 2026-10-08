@@ -254,10 +254,14 @@ pub const Queued = extern struct {
     }
 };
 
+/// The bytes the current order keeps between updates (`State`), which each order's own state
+/// fills out to with what it doesn't use.
+pub const state_size = 0x90;
+
 /// What the current order keeps between updates, zeroed when an order starts; each order uses it
 /// its own way.
 pub const State = extern union {
-    bytes: [0x90]u8,
+    bytes: [state_size]u8,
     fight: aifight.FightState,
     fly: aifuncs.FlyState,
     mill: aifuncs.MillState,
@@ -297,7 +301,7 @@ pub const State = extern union {
     follower: motion.Follower,
 
     comptime {
-        assert(@sizeOf(State) == 0x90);
+        assert(@sizeOf(State) == state_size);
     }
 };
 

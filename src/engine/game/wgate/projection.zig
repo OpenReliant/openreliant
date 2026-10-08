@@ -90,12 +90,12 @@ pub const State = extern struct {
     began: i32,
     _unknown_0c: [0x48 - 0x0C]u8,
     updated: i32,
-    _unknown_4c: [0x90 - 0x4C]u8,
+    _unknown_4c: [aigeneric.state_size - 0x4C]u8,
 
     comptime {
         assert(@offsetOf(State, "began") == 0x08);
         assert(@offsetOf(State, "updated") == 0x48);
-        assert(@sizeOf(State) == 0x90);
+        assert(@sizeOf(State) == aigeneric.state_size);
     }
 };
 

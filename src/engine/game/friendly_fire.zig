@@ -116,11 +116,11 @@ pub const State = extern struct {
     stage: Stage,
     /// The frame's start at which the stage ends.
     until: i32,
-    _unknown_08: [0x90 - 0x08]u8,
+    _unknown_08: [aigeneric.state_size - 0x08]u8,
 
     comptime {
         assert(@offsetOf(State, "until") == 0x4);
-        assert(@sizeOf(State) == 0x90);
+        assert(@sizeOf(State) == aigeneric.state_size);
     }
 };
 

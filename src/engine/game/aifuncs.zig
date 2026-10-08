@@ -43,11 +43,11 @@ const log = std.log.scoped(.orders);
 pub const MillState = extern struct {
     started: i32,
     circle: math.Matrix,
-    _unknown_28: [0x90 - 0x28]u8,
+    _unknown_28: [aigeneric.state_size - 0x28]u8,
 
     comptime {
         assert(@offsetOf(MillState, "circle") == 0x04);
-        assert(@sizeOf(MillState) == 0x90);
+        assert(@sizeOf(MillState) == aigeneric.state_size);
     }
 };
 
@@ -109,13 +109,13 @@ pub const AimlessState = extern struct {
     point: i32,
     start: shp.Vec3,
     orientation: math.Matrix,
-    _unknown_38: [0x90 - 0x38]u8,
+    _unknown_38: [aigeneric.state_size - 0x38]u8,
 
     comptime {
         assert(@offsetOf(AimlessState, "point") == 0x04);
         assert(@offsetOf(AimlessState, "start") == 0x08);
         assert(@offsetOf(AimlessState, "orientation") == 0x14);
-        assert(@sizeOf(AimlessState) == 0x90);
+        assert(@sizeOf(AimlessState) == aigeneric.state_size);
     }
 };
 
@@ -185,7 +185,7 @@ pub fn flyAimlessly(ctx: Context, index: u16) void {
 pub const EscortState = extern struct {
     place: i32,
     escorted: i32,
-    _unknown_08: [0x90 - 0x08]u8,
+    _unknown_08: [aigeneric.state_size - 0x08]u8,
 
     /// The slot of the ship it escorts, where that is one of `all`'s slots.
     pub fn escortedIn(state: EscortState, all: *const create.Objects) ?u16 {
@@ -195,7 +195,7 @@ pub const EscortState = extern struct {
 
     comptime {
         assert(@offsetOf(EscortState, "escorted") == 0x04);
-        assert(@sizeOf(EscortState) == 0x90);
+        assert(@sizeOf(EscortState) == aigeneric.state_size);
     }
 };
 
@@ -281,7 +281,7 @@ pub const FlyState = extern struct {
 
     comptime {
         assert(@offsetOf(FlyState, "heading") == 0x8);
-        assert(@sizeOf(FlyState) == 0x90);
+        assert(@sizeOf(FlyState) == aigeneric.state_size);
     }
 };
 
@@ -418,12 +418,12 @@ pub const FindTargetState = extern struct {
     _unknown_00: u32,
     fight: Pick,
     mill: Pick,
-    _unknown_1c: [0x90 - 0x1C]u8,
+    _unknown_1c: [aigeneric.state_size - 0x1C]u8,
 
     comptime {
         assert(@offsetOf(FindTargetState, "fight") == 0x04);
         assert(@offsetOf(FindTargetState, "mill") == 0x10);
-        assert(@sizeOf(FindTargetState) == 0x90);
+        assert(@sizeOf(FindTargetState) == aigeneric.state_size);
     }
 };
 
@@ -521,12 +521,12 @@ fn weighTarget(ctx: Context, index: u16, target: aigeneric.Target) void {
 pub const FindScoopState = extern struct {
     step: FindScoopStep,
     scoop: Pick,
-    _unknown_10: [0x90 - 0x10]u8,
+    _unknown_10: [aigeneric.state_size - 0x10]u8,
 
     comptime {
         assert(@offsetOf(FindScoopState, "scoop") == 0x04);
         assert(@offsetOf(FindScoopState, "step") == @offsetOf(ListState, "step"));
-        assert(@sizeOf(FindScoopState) == 0x90);
+        assert(@sizeOf(FindScoopState) == aigeneric.state_size);
     }
 };
 
@@ -602,11 +602,11 @@ pub const AvoidState = extern struct {
     cleared: f32,
     /// The tick it flies on until once it is clear of its target.
     until: i32,
-    _unknown_08: [0x90 - 0x08]u8,
+    _unknown_08: [aigeneric.state_size - 0x08]u8,
 
     comptime {
         assert(@offsetOf(AvoidState, "until") == 0x04);
-        assert(@sizeOf(AvoidState) == 0x90);
+        assert(@sizeOf(AvoidState) == aigeneric.state_size);
     }
 };
 
@@ -665,10 +665,10 @@ pub fn avoidTarget(ctx: Context, index: u16) void {
 /// What Object Attach keeps in `order_state`: where the ship stands in its target's frame.
 pub const AttachState = extern struct {
     offset: shp.Vec3,
-    _unknown_0c: [0x90 - 0x0C]u8,
+    _unknown_0c: [aigeneric.state_size - 0x0C]u8,
 
     comptime {
-        assert(@sizeOf(AttachState) == 0x90);
+        assert(@sizeOf(AttachState) == aigeneric.state_size);
     }
 };
 
@@ -758,10 +758,10 @@ pub fn randomSpinInit(ctx: Context, index: u16, spin: Spin) void {
 /// What Formation keeps in `order_state`: where the ship flies in its target's frame.
 pub const FormationState = extern struct {
     place: shp.Vec3,
-    _unknown_0c: [0x90 - 0x0C]u8,
+    _unknown_0c: [aigeneric.state_size - 0x0C]u8,
 
     comptime {
-        assert(@sizeOf(FormationState) == 0x90);
+        assert(@sizeOf(FormationState) == aigeneric.state_size);
     }
 };
 
@@ -923,7 +923,7 @@ pub const DisruptedState = extern struct {
 
     comptime {
         assert(@offsetOf(DisruptedState, "end") == 0x4);
-        assert(@sizeOf(DisruptedState) == 0x90);
+        assert(@sizeOf(DisruptedState) == aigeneric.state_size);
     }
 };
 
@@ -1011,11 +1011,11 @@ pub const Lurch = enum(i8) {
 pub const ListState = extern struct {
     step: ListStep,
     until: i32,
-    _unknown_08: [0x90 - 0x08]u8,
+    _unknown_08: [aigeneric.state_size - 0x08]u8,
 
     comptime {
         assert(@offsetOf(ListState, "until") == 0x04);
-        assert(@sizeOf(ListState) == 0x90);
+        assert(@sizeOf(ListState) == aigeneric.state_size);
     }
 };
 
@@ -1084,11 +1084,11 @@ fn lurchBy(slot: *create.Slot, flight: *const create.FlightModel, side: Lurch, t
 pub const DarkReignState = extern struct {
     _unknown_00: u32,
     nearest: Pick,
-    _unknown_10: [0x90 - 0x10]u8,
+    _unknown_10: [aigeneric.state_size - 0x10]u8,
 
     comptime {
         assert(@offsetOf(DarkReignState, "nearest") == 0x04);
-        assert(@sizeOf(DarkReignState) == 0x90);
+        assert(@sizeOf(DarkReignState) == aigeneric.state_size);
     }
 };
 
@@ -1147,13 +1147,13 @@ pub const LightsState = extern struct {
     step: i32,
     steps: i32,
     gap: i32,
-    _unknown_14: [0x90 - 0x14]u8,
+    _unknown_14: [aigeneric.state_size - 0x14]u8,
 
     comptime {
         assert(@offsetOf(LightsState, "until") == 0x04);
         assert(@offsetOf(LightsState, "step") == 0x08);
         assert(@offsetOf(LightsState, "gap") == 0x10);
-        assert(@sizeOf(LightsState) == 0x90);
+        assert(@sizeOf(LightsState) == aigeneric.state_size);
     }
 };
 

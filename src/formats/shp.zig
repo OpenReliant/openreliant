@@ -64,6 +64,10 @@ pub const Vec3 = extern struct {
     pub fn of(v: math.Vector) Vec3 {
         return .{ .x = v[0], .y = v[1], .z = v[2] };
     }
+
+    comptime {
+        assert(@sizeOf(Vec3) == 12);
+    }
 };
 
 /// The corners of a box along the axes: its least and its greatest.

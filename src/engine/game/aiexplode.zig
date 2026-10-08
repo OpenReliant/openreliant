@@ -98,14 +98,14 @@ pub const State = extern struct {
     spin: Vec3,
     /// The bits a spinning ship has left to trail behind it.
     trail: i16,
-    _unknown_1a: [0x90 - 0x1A]u8,
+    _unknown_1a: [aigeneric.state_size - 0x1A]u8,
 
     comptime {
         assert(@offsetOf(State, "end") == 0x4);
         assert(@offsetOf(State, "style") == 0x8);
         assert(@offsetOf(State, "spin") == 0xC);
         assert(@offsetOf(State, "trail") == 0x18);
-        assert(@sizeOf(State) == 0x90);
+        assert(@sizeOf(State) == aigeneric.state_size);
     }
 };
 

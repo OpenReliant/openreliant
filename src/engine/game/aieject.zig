@@ -36,11 +36,11 @@ pub const PlayerState = extern struct {
     end: i32,
     /// How often the ship has reached its end: `object_destroyed` pops the order once it has.
     ended: i32,
-    _unknown_08: [0x90 - 0x08]u8,
+    _unknown_08: [aigeneric.state_size - 0x08]u8,
 
     comptime {
         assert(@offsetOf(PlayerState, "ended") == 0x4);
-        assert(@sizeOf(PlayerState) == 0x90);
+        assert(@sizeOf(PlayerState) == aigeneric.state_size);
     }
 };
 
@@ -51,12 +51,12 @@ pub const State = extern struct {
     until: i32,
     stage: Stage,
     invulnerable: gameobj.Invulnerability,
-    _unknown_09: [0x90 - 0x09]u8,
+    _unknown_09: [aigeneric.state_size - 0x09]u8,
 
     comptime {
         assert(@offsetOf(State, "stage") == 0x4);
         assert(@offsetOf(State, "invulnerable") == 0x8);
-        assert(@sizeOf(State) == 0x90);
+        assert(@sizeOf(State) == aigeneric.state_size);
     }
 };
 

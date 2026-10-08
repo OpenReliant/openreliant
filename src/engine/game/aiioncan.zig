@@ -210,12 +210,12 @@ pub const State = extern struct {
     target: i32,
     /// The tick of its last update.
     updated: i32,
-    _unknown_14: [0x90 - 0x14]u8,
+    _unknown_14: [aigeneric.state_size - 0x14]u8,
 
     comptime {
         assert(@offsetOf(State, "step") == 0x04);
         assert(@offsetOf(State, "updated") == 0x10);
-        assert(@sizeOf(State) == 0x90);
+        assert(@sizeOf(State) == aigeneric.state_size);
     }
 };
 
