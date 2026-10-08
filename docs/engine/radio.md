@@ -334,8 +334,10 @@ The ejection has Moose's words too ([The ejection](ejection.md)): `ejt_001` to `
 the pilot to eject, `ejt_015` or `ejt_016` as the pilot calls from the pod, and `nanpkup`,
 `antpkup` or `ejtkll` on the pilot's fate, each queued.
 
-The game's mode `0x00524FE4` 1 counts as training for the reminders and the launch's words. Not
-ported: that mode.
+Training is the training missions, 30 to 35, and whatever the Reliant's simulator's training runs
+(`simulator_mode` 1, `0x00524FE4`), as every check of the game reads it: there the flight
+instructor speaks in the reminders and the launch's words, and answers PERMISSION TO LAND
+([The simulator pod](simulator-pod.md#the-missions)).
 
 ## Speech
 

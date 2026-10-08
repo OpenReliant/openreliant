@@ -606,13 +606,12 @@ fn startLaunchShip(call: Call, ship: Ship) void {
 /// (`0x00458BE0`), for each ship the first argument names (`perShip`): the ship takes the
 /// invulnerability the command's second argument gives, or where the first names one of its
 /// components (`push_component`), that component does (`gameobj.Component.protects`).
-/// A ship in the players' slots is reached only in the training missions
-/// (`create.Objects.training`) and in the Reliant's simulator's training (`simulator_mode` 1,
-/// `create.Simulator.Mode.training`).
+/// A ship in the players' slots is reached only in training (`create.Objects.training`): in the
+/// training missions, and in the Reliant's simulator's training (`simulator_mode` 1).
 fn setInvulnerabilityShip(call: Call, ship: Ship) void {
     const machine = call.machine;
     const all = ship.game.world.objects;
-    if (ship.index < all.players and !all.training() and all.simulator.mode != .training) return;
+    if (ship.index < all.players and !all.training()) return;
     const object = &ship.slot.object;
     const value = call.args[0];
     if (machine.argumentComponent(call.thread, 0)) |component| {
@@ -1288,17 +1287,19 @@ fn turretSetTargetShip(call: Call, ship: Ship) void {
 
 /// `cmd_ReplenishWeapons` (`0x00459FA0`, command `0x59`): the ship the argument names is armed
 /// again (`create.arm`), a player's ship as its loadout fitted it where the loadout ran, outside
-/// the simulator (`create.Objects.loadoutRacks`), and by loadout tier 0 otherwise, and any other
-/// ship by its `loadout_tier`; and made whole (`create.makeWhole`); the display's missiles follow
-/// the player's (`hud.missile_display.Ring.build`).
+/// the simulator (`create.Objects.loadoutRacks`), and by loadout tier 0 otherwise, the player's own
+/// in training with the training's missiles (`create.Objects.tierFit`), and any other ship by its
+/// `loadout_tier`; and made whole (`create.makeWhole`); the display's missiles follow the player's
+/// (`hud.missile_display.Ring.build`).
 fn replenishWeapons(call: Call, game: aigeneric.Context) void {
     const world = game.world;
     const all = world.objects;
     const ship = call.argumentShip(all, 0) orelse return;
     const slot = &all.slots[ship];
-    const fit: create.Fit = if (all.loadoutRacks(ship)) |racks| .{ .loadout = racks } else .{
-        .tier = if (ship < all.players) 0 else std.math.lossyCast(u2, slot.object.loadout_tier),
-    };
+    const fit: create.Fit = if (all.loadoutRacks(ship)) |racks|
+        .{ .loadout = racks }
+    else
+        all.tierFit(ship, if (ship < all.players) 0 else std.math.lossyCast(u2, slot.object.loadout_tier));
     create.arm(all.gpa, slot, fit) catch |err| log.warn("mission ship {d} is not armed again: {s}", .{ ship, @errorName(err) });
     if (ship == all.player) if (world.display) |display| display.missiles.build(&slot.object);
     if (slot.combat) |combat| create.makeWhole(&slot.object, combat);

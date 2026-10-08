@@ -72,7 +72,10 @@ bytes at `GameObject + 0x158`, `rack_count` of them (`+0x150`).
    root's child list, every part in order whatever it is linked to, in turn, takes the missile its
    attachment names for the tier: its id for tier 0, and the low half of the four words after it
    for tiers 1 to 4. A player's ship takes the racks the player chose on the loadout screen instead
-   (`0x00588400`, `0x54` bytes a player), unless the briefing is skipped.
+   (`0x00588400`, `0x54` bytes a player), unless the briefing is skipped or the mission runs in
+   the simulator. The player's ship in training, the simulator's training (`simulator_mode` 1) or
+   missions 30 to 35, takes a Vagabond, a Jack Hammer and a Raptor in turn, and round again,
+   whatever the tier (`0x0045E57A` on).
 3. The fitting (`object_fit_missiles`, `0x0045E1A0`): on each hardpoint, in turn, hangs what its
    rack holds, the pod or the missile (`attachment_models`), and fills the rack with the pod's
    capacity, or 1. A rack of no missile ends the loadout (`0x0045E24F`): its count is 0 and every
