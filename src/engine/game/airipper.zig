@@ -294,8 +294,9 @@ fn firstPoint(part: objects.PartRef) ?Vector {
     return gameobj.vector(data.point_lists[0].points[0].position);
 }
 
-/// The Ripper's back pincers, each with a point its beam comes from (`airipper_fx_pincers`).
-const pincers = [_][]const u8{ "Ripper Back pincer 2", "Ripper Back pincer 03", "Ripper Back pincer 04", "Ripper Back pincer 05" };
+/// The Ripper's back pincers, each with a point its beam comes from (`airipper_fx_pincers`): the
+/// parts whose engine glows it burns as it backs up (`objects.Model.Glow.Ripper`).
+const pincers = objects.Model.Glow.Ripper.back_pincers;
 
 /// The part a pod shows as, which the Ripper has one of too, shown while it carries (`0x004E20F8`).
 pub const cargo_part = "Cargo pod";
