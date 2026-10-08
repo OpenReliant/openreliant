@@ -700,6 +700,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .pilot = &front.pilot,
         .pilot_profile = &pilot_profile,
         .presentation = presentation,
+        .seed = options.fixedSeed(),
+        .io = io,
     };
     defer play.end();
     display.play = &play;
@@ -1655,6 +1657,13 @@ fn modeFlight(modes: *const scripting.game_modes.Registry) game.interface.main_m
 
 /// The local date and time of a moment, in nanoseconds from 1970 in UTC, as the system tells it,
 /// which the saved games show the dates of their files by.
+/// A seed from the real-time clock: its nanoseconds, so that two starts within a second differ.
+///
+/// **Improvement:** the game's `time(NULL)` counts whole seconds.
+fn clockSeed(io: Io) u64 {
+    return @truncate(@as(u96, @bitCast(Io.Clock.real.now(io).nanoseconds)));
+}
+
 fn localDate(since_1970: i96) ?game.interface.saved_games.Date {
     const time = platform.window.localTime(std.math.cast(i64, since_1970) orelse return null) orelse return null;
     return .{ .year = time.year, .month = time.month, .day = time.day, .hour = time.hour, .minute = time.minute, .day_of_week = time.day_of_week };
@@ -2052,6 +2061,11 @@ const Play = struct {
     pilot_profile: *game.gameflow.ProfileFile,
     /// The player and menu scripts, which hear as each mission starts and ends.
     presentation: ?*scripting.Presentation = null,
+    /// The seed each start gives the game's random numbers (`game.main.Start.seed`): the one the
+    /// options fix (`Options.fixedSeed`), or else the clock's at the start, as the game takes the
+    /// time.
+    seed: ?u64 = null,
+    io: Io,
 
     /// Starts the mission, letting go of the one before, the loading screen shown first
     /// (`game.xtrabits.loading.missionFrames`).
@@ -2075,6 +2089,7 @@ const Play = struct {
             .file = play.file_number,
             .objectives = play.objectives,
             .wing = play.wing,
+            .seed = play.seed orelse clockSeed(play.io),
         }, try play.gpa.dupe(u8, play.file), play.number);
         const all = orders.world.objects;
         if (play.presentation) |shown| {

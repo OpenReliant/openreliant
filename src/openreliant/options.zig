@@ -56,6 +56,7 @@ pub const Arg = enum {
     @"--developer-mode",
     @"--screenshot",
     @"--screenshot-ticks",
+    @"--seed",
     @"--version",
     @"--help",
 
@@ -139,6 +140,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--developer-mode" = .{ .section = .other, .text = "the tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading when they or their shaders are saved" },
     .@"--screenshot" = .{ .section = .other, .value = "<file.png>", .text = "draw one frame, with the camera settled, to a PNG, and quit; the controls, the [OpenReliant] settings and the details in [Device] are not read, so that it comes out the same each time; the mods the mods screen turned off stay off" },
     .@"--screenshot-ticks" = .{ .section = .other, .value = "<ticks>", .text = "with --screenshot, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default" },
+    .@"--seed" = .{ .section = .other, .value = "<number>", .text = "start each mission's random numbers from this seed, so that a run comes out the same each time, for testing; by default, as in the game, from the clock as the mission starts, and from a fixed seed with --screenshot" },
     .@"--version" = .{ .section = .other, .text = "show the version" },
     .@"--help" = .{ .section = .other, .alias = "-h", .text = "show this page" },
 });
@@ -230,6 +232,8 @@ pub const Options = struct {
     screenshot: ?[]const u8 = null,
     /// The game ticks a screenshot runs before it is taken, one a frame.
     screenshot_ticks: u32 = minimum_screenshot_ticks,
+    /// The seed each mission's random numbers start from (`fixedSeed`); null for the clock's.
+    seed: ?u64 = null,
     /// Whether a mission `--mission` names ends in the pause menu (`endsInPauseMenu`).
     pause_menu: bool = true,
     /// Whether a mission `--mission` names plays the player's launch through without drawing it
@@ -336,6 +340,15 @@ pub const Options = struct {
     /// The script parts `--part` names, in the order given.
     pub fn parts(options: *const Options) []const []const u8 {
         return options.part_names[0..options.part_count];
+    }
+
+    /// The seed each mission's random numbers start from, where the run fixes one: `--seed`'s, or
+    /// with `--screenshot`, so that its frame comes out the same each time, the runtime's first
+    /// seed. Null leaves each start to take the clock's.
+    pub fn fixedSeed(options: *const Options) ?u64 {
+        if (options.seed) |seed| return seed;
+        if (options.screenshot != null) return engine.random.Random.default_seed;
+        return null;
     }
 
     /// OpenAL Soft's settings, which a setting for it after `--original` plays with again.
@@ -491,6 +504,7 @@ pub const Options = struct {
             .@"--no-sound" => options.sound = null,
             .@"--screenshot" => options.screenshot = value,
             .@"--screenshot-ticks" => options.screenshot_ticks = @max(std.fmt.parseInt(u32, value, 10) catch return error.BadValue, minimum_screenshot_ticks),
+            .@"--seed" => options.seed = std.fmt.parseInt(u64, value, 10) catch return error.BadValue,
             .@"--help", .@"--version" => {},
         }
     }
@@ -588,6 +602,12 @@ test Options {
     try std.testing.expectError(error.Usage, parsed(&.{ "--watch-from", "1,nan,3" }));
     try std.testing.expectError(error.Usage, parsed(&.{"--bogus"}));
     try std.testing.expectEqualStrings("shot.png", (try parsed(&.{ "--screenshot", "shot.png" })).screenshot.?);
+    // The missions' seed: the clock's unless `--seed` or `--screenshot` fixes one.
+    try std.testing.expectEqual(null, (try parsed(&.{})).fixedSeed());
+    try std.testing.expectEqual(42, (try parsed(&.{ "--seed", "42" })).fixedSeed());
+    try std.testing.expectEqual(engine.random.Random.default_seed, (try parsed(&.{ "--screenshot", "shot.png" })).fixedSeed());
+    try std.testing.expectEqual(7, (try parsed(&.{ "--screenshot", "shot.png", "--seed", "7" })).fixedSeed());
+    try std.testing.expectError(error.Usage, parsed(&.{ "--seed", "-1" }));
     try std.testing.expect((try parsed(&.{})).intro);
     try std.testing.expect(!(try parsed(&.{"--no-intro"})).intro);
     // Mods are loaded unless `--no-mods` is given.
