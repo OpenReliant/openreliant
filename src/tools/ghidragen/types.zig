@@ -156,6 +156,7 @@ pub const exported = [_]Export{
     .{ "AttachState", engine.game.aifuncs.AttachState },
     .{ "DisruptedState", engine.game.aifuncs.DisruptedState },
     .{ "DisruptedData", engine.game.aifuncs.DisruptedData },
+    .{ "LightsState", engine.game.aifuncs.LightsState },
     .{ "ExplodeState", engine.game.aiexplode.State },
     .{ "ExplodeMode", engine.game.aiexplode.Mode },
     .{ "ExplodeStyle", engine.game.aiexplode.Style },

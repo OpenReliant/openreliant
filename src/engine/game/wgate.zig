@@ -1135,13 +1135,7 @@ fn setSpeed(model: *objects.Model, name: []const u8, speed: f32) void {
 /// too; no shipped gate carries any ([#540](https://github.com/OpenReliant/openreliant/issues/540)).
 fn secondPasses(slot: *create.Slot, on: bool) void {
     const loaded = (slot.type orelse return).loaded;
-    for (loaded.parts) |*part| {
-        for (part.meshes) |*mesh| {
-            for (mesh.surfaces) |*surface| {
-                if (surface.textures[1] != .none) surface.material.two_pass = on;
-            }
-        }
-    }
+    for (loaded.parts) |*part| part.secondPasses(on);
 }
 
 pub const testing = struct {

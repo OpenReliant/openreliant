@@ -272,6 +272,7 @@ pub const State = extern union {
     eject: aieject.State,
     scoop_up: tractor.State,
     disrupted: aifuncs.DisruptedState,
+    lights: aifuncs.LightsState,
     launch: launch.State,
     jump: jump.State,
     follow: follow.State,
@@ -762,10 +763,10 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .warp_out => wgate.warp_orders.outInit(ctx, index),
         // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
         .deathmatch_respawn_effect => {},
+        .turns_object_lights_on => aifuncs.lightsOnInit(ctx, index),
         // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .formation_regroup,
         .patrol_route,
-        .turns_object_lights_on,
         .make_boridin_section_break_away,
         .rotate_boridin_breakaway_warp_projector,
         .start_warp_projection_from_boridin,
@@ -858,13 +859,13 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .warp_out => wgate.warp_orders.outUpdate(ctx, index),
         // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
         .multiplayer_control, .deathmatch_respawn_effect => {},
+        .turns_object_lights_on => aifuncs.lightsOn(ctx, index),
+        .turns_object_lights_off => aifuncs.lightsOff(ctx, index),
         // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .formation_regroup,
         .patrol_route,
         .dark_reign_shoot,
         .move_to_spawn_pos,
-        .turns_object_lights_on,
-        .turns_object_lights_off,
         .start_warp_projection_from_boridin,
         .avoid_target,
         .dark_reign_shoot_110,

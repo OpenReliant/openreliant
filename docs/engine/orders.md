@@ -304,12 +304,12 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 32 | Match Speed | Sets the throttle to the target's speed over the ship's cruise speed. Pops when the target is no longer valid. | Yes |
 | 33 | Dark Reign shoot | Not read yet. | No |
 | 34 | Move to spawn pos | A deathmatch's (`deathmatch.cpp`). Not read yet. | No ([#55](https://github.com/OpenReliant/openreliant/issues/55)) |
-| 35 | Turns object lights on | Switches on the lights of the parts with the lightmap flag, with a sound, and pops. Ship type 165 instead switches on the first part's four lights one by one, then those of every lightmap part, a step each 100 ticks with a sound at each, and pops after 500 ticks. While the setting at `0x5D5618` is not 1 it pops at once. | No |
+| 35 | Turns object lights on | Turns on the light maps of the parts flagged `lightmap` (the second pass of their surfaces), heard (`bigon`), and pops. The rogue base (165) turns on a surface of its first part each 100 ticks, four of them, then those of its other parts, heard at each step, and pops after 500 ticks. Where the light maps aren't drawn (`Lmaps`, `0x5D5618`) it pops at once. A ship type shares its meshes, so every ship of the type goes with it. **Fix:** the game turns on only the level of detail each part is drawn at, and a second pass for every surface, drawing those with no second texture flat; OpenReliant turns them on at every level, and only where a surface has a second texture. | Yes |
 | 36 | Make Boridin section break away | Not read yet. | No |
 | 37 | Rotate Boridin breakaway warp projector | Not read yet. | No |
 | 38 | Start warp projection from Boridin | The Boridin's warp projection, through a tunnel of its own ([Gates](gates.md)). Not read in full yet. | No ([#30](https://github.com/OpenReliant/openreliant/issues/30)) |
 | 39 | Make ripper drop what it's carrying | A Ripper lets go of what it carries ([The Ripper](#the-ripper)). | Yes |
-| 42 | Turns object lights off | Switches off the lights order 35 switches on. | No |
+| 42 | Turns object lights off | Turns off the light maps order 35 turns on, at every level, and pops. | Yes |
 | 43 | Huuuuuuuge explosion | The Uber Explode at the object, of size 50000 over 1500 ticks ([Effects](effects.md#the-uber-explode)), then it pops. | Yes |
 | 44 | Immediately set ship to zero velocity and rotation | `object_stop` (`0x00403000`), then it pops. | Yes |
 | 45 | Fly ship backwards | Throttle -0.5, no turning. | Yes |
