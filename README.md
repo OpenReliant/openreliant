@@ -23,16 +23,16 @@ OpenReliant is an independent, non-commercial open-source project. It is not aff
 
 ## Current Status
 
-OpenReliant is in active development. The first campaign missions are playable from start to finish.
+OpenReliant is in beta. The whole campaign is playable from the first mission to the end, and the games saved in the original carry on.
 
 - **Flight & Combat**: All ships, with the original flight model, weapons, damage, AI and cockpit displays, and 8 camera views including 3D cockpits.
-- **Missions**: Retail and custom mission files load. The scripts of the first missions run in full, and the commands used by later missions are in progress.
+- **Missions**: Retail and custom mission files load, and their scripts run in full, with every command the single-player missions use.
 - **Controls**: Mouse and keyboard, flight sticks, HOTAS and gamepads, with force feedback played as rumble, and the bindings set in the game's controls screen.
 - **Graphics**: Per-pixel shading with gamma-corrected lighting, and real-time shadows. Rendering runs at native resolution in 32-bit colour, with bloom, anti-aliasing, smooth motion at high frame rates, and more detailed explosions, shields and planets. `--original` restores the original graphics and sound.
 - **Audio**: 3D positional sound with reverb and headphone HRTF.
-- **Mods**: Archives and folders in the game's `mods` folder can replace or add to any of the game's files: models, sounds, music, speech, movies and missions. PNG pictures of any size can replace textures, with material maps for physically based shading (normal maps, highlights, glow and sky reflections), and the interface's shapes and backgrounds, including widescreen ones. Mods can add ship types, guns, missiles and pilots with their own faces and voices, and models built from OBJ or glTF. Scripts in Luau can change the game's records, hook its functions and the missions' commands, run on ships, missiles and turrets, draw on the display and the menus, offer a page of options, add game modes and campaigns, and add shaders. A mods screen turns mods on and off, sets their load order, and shows which mods replace each other's files and which mods a mod needs ([What mods can do](docs/guide/what-mods-can-do.md), [Modding](docs/guide/modding.md), [Scripting](docs/guide/scripting.md)).
-- **Front End**: The main menu, the settings screen with its audio, controls, video and graphics, the pilot roster, the saved games and the Reliant's rooms, with a new pilot's induction, the news reports, the in-game options, the simulator pod, the locker, the CD player, the briefings, the loadout and the ITAC's debriefings.
-- **In Development**: The remaining campaign missions, and multiplayer. See the [milestones](../../milestones) for the roadmap.
+- **Mods**: Archives and folders in the game's `mods` folder can replace or add to any of the game's files: models, sounds, music, speech, movies and missions. PNG pictures of any size can replace textures, with material maps for physically based shading (normal maps, highlights, glow and sky reflections), and the interface's shapes and backgrounds, including widescreen ones. Mods can add ship types, guns, missiles and pilots with their own faces and voices, and models built from OBJ or glTF. Scripts in Luau can change the game's records, hook its functions and the missions' commands, run on ships, missiles and turrets, draw on the display and the menus, offer a page of options, add game modes and campaigns, and add shaders. A mods screen turns mods on and off, sets their load order, and shows which mods replace each other's files and which mods a mod needs. The scripting API is stable from 0.8 on ([What mods can do](docs/guide/what-mods-can-do.md), [Modding](docs/guide/modding.md), [Scripting](docs/guide/scripting.md)).
+- **Front End**: The main menu, the settings screen with its audio, controls, video and graphics, the pilot roster, the saved games and the Reliant's and the Yamato's rooms, with a new pilot's induction, the news reports, the in-game options, the simulator pod, the locker, the CD player, the briefings, the loadout, the ITAC and the story's end.
+- **In Development**: A mission editor, then multiplayer, and later a standalone engine that other space games can use. See the [milestones](../../milestones) for the roadmap.
 
 ---
 
