@@ -66,7 +66,12 @@ fn say(io: Io, text: []const u8) !u8 {
     return 0;
 }
 
-pub const std_options: std.Options = .{ .logFn = logLine };
+/// The log goes to the terminal and the log file (`logLine`), and a memory fault is caught in every
+/// build, so that the log file says what it was (`debug.handleSegfault`).
+pub const std_options: std.Options = .{
+    .logFn = logLine,
+    .enable_segfault_handler = std.debug.have_segfault_handling_support,
+};
 
 /// Writes each message of the log to the terminal and the log file (`log_file.zig`), and the
 /// scripts' messages to the scripting console too (`scripting.console.log`).
@@ -78,6 +83,16 @@ fn logLine(comptime level: std.log.Level, comptime scope: @EnumLiteral(), compti
         scripting.console.log(.warn, log_file.full_message, .{});
     }
 }
+
+/// What the standard library's handler of a memory fault runs, in place of its own.
+pub const debug = struct {
+    /// Writes a memory fault, such as a segmentation fault in one of the C libraries, to the log
+    /// file, then to the terminal as the standard library does.
+    pub fn handleSegfault(address: ?usize, name: []const u8, context: ?std.debug.CpuContextPtr) noreturn {
+        log_file.fault(address, name, context);
+        std.debug.defaultHandleSegfault(address, name, context);
+    }
+};
 
 pub const panic = std.debug.FullPanic(panicked);
 
@@ -114,6 +129,7 @@ pub fn main(init: std.process.Init) !u8 {
     defer directory.close(io);
     log_file.open(io, directory, version.string);
     defer log_file.close(io);
+    platform.logs.route();
     // The game's settings file, which `load_key_config` reads the input settings from and the pause
     // menu's screens write to. If it's missing, every setting keeps its default.
     var settings_file: engine.profile.File = .{ .arena = arena, .profile = .read(io, arena, directory) };

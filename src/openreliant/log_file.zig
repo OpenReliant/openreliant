@@ -1,7 +1,8 @@
 //! The log file ([#752](https://github.com/OpenReliant/openreliant/issues/752)): `openreliant.log`
 //! in the game folder, which a player can attach to a bug report. OpenReliant writes each message
-//! of the log to it as well as to the terminal, and what a crash says, with its stack trace. The
-//! file starts afresh each run. A message that comes again straight after itself is counted rather
+//! of the log to it as well as to the terminal, the C libraries' among them
+//! (`platform.logs`), and what a crash or a memory fault says, with its stack trace. The file
+//! starts afresh each run. A message that comes again straight after itself is counted rather
 //! than written again, and the file stops growing at `max_size`. When it's full, the file, the
 //! terminal and the scripting console say so.
 //!
@@ -85,6 +86,19 @@ pub const Log = struct {
         if (!log.full()) _ = log.endRepeats();
         log.writer.print("panic: {s}\n", .{message}) catch return;
         std.debug.writeCurrentStackTrace(.{ .first_address = first, .allow_unsafe_unwind = true }, log.terminal()) catch {};
+        log.writer.flush() catch {};
+    }
+
+    /// Writes what a memory fault was, `what`, at `address`, and the stack trace from `context`,
+    /// even when the log is full.
+    pub fn fault(log: *Log, address: ?usize, what: []const u8, context: ?std.debug.CpuContextPtr) void {
+        if (!log.full()) _ = log.endRepeats();
+        if (address) |at| {
+            log.writer.print("{s} at address 0x{x}\n", .{ what, at }) catch return;
+        } else {
+            log.writer.print("{s} (no address available)\n", .{what}) catch return;
+        }
+        if (context) |from| std.debug.writeCurrentStackTrace(.{ .context = from, .allow_unsafe_unwind = true }, log.terminal()) catch {};
         log.writer.flush() catch {};
     }
 
@@ -194,6 +208,13 @@ pub fn crash(message: []const u8, first: usize) void {
     if (opened) |*file| file.log.crash(message, first);
 }
 
+/// Writes a memory fault to the log file: what it was, `what`, at `address`, and the stack trace
+/// from `context`.
+pub fn fault(address: ?usize, what: []const u8, context: ?std.debug.CpuContextPtr) void {
+    if (crashing.swap(true, .acq_rel)) return;
+    if (opened) |*file| file.log.fault(address, what, context);
+}
+
 test "Log.add" {
     var written: Io.Writer.Allocating = .init(std.testing.allocator);
     defer written.deinit();
@@ -230,6 +251,16 @@ test "Log.finish" {
     for (0..2) |_| _ = log.add(.info, .scripts, "tick", .{});
     log.finish();
     try std.testing.expectEqualStrings("info(scripts): tick\n(the message above came 1 more time)\n", written.written());
+}
+
+test "Log.fault" {
+    var written: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer written.deinit();
+    var log: Log = .{ .writer = &written.writer, .room = 0 };
+    // A fault is written into a full log too, with its address where it has one.
+    log.fault(0x10, "Segmentation fault", null);
+    log.fault(null, "Stack overflow", null);
+    try std.testing.expectEqualStrings("Segmentation fault at address 0x10\nStack overflow (no address available)\n", written.written());
 }
 
 test "Log.crash" {

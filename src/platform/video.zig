@@ -14,11 +14,10 @@ const c = @import("av");
 const openreliant = @import("openreliant");
 const bink = openreliant.engine.bink;
 
-/// The decoders, which hold nothing between the streams they open.
+/// The decoders, which hold nothing between the streams they open. FFmpeg's own warnings and
+/// errors go to the log (`logs.route`).
 pub const Decoders = struct {
-    /// Quiets FFmpeg's messages: a packet it cannot decode fails the call, which says so.
     pub fn init() Decoders {
-        c.av_log_set_level(c.AV_LOG_QUIET);
         return .{};
     }
 
