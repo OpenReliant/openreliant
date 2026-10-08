@@ -1907,7 +1907,9 @@ test drawText {
     try std.testing.expectEqual(height * 2, recorder.drawn(0)[2].y);
 }
 
-/// What `hud_init` loads for the display to draw with.
+/// What `hud_init` loads for the display to draw with. An image is made of a shape or a glyph the
+/// first time it is drawn, by the display, the pause menu or a script, so each of them draws with
+/// the allocator the resources were loaded in. `deinit` frees the images with the rest.
 pub const Resources = struct {
     art: Art,
     /// `blufont.fnt` (`0x00595490`), which every line of the display's own text is written in: the
@@ -1929,23 +1931,86 @@ pub const Resources = struct {
     /// and the power ball, which `hud_init` works out.
     pub fn load(gpa: Allocator, archive: bigfile.Hog, shapes: spr.Sprite, outlines: ?*outline.Outlines) !Resources {
         const global = globalPalette(shapes);
-        return .{
-            .art = try .init(gpa, shapes, global, .of(archive.mods, hardware_shapes)),
-            .font = try openFont(gpa, archive, font_name, global, outlines),
-            .target_fonts = .{
-                .small = try openFont(gpa, archive, TargetFonts.small_name, global, null),
-                .new = try openFont(gpa, archive, TargetFonts.new_name, global, null),
-            },
-            .ball = try .create(gpa, try matmanager.readPixels(gpa, archive, power.picture_name)),
-        };
+        var art: Art = try .init(gpa, shapes, global, .of(archive.mods, hardware_shapes));
+        errdefer art.deinit(gpa);
+        var font = try openFont(gpa, archive, font_name, global, outlines);
+        errdefer closeFont(&font, gpa);
+        var small = try openFont(gpa, archive, TargetFonts.small_name, global, null);
+        errdefer closeFont(&small, gpa);
+        var new = try openFont(gpa, archive, TargetFonts.new_name, global, null);
+        errdefer closeFont(&new, gpa);
+        const picture = try matmanager.readPixels(gpa, archive, power.picture_name);
+        defer picture.deinit(gpa);
+        return .{ .art = art, .font = font, .target_fonts = .{ .small = small, .new = new }, .ball = try .create(gpa, picture) };
+    }
+
+    /// Frees what `load` made in `gpa`, and the images made of its shapes and its fonts' glyphs.
+    pub fn deinit(resources: *Resources, gpa: Allocator) void {
+        resources.art.deinit(gpa);
+        closeFont(&resources.font, gpa);
+        closeFont(&resources.target_fonts.small, gpa);
+        closeFont(&resources.target_fonts.new, gpa);
+        gpa.destroy(resources.ball);
+        resources.* = undefined;
     }
 
     fn openFont(gpa: Allocator, archive: bigfile.Hog, name: []const u8, global: ?*const [spr.palette_size]u8, outlines: ?*outline.Outlines) !Opened {
-        var opened: Opened = .open(try fnt.Font.parse(try archive.readFile(gpa, name)), global);
+        const bytes = try archive.readFile(gpa, name);
+        errdefer gpa.free(bytes);
+        var opened: Opened = .open(try fnt.Font.parse(bytes), global);
         if (outlines) |made| try opened.standIn(made, name);
         return opened;
     }
+
+    /// Frees a font `openFont` opened: its glyphs' images and its file.
+    fn closeFont(opened: *Opened, gpa: Allocator) void {
+        opened.deinit(gpa);
+        gpa.free(opened.font.bytes);
+    }
 };
+
+test Resources {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const font = comptime fnt.testing.font(true);
+    try bigfile.testing.write(gpa, io, tmp.dir, bigfile.resource_name, &.{
+        .{ .name = Resources.font_name, .data = font },
+        .{ .name = TargetFonts.small_name, .data = font },
+        .{ .name = TargetFonts.new_name, .data = font },
+        .{ .name = power.picture_name, .data = &matmanager.testing.picture },
+    });
+    var archive: bigfile.Hog = try .open(gpa, io, tmp.dir, bigfile.resource_name);
+    defer archive.close(gpa);
+    const set = try spr.testing.paletteAndShape(gpa);
+    defer gpa.free(set);
+    var resources: Resources = try .load(gpa, archive, try .parse(set), null);
+    defer resources.deinit(gpa);
+
+    // The images made of the shapes and glyphs drawn, as the pause menu draws them, are freed with
+    // the rest.
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    try drawShape(&resources.art, gpa, recorder.interface(), 1, .{ 0, 0 }, .{ 1, 1, 1, 1 }, 1);
+    for ([_]*Opened{ &resources.font, &resources.target_fonts.small, &resources.target_fonts.new }) |opened| {
+        _ = try drawText(opened, gpa, recorder.interface(), .{ 0, 0 }, "\x01", .{ 1, 1, 1, 1 }, .left, 1);
+        try std.testing.expect(opened.images[1] != null);
+    }
+    try std.testing.expect(resources.art.images[1] != null);
+    try std.testing.expectEqual(4, recorder.draws.items.len);
+
+    // A font that can't be read makes the load fail, and frees what it had loaded.
+    try bigfile.testing.write(gpa, io, tmp.dir, "broken.hog", &.{
+        .{ .name = Resources.font_name, .data = font },
+        .{ .name = TargetFonts.small_name, .data = font },
+        .{ .name = TargetFonts.new_name, .data = "x" },
+        .{ .name = power.picture_name, .data = &matmanager.testing.picture },
+    });
+    var broken: bigfile.Hog = try .open(gpa, io, tmp.dir, "broken.hog");
+    defer broken.close(gpa);
+    try std.testing.expectError(error.Truncated, Resources.load(gpa, broken, try .parse(set), null));
+}
 
 /// A ship type's own shapes, which the display draws in place of its own set's, and what their
 /// images are made in: its schematic, the ship status indicator's picture of it; and for a mod's
