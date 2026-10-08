@@ -129,14 +129,8 @@ pub const Effects = struct {
         const burst_image = try matmanager.textureRequire(textures, images.burst);
         const light_image = try matmanager.textureRequire(textures, images.light);
         const light_going_image = try matmanager.textureRequire(textures, images.light_going);
-        var flare_mesh = try loadout.squareMesh(gpa, false, flare_size[0], flare_size[1]);
+        var flare_mesh = try loadout.addedSquare(gpa, flare_size[0], flare_size[1], false, flare_image);
         errdefer flare_mesh.deinit(gpa);
-        loadout.spanWhole(&flare_mesh);
-        flare_mesh.surfaces[0] = .{
-            .polygons = @intCast(flare_mesh.polygons.len),
-            .material = .onePass(.{ .coordinates = .mesh, .lit = false, .blend = .add }),
-            .textures = .{ .{ .image = flare_image }, .none },
-        };
         var small = try trailMesh(gpa, trail_image, false);
         errdefer small.deinit(gpa);
         var large = try trailMesh(gpa, trail_image, true);

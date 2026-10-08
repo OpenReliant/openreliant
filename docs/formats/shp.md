@@ -257,6 +257,14 @@ The kinds the game reads:
 | 4 | `part_burn_lights` (`0x00471470`) | Where a burning wreck's light stands: the first point |
 | 5 | `split_update` (`0x00470030`) | Where fireballs go off as a split ship's halves part |
 | 6 | `order_scoop_up` | Where a ship's two tractor beams come from: the first two points |
+| 7 | `jump_effect_start` (`0x00417670`) | Where a jump's trails stream from, the ship's engines |
+| 8 | `jump_effect_start` | Where a jump's lights stand along the hull |
+| 10 | `warp_projector_beams` (`0x0041D510`) | Where a warp projector's beams come from |
+| 11 | `order_dark_reign_shoot_110` (`0x0040D210`) | The two ends of an ion cannon's barrel, which its glow and its rings run between ([The ion cannon](../engine/ion-cannon.md)) |
+| 12 | `order_dark_reign_shoot_110` | Pairs of points an electric ray runs between as an ion cannon powers up |
+| 13 | `order_dark_reign_shoot_110_init` (`0x0040D020`) | Pairs of points on an ion cannon's barrel, a light in the middle of each |
+| 14 | `order_dark_reign_shoot_110` | Where an ion cannon's beam leaves: the first point |
+| 15 | `order_dark_reign_shoot_110` | Where an ion cannon's targeting laser leaves: the first point |
 
 The Ripper's orders take a part's first list, whatever its kind, which in the shipped models is
 kind 6: on each of the Ripper's back pincers, one point, where its beam comes from; and on a cargo

@@ -1,8 +1,9 @@
 //! `C:\lancer\game\aifuncs.cpp`: the orders a ship flies by: Mill, Do Nothing, Fly Aimlessly,
 //! Escort, Fly, Run Away, Find New Target, Find Scoop Up, Object Attach, Toggle Cloak, Slow Rotate,
-//! the Random Spins, Formation, Match Speed and Disrupted; the two that launch a missile; a capital
-//! ship's lurch as a torpedo strikes it (Make capship list left and right); the two that turn a
-//! ship's lights on and off; and orders 44 and 45, which stop the ship dead and back it up.
+//! the Random Spins, Formation, Match Speed and Disrupted; the two that launch a missile; Dark
+//! Reign shoot, which aims an ion cannon (`aiioncan.zig`); a capital ship's lurch as a torpedo
+//! strikes it (Make capship list left and right); the two that turn a ship's lights on and off; and
+//! orders 44 and 45, which stop the ship dead and back it up.
 //! [`aigeneric.zig`](aigeneric.zig) runs them, [`ai.zig`](ai.zig) steers for them, and
 //! `docs/engine/orders.md` describes what each does.
 //!
@@ -13,9 +14,8 @@
 //! like it.
 //!
 //! Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)): of the order routines
-//! here, those of Avoid Target (`0x0040B310`, `0x0040B330`), Dark Reign shoot (`0x0040BAD0`), Make
-//! Boridin section break away (`0x0040BF60`) and Rotate Boridin breakaway warp projector
-//! (`0x0040C100`).
+//! here, those of Avoid Target (`0x0040B310`, `0x0040B330`), Make Boridin section break away
+//! (`0x0040BF60`) and Rotate Boridin breakaway warp projector (`0x0040C100`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -931,6 +931,62 @@ fn lurchBy(slot: *create.Slot, flight: *const create.FlightModel, side: Lurch, t
     slot.state.list.until = now + turn.ticks;
 }
 
+// --- Dark Reign shoot ----------------------------------------------------------------------
+
+/// What Dark Reign shoot keeps in `order_state` as it walks its target's ships: the nearest it
+/// would fire at, weighed by the square of how far it is.
+pub const DarkReignState = extern struct {
+    _unknown_00: u32,
+    nearest: Pick,
+    _unknown_10: [0x90 - 0x10]u8,
+
+    comptime {
+        assert(@offsetOf(DarkReignState, "nearest") == 0x04);
+        assert(@sizeOf(DarkReignState) == 0x90);
+    }
+};
+
+/// `order_dark_reign_shoot` (`0x0040BAD0`): the update of Dark Reign shoot (33), which has no init.
+/// It walks the ships its target names (`ai.eachShip`) for the nearest it can fire at
+/// (`DarkReignShooting`), and queues Dark reign shoot (110), the ion cannon's order
+/// (`aiioncan.update`), at it, due at once (`aigeneric.queue`); with none, it pops. The queued order
+/// starts over it at the object's next orders (`aigeneric.objectOrders`), and once that one is done,
+/// this one walks again. The game also zeroes the cannon's search (`0x004E1C24`), which the queued
+/// order's init sets again before anything reads it.
+///
+/// Not ported: in a network game, only the machine that runs the AI walks, and only while the
+/// target's player is in the game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+pub fn darkReignShoot(ctx: Context, index: u16) void {
+    const slot = &ctx.world.objects.slots[index];
+    slot.state.dark_reign.nearest = .none;
+    var shooting: DarkReignShooting = .{ .all = ctx.world.objects, .index = index };
+    _ = ai.eachShip(ctx.world, slot.orders[0].target, &shooting);
+    const nearest = slot.state.dark_reign.nearest.kept() orelse return aigeneric.end(ctx, index);
+    // The game queues it numbered 1 (`aigeneric.Entry.sequence`), which the push numbers anew.
+    const entry: aigeneric.Entry = .{ .order = .dark_reign_shoot_110, .target = nearest, .sequence = 1, .data = .{ .words = @splat(0) } };
+    aigeneric.queue(ctx, index, entry, 0, @truncate(ctx.world.random.rand()));
+}
+
+/// `0x0040BA40`, Dark Reign shoot's visitor: a ship the Dark Reign can aim at (`ai.ValidTarget`)
+/// that is not fully invulnerable, nearer to it than the nearest so far, by where both will be
+/// next, becomes the nearest (`Pick.offer`). The game also passes over a cloaked ship, which the first
+/// test bars already.
+const DarkReignShooting = struct {
+    all: *create.Objects,
+    index: u16,
+
+    pub fn visit(shooting: *DarkReignShooting, target: aigeneric.Target) bool {
+        const all = shooting.all;
+        const found = ai.ValidTarget.of(all, target, .{}) orelse return false;
+        const ship = &all.slots[found.slot].object;
+        if (ship.invulnerable == .full) return false;
+        const slot = &all.slots[shooting.index];
+        const distance = math.distanceSquared(ship.nextPosition(), slot.object.nextPosition());
+        slot.state.dark_reign.nearest.offer(target, distance);
+        return false;
+    }
+};
+
 // --- Turns object lights on and off ---------------------------------------------------------
 
 /// What Turns object lights on keeps in `order_state`, which only the rogue base's lights, coming on
@@ -1504,6 +1560,38 @@ test "Find Scoop Up scoops up the nearest it may, one after another, and pops wi
     // With none left to aim at, it pops.
     aigeneric.objectOrders(ctx, searcher);
     findScoopUp(ctx, searcher);
+    try std.testing.expectEqual(0, slot.object.order_count);
+}
+
+test "Dark Reign shoot queues the ion cannon's order at the nearest ship it may fire at" {
+    var mission: GroupMission = undefined;
+    try mission.init(5, 3);
+    defer mission.game.deinit();
+    const game = &mission.game.mission;
+    const ctx = mission.game.orders();
+    // The Dark Reign at the origin, and the flight group of three ahead: the nearest fully
+    // invulnerable and the next cloaked.
+    const dark_reign = try game.addOther(@splat(0));
+    const invulnerable = try game.add(.of(.predator), .{ 0, 0, 5000 });
+    const cloaked = try game.add(.of(.predator), .{ 0, 0, 10000 });
+    const far = try game.add(.of(.predator), .{ 0, 0, 20000 });
+    for ([_]u16{ invulnerable, cloaked, far }) |index| game.slot(index).object.flags.targetable = true;
+    game.slot(invulnerable).object.invulnerable = .full;
+    game.slot(cloaked).object.flags.cloaked = true;
+
+    // It queues Dark reign shoot at the farthest, due at once.
+    _ = try aigeneric.push(ctx, dark_reign, .dark_reign_shoot, GroupMission.group);
+    darkReignShoot(ctx, dark_reign);
+    const slot = game.slot(dark_reign);
+    try std.testing.expectEqual(1, slot.waiting().len);
+    const queued = slot.waiting()[0];
+    try std.testing.expectEqual(Order.dark_reign_shoot_110, queued.entry.order);
+    try std.testing.expectEqual(far, queued.entry.target.slot());
+    try std.testing.expectEqual(game.clock.frame_start, queued.due);
+
+    // With none it may fire at, it pops.
+    game.slot(far).object.flags.targetable = false;
+    darkReignShoot(ctx, dark_reign);
     try std.testing.expectEqual(0, slot.object.order_count);
 }
 

@@ -484,6 +484,9 @@ pub const Slot = struct {
     /// What the current order keeps between its updates (`GameObject.order_state`), allocated with
     /// the stack.
     state: aigeneric.State = .{ .bytes = @splat(0) },
+    /// Its queue of orders waiting for their tick, `GameObject.queued_order_count` of them
+    /// (`GameObject.queued_orders`), which the game allocates with the first (`aigeneric.queue`).
+    queued: [aigeneric.max_queued]aigeneric.Queued = @splat(std.mem.zeroes(aigeneric.Queued)),
     /// Its guns, one for each muzzle of its model (`GameObject.guns`), made in the objects'
     /// allocator.
     guns: []guns.Fitted = &.{},
@@ -532,6 +535,13 @@ pub const Slot = struct {
     /// The entries of a stack, as mutable as the slot pointed at by `SlotPointer` is.
     fn Entries(comptime SlotPointer: type) type {
         return if (@typeInfo(SlotPointer).pointer.attrs.@"const") []const aigeneric.Entry else []aigeneric.Entry;
+    }
+
+    /// The orders waiting in its queue: `GameObject.queued_order_count` of them, none for a count
+    /// below 0 and no more than the queue holds.
+    pub fn waiting(slot: *Slot) []aigeneric.Queued {
+        const count = std.math.cast(usize, slot.object.queued_order_count) orelse 0;
+        return slot.queued[0..@min(count, slot.queued.len)];
     }
 
     /// The first entry of its stack that is `order`, where there is one (`player_control_entry`,
@@ -762,8 +772,8 @@ pub const Objects = struct {
     /// them. Its type's count of objects stays as it was. Mods' scripts are told first
     /// (`object_removed`).
     ///
-    /// Not ported: the `exit` routines popping those orders would run, none of which is ported yet
-    /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
+    /// Not ported: the game pops the orders first (`orders_pop_all`), which runs their `exit`
+    /// routines ([#856](https://github.com/OpenReliant/openreliant/issues/856)).
     pub fn resetSlot(all: *Objects, index: u16, random: *Random) void {
         const slot = &all.slots[index];
         if (slot.object.type.base() != .stand_in) hooks.tell(all, .object_removed, .{ .object = .of(index) });
@@ -1242,7 +1252,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     object.gun_turn = .first;
     object.blind_fire_aim = 0;
     object.sent_home = .none;
-    object._unknown_710 = @splat(0);
+    object.sync_points = @splat(0);
 
     const stats_type: TypeIndex = if (ship_type.hasStats()) @intCast(ship_type.number()) else {
         object.type_data = .null;

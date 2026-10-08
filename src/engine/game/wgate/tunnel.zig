@@ -629,7 +629,7 @@ pub fn fillRing(colours: [][4]f32, grid: Grid, ring: usize, shade: [4]f32) void 
 }
 
 /// One of the two flashes a ship jumping in shows at the tunnel's throat (`+0x74`, `+0x78`): a
-/// square (`loadout.squareMesh`, `square_side` across) over the whole of the flashes' texture,
+/// square `square_side` across over the whole of the flashes' texture (`loadout.addedSquare`),
 /// added to what is behind it by colours of its own.
 pub const Square = struct {
     mesh: srapiext.Mesh,
@@ -640,14 +640,7 @@ pub const Square = struct {
     depth: f32 = 0,
 
     pub fn build(square: *Square, gpa: Allocator, image: *srtexture.Image) Allocator.Error!void {
-        var mesh = try loadout.squareMesh(gpa, false, square_side, square_side);
-        errdefer mesh.deinit(gpa);
-        loadout.spanWhole(&mesh);
-        mesh.surfaces[0] = .{
-            .polygons = 2,
-            .material = .onePass(.{ .coordinates = .mesh, .lit = true, .blend = .add }),
-            .textures = .{ .{ .image = image }, .none },
-        };
+        const mesh = try loadout.addedSquare(gpa, square_side, square_side, true, image);
         square.* = .{ .mesh = mesh, .level = undefined, .object = undefined };
         square.level = .{.{ .mesh = &square.mesh, .until = std.math.inf(f32) }};
         square.object = .{

@@ -17,6 +17,7 @@ const aiexplode = @import("aiexplode.zig");
 const aifight = @import("aifight.zig");
 const aifuncs = @import("aifuncs.zig");
 const aidock = @import("aidock.zig");
+const aiioncan = @import("aiioncan.zig");
 const ailand = @import("ailand.zig");
 const airipper = @import("airipper.zig");
 const follow = @import("ai/follow.zig");
@@ -38,8 +39,7 @@ const wgate = @import("wgate.zig");
 /// Orders an object's stack holds; `order_push` refuses another.
 pub const max_stack = 20;
 
-/// Orders from other players an object's queue holds; `order_queue` stops with a fatal error past
-/// the last.
+/// Orders an object's queue holds (`queue`).
 pub const max_queued = 20;
 
 /// What an order is aimed at, as the `SetAI` command gives it.
@@ -237,12 +237,12 @@ test Entry {
     }
 }
 
-/// An order from another player in a multiplayer game, waiting for its frame: an entry of an
-/// object's queue.
+/// An order waiting in an object's queue for its tick (`queue`): one Dark Reign shoot queues, or
+/// in a network game one another player's machine sends.
 pub const Queued = extern struct {
     entry: Entry,
     _unknown_1a: u16,
-    /// **Unknown.** A byte the sender passes to `order_queue`.
+    /// **Unknown.** A byte the sender passes to `order_queue`, which a network game sends on.
     _unknown_1c: u32,
     /// The tick, counted by `mission_ticks`, from which `object_orders` may start it.
     due: i32,
@@ -273,6 +273,8 @@ pub const State = extern union {
     scoop_up: tractor.State,
     disrupted: aifuncs.DisruptedState,
     lights: aifuncs.LightsState,
+    dark_reign: aifuncs.DarkReignState,
+    ion_cannon: aiioncan.State,
     launch: launch.State,
     jump: jump.State,
     follow: follow.State,
@@ -537,6 +539,73 @@ pub fn end(ctx: Context, index: u16) void {
     _ = pop(ctx, index);
 }
 
+/// `order_queue` (`0x00402660`): queues `entry` for the object in slot `index`, due `delay` ticks
+/// after the frame's start, with `value`, a byte a network game sends on. An equal order already
+/// queued, the same order at the same target, stays where it is due no sooner, and otherwise
+/// leaves the queue for this one. `object_orders` starts it once it is due (`startQueued`).
+///
+/// **Fix:** past `max_queued` the game stops with a fatal error, "DPStack Overflow on %s";
+/// OpenReliant logs it and leaves the order out.
+///
+/// Not ported: the order sent on to the other players in a network game
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+pub fn queue(ctx: Context, index: u16, entry: Entry, delay: i32, value: u8) void {
+    const slot = &ctx.world.objects.slots[index];
+    if (slot.waiting().len >= max_queued) {
+        log.warn("DPStack Overflow on ship {d}: the order {f} is left out", .{ index, Named{ .order = entry.order } });
+        return;
+    }
+    const due = ctx.world.clock.frame_start + delay;
+    for (slot.waiting(), 0..) |waiting, at| {
+        if (waiting.entry.order != entry.order or !waiting.entry.target.eql(entry.target)) continue;
+        if (due <= waiting.due) return;
+        removeQueued(slot, at);
+        break;
+    }
+    slot.queued[slot.waiting().len] = .{ .entry = entry, ._unknown_1a = 0, ._unknown_1c = value, .due = due };
+    slot.object.queued_order_count += 1;
+}
+
+/// `object_orders`' start: each order waiting in the object's queue that is due by `mission_ticks`
+/// and of no lower priority than the current order (`queuedStarts`), in turn, is pushed (`give`)
+/// with the data it was queued with, and leaves the queue; an object not yet created lets it go
+/// unpushed.
+///
+/// **Fix:** the game writes the queued order's data over the order on top of the stack whether
+/// the push took or not; OpenReliant writes it to the order pushed alone.
+fn startQueued(ctx: Context, index: u16) void {
+    const all = ctx.world.objects;
+    const slot = &all.slots[index];
+    var at: usize = 0;
+    while (at < slot.waiting().len) {
+        const waiting = slot.waiting()[at];
+        if (waiting.due > ctx.world.clock.mission_ticks or !queuedStarts(all, slot, waiting.entry.order)) {
+            at += 1;
+            continue;
+        }
+        if (slot.object.created and give(ctx, index, waiting.entry.order, waiting.entry.target)) {
+            slot.orders[0].data = waiting.entry.data;
+        }
+        removeQueued(slot, at);
+    }
+}
+
+/// Whether a queued `order` may start over the current order of the object in `slot`: where it
+/// has none, or where `order`'s priority is no lower than its.
+fn queuedStarts(all: *const create.Objects, slot: *const create.Slot, order: Order) bool {
+    const current = slot.current() orelse return true;
+    const running = if (infoOf(all, current.order)) |info| info.priority else 0;
+    const queued = if (infoOf(all, order)) |info| info.priority else 0;
+    return running <= queued;
+}
+
+/// Removes entry `at` of the slot's queue, the entries after it moving up a place.
+fn removeQueued(slot: *create.Slot, at: usize) void {
+    const waiting = slot.waiting();
+    @memmove(waiting[at .. waiting.len - 1], waiting[at + 1 ..]);
+    slot.object.queued_order_count -= 1;
+}
+
 /// `orders_clear` (`0x0040CF50`): drops every order where the current one gives way, running only
 /// its `exit`, as the `ClearAI` command does.
 pub fn clear(ctx: Context, index: u16) Error!void {
@@ -602,24 +671,23 @@ fn remove(slot: *create.Slot, at: usize) void {
     slot.object.order_count -= 1;
 }
 
-/// `object_orders` (`0x0040C5F0`): runs an object's current order. A `retaliate` order lets the
-/// ship turn on whoever is shooting it first. Both burns are cleared, so an order that burns sets
-/// them again each time it runs. A one-shot order runs its update, pops itself and lets the order
-/// below run in the same pass; any other runs its `init` where it is starting, which the scripts
-/// hear of (`order_started`), then its update. Afterwards the object's own state has the last word:
-/// engines that are disabled hold the throttle at nothing, an empty tank stops both burns, and only
-/// a ship that can reverse keeps reverse thrust.
+/// `object_orders` (`0x0040C5F0`): runs an object's current order, once the orders waiting in its
+/// queue that are due have started (`startQueued`). A `retaliate` order lets the ship turn on
+/// whoever is shooting it first. Both burns are cleared, so an order that burns sets them again
+/// each time it runs. A one-shot order runs its update, pops itself and lets the order below run
+/// in the same pass; any other runs its `init` where it is starting, which the scripts hear of
+/// (`order_started`), then its update. Afterwards the object's own state has the last word: engines
+/// that are disabled hold the throttle at nothing, an empty tank stops both burns, and only a ship
+/// that can reverse keeps reverse thrust.
 ///
 /// **Improvement** (`input.force.Unread.played`): the player's afterburner lighting and going out
 /// starts and stops `Afterburn` on the controller (`input.force.Forces.afterburner`).
-///
-/// Not ported: the orders other players' machines queue, which are multiplayer's
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 ///
 /// **Improvement:** registered orders run protected script callbacks through the engine's script
 /// bridge. Completion or failure pops the order using the existing stack rules (#615).
 pub fn objectOrders(ctx: Context, index: u16) void {
     if (hooks.enter(.object_orders, objectOrders, .{ ctx, index })) |done| return done;
+    startQueued(ctx, index);
     const slot = &ctx.world.objects.slots[index];
     const object = &slot.object;
     if (slot.current()) |entry| {
@@ -764,6 +832,7 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
         .deathmatch_respawn_effect => {},
         .turns_object_lights_on => aifuncs.lightsOnInit(ctx, index),
+        .dark_reign_shoot_110 => aiioncan.init(ctx, index),
         // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .formation_regroup,
         .patrol_route,
@@ -771,7 +840,6 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .rotate_boridin_breakaway_warp_projector,
         .start_warp_projection_from_boridin,
         .avoid_target,
-        .dark_reign_shoot_110,
         => {},
         // The table gives these no `init`, or only `noop` (`0x004983A0`).
         .do_nothing,
@@ -861,14 +929,14 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .multiplayer_control, .deathmatch_respawn_effect => {},
         .turns_object_lights_on => aifuncs.lightsOn(ctx, index),
         .turns_object_lights_off => aifuncs.lightsOff(ctx, index),
+        .dark_reign_shoot => aifuncs.darkReignShoot(ctx, index),
+        .dark_reign_shoot_110 => aiioncan.update(ctx, index),
         // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .formation_regroup,
         .patrol_route,
-        .dark_reign_shoot,
         .move_to_spawn_pos,
         .start_warp_projection_from_boridin,
         .avoid_target,
-        .dark_reign_shoot_110,
         => {},
         // The table gives these no update, or only `noop` (`0x004983A0`).
         .random_spin_slow,
@@ -885,8 +953,7 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
 }
 
 /// The `exit` of the order, where OpenReliant runs it, which scripts can hook under the routine's
-/// name (`hooks.routine_hooks`). Dark reign shoot's isn't ported yet
-/// ([#30](https://github.com/OpenReliant/openreliant/issues/30)), nor multiplayer's
+/// name (`hooks.routine_hooks`). Multiplayer's isn't ported yet
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn runExit(ctx: Context, index: u16, info: orders.Info) void {
     if (orders.info(info.order) == null) {
@@ -901,8 +968,7 @@ fn runExit(ctx: Context, index: u16, info: orders.Info) void {
         .ship_follow_curve_backwards => follow.backwardsExit(ctx, index),
         .dock => aidock.exit(ctx, index),
         .ripper_grabs_target_object => airipper.grabExit(ctx, index),
-        // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
-        .dark_reign_shoot_110 => {},
+        .dark_reign_shoot_110 => aiioncan.exit(ctx, index),
         // Not ported: multiplayer's ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
         .deathmatch_respawn_effect => {},
         // The table gives the others no `exit`, which the build checks, so that one it gives
@@ -1161,6 +1227,51 @@ test objectOrders {
     slot.object.flags.engines_disabled = true;
     objectOrders(ctx, index);
     try std.testing.expectEqual(0, slot.object.throttle);
+}
+
+test queue {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const ctx = mission.orders();
+    const index = try mission.addOther(@splat(0));
+    const slot = &all.slots[index];
+    var entry: Entry = .{ .order = .slow_rotate, .target = .none, .sequence = 0, .data = .{ .words = @splat(0) } };
+    entry.data.words[0] = 7;
+
+    // An equal order due sooner leaves the one queued as it is; one due later takes its place.
+    mission.clock.frame_start = 100;
+    queue(ctx, index, entry, 50, 0);
+    queue(ctx, index, entry, 10, 0);
+    try std.testing.expectEqual(1, slot.waiting().len);
+    try std.testing.expectEqual(150, slot.waiting()[0].due);
+    queue(ctx, index, entry, 80, 0);
+    try std.testing.expectEqual(1, slot.waiting().len);
+    try std.testing.expectEqual(180, slot.waiting()[0].due);
+
+    // It starts once it is due, with the data it was queued with, and leaves the queue.
+    mission.clock.mission_ticks = 179;
+    startQueued(ctx, index);
+    try std.testing.expectEqual(0, slot.object.order_count);
+    mission.clock.mission_ticks = 180;
+    startQueued(ctx, index);
+    try std.testing.expectEqual(Order.slow_rotate, slot.orders[0].order);
+    try std.testing.expectEqual(7, slot.orders[0].data.words[0]);
+    try std.testing.expectEqual(0, slot.waiting().len);
+
+    // Over an order of a higher priority, it waits.
+    try std.testing.expect(queuedStarts(all, slot, .fly));
+    slot.orders[0].order = .land;
+    try std.testing.expect(!queuedStarts(all, slot, .fly));
+    try std.testing.expect(queuedStarts(all, slot, .explode));
+
+    // A full queue takes no more.
+    for (0..max_queued + 1) |n| {
+        entry.target = .at(@intCast(n), null);
+        queue(ctx, index, entry, 0, 0);
+    }
+    try std.testing.expectEqual(max_queued, slot.waiting().len);
 }
 
 test retaliate {

@@ -96,7 +96,7 @@ it in the game; OpenReliant gives every number a byte names a variable of its ow
 | 28 | `objectives_met` | Set by the script once the mission's objectives are met, as mission 1's is once the ambushers are destroyed. The debriefing of a mission the ejected pilot was picked up in tells the pilot the mission was a success by it, and a failure without it (`0x00424ECE`, `0x0042545B`) |
 | 30 | `ghost_alive` | Whether Ghost, the ace mission 1 puts up against the player, lives: mission 1's script clears it as Ghost dies, and mission 4's has Petrov say a line by it |
 | 33 | `countdown` | Seconds left, which mission 29's script sets. The game takes one off at every 100th tick of the mission (`0x00477889`), and in Instant Action's simulator and in mission 29 the display shows it as a clock in minutes and seconds, none below 0 (`0x004861FD`) |
-| 37 | `ion_cannons_hold_lock` | While it is set, the Dark Reign's ion cannon (order 110) keeps its target rather than losing it as the target flies into its cone or out of its angle, or giving up a long search in a multiplayer game (`0x0040D40F`, `0x0040D7D9`) |
+| 37 | `ion_cannons_hold_lock` | While it is set, an ion cannon (order 110) keeps its lock on its ship whatever would break it, and a tower in a network game doesn't give up a long search ([The ion cannon](ion-cannon.md), `0x0040D40F`, `0x0040D7D9`) |
 
 ### The campaign's flags
 

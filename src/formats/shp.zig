@@ -424,6 +424,18 @@ pub const PointList = struct {
         jump_lights = 8,
         /// Warp projector origins (`warp_projector_beams`, `0x0041D510`).
         warp_projectors = 10,
+        /// The two ends of an ion cannon's barrel, which its glow and its rings run between
+        /// (`order_dark_reign_shoot_110`).
+        ion_barrel = 11,
+        /// Pairs of points an electric ray runs between as an ion cannon powers up.
+        ion_rays = 12,
+        /// Pairs of points, a light in the middle of each, on an ion cannon's barrel
+        /// (`order_dark_reign_shoot_110_init`).
+        ion_lights = 13,
+        /// Where an ion cannon's beam leaves: the list's first point.
+        ion_beam = 14,
+        /// Where an ion cannon's targeting laser leaves: the list's first point.
+        ion_laser = 15,
         _,
     };
 };
