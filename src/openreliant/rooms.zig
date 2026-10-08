@@ -809,7 +809,7 @@ pub const Driver = struct {
         const elapsed = std.math.cast(i32, ticks -| driver.ticks) orelse std.math.maxInt(i32);
         driver.ticks = ticks;
         const window = movies.presenter.size();
-        driver.pointer.update(&devices.mouse, window, elapsed);
+        driver.pointer.update(&devices.mouse, window, canvas.fitted, elapsed);
         driver.sound.runTimer(driver.clock, ticks);
         if (driver.console) |console| try driver.consolePass(console, window);
         if (movies.scripts) |scripts| scripts.screenFrame(window);

@@ -52,6 +52,8 @@ const keys = [_]Key{
     .{ .name = size_key, .takes = "<width>x<height> or <percent>%", .read = byOption(.@"--size") },
     .{ .name = frame_rate_key, .takes = "<rate>", .read = byOption(.@"--fps") },
     .{ .name = vsync_key, .takes = on_off, .read = onOff("settings.vsync") },
+    .{ .name = field_of_view_key, .takes = std.fmt.comptimePrint("{d} to {d}", .{ engine.game.camera.least_field_of_view, engine.game.camera.most_field_of_view }), .read = byOption(.@"--fov") },
+    .{ .name = ui_scale_key, .takes = std.fmt.comptimePrint("{d} to {d}", .{ engine.game.hud.UiScale.least, engine.game.hud.UiScale.most }), .read = byOption(.@"--ui-scale") },
     .{ .name = sixteen_bit_key, .takes = on_off, .read = onOff("settings.sixteen_bit") },
     .{ .name = samples_key, .takes = "1, 2, 4 or 8", .read = byOption(.@"--msaa") },
     .{ .name = filter_key, .takes = "original, trilinear or crisp", .read = byOption(.@"--filter") },
@@ -81,6 +83,8 @@ const fullscreen_key = "Fullscreen";
 const size_key = "Size";
 const frame_rate_key = "FrameRate";
 const vsync_key = "Vsync";
+const field_of_view_key = "FieldOfView";
+const ui_scale_key = "UiScale";
 const samples_key = "Samples";
 const sixteen_bit_key = "SixteenBit";
 const filter_key = "Filter";
@@ -119,6 +123,7 @@ const graphics_keys = [_]FieldKey{
     .{ .field = "sixteen_bit", .name = sixteen_bit_key },
     .{ .field = "smooth_motion", .name = smooth_motion_key },
     .{ .field = "outline_fonts", .name = outline_fonts_key },
+    .{ .field = "ui_scale", .name = ui_scale_key },
     .{ .field = "mod_effects", .name = mod_effects_key },
 };
 
@@ -139,12 +144,13 @@ comptime {
 }
 
 /// An option's value as its key takes it, in `arena`: 1 or 0 for on and off, every shot's lights
-/// among them, a number as it is, and a choice by its name.
+/// among them, a number as it is, the UI's scale in percent, and a choice by its name.
 fn keyValue(arena: Allocator, value: anytype) Allocator.Error![]const u8 {
     return switch (@TypeOf(value)) {
         bool => if (value) "1" else "0",
         engine.game.guns.ShotLights => if (value == .every_shot) "1" else "0",
         u8 => arena.print("{d}", .{value}),
+        engine.game.hud.UiScale => arena.print("{d}", .{value.percent}),
         else => @tagName(value),
     };
 }
@@ -244,6 +250,10 @@ pub const Own = struct {
     shot_lights: ?*engine.game.guns.ShotLights = null,
     /// Whether the mods' shaders draw (`platform.gpu.Gpu.mod_effects`); none in the tests.
     mod_effects: ?*bool = null,
+    /// How far the views the player flies in see, and how large the display and the pause menu
+    /// are drawn, as the game draws them; none in the tests, which show them as they come.
+    field_of_view: ?*f32 = null,
+    ui_scale: ?*engine.game.hud.UiScale = null,
 
     pub const Display = struct {
         window: *platform.window.Window,
@@ -283,6 +293,7 @@ pub const Own = struct {
         if (own.smooth_motion) |smooth| smooth.* = chosen.smooth_motion;
         if (own.shot_lights) |lights| lights.* = chosen.shot_lights;
         if (own.mod_effects) |drawn| drawn.* = chosen.mod_effects;
+        if (own.ui_scale) |drawn| drawn.* = chosen.ui_scale;
         const display = own.display orelse return;
         const gpu = display.presenter.gpu;
         var wanted = gpu.settings;
@@ -360,6 +371,7 @@ pub const Own = struct {
             current.chosen.frame_rate = pacing.fps;
             current.chosen.vsync = pacing.vsync;
         }
+        if (own.field_of_view) |degrees| current.chosen.field_of_view = degrees.*;
         const display = own.display orelse return current;
         current.chosen.size = display.presenter.gpu.settings.size;
         current.chosen.fullscreen = display.window.fillsDisplay();
@@ -368,7 +380,8 @@ pub const Own = struct {
     }
 
     /// Writes what has changed of the display's options, and applies it from the next frame on:
-    /// the frames' size, the window filling the display or not, their pacing, and the GPU's vsync.
+    /// the frames' size, the window filling the display or not, their pacing, the GPU's vsync, and
+    /// the field of view.
     fn setDisplay(context: *anyopaque, chosen: screen.Own.Display.Chosen) void {
         const own: *Own = @ptrCast(@alignCast(context));
         own.changeDisplay(chosen) catch |err| log.warn("the display's options are not kept: {s}", .{@errorName(err)});
@@ -395,6 +408,13 @@ pub const Own = struct {
         if (chosen.vsync != current.vsync) {
             try file.writeInt(section, vsync_key, @intFromBool(chosen.vsync));
             if (own.pacing) |pacing| pacing.vsync = chosen.vsync;
+        }
+        if (chosen.field_of_view != current.field_of_view) {
+            // The game's is what the file says without the key.
+            if (chosen.field_of_view == engine.game.camera.original_field_of_view) {
+                try file.remove(section, field_of_view_key);
+            } else try file.write(section, field_of_view_key, try file.arena.print("{d}", .{chosen.field_of_view}));
+            if (own.field_of_view) |degrees| degrees.* = chosen.field_of_view;
         }
         const display = own.display orelse return;
         const gpu = display.presenter.gpu;
@@ -471,7 +491,7 @@ comptime {
     const display: screen.Own.Display.Chosen = .{};
     std.debug.assert(std.meta.eql(options.settings.size, display.size));
     std.debug.assert(options.fullscreen == display.fullscreen and options.settings.vsync == display.vsync);
-    std.debug.assert(options.fps == display.frame_rate);
+    std.debug.assert(options.fps == display.frame_rate and options.field_of_view == display.field_of_view);
 }
 
 /// The graphics' options as the game starts with them, the options' (`read`) and the game's
@@ -497,6 +517,7 @@ pub fn graphicsOf(options: Options, details: Details) screen.Own.Graphics {
         .sixteen_bit = gpu.sixteen_bit,
         .smooth_motion = options.smooth_motion,
         .outline_fonts = options.outline_fonts,
+        .ui_scale = options.ui_scale,
         .mod_effects = options.mod_effects,
     };
     return .{ .chosen = chosen, .running = .of(chosen) };
@@ -625,6 +646,17 @@ test "Own's display options" {
     shown.setDisplay(.{});
     try std.testing.expectEqual(null, pacing.fps);
     try std.testing.expectEqual(null, file.profile.value(section, frame_rate_key));
+    // The field of view is written in degrees, applied at once and read back the same; the game's
+    // takes the key out.
+    var degrees = engine.game.camera.original_field_of_view;
+    own.field_of_view = &degrees;
+    shown.setDisplay(.{ .field_of_view = 80 });
+    try std.testing.expectEqual(80, degrees);
+    try std.testing.expectEqual(80, shown.display().chosen.field_of_view);
+    try std.testing.expectEqualStrings("80", file.profile.value(section, field_of_view_key).?);
+    try std.testing.expectEqual(80, optionsOf(file.profile.text).field_of_view);
+    shown.setDisplay(.{});
+    try std.testing.expectEqual(null, file.profile.value(section, field_of_view_key));
 }
 
 test "Own's graphics options" {
@@ -666,6 +698,15 @@ test "Own's graphics options" {
     try std.testing.expectEqual(null, file.profile.value(screen.video.section, Details.graphic_key));
     try std.testing.expectEqual(Details{ .texture = .low, .light_maps = false }, Details.read(file.profile));
     try std.testing.expect(shown.graphics().waits());
+    // The UI's scale is written in percent, and changes at once.
+    var ui_scale: engine.game.hud.UiScale = .{};
+    own.ui_scale = &ui_scale;
+    var larger = lowered;
+    larger.ui_scale = .{ .percent = 100 };
+    shown.setGraphics(larger);
+    try std.testing.expectEqual(100, ui_scale.percent);
+    try std.testing.expectEqualStrings("100", file.profile.value(section, ui_scale_key).?);
+    try std.testing.expectEqual(larger.ui_scale, graphicsOf(optionsOf(file.profile.text), .{}).chosen.ui_scale);
 }
 
 test "Own's presets keep the file to its base" {

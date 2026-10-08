@@ -1,8 +1,9 @@
 //! The VIDEO tab's graphics (`Graphics`): the game's own details and OpenReliant's graphics
-//! options, and their presets. GRAPHICS, a row of the video's at the tab's top, sets every option
-//! at once: its arrows flip between ORIGINAL, the original's look, and MODERN, OpenReliant's, and it
-//! shows CUSTOM once an option differs from both. Below it, the options stand a row each in a pane
-//! that shows four of them and scrolls as the controls' list does (`widgets.Pane`).
+//! options, and their presets. GRAPHICS, a row of the video's at the tab's top, sets every option at
+//! once but UI SCALE and MOD EFFECTS, which it leaves as they are: its arrows flip between ORIGINAL,
+//! the original's look, and MODERN, OpenReliant's, and it shows CUSTOM once an option differs from
+//! both. Below it, the options stand a row each in a pane that shows three of them and scrolls as
+//! the controls' list does (`widgets.Pane`).
 //!
 //! A change is applied and written at once, as the driver keeps it (`settings.Own`), but for the
 //! options that take effect at the next start (`Own.Graphics.Running`): the original's look beneath
@@ -36,8 +37,8 @@ const steppedChoice = widgets.steppedChoice;
 const steppedIndex = widgets.steppedIndex;
 
 /// The rows, from the top: the game's own details, as its video screen has them, then the
-/// lighting, the shadows and the shots' lights, then the frame's look, then the motion and the
-/// text.
+/// lighting, the shadows and the shots' lights, then the frame's look, then the motion, the text and
+/// the UI's size.
 pub const Row = enum {
     texture_detail,
     graphic_detail,
@@ -56,6 +57,7 @@ pub const Row = enum {
     color_depth,
     smooth_motion,
     outline_fonts,
+    ui_scale,
     mod_effects,
 
     /// Its label: the game's TEXTURE DETAIL, GRAPHIC DETAIL and LIGHT MAPS (`0x110`, `0x111`,
@@ -79,6 +81,7 @@ pub const Row = enum {
             .color_depth => .{ .words = "COLOR DEPTH" },
             .smooth_motion => .{ .words = "SMOOTH MOTION" },
             .outline_fonts => .{ .words = "OUTLINE FONTS" },
+            .ui_scale => .{ .words = "UI SCALE" },
             .mod_effects => .{ .words = "MOD EFFECTS" },
         };
     }
@@ -91,7 +94,7 @@ pub const Row = enum {
             .shadows, .materials => chosen.pixel_lighting,
             .cockpit_shadows => chosen.pixel_lighting and chosen.shadows != .off,
             .linear_light => !chosen.sixteen_bit,
-            .texture_detail, .graphic_detail, .light_maps, .pixel_lighting, .shot_lights, .real_lights, .bloom, .dither, .filter, .anti_aliasing, .color_depth, .smooth_motion, .outline_fonts, .mod_effects => true,
+            .texture_detail, .graphic_detail, .light_maps, .pixel_lighting, .shot_lights, .real_lights, .bloom, .dither, .filter, .anti_aliasing, .color_depth, .smooth_motion, .outline_fonts, .ui_scale, .mod_effects => true,
         };
     }
 
@@ -140,6 +143,7 @@ pub const Choice = enum {
     filter,
     anti_aliasing,
     color_depth,
+    ui_scale,
 
     /// Its choice a step from `graphics`' chosen one, in the choices' order, round from the last to
     /// the first.
@@ -153,6 +157,7 @@ pub const Choice = enum {
             .filter => chosen.filter = steppedChoice(Own.Graphics.Filter, chosen.filter, by),
             .anti_aliasing => chosen.samples = steppedSamples(graphics.*, by),
             .color_depth => chosen.sixteen_bit = !chosen.sixteen_bit,
+            .ui_scale => chosen.ui_scale = steppedScale(chosen.ui_scale, by),
         }
     }
 
@@ -177,9 +182,29 @@ pub const Choice = enum {
             } },
             .anti_aliasing => .{ .words = samplesText(drawnSamples(graphics)) },
             .color_depth => .{ .words = if (chosen.sixteen_bit) "16-BIT" else "32-BIT" },
+            .ui_scale => .{ .words = percentWords(chosen.ui_scale) },
         };
     }
 };
+
+/// UI SCALE's value: its percentage, as a setting may hold it.
+fn percentWords(scale: hud.UiScale) []const u8 {
+    const least = hud.UiScale.least;
+    const words = comptime written: {
+        @setEvalBranchQuota(10_000);
+        var table: [hud.UiScale.most - least + 1][]const u8 = undefined;
+        for (&table, least..) |*each, percent| each.* = std.fmt.comptimePrint("{d}%", .{percent});
+        break :written table;
+    };
+    return words[std.math.clamp(scale.percent, least, hud.UiScale.most) - least];
+}
+
+/// The UI's scale a step from `scale`, through `hud.UiScale.steps`; from a percentage between
+/// them, on to the first or back to the last.
+fn steppedScale(scale: hud.UiScale, step: Step) hud.UiScale {
+    const steps = &hud.UiScale.steps;
+    return .{ .percent = steps[steppedIndex(std.mem.findScalar(u8, steps, scale.percent), steps.len, step)] };
+}
 
 /// The game's word for `detail`, a texture or a graphic detail (`0x0042F44C` on): LOW, MEDIUM or
 /// HIGH. Its video screen calls the texture detail's 0 LOW and 1 HIGH, and a file's 2, its highest,
@@ -255,8 +280,8 @@ const presets_line: Line = .{ .y = 121, .edge = edge };
 /// The pane (`widgets.Pane.settingsList`), a gap below GRAPHICS' arrows.
 const pane: Pane = .settingsList(presets_line.y - 1 + Line.arrows_height + gap, shown_rows);
 
-/// The rows the pane shows at once.
-pub const shown_rows = 4;
+/// The rows the pane shows at once, which leaves room below for the video's rows.
+pub const shown_rows = 3;
 
 /// Where the pane's frame ends, which the rows below stand a gap from.
 pub const pane_bottom = pane.frame.at[1] + pane.frame.extent[1];
@@ -426,26 +451,41 @@ fn lineOf(tab: *Graphics, row: Row) Line {
     return pane.line(tab.list.place(index).?);
 }
 
-test "the rows stand in the pane, four shown" {
-    // The pane's frame from y 155, a gap below GRAPHICS' arrows, to 282; its rows from 162, 30
+test "the rows stand in the pane, three shown" {
+    // The pane's frame from y 155, a gap below GRAPHICS' arrows, to 252; its rows from 162, 30
     // apart.
     try std.testing.expectEqual(155, pane.frame.at[1]);
-    try std.testing.expectEqual(282, pane_bottom);
+    try std.testing.expectEqual(252, pane_bottom);
     try std.testing.expectEqual(162, pane.line(0).y);
-    try std.testing.expectEqual(252, pane.line(shown_rows - 1).y);
+    try std.testing.expectEqual(222, pane.line(shown_rows - 1).y);
     var tab: Graphics = .{};
     // MOD EFFECTS, the last, is shown once the list is scrolled to its end.
-    try std.testing.expectEqual(252, lineOf(&tab, .mod_effects).y);
+    try std.testing.expectEqual(222, lineOf(&tab, .mod_effects).y);
     try std.testing.expectEqual(rows.len - shown_rows, tab.list.rows.first);
 }
 
-test "the presets leave MOD EFFECTS as it is" {
+test "the presets leave UI SCALE and MOD EFFECTS as they are" {
     var chosen = Preset.modern.chosen();
     chosen.mod_effects = false;
+    chosen.ui_scale = .{ .percent = 100 };
     try std.testing.expectEqual(Preset.modern, chosen.preset().?);
     const applied = chosen.withPreset(.original);
     try std.testing.expect(!applied.mod_effects and applied.original);
+    try std.testing.expectEqual(100, applied.ui_scale.percent);
     try std.testing.expectEqual(Preset.original, applied.preset().?);
+}
+
+test steppedScale {
+    // Through the steps, round from the last to the first; from a percentage between them, on to
+    // the first or back to the last.
+    try std.testing.expectEqual(90, steppedScale(.{}, .on).percent);
+    try std.testing.expectEqual(70, steppedScale(.{}, .back).percent);
+    try std.testing.expectEqual(50, steppedScale(.{ .percent = 100 }, .on).percent);
+    try std.testing.expectEqual(50, steppedScale(.{ .percent = 75 }, .on).percent);
+    try std.testing.expectEqual(100, steppedScale(.{ .percent = 75 }, .back).percent);
+    try std.testing.expectEqualStrings("80%", percentWords(.{}));
+    try std.testing.expectEqualStrings("100%", percentWords(.{ .percent = 100 }));
+    try std.testing.expectEqualStrings("75%", percentWords(.{ .percent = 75 }));
 }
 
 test steppedPreset {

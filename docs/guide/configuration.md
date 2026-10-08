@@ -39,6 +39,8 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--size <width>x<height>\|<percent>%` | Draw frames of this size in pixels whatever the window's, which shows them scaled, as for a screenshot larger than the display; or a share of the window's own, such as `50%`, to draw faster; the window's own by default |
 | `--fps <rate>` | Frames a second at most; without vsync, the display's rate by default; 0 for no limit |
 | `--no-vsync` | Draw without waiting for the display |
+| `--fov <degrees>` | How far the views you fly in see up and down, from 34 to 94 degrees; the original's, about 64, by default. A wider window shows more at the sides |
+| `--ui-scale <percent>` | How large the display and the pause menu are drawn, from 50 to 100 percent of the size the menus are drawn at; 80 by default, the original's size at 800 by 600 |
 
 ## Graphics
 
@@ -166,6 +168,8 @@ Samples=8
 | `Size` | `<width>x<height>`, or a share of the window's own such as `50%`, which VIDEO's RESOLUTION sets | `--size` |
 | `FrameRate` | Frames a second at most, which VIDEO's FRAME RATE LIMIT sets; 0 for no limit, and without it, the display's rate where vsync is off | `--fps` |
 | `Vsync` | 1 or 0, which VIDEO's VSYNC sets | `--no-vsync` |
+| `FieldOfView` | Degrees up and down, from 34 to 94, which VIDEO's FIELD OF VIEW sets; without it, the original's | `--fov` |
+| `UiScale` | A percentage from 50 to 100, which VIDEO's UI SCALE sets; 80 by default. GRAPHICS' presets and `Original` leave it as it is | `--ui-scale` |
 | `SixteenBit` | 1 or 0, which VIDEO's COLOR DEPTH sets: 16-BIT or 32-BIT | `--16-bit` |
 | `Samples` | 1, 2, 4 or 8, which VIDEO's ANTI-ALIASING sets | `--msaa` |
 | `Filter` | `original`, `trilinear` or `crisp`, which VIDEO's TEXTURE FILTER sets | `--filter` |

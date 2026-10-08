@@ -50,15 +50,19 @@ with the screen's size at `sr + 0x1666` and `sr + 0x166A`. Half of the way acros
 
 The places move with the screen, but the shapes and the glyphs do not: the game draws them at their own size whatever the resolution, and the window it makes is 640 by 480 (`0x004A85BC`).
 
-**Improvement:** OpenReliant draws the display as large against the window as it stood against a
-1024 by 768 screen, a mode the hardware renderers run in and the size of the retail game's own
-screenshots, by whichever side has room for less, so it keeps its shape. What the display measures
-in its own pixels, the inset and the margin and an element's offset, is scaled with it; the fraction
-of the window is not, so the display still reaches the edges of a window of any shape. At a scale of
-1 the arithmetic is the game's own. Half of the way across then falls within a pixel or so of the
-middle rather than exactly on it, the inset having grown. Since the offsets are fixed in pixels, the
-screen chosen sets how far in the elements stand: at 640 by 480 the clock, 130 above the foot,
-stands near two thirds of the way down, and at 1024 by 768 near four fifths.
+**Improvement:** OpenReliant draws the display at the size the settings screen's UI SCALE sets
+(`hud.UiScale`), as it does the pause menu and the settings screen the pause menu opens
+([Video](front-end.md#video)). UI SCALE is a percentage of the size the front end is drawn at, as
+large as 640 by 480 fits in the window, by whichever side has room for less, so the display keeps
+its shape. At 100 it stands against any window as the game's stood against 640 by 480, its window's
+first size; at the default, 80, as on 800 by 600; and at 62.5 it would stand as on 1024 by 768. What
+the display measures in its own pixels, the inset and the margin and an element's offset, is scaled
+with it; the fraction of the window is not, so the display still reaches the edges of a window of
+any shape. At a scale of 1 the arithmetic is the game's own. Half of the way across then falls
+within a pixel or so of the middle rather than exactly on it, the inset having grown. Since the
+offsets are fixed in the display's pixels, the scale sets how far in the elements stand: at 100 the
+clock, 130 above the foot, stands near two thirds of the way down, as the game has it at 640 by 480,
+and at 62.5 near four fifths, as at 1024 by 768.
 
 **Improvement:** a mod's display can stand in for any of the instruments, or move and scale them
 ([The game's instruments](../guide/scripting.md#the-games-instruments)). Each instrument draws through
@@ -111,7 +115,8 @@ blitting it (`VFX_character_draw`), so on the GPU the display costs the processo
 without blurring. What it draws is the same: the font's palette looked up for each byte, index 0
 left clear, over the scene with the engine's own overlay-layer depth and alpha blend. The software
 device draws the rectangles too, and `--original` draws the display the same way, since OpenReliant
-draws the display larger on a larger window (`scaleFor`), where the game blitted it at its own size.
+draws the display larger on a larger window (`hud.UiScale`), where the game blitted it at its own
+size.
 
 ## Which views have it
 

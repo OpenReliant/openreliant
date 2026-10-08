@@ -360,7 +360,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var pacing = options.pacing();
 
     var context: srapi.Context = .{
-        .projection = (camera.Camera{}).projection(initial_size[0], initial_size[1]),
+        .projection = (camera.Camera{}).projection(initial_size[0], initial_size[1], options.field_of_view),
         .detail = game.main.detailDivisor(details.graphic),
         .finer = options.detail_reach.finer(),
     };
@@ -393,9 +393,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // What draws the frames outside the game's loop: the movies', and the loading screens'.
     var presenter: Presenter = .{ .window = &window, .gpu = gpu, .driver = &driver, .context = &context };
     defer presenter.close(gpa);
-    // Whether what moves is drawn between the game's ticks, which the settings screen changes as
-    // the game plays.
+    // Whether what moves is drawn between the game's ticks, and how far the views the player flies
+    // in see, which the settings screen changes as the game plays.
     var smooth_motion = options.smooth_motion;
+    var field_of_view = options.field_of_view;
     // OpenReliant's own options as the settings screen shows and changes them.
     var own: settings_module.Own = .{
         .settings_file = settings_file,
@@ -406,6 +407,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .graphics = settings_module.graphicsOf(options, details),
         .smooth_motion = &smooth_motion,
         .mod_effects = &gpu.mod_effects,
+        .field_of_view = &field_of_view,
     };
     // The screenshots the 0 key saves in flight and O in the briefing, in the game's folder.
     var screenshots: game.xtrabits.screenshot.Screenshots = .{ .io = io, .directory = directory };
@@ -619,6 +621,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .gpa = gpa,
         .device = undefined,
         .screen = .{ 0, 0 },
+        .ui_scale = options.ui_scale,
         .objects = objects,
         .play = undefined,
         .clock = &clock,
@@ -637,6 +640,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         },
     };
     defer display.resources.deinit(gpa);
+    own.ui_scale = &display.ui_scale;
     world.display = &display.state;
     // A switch of view picks the subtarget's parts out in red or puts them back (`camera_set_view`).
     view.subtarget = .{ .shown = &display.state.subtarget, .all = objects };
@@ -1157,6 +1161,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .display = &display.state,
                     .sight = display.sight,
                     .screen = display.screen,
+                    .ui_scale = display.ui_scale,
                     .last_view = last_view,
                     .cockpit = if (cockpit.shown) |*shown| shown else null,
                     .forces = &force_feedback,
@@ -1190,7 +1195,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 frames.show(&host, .ui, &fonts.small.font, game.interface.canvas.scaleFor(size), if (fonts.shapes) |*art| art else null);
             } else {
                 const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
-                if (script_font) |*file| frames.show(&host, layer, &file.font, game.hud.scaleFor(size), &display.resources.art);
+                if (script_font) |*file| frames.show(&host, layer, &file.font, display.ui_scale.of(size), &display.resources.art);
                 host.camera = .{ .camera = &view, .now = clock.viewTime(), .player = objects.player };
                 host.flight = .{
                     .hud = &display.state,
@@ -1223,10 +1228,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
         } else {
             context.camera = .{ .position = view.place.position, .orientation = view.place.orientation };
-            context.projection = view.projection(size[0], size[1]);
+            context.projection = view.projection(size[0], size[1], field_of_view);
             // The cockpit's model hangs from the camera, and the radar's backing stands on the radar.
             if (cockpit.shown) |*shown| if (view.cockpit_place) |placed| game.main.cockpit.place(&shown.model, view.place, placed);
-            backing.place(context.projection, view.place, game.hud.scaleFor(size), display.placements.get(.radar));
+            backing.place(context.projection, view.place, display.ui_scale.of(size), display.placements.get(.radar));
             display.device = gpu.interface();
             display.screen = size;
             display.sight = .{ .place = view.place, .projection = context.projection };
@@ -2175,6 +2180,8 @@ const Display = struct {
     /// What it draws into, filled in each frame before the scene is drawn.
     device: srd3d.device.Device,
     screen: [2]u32,
+    /// How large the display and the pause menu are drawn, which the settings screen changes.
+    ui_scale: game.hud.UiScale,
     /// Last frame's view, which is what `hud_draw` reads to know whether to draw the instruments.
     last_view: camera.View = .cockpit,
     /// What the cockpit view shows, which leaves the reticle out of the chase view.
@@ -2245,6 +2252,7 @@ const Display = struct {
         return display.pause_menu.draw(.{
             .target = display.device,
             .screen = display.screen,
+            .ui_scale = display.ui_scale,
             .art = &display.resources.art,
             .font = &display.resources.font,
             .strings = display.strings,
@@ -2260,6 +2268,7 @@ const Display = struct {
             .gpa = display.gpa,
             .device = display.device,
             .screen = display.screen,
+            .ui_scale = display.ui_scale,
             .sight = display.sight,
             .all = display.objects,
             .player = display.player,

@@ -142,6 +142,9 @@ pub const Own = struct {
             frame_rate: ?f32 = null,
             /// Whether the display paces the frames.
             vsync: bool = true,
+            /// How far the views the player flies in see up and down, in degrees
+            /// (`camera.factorsFor`).
+            field_of_view: f32 = camera.original_field_of_view,
         };
 
         pub const Told = struct {
@@ -188,22 +191,26 @@ pub const Own = struct {
             smooth_motion: bool = true,
             /// Whether the interface's text is drawn from outline fonts.
             outline_fonts: bool = true,
-            /// Whether the mods' shaders draw. The presets leave it alone, since a mod's
-            /// effects are part of the mod, like its textures.
+            /// How large the display and the pause menu are drawn.
+            ui_scale: hud.UiScale = .{},
+            /// Whether the mods' shaders draw.
             mod_effects: bool = true,
 
-            /// The preset these options match, if any, ignoring `mod_effects`.
+            /// The options the presets leave as they are: the UI's scale, which is the player's
+            /// own rather than a look, and the mods' shaders, which are part of the mods, like
+            /// their textures.
+            const kept = [_][]const u8{ "ui_scale", "mod_effects" };
+
+            /// The preset these options match, if any, whatever the options it keeps.
             pub fn preset(chosen: Chosen) ?Preset {
-                var compared = chosen;
-                compared.mod_effects = true;
-                for (std.enums.values(Preset)) |each| if (std.meta.eql(compared, each.chosen())) return each;
+                for (std.enums.values(Preset)) |each| if (std.meta.eql(chosen, chosen.withPreset(each))) return each;
                 return null;
             }
 
-            /// The options of `wanted`, keeping `chosen`'s `mod_effects`.
+            /// The options of `wanted`, keeping `chosen`'s that the presets leave alone.
             pub fn withPreset(chosen: Chosen, wanted: Preset) Chosen {
                 var applied = wanted.chosen();
-                applied.mod_effects = chosen.mod_effects;
+                inline for (kept) |name| @field(applied, name) = @field(chosen, name);
                 return applied;
             }
         };

@@ -91,12 +91,12 @@ test "the film keeps its shape at any window's size" {
     var level = [1]srtexture.Level{.{ .width = across, .height = down, .texels = &rgba }};
     var picture: srtexture.Image = .{ .levels = &level };
     var random: Random = .{};
-    // The display is drawn at one scale both ways, the least of the window's to 1024 by 768, so
-    // the film stands 6 to 5 whatever the window's shape, and shaken, a row at a time, as well.
+    // The display is drawn at one scale both ways, from the least of the window's to 640 by 480,
+    // so the film stands 6 to 5 whatever the window's shape, and shaken, a row at a time, as well.
     for ([_][2]u32{ .{ 1024, 768 }, .{ 1920, 1080 }, .{ 768, 1024 }, .{ 3440, 1440 }, .{ 640, 480 } }) |screen| {
         var recorder: device.testing.Recorder = .{ .gpa = gpa };
         defer recorder.deinit();
-        const scale = hud.scaleFor(screen);
+        const scale = (hud.UiScale{}).of(screen);
         const pen = hud.testing.pen(undefined, gpa, recorder.interface());
         const canvas: windows.Canvas = .{ .pen = pen.sized(scale), .at = .{ 0, 0 }, .clip = null };
         canvas.imageShaken(&picture, picture_at, null);

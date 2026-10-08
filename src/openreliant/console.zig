@@ -91,7 +91,7 @@ pub const Driver = struct {
         const ticks = platform.window.ticks();
         const elapsed = std.math.cast(i32, ticks -| driver.ticks) orelse std.math.maxInt(i32);
         driver.ticks = ticks;
-        driver.pointer.update(&devices.mouse, window, elapsed);
+        driver.pointer.update(&devices.mouse, window, canvas.fitted, elapsed);
         const action = screen.frame(&driver.console, .{
             .keyboard = &devices.keyboard,
             .typed = typed,

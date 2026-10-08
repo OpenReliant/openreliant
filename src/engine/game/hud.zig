@@ -18,7 +18,7 @@
 //! it draws is the same: a glyph's bytes index the font's own palette, as they do for
 //! `VFX_character_draw`, and index 0 is left clear. The state is the engine's own, an overlay-layer
 //! depth and its alpha blend. `--original` draws the same way, since OpenReliant draws the display
-//! larger on a larger window (`scaleFor`), where the game blitted it at its own size.
+//! larger on a larger window (`UiScale`), where the game blitted it at its own size.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -158,20 +158,39 @@ const lock_warning_sample = 0;
 const inset: i32 = 0x21;
 const margin: i32 = 0x10;
 
-/// The screen OpenReliant draws the display for: 1024 by 768, a mode the hardware renderers run in
-/// and the size of the retail game's own screenshots. At that size `scaleFor` is 1 and OpenReliant
-/// draws the display as the game does. The game's window starts at 640 by 480 (`0x004A85BC`),
-/// where the same offsets in pixels stand further in from the edges.
-pub const base_screen: [2]u32 = .{ 1024, 768 };
+/// The screen the game's window starts at (`0x004A85BC`), 640 by 480, which the front end fills
+/// (`interface.canvas.size`).
+pub const original_screen: [2]u32 = .{ 640, 480 };
 
-/// **Improvement.** How much larger than its own art the display is drawn in a window of `screen`.
-/// The game drew its shapes and its glyphs at their own size whatever the window's, so on a screen
-/// several times the one it was drawn for they come out a fraction of the size they had.
-/// OpenReliant draws them as large against the window as they stood against `base_screen`, by
-/// whichever side has room for less so that the display keeps its shape. Drawing at 1 is what the
-/// game does.
-pub fn scaleFor(screen: [2]u32) f32 {
-    return fit(screen, base_screen);
+/// **Improvement.** How large OpenReliant draws what it shows over a mission: the display, the
+/// pause menu and the settings screen the pause menu opens, all at one size, which the settings
+/// screen's UI SCALE sets. It is a percentage of the size the front end is drawn at, as large as
+/// `original_screen` fits in the window, so the display keeps its proportions on any window. The
+/// game drew its shapes and its glyphs at their own size whatever the window's: 100 on a 640 by 480
+/// window, 80 on 800 by 600 and 62.5 on 1024 by 768, and smaller on today's larger screens.
+pub const UiScale = struct {
+    percent: u8 = 80,
+
+    /// The percentages UI SCALE steps through.
+    pub const steps = [_]u8{ 50, 60, 70, 80, 90, 100 };
+    /// The least and the most a setting may hold.
+    pub const least = steps[0];
+    pub const most = steps[steps.len - 1];
+
+    /// How many of the window's pixels one of the art's spans in a window of `screen`.
+    pub fn of(ui_scale: UiScale, screen: [2]u32) f32 {
+        return fit(screen, original_screen) * ui_scale.share();
+    }
+
+    /// The percentage as a share.
+    pub fn share(ui_scale: UiScale) f32 {
+        return @as(f32, @floatFromInt(ui_scale.percent)) / 100;
+    }
+};
+
+comptime {
+    // UI SCALE's arrows step to the default and back.
+    assert(std.mem.findScalar(u8, &UiScale.steps, (UiScale{}).percent) != null);
 }
 
 /// How many times larger than `base` what is drawn for it comes out on `screen`, by whichever side
@@ -1244,13 +1263,12 @@ fn inked(colour: [4]f32, ink: [3]u8) [4]f32 {
 
 /// **Improvement:** OpenReliant's name and `version`, written in `font`, the menus' small font
 /// (`small_menu_font`), dimmed and right-aligned in the bottom right corner of a window `screen`
-/// pixels in size, scaled as the display is (`scaleFor`). The menus show it (the front end's
-/// screens, the loading screens, the in-game options and the pause menu), but not the Reliant's
-/// rooms, which are gameplay.
-pub fn drawVersion(font: *Opened, gpa: Allocator, into: device.Device, screen: [2]u32, version: []const u8) Allocator.Error!void {
+/// pixels in size, drawn `scale` times its size as the menu that shows it is. The menus show it
+/// (the front end's screens, the loading screens, the in-game options and the pause menu), but not
+/// the Reliant's rooms, which are gameplay.
+pub fn drawVersion(font: *Opened, gpa: Allocator, into: device.Device, screen: [2]u32, version: []const u8, scale: f32) Allocator.Error!void {
     var buffer: [64]u8 = undefined;
     const text = std.mem.print(&buffer, "OpenReliant {s}", .{version}) catch version;
-    const scale = scaleFor(screen);
     const height: i32 = @intCast(font.font.header.height);
     const at: [2]i32 = .{
         @as(i32, @intCast(screen[0])) - pixels(version_margin, scale),
@@ -1682,14 +1700,17 @@ test "a scaled element keeps its share of the window" {
     try std.testing.expectEqual([2]i32{ 2509, 1389 }, place(.{ 2560, 1440 }, .{ 0, 0 }, 1, 1, 3));
 }
 
-test scaleFor {
-    // The screen the display is drawn for leaves it at its own size.
-    try std.testing.expectEqual(1, scaleFor(base_screen));
+test UiScale {
+    // At 100, the art stands against any window as it stood against the game's 640 by 480.
+    const full: UiScale = .{ .percent = 100 };
+    try std.testing.expectEqual(1, full.of(original_screen));
     // Wider than it is tall: the side with room for less wins.
-    try std.testing.expectEqual(1.875, scaleFor(.{ 2560, 1440 }));
-    try std.testing.expectEqual(2, scaleFor(.{ 2048, 1536 }));
-    // A window smaller than the screen it was drawn for draws it smaller, so that it still fits.
-    try std.testing.expectEqual(0.625, scaleFor(.{ 640, 480 }));
+    try std.testing.expectEqual(3, full.of(.{ 2560, 1440 }));
+    try std.testing.expectEqual(3.2, full.of(.{ 2048, 1536 }));
+    // By default, as the game drew it on 800 by 600.
+    try std.testing.expectApproxEqAbs(1, (UiScale{}).of(.{ 800, 600 }), 1e-6);
+    try std.testing.expectApproxEqAbs(1.8, (UiScale{}).of(.{ 1920, 1080 }), 1e-6);
+    try std.testing.expectApproxEqAbs(0.625, (UiScale{ .percent = 50 }).of(.{ 800, 600 }), 1e-6);
 }
 
 test gridPlace {
@@ -1803,10 +1824,9 @@ test drawVersion {
     var recorder: device.testing.Recorder = .{ .gpa = gpa };
     defer recorder.deinit();
 
-    // On a window twice the display's size, the line ends 16 pixels in from the right edge and 16
-    // up from the foot. The fixture's code 1, the version's last character, is the only one with
-    // a glyph.
-    try drawVersion(&opened, gpa, recorder.interface(), .{ 2048, 1536 }, "\x01");
+    // Drawn twice its size, the line ends 16 pixels in from the right edge and 16 up from the
+    // foot. The fixture's code 1, the version's last character, is the only one with a glyph.
+    try drawVersion(&opened, gpa, recorder.interface(), .{ 2048, 1536 }, "\x01", 2);
     try std.testing.expectEqual(1, recorder.draws.items.len);
     const width: f32 = @floatFromInt(opened.widths[1]);
     const height: f32 = @floatFromInt(opened.font.header.height);
@@ -2040,7 +2060,7 @@ pub const Pen = struct {
     /// The window's size (`place`).
     screen: [2]u32,
     colour: [4]f32,
-    /// How many of the screen's pixels each of the display's own spans (`scaleFor`).
+    /// How many of the screen's pixels each of the display's own spans (`UiScale.of`).
     scale: f32,
     /// How the display shakes this frame (`Interference.shake`); null while it stands still.
     shake: ?Shake = null,
@@ -2145,6 +2165,8 @@ pub const Frame = struct {
     /// What the display draws into: Surrender's device.
     device: device.Device,
     screen: [2]u32,
+    /// How large the display is drawn.
+    ui_scale: UiScale,
     /// The scene as it is drawn this frame; null before the first.
     sight: ?Sight,
     all: *create.Objects,
@@ -2392,7 +2414,7 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
         .device = frame.device,
         .screen = frame.screen,
         .colour = untinted,
-        .scale = scaleFor(frame.screen),
+        .scale = frame.ui_scale.of(frame.screen),
         .shake = state.interference.shake(frame.hit_shake, frame.random),
     };
     // Each instrument draws through its own placing, which the mods' displays may move or stand
@@ -3999,7 +4021,7 @@ pub const Keys = struct {
     sight: ?Sight,
     /// Last frame's view (`camera_view_last`).
     last_view: camera.View,
-    /// How much larger than its own art the display is drawn (`scaleFor`).
+    /// How much larger than its own art the display is drawn (`UiScale.of`).
     scale: f32,
     multiplayer: bool,
     /// The world the keys' sounds are heard in; null where nothing is heard.

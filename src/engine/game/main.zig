@@ -497,10 +497,11 @@ pub const Controls = struct {
     devices: *input.Devices,
     camera: *camera.Camera,
     display: *hud.State,
-    /// The scene as last drawn, which the targeting keys find the object under the reticle by, and
-    /// the screen's size in pixels.
+    /// The scene as last drawn, which the targeting keys find the object under the reticle by, the
+    /// screen's size in pixels, and how large the display is drawn on it.
     sight: ?hud.Sight,
     screen: [2]u32,
+    ui_scale: hud.UiScale,
     /// Last frame's view (`camera_view_last`).
     last_view: camera.View,
     /// The cockpit's model, where the player's ship has one, which the camera's frame moves.
@@ -536,7 +537,7 @@ pub fn controlsFrame(controls: Controls) void {
         .all = all,
         .sight = controls.sight,
         .last_view = controls.last_view,
-        .scale = hud.scaleFor(controls.screen),
+        .scale = controls.ui_scale.of(controls.screen),
         .multiplayer = false,
         .world = world,
     });
