@@ -1086,6 +1086,12 @@ declare class ExplosionShip
     object: Object
 end
 
+-- `flown_by` has flown through `object`, a training hoop, from behind it.
+declare class JumpedThroughHoop
+    object: Object
+    flown_by: Object
+end
+
 -- A mission has started: number `number`, from the file `file`. Its first ships are there.
 declare class MissionStarted
     number: number
@@ -1294,6 +1300,7 @@ type HooksAdd =
     ((name: "undocked", handler: (e: Undocked) -> boolean?, filter: (Filter | (e: Undocked) -> boolean)?) -> HookHandle) &
     ((name: "docked", handler: (e: Docked) -> boolean?, filter: (Filter | (e: Docked) -> boolean)?) -> HookHandle) &
     ((name: "explosion_ship", handler: (e: ExplosionShip) -> boolean?, filter: (Filter | (e: ExplosionShip) -> boolean)?) -> HookHandle) &
+    ((name: "jumped_through_hoop", handler: (e: JumpedThroughHoop) -> boolean?, filter: (Filter | (e: JumpedThroughHoop) -> boolean)?) -> HookHandle) &
     ((name: "mission_started", handler: (e: MissionStarted) -> boolean?, filter: ((e: MissionStarted) -> boolean)?) -> HookHandle) &
     ((name: "mission_ended", handler: (e: MissionEnded) -> boolean?, filter: ((e: MissionEnded) -> boolean)?) -> HookHandle) &
     ((name: "object_added", handler: (e: ObjectAdded) -> boolean?, filter: (Filter | (e: ObjectAdded) -> boolean)?) -> HookHandle) &
