@@ -53,7 +53,7 @@ local screen = ui.register_screen("main_menu", {
         was_down = pointer ~= nil and pointer.down
         for at, item in items do
             local y = ui.height * (first_share + (at - 1) * spacing_share)
-            ui.text(vector.create(ui.width / 2, y, 0), item.label, { colour = at == chosen and lit or plain, align = "centre", scale = item_scale })
+            ui.text(vector.create(ui.width / 2, y, 0), item.label, { color = at == chosen and lit or plain, align = "center", scale = item_scale })
         end
     end,
     key = function(key, down)

@@ -9,6 +9,7 @@ const Call = api.Call;
 const Presentation = @import("presentation.zig").Presentation;
 const registries = @import("registries.zig");
 const values = @import("values.zig");
+const runtime_module = @import("runtime.zig");
 
 pub const Identifier = union(enum) { name: []const u8, number: u32 };
 
@@ -24,7 +25,7 @@ pub const package = struct {
         }
     });
 
-    pub const set_view = api.Function("Switches to `view`, one of the game's or a mod's by its qualified name, looking at `object`, or at the player's ship where it's nil. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it.", &.{ "view", "object" }, setView);
+    pub const set_view = api.Function("Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it.", &.{ "view", "object" }, setView);
 };
 
 /// `camera.set_view(view, object)`.
@@ -33,7 +34,8 @@ fn setView(call: Call, wanted: Identifier, object: ?Object) bool {
     const of = if (object) |named| named.slot() else held.player;
     const view: engine_camera.View = switch (wanted) {
         .name => |name| values.byName(engine_camera.View, name) orelse {
-            const index = call.runtime().registries.find(.camera, name) orelse return false;
+            var buffer: [runtime_module.max_name]u8 = undefined;
+            const index = call.runtime().registries.find(.camera, call.named(name, &buffer) orelse return false) orelse return false;
             return call.runtime().registries.selectCamera(call.runtime(), index, object);
         },
         .number => |number| if (number < engine_camera.views.records.len) @fromBackingInt(@intCast(number)) else return false,

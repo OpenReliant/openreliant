@@ -8,6 +8,7 @@ const engine = openreliant.engine;
 const aigeneric = engine.game.aigeneric;
 const orders = engine.game.ai.orders;
 const Object = engine.hooks.Object;
+const Target = engine.hooks.Target;
 const api = @import("api.zig");
 const Call = api.Call;
 const values = @import("values.zig");
@@ -170,7 +171,8 @@ fn registerOrder(call: Call) i32 {
     return 1;
 }
 
-/// Original names/numbers stay supported. Custom orders require a qualified name.
+/// An order as scripts name it: one of the game's by its name (`Order`) or its number, the calling
+/// mod's by its own name, or any mod's by the qualified one.
 pub const Identifier = union(enum) { name: []const u8, number: i16 };
 
 pub fn identifierOf(all: *const engine.game.create.Objects, order: orders.Order) Identifier {
@@ -179,15 +181,18 @@ pub fn identifierOf(all: *const engine.game.create.Objects, order: orders.Order)
     return .{ .number = @backingInt(order) };
 }
 
-fn find(scripts: *runtime.Runtime, identifier: Identifier) ?orders.Order {
+fn find(call: Call, identifier: Identifier) ?orders.Order {
     return switch (identifier) {
-        .name => |name| values.byName(orders.Order, name) orelse scripts.custom_orders.find(name),
+        .name => |name| values.byName(orders.Order, name) orelse {
+            var buffer: [runtime.max_name]u8 = undefined;
+            return call.runtime().custom_orders.find(call.named(name, &buffer) orelse return null);
+        },
         .number => |number| if (orders.info(@fromBackingInt(number)) != null) @fromBackingInt(number) else null,
     };
 }
 
 pub fn resolve(call: Call, identifier: Identifier) orders.Order {
-    return find(call.runtime(), identifier) orelse switch (identifier) {
+    return find(call, identifier) orelse switch (identifier) {
         .name => |name| {
             call.raise("no registered order named '{s}'", .{name});
         },
@@ -212,11 +217,8 @@ pub const OrderInfo = struct {
 /// An order on an object's stack.
 pub const OrderEntry = struct {
     order: Identifier,
-    /// The object it's aimed at, where that's an object in the mission; nil otherwise, such as for
-    /// an order aimed at nothing, or at a flight group or a squad.
-    target: ?Object,
-    /// The component of the target it's aimed at; nil for the whole of it.
-    component: ?u16,
+    /// What it's aimed at, as an object's `target` gives it.
+    target: Target,
 };
 
 /// An object's stack of orders, the one it follows first.
@@ -225,14 +227,14 @@ pub const Stack = values.List(OrderEntry, aigeneric.max_stack);
 /// What `openreliant.orders` holds.
 pub const package = struct {
     pub const register = api.Native("Registers an order, which `name` qualified with the mod's name names. `update` runs each frame on each ship that follows it, and returns false to end the order; `init` runs as it starts, and `exit` as it ends. They can't give or end orders. Returns the qualified name, which `give_order` and `orders.info` take. The order goes away when the scripts that registered it stop.", "name: string, definition: {priority: number?, flags: OrderFlags?, init: ((ship: Object, target: Object?, seconds: number) -> ())?, update: (ship: Object, target: Object?, seconds: number) -> boolean?, exit: ((ship: Object, target: Object?, seconds: number) -> ())?}", "string", registerOrder);
-    pub const info = api.Function("The name, priority and flags of `order`, one of the game's or a mod's by its qualified name. Nil for an order that doesn't exist, or a mod's that failed.", &.{"order"}, infoOf);
+    pub const info = api.Function("The name, priority and flags of `order`: one of the game's, the calling mod's by its own name, or any mod's by the qualified one. Nil for an order that doesn't exist, or a mod's that failed.", &.{"order"}, infoOf);
     pub const stack = api.Function("The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends.", &.{"object"}, stackOf);
     pub const cancel = api.Function("Ends the order `object` follows, as an order ends itself: its exit runs, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's.", &.{"object"}, cancelOrder);
     pub const clear = api.Function("Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's.", &.{"object"}, clearAll);
 };
 
 fn infoOf(call: Call, identifier: Identifier) ?OrderInfo {
-    const order = find(call.runtime(), identifier) orelse return null;
+    const order = find(call, identifier) orelse return null;
     const all = call.runtime().objects;
     return .of((if (all) |objects_held| aigeneric.infoOf(objects_held, order) else orders.info(order)) orelse return null);
 }
@@ -241,12 +243,7 @@ fn stackOf(call: Call, object: Object) Stack {
     const all = call.runtime().objects orelse call.raise("can only be used while a game runs", .{});
     var found: Stack = .{};
     for (all.slots[object.slot()].stack()) |entry| {
-        const ship = entry.target.ship();
-        found.append(.{
-            .order = identifierOf(all, entry.order),
-            .target = if (ship) |slot| world.objectIn(all, slot) else null,
-            .component = entry.target.part(),
-        });
+        found.append(.{ .order = identifierOf(all, entry.order), .target = .of(entry.target) });
     }
     return found;
 }
@@ -289,8 +286,8 @@ test "scripts read the order table and an object's orders, and end them" {
         \\assert(info.name == "Run Away" and info.priority == 0 and info.flags.retaliate and not info.flags.one_shot)
         \\assert(sabre:give_order("fly_aimlessly") and sabre:give_order("run_away", player))
         \\local stack = orders.stack(sabre)
-        \\assert(#stack == 2 and stack[1].order == "run_away" and stack[1].target == player and stack[1].component == nil)
-        \\assert(stack[2].order == "fly_aimlessly" and stack[2].target == nil)
+        \\assert(#stack == 2 and stack[1].order == "run_away" and stack[1].target.object == player and stack[1].target.component == nil)
+        \\assert(stack[2].order == "fly_aimlessly" and stack[2].target.object == nil)
         \\-- Ending Run Away, Fly Aimlessly carries on; clearing drops it.
         \\assert(orders.cancel(sabre) and orders.stack(sabre)[1].order == "fly_aimlessly")
         \\assert(orders.clear(sabre) and #orders.stack(sabre) == 0)

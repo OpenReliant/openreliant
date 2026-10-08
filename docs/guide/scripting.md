@@ -39,6 +39,7 @@ in any order, as you need them.
 - [Files](#files)
 - [The console](#the-console) and [editors](#editors)
 - [Limits](#limits) and [when something goes wrong](#when-something-goes-wrong)
+- [Compatibility](#compatibility): what stays stable from one version to the next
 
 ## A first script
 
@@ -147,7 +148,7 @@ Some functions only work in some kinds of script:
 
 | Function | Scripts |
 |---|---|
-| `core.register_game_mode`, `settings.register_page` | Load and menu, as OpenReliant starts |
+| `core.register_game_mode`, `options.register_page` | Load and menu, as OpenReliant starts |
 | `input.register_action`, `ui.replace_screen`, `ui.go_to` and the other front end functions | Menu |
 | `ui.register_screen` | Player and menu |
 | `camera.register_view`, `hud.register_display`, `postprocessing`, `shaders`, `debug` | Player |
@@ -205,9 +206,12 @@ without `.hog`, a colon, and the name the mod gave it. A gun `banana_gun` in the
 `strafe-run` is `strafe-run:chase`. A mod's names stay the same whether it's packed or not.
 
 - Two mods can use the same name for their own things; the qualified names keep them apart.
-- The functions that register something return its qualified name. Within the mod, most of them
-  also take the name without the prefix.
-- Other mods use the qualified name.
+- The functions that register something return its qualified name.
+- The functions that take something registered by its name, such as `camera.set_view`,
+  `hud.set_display_enabled` or `orders.info`, take the qualified name, and within the mod also the
+  name without the prefix. The game's own names come first, so a mod's view called `cockpit` is
+  named `strafe-run:cockpit` even within the mod.
+- The records, and values such as an object's `type`, take what a mod adds by its qualified name.
 - Keep names, not numbers. The numbers OpenReliant gives what mods add change with the mods that
   are on.
 
@@ -240,9 +244,9 @@ return {
 | `on_added()`, `on_removed()` | Object | The script's object joins or leaves the mission |
 | `on_key_press(key)`, `on_key_release(key)`, `on_action(action)` | Player, menu | [Keys and actions](#keys-and-actions) |
 | `on_console_command(text)` | Player, menu | A line typed in [the console](#the-console) that isn't one of its commands |
-| `on_viewport_resized(width, height)` | Player, menu | The window changes size |
+| `on_window_resized(width, height)` | Player, menu | The window changes size |
 | `on_interface_override(base)` | Global, object, player, menu | [Interfaces](#interfaces) |
-| `on_setting_changed(key, value)` | Menu | The player sets one of the mod's [options](#options) |
+| `on_option_changed(key, value)` | Menu | The player sets one of the mod's [options](#options) |
 
 [Engine handlers](reference.md#engine-handlers) says what each one gets. They're called in the order
 the scripts started: the global and mission scripts' first, in load order, then each object's. A
@@ -336,7 +340,7 @@ The game's functions that have hooks:
 | `object_destroyed` | An object's pilot ejects, or it explodes | `object` |
 | `bullet_fire` | A ship fires a shot | `owner` |
 | `missile_launch` | A ship launches a missile at a target | `launcher` |
-| `missile_launch_turret` | A missile turret launches a Screamer at a target | `object` |
+| `missile_launch_turret` | A missile turret launches a Screamer at a target | `launcher` |
 | `order_push` | An object is given an order, aimed at a target; its result says whether it took | `object` |
 | `order_pop` | An object ends the order it runs; its result says whether it had one | `object` |
 | `object_orders` | An object runs its order, as it does each frame | `object` |
@@ -747,7 +751,7 @@ local world = require("openreliant.world")
 -- What a ship is doing, from the top order down.
 local ship = world.objects()[2]
 for _, entry in orders.stack(ship) do
-    print(entry.order, entry.target)
+    print(entry.order, entry.target.object)
 end
 orders.cancel(ship)  -- ends the top order; the one below carries on
 orders.clear(ship)   -- drops all of them, as a mission's ClearAI does
@@ -1089,7 +1093,7 @@ return {
             if not hud.shown then return end
             flown += seconds
             hud.text(vector.create(16, 16, 0), string.format("%.0f s", flown), {
-                colour = vector.create(0.4, 1, 0.4),
+                color = vector.create(0.4, 1, 0.4),
             })
         end,
         on_key_press = function(key)
@@ -1121,8 +1125,8 @@ end's screens and the pause menu. Both have `text`, `line`, `rectangle`, `pictur
 - Places are in the window's pixels from its top left corner, and `width` and `height` give the
   window's size.
 - Each function takes a style table, whose fields are all optional
-  ([Tables](reference.md#tables)): `colour` (a vector of red, green and blue from 0 to 1) and
-  `alpha` for all of them, `width` for a line, `scale`, `align` (`"left"`, `"centre"` or
+  ([Tables](reference.md#tables)): `color` (a vector of red, green and blue from 0 to 1) and
+  `alpha` for all of them, `width` for a line, `scale`, `align` (`"left"`, `"center"` or
   `"right"`), `font` and `base_font` for text.
 - Text is drawn in the game's font, at the game's text size times the style's `scale`, unless the
   style picks another font ([Pictures, shapes and fonts](#pictures-shapes-and-fonts)).
@@ -1139,7 +1143,7 @@ return {
         on_frame = function()
             if not ui.shown then return end
             ui.picture(vector.create(20, 30, 0), "badge.png", vector.create(64, 64, 0), { alpha = 0.8 })
-            ui.shape(vector.create(100, 30, 0), 1, { scale = 1, colour = vector.create(1, 1, 1) })
+            ui.shape(vector.create(100, 30, 0), 1, { scale = 1, color = vector.create(1, 1, 1) })
             local style = { font = "menu_large", scale = 1.5 }
             local size = ui.measure("Flight status", style)
             ui.text(vector.create(20, 110, 0), "Flight status", style)
@@ -1149,7 +1153,7 @@ return {
 ```
 
 - **Pictures** are PNG files in the mod, named without folders. `size` is in window pixels; without
-  it, the picture is drawn at its own size. The style's `colour` and `alpha` tint it.
+  it, the picture is drawn at its own size. The style's `color` and `alpha` tint it.
 - **Shapes.** A shape number picks a shape from the game's current sprite set: the flight display's
   set for `hud`, or the current menu screen's set for `ui` ([Shapes](modding.md#shapes)). Each shape
   keeps its own anchor point, and is drawn at the game's scale times the style's `scale`. A set
@@ -1260,10 +1264,10 @@ hud.register_display("radar", {
     seconds the clock shows; `hud.view_name`, the name written at the top of the screen in the
     views that have one; and `hud.caption`, the launch's date as far as it has typed it.
   - The windows, whether or not they're open: `hud.damage`, how well the weapons, engines and
-    shields still work, from 0 to 1; `hud.power`, the shields', guns' and engines' shares of the
+    shields still work, from 0 to 1; `hud.power`, the shields', weapons' and engines' shares of the
     power as the percentages the power window writes; `hud.wingmen`, the wing's ships with their
     numbers and the share of their armour bars lit; `hud.objectives`, the objectives the window can
-    show, with their names, which is current and which it shows; and `hud.comms`, the items of the
+    show, with their names, which is current and which it's showing; and `hud.comms`, the items of the
     radio's menu.
   - The text the display writes: `hud.messages`, the message lines, oldest first; `hud.subtitle`,
     the line `DisplaySubTitle` shows; `hud.key_prompt`, the action `WaitForKey` waits for; and
@@ -1415,7 +1419,7 @@ return {
         on_frame = function()
             local target = self and self.last_attacker
             if target then
-                debug.line(self.position, target.position, { colour = vector.create(1, 0, 0) })
+                debug.line(self.position, target.position, { color = vector.create(1, 0, 0) })
                 debug.text(target.position, "attacker")
             end
         end,
@@ -1443,7 +1447,7 @@ local ui = require("openreliant.ui")
 
 local screen = ui.register_screen("main_menu", {
     frame = function()
-        ui.text(vector.create(ui.width / 2, ui.height / 2, 0), "PRESS ENTER", { align = "centre" })
+        ui.text(vector.create(ui.width / 2, ui.height / 2, 0), "PRESS ENTER", { align = "center" })
     end,
     key = function(key, down)
         if down and key == "enter" then ui.go_to("pilot_roster") end
@@ -1574,7 +1578,7 @@ local ui = require("openreliant.ui")
 ui.register_screen("briefing", {
     frame = function()
         local mission = core.game_mode_mission
-        ui.text(vector.create(ui.width / 2, 100, 0), `MISSION {mission.place} OF {mission.count}`, { align = "centre" })
+        ui.text(vector.create(ui.width / 2, 100, 0), `MISSION {mission.place} OF {mission.count}`, { align = "center" })
     end,
     key = function(key, down)
         if down and key == "enter" then ui.launch_mission() end
@@ -1649,12 +1653,12 @@ three missions, with a briefing, a movie and an ending.
 
 A mod can offer the player options, which the player sets on the mods screen: GAME OPTIONS, then
 MODS, then OPTIONS with the mod chosen. A load or menu script declares the mod's page as
-OpenReliant starts, with `openreliant.settings`, and any script of the mod reads the values:
+OpenReliant starts, with `openreliant.options`, and any script of the mod reads the values:
 
 ```lua
-local settings = require("openreliant.settings")
+local options = require("openreliant.options")
 
-settings.register_page({
+options.register_page({
     title = "WINGMEN",
     options = {
         { label = "THE PANEL", kind = "heading" },
@@ -1671,7 +1675,7 @@ settings.register_page({
     },
 })
 
-local rejoin_after = settings.get("rejoin_after")
+local rejoin_after = options.get("rejoin_after")
 ```
 
 - A `"toggle"` is a check box, with a boolean default. A `"choice"` steps through its `choices`, each
@@ -1689,14 +1693,14 @@ local rejoin_after = settings.get("rejoin_after")
 - Only load and menu scripts declare a page, and only as OpenReliant starts: the pages are fixed
   before the front end shows. A mod that is off has no page until it's turned on and OpenReliant
   has restarted.
-- `settings.get(key)` gives what the player set, or the default. A value that no longer suits the
+- `options.get(key)` gives what the player set, or the default. A value that no longer suits the
   option, such as a choice the mod has since dropped, reads as the default.
-- `settings.set(key, value)` sets one of the mod's own options, as the player does on the mods
+- `options.set(key, value)` sets one of the mod's own options, as the player does on the mods
   screen, such as from a key the mod binds. A number is held to its range, and a value that doesn't
   suit the option otherwise is an error.
 - The player sets options in the front end, before a game starts. A script that runs in a game
   reads them as it starts. A menu script can also hear a change at once, with the engine handler
-  `on_setting_changed(key, value)`.
+  `on_option_changed(key, value)`.
 - The values are kept in the mod's global storage, in a section of its own that
   `storage.global_section` doesn't open. A value that is the default isn't kept.
 - A key the player sets is an action the mod registers, which the controls screen binds
@@ -2028,3 +2032,33 @@ line, and the game carries on.
 | `a timer names ..., which no script registered` | `async.register_timer` runs as the script starts, before a timer can fire |
 | `player scripts can only read a game section` | Change game sections from a global or object script |
 | `orders.register requires a global script` | Register orders from a global or mission script |
+
+## Compatibility
+
+From OpenReliant 0.8 on, what scripts see stays stable, so that a mod keeps working as OpenReliant
+is updated. That is everything the [reference](reference.md) lists, and what this page describes of
+the mods' shaders:
+
+- the packages, with their functions, fields and types;
+- the engine handlers, and what they're passed;
+- the hooks, their fields and their results;
+- the fields and methods of objects, missiles, turrets and the records;
+- the names of values, such as `"cockpit"` for a view or `"laser_cannon"` for a gun;
+- the manifest's keys and the kinds of scripts;
+- what post effects and surface and lighting functions read and write.
+
+A replacement for one of OpenReliant's own shaders isn't covered
+([Replacing OpenReliant's shaders](#replacing-openreliants-shaders)).
+
+New versions add to all of this: packages, functions, fields, hooks, handlers and values. A mod
+that uses something new sets `OpenReliant=` in its manifest to the version that added it, so that
+an older OpenReliant skips the mod and says so, instead of running scripts that fail. A script can
+also read `core.version` and use a feature only where it's there.
+
+A script that reads a value from a list, such as an object's type, can meet one it doesn't know: one
+a mod adds, or one a later version adds. A value without a name comes as its number, and a later
+version can give it a name.
+
+When something has to change, it's deprecated first: the old name keeps working next to the new one
+until at least the next minor version, and the reference marks it and names what replaces it. The
+release notes list each deprecation and each removal.

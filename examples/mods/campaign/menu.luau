@@ -52,8 +52,8 @@ local function itemAt(y)
     return items[at] and at or nil
 end
 
-local function centred(share, text, colour, scale)
-    ui.text(vector.create(ui.width / 2, ui.height * share, 0), text, { colour = colour, align = "centre", scale = scale })
+local function centered(share, text, color, scale)
+    ui.text(vector.create(ui.width / 2, ui.height * share, 0), text, { color = color, align = "center", scale = scale })
 end
 
 ui.register_screen("briefing", {
@@ -72,9 +72,9 @@ ui.register_screen("briefing", {
             end
         end
         local briefing = briefings[mission.place]
-        centred(title_share, `MISSION {mission.place} OF {mission.count}: {briefing.title}`, lit, 2)
+        centered(title_share, `MISSION {mission.place} OF {mission.count}: {briefing.title}`, lit, 2)
         for at, line in briefing.lines do
-            centred(lines_share + (at - 1) * line_spacing_share, line, plain, 1)
+            centered(lines_share + (at - 1) * line_spacing_share, line, plain, 1)
         end
         local pointer = ui.pointer
         local under = pointer and itemAt(pointer.at.y)
@@ -86,7 +86,7 @@ ui.register_screen("briefing", {
         end
         was_down = pointer ~= nil and pointer.down
         for at, item in items do
-            centred(items_share + (at - 1) * item_spacing_share, item.label, at == chosen and lit or plain, 2)
+            centered(items_share + (at - 1) * item_spacing_share, item.label, at == chosen and lit or plain, 2)
         end
     end,
     key = function(key, down)
@@ -106,8 +106,8 @@ ui.register_screen("briefing", {
 -- The ending, after the campaign's last mission, until a key or the pointer's button.
 ui.register_screen("ending", {
     frame = function()
-        centred(title_share, "FIRST TOUR COMPLETE", lit, 2)
-        centred(lines_share, "Well flown, pilot.", plain, 1)
+        centered(title_share, "FIRST TOUR COMPLETE", lit, 2)
+        centered(lines_share, "Well flown, pilot.", plain, 1)
         local pointer = ui.pointer
         if pointer and pointer.down and not was_down then
             ui.go_to("main_menu")

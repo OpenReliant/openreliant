@@ -65,14 +65,14 @@ pub const Guns = struct {
     /// Whether every group fires, which FULL GUNS turns on.
     all: bool,
     /// Whether SYNCHRONISE GUNS is on.
-    synchronised: bool,
+    synchronized: bool,
     /// The type of the chosen group's first gun, nil for none.
     gun: ?gun_types.GunType,
     /// The guns' charge, and the most they hold.
     charge: f32,
     full_charge: f32,
     /// Whether the gunnery window shows how the chosen group's pair of guns fires, together or in
-    /// turn as `synchronised` says: while one group fires, of two guns, but not the Nova Cannon's.
+    /// turn as `synchronized` says: while one group fires, of two guns, but not the Nova Cannon's.
     paired: bool,
     /// The rounds left, which the gunnery window shows on the ships whose guns fire them: the
     /// Grendel, the Wolverine and the Reaper; nil on the others.
@@ -256,7 +256,8 @@ pub const Power = struct {
     pub const script_name = "HudPower";
 
     shields: i32,
-    guns: i32,
+    /// The guns' share, which the power window labels WEAPONS.
+    weapons: i32,
     engines: i32,
 };
 
@@ -291,7 +292,7 @@ pub const Objectives = struct {
     pub const script_name = "HudObjectives";
 
     /// The objective the window shows, by its number; nil where it shows none.
-    shown: ?u8,
+    showing: ?u8,
     /// The objectives that aren't hidden, which paging through the window passes, in order.
     list: values.List(Objective, hud.Objectives.per_mission),
 };
@@ -374,7 +375,7 @@ pub const guns = api.Field(?Guns, "The player's guns as the gunnery window and t
             .group = mode.group,
             .groups = std.math.lossyCast(u8, combat.gun_groups),
             .all = mode.all,
-            .synchronised = mode.synchronised,
+            .synchronized = mode.synchronised,
             .gun = slot.groupLead(mode.group),
             .charge = slot.object.gun_charge,
             .full_charge = combat.gun_energy,
@@ -598,7 +599,7 @@ pub const power = api.Field(?Power, "The power window, as it shows the shields',
     pub fn get(call: Call) ?Power {
         _, const slot = flightOf(call) orelse return null;
         const shares = power_window.percentages(power_systems.point(&slot.object));
-        return .{ .shields = shares.get(.shields), .guns = shares.get(.guns), .engines = shares.get(.engines) };
+        return .{ .shields = shares.get(.shields), .weapons = shares.get(.guns), .engines = shares.get(.engines) };
     }
 });
 
@@ -617,7 +618,7 @@ pub const objectives = api.Field(?Objectives, "The objectives window: the missio
     pub fn get(call: Call) ?Objectives {
         const flight, _ = flightOf(call) orelse return null;
         const held = &flight.hud.objectives;
-        var shown: Objectives = .{ .shown = if (held.none_shown) null else @as(u8, held.shown) + 1, .list = .{} };
+        var shown: Objectives = .{ .showing = if (held.none_shown) null else @as(u8, held.shown) + 1, .list = .{} };
         for (held.states, 0..) |status, index| {
             if (status == .hidden) continue;
             const name: ?Text = if (held.name(@intCast(index))) |named| switch (named) {

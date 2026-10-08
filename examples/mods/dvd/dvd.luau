@@ -10,7 +10,7 @@ local speed = 120
 local scale = 4
 
 -- The colours they take in turn.
-local colours = {
+local colors = {
     vector.create(1, 0.25, 0.25),
     vector.create(0.25, 1, 0.25),
     vector.create(0.3, 0.5, 1),
@@ -25,7 +25,7 @@ local subtitle = "VIDEO"
 -- Where the logo's top left corner is, which way it drifts, and its colour.
 local corner = nil
 local velocity = vector.create(speed, speed, 0)
-local colour = 1
+local color = 1
 
 -- Moves the logo on by `seconds`, turning it back at the window's edges. Returns whether it bounced.
 local function drift(seconds, width, height)
@@ -60,12 +60,12 @@ return {
             local height = big.height + small.height
             corner = corner or vector.create((ui.width - width) / 2, (ui.height - height) / 2, 0)
             if drift(seconds, width, height) then
-                colour = colour % #colours + 1
+                color = color % #colors + 1
             end
             local middle = corner.x + width / 2
-            local tint = colours[colour]
-            ui.text(vector.create(middle, corner.y, 0), logo, { colour = tint, scale = scale, align = "centre" })
-            ui.text(vector.create(middle, corner.y + big.height, 0), subtitle, { colour = tint, scale = scale / 2, align = "centre" })
+            local tint = colors[color]
+            ui.text(vector.create(middle, corner.y, 0), logo, { color = tint, scale = scale, align = "center" })
+            ui.text(vector.create(middle, corner.y + big.height, 0), subtitle, { color = tint, scale = scale / 2, align = "center" })
         end,
     },
 }

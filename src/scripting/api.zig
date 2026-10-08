@@ -48,6 +48,15 @@ pub const Call = struct {
         return std.mem.print(buffer, "{s}:{s}", .{ mod, own }) catch call.raise("the name '{s}' is too long", .{local});
     }
 
+    /// The qualified name that `name` stands for, as scripts name what the mods register, in
+    /// `buffer`: the calling mod's own name, such as `crt` in the mod `retro`, becomes `retro:crt`,
+    /// and any mod's qualified name stays as it is. Null for a name that can't be one.
+    pub fn named(call: Call, name: []const u8, buffer: *[runtime_module.max_name]u8) ?[]const u8 {
+        if (std.mem.findScalar(u8, name, ':') != null) return name;
+        if (!@import("openreliant").dte.source.validId(name)) return null;
+        return std.mem.print(buffer, "{s}:{s}", .{ call.context.modOf().qualifier(), name }) catch null;
+    }
+
     /// The call of `label` by the script running on `state`. Raises an error if no mod's script
     /// runs there.
     pub fn of(state: *State, label: []const u8) Call {

@@ -28,23 +28,23 @@ local spacing = 1.4
 
 -- Draws the radar in `box`, where the game's radar draws, reaching `reach` from the player's ship.
 local function drawRadar(box, reach)
-    local centre = vector.create((box.left + box.right) / 2, (box.top + box.bottom) / 2, 0)
+    local center = vector.create((box.left + box.right) / 2, (box.top + box.bottom) / 2, 0)
     local radius = math.min(box.right - box.left, box.bottom - box.top) / 2
-    local last = centre + vector.create(radius, 0, 0)
+    local last = center + vector.create(radius, 0, 0)
     for step = 1, segments do
         local angle = step / segments * 2 * math.pi
-        local point = centre + vector.create(math.cos(angle), math.sin(angle), 0) * radius
-        hud.line(last, point, { colour = ring })
+        local point = center + vector.create(math.cos(angle), math.sin(angle), 0) * radius
+        hud.line(last, point, { color = ring })
         last = point
     end
-    hud.line(centre, centre - vector.create(0, radius, 0), { colour = ring, alpha = 0.4 })
+    hud.line(center, center - vector.create(0, radius, 0), { color = ring, alpha = 0.4 })
     -- Each ship within reach, seen from above: to the ship's right is right, and ahead is up.
     local size = vector.create(blip, blip, 0)
     for _, object in nearby.objects(reach) do
         if object.class then
             local seen = util.to_local(ship.position, ship.orientation, object.position)
-            local at = centre + vector.create(seen.x, -seen.z, 0) / reach * radius
-            hud.rectangle(at - size, at + size, { colour = sides[object.side] or ring })
+            local at = center + vector.create(seen.x, -seen.z, 0) / reach * radius
+            hud.rectangle(at - size, at + size, { color = sides[object.side] or ring })
         end
     end
 end
@@ -57,10 +57,10 @@ local function drawWeapons(box)
     if guns then
         local charge = if guns.full_charge > 0 then guns.charge / guns.full_charge else 0
         local mode = if guns.all then "ALL GUNS" else string.format("GROUP %d OF %d", guns.group + 1, guns.groups)
-        hud.text(at, string.format("%s  %d%%", mode, math.floor(charge * 100)), { colour = ring })
+        hud.text(at, string.format("%s  %d%%", mode, math.floor(charge * 100)), { color = ring })
     end
     if missiles and missiles.armed then
-        hud.text(at + line, string.format("%s  %d", string.upper(tostring(missiles.armed)), missiles.left), { colour = ring })
+        hud.text(at + line, string.format("%s  %d", string.upper(tostring(missiles.armed)), missiles.left), { color = ring })
     end
 end
 

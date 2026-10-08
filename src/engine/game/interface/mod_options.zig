@@ -4,7 +4,7 @@
 //! A mod declares a page of options (`Page`) as OpenReliant starts: each option is a toggle, a choice
 //! among values, a number in a range set by arrows or by a slider, or a line of text, with a label
 //! and a default (`Option`); a heading splits a long page. The scripting
-//! (`src/scripting/settings.zig`) keeps the pages and the values; the screen reaches them through
+//! (`src/scripting/options.zig`) keeps the pages and the values; the screen reaches them through
 //! `Pages`. The screen is laid out as the video tab's graphics list is (`settings/graphics.zig`): a
 //! title, a framed list of rows with a check box, an arrows box, a slider or a text's box, and a
 //! value, the list's arrows, and the settings screen's buttons: OK and MAIN MENU, RESET DEFAULTS and

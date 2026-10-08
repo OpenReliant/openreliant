@@ -255,6 +255,13 @@ name and its own, such as `hud.text`, and a handle's by the handle's kind, such 
 starts with the label, which comes from the declaration's name where it's pushed, so no message
 types it by hand.
 
+The call also gives the names of what mods register. `Call.qualified` makes the qualified name of
+something the calling mod registers. `Call.named` turns a name a script gives for something
+registered into the qualified name: the calling mod's own name gets the mod's prefix, and a
+qualified name of any mod stays as it is. The functions that look up what any mod registered, such
+as `camera.set_view`, go through `Call.named`, and the ones that reach only the calling mod's own,
+such as `postprocessing.set_enabled`, through `Call.qualified`.
+
 A struct is a table of its fields ([`values.zig`](../../src/scripting/values.zig)). One a function
 returns is read-only; one a script passes must name each field that has no default, and may leave
 out the rest. A list (`values.List`), such as the objects `world.objects` gives, is a table of its
@@ -441,7 +448,7 @@ starts, calls and stops them ([`running.zig`](../../src/scripting/running.zig)).
   starts and stop as it ends, with the global scripts (`GameScripts` in the driver).
 - Each pass of the driver's loop, before anything is drawn, `Presentation.frame` gets the seconds
   since the last pass, the devices, the window's size, the camera and the sound, and what each
-  drawing layer is drawn on. It tells the scripts of a new window size (`on_viewport_resized`) and,
+  drawing layer is drawn on. It tells the scripts of a new window size (`on_window_resized`) and,
   in flight, of the actions whose controls have just been used (`on_action`, from
   `Devices.active` without taking the press), then calls `on_frame`.
 - The window's key events reach `Presentation.key`, which tells `on_key_press` and
@@ -533,8 +540,8 @@ sections.
 
 ## Options
 
-[`settings.zig`](../../src/scripting/settings.zig) is the `openreliant.settings` package and the
-registry of the mods' pages (`settings.Registry`), which the driver makes with the storage and
+[`options.zig`](../../src/scripting/options.zig) is the `openreliant.options` package and the
+registry of the mods' pages (`options.Registry`), which the driver makes with the storage and
 reaches both Luau states through `runtime.Shared`.
 
 - `register_page` reads a table of lists and values: `values.read` takes a `values.List` as a
@@ -543,7 +550,7 @@ reaches both Luau states through `runtime.Shared`.
   and the keys' being unique) and copied into the registry's arena, as the mod's page
   (`mod_options.Page`). Load and menu scripts can register, until the driver closes the registry
   once the menu scripts have started (`Registry.close`).
-- The values are the mod's global storage section `settings` (`settings.section_name`), written by
+- The values are the mod's global storage section `settings` (`options.section_name`), written by
   `Storage.put`. A value that is the option's default takes the field out. Reading goes through
   `Option.fit`, which gives the default for a value that doesn't suit the option, and a choice's
   own copy of its value, so that what the screen holds lasts as long as the page.
@@ -551,7 +558,7 @@ reaches both Luau states through `runtime.Shared`.
   `Registry.pages` fills in, as the settings screen reaches OpenReliant's options through
   `settings.Own`. A change is also noted in the registry (`Registry.takeChange`). The driver takes
   the changes after each pass of the front end and tells the mod's menu scripts
-  (`Presentation.settingChanged`, `Runner.callMod`): the screen is the front end's, so no game
+  (`Presentation.optionChanged`, `Runner.callMod`): the screen is the front end's, so no game
   scripts run then.
 
 ## Game modes and the menu flow

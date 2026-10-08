@@ -1,4 +1,4 @@
-//! The `openreliant.settings` package ([#597](https://github.com/OpenReliant/openreliant/issues/597)):
+//! The `openreliant.options` package ([#597](https://github.com/OpenReliant/openreliant/issues/597)):
 //! the options a mod's scripts offer to the player, on a page the mods screen opens
 //! (`mod_options`).
 //!
@@ -11,7 +11,7 @@
 //!   choice a newer version of the mod no longer has, reads as the default. A value that is the
 //!   default is not kept.
 //! - A change tells the mod's menu scripts, which are the scripts running in the front end
-//!   (`on_setting_changed`), by way of the registry's list of changes (`Registry.takeChange`).
+//!   (`on_option_changed`), by way of the registry's list of changes (`Registry.takeChange`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -25,7 +25,8 @@ const stored = @import("stored.zig");
 const storage_module = @import("storage.zig");
 const Storage = storage_module.Storage;
 
-/// The global storage section that keeps the values, which `storage.global_section` refuses.
+/// The global storage section that keeps the values, which `storage.global_section` refuses. It
+/// has the package's old name, so that the values players set before carry over.
 pub const section_name = "settings";
 
 /// A choice, as scripts give it.
@@ -55,11 +56,11 @@ pub const Page = struct {
     options: values.List(Option, mod_options.max_options),
 };
 
-/// What `openreliant.settings` holds.
+/// What `openreliant.options` holds.
 pub const package = struct {
     pub const register_page = api.Function("Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `\"toggle\"` has a boolean default. A `\"choice\"` has `choices`, each a `value` and a `label`, and a default among their values. A `\"number\"` has `min`, `max` and `step`, and a default in the range, and arrows step it. A `\"slider\"` is a number with a knob to drag, for a wide range. A `\"text\"` is a line the player types, of up to 24 characters, with a string default. A `\"heading\"` has only a `label`, and splits a long page. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page.", &.{"page"}, registerPage);
     pub const get = api.Function("The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set.", &.{"key"}, getOption);
-    pub const set = api.Function("Sets the option `key` of the calling mod's page to `value`, as the player does on the mods screen: a toggle to a boolean, a number to a number, which is held to its range, a choice to one of its values, and a text to a string of up to 24 characters. The value is kept, and menu scripts hear of the change (`on_setting_changed`).", &.{ "key", "value" }, setOption);
+    pub const set = api.Function("Sets the option `key` of the calling mod's page to `value`, as the player does on the mods screen: a toggle to a boolean, a number to a number, which is held to its range, a choice to one of its values, and a text to a string of up to 24 characters. The value is kept, and menu scripts hear of the change (`on_option_changed`).", &.{ "key", "value" }, setOption);
 };
 
 fn registerPage(call: Call, given: Page) void {
@@ -112,7 +113,7 @@ fn setOption(call: Call, key: []const u8, value: mod_options.Value) void {
 }
 
 fn registryOf(call: Call) *Registry {
-    return call.runtime().options.shared.settings orelse call.raise("settings aren't kept here", .{});
+    return call.runtime().options.shared.option_pages orelse call.raise("options aren't kept here", .{});
 }
 
 /// What is wrong with the fields an option's kind doesn't use, or doesn't have.
@@ -335,12 +336,12 @@ fn runMod(source: []const u8, registry: *Registry) !void {
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
     var held = try load.testing.records3(arena.allocator());
-    try load.run(gpa, io, opened.list, &held, "0.7.0", .{ .storage = registry.storage, .settings = registry });
+    try load.run(gpa, io, opened.list, &held, "0.7.0", .{ .storage = registry.storage, .option_pages = registry });
 }
 
 const wingmen_page =
-    \\local settings = require("openreliant.settings")
-    \\settings.register_page({
+    \\local options = require("openreliant.options")
+    \\options.register_page({
     \\    title = "Wingmen",
     \\    options = {
     \\        { key = "show", label = "SHOW PANEL", kind = "toggle", default = true, description = "Shows the panel." },
@@ -351,9 +352,9 @@ const wingmen_page =
     \\        { key = "callsign", label = "CALL SIGN", kind = "text", default = "Viper" },
     \\    },
     \\})
-    \\assert(settings.get("show") == true and settings.get("flee") == 0.35 and settings.get("regroup") == 20)
-    \\assert(settings.get("reach") == 8000 and settings.get("callsign") == "Viper")
-    \\assert(not pcall(settings.get, "missing"))
+    \\assert(options.get("show") == true and options.get("flee") == 0.35 and options.get("regroup") == 20)
+    \\assert(options.get("reach") == 8000 and options.get("callsign") == "Viper")
+    \\assert(not pcall(options.get, "missing"))
     \\assert(not pcall(function() require("openreliant.storage").global_section("settings") end))
 ;
 
@@ -411,14 +412,14 @@ test "a script sets its mod's own options" {
     defer registry.deinit();
     try runMod(wingmen_page ++
         \\
-        \\settings.set("show", false)
-        \\settings.set("regroup", 1000)
-        \\settings.set("flee", 0.2)
-        \\assert(settings.get("show") == false and settings.get("regroup") == 60 and settings.get("flee") == 0.2)
-        \\assert(not pcall(settings.set, "flee", 0.5))
-        \\assert(not pcall(settings.set, "show", 3))
-        \\assert(not pcall(settings.set, "callsign", string.rep("a", 25)))
-        \\assert(not pcall(settings.set, "missing", 1))
+        \\options.set("show", false)
+        \\options.set("regroup", 1000)
+        \\options.set("flee", 0.2)
+        \\assert(options.get("show") == false and options.get("regroup") == 60 and options.get("flee") == 0.2)
+        \\assert(not pcall(options.set, "flee", 0.5))
+        \\assert(not pcall(options.set, "show", 3))
+        \\assert(not pcall(options.set, "callsign", string.rep("a", 25)))
+        \\assert(not pcall(options.set, "missing", 1))
     , &registry);
     // The values are kept as the screen keeps them, and the changes wait to be told.
     try std.testing.expectEqual(false, storage.read("a", section_name, .global, "show").?.boolean);
@@ -434,9 +435,9 @@ test "a page that is wrong is refused, and a mod has one page" {
     var registry: Registry = .init(std.testing.allocator, &storage);
     defer registry.deinit();
     try runMod(
-        \\local settings = require("openreliant.settings")
+        \\local options = require("openreliant.options")
         \\local function refused(page, text)
-        \\    local ok, message = pcall(settings.register_page, page)
+        \\    local ok, message = pcall(options.register_page, page)
         \\    assert(not ok and string.find(message, text, 1, true), message)
         \\end
         \\local function option(fields) fields.key = fields.key or "k"; fields.label = "L"; return { title = "T", options = { fields } } end
@@ -454,7 +455,7 @@ test "a page that is wrong is refused, and a mod has one page" {
         \\refused({ title = "T", options = { { key = "k", label = "L", kind = "toggle" } } }, "it needs a default")
         \\refused(option({ kind = "heading", default = true }), "a heading has no default")
         \\refused({ title = "T", options = { { key = "k", label = "L", kind = "toggle", default = true }, { key = "k", label = "M", kind = "toggle", default = false } } }, "two options are called 'k'")
-        \\settings.register_page(option({ kind = "toggle", default = true }))
+        \\options.register_page(option({ kind = "toggle", default = true }))
         \\refused(option({ kind = "toggle", default = true }), "already")
     , &registry);
     try std.testing.expectEqual(1, registry.page("a").?.options.len);
@@ -466,14 +467,14 @@ test "a heading splits a page, and scripts can't read it" {
     var registry: Registry = .init(std.testing.allocator, &storage);
     defer registry.deinit();
     try runMod(
-        \\local settings = require("openreliant.settings")
-        \\settings.register_page({ title = "T", options = {
+        \\local options = require("openreliant.options")
+        \\options.register_page({ title = "T", options = {
         \\    { label = "COMBAT", kind = "heading" },
         \\    { key = "show", label = "SHOW", kind = "toggle", default = true },
         \\    { label = "TRAVEL", kind = "heading" },
         \\} })
-        \\assert(settings.get("show") == true)
-        \\assert(not pcall(settings.get, ""))
+        \\assert(options.get("show") == true)
+        \\assert(not pcall(options.get, ""))
     , &registry);
     const page = registry.page("a").?;
     try std.testing.expectEqual(mod_options.Option.Control.heading, page.options[0].control);
@@ -488,8 +489,8 @@ test "a page can only be registered as OpenReliant starts" {
     defer registry.deinit();
     registry.close();
     try runMod(
-        \\local settings = require("openreliant.settings")
-        \\local ok, message = pcall(settings.register_page, { title = "T", options = { { key = "k", label = "L", kind = "toggle", default = true } } })
+        \\local options = require("openreliant.options")
+        \\local ok, message = pcall(options.register_page, { title = "T", options = { { key = "k", label = "L", kind = "toggle", default = true } } })
         \\assert(not ok and string.find(message, "as OpenReliant starts", 1, true), message)
     , &registry);
     try std.testing.expectEqual(null, registry.page("a"));

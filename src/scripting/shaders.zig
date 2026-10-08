@@ -338,7 +338,7 @@ pub fn setSurface(call: Call, object: Object, name: ?[]const u8, given: ?Paramet
     var surface: ?ModSurface = null;
     if (name) |wanted| {
         var buffer: [runtime_module.max_name]u8 = undefined;
-        const qualified = if (std.mem.findScalar(u8, wanted, ':') != null) wanted else call.qualified(wanted, &buffer);
+        const qualified = call.named(wanted, &buffer) orelse return false;
         const entry = registryOf(call).find(qualified) orelse return false;
         if (entry.kind != .surface) call.raise("{s} is a lighting function", .{qualified});
         const parameters = (given orelse Parameters{}).padded(0);

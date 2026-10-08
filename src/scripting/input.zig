@@ -11,12 +11,17 @@ const Call = api.Call;
 const Presentation = @import("presentation.zig").Presentation;
 const std = @import("std");
 const values = @import("values.zig");
+const runtime_module = @import("runtime.zig");
 const interface = openreliant.engine.game.interface;
 const Modifier = engine_input.ControlBinding.Modifier;
 
 pub const Identifier = union(enum) { name: []const u8, number: u32 };
 
+/// An action, as a script registers it: its label, and the key or buttons bound to it until the
+/// player binds others.
 const Definition = struct {
+    pub const script_name = "ActionDefinition";
+
     label: []const u8,
     key: ?engine_input.Key = null,
     modifier: Modifier = .none,
@@ -55,7 +60,7 @@ fn registerAction(call: Call, name: []const u8, definition: Definition) []const 
 pub const package = struct {
     pub const register_action = api.Function("Registers an action, which `name` qualified with the mod's name names, and which the controls screen lists by its `label` for the player to bind. A default key or button that's already taken stays unbound. Returns the qualified name, which `action_down` and `on_action` use. Only menu scripts can use it.", &.{ "name", "definition" }, registerAction);
     pub const key_down = api.Function("Whether `key` is held down.", &.{"key"}, keyDown);
-    pub const action_down = api.Function("Whether the controls bound to `action` are held: its key, or its joystick button.", &.{"action"}, actionDown);
+    pub const action_down = api.Function("Whether the controls bound to `action` are held: its key, or its joystick button. The action is one of the game's (`Action`), the calling mod's by its own name, or any mod's by the qualified one.", &.{"action"}, actionDown);
 };
 
 /// `input.key_down(key)`.
@@ -68,7 +73,9 @@ fn actionDown(call: Call, identifier: Identifier) bool {
     const host = Presentation.hostOf(call);
     return switch (identifier) {
         .name => |name| if (values.byName(controls.Action, name)) |action| host.devices.active(action, false) else blk: {
-            const index = call.runtime().input_actions.find(name) orelse call.raise("no registered action '{s}'", .{name});
+            var buffer: [runtime_module.max_name]u8 = undefined;
+            const qualified = call.named(name, &buffer) orelse call.raise("no registered action '{s}'", .{name});
+            const index = call.runtime().input_actions.find(qualified) orelse call.raise("no registered action '{s}'", .{name});
             break :blk host.flying and host.devices.bindingActive(call.runtime().input_actions.entries[index].binding, false);
         },
         .number => |number| if (number < controls.defaults.len) host.devices.active(@fromBackingInt(number), false) else call.raise("custom actions must be named", .{}),

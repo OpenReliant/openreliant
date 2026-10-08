@@ -596,7 +596,7 @@ const Fixture = struct {
         try fixture.mission.init(gpa);
         errdefer fixture.mission.deinit();
         _ = try fixture.mission.add(.of(.predator), @splat(0));
-        if (shared.settings != null) try load.run(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", shared);
+        if (shared.option_pages != null) try load.run(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", shared);
         fixture.game = (try Game.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", fixture.mission.objects, shared, false)).?;
         fixture.sabre = try fixture.mission.add(.of(.sabre), .{ 0, 0, 1000 });
     }
@@ -649,7 +649,7 @@ test "custom orders use qualified names, lifecycle callbacks and the engine stac
                     \\return { engine_handlers = {on_mission_start = function()
                     \\    local ships = world.objects(); local ship = ships[2]
                     \\    assert(orders.info(own).priority == 2 and orders.info(own).flags.avoidance)
-                    \\    assert(orders.info("b:hold") ~= nil)
+                    \\    assert(orders.info("b:hold") ~= nil and orders.info("hold").name == own)
                     \\    assert(not ships[1]:give_order(own))
                     \\    assert(ship:give_order("do_nothing") and ship:give_order(own, ships[1]))
                     \\end, on_update = function()
@@ -1587,11 +1587,11 @@ test "object scripts read the world around them, and give their object orders" {
 
 test "the wingmen example: a badly damaged wingman runs from its attacker, and rejoins later" {
     const storage_module = @import("storage.zig");
-    const settings = @import("settings.zig");
+    const options = @import("options.zig");
     const mod_options = openreliant.engine.game.interface.mod_options;
     var storage: storage_module.Storage = .{ .gpa = std.testing.allocator };
     defer storage.deinit();
-    var pages: settings.Registry = .init(std.testing.allocator, &storage);
+    var pages: options.Registry = .init(std.testing.allocator, &storage);
     defer pages.deinit();
     var fixture: Fixture = undefined;
     try fixture.initShared(&.{.{ "wingmen", &.{
@@ -1600,7 +1600,7 @@ test "the wingmen example: a badly damaged wingman runs from its attacker, and r
         .{ "wingman.luau", @embedFile("wingmen/wingman.luau") },
         .{ "wingmen.luau", @embedFile("wingmen/wingmen.luau") },
         .{ "status.luau", @embedFile("wingmen/status.luau") },
-    } }}, .{ .storage = &storage, .settings = &pages });
+    } }}, .{ .storage = &storage, .option_pages = &pages });
     defer fixture.deinit();
     // Its options, under two headings, are the defaults until the player sets them.
     try std.testing.expectEqual(7, pages.page("wingmen").?.options.len);
