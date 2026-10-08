@@ -2938,7 +2938,7 @@ address	kind	name	type	comment
 005207dc	data	tooltip_y	int	Where the tooltip shows down: 38 below the pointer, or 19 above it where that would pass 450
 00523098	data	tooltip_remap	byte[256]	The colours the tooltips' font is drawn in: each its own, but 0 and 0xFF as 2, 0x51 as 100 and 0x69 as 96 of itacgfx.spr's block 29
 005231b4	data	tooltip_count	int	How many tooltips tooltip_add has added
-0040ba40	function	dark_reign_shoot_nearest	bool __fastcall (int slot, OrderEntry *entry)	Dark Reign shoot's walk: a ship the Dark Reign can aim at that is neither fully invulnerable nor cloaked, nearer to it than the nearest so far by where both stand, becomes the nearest; never ends the walk
+0040ba40	function	dark_reign_shoot_nearest	bool __fastcall (int slot, OrderEntry *entry)	Dark Reign shoot's walk: a ship the Dark Reign can aim at that is neither fully invulnerable nor cloaked, nearer to it than the nearest so far by where both will be next, becomes the nearest; never ends the walk
 0040cfb0	function	ion_cannons_init	void (void)	Requires the ion cannons' textures, laser2, ionc, laser3 and warpin3, as mission_load loads a mission, and lets Moose warn the player again
 0040e7a0	function	ion_cannon_record_alloc	int __fastcall (int slot)	The ion cannon's record, always the first: three rays and three lights for the Boridin, else four rays and five lights, each light an Ioncannon Light, white, intensity 9 and range 2000; returns its index, 0
 0040e8a0	function	ion_cannon_record_free	void (void)	Lets the ion cannon's record's lights, rays, rings, beam, glow and laser go

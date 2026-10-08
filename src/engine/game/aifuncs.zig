@@ -968,8 +968,8 @@ pub fn darkReignShoot(ctx: Context, index: u16) void {
 }
 
 /// `0x0040BA40`, Dark Reign shoot's visitor: a ship the Dark Reign can aim at (`ai.ValidTarget`)
-/// that is not fully invulnerable, nearer to it than the nearest so far, by where both stand,
-/// becomes the nearest (`Pick.offer`). The game also passes over a cloaked ship, which the first
+/// that is not fully invulnerable, nearer to it than the nearest so far, by where both will be
+/// next, becomes the nearest (`Pick.offer`). The game also passes over a cloaked ship, which the first
 /// test bars already.
 const DarkReignShooting = struct {
     all: *create.Objects,
@@ -981,7 +981,7 @@ const DarkReignShooting = struct {
         const ship = &all.slots[found.slot].object;
         if (ship.invulnerable == .full) return false;
         const slot = &all.slots[shooting.index];
-        const distance = math.distanceSquared(ship.placeAt(.now).position, slot.object.placeAt(.now).position);
+        const distance = math.distanceSquared(ship.nextPosition(), slot.object.nextPosition());
         slot.state.dark_reign.nearest.offer(target, distance);
         return false;
     }

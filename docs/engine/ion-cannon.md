@@ -20,11 +20,11 @@ and kill sent to the other players ([#55](https://github.com/OpenReliant/openrel
 ## Picking a ship
 
 Dark Reign shoot (33, `order_dark_reign_shoot`, `0x0040BAD0`) has no init. Each update walks the
-ships its target names ([Orders](orders.md#targets-that-name-several-ships)) with `0x0040BA40`, which keeps the nearest
-ship, by where both stand, that the Dark Reign can aim at and that is neither fully invulnerable
-nor cloaked. It queues order 110 at that ship, due at once (`order_queue`), and with none it pops.
-The queued order starts over it at the object's next orders, and once order 110 is done, order 33
-runs again and picks again.
+ships its target names ([Orders](orders.md#targets-that-name-several-ships)) with `0x0040BA40`,
+which keeps the nearest ship, by where both will be next, that the Dark Reign can aim at and that
+is neither fully invulnerable nor cloaked. It queues order 110 at that ship, due at once
+(`order_queue`), and with none it pops. The queued order starts over it at the object's next
+orders, and once order 110 is done, order 33 runs again and picks again.
 
 ## The parts
 
