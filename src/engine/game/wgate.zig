@@ -8,11 +8,12 @@
 //! `wgate/tunnel.zig`, the worm's in `wgate/worm.zig`. [Gates](../../../docs/engine/gates.md)
 //! describes them.
 //!
+//! In missions 16 and 66 a collapsing gate can catch the Krasny coming through it, which then
+//! splits (`splitKrasny`).
+//!
 //! Warp orders and projector effects are in `wgate/warp.zig`.
 //! Not ported: the Boridin's projection (kind 3, `order_start_warp_projection_from_boridin`)
-//! ([#30](https://github.com/OpenReliant/openreliant/issues/30)); and the Krasny's split, as it jumps
-//! in through the gate collapsing behind it in missions 16 and 66 (`0x00422CA0`)
-//! ([#407](https://github.com/OpenReliant/openreliant/issues/407)).
+//! ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -94,6 +95,12 @@ pub const Gates = struct {
     exiting: bool = false,
     /// `0x0051D13E`: set while the player's ship rides the worm, which hides the gates' tunnels.
     riding: bool = false,
+    /// `0x0051D134`: set until a Krasny comes a third of the way through a gate before a collapse
+    /// catches it (`krasny_split_at`); a gate collapsing after that doesn't.
+    krasny_in_time: bool = true,
+    /// `0x0051D13D`: set while a collapsing gate has caught a Krasny coming through
+    /// (`collapseInit`), which holds the collapse until the Krasny splits (`splitKrasny`).
+    krasny_caught: bool = false,
     /// `0x0051D19C`: the worm the player's ship rides between gates.
     worm: ?*Worm = null,
     /// Whether the worm is in this frame's scene, as Jump Out puts it for the player's ship.
@@ -130,6 +137,8 @@ pub const Gates = struct {
         gates.worm_shown = false;
         gates.exiting = false;
         gates.riding = false;
+        gates.krasny_in_time = true;
+        gates.krasny_caught = false;
     }
 
     pub fn deinit(gates: *Gates) void {
@@ -548,7 +557,12 @@ const spread_most = 2;
 /// Whether the ship in slot `index` is a Krasny in mission 16 or 66, which comes through its gate
 /// as it collapses.
 fn krasnyRun(all: *const create.Objects, index: u16) bool {
-    return all.slots[index].object.type.base() == .krasny and (all.mission_number == krasny_missions[0] or all.mission_number == krasny_missions[1]);
+    return all.slots[index].object.type.base() == .krasny and krasnyMission(all);
+}
+
+/// Whether this is mission 16 or 66, where the Krasny comes through a gate as it collapses.
+fn krasnyMission(all: *const create.Objects) bool {
+    return std.mem.findScalar(u16, &krasny_missions, all.mission_number) != null;
 }
 
 const krasny_missions = [2]u16{ 0x10, 0x42 };
@@ -567,7 +581,10 @@ const krasny_missions = [2]u16{ 0x10, 0x42 };
 /// the portal lets it go (`release`), and the order ends; the ship's FixedGateJumpedIn is posted,
 /// with the gate's (`events.fixedGateJumpedIn`).
 ///
-/// A Krasny in missions 16 and 66 goes at `krasny_rate` instead and shows no flashes.
+/// A Krasny in missions 16 and 66 goes at `krasny_rate` instead and shows no flashes. Past
+/// `krasny_split_at` of the way, a Krasny that a collapse has caught splits (`splitKrasny`);
+/// otherwise it is too late for a collapse to catch one (`Gates.krasny_in_time`), which is logged
+/// once, where the game logs it every frame.
 pub fn jumpIn(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -602,19 +619,21 @@ pub fn jumpIn(ctx: aigeneric.Context, index: u16) void {
             } else {
                 state.next(.{ .in = .done });
             }
+            if (state.progress > krasny_split_at and slot.object.type.base() == .krasny) {
+                if (gates.krasny_caught) {
+                    log.info(">>>>>>Splitting the Krasny at {d}", .{world.clock.frame_start});
+                    return splitKrasny(ctx, index, found.gate);
+                }
+                if (gates.krasny_in_time) log.info(">>>>>>Did not take out gate in time to split Krasny at {d}", .{world.clock.frame_start});
+                gates.krasny_in_time = false;
+            }
             if (gates.riding or !(state.progress < flash_share)) return;
             const through = state.progress * flash_pace;
             record.squares[0].set(ease.in(square_most, square_least, through), through);
             record.squares[1].set(ease.in(square_least, square_most, through), 1 - through);
             if (!krasnyRun(all, index)) record.squares_shown = true;
         },
-        .done => {
-            release(slot);
-            if (slot.model) |*model| showLightSprites(model, true);
-            ai.setTargetable(&slot.object, slot.combat, true);
-            aigeneric.end(ctx, index);
-            events.fixedGateJumpedIn(world, index, found.gate);
-        },
+        .done => jumpedIn(ctx, index, found.gate, true),
         _ => {},
     }
 }
@@ -638,6 +657,91 @@ fn release(slot: *create.Slot) void {
     slot.object.flags.thaw();
     if (slot.model) |*model| xtrabits.clipTree(model, null);
 }
+
+/// The end of a jump in through the gate in slot `gate`: the ship is let go (`release`), its
+/// lights' sprites shown again where `lights`, it can be targeted again, the order ends, and its
+/// FixedGateJumpedIn is posted with the gate's (`events.fixedGateJumpedIn`).
+fn jumpedIn(ctx: aigeneric.Context, index: u16, gate: u16, lights: bool) void {
+    const slot = &ctx.world.objects.slots[index];
+    release(slot);
+    if (lights) if (slot.model) |*model| showLightSprites(model, true);
+    ai.setTargetable(&slot.object, slot.combat, true);
+    aigeneric.end(ctx, index);
+    events.fixedGateJumpedIn(ctx.world, index, gate);
+}
+
+/// `krasny_split` (`0x00422CA0`): the Krasny in slot `index`, caught by the collapse of the gate in
+/// slot `gate` as it comes through, splits `krasny_split_at` of the way. The screen flashes. Its
+/// jump ends as Jump In's does (`jumpedIn`), though its lights' sprites stay hidden. It is
+/// unpowered and exploding, turning slowly and drifting on its way at `krasny_drift` a step. Of
+/// its parts only `bad front slice` shows, and it loses its shield generator. Every advanced
+/// gate's collapse goes on to fade its tunnel. The slice burns for 5000 ticks, flickering, with its
+/// lights and smoke, and bursts at its cut points (`sliceBursts`). The gate takes the kill, the
+/// ship is lost (`ai.hullLost`), and the collapse no longer waits.
+fn splitKrasny(ctx: aigeneric.Context, index: u16, gate: u16) void {
+    const world = ctx.world;
+    const all = world.objects;
+    const slot = &all.slots[index];
+    const object = &slot.object;
+    if (world.flash) |flash| flash.start();
+    jumpedIn(ctx, index, gate, false);
+    object.flags.unpowered = true;
+    object.flags.exploding = true;
+    object.rotation = math.fromAngleVector(krasny_tumble);
+    object.velocity = gameobj.vec3(math.transform(object.root.orientation, krasny_drift));
+    if (slot.model) |*model| {
+        var children = model.rootChildren();
+        while (children.next()) |child| {
+            const name = if (model.partData(child.index)) |data| data.part.name() else "";
+            model.parts[child.index].hidden = !std.mem.eql(u8, name, krasny_slice);
+        }
+    }
+    object.flags.shield_generator = false;
+    for (all.slots[0..all.count]) |*other| {
+        if (other.object.type.base() == .advanced_gate) other.state.gate.next(.{ .collapse = .fading });
+    }
+    explode.burnPart(world, index, krasny_slice, .{ .forever = false, .flickers = true, .lights = true });
+    sliceBursts(world, slot);
+    object.last_attacker = .of(gate);
+    ai.hullLost(ctx, index);
+    if (world.gates) |gates| gates.krasny_caught = false;
+}
+
+/// At each of the cut points of the Krasny's `bad front slice` as it splits: `slice_bits` burning
+/// bits heading back along the ship, turned at random by up to `slice_stray` about each axis, and a
+/// lit fireball, each `slice_fireball_gap` ticks after the last.
+fn sliceBursts(world: gameobj.World, slot: *create.Slot) void {
+    const model = if (slot.model) |*live| live else return;
+    const ref = model.partNamed(krasny_slice) orelse return;
+    const list = (ref.data() orelse return).pointList(.cut) orelse return;
+    const place = slot.partPlace(ref.part()) orelse return;
+    const back = math.transform(slot.drawn.orientation, .{ 0, 0, -1 });
+    for (list.points, 0..) |point, n| {
+        const at = place.point(gameobj.vector(point.position));
+        const roll = world.random.fraction() * slice_stray;
+        const yaw = world.random.fraction() * slice_stray;
+        const stray = math.fromAngles(world.random.fraction() * slice_stray, yaw, roll);
+        const heading = math.transform(stray, back);
+        for (0..slice_bits) |_| explode.throwBit(world, at, heading, slice_bit);
+        explode.fireballAt(world, at, .{ .size = slice_fireball, .light = true, .delay = @intCast(n * slice_fireball_gap) });
+    }
+}
+
+/// The part of the Krasny's model that is left as it splits (`0x004E4200`); how far through its
+/// gate a Krasny splits, or is too far for a collapse to catch (`0x004DC614`); and how the split
+/// Krasny turns, a step, and drifts, a step in its own frame.
+const krasny_slice = "bad front slice";
+const krasny_split_at: f32 = 0.33;
+const krasny_tumble: Vector = .{ -4e-05, 2e-05, -0.0013 };
+const krasny_drift: Vector = .{ 0.2, 0.14, 40 };
+
+/// The slice's bursts (`krasny_split`): how many bits at each point and how they are thrown, how
+/// far they stray (`0x004DC4C0`), and the fireballs' size and the ticks between them.
+const slice_bits = 3;
+const slice_bit: explode.Bit.Throw = .{ .size = 1, .speed = 0.3, .bodies = 0.3 };
+const slice_stray: f32 = 0.3;
+const slice_fireball: f32 = 1500;
+const slice_fireball_gap = 10;
 
 /// `0x00423050`: hides the sprites of every light of `model` and of the models it carries
 /// (node kind 3), or shows them again.
@@ -911,21 +1015,28 @@ const Collapsing = enum {
 
 /// `order_fixed_gate_collapse_init` (`0x00421AC0`): the gate in slot `index` starts to collapse,
 /// logged; a proto gate's hull burns (`explode.burnPart`) with flickering rays alone, for a while,
-/// and the screen flashes.
-///
-/// Not ported: in missions 16 and 66, the Krasny's split where it is coming through the gate
-/// ([#407](https://github.com/OpenReliant/openreliant/issues/407)).
+/// and the screen flashes. In missions 16 and 66, where a Krasny is coming through a gate in time
+/// (`Gates.krasny_in_time`), the collapse catches it (`Gates.krasny_caught`).
 pub fn collapseInit(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
+    const all = world.objects;
     log.info(">>>>>>Starting gate collapse at {d}", .{ctx.world.clock.frame_start});
-    const state = &world.objects.slots[index].state.gate;
+    const state = &all.slots[index].state.gate;
     state.progress = 0;
     state.fireballs = 0;
-    switch (Collapsing.of(world.objects.slots[index].object.type)) {
+    switch (Collapsing.of(all.slots[index].object.type)) {
         .proto => explode.burnPart(world, index, proto_hull, .{ .forever = false, .flickers = true, .lights = false }),
         .advanced, .other => {},
     }
     if (world.flash) |flash| flash.start();
+    const gates = world.gates orelse return;
+    if (!krasnyMission(all) or !gates.krasny_in_time) return;
+    for (all.slots[0..all.count]) |*ship| {
+        if (ship.object.type.base() == .krasny and ship.running(.fixed_gate_jump_in) != null) {
+            gates.krasny_caught = true;
+            return;
+        }
+    }
 }
 
 /// The gates' parts the collapse works on (`0x004E4138`, `0x004E41B8`, `0x004E4198`, `0x004E41AC`,
@@ -959,7 +1070,8 @@ pub const ring_speed: f32 = 1;
 ///    `fireball_chance` of the frames, a fireball goes off at a random point of the cut list,
 ///    `collapse_small` across. The tunnel burns out (`tunnel.Tunnel.burnOut`), and the gate
 ///    shakes, unpowered, by `shake` along each axis at random; a proto gate's step lasts 20
-///    seconds, any other's 40, its tunnel burning out twice as fast.
+///    seconds, any other's 40, its tunnel burning out twice as fast. It lasts on while a Krasny
+///    it caught is still coming through (`Gates.krasny_caught`), until the Krasny splits.
 /// 3. The tunnel fades to black (`tunnel.Tunnel.fadeOut`) over 1.7 seconds.
 /// 4. It is logged; any gate but a proto gate lets its tunnel go, an advanced gate losing its hull
 ///    (`ai.hullLost`); a gate's `forcefield` is hidden, and the order ends.
@@ -970,9 +1082,6 @@ pub const ring_speed: f32 = 1;
 /// **Fix:** the game reads past the hull's cut list where a fireball's point lies beyond its end,
 /// as the advanced gate's 41 points do for its 55 fireballs; OpenReliant counts on from the
 /// list's start again (`cutIndex`).
-///
-/// Not ported: the Krasny's split in missions 16 and 66, which holds the second step
-/// ([#407](https://github.com/OpenReliant/openreliant/issues/407)).
 pub fn collapse(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -1029,7 +1138,7 @@ pub fn collapse(ctx: aigeneric.Context, index: u16) void {
             var shaken = slot.drawn.position;
             inline for (0..3) |axis| shaken[axis] += if (world.random.centred() < 0) -shake else shake;
             objects.setPosition(&slot.object, &slot.drawn, shaken);
-            if (!(state.progress >= 1)) return;
+            if (!(state.progress >= 1) or gates.krasny_caught) return;
             state.next(.{ .collapse = .fading });
         },
         .fading => {
@@ -1547,4 +1656,72 @@ test secondPasses {
     secondPasses(gate, false);
     try std.testing.expect(meshes[0].surfaces[1].material.two_pass);
     gate.type = null;
+}
+
+test "a collapsing gate catches the Krasny coming through, which splits" {
+    const gpa = std.testing.allocator;
+    var run: testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    const mission = &run.mission;
+    mission.objects.mission_number = krasny_missions[0];
+    // The Krasny's model: its slice, with two points to burst at, and a part that goes.
+    var named: objects.testing.NamedParts(2) = undefined;
+    named.init(.{ krasny_slice, "Bad Nose" }, .{ .cut, .cut }, .{ &.{ .{ 0, 0, 0 }, .{ 0, 0, 100 } }, &.{} });
+    const kind: create.Type = .{ .model = &named.parts.source, .loaded = &named.parts.loaded };
+    _ = try mission.add(.of(.predator), @splat(0));
+    const krasny = try mission.addWith(create.testing.oneType(&kind), .of(.krasny), .{ 0, 0, -100000 });
+    const gate = try mission.add(.of(.advanced_gate), @splat(0));
+    const ctx = run.orders();
+    const gates = &run.built.gates;
+    _ = (try gates.make(ctx.world, gate, .advanced, @splat(0))).?;
+
+    // It starts through the gate, which then collapses and catches it.
+    _ = try aigeneric.pushShip(ctx, krasny, .fixed_gate_jump_in, gate, null);
+    aigeneric.objectOrders(ctx, krasny);
+    _ = try aigeneric.push(ctx, gate, .fixed_gate_collapse, .none);
+    aigeneric.objectOrders(ctx, gate);
+    try std.testing.expect(gates.krasny_caught);
+    // A third of the way through, it splits: its jump ends, it is lost to the gate, only its
+    // slice shows, and the gate's collapse goes on to fade its tunnel.
+    const slot = mission.slot(krasny);
+    const object = &slot.object;
+    while (object.order_count > 0 and slot.state.gate.progress <= krasny_split_at) mission.ordersAfter(ctx, krasny, 10);
+    try std.testing.expect(object.flags.exploding and object.flags.unpowered and !object.flags.frozen);
+    try std.testing.expectEqual(0, object.order_count);
+    try std.testing.expectEqual(gate, object.last_attacker.index().?);
+    try std.testing.expect(!gates.krasny_caught);
+    const model = &slot.model.?;
+    try std.testing.expect(!model.parts[0].hidden and model.parts[1].hidden);
+    try std.testing.expectEqual(CollapseStep.fading, mission.slot(gate).state.gate.step.collapse);
+}
+
+test "a Krasny a third of the way through is too late for a collapse to catch" {
+    const gpa = std.testing.allocator;
+    var run: testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    const mission = &run.mission;
+    mission.objects.mission_number = krasny_missions[1];
+    _ = try mission.add(.of(.predator), @splat(0));
+    const krasny = try mission.add(.of(.krasny), .{ 0, 0, -100000 });
+    const gate = try mission.add(.of(.proto_gate), @splat(0));
+    const ctx = run.orders();
+    const gates = &run.built.gates;
+    _ = (try gates.make(ctx.world, gate, .proto, @splat(0))).?;
+
+    _ = try aigeneric.pushShip(ctx, krasny, .fixed_gate_jump_in, gate, null);
+    aigeneric.objectOrders(ctx, krasny);
+    const state = &mission.slot(krasny).state.gate;
+    while (state.progress <= krasny_split_at) mission.ordersAfter(ctx, krasny, 10);
+    try std.testing.expect(!gates.krasny_in_time);
+    // The gate collapsing now doesn't catch it, and the Krasny comes on through.
+    _ = try aigeneric.push(ctx, gate, .fixed_gate_collapse, .none);
+    aigeneric.objectOrders(ctx, gate);
+    try std.testing.expect(!gates.krasny_caught);
+    while (mission.slot(krasny).object.order_count > 0) mission.ordersAfter(ctx, krasny, 10);
+    try std.testing.expect(!mission.slot(krasny).object.flags.exploding);
+    // A new mission sets the gates' flags back.
+    gates.reset();
+    try std.testing.expect(gates.krasny_in_time and !gates.krasny_caught);
 }
