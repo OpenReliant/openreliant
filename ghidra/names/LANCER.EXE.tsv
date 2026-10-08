@@ -2201,6 +2201,9 @@ address	kind	name	type	comment
 0051d12c	data	wgate_ring_step	float	One over wgate_rings
 0051d1a0	data	wgate_texture	void *	The tunnels' texture: warp128, or ddwarp128 without a hardware renderer
 0051d13c	data	wgate_exiting	bool	Set while a ship goes out through a tunnel, which the next Fixed Gate Jump Out waits for
+00422ca0	function	krasny_split	void __fastcall (int slot)	Splits the Krasny that a collapsing gate caught a third of the way through it: flash_ticks 100; ends its Fixed Gate Jump In as the update does but for its light sprites, posting FixedGateJumpedIn; unpowered and exploding, turning by (-4e-05, 2e-05, -0.0013) and drifting at (0.2, 0.14, 40) in its frame; of the root's children only bad front slice shows; no shield generator; every advanced gate's order state at step 2 from 0; bad front slice burns for 5000 ticks, flickering, with lights; at each of its kind 2 points three bits back along the ship at 0.3 bodies and a fireball of 1500, 10 ticks apart; the gate as its last attacker; object_hull_lost; clears krasny_caught
+0051d134	data	krasny_in_time	bool	Set by wgates_init and wgates_free; cleared once a Krasny is a third of the way through a gate before a collapse catches it (Did not take out gate in time), after which no collapse can
+0051d13d	data	krasny_caught	bool	Set by order_fixed_gate_collapse_init in missions 16 and 66 where a Krasny runs Fixed Gate Jump In and krasny_in_time is set; holds the collapse's second step; order_fixed_gate_jump_in splits the Krasny a third of the way through while it is set (krasny_split), which clears it
 0051d13e	data	wgate_riding	bool	Set while the player's ship rides the worm, which leaves the gates' tunnels out of the scene
 0051d19c	data	worm	void *	The worm the player's ship rides, made anew for each of its jumps out
 004e3f68	data	wgate_spread	int	Where the next ship comes out of Fixed Gate Jump In, turned 0.3 about the tunnel's axis a step, from -2 to 2; -2 at the start

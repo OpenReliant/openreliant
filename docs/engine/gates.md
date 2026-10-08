@@ -19,10 +19,9 @@ lets every tunnel go.
 with their independent tunnels, projector beams and particles.
 
 Not ported: the Boridin's projection (kind 3, order 38)
-([#30](https://github.com/OpenReliant/openreliant/issues/30)); the
-Krasny's split in missions 16 and 66 ([#407](https://github.com/OpenReliant/openreliant/issues/407));
-and the collapse's second passes on the parts of models a gate carries, which the game's walk of
-its nodes reaches too ([#540](https://github.com/OpenReliant/openreliant/issues/540)). No shipped gate carries a model.
+([#30](https://github.com/OpenReliant/openreliant/issues/30)); and the collapse's second passes on
+the parts of models a gate carries, which the game's walk of its nodes reaches too
+([#540](https://github.com/OpenReliant/openreliant/issues/540)). No shipped gate carries a model.
 
 **Improvements**, which `--original` turns off:
 
@@ -228,6 +227,29 @@ the order ends; its FixedGateJumpedIn is posted with the gate's ship (`event_fix
 In missions 16 and 66 the Krasny (type `0x9A`) comes out straight ahead, leaving the spread as it
 is, at 0.13 rather than 2, with no flashes.
 
+### The Krasny's split
+
+A Krasny a third of the way through a gate (`0x004DC614`) splits where a collapse has caught it
+(`0x0051D13D`, set by the collapse's start below). It is logged ">>>>>>Splitting the Krasny at
+%d", and the split (`krasny_split`, `0x00422CA0`) runs:
+
+- The screen flashes.
+- Its jump ends as above, its FixedGateJumpedIn posted, though its lights' sprites stay hidden.
+- It is unpowered and exploding, turning slowly by `(-4e-05, 2e-05, -0.0013)` a step and drifting
+  on at `(0.2, 0.14, 40)` a step in its own frame.
+- Of its parts only `bad front slice` shows, and it loses its shield generator.
+- Every advanced gate's collapse moves on to its third step, the fade, from the start.
+- The slice burns for 5000 ticks, flickering, with its lights and smoke
+  ([Burning wrecks](effects.md#burning-wrecks)).
+- At each of the slice's cut points, three burning bits head back along the ship, turned at random
+  by up to 0.3 about each axis, a body three times in ten, and a lit fireball 1500 across goes off,
+  each 10 ticks after the last.
+- The gate becomes its last attacker, and the ship is lost (`object_hull_lost`).
+
+A Krasny a third of the way through that no collapse has caught is logged ">>>>>>Did not take out
+gate in time to split Krasny at %d", once in OpenReliant where the game logs it every frame, and
+from then on no collapse can catch one (`0x0051D134`). A mission's start sets both flags back.
+
 ## Jump out
 
 Fixed Gate Jump Out (26, `0x00420DD0`) takes the ship out through the nearest gate's tunnel,
@@ -253,8 +275,10 @@ as a proto gate's tunnel over its rings (`0x00422AD0`). As the ship rides it swa
 ## Collapse
 
 Fixed Gate Collapse (31, `0x00421AC0`) is logged ">>>>>>Starting gate collapse at %d"; a proto
-gate's hull (`Protogate`) burns with flickering rays alone, for a while, and the screen flashes.
-Its update (`0x00421B80`), counting from the tunnel's last frame:
+gate's hull (`Protogate`) burns with flickering rays alone, for a while, and the screen flashes. In
+missions 16 and 66, where a Krasny is coming through a gate in time, the collapse catches it
+([The Krasny's split](#the-krasnys-split)). Its update (`0x00421B80`), counting from the tunnel's
+last frame:
 
 1. Over 10 seconds, 55 fireballs go off at the points of the hull's cut list in turn (`Protogate`,
    or `OuterRing` for any other gate), each 5500 to 8500 across and lit, every seventh heard
@@ -266,7 +290,8 @@ Its update (`0x00421B80`), counting from the tunnel's last frame:
    past its end. The tunnel burns out (`0x00422380`): a flickering
    share of its vertices take a dull red, the ring before the last blue, brightest where the share
    has just reached them. The gate shakes by 15 along each axis at random, unpowered. A proto
-   gate's step lasts 20 seconds, any other's 40, its tunnel burning twice as fast.
+   gate's step lasts 20 seconds, any other's 40, its tunnel burning twice as fast. It lasts on
+   while a Krasny the collapse caught is still coming through, until the Krasny splits.
 3. The tunnel fades (`0x004221E0`) over 1.7 seconds: its vertices take a pale grey, the ring
    before the last green, by the same reach.
 4. It is logged ">>>>>>Gate fully collapsed at %d"; any gate but a proto gate lets its tunnel go,
