@@ -107,6 +107,12 @@ pub const Step = enum(u32) {
         comptime assert(@typeInfo(@TypeOf(own)).@"enum".tag_type == u32);
         return @fromBackingInt(@backingInt(own));
     }
+
+    /// Whether the landing is at its style's step `other` or past it, by their numbers as the game
+    /// compares them.
+    pub fn reached(step: Step, other: anytype) bool {
+        return @backingInt(step) >= @backingInt(of(other));
+    }
 };
 
 /// The Reliant's steps.
@@ -567,7 +573,7 @@ pub fn hold(all: *create.Objects, index: u16) bool {
     const slot = &all.slots[index];
     if (slot.running(.land) == null) return false;
     const state = &slot.state.land;
-    if (state.style != .yamato or @backingInt(state.step) < @backingInt(YamatoStep.settling)) return false;
+    if (state.style != .yamato or !state.step.reached(YamatoStep.settling)) return false;
     const pad = (slot.riding orelse return false).place(all) orelse return false;
     const on_pad: math.Place = .{ .position = state.on_pad, .orientation = state.pad_orientation };
     objects.setPlace(&slot.object, &slot.drawn, on_pad.within(pad));
@@ -635,6 +641,13 @@ pub fn seen(all: *const create.Objects, index: u16) ?camera.Landing {
         },
         .none, _ => return null,
     }
+}
+
+test "Step.reached" {
+    const settling: Step = .of(YamatoStep.settling);
+    try std.testing.expect(settling.reached(YamatoStep.settling));
+    try std.testing.expect(settling.reached(YamatoStep.waiting));
+    try std.testing.expect(!Step.of(YamatoStep.waiting).reached(YamatoStep.settling));
 }
 
 test Style {

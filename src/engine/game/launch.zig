@@ -168,7 +168,13 @@ pub const Step = enum(i32) {
 
     /// Whether the style's own steps have begun.
     pub fn isStyled(step: Step) bool {
-        return @backingInt(step) >= @backingInt(styled);
+        return step.reached(styled);
+    }
+
+    /// Whether the launch is at step `other`, the launch's or its style's own, or past it, by
+    /// their numbers as the game compares them.
+    pub fn reached(step: Step, other: anytype) bool {
+        return @backingInt(step) >= @backingInt(of(other));
     }
 
     /// The step as a style's own steps, `Styled`, number it.
@@ -408,7 +414,7 @@ pub fn dropping(all: *const create.Objects, index: u16) bool {
     const slot = &all.slots[index];
     if (slot.running(.launch) == null) return false;
     const state = slot.state.launch;
-    return state.style == .reliant and @backingInt(state.step) >= @backingInt(Step.of(reliant.Step.drop));
+    return state.style == .reliant and state.step.reached(reliant.Step.drop);
 }
 
 /// `mission_frame`'s placing of a ship that rides a node (`0x00492C14`), once a frame before the
@@ -574,6 +580,15 @@ test "Step.as" {
     try std.testing.expectEqual(torpedo.Step.boost, Step.of(torpedo.Step.boost).as(torpedo.Step));
     try std.testing.expect(Step.of(torpedo.Step.fire).isStyled());
     try std.testing.expect(!Step.delaying.isStyled());
+}
+
+test "Step.reached" {
+    // A step reaches itself and the steps before it, the launch's and its style's alike.
+    const drop: Step = .of(reliant.Step.drop);
+    try std.testing.expect(drop.reached(reliant.Step.drop));
+    try std.testing.expect(drop.reached(Step.waiting));
+    try std.testing.expect(!Step.delaying.reached(reliant.Step.drop));
+    try std.testing.expect(drop.next().reached(drop));
 }
 
 test "Style.of" {
