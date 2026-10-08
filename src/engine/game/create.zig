@@ -986,12 +986,52 @@ fn wreckOf(object_type: gameobj.Type) ?Wreck {
     };
 }
 
+/// `create_object`'s set-up for single types (the switch at `0x004677A2`), as far as it needs no
+/// more than the object and its model:
+/// - An asteroid, a turret asteroid or an asteroid with a hole is fully invulnerable, so that no hit
+///   destroys it, and attached, so that a knock leaves it where it is and a ship that bumps it
+///   takes a fiftieth of the damage (`0x004683B6`).
+/// - The Victorious, the Kurgan and the Washington have a shield generator, whatever their parts
+///   (`0x00467937`).
+/// - The Rogue base's meshes draw their first texture pass alone (`wgate.secondPasses`,
+///   `0x004683D4`).
+/// - The Saladin's parts loop their `middle spin` track from its start (`objects.Model.playNamedTree`,
+///   `0x00467DF1`), outside a multiplayer game.
+///
+/// The routine that most capital ships, bases and stations get for a destroyed component, the
+/// Ulysses' its own, OpenReliant picks by type as it needs it (`explode.ComponentLoss`).
+///
+/// Not ported: the Dark Reign's hat ([#238](https://github.com/OpenReliant/openreliant/issues/238));
+/// Titan's Planet Bombard routine on its parts (`0x0046841D`); and the comms relay, the deathmatch's
+/// power-ups and beacons and multiplayer map 83, which only the multiplayer arenas have
+/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The wrecks, the gates and the
+/// planets are set up once they are in the world (`wreckMade`, `gateMade`, `planetMade`).
+fn typeMade(slot: *Slot, ship_type: gameobj.Type) void {
+    const object = &slot.object;
+    switch (ship_type.base()) {
+        .asteroid_1, .asteroid_2, .asteroid_3, .asteroid_4, .asteroid_5, .asteroid_6, .asteroid_7 => standStill(object),
+        .turret_asteroid_1, .turret_asteroid_2, .turret_asteroid_3, .turret_asteroid_4, .turret_asteroid_5, .turret_asteroid_6, .turret_asteroid_7 => standStill(object),
+        .asteroid_with_hole_1, .asteroid_with_hole_2, .asteroid_with_hole_3, .asteroid_with_hole_4 => standStill(object),
+        .victorious, .kurgan, .washington => object.flags.shield_generator = true,
+        .rogue_base => wgate.secondPasses(slot, false),
+        .saladin => if (slot.model) |*model| model.playNamedTree(saladin_spin, 0, .loop, 1),
+        else => {},
+    }
+}
+
+/// What an asteroid is made as (`typeMade`): fully invulnerable, and attached.
+fn standStill(object: *GameObject) void {
+    object.invulnerable = .full;
+    object.flags.attached = true;
+}
+
+/// The track the Saladin's parts loop (`0x004F9D60`).
+const saladin_spin = "middle spin";
+
 /// The part of `create_object` for a wreck, once it is made where the world can see it: its part
 /// burns for good, its rays flickering, with its burn lights and smoke (`explode.burnPart`). The
 /// port does it once the object is made, as the split makes the wreck (`explode.split`).
 ///
-/// Not ported: the rest of `create_object` for single types but the gates (`gateMade`)
-/// ([#233](https://github.com/OpenReliant/openreliant/issues/233)).
 pub fn wreckMade(world: gameobj.World, index: u16) void {
     const slot = &world.objects.slots[index];
     const wreck = wreckOf(slot.object.type) orelse return;
@@ -1132,9 +1172,9 @@ pub fn make(world: gameobj.World, wanted: ?u16, object_type: gameobj.Type) Error
 ///
 /// Once the object is made, mods' scripts are told (`object_added`).
 ///
-/// Not ported: the components (#40); what it does for capital ships, gates and other single types
-/// but the wrecks and the planets (#233, `wreckMade`, `planetMade`); and what differs in a
-/// multiplayer game.
+/// A single type, such as an asteroid, is set up as its own (`typeMade`).
+///
+/// Not ported: the components (#40); and what differs in a multiplayer game.
 pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, asked: gameobj.Type, tier: i32, at: Vector, random: *Random) Error!u16 {
     const index = wanted orelse all.count;
     if (index >= gameobj.max_objects) return error.Overrun;
@@ -1243,6 +1283,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
             object.flags.components = true;
             object.flags.attached = true;
         }
+        typeMade(slot, ship_type);
     }
     object.wing_icon = 0;
     pilots.setPilot(object, if (combat.side == .hostile) coalition_pilot else 0);
@@ -2347,6 +2388,28 @@ test "a ship with a retro thruster can reverse" {
     model.data[0].attachments = &glows;
     const retro = try mission.addWith(model.types(), .of(.patriot), @splat(0));
     try std.testing.expect(all.slots[retro].object.flags.can_reverse);
+}
+
+test "single types are made as their own" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const all = mission.objects;
+    var model: testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    // Every kind of asteroid stands still, and no hit destroys it.
+    for ([_]gameobj.GameType{ .asteroid_1, .turret_asteroid_7, .asteroid_with_hole_2 }) |rock| {
+        const object = &all.slots[try mission.addWith(model.types(), .of(rock), @splat(0))].object;
+        try std.testing.expectEqual(.full, object.invulnerable);
+        try std.testing.expect(object.flags.attached);
+    }
+    // The Kurgan has a shield generator whatever its parts; a Sabre doesn't.
+    const kurgan = &all.slots[try mission.addWith(model.types(), .of(.kurgan), @splat(0))].object;
+    try std.testing.expect(kurgan.flags.shield_generator and kurgan.invulnerable == .none);
+    const sabre = &all.slots[try mission.addWith(model.types(), .of(.sabre), @splat(0))].object;
+    try std.testing.expect(!sabre.flags.shield_generator and !sabre.flags.attached);
 }
 
 test "a type under another number takes its stats, then its number" {

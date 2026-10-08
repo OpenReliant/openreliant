@@ -156,10 +156,15 @@ hostile, and 2 for the rest, which are neutral. Two objects on different sides a
 `Objects` is OpenReliant's GO array: each slot the object's record, and what OpenReliant keeps
 beside it where the record holds the original's pointers. It fits the guns and their groups
 ([Guns](guns.md)), and the racks from the player's loadout or by the loadout tier
-([Missiles](missiles.md#the-loadout)). Not ported yet: the special types but the wrecks and the
-planets, which `planetMade` sets up once the mission has made the planet and its atmosphere, and
-Titan's Planet Bombard ([#233](https://github.com/OpenReliant/openreliant/issues/233)); and the
-multiplayer cases.
+([Missiles](missiles.md#the-loadout)). The switch on single types (`0x004677A2`) makes asteroids
+fully invulnerable and attached, so that a knock leaves them where they are and a ship that bumps
+one takes a fiftieth of the damage; gives the Victorious, the Kurgan and the Washington a shield
+generator whatever their parts; draws the Rogue base's meshes with their first texture pass alone;
+and loops the Saladin's `middle spin` track (`typeMade`). The wrecks, the gates and the planets are
+set up once the mission has made them (`wreckMade`, `gateMade`, `planetMade`). Not ported yet:
+Titan's Planet Bombard ([#233](https://github.com/OpenReliant/openreliant/issues/233)), the Dark
+Reign's hat ([#238](https://github.com/OpenReliant/openreliant/issues/238)), and the multiplayer
+cases.
 
 ## Flags
 

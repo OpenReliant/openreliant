@@ -1127,13 +1127,15 @@ fn setSpeed(model: *objects.Model, name: []const u8, speed: f32) void {
     ref.part().animation.speed = speed;
 }
 
-/// `0x00422680`: turns the second pass on or off of each surface with a second texture of every
-/// part of the gate in `slot`, which its type's meshes hold, so that every gate of the type goes
-/// with it.
+/// `node_tree_second_passes` (`0x00422680`): turns the second pass on or off of each surface with a
+/// second texture of every part of the object in `slot`, which its type's meshes hold, so that
+/// every object of the type goes with it. A gate's collapse flickers them, and the Rogue base is
+/// made with them off (`create.typeMade`).
 ///
-/// Not ported: the parts of models the gate carries, which the game's walk of its nodes reaches
-/// too; no shipped gate carries any ([#540](https://github.com/OpenReliant/openreliant/issues/540)).
-fn secondPasses(slot: *create.Slot, on: bool) void {
+/// Not ported: the parts of models the object carries, which the game's walk of its nodes reaches
+/// too; no shipped gate or Rogue base carries any
+/// ([#540](https://github.com/OpenReliant/openreliant/issues/540)).
+pub fn secondPasses(slot: *create.Slot, on: bool) void {
     const loaded = (slot.type orelse return).loaded;
     for (loaded.parts) |*part| {
         for (part.meshes) |*mesh| {
