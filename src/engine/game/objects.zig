@@ -1348,7 +1348,9 @@ pub const Model = struct {
             back_pincer,
 
             const thrusters = [_][]const u8{ "Ripper l thrust", "Ripper r thrust" };
-            const back_pincers = [_][]const u8{ "Ripper Back pincer 2", "Ripper Back pincer 03", "Ripper Back pincer 04", "Ripper Back pincer 05" };
+            /// The back pincers' parts, which the Ripper's tractor beams come from too
+            /// (`airipper.pincers`).
+            pub const back_pincers = [_][]const u8{ "Ripper Back pincer 2", "Ripper Back pincer 03", "Ripper Back pincer 04", "Ripper Back pincer 05" };
 
             /// The glow a part named `name` carries, compared letter for letter as `node_draw`
             /// compares it (`strcmp`); null for any other part.
