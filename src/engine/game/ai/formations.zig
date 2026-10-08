@@ -822,7 +822,7 @@ fn face(world: gameobj.World, index: u16, at: Vector, turning: Turning) bool {
             if (angle) |out| out.* = off;
         },
     }
-    return math.dot(math.forward(slot.object.root.orientation), math.normalize(at - from)) >= ahead_cosine;
+    return ai.noseCosine(slot.object.root.orientation, at - from) >= ahead_cosine;
 }
 
 /// How far, in radians, `levelTurn` turns a ship at most (`0x0040475A`).
@@ -922,8 +922,8 @@ fn stateOf(world: gameobj.World, index: anytype, order: Order) ?*aigeneric.State
     const at = std.math.cast(u16, index) orelse return null;
     if (at >= world.objects.slots.len) return null;
     const slot = &world.objects.slots[at];
-    const entry = slot.current() orelse return null;
-    return if (entry.order == order) &slot.state else null;
+    _ = slot.running(order) orelse return null;
+    return &slot.state;
 }
 
 /// A mission for the tests: the player's ship far off, a flight group of two Predators from slot 1,

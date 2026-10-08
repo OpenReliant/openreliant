@@ -197,8 +197,9 @@ pub fn alongNose(place: math.Place, point: Vector, radius: f32) bool {
 }
 
 /// The cosine of the angle between `toward` and the nose of something turned as `orientation`:
-/// `toward` normalized, dotted with the nose, as the ejection's Sabre, the Ripper and Scoop Up work
-/// it out (`order_eject_fighter_attack`, `order_ripper_grabs_target_object`, `order_scoop_up`).
+/// `toward` normalized, dotted with the nose, as the ejection's Sabre, the Ripper, Scoop Up and the
+/// formation orders work it out (`order_eject_fighter_attack`, `order_ripper_grabs_target_object`,
+/// `order_scoop_up`, `formation_face`).
 /// `math.cosineOff` divides by the length instead, which rounds differently.
 pub fn noseCosine(orientation: math.Matrix, toward: Vector) f32 {
     return math.dot(math.normalize(toward), math.forward(orientation));
