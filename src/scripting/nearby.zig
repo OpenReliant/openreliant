@@ -20,9 +20,9 @@ pub const package = struct {
 
 /// `nearby.objects(radius)`.
 fn objectsWithin(call: Call, radius: f32) handles.List {
-    const all = call.runtime().objects orelse call.raise("nearby.objects can only be used while a game runs", .{});
+    const all = call.runtime().objects orelse call.raise("can only be used while a game runs", .{});
     const own: RunsOn = call.context.runs_on orelse .{ .object = .of(all, all.player) };
-    if (!own.valid(all)) call.raise("nearby.objects: the script's object or missile is no longer in the mission", .{});
+    if (!own.valid(all)) call.raise("the script's object or missile is no longer in the mission", .{});
     const centre = own.position(all);
     const itself: ?u16 = switch (own) {
         .object => |handle| handle.slot,

@@ -467,29 +467,29 @@ pub const functions = struct {
 fn register(call: Call, given: Definition) []const u8 {
     switch (call.context.family) {
         .load, .menu => {},
-        .global, .object, .player => call.raise("core: {t} scripts can't register a game mode; load and menu scripts can", .{call.context.family}),
+        .global, .object, .player => call.raise("{t} scripts can't register a game mode; load and menu scripts can", .{call.context.family}),
     }
-    const registry = call.runtime().options.shared.modes orelse call.raise("core: game modes aren't kept here", .{});
-    if (registry.closed) call.raise("core: a game mode can only be registered as OpenReliant starts", .{});
+    const registry = call.runtime().options.shared.modes orelse call.raise("game modes aren't kept here", .{});
+    if (registry.closed) call.raise("a game mode can only be registered as OpenReliant starts", .{});
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const name = call.qualified("core", given.name, &buffer);
-    if (registry.find(name) != null) call.raise("core: the game mode '{s}' is registered already", .{name});
-    if (registry.modes.items.len == screen.capacity) call.raise("core: at most {d} game modes can be registered", .{screen.capacity});
-    if (given.label.len == 0) call.raise("core: a game mode needs a label", .{});
-    if (given.missions.len == 0) call.raise("core: a game mode needs missions", .{});
-    if (given.loop and given.campaign) call.raise("core: a campaign can't loop", .{});
-    if (given.loadout_ships) |listed| if (listed.len == 0) call.raise("core: loadout_ships needs a ship", .{});
+    const name = call.qualified(given.name, &buffer);
+    if (registry.find(name) != null) call.raise("the game mode '{s}' is registered already", .{name});
+    if (registry.modes.items.len == screen.capacity) call.raise("at most {d} game modes can be registered", .{screen.capacity});
+    if (given.label.len == 0) call.raise("a game mode needs a label", .{});
+    if (given.missions.len == 0) call.raise("a game mode needs missions", .{});
+    if (given.loop and given.campaign) call.raise("a campaign can't loop", .{});
+    if (given.loadout_ships) |listed| if (listed.len == 0) call.raise("loadout_ships needs a ship", .{});
     var briefing_buffer: [runtime_module.max_name]u8 = undefined;
     var ending_buffer: [runtime_module.max_name]u8 = undefined;
     const mod = call.context.modOf();
     const names: Names = .{
-        .briefing = if (given.briefing) |screen_name| call.qualified("core", screen_name, &briefing_buffer) else null,
-        .ending = if (given.ending) |screen_name| call.qualified("core", screen_name, &ending_buffer) else null,
-        .records = if (given.records) |file| script.find(mod, file) orelse call.raise("core: mod {s} has no script {s}", .{ mod.name, file }) else null,
+        .briefing = if (given.briefing) |screen_name| call.qualified(screen_name, &briefing_buffer) else null,
+        .ending = if (given.ending) |screen_name| call.qualified(screen_name, &ending_buffer) else null,
+        .records = if (given.records) |file| script.find(mod, file) orelse call.raise("mod {s} has no script {s}", .{ mod.name, file }) else null,
     };
     registry.adopt(mod.name, mod.about(.name) orelse mod.name, name, names, given) catch |err| switch (err) {
-        error.OutOfMemory => call.raise("core: out of memory", .{}),
-        error.BadName => call.raise("core: an objective's name must be valid UTF-8 of at most {d} characters", .{language.max_length}),
+        error.OutOfMemory => call.raise("out of memory", .{}),
+        error.BadName => call.raise("an objective's name must be valid UTF-8 of at most {d} characters", .{language.max_length}),
     };
     return registry.modes.items[registry.modes.items.len - 1].name;
 }

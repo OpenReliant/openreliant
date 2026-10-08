@@ -25,16 +25,16 @@ pub const package = struct {
 };
 
 /// `vfs.read(name)`.
-fn readGame(state: *State) i32 {
-    const call: Call = .of(state, "vfs.read");
-    const name = nameOf(state, "vfs.read");
+fn readGame(call: Call) i32 {
+    const state = call.state;
+    const name = nameOf(call);
     const gpa = call.runtime().gpa;
     // Refuses a loose file bigger than half the mod's memory, since it is copied into the script's
     // string.
     const most = call.runtime().options.limits.memory / 2;
     const bytes = find(call, name, most) catch |err| switch (err) {
-        error.StreamTooLong => state.raise("vfs.read: {s} is bigger than the {d} bytes a script can read", .{ name, most }),
-        else => state.raise("vfs.read: {s} can't be read: {s}", .{ name, @errorName(err) }),
+        error.StreamTooLong => call.raise("{s} is bigger than the {d} bytes a script can read", .{ name, most }),
+        else => call.raise("{s} can't be read: {s}", .{ name, @errorName(err) }),
     };
     return pushBytes(state, gpa, bytes orelse return pushNone(state));
 }
@@ -70,18 +70,18 @@ fn looseFile(folder: Storage.Folder, name: []const u8, spelled: *[files.max_path
 }
 
 /// `vfs.read_mod(name)`.
-fn readMod(state: *State) i32 {
-    const call: Call = .of(state, "vfs.read_mod");
-    const name = nameOf(state, "vfs.read_mod");
+fn readMod(call: Call) i32 {
+    const state = call.state;
+    const name = nameOf(call);
     const gpa = call.runtime().gpa;
-    const bytes = call.context.modOf().readFile(gpa, name) catch |err| state.raise("vfs.read_mod: {s} can't be read: {s}", .{ name, @errorName(err) });
+    const bytes = call.context.modOf().readFile(gpa, name) catch |err| call.raise("{s} can't be read: {s}", .{ name, @errorName(err) });
     return pushBytes(state, gpa, bytes orelse return pushNone(state));
 }
 
 /// `vfs.exists(name)`.
-fn fileExists(state: *State) i32 {
-    const call: Call = .of(state, "vfs.exists");
-    const name = nameOf(state, "vfs.exists");
+fn fileExists(call: Call) i32 {
+    const state = call.state;
+    const name = nameOf(call);
     const shared = call.runtime().options.shared;
     var spelled: [files.max_path]u8 = undefined;
     const archived = if (shared.files) |held| held.has(name) else false;
@@ -89,8 +89,8 @@ fn fileExists(state: *State) i32 {
     return 1;
 }
 
-fn nameOf(state: *State, comptime label: []const u8) []const u8 {
-    return state.toString(1) orelse state.raise(label ++ ": expected a file's name, got {s}", .{state.typeName(1)});
+fn nameOf(call: Call) []const u8 {
+    return call.state.toString(1) orelse call.raise("expected a file's name, got {s}", .{call.state.typeName(1)});
 }
 
 fn pushNone(state: *State) i32 {

@@ -122,9 +122,9 @@ pub const Registry = struct {
     }
 };
 
-fn registerOrder(state: *State) i32 {
-    const call = Call.of(state, "orders.register");
-    if (call.context.family != .global) call.raise("orders.register requires a global script", .{});
+fn registerOrder(call: Call) i32 {
+    const state = call.state;
+    if (call.context.family != .global) call.raise("only global scripts can register orders", .{});
     const scripts = call.runtime();
     if (scripts.custom_orders.running) call.raise("orders cannot be registered from an order callback", .{});
     const name = values.read(state, []const u8, 1, "name");
@@ -132,7 +132,7 @@ fn registerOrder(state: *State) i32 {
     if (!openreliant.dte.source.validId(name)) call.raise("order name must be an identifier", .{});
     var qualified_buffer: [runtime.max_name]u8 = undefined;
     const qualified = runtime.Name.of(std.mem.print(&qualified_buffer, "{s}:{s}", .{ call.context.modOf().qualifier(), name }) catch call.raise("qualified order name is too long", .{})).?;
-    if (state.typeOf(2) != .table) call.raise("orders.register expects a definition table", .{});
+    if (state.typeOf(2) != .table) call.raise("expected a definition table, got {s}", .{state.typeName(2)});
     var flags: orders.Flags = .{};
     var priority: i32 = 0;
     state.pushNil();
@@ -155,7 +155,7 @@ fn registerOrder(state: *State) i32 {
     }
     const number = first_custom + scripts.custom_orders.entries.items.len;
     if (number > std.math.maxInt(i16)) call.raise("the custom order registry is full", .{});
-    scripts.custom_orders.entries.ensureUnusedCapacity(scripts.gpa, 1) catch call.raise("orders.register: out of memory", .{});
+    scripts.custom_orders.entries.ensureUnusedCapacity(scripts.gpa, 1) catch call.raise("out of memory", .{});
     // Copy callbacks so later changes to the definition cannot replace a registered handler.
     state.newTable(0, std.enums.values(Role).len);
     inline for (comptime std.enums.values(Role)) |role| {
@@ -238,7 +238,7 @@ fn infoOf(call: Call, identifier: Identifier) ?OrderInfo {
 }
 
 fn stackOf(call: Call, object: Object) Stack {
-    const all = call.runtime().objects orelse call.raise("orders.stack can only be used while a game runs", .{});
+    const all = call.runtime().objects orelse call.raise("can only be used while a game runs", .{});
     var found: Stack = .{};
     for (all.slots[object.slot()].stack()) |entry| {
         const ship = entry.target.ship();
@@ -252,11 +252,11 @@ fn stackOf(call: Call, object: Object) Stack {
 }
 
 fn cancelOrder(call: Call, object: Object) bool {
-    return aigeneric.pop(objects.ordersOf(call, object, "orders.cancel"), object.slot());
+    return aigeneric.pop(objects.ordersOf(call, object), object.slot());
 }
 
 fn clearAll(call: Call, object: Object) bool {
-    const ctx = objects.ordersOf(call, object, "orders.clear");
+    const ctx = objects.ordersOf(call, object);
     aigeneric.clear(ctx, object.slot()) catch return false;
     return ctx.world.objects.slots[object.slot()].object.order_count == 0;
 }
@@ -296,8 +296,8 @@ test "scripts read the order table and an object's orders, and end them" {
         \\assert(orders.clear(sabre) and #orders.stack(sabre) == 0)
         \\assert(not orders.cancel(sabre))
     );
-    // An object's scripts change their own object's orders only.
+    // An object's scripts change their own object's orders only. The error names the function.
     context.family = .object;
     context.runs_on = .{ .object = .of(mission.objects, 0) };
-    try bind.testing.expectSourceError(thread, "require('openreliant.orders').cancel(sabre)", "can't change this object's orders");
+    try bind.testing.expectSourceError(thread, "require('openreliant.orders').cancel(sabre)", "orders.cancel: object scripts can't change this object's orders");
 }

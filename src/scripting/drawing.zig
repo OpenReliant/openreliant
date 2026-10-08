@@ -244,7 +244,7 @@ fn readAsset(call: Call, path: []const u8) ![]u8 {
 fn selectedFont(call: Call, view: View, name: ?[]const u8, base: Font) *hud.Opened {
     const asked = name orelse return view.font;
     if (std.meta.stringToEnum(Font, asked)) |builtin| return view.fontOf(builtin) orelse call.raise("font '{s}' is unavailable this frame", .{asked});
-    return presentation.Presentation.of(call, "font").assets.loadFont(call, asked, base, view) catch |err| call.raise("font {s}: {s}", .{ asked, problem(err) });
+    return presentation.Presentation.of(call).assets.loadFont(call, asked, base, view) catch |err| call.raise("font {s}: {s}", .{ asked, problem(err) });
 }
 
 /// Where a script draws.
@@ -430,7 +430,7 @@ fn screenPoint(at: @Vector(3, f32)) [2]f32 {
 
 /// Records text at `at` on the layer `which`.
 fn recordText(call: Call, which: Which, at: Where, words: []const u8, given: ?TextStyle) void {
-    const shown = presentation.Presentation.of(call, "text");
+    const shown = presentation.Presentation.of(call);
     const style = given orelse TextStyle{};
     // Hidden layers keep accepting commands, as before; they are not rendered this frame.
     const font = if (shown.views.get(which)) |view| selectedFont(call, view, style.font, style.base_font) else null;
@@ -442,7 +442,7 @@ fn recordText(call: Call, which: Which, at: Where, words: []const u8, given: ?Te
 
 /// Records a line on the layer `which`.
 fn recordLine(call: Call, which: Which, from: Where, to: Where, given: ?LineStyle) void {
-    const shown = presentation.Presentation.of(call, "line");
+    const shown = presentation.Presentation.of(call);
     const style = given orelse LineStyle{};
     shown.layers.getPtr(which).add(shown.gpa, call, .{ .line = .{ .from = from, .to = to, .colour = rgba(style.colour, style.alpha), .width = @max(style.width, 0) } });
 }
@@ -503,7 +503,7 @@ pub fn Package(comptime which: Which) type {
         }.show) else {};
         pub const picture = api.Function("Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for " ++ std.fmt.comptimePrint("{d}", .{kept_frames}) ++ " frames makes room for others when the cache is full.", &.{ "at", "file", "size", "style" }, struct {
             fn draw(call: Call, at: @Vector(3, f32), path: []const u8, size: ?@Vector(3, f32), given: ?FillStyle) void {
-                const scripts = presentation.Presentation.of(call, "picture");
+                const scripts = presentation.Presentation.of(call);
                 const image = scripts.assets.loadPicture(call, path) catch |err| call.raise("picture {s}: {s}", .{ path, problem(err) });
                 const style = given orelse FillStyle{};
                 const extent: [2]f32 = if (size) |asked| .{ @max(asked[0], 0), @max(asked[1], 0) } else .{ @floatFromInt(image.width()), @floatFromInt(image.height()) };
@@ -517,13 +517,13 @@ pub fn Package(comptime which: Which) type {
                 const art = view.art orelse call.raise("this layer has no sprite set this frame", .{});
                 if (art.shape(index) == null) call.raise("no shape {d} in this layer's sprite set", .{index});
                 const style = given orelse ShapeStyle{};
-                const scripts = presentation.Presentation.of(call, "shape");
+                const scripts = presentation.Presentation.of(call);
                 scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .shape = .{ .index = index, .at = screenPoint(at), .scale = @max(style.scale, 0), .colour = rgba(style.colour, style.alpha) } });
             }
         }.draw);
         pub const shown = api.Field(bool, "Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read.", struct {
             pub fn get(call: Call) bool {
-                return presentation.Presentation.of(call, @tagName(which)).views.get(which) != null;
+                return presentation.Presentation.of(call).views.get(which) != null;
             }
         });
 
@@ -553,7 +553,7 @@ pub fn Package(comptime which: Which) type {
 
         pub const rectangle = api.Function("Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says.", &.{ "from", "to", "style" }, struct {
             fn draw(call: Call, from: @Vector(3, f32), to: @Vector(3, f32), given: ?FillStyle) void {
-                const scripts = presentation.Presentation.of(call, "rectangle");
+                const scripts = presentation.Presentation.of(call);
                 const style = given orelse FillStyle{};
                 scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .rectangle = .{ .from = screenPoint(from), .to = screenPoint(to), .colour = rgba(style.colour, style.alpha) } });
             }
@@ -567,7 +567,7 @@ pub fn Package(comptime which: Which) type {
                     .style => |style| style,
                 } else .{};
                 const font = selectedFont(call, view, style.font, style.base_font);
-                if (words.len > max_measured) call.raise("measure accepts at most {d} bytes of text", .{max_measured});
+                if (words.len > max_measured) call.raise("at most {d} bytes of text can be measured", .{max_measured});
                 var buffer: [max_measured]u8 = undefined;
                 const encoded = language.encode(&buffer, words);
                 const times = view.scale * @max(style.scale, 0);
@@ -580,8 +580,8 @@ pub fn Package(comptime which: Which) type {
 
         /// What the layer is drawn on this frame. Raises an error where it isn't shown.
         fn viewOf(call: Call) View {
-            const scripts = presentation.Presentation.of(call, @tagName(which));
-            return scripts.views.get(which) orelse call.raise("{t} is only drawn while it's shown", .{which});
+            const scripts = presentation.Presentation.of(call);
+            return scripts.views.get(which) orelse call.raise("draws only while {t} is shown", .{which});
         }
     };
 }

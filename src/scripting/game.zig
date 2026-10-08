@@ -189,8 +189,8 @@ pub const Game = struct {
     }
 
     /// The game whose scripts make `call`. Raises an error where no game runs.
-    pub fn of(call: Call, comptime label: []const u8) *Game {
-        return call.runtime().game orelse call.raise("{s} can only be used while a game runs", .{label});
+    pub fn of(call: Call) *Game {
+        return call.runtime().game orelse call.raise("can only be used while a game runs", .{});
     }
 
     /// The global and mission scripts that run.
@@ -500,16 +500,16 @@ pub fn addScript(call: Call, object: Object, name: []const u8, payload: ?data.Da
     const scripts = call.runtime();
     if (call.context.family != .global) {
         drop(scripts, payload);
-        call.raise("add_script: only global scripts can add scripts", .{});
+        call.raise("only global scripts can add scripts", .{});
     }
     const game = scripts.game orelse {
         drop(scripts, payload);
-        call.raise("add_script can only be used while a game runs", .{});
+        call.raise("can only be used while a game runs", .{});
     };
     const mod = call.context.modOf();
     const file = script.find(mod, name) orelse {
         drop(scripts, payload);
-        call.raise("add_script: mod {s} has no script {s}", .{ mod.name, name });
+        call.raise("mod {s} has no script {s}", .{ mod.name, name });
     };
     const index = object.slot();
     const list = game.onObject(index);
@@ -524,16 +524,16 @@ pub fn addScript(call: Call, object: Object, name: []const u8, payload: ?data.Da
         if (!held.stopped and held.context.mod == call.context.mod) break held.context;
     } else scripts.open(call.context.mod, .object, .{ .object = .of(game.objects, index) }) catch {
         drop(scripts, payload);
-        call.raise("add_script: out of memory", .{});
+        call.raise("out of memory", .{});
     };
-    const started = game.startScript(list, context, file, false, payload, false) catch call.raise("add_script: out of memory", .{});
+    const started = game.startScript(list, context, file, false, payload, false) catch call.raise("out of memory", .{});
     return started != null;
 }
 
 /// `object:remove_script(name)`.
 pub fn removeScript(call: Call, object: Object, name: []const u8) bool {
-    const game = Game.of(call, "remove_script");
-    if (call.context.family != .global) call.raise("remove_script: only global scripts can remove scripts", .{});
+    const game = Game.of(call);
+    if (call.context.family != .global) call.raise("only global scripts can remove scripts", .{});
     const list = game.onObject(object.slot());
     for (list.items, 0..) |held, at| {
         if (held.stopped or held.context.mod != call.context.mod) continue;
@@ -548,7 +548,7 @@ pub fn removeScript(call: Call, object: Object, name: []const u8) bool {
 pub fn sendEvent(call: Call, object: Object, name: []const u8, payload: data.Data) void {
     const game = call.runtime().game orelse {
         call.runtime().release(payload.ref);
-        call.raise("send_event: events can only be sent while a game runs", .{});
+        call.raise("events can only be sent while a game runs", .{});
     };
     game.runner.events.send(call, .{ .object = .of(game.objects, object.slot()) }, name, payload);
 }
@@ -558,7 +558,7 @@ pub fn sendGlobalEvent(call: Call, name: []const u8, payload: data.Data) void {
     if (call.runtime().presentation) |shown| return shown.sendToGame(call, name, payload);
     const game = call.runtime().game orelse {
         call.runtime().release(payload.ref);
-        call.raise("send_global_event: events can only be sent while a game runs", .{});
+        call.raise("events can only be sent while a game runs", .{});
     };
     game.runner.events.send(call, .global, name, payload);
 }

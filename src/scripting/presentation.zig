@@ -181,13 +181,13 @@ pub const Presentation = struct {
     }
 
     /// The presentation side whose script makes `call`. Raises an error from a game script.
-    pub fn of(call: Call, comptime label: []const u8) *Presentation {
-        return call.runtime().presentation orelse call.raise("{s} can only be used by player and menu scripts", .{label});
+    pub fn of(call: Call) *Presentation {
+        return call.runtime().presentation orelse call.raise("only player and menu scripts can use it", .{});
     }
 
     /// What the driver told of the last frame. Raises an error before the first.
-    pub fn hostOf(call: Call, comptime label: []const u8) Host {
-        return of(call, label).host orelse call.raise("{s} can only be used once frames are drawn", .{label});
+    pub fn hostOf(call: Call) Host {
+        return of(call).host orelse call.raise("can only be used once frames are drawn", .{});
     }
 
     /// Starts the scripts each mod lists for `place`, in load order.
@@ -343,11 +343,11 @@ pub const Presentation = struct {
     pub fn sendToGame(shown: *Presentation, call: Call, name: []const u8, payload: data.Data) void {
         const game = shown.game orelse {
             shown.runtime.release(payload.ref);
-            call.raise("send_global_event: events can only be sent while a game runs", .{});
+            call.raise("events can only be sent while a game runs", .{});
         };
         const copied = data.transfer(call.state, payload.ref, game.runtime);
         shown.runtime.release(payload.ref);
-        const ref = copied orelse call.raise("send_global_event: out of memory", .{});
+        const ref = copied orelse call.raise("out of memory", .{});
         game.runner.events.send(call, .global, name, .{ .ref = ref });
     }
 };

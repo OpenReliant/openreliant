@@ -332,8 +332,8 @@ fn stringOf(strings: ?*const language.Language, id: u32) ?Text {
 }
 
 /// The flight display's state, and the player's ship, while a mission is shown; null otherwise.
-fn flightOf(call: Call, comptime label: []const u8) ?struct { presentation.Host.Flight, *const create.Slot } {
-    const host = presentation.Presentation.of(call, label).host orelse return null;
+fn flightOf(call: Call) ?struct { presentation.Host.Flight, *const create.Slot } {
+    const host = presentation.Presentation.of(call).host orelse return null;
     const flight = host.flight orelse return null;
     const all = call.runtime().objects orelse return null;
     return .{ flight, &all.slots[all.player] };
@@ -342,7 +342,7 @@ fn flightOf(call: Call, comptime label: []const u8) ?struct { presentation.Host.
 pub const replaced = api.Field(Instruments, "The game's instruments the mods' displays stand in for this frame, which aren't drawn (`register_display`).", struct {
     pub fn get(call: Call) Instruments {
         var list: Instruments = .{};
-        const placements = presentation.Presentation.of(call, "replaced").instrumentPlacements();
+        const placements = presentation.Presentation.of(call).instrumentPlacements();
         for (std.enums.values(hud.Instrument)) |instrument| {
             if (placements.get(instrument).hidden) list.append(instrument);
         }
@@ -352,14 +352,14 @@ pub const replaced = api.Field(Instruments, "The game's instruments the mods' di
 
 pub const bounds = api.Function("Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission.", &.{"instrument"}, struct {
     fn get(call: Call, instrument: hud.Instrument) ?hud.Clip {
-        const flight, _ = flightOf(call, "bounds") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         return flight.hud.bounds.get(instrument);
     }
 }.get);
 
 pub const instruments_shown = api.Field(bool, "Whether the game's instruments show this frame: during a mission, in the view ahead from the cockpit.", struct {
     pub fn get(call: Call) bool {
-        const host = presentation.Presentation.of(call, "instruments_shown").host orelse return false;
+        const host = presentation.Presentation.of(call).host orelse return false;
         const held = host.camera orelse return false;
         return hud.instrumented(held.camera.view);
     }
@@ -367,7 +367,7 @@ pub const instruments_shown = api.Field(bool, "Whether the game's instruments sh
 
 pub const guns = api.Field(?Guns, "The player's guns as the gunnery window and the targeting cluster show them; nil outside a mission.", struct {
     pub fn get(call: Call) ?Guns {
-        _, const slot = flightOf(call, "guns") orelse return null;
+        _, const slot = flightOf(call) orelse return null;
         const combat = slot.combat orelse return null;
         const mode = slot.object.gun_mode;
         return .{
@@ -386,7 +386,7 @@ pub const guns = api.Field(?Guns, "The player's guns as the gunnery window and t
 
 pub const missiles = api.Field(?Missiles, "The player's missiles as the missile window shows them; nil outside a mission.", struct {
     pub fn get(call: Call) ?Missiles {
-        const flight, _ = flightOf(call, "missiles") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         const ring = &flight.hud.missiles;
         var shown: Missiles = .{ .armed = null, .left = 0, .ring = .{} };
         for (ring.entries) |entry| {
@@ -403,7 +403,7 @@ pub const missiles = api.Field(?Missiles, "The player's missiles as the missile 
 
 pub const target = api.Field(?Target, "The target the display shows, with its subtarget as `component`; nil for none, or outside a mission.", struct {
     pub fn get(call: Call) ?Target {
-        const flight, _ = flightOf(call, "target") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         const shown = flight.hud.target orelse return null;
         return .of(shown.target);
     }
@@ -411,7 +411,7 @@ pub const target = api.Field(?Target, "The target the display shows, with its su
 
 pub const radar = api.Field(?Radar, "The radar: its range, and the contacts it shows; nil outside a mission.", struct {
     pub fn get(call: Call) ?Radar {
-        const flight, _ = flightOf(call, "radar") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         const all = call.runtime().objects orelse return null;
         const state = flight.hud;
         var shown: Radar = .{
@@ -434,7 +434,7 @@ pub const radar = api.Field(?Radar, "The radar: its range, and the contacts it s
 
 pub const target_display = api.Field(?TargetDisplay, "What the target display shows of its target, in either form, whether or not its window is open; nil without a target or while the display hides it, and outside a mission.", struct {
     pub fn get(call: Call) ?TargetDisplay {
-        const flight, _ = flightOf(call, "target_display") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         const all = call.runtime().objects orelse return null;
         const index = (flight.hud.target orelse return null).slot;
         const slot = &all.slots[index];
@@ -463,31 +463,31 @@ pub const target_display = api.Field(?TargetDisplay, "What the target display sh
 
 pub const kills = api.Field(?i32, "The kills the skull readout shows; nil outside a mission.", struct {
     pub fn get(call: Call) ?i32 {
-        return readout(call, "kills", .skull);
+        return readout(call, .skull);
     }
 });
 
 pub const fuel = api.Field(?i32, "The seconds of afterburner fuel the fuel readout shows; nil outside a mission.", struct {
     pub fn get(call: Call) ?i32 {
-        return readout(call, "fuel", .fuel);
+        return readout(call, .fuel);
     }
 });
 
 pub const countermeasures = api.Field(?i32, "The countermeasures the coil readout shows; nil outside a mission.", struct {
     pub fn get(call: Call) ?i32 {
-        return readout(call, "countermeasures", .coil);
+        return readout(call, .coil);
     }
 });
 
 /// The number `which` shows; null outside a mission.
-fn readout(call: Call, comptime label: []const u8, which: hud.Readout) ?i32 {
-    const flight, const slot = flightOf(call, label) orelse return null;
+fn readout(call: Call, which: hud.Readout) ?i32 {
+    const flight, const slot = flightOf(call) orelse return null;
     return which.value(slot, flight.player);
 }
 
 pub const gauges = api.Field(?Gauges, "The targeting cluster about the middle of the screen, as it shows the player's speed, throttle and guns; nil outside a mission.", struct {
     pub fn get(call: Call) ?Gauges {
-        _, const slot = flightOf(call, "gauges") orelse return null;
+        _, const slot = flightOf(call) orelse return null;
         const shown = hud.Cluster.Gauges.of(slot) orelse return null;
         const throttle, const speed = hud.Cluster.shares(shown);
         const asked, const made = shown.figures();
@@ -505,7 +505,7 @@ pub const gauges = api.Field(?Gauges, "The targeting cluster about the middle of
 
 pub const ship_status = api.Field(?ShipStatus, "The ship status indicator, as it shows the player's shields and armour; nil for a ship without them, or outside a mission.", struct {
     pub fn get(call: Call) ?ShipStatus {
-        const flight, const slot = flightOf(call, "ship_status") orelse return null;
+        const flight, const slot = flightOf(call) orelse return null;
         const found, const shifted = hud.ShipStatus.playerRings(slot, flight.player.shield_reserves);
         const rings = found orelse return null;
         const reserves = shifted orelse .{ 0, 0 };
@@ -521,14 +521,14 @@ pub const ship_status = api.Field(?ShipStatus, "The ship status indicator, as it
 
 pub const lights = api.Field(Lights, "The status lights that show, steady or flashing, in the order the display packs them; none outside a mission.", struct {
     pub fn get(call: Call) Lights {
-        const flight, const slot = flightOf(call, "lights") orelse return .{};
+        const flight, const slot = flightOf(call) orelse return .{};
         return lightsOf(flight.hud.lightsShown(&slot.object, flight.player.matching_speed, flight.multiplayer));
     }
 });
 
 pub const lights_lit = api.Field(Lights, "The status lights lit as the display last drew them, in the order it packs them: those of `lights`, but a flashing one only while it's lit. A warning that flashes keeps its place in the grid while it's dark; a light that `ShowHudIcon` flashes gives its place up. None outside the view ahead from the cockpit, where the display draws no lights, and outside a mission.", struct {
     pub fn get(call: Call) Lights {
-        const flight, _ = flightOf(call, "lights_lit") orelse return .{};
+        const flight, _ = flightOf(call) orelse return .{};
         return lightsOf(flight.hud.flashes.lights);
     }
 });
@@ -553,7 +553,7 @@ pub const Charges = struct {
 
 pub const charges = api.Field(?Charges, "The charges of the player's ECM, cloak and spectral shields, which their lights show as bars under them, each from 0 to 1, or nil where the ship doesn't carry the device; nil outside a mission.", struct {
     pub fn get(call: Call) ?Charges {
-        const flight, _ = flightOf(call, "charges") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         const state = flight.hud;
         return .{ .ecm = chargeOf(state, .ecm), .cloak = chargeOf(state, .cloak), .spectral_shields = chargeOf(state, .spectral_shields) };
     }
@@ -568,14 +568,14 @@ fn chargeOf(state: *const hud.State, kind: hud.Device) ?f32 {
 
 pub const countermeasures_lit = api.Field(bool, "Whether the countermeasures readout was lit as the display last drew it: always in the view ahead from the cockpit, except while it's dark in a flash that `ShowHudIcon` sets; false outside the view ahead, and outside a mission.", struct {
     pub fn get(call: Call) bool {
-        const flight, _ = flightOf(call, "countermeasures_lit") orelse return false;
+        const flight, _ = flightOf(call) orelse return false;
         return flight.hud.flashes.countermeasures;
     }
 });
 
 pub const clock = api.Field(?Clock, "The mission's clock as the display shows it: the countdown where the mission counts down, and the time played otherwise; nil outside a mission.", struct {
     pub fn get(call: Call) ?Clock {
-        const flight, _ = flightOf(call, "clock") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         const all = call.runtime().objects orelse return null;
         const minutes, const seconds = hud.clockTime(all, flight.play, flight.variables);
         return .{ .minutes = minutes, .seconds = seconds };
@@ -584,7 +584,7 @@ pub const clock = api.Field(?Clock, "The mission's clock as the display shows it
 
 pub const damage = api.Field(?Damage, "The damage window, as it shows how well the player's weapons, engines and shields still work as the armour wears, each from 0 to 1, whether or not the window is open; nil outside a mission.", struct {
     pub fn get(call: Call) ?Damage {
-        _, const slot = flightOf(call, "damage") orelse return null;
+        _, const slot = flightOf(call) orelse return null;
         const object = &slot.object;
         return .{
             .weapons = hud.damage.System.weapons.condition(object),
@@ -596,7 +596,7 @@ pub const damage = api.Field(?Damage, "The damage window, as it shows how well t
 
 pub const power = api.Field(?Power, "The power window, as it shows the shields', guns' and engines' shares of the player's power, as the whole percentages it writes, whether or not the window is open; nil outside a mission.", struct {
     pub fn get(call: Call) ?Power {
-        _, const slot = flightOf(call, "power") orelse return null;
+        _, const slot = flightOf(call) orelse return null;
         const shares = power_window.percentages(power_systems.point(&slot.object));
         return .{ .shields = shares.get(.shields), .guns = shares.get(.guns), .engines = shares.get(.engines) };
     }
@@ -605,7 +605,7 @@ pub const power = api.Field(?Power, "The power window, as it shows the shields',
 pub const wingmen = api.Field(Wingmen, "The ships of the player's wing the wing status window shows, the player's first, whether or not the window is open; none outside a mission.", struct {
     pub fn get(call: Call) Wingmen {
         var list: Wingmen = .{};
-        _ = flightOf(call, "wingmen") orelse return list;
+        _ = flightOf(call) orelse return list;
         const all = call.runtime().objects orelse return list;
         var buffer: [engine.game.mission.wing_size]wing_status.Entry = undefined;
         for (wing_status.entries(all, &buffer)) |entry| list.append(.{ .object = .of(entry.slot), .number = entry.number, .armor = entry.armorShare() });
@@ -615,7 +615,7 @@ pub const wingmen = api.Field(Wingmen, "The ships of the player's wing the wing 
 
 pub const objectives = api.Field(?Objectives, "The objectives window: the mission's objectives it can show, and the one it shows, whether or not the window is open; nil outside a mission.", struct {
     pub fn get(call: Call) ?Objectives {
-        const flight, _ = flightOf(call, "objectives") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         const held = &flight.hud.objectives;
         var shown: Objectives = .{ .shown = if (held.none_shown) null else @as(u8, held.shown) + 1, .list = .{} };
         for (held.states, 0..) |status, index| {
@@ -633,7 +633,7 @@ pub const objectives = api.Field(?Objectives, "The objectives window: the missio
 pub const comms = api.Field(MenuItems, "The items of the radio's menu the comms window lists, in order, as the number keys pick them, whether or not the window is open; none outside a mission.", struct {
     pub fn get(call: Call) MenuItems {
         var list: MenuItems = .{};
-        const flight, _ = flightOf(call, "comms") orelse return list;
+        const flight, _ = flightOf(call) orelse return list;
         const strings = flight.strings orelse return list;
         for (flight.player.menu.shown()) |item| {
             var buffer: [radio_menu.Label.room]u8 = undefined;
@@ -646,7 +646,7 @@ pub const comms = api.Field(MenuItems, "The items of the radio's menu the comms 
 pub const messages = api.Field(Messages, "The message lines the display shows, oldest first; none outside a mission.", struct {
     pub fn get(call: Call) Messages {
         var list: Messages = .{};
-        const flight, _ = flightOf(call, "messages") orelse return list;
+        const flight, _ = flightOf(call) orelse return list;
         const held = &flight.hud.messages;
         for (0..held.count) |at| list.append(textOf(held.line(at)));
         return list;
@@ -655,21 +655,21 @@ pub const messages = api.Field(Messages, "The message lines the display shows, o
 
 pub const subtitle = api.Field(?Text, "The line `DisplaySubTitle` shows near the foot of the screen in the director's view, whichever view it's in; nil for none, and outside a mission.", struct {
     pub fn get(call: Call) ?Text {
-        const flight, _ = flightOf(call, "subtitle") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         return stringOf(flight.strings, flight.hud.subtitle.string orelse return null);
     }
 });
 
 pub const key_prompt = api.Field(?Action, "The action whose key `WaitForKey`'s prompt asks the player to press; nil while nothing waits, and outside a mission.", struct {
     pub fn get(call: Call) ?Action {
-        const flight, _ = flightOf(call, "key_prompt") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         return flight.hud.key_prompt.action;
     }
 });
 
 pub const jump_prompt = api.Field(?hud.JumpPrompt.Kind, "The prompt that flashes in the view ahead for what the mission has ready: the warp's or the jump's; nil for none, and outside a mission.", struct {
     pub fn get(call: Call) ?hud.JumpPrompt.Kind {
-        const flight, _ = flightOf(call, "jump_prompt") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         const variables = flight.variables orelse return null;
         return hud.JumpPrompt.shown(variables.ready);
     }
@@ -677,14 +677,14 @@ pub const jump_prompt = api.Field(?hud.JumpPrompt.Kind, "The prompt that flashes
 
 pub const view_name = api.Field(?Text, "The view's name the display writes at the top of the screen, in the views it names; nil in the others, the view ahead from the cockpit among them, and outside a mission.", struct {
     pub fn get(call: Call) ?Text {
-        const flight, _ = flightOf(call, "view_name") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         return stringOf(flight.strings, hud.viewName(flight.last_view) orelse return null);
     }
 });
 
 pub const caption = api.Field(?Text, "The date the launch types out at the foot of the screen, as far as it has typed it; nil while it isn't shown, and outside a mission.", struct {
     pub fn get(call: Call) ?Text {
-        const flight, _ = flightOf(call, "caption") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         const typed = flight.hud.caption;
         if (!typed.on) return null;
         const all = call.runtime().objects orelse return null;
@@ -698,7 +698,7 @@ pub const caption = api.Field(?Text, "The date the launch types out at the foot 
 pub const open_windows = api.Field(Instruments, "The game's windows that are open, opening or closing (`window_state`); none outside a mission.", struct {
     pub fn get(call: Call) Instruments {
         var list: Instruments = .{};
-        const flight, _ = flightOf(call, "open_windows") orelse return list;
+        const flight, _ = flightOf(call) orelse return list;
         for (std.enums.values(hud.windows.Window)) |window| {
             const instrument = hud.Instrument.ofWindow(window) orelse continue;
             if (flight.hud.windows.status.get(window).phase == .shut) continue;
@@ -723,7 +723,7 @@ pub const WindowState = struct {
 
 pub const window_state = api.Function("How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission.", &.{"instrument"}, struct {
     fn get(call: Call, instrument: hud.Instrument) ?WindowState {
-        const flight, _ = flightOf(call, "window_state") orelse return null;
+        const flight, _ = flightOf(call) orelse return null;
         var found: ?WindowState = null;
         for (std.enums.values(hud.windows.Window)) |window| {
             if (hud.Instrument.ofWindow(window) != instrument) continue;

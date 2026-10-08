@@ -66,49 +66,49 @@ fn registerPage(call: Call, given: Page) void {
     const registry = registryOf(call);
     switch (call.context.family) {
         .load, .menu => {},
-        .global, .object, .player => call.raise("settings: {t} scripts can't register a page; load and menu scripts can", .{call.context.family}),
+        .global, .object, .player => call.raise("{t} scripts can't register a page; load and menu scripts can", .{call.context.family}),
     }
-    if (registry.closed) call.raise("settings: a page can only be registered as OpenReliant starts", .{});
+    if (registry.closed) call.raise("a page can only be registered as OpenReliant starts", .{});
     const mod = call.context.modOf().name;
-    if (registry.find(mod) != null) call.raise("settings: the mod {s} has registered its page already", .{mod});
-    if (given.title.len == 0) call.raise("settings: a page needs a title", .{});
-    if (given.options.len == 0) call.raise("settings: a page needs options", .{});
+    if (registry.find(mod) != null) call.raise("the mod {s} has registered its page already", .{mod});
+    if (given.title.len == 0) call.raise("a page needs a title", .{});
+    if (given.options.len == 0) call.raise("a page needs options", .{});
     for (given.options.slice(), 0..) |each, at| {
         var buffer: [mod_options.max_choices]mod_options.Choice = undefined;
-        const option = view(&each, &buffer) catch |wrong| call.raise("settings: the option '{s}': {s}", .{ each.key, switch (wrong) {
+        const option = view(&each, &buffer) catch |wrong| call.raise("the option '{s}': {s}", .{ each.key, switch (wrong) {
             error.NeedsDefault => "it needs a default",
             error.StrayDefault => "a heading has no default",
             error.NeedsRange => "a number or a slider needs min, max and step",
             error.StrayChoices => "only a choice has choices",
             error.StrayRange => "only a number or a slider has min, max and step",
         } });
-        if (option.problem()) |message| call.raise("settings: the option '{s}': {s}", .{ each.key, message });
+        if (option.problem()) |message| call.raise("the option '{s}': {s}", .{ each.key, message });
         if (each.kind == .heading) continue;
         for (given.options.slice()[0..at]) |before| {
-            if (before.kind != .heading and std.mem.eql(u8, before.key, each.key)) call.raise("settings: two options are called '{s}'", .{each.key});
+            if (before.kind != .heading and std.mem.eql(u8, before.key, each.key)) call.raise("two options are called '{s}'", .{each.key});
         }
     }
-    registry.adopt(mod, given) catch call.raise("settings: out of memory", .{});
+    registry.adopt(mod, given) catch call.raise("out of memory", .{});
 }
 
 fn getOption(call: Call, key: []const u8) mod_options.Value {
     const registry = registryOf(call);
     const mod = call.context.modOf().name;
-    return registry.value(mod, key) orelse call.raise("settings: the mod {s} has no option '{s}'", .{ mod, key });
+    return registry.value(mod, key) orelse call.raise("the mod {s} has no option '{s}'", .{ mod, key });
 }
 
 fn setOption(call: Call, key: []const u8, value: mod_options.Value) void {
     const registry = registryOf(call);
     const mod = call.context.modOf().name;
-    const each = registry.option(mod, key) orelse call.raise("settings: the mod {s} has no option '{s}'", .{ mod, key });
+    const each = registry.option(mod, key) orelse call.raise("the mod {s} has no option '{s}'", .{ mod, key });
     // A number option holds a number to its range; any other option takes only a value that suits
     // it as it is.
     const suits = switch (each.control) {
         .number, .slider => value == .number,
         else => each.fit(value).eql(value),
     };
-    if (!suits) call.raise("settings: the option '{s}' can't take that value", .{key});
-    registry.set(mod, key, value) catch call.raise("settings: out of memory", .{});
+    if (!suits) call.raise("the option '{s}' can't take that value", .{key});
+    registry.set(mod, key, value) catch call.raise("out of memory", .{});
 }
 
 fn registryOf(call: Call) *Registry {

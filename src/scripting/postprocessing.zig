@@ -183,24 +183,24 @@ fn registryOf(call: Call) *Registry {
 }
 
 fn registerEffect(call: Call, given: Definition) []const u8 {
-    if (call.context.family != .player) call.raise("postprocessing: only player scripts can register effects", .{});
+    if (call.context.family != .player) call.raise("only player scripts can register effects", .{});
     const scripts = call.runtime();
     const registry = &scripts.post_effects;
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const name = runtime_module.Name.of(call.qualified("postprocessing", given.name, &buffer)).?;
-    if (registry.find(name.slice()) != null) call.raise("postprocessing: the effect '{s}' is registered already", .{name.slice()});
-    if (registry.entries.items.len == max_effects) call.raise("postprocessing: at most {d} effects can be registered", .{max_effects});
-    registry.entries.ensureUnusedCapacity(scripts.gpa, 1) catch call.raise("postprocessing: out of memory", .{});
+    const name = runtime_module.Name.of(call.qualified(given.name, &buffer)).?;
+    if (registry.find(name.slice()) != null) call.raise("the effect '{s}' is registered already", .{name.slice()});
+    if (registry.entries.items.len == max_effects) call.raise("at most {d} effects can be registered", .{max_effects});
+    registry.entries.ensureUnusedCapacity(scripts.gpa, 1) catch call.raise("out of memory", .{});
     const mod = call.context.modOf();
-    const source = mod.readFile(scripts.gpa, given.shader) catch |err| call.raise("postprocessing: {s} can't be read: {s}", .{ given.shader, @errorName(err) }) orelse
-        call.raise("postprocessing: the mod {s} has no file {s}", .{ mod.name, given.shader });
+    const source = mod.readFile(scripts.gpa, given.shader) catch |err| call.raise("{s} can't be read: {s}", .{ given.shader, @errorName(err) }) orelse
+        call.raise("the mod {s} has no file {s}", .{ mod.name, given.shader });
     var file_buffer: [runtime_module.max_name * 2]u8 = undefined;
     const file = std.mem.print(&file_buffer, "{s}/{s}", .{ mod.name, given.shader }) catch given.shader;
     const compiled: ?EffectHost.Compiled = if (registry.host) |host| host.vtable.compile(host.context, file, source) else null;
     scripts.gpa.free(source);
     const effect: ?u32 = if (compiled) |result| switch (result) {
         .effect => |made| made,
-        .failed => |message| call.raise("postprocessing: {s}", .{message}),
+        .failed => |message| call.raise("{s}", .{message}),
     } else null;
     registry.entries.appendAssumeCapacity(.{
         .context = call.context,
@@ -217,14 +217,14 @@ fn registerEffect(call: Call, given: Definition) []const u8 {
 
 fn setEnabled(call: Call, local: []const u8, enabled: bool) bool {
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const entry = registryOf(call).find(call.qualified("postprocessing", local, &buffer)) orelse return false;
+    const entry = registryOf(call).find(call.qualified(local, &buffer)) orelse return false;
     entry.enabled = enabled;
     return true;
 }
 
 fn setParameters(call: Call, local: []const u8, given: Parameters) bool {
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const entry = registryOf(call).find(call.qualified("postprocessing", local, &buffer)) orelse return false;
+    const entry = registryOf(call).find(call.qualified(local, &buffer)) orelse return false;
     entry.parameters = given.padded(0);
     return true;
 }

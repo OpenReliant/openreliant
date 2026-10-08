@@ -17,7 +17,7 @@ pub const package = struct {
     pub const register_view = api.Native("Registers a camera view, which `name` qualified with the mod's name names. `frame` gives the camera's position and orientation each frame; its axes must be unit length, at right angles and right-handed. A failed `frame` goes back to the cockpit view. Returns the qualified name.", "name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?}", "string", registries.registration(.camera));
     pub const view = api.Field(?Identifier, "The view the camera shows: one of the game's (`View`), or a mod's by its qualified name; nil while no mission is shown.", struct {
         pub fn get(call: Call) ?Identifier {
-            const held = Presentation.hostOf(call, "camera.view").camera orelse return null;
+            const held = Presentation.hostOf(call).camera orelse return null;
             if (call.runtime().registries.cameraName(held.camera.view)) |name| return .{ .name = name };
             if (values.name(engine_camera.View, held.camera.view)) |name| return .{ .name = name };
             return .{ .number = @backingInt(held.camera.view) };
@@ -29,7 +29,7 @@ pub const package = struct {
 
 /// `camera.set_view(view, object)`.
 fn setView(call: Call, wanted: Identifier, object: ?Object) bool {
-    const held = Presentation.hostOf(call, "camera.set_view").camera orelse return false;
+    const held = Presentation.hostOf(call).camera orelse return false;
     const of = if (object) |named| named.slot() else held.player;
     const view: engine_camera.View = switch (wanted) {
         .name => |name| values.byName(engine_camera.View, name) orelse {

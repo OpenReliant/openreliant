@@ -20,19 +20,19 @@ pub const package = struct {
 
 /// `audio.play_sound(index, volume)`.
 fn playSound(call: Call, index: u16, volume: ?f32) bool {
-    const sound = Presentation.hostOf(call, "audio.play_sound").sound orelse return false;
+    const sound = Presentation.hostOf(call).sound orelse return false;
     const level: i32 = @intFromFloat(@round(std.math.clamp(volume orelse 1, 0, 1) * hog_snd.loudest));
     return sound.playStandard(index, level, hog_snd.once, hog_snd.centre, hog_snd.own_pitch) != null;
 }
 
 /// `audio.play_music(name)`.
 fn playMusic(call: Call, name: []const u8) void {
-    const sound = Presentation.hostOf(call, "audio.play_music").sound orelse return;
+    const sound = Presentation.hostOf(call).sound orelse return;
     executor.playPiece(sound, name, .now);
 }
 
 /// `audio.say(line)`.
 fn bettySays(call: Call, line: betty.Line) bool {
-    const sound = Presentation.hostOf(call, "audio.say").sound orelse return false;
+    const sound = Presentation.hostOf(call).sound orelse return false;
     return betty.say(sound, line) != null;
 }
