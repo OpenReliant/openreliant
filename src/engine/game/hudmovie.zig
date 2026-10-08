@@ -146,6 +146,7 @@ pub const Movie = struct {
     /// `hudmovie_shutdown` (`0x0048D0C0`).
     pub fn deinit(movie: *Movie) void {
         movie.stop();
+        movie.picture.releaseTexture();
         movie.chunks.deinit(movie.gpa);
         if (movie.archive) |*archive| archive.close(movie.gpa);
         movie.gpa.free(movie.rgba);
@@ -246,17 +247,16 @@ pub const Movie = struct {
     }
 
     /// The frame decoded last, in the film's palette, into `picture`, which is made again for a
-    /// frame of another size. Every pixel is drawn, the see-through colour among them, as the game
-    /// draws them.
+    /// frame of another size, its old texture handed back to the device. Every pixel is drawn, the
+    /// see-through colour among them, as the game draws them.
     fn show(movie: *Movie) Allocator.Error!void {
         const pixels = movie.film.frame();
         const width: u32 = @intCast(movie.film.width);
         const height: u32 = @intCast(movie.film.height);
-        if (movie.rgba.len != pixels.len * 4) {
-            movie.rgba = try movie.gpa.realloc(movie.rgba, pixels.len * 4);
-            movie.level = .{.{ .width = width, .height = height, .texels = movie.rgba }};
-            movie.picture = .{ .levels = &movie.level };
-        } else if (movie.level[0].width != width) {
+        const resized = movie.rgba.len != pixels.len * 4;
+        if (resized or movie.level[0].width != width) {
+            movie.picture.releaseTexture();
+            if (resized) movie.rgba = try movie.gpa.realloc(movie.rgba, pixels.len * 4);
             movie.level = .{.{ .width = width, .height = height, .texels = movie.rgba }};
             movie.picture = .{ .levels = &movie.level };
         }
@@ -313,10 +313,10 @@ pub const Movie = struct {
     }
 };
 
-/// A `pilots.hog` of films built by hand, for the tests: `films`, each a key frame of `size` by
-/// `size` pixels of one colour, as many as `frames` says.
+/// A `pilots.hog` of films built by hand, for the tests: `films`, each of key frames of one colour.
 pub const testing = struct {
-    pub const Film = struct { name: []const u8, frames: usize, colour: u8 };
+    /// A film of `frames` key frames, `side` by `side` pixels each, all grey `colour`.
+    pub const Film = struct { name: []const u8, frames: usize, colour: u8, side: u8 = 4 };
 
     pub fn write(gpa: Allocator, io: Io, dir: Io.Dir, path: []const u8, films: []const Film) !void {
         var members: std.ArrayList(hog.Member) = .empty;
@@ -324,25 +324,27 @@ pub const testing = struct {
             for (members.items) |member| gpa.free(member.data);
             members.deinit(gpa);
         }
-        for (films) |film| try members.append(gpa, .{ .name = film.name, .data = try filmBytes(gpa, film.frames, film.colour) });
+        for (films) |film| try members.append(gpa, .{ .name = film.name, .data = try filmBytes(gpa, film) });
         try hog.testing.write(gpa, io, dir, path, members.items);
     }
 
-    /// A film of `frames` key frames of 4 by 4 pixels, all entry 1 of a palette whose entry 1 is
-    /// grey `colour`, then the end chunk.
-    fn filmBytes(gpa: Allocator, frames: usize, colour: u8) ![]u8 {
+    /// The film's key frames, every pixel entry 1 of a palette whose entry 1 is its grey, then the
+    /// end chunk.
+    fn filmBytes(gpa: Allocator, film: Film) ![]u8 {
         var palette: talkie.Palette = @splat(0);
-        @memset(palette[3..6], colour);
-        const pixels: [16]u8 = @splat(1);
-        const payload = try talkie.testing.keyPayload(gpa, 4, 4, &palette, &pixels);
+        @memset(palette[3..6], film.colour);
+        const pixels = try gpa.alloc(u8, @as(usize, film.side) * film.side);
+        defer gpa.free(pixels);
+        @memset(pixels, 1);
+        const payload = try talkie.testing.keyPayload(gpa, film.side, film.side, &palette, pixels);
         defer gpa.free(payload);
         const key = try talkie.testing.chunk(gpa, "fYEK", payload);
         defer gpa.free(key);
         const end = try talkie.testing.chunk(gpa, "fDNE", "");
         defer gpa.free(end);
-        const bytes = try gpa.alloc(u8, key.len * frames + end.len);
-        for (0..frames) |i| @memcpy(bytes[i * key.len ..][0..key.len], key);
-        @memcpy(bytes[key.len * frames ..], end);
+        const bytes = try gpa.alloc(u8, key.len * film.frames + end.len);
+        for (0..film.frames) |i| @memcpy(bytes[i * key.len ..][0..key.len], key);
+        @memcpy(bytes[key.len * film.frames ..], end);
         return bytes;
     }
 };
@@ -411,4 +413,32 @@ test Movie {
     try std.testing.expectEqual([4]u8{ 0x80, 0x80, 0x80, 0xFF }, movie.rgba[0..4].*);
     movie.stop();
     try std.testing.expect(!movie.playing);
+}
+
+test "a film of another size hands its texture back" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try testing.write(gpa, io, tmp.dir, "pilots.hog", &.{
+        .{ .name = "small.fm8", .frames = 1, .colour = 0x40 },
+        .{ .name = "large.fm8", .frames = 1, .colour = 0x40, .side = 8 },
+    });
+    var drawn: srtexture.testing.Device = .{};
+    {
+        var movie: Movie = .openAt(gpa, io, tmp.dir, "pilots.hog");
+        defer movie.deinit();
+        // The window draws the film, which the device makes a texture of.
+        _ = movie.play("pilots\\small.fm8", .once, 1);
+        drawn.make(&movie.picture);
+        // Another film of its size keeps the texture; one of another size hands it back.
+        _ = movie.play("pilots\\small.fm8", .once, 1);
+        try std.testing.expectEqual(0, drawn.released);
+        _ = movie.play("pilots\\large.fm8", .once, 1);
+        try std.testing.expectEqual(1, drawn.released);
+        try std.testing.expectEqual(8, movie.picture.width());
+        drawn.make(&movie.picture);
+    }
+    // Shut down, it hands back the texture it holds.
+    try std.testing.expectEqual(0, drawn.held());
 }

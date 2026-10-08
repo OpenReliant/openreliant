@@ -98,13 +98,10 @@ pub const Assets = struct {
         assets.frame += 1;
     }
 
-    /// Hands the device `into` the pictures taken out of the cache, so that it lets go of what it
-    /// made of them, and frees them. Lets go of the pixels of the pictures the device now holds.
-    pub fn release(assets: *Assets, gpa: Allocator, into: device.Device) void {
-        for (assets.taken_out.items) |image| {
-            into.release(image);
-            image.destroy(gpa);
-        }
+    /// Frees the pictures taken out of the cache, which hand their textures back to the device, and
+    /// lets go of the pixels of the pictures the device now holds.
+    pub fn release(assets: *Assets, gpa: Allocator) void {
+        for (assets.taken_out.items) |image| image.destroy(gpa);
         assets.taken_out.clearRetainingCapacity();
         for (assets.pictures.items) |picture| {
             if (picture.image.held and picture.image.readable()) picture.image.releasePixels(gpa);
@@ -626,6 +623,8 @@ test "the pictures drawn longest ago make room" {
     const quarter = max_asset_bytes / 4;
     // Three pictures, each a quarter of the budget, last drawn in frames 3, 9 and 5.
     for ([_]u64{ 3, 9, 5 }) |drawn| try testPicture(&assets, &context, quarter, drawn);
+    var textures: srtexture.testing.Device = .{};
+    for (assets.pictures.items) |picture| textures.make(picture.image);
     // Half the budget takes out the one drawn longest ago.
     try assets.makeRoom(gpa, 2 * quarter);
     try std.testing.expectEqual(2, assets.pictures.items.len);
@@ -636,12 +635,11 @@ test "the pictures drawn longest ago make room" {
     try std.testing.expectEqual(1, assets.pictures.items.len);
     try std.testing.expectEqual(9, assets.pictures.items[0].drawn);
 
-    // The device lets go of what was taken out, and the cache of the pixels the device holds.
-    var recorder: device.testing.Recorder = .{ .gpa = gpa };
-    defer recorder.deinit();
+    // What was taken out is freed, its textures handed back, and the cache lets go of the pixels
+    // the device holds.
     assets.pictures.items[0].image.held = true;
-    assets.release(gpa, recorder.interface());
-    try std.testing.expectEqual(2, recorder.released);
+    assets.release(gpa);
+    try std.testing.expectEqual(2, textures.released);
     try std.testing.expectEqual(0, assets.taken_out.items.len);
     try std.testing.expect(!assets.pictures.items[0].image.readable());
     try std.testing.expectEqual(1, assets.pictures.items[0].image.width());

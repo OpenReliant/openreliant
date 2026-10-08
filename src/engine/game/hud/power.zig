@@ -109,6 +109,12 @@ pub const Ball = struct {
         return ball;
     }
 
+    /// Frees the ball, once its image has handed its texture back to the device.
+    pub fn destroy(ball: *Ball, gpa: Allocator) void {
+        ball.image.releaseTexture();
+        gpa.destroy(ball);
+    }
+
     /// The ball for the power setting `setting`, as window 7 writes it into the display: each row
     /// of the circle, the texture scrolled by half the setting, lit by `shade` and coloured by
     /// `colours`. While `hit_shake` is above zero, each row moves right by a random share of
@@ -355,7 +361,7 @@ test Ball {
     const picture = try testingPicture(gpa);
     defer gpa.free(picture.rgb);
     const ball = try Ball.create(gpa, picture);
-    defer gpa.destroy(ball);
+    defer ball.destroy(gpa);
 
     // The middle of the ball shows the middle of the texture; the texture keeps 5 bits a level.
     try std.testing.expectEqual(0x8080, ball.sphere[radius * size + radius]);
@@ -385,7 +391,7 @@ test "the shake moves the ball's rows to the right" {
     const picture = try testingPicture(gpa);
     defer gpa.free(picture.rgb);
     const ball = try Ball.create(gpa, picture);
-    defer gpa.destroy(ball);
+    defer ball.destroy(gpa);
     var random: Random = .{};
     ball.render(.{ 1, 1 }, 2, &random);
     // Some row starts right of where it would stand still, and none reaches past the image.

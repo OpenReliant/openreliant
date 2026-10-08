@@ -151,6 +151,14 @@ finest mipmap levels of a mod's picture until it fits. Its settings screen calls
 LOW, MEDIUM and HIGH. HIGH sets no limit, and is the default
 ([Video](../engine/front-end.md#video)).
 
+`texture_release` (`0x004CA2B0`) drops a use of an image. The last use hands the image to the
+driver's release, which Surrender's state holds (`sr + 0x4C`, `srd3d.dll`'s `texture_release` at
+`0x10003840`), to free the device texture, and then frees the pixels. `texture_create_transient`
+(`0x004C9FF0`), when it makes an entry in use again, and `textures_unload` (`0x004CA320`) hand the
+driver the device texture in the same way. In OpenReliant, an image keeps the device that made its
+texture, and hands the texture back when it is freed
+([The GPU device](../port/renderer.md#the-gpu-device)).
+
 The shipped game adds nothing to the file. The loadout screen draws its panels into transient
 32-bit textures, `fpanels`, `bpanels`, `finfo` and `binfo`, kept in memory.
 

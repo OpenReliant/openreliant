@@ -227,6 +227,9 @@ const hum_pitch = -12;
 const PanelTexture = struct {
     pixels: *panels.Image,
     image: srtexture.Image,
+
+    /// A texture not made yet, as one is while the loadout loads.
+    const unmade: PanelTexture = .{ .pixels = undefined, .image = .{ .levels = &.{} } };
 };
 
 /// Where the tooltip is written, centred (`0x0044B279`).
@@ -535,8 +538,8 @@ pub const Loadout = struct {
     backdrop: srtexture.Image = .{ .levels = &.{} },
     /// The stats panel's textures, `finfo` and `binfo`, and the name panels', `fpanels` and
     /// `bpanels`, which the buttons take their art from too (`0x00524214` on).
-    info_textures: std.EnumArray(panels.Face, PanelTexture) = undefined,
-    title_textures: std.EnumArray(panels.Face, PanelTexture) = undefined,
+    info_textures: std.EnumArray(panels.Face, PanelTexture) = .initFill(.unmade),
+    title_textures: std.EnumArray(panels.Face, PanelTexture) = .initFill(.unmade),
     /// `fpanels.tga`'s pixels (`0x00523960`), which the name panels' textures start from.
     panels_art: *panels.Image = undefined,
     /// Each ship's figures as the loadout works them out as it loads (`loadout_ship_stats`,
@@ -725,7 +728,7 @@ pub const Loadout = struct {
             loadout.panels_art[y * panels.size + x] = art.pixel(x, y) ++ .{hud.Pane.opaque_alpha};
         };
         try loadout.openFonts();
-        for ([_]*std.EnumArray(panels.Face, PanelTexture){ &loadout.info_textures, &loadout.title_textures }) |faces| {
+        for (loadout.panelTextures()) |faces| {
             for (&faces.values) |*texture| {
                 texture.pixels = try arena.create(panels.Image);
                 texture.pixels.* = @splat(.{ 0, 0, 0, 0 });
@@ -1805,9 +1808,18 @@ pub const Loadout = struct {
         loadout.still.deinit(gpa);
         loadout.scene.deinit(gpa);
         loadout.interface.deinit();
+        // The arena frees the backdrop and the panels' pixels, once their textures have gone back
+        // to the device.
+        loadout.backdrop.releaseTexture();
+        for (loadout.panelTextures()) |faces| for (&faces.values) |*texture| texture.image.releaseTexture();
         loadout.frame_arena.deinit();
         loadout.arena.deinit();
         gpa.destroy(loadout);
+    }
+
+    /// The stats panel's textures and the name panels'.
+    fn panelTextures(loadout: *Loadout) [2]*std.EnumArray(panels.Face, PanelTexture) {
+        return .{ &loadout.info_textures, &loadout.title_textures };
     }
 
     /// The loadout's render hook (`0x0044B200`), while the interface is not busy: the tooltip of
