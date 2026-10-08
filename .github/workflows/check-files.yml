@@ -1,6 +1,8 @@
-# Fails a pull request that holds a file from the game, or one that looks like it. `main` takes
-# changes through squash-merged pull requests alone, so what a pull request holds is what it brings.
-name: No game files
+# Fails a pull request that holds a file from the game, or one that looks like it, or a line of
+# text with an em or en dash. `main` takes changes through squash-merged pull requests alone, so
+# what a pull request holds is what it brings. Branch protection requires the job by its name,
+# `check-files`.
+name: File checks
 
 on:
   pull_request:
