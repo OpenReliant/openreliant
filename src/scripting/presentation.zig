@@ -719,6 +719,78 @@ test "a display reads the radar's contacts and the target display" {
     fixture.shown.endGame();
 }
 
+test "a display reads the windows and the display's text" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=player.luau\n" },
+            .{
+                "player.luau",
+                \\local hud = require("openreliant.hud")
+                \\return {engine_handlers = {on_frame = function()
+                \\    local d, p, w, o = hud.damage, hud.power, hud.wingmen, hud.objectives
+                \\    hud.text(vector.zero, string.format("%.2f %.2f %.2f|%d %d %d|%d %d %d %.2f|%d %d %s %s %d %s|%s|%s|%s|%s|%s",
+                \\        d.weapons, d.engines, d.shields, p.shields, p.guns, p.engines,
+                \\        #w, w[1].object.slot, w[1].number, w[1].armor,
+                \\        o.shown, #o.list, o.list[1].name, tostring(o.list[1].current), o.list[2].number, tostring(o.list[2].name),
+                \\        table.concat(hud.comms, ","), table.concat(hud.messages, ","), hud.subtitle, hud.key_prompt,
+                \\        hud.jump_prompt))
+                \\end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    const all = fixture.mission.objects;
+    const slot = fixture.mission.slot(0);
+    // The player's ship: its systems worn, its power shifted, and the only ship of its wing.
+    slot.object.gun_condition = 0.25;
+    slot.object.armor_speed_factor = 0.5;
+    slot.object.shield_condition = 1;
+    slot.object.power_setting = .{ .x = 0.2, .y = -0.1, .z = 0 };
+    engine.game.mission.listPlayerWing(all, &.{0});
+    // Objectives: the first current, the second listed with no name, the rest hidden; the window
+    // shows the second.
+    var state: hud.State = .{};
+    const names: hud.Objectives.Names = .{ "Patrol", null, null, null, null, null, null, null, null, null };
+    state.objectives.own = &names;
+    state.objectives.states[0] = .current;
+    state.objectives.states[1] = .listed;
+    state.objectives.shown = 1;
+    state.messages.add("Bogey", 0);
+    state.subtitle.show(5);
+    state.key_prompt.action = .comms_window;
+    var player: input.Player = .{};
+    player.menu.items[0] = .{ .label = .{ .string = 4 }, .page = .top, .addressed = -1 };
+    player.menu.count = 1;
+    var variables: engine.vm.Variables = .{};
+    variables.ready.jump = .shown;
+    var strings_table: [10][]const u8 = @splat(" ");
+    strings_table[4 - 1] = "Target";
+    strings_table[5 - 1] = "Sub";
+    const strings: engine.game.language.Language = .{ .strings = &strings_table };
+    var view: engine.game.camera.Camera = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{
+        .hud = &state,
+        .player = &player,
+        .variables = &variables,
+        .strings = &strings,
+    } };
+    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
+    fixture.shown.frame(host);
+    const shares = hud.power.percentages(engine.input.power.point(&slot.object));
+    var buffer: [engine.game.mission.wing_size]hud.wing_status.Entry = undefined;
+    const wing = hud.wing_status.entries(all, &buffer);
+    var expected: [256]u8 = undefined;
+    const text = try std.fmt.bufPrint(&expected, "0.25 0.50 1.00|{d} {d} {d}|1 0 1 {d:.2}|2 2 Patrol true 2 nil|Target|Bogey|Sub|comms_window|jump", .{
+        shares.get(.shields), shares.get(.guns), shares.get(.engines), wing[0].armorShare(),
+    });
+    try std.testing.expectEqualStrings(text, fixture.shown.layers.get(.hud).text.items);
+    fixture.shown.endGame();
+}
+
 test "a player script's self follows the player's ship from mission to mission" {
     const gpa = std.testing.allocator;
     var fixture: Fixture = undefined;

@@ -1226,6 +1226,15 @@ hud.register_display("radar", {
   - `hud.lights`, the status lights that show, steady or flashing; `hud.clock`, the minutes and
     seconds the clock shows; `hud.view_name`, the name written at the top of the screen in the
     views that have one; and `hud.caption`, the launch's date as far as it has typed it.
+  - The windows, whether or not they're open: `hud.damage`, how well the weapons, engines and
+    shields still work, from 0 to 1; `hud.power`, the shields', guns' and engines' shares of the
+    power as the percentages the power window writes; `hud.wingmen`, the wing's ships with their
+    numbers and the share of their armour bars lit; `hud.objectives`, the objectives the window can
+    show, with their names, which is current and which it shows; and `hud.comms`, the items of the
+    radio's menu.
+  - The text the display writes: `hud.messages`, the message lines, oldest first; `hud.subtitle`,
+    the line `DisplaySubTitle` shows; `hud.key_prompt`, the action `WaitForKey` waits for; and
+    `hud.jump_prompt`, `jump` or `warp` while the prompt for what the mission has ready flashes.
 
   `hud.instruments_shown` says whether the game's instruments show this frame, which is in the view
   ahead from the cockpit. Each reading is worked out as its instrument works it out, when the
