@@ -690,8 +690,8 @@ address	kind	name	type	comment
 00407d30	function	dock_limpet_init	void __fastcall (int slot)	Finds the limpet car and carrier docking points, enables pass-through and starts the approach
 00407d70	function	dock_limpet_run	void __fastcall (int slot)	Approaches and slides to the carrier berth, transfers a limpet pod and rotates the clamps, then departs and posts Docked or Undocked
 004081c0	function	dock_limpet_exit	void __fastcall (int slot)	Restores forward motion, clears attachment and clears the first two pass-through slots
-00408210	function	dock_limpet_czar_init	void __fastcall (int slot)	The init of a limpet car docking at the Czar docked, the fourth of dock_styles; not ported (#320)
-00408220	function	dock_limpet_czar_run	void __fastcall (int slot)	The update of a limpet car docking at the Czar docked; not ported (#320)
+00408210	function	dock_limpet_czar_init	void __fastcall (int slot)	The init of a limpet car docking at the Czar docked, the fourth of dock_styles: dock_limpet_init
+00408220	function	dock_limpet_czar_run	void __fastcall (int slot)	The update of a limpet car docking at the Czar docked: dock_limpet_run for steps 0 to 2, then set in its berth with its clamps turning and Docked posted, a hold of 12000 ticks, backing away, and Undocked as the order ends; no pod
 004084a0	function	dock_limpet_czar_exit	void __fastcall (int slot)	The exit of a limpet car docking at the Czar docked: dock_limpet_exit, which it jumps to
 004084b0	function	dock_limpet_pod_run	void __fastcall (int slot)	Destroys the attached limpet pod when its docking target explodes
 004084e0	function	dock_limpet_pod_exit	void __fastcall (int slot)	Clears the limpet pod's first two pass-through slots

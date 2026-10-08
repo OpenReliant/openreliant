@@ -95,8 +95,8 @@ down, so that each hardpoint after it takes the rack the loadout fitted on it
 ([#451](https://github.com/OpenReliant/openreliant/issues/451)). The game flies without the missiles
 of every rack after an empty one, and without any where the first is empty.
 
-Not ported: the Nanny's re-arm (`order_dock`, `0x00407A5F`,
-[#320](https://github.com/OpenReliant/openreliant/issues/320)).
+A Nanny's re-arm (`dock_nanny_run`, `0x004079C9`) and `ReplenishWeapons` fit the racks again the
+same way, a player's with the racks its loadout chose (`create.rearm`).
 
 ## Flight
 
