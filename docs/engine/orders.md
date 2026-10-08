@@ -322,7 +322,7 @@ OpenReliant does not run yet holds its place on the stack and does nothing
 | 106 | Eject | The ship a pilot has left: destroyed 200 ticks on. | Yes |
 | 107 | Scoop Up | A nanny ship or the Antanov takes the player's pod aboard with its tractor beams ([Ejection](ejection.md#scoop-up)). | Yes |
 | 108 | Eject Spin | An AI pilot's ship spins, unpowered, for 200 ticks; then the pilot ejects (Eject). | Yes |
-| 109 | Dock | Docks at a port of its target ([Docking](#docking)). | Station, Nanny, limpet car and limpet pod styles; Czar-specific limpet docking remains ([#320](https://github.com/OpenReliant/openreliant/issues/320)) |
+| 109 | Dock | Docks at a port of its target ([Docking](#docking)). | Yes |
 | 110 | Dark reign shoot | The Dark Reign's ion cannon; `ion_cannons_hold_lock` keeps its target ([Script VM](script-vm.md#the-games-variables)). Not read in full yet. | No |
 | 111 | Ripper end drop object | A Ripper draws its forearms back once it has let go ([The Ripper](#the-ripper)). | Yes |
 | 112 | Ripper attach cargo pod to Mammoth | A Ripper fits a cargo pod onto a Mammoth ([The Ripper](#the-ripper)). | Yes |
@@ -506,7 +506,11 @@ forward motion, clears attachment and clears the first two pass-through entries.
 separate pod's update (`0x004084B0`) destroys it if its carrier explodes. Undocked is also
 exposed to mod scripts through the event declarations.
 
-Czar-specific limpet docking remains in [#320](https://github.com/OpenReliant/openreliant/issues/320).
+At the Czar docked, the limpet car's own style (`dock_limpet_czar_run`, `0x00408220`) runs
+`dock_limpet_run` for steps 0 to 2, then takes or leaves no pod. At step 3 it is set in its berth,
+heard docking, and its clamps turn, and it has its Docked at once. It holds on for 12000 ticks
+before it backs away, and the order ends with its Undocked. Its init and its exit are the limpet
+car's (`0x00408210`, `0x004084A0`).
 
 ### Landing
 

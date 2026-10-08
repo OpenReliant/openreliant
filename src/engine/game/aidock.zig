@@ -1,15 +1,13 @@
 //! `C:\lancer\game\aidock.cpp`: Dock, order 109, by which a ship docks at a port of another: a
 //! freighter at a station's port, a fighter in a Nanny to take on missiles, a limpet car on a
-//! ship. Its init picks one of five styles by what docks where; each style has its own init,
-//! update and exit (`dock_styles`, `0x004E1618`). Station, Nanny, limpet car and limpet pod styles
-//! are implemented. `docs/engine/orders.md` describes them.
+//! ship or at the Czar docked. Its init picks one of five styles by what docks where; each style
+//! has its own init, update and exit (`dock_styles`, `0x004E1618`). `docs/engine/orders.md`
+//! describes them.
 //!
 //! **Unverified:** the file's paths place its code from `dock_find_points` (`0x00406C80`) to the
 //! end of `dock_nanny_init` (`0x00407510`). The order's update and exit before it, and the Nanny's
 //! update, the station's exit and the limpet car's and the pod's functions after it, go with this
 //! file by what they do.
-//!
-//! Not ported: limpet-car docking at the Czar ([#320](https://github.com/OpenReliant/openreliant/issues/320)).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -244,10 +242,9 @@ pub fn init(ctx: Context, index: u16) void {
     switch (entry.data.dock.style) {
         .station => stationInit(ctx, index),
         .nanny => nannyInit(ctx, index),
-        .limpet_car => limpetInit(ctx, index),
-        .limpet_pod => {},
-        // Not ported ([#320](https://github.com/OpenReliant/openreliant/issues/320)).
-        .limpet_car_czar, _ => {},
+        // `dock_limpet_czar_init` (`0x00408210`) is the limpet car's.
+        .limpet_car, .limpet_car_czar => limpetInit(ctx, index),
+        .limpet_pod, _ => {},
     }
 }
 
@@ -298,22 +295,23 @@ pub fn update(ctx: Context, index: u16) void {
     switch (ctx.world.objects.slots[index].orders[0].data.dock.style) {
         .station => stationUpdate(ctx, index),
         .nanny => nannyUpdate(ctx, index),
-        .limpet_car => limpetUpdate(ctx, index),
+        .limpet_car => limpetUpdate(ctx, index, .ship),
+        .limpet_car_czar => limpetUpdate(ctx, index, .czar),
         .limpet_pod => limpetPodUpdate(ctx, index),
-        // Not ported ([#320](https://github.com/OpenReliant/openreliant/issues/320)).
-        .limpet_car_czar, _ => {},
+        _ => {},
     }
 }
 
 /// `order_dock_exit` (`0x00406C50`): runs the style's exit. Station and Nanny docking
 /// (`dock_station_exit`, `0x00407D10`) clear the first pass-through slot. The limpet car's
-/// exit (`dock_limpet_exit`, `0x004081C0`) also restores forward motion and clears attachment;
+/// exit (`dock_limpet_exit`, `0x004081C0`), which its exit at the Czar jumps to
+/// (`dock_limpet_czar_exit`, `0x004084A0`), also restores forward motion and clears attachment;
 /// the pod's (`dock_limpet_pod_exit`, `0x004084E0`) clears both pass-through slots.
 pub fn exit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     switch (slot.orders[0].data.dock.style) {
         .station, .nanny => slot.object.passes_through[0] = .none,
-        .limpet_car => {
+        .limpet_car, .limpet_car_czar => {
             slot.motion = .forward;
             slot.object.flags.attached = false;
             slot.object.passes_through[0] = .none;
@@ -323,8 +321,7 @@ pub fn exit(ctx: Context, index: u16) void {
             slot.object.passes_through[0] = .none;
             slot.object.passes_through[1] = .none;
         },
-        // Not ported ([#320](https://github.com/OpenReliant/openreliant/issues/320)).
-        .limpet_car_czar, _ => {},
+        _ => {},
     }
 }
 
@@ -510,9 +507,21 @@ fn limpetInit(ctx: Context, index: u16) void {
     slot.object.passes_through[0] = .from(slot.orders[0].target.slotIn(ctx.world.objects));
 }
 
+/// What a limpet car docks at: a ship, where it takes or leaves a pod (`dock_limpet_run`), or the
+/// Czar docked, where it holds on a while (`dock_limpet_czar_run`).
+const LimpetBerth = enum { ship, czar };
+
+/// How long a limpet car holds on at the Czar docked, in ticks (`0x00408343`).
+const czar_hold = 12000;
+
 /// `dock_limpet_run` (`0x00407D70`): approaches, slides to the berth, transfers a pod and
 /// rotates the clamps, then departs. Whether the pod mesh is hidden selects Docked or Undocked.
-fn limpetUpdate(ctx: Context, index: u16) void {
+///
+/// At the Czar docked (`dock_limpet_czar_run`, `0x00408220`, which runs `dock_limpet_run` for the
+/// first three steps), the car takes or leaves no pod: it has its Docked as it sets itself in
+/// place, holds on for `czar_hold` rather than `limpet_wait`, and has its Undocked as the order
+/// ends.
+fn limpetUpdate(ctx: Context, index: u16, at_berth: LimpetBerth) void {
     const world = ctx.world;
     const all = world.objects;
     const slot = &all.slots[index];
@@ -548,9 +557,17 @@ fn limpetUpdate(ctx: Context, index: u16) void {
             objects.setPlace(&slot.object, &slot.drawn, at);
             sound3d.playIn(world, null, null, index, .dock, 1, .not_reserved);
             rotateLimpet(slot, 0, limpet_track_speed);
-            transferPod(ctx, index, carrier);
             state.step = .{ .limpet = .rotate };
-            state.until = now + limpet_wait;
+            switch (at_berth) {
+                .ship => {
+                    transferPod(ctx, index, carrier);
+                    state.until = now + limpet_wait;
+                },
+                .czar => {
+                    state.until = now + czar_hold;
+                    events.docked(world, index);
+                },
+            }
         },
         .rotate => if (state.until < now) {
             slot.object.throttle = ai.full_throttle;
@@ -566,7 +583,7 @@ fn limpetUpdate(ctx: Context, index: u16) void {
             state.until = now + limpet_wait;
         },
         .finish => if (state.until < now) {
-            const docked = if (slot.model) |*model| if (model.rootChild(limpet_pod_part)) |part| part.hidden else false else false;
+            const docked = at_berth == .ship and if (slot.model) |*model| if (model.rootChild(limpet_pod_part)) |part| part.hidden else false else false;
             aigeneric.end(ctx, index);
             if (docked) events.docked(world, index) else events.undocked(world, index);
         },
@@ -1131,6 +1148,42 @@ test "a limpet car slides in, transfers its pod and clears attachment on departu
     transferPod(ctx, index, dock.station);
     try std.testing.expect(!slot.model.?.parts[0].hidden);
     try std.testing.expect(dock.game.slot(pod).object.flags.stand_in);
+}
+
+test "a limpet car at the Czar docked holds on, and takes or leaves no pod" {
+    var dock: TestDock = undefined;
+    try dock.init();
+    defer dock.deinit();
+    const index = dock.freighters[0];
+    const slot = dock.game.slot(index);
+    slot.object.type = .of(.limpet_car);
+    dock.game.slot(dock.station).object.type = .of(.czar_docked);
+    var ctx = dock.orders();
+    ctx.world.spawn = dock.game.spawn(create.testing.no_models);
+    _ = try aigeneric.pushShip(ctx, index, .dock, dock.station, 0);
+    aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(Style.limpet_car_czar, slot.orders[0].data.dock.style);
+    // It approaches and slides in as at a ship.
+    dock.place(index, berth(ctx.world, index).?.ahead(-limpet_approach));
+    aigeneric.objectOrders(ctx, index);
+    aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(LimpetStep.slide, slot.state.dock.step.limpet);
+    dock.game.clock.mission_ticks = slot.state.dock.until + 1;
+    _ = way(ctx.world, index);
+    // Set in place, it makes no pod, and holds on longer.
+    dock.game.clock.frame_start = 500;
+    aigeneric.objectOrders(ctx, index);
+    try std.testing.expectEqual(LimpetStep.rotate, slot.state.dock.step.limpet);
+    try std.testing.expect(!slot.model.?.parts[0].hidden);
+    try std.testing.expectEqual(gameobj.Slot.none, slot.object.passes_through[1]);
+    try std.testing.expectEqual(500 + czar_hold, slot.state.dock.until);
+    // Then it backs away, and the order ends as at a ship.
+    for (0..3) |_| {
+        dock.game.clock.frame_start = slot.state.dock.until + 1;
+        aigeneric.objectOrders(ctx, index);
+    }
+    try std.testing.expectEqual(0, slot.object.order_count);
+    try std.testing.expect(!slot.object.flags.attached);
 }
 
 test "a limpet car is destroyed with its carrier while it is latched on" {
