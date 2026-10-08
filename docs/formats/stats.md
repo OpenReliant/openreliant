@@ -171,7 +171,19 @@ In scripts, the tiers are `"level_0"`, `"level_1"` or `"level_2"` (or a number),
 
 The loader applies B, then A, then C; tier 2 of C also sets the last two values of A, to 50 and 100.
 
-**Unknown:** what the runtime values do. Each group changes monotonically from tier 0 to tier 2.
+The Fight order and its maneuvers read the runtime values ([Maneuvers](../engine/maneuvers.md),
+`game/pilots.zig`):
+
+- **A**, in ticks: how long the pilot holds the trigger once it has its aim; how long after its
+  last chance to fire it looks again; the least and the most it waits for its next missile; and
+  the least and the most it waits for its next countermeasure.
+- **B**: how far off the line along its nose the aim point may be for it to fire, in the target's
+  radii.
+- **C**: the most of each turning input it steers with, which also scales a maneuver's turns; how
+  far it lets a turn swing; and the ticks between its aims at its target, which also set how far
+  ahead it reckons the target's turn.
+
+Each group changes monotonically from tier 0 to tier 2.
 
 ## Prior art
 

@@ -35,7 +35,7 @@ DirectDraw, Direct3D, DirectInput and DirectPlay are reached through those libra
 | `CD1.HOG`, `CD2.HOG`, `resource.hog`, `ms_speech/msspeech.hog`, `pilots/pilots.hog` | Asset archives: see [`hog.md`](../formats/hog.md). |
 | `shipstats.bin`, `gunstats.bin`, `missilestats.bin`, `pilotstats.bin` | Stat tables: see [`stats.md`](../formats/stats.md). |
 | `missions/*.dte` | Missions 18 and 25, installed loose; `resource.hog` holds all 44. See [`dte.md`](../formats/dte.md). |
-| `*.ccb` | Colour lookup tables for Surrender (`palette`, `power`, `softpal`). |
+| `*.ccb` | Surrender's colour cubes: see [`tcache.md`](../formats/tcache.md#palettes). The game reads `palette`, `softpal` and `palette3` from `resource.hog` (`SR_CCB_load`); the loose copies, `power` and `palette2` go unused. |
 | `Forces/*.FRC` | Force-feedback effects: see [`frc.md`](../formats/frc.md). |
 | `interface/*.bik`, `inter/`, `*.bik` | Bink video: menu transitions, branding, cutscenes. |
 | `music/*.wav` | Music, one file per mission and state. |

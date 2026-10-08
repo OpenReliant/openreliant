@@ -817,6 +817,7 @@ address	kind	name	type	comment
 004ca9b0	function	SR_TGA_get_palette	void __fastcall (byte *tga, byte *palette)	Copies the first 256 colour map entries of a colour-mapped TGA, as red, green, blue
 004cacb0	function	SR_TGA_allocate_palette	byte * __fastcall (char *name)	Loads an 8-bit TGA and returns its palette
 004cb9d0	function	SR_CCB_load	void * __fastcall (char *name)	Loads a colour cube: a palette and a 64x64x64 table of indices
+004cbbd0	function	SR_CCB_save	int __fastcall (char *name, void *ccb)	Writes a colour cube to a file. Nothing in the game calls it; its asserts name the cube's fields: lut, palette, dacinfo and paletteinfo
 004a4070	function	static_lights_mark	void __fastcall (void *model)	Sets part flag 0x40 on the parts of each class, damaged or not, that holds a static light: an attachment of kind 4 with a range and no blinking
 004a4310	function	static_lights_bake	void __fastcall (void *model)	Bakes each static light into the meshes of every level of the parts of its class
 004a4130	function	static_light_bake	void __fastcall (void *part, int level, void *light)	Adds a static light to the baked colours of a part's level

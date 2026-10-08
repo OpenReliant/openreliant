@@ -8,8 +8,7 @@
 //! Not ported: what lights the prototype gate's power core and the Boridin breakaway's core as
 //! their components go, and what puts out the Dark Reign's hat, all of which hang on what
 //! `create_object` sets up for those types
-//! ([#238](https://github.com/OpenReliant/openreliant/issues/238),
-//! [#233](https://github.com/OpenReliant/openreliant/issues/233)).
+//! ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 const std = @import("std");
 
