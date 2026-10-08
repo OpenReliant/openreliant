@@ -169,6 +169,15 @@ pub const GunType = enum(u8) {
     }
 };
 
+/// The longest refire interval and shot life OpenReliant takes from a gun's record, in ticks
+/// (about 23 hours), so that the tick sums they go into can't overflow, `refire`'s for a ship
+/// aiming blind included (`Stats.load`).
+const longest_ticks: i32 = 1 << 23;
+
+comptime {
+    assert(@as(i64, longest_ticks) * blind_refire <= std.math.maxInt(i32));
+}
+
 /// `gun_stats` (`0x00500CA4`): every gun type's figures at run time.
 pub const Stats = struct {
     types: [max_gun_types]Gun,
@@ -198,15 +207,41 @@ pub const Stats = struct {
 
     /// `stats_load_guns` (`0x004788F0`): each record of `gunstats.bin` in turn, the first into
     /// type 1, keeping in whole numbers what the runtime's `__ftol` cuts down.
+    ///
+    /// **Fix:** the game turns a fire rate of 0 into a refire interval of `0x80000000`, and a very
+    /// low rate or a very long range overflows the tick sums the interval and a shot's life go
+    /// into. OpenReliant keeps both at most `longest_ticks`, and logs which gun it changed: a gun
+    /// with a rate of 0 fires once in a mission. A negative interval is kept at 0, which fires as
+    /// often, every frame.
     pub fn load(stats: *Stats, file: []align(1) const formats.Gun) void {
         const count = @min(file.len, max_gun_types - 1);
-        for (stats.types[1..][0..count], file[0..count]) |*gun, record| {
-            gun.lifetime = std.math.lossyCast(i32, record.range);
+        for (stats.types[1..][0..count], file[0..count], 1..) |*gun, record, number| {
+            const gun_type: GunType = @fromBackingInt(@intCast(number));
+            gun.lifetime = lifetimeOf(gun_type, record);
             gun.speed = record.speed;
             gun.damage = record.damage;
-            gun.refire_interval = std.math.lossyCast(i32, formats.Gun.refire_scale / record.fire_rate);
+            gun.refire_interval = refireOf(gun_type, record);
             gun.shot_energy = std.math.lossyCast(i32, record.shot_energy);
         }
+    }
+
+    /// The ticks a shot of the gun `record` describes lives: its range, at most `longest_ticks`.
+    fn lifetimeOf(gun_type: GunType, record: formats.Gun) i32 {
+        const lifetime = std.math.lossyCast(i32, record.range);
+        if (lifetime <= longest_ticks) return lifetime;
+        log.warn("gun {f}: a range of {d} is too long, so its shots last {d} ticks", .{ gun_type, record.range, longest_ticks });
+        return longest_ticks;
+    }
+
+    /// The ticks between the shots of the gun `record` describes (`formats.Gun.refireInterval`),
+    /// from 0 to `longest_ticks`.
+    fn refireOf(gun_type: GunType, record: formats.Gun) i32 {
+        const interval = record.refireInterval() orelse {
+            log.warn("gun {f}: a fire rate of 0 never refires, so it fires once in a mission", .{gun_type});
+            return longest_ticks;
+        };
+        if (interval > longest_ticks) log.warn("gun {f}: a fire rate of {d} is too slow, so it refires every {d} ticks", .{ gun_type, record.fire_rate, longest_ticks });
+        return std.math.clamp(interval, 0, longest_ticks);
     }
 };
 
@@ -407,6 +442,26 @@ test Stats {
     // The types the executable's own words name stay as they are.
     try std.testing.expectEqual(Kind.energy, stats.types[1].kind);
     try std.testing.expectEqual(Kind.rounds, stats.types[8].kind);
+}
+
+test "a gun's record can't make the tick sums overflow" {
+    var stats: Stats = .initial;
+    var file: [3]formats.Gun = @splat(std.mem.zeroes(formats.Gun));
+    file[0].fire_rate = 0;
+    file[0].range = 1e30;
+    file[1].fire_rate = 1e-30;
+    file[2].fire_rate = -1e-30;
+    stats.load(&file);
+    // A rate of 0 refires after the longest interval, so the gun fires once in a mission, and a
+    // range too long for the ticks lasts as long.
+    try std.testing.expectEqual(longest_ticks, stats.types[1].refire_interval);
+    try std.testing.expectEqual(longest_ticks, stats.types[1].lifetime);
+    // A very low rate is kept at the longest interval, and a negative one at none, which fires as
+    // often, every frame.
+    try std.testing.expectEqual(longest_ticks, stats.types[2].refire_interval);
+    try std.testing.expectEqual(0, stats.types[3].refire_interval);
+    // A ship aiming blind waits longer, which the ticks still hold.
+    try std.testing.expectEqual(@divTrunc(longest_ticks * blind_refire, 100), refire(stats.types[1], true));
 }
 
 /// Gun groups a ship type holds (`0x00545900`, `0x78` bytes a type).
@@ -735,7 +790,9 @@ pub const held_ticks: i32 = 1;
 pub fn fire(object: *gameobj.GameObject, trigger: Trigger, ticks: i32) void {
     if (object.flags.guns_disabled or object.gun_count == 0) return;
     if (nova.charges(object, trigger)) nova.charge(object, trigger.shake);
-    const until = trigger.frame_start + ticks;
+    // The game's 32-bit sum wraps where a mission's Fire command gives a huge count, and so does
+    // OpenReliant's.
+    const until = trigger.frame_start +% ticks;
     var chosen: Chosen = .of(object, trigger.fitted, trigger.groups);
     while (chosen.next()) |gun| {
         const barrel = gun.barrel() orelse continue;
@@ -939,6 +996,9 @@ test fire {
     fire(&object, trigger, held_ticks);
     try std.testing.expectEqual(0, fitted[0].firing_until);
     try std.testing.expectEqual(701, fitted[2].firing_until);
+    // A mission's Fire command with a count too large for the frame's ticks wraps, as the game's.
+    fire(&object, trigger, std.math.maxInt(i32));
+    try std.testing.expectEqual(std.math.minInt(i32) + 699, fitted[2].firing_until);
 
     // A ship whose guns are disabled fires none of them.
     for (&fitted) |*gun| gun.firing_until = 0;
