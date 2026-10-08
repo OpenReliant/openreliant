@@ -1,9 +1,10 @@
 //! `C:\lancer\game\aifuncs.cpp`: the orders a ship flies by: Mill, Do Nothing, Fly Aimlessly,
 //! Escort, Fly, Run Away, Find New Target, Find Scoop Up, Object Attach, Toggle Cloak, Slow Rotate,
 //! the Random Spins, Formation, Match Speed and Disrupted; the two that launch a missile; a capital
-//! ship's lurch as a torpedo strikes it (Make capship list left and right); and orders 44 and 45,
-//! which stop the ship dead and back it up. [`aigeneric.zig`](aigeneric.zig) runs them,
-//! [`ai.zig`](ai.zig) steers for them, and `docs/engine/orders.md` describes what each does.
+//! ship's lurch as a torpedo strikes it (Make capship list left and right); the two that turn a
+//! ship's lights on and off; and orders 44 and 45, which stop the ship dead and back it up.
+//! [`aigeneric.zig`](aigeneric.zig) runs them, [`ai.zig`](ai.zig) steers for them, and
+//! `docs/engine/orders.md` describes what each does.
 //!
 //! **Unverified:** only `order_make_boridin_section_break_away_init` (`0x0040BF60`) is placed in
 //! this file. The order routines from Mill's (`0x0040A6F0`) up to it lie between `aifight.cpp`'s
@@ -12,9 +13,9 @@
 //! like it.
 //!
 //! Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)): of the order routines
-//! here, those of Avoid Target (`0x0040B310`, `0x0040B330`), Dark Reign shoot (`0x0040BAD0`), Turns
-//! object lights on (`0x0040BBD0`, `0x0040BC20`) and off (`0x0040BE90`), Make Boridin section break
-//! away (`0x0040BF60`) and Rotate Boridin breakaway warp projector (`0x0040C100`).
+//! here, those of Avoid Target (`0x0040B310`, `0x0040B330`), Dark Reign shoot (`0x0040BAD0`), Make
+//! Boridin section break away (`0x0040BF60`) and Rotate Boridin breakaway warp projector
+//! (`0x0040C100`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -32,6 +33,7 @@ const gameobj = @import("gameobj.zig");
 const Order = @import("ai/orders.zig").Order;
 const missiles = @import("missiles.zig");
 const objects = @import("objects.zig");
+const sound3d = @import("sound3d.zig");
 const xtrabits = @import("xtrabits.zig");
 
 // --- Mill -----------------------------------------------------------------------------------
@@ -929,6 +931,105 @@ fn lurchBy(slot: *create.Slot, flight: *const create.FlightModel, side: Lurch, t
     slot.state.list.until = now + turn.ticks;
 }
 
+// --- Turns object lights on and off ---------------------------------------------------------
+
+/// What Turns object lights on keeps in `order_state`, which only the rogue base's lights, coming on
+/// a step at a time, read: when they are all on and the order ends (`+0x04`), the step reached
+/// (`+0x08`), how many steps there are, which nothing reads (`+0x0C`), and the ticks between them
+/// (`+0x10`).
+pub const LightsState = extern struct {
+    _unknown_00: u32,
+    until: i32,
+    step: i32,
+    steps: i32,
+    gap: i32,
+    _unknown_14: [0x90 - 0x14]u8,
+
+    comptime {
+        assert(@offsetOf(LightsState, "until") == 0x04);
+        assert(@offsetOf(LightsState, "step") == 0x08);
+        assert(@offsetOf(LightsState, "gap") == 0x10);
+        assert(@sizeOf(LightsState) == 0x90);
+    }
+};
+
+/// How long the rogue base's lights take to come on, in ticks, in how many steps, and how many
+/// ticks apart (`order_turns_object_lights_on_init`); and how many of them light a surface of its
+/// first part, one each, before the last lights the rest of its parts.
+const lights_ticks = 500;
+const lights_steps = 5;
+const lights_gap = 100;
+const first_part_steps = 4;
+
+/// `order_turns_object_lights_on_init` (`0x0040BBD0`): the init of Turns object lights on (35),
+/// for the rogue base's lights to come on over `lights_ticks`.
+pub fn lightsOnInit(ctx: Context, index: u16) void {
+    const state = &ctx.world.objects.slots[index].state.lights;
+    state.until = ctx.world.clock.frame_start + lights_ticks;
+    state.step = 0;
+    state.steps = lights_steps;
+    state.gap = lights_gap;
+}
+
+/// `order_turns_object_lights_on` (`0x0040BC20`): the update of Turns object lights on (35). The
+/// light maps of the ship's parts flagged `lightmap` come on (`lightMaps`), heard from it
+/// (`lightsHeard`), and the order ends. The rogue base's come on a step at a time instead, each
+/// heard: a surface of its first part at each of the first `first_part_steps` steps, then those of
+/// the rest of its parts, `lights_gap` ticks apart; the order ends once `lights_ticks` are up.
+/// Where the light maps aren't drawn (`gameobj.World.light_maps`), the order ends at once.
+///
+/// **Fix:** the game turns the lights on only at the level of detail each part is drawn at as the
+/// order runs, so they stay dark at another distance; OpenReliant turns them on at every level, as
+/// Turns object lights off turns them off. And it turns on a second pass for every surface of the
+/// part, drawing those with no second texture flat; OpenReliant only for those with one.
+pub fn lightsOn(ctx: Context, index: u16) void {
+    const world = ctx.world;
+    if (!world.light_maps) return aigeneric.end(ctx, index);
+    const slot = &world.objects.slots[index];
+    if (slot.object.type.base() != .rogue_base) {
+        lightMaps(slot, 0, true);
+        lightsHeard(world, slot);
+        return aigeneric.end(ctx, index);
+    }
+    const state = &slot.state.lights;
+    const now = world.clock.frame_start;
+    if (now > state.until) return aigeneric.end(ctx, index);
+    if (now - state.until + lights_ticks <= state.gap * state.step) return;
+    lightsHeard(world, slot);
+    if (state.step >= 0 and state.step < first_part_steps) {
+        if (slot.type) |kind| if (kind.loaded.parts.len > 0) kind.loaded.parts[0].surfaceSecondPasses(@intCast(state.step), true);
+    } else if (state.step == first_part_steps) {
+        lightMaps(slot, 1, true);
+    }
+    state.step += 1;
+}
+
+/// `order_turns_object_lights_off` (`0x0040BE90`): the update of Turns object lights off (42): the
+/// light maps of the ship's parts flagged `lightmap` go out (`lightMaps`), where they are drawn
+/// (`gameobj.World.light_maps`), and the order ends.
+pub fn lightsOff(ctx: Context, index: u16) void {
+    if (ctx.world.light_maps) lightMaps(&ctx.world.objects.slots[index], 0, false);
+    aigeneric.end(ctx, index);
+}
+
+/// The light maps of the parts of the ship in `slot` flagged `lightmap`, from its part `from` on, at
+/// every level, are drawn or not (`srofiles.LoadedPart.secondPasses`). Every object of its type
+/// goes with it, as they share its meshes.
+fn lightMaps(slot: *create.Slot, from: usize, on: bool) void {
+    const model = if (slot.model) |*live| live else return;
+    const loaded = (slot.type orelse return).loaded;
+    var children = model.rootChildren();
+    while (children.next()) |child| {
+        if (child.index < from or !child.part.flags.lightmap or child.index >= loaded.parts.len) continue;
+        loaded.parts[child.index].secondPasses(on);
+    }
+}
+
+/// The ship in `slot`'s lights coming on are heard (`bigon`), where it is drawn and facing its way.
+fn lightsHeard(world: gameobj.World, slot: *const create.Slot) void {
+    sound3d.playIn(world, slot.drawn.position, math.forward(slot.drawn.orientation), null, .bigon, 1, .guaranteed);
+}
+
 // --- Orders 44 and 45 -----------------------------------------------------------------------
 
 /// `order_immediately_set_ship_to_zero_velocity_and_rotation` (`0x0040C4D0`): the update of order
@@ -1561,4 +1662,78 @@ test toggleCloak {
     // A ship that can cloak, uncloaked, cloaks.
     toggleCloak(stage.mission.orders(), stage.index);
     try std.testing.expect(stage.slot().object.flags.cloaked);
+}
+
+test "a ship's lights go out and come on again, and the rogue base's come on a step at a time" {
+    const gpa = std.testing.allocator;
+    const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
+    const srofiles = @import("srofiles.zig");
+    // Two parts flagged `lightmap`, each with a mesh of five surfaces, the first three with a light
+    // map (a second texture) drawn.
+    var meshes: [2]srapiext.Mesh = undefined;
+    for (&meshes) |*mesh| {
+        mesh.* = try .create(gpa, .{ .polygons = 0, .vertices = 0, .indices = 0, .surfaces = 5 });
+        for (mesh.surfaces[0..3]) |*surface| {
+            surface.textures[1] = .{ .highlight = 1 };
+            surface.material.two_pass = true;
+        }
+    }
+    defer for (&meshes) |*mesh| mesh.deinit(gpa);
+    var named: objects.testing.NamedParts(2) = undefined;
+    named.init(.{ "mainbody", "door1" }, @splat(.cut), @splat(&.{}));
+    for (&named.parts.data) |*data| data.part.flags.lightmap = true;
+    var parts = [2]srofiles.LoadedPart{ .{ .flags = .{}, .meshes = meshes[0..1], .levels = &.{} }, .{ .flags = .{}, .meshes = meshes[1..2], .levels = &.{} } };
+    const loaded: srofiles.Loaded = .{ .parts = &parts };
+    const kind: create.Type = .{ .model = &named.parts.source, .loaded = &loaded };
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    _ = try mission.add(.of(.kamov), @splat(0));
+    const types = create.testing.oneType(&kind);
+    const ship = try mission.addWith(types, .of(.saladin), @splat(0));
+    const base = try mission.addWith(types, .of(.rogue_base), @splat(0));
+    var ctx = mission.orders();
+    const lit = struct {
+        fn lit(mesh: srapiext.Mesh) [5]bool {
+            var each: [5]bool = undefined;
+            for (&each, mesh.surfaces) |*on, surface| on.* = surface.material.two_pass;
+            return each;
+        }
+    }.lit;
+
+    // The lights go out at every surface with a light map; on again, only those come on.
+    _ = try aigeneric.push(ctx, ship, .turns_object_lights_off, .none);
+    aigeneric.objectOrders(ctx, ship);
+    try std.testing.expectEqual(@as([5]bool, @splat(false)), lit(meshes[0]));
+    try std.testing.expectEqual(0, mission.slot(ship).object.order_count);
+    _ = try aigeneric.push(ctx, ship, .turns_object_lights_on, .none);
+    aigeneric.objectOrders(ctx, ship);
+    try std.testing.expectEqual([5]bool{ true, true, true, false, false }, lit(meshes[0]));
+    try std.testing.expect(lit(meshes[1])[0]);
+
+    // Without light maps, nothing changes.
+    ctx.world.light_maps = false;
+    _ = try aigeneric.push(ctx, ship, .turns_object_lights_off, .none);
+    aigeneric.objectOrders(ctx, ship);
+    try std.testing.expect(lit(meshes[0])[0]);
+    ctx.world.light_maps = true;
+
+    // The rogue base's come on a surface of its first part each 100 ticks from the start, then
+    // the rest.
+    _ = try aigeneric.push(ctx, ship, .turns_object_lights_off, .none);
+    aigeneric.objectOrders(ctx, ship);
+    _ = try aigeneric.push(ctx, base, .turns_object_lights_on, .none);
+    aigeneric.objectOrders(ctx, base);
+    try std.testing.expectEqual(@as([5]bool, @splat(false)), lit(meshes[0]));
+    mission.ordersAfter(ctx, base, lights_gap);
+    try std.testing.expectEqual([5]bool{ true, false, false, false, false }, lit(meshes[0]));
+    mission.ordersAfter(ctx, base, lights_gap);
+    try std.testing.expectEqual([5]bool{ true, true, false, false, false }, lit(meshes[0]));
+    try std.testing.expect(!lit(meshes[1])[0]);
+    for (0..3) |_| mission.ordersAfter(ctx, base, lights_gap);
+    try std.testing.expect(lit(meshes[1])[0]);
+    // Once its time is up, the order ends.
+    try std.testing.expect(mission.slot(base).object.order_count > 0);
+    mission.ordersAfter(ctx, base, 1);
+    try std.testing.expectEqual(0, mission.slot(base).object.order_count);
 }

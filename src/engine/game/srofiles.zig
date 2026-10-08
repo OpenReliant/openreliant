@@ -419,6 +419,20 @@ pub const LoadedPart = struct {
     /// Its meshes for the cloak, where its model can cloak.
     cloaking: ?Cloaking = null,
 
+    /// `node_tree_second_passes` (`0x00422680`) for the part's own node: the second pass of each of
+    /// its surfaces is drawn, or not, at every level (`secondPassOf`). Its type's objects share its
+    /// meshes, so every one of them goes with it.
+    pub fn secondPasses(part: *const LoadedPart, on: bool) void {
+        for (part.meshes) |*mesh| {
+            for (0..mesh.surfaces.len) |n| secondPassOf(mesh, n, on);
+        }
+    }
+
+    /// The second pass of its surface `n` is drawn, or not, at every level (`secondPassOf`).
+    pub fn surfaceSecondPasses(part: *const LoadedPart, n: usize, on: bool) void {
+        for (part.meshes) |*mesh| secondPassOf(mesh, n, on);
+    }
+
     fn deinit(part: LoadedPart, gpa: Allocator) void {
         if (part.cloaking) |cloaking| cloaking.deinit(gpa);
         for (part.meshes) |mesh| mesh.deinit(gpa);
@@ -426,6 +440,14 @@ pub const LoadedPart = struct {
         gpa.free(part.levels);
     }
 };
+
+/// The second pass of surface `n` of `mesh` is drawn, or not, where the surface has a second texture
+/// to draw it with: a light map, or a highlight.
+fn secondPassOf(mesh: *srapiext.Mesh, n: usize, on: bool) void {
+    if (n >= mesh.surfaces.len) return;
+    const drawn = &mesh.surfaces[n];
+    if (drawn.textures[1] != .none) drawn.material.two_pass = on;
+}
 
 /// The two mesh sets `model_load` builds for each part of a model that can cloak: the part's own
 /// meshes seen through, each surface's first pass blended by alpha (`part + 0x160`), and the
