@@ -2253,14 +2253,31 @@ pub const Model = struct {
 
     /// `node_find_named` (`0x004ADD90`): the first part named `name`, in the order the root's
     /// child list holds them, each followed by the models it carries, however deep; null where
-    /// none is, or for a model with no file behind it.
+    /// none is, or for a model with no file behind it. A part taken out (`Part.removed`) is gone
+    /// from the list, with the models it carried.
     pub fn partNamed(model: *Model, name: []const u8) ?PartRef {
         for (model.source.parts, 0..) |data, index| {
             if (index >= model.parts.len) break;
+            if (model.parts[index].removed) continue;
             if (std.mem.eql(u8, data.part.name(), name)) return .{ .model = model, .index = index };
             var each = model.carriedBy(index);
             while (each.next()) |mount| {
                 if (mount.model.partNamed(name)) |found| return found;
+            }
+        }
+        return null;
+    }
+
+    /// `node_find_link` (`0x004ADE20`): the first part of assembly `link`, in the order the root's
+    /// child list holds them, each followed by the models it carries, however deep; null where
+    /// none is. A part taken out is gone from the list, with the models it carried.
+    pub fn partOfAssembly(model: *Model, link: u32) ?PartRef {
+        for (model.parts, 0..) |part, index| {
+            if (part.removed) continue;
+            if (part.link_id == link) return .{ .model = model, .index = index };
+            var each = model.carriedBy(index);
+            while (each.next()) |mount| {
+                if (mount.model.partOfAssembly(link)) |found| return found;
             }
         }
         return null;

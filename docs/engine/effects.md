@@ -261,12 +261,58 @@ assembly goes up, and each part of every model mounted on it (`explode_part_burs
 
 The hidden parts of the assembly, its damaged model, go up with the rest.
 
+### Pieces thrown off
+
+Before a component's parts go up, `explode_component_lost` sets off extras for a few types:
+
+- **The Boridin** (`0x48`): losing assembly 15 throws its gun dome off (type `0xA7`) from
+  `Bor Ion can bot DEST`, and losing assembly 6 gives it its power back.
+- **The Kronstadt** (`0x47`): losing assembly 9 throws an arm off (type `0xA6`) from `Kron arm3`.
+- **The Krasnaya** (`0x78`): losing an engine block, `Kras l eng block` or `Kras r eng block`,
+  posts the block's Destroyed and throws that arm off (`krasnaya_left_arm_off`, `0x00472140`;
+  `krasnaya_right_arm_off`, `0x00472420`). The arm's parts go and their wrecks show, the arm
+  (type `0xA3` or `0xA4`) appears `(0, 3300, -14000)` from the block in the block's frame, the
+  screen flashes, and the block is gone. A Krasnaya's split throws off each arm still on as it
+  starts ([Splits](#splits)).
+- **The Stalag** (`0x45`): losing one of its doors, assemblies 1 to 3, is heard (`plateoff`), and
+  the door flies out ahead at 100 to 150 a step, as its doors' model (type `0x97`) showing it
+  alone, tumbling by up to 0.005 either way about each axis. The door and the Stalag pass through
+  each other, and the door's part is gone. A cargo pod it carries, whose first part is
+  `Cargo pod`, bursts into 200 particles of red flame (`0x0055AD20`): two seconds of it, shrinking
+  from 200 across to 150, leaving at 10 to 14 a tick every way and carrying a quarter of the
+  Stalag's velocity.
+- **The prototype gate** (`0x6D`): losing a panel of its core, assemblies 2 to 11, throws the panel
+  off (type `0x74`) showing one of its three `Core plate`s at random, tumbling by up to 0.025 either
+  way, flying away from the gate's `Protogate Power core` at 200 to 300 a step, heard from it
+  (`plateoff`). The panel and the gate pass through each other. A burst of flame, as at the end of a
+  component's destruction, and a lit fireball the panel's size go off where it was, its part is
+  gone, and the rest of the assembly goes up no further.
+
+The arms and the gun dome tumble by up to 0.0025 either way about each axis and drift back along the
+part they came from at 20 to 40 a step. With each of them and the doors, three lit fireballs the
+part's size go off within a quarter of its size of it, 10 ticks apart.
+
+**Fixes:**
+
+- The game throws the Krasnaya's left arm off on either side. OpenReliant throws the right arm's
+  model off on the right.
+- As the split throws an arm off, the game looks for the arm's parts under the engine block alone,
+  so only the block goes and the rest of the arm stays on the ship beside the arm thrown off.
+  OpenReliant looks through the whole ship, as when the block is destroyed.
+
+[`explode/extras.zig`](../../src/engine/game/explode/extras.zig) ports them. Not ported: the extras
+that light or put out the prototype gate's power core (assembly 1), the Boridin breakaway's core
+(assemblies 2 and 3) and the Dark Reign's hat (assembly 17), which hang on what `create_object`
+sets up for those types ([#238](https://github.com/OpenReliant/openreliant/issues/238),
+[#233](https://github.com/OpenReliant/openreliant/issues/233)).
+
 ## Splits
 
 When a capital ship loses its hull (`explode_capship_component`, `0x0046F820`), it splits in two. The explosion sequences at `0x004FFB50` say how: 40 records of `0x2C` bytes, looked up by the ship's own type, not the type it takes its stats from (`explode_sequence_find`, `0x00471D30`). `make explode-tables` transcribes them into [`explode/sequences.zig`](../../src/engine/game/explode/sequences.zig). Each record gives the type of the ship's other half, if it has one, whether the split is a sweep or bursts, how long it lasts, and the sizes of its fireballs and burning bits.
 
 `split_create` (`0x0046F480`) sets the split up in one of ten slots (`0x0055335C`):
 
+- A Krasnaya throws off each arm whose engine block is still on ([Pieces thrown off](#pieces-thrown-off)).
 - The ship's engines stop, and its parts stop playing their tracks.
 - The points of its parts' `cut` lists are gathered in the ship's frame and sorted from stern to bow. A Latov's stay in the order the parts list them.
 - The other half appears where the ship is, turning as it turns but unpowered and disabled. It shows its first part, cut by the second portal.
@@ -301,7 +347,7 @@ When the time is up, the split ends once (`GameObject` `0x610` bit 1) and the po
 
 The flash (`0x00587CC8`) lasts 100 ticks. Once a frame, `mission_frame` draws it and counts it down by the frame's ticks (`0x00494940`): a sprite over the whole view, just beyond the near plane in the overlay's layer, untextured and added to what is drawn, white at 0.012 for each tick left, at most 1. So it holds white for 17 ticks and fades out over the rest. The same sprite shows red while the player's display is shaken by a hit ([The interference](hud.md#the-interference)).
 
-[`explode/split.zig`](../../src/engine/game/explode/split.zig) ports the splits, and [`main/flash.zig`](../../src/engine/game/main/flash.zig) the flash. Not ported: the Dark Reign's hat, the Krasnaya's arms and the Boridin breakaway's core, which a split takes apart first ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
+[`explode/split.zig`](../../src/engine/game/explode/split.zig) ports the splits, and [`main/flash.zig`](../../src/engine/game/main/flash.zig) the flash. Not ported: putting out the Dark Reign's hat and the Boridin breakaway's core, which a split does first ([#238](https://github.com/OpenReliant/openreliant/issues/238)).
 
 ### The Ulysses' end
 
