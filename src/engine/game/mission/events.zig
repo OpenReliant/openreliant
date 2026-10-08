@@ -246,7 +246,7 @@ pub const Events = struct {
             if (ship.flags.destroyed or index == subject or index >= all.slots.len) continue;
             const other = &all.slots[index].object;
             if (other.type.base() == .stand_in) continue;
-            const apart = gameobj.vector(own.root.position) - gameobj.vector(other.root.position);
+            const apart = own.position() - other.position();
             const squared = apart * apart;
             const distance = squared[2] + squared[1] + squared[0];
             if (!(distance <= reach)) continue;

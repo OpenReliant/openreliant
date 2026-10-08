@@ -269,7 +269,7 @@ pub fn setOrientation(object: *GameObject, frame: *Model.Local, orientation: mat
 pub fn shift(object: *GameObject, frame: *Model.Local, by: Vector) void {
     frame.position += by;
     object.root.next_position = gameobj.vec3(gameobj.vector(object.root.next_position) + by);
-    object.root.position = gameobj.vec3(gameobj.vector(object.root.position) + by);
+    object.root.position = gameobj.vec3(object.position() + by);
 }
 
 test shift {
@@ -279,7 +279,7 @@ test shift {
     object.root.next_position = .{ .x = 0, .y = 0, .z = 130 };
     shift(&object, &frame, .{ 5, 0, 0 });
     // It moves, and so does where its step takes it next, its move of 30 kept.
-    try std.testing.expectEqual(Vector{ 5, 0, 100 }, gameobj.vector(object.root.position));
+    try std.testing.expectEqual(Vector{ 5, 0, 100 }, object.position());
     try std.testing.expectEqual(Vector{ 5, 0, 130 }, gameobj.vector(object.root.next_position));
     try std.testing.expectEqual(Vector{ 5, 0, 100 }, frame.position);
 }

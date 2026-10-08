@@ -330,6 +330,9 @@ pub fn infoOf(all: *const create.Objects, order: Order) ?orders.Info {
     return (scripts.vtable.order_info orelse return null)(scripts.context, order);
 }
 
+/// Runs the routine `role` of `order`, an order a mod's scripts register, for the object in slot
+/// `index`. Whether it ran: false where no script gives the order or its routine failed, and the
+/// caller ends the order.
 fn custom(ctx: Context, index: u16, order: Order, role: ai.routines.Role) bool {
     const scripts = ctx.world.objects.scripts orelse return false;
     return (scripts.vtable.order_run orelse return false)(scripts.context, ctx, index, order, role);

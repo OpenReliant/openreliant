@@ -422,7 +422,7 @@ pub const Shields = struct {
             const struck = bubble.struck orelse continue;
             const since = look.frame_start -% struck;
             if (since < 0 or since > shown_for) continue;
-            const level = shields.levelAt(math.distance(gameobj.vector(slot.object.root.position), look.camera)) orelse continue;
+            const level = shields.levelAt(math.distance(slot.object.position(), look.camera)) orelse continue;
             const hits = try bubble.hitsFor(all.gpa, shields.style);
             if (hits.* == .original) hits.original.level = level;
             if (index == all.player and look.inside) continue;
@@ -747,7 +747,7 @@ pub fn flare(world: gameobj.World, index: u16, at: Vector) void {
     }
     const shared = world.shields orelse return;
     // The game makes a bubble's hits with the bubble; where OpenReliant can't, it shows nothing.
-    bubble.strike(world.objects.gpa, shared, slot.drawn, gameobj.vector(object.root.position), at, world.clock.frame_start) catch {};
+    bubble.strike(world.objects.gpa, shared, slot.drawn, object.position(), at, world.clock.frame_start) catch {};
 }
 
 // --- The capital ships' shields ------------------------------------------------------------------

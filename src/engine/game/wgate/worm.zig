@@ -27,6 +27,8 @@ pub const Worm = struct {
 
     pub const grid: Grid = .{ .segments = worm_segments, .rings = worm_rings - 1 };
 
+    /// Makes the worm in `gpa` (`0x00422700`): its tube, drawn with `image`, its bands numbered as
+    /// a tunnel's are, and its colours (`colour`).
     pub fn create(gpa: Allocator, image: *srtexture.Image) Allocator.Error!*Worm {
         const worm = try gpa.create(Worm);
         errdefer gpa.destroy(worm);
@@ -61,6 +63,7 @@ pub const Worm = struct {
         return worm;
     }
 
+    /// Frees the worm, its mesh and its colours.
     pub fn destroy(worm: *Worm, gpa: Allocator) void {
         worm.mesh.deinit(gpa);
         gpa.free(worm.colours);

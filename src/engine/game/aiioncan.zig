@@ -184,6 +184,8 @@ const Kind = struct {
     /// Its beam's strands' colours.
     beam: [3][3]f32 = .{ white, violet, violet },
 
+    /// The cannon an object of `object_type` fires: the Boridin's, the rogue base's, the Dark
+    /// Reign's, or the Dark Reign's low body's for any other.
     fn of(object_type: gameobj.Type) Kind {
         return switch (object_type.base()) {
             .boridin => .{ .cannon = "Bor Ion Cannon", .reach = 400000, .rays = 3, .lights = 3 },
@@ -415,6 +417,7 @@ pub const Record = struct {
         lights: std.bit_set.Static(max_lights) = .empty,
     };
 
+    /// Frees the record, its laser, its glow and its rings.
     fn destroy(record: *Record, gpa: Allocator) void {
         if (record.laser) |*laser| laser.deinit(gpa);
         if (record.glow) |*glow| glow.deinit(gpa);
@@ -590,6 +593,8 @@ const Rings = struct {
     /// Where each stands along the barrel, in the cannon's frame.
     at: [ring_count]Vector = @splat(@splat(0)),
 
+    /// Makes the rings: one square mesh over the whole of `image` (`loadout.addedSquare`), which
+    /// the rings' objects share.
     fn create(gpa: Allocator, image: *srtexture.Image) Allocator.Error!Rings {
         const mesh = try loadout.addedSquare(gpa, ring_side, ring_side, false, image);
         // `0x4800`: never culled, and its mesh its own, which here the five share.

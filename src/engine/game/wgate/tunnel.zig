@@ -46,6 +46,7 @@ pub const Grid = struct {
     segments: usize,
     rings: usize,
 
+    /// The grid of a tunnel at the options' `detail`.
     pub fn of(detail: Detail) Grid {
         return switch (detail) {
             .low => .{ .segments = 9, .rings = 6 },
@@ -469,6 +470,8 @@ pub fn sway(ticks: f32, vertex: usize, spread: [2]f32, reach: f32) [2]f32 {
     return swayed;
 }
 
+/// How far a tunnel of `kind` sways for each of its segments: a gate's (`0x004DC604`), or a warp's
+/// and the Boridin's (`0x004DC60C`).
 fn wobbleOf(kind: Kind) f32 {
     return switch (kind) {
         .proto, .advanced => 41.7,
@@ -660,6 +663,8 @@ pub const Square = struct {
     /// How deep it stands in the tunnel's frame.
     depth: f32 = 0,
 
+    /// Makes the square's mesh over the whole of `image` (`loadout.addedSquare`), and the object
+    /// that draws it by its colours.
     pub fn build(square: *Square, gpa: Allocator, image: *srtexture.Image) Allocator.Error!void {
         const mesh = try loadout.addedSquare(gpa, square_side, square_side, true, image);
         square.* = .{ .mesh = mesh, .level = undefined, .object = undefined };

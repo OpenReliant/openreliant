@@ -472,12 +472,14 @@ fn yamatoUpdate(ctx: Context, index: u16) void {
             slot.riding = .{ .object = create.cutaway_slot, .part = landing_pad };
         },
         .settling => {
-            stopInputs(object);
+            // No turns and no throttle while it waits on the pad (`0x0040F4A9`).
+            object.letGo();
             if (now <= state.pad_due) return;
             state.step = .of(YamatoStep.lowering);
         },
         .lowering => {
-            stopInputs(object);
+            // And again as the pad starts down (`0x0040F4F5`).
+            object.letGo();
             if (bay.model) |*model| if (model.rootChild(landing_pad) != null) model.playNamed(landing_pad, pad_track, 0, null, 1);
             sound3d.playIn(world, null, null, index, .shipland, 1, .not_reserved);
             state.step = .of(YamatoStep.down);
@@ -556,15 +558,6 @@ fn alignInputs(slot: *create.Slot) void {
     const forward = math.forward(object.root.next_orientation);
     object.yaw_input = (-std.math.atan2(forward[0], forward[2]) - align_damping * object.yaw_rate) * align_gain / flight.yaw_rate;
     object.pitch_input = (std.math.atan2(forward[1], forward[2]) - align_damping * object.pitch_rate) * align_gain / flight.pitch_rate;
-}
-
-/// The ship's turning inputs and its throttle all nothing, as it waits on the pad (`0x0040F4A9`,
-/// `0x0040F4F5`).
-fn stopInputs(object: *gameobj.GameObject) void {
-    object.yaw_input = 0;
-    object.pitch_input = 0;
-    object.roll_input = 0;
-    object.throttle = 0;
 }
 
 /// Each frame's placing of a ship on the Yamato's pad (`main.frameObjects`): from

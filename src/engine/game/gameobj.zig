@@ -1341,13 +1341,18 @@ pub const GameObject = extern struct {
         }
     };
 
-    /// Where it will stand at the next step (`root.next_position`), which the AI, the collisions
-    /// and the sounds go by.
     /// The shape the wing status window shows it by (`wing_icon`), if it has one.
     pub fn wingIcon(object: *const GameObject) ?u16 {
         return if (object.wing_icon != 0) object.wing_icon else null;
     }
 
+    /// Where it stands (`root.position`): a step behind `nextPosition` until the next step.
+    pub fn position(object: *const GameObject) Vector {
+        return vector(object.root.position);
+    }
+
+    /// Where it will stand at the next step (`root.next_position`), which the AI, the collisions
+    /// and the sounds go by.
     pub fn nextPosition(object: *const GameObject) Vector {
         return vector(object.root.next_position);
     }
@@ -1391,7 +1396,7 @@ pub const GameObject = extern struct {
     /// Where its root stands at `step`: its committed place, or its next.
     pub fn placeAt(object: *const GameObject, step: objects.Model.Step) math.Place {
         return switch (step) {
-            .now => .{ .position = vector(object.root.position), .orientation = object.root.orientation },
+            .now => .{ .position = object.position(), .orientation = object.root.orientation },
             .next => .{ .position = object.nextPosition(), .orientation = object.root.next_orientation },
         };
     }
@@ -1681,7 +1686,7 @@ pub fn vec3(v: math.Vector) shp.Vec3 {
 /// running from the object's position to `at`, to the angular impulse. The next move applies both
 /// (`applyKnocks`).
 pub fn knock(object: *GameObject, force: math.Vector, at: math.Vector) void {
-    const lever = at - vector(object.root.position);
+    const lever = at - object.position();
     object.impulse = vec3(vector(object.impulse) + force);
     object.angular_impulse = vec3(vector(object.angular_impulse) + math.cross(force, lever));
     object.knocks += 1;
@@ -2763,4 +2768,12 @@ test orthonormalizeTurn {
     try math.testing.expectMatrixWithin(math.identity, back, 1e-6);
     try std.testing.expectEqual(0, m[2]);
     try std.testing.expectEqual(0, m[5]);
+}
+
+test "where an object stands, and where it will stand at the next step" {
+    var object = testing.object();
+    object.root.position = .{ .x = 1, .y = 2, .z = 3 };
+    object.root.next_position = .{ .x = 4, .y = 5, .z = 6 };
+    try std.testing.expectEqual(Vector{ 1, 2, 3 }, object.position());
+    try std.testing.expectEqual(Vector{ 4, 5, 6 }, object.nextPosition());
 }

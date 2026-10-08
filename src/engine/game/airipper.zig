@@ -178,6 +178,8 @@ pub const Rippers = struct {
         rippers.cargo[entry] = null;
     }
 
+    /// Where the cargo the Ripper in slot `ripper` carries stands among the Rippers', where it
+    /// carries any.
     fn entryOf(rippers: *const Rippers, ripper: u16) ?usize {
         for (rippers.cargo, 0..) |held, index| {
             const entry = held orelse continue;
@@ -196,6 +198,7 @@ pub const GripRef = enum(i32) {
     none = -1,
     _,
 
+    /// The reference to the beams at `at` among the Rippers'.
     fn of(at: Place) GripRef {
         return @fromBackingInt(@as(i32, at));
     }
@@ -1232,7 +1235,7 @@ const TestRipper = struct {
         ship.model.?.parts[0].hidden = true;
         for ([_]u16{ t.ripper, t.pod, t.ship }) |index| {
             const slot = t.game.slot(index);
-            slot.drawn = .{ .position = gameobj.vector(slot.object.root.position) };
+            slot.drawn = .{ .position = slot.object.position() };
         }
     }
 

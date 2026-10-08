@@ -107,15 +107,6 @@ pub const Door = enum {
 /// of even number, to the left for an odd (`0x004DC5A8`).
 const tube_offset: f32 = 400;
 
-/// The hangar's parts that its dim light alone reaches: its hull and its two doors, the first
-/// three of its root's child list (`0x0041B10C`).
-const lit_parts = 3;
-
-/// The light mask the hangar's hull and doors take (`0x0041B10C`): every light of the backdrop's
-/// but its first ambient (`backdrop.Lights`, `0x04`) is kept out, so that only their baked
-/// colours, the ambient's glimmer and the lights that reach every object light them.
-const hangar_light_mask: u32 = 0x3B;
-
 /// The hangar's parts the launch plays tracks on: its lower door (`0x0041B449`), which opens as
 /// the tube's does, and its retainer (`0x0041B354`), which lowers the ship.
 const hangar_door = 2;
@@ -222,7 +213,7 @@ pub fn tubeMiddle(reliant: *const create.Slot, gate: usize, across: f32) ?math.V
 }
 
 /// The hangar the player's ship launches in, as `init` shows it: made in the cutaway slot, passing
-/// through everything, its hull and doors lit by its dim light alone (`hangar_light_mask`), and
+/// through everything, its hull and doors lit by its dim light alone (`launch.makeHangar`), and
 /// laid over the tube so that the ship stands `in_tube` at one of its launch points
 /// (`hangar_points`): the ship is placed at the point with the hangar at the origin, turned as the
 /// Reliant is, or half a turn more for a gate of even number (`launch.attach`), the hangar moves by
@@ -233,19 +224,12 @@ pub fn tubeMiddle(reliant: *const create.Slot, gate: usize, across: f32) ?math.V
 fn showHangar(ctx: aigeneric.Context, index: u16, gate: i16, in_tube: math.Vector, turn: math.Matrix) void {
     const world = ctx.world;
     const all = world.objects;
-    const hangar = create.make(world, create.cutaway_slot, .of(.reliant_hangar)) catch |err| {
-        log.warn("the Reliant's hangar is left out: {s}", .{@errorName(err)});
-        return;
-    } orelse return;
+    const hangar = launch.makeHangar(world, .of(.reliant_hangar), "the Reliant") orelse return;
     const shown = &all.slots[hangar];
-    shown.object.flags.no_collisions = true;
-    if (shown.model) |*model| {
-        for (model.parts[0..@min(lit_parts, model.parts.len)]) |*part| part.object.light_mask = hangar_light_mask;
-        if (world.hangar_beacons == .to_the_ship) {
-            model.reachFarther(beacon_reach);
-            model.bounceLights(beacon_bounce, bounce_mask);
-        }
-    }
+    if (shown.model) |*model| if (world.hangar_beacons == .to_the_ship) {
+        model.reachFarther(beacon_reach);
+        model.bounceLights(beacon_bounce, bounce_mask);
+    };
     const even = evenGate(gate);
     const point = hangar_points[@intFromBool(even)];
     objects.setPlace(&shown.object, &shown.drawn, .{ .position = @splat(0), .orientation = if (even) math.turned(turn, .y, std.math.pi) else turn });
@@ -349,16 +333,8 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
         },
         .end => {
             if (player) {
-                if (world.display) |display| display.caption.stop();
-                if (world.camera) |view| {
-                    view.cockpit_mode = view.setting.mode();
-                    switch (view.view) {
-                        .launch_bay, .launch_below, .launch_aside => _ = view.setView(.cockpit, index, false, true, ctx.world.clock.viewTime()),
-                        else => {},
-                    }
-                }
+                launch.endForPlayer(world, index, &.{ .launch_bay, .launch_below, .launch_aside });
                 create.resetSlot(ctx, create.cutaway_slot);
-                world.player.showing = .everything;
             }
             launch.letGo(ctx, index);
         },

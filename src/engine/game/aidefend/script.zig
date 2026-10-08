@@ -102,6 +102,7 @@ const Keyword = enum {
     runtoship,
     endscript,
 
+    /// The keyword `word` spells, in any case, or null for none.
     fn of(word: []const u8) ?Keyword {
         if (word.len > max_word) return null;
         var lowered: [max_word]u8 = undefined;
@@ -114,12 +115,14 @@ const Cursor = struct {
     text: []const u8,
     at: usize = 0,
 
+    /// `script_skip_spaces` (`0x00404F00`): moves past spaces and tabs.
     fn skipSpaces(cursor: *Cursor) void {
         while (cursor.at < cursor.text.len and (cursor.text[cursor.at] == ' ' or cursor.text[cursor.at] == '\t')) {
             cursor.at += 1;
         }
     }
 
+    /// The character at the cursor, or null at the line's end.
     fn peek(cursor: Cursor) ?u8 {
         return if (cursor.at < cursor.text.len) cursor.text[cursor.at] else null;
     }
@@ -186,6 +189,8 @@ fn atof(text: []const u8) f32 {
     return std.fmt.parseFloat(f32, text[0..end]) catch 0;
 }
 
+/// A command's range of numbers: its first argument and its second, or its only one for both
+/// (`atof`).
 fn range(cursor: *Cursor) Error!Range {
     var buffer: [max_args][]const u8 = undefined;
     const list = try cursor.args(&buffer);
@@ -195,6 +200,7 @@ fn range(cursor: *Cursor) Error!Range {
         .{ .min = atof(list[0]), .max = atof(list[1]) };
 }
 
+/// The same for a range of ticks (`atoi`).
 fn ticks(cursor: *Cursor) Error!Ticks {
     var buffer: [max_args][]const u8 = undefined;
     const list = try cursor.args(&buffer);
@@ -211,6 +217,8 @@ fn onOff(cursor: *Cursor) Error!bool {
     return std.ascii.eqlIgnoreCase(list[0], "on");
 }
 
+/// Line `index` as an instruction holds it, in a byte: a script too long for that fails to compile
+/// (`error.LineOutOfRange`).
 fn line(index: usize) Error!u8 {
     return std.math.cast(u8, index) orelse error.LineOutOfRange;
 }

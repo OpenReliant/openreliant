@@ -98,7 +98,7 @@ pub const fields = struct {
 
     pub const position = api.Field(Vector, "Where it is. Setting it moves it there at once.", struct {
         pub fn get(all: *const create.Objects, record: u8) Vector {
-            return gameobj.vector(missileIn(all, record).slot.object.root.position);
+            return missileIn(all, record).slot.object.position();
         }
 
         pub fn set(_: Call, all: *create.Objects, record: u8, value: Vector) void {

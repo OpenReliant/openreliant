@@ -84,7 +84,7 @@ pub const Motion = enum {
                 const through = @as(f32, @floatFromInt(on.clock.mission_ticks -% on.state.since)) * jump_out_pace;
                 const at = math.lerp(gameobj.vector(on.state.from), gameobj.vector(on.state.to), through * through);
                 object.rotation = math.identity;
-                object.velocity = gameobj.vec3(at - gameobj.vector(object.root.position));
+                object.velocity = gameobj.vec3(at - object.position());
                 object.last_throttle = 0;
             },
             .jump_in => if (jumping) |on| {
@@ -130,7 +130,7 @@ pub const Following = struct {
             .curve => follow.curveWay(following.world, following.index),
             .curve_backwards => follow.backwardsWay(following.world, following.index),
             .dock => aidock.way(following.world, following.index),
-            _ => .{ .point = gameobj.vector(slot.object.root.position) },
+            _ => .{ .point = slot.object.position() },
         };
     }
 
@@ -175,7 +175,7 @@ const aligned: f32 = 0.01;
 ///
 /// **Improvement:** the angles come from `std.math` rather than the engine's table (`sr_atan2`).
 fn followPath(object: *GameObject, flight: *const create.FlightModel, way: Way, limit: f32, backwards: bool) void {
-    const at = gameobj.vector(object.root.position);
+    const at = object.position();
     const look = math.lookAt(way.point - at);
     var turn = math.angles(math.product(math.transpose(object.root.orientation), look));
     if (@reduce(.Or, way.up != @as(math.Vector, @splat(0))) and @abs(turn[0]) < aligned and @abs(turn[1]) < aligned) {
@@ -367,7 +367,7 @@ pub fn move(object: *GameObject, flight: Flight, view: camera.View, motion: ?Mot
         gameobj.applyKnocks(object);
     }
     object.root.next_orientation = math.product(object.root.orientation, object.rotation);
-    object.root.next_position = gameobj.vec3(gameobj.vector(object.root.position) + gameobj.vector(object.velocity));
+    object.root.next_position = gameobj.vec3(object.position() + gameobj.vector(object.velocity));
     object.speed = math.length(gameobj.vector(object.velocity));
     if (object.speed > 0) object.network.moved = true;
     if (object.pitch_rate != 0 or object.yaw_rate != 0 or object.roll_rate != 0) object.network.turned = true;

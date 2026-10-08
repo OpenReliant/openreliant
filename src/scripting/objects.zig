@@ -105,7 +105,7 @@ pub const fields = struct {
 
     pub const position = api.Field(Vector, "Where it is. Setting it moves it there at once, as a mission's SnapToPoint does.", struct {
         pub fn get(all: *const create.Objects, index: u16) Vector {
-            return gameobj.vector(all.slots[index].object.root.position);
+            return all.slots[index].object.position();
         }
 
         pub fn set(_: Call, all: *create.Objects, index: u16, value: Vector) void {

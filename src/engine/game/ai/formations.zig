@@ -219,7 +219,7 @@ fn regroupSync(world: gameobj.World, leader: u16) void {
         state.ready_count = 0;
         if (state.step == .aiming) {
             const slot = &world.objects.slots[member];
-            const from = position(&slot.object);
+            const from = slot.object.position();
             const way = math.distance(state.meet, from);
             if (way >= curve_least and way <= curve_most) {
                 layCurve(state, from);
@@ -276,7 +276,7 @@ fn followCurve(ctx: Context, index: u16) bool {
     const t = @as(f32, @floatFromInt(state.along)) / curves.steps;
     const point = curves.point(state.curve, t);
     if (within(&slot.object, point, 0, null)) state.along +%= 1;
-    objects.setOrientation(&slot.object, &slot.drawn, math.lookAt(point - position(&slot.object)));
+    objects.setOrientation(&slot.object, &slot.drawn, math.lookAt(point - slot.object.position()));
     if (t > 1) {
         setPace(slot, 0, 0);
         slot.object.holdTurns();
@@ -423,6 +423,10 @@ const ahead_less: f32 = -0.95;
 const slide_radii: f32 = 3.2;
 const slide_share: f32 = 0.005;
 
+/// How near its waypoint the leader has come to it: within this share of its formation's size
+/// (`0x004DC408`).
+const arrival_share: f32 = 0.5;
+
 /// How near each other the group's ships' distances from their places must lie for the group to
 /// count as close (`0x004DC46C`).
 const close_spread: f32 = 5000;
@@ -501,7 +505,7 @@ fn keepPlace(world: gameobj.World, index: u16) void {
         var off: f32 = 0;
         const there = within(object, state.place, 0, &off);
         if (turned and !there and off <= object.radius * slide_radii) {
-            const by = (@as(Vector, state.place) - position(object)) * @as(Vector, @splat(slide_share));
+            const by = (@as(Vector, state.place) - object.position()) * @as(Vector, @splat(slide_share));
             objects.shift(object, &slot.drawn, by);
         }
         if (state.in_place) return;
@@ -514,14 +518,14 @@ fn keepPlace(world: gameobj.World, index: u16) void {
     }
     setPace(slot, state.pace, 0);
     state.in_place = true;
-    if (within(object, state.target, state.size * 0.5, null)) state.arrived = true;
+    if (within(object, state.target, state.size * arrival_share, null)) state.arrived = true;
     _ = face(world, index, state.mark, .{ .level = &angle });
     if (state.aim == 0) return;
     state.aim -= 1;
     _ = face(world, index, state.target, .{ .level = &angle });
     const nose = math.transform(math.rotation(.y, object.yaw_input), math.forward(object.root.orientation));
     state.reach = nose * @as(Vector, @splat(object.radius * ahead_radii));
-    state.mark = position(object) + @as(Vector, state.reach);
+    state.mark = object.position() + @as(Vector, state.reach);
     state.mark[1] = state.target[1];
     state.pace = if (angle < wide_turn) (if (angle < narrow_turn) straight_pace else turning_pace) else start_pace;
 }
@@ -553,7 +557,7 @@ fn patrolSync(world: gameobj.World, leader: u16) void {
         const state = &(stateOf(world, member, .patrol_route) orelse continue).patrol;
         const object = &world.objects.slots[member].object;
         state.leader_at = ship.runtime_position;
-        const off = math.distance(position(object), state.ahead) - 2 * object.radius;
+        const off = math.distance(object.position(), state.ahead) - 2 * object.radius;
         if (nearest) |least| {
             nearest = @min(least, off);
             farthest = @max(farthest, off);
@@ -638,7 +642,7 @@ fn joinFormation(world: gameobj.World, index: u16, group: u8) bool {
     places(world, index, true);
     state.in_place = false;
     state.aim = 0;
-    state.start_off = math.distance(position(&slot.object), state.ahead) - 2 * slot.object.radius;
+    state.start_off = math.distance(slot.object.position(), state.ahead) - 2 * slot.object.radius;
     state.size = formationSize(bound, point);
     return true;
 }
@@ -666,7 +670,7 @@ fn places(world: gameobj.World, index: u16, keep: bool) void {
     } else if (pointOffset(bound, state.formation_point)) |from_origin| {
         offset = math.transform(leader.root.orientation, from_origin);
     }
-    const from = position(leader);
+    const from = leader.position();
     state.place = offset + from;
     offset += reach;
     state.ahead = offset + from;
@@ -688,7 +692,7 @@ fn nextWaypoint(waypoints: []const bind.Mission.Waypoint, at: u16) u16 {
 /// Where a waypoint's object stands (`ship_object`), or where the mission's objects lack it, where
 /// its record places it.
 fn waypointAt(world: gameobj.World, waypoint: bind.Mission.Waypoint) Vector {
-    if (waypoint.ship < world.objects.slots.len) return position(&world.objects.slots[waypoint.ship].object);
+    if (waypoint.ship < world.objects.slots.len) return world.objects.slots[waypoint.ship].object.position();
     const bound = world.mission orelse return @splat(0);
     return if (bound.ship(waypoint.ship)) |record| record.runtime_position else @splat(0);
 }
@@ -814,7 +818,7 @@ const ahead_cosine: f32 = 0.9;
 /// The limit Patrol Route passes with its level turns goes unused.
 fn face(world: gameobj.World, index: u16, at: Vector, turning: Turning) bool {
     const slot = &world.objects.slots[index];
-    const from = position(&slot.object);
+    const from = slot.object.position();
     switch (turning) {
         .steer => |limit| _ = ai.steer(world, index, at, limit, face_ease, .{}),
         .level => |angle| {
@@ -849,7 +853,7 @@ const level_pitch: f32 = 0.05;
 /// OpenReliant leaves its inputs as they are.
 fn levelTurn(slot: *create.Slot, at: Vector) f32 {
     const object = &slot.object;
-    const way = at - position(object);
+    const way = at - object.position();
     var turn: f32 = if (onRight(object, at)) level_turn else -level_turn;
     var nose = math.forward(object.root.orientation);
     nose[1] = 0;
@@ -870,7 +874,7 @@ fn levelTurn(slot: *create.Slot, at: Vector) f32 {
 /// level, or dead ahead or astern: the way to it on the level, turned a right angle back about Y,
 /// is not behind the nose on the level.
 fn onRight(object: *const GameObject, at: Vector) bool {
-    var toward = math.normalize(at - position(object));
+    var toward = math.normalize(at - object.position());
     toward[1] = 0;
     toward = math.transform(math.rotation(.y, -std.math.pi / 2.0), toward);
     var nose = math.forward(object.root.orientation);
@@ -881,7 +885,7 @@ fn onRight(object: *const GameObject, at: Vector) bool {
 /// `object_point_in_front` (`0x00404700`): whether `at` lies in front of the ship, not behind its
 /// nose.
 fn inFront(object: *const GameObject, at: Vector) bool {
-    return math.dot(math.forward(object.root.orientation), at - position(object)) >= 0;
+    return math.dot(math.forward(object.root.orientation), at - object.position()) >= 0;
 }
 
 /// `formation_steer_to` (`0x00403FD0`): the ship in slot `index` steers at `at`, held within
@@ -894,7 +898,7 @@ fn steerTo(world: gameobj.World, index: u16, at: Vector, limit: f32) bool {
 /// `object_within` (`0x004045D0`): whether the ship stands nearer `at` than `reach`, or two of its
 /// radii for a reach of 0; `off` takes how far it stands from it, where that is asked for.
 fn within(object: *const GameObject, at: Vector, reach: f32, off: ?*f32) bool {
-    const distance = math.distance(position(object), at);
+    const distance = math.distance(object.position(), at);
     if (off) |out| out.* = distance;
     return distance < if (reach == 0) 2 * object.radius else reach;
 }
@@ -910,11 +914,6 @@ const pace_speed: f32 = 200;
 fn setPace(slot: *create.Slot, pace: f32, more: f32) void {
     const flight = slot.flight orelse return;
     slot.object.throttle = (pace * more + pace) * pace_speed / flight.max_speed;
-}
-
-/// Where the object stands (`GameObject.root`'s position), which these orders go by.
-fn position(object: *const GameObject) Vector {
-    return gameobj.vector(object.root.position);
 }
 
 /// The state of the order the object in slot `index` follows, where that is `order`.
@@ -990,7 +989,7 @@ const TestMission = struct {
     /// Turns the ship in slot `index` to face `at`.
     fn turnTo(mission: *TestMission, index: u16, at: [3]f32) void {
         const object = &mission.slot(index).object;
-        object.root.orientation = math.lookAt(@as(Vector, at) - position(object));
+        object.root.orientation = math.lookAt(@as(Vector, at) - object.position());
     }
 
     /// Puts the ship in slot `index` at `at`.
@@ -1195,7 +1194,7 @@ test "a ship sliding into its place keeps the move its step has left" {
     aigeneric.objectOrders(mission.game.orders(), TestMission.wingman);
 
     // It slides a 200th of the way, and its move is still to come.
-    try math.testing.expectVector(from + Vector{ 0, 0, 130 * slide_share }, position(object));
+    try math.testing.expectVector(from + Vector{ 0, 0, 130 * slide_share }, object.position());
     try math.testing.expectVector(from + Vector{ 0, 0, 30 + 130 * slide_share }, object.nextPosition());
 }
 

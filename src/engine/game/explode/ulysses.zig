@@ -169,7 +169,7 @@ pub const Top = struct {
         const cut = &explosions.splits.add(world, .{ .ulysses = .{
             .object = index,
             .started = world.clock.frame_start,
-            .at = gameobj.vector(slot.object.root.position),
+            .at = slot.object.position(),
             .portals = .{ .{}, .{} },
         } }).ulysses;
         cut.other = split.makePiece(world, index, .of(.ulysses_back));
@@ -354,7 +354,7 @@ test "the Ulysses throws off its fin, then its top comes away" {
     try std.testing.expect(!cut.update(world));
     try std.testing.expect(cut.cutting);
     try std.testing.expectEqual(place.point(.{ 0, 0, 100 }), cut.portals[0].position);
-    try std.testing.expectEqual(@as(Vector, @splat(Top.shake)), @abs(gameobj.vector(object.root.position) - cut.at));
+    try std.testing.expectEqual(@as(Vector, @splat(Top.shake)), @abs(object.position() - cut.at));
     // A hundred ticks on, the cut takes a step, and the portals stand at the nearer to the stern
     // of the first two points.
     mission.clock.frame_start += 100;

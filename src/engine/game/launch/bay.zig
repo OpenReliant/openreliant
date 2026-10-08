@@ -63,6 +63,7 @@ pub const Doors = struct {
     first: ?u8 = null,
     second: ?u8 = null,
 
+    /// The doors `first` and `second`.
     fn pair(first: u8, second: u8) Doors {
         return .{ .first = first, .second = second };
     }

@@ -23,6 +23,7 @@ const shp = @import("../../formats/shp.zig");
 const math = @import("../surrender/math.zig");
 const ai = @import("ai.zig");
 const aigeneric = @import("aigeneric.zig");
+const camera = @import("camera.zig");
 const create = @import("create.zig");
 const models = @import("create/models.zig");
 const events = @import("mission/events.zig");
@@ -34,6 +35,8 @@ const xtrabits = @import("xtrabits.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srmesh = @import("../surrender/surrenderlib/srmesh.zig");
 const files = @import("../files.zig");
+
+const log = std.log.scoped(.launch);
 
 pub const badanov = @import("launch/badanov.zig");
 pub const bay = @import("launch/bay.zig");
@@ -359,6 +362,19 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
     if (state.style.routines()) |found| found.run(ctx, index) else if (state.step.isStyled()) letGo(ctx, index);
 }
 
+/// The end of the player's launch from a carrier with a hangar, as the last steps of
+/// `launch_reliant_run` (`0x0041B240`) and `launch_yamato_run` (`0x00419840`) have it: the caption
+/// stops, the camera takes the cockpit's mode again and goes back to the cockpit from any of the
+/// launch's `views`, and the player's ship shows everything again.
+pub fn endForPlayer(world: gameobj.World, index: u16, views: []const camera.View) void {
+    if (world.display) |display| display.caption.stop();
+    if (world.camera) |view| {
+        view.cockpit_mode = view.setting.mode();
+        if (std.mem.indexOfScalar(camera.View, views, view.view) != null) _ = view.setView(.cockpit, index, false, true, world.clock.viewTime());
+    }
+    world.player.showing = .everything;
+}
+
 /// Ends the launch and clears the carrier pass-through entry, as the last step of
 /// `launch_reliant_run` does (`0x0041B639`). Unknown styles use this when the launch starts.
 pub fn letGo(ctx: aigeneric.Context, index: u16) void {
@@ -425,6 +441,8 @@ pub const Points = objects.Model.RootAttachments(isPoint);
 /// A launch point, and the part that holds it.
 pub const Point = Points.Point;
 
+/// Whether an attachment is a launch point: one of that kind, or a pod's where the part holds no
+/// pod (`podless`), which picks a model's launch points for `Points`.
 fn isPoint(attachment: shp.Attachment, part: usize) bool {
     return switch (attachment.kind) {
         .launch_point => true,
@@ -450,6 +468,8 @@ const GateSearch = struct {
     all: *const create.Objects,
     state: *State,
 
+    /// Takes `carrier` as the carrier, its gates counted from 0 again, and counts its launch points
+    /// off the sequence: whether one took it below 0, which is the gate and ends the walk.
     pub fn visit(search: *GateSearch, carrier: aigeneric.Target) bool {
         const state = search.state;
         const index = carrier.slotIn(search.all) orelse return false;
@@ -465,6 +485,33 @@ const GateSearch = struct {
         return false;
     }
 };
+
+/// The parts of a launch's hangar that its dim light alone reaches: its hull and its two doors, the
+/// first three of its root's child list (`0x0041B10C`, `0x00419670`).
+const hangar_lit_parts = 3;
+
+/// The light mask a launch's hangar's hull and doors take (`0x0041B10C`, `0x00419670`): every light
+/// of the backdrop's but its first ambient (`backdrop.Lights`, `0x04`) is kept out, so that only
+/// their baked colours, the ambient's glimmer and the lights that reach every object light them.
+const hangar_light_mask: u32 = 0x3B;
+
+/// The hangar the player's ship launches in, as the Reliant's and the Yamato's launches make it
+/// (`launch_reliant_init`, `0x0041B10C`; `0x00419670`): an object of type `kind` in the cutaway
+/// slot, passing through everything, its hull and doors lit by its dim light alone
+/// (`hangar_light_mask`). Its slot, or null where it can't be made, which is logged as the hangar
+/// of `carrier`.
+pub fn makeHangar(world: gameobj.World, kind: gameobj.Type, carrier: []const u8) ?u16 {
+    const hangar = create.make(world, create.cutaway_slot, kind) catch |err| {
+        log.warn("{s}'s hangar is left out: {s}", .{ carrier, @errorName(err) });
+        return null;
+    } orelse return null;
+    const shown = &world.objects.slots[hangar];
+    shown.object.flags.no_collisions = true;
+    if (shown.model) |*model| for (model.parts[0..@min(hangar_lit_parts, model.parts.len)]) |*part| {
+        part.object.light_mask = hangar_light_mask;
+    };
+    return hangar;
+}
 
 /// `launch_attach` (`0x0041B9F0`): places the ship in slot `index` at launch point `gate` of the
 /// object in slot `on`, counting from 0 over its points (`Points`). The ship's centre of mass stands

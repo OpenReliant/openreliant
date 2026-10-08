@@ -256,6 +256,8 @@ const PortSearch = struct {
     all: *create.Objects,
     searcher: u16,
 
+    /// Looks for a port of `ship` at which no other object's current order is Dock: whether it
+    /// found one, which it notes in the order's data and which ends the walk.
     pub fn visit(search: *PortSearch, ship: aigeneric.Target) bool {
         const at = ship.slotIn(search.all) orelse return false;
         const model = if (search.all.slots[at].model) |*held| held else return false;
@@ -286,6 +288,7 @@ const PortSearch = struct {
 /// list holds them, each part's attachments in order.
 pub const DockPoints = objects.Model.RootAttachments(isDockPoint);
 
+/// Whether an attachment is a docking point, which picks a model's docking points for `DockPoints`.
 fn isDockPoint(attachment: shp.Attachment, _: usize) bool {
     return attachment.kind == .dock_point;
 }
@@ -356,6 +359,8 @@ fn findPoints(ctx: Context, index: u16) bool {
     return true;
 }
 
+/// Logs that the object in slot `index` has no docking point, where the game stops or faults
+/// (`findPoints`), and gives false so that the order ends.
 fn missing(index: u16) bool {
     log.warn("the object in slot {d} has no docking point", .{index});
     return false;
@@ -477,7 +482,7 @@ fn rollInput(object: *const gameobj.GameObject, roll: f32, damping: f32) f32 {
 pub fn way(world: gameobj.World, index: u16) motion.Way {
     const slot = &world.objects.slots[index];
     const state = &slot.state.dock;
-    const at = berth(world, index) orelse return .{ .point = gameobj.vector(slot.object.root.position) };
+    const at = berth(world, index) orelse return .{ .point = slot.object.position() };
     const now = world.clock.mission_ticks;
     const left = @max(@as(f32, @floatFromInt(state.until -% now)) * slide_share, 0);
     const back = math.distance(at.position, state.slide_from) * left * left;
@@ -591,6 +596,8 @@ fn limpetUpdate(ctx: Context, index: u16, at_berth: LimpetBerth) void {
     }
 }
 
+/// Turns the limpet car's clamps: plays the rotators' track from `time` at `speed`
+/// (`dock_limpet_run`, `0x00407D70`).
 fn rotateLimpet(slot: *create.Slot, time: f32, speed: f32) void {
     const model = if (slot.model) |*held| held else return;
     for (limpet_rotators) |part| if (model.rootChild(part) != null) model.playNamed(part, limpet_track, time, null, speed);
@@ -785,6 +792,8 @@ fn nannyUpdate(ctx: Context, index: u16) void {
     }
 }
 
+/// The end of a Nanny's docking (`dock_nanny_run`, `0x00407510`): the order pops, and the player's
+/// ship goes back to the cockpit's view.
 fn nannyEnd(ctx: Context, index: u16) void {
     _ = aigeneric.pop(ctx, index);
     const world = ctx.world;
