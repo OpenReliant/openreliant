@@ -55,7 +55,7 @@ OpenReliant keeps the factor down and chooses the factor across that keeps pixel
 
 The view table (`camera_view_table`, `0x4F72A8`) holds four bytes a view, for views 0 to `0x2B`: the language string that names the view, whether cinematic bars slide in, and whether it is from the cockpit. [`camera/views.zig`](../../src/engine/game/camera/views.zig) transcribes it; `make view-tables` derives it again. The bars slide in for views 7 to `0x27` and `0x2B`, but not the external view; views 0 to 3 are from the cockpit. The names are strings 170 to 182 of `language.dll`; string 174, Chase Camera, is none of them, the chase views and most cutaways taking 181, a single space. From the cockpit the object's flag bit 0 is set, except in the chase mode, and cleared when the view moves off it. The bars grow by 0.001 of the screen a tick to 0.1, top and bottom; a view without them clears them at once.
 
-`camera_locked` (`0x539ACC`) holds the camera for a script: `camera_set_view` refuses a switch unless forced, and the camera keys do nothing. `frame_controls` (`0x00414060`), once a frame, maps the camera keys to views. The cockpit key, pressed in the cockpit view, first moves `cockpit_mode` (`0x539A9C`) on:
+`camera_locked` (`0x539ACC`) holds the camera for a script: `camera_set_view` refuses a switch unless forced, and the camera keys do nothing. While the player's ship rides the worm between gates, `camera_set_view` refuses every switch, forced or not ([Gates](gates.md#jump-out)). `frame_controls` (`0x00414060`), once a frame, maps the camera keys to views. The cockpit key, pressed in the cockpit view, first moves `cockpit_mode` (`0x539A9C`) on:
 
 | Mode | Cockpit view |
 |---|---|

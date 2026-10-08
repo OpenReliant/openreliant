@@ -318,6 +318,12 @@ the ride rumbles (sound 10 of `bank_stdsmp`, as loud as 2000 times the ship's ra
 ship is powered and collides again, the portal lets it go, and its order gives way to Fixed Gate
 Jump In through the gate it named.
 
+While the player's ship rides the worm, the scene shows the worm alone. `mission_frame`'s pass
+that draws the objects passes over every object (`0x00492CD3`): none is drawn, sends out its
+smoke, loses its components or counts toward the enemy lock. The gates' tunnels are left out
+(`wgates_frame`, `0x00420B41`), the missile lock does not run (`hud_missile_lock`, `0x00491520`),
+and the camera refuses every switch of view, forced or not (`camera_set_view`, `0x0045F1B0`).
+
 The worm (`0x00422700`, `Worm_Mesh`) is a tube of 31 rings, 16 segments round, 10000 across and
 200000 apart, drawn solid with the gates' texture, with a highlight added by its normals, coloured
 as a proto gate's tunnel over its rings (`0x00422AD0`). As the ship rides it sways by up to 2000

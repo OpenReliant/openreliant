@@ -76,6 +76,16 @@ pub const Rumbles = enum {
     original,
 };
 
+/// Whether the player's ship rides the worm between `gates`, where the mission has them
+/// (`Gates.riding`). `mission_frame`'s pass that draws the objects then passes over every object
+/// (`0x00492CD3`): none is drawn, none sends out its smoke, and none counts toward the enemy lock.
+/// The missile lock doesn't run (`hud_missile_lock`), and the camera keeps its view
+/// (`camera_set_view`).
+pub fn ridingWorm(gates: ?*const Gates) bool {
+    const held = gates orelse return false;
+    return held.riding;
+}
+
 /// The gates' state, `wgate.cpp`'s globals: the textures, the grid its tunnels are built on, its
 /// records, and the worm the player's ship rides between gates.
 pub const Gates = struct {
@@ -94,7 +104,8 @@ pub const Gates = struct {
     records: [max_records]?*Record = @splat(null),
     /// `0x0051D13C`: set while a ship jumps out through a tunnel, which the next waits for.
     exiting: bool = false,
-    /// `0x0051D13E`: set while the player's ship rides the worm, which hides the gates' tunnels.
+    /// `0x0051D13E`: set while the player's ship rides the worm, which hides the gates' tunnels and
+    /// every object (`ridingWorm`).
     riding: bool = false,
     /// `0x0051D134`: set until a Krasny comes a third of the way through a gate before a collapse
     /// catches it (`krasny_split_at`); a gate collapsing after that doesn't.
@@ -1334,6 +1345,15 @@ pub const testing = struct {
         }
     };
 };
+
+test ridingWorm {
+    try std.testing.expect(!ridingWorm(null));
+    var gates: Gates = undefined;
+    gates.riding = false;
+    try std.testing.expect(!ridingWorm(&gates));
+    gates.riding = true;
+    try std.testing.expect(ridingWorm(&gates));
+}
 
 test {
     _ = tunnel;

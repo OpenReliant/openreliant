@@ -642,8 +642,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer display.resources.deinit(gpa);
     own.ui_scale = &display.ui_scale;
     world.display = &display.state;
-    // A switch of view picks the subtarget's parts out in red or puts them back (`camera_set_view`).
+    // A switch of view picks the subtarget's parts out in red or puts them back, and is refused
+    // while the player's ship rides the worm between gates (`camera_set_view`).
     view.subtarget = .{ .shown = &display.state.subtarget, .all = objects };
+    view.gates = &gates;
 
     // The mods' global scripts, which run while a game runs: from the front end's start of a game,
     // or `--mission`'s, to the main menu or the end. They stop after the mission's end below.

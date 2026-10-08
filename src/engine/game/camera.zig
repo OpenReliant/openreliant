@@ -14,6 +14,7 @@ const hud = @import("hud.zig");
 const gameobj = @import("gameobj.zig");
 const missiles = @import("missiles.zig");
 const yamato_launch = @import("launch/yamato.zig");
+const wgate = @import("wgate.zig");
 const Vector = math.Vector;
 
 /// The view table, which [`camera/views.zig`](camera/views.zig) transcribes.
@@ -438,6 +439,9 @@ pub const Camera = struct {
     missiles: ?*const missiles.Missiles = null,
     missile: u8 = 0,
     missile_gone: bool = false,
+    /// The gates, whose worm the player's ship may be riding, which holds the view as it is
+    /// (`setView`); null where the mission has none.
+    gates: ?*const wgate.Gates = null,
     /// The director's shots waiting, and what the director keeps of the one on screen.
     shots: shots.Shots = .{},
     director: director.Director = .{},
@@ -463,13 +467,16 @@ pub const Camera = struct {
     pub const bar_rate: f32 = 0.001;
 
     /// Switches view (`camera_set_view`): `object` is the one the view shows, `lock` keeps the
-    /// camera keys off it. Refused while the camera is locked, unless `force`. The game then
-    /// places the camera at once, as `frame` does, and has the stars draw no streaks this frame.
+    /// camera keys off it. Refused while the player's ship rides the worm between gates, forced or
+    /// not (`wgate.ridingWorm`, `0x0045F1B0`), and while the camera is locked, unless `force`. The
+    /// game then places the camera at once, as `frame` does, and has the stars draw no streaks this
+    /// frame.
     ///
     /// The missile view follows the next missile in flight, from the one it last followed, that
     /// `object` launched; with none, it is refused. Out of the director's view, the ships its shot
     /// held go (`shots.Held.hold`), and into it, the shot's own are held.
     pub fn setView(camera: *Camera, view: View, object: ?u16, lock: bool, force: bool, now: u32) bool {
+        if (wgate.ridingWorm(camera.gates)) return false;
         if (camera.locked and !force) return false;
         if (view == .missile) {
             const records = camera.missiles orelse return false;
@@ -1721,6 +1728,20 @@ test factorsFor {
     try std.testing.expectApproxEqAbs(1, flying.projection(1024, 768, 90).bounds[3], 1e-4);
     const cutaway: Camera = .{ .view = .director };
     try std.testing.expectApproxEqAbs(0.625, cutaway.projection(1024, 768, 90).bounds[3], 1e-4);
+}
+
+test "no switch of view while the player's ship rides the worm" {
+    var gates: wgate.Gates = undefined;
+    gates.riding = true;
+    var camera: Camera = .{ .gates = &gates };
+    // Refused, forced or not, and the frame drawn next is no cut.
+    try std.testing.expect(!camera.setView(.external, 0, false, true, 10));
+    try std.testing.expect(!camera.cut);
+    try std.testing.expectEqual(View.cockpit, camera.view);
+    // Out of the worm, it goes ahead.
+    gates.riding = false;
+    try std.testing.expect(camera.setView(.external, 0, false, true, 10));
+    try std.testing.expectEqual(View.external, camera.view);
 }
 
 test Camera {
