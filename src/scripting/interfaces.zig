@@ -135,7 +135,7 @@ pub const Interfaces = struct {
 
     /// `__index`: the latest interface of the name the caller's scripts see, or nil.
     fn get(state: *State) i32 {
-        const interfaces = state.toUserdata(*Interfaces, 1, tag).?.*;
+        const interfaces = state.checkUserdata(*Interfaces, 1, tag, "the interfaces package").*;
         const name = state.toString(2) orelse state.raise("interfaces: expected a name, got {s}", .{state.typeName(2)});
         const call: Call = .of(state, "interfaces");
         const scope = Scope.of(call.context) orelse state.raise("{t} scripts have no interfaces yet", .{call.context.family});

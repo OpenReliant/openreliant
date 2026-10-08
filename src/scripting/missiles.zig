@@ -217,7 +217,7 @@ fn objectsOf(state: *State) *const create.Objects {
 
 /// `__index`: reads a field, or finds a method.
 fn getField(state: *State) i32 {
-    const handle = state.toUserdata(Handle, 1, Handle.tag).?;
+    const handle = state.checkUserdata(Handle, 1, Handle.tag, "a missile");
     const key = state.toString(2) orelse state.raise("missile: expected a field name, got {s}", .{state.typeName(2)});
     inline for (comptime api.declared(methods, .function)) |name| {
         if (std.mem.eql(u8, key, name)) {
@@ -240,7 +240,7 @@ fn getField(state: *State) i32 {
 /// `__newindex`: changes a field that has a setter, where the script may change the missile
 /// (`mayChange`).
 fn setField(state: *State) i32 {
-    const handle = state.toUserdata(Handle, 1, Handle.tag).?;
+    const handle = state.checkUserdata(Handle, 1, Handle.tag, "a missile");
     const key = state.toString(2) orelse state.raise("missile: expected a field name, got {s}", .{state.typeName(2)});
     var call: Call = .of(state, "missile");
     const all = call.runtime().objects orelse state.raise("missiles only exist while a game runs", .{});
@@ -260,7 +260,7 @@ fn setField(state: *State) i32 {
 
 /// `__tostring`: `missile 12`, with the missile's type while it flies.
 fn describe(state: *State) i32 {
-    const handle = state.toUserdata(Handle, 1, Handle.tag).?;
+    const handle = state.checkUserdata(Handle, 1, Handle.tag, "a missile");
     const runtime = state.callbackData(Runtime).?;
     var buffer: [64]u8 = undefined;
     const valid = if (runtime.objects) |all| handle.valid(all) else false;

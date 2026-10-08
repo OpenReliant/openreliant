@@ -298,6 +298,22 @@ pub const State = opaque {
         _ = c.lua_setmetatable(state.raw(), index);
     }
 
+    /// What scripts' `getmetatable` gives for a value whose metatable is locked (`lockMetatable`),
+    /// in the words Roblox uses for its own objects.
+    pub const locked_metatable = "The metatable is locked";
+
+    /// Hides the metatable on top of the stack from scripts: `getmetatable` gives
+    /// `locked_metatable` in its place, so a script can't call its metamethods by hand.
+    pub fn lockMetatable(state: *State) void {
+        state.pushString(locked_metatable);
+        state.rawSetField(-2, "__metatable");
+    }
+
+    /// Pushes a copy of the table at `index`, with the same metatable (`lua_clonetable`).
+    pub fn cloneTable(state: *State, index: i32) void {
+        c.lua_clonetable(state.raw(), index);
+    }
+
     /// Pops a key and pushes the next key and value of the table at `index` (`lua_next`). Returns
     /// false after the last one.
     pub fn next(state: *State, index: i32) bool {
@@ -332,21 +348,28 @@ pub const State = opaque {
         return @ptrCast(@alignCast(c.lua_touserdatatagged(state.raw(), index, tag) orelse return null));
     }
 
+    /// The `T` in the userdata at `index`, as a metamethod takes its first argument. Raises an
+    /// error saying `what` was expected if the value isn't userdata with `tag`.
+    pub fn checkUserdata(state: *State, comptime T: type, index: i32, tag: Tag, what: []const u8) *T {
+        return state.toUserdata(T, index, tag) orelse state.raise("expected {s}, got {s}", .{ what, state.typeName(index) });
+    }
+
     /// Pops a table and registers it as the metatable for userdata with `tag`.
     pub fn setUserdataMetatable(state: *State, tag: Tag) void {
         c.lua_setuserdatametatable(state.raw(), tag);
     }
 
     /// Registers the metatable of userdata with `tag`: its `methods`, and `type_name` for Luau's
-    /// `typeof`. Scripts can't change the metatable.
+    /// `typeof`. Scripts can neither change the metatable nor reach it (`lockMetatable`).
     pub fn registerUserdata(state: *State, tag: Tag, type_name: []const u8, methods: []const Method) void {
-        state.newTable(0, @intCast(methods.len + 1));
+        state.newTable(0, @intCast(methods.len + 2));
         for (methods) |method| {
             state.pushFunction(method[1], method[0]);
             state.rawSetField(-2, method[0]);
         }
         state.pushString(type_name);
         state.rawSetField(-2, "__type");
+        state.lockMetatable();
         state.setReadonly(-1, true);
         state.setUserdataMetatable(tag);
     }
@@ -598,6 +621,34 @@ test "the sandbox makes the standard libraries read-only" {
     try std.testing.expect(std.mem.find(u8, thread.toString(-1).?, "readonly") != null);
 }
 
+test "scripts can't reach a userdata's metatable, and its metamethods check their argument" {
+    const state = State.create(testing.allocate, null).?;
+    defer state.close();
+    state.openLibraries();
+    const tag: Tag = 1;
+    const sample = struct {
+        fn index(called: *State) i32 {
+            called.pushNumber(called.checkUserdata(f64, 1, tag, "a sample").*);
+            return 1;
+        }
+    };
+    state.registerUserdata(tag, "sample", &.{.{ "__index", wrap(sample.index) }});
+    state.newUserdata(f64, tag).* = 7;
+    state.setGlobal("sample");
+    state.sandbox();
+    const thread = state.newSandboxedThread();
+    testing.exposeMetatables(thread);
+    const source = compile(
+        \\assert(sample.anything == 7)
+        \\assert(getmetatable(sample) == "The metatable is locked")
+        \\local ok, message = pcall(rawgetmetatable(sample).__index, nil, "anything")
+        \\assert(not ok and string.find(message, "expected a sample, got nil", 1, true))
+    ).?;
+    defer source.free();
+    try std.testing.expectEqual(Status.ok, thread.load("=locked", source.bytes));
+    try std.testing.expectEqual(Status.ok, thread.protectedCall(0, 0));
+}
+
 pub const testing = struct {
     /// An allocator for states in tests, using C's allocator.
     pub fn allocate(_: ?*anyopaque, ptr: ?*anyopaque, _: usize, new: usize) callconv(.c) ?*anyopaque {
@@ -606,5 +657,17 @@ pub const testing = struct {
             return null;
         }
         return std.c.realloc(ptr, new);
+    }
+
+    /// Gives the scripts on `thread` `rawgetmetatable`, which reaches a locked metatable
+    /// (`State.lockMetatable`), so that tests can call its metamethods by hand as no mod can.
+    pub fn exposeMetatables(thread: *State) void {
+        thread.pushFunction(wrap(rawGetmetatable), "rawgetmetatable");
+        thread.setGlobal("rawgetmetatable");
+    }
+
+    fn rawGetmetatable(state: *State) i32 {
+        if (c.lua_getmetatable(state.raw(), 1) == 0) state.pushNil();
+        return 1;
     }
 };

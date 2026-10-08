@@ -35,7 +35,7 @@ pub fn Binding(comptime roots: []const type, comptime tag: luau.Tag, comptime na
             writable: bool,
 
             fn of(state: *State, at: i32) *const Proxy {
-                return state.toUserdata(Proxy, at, tag) orelse state.raise("expected a {s}", .{name});
+                return state.checkUserdata(Proxy, at, tag, "a " ++ name);
             }
         };
 
@@ -385,6 +385,7 @@ test "a proxy reads and writes a struct in place" {
     const thread = state.newSandboxedThread();
     Values.push(thread, Gun, &gun, true);
     thread.setGlobal("gun");
+    luau.testing.exposeMetatables(thread);
 
     try run(thread,
         \\assert(gun.range == 1000 and gun.damage.hull == 3 and gun.level == "low" and gun.counts[2] == 2)
@@ -420,8 +421,8 @@ test "a proxy reads and writes a struct in place" {
     try run(thread, "gun.level = 7");
     try std.testing.expectEqual(@as(Level, @fromBackingInt(7)), gun.level);
 
-    // The iterator ignores keys it didn't hand out.
-    try run(thread, "local iterate = getmetatable(gun.counts).__iter\nlocal step = iterate(gun.counts)\nassert(step(gun.counts, -5) == nil and step(gun.counts, 1e20) == nil)");
+    // The iterator ignores keys it didn't hand out, when a test calls it by hand.
+    try run(thread, "local iterate = rawgetmetatable(gun.counts).__iter\nlocal step = iterate(gun.counts)\nassert(step(gun.counts, -5) == nil and step(gun.counts, 1e20) == nil)");
 }
 
 test "a read-only proxy can't be changed" {
