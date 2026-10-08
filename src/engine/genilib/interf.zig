@@ -80,8 +80,9 @@ pub const Outcome = union(enum) {
     /// QUIT, answered YES: 3.
     quit,
     /// START GAME: 1, a single-player campaign, which `WinMain` takes into the Reliant's rooms
-    /// before the mission of its number (`winmain.CampaignStart`). The pilot the roster set flies
-    /// its missions (`Interface.pilot`).
+    /// before the mission of its number (`winmain.CampaignStart`): the first of the campaign's
+    /// order, where the game's `campaign_new` sets mission 1. The pilot the roster set flies its
+    /// missions (`Interface.pilot`).
     campaign: u16,
     /// A mission to fly without its briefing: the developers' keys' (1, with `skip_briefing` set),
     /// or INSTANT ACTION's, which the main menu flies itself.
@@ -146,9 +147,6 @@ pub const Request = union(enum) {
     /// Out of the game.
     quit,
 };
-
-/// The mission a new campaign starts with (`campaign_new` sets `mission_number` to 1).
-pub const first_mission = 1;
 
 /// What the front end draws with, which it opens as it starts and frees as it ends: the fonts its
 /// start-up opens (`interface_init`, `0x004288E0`), the developers' font the display opens
@@ -494,7 +492,7 @@ pub const Interface = struct {
                     .start_game => {
                         if (context.saves) |saves| saves.game.wingmen.reset();
                         front.leave(context);
-                        return .{ .campaign = first_mission };
+                        return .{ .campaign = game.gameflow.campaignOrder().first() };
                     },
                     .quit => return .quit,
                 }

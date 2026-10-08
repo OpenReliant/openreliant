@@ -71,7 +71,7 @@ In the last word, the animation runs up to frame 60 and stops there.
 
 ## The missions' movies
 
-The room's screen plays `%s.bik` of a table the briefing builds on its stack, indexed by the mission's number: `new_m01` to `new_m28`, missions 12, 13, 17 and 22, which the campaign has none of, taking mission 1's. They lie on the disc of the mission's carrier: missions up to 18 on the second, the rest on the first.
+The room's screen plays `%s.bik` of a table the briefing builds on its stack, indexed by the mission's number: `new_m01` to `new_m28`, missions 12, 13, 17 and 22, which the campaign has none of, taking mission 1's. A mod that puts them into the campaign still gets mission 1's ([#976](https://github.com/OpenReliant/openreliant/issues/976)). They lie on the disc of the mission's carrier: missions up to 18 on the second, the rest on the first.
 
 ## A game mode's briefing
 

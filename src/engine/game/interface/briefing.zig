@@ -59,7 +59,9 @@ pub const end_debriefing = "enddebriefing.ut";
 
 /// The mission's movie, by its number from 1, which the room's screen plays, each `%s.bik`
 /// (`0x004E89A0`) of the table the briefing builds (`0x00437016` on). Missions 12, 13, 17 and 22,
-/// which the campaign has none of, take mission 1's.
+/// which the campaign has none of, take mission 1's. Not done yet: a mod that puts them into the
+/// campaign can't give them movies of their own
+/// ([#976](https://github.com/OpenReliant/openreliant/issues/976)).
 pub const movies = [_][]const u8{ "new_m01", "new_m02", "new_m03", "new_m04", "new_m05", "new_m06", "new_m07", "new_m08", "new_m09", "new_m10", "new_m11", "new_m01", "new_m01", "new_m14", "new_m15", "new_m16", "new_m01", "new_m18", "new_m19", "new_m20", "new_m21", "new_m01", "new_m23", "new_m24", "new_m25", "new_m26", "new_m27", "new_m28" };
 
 /// The movie of mission `mission` (`movies`), written into `buffer`; null for a mission the table

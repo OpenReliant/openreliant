@@ -201,7 +201,11 @@ expose ([The reference](#the-reference)). Renaming a field breaks the mods that 
 
 [`records.zig`](../../src/scripting/records.zig) holds copies of the stat tables
 ([Stat tables](../formats/stats.md)) and of the strings in `language.dll` and the ITAC's
-`itaclang.dll`. After the load scripts run, the game reads its stats and text from these copies.
+`itaclang.dll`, and the campaign's order (`gameflow.Order`). After the load scripts run, the game
+reads its stats and text from these copies, and the driver installs the order
+(`gameflow.install`). The package holds the tables, and its metatable gives `campaign`: `__index`
+pushes a new list each time, and `__newindex` takes a load script's list, since Luau calls it for a
+key the read-only table doesn't hold.
 Each table exposes as many records as the game reads from its file. Before each load script and each
 `on_records_loaded` handler, the records are saved, and they are restored if it fails, so a failed
 script leaves no changes behind.

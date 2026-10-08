@@ -14,6 +14,10 @@
 //! removed, because missions refer to them by number. Adding new ones isn't supported yet
 //! ([#333](https://github.com/OpenReliant/openreliant/issues/333),
 //! [#640](https://github.com/OpenReliant/openreliant/issues/640)).
+//!
+//! `campaign` is the campaign's missions in the order it flies them (`game.gameflow.Order`). Scripts
+//! get it as a new list of the missions' numbers each time, and load scripts change it by assigning
+//! a new list ([#975](https://github.com/OpenReliant/openreliant/issues/975)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -47,6 +51,9 @@ pub const Records = struct {
     text: [][]const u8,
     /// The strings of the ITAC's `itaclang.dll`, stored the same way.
     itac_text: [][]const u8,
+    /// The campaign's missions in the order it flies them, which the game takes once the load
+    /// scripts have run (`game.gameflow.install`).
+    campaign: game.gameflow.Order,
     /// Where text from scripts is allocated. It must live as long as the game's original strings.
     arena: Allocator,
 
@@ -60,6 +67,7 @@ pub const Records = struct {
         faces: []const game.pilots.FaceRecord,
         text: []const []const u8,
         itac_text: []const []const u8,
+        campaign: game.gameflow.Order = .original,
     };
 
     /// Copies `tables` into `arena`.
@@ -73,6 +81,7 @@ pub const Records = struct {
             .faces = try arena.dupe(game.pilots.FaceRecord, tables.faces),
             .text = try arena.dupe([]const u8, tables.text),
             .itac_text = try arena.dupe([]const u8, tables.itac_text),
+            .campaign = tables.campaign,
             .arena = arena,
         };
     }
@@ -101,6 +110,7 @@ pub const Records = struct {
     /// Saves a copy of all tables, which `Snapshot.restore` puts back if a script fails.
     pub fn snapshot(records: Records, gpa: Allocator) Allocator.Error!Snapshot {
         var saved: Snapshot = undefined;
+        saved.campaign = records.campaign;
         inline for (comptime std.enums.values(Set), 0..) |set, made| {
             errdefer inline for (comptime std.enums.values(Set)[0..made]) |done| gpa.free(@field(saved, @tagName(done)));
             @field(saved, @tagName(set)) = try gpa.dupe(set.Element(), @field(records, @tagName(set)));
@@ -117,9 +127,11 @@ pub const Records = struct {
         faces: []game.pilots.FaceRecord,
         text: [][]const u8,
         itac_text: [][]const u8,
+        campaign: game.gameflow.Order,
 
         pub fn restore(saved: Snapshot, records: *Records) void {
             inline for (comptime std.enums.values(Set)) |set| @memcpy(@field(records, @tagName(set)), @field(saved, @tagName(set)));
+            records.campaign = saved.campaign;
         }
 
         pub fn deinit(saved: Snapshot, gpa: Allocator) void {
@@ -235,8 +247,9 @@ pub fn register(state: *State) void {
     });
 }
 
-/// Pushes the `openreliant.records` package: a read-only table holding the record tables, which
-/// scripts can change only if `writable`. Call `register` first.
+/// Pushes the `openreliant.records` package: a read-only table holding the record tables, and with
+/// them the campaign's missions (`campaign`), which scripts can change only if `writable`. Call
+/// `register` first.
 pub fn push(state: *State, records: *Records, writable: bool) void {
     state.newTable(0, std.enums.values(Set).len);
     inline for (comptime std.enums.values(Set)) |set| {
@@ -244,7 +257,61 @@ pub fn push(state: *State, records: *Records, writable: bool) void {
         proxy.* = .{ .records = records, .set = set, .writable = writable };
         state.rawSetField(-2, @tagName(set));
     }
+    // `campaign` isn't held in the table, so that reading it gives a new list each time, and Luau
+    // calls `__newindex` to assign it, read-only as the table is.
+    state.newTable(0, 3);
+    state.pushClosure(luau.wrap(getCampaign), "__index", records);
+    state.rawSetField(-2, "__index");
+    state.pushClosure(if (writable) luau.wrap(setCampaign) else luau.wrap(refuseChange), "__newindex", records);
+    state.rawSetField(-2, "__newindex");
+    state.lockMetatable();
     state.setReadonly(-1, true);
+    state.setMetatable(-2);
+    state.setReadonly(-1, true);
+}
+
+/// The campaign's missions as scripts get and give them: a list of their numbers.
+const CampaignList = values.List(u16, game.gameflow.last_mission);
+
+/// The name scripts give the campaign's missions in the package.
+const campaign_name = "campaign";
+
+fn isCampaign(state: *State, key: i32) bool {
+    return state.typeOf(key) == .string and std.mem.eql(u8, state.toString(key).?, campaign_name);
+}
+
+/// The package's `__index`: `campaign` is a new list of the campaign's missions, in order, which a
+/// script can change and then assign. Any other name the package doesn't hold is nil.
+fn getCampaign(state: *State) i32 {
+    if (!isCampaign(state, 2)) {
+        state.pushNil();
+        return 1;
+    }
+    const records = state.upvalue(Records);
+    var list: CampaignList = .{};
+    for (records.campaign.missions()) |mission| list.append(mission);
+    values.push(state, CampaignList, list);
+    return 1;
+}
+
+/// The package's `__newindex` for load scripts: `records.campaign = list` makes the list the
+/// campaign's missions, in order (`game.gameflow.Order.of`).
+fn setCampaign(state: *State) i32 {
+    if (!isCampaign(state, 2)) return refuseChange(state);
+    const records = state.upvalue(Records);
+    const list = values.read(state, CampaignList, 3, "records.campaign");
+    records.campaign = game.gameflow.Order.of(list.slice()) catch |err| state.raise("records.campaign: {s}", .{switch (err) {
+        error.Empty => "the campaign needs at least one mission",
+        error.OutOfRange => std.fmt.comptimePrint("a mission's number must be from {d} to {d}", .{ game.gameflow.first_mission, game.gameflow.last_mission }),
+        error.NotRising => "the missions' numbers must rise, each listed once",
+    }});
+    return 0;
+}
+
+/// The package's `__newindex` for the other scripts, and for anything but `campaign`.
+fn refuseChange(state: *State) i32 {
+    if (isCampaign(state, 2)) state.raise("records can only be changed by load scripts", .{});
+    state.raise("attempt to modify a readonly table", .{});
 }
 
 /// `__index`: looks up a record by number or name, returning nil if there is none.
@@ -471,6 +538,47 @@ test "ship records by the game's names and by the qualified names of the types m
     try std.testing.expectEqual(150, records.ships[ships.first].max_speed);
 }
 
+test "the campaign's missions" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var records: Records = try .init(arena.allocator(), .{ .ships = &.{}, .ship_types = &.{}, .guns = &.{}, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{}, .itac_text = &.{} });
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    state.openLibraries();
+    register(state);
+    push(state, &records, true);
+    state.setGlobal("records");
+    state.sandbox();
+    const thread = state.newSandboxedThread();
+
+    try bind.testing.runSource(thread,
+        \\-- A local, as scripts hold the package: Luau keeps what it reads through a global.
+        \\local records = records
+        \\local campaign = records.campaign
+        \\assert(#campaign == 24 and campaign[12] == 14 and table.find(campaign, 12) == nil)
+        \\-- Each read gives a new list, and changing it changes nothing until it's assigned.
+        \\table.insert(campaign, 12)
+        \\assert(#records.campaign == 24)
+        \\for _, mission in { 13, 17, 22 } do
+        \\    table.insert(campaign, mission)
+        \\end
+        \\table.sort(campaign)
+        \\records.campaign = campaign
+        \\assert(#records.campaign == 28 and records.campaign[12] == 12)
+        \\assert(records.nothing == nil)
+    );
+    try std.testing.expectEqual(28, records.campaign.missions().len);
+    try std.testing.expectEqual(13, records.campaign.next(12));
+
+    try bind.testing.expectSourceError(thread, "records.campaign = {}", "records.campaign: the campaign needs at least one mission");
+    try bind.testing.expectSourceError(thread, "records.campaign = { 1, 29 }", "records.campaign: a mission's number must be from 1 to 28");
+    try bind.testing.expectSourceError(thread, "records.campaign = { 2, 1 }", "records.campaign: the missions' numbers must rise, each listed once");
+    try bind.testing.expectSourceError(thread, "records.campaign = 5", "records.campaign");
+    try bind.testing.expectSourceError(thread, "records.anything = 1", "readonly");
+    // A list that fails leaves the campaign as it was.
+    try std.testing.expectEqual(28, records.campaign.missions().len);
+}
+
 test "read-only records" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
@@ -484,9 +592,10 @@ test "read-only records" {
     state.setGlobal("records");
     state.sandbox();
     const thread = state.newSandboxedThread();
-    try bind.testing.runSource(thread, "assert(records.guns[1].range == 0 and records.text[1] == 'x')");
+    try bind.testing.runSource(thread, "assert(records.guns[1].range == 0 and records.text[1] == 'x' and #records.campaign == 24)");
     try bind.testing.expectSourceError(thread, "records.guns[1].range = 1", "this record is read-only");
     try bind.testing.expectSourceError(thread, "records.text[1] = 'y'", "records can only be changed by load scripts");
+    try bind.testing.expectSourceError(thread, "records.campaign = { 1 }", "records can only be changed by load scripts");
 }
 
 test "the ship types' words the executable holds" {
@@ -550,9 +659,11 @@ test "Records.snapshot" {
     defer saved.deinit(std.testing.allocator);
     records.guns[0].range = 5;
     records.text[0] = "y";
+    records.campaign = try .of(&.{1});
     saved.restore(&records);
     try std.testing.expectEqual(0, records.guns[0].range);
     try std.testing.expectEqualStrings("x", records.text[0]);
+    try std.testing.expectEqual(game.gameflow.Order.original, records.campaign);
 }
 
 test "the field names scripts see don't change" {

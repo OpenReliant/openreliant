@@ -311,6 +311,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer game_modes.deinit();
     const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .option_pages = &option_pages, .bindings_file = settings_file, .modes = &game_modes };
     try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
+    // The campaign flies its missions in the order the load scripts leave (`records.campaign`).
+    game.gameflow.install(records.campaign);
     // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
     // scripts while a game runs (`GameScripts`).
     const presentation = try scripting.Presentation.start(gpa, io, mods.list, &records, version.string, shared);
@@ -1017,6 +1019,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     // briefing room's door leads to the briefing, and the mission.
                     .campaign => |mission| fly: {
                         flow.campaign = .begin();
+                        flow.campaign.?.mission = mission;
                         saving.gameOf(&flow.campaign.?).clearPilot();
                         pilot_profile.open(&front.pilot.call_sign);
                         objects.mission25_second_part = false;
@@ -1940,7 +1943,7 @@ fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms,
             if (!try rooms.endBriefing()) return null;
             if (!try movies.storyEnd(game.xtrabits.ending.movies(variables))) return null;
             if (!try rooms.credits()) return null;
-            campaign.mission = game.gameflow.first_mission;
+            campaign.mission = game.gameflow.campaignOrder().first();
             return .main_menu;
         },
     }

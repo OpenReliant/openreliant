@@ -341,6 +341,8 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         const element = comptime if (Element == []const u8) "string" else bind.noun(Element);
         try w.print("    {s}: {{ [number | string]: {s} }},\n", .{ @tagName(set), element });
     }
+    try w.writeAll("    -- The campaign's missions, by their numbers, in the order it flies them. Load scripts change it by assigning a new list.\n");
+    try w.writeAll("    campaign: { number },\n");
     try w.writeAll("}\n");
 
     try w.writeAll("\n-- The packages made from declarations. `openreliant.self` is the script's own Object.\n");

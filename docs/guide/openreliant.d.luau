@@ -519,6 +519,8 @@ type Records = {
     faces: { [number | string]: Face },
     text: { [number | string]: string },
     itac_text: { [number | string]: string },
+    -- The campaign's missions, by their numbers, in the order it flies them. Load scripts change it by assigning a new list.
+    campaign: { number },
 }
 
 -- The packages made from declarations. `openreliant.self` is the script's own Object.
