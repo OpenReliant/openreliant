@@ -26,7 +26,8 @@ OpenReliant keeps the factor down and chooses the factor across that keeps pixel
 |---|---|---|---|
 | 0 | Cockpit | From the cockpit, ahead, as the cockpit mode says | Cockpit View |
 | 1, 2, 3 | Left, right, rear view | From the cockpit, turned -90, 90 and 180 degrees about the ship's down axis | Left View, Right View, Rear View |
-| 4, 0x1E | | Chase | a space |
+| 4 | | Chase | a space |
+| 0x1E | | Chase, without the missile lock: once the player is out of a network game, `camera_watch_next_player` (`0x004775D0`) shows each other player's ship in it in turn, and COCKPIT CAMERA moves on to the next | a space |
 | 6 | Target | Round the player's target | Target Camera |
 | 0xC | External | Round the player's ship | External Camera |
 | 7 | | Round the pilot's pod as the pilot ejects ([The ejection's views](#the-ejections-views)) | Eject Camera |

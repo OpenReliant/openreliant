@@ -429,13 +429,6 @@ turret, and a turret's own scripts on their turret.
 | `add_hook` | HooksAdd | `hooks.add`: adds a handler to the hook `name`. |
 | `after_hook` | HooksAfter | `hooks.after`: adds a handler that runs after the function `name`. |
 
-### I.Weapons
-
-| Member | Type or returns | Description |
-|---|---|---|
-| `add_hook` | HooksAdd | `hooks.add`: adds a handler to the hook `name`. |
-| `after_hook` | HooksAfter | `hooks.after`: adds a handler that runs after the function `name`. |
-
 ### I.Carriers
 
 | Member | Type or returns | Description |
@@ -1290,7 +1283,7 @@ A table a script gives, which may leave out a field with a default.
 
 | Field | Type |
 |---|---|
-| `form` | [HudTargetForm](#hudtargetform) |
+| `form` | [TargetForm](#targetform) |
 | `name` | string, or nil |
 | `pilot` | string, or nil |
 | `range` | number |
@@ -1619,9 +1612,9 @@ number. A script can set a field to either.
 
 `caption`, `key_prompt`, `jump_prompt`, `target_markers`, `eject_marker`, `scanner`, `lights`, `view_name`, `subtitle`, `messages`, `nav_marker`, `fuel`, `kills`, `countermeasures`, `ship_status`, `gauges`, `radar`, `reticle`, `clock`, `radio`, `gunnery`, `missiles`, `target_display`, `damage`, `power`, `big_target_display`, `objectives`, `comms`, `wing_status`.
 
-### HudTargetForm
+### TargetForm
 
-`small`, `large`.
+`small`, `large`, or a number.
 
 ### Quadrant
 
@@ -1735,10 +1728,6 @@ number. A script can set a field to either.
 
 `shot_at`, `destroyed`, `launched`, `camera_reached`, `ship_reached`, `proximity_close`, `proximity_general`, `object_scooped`, `player_ready_to_jump`, `jumped_in`, `fixed_gate_jumped_in`, `player_ready_to_warp`, `jumped_through_hoop`, `player_wants_backup`, `ripper_grabbed_object`, `ripper_dropped_object`, `cloaked`, `decloaked`, `targetted`, `player_l1_doubletap`, `player_l2_doubletap`, `player_r1_doubletap`, `player_r2_doubletap`, `player_l1_l2_r1_r2_pressed`, `player_l1_r1_pressed`, `game_timer_expired`, `tractor_beam_locked`, `tractor_beam_broken`, `inside_object`, `outside_object`, `docked`, `undocked`, `being_chased`, `call_reinforcements`, `explosion_ship`, or a number.
 
-### TargetDisplay
-
-`small`, `large`, or a number.
-
 ### PilotTier
 
 `level_0`, `level_1`, `level_2`, or a number.
@@ -1749,4 +1738,4 @@ number. A script can set a field to either.
 
 ### View
 
-`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `chase_too`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, `nanny_dock`, `warp_prepare`, `warp_depart`, `warp_arrive`, `landing_bay`, `landing_ship`, `yamato_beside`, `yamato_ahead`, `yamato_aside`, or a number.
+`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `spectator`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, `nanny_dock`, `warp_prepare`, `warp_depart`, `warp_arrive`, `landing_bay`, `landing_ship`, `yamato_beside`, `yamato_ahead`, `yamato_aside`, or a number.

@@ -1,5 +1,5 @@
 //! The sRGB transfer function (IEC 61966-2-1), converting between a colour's encoded values and
-//! linear light from 0 to 1, matching the shaders' `colour.glsl`, for what the CPU computes in
+//! linear light from 0 to 1, matching the shaders' `color.glsl`, for what the CPU computes in
 //! linear light: the light colours passed to the GPU device, and the mipmaps of mod pictures
 //! (`srtexture.mipmaps`).
 

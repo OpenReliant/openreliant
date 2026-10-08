@@ -278,6 +278,10 @@ pub const ShipCombat = extern struct {
     /// (`Window.big_target`) for most capital and support ships. `hud_ship_status` draws a small
     /// form's schematic mirrored and a large form's as it stands.
     pub const TargetDisplay = enum(u32) {
+        /// The name scripts know these values by, for a ship type's and for the target display's
+        /// form.
+        pub const script_name = "TargetForm";
+
         small = 0,
         large = 1,
         _,

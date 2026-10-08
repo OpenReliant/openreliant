@@ -550,7 +550,7 @@ reaches both Luau states through `runtime.Shared`.
   and the keys' being unique) and copied into the registry's arena, as the mod's page
   (`mod_options.Page`). Load and menu scripts can register, until the driver closes the registry
   once the menu scripts have started (`Registry.close`).
-- The values are the mod's global storage section `settings` (`options.section_name`), written by
+- The values are the mod's global storage section `options` (`options.section_name`), written by
   `Storage.put`. A value that is the option's default takes the field out. Reading goes through
   `Option.fit`, which gives the default for a value that doesn't suit the option, and a choice's
   own copy of its value, so that what the screen holds lasts as long as the page.

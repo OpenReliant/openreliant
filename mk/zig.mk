@@ -40,7 +40,7 @@ GLSLC        ?= glslc
 shaders: $(SHADERS) ## Compile the game's shader for Vulkan and Metal (needs glslc)
 
 # What they share of colour, which they include.
-SHADER_COMMON := $(SHADER_DIR)/colour.glsl
+SHADER_COMMON := $(SHADER_DIR)/color.glsl
 
 $(SHADER_DIR)/%.vert.spv: $(SHADER_DIR)/%.glsl $(SHADER_COMMON)
 	$(GLSLC) -fshader-stage=vertex -DVERTEX -O $< -o $@

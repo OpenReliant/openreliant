@@ -16,7 +16,7 @@ type TurretKind = "aimed" | "spinning" | "launcher"
 type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 type Carrier = "reliant" | "yamato"
 type HudInstrument = "caption" | "key_prompt" | "jump_prompt" | "target_markers" | "eject_marker" | "scanner" | "lights" | "view_name" | "subtitle" | "messages" | "nav_marker" | "fuel" | "kills" | "countermeasures" | "ship_status" | "gauges" | "radar" | "reticle" | "clock" | "radio" | "gunnery" | "missiles" | "target_display" | "damage" | "power" | "big_target_display" | "objectives" | "comms" | "wing_status"
-type HudTargetForm = "small" | "large"
+type TargetForm = "small" | "large" | number
 type Quadrant = "left" | "right" | "fore" | "aft"
 type PartClass = "hull" | "cockpit" | "turret" | "engine" | "shield_generator" | "comms_transmitter" | "gravity_drive" | "laser_turret" | "missile_turret" | "power_core" | "satellite_dish" | "service_door" | "shaft" | "surface_building" | "twin_power_cores" | "vent_hatch" | "ion_cannon" | "armored_plate" | "cap_gun" | "warp_projector" | "fuel_pod" | number
 type HudContactLook = "other" | "hostile" | "speaker" | "target" | "nav_point"
@@ -45,10 +45,9 @@ type MissionCommandResult = "wait" | "run_on" | number
 type RestartChoice = "replay_from_briefing" | "replay_from_launch" | "main_menu"
 type Medal = "silver" | "black_eagle" | "valour" | "legion" | "navy_cross" | "medal_of_honour"
 type Condition = "shot_at" | "destroyed" | "launched" | "camera_reached" | "ship_reached" | "proximity_close" | "proximity_general" | "object_scooped" | "player_ready_to_jump" | "jumped_in" | "fixed_gate_jumped_in" | "player_ready_to_warp" | "jumped_through_hoop" | "player_wants_backup" | "ripper_grabbed_object" | "ripper_dropped_object" | "cloaked" | "decloaked" | "targetted" | "player_l1_doubletap" | "player_l2_doubletap" | "player_r1_doubletap" | "player_r2_doubletap" | "player_l1_l2_r1_r2_pressed" | "player_l1_r1_pressed" | "game_timer_expired" | "tractor_beam_locked" | "tractor_beam_broken" | "inside_object" | "outside_object" | "docked" | "undocked" | "being_chased" | "call_reinforcements" | "explosion_ship" | number
-type TargetDisplay = "small" | "large" | number
 type PilotTier = "level_0" | "level_1" | "level_2" | number
 type PilotSkill = "low" | "medium" | "high" | number
-type View = "cockpit" | "cockpit_left" | "cockpit_right" | "cockpit_rear" | "chase" | "chase_too" | "launch_bay" | "launch_below" | "launch_aside" | "landing_tube" | "landing_aside" | "jump_out" | "jump_in_close" | "jump_in_ahead" | "jump_in_aside" | "target" | "external" | "director" | "pull_back" | "missile" | "eject" | "pickup" | "pod_shot" | "watch" | "watch_marker" | "flyby" | "nanny_dock" | "warp_prepare" | "warp_depart" | "warp_arrive" | "landing_bay" | "landing_ship" | "yamato_beside" | "yamato_ahead" | "yamato_aside" | number
+type View = "cockpit" | "cockpit_left" | "cockpit_right" | "cockpit_rear" | "chase" | "spectator" | "launch_bay" | "launch_below" | "launch_aside" | "landing_tube" | "landing_aside" | "jump_out" | "jump_in_close" | "jump_in_ahead" | "jump_in_aside" | "target" | "external" | "director" | "pull_back" | "missile" | "eject" | "pickup" | "pod_shot" | "watch" | "watch_marker" | "flyby" | "nanny_dock" | "warp_prepare" | "warp_depart" | "warp_arrive" | "landing_bay" | "landing_ship" | "yamato_beside" | "yamato_ahead" | "yamato_aside" | number
 
 -- Tables of values, which scripts can only read.
 
@@ -132,7 +131,7 @@ type HudMissile = {
     place: number,
 }
 type HudTargetDisplay = {
-    form: HudTargetForm,
+    form: TargetForm,
     name: string?,
     pilot: string?,
     range: number,
@@ -472,7 +471,7 @@ declare class ShipTypeRecord
     name: number
     class: ShipClass
     side: Side
-    display: TargetDisplay
+    display: TargetForm
 end
 declare class Gun
     name: string
@@ -832,10 +831,6 @@ type Interfaces = {
         give_order: (self: Object, order: string | number, target: Object?, component: number?) -> boolean,
     },
     Combat: {
-        add_hook: HooksAdd,
-        after_hook: HooksAfter,
-    },
-    Weapons: {
         add_hook: HooksAdd,
         after_hook: HooksAfter,
     },

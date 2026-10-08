@@ -144,9 +144,9 @@ pub const Contacts = values.List(Contact, gameobj.max_objects);
 pub const TargetDisplay = struct {
     pub const script_name = "HudTargetDisplay";
 
-    /// The form the target's type brings up: the small one shows its ship status and its pilot, the
-    /// large one its picture, its subtarget and its hull.
-    form: target_forms.Form,
+    /// The form the target's type brings up (`ShipCombat.display`): the small one shows its ship
+    /// status and its pilot, the large one its picture, its subtarget and its hull.
+    form: create.ShipCombat.TargetDisplay,
     /// The type's name, and its pilot's, which the small form writes; nil for none.
     name: ?Text,
     pilot: ?Text,
@@ -446,7 +446,10 @@ pub const target_display = api.Field(?TargetDisplay, "What the target display sh
         const part = if (target_forms.showsSubtarget(slot)) target_forms.subtarget(all) else null;
         const bar = target_forms.hull(slot);
         return .{
-            .form = form,
+            .form = switch (form) {
+                .small => .small,
+                .large => .large,
+            },
             .name = if (facts.name) |id| stringOf(flight.strings, id) else null,
             .pilot = if (target_forms.pilotName(all, slot)) |id| stringOf(flight.strings, id) else null,
             .range = facts.range,

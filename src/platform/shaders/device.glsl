@@ -7,7 +7,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-#include "colour.glsl"
+#include "color.glsl"
 
 #ifdef VERTEX
 
@@ -40,7 +40,7 @@ layout(set = 1, binding = 0) uniform Target {
     vec2 size;
 } target;
 
-layout(location = 0) out vec4 colour;
+layout(location = 0) out vec4 color;
 layout(location = 1) out vec2 uv;
 layout(location = 2) flat out int image;
 layout(location = 3) out vec3 place;
@@ -56,7 +56,7 @@ void main() {
     vec2 ndc = vec2((position.x + 0.5) / target.size.x * 2.0 - 1.0, 1.0 - (position.y + 0.5) / target.size.y * 2.0);
     gl_Position = vec4(ndc * w, position.z * w, w);
     gl_PointSize = 1.0;
-    colour = diffuse.bgra;
+    color = diffuse.bgra;
     uv = coordinates;
     image = layer;
     place = view;
@@ -100,7 +100,7 @@ layout(set = 3, binding = 0) uniform Frame {
 // light's place and its reach; its mask; its kind, 0 directional or 1 point; and whether a caster
 // shades what it lights.
 struct Light {
-    vec4 colour;
+    vec4 color;
     vec4 vector;
     uint mask;
     uint kind;
@@ -127,7 +127,7 @@ layout(set = 3, binding = 3) uniform Custom {
 // holds them, whether or not the frame lights in linear light.
 struct Surface {
     // The texture's colour and alpha.
-    vec3 colour;
+    vec3 color;
     float alpha;
     // The normal in the camera's frame, a unit long, or none where the pixel takes no lights.
     vec3 normal;
@@ -150,7 +150,7 @@ struct Surface {
 float lighting(float cosine, vec4 parameters);
 #endif
 
-layout(location = 0) in vec4 colour;
+layout(location = 0) in vec4 color;
 layout(location = 1) in vec2 uv;
 layout(location = 2) flat in int image;
 layout(location = 3) in vec3 place;
@@ -322,7 +322,7 @@ vec3 lights(Lit s, out vec3 highlights) {
                 if (sun < 0.0) sun = sunlit(n);
                 reaching = sun;
             }
-            sum += amount * reaching * light.colour.rgb;
+            sum += amount * reaching * light.color.rgb;
             if (!s.material) continue;
             // A fill light is no point of light but a glow over much of the sky, which a rough
             // surface reflects much as it takes it in: it gives a material no highlight, but its
@@ -330,7 +330,7 @@ vec3 lights(Lit s, out vec3 highlights) {
             // does; where the reflections show the nebula itself, nothing.
             vec3 glow = frame.reflection.x > 0.0 ? vec3(0.0) : s.reflectance * amount;
             vec3 reflected = light.shadowed == 0u ? glow : highlight(s, light.vector.xyz / strength) * strength;
-            highlights += reflected * reaching * light.colour.rgb;
+            highlights += reflected * reaching * light.color.rgb;
             continue;
         }
         vec3 d = light.vector.xyz - place;
@@ -344,10 +344,10 @@ vec3 lights(Lit s, out vec3 highlights) {
         along = lighting(min(along / r, 1.0), custom.lighting) * r;
 #endif
         // (1 - r / reach)^2 times the cosine, as the pipeline works it out.
-        sum += (1.0 / r + r / (reach * reach) - 2.0 / reach) * along * light.colour.rgb;
+        sum += (1.0 / r + r / (reach * reach) - 2.0 / reach) * along * light.color.rgb;
         if (s.material) {
             float falloff = (1.0 - r / reach) * (1.0 - r / reach);
-            highlights += highlight(s, d / r) * falloff * light.colour.rgb;
+            highlights += highlight(s, d / r) * falloff * light.color.rgb;
         }
     }
     return sum;
@@ -719,7 +719,7 @@ void modSurface(inout vec4 texel, inout Lit s, inout vec3 glow) {
     bool linear = frame.settings.w > 0.0;
     Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, glow, uv, place, s.toEye, frame.reflection.zy);
     surface(m, custom.surface, custom.time.x);
-    texel = vec4(linear ? decoded(m.colour) : m.colour, m.alpha);
+    texel = vec4(linear ? decoded(m.color) : m.color, m.alpha);
     if (dot(s.normal, s.normal) > 0.5 && dot(m.normal, m.normal) > 1e-12) s.normal = normalize(m.normal);
     if (m.roughness != s.roughness || m.metallic != s.metallic) {
         s.material = true;
@@ -757,7 +757,7 @@ void main() {
     vec3 highlights;
     vec3 added = lights(s, highlights);
     if (s.material) highlights += surroundings(s);
-    vec4 c = vec4(0.0, 0.0, 0.0, texel.a * colour.a);
+    vec4 c = vec4(0.0, 0.0, 0.0, texel.a * color.a);
     // What of the texture the lights reach: a metal's colour goes to its highlights alone.
     vec3 diffuse = texel.rgb * (1.0 - s.metallic);
     if (frame.settings.w > 0.0) {
@@ -766,13 +766,13 @@ void main() {
         // colour, its ambient and baked light, added as the original added it, whose neutral floor
         // the lights' colours were chosen against, as much of it as reaches the surface. A material
         // adds its highlights to its lights.
-        c.rgb = min(encoded(diffuse * min(added, vec3(1.0)) + highlights) + encoded(texel.rgb) * colour.rgb * s.ambient, vec3(1.0));
+        c.rgb = min(encoded(diffuse * min(added, vec3(1.0)) + highlights) + encoded(texel.rgb) * color.rgb * s.ambient, vec3(1.0));
     } else if (!s.material) {
         // Direct3D 7's stages: the texture times the colour, or the colour alone, the lights added
         // for the pixel and each channel held to 1.
-        c.rgb = texel.rgb * min(colour.rgb * s.ambient + added, vec3(1.0));
+        c.rgb = texel.rgb * min(color.rgb * s.ambient + added, vec3(1.0));
     } else {
-        c.rgb = min(texel.rgb * colour.rgb * s.ambient + diffuse * added + highlights, vec3(1.0));
+        c.rgb = min(texel.rgb * color.rgb * s.ambient + diffuse * added + highlights, vec3(1.0));
     }
     c.rgb = min(c.rgb + glow, vec3(1.0));
     if ((shade & 0x4000u) != 0u) c = hologram(c, texel.a);

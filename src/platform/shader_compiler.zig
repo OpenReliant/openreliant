@@ -176,10 +176,10 @@ fn check(gpa: Allocator, native: NativeCheck, name: []const u8, first: []const u
 const fixture =
     \\#version 450
     \\layout(location=0) in vec2 uv;
-    \\layout(location=0) out vec4 colour;
+    \\layout(location=0) out vec4 color;
     \\layout(set=2, binding=0) uniform sampler2D source;
     \\layout(set=3, binding=0, std140) uniform Frame { vec4 size_time; vec4 parameters; } frame;
-    \\void main() { colour = texture(source, uv) * frame.parameters.x; }
+    \\void main() { color = texture(source, uv) * frame.parameters.x; }
 ;
 
 test "post-effect compilation produces deterministic owned Vulkan and Metal code" {
@@ -228,7 +228,7 @@ test "post-effect reflection rejects resource and interface variants" {
         .{ "binding=0) uniform sampler", "binding=2) uniform sampler" },
         .{ "vec4 size_time; vec4 parameters", "vec3 size_time; vec4 parameters" },
         .{ "set=3, binding=0", "set=3, binding=1" },
-        .{ "colour = texture(source, uv)", "gl_FragDepth = 0.5; colour = texture(source, uv)" },
+        .{ "color = texture(source, uv)", "gl_FragDepth = 0.5; color = texture(source, uv)" },
     };
     for (cases) |case| {
         const source = try std.mem.replaceOwned(u8, gpa, fixture, case[0], case[1]);
@@ -252,8 +252,8 @@ test "post effects can omit resources and read the second texture slot" {
     const plain = try compile(gpa, "plain.frag",
         \\#version 450
         \\layout(location=0) in vec2 uv;
-        \\layout(location=0) out vec4 colour;
-        \\void main() { colour = vec4(uv, gl_FragCoord.x, 1); }
+        \\layout(location=0) out vec4 color;
+        \\void main() { color = vec4(uv, gl_FragCoord.x, 1); }
     );
     defer plain.deinit(gpa);
     try std.testing.expect(plain == .compiled);
@@ -288,7 +288,7 @@ test "a part cut from the middle of a file keeps the file's line numbers" {
     const gpa = std.testing.allocator;
     const parts = [_]Part{
         .{ .name = "mod/device.glsl", .source = "#version 450\n" },
-        .{ .name = "colour.glsl", .source = "vec3 grey() { return vec3(0.5); }" },
+        .{ .name = "color.glsl", .source = "vec3 grey() { return vec3(0.5); }" },
         .{ .name = "mod/device.glsl", .source = "\nvoid main() {\n    broken;\n}\n", .line = 10 },
     };
     const result = try compileParts(gpa, .openreliant, .fragment, &parts, Stage.fragment.definition());

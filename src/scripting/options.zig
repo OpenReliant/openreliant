@@ -25,9 +25,8 @@ const stored = @import("stored.zig");
 const storage_module = @import("storage.zig");
 const Storage = storage_module.Storage;
 
-/// The global storage section that keeps the values, which `storage.global_section` refuses. It
-/// has the package's old name, so that the values players set before carry over.
-pub const section_name = "settings";
+/// The global storage section that keeps the values, which `storage.global_section` refuses.
+pub const section_name = "options";
 
 /// A choice, as scripts give it.
 pub const Choice = struct {
@@ -355,7 +354,7 @@ const wingmen_page =
     \\assert(options.get("show") == true and options.get("flee") == 0.35 and options.get("regroup") == 20)
     \\assert(options.get("reach") == 8000 and options.get("callsign") == "Viper")
     \\assert(not pcall(options.get, "missing"))
-    \\assert(not pcall(function() require("openreliant.storage").global_section("settings") end))
+    \\assert(not pcall(function() require("openreliant.storage").global_section("options") end))
 ;
 
 test "a load script declares a page, and every script reads the values" {

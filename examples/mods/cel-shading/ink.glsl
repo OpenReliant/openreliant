@@ -11,9 +11,9 @@ void surface(inout Surface s, vec4 parameters, float time) {
     float change = fwidth(facing);
     // Sprites and effects have no normal, and get neither.
     if (dot(s.normal, s.normal) < 0.5) return;
-    if (parameters.y > 0.0) s.colour = floor(s.colour * parameters.y + 0.5) / parameters.y;
+    if (parameters.y > 0.0) s.color = floor(s.color * parameters.y + 0.5) / parameters.y;
     if (facing < parameters.x * change) {
-        s.colour = vec3(0.0);
+        s.color = vec3(0.0);
         s.glow = vec3(0.0);
     }
 }

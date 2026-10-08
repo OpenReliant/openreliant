@@ -879,7 +879,7 @@ end
 |---|---|---|
 | `Flight` | The orientation and frame functions of `util` | All |
 | `AI` | `orders`, and `give_order(ship, order, target, component)` | Global, object |
-| `Combat`, `Weapons` | `add_hook` and `after_hook`, which are `hooks.add` and `hooks.after` | Global, object |
+| `Combat` | `add_hook` and `after_hook`, which are `hooks.add` and `hooks.after` | Global, object |
 | `Carriers` | `give_order`, `start_launch`, `add_hook` and `after_hook` | Global, object |
 | `Camera`, `HUD` | The `camera` and `hud` packages | Player |
 | `Controls`, `Audio` | The `input` and `audio` packages | Player, menu |
@@ -1042,7 +1042,7 @@ end
 - A global section is kept in the game folder, in `storage\<mod>.data`, across every game. Any
   script can change it. OpenReliant writes the sections that changed at most every 2 seconds, and
   as it quits.
-- The global section called `settings` holds the mod's options ([Options](#options)), and
+- The global section called `options` holds the mod's options ([Options](#options)), and
   `global_section` doesn't open it.
 - Each mod has its own sections: two mods' sections of the same name are separate. All of a mod's
   scripts see the same sections.
@@ -1334,7 +1334,8 @@ camera.set_view("cockpit")      -- back to the cockpit
   angles and right-handed.
 - `set_view(view, object)` switches to a view of `object`, or of the player's ship. It takes the
   game's views by name, such as `"cockpit"`, `"chase"` or `"target"` ([View](reference.md#view)),
-  and the mods' by their qualified names. `camera.view` is the view that shows.
+  and the mods' by their qualified names, or within the mod by its own names
+  ([Qualified names](#qualified-names)). `camera.view` is the view that shows.
 - A mod's view is an outside view: it draws no cockpit, and `letterbox` adds bars above and below.
 - The game's camera keys and a mission's cutaways override a script's view, and a script can't
   change the view while the mission holds the camera.
@@ -1377,8 +1378,8 @@ return {
 ```
 
 - `register_action` returns the action's qualified name, such as `custom-order:pulse`, which
-  `on_action` and `action_down` use. Registering the same name twice is an error, even in another
-  case.
+  `on_action` passes. `action_down` takes it too, or within the mod the name without the prefix,
+  such as `"pulse"`. Registering the same name twice is an error, even in another case.
 - The definition needs a `label`, and can give a default `key` with a `modifier` (`"none"`,
   `"shift"` or `"control"`), a joystick `button` and a `gamepad_button`. A default that the game or
   another mod already uses stays unbound.
@@ -1761,10 +1762,10 @@ layout(set = 3, binding = 0, std140) uniform Frame {
     vec4 parameters;  // the script's numbers
 } frame;
 layout(location = 0) in vec2 uv;      // 0 to 1 across and down the frame
-layout(location = 0) out vec4 colour;
+layout(location = 0) out vec4 color;
 
 void main() {
-    colour = texture(source, uv);
+    color = texture(source, uv);
 }
 ```
 
@@ -1816,7 +1817,7 @@ surface function is called `surface`, and a lighting function `lighting`:
 ```glsl
 // The pixel, which the function reads and sets.
 struct Surface {
-    vec3 colour;     // the texture's colour, in its sRGB encoding
+    vec3 color;      // the texture's colour, in its sRGB encoding
     float alpha;
     vec3 normal;     // in camera space, unit length; zero for an unlit pixel
     float roughness; // 1 and 0 where the texture has no material maps
@@ -1885,8 +1886,8 @@ version you play. A replacement is at your mod's risk: OpenReliant's shaders cha
 versions, and a replacement made for one can stop fitting the next.
 
 - Each file holds a vertex stage and a fragment stage, which it picks with `#ifdef VERTEX` and
-  `#ifdef FRAGMENT`, as OpenReliant's do. `#include "colour.glsl"` takes the mod's own
-  `colour.glsl`, or OpenReliant's where it has none. Other includes are errors.
+  `#ifdef FRAGMENT`, as OpenReliant's do. `#include "color.glsl"` takes the mod's own
+  `color.glsl`, or OpenReliant's where it has none. Other includes are errors.
 - The last mod in the load order that has the file replaces OpenReliant's.
 - Both stages compile as OpenReliant starts, through the shader cache, and are checked against
   OpenReliant's own. A replacement may only use textures and uniform blocks that OpenReliant's
