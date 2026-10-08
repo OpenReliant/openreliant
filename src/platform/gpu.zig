@@ -489,9 +489,9 @@ pub const Gpu = struct {
     /// The layers of the textures handed back this frame (`release`), which go to their arrays'
     /// free lists as the next frame begins, since this frame may still draw from them.
     released: std.ArrayList(Slot) = .empty,
-    /// Set by `deinit`, after which a texture handed back is let go of without a word: the texture
-    /// table's images are freed after the GPU as openreliant quits. The GPU's memory outlasts them,
-    /// since openreliant makes it in the arena that lasts the whole run.
+    /// Set by `deinit`. Textures handed back after that are ignored: the texture table's images are
+    /// freed after the GPU when openreliant quits. The GPU's memory outlasts them, since openreliant
+    /// makes it in the arena that lasts the whole run.
     closed: bool = false,
     /// A white texel, bound for runs with no texture.
     blank: Slot = undefined,
@@ -2061,7 +2061,7 @@ test "a texture handed back goes to the next texture of its shape, from the next
     try std.testing.expectEqual(null, gpu.reused(.{ .width = 2, .height = 2, .levels = 1 }));
     try std.testing.expectEqual(slot, gpu.reused(shape).?);
     try std.testing.expectEqual(null, gpu.reused(shape));
-    // After `deinit`, a texture handed back is let go of without a word.
+    // After `deinit`, a texture handed back is ignored.
     image.texture = .{ .handle = slot.asHandle(), .holder = gpu.holder() };
     gpu.closed = true;
     image.releaseTexture();
@@ -2070,13 +2070,11 @@ test "a texture handed back goes to the next texture of its shape, from the next
 
 test Slot {
     var levels = blank_levels;
-    var image: srtexture.Image = .{ .levels = &levels };
-    // An image never drawn lies nowhere, the first layer of the first array told from it.
+    const image: srtexture.Image = .{ .levels = &levels };
+    // An image never drawn lies nowhere.
     try std.testing.expectEqual(null, Slot.of(image));
-    var holder: srtexture.testing.Device = .{};
-    holder.make(&image);
-    image.texture.?.handle = (Slot{ .array = 0, .layer = 0 }).asHandle();
-    try std.testing.expectEqual(Slot{ .array = 0, .layer = 0 }, Slot.of(image).?);
-    const slot: Slot = .{ .array = 3, .layer = 200 };
-    try std.testing.expectEqual(slot, Slot.ofHandle(slot.asHandle()));
+    // A slot comes back from its handle, the first layer of the first array too.
+    for ([_]Slot{ .{ .array = 0, .layer = 0 }, .{ .array = 3, .layer = 200 } }) |slot| {
+        try std.testing.expectEqual(slot, Slot.ofHandle(slot.asHandle()));
+    }
 }

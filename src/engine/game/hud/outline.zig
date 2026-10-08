@@ -380,7 +380,7 @@ pub const Outline = struct {
     pub fn deinit(outline: *Outline) void {
         const gpa = outline.gpa;
         for (&outline.atlases) |*held| if (held.*) |*atlas| atlas.deinit(gpa);
-        for (outline.retired.items) |image| image.deinit(gpa);
+        outline.freeRetired();
         outline.retired.deinit(gpa);
         if (outline.file) |file| {
             outline.rasterizer.close(outline.face);

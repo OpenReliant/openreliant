@@ -79,7 +79,7 @@ pub const ModSurface = struct {
 /// it is freed (`Image.deinit`).
 pub const Holder = struct {
     ptr: *anyopaque,
-    /// Lets go of the texture `handle`, whose image is being freed, or made again in another size.
+    /// Frees the texture `handle`, as its image is freed or made again in another size.
     release: *const fn (ptr: *anyopaque, handle: usize) void,
 };
 
@@ -235,7 +235,7 @@ pub const Image = struct {
     }
 
     /// Frees its levels and its maps, and hands its texture back to the device that made it
-    /// (`texture_release`).
+    /// (`texture_release`, `0x004CA2B0`).
     pub fn deinit(image: Image, gpa: Allocator) void {
         if (image.texture) |texture| texture.release();
         freeLevels(gpa, image.levels);
@@ -1317,8 +1317,8 @@ pub const testing = struct {
         }
     };
 
-    /// A device that keeps textures, as far as the tests need one: it makes a texture of an image
-    /// as a device does the first time it draws it (`make`), and counts the textures handed back.
+    /// A stand-in device for the tests: it makes a texture of an image as a device does the first
+    /// time it draws it (`make`), and counts the textures handed back.
     pub const Device = struct {
         made: usize = 0,
         released: usize = 0,

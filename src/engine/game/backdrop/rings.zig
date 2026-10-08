@@ -112,7 +112,7 @@ pub fn redraw(gpa: Allocator, image: *const srtexture.Image, detail: Detail) All
     return .{ .levels = made };
 }
 
-/// Lets go of what `redraw` made, its texture handed back to the device.
+/// Frees what `redraw` made, and hands its texture back to the device.
 pub fn free(gpa: Allocator, image: srtexture.Image) void {
     if (image.texture) |texture| texture.release();
     var total: usize = 0;
