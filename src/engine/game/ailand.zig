@@ -518,8 +518,8 @@ fn yamatoCutaway(ctx: Context, index: u16) void {
         const pick: camera.View = if (world.random.rand() % 2 == 0) .landing_bay else .landing_ship;
         _ = view.setView(pick, index, true, true, world.clock.viewTime());
     }
-    const max = gameobj.vector(bay.object.bounds_max);
-    const min = gameobj.vector(bay.object.bounds_min);
+    const max = bay.object.bounds_max.vector();
+    const min = bay.object.bounds_min.vector();
     objects.setPosition(object, &slot.drawn, away.point(max * stand_share + min * (@as(Vector, @splat(1)) - stand_share)));
     if (partMiddle(bay, bay_hangar)) |hangar| {
         objects.setOrientation(object, &slot.drawn, math.lookAt(hangar.frame.point(hangar.middle) - object.nextPosition()));
@@ -716,13 +716,13 @@ test flaredAim {
     const frame: math.Place = .{ .position = .{ 0, 0, 1000 } };
     const tube = frame.position;
     // Where the cutaway sets the ship, the game's point over the tube.
-    object.root.next_position = gameobj.vec3(tube + start_offset);
+    object.root.next_position = .of(tube + start_offset);
     try std.testing.expectEqual(tube + over_tube, flaredAim(frame, &object));
     // Half way there, the point has risen half way to the ship's height.
-    object.root.next_position = gameobj.vec3(tube + Vector{ 0, -4000, start_offset[2] / 2 });
+    object.root.next_position = .of(tube + Vector{ 0, -4000, start_offset[2] / 2 });
     try std.testing.expectApproxEqAbs(-3500, flaredAim(frame, &object)[1], 1e-2);
     // Over the tube's middle, at the ship's own height, so that it flies level.
-    object.root.next_position = gameobj.vec3(tube + Vector{ 0, -3800, 0 });
+    object.root.next_position = .of(tube + Vector{ 0, -3800, 0 });
     try std.testing.expectApproxEqAbs(-3800, flaredAim(frame, &object)[1], 1e-2);
 }
 
@@ -856,8 +856,8 @@ test "the player's ship lands on a pad of the Yamato's landing bay, and the miss
     try std.testing.expectEqual(gameobj.Type.of(.yamato_landing_bay), bay.object.type);
     try std.testing.expect(bay.object.flags.no_collisions);
     try bay_model.parts.fit(gpa, bay);
-    bay.object.bounds_min = gameobj.vec3(hangar_bounds[0]);
-    bay.object.bounds_max = gameobj.vec3(hangar_bounds[1]);
+    bay.object.bounds_min = .of(hangar_bounds[0]);
+    bay.object.bounds_max = .of(hangar_bounds[1]);
 
     // Then the cutaway: the bay far away, the ship standing in it, flying by its nose through
     // everything.

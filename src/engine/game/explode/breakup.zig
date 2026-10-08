@@ -463,7 +463,7 @@ fn breakUpPart(explosions: *explode.Explosions, world: gameobj.World, slot: *con
     const random = world.random;
     const now = world.clock.frame_start;
     const centre = slot.drawn.position;
-    const carried = gameobj.vector(slot.object.velocity);
+    const carried = slot.object.velocity.vector();
     var pieces = cut(gpa, slot.drawn, source, .two, random) catch return;
     for (&pieces, 0..) |*maybe, at| {
         var piece = maybe.* orelse continue;
@@ -546,7 +546,7 @@ fn burstPart(explosions: *explode.Explosions, world: gameobj.World, slot: *const
     const gpa = explosions.pieces.gpa;
     const now = world.clock.frame_start;
     const centre = slot.drawn.position;
-    const carried = gameobj.vector(slot.object.velocity);
+    const carried = slot.object.velocity.vector();
     var quarters = cut(gpa, slot.drawn, whole, .two, random) catch return;
     for (&quarters, 0..) |*maybe, n| {
         var quarter = maybe.* orelse continue;

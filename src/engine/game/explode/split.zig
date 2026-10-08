@@ -330,11 +330,11 @@ pub const Split = struct {
         }
         object.flags.unpowered = true;
         object.flags.exploding = true;
-        object.velocity = gameobj.vec3(math.transform(object.root.orientation, drift));
+        object.velocity = .of(math.transform(object.root.orientation, drift));
         switch (object.type.base()) {
             .czar_docked, .stalag, .kafelnikof, .saladin, .victorious, .darkreign, .kronstadt => {
                 object.rotation = math.identity;
-                object.velocity = gameobj.vec3(@splat(0));
+                object.velocity = .of(@splat(0));
             },
             .latov => {},
             else => object.rotation = math.fromAngleVector(tumble),
@@ -462,7 +462,7 @@ pub const Split = struct {
         if (split.other) |other| {
             const half = &all.slots[other].object;
             half.rotation = math.product(half.rotation, math.fromAngleVector(other_tumble));
-            half.velocity = gameobj.vec3(gameobj.vector(half.velocity) + math.transform(object.root.orientation, other_drift));
+            half.velocity = .of(half.velocity.vector() + math.transform(object.root.orientation, other_drift));
             half.flags.disabled = false;
         }
         if (slot.model) |*model| {
@@ -479,11 +479,11 @@ pub const Split = struct {
         object.flags.unpowered = true;
         object.flags.exploding = true;
         if (object.type.base() == .latov or object.type.base() == .stalag) {
-            object.velocity = gameobj.vec3(@splat(0));
+            object.velocity = .of(@splat(0));
             object.rotation = math.identity;
         } else {
             object.rotation = math.fromAngleVector(tumble);
-            object.velocity = gameobj.vec3(math.transform(object.root.orientation, drift));
+            object.velocity = .of(math.transform(object.root.orientation, drift));
         }
         explode.sound(world, slot.drawn.position, .explosions);
         split.ending(world);
@@ -491,9 +491,9 @@ pub const Split = struct {
         if (split.other) |other| {
             const half = &all.slots[other].object;
             switch (object.type.base()) {
-                .latov => half.velocity = gameobj.vec3(math.transform(object.root.orientation, latov_drift)),
+                .latov => half.velocity = .of(math.transform(object.root.orientation, latov_drift)),
                 .stalag => {
-                    half.velocity = gameobj.vec3(@splat(0));
+                    half.velocity = .of(@splat(0));
                     half.rotation = math.identity;
                 },
                 else => {},
@@ -557,7 +557,7 @@ pub fn endFireballs(world: gameobj.World, ship: *const gameobj.GameObject, ref: 
     const list = data.pointList(.fireballs) orelse return;
     const place = ref.part().drawn();
     for (list.points[0..@min(list.points.len, end_fireballs)], 0..) |point, n| {
-        const at = place.point(gameobj.vector(point.position));
+        const at = place.point(point.position.vector());
         explode.fireballAt(world, at, .{ .size = ship.radius * end_fireball_share, .light = true, .delay = @intCast(n * end_fireball_gap) });
     }
 }
@@ -577,7 +577,7 @@ pub fn makePiece(world: gameobj.World, index: u16, piece_type: gameobj.Type) ?u1
     const ship = &all.slots[index];
     const piece = &all.slots[made];
     const root = ship.drawn;
-    const offset = gameobj.vector(piece.object.centre) - gameobj.vector(ship.object.centre);
+    const offset = piece.object.centre.vector() - ship.object.centre.vector();
     objects.setPlace(&piece.object, &piece.drawn, .{ .position = root.point(offset), .orientation = root.orientation });
     return made;
 }
@@ -596,7 +596,7 @@ fn otherHalfEnd(half: *gameobj.GameObject, orientation: math.Matrix) void {
         else => .{ Split.other_drift, Split.other_tumble },
     };
     half.rotation = math.fromAngleVector(tumble);
-    half.velocity = gameobj.vec3(math.transform(orientation, drift));
+    half.velocity = .of(math.transform(orientation, drift));
 }
 
 /// `explode_capship_component`'s split of the ship in slot `index`, as its hull is destroyed
@@ -672,7 +672,7 @@ pub fn start(world: gameobj.World, index: u16) void {
         portal.normal = normal;
         portal.orientation = object.root.orientation;
     }
-    const velocity = gameobj.vector(object.velocity);
+    const velocity = object.velocity.vector();
     shockwave.setOff(world, object.placeAt(.next), .{
         .kind = .split,
         .size = object.radius * wave_size,
@@ -717,7 +717,7 @@ fn cutPoints(gpa: Allocator, model: *const objects.Model, sorted: bool) Allocato
         const data = ref.data() orelse continue;
         const list = data.pointList(.cut) orelse continue;
         const place = model.partPlace(index, .now);
-        for (list.points) |point| try points.append(gpa, place.point(gameobj.vector(point.position)));
+        for (list.points) |point| try points.append(gpa, place.point(point.position.vector()));
     }
     if (sorted) std.mem.sort(Vector, points.items, {}, alongShip);
     return points.toOwnedSlice(gpa);

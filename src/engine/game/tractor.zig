@@ -710,7 +710,7 @@ fn makeBeams(world: gameobj.World, index: u16, pod: u16, tractor: *Tractor) void
     const hull = model.partNamed(Scooper.of(slot.object.type).hull) orelse return;
     const points = (hull.data() orelse return).pointList(.tractor) orelse return;
     for (&tractor.beams, points.points[0..@min(points.points.len, tractor.beams.len)]) |*beam, point| {
-        beam.* = Beam.create(tractors.gpa, tractors.look, index, hull.index, gameobj.vector(point.position)) catch null;
+        beam.* = Beam.create(tractors.gpa, tractors.look, index, hull.index, point.position.vector()) catch null;
     }
     const shields = world.shields orelse return;
     tractor.bubble = Bubble.create(tractors.gpa, shields, all.slots[pod].object.radius * bubble_scale) catch null;
@@ -723,7 +723,7 @@ fn doorPlace(slot: *create.Slot, scooper: Scooper) ?math.Place {
     const part = model.partNamed(scooper.door) orelse return null;
     const points = (part.data() orelse return null).pointList(.door) orelse return null;
     if (points.points.len == 0) return null;
-    return (math.Place{ .position = gameobj.vector(points.points[0].position) }).within(part.part().drawn());
+    return (math.Place{ .position = points.points[0].position.vector() }).within(part.part().drawn());
 }
 
 /// Which way the doors go.

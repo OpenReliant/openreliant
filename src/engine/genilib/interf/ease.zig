@@ -8,13 +8,15 @@
 
 const std = @import("std");
 
+const math = @import("../../surrender/math.zig");
+
 /// `ease_linear` (`0x004268A0`): from `from` to `to` in a straight line, `at` of the way. For
 /// vectors, each component alike, as the game eases a position an axis at a time.
 pub fn linear(from: anytype, to: anytype, at: f32) Eased(@TypeOf(from, to)) {
     const T = Eased(@TypeOf(from, to));
     const start: T = from;
     const end: T = to;
-    return (end - start) * each(T, at) + start;
+    return math.lerp(start, end, at);
 }
 
 /// `cosine_ease` (`0x004268C0`): from `from` to `to` as `at` goes from 0 to 1, slow at each end.
@@ -45,12 +47,12 @@ fn each(comptime T: type, value: f32) T {
 
 /// `ease_in` (`0x00426900`): from `from` to `to` by the square of `at`, slow at the start.
 pub fn in(from: f32, to: f32, at: f32) f32 {
-    return (to - from) * (at * at) + from;
+    return math.lerp(from, to, at * at);
 }
 
 /// `ease_out` (`0x00426920`): from `from` to `to` by the square root of `at`, slow at the end.
 pub fn out(from: f32, to: f32, at: f32) f32 {
-    return (to - from) * @sqrt(at) + from;
+    return math.lerp(from, to, @sqrt(at));
 }
 
 /// Which way `riseFall` goes first.
@@ -66,7 +68,7 @@ pub fn riseFall(way: Way, from: f32, to: f32, at: f32) f32 {
         .rising => if (first_half) out(0, 1, at + at) else in(1, 0, (at - half) + (at - half)),
         .falling => if (first_half) out(1, 0, at + at) else in(0, 1, (at - half) + (at - half)),
     };
-    return (to - from) * shaped + from;
+    return math.lerp(from, to, shaped);
 }
 
 /// Where `riseFall` turns (`0x004DC408`).

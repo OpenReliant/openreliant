@@ -413,8 +413,8 @@ fn turningOf(object: *const GameObject) f32 {
 
 /// The corners of an object's tail, in its own frame: its bounds' far face behind it.
 fn tailCorners(object: *const GameObject) [4]Vector {
-    const low = gameobj.vector(object.bounds_min);
-    const high = gameobj.vector(object.bounds_max);
+    const low = object.bounds_min.vector();
+    const high = object.bounds_max.vector();
     return .{
         .{ high[0], high[1], low[2] },
         .{ low[0], high[1], low[2] },

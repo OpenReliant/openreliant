@@ -207,7 +207,7 @@ fn projectorSources(slot: *const create.Slot) [beam_count]math.Vector {
             const place = model.frameAt(part.index, slot.drawn);
             for (&result, 0..) |*source, n| {
                 const point = group.points[if (slot.object.type.base() == .yamato) @min(n, group.points.len - 1) else 0];
-                source.* = place.point(gameobj.vector(point.position));
+                source.* = place.point(point.position.vector());
             }
             return result;
         }

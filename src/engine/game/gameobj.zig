@@ -9,6 +9,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const layout = @import("../../formats/layout.zig");
 const dte = @import("../../formats/dte.zig");
 const shp = @import("../../formats/shp.zig");
 const math = @import("../surrender/math.zig");
@@ -785,10 +786,7 @@ pub const GameType = enum(u32) {
     }
 
     pub fn format(object_type: GameType, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return switch (object_type) {
-            _ => writer.print("type {d}", .{@backingInt(object_type)}),
-            inline else => |named| writer.writeAll(@tagName(named)),
-        };
+        return layout.formatTagAs(GameType, object_type, "type", writer);
     }
 };
 
@@ -1348,13 +1346,13 @@ pub const GameObject = extern struct {
 
     /// Where it stands (`root.position`): a step behind `nextPosition` until the next step.
     pub fn position(object: *const GameObject) Vector {
-        return vector(object.root.position);
+        return object.root.position.vector();
     }
 
     /// Where it will stand at the next step (`root.next_position`), which the AI, the collisions
     /// and the sounds go by.
     pub fn nextPosition(object: *const GameObject) Vector {
-        return vector(object.root.next_position);
+        return object.root.next_position.vector();
     }
 
     /// Lets go of the turns: no roll, pitch or yaw.
@@ -1672,23 +1670,14 @@ test GunMode {
     try std.testing.expectEqual(0x30, @as(u16, @bitCast(GunMode.created(3))));
 }
 
-/// A record's `Vec3` as a vector, and back.
-pub fn vector(v: shp.Vec3) math.Vector {
-    return .{ v.x, v.y, v.z };
-}
-
-pub fn vec3(v: math.Vector) shp.Vec3 {
-    return .{ .x = v[0], .y = v[1], .z = v[2] };
-}
-
 /// `object_knock` (`0x004763C0`): a push of `force` on the object at the world point `at`, from a
 /// collision or an explosion. The force is added to the impulse, and force × lever, the lever
 /// running from the object's position to `at`, to the angular impulse. The next move applies both
 /// (`applyKnocks`).
 pub fn knock(object: *GameObject, force: math.Vector, at: math.Vector) void {
     const lever = at - object.position();
-    object.impulse = vec3(vector(object.impulse) + force);
-    object.angular_impulse = vec3(vector(object.angular_impulse) + math.cross(force, lever));
+    object.impulse = .of(object.impulse.vector() + force);
+    object.angular_impulse = .of(object.angular_impulse.vector() + math.cross(force, lever));
     object.knocks += 1;
 }
 
@@ -1697,8 +1686,8 @@ pub fn knock(object: *GameObject, force: math.Vector, at: math.Vector) void {
 /// (`order_disrupted_init`).
 pub fn knockLocal(object: *GameObject, force: math.Vector, lever: math.Vector) void {
     const push = math.transform(object.root.orientation, force);
-    object.impulse = vec3(vector(object.impulse) + push);
-    object.angular_impulse = vec3(vector(object.angular_impulse) + math.cross(push, lever));
+    object.impulse = .of(object.impulse.vector() + push);
+    object.angular_impulse = .of(object.angular_impulse.vector() + math.cross(push, lever));
     object.knocks += 1;
 }
 
@@ -1711,9 +1700,9 @@ pub fn applyKnocks(object: *GameObject) void {
     if (object.knocks == 0) return;
     object.knocks = 0;
     // `vec3_divide_by` multiplies by the reciprocal.
-    const impulse = vector(object.impulse) * @as(math.Vector, @splat(1 / object.mass));
-    object.velocity = vec3(vector(object.velocity) + impulse);
-    const angular = vector(object.angular_impulse);
+    const impulse = object.impulse.vector() * @as(math.Vector, @splat(1 / object.mass));
+    object.velocity = .of(object.velocity.vector() + impulse);
+    const angular = object.angular_impulse.vector();
     if (@reduce(.Or, angular != @as(math.Vector, @splat(0)))) {
         const turn = math.transform(object.angular_response, math.transformTransposed(object.root.orientation, angular));
         // The angular impulse is the opposite of the torque, so the object turns by its negative.
@@ -1723,8 +1712,8 @@ pub fn applyKnocks(object: *GameObject) void {
         object.yaw_rate = rates[1];
         object.roll_rate = rates[2];
     }
-    object.impulse = vec3(@splat(0));
-    object.angular_impulse = vec3(@splat(0));
+    object.impulse = .of(@splat(0));
+    object.angular_impulse = .of(@splat(0));
 }
 
 /// What the player has shifted into the fore and aft shields beyond their full charge with SHIELD
@@ -2175,11 +2164,11 @@ pub fn recentreObject(slot: *create.Slot) void {
     recentre(model, source);
     objects.shift(object, &slot.drawn, math.transform(object.root.orientation, model.centre - before));
     object.mass = model.mass;
-    object.centre = vec3(model.centre);
+    object.centre = .of(model.centre);
     object.radius = model.radius;
     object.angular_response = model.angular_response;
-    object.bounds_min = vec3(model.bounds[0]);
-    object.bounds_max = vec3(model.bounds[1]);
+    object.bounds_min = .of(model.bounds[0]);
+    object.bounds_max = .of(model.bounds[1]);
 }
 
 /// `node_mass_add` (`0x004764A0`) on the node of part `index` of `model`: the part's mass, its
@@ -2689,13 +2678,13 @@ test "a knock pushes and turns an object" {
     motion.move(&object, .{ .own = &testing.flight }, .chase, .forward, null, .{});
     try std.testing.expectEqual(0, object.knocks);
     // The knock replaces the motion routine, so the throttle adds nothing this update.
-    try std.testing.expectEqual(math.Vector{ 0.005, 0, 0 }, vector(object.velocity));
+    try std.testing.expectEqual(math.Vector{ 0.005, 0, 0 }, object.velocity.vector());
     try std.testing.expectApproxEqAbs(0.02, object.yaw_rate, 2e-4);
     try std.testing.expectApproxEqAbs(0, object.pitch_rate, 2e-4);
     try std.testing.expectApproxEqAbs(0, object.roll_rate, 2e-4);
     try std.testing.expect(object.root.next_orientation[2] > 0);
-    try std.testing.expectEqual(math.Vector{ 0, 0, 0 }, vector(object.impulse));
-    try std.testing.expectEqual(math.Vector{ 0, 0, 0 }, vector(object.angular_impulse));
+    try std.testing.expectEqual(math.Vector{ 0, 0, 0 }, object.impulse.vector());
+    try std.testing.expectEqual(math.Vector{ 0, 0, 0 }, object.angular_impulse.vector());
 }
 
 test knockLocal {

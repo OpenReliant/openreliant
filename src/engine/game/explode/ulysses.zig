@@ -68,7 +68,7 @@ fn throwFin(world: gameobj.World, index: u16, with_top: bool) void {
         piece.flags.unpowered = true;
         piece.flags.exploding = true;
         piece.rotation = math.fromAngleVector(fin_tumble);
-        piece.velocity = gameobj.vec3(fin_drift);
+        piece.velocity = .of(fin_drift);
     }
     if (slot.model) |*model| {
         if (model.partNamed(fin)) |ref| finFireballs(world, ref, slot.object.radius * fin_fireball_share);
@@ -106,7 +106,7 @@ fn finFireballs(world: gameobj.World, ref: objects.PartRef, size: f32) void {
     const place = ref.part().drawn();
     const count = @min(list.points.len, fin_fireballs_late.len);
     for (list.points[0..count], fin_fireballs_late[0..count]) |point, late| {
-        const at = place.point(gameobj.vector(point.position));
+        const at = place.point(point.position.vector());
         explode.fireballAt(world, at, .{ .size = size, .light = true });
         explode.fireballAt(world, at, .{ .size = size, .light = true, .delay = late });
     }
@@ -213,11 +213,11 @@ pub const Top = struct {
         if (points.len == 0) return false;
         const place = ref.part().drawn();
         if (@as(f32, @floatFromInt(cut.step)) < @as(f32, @floatFromInt(elapsed)) * step_rate) {
-            cut.stepOn(world, place.point(gameobj.vector(points[@min(cut.step, points.len - 1)].position)));
+            cut.stepOn(world, place.point(points[@min(cut.step, points.len - 1)].position.vector()));
         }
         const last = points.len - 1;
-        const before = gameobj.vector(points[@min(cut.step -| 1, last)].position);
-        const now = gameobj.vector(points[@min(cut.step, last)].position);
+        const before = points[@min(cut.step -| 1, last)].position.vector();
+        const now = points[@min(cut.step, last)].position.vector();
         const reached = place.point(if (before[2] <= now[2]) before else now);
         for (&cut.portals) |*portal| portal.position = reached;
         cut.cutting = cut.step < cut_steps;
@@ -255,7 +255,7 @@ pub const Top = struct {
         if (cut.other) |other| {
             const back = &all.slots[other].object;
             back.rotation = math.fromAngleVector(split.Split.other_tumble);
-            back.velocity = gameobj.vec3(split.Split.other_drift);
+            back.velocity = .of(split.Split.other_drift);
         }
         if (slot.model) |*model| {
             model.hideNamed(top);
@@ -269,7 +269,7 @@ pub const Top = struct {
             object.flags.unpowered = true;
             object.flags.exploding = true;
             object.rotation = math.fromAngleVector(end_tumble);
-            object.velocity = gameobj.vec3(end_drift);
+            object.velocity = .of(end_drift);
             if (cut.other) |other| explode.burnPart(world, other, back_wreck, wreck_burn);
         }
         explode.burnPart(world, cut.object, front_wreck, wreck_burn);
@@ -327,7 +327,7 @@ test "the Ulysses throws off its fin, then its top comes away" {
     const thrown = &mission.objects.slots[mission.objects.count - 1].object;
     try std.testing.expectEqual(.ulysses_fin, thrown.type.base());
     try std.testing.expect(thrown.flags.unpowered and thrown.flags.exploding);
-    try std.testing.expectEqual(gameobj.vec3(fin_drift), thrown.velocity);
+    try std.testing.expectEqual(fin_drift, thrown.velocity.vector());
     try std.testing.expect(model.partNamed(fin).?.part().hidden and model.partNamed(middle).?.part().hidden);
     try std.testing.expect(!model.partNamed(middle_wreck).?.part().hidden);
     var set_off: usize = 0;
@@ -369,6 +369,6 @@ test "the Ulysses throws off its fin, then its top comes away" {
     try std.testing.expectEqual(null, splits.slots[0]);
     try std.testing.expect(object.ends.split_ended);
     try std.testing.expect(model.partNamed(top).?.part().hidden and model.partNamed(top).?.part().object.portal == null);
-    try std.testing.expectEqual(gameobj.vec3(split.Split.other_drift), back.object.velocity);
-    try std.testing.expectEqual(gameobj.vec3(Top.end_drift), object.velocity);
+    try std.testing.expectEqual(split.Split.other_drift, back.object.velocity.vector());
+    try std.testing.expectEqual(Top.end_drift, object.velocity.vector());
 }

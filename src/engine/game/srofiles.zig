@@ -320,13 +320,13 @@ pub fn build(
     }
 
     for (source.vertices, 0..) |vertex, i| {
-        positions[i] = gameobj.vector(vertex.position);
-        normals[i] = gameobj.vector(vertex.normal);
+        positions[i] = vertex.position.vector();
+        normals[i] = vertex.normal.vector();
         const next = coarser orelse continue;
         const at = vertex.nextLod() orelse next.vertices.len;
         const counterpart = if (at < next.vertices.len) next.vertices[at] else vertex;
-        if (morph_normals) |m| m[i] = gameobj.vector(counterpart.normal);
-        if (morph_positions) |m| m[i] = gameobj.vector(counterpart.position);
+        if (morph_normals) |m| m[i] = counterpart.normal.vector();
+        if (morph_positions) |m| m[i] = counterpart.position.vector();
     }
 
     const conditions: Conditions = .{ .light_maps = settings.light_maps, .part_lightmap = part_flags.lightmap };
@@ -673,7 +673,7 @@ fn isStaticLight(attachment: shp.Attachment) bool {
 /// The light an attachment of a part holds, in the model's frame.
 fn staticLight(part: *const shp.PartData, attachment: shp.Attachment) StaticLight {
     return .{
-        .position = gameobj.vector(attachment.position.add(part.part.position)),
+        .position = attachment.position.add(part.part.position).vector(),
         .colour = @import("objects.zig").steadyColour(attachment.light()),
         .brightness = attachment.light_brightness,
         .radius = attachment.light_brightness * attachment.light_range,
@@ -715,7 +715,7 @@ pub fn staticLightsBake(model: *const shp.Model, parts: []LoadedPart) void {
 pub fn staticLightBake(light: StaticLight, origin: shp.Vec3, mesh: *srapiext.Mesh) void {
     const baked = mesh.baked orelse return;
     // The light in the part's own frame, where its vertices stand.
-    const at = light.position - gameobj.vector(origin);
+    const at = light.position - origin.vector();
     const radius = light.radius;
     if (!(radius > 0)) return;
     for (mesh.positions, mesh.normals, baked) |position, normal, *colour| {
@@ -758,9 +758,9 @@ pub fn fanMerges(faces: []const shp.Face, f: usize) bool {
     if (face.polygon != .fan) return false;
     if (f > 0 and faces[f - 1].remaining != 0) return false;
     if (face.remaining >= faces.len - f) return false;
-    const normal = gameobj.vector(face.normal);
+    const normal = face.normal.vector();
     for (faces[f + 1 ..][0..face.remaining]) |record| {
-        if (!(math.dot(normal, gameobj.vector(record.normal)) >= fan_tolerance)) return false;
+        if (!(math.dot(normal, record.normal.vector()) >= fan_tolerance)) return false;
     }
     return true;
 }

@@ -30,10 +30,7 @@ pub const Wave = struct {
         _,
 
         pub fn format(tag: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-            return switch (tag) {
-                _ => writer.print("format {d}", .{@backingInt(tag)}),
-                inline else => |named| writer.writeAll(@tagName(named)),
-            };
+            return layout.formatTagAs(Format, tag, "format", writer);
         }
     };
 

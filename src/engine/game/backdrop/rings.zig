@@ -9,6 +9,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const math = @import("../../surrender/math.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 
 /// How many times finer each way a texture is drawn again.
@@ -91,7 +92,7 @@ pub fn redraw(gpa: Allocator, image: *const srtexture.Image, detail: Detail) All
     for (0..height) |y| {
         for (0..width) |x| {
             const at: [2]f32 = .{ (@as(f32, @floatFromInt(x)) + 0.5) * fine, (@as(f32, @floatFromInt(y)) + 0.5) * fine };
-            var colour = drawn.at(distance(at, middle), fine);
+            var colour = drawn.at(math.planeDistance(at, middle), fine);
             if (residue) |left| colour += bicubic(left, source.width, source.height, at[0] - 0.5, at[1] - 0.5);
             const noise: Colour = @splat(dither(x, y));
             const out = std.math.clamp(@floor(colour + noise), @as(Colour, @splat(0)), @as(Colour, @splat(255)));
@@ -144,7 +145,7 @@ fn roundest(gpa: Allocator, level: srtexture.Level) Allocator.Error![2]f32 {
             @memset(counts, 0);
             for (0..level.height) |y| {
                 for (0..level.width) |x| {
-                    const bin: usize = @intFromFloat(distance(texelCentre(x, y), at) * search_bins);
+                    const bin: usize = @intFromFloat(math.planeDistance(texelCentre(x, y), at) * search_bins);
                     const four = texel(level, x, y);
                     const colour: @Vector(3, f64) = .{ four[0], four[1], four[2] };
                     sums[bin] += colour;
@@ -189,7 +190,7 @@ const Profile = struct {
         @memset(mixed, false);
         for (0..level.height) |y| {
             for (0..level.width) |x| {
-                const bin: usize = @intFromFloat(distance(texelCentre(x, y), middle) * bins);
+                const bin: usize = @intFromFloat(math.planeDistance(texelCentre(x, y), middle) * bins);
                 if (bin >= count) continue;
                 const bytes = level.texels[(y * level.width + x) * 4 ..][0..4].*;
                 sums[bin] += texel(level, x, y);
@@ -395,7 +396,7 @@ const Drawn = struct {
         for (drawn.edges) |edge| {
             if (r < edge.from or r >= edge.to) continue;
             const t = std.math.clamp((r - edge.at) / @max(edge.width, texel_width) + 0.5, 0, 1);
-            return edge.inside + (edge.outside - edge.inside) * @as(Colour, @splat(t));
+            return math.lerp(edge.inside, edge.outside, t);
         }
         return drawn.profile.at(r);
     }
@@ -408,14 +409,14 @@ const Drawn = struct {
         const off = try gpa.alloc(Colour, level.width * level.height);
         defer gpa.free(off);
         for (0..level.height) |y| {
-            for (0..level.width) |x| off[y * level.width + x] = texel(level, x, y) - drawn.at(distance(texelCentre(x, y), middle), 1);
+            for (0..level.width) |x| off[y * level.width + x] = texel(level, x, y) - drawn.at(math.planeDistance(texelCentre(x, y), middle), 1);
         }
         const left = try gpa.alloc(Colour, level.width * level.height);
         const least = @as(Colour, @splat(255 * rounding)) / levels;
         for (0..level.height) |y| {
             for (0..level.width) |x| {
                 const centre = texelCentre(x, y);
-                const r = distance(centre, middle);
+                const r = math.planeDistance(centre, middle);
                 const way: [2]f32 = if (r > 0) .{ (centre[0] - middle[0]) / r, (centre[1] - middle[1]) / r } else .{ 0, 0 };
                 var sum: Colour = @splat(0);
                 for (0..2 * along + 1) |step| {
@@ -437,10 +438,6 @@ fn texel(level: srtexture.Level, x: usize, y: usize) Colour {
 
 fn texelCentre(x: usize, y: usize) [2]f32 {
     return .{ @as(f32, @floatFromInt(x)) + 0.5, @as(f32, @floatFromInt(y)) + 0.5 };
-}
-
-fn distance(a: [2]f32, b: [2]f32) f32 {
-    return std.math.hypot(a[0] - b[0], a[1] - b[1]);
 }
 
 /// `values`, `width` by `height`, at `x`, `y` in texels from the first texel's centre, by a
@@ -472,11 +469,11 @@ fn bilinear(values: []const Colour, width: u32, height: u32, x: f32, y: f32) Col
     const y0: usize = @intFromFloat(fy);
     const x1 = @min(x0 + 1, width - 1);
     const y1 = @min(y0 + 1, height - 1);
-    const tx: Colour = @splat(fx - @as(f32, @floatFromInt(x0)));
-    const ty: Colour = @splat(fy - @as(f32, @floatFromInt(y0)));
-    const top = values[y0 * width + x0] + (values[y0 * width + x1] - values[y0 * width + x0]) * tx;
-    const bottom = values[y1 * width + x0] + (values[y1 * width + x1] - values[y1 * width + x0]) * tx;
-    return top + (bottom - top) * ty;
+    const tx = fx - @as(f32, @floatFromInt(x0));
+    const ty = fy - @as(f32, @floatFromInt(y0));
+    const top = math.lerp(values[y0 * width + x0], values[y0 * width + x1], tx);
+    const bottom = math.lerp(values[y1 * width + x0], values[y1 * width + x1], tx);
+    return math.lerp(top, bottom, ty);
 }
 
 fn catmullRom(p: [4]Colour, t: f32) Colour {
@@ -529,7 +526,7 @@ const Synthetic = struct {
         const rgba = try gpa.alloc(u8, size * size * 4);
         const middle: [2]f32 = @splat(@as(f32, @floatFromInt(size)) / 2);
         for (0..size) |y| {
-            for (0..size) |x| rgba[(y * size + x) * 4 ..][0..4].* = colour(distance(texelCentre(x, y), middle), x, y);
+            for (0..size) |x| rgba[(y * size + x) * 4 ..][0..4].* = colour(math.planeDistance(texelCentre(x, y), middle), x, y);
         }
         return .{ .rgba = rgba, .level = .{.{ .width = size, .height = size, .texels = rgba }} };
     }

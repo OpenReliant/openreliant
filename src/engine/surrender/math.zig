@@ -93,6 +93,12 @@ pub fn distanceSquared(a: Vector, b: Vector) f32 {
     return d[1] * d[1] + d[2] * d[2] + d[0] * d[0];
 }
 
+/// How far apart two points of a plane are, such as two of the screen's.
+pub fn planeDistance(a: @Vector(2, f32), b: @Vector(2, f32)) f32 {
+    const d = b - a;
+    return @sqrt(@reduce(.Add, d * d));
+}
+
 /// The value `t` of the way from `a` to `b` (`lerp`, `0x004C1050`), or for vectors the point `t` of
 /// the way, each component alike (`vec3_lerp`, `0x004C1070`).
 pub fn lerp(a: anytype, b: anytype, t: f32) @TypeOf(a, b) {
@@ -436,6 +442,11 @@ test round {
 test distance {
     try std.testing.expectEqual(5, distance(.{ 1, 5, 2 }, .{ 1, 1, 5 }));
     try std.testing.expectEqual(0, distance(.{ 7, 7, 7 }, .{ 7, 7, 7 }));
+}
+
+test planeDistance {
+    try std.testing.expectEqual(5, planeDistance(.{ 1, 5 }, .{ 4, 1 }));
+    try std.testing.expectEqual(0, planeDistance(.{ 7, 7 }, .{ 7, 7 }));
 }
 
 test ftol {

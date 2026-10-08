@@ -112,9 +112,9 @@ pub fn input(cockpit: *const objects.Model, model: *const shp.Model, rates: [3]f
     return .{
         .rates = rates,
         .speed = speed,
-        .eye = gameobj.vector(model.header.eye),
+        .eye = model.header.eye.vector(),
         .hands_origin = cockpit.parts[hands].origin,
-        .hands_pivot = gameobj.vector(model.parts[hands].part.mount_point),
+        .hands_pivot = model.parts[hands].part.mount_point.vector(),
     };
 }
 

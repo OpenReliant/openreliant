@@ -118,17 +118,17 @@ pub const fields = struct {
 
     pub const velocity = api.Field(Vector, "How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its motor carries on from there.", struct {
         pub fn get(all: *const create.Objects, record: u8) Vector {
-            return gameobj.vector(missileIn(all, record).slot.object.velocity);
+            return missileIn(all, record).slot.object.velocity.vector();
         }
 
         pub fn set(_: Call, all: *create.Objects, record: u8, value: Vector) void {
-            slotOf(all, record).object.velocity = gameobj.vec3(value);
+            slotOf(all, record).object.velocity = .of(value);
         }
     });
 
     pub const speed = api.Field(f32, "How fast it moves: the length of its velocity.", struct {
         pub fn get(all: *const create.Objects, record: u8) f32 {
-            const moved = gameobj.vector(missileIn(all, record).slot.object.velocity);
+            const moved = missileIn(all, record).slot.object.velocity.vector();
             return @sqrt(@reduce(.Add, moved * moved));
         }
     });
@@ -279,8 +279,8 @@ test "handles name missiles until their flight ends" {
     const launcher = try mission.add(.of(.predator), .{ 0, 0, 0 });
     const all = mission.objects;
     var slot: create.Slot = .{ .object = std.mem.zeroes(gameobj.GameObject) };
-    slot.object.root.position = gameobj.vec3(.{ 0, 0, 500 });
-    slot.object.velocity = gameobj.vec3(.{ 0, 3, 4 });
+    slot.object.root.position = .of(.{ 0, 0, 500 });
+    slot.object.velocity = .of(.{ 0, 3, 4 });
     const record = all.missiles.add(.{ .slot = slot, .launcher = launcher, .launcher_reuses = all.reuses[launcher], .type = .of(.raptor), .target = .at(launcher, null) }).?;
 
     const scripts = try Runtime.create(gpa, std.testing.io, &.{}, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });

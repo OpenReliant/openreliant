@@ -683,7 +683,7 @@ test Uber {
     const size: f32 = 1000;
     all.slots[far].drawn.position = .{ 0, 0, size * reach + 1 };
     all.slots[near].drawn.position = .{ 0, 0, 3000 };
-    all.slots[near].object.root.position = gameobj.vec3(.{ 0, 0, 3000 });
+    all.slots[near].object.root.position = .of(.{ 0, 0, 3000 });
     stage.mission.clock.frame_start = 1000;
     uber.start(world, 0, .{ .position = @splat(0) }, size, 1000, .original);
     const blast = &uber.blast.?;

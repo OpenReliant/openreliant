@@ -296,8 +296,8 @@ fn hangRays(world: gameobj.World, index: u16, hat: *Hat) void {
     for (from.points[0..count], to.points[0..count], hat.rays[0..count]) |start, end, *kept| {
         const made = rays.add(hat_ray, world.random) catch return;
         made.colour(0, ray_colour);
-        made.from = to_frame.inverse(from_frame.point(gameobj.vector(start.position)));
-        made.to = gameobj.vector(end.position);
+        made.from = to_frame.inverse(from_frame.point(start.position.vector()));
+        made.to = end.position.vector();
         made.hang(.{ .part = .{ .object = index, .part = .{ .model = model, .index = 1 } } });
         made.owner = index;
         kept.* = rays.keep(made);

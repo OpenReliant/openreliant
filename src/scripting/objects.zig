@@ -125,12 +125,12 @@ pub const fields = struct {
 
     pub const velocity = api.Field(Vector, "How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its engines carry on from there.", struct {
         pub fn get(all: *const create.Objects, index: u16) Vector {
-            return gameobj.vector(all.slots[index].object.velocity);
+            return all.slots[index].object.velocity.vector();
         }
 
         pub fn set(_: Call, all: *create.Objects, index: u16, value: Vector) void {
             const object = &all.slots[index].object;
-            object.velocity = gameobj.vec3(value);
+            object.velocity = .of(value);
             object.speed = math.length(value);
         }
     });

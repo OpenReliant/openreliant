@@ -82,16 +82,16 @@ pub const Motion = enum {
             .drift => slow(object, drift_share),
             .jump_out => if (jumping) |on| {
                 const through = @as(f32, @floatFromInt(on.clock.mission_ticks -% on.state.since)) * jump_out_pace;
-                const at = math.lerp(gameobj.vector(on.state.from), gameobj.vector(on.state.to), through * through);
+                const at = math.lerp(on.state.from.vector(), on.state.to.vector(), through * through);
                 object.rotation = math.identity;
-                object.velocity = gameobj.vec3(at - object.position());
+                object.velocity = .of(at - object.position());
                 object.last_throttle = 0;
             },
             .jump_in => if (jumping) |on| {
                 const full = if (object.flags.components) jump_in_speed_components else jump_in_speed;
                 const since = @as(f32, @floatFromInt(on.clock.frame_start)) - @as(f32, @floatFromInt(on.state.since));
                 const speed = @max(full - since * jump_in_slowing * full, ai.cruiseSpeed(object, flight.own, view));
-                object.velocity = gameobj.vec3(math.forward(object.root.orientation) * @as(math.Vector, @splat(speed)));
+                object.velocity = .of(math.forward(object.root.orientation) * @as(math.Vector, @splat(speed)));
                 object.rotation = math.identity;
                 object.last_throttle = 0;
             },
@@ -193,7 +193,7 @@ fn followPath(object: *GameObject, flight: *const create.FlightModel, way: Way, 
         velocity = math.normalize(velocity) * @as(math.Vector, @splat(flight.max_speed * limit));
         object.throttle = limit;
     }
-    object.velocity = gameobj.vec3(velocity);
+    object.velocity = .of(velocity);
     object.last_throttle = object.throttle;
 }
 
@@ -228,7 +228,7 @@ const drift_share: f32 = 0.99;
 
 /// The object's velocity scaled by `share`.
 fn slow(object: *GameObject, share: f32) void {
-    object.velocity = gameobj.vec3(gameobj.vector(object.velocity) * @as(math.Vector, @splat(share)));
+    object.velocity = .of(object.velocity.vector() * @as(math.Vector, @splat(share)));
 }
 
 /// The share of the cruise speed the lateral input pushes a ship sideways at (`object_fly`,
@@ -319,14 +319,14 @@ pub fn fly(object: *GameObject, flight: *const create.FlightModel, view: camera.
     else
         ai.cruiseSpeed(object, flight, view);
 
-    var speed = math.transformTransposed(frame, gameobj.vector(object.velocity));
+    var speed = math.transformTransposed(frame, object.velocity.vector());
     const push = thrust * object.throttle;
     speed = .{
         settle(speed[0], object.lateral_input * target * lateral_share, inertia),
         settle(speed[1], 0, inertia),
         signedRoot(settle(signedSquare(speed[2]), signedSquare(push) * target * target, inertia)),
     };
-    object.velocity = gameobj.vec3(math.transform(frame, speed));
+    object.velocity = .of(math.transform(frame, speed));
     object.last_throttle = object.throttle;
 }
 
@@ -339,8 +339,8 @@ fn plain(object: *GameObject, flight: *const create.FlightModel, axis: math.Axis
     const inertia = flight.inertia;
     var along: [3]f32 = @splat(0);
     along[@backingInt(axis)] = (1 - inertia) * object.throttle * flight.max_speed;
-    const kept = gameobj.vector(object.velocity) * @as(math.Vector, @splat(inertia));
-    object.velocity = gameobj.vec3(kept + math.transform(object.root.next_orientation, along));
+    const kept = object.velocity.vector() * @as(math.Vector, @splat(inertia));
+    object.velocity = .of(kept + math.transform(object.root.next_orientation, along));
 }
 
 /// `object_move` (`0x00473FF0`): one update of an object. A `frozen` object stays where it is.
@@ -367,8 +367,8 @@ pub fn move(object: *GameObject, flight: Flight, view: camera.View, motion: ?Mot
         gameobj.applyKnocks(object);
     }
     object.root.next_orientation = math.product(object.root.orientation, object.rotation);
-    object.root.next_position = gameobj.vec3(object.position() + gameobj.vector(object.velocity));
-    object.speed = math.length(gameobj.vector(object.velocity));
+    object.root.next_position = .of(object.position() + object.velocity.vector());
+    object.speed = math.length(object.velocity.vector());
     if (object.speed > 0) object.network.moved = true;
     if (object.pitch_rate != 0 or object.yaw_rate != 0 or object.roll_rate != 0) object.network.turned = true;
     if (player_shake) |shake| {

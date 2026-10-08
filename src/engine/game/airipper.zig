@@ -246,8 +246,8 @@ pub const Grip = struct {
         const points = data.point_lists[0].points;
         for (&grip.targets, pod_pairs) |*target, pair| {
             if (pair[1] >= points.len) continue;
-            const a = gameobj.vector(points[pair[0]].position);
-            const b = gameobj.vector(points[pair[1]].position);
+            const a = points[pair[0]].position.vector();
+            const b = points[pair[1]].position.vector();
             target.* = .{ .ship = pod, .part = part.index, .point = (a + b) * @as(Vector, @splat(0.5)) };
         }
     }
@@ -291,7 +291,7 @@ fn hungFrom(all: *const create.Objects, ship: u16, index: usize) ?math.Place {
 fn firstPoint(part: objects.PartRef) ?Vector {
     const data = part.data() orelse return null;
     if (data.point_lists.len == 0 or data.point_lists[0].points.len == 0) return null;
-    return gameobj.vector(data.point_lists[0].points[0].position);
+    return data.point_lists[0].points[0].position.vector();
 }
 
 /// The Ripper's back pincers, each with a point its beam comes from (`airipper_fx_pincers`): the

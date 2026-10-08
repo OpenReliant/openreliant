@@ -1190,7 +1190,7 @@ test "a ship sliding into its place keeps the move its step has left" {
     mission.moveTo(TestMission.wingman, from);
     mission.turnTo(TestMission.wingman, wing.ahead);
     const object = &mission.slot(TestMission.wingman).object;
-    object.root.next_position = gameobj.vec3(from + Vector{ 0, 0, 30 });
+    object.root.next_position = .of(from + Vector{ 0, 0, 30 });
     aigeneric.objectOrders(mission.game.orders(), TestMission.wingman);
 
     // It slides a 200th of the way, and its move is still to come.

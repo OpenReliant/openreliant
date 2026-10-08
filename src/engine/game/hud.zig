@@ -3875,11 +3875,6 @@ pub const scanner_shape: u16 = 0xD1;
 pub const scanner_frames = 5;
 pub const scanner_step = 25;
 
-/// How far apart two points of the screen are.
-fn distance(a: Point, b: Point) f32 {
-    return @sqrt(@reduce(.Add, (b - a) * (b - a)));
-}
-
 /// A charge's bar: a line of the display's pixels `down` below the light's point, from one right
 /// of it to `length` further.
 fn drawBar(pen: Pen, at: [2]i32, down: i32, length: i32) void {
@@ -3895,7 +3890,7 @@ pub fn drawLine(into: device.Device, from: Point, to: Point, colour: [4]f32, wid
     // The line runs between the pixels' middles, and reaches half a pixel past each.
     const start = from + half;
     const end = to + half;
-    const length = distance(start, end);
+    const length = math.planeDistance(start, end);
     const along: Point = if (length > 0) (end - start) / @as(Point, @splat(length)) * half else .{ half[0], 0 };
     const across: Point = .{ -along[1], along[0] };
     fillQuad(into, .{ start - along - across, end + along - across, end + along + across, start - along + across }, colour);
@@ -5493,7 +5488,7 @@ fn drawCommsMarker(pen: Pen, sight: Sight, all: *const create.Objects, ship: u16
 
 /// An object's box, in its own frame.
 fn objectBox(object: *const gameobj.GameObject) [2]Vector {
-    return .{ gameobj.vector(object.bounds_min), gameobj.vector(object.bounds_max) };
+    return .{ object.bounds_min.vector(), object.bounds_max.vector() };
 }
 
 /// Where `box`, in the frame of `node`, falls on the screen as the camera sees it: the least and
@@ -5560,10 +5555,10 @@ pub fn leadLine(aim: Point, toward: Point, lock: i32, scale: f32) ?[2]Point {
     } else return null;
     start[minor] = (start[major] - to[major]) * apart[minor] / apart[major] + to[minor];
     const from: Point = start;
-    const length = distance(from, toward);
+    const length = math.planeDistance(from, toward);
     const shortening = @as(f32, @floatFromInt(missile_lock.idle_count - lock)) * lock_shortening * scale;
     if (!(shortening < length)) return null;
-    return .{ from, from + (toward - from) * @as(Point, @splat((length - shortening) / length)) };
+    return .{ from, math.lerp(from, toward, (length - shortening) / length) };
 }
 
 /// The arrow from the middle of the screen toward what lies `toward` from the player's ship: its tip

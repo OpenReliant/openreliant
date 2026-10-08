@@ -319,8 +319,8 @@ pub fn escapeDirection(slot: *const create.Slot, from: Vector) Vector {
     while (children.next()) |child| {
         const data = model.partData(child.index) orelse continue;
         for (data.nodes) |node| {
-            const toward = child.part.drawn().point(gameobj.vector(node.centre)) - from;
-            const gap = math.length(toward) - math.length(gameobj.vector(node.half_size));
+            const toward = child.part.drawn().point(node.centre.vector()) - from;
+            const gap = math.length(toward) - math.length(node.half_size.vector());
             if (gap < escape_reach and gap > 0) away += math.normalize(toward) * @as(Vector, @splat(gap - escape_reach));
         }
     }
@@ -357,7 +357,7 @@ pub fn collisionCourse(world: gameobj.World, index: u16, target: u16, steps: f32
     const reach = speeds * steps + struck.object.radius + ship.object.radius + margin;
     if (math.lengthSquared(apart) > reach * reach) return false;
     if (struck.object.flags.components) return partsInReach(struck, ship.object.nextPosition(), own_cruise * steps + margin);
-    const closing = gameobj.vector(struck.object.velocity) * @as(Vector, @splat(crash_target_share)) + gameobj.vector(ship.object.velocity);
+    const closing = struck.object.velocity.vector() * @as(Vector, @splat(crash_target_share)) + ship.object.velocity.vector();
     if (math.dot(ship.object.nextHeading(), apart) > 0) return false;
     const along = math.dot(apart, closing);
     if (-along < 0) return false;
@@ -386,8 +386,8 @@ fn partsInReach(struck: *const create.Slot, at: Vector, reach: f32) bool {
         const limit = reach + part.object.radius;
         if (limit * limit < math.distanceSquared(place.position, at)) continue;
         for (data.nodes) |node| {
-            const half = math.lengthSquared(gameobj.vector(node.half_size));
-            if (half + reach * reach > math.distanceSquared(place.point(gameobj.vector(node.centre)), at)) return true;
+            const half = math.lengthSquared(node.half_size.vector());
+            if (half + reach * reach > math.distanceSquared(place.point(node.centre.vector()), at)) return true;
         }
     }
     return false;
@@ -919,19 +919,19 @@ pub fn avoidNear(world: gameobj.World, index: u16, point: *Vector) bool {
         if (object.flags.outOfSearch()) continue;
         const apart = object.nextPosition() - from;
         if (math.dot(apart, heading) < -(object.radius + ship.radius)) continue;
-        const closing = gameobj.vector(object.velocity) - gameobj.vector(ship.velocity);
+        const closing = object.velocity.vector() - ship.velocity.vector();
         if (!(math.dot(heading, closing) < 0)) continue;
         const steps = (math.length(apart) - ship.radius - object.radius) / math.length(closing);
         if (!(steps <= near_steps)) continue;
 
         // Where the object will be then, as it will then be turned.
         const met: math.Place = .{
-            .position = object.nextPosition() + gameobj.vector(object.velocity) * @as(Vector, @splat(steps)),
+            .position = object.nextPosition() + object.velocity.vector() * @as(Vector, @splat(steps)),
             .orientation = object.root.next_orientation,
         };
         const scale: Vector = @splat(object.visibility);
         const widen: Vector = @splat(ship.radius);
-        var box: [2]Vector = .{ gameobj.vector(object.bounds_min) - widen, gameobj.vector(object.bounds_max) + widen };
+        var box: [2]Vector = .{ object.bounds_min.vector() - widen, object.bounds_max.vector() + widen };
         const start = met.inverse(from) * scale;
         const end = met.inverse(point.*) * scale;
         const share = objects.boxEntry(start, end, box) orelse continue;
@@ -1016,7 +1016,7 @@ pub fn avoidAhead(world: gameobj.World, index: u16, point: *Vector) bool {
         const object = &all.slots[@intCast(listed)].object;
         const toward = point.* - from;
         const steps = math.distance(object.nextPosition(), from) / cruise;
-        const ahead = object.nextPosition() + gameobj.vector(object.velocity) * @as(Vector, @splat(steps));
+        const ahead = object.nextPosition() + object.velocity.vector() * @as(Vector, @splat(steps));
         const to_ahead = ahead - from;
         const along = math.dot(toward, to_ahead);
         const share: f32 = if (along > 0) @min(along / math.lengthSquared(toward), 1) else 0;
@@ -1211,7 +1211,7 @@ test arrive {
     const world = mission.world();
     const place = struct {
         fn at(ship: *create.Slot, where: Vector) void {
-            ship.object.root.next_position = gameobj.vec3(where);
+            ship.object.root.next_position = .of(where);
             ship.object.root.next_orientation = math.identity;
             ship.drawn.position = where;
             ship.drawn.orientation = math.identity;

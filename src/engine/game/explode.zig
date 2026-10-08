@@ -236,7 +236,7 @@ pub const Explosions = struct {
             const slot = table.firstFree(BurnLight, &explosions.burn_lights) orelse return;
             slot.* = .{
                 .on = on,
-                .at = gameobj.vector(list.points[0].position),
+                .at = list.points[0].position.vector(),
                 .light = .{ .mask = 0, .intensity = burn_intensity, .colour = burn_colour, .kind = .{ .point = .{ .position = @splat(0), .range = burn_reach } } },
             };
         }
@@ -257,7 +257,7 @@ pub const Explosions = struct {
                 slot.* = .{ .on = .{ .part = on }, .emitter = .{
                     .life = if (forever) forever_life else burn_life,
                     .born = world.clock.frame_start,
-                    .place = .{ .position = gameobj.vector(point.position) },
+                    .place = .{ .position = point.position.vector() },
                     .direction = normal,
                     .spread = stream_spread,
                     .speed = stream_speed,
@@ -1046,7 +1046,7 @@ pub fn blast(world: gameobj.World, index: u16) void {
     const slot = &world.objects.slots[index];
     cloak.drop(slot);
     const at = slot.drawn.position;
-    const velocity = gameobj.vector(slot.object.velocity);
+    const velocity = slot.object.velocity.vector();
     const small = slot.object.flags.ejected or switch (slot.object.type.base()) {
         .escape_pod, .other_escape_pod, .late_escape_pod, .other_late_escape_pod, .proximity_mine => true,
         else => false,
@@ -1101,7 +1101,7 @@ pub fn burst(world: gameobj.World, index: u16) void {
     const slot = &world.objects.slots[index];
     cloak.drop(slot);
     const at = slot.drawn.position;
-    const velocity = gameobj.vector(slot.object.velocity);
+    const velocity = slot.object.velocity.vector();
     const radius = slot.object.radius;
     breakup.breakUp(world, index, .burst);
     scatter(world, at, burst_bits);
@@ -1136,7 +1136,7 @@ pub fn componentLost(world: gameobj.World, index: u16, model: *objects.Model, ro
     while (parts.next()) |at| reach += model.parts[at].object.radius;
     parts = model.assembly(link);
     while (parts.next()) |at| breakup.burstTree(world, slot, model, at, reach);
-    _ = burstFlames(world, root.position, gameobj.vector(slot.object.velocity));
+    _ = burstFlames(world, root.position, slot.object.velocity.vector());
     sound(world, root.position, .explosions);
 }
 
@@ -1378,8 +1378,8 @@ pub fn burnPart(world: gameobj.World, index: u16, name: []const u8, how: Burn) v
             if (pair.len < 2) break;
             const ray = rays.add(spec, world.random) catch return;
             ray.colour(0, burn_ray_colour);
-            ray.from = gameobj.vector(pair[0].position);
-            ray.to = gameobj.vector(pair[1].position);
+            ray.from = pair[0].position.vector();
+            ray.to = pair[1].position.vector();
             ray.hang(.{ .part = on });
             ray.owner = index;
         }

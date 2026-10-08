@@ -173,7 +173,7 @@ pub fn flyAimlessly(ctx: Context, index: u16) void {
     const turn = @as(f32, @floatFromInt(state.point)) * aimless_step * std.math.tau;
     const figure: f32 = @floatFromInt(state.figure);
     const local: Vector = .{ (@cos(turn) - 1) * (figure + 1) * aimless_side, 0, @sin(figure * turn) * aimless_ahead };
-    const point = math.transform(state.orientation, local) + gameobj.vector(state.start);
+    const point = math.transform(state.orientation, local) + state.start.vector();
     _ = ai.steer(ctx.world, index, point, ai.full_limit, ai.no_ease, .clear);
     if (math.distanceSquared(slot.object.nextPosition(), point) < aimless_reach * aimless_reach) state.point +%= 1;
 }
@@ -310,7 +310,7 @@ const run_away_throttle: f32 = 0.5;
 /// on.
 pub fn flyInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
-    slot.state.fly.heading = gameobj.vec3(slot.object.nextHeading());
+    slot.state.fly.heading = .of(slot.object.nextHeading());
 }
 
 /// `order_fly` (`0x0040AC20`): the update of Fly (6). It flies at the speed in the order's data, or
@@ -326,7 +326,7 @@ pub fn fly(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
-    const heading = gameobj.vector(slot.state.fly.heading);
+    const heading = slot.state.fly.heading.vector();
     const speed: f32 = @floatFromInt(slot.orders[0].data.fly);
     if (speed == 0) {
         object.throttle = ai.full_throttle;
@@ -678,7 +678,7 @@ pub fn attachInit(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const target = slot.orders[0].target.slotIn(all) orelse return;
-    slot.state.attach.offset = gameobj.vec3(all.slots[target].object.placeAt(.next).inverse(slot.object.nextPosition()));
+    slot.state.attach.offset = .of(all.slots[target].object.placeAt(.next).inverse(slot.object.nextPosition()));
 }
 
 /// `order_object_attach` (`0x0040B4F0`): the update of Object Attach (13). The ship rides its
@@ -691,7 +691,7 @@ pub fn attach(ctx: Context, index: u16) void {
     const target = slot.orders[0].target.slotIn(all) orelse return;
     const other = &all.slots[target].object;
     const next = other.placeAt(.next);
-    objects.setPlace(&slot.object, &slot.drawn, .{ .position = next.point(gameobj.vector(slot.state.attach.offset)), .orientation = next.orientation });
+    objects.setPlace(&slot.object, &slot.drawn, .{ .position = next.point(slot.state.attach.offset.vector()), .orientation = next.orientation });
     const object = &slot.object;
     object.rotation = other.rotation;
     object.velocity = other.velocity;
@@ -786,7 +786,7 @@ pub fn formation(ctx: Context, index: u16) void {
     const slot = &all.slots[index];
     const target = ai.targetOrPop(ctx, index, .{}) orelse return;
     const next = all.slots[target.slot].object.placeAt(.next);
-    _ = ai.arrive(ctx.world, index, next.point(gameobj.vector(slot.state.formation.place)), next.orientation, formation_least_throttle);
+    _ = ai.arrive(ctx.world, index, next.point(slot.state.formation.place.vector()), next.orientation, formation_least_throttle);
 }
 
 // --- Match Speed ----------------------------------------------------------------------------
@@ -1890,7 +1890,7 @@ test "Fly Aimlessly flies its figure from where it began, a point at a time" {
     const slot = mission.slot(ship);
     const state = &slot.state.aimless;
     try std.testing.expect(state.figure >= 1 and state.figure <= aimless_figures);
-    try std.testing.expectEqual(Vector{ 0, 0, 5000 }, gameobj.vector(state.start));
+    try std.testing.expectEqual(Vector{ 0, 0, 5000 }, state.start.vector());
     try std.testing.expectEqual(1, state.point);
     try std.testing.expect(slot.object.throttle >= aimless_throttle and slot.object.throttle <= aimless_throttle + aimless_throttle_spread);
     // Half way round, each figure is at its widest, to the side its X axis lies; there the ship
@@ -1899,7 +1899,7 @@ test "Fly Aimlessly flies its figure from where it began, a point at a time" {
         state.figure = @intCast(figure);
         state.point = 10;
         const widest = -2 * @as(f32, @floatFromInt(figure + 1)) * aimless_side;
-        slot.object.root.next_position = gameobj.vec3(math.xAxis(state.orientation) * @as(Vector, @splat(widest)) + gameobj.vector(state.start));
+        slot.object.root.next_position = .of(math.xAxis(state.orientation) * @as(Vector, @splat(widest)) + state.start.vector());
         flyAimlessly(ctx, ship);
         try std.testing.expectEqual(11, state.point);
     }
@@ -1923,7 +1923,7 @@ test "Formation flies abreast of its target, on alternate sides, and ends with i
     for ([_]i16{ 0, 1, 2, 3 }, [_]f32{ -3000, 3000, -6000, 6000 }) |sequence, x| {
         slot.orders[0].sequence = sequence;
         formationInit(ctx, ship);
-        try std.testing.expectEqual(Vector{ x, 0, 0 }, gameobj.vector(state.place));
+        try std.testing.expectEqual(Vector{ x, 0, 0 }, state.place.vector());
     }
     // At its place by the leader, it stops there.
     slot.object.root.next_position = .{ .x = 6000, .y = 0, .z = 10000 };

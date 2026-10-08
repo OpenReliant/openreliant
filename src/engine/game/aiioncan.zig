@@ -639,13 +639,13 @@ fn pointsOf(ref: objects.PartRef, kind: shp.PointList.Kind) []const shp.Point {
 /// The first of the points of `kind` that `ref`'s part lists, in its frame, where it lists one.
 fn first(ref: objects.PartRef, kind: shp.PointList.Kind) ?Vector {
     const points = pointsOf(ref, kind);
-    return if (points.len > 0) gameobj.vector(points[0].position) else null;
+    return if (points.len > 0) points[0].position.vector() else null;
 }
 
 /// Pair `n` of `points`, in their part's frame, where they hold it.
 fn pair(points: []const shp.Point, n: usize) ?[2]Vector {
     if (2 * n + 1 >= points.len) return null;
-    return .{ gameobj.vector(points[2 * n].position), gameobj.vector(points[2 * n + 1].position) };
+    return .{ points[2 * n].position.vector(), points[2 * n + 1].position.vector() };
 }
 
 /// `order_dark_reign_shoot_110_init` (`0x0040D020`): the init of Dark reign shoot (110). Where the
@@ -938,7 +938,7 @@ const TestCannon = struct {
             &.{.{ 0, 0, 50 }},
         };
         for (&cannon.lists, &cannon.points, kinds, at) |*list, *held, kind, positions| {
-            for (held[0..positions.len], positions) |*point, position| point.* = .{ ._unknown_00 = 0, .vertex = 0, .position = gameobj.vec3(position) };
+            for (held[0..positions.len], positions) |*point, position| point.* = .{ ._unknown_00 = 0, .vertex = 0, .position = .of(position) };
             list.* = .{ .kind = kind, .points = held[0..positions.len] };
         }
         data.point_lists = &cannon.lists;

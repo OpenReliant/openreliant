@@ -1578,7 +1578,7 @@ fn candidates(world: gameobj.World, bullet: *Bullet, record: Gun, lifetime: i32)
         const reach = moving * when + object.radius + hugeReach(bullet.kind);
         if (math.lengthSquared(nearest - to) >= reach * reach) continue;
         if (componentModel(slot)) |model| {
-            const end = bullet.at + (bullet.velocity - gameobj.vector(object.velocity)) * @as(Vector, @splat(life));
+            const end = bullet.at + (bullet.velocity - object.velocity.vector()) * @as(Vector, @splat(life));
             var listing: Listing = .{ .bullet = bullet, .object = index, .model = model, .from = bullet.at, .to = end };
             objects.hitWalk(model, object.placeAt(.next), &listing);
         } else {
@@ -1880,7 +1880,7 @@ fn hullHit(world: gameobj.World, bullet: *Bullet, index: u16, struck: collision.
     shieldfx.hullHit(world, index, at);
     const inside = if (world.camera) |watching| watching.inside(index) else false;
     if (!inside) {
-        const carried = gameobj.vector(slot.object.velocity) * @as(Vector, @splat(hull_sparks_carry));
+        const carried = slot.object.velocity.vector() * @as(Vector, @splat(hull_sparks_carry));
         sparks.spray(world, .hull, at, at - slot.drawn.position, carried, hull_sparks);
     }
     bullet.dies_at = spent;

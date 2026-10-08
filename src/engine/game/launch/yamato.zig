@@ -194,7 +194,7 @@ fn showHangar(ctx: aigeneric.Context, frame: math.Place, bounds: [2]math.Vector)
     for (&effects.due) |*due| due.* = world.clock.frame_start + @as(i32, world.random.rand() % vent_pause);
     var at = (bounds[0] + bounds[1]) * @as(math.Vector, @splat(0.5));
     at[0] = bounds[1][0];
-    var front = (gameobj.vector(shown.object.bounds_min) + gameobj.vector(shown.object.bounds_max)) * @as(math.Vector, @splat(0.5));
+    var front = (shown.object.bounds_min.vector() + shown.object.bounds_max.vector()) * @as(math.Vector, @splat(0.5));
     front[2] = shown.object.bounds_max.z;
     const turn = all.slots[all.player].object.root.next_orientation;
     objects.setPlace(&shown.object, &shown.drawn, .{ .position = frame.point(at) - math.transform(turn, front), .orientation = turn });

@@ -18,6 +18,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const layout = @import("../../formats/layout.zig");
 const engine = @import("../../engine.zig");
 const shp = @import("../../formats/shp.zig");
 const math = @import("../surrender/math.zig");
@@ -136,10 +137,7 @@ pub const Style = enum(i32) {
     }
 
     pub fn format(style: Style, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return switch (style) {
-            _ => writer.print("style {d}", .{@backingInt(style)}),
-            inline else => |named| writer.writeAll(@tagName(named)),
-        };
+        return layout.formatTagAs(Style, style, "style", writer);
     }
 };
 
@@ -317,7 +315,7 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     if (state.style.routines()) |found| found.init(ctx, index, carrier);
     if (if (slot.riding) |riding| riding.place(all) else null) |node| {
         const relative = slot.drawn.relativeTo(node);
-        state.position = gameobj.vec3(relative.position);
+        state.position = .of(relative.position);
         state.orientation = relative.orientation;
         state.attached = true;
     }
@@ -423,7 +421,7 @@ pub fn hold(all: *create.Objects, index: u16) bool {
     const state = &slot.state.launch;
     if (!state.attached) return false;
     const node = (slot.riding orelse return false).place(all) orelse return false;
-    const riding: math.Place = .{ .position = gameobj.vector(state.position), .orientation = state.orientation };
+    const riding: math.Place = .{ .position = state.position.vector(), .orientation = state.orientation };
     objects.setPlace(&slot.object, &slot.drawn, riding.within(node));
     return true;
 }
@@ -550,9 +548,9 @@ pub fn attach(all: *create.Objects, index: u16, on: u16, gate: i16) void {
     const point = Points.nth(model, std.math.cast(usize, gate) orelse return) orelse return;
     slot.riding = .{ .object = on, .part = point.part };
     const frame = model.frameAt(point.part, holder.drawn);
-    const standing: math.Place = .{ .position = gameobj.vector(point.attachment.position), .orientation = point.attachment.orientation };
+    const standing: math.Place = .{ .position = point.attachment.position.vector(), .orientation = point.attachment.orientation };
     const at = standing.within(frame);
-    objects.setPlace(&slot.object, &slot.drawn, .{ .position = at.point(gameobj.vector(slot.object.centre)), .orientation = at.orientation });
+    objects.setPlace(&slot.object, &slot.drawn, .{ .position = at.point(slot.object.centre.vector()), .orientation = at.orientation });
 }
 
 /// `launch_point_init` (`0x0041A4B0`), the first routine of the escape pods' styles and the
