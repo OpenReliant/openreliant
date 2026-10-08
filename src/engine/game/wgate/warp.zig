@@ -30,6 +30,10 @@ const beam_width: f32 = 110;
 const beam_length: f32 = 400;
 const beam_source_ahead: f32 = 300;
 const beam_span = [2][2]f32{ .{ 0.04, 0.04 }, .{ 0.99, 0.99 } };
+/// The beams' material, for the end quad and the blades alike (`0x0041D41A` to `0x0041D448`): the
+/// mesh's own texture coordinates, lit, which for an object with colours of its own means coloured
+/// by them, and added by alpha.
+const beam_material: srapiext.Material = .onePass(.{ .coordinates = .mesh, .lit = true, .blend = .add_alpha });
 const emitter_life = 10000;
 const emitter_spread: f32 = 0.15;
 const emitter_speed: f32 = 10;
@@ -110,7 +114,7 @@ pub const Effect = struct {
             for (mesh.positions[4..], 0..) |*position, n| if (n % 4 == 1 or n % 4 == 2) {
                 position[2] = distance;
             };
-            // The original supplies red colours, but its unlit material draws the texture alone.
+            // Red, clear at the projector and as bright as the effect at the far end.
             for (colours, 0..) |*colour, n| colour.* = .{ 1, 0, 0, if (n % 4 == 1 or n % 4 == 2) @max(effect.brightness, 0) else 0 };
             srapi.calcPolyNormals(mesh);
             srapi.calcVertexNormals(mesh);
@@ -156,8 +160,9 @@ pub const Effect = struct {
     }
 };
 
-/// `warp_beam_build` (`0x0041D2B0`): an end quad followed by three longitudinal blades.
-/// Shares quad numbering and mesh construction with gun beams, without adding a second shape.
+/// `warp_beam_build` (`0x0041D2B0`): an end quad followed by three longitudinal blades, drawn with
+/// `beam_material`. Shares quad numbering and mesh construction with gun beams, without adding a
+/// second shape.
 fn beamMesh(gpa: std.mem.Allocator, image: *srtexture.Image) std.mem.Allocator.Error!srapiext.Mesh {
     var corners: [(beam_blades + 1) * 4]math.Vector = undefined;
     var uv: [corners.len][2]f32 = undefined;
@@ -170,7 +175,7 @@ fn beamMesh(gpa: std.mem.Allocator, image: *srtexture.Image) std.mem.Allocator.E
         uv[(n + 1) * 4 ..][0..4].* = guns.bladeCorners(beam_span);
         faces[n + 1] = guns.quadFace(n + 1);
     }
-    return guns.meshOf(4, gpa, &corners, &faces, &uv, guns.meshMaterial(false), image);
+    return guns.meshOf(4, gpa, &corners, &faces, &uv, beam_material, image);
 }
 
 /// `warp_projector_beams` (`0x0041D510`): point group 10 supplies the projector origin.
@@ -660,8 +665,11 @@ test "warp beam geometry has the original cap and three blades" {
         try std.testing.expectEqual(4, mesh.polygons.len);
         try std.testing.expectEqual(0, mesh.positions[0][2]);
         try std.testing.expectEqual(beam_length, mesh.positions[5][2]);
-        try std.testing.expectEqual(.add, mesh.surfaces[0].material.blend[0]);
-        try std.testing.expectEqual(.mesh, mesh.surfaces[0].material.coordinates[0]);
+        // Lit, so that it takes the object's own colours, and added by their alpha.
+        const material = mesh.surfaces[0].material;
+        try std.testing.expect(material.lit[0]);
+        try std.testing.expectEqual(.add_alpha, material.blend[0]);
+        try std.testing.expectEqual(.mesh, material.coordinates[0]);
     }
 }
 
