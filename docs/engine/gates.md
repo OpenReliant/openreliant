@@ -149,12 +149,13 @@ The ship aligns with its target. The player faces it immediately and marks objec
 500000-unit corridor ahead as jumping; other ships steer until their inputs and turn rates
 are within 0.05. The projection sound plays and the player's camera takes view 9.
 
-The order creates a kind-0 record, saves the departure frame and freezes the ship. Four
-beams connect its warp projectors to two counter-rotating endpoint frames. The original supplies
-red vertex colours, but the unlit material draws the texture's own colour. Point group 10
-supplies the origins; the Yamato uses four points on `Yam_Warp_Proj_3`. Without projector
-points, the origin is 300 units ahead of the ship. Each beam has a cap and three blades,
-110 units wide on either side. Its endpoints stream particles with a 120-tick life.
+The order creates a kind-0 record, saves the departure frame and freezes the ship. Four beams
+connect its warp projectors to two counter-rotating endpoint frames. Each beam is red, clear at
+the projector and as bright as the effect at the far end: it has colours of its own, and its
+material uses them (it is lit) and adds by their alpha (`0x0041D41A` to `0x0041D448`). Point group
+10 supplies the origins; the Yamato uses four points on `Yam_Warp_Proj_3`. Without projector
+points, the origin is 300 units ahead of the ship. Each beam has a cap and three blades, 110 units
+wide on either side. Its endpoints stream particles with a 120-tick life.
 
 The opening depth follows square-root easing. Ring spacing is 900 units for ships without
 components and 4000 for ships with them. Rings start updating once the depth exceeds 800.
