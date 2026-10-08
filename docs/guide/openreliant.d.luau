@@ -16,7 +16,7 @@ type TurretKind = "aimed" | "spinning" | "launcher"
 type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 type Carrier = "reliant" | "yamato"
 type HudInstrument = "caption" | "key_prompt" | "jump_prompt" | "target_markers" | "eject_marker" | "scanner" | "lights" | "view_name" | "subtitle" | "messages" | "nav_marker" | "fuel" | "kills" | "countermeasures" | "ship_status" | "gauges" | "radar" | "reticle" | "clock" | "radio" | "gunnery" | "missiles" | "target_display" | "damage" | "power" | "big_target_display" | "objectives" | "comms" | "wing_status"
-type HudTargetForm = "small" | "large"
+type TargetForm = "small" | "large" | number
 type Quadrant = "left" | "right" | "fore" | "aft"
 type PartClass = "hull" | "cockpit" | "turret" | "engine" | "shield_generator" | "comms_transmitter" | "gravity_drive" | "laser_turret" | "missile_turret" | "power_core" | "satellite_dish" | "service_door" | "shaft" | "surface_building" | "twin_power_cores" | "vent_hatch" | "ion_cannon" | "armored_plate" | "cap_gun" | "warp_projector" | "fuel_pod" | number
 type HudContactLook = "other" | "hostile" | "speaker" | "target" | "nav_point"
@@ -25,7 +25,7 @@ type Action = "cockpit_camera" | "left_view_camera" | "right_view_camera" | "rea
 type HudJumpPrompt = "jump" | "warp"
 type HudWindowPhase = "shut" | "opening" | "closing" | "open"
 type Font = "default" | "hud" | "menu_small" | "menu_large"
-type Align = "left" | "centre" | "right" | number
+type Align = "left" | "center" | "right"
 type FrontEndScreen = "main_menu" | "game_options" | "audio" | "briefing" | "landing_movie" | "pilot_roster" | "saved_games" | "connection" | "video" | "controls" | "mods" | "mod_options" | "game_modes" | "mode_briefing" | "mode_ending" | number
 type Key = "escape" | "one" | "two" | "three" | "four" | "five" | "six" | "seven" | "eight" | "nine" | "zero" | "minus" | "equals" | "backspace" | "tab" | "q" | "w" | "e" | "r" | "t" | "y" | "u" | "i" | "o" | "p" | "left_bracket" | "right_bracket" | "enter" | "left_control" | "a" | "s" | "d" | "f" | "g" | "h" | "j" | "k" | "l" | "semicolon" | "apostrophe" | "grave" | "left_shift" | "backslash" | "z" | "x" | "c" | "v" | "b" | "n" | "m" | "comma" | "period" | "slash" | "right_shift" | "keypad_multiply" | "left_alt" | "space" | "caps_lock" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "num_lock" | "scroll_lock" | "keypad_7" | "keypad_8" | "keypad_9" | "keypad_minus" | "keypad_4" | "keypad_5" | "keypad_6" | "keypad_plus" | "keypad_1" | "keypad_2" | "keypad_3" | "keypad_0" | "keypad_period" | "non_us_backslash" | "f11" | "f12" | "keypad_enter" | "right_control" | "keypad_divide" | "print_screen" | "right_alt" | "pause" | "home" | "up" | "page_up" | "left" | "right" | "end" | "down" | "page_down" | "insert" | "delete" | "left_windows" | "right_windows" | "menu" | number
 type Modifier = "none" | "shift" | "control" | "alt" | number
@@ -45,10 +45,9 @@ type MissionCommandResult = "wait" | "run_on" | number
 type RestartChoice = "replay_from_briefing" | "replay_from_launch" | "main_menu"
 type Medal = "silver" | "black_eagle" | "valour" | "legion" | "navy_cross" | "medal_of_honour"
 type Condition = "shot_at" | "destroyed" | "launched" | "camera_reached" | "ship_reached" | "proximity_close" | "proximity_general" | "object_scooped" | "player_ready_to_jump" | "jumped_in" | "fixed_gate_jumped_in" | "player_ready_to_warp" | "jumped_through_hoop" | "player_wants_backup" | "ripper_grabbed_object" | "ripper_dropped_object" | "cloaked" | "decloaked" | "targetted" | "player_l1_doubletap" | "player_l2_doubletap" | "player_r1_doubletap" | "player_r2_doubletap" | "player_l1_l2_r1_r2_pressed" | "player_l1_r1_pressed" | "game_timer_expired" | "tractor_beam_locked" | "tractor_beam_broken" | "inside_object" | "outside_object" | "docked" | "undocked" | "being_chased" | "call_reinforcements" | "explosion_ship" | number
-type TargetDisplay = "small" | "large" | number
 type PilotTier = "level_0" | "level_1" | "level_2" | number
 type PilotSkill = "low" | "medium" | "high" | number
-type View = "cockpit" | "cockpit_left" | "cockpit_right" | "cockpit_rear" | "chase" | "chase_too" | "launch_bay" | "launch_below" | "launch_aside" | "landing_tube" | "landing_aside" | "jump_out" | "jump_in_close" | "jump_in_ahead" | "jump_in_aside" | "target" | "external" | "director" | "pull_back" | "missile" | "eject" | "pickup" | "pod_shot" | "watch" | "watch_marker" | "flyby" | "nanny_dock" | "warp_prepare" | "warp_depart" | "warp_arrive" | "landing_bay" | "landing_ship" | "yamato_beside" | "yamato_ahead" | "yamato_aside" | number
+type View = "cockpit" | "cockpit_left" | "cockpit_right" | "cockpit_rear" | "chase" | "spectator" | "launch_bay" | "launch_below" | "launch_aside" | "landing_tube" | "landing_aside" | "jump_out" | "jump_in_close" | "jump_in_ahead" | "jump_in_aside" | "target" | "external" | "director" | "pull_back" | "missile" | "eject" | "pickup" | "pod_shot" | "watch" | "watch_marker" | "flyby" | "nanny_dock" | "warp_prepare" | "warp_depart" | "warp_arrive" | "landing_bay" | "landing_ship" | "yamato_beside" | "yamato_ahead" | "yamato_aside" | number
 
 -- Tables of values, which scripts can only read.
 
@@ -108,14 +107,13 @@ type OrderFlags = {
 }
 type OrderEntry = {
     order: string | number,
-    target: Object?,
-    component: number?,
+    target: Target,
 }
 type HudGuns = {
     group: number,
     groups: number,
     all: boolean,
-    synchronised: boolean,
+    synchronized: boolean,
     gun: GunType?,
     charge: number,
     full_charge: number,
@@ -133,7 +131,7 @@ type HudMissile = {
     place: number,
 }
 type HudTargetDisplay = {
-    form: HudTargetForm,
+    form: TargetForm,
     name: string?,
     pilot: string?,
     range: number,
@@ -197,7 +195,7 @@ type HudDamage = {
 }
 type HudPower = {
     shields: number,
-    guns: number,
+    weapons: number,
     engines: number,
 }
 type HudWingman = {
@@ -206,7 +204,7 @@ type HudWingman = {
     armor: number,
 }
 type HudObjectives = {
-    shown: number?,
+    showing: number?,
     list: { HudObjective },
 }
 type HudObjective = {
@@ -225,24 +223,24 @@ type HudWindowState = {
     opened: number,
 }
 type FillStyle = {
-    colour: vector?,
+    color: vector?,
     alpha: number?,
 }
 type ShapeStyle = {
-    colour: vector?,
+    color: vector?,
     alpha: number?,
     scale: number?,
 }
 type TextStyle = {
     font: string?,
     base_font: Font?,
-    colour: vector?,
+    color: vector?,
     alpha: number?,
     scale: number?,
     align: Align?,
 }
 type LineStyle = {
-    colour: vector?,
+    color: vector?,
     alpha: number?,
     width: number?,
 }
@@ -254,7 +252,7 @@ type Pointer = {
     at: vector,
     down: boolean,
 }
-type Definition = {
+type ActionDefinition = {
     label: string,
     key: Key?,
     modifier: Modifier?,
@@ -400,14 +398,14 @@ declare class Object
     function send_event(self, name: string, data: any): ()
     -- Starts the script `name` of the calling mod on the object, as an object script, and passes `data` to its `on_init`. Returns whether it started. Only global scripts can add scripts.
     function add_script(self, name: string, data: any?): boolean
+    -- Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts.
+    function remove_script(self, name: string): boolean
     -- `hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own.
     function hook(self, name: string, handler: (e: any) -> boolean?, filter: (Filter | (e: any) -> boolean)?): HookHandle
     -- Draws the object with the surface function `name`, the calling mod's by its own name or any mod's by the qualified one, reading `parameters`; nil draws it with its textures' functions again. Returns false if no function of that name is registered. Only player scripts can set it.
     function set_surface(self, name: string?, parameters: { number }?): boolean
     -- Its turrets: its guns that turn to aim, spin their barrels or launch missiles, destroyed ones included, in the order of its guns.
     function turrets(self): { Turret }
-    -- Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts.
-    function remove_script(self, name: string): boolean
 end
 declare class Missile
     -- Its type, such as `raptor`, or the qualified name of one a mod adds.
@@ -473,7 +471,7 @@ declare class ShipTypeRecord
     name: number
     class: ShipClass
     side: Side
-    display: TargetDisplay
+    display: TargetForm
 end
 declare class Gun
     name: string
@@ -561,7 +559,7 @@ type Nearby = {
 type Orders = {
     -- Registers an order, which `name` qualified with the mod's name names. `update` runs each frame on each ship that follows it, and returns false to end the order; `init` runs as it starts, and `exit` as it ends. They can't give or end orders. Returns the qualified name, which `give_order` and `orders.info` take. The order goes away when the scripts that registered it stop.
     register: (name: string, definition: {priority: number?, flags: OrderFlags?, init: ((ship: Object, target: Object?, seconds: number) -> ())?, update: (ship: Object, target: Object?, seconds: number) -> boolean?, exit: ((ship: Object, target: Object?, seconds: number) -> ())?}) -> string,
-    -- The name, priority and flags of `order`, one of the game's or a mod's by its qualified name. Nil for an order that doesn't exist, or a mod's that failed.
+    -- The name, priority and flags of `order`: one of the game's, the calling mod's by its own name, or any mod's by the qualified one. Nil for an order that doesn't exist, or a mod's that failed.
     info: (order: string | number) -> OrderInfo?,
     -- The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends.
     stack: (object: Object) -> { OrderEntry },
@@ -639,7 +637,7 @@ type Hud = {
     height: number,
     -- Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name.
     register_display: (name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?}) -> string,
-    -- Enables or disables a registered HUD display by qualified name. Returns whether it exists.
+    -- Turns the display `name` on or off: the calling mod's by its own name, or any mod's by the qualified one. Returns whether it's registered.
     set_display_enabled: (name: string, enabled: boolean) -> boolean,
     -- Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission.
     bounds: (instrument: HudInstrument) -> HudBounds?,
@@ -683,7 +681,7 @@ type Ui = {
     play_movie: (name: string) -> (),
     -- Asks the front end to quit the game. Only menu scripts can use it.
     quit: () -> (),
-    -- Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists.
+    -- Shows the screen `name`: the calling mod's by its own name, or any mod's by the qualified one. Nil closes the screen shown. Returns whether it's registered.
     show_screen: (name: string?) -> boolean,
     -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
@@ -702,10 +700,10 @@ type Ui = {
 -- Whether keys are held, and the controls bound to actions.
 type Input = {
     -- Registers an action, which `name` qualified with the mod's name names, and which the controls screen lists by its `label` for the player to bind. A default key or button that's already taken stays unbound. Returns the qualified name, which `action_down` and `on_action` use. Only menu scripts can use it.
-    register_action: (name: string, definition: Definition) -> string,
+    register_action: (name: string, definition: ActionDefinition) -> string,
     -- Whether `key` is held down.
     key_down: (key: Key) -> boolean,
-    -- Whether the controls bound to `action` are held: its key, or its joystick button.
+    -- Whether the controls bound to `action` are held: its key, or its joystick button. The action is one of the game's (`Action`), the calling mod's by its own name, or any mod's by the qualified one.
     action_down: (action: string | number) -> boolean,
 }
 
@@ -715,7 +713,7 @@ type Camera = {
     view: (string | number)?,
     -- Registers a camera view, which `name` qualified with the mod's name names. `frame` gives the camera's position and orientation each frame; its axes must be unit length, at right angles and right-handed. A failed `frame` goes back to the cockpit view. Returns the qualified name.
     register_view: (name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?}) -> string,
-    -- Switches to `view`, one of the game's or a mod's by its qualified name, looking at `object`, or at the player's ship where it's nil. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it.
+    -- Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it.
     set_view: (view: string | number, object: Object?) -> boolean,
 }
 
@@ -798,12 +796,12 @@ type Vfs = {
 }
 
 -- The options a mod offers the player on the mods screen: declaring the page, and reading the values.
-type Settings = {
+type Options = {
     -- Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `"toggle"` has a boolean default. A `"choice"` has `choices`, each a `value` and a `label`, and a default among their values. A `"number"` has `min`, `max` and `step`, and a default in the range, and arrows step it. A `"slider"` is a number with a knob to drag, for a wide range. A `"text"` is a line the player types, of up to 24 characters, with a string default. A `"heading"` has only a `label`, and splits a long page. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page.
     register_page: (page: Page) -> (),
     -- The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set.
     get: (key: string) -> boolean | number | string,
-    -- Sets the option `key` of the calling mod's page to `value`, as the player does on the mods screen: a toggle to a boolean, a number to a number, which is held to its range, a choice to one of its values, and a text to a string of up to 24 characters. The value is kept, and menu scripts hear of the change (`on_setting_changed`).
+    -- Sets the option `key` of the calling mod's page to `value`, as the player does on the mods screen: a toggle to a boolean, a number to a number, which is held to its range, a choice to one of its values, and a text to a string of up to 24 characters. The value is kept, and menu scripts hear of the change (`on_option_changed`).
     set: (key: string, value: boolean | number | string) -> (),
 }
 
@@ -836,10 +834,6 @@ type Interfaces = {
         add_hook: HooksAdd,
         after_hook: HooksAfter,
     },
-    Weapons: {
-        add_hook: HooksAdd,
-        after_hook: HooksAfter,
-    },
     Carriers: {
         give_order: (self: Object, order: string | number, target: Object?, component: number?) -> boolean,
         start_launch: (self: Object) -> boolean,
@@ -852,7 +846,7 @@ type Interfaces = {
         set_view: (view: string | number, object: Object?) -> boolean,
     },
     Controls: {
-        register_action: (name: string, definition: Definition) -> string,
+        register_action: (name: string, definition: ActionDefinition) -> string,
         key_down: (key: Key) -> boolean,
         action_down: (action: string | number) -> boolean,
     },
@@ -1034,9 +1028,9 @@ declare class MissileLaunch
     function original(self): ()
 end
 
--- One of the missile turrets of `object` launches a Screamer at `target`.
+-- One of the missile turrets of `launcher` launches a Screamer at `target`.
 declare class MissileLaunchTurret
-    object: Object
+    launcher: Object
     target: Target
     -- Runs the rest of the call now: the handlers after this one, then the function.
     function original(self): ()
@@ -1673,7 +1667,7 @@ type PlayerScript = {
         on_key_release: ((key: Key) -> ())?,
         on_action: ((action: string) -> ())?,
         on_console_command: ((text: string) -> ())?,
-        on_viewport_resized: ((width: number, height: number) -> ())?,
+        on_window_resized: ((width: number, height: number) -> ())?,
         on_interface_override: ((base: { [any]: any }) -> ())?,
     }?,
     event_handlers: { [string]: (data: any) -> boolean? }?,
@@ -1691,9 +1685,9 @@ type MenuScript = {
         on_key_release: ((key: Key) -> ())?,
         on_action: ((action: string) -> ())?,
         on_console_command: ((text: string) -> ())?,
-        on_viewport_resized: ((width: number, height: number) -> ())?,
+        on_window_resized: ((width: number, height: number) -> ())?,
         on_interface_override: ((base: { [any]: any }) -> ())?,
-        on_setting_changed: ((key: string, value: boolean | number | string) -> ())?,
+        on_option_changed: ((key: string, value: boolean | number | string) -> ())?,
     }?,
     event_handlers: { [string]: (data: any) -> boolean? }?,
     interface_name: string?,

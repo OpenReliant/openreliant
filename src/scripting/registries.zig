@@ -322,7 +322,9 @@ pub fn show(call: api.Call, kind: Kind, name: ?[]const u8, enabled: bool) bool {
         registry.selected_screen = null;
         return true;
     }
-    const index = registry.find(kind, name orelse return false) orelse return false;
+    var buffer: [runtime.max_name]u8 = undefined;
+    const qualified = call.named(name orelse return false, &buffer) orelse return false;
+    const index = registry.find(kind, qualified) orelse return false;
     if (kind == .display) registry.entries.items[index].shown = enabled else registry.selected_screen = index;
     return true;
 }

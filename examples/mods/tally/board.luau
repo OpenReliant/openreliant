@@ -16,7 +16,7 @@ local best = storage.global_section("best")
 -- How long the message shows after a kill, in seconds, its size, and the board's colour.
 local message_seconds = 3
 local message_scale = 1.5
-local colour = vector.create(1, 0.8, 0.3)
+local color = vector.create(1, 0.8, 0.3)
 
 local missions = 0
 -- The kills the board has seen, so that it knows when there's a new one.
@@ -59,10 +59,10 @@ return {
             local middle = hud.width / 2
             local y = hud.height * 0.12
             local board = string.format("KILLS %d IN %d MISSIONS    BEST GAME %d", kills, missions, best.kills or 0)
-            hud.text(vector.create(middle, y, 0), board, { colour = colour, align = "centre" })
+            hud.text(vector.create(middle, y, 0), board, { color = color, align = "center" })
             if message then
                 y += hud.measure(board).height * 2
-                hud.text(vector.create(middle, y, 0), message, { colour = colour, align = "centre", scale = message_scale })
+                hud.text(vector.create(middle, y, 0), message, { color = color, align = "center", scale = message_scale })
             end
         end,
     },

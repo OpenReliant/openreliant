@@ -10,7 +10,7 @@ local band_counts = { 2, 3, 4 }
 local band_count = 2
 -- How wide the outline is in pixels, and how many levels each colour keeps.
 local outline = 3
-local colour_levels = 8
+local color_levels = 8
 
 local shown = true
 
@@ -24,7 +24,7 @@ shaders.register_surface({
     name = "ink",
     shader = "ink.glsl",
     everywhere = true,
-    parameters = { outline, colour_levels },
+    parameters = { outline, color_levels },
 })
 
 local function shifted()

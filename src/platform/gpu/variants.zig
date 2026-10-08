@@ -26,7 +26,7 @@ const programs = @import("programs.zig");
 const functions_line = "// mod_functions";
 
 /// The most parts a variant is compiled from: the device shader cut where it includes
-/// `colour.glsl`, the two functions, and the rest of the shader after them.
+/// `color.glsl`, the two functions, and the rest of the shader after them.
 pub const max_parts = programs.max_parts + 2 + 1;
 
 comptime {
@@ -41,7 +41,7 @@ pub const Template = struct {
     after: Part,
 
     /// `file` cut where the mods' functions go, with `included` in place of the line that includes
-    /// `colour.glsl`; null if it has no line `// mod_functions` after that one.
+    /// `color.glsl`; null if it has no line `// mod_functions` after that one.
     pub fn of(file: Part, included: Part) ?Template {
         var template: Template = .{ .before = undefined, .before_count = 0, .after = undefined };
         const cut = programs.parts(file, included, &template.before);
@@ -55,7 +55,7 @@ pub const Template = struct {
 
     /// OpenReliant's own device shader, cut.
     pub fn builtin() Template {
-        return of(programs.Name.device.own(), programs.colour).?;
+        return of(programs.Name.device.own(), programs.color).?;
     }
 
     /// The parts of the variant with the lighting function `lighting` and the surface function

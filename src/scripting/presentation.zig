@@ -7,7 +7,7 @@
 //! - Its `Player` scripts start as a game starts, and stop as it ends, as the global scripts do.
 //! - Both get `on_frame` each frame drawn, even while the game is paused; `on_key_press` and
 //!   `on_key_release` as keys go down and up; `on_action` as the controls bound to an action are
-//!   used in flight; and `on_viewport_resized` as the window changes size.
+//!   used in flight; and `on_window_resized` as the window changes size.
 //! - They draw over the flight display and the menus (`drawing.zig`), and change the game only by
 //!   sending events to the global scripts (`core.send_global_event`), whose data is copied into the
 //!   game's state, as it would be sent to another machine.
@@ -267,8 +267,8 @@ pub const Presentation = struct {
     }
 
     /// Tells the scripts of the mod `mod` that the player set its option `option` to `value`.
-    pub fn settingChanged(shown: *Presentation, mod: []const u8, option: []const u8, value: mod_options.Value) void {
-        shown.runner.callMod(mod, .on_setting_changed, .{ .key = option, .value = value });
+    pub fn optionChanged(shown: *Presentation, mod: []const u8, option: []const u8, value: mod_options.Value) void {
+        shown.runner.callMod(mod, .on_option_changed, .{ .key = option, .value = value });
     }
 
     /// Tells the scripts that `key` went down or up. A key held down that the window repeats is
@@ -293,7 +293,7 @@ pub const Presentation = struct {
         for (&shown.layers.values) |*layer| layer.clear();
         shown.assets.startFrame();
         if (shown.window) |last| {
-            if (!std.mem.eql(u32, &last, &host.window)) shown.runner.callAll(.on_viewport_resized, .{ .width = host.window[0], .height = host.window[1] });
+            if (!std.mem.eql(u32, &last, &host.window)) shown.runner.callAll(.on_window_resized, .{ .width = host.window[0], .height = host.window[1] });
         }
         shown.window = host.window;
         var held: std.EnumSet(controls.Action) = .empty;
@@ -409,7 +409,7 @@ const Fixture = struct {
         try fixture.mission.init(gpa);
         errdefer fixture.mission.deinit();
         _ = try fixture.mission.add(.of(.predator), @splat(0));
-        if (shared.settings != null) try load.run(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", shared);
+        if (shared.option_pages != null) try load.run(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", shared);
         fixture.shown = (try Presentation.start(gpa, io, fixture.mods.list, &fixture.held, "0.7.0", shared)).?;
     }
 
@@ -444,7 +444,7 @@ test "menu actions dispatch qualified press edges in flight and close on reload"
                 \\assert(not pcall(function() input.register_action("pulse", {label = "Duplicate"}) end))
                 \\return {engine_handlers = {on_action = function(name)
                 \\    if name == action then
-                \\        count += 1; assert(count == 1 and input.action_down(action))
+                \\        count += 1; assert(count == 1 and input.action_down(action) and input.action_down("pulse"))
                 \\    end
                 \\end, on_frame = function()
                 \\    require("openreliant.ui").text(vector.zero, tostring(count))
@@ -487,7 +487,11 @@ test "registered views, displays and screens execute and close with their contex
                 \\    return {position = ship.position + vector.create(0, -50, -100), orientation = util.from_angles(vector.zero)}
                 \\end})
                 \\hud.register_display("status", {frame = function() hud.text(vector.zero, "registered display") end})
+                \\-- Within the mod, its own names work as well as the qualified ones.
+                \\assert(hud.set_display_enabled("status", true) and hud.set_display_enabled("a:status", true))
+                \\assert(not hud.set_display_enabled("b:status", true) and not hud.set_display_enabled("no such", true))
                 \\return {engine_handlers = {on_frame = function()
+                \\    assert(camera.set_view("follow") and camera.view == view)
                 \\    assert(camera.set_view(view))
                 \\    assert(camera.view == view)
                 \\end}}
@@ -497,7 +501,7 @@ test "registered views, displays and screens execute and close with their contex
                 \\local ui = require("openreliant.ui")
                 \\local screen = ui.register_screen("panel", {frame = function() ui.text(vector.zero, "registered screen") end,
                 \\    key = function(key, down) if key == "escape" and down then assert(ui.show_screen(nil)) end end})
-                \\assert(ui.show_screen(screen))
+                \\assert(ui.show_screen("panel") and ui.show_screen(screen))
             },
         },
     }});
@@ -744,9 +748,9 @@ test "a display reads the windows and the display's text" {
                 \\return {engine_handlers = {on_frame = function()
                 \\    local d, p, w, o = hud.damage, hud.power, hud.wingmen, hud.objectives
                 \\    hud.text(vector.zero, string.format("%.2f %.2f %.2f|%d %d %d|%d %d %d %.2f|%d %d %s %s %d %s|%s|%s|%s|%s|%s",
-                \\        d.weapons, d.engines, d.shields, p.shields, p.guns, p.engines,
+                \\        d.weapons, d.engines, d.shields, p.shields, p.weapons, p.engines,
                 \\        #w, w[1].object.slot, w[1].number, w[1].armor,
-                \\        o.shown, #o.list, o.list[1].name, tostring(o.list[1].current), o.list[2].number, tostring(o.list[2].name),
+                \\        o.showing, #o.list, o.list[1].name, tostring(o.list[1].current), o.list[2].number, tostring(o.list[2].name),
                 \\        table.concat(hud.comms, ","), table.concat(hud.messages, ","), hud.subtitle, hud.key_prompt,
                 \\        hud.jump_prompt))
                 \\end}}
@@ -1087,13 +1091,13 @@ test "menu scripts draw over the menus, and hear keys and the window" {
                 \\local resized = nil
                 \\return { engine_handlers = {
                 \\    on_key_press = function(key) if key == "escape" then presses += 1 end end,
-                \\    on_viewport_resized = function(width, height) resized = width end,
+                \\    on_window_resized = function(width, height) resized = width end,
                 \\    on_frame = function(seconds)
                 \\        assert(ui.width == (resized or 800))
                 \\        -- Code 1 is two pixels wide and tall, drawn at twice the game's size.
                 \\        local size = ui.measure("\1\1", 2)
                 \\        assert(size.width == 16 and size.height == 8)
-                \\        ui.text(vector.create(10, 20, 0), "pressed " .. presses, { colour = vector.create(1, 0, 0), align = "centre" })
+                \\        ui.text(vector.create(10, 20, 0), "pressed " .. presses, { color = vector.create(1, 0, 0), align = "center" })
                 \\        ui.rectangle(vector.create(0, 0, 0), vector.create(5, 5, 0), { alpha = 0.5 })
                 \\        if resized then ui.line(vector.create(0, 0, 0), vector.create(resized, 0, 0)) end
                 \\        assert(not pcall(ui.text, vector.create(0, 0, 0), "x", { colur = 1 }))
@@ -1391,13 +1395,13 @@ test "the bouncing DVD logo example drifts, bounces and changes colour" {
 
 test "the wingmen example's panel lists the wingmen nearby, and calls them back" {
     const storage_module = @import("storage.zig");
-    const settings_module = @import("settings.zig");
+    const options = @import("options.zig");
     const gpa = std.testing.allocator;
     var storage: storage_module.Storage = .{ .gpa = gpa };
     defer storage.deinit();
-    var pages: settings_module.Registry = .init(gpa, &storage);
+    var pages: options.Registry = .init(gpa, &storage);
     defer pages.deinit();
-    const shared: runtime.Shared = .{ .storage = &storage, .settings = &pages };
+    const shared: runtime.Shared = .{ .storage = &storage, .option_pages = &pages };
     var fixture: Fixture = undefined;
     try fixture.initShared(&.{.{ "wingmen", &.{
         .{ "mod.ini", @embedFile("wingmen/mod.ini") },
@@ -1447,7 +1451,7 @@ test "menu scripts are told of their own mod's options" {
         \\local ui = require("openreliant.ui")
         \\local heard = "nothing"
         \\return { engine_handlers = {
-        \\    on_setting_changed = function(key, value) heard = key .. "=" .. tostring(value) end,
+        \\    on_option_changed = function(key, value) heard = key .. "=" .. tostring(value) end,
         \\    on_frame = function() ui.text(vector.create(0, 0, 0), heard) end,
         \\} }
     ;
@@ -1456,8 +1460,8 @@ test "menu scripts are told of their own mod's options" {
         .{ "b", &.{ .{ "mod.ini", "[Scripts]\nMenu=menu.luau\n" }, .{ "menu.luau", handler } } },
     });
     defer fixture.deinit();
-    fixture.shown.settingChanged("b", "flee", .{ .number = 0.35 });
-    fixture.shown.settingChanged("b", "show", .{ .boolean = false });
+    fixture.shown.optionChanged("b", "flee", .{ .number = 0.35 });
+    fixture.shown.optionChanged("b", "show", .{ .boolean = false });
     fixture.frame(0.016, .{ 800, 600 });
     // Mod a heard nothing, and mod b the last of its changes.
     try std.testing.expectEqualStrings("nothingshow=false", fixture.shown.layers.getPtr(.ui).text.items);

@@ -42,7 +42,6 @@ pub const Group = enum {
     Flight,
     AI,
     Combat,
-    Weapons,
     Carriers,
     Camera,
     Controls,
@@ -83,7 +82,7 @@ pub const Group = enum {
                 pub const clear = orders.package.clear;
                 pub const give_order = objects.methods.give_order;
             } },
-            .Combat, .Weapons => .{ .package = .hooks, .families = game_scripts, .namespace = HookFunctions },
+            .Combat => .{ .package = .hooks, .families = game_scripts, .namespace = HookFunctions },
             .Carriers => .{ .package = .orders, .families = game_scripts, .namespace = struct {
                 pub const give_order = objects.methods.give_order;
                 pub const start_launch = objects.methods.start_launch;

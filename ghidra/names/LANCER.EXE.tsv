@@ -502,6 +502,7 @@ address	kind	name	type	comment
 0058c4cc	data	frame_time	float	The last frame's timed sections together, in seconds; mission_frame moves detail_divisor by it
 00539aa0	data	game_object_count	short	Slots of game_objects in use, which create_object extends when given no slot
 0045f1b0	function	camera_set_view	int __fastcall (int view, int object, char lock, char force)	Switches the camera to a view of an object: refused while wgate_riding, forced or not, and while locked unless forced; starts or clears the bars, resets the chase and orbit state, then places the camera
+004775d0	function	camera_watch_next_player	void (void)	Once the player is out of a network game, moves the camera to the next player's ship that is in the mission and not exploding or disabled, the player's own passed over, in view 0x1E, locked and forced; with none left, ends the mission (mission_over). Runs as the player's ship jumps out or the player's game ends, where camera_set_view would take the camera back to the cockpit of a ship that is exploding, has ejected or was sent off, and on COCKPIT CAMERA while spectating is set
 0045fc90	function	camera_frame	void __fastcall (void)	Places the camera once a frame for the view: moves the bars, then the cockpit, chase, orbit, flyby and cutaway views
 0045ed60	function	camera_chase	void __fastcall (void)	The chase view: behind and above the object by ship type, farther with throttle, swinging against its rates of turn
 0045ed40	function	camera_chase_level	void __fastcall (void)	Zeroes the chase view's swing
@@ -593,6 +594,8 @@ address	kind	name	type	comment
 004132c0	function	player_throttle_keys	void __fastcall (void)	Steps the throttle while ACCELERATE or DECELERATE is held; ZERO THROTTLE and FULL THROTTLE set it
 004e06e0	data	order_groups	OrderRecord *[3]	The order table: for each hundred order numbers, the records of those orders
 0058832c	data	player_slots	short	Object slots that belong to players, from slot 0: 1 in a single-player game, the player count or 8 in multiplayer
+00588324	data	watched_player	int	The player slot whose ship the camera watches in view 0x1E once the player is out of a network game (camera_watch_next_player)
+0057e058	data	spectating	int	Set to 1 once the player is out of a network game and the camera watches the other players' ships (camera_watch_next_player), which COCKPIT CAMERA then steps through
 004924b0	function	mission_frame	int (void)	mission_run's work for each frame while the game is not paused: among it orders_update, events_flush and mission_ships_sync; after the objects' pass it checks the player's target (0x004931AD to 0x004932C1): an exploding one, a subtarget with no node, and one past twice pick_range move on to the next (player_target_cycle, player_subtarget_cycle), and in view 0 a changed subtarget is picked out in red (hud_subtarget). Its pass that draws the objects passes over every object while wgate_riding (0x00492CD3)
 0040c8f0	function	orders_update	void (void)	Once a frame: zeroes every object's recent_damage each 500 ticks, then runs object_orders for each object not disabled
 0040c5f0	function	object_orders	void __fastcall (int slot)	Runs an object's current order: starts its queued orders that are due, clears its burn flags, then runs the order's init if it has yet to start, and its update

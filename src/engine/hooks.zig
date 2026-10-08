@@ -254,13 +254,14 @@ pub const functions = struct {
 
     pub const missile_launch_turret: Declaration = .{
         .address = 0x004967F0,
-        .about = "One of the missile turrets of `object` launches a Screamer at `target`.",
+        .about = "One of the missile turrets of `launcher` launches a Screamer at `target`.",
         .Fields = struct {
-            object: Object,
+            launcher: Object,
             _model: *const objects.Model,
-            _launcher: usize,
+            _part: usize,
             target: Target,
         },
+        .subject = "launcher",
     };
 
     pub const order_push: Declaration = .{

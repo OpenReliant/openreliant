@@ -9,7 +9,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-#include "colour.glsl"
+#include "color.glsl"
 
 #ifdef VERTEX
 
@@ -52,31 +52,31 @@ void main() {
     vec2 texel = frame.settings.yz;
     if (pass == 0) {
         // Only what stands above the threshold blooms, so that an ordinary lit hull does not.
-        vec3 colour = texture(source, uv).rgb;
+        vec3 color = texture(source, uv).rgb;
         // A fireball's heart, many times past white, blooms as white does.
-        if (frame.finish.x > 0.0) colour = shouldered(colour);
-        result = vec4(max(colour - vec3(frame.settings.w), vec3(0.0)), 1.0);
+        if (frame.finish.x > 0.0) color = shouldered(color);
+        result = vec4(max(color - vec3(frame.settings.w), vec3(0.0)), 1.0);
     } else if (pass == 1) {
         // Nine taps along one axis, weighted as a Gaussian; the two passes together blur both.
         const float weights[5] = float[](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
-        vec3 colour = texture(source, uv).rgb * weights[0];
+        vec3 color = texture(source, uv).rgb * weights[0];
         for (int tap = 1; tap < 5; tap++) {
             vec2 along = texel * float(tap);
-            colour += texture(source, uv + along).rgb * weights[tap];
-            colour += texture(source, uv - along).rgb * weights[tap];
+            color += texture(source, uv + along).rgb * weights[tap];
+            color += texture(source, uv - along).rgb * weights[tap];
         }
-        result = vec4(colour, 1.0);
+        result = vec4(color, 1.0);
     } else if (pass == 2) {
-        vec3 colour = texture(frame_image, uv).rgb + texture(source, uv).rgb * frame.settings.w;
-        if (frame.finish.x > 0.0) colour = shouldered(colour);
-        if (frame.finish.y > 0.0) colour = dithered(colour, ivec2(gl_FragCoord.xy), vec3(255.0));
-        result = vec4(colour, 1.0);
+        vec3 color = texture(frame_image, uv).rgb + texture(source, uv).rgb * frame.settings.w;
+        if (frame.finish.x > 0.0) color = shouldered(color);
+        if (frame.finish.y > 0.0) color = dithered(color, ivec2(gl_FragCoord.xy), vec3(255.0));
+        result = vec4(color, 1.0);
     } else {
         // The gamma ramp `srd3d.dll` sets (`0x10005270`): each level at its power 1 / brightness,
         // and black for a brightness of 0.
         float brightness = frame.settings.w;
-        vec3 colour = texture(source, uv).rgb;
-        result = vec4(brightness > 0.0 ? pow(colour, vec3(1.0 / brightness)) : vec3(0.0), 1.0);
+        vec3 color = texture(source, uv).rgb;
+        result = vec4(brightness > 0.0 ? pow(color, vec3(1.0 / brightness)) : vec3(0.0), 1.0);
     }
 }
 

@@ -273,18 +273,35 @@ pub const TextStyle = struct {
     /// it doesn't have.
     base_font: Font = .default,
     /// Red, green and blue, each from 0 to 1.
-    colour: Colour = default_colour,
+    color: Colour = default_colour,
     /// How opaque it is, from 0 to 1.
     alpha: f32 = 1,
     /// How many times its size in the game's pixels it's drawn at.
     scale: f32 = 1,
     /// Where the text stands from the place it's drawn at.
-    @"align": hud.Align = .left,
+    @"align": Align = .left,
+};
+
+/// Where a script's text stands from the place it's drawn at: the game's alignments (`hud.Align`),
+/// under the names scripts know them by.
+pub const Align = enum {
+    left,
+    center,
+    right,
+
+    /// The game's alignment it is.
+    fn game(alignment: Align) hud.Align {
+        return switch (alignment) {
+            .left => .left,
+            .center => .centre,
+            .right => .right,
+        };
+    }
 };
 
 /// How a script's line is drawn.
 pub const LineStyle = struct {
-    colour: Colour = default_colour,
+    color: Colour = default_colour,
     alpha: f32 = 1,
     /// How wide it is, in the game's pixels.
     width: f32 = 1,
@@ -292,12 +309,12 @@ pub const LineStyle = struct {
 
 /// How a script's rectangle is filled.
 pub const FillStyle = struct {
-    colour: Colour = default_colour,
+    color: Colour = default_colour,
     alpha: f32 = 1,
 };
 
 pub const ShapeStyle = struct {
-    colour: Colour = default_colour,
+    color: Colour = default_colour,
     alpha: f32 = 1,
     scale: f32 = 1,
 };
@@ -437,14 +454,14 @@ fn recordText(call: Call, which: Which, at: Where, words: []const u8, given: ?Te
     const layer = shown.layers.getPtr(which);
     const start, const len = layer.keep(shown.gpa, call, words);
     const custom = if (style.font) |name| std.meta.stringToEnum(Font, name) == null else false;
-    layer.add(shown.gpa, call, .{ .text = .{ .at = at, .start = start, .len = len, .colour = rgba(style.colour, style.alpha), .scale = @max(style.scale, 0), .alignment = style.@"align", .font = font, .gpa = if (custom) shown.gpa else null } });
+    layer.add(shown.gpa, call, .{ .text = .{ .at = at, .start = start, .len = len, .colour = rgba(style.color, style.alpha), .scale = @max(style.scale, 0), .alignment = style.@"align".game(), .font = font, .gpa = if (custom) shown.gpa else null } });
 }
 
 /// Records a line on the layer `which`.
 fn recordLine(call: Call, which: Which, from: Where, to: Where, given: ?LineStyle) void {
     const shown = presentation.Presentation.of(call);
     const style = given orelse LineStyle{};
-    shown.layers.getPtr(which).add(shown.gpa, call, .{ .line = .{ .from = from, .to = to, .colour = rgba(style.colour, style.alpha), .width = @max(style.width, 0) } });
+    shown.layers.getPtr(which).add(shown.gpa, call, .{ .line = .{ .from = from, .to = to, .colour = rgba(style.color, style.alpha), .width = @max(style.width, 0) } });
 }
 
 /// The functions of a package that draws on the layer `which` (`openreliant.hud`,
@@ -452,7 +469,7 @@ fn recordLine(call: Call, which: Which, from: Where, to: Where, given: ?LineStyl
 pub fn Package(comptime which: Which) type {
     return struct {
         pub const register_display = if (which == .hud) api.Native("Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?}", "string", @import("registries.zig").registration(.display)) else {};
-        pub const set_display_enabled = if (which == .hud) api.Function("Enables or disables a registered HUD display by qualified name. Returns whether it exists.", &.{ "name", "enabled" }, struct {
+        pub const set_display_enabled = if (which == .hud) api.Function("Turns the display `name` on or off: the calling mod's by its own name, or any mod's by the qualified one. Returns whether it's registered.", &.{ "name", "enabled" }, struct {
             fn set(call: Call, name: []const u8, enabled: bool) bool {
                 return @import("registries.zig").show(call, .display, name, enabled);
             }
@@ -496,7 +513,7 @@ pub fn Package(comptime which: Which) type {
         pub const play_movie = if (which == .ui) front_end.functions.play_movie else {};
         pub const quit = if (which == .ui) front_end.functions.quit else {};
         pub const pointer = if (which == .ui) front_end.functions.pointer else {};
-        pub const show_screen = if (which == .ui) api.Function("Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists.", &.{"name"}, struct {
+        pub const show_screen = if (which == .ui) api.Function("Shows the screen `name`: the calling mod's by its own name, or any mod's by the qualified one. Nil closes the screen shown. Returns whether it's registered.", &.{"name"}, struct {
             fn show(call: Call, name: ?[]const u8) bool {
                 return @import("registries.zig").show(call, .screen, name, true);
             }
@@ -507,7 +524,7 @@ pub fn Package(comptime which: Which) type {
                 const image = scripts.assets.loadPicture(call, path) catch |err| call.raise("picture {s}: {s}", .{ path, problem(err) });
                 const style = given orelse FillStyle{};
                 const extent: [2]f32 = if (size) |asked| .{ @max(asked[0], 0), @max(asked[1], 0) } else .{ @floatFromInt(image.width()), @floatFromInt(image.height()) };
-                scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .picture = .{ .image = image, .at = screenPoint(at), .size = extent, .colour = rgba(style.colour, style.alpha) } });
+                scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .picture = .{ .image = image, .at = screenPoint(at), .size = extent, .colour = rgba(style.color, style.alpha) } });
             }
         }.draw);
 
@@ -518,7 +535,7 @@ pub fn Package(comptime which: Which) type {
                 if (art.shape(index) == null) call.raise("no shape {d} in this layer's sprite set", .{index});
                 const style = given orelse ShapeStyle{};
                 const scripts = presentation.Presentation.of(call);
-                scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .shape = .{ .index = index, .at = screenPoint(at), .scale = @max(style.scale, 0), .colour = rgba(style.colour, style.alpha) } });
+                scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .shape = .{ .index = index, .at = screenPoint(at), .scale = @max(style.scale, 0), .colour = rgba(style.color, style.alpha) } });
             }
         }.draw);
         pub const shown = api.Field(bool, "Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read.", struct {
@@ -555,7 +572,7 @@ pub fn Package(comptime which: Which) type {
             fn draw(call: Call, from: @Vector(3, f32), to: @Vector(3, f32), given: ?FillStyle) void {
                 const scripts = presentation.Presentation.of(call);
                 const style = given orelse FillStyle{};
-                scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .rectangle = .{ .from = screenPoint(from), .to = screenPoint(to), .colour = rgba(style.colour, style.alpha) } });
+                scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .rectangle = .{ .from = screenPoint(from), .to = screenPoint(to), .colour = rgba(style.color, style.alpha) } });
             }
         }.draw);
 

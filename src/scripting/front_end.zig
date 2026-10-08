@@ -99,8 +99,7 @@ fn startGameMode(call: Call, name: []const u8) bool {
     const shown = menuOf(call);
     const modes = call.runtime().options.shared.modes orelse return false;
     var buffer: [runtime_module.max_name]u8 = undefined;
-    const qualified = if (std.mem.findScalar(u8, name, ':') != null) name else call.qualified(name, &buffer);
-    const index = modes.find(qualified) orelse return false;
+    const index = modes.find(call.named(name, &buffer) orelse return false) orelse return false;
     shown.standing.request = .{ .game_mode = @intCast(index) };
     return true;
 }

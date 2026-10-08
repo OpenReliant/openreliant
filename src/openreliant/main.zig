@@ -304,12 +304,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     try storage.readGlobal(mods.list);
     // The pages of options that the mods' load and menu scripts declare at start-up. Their values
     // are kept in the storage.
-    var option_pages: scripting.settings.Registry = .init(gpa, &storage);
+    var option_pages: scripting.options.Registry = .init(gpa, &storage);
     defer option_pages.deinit();
     // The game modes the mods' load and menu scripts register at start-up, which GAME MODES lists.
     var game_modes: scripting.game_modes.Registry = .init(gpa, &storage);
     defer game_modes.deinit();
-    const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .settings = &option_pages, .bindings_file = settings_file, .modes = &game_modes };
+    const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .option_pages = &option_pages, .bindings_file = settings_file, .modes = &game_modes };
     try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
     // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
     // scripts while a game runs (`GameScripts`).
@@ -951,7 +951,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             };
             // What the player set on the mods screen goes to the mod's menu scripts.
             while (option_pages.takeChange()) |change| {
-                if (presentation) |shown| shown.settingChanged(change.mod, change.key, change.value);
+                if (presentation) |shown| shown.optionChanged(change.mod, change.key, change.value);
             }
             if (front_outcome) |outcome| {
                 const through = &rooms.?;

@@ -3,7 +3,7 @@
 //! (`platform.gpu.programs`), chosen as OpenReliant starts.
 //!
 //! - The last mod in the load order that has the file replaces OpenReliant's. A line that includes
-//!   `colour.glsl` takes the same mod's `colour.glsl`, or OpenReliant's where it has none.
+//!   `color.glsl` takes the same mod's `color.glsl`, or OpenReliant's where it has none.
 //! - Both stages compile, through the shader cache, and each is checked against OpenReliant's own,
 //!   compiled the same way (`shader_compiler.checkReplacement`), and the two stages against each
 //!   other (`shader_compiler.checkLink`). A replacement that doesn't compile or doesn't fit is
@@ -44,15 +44,15 @@ pub fn load(arena: Allocator, cache: Cache, mods: []const Mod) Allocator.Error!L
     var loaded: Loaded = .{ .template = .builtin() };
     for (std.enums.values(programs.Name)) |name| {
         const mod, const file = try last(arena, mods, name.file()) orelse continue;
-        const colour = try read(arena, mod, programs.colour_file) orelse programs.colour;
-        const replacement = replace(arena, cache, name, file, colour) catch |err| switch (err) {
+        const color = try read(arena, mod, programs.color_file) orelse programs.color;
+        const replacement = replace(arena, cache, name, file, color) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             error.LeftOut => continue,
         };
         loaded.replacements.set(name, replacement);
         log.info("{s} replaces OpenReliant's {s}", .{ file.name, name.file() });
         if (name == .device) {
-            loaded.template = variants.Template.of(file, colour);
+            loaded.template = variants.Template.of(file, color);
             if (loaded.template == null) log.warn("the mods' surface and lighting functions draw nothing: {s} has no line // mod_functions", .{file.name});
         }
     }
@@ -82,13 +82,13 @@ fn read(arena: Allocator, mod: *const Mod, name: []const u8) Allocator.Error!?Pa
     return .{ .name = try arena.print("{s}/{s}", .{ mod.name, name }), .source = source };
 }
 
-/// `file` compiled and checked as the replacement for OpenReliant's `name`, with `colour` for what
+/// `file` compiled and checked as the replacement for OpenReliant's `name`, with `color` for what
 /// it includes. `error.LeftOut` where it doesn't compile or doesn't fit, which the log says.
-fn replace(arena: Allocator, cache: Cache, name: programs.Name, file: Part, colour: Part) (Allocator.Error || error{LeftOut})!programs.Replacement {
+fn replace(arena: Allocator, cache: Cache, name: programs.Name, file: Part, color: Part) (Allocator.Error || error{LeftOut})!programs.Replacement {
     var stages: [2]Code = undefined;
     for (std.enums.values(Stage), &stages) |stage, *code| {
-        code.* = try compiled(arena, cache, stage, file, colour) orelse return error.LeftOut;
-        const own = try compiled(arena, cache, stage, name.own(), programs.colour) orelse {
+        code.* = try compiled(arena, cache, stage, file, color) orelse return error.LeftOut;
+        const own = try compiled(arena, cache, stage, name.own(), programs.color) orelse {
             log.warn("{s} is left out: OpenReliant's own {s} doesn't compile at runtime", .{ file.name, name.file() });
             return error.LeftOut;
         };
@@ -100,9 +100,9 @@ fn replace(arena: Allocator, cache: Cache, name: programs.Name, file: Part, colo
 
 /// The stage `stage` of `file`, through the cache, or null where it doesn't compile, which the log
 /// says.
-fn compiled(arena: Allocator, cache: Cache, stage: Stage, file: Part, colour: Part) Allocator.Error!?Code {
+fn compiled(arena: Allocator, cache: Cache, stage: Stage, file: Part, color: Part) Allocator.Error!?Code {
     var buffer: [programs.max_parts]Part = undefined;
-    const parts = programs.parts(file, colour, &buffer);
+    const parts = programs.parts(file, color, &buffer);
     const cached_name = try arena.print("{s} {t}", .{ file.name, stage });
     return switch (try cache.compileParts(arena, cached_name, .openreliant, stage, parts, stage.definition())) {
         .compiled => |code| code,
@@ -154,5 +154,5 @@ test "a replacement that reads an input OpenReliant doesn't give is left out" {
     const shadow = try std.mem.replaceOwned(u8, arena, programs.Name.shadow.source(), "layout(location = 1) in float strength;", "layout(location = 1) in float strength;\nlayout(location = 5) in vec4 extra;");
     const fixed = try std.mem.replaceOwned(u8, arena, shadow, "kept = strength;", "kept = strength + extra.x;");
     const file: Part = .{ .name = "b/shadow.glsl", .source = fixed };
-    try std.testing.expectError(error.LeftOut, replace(arena, .{ .io = std.testing.io, .root = null }, .shadow, file, programs.colour));
+    try std.testing.expectError(error.LeftOut, replace(arena, .{ .io = std.testing.io, .root = null }, .shadow, file, programs.color));
 }

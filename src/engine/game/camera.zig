@@ -91,8 +91,10 @@ pub const View = enum(u8) {
     cockpit_rear = 3,
     /// Behind and above an object, lagging its turns.
     chase = 4,
-    /// The chase view again, under a number of its own.
-    chase_too = 0x1E,
+    /// The spectator's view: the chase view under a number of its own, in which the player's
+    /// missile lock doesn't build. Once the player is out of a network game, the camera watches
+    /// the other players' ships in it, in turn (`camera_watch_next_player`, `0x004775D0`).
+    spectator = 0x1E,
     /// The first of a launch's three cutaways (`launch_reliant_run`), from inside the carrier's
     /// bay beside the ship, which projects wider than the rest (`wide_factors`) and tilts down
     /// after the ship as it drops out.
@@ -196,7 +198,7 @@ pub const View = enum(u8) {
 
     /// Whether the player's missile lock builds and its rings show while the last frame's view is
     /// this one: the cockpit's views and the chase view, views 0 to 4 (`mission_frame`,
-    /// `0x004933D7`), but not the chase view under its second number.
+    /// `0x004933D7`), but not the spectator's view.
     pub fn showsLock(view: View) bool {
         return switch (view) {
             .cockpit, .cockpit_left, .cockpit_right, .cockpit_rear, .chase => true,
@@ -508,7 +510,7 @@ pub const Camera = struct {
         camera.lasting = false;
         switch (view) {
             .cockpit => if (camera.cockpit_mode == .chase) camera.chase.resetTurns(),
-            .chase, .chase_too => camera.chase.resetTurns(),
+            .chase, .spectator => camera.chase.resetTurns(),
             .target, .external => camera.orbit = .{},
             .director => {
                 camera.held = camera.holding;
@@ -699,7 +701,7 @@ pub const Camera = struct {
                 else
                     cockpit(side, world.object.position, world.object.orientation, world.object.eye);
             },
-            .chase, .chase_too => {
+            .chase, .spectator => {
                 if (!world.object.motion.ship_type.hasStats()) return .cockpit;
                 camera.place = camera.chase.frame(world.object.motion, world.object.position, world.object.orientation);
             },
@@ -1821,7 +1823,7 @@ test View {
     try std.testing.expectEqual(View.chase.name(), @as(View, @fromBackingInt(0x0D)).name());
     // The lock shows from the cockpit's views and the chase view, but not under its second number.
     try std.testing.expect(View.cockpit_rear.showsLock() and View.chase.showsLock());
-    try std.testing.expect(!View.chase_too.showsLock() and !View.target.showsLock());
+    try std.testing.expect(!View.spectator.showsLock() and !View.target.showsLock());
     try std.testing.expectEqual(-90, View.cockpit_left.cockpitTurn());
     try std.testing.expectEqual(0, View.chase.cockpitTurn());
     try std.testing.expectEqual(View.external, keyView(.external_camera).?);

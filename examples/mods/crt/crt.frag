@@ -15,7 +15,7 @@ layout(set = 3, binding = 0, std140) uniform Frame {
 } frame;
 
 layout(location = 0) in vec2 uv;
-layout(location = 0) out vec4 colour;
+layout(location = 0) out vec4 color;
 
 void main() {
     // The bulge: points move out from the middle the more, the farther they stand from it.
@@ -23,7 +23,7 @@ void main() {
     centred *= 1.0 + frame.parameters.y * dot(centred, centred);
     vec2 read = centred * 0.5 + 0.5;
     if (any(lessThan(read, vec2(0.0))) || any(greaterThan(read, vec2(1.0)))) {
-        colour = vec4(0.0, 0.0, 0.0, 1.0);
+        color = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
     vec3 picture = texture(source, read).rgb;
@@ -34,5 +34,5 @@ void main() {
     // The corners, darker the farther they stand from the middle.
     float edge = dot(centred, centred) * 0.5;
     picture *= 1.0 - frame.parameters.z * edge * edge;
-    colour = vec4(picture, 1.0);
+    color = vec4(picture, 1.0);
 }

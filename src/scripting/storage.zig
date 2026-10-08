@@ -26,7 +26,7 @@ const Value = stored.Value;
 const runtime_module = @import("runtime.zig");
 const api = @import("api.zig");
 const Call = api.Call;
-const settings = @import("settings.zig");
+const options = @import("options.zig");
 
 /// Where a section is kept.
 pub const Scope = enum {
@@ -386,7 +386,7 @@ fn gameSection(call: Call) i32 {
 
 fn globalSection(call: Call) i32 {
     const reserved = call.state.toString(1) orelse "";
-    if (std.mem.eql(u8, reserved, settings.section_name)) call.raise("the section '{s}' keeps the mod's settings; read them with openreliant.settings", .{reserved});
+    if (std.mem.eql(u8, reserved, options.section_name)) call.raise("the section '{s}' keeps the mod's options; read them with openreliant.options", .{reserved});
     return pushSection(call, .global);
 }
 

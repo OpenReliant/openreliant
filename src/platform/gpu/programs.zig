@@ -59,7 +59,7 @@ pub const Name = enum {
     }
 
     /// The SHA-256 of the source `make shaders` compiled `builtin` from: its file, then
-    /// `colour_file`, in hexadecimal.
+    /// `color_file`, in hexadecimal.
     fn compiledFrom(name: Name) *const [Sha256.digest_length * 2]u8 {
         return switch (name) {
             inline else => |tag| @embedFile("../shaders/" ++ @tagName(tag) ++ ".sha256")[0 .. Sha256.digest_length * 2],
@@ -75,11 +75,11 @@ pub const Name = enum {
 };
 
 /// The file OpenReliant's shaders include, which a mod's shader may include too, and its source.
-pub const colour_file = "colour.glsl";
-pub const colour_source = @embedFile("../shaders/colour.glsl");
+pub const color_file = "color.glsl";
+pub const color_source = @embedFile("../shaders/color.glsl");
 
-/// The line that includes `colour_file`.
-const include_line = "#include \"" ++ colour_file ++ "\"";
+/// The line that includes `color_file`.
+const include_line = "#include \"" ++ color_file ++ "\"";
 
 /// A mod's replacement for one of OpenReliant's shaders: its two stages, compiled.
 pub const Replacement = struct { vertex: Code, fragment: Code };
@@ -117,9 +117,9 @@ fn codeFor(code: Code, spirv: bool) []const u8 {
 pub const max_parts = 3;
 
 /// What OpenReliant's shaders include.
-pub const colour: Part = .{ .name = colour_file, .source = colour_source };
+pub const color: Part = .{ .name = color_file, .source = color_source };
 
-/// `file` as the parts it is compiled from, in `buffer`: the line that includes `colour_file`
+/// `file` as the parts it is compiled from, in `buffer`: the line that includes `color_file`
 /// gives way to `included`, as glslc's includer would put it. A file without the line is one part.
 pub fn parts(file: Part, included: Part, buffer: *[max_parts]Part) []const Part {
     const at = lineAt(file.source, include_line) orelse {
@@ -148,7 +148,7 @@ test "the compiled shaders are compiled from their source" {
     for (std.enums.values(Name)) |name| {
         var hash: Sha256 = .init(.{});
         hash.update(name.source());
-        hash.update(colour_source);
+        hash.update(color_source);
         const source = std.fmt.bytesToHex(hash.finalResult(), .lower);
         if (!std.mem.eql(u8, &source, name.compiledFrom())) {
             std.debug.print("{s} changed since it was compiled: run make shaders\n", .{name.file()});
@@ -159,7 +159,7 @@ test "the compiled shaders are compiled from their source" {
 
 test parts {
     var buffer: [max_parts]Part = undefined;
-    const cut = parts(.{ .name = "device.glsl", .source = "#version 450\n#include \"colour.glsl\"\nvoid main() {}\n" }, .{ .name = colour_file, .source = "vec3 c;\n" }, &buffer);
+    const cut = parts(.{ .name = "device.glsl", .source = "#version 450\n#include \"color.glsl\"\nvoid main() {}\n" }, .{ .name = color_file, .source = "vec3 c;\n" }, &buffer);
     try std.testing.expectEqual(3, cut.len);
     try std.testing.expectEqualStrings("#version 450\n", cut[0].source);
     try std.testing.expectEqualStrings("vec3 c;\n", cut[1].source);
@@ -167,14 +167,14 @@ test parts {
     // The rest starts on the line of the include, which its first line ends.
     try std.testing.expectEqual(2, cut[2].line);
     // A shader that doesn't include it, or names it within a line, is one part.
-    try std.testing.expectEqual(1, parts(.{ .name = "a.glsl", .source = "// see #include \"colour.glsl\"\n" }, colour, &buffer).len);
+    try std.testing.expectEqual(1, parts(.{ .name = "a.glsl", .source = "// see #include \"color.glsl\"\n" }, color, &buffer).len);
 }
 
 test "OpenReliant's own shaders compile as they are, each stage" {
     const gpa = std.testing.allocator;
     var buffer: [max_parts]Part = undefined;
     for (std.enums.values(Name)) |name| for (std.enums.values(Stage)) |stage| {
-        const result = try shader_compiler.compileParts(gpa, .openreliant, stage, parts(name.own(), colour, &buffer), stage.definition());
+        const result = try shader_compiler.compileParts(gpa, .openreliant, stage, parts(name.own(), color, &buffer), stage.definition());
         defer result.deinit(gpa);
         if (result == .diagnostic) std.debug.print("{s}\n", .{result.diagnostic});
         try std.testing.expect(result == .compiled);

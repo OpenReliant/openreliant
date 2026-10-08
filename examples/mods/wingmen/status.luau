@@ -8,13 +8,13 @@ local hud = require("openreliant.hud")
 local nearby = require("openreliant.nearby")
 local core = require("openreliant.core")
 local input = require("openreliant.input")
-local settings = require("openreliant.settings")
+local options = require("openreliant.options")
 
 -- How far from the player's ship the panel looks for wingmen.
-local reach = settings.get("panel_reach")
+local reach = options.get("panel_reach")
 
 -- The title over the panel.
-local title = settings.get("panel_title")
+local title = options.get("panel_title")
 
 -- The colours of a wingman's line: plenty of armour left, some, and little.
 local healthy = vector.create(0.3, 1, 0.3)
@@ -22,9 +22,9 @@ local hurt = vector.create(1, 1, 0.3)
 local failing = vector.create(1, 0.3, 0.3)
 
 -- Whether the panel is shown: the mod's option sets it as a game starts, and F9 changes it.
-local shown = settings.get("show_panel")
+local shown = options.get("show_panel")
 
-local function colourOf(hull)
+local function colorOf(hull)
     if hull > 0.6 then
         return healthy
     elseif hull > 0.3 then
@@ -67,7 +67,7 @@ return {
                     local hull = ship.hull or 1
                     local out = if ship.order == "run_away" then "  OUT" else ""
                     local text = string.format("%d  %d%%%s", count, math.floor(hull * 100 + 0.5), out)
-                    hud.text(vector.create(right, y, 0), text, { colour = colourOf(hull), align = "right" })
+                    hud.text(vector.create(right, y, 0), text, { color = colorOf(hull), align = "right" })
                 end
             end
         end,

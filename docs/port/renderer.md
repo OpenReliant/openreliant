@@ -122,7 +122,7 @@ ahead of time by `make shaders`, and their outputs are committed.
 - A shader is GLSL 450 for Vulkan 1.0 and SPIR-V 1.0, translated to Metal 2.2. It can be made of
   several parts, each named in the messages (`compileParts`), after a preamble of definitions such
   as `#define FRAGMENT`. A part cut from the middle of a file keeps the file's line numbers.
-- Includes are rejected: OpenReliant puts `colour.glsl` in place of the line that includes it
+- Includes are rejected: OpenReliant puts `color.glsl` in place of the line that includes it
   (`gpu/programs.zig`). So are NUL bytes, and a part over 1 MiB.
 - A C++ wrapper catches the libraries' exceptions. Zig owns copies of the code or of the messages.
   Calls take turns, as glslang starts and stops once for each.
@@ -217,7 +217,7 @@ mods' functions in them (`variants.Template`).
 variant of the device's fragment shader, `shaders/device.glsl` or a mod's replacement for it,
 compiled with a mod's lighting function (`MOD_LIGHTING`), its surface function (`MOD_SURFACE`) or
 both, inserted where the line `// mod_functions` stands. `variants.Template` cuts the shader there
-and where it includes `colour.glsl`, so the parts need no copying. Without either definition the
+and where it includes `color.glsl`, so the parts need no copying. Without either definition the
 shader is OpenReliant's own, which `make shaders` compiles as before.
 
 - Each variant has an id, and each pipeline carries the variant it draws with in its key

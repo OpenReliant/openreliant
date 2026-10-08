@@ -1,10 +1,10 @@
 -- The page of options the Wingmen mod offers on the mods screen (GAME OPTIONS, then MODS, then
 -- OPTIONS). This is a load script: it declares the page as OpenReliant starts, and the mod's other
--- scripts read the values with settings.get.
+-- scripts read the values with options.get.
 
-local settings = require("openreliant.settings")
+local options = require("openreliant.options")
 
-settings.register_page({
+options.register_page({
     title = "WINGMEN",
     options = {
         { label = "IN A FIGHT", kind = "heading" },

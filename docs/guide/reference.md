@@ -42,9 +42,9 @@ include mission scripts.
 | `on_key_release(key: Key)` | player and menu | When a key is released. |
 | `on_action(action: string)` | player and menu | When the player uses the controls bound to an action, in flight. |
 | `on_console_command(text: string)` | player and menu | When a line typed in the console isn't one of its commands, with the line. |
-| `on_viewport_resized(width: number, height: number)` | player and menu | When the window changes size, with its new size in pixels. |
+| `on_window_resized(width: number, height: number)` | player and menu | When the window changes size, with its new size in pixels. |
 | `on_interface_override(base: { [any]: any })` | global, object, player and menu | When the script's interface takes the place of one an earlier script offered under the same name, with that one. |
-| `on_setting_changed(key: string, value: boolean | number | string)` | menu | When the player sets one of the mod's options on the mods screen, with its key and the new value. Options are set in the front end, so scripts that run in a game read them with `settings.get` as they start. |
+| `on_option_changed(key: string, value: boolean | number | string)` | menu | When the player sets one of the mod's options on the mods screen, with its key and the new value. Options are set in the front end, so scripts that run in a game read them with `options.get` as they start. |
 
 ## Packages
 
@@ -100,7 +100,7 @@ What the order table says of each order, the orders each object has, and ending 
 | Name | Type | What it is |
 |---|---|---|
 | `register(name: string, definition: {priority: number?, flags: OrderFlags?, init: ((ship: Object, target: Object?, seconds: number) -> ())?, update: (ship: Object, target: Object?, seconds: number) -> boolean?, exit: ((ship: Object, target: Object?, seconds: number) -> ())?})` | string | Registers an order, which `name` qualified with the mod's name names. `update` runs each frame on each ship that follows it, and returns false to end the order; `init` runs as it starts, and `exit` as it ends. They can't give or end orders. Returns the qualified name, which `give_order` and `orders.info` take. The order goes away when the scripts that registered it stop. |
-| `info(order: string \| number)` | [OrderInfo](#orderinfo), or nil | The name, priority and flags of `order`, one of the game's or a mod's by its qualified name. Nil for an order that doesn't exist, or a mod's that failed. |
+| `info(order: string \| number)` | [OrderInfo](#orderinfo), or nil | The name, priority and flags of `order`: one of the game's, the calling mod's by its own name, or any mod's by the qualified one. Nil for an order that doesn't exist, or a mod's that failed. |
 | `stack(object: Object)` | list of [OrderEntry](#orderentry) | The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends. |
 | `cancel(object: Object)` | boolean | Ends the order `object` follows, as an order ends itself: its exit runs, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's. |
 | `clear(object: Object)` | boolean | Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's. |
@@ -144,7 +144,7 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
 | `register_display(name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name. |
-| `set_display_enabled(name: string, enabled: boolean)` | boolean | Enables or disables a registered HUD display by qualified name. Returns whether it exists. |
+| `set_display_enabled(name: string, enabled: boolean)` | boolean | Turns the display `name` on or off: the calling mod's by its own name, or any mod's by the qualified one. Returns whether it's registered. |
 | `bounds(instrument: HudInstrument)` | [HudBounds](#hudbounds), or nil | Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission. |
 | `window_state(instrument: HudInstrument)` | [HudWindowState](#hudwindowstate), or nil | How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
@@ -171,7 +171,7 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 | `launch_mission()` | nothing | From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it. |
 | `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
-| `show_screen(name: string?)` | boolean | Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists. |
+| `show_screen(name: string?)` | boolean | Shows the screen `name`: the calling mod's by its own name, or any mod's by the qualified one. Nil closes the screen shown. Returns whether it's registered. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
@@ -185,9 +185,9 @@ Whether keys are held, and the controls bound to actions. For player and menu sc
 
 | Name | Type | What it is |
 |---|---|---|
-| `register_action(name: string, definition: Definition)` | string | Registers an action, which `name` qualified with the mod's name names, and which the controls screen lists by its `label` for the player to bind. A default key or button that's already taken stays unbound. Returns the qualified name, which `action_down` and `on_action` use. Only menu scripts can use it. |
+| `register_action(name: string, definition: ActionDefinition)` | string | Registers an action, which `name` qualified with the mod's name names, and which the controls screen lists by its `label` for the player to bind. A default key or button that's already taken stays unbound. Returns the qualified name, which `action_down` and `on_action` use. Only menu scripts can use it. |
 | `key_down(key: Key)` | boolean | Whether `key` is held down. |
-| `action_down(action: string \| number)` | boolean | Whether the controls bound to `action` are held: its key, or its joystick button. |
+| `action_down(action: string \| number)` | boolean | Whether the controls bound to `action` are held: its key, or its joystick button. The action is one of the game's (`Action`), the calling mod's by its own name, or any mod's by the qualified one. |
 
 ### `openreliant.camera`
 
@@ -197,7 +197,7 @@ The camera's view: which it is, switching it, and registering views of the mod's
 |---|---|---|
 | `view` | string \| number, or nil | The view the camera shows: one of the game's (`View`), or a mod's by its qualified name; nil while no mission is shown. |
 | `register_view(name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?})` | string | Registers a camera view, which `name` qualified with the mod's name names. `frame` gives the camera's position and orientation each frame; its axes must be unit length, at right angles and right-handed. A failed `frame` goes back to the cockpit view. Returns the qualified name. |
-| `set_view(view: string \| number, object: Object?)` | boolean | Switches to `view`, one of the game's or a mod's by its qualified name, looking at `object`, or at the player's ship where it's nil. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it. |
+| `set_view(view: string \| number, object: Object?)` | boolean | Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it. |
 
 ### `openreliant.audio`
 
@@ -277,7 +277,7 @@ Reading the game's and the mods' files. For load, global, object, player and men
 | `read_mod(name: string)` | string? | Reads the calling mod's own file `name` as a string of its bytes. Nil if the mod doesn't have it. |
 | `exists(name: string)` | boolean | Whether `vfs.read` would find the file `name`. |
 
-### `openreliant.settings`
+### `openreliant.options`
 
 The options a mod offers the player on the mods screen: declaring the page, and reading the values. For load, global, object, player and menu scripts.
 
@@ -285,7 +285,7 @@ The options a mod offers the player on the mods screen: declaring the page, and 
 |---|---|---|
 | `register_page(page: Page)` | nothing | Declares the page of options the mod offers on the mods screen: a title and up to 64 options. Each option has a `key` that scripts read it by, a `label`, a `kind` and a `default`. A `"toggle"` has a boolean default. A `"choice"` has `choices`, each a `value` and a `label`, and a default among their values. A `"number"` has `min`, `max` and `step`, and a default in the range, and arrows step it. A `"slider"` is a number with a knob to drag, for a wide range. A `"text"` is a line the player types, of up to 24 characters, with a string default. A `"heading"` has only a `label`, and splits a long page. An option may have a `description`, which the screen writes under the list while the pointer is on it. Only load and menu scripts can use it, as OpenReliant starts, and a mod has one page. |
 | `get(key: string)` | boolean \| number \| string | The value of the option `key` of the calling mod's page: what the player set, or the default. A toggle is a boolean, a number is a number, and a choice is the value of the choice set. |
-| `set(key: string, value: boolean \| number \| string)` | nothing | Sets the option `key` of the calling mod's page to `value`, as the player does on the mods screen: a toggle to a boolean, a number to a number, which is held to its range, a choice to one of its values, and a text to a string of up to 24 characters. The value is kept, and menu scripts hear of the change (`on_setting_changed`). |
+| `set(key: string, value: boolean \| number \| string)` | nothing | Sets the option `key` of the calling mod's page to `value`, as the player does on the mods screen: a toggle to a boolean, a number to a number, which is held to its range, a choice to one of its values, and a text to a string of up to 24 characters. The value is kept, and menu scripts hear of the change (`on_option_changed`). |
 
 ### `openreliant.debug`
 
@@ -350,10 +350,10 @@ scripts on their object.
 | `start_launch()` | boolean | Starts its Launch, as a mission's StartLaunch does: the first Launch among its orders goes after the short random wait the game gives each ship. Returns whether it had a Launch to start. Global scripts can start any object's launch, and an object's scripts their own. |
 | `send_event(name: string, data: any)` | nothing | Sends the event `name` to the object's scripts, with `data`, which must be plain data. It arrives at the next update. |
 | `add_script(name: string, data: any?)` | boolean | Starts the script `name` of the calling mod on the object, as an object script, and passes `data` to its `on_init`. Returns whether it started. Only global scripts can add scripts. |
+| `remove_script(name: string)` | boolean | Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts. |
 | `hook(name: string, handler: (e: any) -> boolean?, filter: (Filter \| (e: any) -> boolean)?)` | HookHandle | `hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own. |
 | `set_surface(name: string?, parameters: { number }?)` | boolean | Draws the object with the surface function `name`, the calling mod's by its own name or any mod's by the qualified one, reading `parameters`; nil draws it with its textures' functions again. Returns false if no function of that name is registered. Only player scripts can set it. |
 | `turrets()` | list of [turret](#turrets) | Its turrets: its guns that turn to aim, spin their barrels or launch missiles, destroyed ones included, in the order of its guns. |
-| `remove_script(name: string)` | boolean | Stops the script `name` of the calling mod on the object. Returns whether it ran there. Only global scripts can remove scripts. |
 
 ## Missiles
 
@@ -416,20 +416,13 @@ turret, and a turret's own scripts on their turret.
 | Member | Type or returns | Description |
 |---|---|---|
 | `register(name: string, definition: {priority: number?, flags: OrderFlags?, init: ((ship: Object, target: Object?, seconds: number) -> ())?, update: (ship: Object, target: Object?, seconds: number) -> boolean?, exit: ((ship: Object, target: Object?, seconds: number) -> ())?})` | string | Registers an order, which `name` qualified with the mod's name names. `update` runs each frame on each ship that follows it, and returns false to end the order; `init` runs as it starts, and `exit` as it ends. They can't give or end orders. Returns the qualified name, which `give_order` and `orders.info` take. The order goes away when the scripts that registered it stop. |
-| `info(order: string \| number)` | [OrderInfo](#orderinfo), or nil | The name, priority and flags of `order`, one of the game's or a mod's by its qualified name. Nil for an order that doesn't exist, or a mod's that failed. |
+| `info(order: string \| number)` | [OrderInfo](#orderinfo), or nil | The name, priority and flags of `order`: one of the game's, the calling mod's by its own name, or any mod's by the qualified one. Nil for an order that doesn't exist, or a mod's that failed. |
 | `stack(object: Object)` | list of [OrderEntry](#orderentry) | The orders `object` has, the one it follows first, each with what it's aimed at. The ones below carry on as each ends. |
 | `cancel(object: Object)` | boolean | Ends the order `object` follows, as an order ends itself: its exit runs, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's. |
 | `clear(object: Object)` | boolean | Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's. |
 | `give_order(self: Object, order: string \| number, target: Object?, component: number?)` | boolean | Gives it `order`, aimed at `target` or at nothing, as a mission's SetAI does: the order goes on top of its orders if the one it follows gives way. `component` aims it at one part of `target` instead of the whole ship, as a mission's orders can: for Launch, the carrier's launch gate, counting from 0; for Dock, the port. Returns whether it took. Global scripts can give any object orders, and an object's scripts their own object. |
 
 ### I.Combat
-
-| Member | Type or returns | Description |
-|---|---|---|
-| `add_hook` | HooksAdd | `hooks.add`: adds a handler to the hook `name`. |
-| `after_hook` | HooksAfter | `hooks.after`: adds a handler that runs after the function `name`. |
-
-### I.Weapons
 
 | Member | Type or returns | Description |
 |---|---|---|
@@ -451,15 +444,15 @@ turret, and a turret's own scripts on their turret.
 |---|---|---|
 | `view` | string \| number, or nil | The view the camera shows: one of the game's (`View`), or a mod's by its qualified name; nil while no mission is shown. |
 | `register_view(name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?})` | string | Registers a camera view, which `name` qualified with the mod's name names. `frame` gives the camera's position and orientation each frame; its axes must be unit length, at right angles and right-handed. A failed `frame` goes back to the cockpit view. Returns the qualified name. |
-| `set_view(view: string \| number, object: Object?)` | boolean | Switches to `view`, one of the game's or a mod's by its qualified name, looking at `object`, or at the player's ship where it's nil. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it. |
+| `set_view(view: string \| number, object: Object?)` | boolean | Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it. |
 
 ### I.Controls
 
 | Member | Type or returns | Description |
 |---|---|---|
-| `register_action(name: string, definition: Definition)` | string | Registers an action, which `name` qualified with the mod's name names, and which the controls screen lists by its `label` for the player to bind. A default key or button that's already taken stays unbound. Returns the qualified name, which `action_down` and `on_action` use. Only menu scripts can use it. |
+| `register_action(name: string, definition: ActionDefinition)` | string | Registers an action, which `name` qualified with the mod's name names, and which the controls screen lists by its `label` for the player to bind. A default key or button that's already taken stays unbound. Returns the qualified name, which `action_down` and `on_action` use. Only menu scripts can use it. |
 | `key_down(key: Key)` | boolean | Whether `key` is held down. |
-| `action_down(action: string \| number)` | boolean | Whether the controls bound to `action` are held: its key, or its joystick button. |
+| `action_down(action: string \| number)` | boolean | Whether the controls bound to `action` are held: its key, or its joystick button. The action is one of the game's (`Action`), the calling mod's by its own name, or any mod's by the qualified one. |
 
 ### I.HUD
 
@@ -498,7 +491,7 @@ turret, and a turret's own scripts on their turret.
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
 | `register_display(name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name. |
-| `set_display_enabled(name: string, enabled: boolean)` | boolean | Enables or disables a registered HUD display by qualified name. Returns whether it exists. |
+| `set_display_enabled(name: string, enabled: boolean)` | boolean | Turns the display `name` on or off: the calling mod's by its own name, or any mod's by the qualified one. Returns whether it's registered. |
 | `bounds(instrument: HudInstrument)` | [HudBounds](#hudbounds), or nil | Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission. |
 | `window_state(instrument: HudInstrument)` | [HudWindowState](#hudwindowstate), or nil | How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
@@ -547,7 +540,7 @@ turret, and a turret's own scripts on their turret.
 | `launch_mission()` | nothing | From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it. |
 | `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
-| `show_screen(name: string?)` | boolean | Selects a registered screen by qualified name; nil closes the selected screen. Returns whether it exists. |
+| `show_screen(name: string?)` | boolean | Shows the screen `name`: the calling mod's by its own name, or any mod's by the qualified one. Nil closes the screen shown. Returns whether it's registered. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
@@ -649,11 +642,11 @@ The radio says a line: the speech file `speech`, its speaker's face playing the 
 
 ### missile_launch_turret
 
-One of the missile turrets of `object` launches a Screamer at `target`.
+One of the missile turrets of `launcher` launches a Screamer at `target`.
 
 | Field | Type |
 |---|---|
-| `object` | [object](#objects) |
+| `launcher` | [object](#objects) |
 | `target` | [Target](#target) |
 
 ### order_push
@@ -1254,8 +1247,7 @@ A table a script gives, which may leave out a field with a default.
 | Field | Type |
 |---|---|
 | `order` | string \| number |
-| `target` | [object](#objects), or nil |
-| `component` | number, or nil |
+| `target` | [Target](#target) |
 
 ### HudGuns
 
@@ -1264,7 +1256,7 @@ A table a script gives, which may leave out a field with a default.
 | `group` | number |
 | `groups` | number |
 | `all` | boolean |
-| `synchronised` | boolean |
+| `synchronized` | boolean |
 | `gun` | [GunType](#guntype), or nil |
 | `charge` | number |
 | `full_charge` | number |
@@ -1291,7 +1283,7 @@ A table a script gives, which may leave out a field with a default.
 
 | Field | Type |
 |---|---|
-| `form` | [HudTargetForm](#hudtargetform) |
+| `form` | [TargetForm](#targetform) |
 | `name` | string, or nil |
 | `pilot` | string, or nil |
 | `range` | number |
@@ -1382,7 +1374,7 @@ A table a script gives, which may leave out a field with a default.
 | Field | Type |
 |---|---|
 | `shields` | number |
-| `guns` | number |
+| `weapons` | number |
 | `engines` | number |
 
 ### HudWingman
@@ -1397,7 +1389,7 @@ A table a script gives, which may leave out a field with a default.
 
 | Field | Type |
 |---|---|
-| `shown` | number, or nil |
+| `showing` | number, or nil |
 | `list` | list of [HudObjective](#hudobjective) |
 
 ### HudObjective
@@ -1430,7 +1422,7 @@ A table a script gives, which may leave out any field.
 
 | Field | Type | Default |
 |---|---|---|
-| `colour` | vector | `vector.create(1, 1, 1)` |
+| `color` | vector | `vector.create(1, 1, 1)` |
 | `alpha` | number | 1 |
 
 ### ShapeStyle
@@ -1439,7 +1431,7 @@ A table a script gives, which may leave out any field.
 
 | Field | Type | Default |
 |---|---|---|
-| `colour` | vector | `vector.create(1, 1, 1)` |
+| `color` | vector | `vector.create(1, 1, 1)` |
 | `alpha` | number | 1 |
 | `scale` | number | 1 |
 
@@ -1451,7 +1443,7 @@ A table a script gives, which may leave out any field.
 |---|---|---|
 | `font` | string, or nil | nil |
 | `base_font` | [Font](#font) | `"default"` |
-| `colour` | vector | `vector.create(1, 1, 1)` |
+| `color` | vector | `vector.create(1, 1, 1)` |
 | `alpha` | number | 1 |
 | `scale` | number | 1 |
 | `align` | [Align](#align) | `"left"` |
@@ -1462,7 +1454,7 @@ A table a script gives, which may leave out any field.
 
 | Field | Type | Default |
 |---|---|---|
-| `colour` | vector | `vector.create(1, 1, 1)` |
+| `color` | vector | `vector.create(1, 1, 1)` |
 | `alpha` | number | 1 |
 | `width` | number | 1 |
 
@@ -1480,7 +1472,7 @@ A table a script gives, which may leave out any field.
 | `at` | vector |
 | `down` | boolean |
 
-### Definition
+### ActionDefinition
 
 A table a script gives, which may leave out a field with a default.
 
@@ -1620,9 +1612,9 @@ number. A script can set a field to either.
 
 `caption`, `key_prompt`, `jump_prompt`, `target_markers`, `eject_marker`, `scanner`, `lights`, `view_name`, `subtitle`, `messages`, `nav_marker`, `fuel`, `kills`, `countermeasures`, `ship_status`, `gauges`, `radar`, `reticle`, `clock`, `radio`, `gunnery`, `missiles`, `target_display`, `damage`, `power`, `big_target_display`, `objectives`, `comms`, `wing_status`.
 
-### HudTargetForm
+### TargetForm
 
-`small`, `large`.
+`small`, `large`, or a number.
 
 ### Quadrant
 
@@ -1658,7 +1650,7 @@ number. A script can set a field to either.
 
 ### Align
 
-`left`, `centre`, `right`, or a number.
+`left`, `center`, `right`.
 
 ### FrontEndScreen
 
@@ -1736,10 +1728,6 @@ number. A script can set a field to either.
 
 `shot_at`, `destroyed`, `launched`, `camera_reached`, `ship_reached`, `proximity_close`, `proximity_general`, `object_scooped`, `player_ready_to_jump`, `jumped_in`, `fixed_gate_jumped_in`, `player_ready_to_warp`, `jumped_through_hoop`, `player_wants_backup`, `ripper_grabbed_object`, `ripper_dropped_object`, `cloaked`, `decloaked`, `targetted`, `player_l1_doubletap`, `player_l2_doubletap`, `player_r1_doubletap`, `player_r2_doubletap`, `player_l1_l2_r1_r2_pressed`, `player_l1_r1_pressed`, `game_timer_expired`, `tractor_beam_locked`, `tractor_beam_broken`, `inside_object`, `outside_object`, `docked`, `undocked`, `being_chased`, `call_reinforcements`, `explosion_ship`, or a number.
 
-### TargetDisplay
-
-`small`, `large`, or a number.
-
 ### PilotTier
 
 `level_0`, `level_1`, `level_2`, or a number.
@@ -1750,4 +1738,4 @@ number. A script can set a field to either.
 
 ### View
 
-`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `chase_too`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, `nanny_dock`, `warp_prepare`, `warp_depart`, `warp_arrive`, `landing_bay`, `landing_ship`, `yamato_beside`, `yamato_ahead`, `yamato_aside`, or a number.
+`cockpit`, `cockpit_left`, `cockpit_right`, `cockpit_rear`, `chase`, `spectator`, `launch_bay`, `launch_below`, `launch_aside`, `landing_tube`, `landing_aside`, `jump_out`, `jump_in_close`, `jump_in_ahead`, `jump_in_aside`, `target`, `external`, `director`, `pull_back`, `missile`, `eject`, `pickup`, `pod_shot`, `watch`, `watch_marker`, `flyby`, `nanny_dock`, `warp_prepare`, `warp_depart`, `warp_arrive`, `landing_bay`, `landing_ship`, `yamato_beside`, `yamato_ahead`, `yamato_aside`, or a number.

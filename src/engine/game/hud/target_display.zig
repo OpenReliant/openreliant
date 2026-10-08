@@ -34,9 +34,6 @@ pub const Form = enum {
     small,
     large,
 
-    /// The name scripts know these by.
-    pub const script_name = "HudTargetForm";
-
     pub fn of(window: windows.Window) ?Form {
         return switch (window) {
             .target => .small,

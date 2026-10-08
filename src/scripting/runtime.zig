@@ -32,7 +32,7 @@ const turrets = @import("turrets.zig");
 const game_module = @import("game.zig");
 const presentation_module = @import("presentation.zig");
 const storage_module = @import("storage.zig");
-const settings_module = @import("settings.zig");
+const options_module = @import("options.zig");
 const running_module = @import("running.zig");
 const stored = @import("stored.zig");
 const bigfile = openreliant.engine.game.bigfile;
@@ -129,8 +129,8 @@ pub const Shared = struct {
     game: ?storage_module.Storage.Folder = null,
     /// The original and mod bindings' settings file, shared with the controls screen.
     bindings_file: ?*@import("openreliant").engine.profile.File = null,
-    /// The pages of options the mods offer (`settings.zig`); null if there are none.
-    settings: ?*settings_module.Registry = null,
+    /// The pages of options the mods offer (`options.zig`); null if there are none.
+    option_pages: ?*options_module.Registry = null,
     /// The game modes the mods register (`game_modes.zig`); null if they aren't kept.
     modes: ?*@import("game_modes.zig").Registry = null,
 };
