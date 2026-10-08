@@ -699,6 +699,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var play: Play = .{
         .gpa = gpa,
         .number = options.mission orelse mission0.number,
+        .file_number = options.mission orelse mission0.number,
         .file = if (options.mission) |number| try missionFile(io, arena, directory, &resources, number, false) else "",
         .clock = &clock,
         .tables = tables,
@@ -2039,9 +2040,10 @@ const Loading = struct {
 const Play = struct {
     gpa: Allocator,
     /// The number the mission is flown as, and the number of the file it is read from, which a
-    /// game mode can set apart (`game.interface.main_menu.Flight.file`).
+    /// game mode can set apart (`game.interface.main_menu.Flight.file`). The mods' scripts hear of
+    /// the file's name, which picks the scripts a manifest lists under `[Missions]`.
     number: u16,
-    file_number: u16 = 0,
+    file_number: u16,
     /// The names a game mode gives the mission's objectives, if it gives any, and the pilots it
     /// seats in the player's wing.
     objectives: ?*const game.hud.Objectives.Names = null,
