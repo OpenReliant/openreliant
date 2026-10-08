@@ -20,6 +20,7 @@ const matmanager = @import("../matmanager.zig");
 const objects = @import("../objects.zig");
 const particles = @import("../particles.zig");
 const Clock = @import("../main.zig").Clock;
+const wgate = @import("../wgate.zig");
 
 /// How damaged a ship shows itself to be, by its smoke (`GameObject.smoke_level`).
 pub const Level = enum(u8) {
@@ -239,8 +240,9 @@ pub const Stream = struct {
 
 /// `mission_frame`'s smoke, in its pass over the objects after the particles' frame and the
 /// camera's: a ship a pilot has left (`GameObject.Flags.abandoned`) has its smoke let go and its
-/// level reset. Then each object the pass does not leave out (`GameObject.Flags.outOfFrame`) has
-/// its smoke sent out (`Stream.send`), and one with stats, save the Ripper, has its level followed:
+/// level reset. Then each object the pass does not leave out (`GameObject.Flags.outOfFrame`), and
+/// none while the player's ship rides the worm between gates (`wgate.ridingWorm`), has its smoke
+/// sent out (`Stream.send`), and one with stats, save the Ripper, has its level followed:
 /// when it changes, its smoke starts again for the new level from its model's first engine glow,
 /// and a model without one keeps what smoke it has.
 ///
@@ -248,6 +250,7 @@ pub const Stream = struct {
 /// frames after this; the game frames the camera first.
 pub fn frame(world: gameobj.World) void {
     const all = world.objects;
+    const riding = wgate.ridingWorm(world.gates);
     var walk = all.walk();
     while (walk.next()) |index| {
         const slot = &all.slots[index];
@@ -256,7 +259,7 @@ pub fn frame(world: gameobj.World) void {
             slot.smoke = null;
             object.smoke_level = .none;
         }
-        if (object.flags.outOfFrame()) continue;
+        if (object.flags.outOfFrame() or riding) continue;
         if (slot.smoke) |*stream| if (world.smoke) |pools| stream.send(world, pools, slot);
         const combat = slot.combat orelse continue;
         if (object.type.base() == .ripper) continue;
@@ -366,6 +369,17 @@ test frame {
     try std.testing.expectEqual(Vector{ 0, 0, 10 }, slot.smoke.?.emitter.inherited);
     try std.testing.expect(pools.get(.heavy).?.used > 0);
     try std.testing.expectEqual(0, pools.get(.light).?.used);
+
+    // While the player's ship rides the worm between gates, it sends none out.
+    var gates: wgate.Gates = undefined;
+    gates.riding = true;
+    world.gates = &gates;
+    const sent = pools.get(.heavy).?.used;
+    mission.clock.frame_start = 30;
+    frame(world);
+    try std.testing.expectEqual(sent, pools.get(.heavy).?.used);
+    try std.testing.expectEqual(10, slot.smoke.?.emitter.born);
+    world.gates = null;
 
     // With its shields up, its smoke thins.
     slot.object.shields = .all(48);

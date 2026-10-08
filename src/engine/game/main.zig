@@ -667,8 +667,10 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
 }
 
 /// `mission_frame`'s missile lock (`hud_missile_lock`, `0x00491520`), which runs while the last
-/// frame's view shows it (`0x004933D7`), whatever the camera has switched to since.
+/// frame's view shows it (`0x004933D7`), whatever the camera has switched to since, but not while
+/// the player's ship rides the worm between gates (`wgate.ridingWorm`).
 fn runLock(world: gameobj.World, display: *hud.State) void {
+    if (wgate.ridingWorm(world.gates)) return;
     if (world.last_view.showsLock()) display.lock.frame(world, &display.missiles);
 }
 
@@ -759,15 +761,17 @@ pub fn missionOver(world: gameobj.World) bool {
 /// this frame, whether one fights the player with its missile ready, which lights the display's
 /// enemy lock, what its destroyed components leave (`objects.loseComponents`, which `object_draw`
 /// runs), and each one's avoidance lists (`avoidanceScan`). The damaged ships' smoke is
-/// `smoke.frame`'s.
+/// `smoke.frame`'s. While the player's ship rides the worm between gates, the pass passes over
+/// every object (`wgate.ridingWorm`), and the enemy lock goes out.
 fn objectsPass(orders: aigeneric.Context) void {
     const world = orders.world;
     const all = world.objects;
+    const riding = wgate.ridingWorm(world.gates);
     var enemy_lock = false;
     var walk = all.walk();
     while (walk.next()) |index| {
         const slot = &all.slots[index];
-        if (slot.object.flags.outOfFrame()) continue;
+        if (slot.object.flags.outOfFrame() or riding) continue;
         if (slot.current()) |entry| {
             if (entry.order == .fight and entry.target.slot() == all.player and slot.state.fight.missile_ready) enemy_lock = true;
         }
@@ -946,6 +950,10 @@ fn frameObject(slot: *create.Slot, timing: objects.Timing, glide: ?math.Vector, 
 /// (`drawObjects`), the environment's effects and the backdrop, the sky; the star streaks are
 /// reset when the view has changed since the last frame, or the camera has switched view
 /// (`camera_set_view`); then `sr_render`. `arena` holds what the frame needs until it is drawn.
+///
+/// While the player's ship rides the worm between gates (`wgate.ridingWorm`), the objects are
+/// left out, and so are the missile lock's rings and the chase view's marks, which
+/// `hud_missile_lock` places.
 pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context: *srapi.Context, frame: Frame, driver: srcore.Driver) Allocator.Error!void {
     scene.clear();
     // How far off an object stops being worth drawing follows the frame's own projection, so the
@@ -953,17 +961,18 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     var attachments = frame.attachments;
     attachments.scale = context.projection.scale[0];
     attachments.paused = frame.paused;
-    try drawObjects(gpa, scene, frame.objects, attachments, frame.seat, if (frame.explosions) |explosions| &explosions.splits else null, frame.shown);
+    const riding = wgate.ridingWorm(frame.gates);
+    if (!riding) try drawObjects(gpa, scene, frame.objects, attachments, frame.seat, if (frame.explosions) |explosions| &explosions.splits else null, frame.shown);
     if (frame.tractors) |tractors| try tractors.draw(gpa, scene, frame.objects);
     if (frame.rippers) |rippers| try rippers.draw(gpa, scene, frame.objects);
     if (frame.jump_effects) |effects| try effects.draw(gpa, scene, frame.objects);
     try missiles.draw(frame.objects, gpa, scene, attachments);
     if (frame.trails) |trails| try trails.draw(gpa, scene);
     if (frame.countermeasures) |dropped| try dropped.draw(gpa, scene, attachments);
-    if (frame.lock_rings) |rings| if (frame.lock) |held| if (frame.last_view.showsLock()) {
+    if (frame.lock_rings) |rings| if (frame.lock) |held| if (frame.last_view.showsLock() and !riding) {
         try rings.draw(gpa, scene, held, .{ .position = context.camera.position, .orientation = context.camera.orientation }, context.projection);
     };
-    if (frame.chase) |seen_behind| if (frame.display) |display| if (frame.view == .cockpit and frame.cockpit_mode == .chase) {
+    if (frame.chase) |seen_behind| if (frame.display) |display| if (frame.view == .cockpit and frame.cockpit_mode == .chase and !riding) {
         const ship = &frame.objects.slots[frame.objects.player];
         const aim: ?math.Vector = if (ship.object.blind_fire_aim != 0) display.lead_point else null;
         try seen_behind.draw(gpa, scene, ship.drawn, display.reticle_bright, aim, display.chase_pointer, display.chase_nav_roll);
@@ -1078,10 +1087,12 @@ pub const DetailReach = enum {
 /// object is drawn with neither lights nor glows, its parts as its cloak draws them
 /// (`cloak.Drawing`).
 ///
+/// While the player's ship rides the worm between gates, the pass draws nothing (`drawFrame`).
+///
 /// Not ported yet: what else the pass draws for a few types, the protogate's power core
 /// pulsing, the Boridin breakaway's core and the Dark Reign's hat
-/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)); the cutaway scenes' own rules, and
-/// the gate's tunnel, in which no object is drawn. The pass's smoke is `smoke.frame`.
+/// ([#238](https://github.com/OpenReliant/openreliant/issues/238)). The pass's smoke is
+/// `smoke.frame`.
 pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, attachments: objects.View, seat: ?u16, splits: ?*const explode.split.Splits, shown: Shown) Allocator.Error!void {
     var walk = all.walk();
     while (walk.next()) |index| {
