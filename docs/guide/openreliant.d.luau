@@ -16,6 +16,8 @@ type TurretKind = "aimed" | "spinning" | "launcher"
 type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 type Carrier = "reliant" | "yamato"
 type HudInstrument = "caption" | "key_prompt" | "jump_prompt" | "target_markers" | "eject_marker" | "scanner" | "lights" | "view_name" | "subtitle" | "messages" | "nav_marker" | "fuel" | "kills" | "countermeasures" | "ship_status" | "gauges" | "radar" | "reticle" | "clock" | "radio" | "gunnery" | "missiles" | "target_display" | "damage" | "power" | "big_target_display" | "objectives" | "comms" | "wing_status"
+type HudTargetForm = "small" | "large"
+type HudContactLook = "other" | "hostile" | "speaker" | "target" | "nav_point"
 type HudLight = "match_speed" | "blind_fire" | "smart_targeting" | "enemy_lock" | "missile_incoming" | "ecm" | "cloak" | "spectral_shields" | "reverse_thrust"
 type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "centre" | "right" | number
@@ -124,10 +126,35 @@ type HudMissile = {
     type: MissileType,
     left: number,
 }
+type HudTargetDisplay = {
+    form: HudTargetForm,
+    name: string?,
+    pilot: string?,
+    range: number,
+    speed: number,
+    shields: HudArcs?,
+    armor: HudArcs?,
+    subtarget: string?,
+    subtarget_armor: number?,
+    hull: number?,
+}
+type HudArcs = {
+    left: number,
+    right: number,
+    fore: number,
+    aft: number,
+}
 type HudRadar = {
     range: number,
     reach: number,
     zooming: boolean,
+    contacts: { HudContact },
+}
+type HudContact = {
+    object: Object,
+    at: vector,
+    height: number,
+    look: HudContactLook,
 }
 type HudGauges = {
     speed: number,
@@ -143,12 +170,6 @@ type HudShipStatus = {
     armor: HudArcs,
     reserve_fore: number,
     reserve_aft: number,
-}
-type HudArcs = {
-    left: number,
-    right: number,
-    fore: number,
-    aft: number,
 }
 type HudClock = {
     minutes: number,
@@ -519,7 +540,9 @@ type Hud = {
     missiles: HudMissiles?,
     -- The target the display shows, with its subtarget as `component`; nil for none, or outside a mission.
     target: Target?,
-    -- The radar's range; nil outside a mission.
+    -- What the target display shows of its target, in either form, whether or not its window is open; nil without a target or while the display hides it, and outside a mission.
+    target_display: HudTargetDisplay?,
+    -- The radar: its range, and the contacts it shows; nil outside a mission.
     radar: HudRadar?,
     -- The kills the skull readout shows; nil outside a mission.
     kills: number?,
@@ -770,6 +793,7 @@ type Interfaces = {
         guns: HudGuns?,
         missiles: HudMissiles?,
         target: Target?,
+        target_display: HudTargetDisplay?,
         radar: HudRadar?,
         kills: number?,
         fuel: number?,

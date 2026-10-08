@@ -1196,6 +1196,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .variables = if (display.play.loaded) |loaded| &loaded.script.variables else null,
                     .last_view = display.last_view,
                     .strings = display.strings,
+                    .speaker = display.radio.speakingShip(&display.state.windows, objects),
                 };
             }
             if (shown.runtime.registries.selected_screen != null and host.views.get(.ui) == null) host.views.set(.ui, host.views.get(.hud));

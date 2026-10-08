@@ -10,7 +10,10 @@ const std = @import("std");
 const openreliant = @import("openreliant");
 const engine = openreliant.engine;
 const hud = engine.game.hud;
+const target_forms = hud.target_display;
 const language = engine.game.language;
+const gameobj = engine.game.gameobj;
+const Object = engine.hooks.Object;
 const gun_types = engine.game.guns;
 const missile_display = hud.missile_display;
 const create = engine.game.create;
@@ -82,7 +85,7 @@ pub const Missiles = struct {
     ring: values.List(RingMissile, missile_display.max_entries),
 };
 
-/// The radar's range.
+/// The radar's range, and its contacts.
 pub const Radar = struct {
     pub const script_name = "HudRadar";
 
@@ -92,6 +95,54 @@ pub const Radar = struct {
     reach: f32,
     /// Whether its rings are still moving to that range's.
     zooming: bool,
+    /// What it shows, in the objects' slots' order: the display's nav point, and the objects
+    /// within its reach.
+    contacts: Contacts,
+};
+
+/// A contact on the radar.
+pub const Contact = struct {
+    pub const script_name = "HudContact";
+
+    /// The object it stands for.
+    object: Object,
+    /// Where its dot stands from the radar's middle, in the game's pixels, which grow with the
+    /// window as the display's own do: across, and down the screen.
+    at: @Vector(3, f32),
+    /// How far below the rings' plane it stands, in the same pixels: its line runs that far up from
+    /// its dot to the plane, or down for one above the plane, below 0.
+    height: i32,
+    /// How it shows.
+    look: hud.Radar.Look,
+};
+
+/// The radar's contacts, which hold every object.
+pub const Contacts = values.List(Contact, gameobj.max_objects);
+
+/// What the target display shows of its target, in either of its forms.
+pub const TargetDisplay = struct {
+    pub const script_name = "HudTargetDisplay";
+
+    /// The form the target's type brings up: the small one shows its ship status and its pilot, the
+    /// large one its picture, its subtarget and its hull.
+    form: target_forms.Form,
+    /// The type's name, and its pilot's, which the small form writes; nil for none.
+    name: ?Text,
+    pilot: ?Text,
+    /// Its range in kilometres, and its speed, as both forms write them.
+    range: i32,
+    speed: i32,
+    /// How many of its shields' and its armour's five arcs show in each of its own quadrants, as
+    /// the small form shows them; nil for a ship without them.
+    shields: ?Arcs,
+    armor: ?Arcs,
+    /// The class of the subtarget's part, as the large form names it, and how much of the bar for
+    /// its armour is lit, from 0 to 1, nil for a part without armour; both nil without a
+    /// subtarget the form shows.
+    subtarget: ?Text,
+    subtarget_armor: ?f32,
+    /// How much of the large form's bar for the hull is lit, from 0 to 1; nil for a ship with none.
+    hull: ?f32,
 };
 
 /// The targeting cluster about the middle of the screen, as it shows the player's speed, throttle
@@ -175,6 +226,12 @@ fn textOf(shown: []const u8) Text {
     return held;
 }
 
+/// The game's string `id` out of `strings`, as a `Text`; null for none.
+fn stringOf(strings: ?*const language.Language, id: u32) ?Text {
+    const held = strings orelse return null;
+    return textOf(held.string(id) orelse return null);
+}
+
 /// The flight display's state, and the player's ship, while a mission is shown; null otherwise.
 fn flightOf(call: Call, comptime label: []const u8) ?struct { presentation.Host.Flight, *const create.Slot } {
     const host = presentation.Presentation.of(call, label).host orelse return null;
@@ -251,11 +308,47 @@ pub const target = api.Field(?Target, "The target the display shows, with its su
     }
 });
 
-pub const radar = api.Field(?Radar, "The radar's range; nil outside a mission.", struct {
+pub const radar = api.Field(?Radar, "The radar: its range, and the contacts it shows; nil outside a mission.", struct {
     pub fn get(call: Call) ?Radar {
         const flight, _ = flightOf(call, "radar") orelse return null;
+        const all = call.runtime().objects orelse return null;
         const state = flight.hud;
-        return .{ .range = state.radar_range, .reach = hud.Radar.ranges[state.radar_range].reach, .zooming = state.radar_zoom != null };
+        var shown: Radar = .{ .range = state.radar_range, .reach = hud.Radar.ranges[state.radar_range].reach, .zooming = state.radar_zoom != null, .contacts = .{} };
+        var contacts: hud.Radar.Contacts = .of(all, state.radar_range, flight.speaker);
+        while (contacts.next()) |contact| shown.contacts.append(.{
+            .object = .of(contact.slot),
+            .at = .{ @floatFromInt(contact.at[0]), @floatFromInt(contact.at[1]), 0 },
+            .height = contact.height,
+            .look = contact.look,
+        });
+        return shown;
+    }
+});
+
+pub const target_display = api.Field(?TargetDisplay, "What the target display shows of its target, in either form, whether or not its window is open; nil without a target or while the display hides it, and outside a mission.", struct {
+    pub fn get(call: Call) ?TargetDisplay {
+        const flight, _ = flightOf(call, "target_display") orelse return null;
+        const all = call.runtime().objects orelse return null;
+        const index = (flight.hud.target orelse return null).slot;
+        const slot = &all.slots[index];
+        const form = target_forms.Form.of(hud.targetWindow(slot)) orelse return null;
+        if (form == .small and target_forms.hidden(slot)) return null;
+        const facts: target_forms.Facts = .of(all, index);
+        const rings = hud.ShipStatus.rings(slot);
+        const part = if (target_forms.showsSubtarget(slot)) target_forms.subtarget(all) else null;
+        const bar = target_forms.hull(slot);
+        return .{
+            .form = form,
+            .name = if (facts.name) |id| stringOf(flight.strings, id) else null,
+            .pilot = if (target_forms.pilotName(all, slot)) |id| stringOf(flight.strings, id) else null,
+            .range = facts.range,
+            .speed = facts.speed,
+            .shields = if (rings) |found| .of(found.shields) else null,
+            .armor = if (rings) |found| .of(found.armor) else null,
+            .subtarget = if (part) |found| stringOf(flight.strings, found.named.name) else null,
+            .subtarget_armor = if (part) |found| if (found.unlit) |unlit| hud.windows.litShare(unlit, target_forms.armor_bar.rows) else null else null,
+            .hull = if (bar) |found| hud.windows.litShare(found.unlit, target_forms.hull_bar.rows) else null,
+        };
     }
 });
 
@@ -335,8 +428,7 @@ pub const clock = api.Field(?Clock, "The mission's clock as the display shows it
 pub const view_name = api.Field(?Text, "The view's name the display writes at the top of the screen, in the views it names; nil in the others, the view ahead from the cockpit among them, and outside a mission.", struct {
     pub fn get(call: Call) ?Text {
         const flight, _ = flightOf(call, "view_name") orelse return null;
-        const strings = flight.strings orelse return null;
-        return textOf(strings.string(hud.viewName(flight.last_view) orelse return null) orelse return null);
+        return stringOf(flight.strings, hud.viewName(flight.last_view) orelse return null);
     }
 });
 

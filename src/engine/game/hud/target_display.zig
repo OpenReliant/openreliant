@@ -34,6 +34,9 @@ pub const Form = enum {
     small,
     large,
 
+    /// The name scripts know these by.
+    pub const script_name = "HudTargetForm";
+
     pub fn of(window: windows.Window) ?Form {
         return switch (window) {
             .target => .small,
@@ -63,11 +66,11 @@ pub const Scene = struct {
         }
     }
 
-    /// What the small form shows now. A cloaked hostile target closes it.
+    /// What the small form shows now. A target it hides closes it.
     pub fn small(scene: Scene) ?Small {
         const index = (scene.state.target orelse return null).slot;
         const slot = &scene.all.slots[index];
-        if (slot.object.flags.cloaked and slot.object.side == .hostile) {
+        if (hidden(slot)) {
             scene.state.windows.close(.target);
             return null;
         }
@@ -78,18 +81,28 @@ pub const Scene = struct {
     pub fn large(scene: Scene) ?Large {
         const index = (scene.state.target orelse return null).slot;
         const slot = &scene.all.slots[index];
-        const shown_subtarget = switch (slot.object.type.base()) {
-            .proximity_mine, .black_box => false,
-            else => true,
-        };
         return .{
             .picture = if (slot.type) |loaded| loaded.schematic else null,
-            .subtarget = if (shown_subtarget) subtarget(scene.all) else null,
+            .subtarget = if (showsSubtarget(slot)) subtarget(scene.all) else null,
             .hull = hull(slot),
             .facts = .of(scene.all, index),
         };
     }
 };
+
+/// Whether the large form shows a subtarget of the target of `slot`: for any but a proximity mine
+/// and a black box.
+pub fn showsSubtarget(slot: *const create.Slot) bool {
+    return switch (slot.object.type.base()) {
+        .proximity_mine, .black_box => false,
+        else => true,
+    };
+}
+
+/// Whether the small form hides the target of `slot`, closing as it does: a cloaked hostile one.
+pub fn hidden(slot: *const create.Slot) bool {
+    return slot.object.flags.cloaked and slot.object.side == .hostile;
+}
 
 /// What both forms show of the target: its type's name, and its range and speed.
 pub const Facts = struct {
@@ -145,7 +158,7 @@ pub const Small = struct {
 /// the object's `pilot_record`, which `create_object` sets for every ship but a stand-in. It gives
 /// a hostile ship pilot 66 and any other ship pilot 0 until a mission names another
 /// (`mission_ship_create`). Null for a stand-in, which has no combat stats.
-fn pilotName(all: *const create.Objects, slot: *const create.Slot) ?u16 {
+pub fn pilotName(all: *const create.Objects, slot: *const create.Slot) ?u16 {
     if (slot.combat == null) return null;
     return all.faces.nameOf(slot.object.pilot);
 }
@@ -234,7 +247,7 @@ pub const Bar = struct {
 
 /// The subtarget of the player's current order, as the large form shows it: a component the
 /// target lists, whose part's class has a name and an icon.
-fn subtarget(all: *const create.Objects) ?Subtarget {
+pub fn subtarget(all: *const create.Objects) ?Subtarget {
     const current = all.slots[all.player].orders[0].target;
     const component = current.part() orelse return null;
     if (current.index < 0) return null;
@@ -253,7 +266,7 @@ fn subtarget(all: *const create.Objects) ?Subtarget {
 /// than `weakest_seed`, against six times its armour class; for the rest, the armour of the first
 /// of its model's parts, in its root's child list, that is hull and has armour; for one with
 /// neither, no bar.
-fn hull(slot: *const create.Slot) ?Bar {
+pub fn hull(slot: *const create.Slot) ?Bar {
     const combat = slot.combat orelse return null;
     if (combat.class == .torpedo) {
         const weakest = @min(weakest_seed, slot.object.armor.weakest());

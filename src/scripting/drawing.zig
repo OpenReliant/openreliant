@@ -464,6 +464,7 @@ pub fn Package(comptime which: Which) type {
         pub const guns = if (which == .hud) instruments.guns else {};
         pub const missiles = if (which == .hud) instruments.missiles else {};
         pub const target = if (which == .hud) instruments.target else {};
+        pub const target_display = if (which == .hud) instruments.target_display else {};
         pub const radar = if (which == .hud) instruments.radar else {};
         pub const kills = if (which == .hud) instruments.kills else {};
         pub const fuel = if (which == .hud) instruments.fuel else {};

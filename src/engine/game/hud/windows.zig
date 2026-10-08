@@ -448,6 +448,18 @@ pub fn unlitRows(share: f32, rows: i32) i32 {
     return rows - math.round(share * @as(f32, @floatFromInt(rows)));
 }
 
+/// The share of a bar of `rows` that is lit, with `unlit` of them dark (`unlitRows`), from 0 to 1.
+pub fn litShare(unlit: i32, rows: i32) f32 {
+    if (rows <= 0) return 0;
+    return std.math.clamp(1 - @as(f32, @floatFromInt(unlit)) / @as(f32, @floatFromInt(rows)), 0, 1);
+}
+
+test litShare {
+    try std.testing.expectEqual(1, litShare(unlitRows(1, 98), 98));
+    try std.testing.expectEqual(0.5, litShare(unlitRows(0.5, 98), 98));
+    try std.testing.expectEqual(0, litShare(5, 0));
+}
+
 test unlitRows {
     // Whole, a bar is lit all the way; half gone, its top half is dark; gone, all of it.
     try std.testing.expectEqual(0, unlitRows(1, 98));

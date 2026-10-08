@@ -1205,8 +1205,16 @@ hud.register_display("radar", {
 - What the instruments show can be read in any view during a mission, for a display that stands in
   for one or one drawn outside the game:
   - `hud.guns`, the gun group, how the guns fire and their charge; `hud.missiles`, the ring of
-    missiles and the armed one; `hud.target`, the target the display shows and its subtarget;
-    `hud.radar`, the radar's range and reach; and `hud.open_windows`.
+    missiles and the armed one; `hud.target`, the target the display shows and its subtarget; and
+    `hud.open_windows`.
+  - `hud.radar`, the radar's range and reach, and its contacts: each object it shows, where its
+    dot stands from the radar's middle in the game's pixels, how far below the rings' plane it
+    stands, and how it shows: the target, the ship whose line the radio's window names, a hostile,
+    the nav point or another.
+  - `hud.target_display`, what the target display shows of its target in either form, open or not:
+    the form, the type's and the pilot's names, the range and the speed, the arcs of its shields
+    and armour, the subtarget's name and the share of its armour's bar lit, and the share of the
+    hull's bar lit.
   - The readouts: `hud.fuel`, the seconds of afterburner fuel; `hud.kills`; and
     `hud.countermeasures`.
   - `hud.gauges`, the targeting cluster: the speed and the speed the throttle asks for, as their
