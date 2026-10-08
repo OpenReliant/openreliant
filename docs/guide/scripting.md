@@ -982,6 +982,40 @@ for it, such as `"predator"`, or a number where it has none. Every ship type has
 adds is its qualified name, such as `"teapot:teapot"`. A pilot can also be `"none"`.
 [`examples/mods/interceptor`](../../examples/mods/interceptor) tunes a mod's ship type.
 
+### The campaign's missions
+
+`records.campaign` is the list of missions the game's campaign flies, by their numbers, in order.
+The game's list is 1 to 11, 14, 15, 16, 18 to 21, and 23 to 28: the campaign has no missions 12, 13,
+17 and 22. Reading it gives a new list each time, and a load script changes the campaign by
+assigning a list back. With mission files of its own, a mod can put missions into the campaign, or
+make a campaign of its own.
+
+```lua
+local records = require("openreliant.records")
+
+-- Missions 12 and 13 after 11, 17 after 16, and 22 after 21, from the mod's own mission files.
+local campaign = records.campaign
+for _, mission in { 12, 13, 17, 22 } do
+    table.insert(campaign, mission)
+end
+table.sort(campaign)
+records.campaign = campaign
+```
+
+- The list holds numbers from 1 to 28, rising, each at most once, and at least one. The saved game
+  keeps a record for each of those 28 missions. To fly missions in another order, number their
+  files in that order.
+- The campaign starts at the list's first mission, goes on to the next one after each, and comes to
+  the story's end after the last.
+- The number the player sees for a mission, in the autosave's name and the saved games' list, is
+  its place on the list. The ITAC's debriefings list the missions on it.
+- A mission's other settings still come from its number, as in the game: the carrier whose rooms
+  brief it (the Reliant up to 18, the Yamato from 19), its briefing's hologram, Enriquez's last
+  word, and the medal, ribbon and tier it brings. So missions 12, 13, 17 and 22 play mission 1's
+  hologram ([#976](https://github.com/OpenReliant/openreliant/issues/976)).
+- The campaign takes the list once, as OpenReliant starts, after every mod's load scripts and their
+  `on_records_loaded` handlers. Changing it in a game mode's `records` script does nothing.
+
 ## Saved games
 
 The game is saved between missions: in the Reliant's rooms, and by the autosave as the campaign

@@ -64,7 +64,7 @@ OpenReliant's version, events for the global scripts, and game modes. For load, 
 
 ### `openreliant.records`
 
-The game's records: ships, guns, missiles, pilots, the pilots' faces, and the text of the game and the ITAC. Only load scripts can change them. For load, global, object, player and menu scripts.
+The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, and the campaign's missions in the order it flies them (`campaign`). Only load scripts can change them. For load, global, object, player and menu scripts.
 
 ### `openreliant.hooks`
 

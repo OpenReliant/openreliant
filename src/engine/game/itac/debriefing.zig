@@ -21,43 +21,19 @@ const Rect = canvas_module.Rect;
 const Itac = itac_module.Itac;
 const ScrollBox = itac_module.ScrollBox;
 
-/// The campaign's missions in the order they are flown, by their places in it
-/// (`campaign_missions`, `0x004E4954`): mission 1 on, as the campaign moves on
-/// (`gameflow.nextMission`), to the last.
-const campaign_missions = order: {
-    var missions: [campaignLength()]u16 = undefined;
-    var number: u16 = 1;
-    for (&missions) |*flown| {
-        flown.* = number;
-        number = gameflow.nextMission(number);
-    }
-    break :order missions;
-};
-
-fn campaignLength() usize {
-    var count: usize = 1;
-    var number: u16 = 1;
-    while (number != gameflow.last_mission) : (count += 1) number = gameflow.nextMission(number);
-    return count;
-}
-
 /// The place mission 0 has, and the mission number `debrief_select_latest` takes as mission 26
 /// (`0x004258E0`). **Unknown:** why; the campaign comes to neither.
 const place_of_none = 28;
 const odd_mission = 0xFC;
 const odd_mission_as = 26;
 
-/// The place of mission `mission` in the campaign's order (`campaign_place`, `0x004E49B0`): the
-/// missions flown before it, so that those the campaign has none of share the next one's place, and
-/// as the campaign comes to it, the debriefings on offer (`itac_debriefings`, `0x00523078`).
+/// The place of mission `mission` in the campaign's order (`campaign_place`, `0x004E49B0`,
+/// `gameflow.Order.place`): the missions flown before it, so that a mission the campaign doesn't fly
+/// shares the next one's place. As the campaign comes to the mission, it is the number of
+/// debriefings on offer (`itac_debriefings`, `0x00523078`).
 fn placeOf(mission: u16) u8 {
     if (mission == 0) return place_of_none;
-    var place: u8 = 0;
-    for (campaign_missions) |flown| {
-        if (flown >= mission) break;
-        place += 1;
-    }
-    return place;
+    return gameflow.campaignOrder().place(mission);
 }
 
 /// The text box of the body, with its arrows (`0x004E4918`), where "(more)" hangs from, and the
@@ -215,15 +191,16 @@ pub const Debriefing = struct {
     /// The mission chosen, by its number; none where none is.
     fn chosen(debriefing: Debriefing) ?u16 {
         const place = debriefing.selected orelse return null;
-        if (place >= campaign_missions.len) return null;
-        return campaign_missions[place];
+        const missions = gameflow.campaignOrder().missions();
+        if (place >= missions.len) return null;
+        return missions[place];
     }
 
     /// `debrief_build` (`0x00424BE0`): after the campaign's first mission, its sound, the body
     /// written, the list laid out, and the header's pane wiping in; with `wipe`, the body's and the
     /// list's too.
     fn build(debriefing: *Debriefing, itac: *Itac, wipe: bool) void {
-        if (itac.pilot.mission <= gameflow.first_mission) return;
+        if (itac.pilot.mission <= gameflow.campaignOrder().first()) return;
         itac.play(.text, itac_module.full_volume, 1);
         debriefing.write(itac);
         debriefing.layOut(itac);
@@ -279,7 +256,7 @@ pub const Debriefing = struct {
     fn layOut(debriefing: *Debriefing, itac: *Itac) void {
         debriefing.listed_count = 0;
         const font = &(itac.small orelse return).font;
-        if (itac.pilot.mission <= gameflow.first_mission) return;
+        if (itac.pilot.mission <= gameflow.campaignOrder().first()) return;
         const flown = std.math.sub(u8, placeOf(itac.pilot.mission + 1), 1) catch 0;
         var y: i32 = list_top;
         var place = debriefing.first;
@@ -397,7 +374,7 @@ test placeOf {
     try std.testing.expectEqual(11, placeOf(14));
     try std.testing.expectEqual(24, placeOf(29));
     // Each place's mission comes back to it.
-    for (campaign_missions, 0..) |number, place| try std.testing.expectEqual(place, placeOf(number));
+    for (gameflow.campaignOrder().missions(), 0..) |number, place| try std.testing.expectEqual(place, placeOf(number));
 }
 
 test ratingOf {

@@ -941,7 +941,9 @@ A mission is a `.DTE` file ([`.DTE` missions](../formats/dte.md)) named after it
 `mission5.dte`. The game keeps its missions in `missions\` and `resource.hog`. A mod's
 `mission5.dte` replaces mission 5, and a mission with a number of its own, such as `mission90.dte`,
 adds one, which a game mode can fly ([Game modes](scripting.md#game-modes)) and `--mission 90`
-starts.
+starts. A mission numbered from 1 to 28 can also join the game's campaign, such as the missions 12,
+13, 17 and 22 that the campaign doesn't fly ([The campaign's
+missions](scripting.md#the-campaigns-missions)).
 
 - OpenReliant reads a mission as the original does, and has no mission format of its own. A mission
   made for the original works in OpenReliant, and one made for OpenReliant works in the original

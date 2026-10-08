@@ -12,6 +12,7 @@
 const std = @import("std");
 
 const canvas_module = @import("../interface/canvas.zig");
+const gameflow = @import("../gameflow.zig");
 const hud = @import("../hud.zig");
 const itac_module = @import("../itac.zig");
 const tables = @import("tables.zig");
@@ -90,9 +91,8 @@ const leaving = [_]Leaves{
 const joining = 0x6E1;
 const joins_at = 6;
 
-/// The missions that add no kills, and the pilot who adds none from `away_from` to `away_to`
-/// (`killboard_kills`, `0x0044148C` on).
-const quiet_missions = [_]u16{ 12, 13, 17, 22 };
+/// The pilot who adds no kills from mission `away_from` to `away_to` (`killboard_kills`,
+/// `0x0044148C` on).
 const away = 0x6DB;
 const away_from = 19;
 const away_to = 23;
@@ -131,9 +131,14 @@ pub const Killboard = struct {
         kill_board.pictures.read(itac.context, pictures_name);
     }
 
-    /// `killboard_kills` (`0x00441460`): each pilot's kills, from those they start with, and for each
-    /// mission flown before `mission` but the quiet ones, a draw from the seed `seed` spread round
-    /// the pilot's mean.
+    /// `killboard_kills` (`0x00441460`): each pilot's kills. They start from the pilot's own, and
+    /// each mission of the campaign's order before `mission` adds a draw from the seed `seed`,
+    /// spread round the pilot's mean.
+    ///
+    /// **Improvement:** the game names missions 12, 13, 17 and 22 as the ones that add no kills
+    /// (`0x0044148C` on). OpenReliant passes over the missions the campaign's order doesn't have
+    /// (`gameflow.Order`), which are those four in the game's order, so that missions a mod puts
+    /// back add their kills.
     ///
     /// **Fix:** the game adds up the kills of a twentieth record past the nineteen, which runs into
     /// the loadout's colours for its panels' text (`loadout_text_remap`, `0x004EA308`). OpenReliant
@@ -147,7 +152,7 @@ pub const Killboard = struct {
         for (tables.pilots, &kill_board.kills) |pilot, *kills| {
             kills.* = pilot.base_kills;
             for (1..@max(mission, 1)) |flown| {
-                if (std.mem.findScalar(u16, &quiet_missions, @intCast(flown)) != null) continue;
+                if (!gameflow.campaignOrder().has(@intCast(flown))) continue;
                 if (pilot.name == away and flown >= away_from and flown <= away_to) continue;
                 const drawn = @as(f32, @floatFromInt(random.uintAtMost(u16, rand_max))) / rand_max;
                 kills.* +%= @intFromFloat((drawn - middle) * pilot.spread + pilot.mean);

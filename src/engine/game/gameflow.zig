@@ -38,11 +38,11 @@ const campaign_flags = vm.Variables.numbers(.{
     "steiner_alive",   "kulov_alive", "ivan_petrov_alive", "_unknown_6",       "yamato_alive",
 });
 
-/// `campaign_new` (`0x004751B0`) as a new campaign begins, which `WinMain` runs as the game starts:
-/// clears the first 32 of the game's variables, then sets the campaign's flags (`campaign_flags`).
-/// `Campaign.begin` sets up the rest of the campaign, mission 1 as the next and each mission's
-/// records, `save.Game.clearPilot` the pilot's tallies, and `ProfileFile.open` reads the pilot's
-/// profile.
+/// `campaign_new` (`0x004751B0`) as a new campaign begins, which `WinMain` also runs as the game
+/// starts: clears the first 32 of the game's variables, then sets the campaign's flags
+/// (`campaign_flags`). `Campaign.begin` sets up the rest of the campaign: mission 1 as the next,
+/// and empty records for each mission. `save.Game.clearPilot` clears the pilot's tallies, and
+/// `ProfileFile.open` reads the pilot's profile.
 pub fn newCampaign(variables: *vm.Variables) void {
     for (0..cleared_variables) |index| variables.slot(@intCast(index)).* = 0;
     for (campaign_flags) |index| variables.slot(index).* = 1;
@@ -232,7 +232,8 @@ pub const Campaign = struct {
     mp_deaths: i32 = 0,
     killboard_seed: i32 = 0,
 
-    /// A new campaign (`campaign_new`).
+    /// A new campaign (`campaign_new`), at mission 1. START GAME then moves it to the first
+    /// mission of the campaign's order (`Order.first`).
     pub fn begin() Campaign {
         var variables: vm.Variables = .{};
         newCampaign(&variables);
@@ -349,21 +350,25 @@ pub const Record = struct {
     medal: ?Medal = null,
 };
 
-/// `mission_end_record` (`0x00475A90`) as mission `mission` ends, rated by its script in
-/// `variables`, the campaign at `tier`, in `campaign` where it is flown in one: nothing where the
-/// ending keeps no kills (`keepsKills`, `mission_ending` 1 or 3); where the script rated it a total
-/// failure, the ending becomes one (`0x00475CE5`). Otherwise the rating is kept as the last
-/// (`0x00475AC2`), the mission's ribbon awarded where it ends a chapter (`ribbonOf`,
-/// `ribbon_award`, `0x00475A50`), the pilot promoted by the kills over the campaign (`promote`),
-/// which the mission's record keeps, and the kills kept for the next mission's start
-/// (`winmain.startMission`), the mission's in its record; the tier is the one the mission brings,
-/// where it brings one (`mission_tiers`, `0x00475B28`); and the campaign moves on (`nextMission`),
-/// from the last mission to the story's end (`0x00475B3A`), after any other the record keeping the
-/// rating (`0x00475B43`). A mission that awards a medal (`medal_of_mission`, `0x00475B57`) awards
-/// it for a success with its bonus, unless a nanny ship picked the pilot up (`medal_award`,
-/// `0x00475A40`). Last, the wing's pilots are brought up to date for the next mission
-/// (`update_pilots`, `0x00475BE8`), before the autosave keeps them (`save.autosave`) and the pilot's
-/// profile takes the campaign (`Profile.keep`).
+/// `mission_end_record` (`0x00475A90`) as mission `mission` ends. Its script has rated it in
+/// `variables`, the campaign is at `tier`, and `campaign` is the campaign it's flown in, if any.
+///
+/// - Nothing happens if the ending keeps no kills (`keepsKills`, `mission_ending` 1 or 3).
+/// - If the script rated it a total failure, the ending becomes one (`0x00475CE5`).
+/// - Otherwise the rating is kept as the last (`0x00475AC2`), the mission's ribbon is awarded if it
+///   ends a chapter (`ribbonOf`, `ribbon_award`, `0x00475A50`), and the pilot is promoted by the
+///   kills over the campaign (`promote`), which the mission's record keeps. The kills are kept for
+///   the next mission's start (`winmain.startMission`), and the mission's own kills in its record.
+///   The tier becomes the one the mission brings, if it brings one (`mission_tiers`,
+///   `0x00475B28`).
+/// - The campaign moves on to the next mission of its order (`nextMission`), and after the last to
+///   the story's end (`0x00475B3A`).
+/// - For any mission but the last, the record keeps the rating (`0x00475B43`), and a mission that
+///   awards a medal (`medal_of_mission`, `0x00475B57`) awards it for a success with its bonus,
+///   unless a nanny ship picked the pilot up (`medal_award`, `0x00475A40`). Then the wing's pilots
+///   are brought up to date for the next mission (`update_pilots`, `0x00475BE8`), before the
+///   autosave keeps them (`save.autosave`) and the pilot's profile takes the campaign
+///   (`Profile.keep`).
 pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16, tier: u2, campaign: ?*Campaign, wingmen: *pilots.Wingmen) ?Record {
     if (!keepsKills(player.ending)) return null;
     const rating = variables.mission_success;
@@ -381,9 +386,9 @@ pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16,
         kept.kills = player.kills.mission;
     }
     const reached = if (mission >= first_mission and mission <= mission_tiers.len and mission_tiers[mission - 1] != 0) mission_tiers[mission - 1] else tier;
-    const next = if (mission == last_mission) story_end else nextMission(mission);
+    const next = nextMission(mission);
     if (campaign) |going| going.mission = next;
-    if (mission == last_mission) return .{ .next = next, .tier = reached };
+    if (next == story_end) return .{ .next = next, .tier = reached };
     if (record) |kept| kept.rating = rating;
     const awards = player.ending != .rescued and rating == .success_bonus;
     const medal = if (awards) Medal.of(mission) else null;
@@ -392,11 +397,203 @@ pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16,
     return .{ .next = next, .tier = reached, .medal = medal };
 }
 
-/// The campaign's first mission, where a new campaign starts (`campaign_new`), and its last, and
-/// the number the story's end takes after it (`mission_end_record`, `0x00475B3A`).
+/// The numbers the campaign's missions can have, 1 to 28. The saved game keeps a record for each
+/// (`Campaign.records`), and the game's tables of each mission's medal, ribbon, tier and briefing
+/// go as far. The story's end takes the number after them (`mission_end_record`, `0x00475B3A`).
 pub const first_mission = 1;
 pub const last_mission = 28;
 pub const story_end = 29;
+
+/// The campaign's missions in the order they are flown, by their numbers (`campaign_missions`,
+/// `0x004E4954`). The numbers rise, each from `first_mission` to `last_mission`. The campaign moves
+/// on by it as each mission ends (`next`), the player sees each mission's place on it as the
+/// mission's number (`shown`), and the ITAC lists the debriefings by it (`place`).
+///
+/// **Improvement:** the game keeps the order in four places: `campaign_missions`, `campaign_place`
+/// (`0x004E49B0`), `mission_display_numbers` (`0x004E5C78`), and the step from one mission to the
+/// next in `mission_end_record` (`0x00475BB2` on). OpenReliant works them all out from this one
+/// list, which the mods' load scripts can change (`records.campaign`,
+/// [#975](https://github.com/OpenReliant/openreliant/issues/975)). For the game's list, they give
+/// the same as the game's tables.
+pub const Order = struct {
+    numbers: [last_mission]u16 = @splat(0),
+    count: u8 = 0,
+
+    /// The game's: missions 1 to 28 but 12, 13, 17 and 22, which the campaign has none of.
+    pub const original: Order = Order.of(&.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28 }) catch unreachable;
+
+    pub const Error = error{
+        /// The list has no missions.
+        Empty,
+        /// A number isn't one a mission of the campaign can have.
+        OutOfRange,
+        /// A number isn't higher than the one before it.
+        NotRising,
+    };
+
+    /// The order of the missions `list` gives: at least one, rising, each from `first_mission` to
+    /// `last_mission`. Rising numbers in that range are never more than `last_mission`, so they
+    /// always fit.
+    pub fn of(list: []const u16) Error!Order {
+        if (list.len == 0) return error.Empty;
+        var order: Order = .{};
+        for (list, 0..) |mission, at| {
+            if (mission < first_mission or mission > last_mission) return error.OutOfRange;
+            if (at > 0 and mission <= list[at - 1]) return error.NotRising;
+            order.numbers[at] = mission;
+            order.count += 1;
+        }
+        return order;
+    }
+
+    /// The missions, in order.
+    pub fn missions(order: *const Order) []const u16 {
+        return order.numbers[0..order.count];
+    }
+
+    /// The first mission, where a new campaign starts. The game's `campaign_new` starts at mission
+    /// 1.
+    pub fn first(order: *const Order) u16 {
+        return order.numbers[0];
+    }
+
+    /// Whether mission `mission` is on the list.
+    pub fn has(order: *const Order, mission: u16) bool {
+        return std.mem.findScalar(u16, order.missions(), mission) != null;
+    }
+
+    /// The mission after mission `mission` (`mission_end_record`, `0x00475BB2` on): the first on the
+    /// list with a higher number, which for a mission on the list is the one after it. After the
+    /// last comes the story's end. In the game's list, 11 and 12 go on to 14, 16 to 18 and 21 to 23.
+    pub fn next(order: *const Order, mission: u16) u16 {
+        for (order.missions()) |listed| {
+            if (listed > mission) return listed;
+        }
+        return story_end;
+    }
+
+    /// The mission before mission `mission`: the last on the list with a lower number, which for a
+    /// mission on the list is the one the campaign comes to it from. The first has none.
+    pub fn previous(order: *const Order, mission: u16) ?u16 {
+        const before = order.place(mission);
+        return if (before == 0) null else order.numbers[before - 1];
+    }
+
+    /// How many missions on the list have a lower number than mission `mission` (`campaign_place`,
+    /// `0x004E49B0`): the mission's place counted from 0 if it is on the list, otherwise the place
+    /// of the mission after it.
+    pub fn place(order: *const Order, mission: u16) u8 {
+        var before: u8 = 0;
+        for (order.missions()) |listed| {
+            if (listed >= mission) break;
+            before += 1;
+        }
+        return before;
+    }
+
+    /// The number the player sees for mission `mission` (`mission_display_numbers`, `0x004E5C78`),
+    /// which the autosaves' names and the saved games' list show: its place on the list counted
+    /// from 1. A mission of the campaign's numbers that isn't on the list shows its own number, and
+    /// any other number shows 0, as in the game's table.
+    ///
+    /// **Fix:** a number past the game's table shows 0. The game reads on past the table's end.
+    pub fn shown(order: *const Order, mission: u16) u16 {
+        if (order.has(mission)) return order.place(mission) + 1;
+        return if (mission >= first_mission and mission <= last_mission) mission else 0;
+    }
+};
+
+/// The campaign's order: the game's, until OpenReliant installs the one the mods' load scripts
+/// leave (`install`).
+var installed: Order = .original;
+
+/// Makes `order` the campaign's order. OpenReliant does this as it starts, once the mods' load
+/// scripts have run.
+pub fn install(order: Order) void {
+    installed = order;
+}
+
+/// The campaign's order.
+pub fn campaignOrder() *const Order {
+    return &installed;
+}
+
+/// The mission the campaign goes on to after mission `mission` (`Order.next`).
+pub fn nextMission(mission: u16) u16 {
+    return installed.next(mission);
+}
+
+/// The mission the campaign comes to mission `mission` from (`Order.previous`).
+pub fn previousMission(mission: u16) ?u16 {
+    return installed.previous(mission);
+}
+
+/// The number the player sees for mission `mission` (`Order.shown`).
+pub fn displayNumber(mission: u16) u16 {
+    return installed.shown(mission);
+}
+
+test Order {
+    const game = Order.original;
+    // The game's step from one mission to the next (`mission_end_record`).
+    for (0..story_end) |number| {
+        const mission: u16 = @intCast(number);
+        const step: u16 = switch (mission) {
+            11, 12 => 14,
+            16 => 18,
+            21 => 23,
+            else => mission + 1,
+        };
+        try std.testing.expectEqual(step, game.next(mission));
+    }
+    // The game's table of the numbers the player sees (`mission_display_numbers`): mission 14 is
+    // the twelfth flown, and missions 12 and 13 share its place.
+    const display_numbers = [_]u16{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 12, 13, 14, 17, 15, 16, 17, 18, 22, 19, 20, 21, 22, 23, 24, 0, 0, 0 };
+    for (display_numbers, 0..) |number, mission| try std.testing.expectEqual(number, game.shown(@intCast(mission)));
+    try std.testing.expectEqual(0, game.shown(40));
+    try std.testing.expectEqual(11, game.place(12));
+    try std.testing.expectEqual(11, game.place(14));
+    // Each mission comes after the one before it.
+    try std.testing.expectEqual(null, game.previous(first_mission));
+    try std.testing.expectEqual(11, game.previous(14));
+    for (game.missions()[1..]) |mission| try std.testing.expectEqual(mission, game.next(game.previous(mission).?));
+
+    // With the cut missions back in their places, the campaign flies all 28, and each shows its
+    // own number.
+    var all: [last_mission]u16 = undefined;
+    for (&all, first_mission..) |*mission, number| mission.* = @intCast(number);
+    const restored: Order = try .of(&all);
+    try std.testing.expectEqual(12, restored.next(11));
+    try std.testing.expectEqual(13, restored.next(12));
+    try std.testing.expectEqual(14, restored.shown(14));
+    try std.testing.expectEqual(story_end, restored.next(last_mission));
+
+    // A campaign of a mod's own, of three missions from the fifth.
+    const own: Order = try .of(&.{ 5, 9, 20 });
+    try std.testing.expectEqual(5, own.first());
+    try std.testing.expectEqual(9, own.next(5));
+    try std.testing.expectEqual(story_end, own.next(20));
+    try std.testing.expectEqual(2, own.shown(9));
+    try std.testing.expectEqual(6, own.shown(6));
+    try std.testing.expectEqual(5, own.previous(9));
+
+    // Lists the campaign can't fly.
+    try std.testing.expectError(error.Empty, Order.of(&.{}));
+    try std.testing.expectError(error.OutOfRange, Order.of(&.{ 0, 1 }));
+    try std.testing.expectError(error.OutOfRange, Order.of(&.{ 1, story_end }));
+    try std.testing.expectError(error.NotRising, Order.of(&.{ 1, 3, 2 }));
+    try std.testing.expectError(error.NotRising, Order.of(&.{ 1, 1 }));
+}
+
+test install {
+    defer install(.original);
+    install(try .of(&.{ 4, 6, 7 }));
+    try std.testing.expectEqual(4, campaignOrder().first());
+    try std.testing.expectEqual(7, nextMission(6));
+    try std.testing.expectEqual(story_end, nextMission(7));
+    try std.testing.expectEqual(4, previousMission(6));
+    try std.testing.expectEqual(2, displayNumber(6));
+}
 
 /// The pilot's ribbons, ribbon 1 first: one for each chapter of the story the pilot has come
 /// through (`pilot_ribbons`).
@@ -414,51 +611,6 @@ pub fn ribbonOf(mission: u16) ?u3 {
         else => null,
     };
 }
-
-/// The mission after mission `mission` (`mission_end_record`, `0x00475BB2` on): the next number,
-/// but 11 and 12 go on to 14, 16 to 18 and 21 to 23, the campaign having no missions 12, 13, 17 and
-/// 22.
-pub fn nextMission(mission: u16) u16 {
-    return switch (mission) {
-        11, 12 => 14,
-        16 => 18,
-        21 => 23,
-        else => mission + 1,
-    };
-}
-
-/// The mission the campaign comes to mission `mission` from (`nextMission`): 11 before 14, 16
-/// before 18 and 21 before 23, else the number before; none before the first.
-pub fn previousMission(mission: u16) ?u16 {
-    return switch (mission) {
-        0, first_mission => null,
-        14 => 11,
-        18 => 16,
-        23 => 21,
-        else => mission - 1,
-    };
-}
-
-test previousMission {
-    try std.testing.expectEqual(null, previousMission(first_mission));
-    // Each mission the campaign flies comes after the one before it.
-    for (first_mission + 1..last_mission + 1) |number| {
-        const mission: u16 = @intCast(number);
-        if (mission == 12 or mission == 13 or mission == 17 or mission == 22) continue;
-        try std.testing.expectEqual(mission, nextMission(previousMission(mission).?));
-    }
-}
-
-/// The number the player sees for mission `mission` (`mission_display_numbers`, `0x004E5C78`):
-/// the campaign's missions counted in the order they are flown, 1 to 24, which the autosaves'
-/// names and the saved games' list show.
-///
-/// **Fix:** a mission past the table shows as 0, where the game reads on past its end.
-pub fn displayNumber(mission: u16) u16 {
-    return if (mission < display_numbers.len) display_numbers[mission] else 0;
-}
-
-const display_numbers = [_]u16{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 12, 13, 14, 17, 15, 16, 17, 18, 22, 19, 20, 21, 22, 23, 24, 0, 0, 0 };
 
 /// A medal, which a mission awards (`medal_of_mission`, `0x005009BB`), and whose ceremony plays as
 /// it does (`medal_movies`, `0x00500A08`).
@@ -595,27 +747,10 @@ test endMission {
     try std.testing.expectEqual(story_end, campaign.mission);
 }
 
-test displayNumber {
-    try std.testing.expectEqual(11, displayNumber(11));
-    // The campaign has no missions 12 and 13, so that mission 14 is the twelfth flown.
-    try std.testing.expectEqual(12, displayNumber(14));
-    try std.testing.expectEqual(24, displayNumber(last_mission));
-    try std.testing.expectEqual(0, displayNumber(story_end));
-    try std.testing.expectEqual(0, displayNumber(40));
-}
-
 test ribbonOf {
     try std.testing.expectEqual(1, ribbonOf(7));
     try std.testing.expectEqual(5, ribbonOf(25));
     try std.testing.expectEqual(null, ribbonOf(28));
-}
-
-test nextMission {
-    try std.testing.expectEqual(2, nextMission(1));
-    try std.testing.expectEqual(14, nextMission(12));
-    try std.testing.expectEqual(18, nextMission(16));
-    try std.testing.expectEqual(23, nextMission(21));
-    try std.testing.expectEqual(25, nextMission(24));
 }
 
 test "Campaign.pickedUp" {

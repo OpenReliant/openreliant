@@ -348,7 +348,10 @@ on and back. It opens with sound 5 and wipes in at (30, 72), 593 by 295.
 - Each pilot starts with their kills, and each mission flown before the one the campaign has come
   to adds a draw round their mean, more or less half their spread (`killboard_kills`,
   `0x00441460`), from the campaign's seed (`killboard_seed`, `0x00562F10`). Missions 12, 13, 17 and
-  22 add none, and Klaus Steiner adds none from mission 19 to 23.
+  22, which the campaign doesn't fly, add none, and Klaus Steiner adds none from mission 19 to 23.
+  **Improvement:** OpenReliant passes over whichever missions the campaign's order doesn't have, so
+  missions a mod puts back add their kills ([The campaign's
+  missions](../guide/scripting.md#the-campaigns-missions)).
 - The board follows the campaign: John McGann and Brad Callan leave it after mission 5, Zoran
   Grandoni after 12, Angelo Fuser and Joe Dabo after 21, Manzo Takamatsu after 22 and Matt Moreno
   after 25, and Linc Stevenson joins it at mission 6 (`0x00441320`).
