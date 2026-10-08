@@ -127,7 +127,7 @@ pub const Cutaway = enum(i32) {
     /// Selects one of three cutaways using the original's random call (`launch_yamato_run`).
     fn pick(random: *Random) Cutaway {
         const choices = [_]Cutaway{ .beside, .ahead, .aside };
-        return choices[random.rand() % choices.len];
+        return random.pick(choices);
     }
 };
 
@@ -191,7 +191,7 @@ fn showHangar(ctx: aigeneric.Context, frame: math.Place, bounds: [2]math.Vector)
     };
     const hangar = launch.makeHangar(world, .of(.yamato_hangar), "the Yamato") orelse return;
     const shown = &all.slots[hangar];
-    for (&effects.due) |*due| due.* = world.clock.frame_start + @as(i32, world.random.rand() % vent_pause);
+    for (&effects.due) |*due| due.* = world.clock.frame_start + @as(i32, world.random.below(vent_pause));
     var at = (bounds[0] + bounds[1]) * @as(math.Vector, @splat(0.5));
     at[0] = bounds[1][0];
     var front = (shown.object.bounds_min.vector() + shown.object.bounds_max.vector()) * @as(math.Vector, @splat(0.5));
@@ -471,8 +471,8 @@ fn stream(world: gameobj.World) void {
             const side: usize = @intFromBool(n != 0);
             if (effects.due[side] < now) {
                 emitter.born = now;
-                emitter.life = @as(i32, world.random.rand() % vent_spread) + vent_min;
-                effects.due[side] = now + emitter.life + vent_min + @as(i32, world.random.rand() % vent_pause);
+                emitter.life = @as(i32, world.random.below(vent_spread)) + vent_min;
+                effects.due[side] = now + emitter.life + vent_min + @as(i32, world.random.below(vent_pause));
             }
         }
         if (model.rootChild(vent.part) != null) _ = explode.streamWithin(world, emitter, model.frameAt(vent.part, hangar.drawn));

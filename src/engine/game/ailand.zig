@@ -373,7 +373,7 @@ fn cutaway(ctx: Context, index: u16, carrier: u16) void {
     const slot = &all.slots[index];
     const state = &slot.state.land;
     if (world.camera) |view| {
-        const pick: camera.View = if (world.random.rand() % 2 == 0) .landing_aside else .landing_tube;
+        const pick: camera.View = if (world.random.oneIn(2)) .landing_aside else .landing_tube;
         _ = view.setView(pick, index, true, true, ctx.world.clock.viewTime());
     }
     const reliant = &all.slots[carrier];
@@ -521,7 +521,7 @@ fn yamatoCutaway(ctx: Context, index: u16) void {
         model.parts[bay_hangar].object.light_mask = bay_light_mask;
     };
     if (world.camera) |view| {
-        const pick: camera.View = if (world.random.rand() % 2 == 0) .landing_bay else .landing_ship;
+        const pick: camera.View = if (world.random.oneIn(2)) .landing_bay else .landing_ship;
         _ = view.setView(pick, index, true, true, world.clock.viewTime());
     }
     const max = bay.object.bounds_max.vector();

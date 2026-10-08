@@ -505,7 +505,7 @@ pub fn playerInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.eject_player;
     state.ended = 0;
-    state.end = @as(i32, ctx.world.random.rand() % blow_up_spread) + blow_up_after + ctx.world.clock.frame_start;
+    state.end = @as(i32, ctx.world.random.below(blow_up_spread)) + blow_up_after + ctx.world.clock.frame_start;
     slot.object.flags.unpowered = true;
     slot.object.flags.ejected = true;
     ctx.world.player.ending = .ejecting;

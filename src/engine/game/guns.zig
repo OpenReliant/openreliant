@@ -1408,7 +1408,7 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
     // The shot's own type, which is its gun's but for a Turret Flak's two times in five
     // (`bullet_fire`); its figures follow it.
     var kind = gun_type;
-    if (kind.base() == .turret_flak and @rem(world.random.rand(), flak_lasers.in) < flak_lasers.times) kind = .of(.turret_lasers);
+    if (kind.base() == .turret_flak and world.random.below(flak_lasers.in) < flak_lasers.times) kind = .of(.turret_lasers);
     const record = kind.stats(&all.gun_stats);
 
     // The muzzle stands where the step is taking the ship, on the part that carries it. A shot

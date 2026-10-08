@@ -26,6 +26,23 @@ pub const Random = struct {
         return r.numbers.random().int(u15);
     }
 
+    /// Whether the next number is a multiple of `odds`, about one draw in `odds`, as the game's code
+    /// tests `rand() % odds == 0`.
+    pub fn oneIn(r: *Random, odds: u15) bool {
+        return r.rand() % odds == 0;
+    }
+
+    /// The next number modulo `n`, from 0 to `n` less one, as the game's code takes `rand() % n`.
+    pub fn below(r: *Random, n: u15) u15 {
+        return r.rand() % n;
+    }
+
+    /// One of `items`, by the next number modulo their count, as the game's code picks one with
+    /// `rand() % count`.
+    pub fn pick(r: *Random, items: anytype) @TypeOf(items[0]) {
+        return items[r.rand() % items.len];
+    }
+
     /// `number` divided by `max`, a fraction from 0 to 1, as the game's code scales `rand`'s: it
     /// multiplies by the reciprocal (`0x004DC4C8`).
     pub fn share(number: u15) f32 {
@@ -95,4 +112,15 @@ test "a seed gives the same numbers each time, and the fingerprint follows them"
     const before = first.fingerprint();
     _ = first.rand();
     try std.testing.expect(first.fingerprint() != before);
+}
+
+test "oneIn, below and pick each take one draw, modulo" {
+    var random: Random = .init(7);
+    var same: Random = .init(7);
+    const choices = [_]u8{ 10, 20, 30 };
+    for (0..100) |_| {
+        try std.testing.expectEqual(same.rand() % 4 == 0, random.oneIn(4));
+        try std.testing.expectEqual(same.rand() % 5, random.below(5));
+        try std.testing.expectEqual(choices[same.rand() % choices.len], random.pick(&choices));
+    }
 }

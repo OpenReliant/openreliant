@@ -747,7 +747,7 @@ pub const Interference = struct {
     /// `sound_gap` ticks and a random share of as many more have passed since the last.
     pub fn start(interference: *Interference, world: gameobj.World) void {
         const frame_start = world.clock.frame_start;
-        const gap = @rem(world.random.rand(), sound_gap) + sound_gap;
+        const gap = world.random.below(sound_gap) + sound_gap;
         if (gap < frame_start - interference.sounded_at) {
             interference.sounded_at = frame_start;
             if (world.hearing) |hearing| {

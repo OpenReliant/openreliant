@@ -407,7 +407,7 @@ fn panelLost(world: gameobj.World, index: u16, model: *objects.Model, link: u32)
     const random = world.random;
     if (throwPiece(world, .of(.proto_gate_panel), place, panel_tumble)) |made| {
         const panel = &world.objects.slots[made];
-        const shown = random.rand() % plates.len;
+        const shown = random.below(plates.len);
         if (panel.model) |*panel_model| {
             for (plates, 0..) |name, n| if (n != shown) panel_model.hideNamed(name);
         }

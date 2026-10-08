@@ -233,7 +233,7 @@ pub const Top = struct {
         for (0..step_bits + cut.step % 2) |_| explode.throwBit(world, at, back, step_bit);
         cut.step += 1;
         if (cut.step % sound_every != 0) return;
-        const which: sound3d.sounds.Sound = if (world.random.rand() % 2 == 0) .explosion02 else .explosion01;
+        const which: sound3d.sounds.Sound = if (world.random.oneIn(2)) .explosion02 else .explosion01;
         sound3d.playIn(world, at, null, null, which, 1, .explosions);
     }
 

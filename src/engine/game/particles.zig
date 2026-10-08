@@ -79,7 +79,7 @@ pub const Template = extern struct {
             return switch (kind) {
                 .particles => .particle,
                 .sparks => .spark,
-                .sometimes_sparks => if (random.rand() % spark_odds != 0) .particle else .spark,
+                .sometimes_sparks => if (!random.oneIn(spark_odds)) .particle else .spark,
             };
         }
 

@@ -294,7 +294,7 @@ fn moose(all: *const create.Objects) u16 {
 
 /// `pick_line` (`0x00453A50`): one of `lines`, at random.
 pub fn pick(world: gameobj.World, lines: []const []const u8) []const u8 {
-    return lines[world.random.rand() % lines.len];
+    return world.random.pick(lines);
 }
 
 /// The radio and what it reaches as a line is said, where the world has a radio and is heard.

@@ -249,7 +249,7 @@ fn asteroidUpdate(ctx: Context, index: u16) void {
     if (size < least_breaking) return;
     var turn_count: usize = fragments;
     while (turn_count > 0) : (turn_count -= 1) {
-        const kind = gameobj.Type.asteroid(fragment_first + @as(usize, world.random.rand() % fragment_kinds));
+        const kind = gameobj.Type.asteroid(fragment_first + @as(usize, world.random.below(fragment_kinds)));
         const fragment = create.make(world, null, kind) catch null orelse return;
         const piece = &all.slots[fragment];
         const turn = math.fromAngles(@as(f32, @floatFromInt(turn_count)) * fragment_turn, 0, 0);

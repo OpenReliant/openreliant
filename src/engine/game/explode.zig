@@ -1055,9 +1055,9 @@ pub fn blast(world: gameobj.World, index: u16) void {
     scatter(world, at, if (small) small_blast_bits else blast_bits);
     const emitted = flames(world, at, velocity, blast_flames);
     const random = world.random;
-    if (random.rand() % blast_shockwave_odds == 0) {
-        const life = @as(i32, random.rand() % blast_shockwave_life_range) + blast_shockwave_life;
-        const kind = shockwave.Kind.blasts[random.rand() % shockwave.Kind.blasts.len];
+    if (random.oneIn(blast_shockwave_odds)) {
+        const life = @as(i32, random.below(blast_shockwave_life_range)) + blast_shockwave_life;
+        const kind = random.pick(shockwave.Kind.blasts);
         if (emitted) |emitter| shockwave.setOff(world, emitter.place, .{
             .kind = kind,
             .size = slot.object.radius * blast_shockwave_size,

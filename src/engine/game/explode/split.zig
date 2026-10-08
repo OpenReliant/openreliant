@@ -225,7 +225,7 @@ pub const Split = struct {
         const per_step = duration / @as(f32, @floatFromInt(count));
         while (elapsed < sequence.duration) {
             if (@as(f32, @floatFromInt(elapsed)) / per_step <= @as(f32, @floatFromInt(split.step))) break;
-            if (random.rand() % big_burst_odds == 0) split.bigBurst(world);
+            if (random.oneIn(big_burst_odds)) split.bigBurst(world);
             split.stepBurst(world);
         }
         if (elapsed <= sequence.duration or slot.object.ends.split_ended) return false;
@@ -245,7 +245,7 @@ pub const Split = struct {
         explode.fireballAt(world, at, .{ .size = (random.fraction() * step_fireball_range + step_fireball_least) * sequence.fireball, .light = true });
         const root = split.rootPlace(world);
         const object = &world.objects.slots[split.object].object;
-        const direction = if (random.rand() % 2 == 0) math.normalize(at - root.position) else -math.forward(object.root.orientation);
+        const direction = if (random.oneIn(2)) math.normalize(at - root.position) else -math.forward(object.root.orientation);
         if (object.type.base() == .latov) {
             if (sequence.bits > 0 and std.mem.findScalar(usize, &latov_flash_steps, split.step) != null) flash(world);
             const out = math.normalize(at - root.position);
@@ -256,7 +256,7 @@ pub const Split = struct {
         split.step += 1;
         const skew: i32 = @intFromFloat(random.centred() * sound_skew);
         if (@mod(@as(i32, @intCast(split.step)), sound_every - skew) != 0) return;
-        const which: sound3d.sounds.Sound = if (random.rand() % 2 == 0) .explosion01 else .explosion02;
+        const which: sound3d.sounds.Sound = if (random.oneIn(2)) .explosion01 else .explosion02;
         const volume = (random.fraction() + 1) * sound_volume;
         sound3d.playIn(world, at, null, null, which, volume, .not_reserved);
     }
@@ -377,10 +377,10 @@ pub const Split = struct {
         const object = &all.slots[split.object].object;
         const elapsed = world.clock.frame_start - split.started;
         const random = world.random;
-        if (object.type.base() == .stalag and random.rand() % stalag_flash_odds == 0) flash(world);
+        if (object.type.base() == .stalag and random.oneIn(stalag_flash_odds)) flash(world);
         if (elapsed > bursts_after) {
             const odds: u15 = if (object.type.base() == .stalag) stalag_burst_odds else burst_odds;
-            if (random.rand() % odds == 0) {
+            if (random.oneIn(odds)) {
                 if (object.type.base() == .latov or object.type.base() == .stalag) world.shake.* = bursts_shake;
                 split.burst(world, burst_bit_speed, true);
             }
@@ -416,7 +416,7 @@ pub const Split = struct {
         const sequence = split.sequence;
         const at = split.worldPoint(world, @as(usize, random.rand()) % split.points.len);
         explode.fireballAt(world, at, .{ .size = (random.fraction() + burst_big_least) * sequence.fireball, .light = true });
-        const late: i32 = random.rand() % burst_late;
+        const late: i32 = random.below(burst_late);
         explode.fireballAt(world, at, .{ .size = (random.fraction() + 1) * sequence.fireball, .light = true, .delay = late });
         const direction = math.normalize(at - split.rootPlace(world).position);
         for (0..@intCast(@max(sequence.bits * burst_bits, 0))) |_| {
@@ -449,7 +449,7 @@ pub const Split = struct {
         sound3d.playIn(world, null, null, split.object, .capexp, 1, .player_fx);
         for (0..split.points.len) |n| {
             const at = split.worldPoint(world, n);
-            const late: i32 = random.rand() % end_late;
+            const late: i32 = random.below(end_late);
             explode.fireballAt(world, at, .{ .size = (random.fraction() + 1) * end_share * sequence.fireball, .light = true, .delay = late });
             const direction = math.normalize(at - split.rootPlace(world).position);
             for (0..@intCast(@max(sequence.bits, 0))) |_| {
@@ -682,7 +682,7 @@ pub fn start(world: gameobj.World, index: u16) void {
     });
     if (sequence.mode == .bursts) {
         var n: usize = 0;
-        while (n < @as(usize, world.random.rand() % opening_range + opening_least)) : (n += 1) {
+        while (n < @as(usize, world.random.below(opening_range) + opening_least)) : (n += 1) {
             split.burst(world, sequence.bit_size * opening_bit_share, n % opening_heard == 0);
         }
     }
