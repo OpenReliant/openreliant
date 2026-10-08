@@ -8,11 +8,13 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 pub const Kinds = @import("../executor.zig").Kinds;
+pub const Extra = @import("../executor.zig").Extra;
 
+/// A parameter. The game reads only how many a command takes (`vm_command`, `0x0045BEA0`):
+/// what each accepts, its other word and its label are data for the developers' tools.
 pub const Param = struct {
     kinds: Kinds,
-    /// **Unknown.** Zero for most parameters.
-    extra: u32,
+    extra: Extra,
     label: []const u8,
 };
 
@@ -20,7 +22,9 @@ pub const Command = struct {
     name: []const u8,
     params: []const Param,
     description: []const u8,
-    /// **Unknown.** Set on seven commands.
+    /// **Unknown.** Set on seven commands: `Wait`, `WaitForSpeech`, `WaitForMovie`,
+    /// `ResetAfterBurners`, `PlayFostersLastStand`, `WaitForKey` and `TerminateMission`. The
+    /// game never reads it.
     flag: u32,
     /// Address of the implementation in the payload executable.
     implementation: u32,
@@ -36,8 +40,8 @@ pub const table = [_]Command{
     .{
         .name = "PrintShipName",
         .params = &.{
-            .{ .kinds = .{ .file_name = true, .ship = true, .flight_group = true }, .extra = 0x00000002, .label = "Test Param 1" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Test Param 2" },
+            .{ .kinds = .{ .file_name = true, .ship = true, .flight_group = true }, .extra = .{ .refers_to = 2 }, .label = "Test Param 1" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Test Param 2" },
         },
         .description = "Test Function",
         .flag = 0,
@@ -48,10 +52,10 @@ pub const table = [_]Command{
     .{
         .name = "CreateTimer",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Unique ID to identify timer" },
-            .{ .kinds = .{ .part = true }, .extra = 0x00000000, .label = "Function to execute when timer activates" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Number of seconds before timer activates" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Number of activations (0 == continuous)" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Unique ID to identify timer" },
+            .{ .kinds = .{ .part = true }, .extra = .{}, .label = "Function to execute when timer activates" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Number of seconds before timer activates" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Number of activations (0 == continuous)" },
         },
         .description = "Creates a timer to invoke a function",
         .flag = 0,
@@ -62,7 +66,7 @@ pub const table = [_]Command{
     .{
         .name = "DestroyTimer",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Unique ID of timer to be destroyed" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Unique ID of timer to be destroyed" },
         },
         .description = "Destroys all timers associated with a function",
         .flag = 0,
@@ -73,7 +77,7 @@ pub const table = [_]Command{
     .{
         .name = "CreateFlightGroup",
         .params = &.{
-            .{ .kinds = .{ .flight_group = true }, .extra = 0x00000000, .label = "Flight Group name to initialize" },
+            .{ .kinds = .{ .flight_group = true }, .extra = .{}, .label = "Flight Group name to initialize" },
         },
         .description = "Initializes a flight group",
         .flag = 0,
@@ -84,7 +88,7 @@ pub const table = [_]Command{
     .{
         .name = "DestroyFlightGroup",
         .params = &.{
-            .{ .kinds = .{ .flight_group = true }, .extra = 0x00000000, .label = "Flight Group name to destroy" },
+            .{ .kinds = .{ .flight_group = true }, .extra = .{}, .label = "Flight Group name to destroy" },
         },
         .description = "Destroys a flight group",
         .flag = 0,
@@ -95,7 +99,7 @@ pub const table = [_]Command{
     .{
         .name = "Wait",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Number of Seconds to wait" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Number of Seconds to wait" },
         },
         .description = "Stop Executing for N Seconds",
         .flag = 1,
@@ -106,7 +110,7 @@ pub const table = [_]Command{
     .{
         .name = "PlaySpeech",
         .params = &.{
-            .{ .kinds = .{ .file_name = true }, .extra = 0x00000002, .label = "Name of speech file" },
+            .{ .kinds = .{ .file_name = true }, .extra = .{ .refers_to = 2 }, .label = "Name of speech file" },
         },
         .description = "Play a speech file",
         .flag = 0,
@@ -126,9 +130,9 @@ pub const table = [_]Command{
     .{
         .name = "PlayCommsMovie",
         .params = &.{
-            .{ .kinds = .{ .file_name = true }, .extra = 0x00000004, .label = "Name of movie file" },
-            .{ .kinds = .{ .file_name = true }, .extra = 0x00000002, .label = "Name of speech file" },
-            .{ .kinds = .{ .constant = true }, .extra = 0x00000002, .label = "GText thingy hangover err...." },
+            .{ .kinds = .{ .file_name = true }, .extra = .{ .refers_to = 4 }, .label = "Name of movie file" },
+            .{ .kinds = .{ .file_name = true }, .extra = .{ .refers_to = 2 }, .label = "Name of speech file" },
+            .{ .kinds = .{ .constant = true }, .extra = .{ .refers_to = 2 }, .label = "GText thingy hangover err...." },
         },
         .description = "Play a movie in the comms window",
         .flag = 0,
@@ -148,7 +152,7 @@ pub const table = [_]Command{
     .{
         .name = "PrintDebugMessage",
         .params = &.{
-            .{ .kinds = .{ .text = true }, .extra = 0x00000000, .label = "Text to print" },
+            .{ .kinds = .{ .text = true }, .extra = .{}, .label = "Text to print" },
         },
         .description = "Prints a debugging message on screen",
         .flag = 0,
@@ -159,10 +163,10 @@ pub const table = [_]Command{
     .{
         .name = "SetAI",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity to be controlled" },
-            .{ .kinds = .{ .constant = true }, .extra = 0x00000000, .label = "AI Mode" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Initialize Immediately (T/F)" },
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x01000000, .label = "Entity to target (can be NULL)" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity to be controlled" },
+            .{ .kinds = .{ .constant = true }, .extra = .{}, .label = "AI Mode" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Initialize Immediately (T/F)" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{ .nullable = true }, .label = "Entity to target (can be NULL)" },
         },
         .description = "Sets a Ship or Flight Group's AI pattern",
         .flag = 0,
@@ -173,7 +177,7 @@ pub const table = [_]Command{
     .{
         .name = "ClearAI",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x02000000, .label = "Entity to be cleared" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{ .skips_players = true }, .label = "Entity to be cleared" },
         },
         .description = "Resets all AI intructions for an entity",
         .flag = 0,
@@ -184,8 +188,8 @@ pub const table = [_]Command{
     .{
         .name = "SetPatrolRoute",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true }, .extra = 0x02000000, .label = "Entity to send to patrol route" },
-            .{ .kinds = .{ .flight_group = true }, .extra = 0x02000000, .label = "Patrol route to follow" },
+            .{ .kinds = .{ .ship = true, .flight_group = true }, .extra = .{ .skips_players = true }, .label = "Entity to send to patrol route" },
+            .{ .kinds = .{ .flight_group = true }, .extra = .{ .skips_players = true }, .label = "Patrol route to follow" },
         },
         .description = "Sends a Ship to follow a patrol route",
         .flag = 0,
@@ -196,8 +200,8 @@ pub const table = [_]Command{
     .{
         .name = "SetPilot",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship to host pilot" },
-            .{ .kinds = .{ .constant = true }, .extra = 0x00000003, .label = "Pilot to fly ship" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship to host pilot" },
+            .{ .kinds = .{ .constant = true }, .extra = .{ .refers_to = 3 }, .label = "Pilot to fly ship" },
         },
         .description = "Assigns a pilot to fly a ship",
         .flag = 0,
@@ -208,9 +212,9 @@ pub const table = [_]Command{
     .{
         .name = "SetTriggerState",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x02000000, .label = "Entity owning trigger" },
-            .{ .kinds = .{ .condition = true }, .extra = 0x00000000, .label = "Trigger type to enable/disable" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "TRUE for enable; FALSE for disable" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{ .skips_players = true }, .label = "Entity owning trigger" },
+            .{ .kinds = .{ .condition = true }, .extra = .{}, .label = "Trigger type to enable/disable" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "TRUE for enable; FALSE for disable" },
         },
         .description = "Enables or disables the state of a trigger",
         .flag = 0,
@@ -221,11 +225,11 @@ pub const table = [_]Command{
     .{
         .name = "StartDirectorCam",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .curve = true }, .extra = 0x00000000, .label = "Curve for camera to follow (or Ship for static cam)" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x01000000, .label = "Ship for camera to track (can be NULL)" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Duration of camera (seconds)" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x01000000, .label = "Tracks curve to this ship's speed (can be NULL)" },
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x01000000, .label = "Ships to disable for duration" },
+            .{ .kinds = .{ .ship = true, .curve = true }, .extra = .{}, .label = "Curve for camera to follow (or Ship for static cam)" },
+            .{ .kinds = .{ .ship = true }, .extra = .{ .nullable = true }, .label = "Ship for camera to track (can be NULL)" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Duration of camera (seconds)" },
+            .{ .kinds = .{ .ship = true }, .extra = .{ .nullable = true }, .label = "Tracks curve to this ship's speed (can be NULL)" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{ .nullable = true }, .label = "Ships to disable for duration" },
         },
         .description = "Sets the camera to start following a predefined path",
         .flag = 0,
@@ -236,8 +240,8 @@ pub const table = [_]Command{
     .{
         .name = "StartShipAnimation",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship to animate" },
-            .{ .kinds = .{ .text = true }, .extra = 0x00000000, .label = "Animation Name" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship to animate" },
+            .{ .kinds = .{ .text = true }, .extra = .{}, .label = "Animation Name" },
         },
         .description = "Starts a specific animation for a ship",
         .flag = 0,
@@ -248,9 +252,9 @@ pub const table = [_]Command{
     .{
         .name = "ShipFollowCurve",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true }, .extra = 0x00000000, .label = "Entity to follow curve" },
-            .{ .kinds = .{ .curve = true }, .extra = 0x00000000, .label = "The curve for the entity to follow" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Duration of movement (seconds)" },
+            .{ .kinds = .{ .ship = true, .flight_group = true }, .extra = .{}, .label = "Entity to follow curve" },
+            .{ .kinds = .{ .curve = true }, .extra = .{}, .label = "The curve for the entity to follow" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Duration of movement (seconds)" },
         },
         .description = "Sets an ship/flight group to follow a predefined path",
         .flag = 0,
@@ -261,9 +265,9 @@ pub const table = [_]Command{
     .{
         .name = "SetupLaunch",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity to be launched" },
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Ship to launch from" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Launch position" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity to be launched" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Ship to launch from" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Launch position" },
         },
         .description = "Sets up a ship ready to launch",
         .flag = 0,
@@ -274,7 +278,7 @@ pub const table = [_]Command{
     .{
         .name = "StartLaunch",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity to be launched" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity to be launched" },
         },
         .description = "Launches a ship",
         .flag = 0,
@@ -285,7 +289,7 @@ pub const table = [_]Command{
     .{
         .name = "DisplaySubTitle",
         .params = &.{
-            .{ .kinds = .{ .constant = true }, .extra = 0x00000002, .label = "GText pilot define" },
+            .{ .kinds = .{ .constant = true }, .extra = .{ .refers_to = 2 }, .label = "GText pilot define" },
         },
         .description = "Prints a subtitle so we can understand those foreign bods",
         .flag = 0,
@@ -296,7 +300,7 @@ pub const table = [_]Command{
     .{
         .name = "ResetCodePriority",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity to have priorities reset" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity to have priorities reset" },
         },
         .description = "Clears/removes any priortiy order of the entity",
         .flag = 0,
@@ -316,9 +320,9 @@ pub const table = [_]Command{
     .{
         .name = "CommsFromShip",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship sending comm" },
-            .{ .kinds = .{ .constant = true }, .extra = 0x00000004, .label = "Head movement" },
-            .{ .kinds = .{ .file_name = true }, .extra = 0x00000002, .label = "Name of speech file" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship sending comm" },
+            .{ .kinds = .{ .constant = true }, .extra = .{ .refers_to = 4 }, .label = "Head movement" },
+            .{ .kinds = .{ .file_name = true }, .extra = .{ .refers_to = 2 }, .label = "Name of speech file" },
         },
         .description = "Play a movie in the comms window",
         .flag = 0,
@@ -329,9 +333,9 @@ pub const table = [_]Command{
     .{
         .name = "CommsFromPilot",
         .params = &.{
-            .{ .kinds = .{ .constant = true }, .extra = 0x00000003, .label = "Ship sending comm" },
-            .{ .kinds = .{ .constant = true }, .extra = 0x00000004, .label = "Head movement" },
-            .{ .kinds = .{ .file_name = true }, .extra = 0x00000002, .label = "Name of speech file" },
+            .{ .kinds = .{ .constant = true }, .extra = .{ .refers_to = 3 }, .label = "Ship sending comm" },
+            .{ .kinds = .{ .constant = true }, .extra = .{ .refers_to = 4 }, .label = "Head movement" },
+            .{ .kinds = .{ .file_name = true }, .extra = .{ .refers_to = 2 }, .label = "Name of speech file" },
         },
         .description = "Play a movie in the comms window",
         .flag = 0,
@@ -342,8 +346,8 @@ pub const table = [_]Command{
     .{
         .name = "SetInvulnerability",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Ship concerned" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Invulnerability (0 - non, 1 - player can hit, 2 - fully invulnerable, 3 - Eject before exploding)" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Ship concerned" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Invulnerability (0 - non, 1 - player can hit, 2 - fully invulnerable, 3 - Eject before exploding)" },
         },
         .description = "Makes or stops a ship being invulnerable",
         .flag = 0,
@@ -354,10 +358,10 @@ pub const table = [_]Command{
     .{
         .name = "MovingShipFollowCurve",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true }, .extra = 0x02000000, .label = "Entity to follow curve" },
-            .{ .kinds = .{ .curve = true }, .extra = 0x00000000, .label = "The curve for the entity to follow" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Duration of movement (seconds)" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Entity for curve to use as its start offset" },
+            .{ .kinds = .{ .ship = true, .flight_group = true }, .extra = .{ .skips_players = true }, .label = "Entity to follow curve" },
+            .{ .kinds = .{ .curve = true }, .extra = .{}, .label = "The curve for the entity to follow" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Duration of movement (seconds)" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Entity for curve to use as its start offset" },
         },
         .description = "Sets an ship/flight group to follow a predefined path",
         .flag = 0,
@@ -368,8 +372,8 @@ pub const table = [_]Command{
     .{
         .name = "DisableObject",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity concerned" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "True/False" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity concerned" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "True/False" },
         },
         .description = "Stops entities from being processed",
         .flag = 0,
@@ -380,8 +384,8 @@ pub const table = [_]Command{
     .{
         .name = "PositionRelative",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity to position" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship/Point to use as relative marker" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity to position" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship/Point to use as relative marker" },
         },
         .description = "Positions an entity relative to a ship/point's movement",
         .flag = 0,
@@ -401,7 +405,7 @@ pub const table = [_]Command{
     .{
         .name = "StartMissileCam",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship that fired missile" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship that fired missile" },
         },
         .description = "Starts director cam for a missile",
         .flag = 0,
@@ -412,7 +416,7 @@ pub const table = [_]Command{
     .{
         .name = "StartChaseCam",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x01000000, .label = "Ship to follow" },
+            .{ .kinds = .{ .ship = true }, .extra = .{ .nullable = true }, .label = "Ship to follow" },
         },
         .description = "Starts chase cam",
         .flag = 0,
@@ -423,8 +427,8 @@ pub const table = [_]Command{
     .{
         .name = "SetPlayerTarget",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Player Ship" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship to target" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Player Ship" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship to target" },
         },
         .description = "Sets player's target",
         .flag = 0,
@@ -435,8 +439,8 @@ pub const table = [_]Command{
     .{
         .name = "SetTargetable",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "true - object targetable, false - not targetable" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "true - object targetable, false - not targetable" },
         },
         .description = "Sets an entity to be targetable or not",
         .flag = 0,
@@ -447,8 +451,8 @@ pub const table = [_]Command{
     .{
         .name = "PlayMusic",
         .params = &.{
-            .{ .kinds = .{ .file_name = true }, .extra = 0x00000009, .label = "Name of music file" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "True - Play Immediately, false - Fade old tune first" },
+            .{ .kinds = .{ .file_name = true }, .extra = .{ .refers_to = 9 }, .label = "Name of music file" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "True - Play Immediately, false - Fade old tune first" },
         },
         .description = "Play a Music Track",
         .flag = 0,
@@ -468,8 +472,8 @@ pub const table = [_]Command{
     .{
         .name = "SetActionCentre",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Object to action around" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Radius of sphere - 0 for default" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Object to action around" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Radius of sphere - 0 for default" },
         },
         .description = "Sets the sphere for the action to be contained in.",
         .flag = 0,
@@ -480,9 +484,9 @@ pub const table = [_]Command{
     .{
         .name = "Dock",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship to dock" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Object ship is to dock to" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Docking port" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship to dock" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Object ship is to dock to" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Docking port" },
         },
         .description = "Dock Ship.",
         .flag = 0,
@@ -493,7 +497,7 @@ pub const table = [_]Command{
     .{
         .name = "DisableTaunts",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "true - Disable bad guy taunts" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "true - Disable bad guy taunts" },
         },
         .description = "Stops bad guys from taunting the player",
         .flag = 0,
@@ -504,9 +508,9 @@ pub const table = [_]Command{
     .{
         .name = "Fly",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Ship" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x01000000, .label = "Point to fly to" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Speed (0 - Default)" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Ship" },
+            .{ .kinds = .{ .ship = true }, .extra = .{ .nullable = true }, .label = "Point to fly to" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Speed (0 - Default)" },
         },
         .description = "Fly",
         .flag = 0,
@@ -517,9 +521,9 @@ pub const table = [_]Command{
     .{
         .name = "CommsFromShipOnce",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship sending comm" },
-            .{ .kinds = .{ .constant = true }, .extra = 0x00000004, .label = "Head movement" },
-            .{ .kinds = .{ .file_name = true }, .extra = 0x00000002, .label = "Name of speech file" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship sending comm" },
+            .{ .kinds = .{ .constant = true }, .extra = .{ .refers_to = 4 }, .label = "Head movement" },
+            .{ .kinds = .{ .file_name = true }, .extra = .{ .refers_to = 2 }, .label = "Name of speech file" },
         },
         .description = "Play a movie in the comms window (without looping)",
         .flag = 0,
@@ -530,9 +534,9 @@ pub const table = [_]Command{
     .{
         .name = "CommsFromPilotOnce",
         .params = &.{
-            .{ .kinds = .{ .constant = true }, .extra = 0x00000003, .label = "Ship sending comm" },
-            .{ .kinds = .{ .constant = true }, .extra = 0x00000004, .label = "Head movement" },
-            .{ .kinds = .{ .file_name = true }, .extra = 0x00000002, .label = "Name of speech file" },
+            .{ .kinds = .{ .constant = true }, .extra = .{ .refers_to = 3 }, .label = "Ship sending comm" },
+            .{ .kinds = .{ .constant = true }, .extra = .{ .refers_to = 4 }, .label = "Head movement" },
+            .{ .kinds = .{ .file_name = true }, .extra = .{ .refers_to = 2 }, .label = "Name of speech file" },
         },
         .description = "Play a movie in the comms window (without looping)",
         .flag = 0,
@@ -543,8 +547,8 @@ pub const table = [_]Command{
     .{
         .name = "DisableLights",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "True or False" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "True or False" },
         },
         .description = "Disable Object lights",
         .flag = 0,
@@ -555,8 +559,8 @@ pub const table = [_]Command{
     .{
         .name = "SetEnvironmentFX",
         .params = &.{
-            .{ .kinds = .{ .constant = true }, .extra = 0x00000001, .label = "Effect type to set" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "On(TRUE) or Off(FALSE)" },
+            .{ .kinds = .{ .constant = true }, .extra = .{ .refers_to = 1 }, .label = "Effect type to set" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "On(TRUE) or Off(FALSE)" },
         },
         .description = "Sets an environment effect",
         .flag = 0,
@@ -576,7 +580,7 @@ pub const table = [_]Command{
     .{
         .name = "DisableGenericComms",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "True - Disable all hard coded comms events" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "True - Disable all hard coded comms events" },
         },
         .description = "Stops hard coded comms events from triggering",
         .flag = 0,
@@ -587,8 +591,8 @@ pub const table = [_]Command{
     .{
         .name = "DisableGuns",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "TRUE - disable guns, FALSE enable guns" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "TRUE - disable guns, FALSE enable guns" },
         },
         .description = "Disables guns",
         .flag = 0,
@@ -599,8 +603,8 @@ pub const table = [_]Command{
     .{
         .name = "SetNavPoint",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x01000000, .label = "Nav Point" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity" },
+            .{ .kinds = .{ .ship = true }, .extra = .{ .nullable = true }, .label = "Nav Point" },
         },
         .description = "Set Nav Point",
         .flag = 0,
@@ -611,8 +615,8 @@ pub const table = [_]Command{
     .{
         .name = "SetEscortPoint",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x01000000, .label = "Escort Point" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity" },
+            .{ .kinds = .{ .ship = true }, .extra = .{ .nullable = true }, .label = "Escort Point" },
         },
         .description = "Set Escort Point",
         .flag = 0,
@@ -632,8 +636,8 @@ pub const table = [_]Command{
     .{
         .name = "DisableMissiles",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "TRUE - disable missiles, FALSE enable missiles" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "TRUE - disable missiles, FALSE enable missiles" },
         },
         .description = "Disables missiles",
         .flag = 0,
@@ -644,8 +648,8 @@ pub const table = [_]Command{
     .{
         .name = "DisableEngines",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "TRUE - disable engines, FALSE enable engines" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "TRUE - disable engines, FALSE enable engines" },
         },
         .description = "Disables engines",
         .flag = 0,
@@ -656,8 +660,8 @@ pub const table = [_]Command{
     .{
         .name = "DisableEject",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "TRUE - disable eject, FALSE enable eject" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "TRUE - disable eject, FALSE enable eject" },
         },
         .description = "Disables eject",
         .flag = 0,
@@ -668,8 +672,8 @@ pub const table = [_]Command{
     .{
         .name = "SetHostile",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "true - entity(s) hostile, false - friendly" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "true - entity(s) hostile, false - friendly" },
         },
         .description = "Sets entity(s) to be hostile or not",
         .flag = 0,
@@ -698,7 +702,7 @@ pub const table = [_]Command{
     .{
         .name = "SetPrimaryTarget",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x01000000, .label = "Entity" },
+            .{ .kinds = .{ .ship = true }, .extra = .{ .nullable = true }, .label = "Entity" },
         },
         .description = "Set Primary Target",
         .flag = 0,
@@ -709,7 +713,7 @@ pub const table = [_]Command{
     .{
         .name = "WaitForJumpOrLaunch",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity" },
         },
         .description = "Wait for ships to finish jumping or launching",
         .flag = 0,
@@ -720,8 +724,8 @@ pub const table = [_]Command{
     .{
         .name = "DoNotDisturb",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "true - dont disturb, false - can disturb" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "true - dont disturb, false - can disturb" },
         },
         .description = "Sets entity(s) so comms can/cant disturb them",
         .flag = 0,
@@ -732,7 +736,7 @@ pub const table = [_]Command{
     .{
         .name = "SetEnvironmentFXNebula",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Index of nebula material (0..6)" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Index of nebula material (0..6)" },
         },
         .description = "Sets the nebula material and lighting",
         .flag = 0,
@@ -743,8 +747,8 @@ pub const table = [_]Command{
     .{
         .name = "StartShipAnimationReverse",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship to animate" },
-            .{ .kinds = .{ .text = true }, .extra = 0x00000000, .label = "Animation Name" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship to animate" },
+            .{ .kinds = .{ .text = true }, .extra = .{}, .label = "Animation Name" },
         },
         .description = "Starts a specific animation for a ship in reverse",
         .flag = 0,
@@ -755,8 +759,8 @@ pub const table = [_]Command{
     .{
         .name = "SnapToPoint",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship to move" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Point to move to" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship to move" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Point to move to" },
         },
         .description = "Snaps a ship to a specific point",
         .flag = 0,
@@ -776,7 +780,7 @@ pub const table = [_]Command{
     .{
         .name = "OpenInstrument",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Instrument number to open" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Instrument number to open" },
         },
         .description = "Opens up a window on the HUD",
         .flag = 0,
@@ -787,7 +791,7 @@ pub const table = [_]Command{
     .{
         .name = "CloseInstrument",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Instrument number to close" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Instrument number to close" },
         },
         .description = "Closes a window on the HUD",
         .flag = 0,
@@ -798,8 +802,8 @@ pub const table = [_]Command{
     .{
         .name = "DestroySubObject",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "SubObject to destroy" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "true - keep damaged model, false - no damaged model" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "SubObject to destroy" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "true - keep damaged model, false - no damaged model" },
         },
         .description = "Destroys Subobject",
         .flag = 0,
@@ -810,8 +814,8 @@ pub const table = [_]Command{
     .{
         .name = "SetObjective",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Objective number" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "State(0=Inactive, 1=Active, 2=Current)" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Objective number" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "State(0=Inactive, 1=Active, 2=Current)" },
         },
         .description = "Sets a Mission Objective's status",
         .flag = 0,
@@ -822,9 +826,9 @@ pub const table = [_]Command{
     .{
         .name = "SetRescueProbabilities",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Probability of Nanny Rescue    ( 1-100% )" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Probability of Antanov Capture ( 1-100% )" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Probability of being Destroyed ( 1-100% )" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Probability of Nanny Rescue    ( 1-100% )" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Probability of Antanov Capture ( 1-100% )" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Probability of being Destroyed ( 1-100% )" },
         },
         .description = "Sets an Ejected pod's chances of survival",
         .flag = 0,
@@ -835,7 +839,7 @@ pub const table = [_]Command{
     .{
         .name = "IsShipThisPlayer",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship to test" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship to test" },
         },
         .description = "Returns TRUE if ship is the players ship",
         .flag = 0,
@@ -846,8 +850,8 @@ pub const table = [_]Command{
     .{
         .name = "SetFlybackMarker",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity concerned" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Range" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity concerned" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Range" },
         },
         .description = "Sets a Flyback marker on a ship or a group of ships after a set range",
         .flag = 0,
@@ -867,8 +871,8 @@ pub const table = [_]Command{
     .{
         .name = "StopShipAnimation",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship to stop animation for" },
-            .{ .kinds = .{ .text = true }, .extra = 0x00000000, .label = "Animation Name" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship to stop animation for" },
+            .{ .kinds = .{ .text = true }, .extra = .{}, .label = "Animation Name" },
         },
         .description = "Stops a specific animation for a ship",
         .flag = 0,
@@ -879,8 +883,8 @@ pub const table = [_]Command{
     .{
         .name = "SetShipAvoidance",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity concerned" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "TRUE - Disable Avoidance code, FALSE - Enable avoidance code" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity concerned" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "TRUE - Disable Avoidance code, FALSE - Enable avoidance code" },
         },
         .description = "Enables/Disables ship avoidance for the ship(s)",
         .flag = 0,
@@ -891,8 +895,8 @@ pub const table = [_]Command{
     .{
         .name = "MatchSpeed",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Entity concerned" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "TRUE - Enable Match Speed, FALSE - Disable Match Speed" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Entity concerned" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "TRUE - Enable Match Speed, FALSE - Disable Match Speed" },
         },
         .description = "Enables/Disables Match Speed with target",
         .flag = 0,
@@ -903,10 +907,10 @@ pub const table = [_]Command{
     .{
         .name = "MovingShipBackupCurve",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true }, .extra = 0x02000000, .label = "Entity to follow curve" },
-            .{ .kinds = .{ .curve = true }, .extra = 0x00000000, .label = "The curve for the entity to follow" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Duration of movement (seconds)" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x01000000, .label = "Entity for curve to use as its start offset" },
+            .{ .kinds = .{ .ship = true, .flight_group = true }, .extra = .{ .skips_players = true }, .label = "Entity to follow curve" },
+            .{ .kinds = .{ .curve = true }, .extra = .{}, .label = "The curve for the entity to follow" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Duration of movement (seconds)" },
+            .{ .kinds = .{ .ship = true }, .extra = .{ .nullable = true }, .label = "Entity for curve to use as its start offset" },
         },
         .description = "Sets an ship/flight group to follow a predefined path",
         .flag = 0,
@@ -917,7 +921,7 @@ pub const table = [_]Command{
     .{
         .name = "WaitForKey",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Key number to wait for" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Key number to wait for" },
         },
         .description = "Stops script until key pressed",
         .flag = 1,
@@ -937,8 +941,8 @@ pub const table = [_]Command{
     .{
         .name = "TurretSetTarget",
         .params = &.{
-            .{ .kinds = .{ .ship = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Turret" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Entity to target" },
+            .{ .kinds = .{ .ship = true, .squad = true }, .extra = .{}, .label = "Turret" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Entity to target" },
         },
         .description = "Sets the target for a ships turret",
         .flag = 0,
@@ -949,10 +953,10 @@ pub const table = [_]Command{
     .{
         .name = "SetAnyTriggerState",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x02000000, .label = "Entity owning trigger" },
-            .{ .kinds = .{ .condition = true }, .extra = 0x00000000, .label = "Trigger type to enable/disable" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "TRUE for enable; FALSE for disable" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Trigger Type Number(for triggers of same type - Count from 0)" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{ .skips_players = true }, .label = "Entity owning trigger" },
+            .{ .kinds = .{ .condition = true }, .extra = .{}, .label = "Trigger type to enable/disable" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "TRUE for enable; FALSE for disable" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Trigger Type Number(for triggers of same type - Count from 0)" },
         },
         .description = "Enables or disables the state of a trigger",
         .flag = 0,
@@ -981,11 +985,11 @@ pub const table = [_]Command{
     .{
         .name = "StackDirectorCam",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .curve = true }, .extra = 0x00000000, .label = "Curve for camera to follow (or Ship for static cam)" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x01000000, .label = "Ship for camera to track (can be NULL)" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Duration of camera (seconds)" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x01000000, .label = "Tracks curve to this ship's speed (can be NULL)" },
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x01000000, .label = "Ships to disable for duration" },
+            .{ .kinds = .{ .ship = true, .curve = true }, .extra = .{}, .label = "Curve for camera to follow (or Ship for static cam)" },
+            .{ .kinds = .{ .ship = true }, .extra = .{ .nullable = true }, .label = "Ship for camera to track (can be NULL)" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Duration of camera (seconds)" },
+            .{ .kinds = .{ .ship = true }, .extra = .{ .nullable = true }, .label = "Tracks curve to this ship's speed (can be NULL)" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{ .nullable = true }, .label = "Ships to disable for duration" },
         },
         .description = "Sets the camera to start following a predefined path",
         .flag = 0,
@@ -996,7 +1000,7 @@ pub const table = [_]Command{
     .{
         .name = "Scanner",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x01000000, .label = "Object to scan for - NULL to disable" },
+            .{ .kinds = .{ .ship = true }, .extra = .{ .nullable = true }, .label = "Object to scan for - NULL to disable" },
         },
         .description = "Sets the scanner off",
         .flag = 0,
@@ -1007,8 +1011,8 @@ pub const table = [_]Command{
     .{
         .name = "ReplaceSubObject",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "SubObject to replace" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Object to replace it with" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "SubObject to replace" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Object to replace it with" },
         },
         .description = "Replaces subobject with another object",
         .flag = 0,
@@ -1019,8 +1023,8 @@ pub const table = [_]Command{
     .{
         .name = "Fire",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship to fire" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Duration" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship to fire" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Duration" },
         },
         .description = "Fires ships guns",
         .flag = 0,
@@ -1031,7 +1035,7 @@ pub const table = [_]Command{
     .{
         .name = "MultiplayerScriptSync",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Sync number" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Sync number" },
         },
         .description = "Syncs scripts",
         .flag = 0,
@@ -1051,8 +1055,8 @@ pub const table = [_]Command{
     .{
         .name = "Cloak",
         .params = &.{
-            .{ .kinds = .{ .ship = true, .flight_group = true, ._unknown_20 = true }, .extra = 0x00000000, .label = "Entity to cloak" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "True - Cloak on, False - cloak off" },
+            .{ .kinds = .{ .ship = true, .flight_group = true, .squad = true }, .extra = .{}, .label = "Entity to cloak" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "True - Cloak on, False - cloak off" },
         },
         .description = "Cloak",
         .flag = 0,
@@ -1063,7 +1067,7 @@ pub const table = [_]Command{
     .{
         .name = "ReplenishWeapons",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Entity to cloak" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Entity to cloak" },
         },
         .description = "Replenish Weapons",
         .flag = 0,
@@ -1074,7 +1078,7 @@ pub const table = [_]Command{
     .{
         .name = "WillsBlag",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Entity to cloak" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Entity to cloak" },
         },
         .description = "Blag blag blag blag blag",
         .flag = 0,
@@ -1085,8 +1089,8 @@ pub const table = [_]Command{
     .{
         .name = "ShowHudIcon",
         .params = &.{
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "Icon" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "0 - off, 1 - on, 2 - flash" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "Icon" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "0 - off, 1 - on, 2 - flash" },
         },
         .description = "Show Hud Icon",
         .flag = 0,
@@ -1097,8 +1101,8 @@ pub const table = [_]Command{
     .{
         .name = "DisableListing",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "true - stop listing, false - enable listing" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "true - stop listing, false - enable listing" },
         },
         .description = "Disable Listing",
         .flag = 0,
@@ -1109,8 +1113,8 @@ pub const table = [_]Command{
     .{
         .name = "DisableObjectAtNextJump",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship" },
-            .{ .kinds = .{ .number = true }, .extra = 0x00000000, .label = "true - disable, false - enable" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship" },
+            .{ .kinds = .{ .number = true }, .extra = .{}, .label = "true - disable, false - enable" },
         },
         .description = "Disables/enables object (e.g. planet) when the next jump/warp is made",
         .flag = 0,
@@ -1121,8 +1125,8 @@ pub const table = [_]Command{
     .{
         .name = "DarrensNaughtyBlag",
         .params = &.{
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship" },
-            .{ .kinds = .{ .ship = true }, .extra = 0x00000000, .label = "Ship" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship" },
+            .{ .kinds = .{ .ship = true }, .extra = .{}, .label = "Ship" },
         },
         .description = "Darrens Naughty Blag",
         .flag = 0,

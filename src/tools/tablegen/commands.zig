@@ -13,6 +13,7 @@ const openreliant = @import("openreliant");
 const layout = openreliant.layout;
 
 const Kinds = openreliant.engine.game.executor.Kinds;
+const Extra = openreliant.engine.game.executor.Extra;
 
 const image = @import("image.zig");
 const testing = @import("testing.zig");
@@ -165,11 +166,13 @@ pub fn emit(w: *Io.Writer, commands: []const Command) !void {
         \\const assert = std.debug.assert;
         \\
         \\pub const Kinds = @import("../executor.zig").Kinds;
+        \\pub const Extra = @import("../executor.zig").Extra;
         \\
+        \\/// A parameter. The game reads only how many a command takes (`vm_command`, `0x0045BEA0`):
+        \\/// what each accepts, its other word and its label are data for the developers' tools.
         \\pub const Param = struct {{
         \\    kinds: Kinds,
-        \\    /// **Unknown.** Zero for most parameters.
-        \\    extra: u32,
+        \\    extra: Extra,
         \\    label: []const u8,
         \\}};
         \\
@@ -177,7 +180,9 @@ pub fn emit(w: *Io.Writer, commands: []const Command) !void {
         \\    name: []const u8,
         \\    params: []const Param,
         \\    description: []const u8,
-        \\    /// **Unknown.** Set on seven commands.
+        \\    /// **Unknown.** Set on seven commands: `Wait`, `WaitForSpeech`, `WaitForMovie`,
+        \\    /// `ResetAfterBurners`, `PlayFostersLastStand`, `WaitForKey` and `TerminateMission`. The
+        \\    /// game never reads it.
         \\    flag: u32,
         \\    /// Address of the implementation in the payload executable.
         \\    implementation: u32,
@@ -201,8 +206,8 @@ pub fn emit(w: *Io.Writer, commands: []const Command) !void {
             try w.writeAll("        .params = &.{\n");
             for (command.params) |param| {
                 try w.print(
-                    "            .{{ .kinds = {f}, .extra = 0x{X:0>8}, .label = \"{f}\" }},\n",
-                    .{ zig_text.flags(@as(Kinds, @bitCast(param.kinds))), param.extra, std.zig.fmtString(param.label) },
+                    "            .{{ .kinds = {f}, .extra = {f}, .label = \"{f}\" }},\n",
+                    .{ zig_text.flags(@as(Kinds, @bitCast(param.kinds))), zig_text.flags(@as(Extra, @bitCast(param.extra))), std.zig.fmtString(param.label) },
                 );
             }
             try w.writeAll("        },\n");

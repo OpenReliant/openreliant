@@ -34,7 +34,9 @@ pub const curves = @import("executor/curves.zig");
 pub const director = @import("executor/director.zig");
 
 /// What a parameter accepts: a mask of the kinds of value it takes. The bit names are read off
-/// the labels of the parameters that set them, in the command catalogue (`commands`).
+/// the labels of the parameters that set them, in the command catalogue (`commands`), and the
+/// arguments the shipped missions pass. The game never reads it: it is data for the developers'
+/// tools.
 pub const Kinds = packed struct(u32) {
     _unknown_0: u7 = 0,
     /// `0x80`: a count, an ID, a number of seconds.
@@ -53,12 +55,34 @@ pub const Kinds = packed struct(u32) {
     _unknown_15: u4 = 0,
     /// `0x80000`: a named constant: a pilot, an AI mode, a text ID.
     constant: bool = false,
-    _unknown_20: bool = false,
+    /// `0x100000`: a squad. Every squad the shipped missions pass a command goes to a parameter
+    /// with it, and none to one without.
+    squad: bool = false,
     /// `0x200000`: a trigger condition.
     condition: bool = false,
     /// `0x400000`: a camera or flight curve.
     curve: bool = false,
     _unknown_23: u9 = 0,
+};
+
+/// A parameter's other word in the command catalogue (`commands`), which the game never reads
+/// either. What its bits mean is read off the labels and the arguments the shipped missions pass.
+pub const Extra = packed struct(u32) {
+    /// What a file name or a named constant refers to. For a file name, 2 is speech, 4 a movie and
+    /// 9 music; for a constant, 1 an effect type, 2 a text ID, 3 a pilot and 4 a head movement.
+    /// **Unverified:** read off the labels.
+    refers_to: u8 = 0,
+    _unknown_8: u16 = 0,
+    /// `0x1000000`: the argument can be null, as the labels that say "can be NULL" have it. All
+    /// but one of the null arguments in the shipped missions go to a parameter with it: mission 15
+    /// passes null as `CommsFromShip`'s ship.
+    nullable: bool = false,
+    /// `0x2000000`: set only on the parameters of the six commands whose words of section 24 the
+    /// template's missions leave 0, so that the players' ships in a flight group they walk are
+    /// passed over (`vm.Machine.forEachShip`). **Unverified:** that the developers' tools built
+    /// section 24 from it.
+    skips_players: bool = false,
+    _unknown_26: u6 = 0,
 };
 
 const Call = vm.machine.Call;
