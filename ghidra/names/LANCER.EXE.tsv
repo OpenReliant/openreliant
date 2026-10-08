@@ -2994,3 +2994,31 @@ address	kind	name	type	comment
 004e1c28	data	ion_cannon_step_copy	int	The step of the ion cannon's last update, which nothing reads
 0051862c	data	ion_cannon_lost_target	int	The ship whose lock the ion cannon last lost to its reach or its nearness, which nothing reads
 00518638	data	ion_cannon_lost_until	int	The tick 200 or 50 after the ion cannon last lost its lock to reach or nearness, which nothing reads
+00457630	function	editor_link_open	int (void)	Makes the editor link: the named block FileMappingObject (editor_link_create), a view of it (editor_link_map), the editor's message count zeroed and flushed; a view that can't be mapped stops the game (fatal_error). Returns the block
+00457670	function	editor_link_check	int __fastcall (void *view)	From mission_script_start only: opens the link on first use, reads the editor's messages (editor_link_read) and takes the editor as there, or counts a miss (editor_link_misses) and on the 513th takes it as gone (editor_absent); while there, at a vm_clock multiple of 5 with nothing held, sends tag 0x1B with vm_first_finished
+00457730	function	editor_link_read		Acts on each message waiting from the editor, by its tag (0x00 to 0x17; above, fatal_error), counting the editor's count down to 0, then flushes; reads nothing while the block's byte at +4 is 0. Returns whether it read any
+00457a20	function	editor_link_send		Sends a message to the editor (editor_link_post into the game's outbox at +0x40108, its payloads at +0x40208), mapping a view for it where it holds none; does nothing with no link
+00457a80	function	editor_link_post		Posts a message into an outbox: an 8-byte entry (tag, size, offset) after the last waiting, its payload after the last payload, a tag already waiting left out; an empty outbox sets the block's byte at +4. Flushes after the count, the entry and the payload
+00457b90	function	editor_link_create	int (void)	CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 0xD4A08, FileMappingObject), which opens the editor's block where the editor made it first
+00457bb0	function	editor_link_map	void * __fastcall (int block)	MapViewOfFile(block, FILE_MAP_ALL_ACCESS, 0, 0, 0)
+00457be0	function	editor_link_flush	void __fastcall (void *at, int size)	FlushViewOfFile
+004520a0	function	editor_ships_place		The editor's tag 0x00: each mission ship's runtime_position, runtime_yaw, runtime_pitch and runtime_roll from the ships table it sends
+0045a6d0	function	editor_ship_move		The editor's tag 0x01: places the object of the mission ship whose object_id it names at the place it gives (object_place)
+0045a730	function	editor_table_counts		The editor's tag 0x02: sets the counts of the mission's tables from the 50 halfwords it sends, by the table of their addresses at 0x004EE978
+0045a770	function	editor_table_copy		Copies a message's payload over a table of the loaded mission, the table's count times its record's size: the editor's tags 0x03 to 0x05 and 0x07 to 0x0E
+0045ad80	function	editor_ships_copy		The editor's tag 0x06: each mission ship's object_id, name with the halfword after it, flight_group, kind, launch_from to launch_gate, formation_point with the halfword after it, marker_curve with the two bytes after it, and marker_at from the ships table it sends
+0045a800	function	editor_ship_remove		The editor's tag 0x11: retires the object of the mission ship it sends (ship_index, object_retire)
+0045a820	function	editor_ship_remake		The editor's tag 0x12: retires the object of the mission ship it sends and makes it again from that record (mission_ship_create)
+0045a850	function	editor_view_ship		The editor's tag 0x14: stands the player's ship four of its radii behind the mission ship it names by index, looking at it
+0045a900	function	editor_run_control		The editor's tag 0x15, by its first u32: 0 sets editor_paused from the second; 1, 2 and 3 release the script (vm_hold to -1) and set vm_step_mode to that value, 1 only while held; 4 runs the part the second names by its index (part_run)
+004575c0	function	vm_starts_statement	bool __fastcall (int opcode)	Whether an opcode starts a statement, which a step stops before: 0x16 to 0x1A, 0x21 to 0x25, 0x37 to 0x3A, 0x4A, 0x4D and 0x4E
+004f0f3c	data	editor_link_name	char[18]	FileMappingObject, the name of the block the editor link shares
+0052a1dc	data	editor_link_block	int	The editor link's block, which the first editor_link_check makes; 0 before
+0052a1d4	data	editor_link_misses	ushort	Checks in a row that found no message from the editor; on the 513th the editor is taken as gone
+004f634c	data	editor_absent	bool	Set while no editor is linked: the game sends nothing, and vm_run neither stops at breakpoints nor steps. mission_script_start sets it; a check that reads a message clears it, and the 513th miss in a row sets it again
+0052a1d8	data	editor_picked_ship	int	The mission ship the editor picks (tag 0x16), as a pointer into mission_ships; nothing reads it
+005373f8	data	vm_hold	char	The editor's hold on the script: -1 released, 0 none, 1 held at a breakpoint or a step; while held, vm_clock_tick leaves the clock alone and the timer passes over the script clock's routine
+00537582	data	vm_step_mode	char	What the editor's last release asked for (editor_run_control): -1 none, 1 run on, 2 stop before the next statement, 3 step over
+00537581	data	editor_paused	bool	Set by the editor's tag 0x15, command 0: mission_frame leaves out its work and the timer runs none of its routines
+00537414	data	vm_step_returned	bool	Set as a return happens (vm_return), which ends a step over at the next statement
+005270e4	data	editor_unused	char[32]	The 32 bytes the editor's tag 0x17 writes, which nothing reads

@@ -94,8 +94,9 @@ pub const Loaded = struct {
     /// the proximity conditions look for ships close by (`events.Events.checkProximity`). The
     /// script acts on the game through `game`.
     ///
-    /// Not ported: the script debugger's pause, which holds the threads, the timers and the
-    /// watches ([#539](https://github.com/OpenReliant/openreliant/issues/539)).
+    /// Not ported: the editor link's hold on the script, which holds the threads, the timers and
+    /// the watches (docs/engine/editor-link.md,
+    /// [#539](https://github.com/OpenReliant/openreliant/issues/539)).
     pub fn process(loaded: *Loaded, game: aigeneric.Context) void {
         const script = &loaded.script;
         script.game = game;
