@@ -282,6 +282,7 @@ pub const State = extern union {
     dock: aidock.State,
     nanny_dock: aidock.NannyState,
     warp: wgate.warp_orders.State,
+    projection: wgate.projection.State,
     land: ailand.State,
     ripper_grab: airipper.GrabState,
     ripper_drop: airipper.DropState,
@@ -837,10 +838,10 @@ fn runInit(ctx: Context, index: u16, info: orders.Info) void {
         .avoid_target => aifuncs.avoidTargetInit(ctx, index),
         .make_boridin_section_break_away => aifuncs.breakAwayInit(ctx, index),
         .rotate_boridin_breakaway_warp_projector => aifuncs.rotateProjectorInit(ctx, index),
+        .start_warp_projection_from_boridin => wgate.projection.init(ctx, index),
         // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .formation_regroup,
         .patrol_route,
-        .start_warp_projection_from_boridin,
         => {},
         // The table gives these no `init`, or only `noop` (`0x004983A0`).
         .do_nothing,
@@ -933,11 +934,11 @@ fn runUpdate(ctx: Context, index: u16, info: orders.Info) void {
         .dark_reign_shoot => aifuncs.darkReignShoot(ctx, index),
         .dark_reign_shoot_110 => aiioncan.update(ctx, index),
         .avoid_target => aifuncs.avoidTarget(ctx, index),
+        .start_warp_projection_from_boridin => wgate.projection.update(ctx, index),
         // Not ported ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
         .formation_regroup,
         .patrol_route,
         .move_to_spawn_pos,
-        .start_warp_projection_from_boridin,
         => {},
         // The table gives these no update, or only `noop` (`0x004983A0`).
         .random_spin_slow,

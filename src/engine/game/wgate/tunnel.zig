@@ -33,8 +33,9 @@ pub const Kind = enum(u32) {
     proto = 1,
     /// A fixed gate's, with an advanced gate among the objects: red.
     advanced = 2,
-    /// The Boridin's projection's, not ported
-    /// ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
+    /// The Boridin's (`Wboridin_Mesh`), with two beams, which `wgate_create` can make but nothing
+    /// in the game asks for. The Boridin breakaway's projection builds an advanced gate's tunnel
+    /// instead.
     boridin = 3,
 };
 
@@ -260,7 +261,7 @@ pub const Tunnel = struct {
     }
 
     /// Each drawn vertex's colour from the game's vertices' about it (`Corners`).
-    fn lay(tunnel: *Tunnel) void {
+    pub fn lay(tunnel: *Tunnel) void {
         for (tunnel.drawn_colours, 0..) |*shade, vertex| shade.* = Corners.of(tunnel.grid, tunnel.split, vertex).blend(@Vector(4, f32), tunnel.colours);
     }
 
@@ -375,6 +376,26 @@ pub const Tunnel = struct {
             }
         }
         tunnel.lay();
+    }
+
+    /// The shape the Boridin's projection gives it (`order_start_warp_projection_from_boridin`,
+    /// `0x00423230`): each of the game's rings `r`, and each drawn ring as far along, `r²` times
+    /// `spread` plus `start` along the axis, as round as it was built and with no sway; then its
+    /// bounds and its radius.
+    pub fn stretch(tunnel: *Tunnel, spread: f32, start: f32) void {
+        const drawn = tunnel.drawnGrid();
+        for (0..drawn.rings + 1) |ring| {
+            const along = share(ring, tunnel.split);
+            for (0..drawn.segments) |segment| tunnel.mesh.positions[drawn.vertex(ring, segment)][2] = along * along * spread + start;
+        }
+        srapi.findBoundingBox(&tunnel.mesh);
+        tunnel.object.radius = tunnel.mesh.radius;
+    }
+
+    /// Where the game's vertex on ring `ring` at segment `segment` stands now, in the tunnel's
+    /// frame.
+    pub fn gamePosition(tunnel: *const Tunnel, ring: usize, segment: usize) Vector {
+        return tunnel.mesh.positions[tunnel.drawnGrid().vertex(ring * tunnel.split, segment * tunnel.split)];
     }
 
     /// Scrolls its texture across and along it by `time` as the gates count it (`scroll_rate`),

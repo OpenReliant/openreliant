@@ -4,7 +4,8 @@ The gates' tunnels, which ships jump through (`wgate.cpp`, `0x0041DD70` to `0x00
 Coalition gate stands with a tunnel open in it from the start, and Fixed Gate Open grows one at
 any object, a nav point among them. A ship goes out through a tunnel with Fixed Gate Jump Out, the
 player's riding the worm, and comes in through another with Fixed Gate Jump In; Fixed Gate Close
-shrinks a tunnel away, and Fixed Gate Collapse brings a gate down.
+shrinks a tunnel away, and Fixed Gate Collapse brings a gate down. The Boridin breakaway projects
+a tunnel of its own with Start warp projection from Boridin.
 
 ## In OpenReliant
 
@@ -16,12 +17,13 @@ Coalition's gates up ([`game/create.zig`](../../src/engine/game/create.zig)). A 
 lets every tunnel go.
 
 [`game/wgate/warp.zig`](../../src/engine/game/wgate/warp.zig) implements Warp In and Warp Out,
-with their independent tunnels, projector beams and particles.
+with their independent tunnels, projector beams and particles, and
+[`game/wgate/projection.zig`](../../src/engine/game/wgate/projection.zig) the Boridin breakaway's
+projection.
 
-Not ported: the Boridin's projection (kind 3, order 38)
-([#30](https://github.com/OpenReliant/openreliant/issues/30)); and the collapse's second passes on
-the parts of models a gate carries, which the game's walk of its nodes reaches too
-([#540](https://github.com/OpenReliant/openreliant/issues/540)). No shipped gate carries a model.
+Not ported: the collapse's second passes on the parts of models a gate carries, which the game's
+walk of its nodes reaches too ([#540](https://github.com/OpenReliant/openreliant/issues/540)). No
+shipped gate carries a model.
 
 **Improvements**, which `--original` turns off:
 
@@ -68,7 +70,7 @@ ticks since a record's tick are taken unsigned, those since an order's update si
 
 | Offset | Field |
 |---|---|
-| `0x00` | Kind: 0 a warp's tunnel, 1 a fixed gate's while no advanced gate is among the objects, 2 while one is, 3 the Boridin's |
+| `0x00` | Kind: 0 a warp's tunnel, 1 a fixed gate's while no advanced gate is among the objects, 2 while one is, 3 the Boridin's (`Wboridin_Mesh`, with two beams), which nothing makes |
 | `0x08` | The frame's tick it was made on |
 | `0x0C` | The tick of the last frame that drew it |
 | `0x10` | The tick its texture last scrolled on, 0 until it has |
@@ -179,6 +181,58 @@ JumpedIn is posted.
 The existing fine-tunnel setting applies to warps too. `--original` uses the original grid.
 **Fix:** a missing record or allocation failure ends the order and releases its frozen flags
 instead of leaving the ship stuck.
+
+## The Boridin's projection
+
+Start warp projection from Boridin (38), which mission 28 gives the Boridin breakaway, projects a
+warp tunnel ahead of the ship from its projector, the part `Bor brkawy proj ` (its name ends in a
+space). The order never ends.
+
+Its init (`0x004230A0`) keeps the tick it began, makes the projection anew (`0x0051D140` to
+`0x0051D190`, which the gates' end lets go), and lets go of the ship's controls. The projection
+holds:
+
+- Six beams (`WProject Mesh`), built and drawn as Warp Out's are ([Warps](#warps)) but 1400 wide
+  on either side, never culled, and coloured by their own colours: red and opaque at the far end,
+  clear at the near one.
+- At each beam's end, an emitter of large warp particles (`warp_large_particles`, `0x0051D138`):
+  Warp Out's particles, from 1000 across down to 500, sent back along the world's Z axis at 100 a
+  tick and up to 20 more, straying up to 0.15 either way.
+- A tunnel built as an advanced gate's ([The tunnel](#the-tunnel)), of size 240 where the gates'
+  are 40 or 70.
+
+Each update (`0x00423230`), a spread eases in from 0 to 2500 over the first 500 ticks. Then, from
+where the projector stands:
+
+1. Beam `n`, from 0 to 5, runs from point `n` of the projector's warp projector list
+   ([point list](../formats/shp.md#point-list-tags-0x0d-0x0e) kind 10) to its end: `(n + 1) * 8571.429` out along the projector's X axis and
+   `(5 - n)² * spread + 75000` along its Z axis, turned about Z by `n` sixths of a turn and by the
+   sway, the odd beams the other way. The sway is `sin(tick * 0.005) * 0.7π`. The beam's emitter
+   streams from its end.
+2. Each beam shows nine frames in ten, each by a roll of its own.
+3. The tunnel stands at the projector, its ring `r` at `r² * spread + 44000` along the projector's
+   Z axis, coloured as an advanced gate's tunnel. Nine frames in ten, its first six rings are lit
+   by the beams' ends, ring `r` by beam `r`'s, and the rings after them are dark: each vertex of
+   ring `r` keeps all of its colour up to 33333 from the end, less of it further off, and none from
+   50000 on. On those frames its texture scrolls by the time since the last update, as a gate's
+   tunnel's does ([The tunnel](#the-tunnel)).
+4. The tunnel shows nine frames in ten.
+
+**Unverified:** that the update, just past the file's known code, is the file's, as its init is.
+
+**Fixes:**
+
+- The init stops the game with an assertion ("Error in Boridin Warp Project AI") where the ship is
+  no Boridin breakaway; OpenReliant logs it and goes on.
+- The game makes the projection anew for each Start warp projection from Boridin without letting
+  the one before go; OpenReliant lets it go first.
+- The update takes the projector and six of its points for granted: the game fails where the model
+  has no projector or the projector lists no points, and reads past the list's end where it lists
+  fewer than six. OpenReliant does nothing where the projector or its points are missing, and the
+  beams past the list's end leave from its last point. The shipped model lists six.
+
+**Improvement:** the sway's sine comes from `std.math` rather than the engine's table, and the
+turns are π/3 and 0.7π, where the game multiplies by 1.0471976 and 2.1991148.
 
 ## The Coalition's gates
 

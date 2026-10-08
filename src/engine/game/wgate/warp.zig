@@ -26,6 +26,8 @@ const jump = @import("../jump.zig");
 /// Projector beam layout and emitter settings (`0x0041D2B0`, `wgate_create`, `0x0041FE60`).
 const beam_count = 4;
 const beam_blades = 3;
+/// The corners of a beam's mesh: its end quad's, then its blades' (`beamMesh`).
+pub const beam_corners = (beam_blades + 1) * 4;
 const beam_width: f32 = 110;
 const beam_length: f32 = 400;
 const beam_source_ahead: f32 = 300;
@@ -61,8 +63,9 @@ const extension_spin: f32 = -3;
 /// Player warp corridor cleared before opening (`order_warp_out`).
 const clearing_reach: f32 = 500000;
 
-/// Warp particles from `wgates_init` (`0x0041E280`, `0x0051D194`).
-const warp_particles: particles.Template = .{
+/// The particles that stream from the beams' ends (`warp_beam_particles`, `0x0051D194`, which
+/// `wgates_init` fills).
+pub const beam_particles: particles.Template = .{
     .life = 120,
     .life_spread = 10,
     .rate = .through(1200, 1200, 1200),
@@ -76,7 +79,7 @@ pub const Effect = struct {
     levels: [beam_count][1]srapiext.Level,
     emitters: [beam_count]particles.Emitter,
     objects: [beam_count]srapiext.MeshObject = undefined,
-    colours: [beam_count][(beam_blades + 1) * 4][4]f32 = undefined,
+    colours: [beam_count][beam_corners][4]f32 = undefined,
     angle: f32 = 0,
     spin: f32 = 0,
     brightness: f32 = beam_bright,
@@ -85,12 +88,12 @@ pub const Effect = struct {
         var result: Effect = .{
             .meshes = undefined,
             .levels = undefined,
-            .emitters = @splat(.{ .born = now, .life = emitter_life, .template = &warp_particles, .direction = .{ 0, 0, -1 }, .spread = @splat(emitter_spread), .speed = emitter_speed, .speed_range = emitter_speed_range }),
+            .emitters = @splat(.{ .born = now, .life = emitter_life, .template = &beam_particles, .direction = .{ 0, 0, -1 }, .spread = @splat(emitter_spread), .speed = emitter_speed, .speed_range = emitter_speed_range }),
         };
         var made: usize = 0;
         errdefer for (result.meshes[0..made]) |*mesh| mesh.deinit(gpa);
         for (&result.meshes) |*mesh| {
-            mesh.* = try beamMesh(gpa, image);
+            mesh.* = try beamMesh(gpa, image, beam_width);
             made += 1;
         }
         for (&result.emitters, 0..) |*emitter, n| {
@@ -160,18 +163,19 @@ pub const Effect = struct {
     }
 };
 
-/// `warp_beam_build` (`0x0041D2B0`): an end quad followed by three longitudinal blades, drawn with
-/// `beam_material`. Shares quad numbering and mesh construction with gun beams, without adding a
-/// second shape.
-fn beamMesh(gpa: std.mem.Allocator, image: *srtexture.Image) std.mem.Allocator.Error!srapiext.Mesh {
-    var corners: [(beam_blades + 1) * 4]math.Vector = undefined;
+/// `warp_beam_build` (`0x0041D2B0`): an end quad followed by three longitudinal blades, `width`
+/// either side of the axis, drawn with `beam_material`, as Warp Out's beams and the Boridin's
+/// projection build theirs. Shares quad numbering and mesh construction with gun beams, without
+/// adding a second shape.
+pub fn beamMesh(gpa: std.mem.Allocator, image: *srtexture.Image, width: f32) std.mem.Allocator.Error!srapiext.Mesh {
+    var corners: [beam_corners]math.Vector = undefined;
     var uv: [corners.len][2]f32 = undefined;
     var faces: [beam_blades + 1][4]u16 = undefined;
-    corners[0..4].* = .{ .{ -beam_width, -beam_width, 0 }, .{ beam_width, -beam_width, 0 }, .{ beam_width, beam_width, 0 }, .{ -beam_width, beam_width, 0 } };
+    corners[0..4].* = .{ .{ -width, -width, 0 }, .{ width, -width, 0 }, .{ width, width, 0 }, .{ -width, width, 0 } };
     uv[0..4].* = guns.bladeCorners(beam_span);
     faces[0] = guns.quadFace(0);
     for (0..beam_blades) |n| {
-        corners[(n + 1) * 4 ..][0..4].* = guns.blade(n, beam_blades, beam_width, .{ 0, beam_length });
+        corners[(n + 1) * 4 ..][0..4].* = guns.blade(n, beam_blades, width, .{ 0, beam_length });
         uv[(n + 1) * 4 ..][0..4].* = guns.bladeCorners(beam_span);
         faces[n + 1] = guns.quadFace(n + 1);
     }

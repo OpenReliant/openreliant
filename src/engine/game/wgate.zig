@@ -11,9 +11,9 @@
 //! In missions 16 and 66 a collapsing gate can catch the Krasny coming through it, which then
 //! splits (`splitKrasny`).
 //!
-//! Warp orders and projector effects are in `wgate/warp.zig`.
-//! Not ported: the Boridin's projection (kind 3, `order_start_warp_projection_from_boridin`)
-//! ([#30](https://github.com/OpenReliant/openreliant/issues/30)).
+//! Warp orders and projector effects are in `wgate/warp.zig`, and the Boridin breakaway's warp
+//! projection (Start warp projection from Boridin) in `wgate/projection.zig`. Nothing in the game
+//! makes a tunnel of kind 3, the Boridin's, so `Gates.make` leaves it out.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -43,6 +43,7 @@ const xtrabits = @import("xtrabits.zig");
 pub const tunnel = @import("wgate/tunnel.zig");
 pub const worm = @import("wgate/worm.zig");
 pub const warp_orders = @import("wgate/warp.zig");
+pub const projection = @import("wgate/projection.zig");
 pub const Kind = tunnel.Kind;
 pub const Tunnels = tunnel.Tunnels;
 const Grid = tunnel.Grid;
@@ -105,6 +106,9 @@ pub const Gates = struct {
     worm: ?*Worm = null,
     /// Whether the worm is in this frame's scene, as Jump Out puts it for the player's ship.
     worm_shown: bool = false,
+    /// The Boridin breakaway's warp projection (`0x0051D140` to `0x0051D190`), from its first Start
+    /// warp projection from Boridin on.
+    projection: ?*projection.Projection = null,
     /// `0x004E3F68`: where the next ship to jump in comes out, turned `spread_step` about the
     /// tunnel's axis for each step, from -2 to 2. It starts at -2 as the game does, and nothing
     /// sets it back between missions.
@@ -125,8 +129,8 @@ pub const Gates = struct {
         };
     }
 
-    /// The gates' end with a mission (`0x0041E4A0`) and their start with the next: every record
-    /// and the worm let go, and nothing jumping.
+    /// The gates' end with a mission (`0x0041E4A0`) and their start with the next: every record,
+    /// the worm and the projection let go, and nothing jumping.
     ///
     /// **Fix:** the game makes the worm anew for each of the player's jumps out and never lets the
     /// last one go; OpenReliant lets it go with the rest.
@@ -134,6 +138,7 @@ pub const Gates = struct {
         for (0..max_records) |index| gates.free(index);
         if (gates.worm) |tube| tube.destroy(gates.gpa);
         gates.worm = null;
+        gates.dropProjection();
         gates.worm_shown = false;
         gates.exiting = false;
         gates.riding = false;
@@ -158,12 +163,12 @@ pub const Gates = struct {
     /// free place, standing at `at` in the object's frame and turned a half turn about its Y axis,
     /// every vertex deeper by the ship type's depth (`depthOf`). Fixed gates start fully open;
     /// warp orders shape their own rings and keep an independent departure frame. Returns null
-    /// when all records are occupied or the kind is not ported.
+    /// when all records are occupied, or for the Boridin's kind, which nothing in the game makes.
     pub fn make(gates: *Gates, world: gameobj.World, index: u16, kind: Kind, at: Vector) Allocator.Error!?*Record {
         switch (kind) {
             .proto, .advanced, .warp => {},
             .boridin => {
-                log.warn("the tunnel of kind {s} at object {d} is left out: it is not ported", .{ @tagName(kind), index });
+                log.warn("the tunnel of kind {s} at object {d} is left out: nothing in the game makes one", .{ @tagName(kind), index });
                 return null;
             },
         }
@@ -272,6 +277,28 @@ pub const Gates = struct {
             gates.worm_shown = false;
             try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &tube.object }, .world);
         };
+        if (gates.projection) |shown| try shown.draw(gpa, scene);
+    }
+
+    /// `order_start_warp_projection_from_boridin_init`'s projection (`0x004230A0`), made anew at
+    /// tick `now` (`projection.Projection.build`).
+    ///
+    /// **Fix:** the game makes it anew for each Start warp projection from Boridin without letting
+    /// the one before go; OpenReliant lets it go first.
+    pub fn makeProjection(gates: *Gates, now: i32) Allocator.Error!void {
+        gates.dropProjection();
+        const made = try gates.gpa.create(projection.Projection);
+        errdefer gates.gpa.destroy(made);
+        try made.build(gates, now);
+        gates.projection = made;
+    }
+
+    /// Lets the projection go, where there is one.
+    fn dropProjection(gates: *Gates) void {
+        const held = gates.projection orelse return;
+        held.deinit(gates.gpa);
+        gates.gpa.destroy(held);
+        gates.projection = null;
     }
 };
 
@@ -1296,6 +1323,7 @@ pub const testing = struct {
 test {
     _ = tunnel;
     _ = worm;
+    _ = projection;
 }
 
 test recordTime {
