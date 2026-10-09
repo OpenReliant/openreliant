@@ -2499,8 +2499,8 @@ test primaryTarget {
     var devices: Devices = .{};
     var display: hud.State = .{};
     display.objectives.reset(1, false, null);
-    display.objectives.set(0, .listed);
-    display.objectives.set(2, .current);
+    _ = display.objectives.set(0, .listed);
+    _ = display.objectives.set(2, .current);
     display.objectives.shown = 0;
     const keys: FrameKeys = .{ .display = &display, .player = &mission.player, .devices = &devices, .slot = mission.slot(player), .view = .cockpit, .game_ticks = 0, .multiplayer = false, .all = mission.objects };
     // With no primary target, nothing changes.

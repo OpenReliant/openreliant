@@ -6,6 +6,7 @@ const openreliant = @import("openreliant");
 const engine_hooks = openreliant.engine.hooks;
 const Object = engine_hooks.Object;
 const create = openreliant.engine.game.create;
+const hud = openreliant.engine.game.hud;
 const api = @import("api.zig");
 const Call = api.Call;
 const handles = @import("objects.zig");
@@ -16,6 +17,7 @@ const game = @import("game.zig");
 pub const package = struct {
     pub const objects = api.Function("Every object in the mission, in the order of their slots.", &.{}, allObjects);
     pub const missiles = api.Function("Every missile in flight, newest first.", &.{}, allMissiles);
+    pub const set_objective = api.Function("Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names.", &.{ "objective", "state" }, setObjective);
 
     pub const player = api.Field(?Object, "The player's ship, while a mission runs; nil between missions.", struct {
         pub fn get(call: Call) ?Object {
@@ -32,6 +34,15 @@ pub const package = struct {
         }
     });
 };
+
+/// `world.set_objective(objective, state)`: `hud.Objectives.set`, as a mission's `SetObjective`
+/// calls it.
+fn setObjective(call: Call, objective: u8, state: hud.Objectives.Status) bool {
+    if (objective >= hud.Objectives.per_mission) call.raise("world.set_objective: objectives are numbered from 0 to {d}", .{hud.Objectives.per_mission - 1});
+    const orders = call.runtime().orders orelse return false;
+    const display = orders.world.display orelse return false;
+    return display.objectives.set(objective, state);
+}
 
 /// `world.objects()`.
 fn allObjects(call: Call) handles.List {
