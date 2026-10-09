@@ -15,6 +15,7 @@ const canvas_module = @import("../interface/canvas.zig");
 const gameflow = @import("../gameflow.zig");
 const hud = @import("../hud.zig");
 const itac_module = @import("../itac.zig");
+const language = @import("../language.zig");
 const tables = @import("tables.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
@@ -55,18 +56,15 @@ const squadron_lines: Canvas.Lines = .{ .width = 138, .height = 15, .most = 2 };
 const own_palette = 0;
 const other_palette = 6;
 const unfaded = 1;
-const own_pilots = [_]u16{ 0x515, 0x6E1, 0x6E7 };
 
 /// The arrows that step the board on and back (`0x004EA2A8`).
 const arrows = [2]Rect{ .{ .x = 293, .y = 377, .width = 26, .height = 26 }, .{ .x = 319, .y = 377, .width = 26, .height = 26 } };
 
 /// The player's squadron, the 45th Volunteers, which flies as the 45th Flying Tigers where the
 /// mission's rules say so (`gameflow.CampaignMission.Rules.flying_tigers`, from mission 14 in the
-/// original), as do the pilots whose squadron the board names by these strings (`0x004416BF`,
-/// `0x00441735`).
+/// original), as do the 45th's other pilots (`Pilot.in_45th`; `0x004416BF`, `0x00441735`).
 const volunteers = 0x1C8;
 const flying_tigers = 0x1C9;
-const squadron_mates = [_]u16{ 0x6E8, 0x519, 0x6E2 };
 
 /// The room a row's lines are written into (`0x00441540`).
 const line_room = 200;
@@ -75,28 +73,91 @@ const line_room = 200;
 const female_portrait = 1;
 const male_portrait = 2;
 
-/// The pilots that leave the board after a mission, and the one that joins it at one
-/// (`0x00441320`). The game tests Manzo Takamatsu after mission 23 and again after mission 22.
-const Leaves = struct { name: u16, after: u16 };
-const leaving = [_]Leaves{
-    .{ .name = 0x6D8, .after = 23 },
-    .{ .name = 0x6D5, .after = 25 },
-    .{ .name = 0x6CF, .after = 21 },
-    .{ .name = 0x6BD, .after = 12 },
-    .{ .name = 0x6B7, .after = 21 },
-    .{ .name = 0x518, .after = 5 },
-    .{ .name = 0x6E7, .after = 5 },
-    .{ .name = 0x6D8, .after = 22 },
-};
-const joining = 0x6E1;
-const joins_at = 6;
+/// A pilot of the board.
+pub const Pilot = struct {
+    name: language.Words,
+    /// The line below the name: the pilot's squadron, in brackets.
+    squadron: language.Words,
+    /// The pilot's ship; none leaves the column empty.
+    ship: ?language.Words = null,
+    /// The kills the pilot starts a campaign with, and the mean and the spread of those each
+    /// mission adds (`killboard_kills`).
+    kills: i16 = 0,
+    mean: f32 = 0,
+    spread: f32 = 0,
+    /// The shape of the pilot's portrait in `kills.spr`.
+    portrait: u16,
+    /// Whether the pilot flies in the 45th: the portrait takes the 45th's palette, and the squadron
+    /// shows as the 45th Flying Tigers where the 45th fly as them.
+    in_45th: bool = false,
+    /// The first mission the pilot is on the board in; null for every mission.
+    joins_at: ?u16 = null,
+    /// The last mission the pilot is on the board in; null for every mission.
+    leaves_after: ?u16 = null,
+    /// The missions in which the pilot adds no kills.
+    sits_out: []const u16 = &.{},
 
-/// The pilot who adds no kills from mission `away_from` to `away_to` (`killboard_kills`,
-/// `0x0044148C` on). Not yet in the records, with the pilots who leave and join
-/// ([#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
-const away = 0x6DB;
-const away_from = 19;
-const away_to = 23;
+    /// Whether the pilot is on the board before mission `mission`.
+    fn onBoard(pilot: Pilot, mission: u16) bool {
+        if (pilot.leaves_after) |after| if (mission > after) return false;
+        if (pilot.joins_at) |first| if (mission < first) return false;
+        return true;
+    }
+
+    /// The original's pilots (`tables.pilots`), with the 45th's (`0x00441987`), the pilots who
+    /// leave the board and the one who joins it (`0x00441320`), and the pilot who sits out missions
+    /// 19 to 23 (`killboard_kills`, `0x0044148C` on). The game tests Manzo Takamatsu after mission
+    /// 23 and again after mission 22, so he leaves after 22.
+    pub const original: [tables.pilots.len]Pilot = pilots: {
+        var pilots: [tables.pilots.len]Pilot = undefined;
+        for (&pilots, tables.pilots) |*pilot, table| {
+            var leaves: ?u16 = null;
+            for (leaving) |entry| {
+                if (entry.name == table.name) leaves = @min(leaves orelse entry.after, entry.after);
+            }
+            pilot.* = .{
+                .name = .{ .string = table.name },
+                .squadron = .{ .string = table.call_sign },
+                .ship = if (table.ship > 0) .{ .string = table.ship } else null,
+                .kills = table.base_kills,
+                .mean = table.mean,
+                .spread = table.spread,
+                .portrait = @intCast(table.shape),
+                .in_45th = std.mem.findScalar(u16, &the_45th, table.name) != null,
+                .joins_at = if (table.name == joining) joining_mission else null,
+                .leaves_after = leaves,
+                .sits_out = if (table.name == away) &away_missions else &.{},
+            };
+        }
+        break :pilots pilots;
+    };
+
+    const the_45th = [_]u16{ 0x515, 0x6E1, 0x6E7 };
+    const Leaves = struct { name: u16, after: u16 };
+    const leaving = [_]Leaves{
+        .{ .name = 0x6D8, .after = 23 },
+        .{ .name = 0x6D5, .after = 25 },
+        .{ .name = 0x6CF, .after = 21 },
+        .{ .name = 0x6BD, .after = 12 },
+        .{ .name = 0x6B7, .after = 21 },
+        .{ .name = 0x518, .after = 5 },
+        .{ .name = 0x6E7, .after = 5 },
+        .{ .name = 0x6D8, .after = 22 },
+    };
+    const joining = 0x6E1;
+    const joining_mission = 6;
+    const away = 0x6DB;
+    const away_missions = [_]u16{ 19, 20, 21, 22, 23 };
+};
+
+/// The board's pilots: the original's until OpenReliant installs the records' (`install`).
+var installed: []const Pilot = &Pilot.original;
+
+/// Uses `pilots` as the board's pilots. OpenReliant installs the records' once the load scripts
+/// have run.
+pub fn install(pilots: []const Pilot) void {
+    installed = pilots;
+}
 
 /// What `rand` gives at most, which the kills of a mission are drawn against (`0x004DC4C8`), and the
 /// middle of that draw (`0x004DC408`).
@@ -109,12 +170,15 @@ const Entry = union(enum) {
     player,
 };
 
+/// The most pilots the board holds: the original's, since the records can't add pilots.
+const most_pilots = Pilot.original.len;
+
 pub const Killboard = struct {
     /// The board, best first (`0x00523710`), and how many it holds (`0x005231D0`).
-    entries: [tables.pilots.len + 1]Entry = undefined,
+    entries: [most_pilots + 1]Entry = undefined,
     count: u8 = 0,
     /// Each pilot's kills (`+0x66` of their record), and the player's (`skull_count`).
-    kills: [tables.pilots.len]i16 = undefined,
+    kills: [most_pilots]i16 = undefined,
     player_kills: i16 = 0,
     /// The place of the first shown (`0x00523714`).
     first: u8 = 0,
@@ -134,7 +198,7 @@ pub const Killboard = struct {
 
     /// `killboard_kills` (`0x00441460`): each pilot's kills. They start from the pilot's own, and
     /// each mission of the campaign's order before `mission` adds a draw from the seed `seed`,
-    /// spread round the pilot's mean.
+    /// spread round the pilot's mean, except the missions the pilot sits out (`Pilot.sits_out`).
     ///
     /// **Improvement:** the game names missions 12, 13, 17 and 22 as the ones that add no kills
     /// (`0x0044148C` on). OpenReliant passes over the missions the campaign's order doesn't have
@@ -150,11 +214,11 @@ pub const Killboard = struct {
     fn addUp(kill_board: *Killboard, seed: i32, mission: u16) void {
         var prng: std.Random.DefaultPrng = .init(@as(u32, @bitCast(seed)));
         const random = prng.random();
-        for (tables.pilots, &kill_board.kills) |pilot, *kills| {
-            kills.* = pilot.base_kills;
+        for (boardPilots(), kill_board.kills[0..boardPilots().len]) |pilot, *kills| {
+            kills.* = pilot.kills;
             for (1..@max(mission, 1)) |flown| {
                 if (!gameflow.campaignOrder().has(@intCast(flown))) continue;
-                if (pilot.name == away and flown >= away_from and flown <= away_to) continue;
+                if (std.mem.findScalar(u16, pilot.sits_out, @intCast(flown)) != null) continue;
                 const drawn = @as(f32, @floatFromInt(random.uintAtMost(u16, rand_max))) / rand_max;
                 kills.* +%= @intFromFloat((drawn - middle) * pilot.spread + pilot.mean);
             }
@@ -165,8 +229,8 @@ pub const Killboard = struct {
     /// with as many kills in that order.
     fn list(kill_board: *Killboard, mission: u16) void {
         kill_board.count = 0;
-        for (tables.pilots, 0..) |pilot, place| {
-            if (!onBoard(pilot.name, mission)) continue;
+        for (boardPilots(), 0..) |pilot, place| {
+            if (!pilot.onBoard(mission)) continue;
             kill_board.entries[kill_board.count] = .{ .pilot = @intCast(place) };
             kill_board.count += 1;
         }
@@ -242,12 +306,11 @@ pub const Killboard = struct {
                 try in_pane.wrapped(font, at(name_column, top + name_y), named, itac_module.text_colour, .left, squadron_lines);
             },
             .pilot => |place| {
-                const pilot = tables.pilots[place];
-                try in_pane.text(font, at(name_column, top + name_y), itac.string(pilot.name), itac_module.text_colour, .left);
-                const renamed = tigers and std.mem.findScalar(u16, &squadron_mates, pilot.call_sign) != null;
-                const squadron = if (renamed) std.mem.print(&text, "({s})", .{itac.string(flying_tigers)}) catch "" else itac.string(pilot.call_sign);
+                const pilot = boardPilots()[place];
+                try in_pane.text(font, at(name_column, top + name_y), itac.words(pilot.name), itac_module.text_colour, .left);
+                const squadron = if (tigers and pilot.in_45th) std.mem.print(&text, "({s})", .{itac.string(flying_tigers)}) catch "" else itac.words(pilot.squadron);
                 try in_pane.wrapped(font, at(name_column, top + squadron_y), squadron, itac_module.text_colour, .left, squadron_lines);
-                if (pilot.ship > 0) try in_pane.text(font, at(ship_column, top + figures_y), itac.string(pilot.ship), itac_module.text_colour, .left);
+                if (pilot.ship) |ship| try in_pane.text(font, at(ship_column, top + figures_y), itac.words(ship), itac_module.text_colour, .left);
             },
         }
         var kills: [8]u8 = undefined;
@@ -260,19 +323,16 @@ fn at(x: i32, y: i32) [2]i32 {
     return .{ board_pane.x + x, board_pane.y + y };
 }
 
-/// Whether the pilot named `name` is on the board before mission `mission`.
-fn onBoard(name: u16, mission: u16) bool {
-    for (leaving) |leaves| {
-        if (name == leaves.name and mission > leaves.after) return false;
-    }
-    return !(name == joining and mission < joins_at);
+/// The installed pilots the board holds, at most `most_pilots`.
+fn boardPilots() []const Pilot {
+    return installed[0..@min(installed.len, most_pilots)];
 }
 
 /// The palette `entry`'s portrait is drawn with.
 fn paletteOf(entry: Entry) usize {
     return switch (entry) {
         .player => own_palette,
-        .pilot => |place| if (std.mem.findScalar(u16, &own_pilots, tables.pilots[place].name) != null) own_palette else other_palette,
+        .pilot => |place| if (boardPilots()[place].in_45th) own_palette else other_palette,
     };
 }
 
@@ -280,19 +340,50 @@ fn paletteOf(entry: Entry) usize {
 fn portraitOf(entry: Entry, female: bool) usize {
     return switch (entry) {
         .player => if (female) female_portrait else male_portrait,
-        .pilot => |place| @intCast(tables.pilots[place].shape),
+        .pilot => |place| boardPilots()[place].portrait,
     };
 }
 
-test onBoard {
+/// The original's pilot whose name is the ITAC's string `name`, for the tests.
+fn originalNamed(name: u16) Pilot {
+    for (Pilot.original) |pilot| if (pilot.name.string == name) return pilot;
+    unreachable;
+}
+
+test "Pilot.onBoard" {
     // John McGann leaves after mission 5, Linc Stevenson joins at mission 6, and Manzo Takamatsu
     // leaves after mission 22.
-    try std.testing.expect(onBoard(0x518, 5));
-    try std.testing.expect(!onBoard(0x518, 6));
-    try std.testing.expect(!onBoard(joining, 5));
-    try std.testing.expect(onBoard(joining, 6));
-    try std.testing.expect(onBoard(0x6D8, 22));
-    try std.testing.expect(!onBoard(0x6D8, 23));
+    const mcgann = originalNamed(0x518);
+    try std.testing.expect(mcgann.onBoard(5) and !mcgann.onBoard(6));
+    const stevenson = originalNamed(Pilot.joining);
+    try std.testing.expect(!stevenson.onBoard(5) and stevenson.onBoard(6));
+    const takamatsu = originalNamed(0x6D8);
+    try std.testing.expect(takamatsu.onBoard(22) and !takamatsu.onBoard(23));
+}
+
+test "Pilot.original" {
+    // Klaus Steiner sits out missions 19 to 23, and three pilots fly in the 45th.
+    try std.testing.expectEqualSlices(u16, &.{ 19, 20, 21, 22, 23 }, originalNamed(Pilot.away).sits_out);
+    var in_45th: usize = 0;
+    for (Pilot.original) |pilot| in_45th += @intFromBool(pilot.in_45th);
+    try std.testing.expectEqual(3, in_45th);
+    // A pilot with no ship leaves the column empty.
+    for (Pilot.original, tables.pilots) |pilot, table| try std.testing.expectEqual(table.ship > 0, pilot.ship != null);
+}
+
+test "a mod's pilots" {
+    var mod_pilots = Pilot.original;
+    // Every pilot stays on the board, and Stevenson is there from the start.
+    for (&mod_pilots) |*pilot| {
+        pilot.leaves_after = null;
+        pilot.joins_at = null;
+    }
+    install(&mod_pilots);
+    defer install(&Pilot.original);
+    var kill_board: Killboard = .{};
+    kill_board.addUp(0, 10);
+    kill_board.list(10);
+    try std.testing.expectEqual(Pilot.original.len + 1, kill_board.count);
 }
 
 test "Killboard.list" {
@@ -308,7 +399,7 @@ test "Killboard.list" {
     }
     // Linc Stevenson isn't on it yet.
     for (kill_board.entries[0..kill_board.count]) |entry| switch (entry) {
-        .pilot => |place| try std.testing.expect(tables.pilots[place].name != joining),
+        .pilot => |place| try std.testing.expect(Pilot.original[place].name.string != Pilot.joining),
         .player => {},
     };
 }

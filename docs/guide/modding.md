@@ -956,8 +956,42 @@ A mission is a `.DTE` file ([`.DTE` missions](../formats/dte.md)) named after it
 adds one, which a game mode can fly ([Game modes](scripting.md#game-modes)) and `--mission 90`
 starts. A mission numbered from 1 to 28 can also join the game's campaign, such as the missions 12,
 13, 17 and 22 that the campaign doesn't fly ([The campaign's
-missions](scripting.md#the-campaigns-missions)), with its own briefing, carrier, objectives and date
-([Each mission of the campaign](scripting.md#each-mission-of-the-campaign)).
+missions](scripting.md#the-campaigns-missions)). A load script gives it what the campaign gives its
+missions: the briefing, the carrier, the objectives, the date, the awards, Enriquez's report and
+debriefing, the ITAC's news, the landing and the wing's pilots ([Each mission of the
+campaign](scripting.md#each-mission-of-the-campaign)).
+
+A mod that puts mission 12 back has `mission12.dte`, a recording of its spoken briefing,
+`brief12.mp3`, and a load script:
+
+```ini
+[Mod]
+Name=Mission 12 Restored
+Version=1.0
+
+[Scripts]
+Load=campaign.luau
+```
+
+```lua
+-- campaign.luau
+local records = require("openreliant.records")
+
+-- Fly mission 12 between missions 11 and 14.
+local campaign = records.campaign
+table.insert(campaign, 12)
+table.sort(campaign)
+records.campaign = campaign
+
+-- Enriquez speaks the briefing over another mission's movie, and debriefs it.
+local mission = records.missions[12]
+mission.hologram = "new_m05.bik"
+mission.speech = "brief12.ut"
+mission.objectives = { "Protect the Reliant", "Destroy the Black Guard" }
+local debriefing = mission.debriefing
+debriefing.success = { "Good work out there. The Reliant is safe, for now." }
+mission.debriefing = debriefing
+```
 
 - OpenReliant reads a mission as the original does, and has no mission format of its own. A mission
   made for the original works in OpenReliant, and one made for OpenReliant works in the original

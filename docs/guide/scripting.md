@@ -1110,6 +1110,11 @@ scripts can only read them.
 | `text` | The game's text, `language.dll`, by string id | 1 | |
 | `itac_text` | The ITAC's text, `itaclang.dll`, by string id | 1 | |
 
+The package also holds the campaign's order of missions, `campaign`
+([The campaign's missions](#the-campaigns-missions)), each mission's settings, `missions`
+([Each mission of the campaign](#each-mission-of-the-campaign)), and the KILLBOARD's pilots,
+`killboard` ([The KILLBOARD's pilots](#the-killboards-pilots)).
+
 Records are looked up by number or by name, with the field names of the [stat
 tables](../formats/stats.md). The definitions file for editors ([Editors](#editors)) lists every
 field of `Ship`, `Gun`, `Missile` and `Pilot`.
@@ -1263,6 +1268,30 @@ mission.debriefing = debriefing
 records.missions[14].news = { { title = "Reliant survives ambush", paragraphs = { "..." }, picture = 13 } }
 ```
 
+It can award a medal, land on the other carrier, play a report of its own after the chapter's
+movie, and bring a pilot into the wing:
+
+```lua
+local mission = records.missions[13]
+mission.medal = "valour"
+mission.landing_carrier = "yamato"
+mission.chapter = 2
+mission.chapter_reports = { { movie = "mymod_news13.bik", unless = { "krasnaya_alive" } } }
+mission.alpha_5_pilot = "diceman"
+```
+
+A campaign of the mod's own turns off the game's rules for particular missions where its missions
+don't want them:
+
+```lua
+-- Mission 25 is an ordinary mission here: no second part, no Kamovs, and a landing whatever
+-- happens to the Yamato.
+local mission = records.missions[25]
+mission.second_part = false
+mission.kamov_wing = false
+mission.fort_bear_ending = false
+```
+
 - Each mod changes only the fields it sets, in load order, so mods that change different fields of
   the same mission don't undo each other's changes.
 - Reading `objectives` gives a new list each time. To change the names, assign a list. Nil gives
@@ -1299,8 +1328,31 @@ records.missions[14].news = { { title = "Reliant survives ambush", paragraphs = 
   ship lands on the Yamato instead, as after missions 7 and 8. `chapter_reports` are the news
   reports after the chapter's movie, each waiting on the game's variables, such as
   `rameses_alive`, and `alpha_5_pilot` and `alpha_6_pilot` the pilots the wing takes on.
-- Not yet in the records: the KILLBOARD's pilots
-  ([#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
+### The KILLBOARD's pilots
+
+`records.killboard` holds the pilots of the ITAC's KILLBOARD, numbered from 1, in the game's order.
+Each has the text the board shows, the kills it starts with and adds, its portrait, and the
+missions it joins the board at, leaves it after and sits out. A mod that restores or moves missions
+keeps the board in step with its campaign, and a campaign of its own gives the board's places
+pilots of its own:
+
+```lua
+local records = require("openreliant.records")
+
+for _, pilot in records.killboard do
+    if pilot.name == "Klaus Steiner" then
+        -- He flies the restored mission 22 after all.
+        pilot.sits_out = { 19, 20, 21, 23 }
+    end
+end
+records.killboard[19] = { name = "Trent Ramsey", squadron = "(45th Volunteers)", kills = 12, joins_at = 12 }
+```
+
+- The board always has the game's 19 places: a script changes pilots but can't add or remove them.
+  A pilot who should never show can leave after mission 0.
+- Text is read from the ITAC's strings and can be changed to any text, in the game's code page.
+- A pilot with `in_45th` set shows as one of the 45th Flying Tigers in the missions whose
+  `flying_tigers` rule is on ([Each mission of the campaign](#each-mission-of-the-campaign)).
 
 ## Saved games
 

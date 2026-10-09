@@ -311,10 +311,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer game_modes.deinit();
     const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .option_pages = &option_pages, .bindings_file = settings_file, .modes = &game_modes };
     try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
-    // The campaign flies its missions in the order the load scripts leave (`records.campaign`), and
-    // makes of each what they leave (`records.missions`).
+    // The campaign flies its missions in the order the load scripts leave (`records.campaign`), with
+    // the settings they leave for each (`records.missions`), and the KILLBOARD holds the pilots they
+    // leave (`records.killboard`).
     game.gameflow.install(records.campaign);
     game.gameflow.installMissions(records.missions);
+    game.itac.killboard.install(records.killboard);
     // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
     // scripts while a game runs (`GameScripts`).
     const presentation = try scripting.Presentation.start(gpa, io, mods.list, &records, version.string, shared);
