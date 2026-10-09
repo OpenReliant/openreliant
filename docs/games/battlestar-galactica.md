@@ -16,6 +16,8 @@ sltool bsg script <mission.dte> <default.xbe>   # its script, with the commands'
 sltool bsg commands <default.xbe>               # the command catalogue
 sltool bsg films <video.idx> <videodata.dat>    # the comms films
 sltool bsg film <video.idx> <videodata.dat> <number|all> <dir>   # their frames, as PNG files
+sltool bsg ls <archive.hxb>                     # an archive's files
+sltool bsg extract <archive.hxb> <dir>          # every file of it, unpacked and checked
 ```
 
 The code is in [`src/formats/games/bsg/`](../../src/formats/games/bsg), and the Xbox's own formats
@@ -214,37 +216,142 @@ number from 0 to 2, separated by tabs. **Unknown:** what the number is.
 
 ## Archives
 
-The `.hxb` files are Warthog's own archive, `WART3.00`. They hold the models, the textures, the
-sounds and the menus' pictures.
+The `.hxb` files are Warthog's own archive, `WART3.00`: a header, a table of entries, the members
+back to back, and the members' names at the end. All numbers are little-endian.
 
 | Offset | Size | Field |
 |---|---|---|
 | 0 | 8 | `WART3.00` |
 | 8 | 4 | The count of entries |
-| 12 | 4 | Where the names start |
+| 12 | 4 | Where the names start, which is also where the members end |
 | 16 | 4 | The names' length |
 | 20 | | The entries, 20 bytes each |
 
 | Offset | Size | Field |
 |---|---|---|
-| 0 | 4 | The member's offset in the file |
-| 4 | 4 | Its stored size |
-| 8 | 4 | Its size |
-| 12 | 4 | A hash of its name. **Unknown:** the hash. |
-| 16 | 4 | Its name's offset in the names |
+| 0 | 4 | Where the member starts in the archive |
+| 4 | 4 | The bytes it takes, or 0 for a member stored as it is |
+| 8 | 4 | Its size once unpacked |
+| 12 | 4 | Its checksum |
+| 16 | 4 | Where its name starts in the names |
 
-The members' data starts right after the entries, and the names, each ending in a zero byte, fill
-the end of the file. No member is stored uncompressed. **Unknown:** the compression. It is an LZ
-variant, with text visible between its control bytes, but not zlib, LZF or LZ4.
+The members start right after the entries, in the entries' order, with nothing between them. A
+member stored as it is takes its unpacked size. More than half the sounds are stored that way,
+and a few textures. Every other member is compressed with RefPack
+([RefPack compression](../formats/refpack.md)), in chunks of 128 KiB of unpacked data, the last
+chunk holding what is left. Each chunk is a 4-byte length, then a stream of RefPack commands of
+that length, without the header that StarLancer's streams start with. Each chunk's stream unpacks
+on its own.
+
+The checksum is the CRC-32 of the unpacked member, without the final inversion that the usual
+CRC-32 (zlib's) applies: zlib's CRC-32 of the member XOR `0xFFFFFFFF`.
+
+The names are relative paths with forward slashes, such as `models/shv1vi00/shv1vi00.mdl`, each
+ending in a zero byte. An archive can hold the same file more than once, each copy with its own
+entry but sharing one name. `bigwad.hxb` holds some of the Galactica's textures up to twelve
+times, each copy near a model that uses it. **Unverified:** that the copies let the game read a
+model's files in one pass from the disc.
+
+`sltool bsg ls` lists an archive, and `sltool bsg extract` unpacks every file of it, checking each
+checksum and writing a repeated file once. The code is in
+[`src/formats/games/bsg/wart.zig`](../../src/formats/games/bsg/wart.zig).
 
 | Archive | Holds |
 |---|---|
-| `bigwad.hxb` | The models: `models/<model>/<model>.mdl`, with the parts' meshes as `.bmsh` files named after the modelling tool's shapes, such as `a0gaga00c1_body19shape.bmsh`. Textures as `.btga` files in `models/textures/`, `.lvl` files, and `.banr` files. |
-| `wads\<mission>.hxb` | Each mission's own models, textures, `.lvl` files and sounds (`.bwav`), with `.set`, `.bxm` and `.tnf` files. |
-| `gui.hxb` | The menus' textures and `.loc` text. |
-| `sfx.hxb` | The sounds (`.bwav`), with `.bxm` and `.set` files. |
-| `extra.hxb` | Textures, `.lvl` files and `.tnf` files. |
+| `bigwad.hxb` | The models (`models/<model>/`), their textures (`models/textures/`) and the objects' definitions (`levels/`). |
+| `wads\<mission>.hxb` | What a mission loads: its models, textures and definitions, its music (`music/`), its sounds (`audio/`) and the in-game menus' pictures (`gui/backend/`). |
+| `gui.hxb` | The menus' pictures (`gui/frontend/`, `gui/backend/`) and their text in each language (`gui/lang/<language>.loc`). |
+| `sfx.hxb` | The sound effects (`sfx/`) and short pieces of music (`music/`). |
+| `extra.hxb` | The fonts, the effects' sprites and pictures, and the particle effects' definitions (`levels/`). |
 
-The Galactica's model is in `models/a0gaga00/`. Read through the compression's control bytes, a
-`.lvl` file is text, such as `level { name({A0GAGA00}) ...`. **Unknown:** the layouts of `.mdl`,
-`.bmsh`, `.btga`, `.lvl`, `.banr`, `.bwav`, `.set` and `.bxm` files.
+### The files
+
+| Kind | Format | Holds |
+|---|---|---|
+| `.lvl` | Text | An object's definition ([Object definitions](#object-definitions)), or a particle effect's. |
+| `.mdl` | Text | A model's parts ([Models](#models)). |
+| `.bmsh` | Binary | A part's mesh. |
+| `.banr` | Binary | **Unknown.** It comes with some meshes, under the same name. |
+| `.btga` | Binary | A texture. |
+| `.bwav` | Binary | A sound. |
+| `.bxm` | Binary | A piece of music. |
+| `.set` | Text | Lists of numbers, beside each mission's music and in `sfx/coll.set`. **Unknown:** what they set. |
+| `.tnf` | Binary | A font's table, 2050 bytes, with its picture as a `.btga` of the same name. **Unknown:** its layout. |
+| `.loc` | Text | The menus' text in one language. |
+
+Every binary kind but the fonts starts with a Unix time, from 2002 to 2004, which looks like when
+the file was written. **Unknown:** the rest of their header. A mesh holds a texture's name, such as
+`sh_v1_viper01.tga`, its vertices' positions and normals as floats, and its triangles as 16-bit
+indices, among what look like addresses in the Xbox's memory.
+
+### Object definitions
+
+A `.lvl` file in `levels/` defines an object that a mission can place: a ship, a station or a
+piece of scenery, by the name its model has, such as `levels/shv1vi00.lvl` for the Viper
+(`SHV1VI00`, the name `ship.txt` uses too). It is a block of attributes:
+
+```text
+level
+{
+    name({SHV1VI00})
+    acount(99)
+    pcount(0)
+    scount(0)
+    tcount(0)
+    ocount(0)
+    attribute({ObjectType}, const, number,1)
+    attribute({MeshName}, const, string,{SHV1VI00})
+    attribute({MaxSpeed}, const, number,300)
+    attribute({Gun1}, const, vector,-163,-107.000008,116.999992,0)
+    ...
+}
+```
+
+`acount` is the count of attributes. Each attribute has a name, `const` or `amend`, a type
+(`number`, `string` or `vector`) and its value; strings are in braces. **Unknown:** what `amend`
+changes, and what `pcount`, `scount` and `tcount` count: they are 0 in every file. A particle
+effect's file has `ocount` blocks after its attributes, such as an `EmitterClass` block of the
+emitter's directions, colours and sizes.
+
+A ship's attributes give:
+
+- its flight model, as `ship.txt` does (`MaxSpeed` to `YawInertia`, `Acceleration`, `TurnAccel`),
+  and a second set for the player (`PlayerMaxSpeed` and so on);
+- what it is: `ShipType` (`FIGHTER`, `STATIC`), `FlightModel`, `FriendOrFoe` and `Targetable`;
+- its weapons by name, as `bullet.txt` and `missile.txt` name them: `PrimaryWeaponType`
+  (`COL_LASERMK1`), `SubPrimaryWeaponType`, `SecondaryWeaponType` and `SubSecondaryWeaponType`;
+- where its guns' muzzles are (`Gun1`, `Gun2`) and its engines' glows (`Jet1` to `Jet3`, with
+  `Jet1Size` and so on), as positions in the model's space;
+- its hardpoints, each a type, an ID and a matrix as four vectors, such as `Secondary00_type`,
+  `Secondary00_ID` and `Secondary00_xform0` to `Secondary00_xform3`, the last being the position.
+  The types are `SECONDARY` and `SUBSECONDARY`, for the two kinds of missile, `TURRET` and
+  `PLAYERTURRET`, `LAUNCHTUBE`, `SUBOBJECT`, `LEECHPOINT` and `LEECHBEAM`;
+- where the cockpit and the chase camera are (`CockpitOffset`, `CameraOffset`);
+- the distances at which it changes to a coarser model (`LODDist1` to `LODDist5`);
+- its engine's sounds (`EngineSound`, `EngineAfterburnSound`), and its blast when it explodes.
+
+They hold what StarLancer splits between a model's attachment points
+([`.SHP` models](../formats/shp.md)) and its ship stats ([Stat tables](../formats/stats.md)).
+
+### Models
+
+A `.mdl` file is a model's parts as Maya exported them. Each part is a `model` block inside the
+model's own, which starts with a comment naming the Maya scene, such as
+`Z:/BattleStar/SHIPS/sh_v1_viper01/models/sh_v1_viper01.mb`:
+
+```text
+    model
+    {
+// Maya scene Z:/BattleStar/SHIPS/sh_v1_viper01/models/sh_v1_viper01.mb
+        name({c1_viper01})
+        parent({})
+        matrix(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)
+        meshname({SHV1VI00c1_viper01Shape.msh})
+    }
+```
+
+A part has a name, its parent's name (empty for none), a 4 by 4 matrix, a `pivot` point, and the
+mesh it draws. The mesh is the file of that name in the model's folder, in lowercase and with
+`.bmsh` for `.msh`. A part's name starts with `c1` to `c5`, one set of parts for each level of
+detail: the Viper has one part at each level, and the Galactica 84 parts at the first and none at
+the others.

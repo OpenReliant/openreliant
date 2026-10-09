@@ -9,6 +9,7 @@ const assert = std.debug.assert;
 const cdimage = @import("../cdimage.zig");
 const iso9660 = @import("../iso9660.zig");
 const layout = @import("../layout.zig");
+const paths = @import("../paths.zig");
 
 const block_size = cdimage.block_size;
 
@@ -127,7 +128,7 @@ pub fn list(arena: Allocator, folder: []const u8) ![]Entry {
         // An empty folder holds one entry of filler.
         if (record.left == Record.none and record.right == Record.none and record.sector == std.math.maxInt(u32)) break;
         const name = folder[offset + Record.name_offset ..][0..record.name_length];
-        if (!isName(name)) return error.CorruptDirectory;
+        if (!paths.isName(name)) return error.CorruptDirectory;
         try entries.append(arena, .{
             .name = name,
             .kind = if (record.attributes.directory) .directory else .file,
@@ -149,13 +150,6 @@ fn recordAt(folder: []const u8, offset: usize) !*align(1) const Record {
 /// The byte offset of a subtree, or null for none.
 fn subtree(link: u16) ?usize {
     return if (link == 0 or link == Record.none) null else @as(usize, link) * 4;
-}
-
-/// Whether `name` can name a file under a folder: not empty, no path separators, and not `.` or
-/// `..`.
-fn isName(name: []const u8) bool {
-    if (name.len == 0 or std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) return false;
-    return std.mem.findAny(u8, name, "/\\") == null;
 }
 
 /// Builds folders, for tests.

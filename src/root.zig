@@ -3,6 +3,8 @@
 
 /// Reading fixed layouts in place, which the readers below share.
 pub const layout = @import("formats/layout.zig");
+/// Checking the names of files that discs and archives hold, before a tool writes them.
+pub const paths = @import("formats/paths.zig");
 
 /// Containers the game shipped in, rather than formats the game itself reads.
 pub const cdimage = @import("formats/cdimage.zig");

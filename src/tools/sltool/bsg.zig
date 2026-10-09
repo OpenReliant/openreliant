@@ -1,5 +1,5 @@
 //! `sltool bsg ...`: read Battlestar Galactica's files: its `.dte` missions, which keep StarLancer's
-//! records, the command catalogue in its executable, and its comms films
+//! records, the command catalogue in its executable, its comms films and its `.hxb` archives
 //! ([#1017](https://github.com/OpenReliant/openreliant/issues/1017)). `sltool cd` reads its disc.
 
 const std = @import("std");
@@ -21,6 +21,8 @@ pub const Command = union(enum) {
     commands: struct { executable: []const u8 },
     films: struct { index: []const u8, data: []const u8 },
     film: struct { index: []const u8, data: []const u8, number: []const u8, out_dir: []const u8 },
+    ls: struct { archive: []const u8 },
+    extract: struct { archive: []const u8, out_dir: []const u8 },
 
     pub const usage =
         \\  bsg sections <mission>          list a Battlestar Galactica mission's sections
@@ -35,6 +37,9 @@ pub const Command = union(enum) {
         \\  bsg film <video.idx> <videodata.dat> <number|all> <out-dir>
         \\                                  save the frames of one comms film, or of all of them,
         \\                                  as PNG files
+        \\  bsg ls <archive.hxb>            list the files in an archive
+        \\  bsg extract <archive.hxb> <out-dir>
+        \\                                  unpack every file of an archive, checking each one
         \\
     ;
 
@@ -65,6 +70,8 @@ pub const Command = union(enum) {
             .commands => |operands| try commands(ctx, try readCatalogue(ctx, operands.executable)),
             .films => |operands| try films(ctx, try readFilms(ctx, operands.index, operands.data)),
             .film => |operands| try film(ctx, try readFilms(ctx, operands.index, operands.data), operands.number, operands.out_dir),
+            .ls => |operands| try list(ctx, try readArchive(ctx, operands.archive)),
+            .extract => |operands| try extract(ctx, try readArchive(ctx, operands.archive), operands.out_dir),
         }
     }
 };
@@ -82,6 +89,10 @@ const Films = struct { index: bsg.comms.Index, data: []u8 };
 
 fn readFilms(ctx: Context, index_path: []const u8, data_path: []const u8) !Films {
     return .{ .index = try .parse(try ctx.readInput(index_path)), .data = try ctx.readInput(data_path) };
+}
+
+fn readArchive(ctx: Context, path: []const u8) !bsg.wart.Archive {
+    return .parse(try ctx.readInput(path));
 }
 
 fn sections(ctx: Context, mission: bsg.mission.Mission) !void {
@@ -135,9 +146,83 @@ fn film(ctx: Context, all: Films, which: []const u8, out_path: []const u8) !void
     try ctx.stdout.print("wrote {f} of {f} to {s}\n", .{ sltool.count(frames, "frame"), sltool.count(last - first, "film"), out_path });
 }
 
+/// Lists the files of `archive`: each one's size, the bytes it takes compressed, its checksum and
+/// its name.
+fn list(ctx: Context, archive: bsg.wart.Archive) !void {
+    try ctx.stdout.writeAll("      size    stored  checksum  name\n");
+    var uncompressed: usize = 0;
+    for (archive.entries) |entry| {
+        if (entry.compressedSize()) |compressed| {
+            try ctx.stdout.print("{d:>10}{d:>10}", .{ entry.size, compressed });
+        } else {
+            try ctx.stdout.print("{d:>10}{s:>10}", .{ entry.size, "-" });
+            uncompressed += 1;
+        }
+        try ctx.stdout.print("  {x:0>8}  {s}\n", .{ entry.checksum, try archive.name(entry) });
+    }
+    try ctx.stdout.print("{f}, {d} stored as they are\n", .{ sltool.count(archive.entries.len, "file"), uncompressed });
+}
+
+/// Unpacks each file of `archive` into `out_path`, under its own path, checking its checksum. A file
+/// the archive holds more than once is written once.
+fn extract(ctx: Context, archive: bsg.wart.Archive, out_path: []const u8) !void {
+    const io = ctx.io;
+    var out_dir = try ctx.outputDir(out_path);
+    defer out_dir.close(io);
+
+    var written: std.AutoHashMapUnmanaged(u32, u32) = .empty;
+    var files: usize = 0;
+    var copies: usize = 0;
+    var bytes: u64 = 0;
+    for (archive.entries) |entry| {
+        const path = try archive.name(entry);
+        if (try written.fetchPut(ctx.arena, entry.name_offset, entry.checksum)) |earlier| {
+            if (earlier.value != entry.checksum) try ctx.stdout.print("{s}: a later copy differs from the first, and is skipped\n", .{path});
+            copies += 1;
+            continue;
+        }
+        const data = try archive.unpackAlloc(ctx.arena, entry);
+        if (std.Io.Dir.path.dirnamePosix(path)) |folder| try out_dir.createDirPath(io, folder);
+        try out_dir.writeFile(io, .{ .sub_path = path, .data = data });
+        ctx.arena.free(data);
+        files += 1;
+        bytes += entry.size;
+    }
+    try ctx.stdout.print("extracted {f} ({Bi:.1}) to {s}", .{ sltool.count(files, "file"), bytes, out_path });
+    if (copies != 0) try ctx.stdout.print(", skipping {f}", .{sltool.count(copies, "duplicate")});
+    try ctx.stdout.writeByte('\n');
+}
+
+test extract {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // A level that the archive holds twice, and a sound stored as it is.
+    const level = "level\r\n{\r\n\tname({SHV1VI00})\r\n}\r\n";
+    const bytes = try bsg.wart.testing.build(arena, &.{
+        .{ .name = "levels/shv1vi00.lvl", .data = level },
+        .{ .name = "sfx/hud/hud029.bwav", .data = "RIFF", .compressed = false },
+        .{ .name = "levels/shv1vi00.lvl", .data = level },
+    });
+
+    var out: std.Io.Writer.Allocating = .init(arena);
+    const ctx: Context = .{ .io = io, .arena = arena, .stdout = &out.writer };
+    try extract(ctx, try .parse(bytes), try arena.print(".zig-cache/tmp/{s}/out", .{tmp.sub_path}));
+
+    // Each file is written under its own path, and the copy once.
+    try std.testing.expectEqualStrings(level, try tmp.dir.readFileAlloc(io, "out/levels/shv1vi00.lvl", arena, .unlimited));
+    try std.testing.expectEqualStrings("RIFF", try tmp.dir.readFileAlloc(io, "out/sfx/hud/hud029.bwav", arena, .unlimited));
+    try std.testing.expectStringEndsWith(out.written(), ", skipping 1 duplicate\n");
+}
+
 test Command {
     try std.testing.expectEqualStrings("default.xbe", (try Command.parse(&.{ "script", "M1a.dte", "default.xbe" })).script.executable);
     try std.testing.expectEqualStrings("all", (try Command.parse(&.{ "film", "video.idx", "videodata.dat", "all", "out" })).film.number);
     try std.testing.expectError(error.Usage, Command.parse(&.{ "script", "M1a.dte" }));
+    try std.testing.expectEqualStrings("out", (try Command.parse(&.{ "extract", "bigwad.hxb", "out" })).extract.out_dir);
     try std.testing.expectError(error.Usage, Command.parse(&.{"play"}));
 }
