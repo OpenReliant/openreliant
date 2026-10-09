@@ -6,7 +6,7 @@ Every ship, station, weapon, asteroid and piece of debris in the game is a `.SHP
 ```bash
 sltool shp info <model>                 # header flags, bounds, arcs, parts, levels, turrets
 sltool shp chunks <model>               # the raw chunk stream
-sltool shp check <model>                # validate indices, parents and bounds, and write it again
+sltool shp check <model>                # validate it, and check that rewriting it changes nothing
 sltool shp obj <model> <out.obj> [--lod n]
 sltool shp gltf <model> <out.gltf> [--lod n] [--textures <tcachehw.dat> <palette.tga>]
 make models                             # export every model to game/models
@@ -92,9 +92,9 @@ The attachment records of 136 and 168 bytes hold 12 and 44 bytes past the 124 th
 which the loader never copies (`model_take_chunk`, `0x004A2EB0`). **Unknown:** what they are; they
 are zero in every shipped model. The reader keeps them with each attachment
 (`shp.PartData.attachment_tails`), and the writer writes them back after it, at a record size with
-room for them. Trigger polygons are written back as the file holds them. So every shipped model,
-written again, comes back byte for byte: `sltool shp check` checks it model by model, and
-`make check-models` for the whole installation.
+room for them. Trigger polygons are written back unchanged. So every shipped model comes back byte
+for byte when rewritten: `sltool shp check` checks one model, and `make check-models` checks the
+whole installation.
 
 `model_load` (`0x004A44D0`) asks for no tag outside the table above, so its search passes over a
 chunk of any other tag wherever it stands. No shipped model has one. The reader keeps such chunks

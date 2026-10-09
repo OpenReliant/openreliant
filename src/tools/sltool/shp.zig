@@ -31,8 +31,8 @@ pub const Command = union(enum) {
 
     pub const usage =
         \\  shp info <model>                parts, meshes, materials and bounds
-        \\  shp check <model>               validate indices, bounds and normals, and write the
-        \\                                  model again to check that it comes back the same
+        \\  shp check <model>               validate indices, bounds and normals, and check that
+        \\                                  rewriting the model gives the same bytes
         \\  shp chunks <model>              list the raw chunk stream
         \\  shp components <model>          list the components objects of the model name by index,
         \\                                  finding mounted models beside it
@@ -473,17 +473,17 @@ fn check(ctx: Context, data: []const u8) !void {
         }
         try ctx.stdout.writeByte('\n');
     } else {
-        try ctx.stdout.print("{d} problems\n", .{problems});
+        try ctx.stdout.print("{f}\n", .{sltool.count(problems, "problem")});
         return error.ModelInconsistent;
     }
 
     var written: Io.Writer.Allocating = .init(ctx.arena);
     try model.write(&written.writer);
     if (std.mem.findDiff(u8, data, written.written())) |offset| {
-        try ctx.stdout.print("written again, it differs from offset {x:0>8}\n", .{offset});
+        try ctx.stdout.print("rewriting the model changes its bytes from offset {x:0>8}\n", .{offset});
         return error.Differs;
     }
-    try ctx.stdout.writeAll("written again: the same bytes\n");
+    try ctx.stdout.writeAll("rewritten byte for byte\n");
 }
 
 /// Writes a level's faces as OBJ faces, all wound alike, and returns how many. Odd strip members

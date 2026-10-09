@@ -591,9 +591,10 @@ OpenReliant's name, halfwords for the scripts, and the records' sizes for the re
 nothing of 9 and 23, and 11 holds one record in every mission. Section 20's is not known, and no
 mission uses it.
 
-`sltool dte check <mission>` writes a mission again and checks what comes back. The 36 missions of
-the template, written again from their sections' whole rooms, stale bytes and all, come back byte for
-byte. Every mission, written again from its records alone, reads back the same records.
+`sltool dte check <mission>` rewrites a mission and checks that nothing changes. The 36 missions
+built from the template come back byte for byte when rewritten with their sections' whole rooms,
+stale bytes included. Every mission gives back the same records when rewritten from its records
+alone.
 
 A mission of OpenReliant's making holds what the template's missions hold: its section 24 is theirs
 (`write.template.command_flags`), and its records carry the values most of theirs carry where their

@@ -195,7 +195,7 @@ test "a failing check flushes its buffered explanation" {
     var stdout: Io.File.Writer = .initStreaming(output, io, &buffer);
     try std.testing.expectError(error.Differs, run(.{ .dte = .{ .check = .{ .mission = input } } }, io, arena, &stdout));
     const text = try tmp.dir.readFileAlloc(io, "output.txt", arena, .limited(buffer.len));
-    try std.testing.expectEqualStrings("written again from its rooms, the file differs\n", text);
+    try std.testing.expectEqualStrings("rooms: rewriting the file with its sections' rooms changes its bytes\n", text);
 
     // A failed flush must not hide the command error. On success, it must be reported.
     const read_only = try tmp.dir.openFile(io, "input.dte", .{});

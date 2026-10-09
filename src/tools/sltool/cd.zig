@@ -125,11 +125,10 @@ fn extract(ctx: Context, volume: anytype, out_path: []const u8) !void {
             files += 1;
         },
     };
-    try ctx.stdout.print("extracted {d} files ({Bi:.1}) to {s}\n", .{ files, bytes, out_path });
+    try ctx.stdout.print("extracted {f} ({Bi:.1}) to {s}\n", .{ sltool.count(files, "file"), bytes, out_path });
     if (streamed != 0) try ctx.stdout.print(
-        "{d} of the files hold streamed audio or video, " ++
-            "so they were copied as whole {d}-byte Mode 2 sectors\n",
-        .{ streamed, cdimage.mode2_size },
+        "copied {f} with streamed audio or video as whole {d}-byte Mode 2 sectors\n",
+        .{ sltool.count(streamed, "file"), cdimage.mode2_size },
     );
 }
 

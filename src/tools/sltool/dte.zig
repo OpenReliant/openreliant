@@ -32,8 +32,8 @@ pub const Command = union(enum) {
         \\  dte strings <mission>           dump the string pool
         \\  dte parts <mission>             list the script's named routines
         \\  dte script <mission>            disassemble the script bytecode
-        \\  dte check <mission>             write the mission and its script again, and check that
-        \\                                  they come back the same
+        \\  dte check <mission>             rewrite the mission and its script, and check that
+        \\                                  nothing changes
         \\
     ;
 
@@ -235,7 +235,7 @@ fn printSquad(ctx: Context, mission: dte.Mission, index: u16) !void {
 pub fn parts(ctx: Context, mission: dte.Mission) !void {
     const code = try mission.script();
     const list = try mission.parts();
-    try ctx.stdout.print("{d} parts over {d} bytes of script\n\n", .{ list.len, code.len });
+    try ctx.stdout.print("{f} over {f} of script\n\n", .{ sltool.count(list.len, "part"), sltool.count(code.len, "byte") });
     try ctx.stdout.writeAll("  #  offset  bytes  args  block  name\n");
 
     var decoded: usize = 0;
@@ -277,7 +277,7 @@ pub fn script(ctx: Context, mission: dte.Mission, models: ?*Library, commands: C
     const code = try mission.script();
     const all_parts = try mission.parts();
     const list = try mission.routines(ctx.arena);
-    try ctx.stdout.print("{d} bytes of script in {d} routines\n", .{ code.len, list.len });
+    try ctx.stdout.print("{f} of script in {f}\n", .{ sltool.count(code.len, "byte"), sltool.count(list.len, "routine") });
 
     for (list) |routine| {
         try ctx.stdout.print("\n{d} to {d}: ", .{ routine.start, routine.start + routine.extent });
@@ -485,32 +485,32 @@ test Command {
     try std.testing.expectError(error.Usage, Command.parse(&.{ "disassemble", "M01.DTE" }));
 }
 
-/// Writes `mission` again and checks what comes back: from its sections' whole rooms, the same
-/// bytes, where it is laid out as the template lays it out; from its records alone, the same
-/// records; and each routine of its script, assembled again from its disassembly, the same bytes
-/// but for the block's padding. Fails where anything differs.
+/// Rewrites `mission` three ways and fails if anything changes: with its sections' whole rooms,
+/// byte for byte, if the file is laid out like the template; from its records alone, record for
+/// record; and each routine of its script, reassembled from its disassembly, byte for byte except
+/// the block's padding.
 fn check(ctx: Context, mission: dte.Mission) !void {
     const gpa = ctx.arena;
     const out = ctx.stdout;
     if (dte.write.rooms(mission)) |rooms| {
         const bytes = try dte.write.write(gpa, &rooms, .{});
-        if (!std.mem.eql(u8, bytes, mission.image)) return fail(out, "written again from its rooms, the file differs");
-        try out.writeAll("rooms: the same bytes\n");
+        if (!std.mem.eql(u8, bytes, mission.image)) return fail(out, "rooms: rewriting the file with its sections' rooms changes its bytes");
+        try out.writeAll("rooms: rewritten byte for byte\n");
     } else {
-        try out.writeAll("rooms: laid out otherwise than the template\n");
+        try out.writeAll("rooms: skipped, because the file isn't laid out like the template\n");
     }
 
     const read = try dte.write.records(mission);
     const written = try dte.write.write(gpa, &read, .{});
-    if (!dte.write.sameRecords(read, try dte.write.records(try .parse(written)))) return fail(out, "written again from its records, the records differ");
-    try out.writeAll("records: the same\n");
+    if (!dte.write.sameRecords(read, try dte.write.records(try .parse(written)))) return fail(out, "records: rewriting the records changes them");
+    try out.writeAll("records: rewritten unchanged\n");
 
     const code = try mission.script();
     var assembled: usize = 0;
     var skipped: usize = 0;
     for (try mission.routines(gpa)) |routine| {
         const disassembly = (try dte.disassemble(gpa, code, routine.start)) orelse continue;
-        // Bytes nothing reaches can't be written again from a disassembly.
+        // Unreachable bytes aren't in the disassembly, so the routine can't be rebuilt from it.
         if (disassembly.incomplete or disassembly.unreached > 0) {
             skipped += 1;
             continue;
@@ -525,15 +525,15 @@ fn check(ctx: Context, mission: dte.Mission) !void {
             std.mem.eql(u8, again[0..used], original[0..used]) and
             std.mem.eql(u8, again[header + block.code.len ..], original[header + block.code.len ..]);
         if (!same) {
-            try out.print("routine at {d}: assembled again, it differs\n", .{routine.start});
+            try out.print("routine at {d}: reassembling it changes its bytes\n", .{routine.start});
             return error.Differs;
         }
         assembled += 1;
     }
-    try out.print("script: {d} routines assembled again the same, {d} with bytes nothing reaches\n", .{ assembled, skipped });
+    try out.print("script: reassembled {f} to the same bytes; skipped {f} with unreachable bytes\n", .{ sltool.count(assembled, "routine"), sltool.count(skipped, "routine") });
 }
 
-/// A routine assembled again from its disassembly, with its constant table as it was.
+/// A routine reassembled from its disassembly, with its constant table unchanged.
 fn reassemble(gpa: std.mem.Allocator, instructions: []const dte.Instruction, constants: []align(1) const u32) ![]u8 {
     var routine: dte.assemble.Routine = .init(gpa);
     var at: std.AutoHashMapUnmanaged(usize, dte.assemble.Label) = .empty;

@@ -923,11 +923,12 @@ and options:
   `gun_muzzle:1`. A marker is a cube two units across, scaled, turned and moved as its node is, so
   scale an engine glow's marker along its length to give its plume that length. Every node's
   transform is applied, and `--scale` scales the whole model.
-- **Materials.** Each material becomes a texture called after the model and its number, such as
-  `viper_0.png` for `viper.shp`, written beside the model with its maps ([Material
-  maps](#material-maps)): its colour, its colour texture times its colour where it has one; its
-  roughness and metalness, from its textures and values; its normal map; and its emissive map where
-  it glows, `KHR_materials_emissive_strength` included. Every map takes the colour texture's size.
+- **Materials.** Each material becomes a texture named after the model and its number, such as
+  `viper_0.png` for `viper.shp`, written next to the model with its maps ([Material
+  maps](#material-maps)): the colour, which is the colour texture multiplied by the colour if there
+  is one; the roughness and metalness, from the textures and values; the normal map; and the
+  emissive map if the material glows, `KHR_materials_emissive_strength` included. Every map has the
+  size of the colour texture.
   Textures must be PNG files. A texture that isn't a PNG file, or whose file is missing or can't be
   read, is skipped with a warning.
 - **What isn't read.** Animations, skins, morph targets, cameras, lights, sparse accessors, a second

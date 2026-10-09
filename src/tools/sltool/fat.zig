@@ -40,7 +40,7 @@ pub const Command = union(enum) {
 };
 
 fn ls(ctx: Context, bank: fat.Bank) !void {
-    try ctx.stdout.print("{d} sounds\n\n", .{bank.entries.len});
+    try ctx.stdout.print("{f}\n\n", .{sltool.count(bank.entries.len, "sound")});
     try ctx.stdout.writeAll("   #    offset     bytes  priority  format      ch   rate  seconds\n");
     for (bank.entries, 0..) |entry, i| {
         try ctx.stdout.print("{d:>4}  {d:>8}  {d:>8}  {d:>8}  ", .{ i, entry.offset, entry.size, entry.priority });
@@ -70,7 +70,7 @@ fn extract(ctx: Context, bank: fat.Bank, source: []const u8, out_path: []const u
         const name = try ctx.arena.print("{s}_{d:0>3}.wav", .{ stem, i });
         try out_dir.writeFile(io, .{ .sub_path = name, .data = bank.sound(i).? });
     }
-    try ctx.stdout.print("wrote {d} sounds to {s}\n", .{ bank.entries.len, out_path });
+    try ctx.stdout.print("wrote {f} to {s}\n", .{ sltool.count(bank.entries.len, "sound"), out_path });
 }
 
 test Command {

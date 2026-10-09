@@ -150,9 +150,9 @@ fn extract(ctx: Context, sprite: spr.Sprite, source: []const u8, out_path: []con
         written += 1;
     }
 
-    try ctx.stdout.print("wrote {d} images to {s}\n", .{ written, out_path });
+    try ctx.stdout.print("wrote {f} to {s}\n", .{ sltool.count(written, "image"), out_path });
     if (without_palette > 0) {
-        try ctx.stdout.print("{d} had no palette in the file and are greyscale\n", .{without_palette});
+        try ctx.stdout.print("greyscale: {f} without a palette in the file\n", .{sltool.count(without_palette, "image")});
     }
 }
 

@@ -29,8 +29,8 @@ pub const Error = Allocator.Error || error{
     MissingBuffer,
 };
 
-/// Reads the file `name` beside the glTF file, for its buffers and images; null where there is
-/// none.
+/// Reads the file `name` next to the glTF file, for its buffers and images. Returns null if the
+/// file can't be read.
 pub const Files = struct {
     context: *const anyopaque,
     readFn: *const fn (context: *const anyopaque, arena: Allocator, name: []const u8) Allocator.Error!?[]u8,
@@ -524,8 +524,8 @@ pub const Image = union(enum) {
     missing: []const u8,
 };
 
-/// A material, in glTF's metallic workflow: each colour and value in linear light, each texture
-/// optional, its values multiplied by the matching factor.
+/// A material in glTF's metallic workflow. Colours and values are in linear light, every texture
+/// is optional, and a texture's values are multiplied by the matching factor.
 pub const Material = struct {
     name: []const u8,
     /// Its colour and alpha (`baseColorFactor`), and their texture.
@@ -579,7 +579,8 @@ pub fn materials(arena: Allocator, document: Document) Error![]Material {
     return out;
 }
 
-/// The picture of the texture the member `name` of `object` names (a texture info), if any.
+/// The picture of the texture that the member `name` of `object` refers to (a texture info), or
+/// null if there is none.
 fn image(arena: Allocator, document: Document, object: json.ObjectMap, name: []const u8) Error!?Image {
     const info = object.get(name) orelse return null;
     if (info != .object) return error.BadIndex;

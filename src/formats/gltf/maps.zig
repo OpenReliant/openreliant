@@ -33,10 +33,10 @@ pub const File = struct {
 /// The side of the plain picture made for a material without a colour texture.
 const plain_side = 4;
 
-/// The textures of `material`, whose texture is called `name`, in `arena`.
+/// The textures to write for `material`, named after `name`.
 pub fn of(arena: Allocator, material: gltf.Material, name: []const u8) Allocator.Error![]const File {
     var files: std.ArrayList(File) = .empty;
-    // The colour, which every map takes its size from.
+    // The colour. Every map has the same size as this picture.
     const texture = try picture(arena, material.colour_texture, material.name, "colour");
     const width: u32 = if (texture) |found| found.width else plain_side;
     const height: u32 = if (texture) |found| found.height else plain_side;
@@ -50,7 +50,7 @@ pub fn of(arena: Allocator, material: gltf.Material, name: []const u8) Allocator
     try files.append(arena, .{ .name = try arena.print("{s}.png", .{name}), .bytes = try encode(arena, width, height, base) });
 
     // The material map: occlusion in red, roughness in green and metalness in blue, as glTF packs
-    // them, each times its value.
+    // them, each multiplied by its value.
     const metal_rough = try picture(arena, material.metal_rough_texture, material.name, "metal and roughness");
     const occlusion = try picture(arena, material.occlusion_texture, material.name, "occlusion");
     const orm = try arena.alloc(u8, pixels * 4);
@@ -71,7 +71,7 @@ pub fn of(arena: Allocator, material: gltf.Material, name: []const u8) Allocator
         try files.append(arena, .{ .name = try arena.print("{s}_normal.png", .{name}), .bytes = try encode(arena, width, height, map) });
     }
 
-    // The light it gives off, encoded as the colour is, held to full brightness.
+    // The light the material gives off, encoded like the colour, at full alpha.
     if (@reduce(.Max, @as(@Vector(3, f32), material.emissive)) > 0) {
         const glow = try picture(arena, material.emissive_texture, material.name, "emissive");
         const map = try arena.alloc(u8, pixels * 4);
@@ -104,8 +104,8 @@ fn picture(arena: Allocator, image: ?gltf.Image, material: []const u8, comptime 
     };
 }
 
-/// The texel of `picture` at pixel `at` of a picture `width` by `height`, the nearest where its
-/// size differs.
+/// The texel of `source` for pixel `at` of a picture `width` by `height`, taking the nearest texel
+/// if the sizes differ.
 fn sampled(source: png.Picture, width: u32, height: u32, at: usize) [4]u8 {
     const x = (at % width) * source.width / width;
     const y = (at / width) * source.height / height;
@@ -125,8 +125,8 @@ test of {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const gpa = arena.allocator();
-    // A plain red, quarter-metallic, half-rough material, glowing green: its colour, its material
-    // map and its emissive map, each four pixels square.
+    // A plain red material, a quarter metallic and half rough, that glows green: its colour,
+    // material map and emissive map, each 4 by 4 pixels.
     const files = try of(gpa, .{ .name = "paint", .colour = .{ 1, 0, 0, 1 }, .metallic = 0.25, .roughness = 0.5, .emissive = .{ 0, 2, 0 } }, "ship_0");
     try std.testing.expectEqual(3, files.len);
     try std.testing.expectEqualStrings("ship_0.png", files[0].name);
