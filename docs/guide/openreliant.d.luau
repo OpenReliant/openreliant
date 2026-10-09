@@ -551,6 +551,12 @@ declare class CampaignMission
     carrier: Carrier
     objectives: { string }
     date: string?
+    tier: number?
+    chapter: number?
+    medal: Medal?
+    induction: boolean
+    lesson: boolean
+    only_ship: ShipType?
 end
 type Records = {
     ships: { [number | string]: Ship },

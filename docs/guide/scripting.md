@@ -1260,8 +1260,13 @@ records.missions[3] = { carrier = "yamato", hologram = "mycampaign_m03.bik", las
   hangar the launch starts in.
 - The game reads the missions as it goes, so a game mode's `records` script changes them for the
   mode's missions alone.
-- Not yet in the records: what each mission awards
-  ([#983](https://github.com/OpenReliant/openreliant/issues/983)), the ITAC after it
+- What a mission brings the campaign is in its record too: the loadout's `tier` its end reaches,
+  the `chapter` of the story it ends, with its ribbon and its movie, and the `medal` it awards for
+  a success with its bonus. So is what the game does by the first mission's and the 23rd's
+  numbers: the new pilot's `induction` before the first, the first loadout's `lesson`, and the
+  23rd's loadout, which offers its `only_ship`, the Shroud, alone. A mod that moves or adds
+  missions moves these with them.
+- Not yet in the records: the ITAC after each mission
   ([#984](https://github.com/OpenReliant/openreliant/issues/984)), and the other rules the game
   applies by a mission's number ([#985](https://github.com/OpenReliant/openreliant/issues/985)).
 

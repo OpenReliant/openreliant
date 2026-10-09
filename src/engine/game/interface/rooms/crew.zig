@@ -132,14 +132,15 @@ const line_voice = 2;
 const at: [2]i32 = .{ 1, 1 };
 const palette_block = 0;
 
-/// How the mission before mission `mission` went in `campaign` (`0x00437E33` on): its medal by the
-/// table (`medal_of_mission`), whether or not it was awarded; then the pilot's promotion at its
-/// end; then its rating, a failure or any other, and the pickup by a nanny ship. Before the first
-/// mission, the game reads the first's own record, which is empty, and the rating the game's
-/// variables start a campaign with, a partial failure (`campaign_new`).
+/// How the mission before mission `mission` went in `campaign` (`0x00437E33` on): the medal its
+/// record gives (`gameflow.CampaignMission.medal`, the original's `medal_of_mission`), whether or
+/// not it was awarded; then the pilot's promotion at its end; then its rating, a failure or any
+/// other, and the pickup by a nanny ship. Before the first mission, the game reads the first's own
+/// record, which is empty, and the rating the game's variables start a campaign with, a partial
+/// failure (`campaign_new`).
 pub fn kindOf(mission: u16, campaign: *const gameflow.Campaign) Kind {
     const before = gameflow.previousMission(mission) orelse mission;
-    if (gameflow.Medal.of(before) != null) return .honoured;
+    if (gameflow.campaignMission(before)) |own| if (own.medal != null) return .honoured;
     const record = campaign.kept(before);
     if (record.promotion != null) return .honoured;
     const rating = record.rating orelse campaign.variables.mission_success;

@@ -215,8 +215,9 @@ pub const Debriefing = struct {
     /// picked the pilot up, whether the objectives were met, as the campaign's variables have it
     /// now, and the pickup; otherwise the paragraphs its rating calls for, and after them each
     /// that the mission brought of a medal, where its rating is a success with its bonus, a
-    /// promotion, a ribbon and new fighters. A mission's ribbon (`ribbon_of_mission`, `0x0050099F`)
-    /// is the chapter it ends, whose table holds the same (`landing.chapterOf`).
+    /// promotion, a ribbon and new fighters, as the mission's campaign record gives the medal, the
+    /// ribbon and the fighters' tier (`gameflow.CampaignMission`). A mission's ribbon
+    /// (`ribbon_of_mission`, `0x0050099F`) is the chapter it ends (`landing.chapterOf`).
     fn write(debriefing: *Debriefing, itac: *Itac) void {
         var writer: std.Io.Writer = .fixed(&debriefing.text);
         defer debriefing.text_len = writer.end;
@@ -233,11 +234,12 @@ pub const Debriefing = struct {
                 if (n > 0) writer.writeAll(between) catch {};
                 writer.writeAll(itac.string(id)) catch {};
             }
-            if (gameflow.Medal.of(number)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@backingInt(medal)]);
+            const own = gameflow.campaignMission(number);
+            const medal = if (own) |settings| settings.medal else null;
+            if (medal) |won| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@backingInt(won)]);
             if (record.promotion) |rank| addParagraph(&writer, itac, promotion_texts[rank]);
             if (landing.chapterOf(number)) |ribbon| addParagraph(&writer, itac, ribbon_texts[ribbon]);
-            const tier = gameflow.mission_tiers[number - 1];
-            if (tier != 0) addParagraph(&writer, itac, tier_texts[tier]);
+            if (own) |settings| if (settings.tier) |tier| addParagraph(&writer, itac, tier_texts[tier]);
         }
         debriefing.reach(itac);
     }

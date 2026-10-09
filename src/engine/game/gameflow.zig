@@ -25,6 +25,7 @@ const movies = @import("xtrabits/movie.zig");
 const briefing = @import("interface/briefing.zig");
 const rooms = @import("interface/rooms.zig");
 const hud = @import("hud.zig");
+const gameobj = @import("gameobj.zig");
 
 pub const save = @import("gameflow/save.zig");
 
@@ -359,15 +360,15 @@ pub const Record = struct {
 /// - Nothing happens if the ending keeps no kills (`keepsKills`, `mission_ending` 1 or 3).
 /// - If the script rated it a total failure, the ending becomes one (`0x00475CE5`).
 /// - Otherwise the rating is kept as the last (`0x00475AC2`), the mission's ribbon is awarded if it
-///   ends a chapter (`ribbonOf`, `ribbon_award`, `0x00475A50`), and the pilot is promoted by the
-///   kills over the campaign (`promote`), which the mission's record keeps. The kills are kept for
-///   the next mission's start (`winmain.startMission`), and the mission's own kills in its record.
-///   The tier becomes the one the mission brings, if it brings one (`mission_tiers`,
-///   `0x00475B28`).
+///   ends a chapter (`CampaignMission.chapter`, `ribbon_award`, `0x00475A50`), and the pilot is
+///   promoted by the kills over the campaign (`promote`), which the mission's record keeps. The
+///   kills are kept for the next mission's start (`winmain.startMission`), and the mission's own
+///   kills in its record. The tier becomes the one the mission brings, if it brings one
+///   (`CampaignMission.tier`, `0x00475B28`).
 /// - The campaign moves on to the next mission of its order (`nextMission`), and after the last to
 ///   the story's end (`0x00475B3A`).
 /// - For any mission but the last, the record keeps the rating (`0x00475B43`), and a mission that
-///   awards a medal (`medal_of_mission`, `0x00475B57`) awards it for a success with its bonus,
+///   awards a medal (`CampaignMission.medal`, `0x00475B57`) awards it for a success with its bonus,
 ///   unless a nanny ship picked the pilot up (`medal_award`, `0x00475A40`). Then the wing's pilots
 ///   are brought up to date for the next mission (`update_pilots`, `0x00475BE8`), before the
 ///   autosave keeps them (`save.autosave`) and the pilot's profile takes the campaign
@@ -380,7 +381,8 @@ pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16,
         return null;
     }
     variables.last_success = rating;
-    if (campaign) |going| if (ribbonOf(mission)) |ribbon| going.ribbons.set(ribbon - 1);
+    const settings = campaignMission(mission);
+    if (campaign) |going| if (settings) |own| if (own.chapter) |ribbon| going.ribbons.set(ribbon - 1);
     const promoted = promote(player);
     player.kills.kept = player.kills.count;
     const record = if (campaign) |going| going.record(mission) else null;
@@ -388,13 +390,13 @@ pub fn endMission(player: *input.Player, variables: *vm.Variables, mission: u16,
         if (promoted) |rank| kept.promotion = rank;
         kept.kills = player.kills.mission;
     }
-    const reached = if (mission >= first_mission and mission <= mission_tiers.len and mission_tiers[mission - 1] != 0) mission_tiers[mission - 1] else tier;
+    const reached: u2 = if (settings) |own| own.tier orelse tier else tier;
     const next = nextMission(mission);
     if (campaign) |going| going.mission = next;
     if (next == story_end) return .{ .next = next, .tier = reached };
     if (record) |kept| kept.rating = rating;
     const awards = player.ending != .rescued and rating == .success_bonus;
-    const medal = if (awards) Medal.of(mission) else null;
+    const medal = if (awards) if (settings) |own| own.medal else null else null;
     if (campaign) |going| if (medal) |won| going.medals.insert(won);
     wingmen.update(next);
     return .{ .next = next, .tier = reached, .medal = medal };
@@ -533,16 +535,62 @@ pub const CampaignMission = struct {
     /// The names of its objectives in the game's code page, in place of its row of the game's
     /// table (`hud.Objectives.reset`); null for the table's.
     objectives: ?hud.Objectives.Names = null,
+    /// The tier of the loadout the campaign reaches as it ends, which with the pilot's rank sets
+    /// the ships the loadout offers (`mission_tiers`); null for none.
+    tier: ?Tier = null,
+    /// The chapter of the story it ends: the pilot's ribbon for it, and the chapter's movie as the
+    /// pilot lands (`ribbonOf`, `landing.chapterOf`); null for none.
+    chapter: ?Chapter = null,
+    /// The medal it awards for a success with its bonus, whose ceremony then plays (`Medal.of`);
+    /// the crew in the rooms honour the pilot after it, whether or not it was awarded. Null for
+    /// none.
+    medal: ?Medal = null,
+    /// Whether a new pilot's intro and induction come before it, where a campaign starts at it
+    /// (`winmain.CampaignStart`).
+    induction: bool = false,
+    /// Whether its loadout teaches, as the first mission's does: it starts on the Predator with the
+    /// tier's missiles, says `loadout.ut` and blinks its exit.
+    lesson: bool = false,
+    /// The ship its loadout offers alone, which it starts on with the tier's missiles, as mission
+    /// 23's offers the Shroud; null for the ships the tier and the rank open.
+    only_ship: ?gameobj.Type = null,
+
+    /// A tier of the loadout a mission brings, from 1.
+    pub const Tier = std.math.IntFittingRange(1, std.math.maxInt(u2));
+    /// A chapter of the story, from 1 to `last_chapter`.
+    pub const Chapter = std.math.IntFittingRange(1, last_chapter);
 
     /// Each campaign mission's, by its number from 1, as the original has them.
     pub const original: [last_mission]CampaignMission = missions: {
         var missions: [last_mission]CampaignMission = undefined;
         for (&missions, briefing.Plan.campaign, first_mission..) |*mission, plan, number| {
-            mission.* = .{ .briefing = plan, .carrier = .original(number) };
+            mission.* = .{
+                .briefing = plan,
+                .carrier = .original(number),
+                .tier = if (mission_tiers[number - 1] == 0) null else mission_tiers[number - 1],
+                .chapter = ribbonOf(number),
+                .medal = Medal.of(number),
+                .induction = number == original_induction,
+                .lesson = number == original_lesson,
+                .only_ship = if (number == original_shroud) .of(.shroud) else null,
+            };
         }
         break :missions missions;
     };
+
+    /// The missions the original gives an induction, a lesson and the Shroud alone by their
+    /// numbers: the first, the first and the 23rd (`0x004AA229`, `0x00441B6F`, `0x0044341E`).
+    const original_induction = 1;
+    const original_lesson = 1;
+    const original_shroud = 23;
 };
+
+/// The last chapter of the story: the ribbons and the chapters' movies go from 1 to it.
+pub const last_chapter = 5;
+
+comptime {
+    assert(last_chapter <= save.ribbons);
+}
 
 /// What the campaign makes of each of its missions, by its number from 1: the original's, until
 /// OpenReliant installs the records' (`installMissions`).
@@ -669,6 +717,14 @@ test "the canon campaign's missions keep the rules OpenReliant 0.8 applied by nu
         try std.testing.expectEqualStrings(try std.fmt.bufPrint(&movie, "new_m{d:0>2}.bik", .{shown}), mission.briefing.hologram.?);
         try std.testing.expectEqualStrings(try std.fmt.bufPrint(&tag, "ms_speech\\enrbr_tag{d:0>2}.ut", .{number}), mission.briefing.last_word.?);
         try std.testing.expectEqual(null, mission.briefing.speech);
+        // Its awards and its loadout's and induction's cases, as the game's tables have them.
+        const tier: u2 = mission.tier orelse 0;
+        try std.testing.expectEqual(mission_tiers[number - 1], tier);
+        try std.testing.expectEqual(ribbonOf(@intCast(number)), mission.chapter);
+        try std.testing.expectEqual(Medal.of(@intCast(number)), mission.medal);
+        try std.testing.expectEqual(number == 1, mission.induction);
+        try std.testing.expectEqual(number == 1, mission.lesson);
+        try std.testing.expectEqual(if (number == 23) gameobj.Type.of(.shroud) else null, mission.only_ship);
     }
 }
 
@@ -691,6 +747,30 @@ test installMissions {
     try std.testing.expectEqual(null, campaignMission(29));
     try std.testing.expectEqual(.yamato, rooms.Carrier.of(29));
     try std.testing.expectEqual(null, campaignMission(0));
+}
+
+test "a mission's end awards what its record gives" {
+    var missions = CampaignMission.original;
+    missions[11].medal = .valour;
+    missions[11].chapter = 2;
+    missions[11].tier = 2;
+    missions[10].medal = null;
+    missions[10].chapter = null;
+    missions[10].tier = null;
+    installMissions(&missions);
+    defer installMissions(&CampaignMission.original);
+    var wingmen: pilots.Wingmen = .{};
+    var player: input.Player = .{};
+    var variables: vm.Variables = .{ .mission_success = .success_bonus };
+    var campaign: Campaign = .begin();
+    // Mission 12 now awards the Medal of Valour and ribbon 2, and raises the tier to 2.
+    try std.testing.expectEqual(Record{ .next = 14, .tier = 2, .medal = .valour }, endMission(&player, &variables, 12, 0, &campaign, &wingmen).?);
+    try std.testing.expect(campaign.medals.contains(.valour) and campaign.ribbons.isSet(1));
+    // Mission 11 awards nothing, and leaves the tier as it finds it.
+    campaign = .begin();
+    try std.testing.expectEqual(Record{ .next = 14, .tier = 1 }, endMission(&player, &variables, 11, 1, &campaign, &wingmen).?);
+    try std.testing.expectEqual(0, campaign.medals.count());
+    try std.testing.expectEqual(0, campaign.ribbons.count());
 }
 
 test install {
@@ -723,6 +803,9 @@ pub fn ribbonOf(mission: u16) ?u3 {
 /// A medal, which a mission awards (`medal_of_mission`, `0x005009BB`), and whose ceremony plays as
 /// it does (`medal_movies`, `0x00500A08`).
 pub const Medal = enum(u3) {
+    /// The name scripts know these by.
+    pub const script_name = "Medal";
+
     silver = 1,
     black_eagle = 2,
     valour = 3,

@@ -12,6 +12,7 @@ const Rating = vm.Variables.Outcome;
 const Ending = @import("../main.zig").Ending;
 const disc = @import("../interface/disc.zig");
 const winmain = @import("../winmain.zig");
+const gameflow = @import("../gameflow.zig");
 const movie = @import("movie.zig");
 
 /// What `play_landing_movie` plays.
@@ -113,20 +114,26 @@ pub fn onYamato(mission: u16) bool {
 }
 
 /// The chapter each of missions 1 to 32 ends, 0 for none (`0x00509C00`; the game indexes it by the
-/// mission's number from the byte before): missions 7, 11, 19, 21 and 25 end chapters 1 to 5.
+/// mission's number from the byte before): missions 7, 11, 19, 21 and 25 end chapters 1 to 5, as
+/// the ribbons' table has them (`gameflow.ribbonOf`). OpenReliant keeps one copy, the campaign's
+/// records (`chapterOf`), which a test checks against this table.
 const chapters = [32]u8{ 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 4, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0 };
 
 /// Each chapter's movie (`0x00509BE8`), the first for none.
 const chapter_movies = [_][]const u8{ "dummy.bik", "new_chapter1.bik", "new_chapter2.bik", "new_chapter3.bik", "new_chapter4.bik", "new_chapter5.bik" };
 
-/// The chapter mission `mission` ends, where it ends one.
+comptime {
+    std.debug.assert(chapter_movies.len == gameflow.last_chapter + 1);
+}
+
+/// The chapter mission `mission` ends, where it ends one, from the campaign's records
+/// (`gameflow.CampaignMission.chapter`).
 ///
 /// **Fix:** past the table's end, the game reads the chapter from what follows it in memory, and
 /// the movie of that from past its own table's end. OpenReliant ends no chapter there.
-pub fn chapterOf(mission: u16) ?u8 {
-    if (mission == 0 or mission > chapters.len) return null;
-    const chapter = chapters[mission - 1];
-    return if (chapter == 0) null else chapter;
+pub fn chapterOf(mission: u16) ?gameflow.CampaignMission.Chapter {
+    const own = gameflow.campaignMission(mission) orelse return null;
+    return own.chapter;
 }
 
 /// The zooms into a chapter's movie: before mission 18, and from it on (`0x004AC03B`).
@@ -300,6 +307,13 @@ test "a chapter's end, and its news" {
     try std.testing.expectEqualStrings("new_chapter5.bik", fifth.movie);
     try std.testing.expectEqual(null, chapterOf(33));
     try std.testing.expectEqual(null, chapterOf(0));
+}
+
+test "the campaign's records hold the chapters' table" {
+    for (chapters, 1..) |chapter, mission| {
+        const kept: u8 = chapterOf(@intCast(mission)) orelse 0;
+        try std.testing.expectEqual(chapter, kept);
+    }
 }
 
 test "no landing" {

@@ -816,6 +816,7 @@ fn writeHookSection(w: *Writer, comptime hook: Hook) Writer.Error!void {
 /// A type on the reference page: its Luau type, with a link to the names of an enum's values.
 fn markdownType(comptime T: type) []const u8 {
     comptime {
+        @setEvalBranchQuota(100_000);
         const Plain = switch (@typeInfo(T)) {
             .optional => |optional| optional.child,
             else => T,
