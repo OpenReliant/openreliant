@@ -3,8 +3,8 @@
 Star Trek: Invasion (Activision, 2000) is a PlayStation game by Warthog, who developed StarLancer.
 Its missions have StarLancer's `.DTE` format and script bytecode, while its archive and models are
 its own and its pictures are the PlayStation's. `sltool trek` reads its files. OpenReliant doesn't
-play them: [#181](https://github.com/OpenReliant/openreliant/issues/181) tracks what the two games
-share, which points at what a shared engine has to keep apart.
+play them: [#181](https://github.com/OpenReliant/openreliant/issues/181) compares the two games,
+which shows what a shared engine would have to keep apart.
 
 ```bash
 sltool trek ls <image>                    # the archive's files, with their names

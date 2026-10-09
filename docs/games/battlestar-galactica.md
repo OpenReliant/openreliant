@@ -11,19 +11,7 @@ This page describes the European Xbox disc.
 
 ## The disc
 
-The disc holds an Xbox (XDVDFS) volume. Its volume descriptor is at its sector 32: the text
-`MICROSOFT*XBOX*MEDIA`, then the root directory's sector and size. A directory is a binary tree of
-entries, each 4-byte aligned:
-
-| Offset | Size | Field |
-|---|---|---|
-| 0 | 2 | The left subtree's offset, in 4-byte units; 0 or `0xFFFF` for none |
-| 2 | 2 | The right subtree's offset, likewise |
-| 4 | 4 | The first sector of the file or directory |
-| 8 | 4 | Its size in bytes |
-| 12 | 1 | Attributes: `0x10` for a directory |
-| 13 | 1 | The name's length |
-| 14 | | The name |
+The disc holds an Xbox volume ([Xbox formats](../formats/xbox.md#discs)):
 
 | Path | Contents |
 |---|---|
@@ -39,9 +27,10 @@ entries, each 4-byte aligned:
 | `Movies\` | The movies, as Xbox XMV files. |
 | `fonts\` | Fonts, as TGA pictures with `.tnf` files. |
 
-The executable is stripped: it holds no source paths or assertions, but holds the command
-catalogue with the developers' descriptions, the trigger conditions' names, and `$Revision: N $`
-strings of their version control. It draws with the Xbox's Direct3D.
+The executable ([Xbox formats](../formats/xbox.md#executables)) is stripped: it holds no source
+paths or assertions, but holds the command catalogue with the developers' descriptions, the trigger
+conditions' names, and `$Revision: N $` strings of their version control. It draws with the Xbox's
+Direct3D.
 
 ## Missions
 
@@ -96,7 +85,8 @@ isn't a StarLancer opcode, so the game may have changed `0x55` or added an instr
 
 ## Commands
 
-The executable holds the Executor's command catalogue at `0x0015D968` in StarLancer's layout:
+The executable holds the Executor's command catalogue at the address `0x0015D968`, in
+StarLancer's layout:
 `0x74`-byte entries of the implementation, the parameter count, the name, eight parameters of
 kinds, a second word and a label, then the description and a flag
 ([Script VM](../engine/script-vm.md)). It has 161 commands where StarLancer has 95.
