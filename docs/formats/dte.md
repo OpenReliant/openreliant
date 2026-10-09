@@ -75,8 +75,11 @@ each word has a bit for each of the command's parameters, the first's bit 0, sav
 `ClearAI`, `SetPatrolRoute`, `SetTriggerState`, `SetAnyTriggerState`, `MovingShipFollowCurve` and
 `MovingShipBackupCurve`, which are 0. The other missions either leave the section unused, at
 `0xFFFF`, which lies inside section 1, so that its operands serve as the flags, or start it at the
-file's end, where the game reads past its copy of the file. **Fix:** OpenReliant takes no flags past
-the file. In every mission `script_flags` holds twice the count of section 6: one entry per script
+file's end, where the game reads past its copy of the file. The ones that leave it unused, missions
+88, 191, 271 and 801 and the Dreamcast's mission 22, come from an older mission editor; in mission 22
+`0xFFFF` holds zeros, so that no command reaches the players' ships. **Fix:** OpenReliant takes no
+flags past the file, and gives a mission that leaves the section unused the template's
+(`write.template.command_flags`), as its script expects. In every mission `script_flags` holds twice the count of section 6: one entry per script
 byte.
 
 ## OpenReliant's mission name

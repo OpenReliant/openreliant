@@ -82,8 +82,9 @@ pub const Section = enum(u8) {
     /// whatever the section's count. In the missions of the writer's template each word has a bit
     /// for each of the command's parameters, save six whose word is 0
     /// (`write.template.command_flags`). The other missions either leave the section unused, at
-    /// `DirectoryEntry.unused_offset`, inside section 1, whose operands then serve as the flags, or
-    /// start it at the file's end, past which OpenReliant takes none.
+    /// `DirectoryEntry.unused_offset`, inside section 1, whose operands then serve as the flags in
+    /// the game and the template's in OpenReliant, or start it at the file's end, past which
+    /// OpenReliant takes none.
     command_flags = 24,
     /// The same for the second, empty command catalogue.
     command_flags_b = 25,
