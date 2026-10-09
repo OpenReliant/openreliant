@@ -281,29 +281,37 @@ pub fn launchFade(sound: *Sound, game_ticks: u32) void {
 pub const music_fade_step = 15;
 pub const launch_wait = std.time.ns_per_s;
 
-/// What `WinMain` does as a single-player campaign starts, as START GAME starts one, before the
-/// Reliant's rooms (`vr_rooms`) for mission `mission` (`0x004AA1BA` on): the music starts fading
-/// out by `music_fade_step`, and the archive of the disc that holds the rooms opens
-/// (`rooms.Carrier.disc`). Before mission 1, a new pilot's intro (`new_intro`) and induction
-/// (`interface.induction`) come first.
+/// What `WinMain` does when START GAME starts a single-player campaign at mission `mission`,
+/// before the Reliant's rooms (`vr_rooms`) (`0x004AA1BA` on). The music starts to fade out by
+/// `music_fade_step`, and the archive of the disc that holds the rooms opens
+/// (`rooms.Carrier.disc`). If the mission's settings ask for it
+/// (`gameflow.CampaignMission.induction`), a new pilot's intro (`new_intro`) and induction
+/// (`interface.induction`) come first. The original does this before mission 1 (`0x004AA229`).
 pub const CampaignStart = struct {
     disc: disc.Number,
     induction: bool,
 
     pub fn of(mission: u16) CampaignStart {
-        return .{ .disc = rooms.Carrier.of(mission).disc(), .induction = mission == induction_mission };
+        return .{ .disc = rooms.Carrier.of(mission).disc(), .induction = gameflow.campaignField(mission, .induction) };
     }
 };
 
-/// The mission a new pilot's induction comes before (`0x004AA229`), and the intro before it,
-/// played from the disc on a cleared screen (`play_bink_movie_resourced`, `0x0050967C`).
-pub const induction_mission = 1;
+/// A new pilot's intro, played from the disc on a cleared screen (`play_bink_movie_resourced`,
+/// `0x0050967C`).
 pub const new_intro = "new_intro.bik";
 
 test CampaignStart {
     try std.testing.expectEqual(CampaignStart{ .disc = .two, .induction = true }, CampaignStart.of(1));
     try std.testing.expectEqual(CampaignStart{ .disc = .two, .induction = false }, CampaignStart.of(18));
     try std.testing.expectEqual(CampaignStart{ .disc = .one, .induction = false }, CampaignStart.of(19));
+    // A campaign that gives the induction to another mission.
+    var missions = gameflow.CampaignMission.original;
+    missions[0].induction = false;
+    missions[4].induction = true;
+    gameflow.installMissions(&missions);
+    defer gameflow.installMissions(&gameflow.CampaignMission.original);
+    try std.testing.expectEqual(CampaignStart{ .disc = .two, .induction = false }, CampaignStart.of(1));
+    try std.testing.expectEqual(CampaignStart{ .disc = .two, .induction = true }, CampaignStart.of(5));
 }
 
 test launchFade {

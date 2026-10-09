@@ -1215,11 +1215,12 @@ records.campaign = campaign
 
 ### Each mission of the campaign
 
-`records.missions` holds what the campaign makes of each of its missions, by its number: what the
-briefing room plays before it, the carrier it's flown from, the names of its objectives and the
-date the launch shows. The game decides each by the mission's number. A mission's fields start as
-the game's, and load scripts change them in place, as they change a record's. The
-[reference](reference.md#openreliantrecords) lists the fields.
+`records.missions` holds the campaign's settings for each of its missions, indexed by the
+mission's number: what the briefing room plays before it, the carrier it's flown from, the names of
+its objectives, the date the launch shows, and what it awards. The game decides each of these by
+the mission's number. A mission's fields start with the game's values, and load scripts change
+them in place, as they do a record's. The [reference](reference.md#openreliantrecords) lists the
+fields.
 
 A mod that changes one thing changes one field:
 
@@ -1260,8 +1261,12 @@ records.missions[3] = { carrier = "yamato", hologram = "mycampaign_m03.bik", las
   hangar the launch starts in.
 - The game reads the missions as it goes, so a game mode's `records` script changes them for the
   mode's missions alone.
-- Not yet in the records: what each mission awards
-  ([#983](https://github.com/OpenReliant/openreliant/issues/983)), the ITAC after it
+- A mission's awards are fields too: the loadout `tier` it unlocks, the `chapter` it ends, which
+  gives a ribbon and a movie, and its `medal`. So are the special cases the game ties to missions 1
+  and 23: the new pilot's `induction` and the loadout's `lesson` before mission 1, and the
+  loadout's `only_ship`, the Shroud, before mission 23. A mod that moves or adds missions can move
+  these with them.
+- Not yet in the records: the ITAC after each mission
   ([#984](https://github.com/OpenReliant/openreliant/issues/984)), and the other rules the game
   applies by a mission's number ([#985](https://github.com/OpenReliant/openreliant/issues/985)).
 

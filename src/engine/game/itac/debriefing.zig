@@ -14,7 +14,6 @@ const hud = @import("../hud.zig");
 const gameflow = @import("../gameflow.zig");
 const canvas_module = @import("../interface/canvas.zig");
 const itac_module = @import("../itac.zig");
-const landing = @import("../xtrabits/landing.zig");
 const tables = @import("tables.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
@@ -211,12 +210,13 @@ pub const Debriefing = struct {
         }
     }
 
-    /// The body of the debriefing chosen (`debrief_text_draw`, `0x00424CF0`): where a nanny ship
-    /// picked the pilot up, whether the objectives were met, as the campaign's variables have it
-    /// now, and the pickup; otherwise the paragraphs its rating calls for, and after them each
-    /// that the mission brought of a medal, where its rating is a success with its bonus, a
-    /// promotion, a ribbon and new fighters. A mission's ribbon (`ribbon_of_mission`, `0x0050099F`)
-    /// is the chapter it ends, whose table holds the same (`landing.chapterOf`).
+    /// Writes the body of the chosen debriefing (`debrief_text_draw`, `0x00424CF0`). If a nanny
+    /// ship picked the pilot up, it says whether the objectives were met, as the campaign's
+    /// variables have it now, and then the pickup. Otherwise it gives the paragraphs for the
+    /// mission's rating, followed by a paragraph for each thing the mission brought: a medal, if
+    /// the rating is a success with its bonus, a promotion, a ribbon and new fighters. The medal,
+    /// the ribbon's chapter and the new fighters' tier come from the mission's settings
+    /// (`gameflow.CampaignMission`).
     fn write(debriefing: *Debriefing, itac: *Itac) void {
         var writer: std.Io.Writer = .fixed(&debriefing.text);
         defer debriefing.text_len = writer.end;
@@ -233,11 +233,10 @@ pub const Debriefing = struct {
                 if (n > 0) writer.writeAll(between) catch {};
                 writer.writeAll(itac.string(id)) catch {};
             }
-            if (gameflow.Medal.of(number)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@backingInt(medal)]);
+            if (gameflow.campaignField(number, .medal)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@backingInt(medal)]);
             if (record.promotion) |rank| addParagraph(&writer, itac, promotion_texts[rank]);
-            if (landing.chapterOf(number)) |ribbon| addParagraph(&writer, itac, ribbon_texts[ribbon]);
-            const tier = gameflow.mission_tiers[number - 1];
-            if (tier != 0) addParagraph(&writer, itac, tier_texts[tier]);
+            if (gameflow.campaignField(number, .chapter)) |ribbon| addParagraph(&writer, itac, ribbon_texts[ribbon]);
+            if (gameflow.campaignField(number, .tier)) |tier| addParagraph(&writer, itac, tier_texts[tier]);
         }
         debriefing.reach(itac);
     }

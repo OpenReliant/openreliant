@@ -76,6 +76,12 @@ Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with thes
 | `carrier` | [Carrier](#carrier) | The carrier the mission is flown from, whose rooms, briefing room, loadout and hangar the player sees. |
 | `objectives` | list of string | The names of the objectives, which the mission's script numbers from 0 in `SetObjective`, at most ten. Reading gives a new list; assign a list to change them, or nil for the names the game's own table gives the mission's number. |
 | `date` | string, or nil | The date the launch shows, which is the game's text for the mission's number; nil for a mission the game has no date for. |
+| `tier` | number, or nil | The loadout tier the campaign moves to when the mission ends, from 1 to 3; nil to leave the tier as it is. The tier and the pilot's rank decide which ships the loadout offers. The loadout before a mission uses the highest tier of the missions with lower numbers. |
+| `chapter` | number, or nil | The chapter of the story the mission ends, from 1 to 5; nil if it ends none. The pilot gets the chapter's ribbon, the debriefing mentions it, and the chapter's movie plays after the landing. |
+| `medal` | [Medal](#medal), or nil | The medal the mission awards for a success with its bonus, unless a nanny ship picked the pilot up; nil for none. The medal's ceremony plays when the pilot gets it. After a mission with a medal, the crew in the rooms honour the pilot, even if the pilot didn't get it. |
+| `induction` | boolean | Whether a new pilot sees the intro and the induction before the mission, when a campaign starts with it. |
+| `lesson` | boolean | Whether the mission's loadout teaches the player, as mission 1's does: it starts on the Predator with the tier's missiles, plays `loadout.ut` and blinks its exit button. |
+| `only_ship` | [ShipType](#shiptype), or nil | The only ship the mission's loadout offers, as mission 23's offers the Shroud; nil for the ships the tier and the rank open. The loadout starts on it with the tier's missiles. |
 
 ### `openreliant.hooks`
 

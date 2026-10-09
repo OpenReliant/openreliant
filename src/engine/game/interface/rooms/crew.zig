@@ -132,14 +132,16 @@ const line_voice = 2;
 const at: [2]i32 = .{ 1, 1 };
 const palette_block = 0;
 
-/// How the mission before mission `mission` went in `campaign` (`0x00437E33` on): its medal by the
-/// table (`medal_of_mission`), whether or not it was awarded; then the pilot's promotion at its
-/// end; then its rating, a failure or any other, and the pickup by a nanny ship. Before the first
-/// mission, the game reads the first's own record, which is empty, and the rating the game's
-/// variables start a campaign with, a partial failure (`campaign_new`).
+/// The kind of crew the rooms show before mission `mission`, by how the mission before it went in
+/// `campaign` (`0x00437E33` on). The crew honour the pilot after a mission with a medal
+/// (`gameflow.CampaignMission.medal`), even if the pilot didn't get it, and after a promotion.
+/// Otherwise the kind depends on the mission's rating, a failure or any other, and on whether a
+/// nanny ship picked the pilot up. Before the first mission, the game reads the first mission's
+/// own record, which is empty, and the rating a new campaign starts with, a partial failure
+/// (`campaign_new`).
 pub fn kindOf(mission: u16, campaign: *const gameflow.Campaign) Kind {
     const before = gameflow.previousMission(mission) orelse mission;
-    if (gameflow.Medal.of(before) != null) return .honoured;
+    if (gameflow.campaignField(before, .medal) != null) return .honoured;
     const record = campaign.kept(before);
     if (record.promotion != null) return .honoured;
     const rating = record.rating orelse campaign.variables.mission_success;

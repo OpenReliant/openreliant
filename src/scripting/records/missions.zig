@@ -1,9 +1,9 @@
-//! What the campaign makes of each of its missions, as scripts see it in
-//! `openreliant.records.missions` ([#976](https://github.com/OpenReliant/openreliant/issues/976)):
-//! by the mission's number, a proxy for its `gameflow.CampaignMission` whose fields load scripts
-//! change in place, as they change a record's. Assigning a table to a mission changes the fields
-//! the table gives. A replacement campaign sets each of its missions, a restoration the missions it
-//! puts back, and a small mod the one field it changes.
+//! The campaign's missions as scripts see them in `openreliant.records.missions`
+//! ([#976](https://github.com/OpenReliant/openreliant/issues/976)). Each mission, indexed by its
+//! number, is a proxy for its `gameflow.CampaignMission`, and load scripts change its fields in
+//! place, as they do a record's. Assigning a table to a mission changes only the fields the table
+//! holds. A replacement campaign sets all of its missions, a restoration sets the missions it puts
+//! back, and a small mod sets the one field it changes.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -12,6 +12,7 @@ const openreliant = @import("openreliant");
 const game = openreliant.engine.game;
 const gameflow = game.gameflow;
 const hud = game.hud;
+const gameobj = game.gameobj;
 const language = game.language;
 const rooms = game.interface.rooms;
 const luau = @import("../luau.zig");
@@ -33,6 +34,12 @@ pub const Field = enum {
     carrier,
     objectives,
     date,
+    tier,
+    chapter,
+    medal,
+    induction,
+    lesson,
+    only_ship,
 
     /// The type of the value scripts read, which the definitions and the reference show.
     pub fn Type(comptime field: Field) type {
@@ -40,6 +47,10 @@ pub const Field = enum {
             .hologram, .speech, .last_word, .date => ?[]const u8,
             .carrier => rooms.Carrier,
             .objectives => values.List([]const u8, hud.Objectives.per_mission),
+            .tier, .chapter => ?u8,
+            .medal => ?gameflow.Medal,
+            .induction, .lesson => bool,
+            .only_ship => ?gameobj.Type,
         };
     }
 
@@ -52,6 +63,12 @@ pub const Field = enum {
             .carrier => "The carrier the mission is flown from, whose rooms, briefing room, loadout and hangar the player sees.",
             .objectives => "The names of the objectives, which the mission's script numbers from 0 in `SetObjective`, at most ten. Reading gives a new list; assign a list to change them, or nil for the names the game's own table gives the mission's number.",
             .date => "The date the launch shows, which is the game's text for the mission's number; nil for a mission the game has no date for.",
+            .tier => "The loadout tier the campaign moves to when the mission ends, from 1 to 3; nil to leave the tier as it is. The tier and the pilot's rank decide which ships the loadout offers. The loadout before a mission uses the highest tier of the missions with lower numbers.",
+            .chapter => "The chapter of the story the mission ends, from 1 to 5; nil if it ends none. The pilot gets the chapter's ribbon, the debriefing mentions it, and the chapter's movie plays after the landing.",
+            .medal => "The medal the mission awards for a success with its bonus, unless a nanny ship picked the pilot up; nil for none. The medal's ceremony plays when the pilot gets it. After a mission with a medal, the crew in the rooms honour the pilot, even if the pilot didn't get it.",
+            .induction => "Whether a new pilot sees the intro and the induction before the mission, when a campaign starts with it.",
+            .lesson => "Whether the mission's loadout teaches the player, as mission 1's does: it starts on the Predator with the tier's missiles, plays `loadout.ut` and blinks its exit button.",
+            .only_ship => "The only ship the mission's loadout offers, as mission 23's offers the Shroud; nil for the ships the tier and the rank open. The loadout starts on it with the tier's missiles.",
         };
     }
 };
@@ -219,6 +236,11 @@ fn get(state: *State) i32 {
         },
         .carrier => values.push(state, rooms.Carrier, settings.carrier),
         .objectives => pushObjectives(state, mission),
+        inline .tier, .chapter => |field| {
+            const value: ?u8 = if (@field(settings, @tagName(field))) |number| number else null;
+            values.push(state, ?u8, value);
+        },
+        inline .medal, .induction, .lesson, .only_ship => |field| values.push(state, Field.Type(field), @field(settings, @tagName(field))),
         .date => {
             const text = dateText(mission) orelse {
                 state.pushNil();
@@ -265,7 +287,20 @@ fn setField(state: *State, mission: Mission, field: Field, given: i32) void {
             const text = dateText(mission) orelse state.raise("{s}.date: mission {d} has no date the game shows", .{ script_name, mission.number() });
             held.text[text - 1] = records.textOf(state, held.arena, given, script_name ++ ".date");
         },
+        .tier => settings.tier = readNumber(state, gameflow.CampaignMission.Tier, given, gameflow.last_tier, script_name ++ ".tier"),
+        .chapter => settings.chapter = readNumber(state, gameflow.CampaignMission.Chapter, given, gameflow.last_chapter, script_name ++ ".chapter"),
+        inline .medal, .induction, .lesson, .only_ship => |name| {
+            @field(settings, @tagName(name)) = values.read(state, Field.Type(name), given, script_name ++ "." ++ @tagName(name));
+        },
     }
+}
+
+/// Reads the number at `given`, from 1 to `last`, or nil. Raises an error naming `label` for
+/// anything else.
+fn readNumber(state: *State, comptime T: type, given: i32, comptime last: comptime_int, comptime label: []const u8) ?T {
+    const number = values.read(state, ?u8, given, label) orelse return null;
+    if (number < 1 or number > last) state.raise(label ++ ": expected a number from 1 to {d}, or nil, got {d}", .{ last, number });
+    return @intCast(number);
 }
 
 /// The game's text the launch shows as mission `mission`'s date (`hud.Caption.date`), where the
@@ -342,7 +377,7 @@ test "a campaign mission's fields, read and changed in place" {
     try bind.testing.runSource(thread,
         \\local missions = records.missions
         \\assert(#missions == 28 and missions[0] == nil and missions[29] == nil and tostring(missions[12]) == "CampaignMission")
-        \\-- The original's, by the mission's number.
+        \\-- The original's values.
         \\local cut = missions[12]
         \\assert(cut.hologram == "new_m01.bik" and cut.speech == nil and cut.last_word == "ms_speech\\enrbr_tag12.ut")
         \\assert(cut.carrier == "reliant" and missions[22].carrier == "yamato")
@@ -354,7 +389,7 @@ test "a campaign mission's fields, read and changed in place" {
         \\cut.objectives = { "Protect the Reliant", "Destroy the Black Guard" }
         \\cut.date = "February 2, 2161"
         \\assert(missions[12].speech == "dreamcast_brief12.ut" and missions[12].objectives[2] == "Destroy the Black Guard")
-        \\-- A table changes the fields it gives.
+        \\-- A table changes only the fields it holds.
         \\missions[22] = { carrier = "reliant", hologram = "new_m22.bik" }
         \\assert(missions[22].carrier == "reliant" and missions[22].last_word == "ms_speech\\enrbr_tag22.ut")
         \\local count = 0
@@ -382,6 +417,48 @@ test "a campaign mission's fields, read and changed in place" {
     try bind.testing.expectSourceError(thread, "records.missions[29] = {}", "records.missions[29] does not exist: the campaign's missions are 1 to 28");
     try bind.testing.expectSourceError(thread, "records.missions[12] = nil", "a mission can't be removed");
     try bind.testing.expectSourceError(thread, "records.missions[12] = { [1] = 'x' }", "a table of fields has names for keys");
+}
+
+test "a campaign mission's awards and special cases" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var text: [1010][]const u8 = undefined;
+    var held = try testRecords(arena.allocator(), &text);
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    const thread = testThread(state, &held, true);
+
+    try bind.testing.runSource(thread,
+        \\local missions = records.missions
+        \\-- The original's values.
+        \\assert(missions[11].tier == 1 and missions[11].chapter == 2 and missions[11].medal == "black_eagle")
+        \\assert(missions[12].tier == nil and missions[12].chapter == nil and missions[12].medal == nil)
+        \\assert(missions[1].induction and missions[1].lesson and not missions[2].induction)
+        \\assert(missions[23].only_ship == "shroud" and missions[22].only_ship == nil)
+        \\-- A restoration's changes.
+        \\local cut = missions[12]
+        \\cut.medal = "valour"
+        \\cut.tier = 2
+        \\cut.chapter = 3
+        \\cut.only_ship = "tempest"
+        \\-- A table sets only the fields it holds, so clearing a field takes its own assignment.
+        \\missions[11] = { induction = true }
+        \\missions[11].medal = nil
+        \\missions[11].chapter = nil
+    );
+    const twelve = held.missions[11];
+    try std.testing.expectEqual(.valour, twelve.medal);
+    try std.testing.expectEqual(2, twelve.tier);
+    try std.testing.expectEqual(3, twelve.chapter);
+    try std.testing.expectEqual(gameobj.Type.of(.tempest), twelve.only_ship);
+    try std.testing.expectEqual(null, held.missions[10].medal);
+    try std.testing.expectEqual(null, held.missions[10].chapter);
+    try std.testing.expect(held.missions[10].induction);
+
+    try bind.testing.expectSourceError(thread, "records.missions[12].tier = 4", "CampaignMission.tier: expected a number from 1 to 3");
+    try bind.testing.expectSourceError(thread, "records.missions[12].chapter = 0", "CampaignMission.chapter: expected a number from 1 to 5");
+    try bind.testing.expectSourceError(thread, "records.missions[12].medal = 'gold'", "CampaignMission.medal");
+    try bind.testing.expectSourceError(thread, "records.missions[12].lesson = 'yes'", "CampaignMission.lesson");
 }
 
 test "the campaign's missions can only be changed by load scripts" {

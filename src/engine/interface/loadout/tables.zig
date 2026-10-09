@@ -741,9 +741,9 @@ pub const ShipFigures = [ship_rows.len]i32;
 /// which `loadout_missile_bars_init` works out (`bars.missileFigures`).
 pub const MissileFigures = [missile_rows.len]i32;
 
-/// The campaign's tiers (`campaign_tier`, `0x00562DF0`): 0 at the start, 1 after mission 11, 2
-/// after 19 and 3 after 21.
-pub const tier_count = 4;
+/// The campaign's tiers (`campaign_tier`, `0x00562DF0`), from 0 at the start to
+/// `gameflow.last_tier`. In the original, missions 11, 19 and 21 raise it to 1, 2 and 3.
+pub const tier_count = gameflow.last_tier + 1;
 
 /// The pilot's ranks (`gameflow.Rank`, `pilot_rank`, `0x00562DEC`).
 pub const rank_count = gameflow.rank_kills.len;

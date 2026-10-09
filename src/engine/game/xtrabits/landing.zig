@@ -12,6 +12,7 @@ const Rating = vm.Variables.Outcome;
 const Ending = @import("../main.zig").Ending;
 const disc = @import("../interface/disc.zig");
 const winmain = @import("../winmain.zig");
+const gameflow = @import("../gameflow.zig");
 const movie = @import("movie.zig");
 
 /// What `play_landing_movie` plays.
@@ -112,21 +113,22 @@ pub fn onYamato(mission: u16) bool {
     return mission >= movie.last_from_reliant;
 }
 
-/// The chapter each of missions 1 to 32 ends, 0 for none (`0x00509C00`; the game indexes it by the
-/// mission's number from the byte before): missions 7, 11, 19, 21 and 25 end chapters 1 to 5.
-const chapters = [32]u8{ 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 4, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0 };
-
 /// Each chapter's movie (`0x00509BE8`), the first for none.
 const chapter_movies = [_][]const u8{ "dummy.bik", "new_chapter1.bik", "new_chapter2.bik", "new_chapter3.bik", "new_chapter4.bik", "new_chapter5.bik" };
 
-/// The chapter mission `mission` ends, where it ends one.
+comptime {
+    std.debug.assert(chapter_movies.len == gameflow.last_chapter + 1);
+}
+
+/// The chapter mission `mission` ends, if any (`gameflow.CampaignMission.chapter`). The original's
+/// landing reads it from a table of its own, one byte for each of missions 1 to 32
+/// (`chapter_of_mission`, `0x00509C00`), which holds the same chapters as the ribbons' table.
 ///
-/// **Fix:** past the table's end, the game reads the chapter from what follows it in memory, and
-/// the movie of that from past its own table's end. OpenReliant ends no chapter there.
-pub fn chapterOf(mission: u16) ?u8 {
-    if (mission == 0 or mission > chapters.len) return null;
-    const chapter = chapters[mission - 1];
-    return if (chapter == 0) null else chapter;
+/// **Fix:** for a mission past that table's end, the game reads a chapter from whatever follows the
+/// table in memory, and the chapter's movie from past the end of `chapter_movies`. OpenReliant
+/// ends no chapter there.
+fn chapterOf(mission: u16) ?gameflow.CampaignMission.Chapter {
+    return gameflow.campaignField(mission, .chapter);
 }
 
 /// The zooms into a chapter's movie: before mission 18, and from it on (`0x004AC03B`).
