@@ -272,16 +272,10 @@ const Disc = union(enum) {
     /// The files in the folder at `path`, `/`-separated and `""` for the top, or null if there's no
     /// such folder.
     fn list(disc: Disc, io: Io, arena: Allocator, path: []const u8) !?[]const Entry {
-        var parts = std.mem.tokenizeScalar(u8, path, '/');
         var files: std.ArrayList(Entry) = .empty;
         switch (disc) {
             .image => |image| {
-                var extent = image.volume.root();
-                while (parts.next()) |part| {
-                    extent = for (try image.volume.readDirectory(arena, extent)) |entry| {
-                        if (entry.kind == .directory and std.ascii.eqlIgnoreCase(entry.name, part)) break entry.extent;
-                    } else return null;
-                }
+                const extent = try image.volume.findDirectory(arena, path) orelse return null;
                 for (try image.volume.readDirectory(arena, extent)) |entry| {
                     if (entry.kind != .file) continue;
                     try files.append(arena, .{
@@ -293,6 +287,7 @@ const Disc = union(enum) {
             },
             .folder => |root| {
                 var spelled: []const u8 = "";
+                var parts = std.mem.tokenizeScalar(u8, path, '/');
                 while (parts.next()) |part| {
                     const entries = folderEntries(io, arena, root, spelled) catch |err| switch (err) {
                         error.FileNotFound, error.NotDir => return null,

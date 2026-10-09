@@ -62,7 +62,7 @@ pub const Command = union(enum) {
             .triggers => try triggers(ctx, mission, models),
             .strings => try strings(ctx, mission),
             .parts => try parts(ctx, mission),
-            .script => try script(ctx, mission, models),
+            .script => try script(ctx, mission, models, .named),
             .check => try check(ctx, mission),
         }
     }
@@ -230,11 +230,8 @@ fn printSquad(ctx: Context, mission: dte.Mission, index: u16) !void {
     try ctx.stdout.print("squad {d}", .{all[index].object_id});
 }
 
-/// Decodes the first block of the script section.
-///
-/// Blocks are entered by address, so only the one at the start of the section can be found without
-/// the part table; the rest are reached by `call_part`.
-fn parts(ctx: Context, mission: dte.Mission) !void {
+/// Lists the script's parts, and whether the block of each decodes cleanly.
+pub fn parts(ctx: Context, mission: dte.Mission) !void {
     const code = try mission.script();
     const list = try mission.parts();
     try ctx.stdout.print("{d} parts over {d} bytes of script\n\n", .{ list.len, code.len });
@@ -262,7 +259,16 @@ fn parts(ctx: Context, mission: dte.Mission) !void {
     try ctx.stdout.print("\n{d} of {d} entry blocks decode cleanly\n", .{ decoded, filled });
 }
 
-fn script(ctx: Context, mission: dte.Mission, models: ?*Library) !void {
+/// How a script's listing shows the Executor's commands.
+pub const Commands = enum {
+    /// By the original's names.
+    named,
+    /// By their numbers alone, for a game whose commands differ, such as Star Trek: Invasion.
+    numbered,
+};
+
+/// Disassembles each of the script's routines: its parts, and the blocks its triggers run.
+pub fn script(ctx: Context, mission: dte.Mission, models: ?*Library, commands: Commands) !void {
     const code = try mission.script();
     const all_parts = try mission.parts();
     const list = try mission.routines(ctx.arena);
@@ -290,7 +296,7 @@ fn script(ctx: Context, mission: dte.Mission, models: ?*Library) !void {
             try ctx.stdout.writeAll("  no block here\n");
             continue;
         };
-        try printListing(ctx, mission, models, listing, constants);
+        try printListing(ctx, mission, models, listing, constants, commands);
         if (constants.len != 0) {
             try ctx.stdout.writeAll("  constants:");
             for (constants) |value| try ctx.stdout.print(" {d}", .{value});
@@ -305,6 +311,7 @@ fn printListing(
     models: ?*Library,
     listing: dte.Disassembly,
     constants: []align(1) const u32,
+    commands: Commands,
 ) !void {
     var previous: ?usize = null;
     for (listing.instructions) |instruction| {
@@ -337,8 +344,11 @@ fn printListing(
                         try ctx.stdout.writeAll("   (past the constants)");
                     }
                 },
-                .command => if (openreliant.engine.game.executor.commands.find(instruction.operands[0])) |command| {
-                    try ctx.stdout.print("   {s}", .{command.name});
+                .command => switch (commands) {
+                    .named => if (openreliant.engine.game.executor.commands.find(instruction.operands[0])) |command| {
+                        try ctx.stdout.print("   {s}", .{command.name});
+                    },
+                    .numbered => try ctx.stdout.print("   0x{X:0>2}", .{instruction.operands[0]}),
                 },
                 else => try printIndex(ctx, mission, models, instruction),
             },
@@ -429,16 +439,18 @@ fn printInline(ctx: Context, data: []const u8) !void {
 
 fn strings(ctx: Context, mission: dte.Mission) !void {
     const pool = mission.entry(.strings);
-    if (!pool.isUsed()) return;
     const end = mission.stringPoolEnd();
+    if (!pool.isUsed() or pool.offset > end) return;
+    try printPool(ctx, mission.image[pool.offset..end]);
+}
 
-    var offset: usize = pool.offset;
-    while (offset < end) {
-        const rest = mission.image[offset..end];
+/// Lists the strings of a string pool, `pool`, each at its offset.
+pub fn printPool(ctx: Context, pool: []const u8) !void {
+    var offset: usize = 0;
+    while (offset < pool.len) {
+        const rest = pool[offset..];
         const len = std.mem.findScalar(u8, rest, 0) orelse break;
-        if (len > 0) {
-            try ctx.stdout.print("{d:>6}  {s}\n", .{ offset - pool.offset, rest[0..len] });
-        }
+        if (len > 0) try ctx.stdout.print("{d:>6}  {s}\n", .{ offset, rest[0..len] });
         offset += len + 1;
     }
 }

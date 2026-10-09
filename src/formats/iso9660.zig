@@ -264,6 +264,37 @@ pub const Volume = struct {
         return entries.toOwnedSlice(arena);
     }
 
+    /// The directory at `path`, `/`-separated from the root and `""` for the root, matched without
+    /// regard to case; null if there's none.
+    pub fn findDirectory(volume: *const Volume, arena: Allocator, path: []const u8) !?Extent {
+        var extent = volume.root();
+        var parts = std.mem.tokenizeScalar(u8, path, '/');
+        while (parts.next()) |part| {
+            extent = for (try volume.readDirectory(arena, extent)) |entry| {
+                if (entry.kind == .directory and std.ascii.eqlIgnoreCase(entry.name, part)) break entry.extent;
+            } else return null;
+        }
+        return extent;
+    }
+
+    /// The file at `path`, `/`-separated from the root, matched without regard to case; null if
+    /// there's none.
+    pub fn findFile(volume: *const Volume, arena: Allocator, path: []const u8) !?Entry {
+        const folder = try volume.findDirectory(arena, std.Io.Dir.path.dirnamePosix(path) orelse "") orelse return null;
+        const name = std.Io.Dir.path.basenamePosix(path);
+        for (try volume.readDirectory(arena, folder)) |entry| {
+            if (entry.kind == .file and std.ascii.eqlIgnoreCase(entry.name, name)) return entry;
+        }
+        return null;
+    }
+
+    /// The bytes of the file at `extent`, in `arena`.
+    pub fn readFile(volume: *const Volume, arena: Allocator, extent: Extent) ![]u8 {
+        const bytes = try arena.alloc(u8, std.mem.alignForward(usize, extent.len, block_size));
+        try volume.image.readBlocks(extent.lba, bytes);
+        return bytes[0..extent.len];
+    }
+
     /// Depth-first traversal of the whole volume. Everything is allocated from `arena`.
     pub fn walk(volume: *const Volume, arena: Allocator) !Walker {
         var walker: Walker = .{ .volume = volume, .arena = arena, .stack = .empty };
@@ -463,6 +494,21 @@ test "walk a volume" {
     var writer: std.Io.Writer = .fixed(&contents);
     try image.streamExtent(TestDisc.file_lba, contents.len, &writer);
     try std.testing.expectEqualStrings(TestDisc.file_contents, &contents);
+}
+
+test "find files by path" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const disc: TestDisc = .init();
+    const image: cdimage.Image = try .init(.{ .memory = std.mem.asBytes(&disc.blocks) });
+    const volume: Volume = try .open(image);
+    const found = (try volume.findFile(arena, "data/Lancer.exe")).?;
+    try std.testing.expectEqualStrings(TestDisc.file_contents, try volume.readFile(arena, found.extent));
+    try std.testing.expectEqual(TestDisc.sub_lba, (try volume.findDirectory(arena, "DATA")).?.lba);
+    try std.testing.expectEqual(null, try volume.findFile(arena, "DATA"));
+    try std.testing.expectEqual(null, try volume.findFile(arena, "MISSING/README"));
 }
 
 test "corrupt records are refused" {

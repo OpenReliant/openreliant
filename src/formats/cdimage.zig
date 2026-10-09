@@ -5,6 +5,9 @@
 //! hides that difference and presents either kind as a flat array of 2048-byte logical blocks,
 //! which is what the ISO 9660 layer wants.
 //!
+//! PlayStation discs also hold Mode 2 Form 2 sectors, which carry streamed audio and video in
+//! place of a logical block. `Image` copies the files that hold them as whole Mode 2 sectors.
+//!
 //! Only single-track data images are supported, which is all a StarLancer disc is.
 
 const std = @import("std");
@@ -15,6 +18,10 @@ const assert = std.debug.assert;
 pub const raw_sector_size = 2352;
 /// Size of the user data area of a Mode 1 / Mode 2 Form 1 sector: one logical block.
 pub const block_size = 2048;
+/// Size of a Mode 2 sector without its sync pattern and header: the subheader, twice, then 2328
+/// bytes of data and error checks, in either form. Files with streamed audio or video are copied
+/// off a disc in sectors of this size, which PlayStation tools read.
+pub const mode2_size = raw_sector_size - @sizeOf(Header);
 
 /// Every raw data sector starts with this pattern.
 pub const sync_pattern = [_]u8{0x00} ++ @as([10]u8, @splat(0xFF)) ++ [_]u8{0x00};
@@ -96,14 +103,14 @@ pub const XaSubheader = extern struct {
     coding_info: u8,
 
     pub const Submode = packed struct(u8) {
-        end_of_record: bool,
-        video: bool,
-        audio: bool,
-        data: bool,
-        trigger: bool,
-        form2: bool,
-        real_time: bool,
-        end_of_file: bool,
+        end_of_record: bool = false,
+        video: bool = false,
+        audio: bool = false,
+        data: bool = false,
+        trigger: bool = false,
+        form2: bool = false,
+        real_time: bool = false,
+        end_of_file: bool = false,
     };
 
     comptime {
@@ -118,20 +125,35 @@ pub const SectorError = error{
     NoLogicalBlock,
 };
 
-/// Returns the logical block stored inside a raw sector.
-pub fn userData(sector: *const [raw_sector_size]u8) SectorError!*const [block_size]u8 {
+/// The header of a raw sector, once its sync pattern is checked.
+fn headerOf(sector: *const [raw_sector_size]u8) SectorError!*const Header {
     const header: *const Header = @ptrCast(sector[0..@sizeOf(Header)]);
     if (!std.mem.eql(u8, &header.sync, &sync_pattern)) return error.BadSync;
-    const offset: usize = switch (header.mode) {
+    return header;
+}
+
+/// The subheader of a raw Mode 2 sector.
+fn subheaderOf(sector: *const [raw_sector_size]u8) *const XaSubheader {
+    return @ptrCast(sector[@sizeOf(Header)..][0..@sizeOf(XaSubheader)]);
+}
+
+/// Returns the logical block stored inside a raw sector.
+pub fn userData(sector: *const [raw_sector_size]u8) SectorError!*const [block_size]u8 {
+    const offset: usize = switch ((try headerOf(sector)).mode) {
         .mode1 => @sizeOf(Header),
-        .mode2 => offset: {
-            const subheader: *const XaSubheader = @ptrCast(sector[@sizeOf(Header)..][0..@sizeOf(XaSubheader)]);
-            if (subheader.submode.form2) return error.NoLogicalBlock;
-            break :offset @sizeOf(Header) + 2 * @sizeOf(XaSubheader);
-        },
+        .mode2 => if (subheaderOf(sector).submode.form2)
+            return error.NoLogicalBlock
+        else
+            @sizeOf(Header) + 2 * @sizeOf(XaSubheader),
         .mode0, _ => return error.NoLogicalBlock,
     };
     return sector[offset..][0..block_size];
+}
+
+/// Whether a raw sector is a Mode 2 Form 2 sector, which holds streamed audio or video rather than
+/// a logical block.
+pub fn isForm2(sector: *const [raw_sector_size]u8) SectorError!bool {
+    return (try headerOf(sector)).mode == .mode2 and subheaderOf(sector).submode.form2;
 }
 
 /// A single-track data image, addressed in logical blocks.
@@ -217,27 +239,82 @@ pub const Image = struct {
     pub fn readBlocks(image: Image, lba: u32, out: []u8) !void {
         assert(out.len % block_size == 0);
         const count = out.len / block_size;
-        if (lba > image.block_count or image.block_count - lba < count) return error.EndOfImage;
-
         switch (image.layout) {
-            .cooked => try image.source.readAll(out, @as(u64, lba) * block_size),
+            .cooked => {
+                try image.checkRange(lba, count);
+                try image.source.readAll(out, @as(u64, lba) * block_size);
+            },
             .raw => {
-                // Pull raw sectors in batches so large extents do not cost a syscall per sector.
-                var batch: [32 * raw_sector_size]u8 = undefined;
-                var done: usize = 0;
-                while (done < count) {
-                    const n: usize = @min(count - done, batch.len / raw_sector_size);
-                    const raw = batch[0 .. n * raw_sector_size];
-                    try image.source.readAll(raw, (@as(u64, lba) + done) * raw_sector_size);
-                    for (0..n) |i| {
-                        const data = try userData(raw[i * raw_sector_size ..][0..raw_sector_size]);
-                        @memcpy(out[(done + i) * block_size ..][0..block_size], data);
-                    }
-                    done += n;
+                var sectors = try image.rawSectors(lba, count);
+                var at: usize = 0;
+                while (try sectors.next()) |sector| : (at += block_size) {
+                    @memcpy(out[at..][0..block_size], try userData(sector));
                 }
             },
         }
     }
+
+    /// Whether any of the `count` sectors from `lba` is a Mode 2 Form 2 sector. A cooked image
+    /// holds logical blocks alone, so never.
+    pub fn hasForm2(image: Image, lba: u32, count: usize) !bool {
+        if (image.layout == .cooked) return false;
+        var sectors = try image.rawSectors(lba, count);
+        while (try sectors.next()) |sector| {
+            if (try isForm2(sector)) return true;
+        }
+        return false;
+    }
+
+    /// Streams the `count` sectors from `lba` into `writer` as whole Mode 2 sectors,
+    /// `mode2_size` bytes each, the way PlayStation tools keep a file with streamed audio or
+    /// video. Only a raw image holds them.
+    pub fn streamMode2Sectors(image: Image, lba: u32, count: usize, writer: *Io.Writer) !void {
+        if (image.layout == .cooked) return error.CookedImage;
+        var sectors = try image.rawSectors(lba, count);
+        while (try sectors.next()) |sector| {
+            if ((try headerOf(sector)).mode != .mode2) return error.NotMode2;
+            try writer.writeAll(sector[@sizeOf(Header)..]);
+        }
+    }
+
+    /// Fails unless the image holds the `count` sectors from `lba`.
+    fn checkRange(image: Image, lba: u32, count: usize) error{EndOfImage}!void {
+        if (lba > image.block_count or image.block_count - lba < count) return error.EndOfImage;
+    }
+
+    /// The `count` raw sectors from `lba`, read in turn.
+    fn rawSectors(image: Image, lba: u32, count: usize) error{EndOfImage}!RawSectors {
+        assert(image.layout == .raw);
+        try image.checkRange(lba, count);
+        return .{ .image = image, .lba = lba, .end = lba + @as(u32, @intCast(count)) };
+    }
+
+    /// Reads raw sectors in batches, so that a large extent doesn't cost a read for each sector.
+    const RawSectors = struct {
+        image: Image,
+        /// The next sector to read, and the sector after the last.
+        lba: u32,
+        end: u32,
+        batch: [batch_sectors * raw_sector_size]u8 = undefined,
+        /// The sectors the batch holds, and how many of them are taken.
+        held: u32 = 0,
+        taken: u32 = 0,
+
+        const batch_sectors = 32;
+
+        fn next(sectors: *RawSectors) !?*const [raw_sector_size]u8 {
+            if (sectors.taken == sectors.held) {
+                if (sectors.lba == sectors.end) return null;
+                const n: u32 = @min(sectors.end - sectors.lba, batch_sectors);
+                try sectors.image.source.readAll(sectors.batch[0 .. n * raw_sector_size], @as(u64, sectors.lba) * raw_sector_size);
+                sectors.lba += n;
+                sectors.held = n;
+                sectors.taken = 0;
+            }
+            defer sectors.taken += 1;
+            return sectors.batch[sectors.taken * raw_sector_size ..][0..raw_sector_size];
+        }
+    };
 
     /// Streams `len` bytes, starting at the beginning of block `lba`, into `writer`.
     pub fn streamExtent(image: Image, lba: u32, len: u64, writer: *Io.Writer) !void {
@@ -265,6 +342,21 @@ pub const testing = struct {
         @memcpy(raw[@sizeOf(Header)..][0..block_size], data);
         return raw;
     }
+
+    /// A raw Mode 2 sector with `submode` in its subheader, its data area starting with `data`.
+    pub fn mode2Sector(lba: u32, submode: XaSubheader.Submode, data: []const u8) [raw_sector_size]u8 {
+        var raw: [raw_sector_size]u8 = @splat(0);
+        const header: *Header = @ptrCast(raw[0..@sizeOf(Header)]);
+        header.* = .{ .sync = sync_pattern, .address = .fromLba(lba), .mode = .mode2 };
+        const subheader: XaSubheader = .{ .file_number = 0, .channel_number = 0, .submode = submode, .coding_info = 0 };
+        for (0..2) |copy| raw[@sizeOf(Header) + copy * @sizeOf(XaSubheader) ..][0..@sizeOf(XaSubheader)].* = std.mem.toBytes(subheader);
+        @memcpy(raw[@sizeOf(Header) + 2 * @sizeOf(XaSubheader) ..][0..data.len], data);
+        return raw;
+    }
+
+    /// The submode of a Form 1 data sector, and of a Form 2 sector of streamed audio.
+    pub const form1: XaSubheader.Submode = .{ .data = true };
+    pub const form2: XaSubheader.Submode = .{ .audio = true, .form2 = true, .real_time = true };
 };
 
 test "Bcd and Msf round-trip" {
@@ -311,6 +403,34 @@ test "cooked image is passed through" {
     var out: [block_size]u8 = undefined;
     try image.readBlocks(1, &out);
     try std.testing.expectEqual(@as(u8, 2), out[0]);
+}
+
+test "Form 2 sectors are found and copied as whole Mode 2 sectors" {
+    var raw: [3 * raw_sector_size]u8 = undefined;
+    const block: [block_size]u8 = @splat('a');
+    raw[0..raw_sector_size].* = testing.mode2Sector(0, testing.form1, &block);
+    raw[raw_sector_size..][0..raw_sector_size].* = testing.mode2Sector(1, testing.form2, "sound");
+    raw[2 * raw_sector_size ..][0..raw_sector_size].* = testing.mode2Sector(2, testing.form1, &block);
+    const image: Image = try .init(.{ .memory = &raw });
+
+    try std.testing.expect(!try image.hasForm2(0, 1));
+    try std.testing.expect(try image.hasForm2(0, 3));
+    var out: [block_size]u8 = undefined;
+    try std.testing.expectError(error.NoLogicalBlock, image.readBlocks(1, &out));
+    try std.testing.expectError(error.EndOfImage, image.hasForm2(2, 2));
+
+    // Each sector keeps its subheader and its whole data area.
+    var buffer: [2 * mode2_size]u8 = undefined;
+    var writer: Io.Writer = .fixed(&buffer);
+    try image.streamMode2Sectors(0, 2, &writer);
+    try std.testing.expectEqual(@as(u8, @bitCast(testing.form1)), buffer[@offsetOf(XaSubheader, "submode")]);
+    try std.testing.expectEqual('a', buffer[2 * @sizeOf(XaSubheader)]);
+    try std.testing.expectEqualStrings("sound", buffer[mode2_size + 2 * @sizeOf(XaSubheader) ..][0..5]);
+
+    // A cooked image holds no Form 2 sectors.
+    const cooked: Image = try .init(.{ .memory = &block });
+    try std.testing.expect(!try cooked.hasForm2(0, 1));
+    try std.testing.expectError(error.CookedImage, cooked.streamMode2Sectors(0, 1, &writer));
 }
 
 test "sectors without a logical block are rejected" {
