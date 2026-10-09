@@ -508,8 +508,12 @@ can replace the game's faces and lines, and give its own pilots faces and voices
 
 ### Faces
 
-A face film (`.fm8`, [Face films](../formats/fm8.md)) is a loop of frames of 120 by 100 pixels,
-played at 15 frames a second. Each pilot has a film for talking, one for laughing and one for
+A face film (`.fm8`, [Face films](../formats/fm8.md)) is a loop of frames, played at 15 frames a
+second. The game's are 120 by 100 pixels. A mod's film can be sharper, at any size in whole blocks
+of 4 by 4 pixels: the radio's window draws every film in the same place at the same size, so a
+film of 480 by 400 shows four times the detail.
+
+**Improvement:** the original draws a film at its own size. Each pilot has a film for talking, one for laughing and one for
 dying. The game keeps them in `pilots\pilots.hog`, and `sltool hog ls pilots/pilots.hog` lists their
 names.
 
@@ -520,8 +524,8 @@ the campaign](scripting.md#each-mission-of-the-campaign)). So replace both, such
 `45Tigers_Moose.fm8`. [`examples/mods/trent`](../../examples/mods/trent) gives Moose a new face this
 way, and renames him from a load script ([The records](scripting.md#the-records)).
 
-`sltool fm8 encode <frames-dir> <film.fm8>` makes a film of the PNG files in a folder, each 120 by
-100 pixels, in the order of their names. A pixel less than half opaque becomes the colour the
+`sltool fm8 encode <frames-dir> <film.fm8>` makes a film of the PNG files in a folder, all the same
+size, such as 120 by 100 pixels, in the order of their names. A pixel less than half opaque becomes the colour the
 radio's window draws see-through. The film keeps every colour where the frames have 256 or fewer,
 and picks 256 for them otherwise, the see-through colour kept as it is.
 `sltool fm8 extract <film> <out-dir>` saves a film's frames as PNG files, to start from.

@@ -147,7 +147,7 @@ pub const Small = struct {
         const canvas = context.canvas;
         try hud.ShipStatus.draw(small.status, .target, canvas.pen, canvas.place(status_at), canvas.clip);
         try context.name(small.facts, lines);
-        if (small.pilot) |id| try canvas.string(id, pilot_at, lines.alignment);
+        if (small.pilot) |id| try canvas.string(.target_display_pilot, id, pilot_at, lines.alignment);
         try context.figures(small.facts, lines);
     }
 };
@@ -196,7 +196,7 @@ pub const Subtarget = struct {
     pub const icon_at: [2]i32 = .{ -0xBA, -0x34 };
 
     fn draw(part: Subtarget, context: Context) windows.Canvas.Error!void {
-        try context.canvas.string(part.named.name, name_at, .left);
+        try context.canvas.string(.target_display_subtarget, part.named.name, name_at, .left);
         try context.canvas.shape(part.named.icon, icon_at);
         if (part.unlit) |unlit| {
             try context.canvas.shape(armor_bar.lit, armor_bar.at);
@@ -329,14 +329,14 @@ const Context = struct {
 
     /// The type's name, where it has one, as `lines` places it.
     fn name(context: Context, shown: Facts, lines: Lines) Allocator.Error!void {
-        if (shown.name) |id| try context.canvas.string(id, lines.name, lines.alignment);
+        if (shown.name) |id| try context.canvas.string(.target_display_name, id, lines.name, lines.alignment);
     }
 
     /// The range and the speed, as `lines` places them.
     fn figures(context: Context, shown: Facts, lines: Lines) Allocator.Error!void {
         var buffer: [16]u8 = undefined;
-        try context.canvas.text(hud.rangeText(&buffer, shown.range), lines.range, lines.alignment);
-        try context.canvas.print("{d} kps", .{shown.speed}, lines.speed, lines.alignment);
+        try context.canvas.text(.target_display_range, hud.rangeText(&buffer, shown.range), lines.range, lines.alignment);
+        try context.canvas.print(.target_display_speed, "{d} kps", .{shown.speed}, lines.speed, lines.alignment);
     }
 };
 

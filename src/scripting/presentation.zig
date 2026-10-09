@@ -96,6 +96,9 @@ pub const Host = struct {
         /// The ship whose line the radio's window names, which the radar marks
         /// (`radio.Radio.speakingShip`); none for nobody's.
         speaker: ?u16 = null,
+        /// The string of the speaker's name the radio's window writes (`radio.Radio.shownName`);
+        /// none while it writes none.
+        speaker_name: ?u16 = null,
     };
 
     pub const Camera = struct {
@@ -329,6 +332,13 @@ pub const Presentation = struct {
         return shown.runtime.registries.placements();
     }
 
+    /// Where the displays put the parts of the game's instruments this frame
+    /// (`hud.Frame.parts`).
+    pub fn partPlacements(shown: *const Presentation) std.EnumArray(hud.parts.Part, hud.parts.Placement) {
+        if (shown.views.get(.hud) == null) return .initFill(.{});
+        return shown.runtime.registries.partPlacements();
+    }
+
     /// Draws what the scripts drew on `which` this frame into `into`, where it's shown. `sight`
     /// places what they drew in the world. First, the pictures taken out of the cache are freed
     /// (`drawing.Assets.release`).
@@ -537,19 +547,25 @@ test "a display stands in for the game's instruments and reads what they show" {
                 "player.luau",
                 \\local hud = require("openreliant.hud")
                 \\local frames = 0
-                \\hud.register_display("radar", {replaces = {"gunnery", "radar"}, layout = {clock = {offset = vector.create(10, -5, 0), scale = 1.5}}, frame = function()
+                \\hud.register_display("radar", {replaces = {"gunnery", "radar"}, layout = {clock = {offset = vector.create(10, -5, 0), scale = 1.5}},
+                \\    parts = {radio_speaker = {offset = vector.create(4, 0, 0), align = "right", text = "COMMS"}, radio_face = {scale = 2, hidden = true}}, frame = function()
                 \\    frames += 1
                 \\    if frames == 3 then error("broken") end
                 \\end})
                 \\assert(not pcall(hud.register_display, "bad", {replaces = {"nothing"}, frame = function() end}))
                 \\assert(not pcall(hud.register_display, "small", {layout = {clock = {scale = 0}}, frame = function() end}))
                 \\assert(not pcall(hud.register_display, "where", {layout = {nothing = {scale = 2}}, frame = function() end}))
+                \\-- A picture takes no text, a part must be one of the game's, and its text short enough.
+                \\assert(not pcall(hud.register_display, "face", {parts = {radio_face = {text = "x"}}, frame = function() end}))
+                \\assert(not pcall(hud.register_display, "part", {parts = {nothing = {scale = 2}}, frame = function() end}))
+                \\assert(not pcall(hud.register_display, "long", {parts = {radio_speaker = {text = string.rep("x", 65)}}, frame = function() end}))
                 \\return {engine_handlers = {on_frame = function()
                 \\    local guns, missiles, radar, target = hud.guns, hud.missiles, hud.radar, hud.target
                 \\    hud.text(vector.zero, string.format("%s %s %d %s %d %s %d %d %s %s %d %d %s", tostring(hud.instruments_shown),
                 \\        table.concat(hud.replaced, ","), radar.range, tostring(radar.zooming), hud.kills, missiles.armed,
                 \\        missiles.left, #missiles.ring, table.concat(hud.open_windows, ","), tostring(guns.all), target.component,
                 \\        hud.bounds("radar").right, tostring(hud.bounds("clock"))))
+                \\    hud.text(vector.zero, string.format("|%d %s %s", hud.part_bounds("radio_speaker").right, hud.speaker_name, tostring(hud.part_bounds("radio_face"))))
                 \\end}}
             },
         },
@@ -564,17 +580,28 @@ test "a display stands in for the game's instruments and reads what they show" {
     state.windows.status.getPtr(.gunnery).phase = .open;
     state.target = .{ .target = .at(0, 3), .slot = 0 };
     state.bounds.set(.radar, .{ .left = 1, .top = 2, .right = 30, .bottom = 40 });
+    state.part_bounds.set(.radio_speaker, .{ .left = 5, .top = 6, .right = 50, .bottom = 16 });
     var player: input.Player = .{};
     player.kills.count = 7;
     var view: engine.game.camera.Camera = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player } };
+    var strings_table: [2][]const u8 = .{ "", "Moose" };
+    const strings: engine.game.language.Language = .{ .strings = &strings_table };
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player, .strings = &strings, .speaker_name = 2 } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     // The scripts read the replaced instruments in the game's order, as the display has them.
     const placed = fixture.shown.instrumentPlacements();
     try std.testing.expect(placed.get(.radar).hidden and placed.get(.gunnery).hidden and !placed.get(.clock).hidden);
     try std.testing.expectEqual(hud.Placement{ .offset = .{ 10, -5 }, .scale = 1.5 }, placed.get(.clock));
-    try std.testing.expectEqualStrings("true radar,gunnery 1 false 7 raptor 4 2 gunnery true 3 30 nil", fixture.shown.layers.get(.hud).text.items);
+    try std.testing.expectEqualStrings("true radar,gunnery 1 false 7 raptor 4 2 gunnery true 3 30 nil|50 Moose nil", fixture.shown.layers.get(.hud).text.items);
+    // The parts it places: the speaker's name moved, aligned right and given other words, and the
+    // face drawn larger, but hidden.
+    const parts = fixture.shown.partPlacements();
+    const speaker = parts.get(.radio_speaker);
+    try std.testing.expectEqual(hud.Placement{ .offset = .{ 4, 0 } }, speaker.place);
+    try std.testing.expectEqual(hud.Align.right, speaker.alignment.?);
+    try std.testing.expectEqualStrings("COMMS", speaker.words.?.slice());
+    try std.testing.expectEqual(hud.Placement{ .scale = 2, .hidden = true }, parts.get(.radio_face).place);
     // While the display's layer isn't shown, the displays don't draw, and the instruments are as
     // the game has them.
     var shut = host;

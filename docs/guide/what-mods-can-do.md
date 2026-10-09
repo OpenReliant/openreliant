@@ -16,7 +16,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Replace any of the game's files by its name: a model, a sound bank, a piece of music, a line of speech, a face, a movie, a mission or a stats table | [How files are replaced](modding.md#how-files-are-replaced) | [`trent`](../../examples/mods/trent) |
 | Add files under new names, for its own models, missions and scripts to use | [How files are replaced](modding.md#how-files-are-replaced) | [`teapot`](../../examples/mods/teapot) |
 | Replace a piece of music, which loops back where the game's does | [Music](modding.md#music) | |
-| Replace the pilots' faces and the lines they say | [Faces and voices](modding.md#faces-and-voices) | [`trent`](../../examples/mods/trent) |
+| Replace the pilots' faces, with sharper films than the game's if they like, and the lines they say | [Faces and voices](modding.md#faces-and-voices) | [`trent`](../../examples/mods/trent) |
 | Give lines of speech, briefings and Enriquez's scenes as WAV or MP3 recordings, which play as recorded | [Lines](modding.md#lines) | |
 
 ## Change the look
@@ -72,6 +72,8 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Run a script on each turret, to choose what it aims at | [Turret scripts](scripting.md#turret-scripts) | |
 | Give ships orders, and add AI orders of their own | [Orders](scripting.md#orders), [Custom AI orders](scripting.md#custom-ai-orders) | [`custom-order`](../../examples/mods/custom-order), [`wingmen`](../../examples/mods/wingmen) |
 | Change the AI's combat maneuvers, add new ones, and choose which one a fighting ship flies | [Combat maneuvers](scripting.md#combat-maneuvers) | |
+| Move, scale, align, reword or hide the text and pictures inside the game's instruments, such as the speaker's name and face, without replacing them | [The instruments' parts](scripting.md#the-instruments-parts) | |
+| Draw the power window's ball in a display of their own | [The game's instruments](scripting.md#the-games-instruments) | |
 | Choose the pilot who flies a ship | [Objects](scripting.md#objects) | [`bananas`](../../examples/mods/bananas) |
 | Find what's near a ship, and work with positions and angles | [Where things are](scripting.md#where-things-are) | [`wingmen`](../../examples/mods/wingmen) |
 | List a ship's parts and attachment points, and see which are destroyed | [A ship's parts](scripting.md#a-ships-parts) | |

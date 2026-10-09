@@ -502,12 +502,12 @@ fn itemAt(menu_at: [2]i32, index: usize) [2]i32 {
 /// font, and below it each item of the page in `newfont.fnt`, its number, 1 the first, and what it
 /// says (`0x00453AD0`).
 pub fn draw(shown: Shown, canvas: hud.windows.Canvas, menu_at: [2]i32) hud.windows.Canvas.Error!void {
-    try canvas.string(strings.title, menu_at, .left);
+    try canvas.string(.comms_title, strings.title, menu_at, .left);
     for (shown.menu.shown(), 0..) |item, index| {
         const at = itemAt(menu_at, index);
-        try canvas.printIn(shown.font, "{d}.", .{index + 1}, at, .left);
+        try canvas.printIn(.comms_numbers, shown.font, "{d}.", .{index + 1}, at, .left);
         var buffer: [Label.room]u8 = undefined;
-        try canvas.textIn(shown.font, item.label.words(canvas.pen.strings, &buffer), .{ at[0] + words_across, at[1] }, .left);
+        try canvas.textIn(.comms_items, shown.font, item.label.words(canvas.pen.strings, &buffer), .{ at[0] + words_across, at[1] }, .left);
     }
 }
 

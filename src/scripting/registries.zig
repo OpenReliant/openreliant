@@ -34,9 +34,16 @@ const Entry = struct {
     enabled: bool = true,
     shown: bool = true,
     letterbox: bool = false,
-    /// A display's: the game's instruments it stands in for, and where it puts them.
+    /// A display's: the game's instruments it stands in for, and where it puts them and their
+    /// parts.
     replaces: std.EnumSet(hud.Instrument) = .empty,
     layout: std.EnumArray(hud.Instrument, ?hud.Placement) = .initFill(null),
+    parts: std.EnumArray(hud.parts.Part, ?hud.parts.Placement) = .initFill(null),
+
+    /// Whether it's a display that places the instruments this frame: on, and shown.
+    fn places(entry: Entry) bool {
+        return entry.kind == .display and entry.enabled and !entry.context.closed and entry.shown;
+    }
 };
 
 pub const Pose = struct {
@@ -68,11 +75,24 @@ pub const Registry = struct {
     pub fn placements(registry: *const Registry) std.EnumArray(hud.Instrument, hud.Placement) {
         var all: std.EnumArray(hud.Instrument, hud.Placement) = .initFill(.{});
         for (registry.entries.items) |entry| {
-            if (entry.kind != .display or !entry.enabled or entry.context.closed or !entry.shown) continue;
+            if (!entry.places()) continue;
             for (std.enums.values(hud.Instrument)) |instrument| {
                 const placement = all.getPtr(instrument);
                 if (entry.layout.get(instrument)) |placed| placement.* = .{ .offset = placed.offset, .scale = placed.scale, .hidden = placement.hidden };
                 if (entry.replaces.contains(instrument)) placement.hidden = true;
+            }
+        }
+        return all;
+    }
+
+    /// Where the displays on put the parts of the game's instruments. Where two place the same
+    /// part, the one registered later does.
+    pub fn partPlacements(registry: *const Registry) std.EnumArray(hud.parts.Part, hud.parts.Placement) {
+        var all: std.EnumArray(hud.parts.Part, hud.parts.Placement) = .initFill(.{});
+        for (registry.entries.items) |entry| {
+            if (!entry.places()) continue;
+            for (std.enums.values(hud.parts.Part)) |part| {
+                if (entry.parts.get(part)) |placed| all.set(part, placed);
             }
         }
         return all;
@@ -264,6 +284,7 @@ pub fn register(comptime kind: Kind, call: api.Call) i32 {
     var letterbox = false;
     var replaces: std.EnumSet(hud.Instrument) = .empty;
     var layout: std.EnumArray(hud.Instrument, ?hud.Placement) = .initFill(null);
+    var placed_parts: std.EnumArray(hud.parts.Part, ?hud.parts.Placement) = .initFill(null);
     state.pushNil();
     while (state.next(2)) {
         const key = (if (state.typeOf(-2) == .string) state.toString(-2) else null) orelse call.raise("definition keys must be names", .{});
@@ -272,6 +293,8 @@ pub fn register(comptime kind: Kind, call: api.Call) i32 {
             for (listed.slice()) |instrument| replaces.insert(instrument);
         } else if (kind == .display and std.mem.eql(u8, key, "layout")) {
             readLayout(call, &layout);
+        } else if (kind == .display and std.mem.eql(u8, key, "parts")) {
+            readParts(call, &placed_parts);
         } else if (std.mem.eql(u8, key, "frame") or (kind == .screen and std.mem.eql(u8, key, "key"))) {
             if (state.typeOf(-1) != .function) call.raise("registry callbacks must be functions", .{});
         } else call.raise("unknown registry field '{s}'", .{key});
@@ -287,22 +310,41 @@ pub fn register(comptime kind: Kind, call: api.Call) i32 {
     }
     const callbacks = state.ref(-1);
     state.pop(1);
-    scripts.registries.entries.appendAssumeCapacity(.{ .context = call.context, .name = name, .kind = kind, .callbacks = callbacks, .letterbox = letterbox, .replaces = replaces, .layout = layout });
+    scripts.registries.entries.appendAssumeCapacity(.{ .context = call.context, .name = name, .kind = kind, .callbacks = callbacks, .letterbox = letterbox, .replaces = replaces, .layout = layout, .parts = placed_parts });
     state.pushString(name.slice());
     return 1;
 }
 
 /// Reads a display's `layout`, on top of the stack: where it puts each instrument it names.
 fn readLayout(call: api.Call, layout: *std.EnumArray(hud.Instrument, ?hud.Placement)) void {
+    readKeyed(call, hud.Instrument, "layout", "instrument", layout, struct {
+        fn read(inner: api.Call, instrument: hud.Instrument, into: *std.EnumArray(hud.Instrument, ?hud.Placement)) void {
+            const given = values.read(inner.state, instruments.Layout, -1, "layout");
+            into.set(instrument, given.placement() orelse inner.raise("layout: {t}'s scale must be above 0 and at most {d}", .{ instrument, instruments.Layout.max_scale }));
+        }
+    }.read);
+}
+
+/// Reads a display's `parts`, on top of the stack: where it puts each part it names.
+fn readParts(call: api.Call, placed: *std.EnumArray(hud.parts.Part, ?hud.parts.Placement)) void {
+    readKeyed(call, hud.parts.Part, "parts", "part", placed, struct {
+        fn read(inner: api.Call, part: hud.parts.Part, into: *std.EnumArray(hud.parts.Part, ?hud.parts.Placement)) void {
+            into.set(part, values.read(inner.state, instruments.PartLayout, -1, "parts").placement(inner, part));
+        }
+    }.read);
+}
+
+/// Calls `read` for each entry of the table on top of the stack, whose keys must be the names of
+/// `Key`'s values, with the entry's value on top. `field` names the table in errors, and `noun` a
+/// key.
+fn readKeyed(call: api.Call, comptime Key: type, comptime field: []const u8, comptime noun: []const u8, into: anytype, comptime read: fn (api.Call, Key, @TypeOf(into)) void) void {
     const state = call.state;
-    if (state.typeOf(-1) != .table) call.raise("layout must be a table of instruments", .{});
+    if (state.typeOf(-1) != .table) call.raise(field ++ " must be a table of " ++ noun ++ "s", .{});
     const table = state.top();
     state.pushNil();
     while (state.next(table)) {
-        const name = (if (state.typeOf(-2) == .string) state.toString(-2) else null) orelse call.raise("layout keys must be instruments", .{});
-        const instrument = std.meta.stringToEnum(hud.Instrument, name) orelse call.raise("layout: no instrument '{s}'", .{name});
-        const given = values.read(state, instruments.Layout, -1, "layout");
-        layout.set(instrument, given.placement() orelse call.raise("layout: {s}'s scale must be above 0 and at most {d}", .{ name, instruments.Layout.max_scale }));
+        const name = (if (state.typeOf(-2) == .string) state.toString(-2) else null) orelse call.raise(field ++ " keys must be " ++ noun ++ "s", .{});
+        read(call, std.meta.stringToEnum(Key, name) orelse call.raise(field ++ ": no " ++ noun ++ " '{s}'", .{name}), into);
         state.pop(1);
     }
 }

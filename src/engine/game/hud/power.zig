@@ -329,15 +329,15 @@ const ball_at: [2]i32 = .{ 68 - radius, -1 - radius };
 /// Draws what window 7 shows, in the order `hud_window_draw` draws it: the title, the ball, the
 /// percentages, then each bar and the shapes round them.
 pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!void {
-    try canvas.string(title, title_at, .left);
+    try canvas.string(.power_title, title, title_at, .left);
 
     const setting = input_power.point(shown.object);
     shown.ball.render(setting, shown.hit_shake, shown.random);
-    canvas.image(&shown.ball.image, ball_at);
+    canvas.image(.power_ball, &shown.ball.image, .{ image_width, size }, ball_at, null);
 
     const found = percentages(setting);
     for (std.enums.values(input_power.System)) |system| {
-        try canvas.print("{d}%", .{found.get(system)}, figures.get(system), .left);
+        try canvas.print(.power_figures, "{d}%", .{found.get(system)}, figures.get(system), .left);
     }
 
     const shares = input_power.shares(setting);

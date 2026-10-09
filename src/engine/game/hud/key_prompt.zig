@@ -41,23 +41,23 @@ pub const KeyPrompt = struct {
         // Everything stands from the left end of the prompt, level with the middle of the screen.
         const middle = pen.middle();
         const origin: [2]i32 = .{ (@as(i32, @intCast(pen.screen[0])) - pen.span(whole)) >> 1, middle[1] };
-        _ = try pen.text(pen.moved(origin, .{ 0, -line_up }), name, .left);
-        _ = try pen.text(pen.moved(middle, .{ 0, -press_up }), pen.strings.string(input.press_string) orelse "", .centre);
+        _ = try pen.partText(.key_prompt_action, pen.moved(origin, .{ 0, -line_up }), name, .left);
+        _ = try pen.partText(.key_prompt_press, pen.moved(middle, .{ 0, -press_up }), pen.strings.string(input.press_string) orelse "", .centre);
         var along = name_width;
         if (binding.key == 0) {
             const button = binding.button orelse return;
             var joy_buffer: [line_room]u8 = undefined;
             const joy = std.mem.print(&joy_buffer, "{f}", .{input.ButtonName{ .strings = pen.strings, .button = button }}) catch return;
-            _ = try pen.text(pen.moved(origin, .{ along + button_gap, -line_up }), joy, .left);
+            _ = try pen.partText(.key_prompt_key, pen.moved(origin, .{ along + button_gap, -line_up }), joy, .left);
             return;
         }
         if (modified) {
-            try Cap.wide.draw(pen, origin, along, binding.modifier.word() orelse "");
+            try Cap.wide.draw(pen, .key_prompt_modifier, origin, along, binding.modifier.word() orelse "");
             along += Cap.wide.width;
-            _ = try pen.text(pen.moved(origin, .{ along, -line_up }), plus, .left);
+            _ = try pen.partText(.key_prompt_plus, pen.moved(origin, .{ along, -line_up }), plus, .left);
             along += plus_width;
         }
-        try Cap.of(key).draw(pen, origin, along, key);
+        try Cap.of(key).draw(pen, .key_prompt_key, origin, along, key);
     }
 };
 
@@ -101,10 +101,10 @@ const Cap = struct {
     }
 
     /// Draws the cap `along` the display's own pixels right of the prompt's left end, `name`
-    /// centred on it.
-    fn draw(cap: Cap, pen: Pen, origin: [2]i32, along: i32, name: []const u8) hud.Error!void {
+    /// centred on it as the part `part`.
+    fn draw(cap: Cap, pen: Pen, part: hud.parts.Part, origin: [2]i32, along: i32, name: []const u8) hud.Error!void {
         try pen.shape(cap.shape, pen.moved(origin, .{ along, -cap_up }));
-        _ = try pen.text(pen.moved(origin, .{ along + cap.middle, -cap_text_up }), name, .centre);
+        _ = try pen.partText(part, pen.moved(origin, .{ along + cap.middle, -cap_text_up }), name, .centre);
     }
 };
 

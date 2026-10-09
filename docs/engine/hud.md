@@ -71,6 +71,13 @@ whole pixels of the window, or leaves them out for one a display stands in for. 
 is scaled is drawn with the display's scale times its own, so that it stays as sharp as the
 display. Either way the instrument does its work as before: only what it draws changes.
 
+A display can also place the parts of an instrument on their own: each text it writes, the face in
+the radio's window and the power ball ([The instruments'
+parts](../guide/scripting.md#the-instruments-parts)). Each part draws through a device of its own
+inside its instrument's (`hud.Pen.partTextIn`, `hud.Pen.partImage`), which moves, scales or hides
+it and notes where it draws, with the scale growing from the part's own place, and a window's clip
+growing with it. A text part can also be aligned another way or given other words.
+
 ## Text
 
 `hud_text` (`0x00480E40`) draws a line through `VFX_string_draw`, left where its alignment is 0,

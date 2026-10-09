@@ -97,7 +97,7 @@ pub const Shown = struct {
 /// `hud_window_draw`'s window 13, in the view ahead: the title, then each of the window's
 /// `entries`: its bar, the armour left below what is lost, then its icon and its number.
 pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!void {
-    try canvas.string(title, title_at, .right);
+    try canvas.string(.wing_status_title, title, title_at, .right);
     var buffer: [mission.wing_size]Entry = undefined;
     for (entries(shown.all, &buffer)) |entry| {
         const at = entry.bar_at;
@@ -109,7 +109,7 @@ pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!v
             const drawing = if (entry.own_icon) |own| canvas.drawing(own) else canvas;
             try drawing.shaky(icon, at + icon_offset);
         }
-        try canvas.print("{d}", .{entry.number}, at + number_offset, .left);
+        try canvas.print(.wing_status_numbers, "{d}", .{entry.number}, at + number_offset, .left);
     }
 }
 

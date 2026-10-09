@@ -82,7 +82,9 @@ the dead channel's film plays with 13 (`0xD`).
 - Once the line has started, a line that is over closes the window and stops the film. While it
   plays, in the view ahead, the speaker's name at `(x + 1, y + 2)` and the film at
   `(x + 13, y + 19)`, each row moved right by a random share of `10 * hit_shake` pixels, drawn
-  every pixel, the see-through colour among them.
+  every pixel, the see-through colour among them. **Improvement:** OpenReliant draws every film at
+  120 by 100, the size of the game's own, so that a mod's sharper film shows more detail in the
+  same place.
 - While the line waits, in the view ahead, shape `0x131` and on for a friendly speaker, `0x148` and
   on for any other, a shape each 4 ticks of the wait: 23 of them, noise that settles on the emblem
   of the speaker's side.

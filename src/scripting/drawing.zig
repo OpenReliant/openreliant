@@ -290,7 +290,7 @@ pub const Align = enum {
     right,
 
     /// The game's alignment it is.
-    fn game(alignment: Align) hud.Align {
+    pub fn game(alignment: Align) hud.Align {
         return switch (alignment) {
             .left => .left,
             .center => .centre,
@@ -482,7 +482,7 @@ fn recordLine(call: Call, which: Which, from: Where, to: Where, given: ?LineStyl
 /// `openreliant.ui`).
 pub fn Package(comptime which: Which) type {
     return struct {
-        pub const register_display = if (which == .hud) api.Native("Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?}", "string", @import("registries.zig").registration(.display)) else {};
+        pub const register_display = if (which == .hud) api.Native("Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, `layout` moves and scales the instruments it names, and `parts` moves, scales, aligns, rewords or hides the parts of them it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?, parts: { [HudPart]: HudPartLayout }?}", "string", @import("registries.zig").registration(.display)) else {};
         pub const set_display_enabled = if (which == .hud) api.Function("Turns the display `name` on or off: the calling mod's by its own name, or any mod's by the qualified one. Returns whether it's registered.", &.{ "name", "enabled" }, struct {
             fn set(call: Call, name: []const u8, enabled: bool) bool {
                 return @import("registries.zig").show(call, .display, name, enabled);
@@ -490,6 +490,7 @@ pub fn Package(comptime which: Which) type {
         }.set) else {};
         pub const replaced = if (which == .hud) instruments.replaced else {};
         pub const bounds = if (which == .hud) instruments.bounds else {};
+        pub const part_bounds = if (which == .hud) instruments.part_bounds else {};
         pub const instruments_shown = if (which == .hud) instruments.instruments_shown else {};
         pub const guns = if (which == .hud) instruments.guns else {};
         pub const missiles = if (which == .hud) instruments.missiles else {};
@@ -515,6 +516,7 @@ pub fn Package(comptime which: Which) type {
         pub const comms = if (which == .hud) instruments.comms else {};
         pub const messages = if (which == .hud) instruments.messages else {};
         pub const subtitle = if (which == .hud) instruments.subtitle else {};
+        pub const speaker_name = if (which == .hud) instruments.speaker_name else {};
         pub const key_prompt = if (which == .hud) instruments.key_prompt else {};
         pub const jump_prompt = if (which == .hud) instruments.jump_prompt else {};
         pub const open_windows = if (which == .hud) instruments.open_windows else {};

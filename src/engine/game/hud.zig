@@ -69,6 +69,7 @@ pub const missile_display = @import("hud/missile_display.zig");
 const missile_lock = @import("main/lock.zig");
 pub const objectives_window = @import("hud/objectives_window.zig");
 pub const power = @import("hud/power.zig");
+pub const parts = @import("hud/parts.zig");
 pub const radio = @import("hud/radio.zig");
 pub const target_display = @import("hud/target_display.zig");
 pub const subtarget = @import("hud/subtarget.zig");
@@ -1999,6 +2000,45 @@ test textInk {
     try std.testing.expectEqual(null, try textInk(&opened, .{ 10, 20 }, "  ", .left, 1));
 }
 
+test "the instruments' parts as a mod's display places them" {
+    const gpa = std.testing.allocator;
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    var opened: Opened = .monochrome(try .parse(comptime outline.testing.font));
+    defer opened.deinit(gpa);
+    var placed: parts.Parts = .{};
+    placed.placements.set(.radio_speaker, .{ .place = .{ .offset = .{ 5, 0 }, .scale = 2 }, .alignment = .right, .words = .of("H") });
+    placed.placements.set(.radio_face, .{ .place = .{ .scale = 2 } });
+    var pen = testing.pen(undefined, gpa, recorder.interface());
+    pen.parts = &placed;
+
+    // The speaker's name writes H, 6 pixels wide, at twice its size, ending at its place and moved
+    // 5 pixels right; where it drew is noted.
+    _ = try pen.partTextIn(.radio_speaker, &opened, .{ 100, 50 }, "AAA", .left);
+    try std.testing.expectEqual(1, recorder.draws.items.len);
+    try std.testing.expectEqual(93, recorder.last()[0].x);
+    try std.testing.expectEqual(105, recorder.last()[2].x);
+    try std.testing.expectEqual(66, recorder.last()[2].y);
+    try std.testing.expectEqual(Clip{ .left = 93, .top = 50, .right = 105, .bottom = 66 }, placed.drawn.get(.radio_speaker).?);
+
+    // The face, twice its size, shows whole: the window's clip grows with it from its corner.
+    var rgba: [4 * 4 * 4]u8 = @splat(0);
+    var level = [1]srtexture.Level{.{ .width = 4, .height = 4, .texels = &rgba }};
+    var picture: srtexture.Image = .{ .levels = &level };
+    recorder.clear();
+    pen.partImage(.radio_face, &picture, .{ 4, 4 }, .{ 10, 10 }, .{ .clip = .{ .left = 10, .top = 10, .right = 14, .bottom = 14 } });
+    try std.testing.expectEqual(18, recorder.last()[2].x);
+    try std.testing.expectEqual(18, recorder.last()[2].y);
+
+    // Hidden, it draws nothing, but where it would is noted.
+    placed.placements.set(.radio_face, .{ .place = .{ .hidden = true } });
+    placed.drawn = .initFill(null);
+    recorder.clear();
+    pen.partImage(.radio_face, &picture, .{ 4, 4 }, .{ 10, 10 }, .{});
+    try std.testing.expectEqual(0, recorder.draws.items.len);
+    try std.testing.expectEqual(Clip{ .left = 10, .top = 10, .right = 14, .bottom = 14 }, placed.drawn.get(.radio_face).?);
+}
+
 /// What `hud_init` loads for the display to draw with. An image is made of a shape or a glyph the
 /// first time it is drawn, by the display, the pause menu or a script, so each of them draws with
 /// the allocator the resources were loaded in. `deinit` frees the images with the rest.
@@ -2144,6 +2184,9 @@ pub const Pen = struct {
     scale: f32,
     /// How the display shakes this frame (`Interference.shake`); null while it stands still.
     shake: ?Shake = null,
+    /// Where the mods' displays put the instruments' parts, and where each draws (`partText`);
+    /// null to draw them as the game does.
+    parts: ?*parts.Parts = null,
 
     /// The pen at `brightness` of its colour, as `hud_draw` makes the global palette that much
     /// darker.
@@ -2188,9 +2231,44 @@ pub const Pen = struct {
         return drawText(font, pen.gpa, pen.device, at, words, pen.colour, alignment, pen.scale);
     }
 
-    /// `words` in the display's font at `at`, lined up by `alignment`; where the line ends.
-    pub fn text(pen: Pen, at: [2]i32, words: []const u8, alignment: Align) Allocator.Error!i32 {
-        return pen.textIn(pen.font, at, words, alignment);
+    /// `words` in `font` at `at`, lined up by `alignment`, as the part `part` of its instrument:
+    /// moved, scaled from `at`, aligned, given other words or hidden as the mods' displays place
+    /// it, with where it draws noted (`parts`). Where the line ends, as it would be drawn at `at`.
+    pub fn partTextIn(pen: Pen, part: parts.Part, font: *Opened, at: [2]i32, words: []const u8, alignment: Align) Allocator.Error!i32 {
+        const all = pen.parts orelse return pen.textIn(font, at, words, alignment);
+        const asked = all.placements.getPtrConst(part);
+        var placing: Placing = .of(pen.device, pen.gpa, asked.place, pen.scale);
+        defer all.note(part, placing.drawn);
+        var drawn = pen.sized(pen.scale * asked.place.scale);
+        drawn.device = placing.interface();
+        const shown = if (asked.words) |*own| own.slice() else words;
+        return drawn.textIn(font, at, shown, asked.alignment orelse alignment);
+    }
+
+    /// `partTextIn` in the display's font.
+    pub fn partText(pen: Pen, part: parts.Part, at: [2]i32, words: []const u8, alignment: Align) Allocator.Error!i32 {
+        return pen.partTextIn(part, pen.font, at, words, alignment);
+    }
+
+    /// `picture` with its top left corner at `corner` on the screen, `size` of the display's
+    /// pixels across and down, drawn as `how` says (`drawImageAs`), as the part `part` of its
+    /// instrument: moved, scaled from `corner` or hidden as the mods' displays place it, with
+    /// where it draws noted. The clip grows with it from `corner`, so that a larger part shows as
+    /// much of itself.
+    pub fn partImage(pen: Pen, part: parts.Part, picture: *srtexture.Image, size: [2]u32, corner: [2]i32, how: Draw) void {
+        const at: [2]f32 = .{ @floatFromInt(corner[0]), @floatFromInt(corner[1]) };
+        const all = pen.parts orelse return drawImageAs(pen.device, picture, size, at, pen.colour, pen.scale, how);
+        const asked = all.placements.getPtrConst(part).place;
+        var placing: Placing = .of(pen.device, pen.gpa, asked, pen.scale);
+        defer all.note(part, placing.drawn);
+        var grown = how;
+        if (how.clip) |clip| grown.clip = .{
+            .left = at[0] + (clip.left - at[0]) * asked.scale,
+            .top = at[1] + (clip.top - at[1]) * asked.scale,
+            .right = at[0] + (clip.right - at[0]) * asked.scale,
+            .bottom = at[1] + (clip.bottom - at[1]) * asked.scale,
+        };
+        drawImageAs(placing.interface(), picture, size, at, pen.colour, pen.scale * asked.scale, grown);
     }
 
     /// A line in `colour` from the pixel at `from` to the pixel at `to`, a pixel of the display's
@@ -2274,6 +2352,8 @@ pub const Frame = struct {
     variables: ?*const vm.Variables = null,
     /// Where the mods' displays put each instrument this frame, and which they stand in for.
     placements: std.EnumArray(Instrument, Placement) = .initFill(.{}),
+    /// Where the mods' displays put each part of the instruments this frame (`parts`).
+    parts: std.EnumArray(parts.Part, parts.Placement) = .initFill(.{}),
     /// The bindings and the keys' names, which `WaitForKey`'s prompt shows (`key_prompt`); none
     /// where nothing reads them.
     devices: ?*const input.Devices = null,
@@ -2312,6 +2392,11 @@ const Placing = struct {
     hidden: bool,
     /// The box its draws cover this frame, moved; null until it draws.
     drawn: ?Clip = null,
+
+    /// The placing of `placement`, drawing into `into`, for something drawn at `scale`.
+    fn of(into: device.Device, gpa: Allocator, placement: Placement, scale: f32) Placing {
+        return .{ .into = into, .gpa = gpa, .shift = placement.shift(scale), .scale = placement.scale, .hidden = placement.hidden };
+    }
 
     fn interface(placing: *Placing) device.Device {
         return .{ .ptr = placing, .vtable = &vtable };
@@ -2367,32 +2452,38 @@ const Placing = struct {
 /// The most vertices of one draw that `Placing` moves on the stack.
 const stack_vertices = 256;
 
-/// The frame's instruments, each drawing through its `Placing`.
+/// The frame's instruments, each drawing through its `Placing`, and their parts.
 pub const Placings = struct {
     each: std.EnumArray(Instrument, Placing),
+    parts: parts.Parts,
 
     /// The frame's placings, for a display drawn at `scale`.
     fn init(frame: Frame, scale: f32) Placings {
-        var placings: Placings = .{ .each = undefined };
+        var placings: Placings = .{ .each = undefined, .parts = .{ .placements = frame.parts } };
         for (std.enums.values(Instrument)) |instrument| {
-            const placement = frame.placements.get(instrument);
-            placings.each.set(instrument, .{ .into = frame.device, .gpa = frame.gpa, .shift = placement.shift(scale), .scale = placement.scale, .hidden = placement.hidden });
+            placings.each.set(instrument, .of(frame.device, frame.gpa, frame.placements.get(instrument), scale));
         }
         return placings;
     }
 
-    /// `base` for `instrument`: drawing through its placing, at its placement's scale.
+    /// `base` for `instrument`: drawing through its placing, at its placement's scale, with its
+    /// parts placed as the frame's are.
     pub fn pen(placings: *Placings, base: Pen, instrument: Instrument) Pen {
         const placing = placings.each.getPtr(instrument);
         var other = base.sized(base.scale * placing.scale);
         other.device = placing.interface();
+        other.parts = &placings.parts;
         return other;
     }
 
-    /// Keeps in `state` where each instrument drew this frame (`State.bounds`).
+    /// Keeps in `state` where each instrument and each part drew this frame (`State.bounds`,
+    /// `State.part_bounds`).
     fn keep(placings: *const Placings, state: *State) void {
         for (std.enums.values(Instrument)) |instrument| {
             if (placings.each.get(instrument).drawn) |box| state.bounds.set(instrument, box);
+        }
+        for (std.enums.values(parts.Part)) |part| {
+            if (placings.parts.drawn.get(part)) |box| state.part_bounds.set(part, box);
         }
     }
 };
@@ -2679,6 +2770,15 @@ pub const Readout = enum {
         };
     }
 
+    /// The part its figure is.
+    pub fn figure(readout: Readout) parts.Part {
+        return switch (readout) {
+            .fuel => .fuel_figure,
+            .skull => .kills_figure,
+            .coil => .countermeasures_figure,
+        };
+    }
+
     pub fn spec(readout: Readout) Spec {
         return switch (readout) {
             .fuel => .{ .offset = .{ 0x39, 0 }, .across = 0.5, .down = 0, .shape = 0xCD, .text_offset = .{ 0x10, 0x1E } },
@@ -2704,7 +2804,7 @@ pub const Readout = enum {
 
         var buffer: [16]u8 = undefined;
         const text = std.mem.print(&buffer, "{d}", .{shown}) catch return;
-        _ = try pen.text(pen.moved(point, at.text_offset), text, .centre);
+        _ = try pen.partText(readout.figure(), pen.moved(point, at.text_offset), text, .centre);
     }
 };
 
@@ -2763,7 +2863,7 @@ pub fn viewName(last_view: camera.View) ?u16 {
 /// stops with a fatal error for either.
 pub fn drawViewName(pen: Pen, last_view: camera.View) Allocator.Error!void {
     const text = pen.strings.string(viewName(last_view) orelse return) orelse return;
-    _ = try pen.text(.{ pen.middle()[0], pen.span(view_name_down) }, text, .centre);
+    _ = try pen.partText(.view_name_text, .{ pen.middle()[0], pen.span(view_name_down) }, text, .centre);
 }
 
 /// The line `DisplaySubTitle` shows (`hud_subtitle`, `0x0057BF34`): a language string, written
@@ -2790,7 +2890,7 @@ pub const Subtitle = struct {
     pub fn draw(subtitle: Subtitle, pen: Pen, last_view: camera.View) Allocator.Error!void {
         if (last_view != .director) return;
         const text = pen.strings.string(subtitle.string orelse return) orelse return;
-        _ = try pen.text(.{ pen.middle()[0], pen.fromFoot(up) }, text, .centre);
+        _ = try pen.partText(.subtitle_text, .{ pen.middle()[0], pen.fromFoot(up) }, text, .centre);
     }
 };
 
@@ -2872,7 +2972,7 @@ pub const Messages = struct {
             var buffer: [line_prefix.len + line_size]u8 = undefined;
             @memcpy(buffer[0..line_prefix.len], line_prefix);
             @memcpy(buffer[line_prefix.len..][0..shown.len], shown);
-            _ = try pen.textIn(font, at, buffer[0 .. line_prefix.len + shown.len], .left);
+            _ = try pen.partTextIn(.messages_text, font, at, buffer[0 .. line_prefix.len + shown.len], .left);
             at = pen.moved(at, .{ 0, spacing });
         }
     }
@@ -2956,8 +3056,8 @@ pub const Caption = struct {
         const text = pen.strings.string(date(mission) orelse return) orelse return;
         const shows, const typing = caption.typed(text, game_ticks);
         const at: [2]i32 = .{ pen.span(left), pen.fromFoot(up) };
-        const end = try pen.text(at, shows, .left);
-        if (typing) _ = try pen.text(.{ end, at[1] }, cursor, .left);
+        const end = try pen.partText(.caption_text, at, shows, .left);
+        if (typing) _ = try pen.partText(.caption_cursor, .{ end, at[1] }, cursor, .left);
     }
 
     /// The language string of mission `mission`'s date (`mission_dates`, `0x005023D6`): the table
@@ -3124,7 +3224,7 @@ pub fn clockTime(all: *const create.Objects, play: main.PlayTime, variables: ?*c
 pub fn drawClock(pen: Pen, minutes: u16, seconds: u16) Allocator.Error!void {
     var buffer: [16]u8 = undefined;
     const text = std.mem.print(&buffer, "{d:0>2}:{d:0>2}", .{ minutes, seconds }) catch return;
-    _ = try pen.text(pen.placed(clock_offset, clock_across, clock_down), text, .centre);
+    _ = try pen.partText(.clock_text, pen.placed(clock_offset, clock_across, clock_down), text, .centre);
 }
 
 test clockTime {
@@ -3660,6 +3760,8 @@ pub const State = struct {
     /// Where each instrument last drew, in the window's pixels, as the mods' displays place it
     /// (`Placings`); null for one that hasn't drawn yet. Kept for the scripts.
     bounds: std.EnumArray(Instrument, ?Clip) = .initFill(null),
+    /// Where each part of the instruments last drew, as `bounds` (`parts`).
+    part_bounds: std.EnumArray(parts.Part, ?Clip) = .initFill(null),
     /// What flashes this frame. Kept for the scripts.
     flashes: Flashes = .{},
 
@@ -5220,14 +5322,14 @@ pub fn drawCluster(pen: Pen, gauges: Cluster.Gauges) Error!void {
         const marker = pen.moved(centre, Cluster.markerOffset(throttle));
         try dim.shape(Cluster.marker_shape, marker);
         const figure = std.mem.print(&buffer, "{d}", .{asked}) catch return;
-        _ = try dim.text(pen.moved(marker, Cluster.figure_offset), figure, .right);
+        _ = try dim.partText(.gauges_throttle, pen.moved(marker, Cluster.figure_offset), figure, .right);
     }
 
     const offset = Cluster.markerOffset(speed);
     const marker = pen.moved(centre, offset);
     try pen.shape(Cluster.marker_shape, marker);
     const figure = std.mem.print(&buffer, "{d}", .{made}) catch return;
-    _ = try pen.text(pen.moved(marker, Cluster.figure_offset), figure, .right);
+    _ = try pen.partText(.gauges_speed, pen.moved(marker, Cluster.figure_offset), figure, .right);
 
     // The speed's fill is lit below its marker, the charge's below its level.
     try drawFill(pen, Cluster.speed_fill, left, offset[1] + Cluster.circle[1]);
@@ -5553,7 +5655,7 @@ pub fn drawTarget(state: *State, pen: Pen, fonts: *TargetFonts, scene: TargetSce
     // beyond the screen's reach, and the range with it.
     const offset = pointOf(range_offset) * @as(Point, @splat(pen.scale));
     if (pixelOf(high)) |corner| {
-        _ = try pen.textIn(&fonts.new, .{ corner[0] + round(offset[0]), round(high[1] + offset[1]) }, range, .right);
+        _ = try pen.partTextIn(.target_markers_range, &fonts.new, .{ corner[0] + round(offset[0]), round(high[1] + offset[1]) }, range, .right);
     }
 
     if (struck.object.flags.components or struck.object.side == .friendly) return .none;
@@ -5718,7 +5820,7 @@ fn drawOffScreen(
     const edge: Edge = .of(to, last);
     const spec = edge.spec();
     try pen.shape(Edge.shape.of(hostile) + @backingInt(edge), pen.moved(to, spec.shape));
-    _ = try pen.textIn(font, pen.moved(to, spec.text), range, spec.alignment);
+    _ = try pen.partTextIn(.target_markers_range, font, pen.moved(to, spec.text), range, spec.alignment);
 }
 
 /// The radar (`hud_radar`, `0x00488BD0`): its rings, the shape `hud_init` starts on and the

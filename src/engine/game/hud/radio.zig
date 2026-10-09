@@ -76,9 +76,9 @@ pub fn frame(shown: Shown, held: *windows.Windows, canvas: windows.Canvas, ahead
             return;
         }
         if (!ahead) return;
-        if (radio.name) |name| try canvas.string(name, name_at, .left);
+        if (radio.shownName()) |name| try canvas.string(.radio_speaker, name, name_at, .left);
         const shake: ?hud.Shake = if (shown.hit_shake > 0) .{ .hit_shake = shown.hit_shake, .interference = 0, .random = shown.random } else null;
-        canvas.imageShaken(&movie.picture, film_size, picture_at, shake);
+        canvas.image(.radio_face, &movie.picture, film_size, picture_at, shake);
         return;
     }
     if (!ahead) return;
@@ -113,12 +113,12 @@ test "the film keeps its shape at any window's size, and any film's" {
             const scale = (hud.UiScale{}).of(screen);
             const pen = hud.testing.pen(undefined, gpa, recorder.interface());
             const canvas: windows.Canvas = .{ .pen = pen.sized(scale), .at = .{ 0, 0 }, .clip = null };
-            canvas.imageShaken(&picture, film_size, picture_at, null);
+            canvas.image(.radio_face, &picture, film_size, picture_at, null);
             const quad = recorder.last();
             try std.testing.expectApproxEqRel(@as(f32, across) * scale, quad[2].x - quad[0].x, 1e-5);
             try std.testing.expectApproxEqRel(@as(f32, down) * scale, quad[2].y - quad[0].y, 1e-5);
             recorder.clear();
-            canvas.imageShaken(&picture, film_size, picture_at, .{ .hit_shake = 1, .interference = 0, .random = &random });
+            canvas.image(.radio_face, &picture, film_size, picture_at, .{ .hit_shake = 1, .interference = 0, .random = &random });
             try std.testing.expectEqual(down, recorder.draws.items.len);
             for (0..down) |row| {
                 const strip = recorder.drawn(row);

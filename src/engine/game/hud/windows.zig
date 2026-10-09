@@ -402,52 +402,47 @@ pub const Canvas = struct {
         try canvas.shapeWith(index, at, .{ .clip = canvas.pane(edges) });
     }
 
-    /// `picture` with its top left corner at `at`, cut to the window.
-    pub fn image(canvas: Canvas, picture: *srtexture.Image, at: [2]i32) void {
-        canvas.imageShaken(picture, .{ picture.width(), picture.height() }, at, null);
-    }
-
     /// `picture` with its top left corner at `at`, drawn `size` of the display's pixels across and
     /// down whatever its own size, cut to the window, each row moved as `shake` says where it
-    /// shakes.
-    pub fn imageShaken(canvas: Canvas, picture: *srtexture.Image, size: [2]u32, at: [2]i32, shake: ?hud.Shake) void {
-        const corner = canvas.place(at);
-        hud.drawImageAs(canvas.pen.device, picture, size, .{ @floatFromInt(corner[0]), @floatFromInt(corner[1]) }, canvas.pen.colour, canvas.pen.scale, .{ .clip = canvas.clip, .shake = shake });
+    /// shakes, as the part `part` of the window's instrument (`hud.Pen.partImage`).
+    pub fn image(canvas: Canvas, part: hud.parts.Part, picture: *srtexture.Image, size: [2]u32, at: [2]i32, shake: ?hud.Shake) void {
+        canvas.pen.partImage(part, picture, size, canvas.place(at), .{ .clip = canvas.clip, .shake = shake });
     }
 
-    /// `words` at `at` in the display's font, aligned as `alignment` says.
-    pub fn text(canvas: Canvas, words: []const u8, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
-        try canvas.textIn(canvas.pen.font, words, at, alignment);
+    /// `words` at `at` in the display's font, aligned as `alignment` says, as the part `part` of
+    /// the window's instrument (`hud.Pen.partTextIn`).
+    pub fn text(canvas: Canvas, part: hud.parts.Part, words: []const u8, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
+        try canvas.textIn(part, canvas.pen.font, words, at, alignment);
     }
 
-    /// `words` at `at` in `font`, aligned as `alignment` says.
-    pub fn textIn(canvas: Canvas, font: *hud.Opened, words: []const u8, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
-        _ = try canvas.pen.textIn(font, canvas.place(at), words, alignment);
+    /// `text` in `font`.
+    pub fn textIn(canvas: Canvas, part: hud.parts.Part, font: *hud.Opened, words: []const u8, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
+        _ = try canvas.pen.partTextIn(part, font, canvas.place(at), words, alignment);
     }
 
-    /// The game's string `id`, where it has one.
-    pub fn string(canvas: Canvas, id: u32, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
-        try canvas.text(canvas.pen.strings.string(id) orelse return, at, alignment);
+    /// The game's string `id`, where it has one, as `text` writes it.
+    pub fn string(canvas: Canvas, part: hud.parts.Part, id: u32, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
+        try canvas.text(part, canvas.pen.strings.string(id) orelse return, at, alignment);
     }
 
-    /// `args` written out as `format` says.
-    pub fn print(canvas: Canvas, comptime format: []const u8, args: anytype, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
-        try canvas.printIn(canvas.pen.font, format, args, at, alignment);
+    /// `args` written out as `format` says, as `text` writes it.
+    pub fn print(canvas: Canvas, part: hud.parts.Part, comptime format: []const u8, args: anytype, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
+        try canvas.printIn(part, canvas.pen.font, format, args, at, alignment);
     }
 
-    /// `args` written out in `font` as `format` says.
-    pub fn printIn(canvas: Canvas, font: *hud.Opened, comptime format: []const u8, args: anytype, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
+    /// `print` in `font`.
+    pub fn printIn(canvas: Canvas, part: hud.parts.Part, font: *hud.Opened, comptime format: []const u8, args: anytype, at: [2]i32, alignment: hud.Align) Allocator.Error!void {
         var buffer: [32]u8 = undefined;
-        try canvas.textIn(font, std.mem.print(&buffer, format, args) catch return, at, alignment);
+        try canvas.textIn(part, font, std.mem.print(&buffer, format, args) catch return, at, alignment);
     }
 
     /// `hud_text_wrapped` (`0x00480FD0`): `words` broken into lines at most `width` of the display's
     /// pixels wide (`hud.Wrapping`), at most `max_lines` of them, each drawn as `text` draws a line,
     /// `line_height` below the last.
-    pub fn wrapped(canvas: Canvas, words: []const u8, at: [2]i32, alignment: hud.Align, width: i32, line_height: i32, max_lines: usize) Allocator.Error!void {
+    pub fn wrapped(canvas: Canvas, part: hud.parts.Part, words: []const u8, at: [2]i32, alignment: hud.Align, width: i32, line_height: i32, max_lines: usize) Allocator.Error!void {
         var lines: hud.WrappedText = .init(&canvas.pen.font.widths, words, width, max_lines);
         var y = at[1];
-        while (lines.next()) |shown| : (y += line_height) try canvas.text(shown, .{ at[0], y }, alignment);
+        while (lines.next()) |shown| : (y += line_height) try canvas.text(part, shown, .{ at[0], y }, alignment);
     }
 };
 
