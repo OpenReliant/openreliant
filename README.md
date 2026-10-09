@@ -56,6 +56,14 @@ A bug report asks for `openreliant.log` from your game folder ([The log file](do
 
 ---
 
+## Support
+
+OpenReliant is free. If you'd like to sponsor the time I put into it, you can [buy me a coffee](https://buymeacoffee.com/vdmkenny). It's fully optional, only if you're willing and able to.
+
+<a href="https://buymeacoffee.com/vdmkenny"><img src="docs/images/buy-me-a-coffee-qr.svg" width="160" alt="QR code for buymeacoffee.com/vdmkenny"></a>
+
+---
+
 ## Quickstart
 
 Download the archive for your system from the [latest release](../../releases/latest) and extract it, then follow the [installation guide](docs/guide/installation.md): it installs the game's files from your StarLancer discs or disc images, and starts the game.
