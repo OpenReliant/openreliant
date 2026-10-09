@@ -187,7 +187,11 @@ caller's block end for its first, and the part's `return` goes astray.
 
 Before each call, `command` sets `vm_command_flag` (`0x00537584`) to bit 0 of the command's word in
 section 24, inverted ([`.DTE` missions](../formats/dte.md)). It reads the low byte of the word
-`number` places past section 24's offset, whatever its count (`0x0045BEDC`).
+`number` places past section 24's offset, whatever its count (`0x0045BEDC`). **Fix:** a mission that
+leaves section 24 unused, as one from an older mission editor does, takes the words every shipped
+mission with the section holds, where the game reads whatever lies at the unused offset: zeros in
+the Dreamcast's mission 22, so that the player is never launched, and is left behind as the wing
+jumps.
 
 Many commands act on a ship, a flight group or a squad, which their first argument names by its
 record's address. They hand `for_each_ship` (`0x0045D460`) a routine of their own for one ship, with

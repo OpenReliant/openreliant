@@ -997,15 +997,26 @@ pub const Machine = struct {
 
     /// Command `number`'s flags in `section`, 24 for the catalogue and 25 for the second, as
     /// `vm_command` reads them (`0x0045BEDC`): the low byte of the word `number` places past the
-    /// section's offset (`dte.CommandFlags.fromLow`), whatever the section's count. A mission that
-    /// leaves the section unused, at `dte.DirectoryEntry.unused_offset`, gives whatever lies there:
-    /// in the shipped missions that do, the trigger operands of section 1.
+    /// section's offset (`dte.CommandFlags.fromLow`), whatever the section's count.
     ///
     /// **Fix:** where that lies past the image, as for a section that starts at the file's end, the
     /// game reads past its copy of the file (`mission_file_read` allocates the file's size);
     /// OpenReliant takes none.
+    ///
+    /// **Fix:** a mission that leaves section 24 unused, at `dte.DirectoryEntry.unused_offset`, as
+    /// one from an older mission editor does, takes the flags every shipped mission with the
+    /// section holds, which the mission editor writes (`dte.write.template.command_flags`). The
+    /// game reads whatever lies at that offset: in the Dreamcast's mission 22 zeros, so that no
+    /// command reaches the players' ships, which are never launched and are left behind as their
+    /// wing jumps; in the PC's leftover missions the trigger operands of section 1
+    /// ([#993](https://github.com/OpenReliant/openreliant/issues/993)).
     fn commandFlags(machine: *const Machine, section: dte.Section, number: u8) dte.CommandFlags {
-        const offset = machine.mission.file.entry(section).offset;
+        const entry = machine.mission.file.entry(section);
+        if (section == .command_flags and !entry.isUsed()) {
+            const written = dte.write.template.command_flags;
+            return if (number < written.len) .fromLow(@truncate(written[number])) else .{};
+        }
+        const offset = entry.offset;
         const at = std.math.add(u32, offset, @as(u32, number) * @sizeOf(u16)) catch return .{};
         return .fromLow(machine.mission.byte(at) catch return .{});
     }
@@ -2236,6 +2247,41 @@ test "a command's flags are read where its number places them, whatever the sect
         std.mem.writeInt(u32, image[entry + @offsetOf(dte.DirectoryEntry, "offset") ..][0..4], offset, .little);
         try fixture.machine.start();
         try std.testing.expectEqual(!within, fixture.machine.skips_players);
+    }
+}
+
+test "a mission without section 24 takes the flags the mission editor writes" {
+    const gpa = std.testing.allocator;
+    const entry = @backingInt(dte.Section.command_flags) * @sizeOf(dte.DirectoryEntry);
+    const Case = struct {
+        // `DestroyTimer` reaches the players' ships in every shipped mission's table, and
+        // `ClearAI` doesn't.
+        fn destroyTimer(r: *testing.Routine) !void {
+            try r.op(.push_byte, &.{9});
+            try r.command("DestroyTimer");
+            try r.op(.@"return", &.{});
+        }
+        fn clearAI(r: *testing.Routine) !void {
+            try r.op(.push_byte, &.{9});
+            try r.command("ClearAI");
+            try r.op(.@"return", &.{});
+        }
+    };
+    inline for (.{ .{ Case.destroyTimer, false }, .{ Case.clearAI, true } }) |case| {
+        const code = try testing.assemble(gpa, struct {
+            fn build(r: *testing.Routine) !void {
+                try case[0](r);
+            }
+        }.build);
+        defer gpa.free(code);
+        var fixture: testing.Fixture = undefined;
+        try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{ .globals = &.{1} });
+        defer fixture.deinit();
+        // Section 24 left unused, at the offset where the game would read its flags from zeros.
+        const image = fixture.mission.image;
+        std.mem.writeInt(u32, image[entry + @offsetOf(dte.DirectoryEntry, "offset") ..][0..4], dte.DirectoryEntry.unused_offset, .little);
+        try fixture.machine.start();
+        try std.testing.expectEqual(case[1], fixture.machine.skips_players);
     }
 }
 
