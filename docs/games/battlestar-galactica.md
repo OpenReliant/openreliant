@@ -237,19 +237,20 @@ back to back, and the members' names at the end. All numbers are little-endian.
 
 The members start right after the entries, in the entries' order, with nothing between them. A
 member stored as it is takes its unpacked size. More than half the sounds are stored that way,
-and a few textures. Every other member is compressed with RefPack ([RefPack compression](../formats/refpack.md)),
-in chunks of 128 KiB of unpacked data, the last chunk holding what is left. Each chunk is a 4-byte
-length, then a stream of RefPack commands of that length, without the header that StarLancer's
-streams start with. Each chunk's stream unpacks on its own.
+and a few textures. Every other member is compressed with RefPack
+([RefPack compression](../formats/refpack.md)), in chunks of 128 KiB of unpacked data, the last
+chunk holding what is left. Each chunk is a 4-byte length, then a stream of RefPack commands of
+that length, without the header that StarLancer's streams start with. Each chunk's stream unpacks
+on its own.
 
 The checksum is the CRC-32 of the unpacked member, without the final inversion that the usual
 CRC-32 (zlib's) applies: zlib's CRC-32 of the member XOR `0xFFFFFFFF`.
 
 The names are relative paths with forward slashes, such as `models/shv1vi00/shv1vi00.mdl`, each
 ending in a zero byte. An archive can hold the same file more than once, each copy with its own
-entry but sharing one name. `bigwad.hxb` holds some of the Galactica's textures up to twelve times, each
-copy near a model that uses it, which suggests the archive is laid out for reading a model's files
-in one pass from the disc.
+entry but sharing one name. `bigwad.hxb` holds some of the Galactica's textures up to twelve
+times, each copy near a model that uses it. **Unverified:** that the copies let the game read a
+model's files in one pass from the disc.
 
 `sltool bsg ls` lists an archive, and `sltool bsg extract` unpacks every file of it, checking each
 checksum and writing a repeated file once. The code is in
@@ -278,7 +279,7 @@ checksum and writing a repeated file once. The code is in
 | `.tnf` | Binary | A font's table, 2050 bytes, with its picture as a `.btga` of the same name. **Unknown:** its layout. |
 | `.loc` | Text | The menus' text in one language. |
 
-The binary kinds but the fonts start with a Unix time, from 2002 to 2004, which looks like when
+Every binary kind but the fonts starts with a Unix time, from 2002 to 2004, which looks like when
 the file was written. **Unknown:** the rest of their header. A mesh holds a texture's name, such as
 `sh_v1_viper01.tga`, its vertices' positions and normals as floats, and its triangles as 16-bit
 indices, among what look like addresses in the Xbox's memory.
@@ -323,7 +324,7 @@ A ship's attributes give:
   `Jet1Size` and so on), as positions in the model's space;
 - its hardpoints, each a type, an ID and a matrix as four vectors, such as `Secondary00_type`,
   `Secondary00_ID` and `Secondary00_xform0` to `Secondary00_xform3`, the last being the position.
-  The types are `SECONDARY` and `SUBSECONDARY` (the missiles' rails), `TURRET` and
+  The types are `SECONDARY` and `SUBSECONDARY`, for the two kinds of missile, `TURRET` and
   `PLAYERTURRET`, `LAUNCHTUBE`, `SUBOBJECT`, `LEECHPOINT` and `LEECHBEAM`;
 - where the cockpit and the chase camera are (`CockpitOffset`, `CameraOffset`);
 - the distances at which it changes to a coarser model (`LODDist1` to `LODDist5`);
@@ -350,6 +351,7 @@ model's own, which starts with a comment naming the Maya scene, such as
 ```
 
 A part has a name, its parent's name (empty for none), a 4 by 4 matrix, a `pivot` point, and the
-mesh it draws. The mesh is the `.bmsh` file of that name in the model's folder,
-lowercase. A part's name starts with `c1` to `c5`, one set of parts for each level of detail: the
-Viper has one part at each level, and the Galactica 84 parts at the first and none at the others.
+mesh it draws. The mesh is the file of that name in the model's folder, in lowercase and with
+`.bmsh` for `.msh`. A part's name starts with `c1` to `c5`, one set of parts for each level of
+detail: the Viper has one part at each level, and the Galactica 84 parts at the first and none at
+the others.

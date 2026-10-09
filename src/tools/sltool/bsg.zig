@@ -146,19 +146,21 @@ fn film(ctx: Context, all: Films, which: []const u8, out_path: []const u8) !void
     try ctx.stdout.print("wrote {f} of {f} to {s}\n", .{ sltool.count(frames, "frame"), sltool.count(last - first, "film"), out_path });
 }
 
+/// Lists the files of `archive`: each one's size, the bytes it takes compressed, its checksum and
+/// its name.
 fn list(ctx: Context, archive: bsg.wart.Archive) !void {
     try ctx.stdout.writeAll("      size    stored  checksum  name\n");
-    var stored: usize = 0;
+    var uncompressed: usize = 0;
     for (archive.entries) |entry| {
-        if (entry.compressed()) {
-            try ctx.stdout.print("{d:>10}{d:>10}", .{ entry.size, entry.stored_size });
+        if (entry.compressedSize()) |compressed| {
+            try ctx.stdout.print("{d:>10}{d:>10}", .{ entry.size, compressed });
         } else {
-            try ctx.stdout.print("{d:>10}         -", .{entry.size});
-            stored += 1;
+            try ctx.stdout.print("{d:>10}{s:>10}", .{ entry.size, "-" });
+            uncompressed += 1;
         }
         try ctx.stdout.print("  {x:0>8}  {s}\n", .{ entry.checksum, try archive.name(entry) });
     }
-    try ctx.stdout.print("{f}, {d} stored as they are\n", .{ sltool.count(archive.entries.len, "file"), stored });
+    try ctx.stdout.print("{f}, {d} stored as they are\n", .{ sltool.count(archive.entries.len, "file"), uncompressed });
 }
 
 /// Unpacks each file of `archive` into `out_path`, under its own path, checking its checksum. A file
@@ -192,29 +194,29 @@ fn extract(ctx: Context, archive: bsg.wart.Archive, out_path: []const u8) !void 
 }
 
 test extract {
-    const gpa = std.testing.allocator;
-    const bytes = try bsg.wart.testing.build(gpa, &.{
-        .{ .name = "levels/shv1vi00.lvl", .data = "level\r\n{\r\n\tname({SHV1VI00})\r\n}\r\n" },
-        .{ .name = "sfx/hud/hud029.bwav", .data = "RIFF", .compressed = false },
-        .{ .name = "levels/shv1vi00.lvl", .data = "level\r\n{\r\n\tname({SHV1VI00})\r\n}\r\n" },
-    });
-    defer gpa.free(bytes);
-
-    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    var output: std.Io.Writer.Allocating = .init(gpa);
-    defer output.deinit();
-    const ctx: Context = .{ .io = std.testing.io, .arena = arena_state.allocator(), .stdout = &output.writer };
-    const out_path = try std.fmt.allocPrint(arena_state.allocator(), ".zig-cache/tmp/{s}/out", .{tmp.sub_path});
 
-    try extract(ctx, try .parse(bytes), out_path);
-    const level = try tmp.dir.readFileAlloc(std.testing.io, "out/levels/shv1vi00.lvl", arena_state.allocator(), .limited(1 << 10));
-    try std.testing.expectStringStartsWith(level, "level");
-    const sound = try tmp.dir.readFileAlloc(std.testing.io, "out/sfx/hud/hud029.bwav", arena_state.allocator(), .limited(1 << 10));
-    try std.testing.expectEqualStrings("RIFF", sound);
-    try std.testing.expectStringEndsWith(output.written(), ", skipping 1 duplicate\n");
+    // A level that the archive holds twice, and a sound stored as it is.
+    const level = "level\r\n{\r\n\tname({SHV1VI00})\r\n}\r\n";
+    const bytes = try bsg.wart.testing.build(arena, &.{
+        .{ .name = "levels/shv1vi00.lvl", .data = level },
+        .{ .name = "sfx/hud/hud029.bwav", .data = "RIFF", .compressed = false },
+        .{ .name = "levels/shv1vi00.lvl", .data = level },
+    });
+
+    var out: std.Io.Writer.Allocating = .init(arena);
+    const ctx: Context = .{ .io = io, .arena = arena, .stdout = &out.writer };
+    try extract(ctx, try .parse(bytes), try arena.print(".zig-cache/tmp/{s}/out", .{tmp.sub_path}));
+
+    // Each file is written under its own path, and the copy once.
+    try std.testing.expectEqualStrings(level, try tmp.dir.readFileAlloc(io, "out/levels/shv1vi00.lvl", arena, .unlimited));
+    try std.testing.expectEqualStrings("RIFF", try tmp.dir.readFileAlloc(io, "out/sfx/hud/hud029.bwav", arena, .unlimited));
+    try std.testing.expectStringEndsWith(out.written(), ", skipping 1 duplicate\n");
 }
 
 test Command {

@@ -11,10 +11,13 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const layout = @import("../../layout.zig");
+const paths = @import("../../paths.zig");
 const refpack = @import("../../refpack.zig");
 
+/// The start of every archive.
 pub const magic = "WART3.00";
 
+/// The start of an archive, before its entries.
 pub const Header = extern struct {
     magic: [8]u8,
     count: u32,
@@ -31,7 +34,8 @@ pub const Header = extern struct {
 pub const Entry = extern struct {
     /// Where the member starts in the archive.
     offset: u32,
-    /// The bytes the compressed member takes, or 0 for a member stored as it is.
+    /// The bytes the compressed member takes, or 0 for a member stored as it is
+    /// (`compressedSize`).
     stored_size: u32,
     /// Its size once unpacked.
     size: u32,
@@ -40,13 +44,14 @@ pub const Entry = extern struct {
     /// Where its name starts in the names. Copies of a member share one name.
     name_offset: u32,
 
-    pub fn compressed(entry: Entry) bool {
-        return entry.stored_size != 0;
+    /// The bytes the compressed member takes, or null for a member stored as it is.
+    pub fn compressedSize(entry: Entry) ?u32 {
+        return if (entry.stored_size == 0) null else entry.stored_size;
     }
 
     /// The bytes the member takes in the archive.
     pub fn storedSize(entry: Entry) u32 {
-        return if (entry.compressed()) entry.stored_size else entry.size;
+        return entry.compressedSize() orelse entry.size;
     }
 
     comptime {
@@ -67,6 +72,7 @@ pub fn checksum(data: []const u8) u32 {
 }
 
 pub const Error = error{
+    /// The file doesn't start with `magic`.
     NotAnArchive,
     /// An entry, a name or a chunk runs past its room.
     Truncated,
@@ -74,14 +80,18 @@ pub const Error = error{
     BadName,
     /// A chunk that unpacks to the wrong size, or chunks that don't fill the member.
     BadChunk,
+    /// A member that doesn't unpack to the bytes its checksum is of.
     BadChecksum,
 } || refpack.Error;
 
+/// An archive, read in place from its bytes.
 pub const Archive = struct {
     bytes: []const u8,
     entries: []align(1) const Entry,
     names: []const u8,
 
+    /// The archive in `bytes`, its entries and names checked to fit. The members are checked as
+    /// they are read.
     pub fn parse(bytes: []const u8) Error!Archive {
         const header = layout.view(Header, bytes) catch return error.NotAnArchive;
         if (!std.mem.eql(u8, &header.magic, magic)) return error.NotAnArchive;
@@ -102,7 +112,7 @@ pub const Archive = struct {
         const rest = archive.names[entry.name_offset..];
         const end = std.mem.findScalar(u8, rest, 0) orelse return error.Truncated;
         const found = rest[0..end];
-        if (!isRelativePath(found)) return error.BadName;
+        if (!paths.isRelative(found)) return error.BadName;
         return found;
     }
 
@@ -116,7 +126,7 @@ pub const Archive = struct {
     pub fn unpackInto(archive: Archive, entry: Entry, out: []u8) Error!void {
         assert(out.len == entry.size);
         const bytes = try archive.stored(entry);
-        if (entry.compressed()) try unchunk(bytes, out) else @memcpy(out, bytes);
+        if (entry.compressedSize() != null) try unchunk(bytes, out) else @memcpy(out, bytes);
         if (checksum(out) != entry.checksum) return error.BadChecksum;
     }
 
@@ -147,18 +157,7 @@ fn unchunk(bytes: []const u8, out: []u8) Error!void {
     if (at != bytes.len) return error.BadChunk;
 }
 
-/// Whether `path` names a file under the folder it is unpacked into: not empty, not absolute, and
-/// with no empty, `.` or `..` part.
-fn isRelativePath(path: []const u8) bool {
-    if (path.len == 0) return false;
-    var parts = std.mem.splitScalar(u8, path, '/');
-    while (parts.next()) |part| {
-        if (part.len == 0 or std.mem.eql(u8, part, ".") or std.mem.eql(u8, part, "..")) return false;
-        if (std.mem.findScalar(u8, part, '\\') != null) return false;
-    }
-    return true;
-}
-
+/// Builds archives, for tests.
 pub const testing = struct {
     pub const Member = struct {
         name: []const u8,
@@ -253,14 +252,14 @@ test Archive {
 
     // The long member takes two chunks, and unpacks whole.
     const first = archive.entries[0];
-    try std.testing.expect(first.compressed());
+    try std.testing.expect(first.compressedSize() != null);
     const unpacked = try archive.unpackAlloc(gpa, first);
     defer gpa.free(unpacked);
     try std.testing.expectEqualSlices(u8, long, unpacked);
 
     // A member stored as it is takes its size, and the next member starts right after it.
     const stored = archive.entries[2];
-    try std.testing.expect(!stored.compressed());
+    try std.testing.expectEqual(null, stored.compressedSize());
     try std.testing.expectEqual(stored.offset + stored.size, archive.entries[3].offset);
     try std.testing.expectEqualStrings("sfx/hud/hud029.bwav", try archive.name(stored));
 
@@ -279,14 +278,4 @@ test Archive {
     try std.testing.expectError(error.BadChecksum, (try Archive.parse(changed)).unpackInto(stored, &sound));
 
     try std.testing.expectError(error.NotAnArchive, Archive.parse("WART2.00"));
-}
-
-test isRelativePath {
-    try std.testing.expect(isRelativePath("models/textures/sh_galactica_damage.btga"));
-    try std.testing.expect(isRelativePath("gfx/asteroid 01.btga"));
-    try std.testing.expect(!isRelativePath(""));
-    try std.testing.expect(!isRelativePath("/etc/passwd"));
-    try std.testing.expect(!isRelativePath("models/../../outside"));
-    try std.testing.expect(!isRelativePath("models//a.mdl"));
-    try std.testing.expect(!isRelativePath("models\\a.mdl"));
 }
