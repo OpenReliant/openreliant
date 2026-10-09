@@ -533,10 +533,10 @@ The game keeps its lines in `ms_speech\msspeech.hog`, under names without an ext
 ms_speech/msspeech.hog lines` saves every line as a WAV file, to find the one to replace.
 
 A mod's line is best a recording, a WAV or MP3 file named after the line: `abrt_001.wav` or
-`abrt_001.mp3` replaces `ABRT_001`. It plays as recorded, at its own rate, mono or stereo, through
-the same style as the game's lines: the radio's room, and a briefing's last word matched to the
-narration's loudness. WAV files hold 16-bit or 8-bit PCM or IMA ADPCM, as audio editors write by
-default. MP3 is about a fifth the size of WAV: 64 kbit/s suits speech. Enriquez's scenes in the
+`abrt_001.mp3` replaces `ABRT_001`. It plays as recorded, at its own rate, mono or stereo, with
+the same effects as the game's lines: the radio's sound for a radio line, and a briefing's last word
+at the narration's loudness. WAV files can hold 16-bit or 8-bit PCM or IMA ADPCM, which audio
+editors write by default. MP3 is about a fifth the size of WAV: 64 kbit/s suits speech. Enriquez's scenes in the
 induction and the news reports take recordings too, named after the scene without `.box`, such as
 `0015.mp3` for `0015.box`.
 

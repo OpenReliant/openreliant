@@ -70,11 +70,11 @@ Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with thes
 
 | Field | Type | What it is |
 |---|---|---|
-| `hologram` | string, or nil | The movie on the briefing room's screen, a Bink file of the game's or a mod's, such as `new_m01.bik`; nil for none. |
-| `speech` | string, or nil | Enriquez's words spoken over the briefing room, a speech file of the game's or a mod's, which end the briefing as they end; nil for none. With words, the movie plays on the screen without its sound, and starts over if it ends before she does; set `hologram` to nil for an empty screen. |
+| `hologram` | string, or nil | The movie on the briefing room's screen, a Bink file from the game or a mod, such as `new_m01.bik`; nil for none. |
+| `speech` | string, or nil | Enriquez's briefing spoken over the briefing room, a speech file from the game or a mod; nil for none. The briefing ends when she finishes. While she speaks, the movie plays on the screen without its sound, and starts over if it ends first; set `hologram` to nil for an empty screen. |
 | `last_word` | string, or nil | Enriquez's last word after the loadout, a speech file such as `ms_speech\enrbr_tag01.ut`; nil leaves her silent. |
-| `carrier` | [Carrier](#carrier) | The carrier the mission is flown from, whose rooms, briefing room, loadout and hangar the player sees. |
-| `objectives` | list of string | The names of the objectives, which the mission's script numbers from 0 in `SetObjective`, at most ten. Reading gives a new list; assign a list to change them, or nil for the names the game's own table gives the mission's number. |
+| `carrier` | [Carrier](#carrier) | The carrier the mission is flown from. The player sees its rooms, briefing room, loadout and hangar. |
+| `objectives` | list of string | The names of the objectives, at most ten, which the mission's script numbers from 0 in `SetObjective`. Reading gives a new list; assign a list to change them, or nil for the names in the game's own table for the mission's number. |
 | `date` | string, or nil | The date the launch shows, which is the game's text for the mission's number; nil for a mission the game has no date for. |
 | `tier` | number, or nil | The loadout tier the campaign moves to when the mission ends, from 1 to 3; nil to leave the tier as it is. The tier and the pilot's rank decide which ships the loadout offers. The loadout before a mission uses the highest tier of the missions with lower numbers. |
 | `chapter` | number, or nil | The chapter of the story the mission ends, from 1 to 5; nil if it ends none. The pilot gets the chapter's ribbon, the debriefing mentions it, and the chapter's movie plays after the landing. |
@@ -86,7 +86,7 @@ Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with thes
 | `debriefing` | [Debriefing](#debriefing) | Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs. |
 | `news` | list of [NewsItem](#newsitem) | The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them. |
 | `video_reports` | list of [VideoReport](#videoreport) | The video reports that VIDEO REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. Reading gives a new list; assign a list to change them. |
-| `wing_twins` | boolean | Whether the player's wing flies the `t_` twins of the player's ships, as from mission 14 on. |
+| `wing_twins` | boolean | Whether the player's wing flies the `t_` twins of the player's ships, as in missions 14 and later. |
 | `flying_tigers` | boolean | Whether the 45th fly as the 45th Flying Tigers rather than the 45th Volunteers, in the radio's films and in Moose's remarks, as after mission 13. |
 | `second_part` | boolean | Whether the mission has a second part, `mission<number>1.dte`, flown once the first part is won, as mission 25 has. The second part has no landing before it. |
 | `kamov_wing` | boolean | Whether the player's wing flies Kamovs, in the first part where the mission has two, as in mission 25. The Kamov's schematic is then drawn mirrored. |
@@ -94,7 +94,7 @@ Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with thes
 | `hurried_turrets` | boolean | Whether the missile turrets wait half as long between launches, as in mission 28. |
 | `ripper_from_below` | boolean | Whether the Ripper lifts an object from below rather than from above, as in mission 26. |
 | `wide_advanced_gate` | boolean | Whether the advanced warp gates' tunnels are as wide as the prototype's, as in mission 8. |
-| `counts_kills` | boolean | Whether the player's kills count toward the mission's tally, as up to mission 27. |
+| `counts_kills` | boolean | Whether the player's kills count toward the mission's tally, as in missions 1 to 27. |
 | `terminate_ends_well` | boolean | Whether the mission's script can end it with `TerminateMission` without the ending counting as the player's ship destroyed, as in mission 28. |
 
 ### `openreliant.hooks`

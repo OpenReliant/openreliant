@@ -219,7 +219,7 @@ pub const mission_path_size = 32;
 /// (`gameflow.CampaignMission.Rules.second_part`) has it in `mission<number>1.dte`, as mission 25
 /// has.
 pub fn missionPath(buffer: *[mission_path_size]u8, number: u16, second_part: bool, multiplayer: bool) []const u8 {
-    if (second_part and gameflow.missionRules(number).second_part) return std.mem.print(buffer, "{s}{d}" ++ second_part_end ++ file_end, .{ path_start, number }) catch unreachable;
+    if (second_part and gameflow.campaignField(number, .rules).second_part) return std.mem.print(buffer, "{s}{d}" ++ second_part_end ++ file_end, .{ path_start, number }) catch unreachable;
     if (number == multiplayer_mission and multiplayer) return multiplayer_path;
     return std.mem.print(buffer, "{s}{d}" ++ file_end, .{ path_start, number }) catch unreachable;
 }
@@ -286,14 +286,14 @@ pub const launch_wait = std.time.ns_per_s;
 /// before the Reliant's rooms (`vr_rooms`) (`0x004AA1BA` on). The music starts to fade out by
 /// `music_fade_step`, and the archive of the disc that holds the rooms opens
 /// (`rooms.Carrier.disc`). If the mission's settings ask for it
-/// (`gameflow.CampaignMission.induction`), a new pilot's intro (`new_intro`) and induction
+/// (`gameflow.CampaignMission.Rules.induction`), a new pilot's intro (`new_intro`) and induction
 /// (`interface.induction`) come first. The original does this before mission 1 (`0x004AA229`).
 pub const CampaignStart = struct {
     disc: disc.Number,
     induction: bool,
 
     pub fn of(mission: u16) CampaignStart {
-        return .{ .disc = rooms.Carrier.of(mission).disc(), .induction = gameflow.campaignField(mission, .induction) };
+        return .{ .disc = rooms.Carrier.of(mission).disc(), .induction = gameflow.campaignField(mission, .rules).induction };
     }
 };
 
@@ -307,8 +307,8 @@ test CampaignStart {
     try std.testing.expectEqual(CampaignStart{ .disc = .one, .induction = false }, CampaignStart.of(19));
     // A campaign that gives the induction to another mission.
     var missions = gameflow.CampaignMission.original;
-    missions[0].induction = false;
-    missions[4].induction = true;
+    missions[0].rules.induction = false;
+    missions[4].rules.induction = true;
     gameflow.installMissions(&missions);
     defer gameflow.installMissions(&gameflow.CampaignMission.original);
     try std.testing.expectEqual(CampaignStart{ .disc = .two, .induction = false }, CampaignStart.of(1));
@@ -340,7 +340,7 @@ test launchFade {
 pub fn landsAfter(ending: Ending, mission: u16, second_part: bool) bool {
     return switch (ending) {
         .destroyed, .captured, .left => false,
-        else => !gameflow.missionRules(mission).second_part or second_part,
+        else => !gameflow.campaignField(mission, .rules).second_part or second_part,
     };
 }
 
@@ -397,7 +397,7 @@ pub fn afterMission(campaign: *gameflow.Campaign, player: *input.Player, variabl
         .friendly_fire => return .{ .restart = execution.get(carrier) },
         else => {},
     }
-    if (gameflow.missionRules(mission).second_part and !second_part.* and variables.mission_success != .total_failure) {
+    if (gameflow.campaignField(mission, .rules).second_part and !second_part.* and variables.mission_success != .total_failure) {
         second_part.* = true;
         return .second_part;
     }

@@ -67,15 +67,15 @@ const movies = [_][]const u8{ "new_m01", "new_m02", "new_m03", "new_m04", "new_m
 /// (`0x004E88C8`).
 const tag_format = "ms_speech\\enrbr_tag{d:0>2}.ut";
 
-/// What the briefing room plays before a mission: the movie on the room's screen, or Enriquez's
-/// words spoken over the room, as at the campaign's end; and her last word after the loadout.
-/// Where a name is null, nothing plays there.
+/// What the briefing room plays before a mission: the movie on the room's screen, or Enriquez
+/// speaking over the room, as at the campaign's end; and her last word after the loadout. Where a
+/// name is null, nothing plays there.
 pub const Plan = struct {
-    /// The movie, a Bink file of the game's or a mod's, such as `new_m01.bik`. Without a movie or
-    /// words, the briefing ends at once, for the loadout.
+    /// The movie, a Bink file from the game or a mod, such as `new_m01.bik`. Without a movie or
+    /// speech, the briefing ends at once and the loadout follows.
     hologram: ?[]const u8 = null,
-    /// Enriquez's words, a speech file of the game's or a mod's, which end the briefing as they
-    /// end. With a movie too, the movie plays on the room's screen without its sound while she
+    /// Enriquez's speech, a speech file from the game or a mod. The briefing ends when she
+    /// finishes. With a movie too, the movie plays on the room's screen without its sound while she
     /// speaks, and starts over if it ends first.
     ///
     /// **Improvement:** the original speaks words only at the campaign's end, with nothing on the
@@ -85,11 +85,11 @@ pub const Plan = struct {
     /// silent.
     last_word: ?[]const u8 = null,
 
-    /// Each campaign mission's, by its number from 1, as the original has them: the movie of
-    /// `movies` and the last word of `tag_format`.
+    /// The original's plan for each campaign mission, from mission 1: the movie from `movies` and
+    /// the last word from `tag_format`.
     ///
-    /// **Improvement:** the original's are fixed by the mission's number. OpenReliant's records
-    /// hold them, which mods change (`openreliant.records.missions`,
+    /// **Improvement:** the original fixes them by the mission's number. In OpenReliant they are
+    /// part of the mission's settings, which mods can change (`openreliant.records.missions`,
     /// [#976](https://github.com/OpenReliant/openreliant/issues/976)).
     pub const campaign: [movies.len]Plan = plans: {
         var plans: [movies.len]Plan = undefined;
@@ -514,9 +514,9 @@ pub const Briefing = struct {
     }
 
     /// Enters the room at the timer count `ticks` (`0x004373BB` on): the voices fade out, Enriquez
-    /// starts her animation, and the room's screen starts the mission's movie; or, at the
-    /// campaign's end, or where the campaign's records give the mission her words, she speaks. A
-    /// movie the records also give plays without its sound while she does.
+    /// starts her animation, and the room's screen starts the mission's movie. At the campaign's
+    /// end, or where the mission's plan has speech, she speaks instead, and a movie in the plan
+    /// plays without its sound while she does.
     fn begin(briefing: *Briefing, ticks: u32) void {
         briefing.context.sound.fadeAll(voices_fade_step);
         briefing.stage = .briefing;
@@ -528,7 +528,7 @@ pub const Briefing = struct {
         if (briefing.spoken()) |words| {
             briefing.readWords(words);
             briefing.sayWords(words);
-            // A movie the records also give plays under her words, without its sound.
+            // A movie in the plan plays while she speaks, without its sound.
             const name = briefing.movie() orelse return;
             briefing.film.open(briefing.context, name, .briefing);
             const player = &(briefing.film.player orelse return);
@@ -548,9 +548,9 @@ pub const Briefing = struct {
     }
 
     /// A pass of the briefing's loop (`0x004374F0` on), `in` read: O asks for a screenshot
-    /// (`0x004375F1`); then Escape, the right button, or the movie's end ends it; where Enriquez
-    /// speaks, the end of her words, which Escape and the right button stop, whatever the movie
-    /// does.
+    /// (`0x004375F1`); then Escape, the right button, or the movie's end ends it. Where Enriquez
+    /// speaks, the end of her speech ends it instead, whatever the movie does, and Escape and the
+    /// right button stop her.
     fn briefingPass(briefing: *Briefing, in: Input) ?Step {
         briefing.screenshot = in.keyboard.pressed(@backingInt(screenshot_key), .none, true);
         const sound = briefing.context.sound;
@@ -675,8 +675,8 @@ pub const Briefing = struct {
         return movieName(briefing.mission);
     }
 
-    /// Enriquez's words: at the campaign's end, `end_debriefing`; otherwise the records' for the
-    /// mission, where they give her any.
+    /// Enriquez's speech: at the campaign's end, `end_debriefing`; otherwise the speech in the
+    /// mission's plan, if any.
     fn spoken(briefing: *const Briefing) ?[]const u8 {
         if (briefing.mission == end_mission) return end_debriefing;
         if (briefing.own != null) return null;

@@ -65,24 +65,29 @@ pub const Field = enum {
             .objectives => values.List([]const u8, hud.Objectives.per_mission),
             .tier, .chapter => ?u8,
             .medal => ?gameflow.Medal,
-            .induction, .lesson => bool,
             .only_ship => ?gameobj.Type,
             .television_report => values.List(ReportPart, most_parts),
             .debriefing => Debriefing,
             .news => values.List(NewsItem, most_items),
             .video_reports => values.List(VideoReport, most_items),
-            .wing_twins, .flying_tigers, .second_part, .kamov_wing, .close_ion_cannons, .hurried_turrets, .ripper_from_below, .wide_advanced_gate, .counts_kills, .terminate_ends_well => bool,
+            else => if (field.isRule()) bool else @compileError("no type for " ++ @tagName(field)),
         };
+    }
+
+    /// Whether the field is one of the mission's rules (`gameflow.CampaignMission.Rules`), which
+    /// scripts read and set as booleans.
+    fn isRule(comptime field: Field) bool {
+        return @hasField(gameflow.CampaignMission.Rules, @tagName(field));
     }
 
     /// What the reference says of the field.
     pub fn about(field: Field) []const u8 {
         return switch (field) {
-            .hologram => "The movie on the briefing room's screen, a Bink file of the game's or a mod's, such as `new_m01.bik`; nil for none.",
-            .speech => "Enriquez's words spoken over the briefing room, a speech file of the game's or a mod's, which end the briefing as they end; nil for none. With words, the movie plays on the screen without its sound, and starts over if it ends before she does; set `hologram` to nil for an empty screen.",
+            .hologram => "The movie on the briefing room's screen, a Bink file from the game or a mod, such as `new_m01.bik`; nil for none.",
+            .speech => "Enriquez's briefing spoken over the briefing room, a speech file from the game or a mod; nil for none. The briefing ends when she finishes. While she speaks, the movie plays on the screen without its sound, and starts over if it ends first; set `hologram` to nil for an empty screen.",
             .last_word => "Enriquez's last word after the loadout, a speech file such as `ms_speech\\enrbr_tag01.ut`; nil leaves her silent.",
-            .carrier => "The carrier the mission is flown from, whose rooms, briefing room, loadout and hangar the player sees.",
-            .objectives => "The names of the objectives, which the mission's script numbers from 0 in `SetObjective`, at most ten. Reading gives a new list; assign a list to change them, or nil for the names the game's own table gives the mission's number.",
+            .carrier => "The carrier the mission is flown from. The player sees its rooms, briefing room, loadout and hangar.",
+            .objectives => "The names of the objectives, at most ten, which the mission's script numbers from 0 in `SetObjective`. Reading gives a new list; assign a list to change them, or nil for the names in the game's own table for the mission's number.",
             .date => "The date the launch shows, which is the game's text for the mission's number; nil for a mission the game has no date for.",
             .tier => "The loadout tier the campaign moves to when the mission ends, from 1 to 3; nil to leave the tier as it is. The tier and the pilot's rank decide which ships the loadout offers. The loadout before a mission uses the highest tier of the missions with lower numbers.",
             .chapter => "The chapter of the story the mission ends, from 1 to 5; nil if it ends none. The pilot gets the chapter's ribbon, the debriefing mentions it, and the chapter's movie plays after the landing.",
@@ -93,7 +98,8 @@ pub const Field = enum {
             .television_report => "Enriquez's report on the rooms' television before the mission, as a list of parts that play one after another; an empty list for none. Reading gives a new list; assign a list to change it.",
             .debriefing => "Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs.",
             .news => "The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them.",
-            .wing_twins => "Whether the player's wing flies the `t_` twins of the player's ships, as from mission 14 on.",
+            .video_reports => "The video reports that VIDEO REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. Reading gives a new list; assign a list to change them.",
+            .wing_twins => "Whether the player's wing flies the `t_` twins of the player's ships, as in missions 14 and later.",
             .flying_tigers => "Whether the 45th fly as the 45th Flying Tigers rather than the 45th Volunteers, in the radio's films and in Moose's remarks, as after mission 13.",
             .second_part => "Whether the mission has a second part, `mission<number>1.dte`, flown once the first part is won, as mission 25 has. The second part has no landing before it.",
             .kamov_wing => "Whether the player's wing flies Kamovs, in the first part where the mission has two, as in mission 25. The Kamov's schematic is then drawn mirrored.",
@@ -101,20 +107,19 @@ pub const Field = enum {
             .hurried_turrets => "Whether the missile turrets wait half as long between launches, as in mission 28.",
             .ripper_from_below => "Whether the Ripper lifts an object from below rather than from above, as in mission 26.",
             .wide_advanced_gate => "Whether the advanced warp gates' tunnels are as wide as the prototype's, as in mission 8.",
-            .counts_kills => "Whether the player's kills count toward the mission's tally, as up to mission 27.",
+            .counts_kills => "Whether the player's kills count toward the mission's tally, as in missions 1 to 27.",
             .terminate_ends_well => "Whether the mission's script can end it with `TerminateMission` without the ending counting as the player's ship destroyed, as in mission 28.",
-            .video_reports => "The video reports that VIDEO REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. Reading gives a new list; assign a list to change them.",
         };
     }
 };
 
 comptime {
-    // Each of the rules is a field of a mission's, of the same name.
+    // Every rule has a field of the same name.
     for (@typeInfo(gameflow.CampaignMission.Rules).@"struct".field_names) |name| std.debug.assert(@hasField(Field, name));
 }
 
-/// The most paragraphs a script gives a debriefing, a news item or a video report, the most news
-/// items or video reports it gives a mission, and the most parts it gives a report.
+/// Limits on what a script gives: the paragraphs of a debriefing, a news item or a video report,
+/// the news items or video reports of a mission, and the parts of a report.
 const most_paragraphs = 16;
 const most_items = 16;
 const most_parts = 8;
@@ -125,7 +130,7 @@ const Paragraphs = values.List([]const u8, most_paragraphs);
 pub const ReportPart = struct {
     pub const script_name = "ReportPart";
 
-    /// Enriquez's scene, a `.box` file of the game's or a mod's, such as `0015.box`.
+    /// Enriquez's scene, a `.box` file from the game or a mod, such as `0015.box`.
     scene: []const u8,
     /// The movie the scene plays over; nil for the carrier's television.
     movie: ?[]const u8 = null,
@@ -167,7 +172,7 @@ pub const VideoReport = struct {
     paragraphs: Paragraphs = .{},
     /// The shape of its still in `inter\itac\vidrep.spr`.
     still: u16,
-    /// Its movie, a Bink file of the game's or a mod's.
+    /// Its movie, a Bink file from the game or a mod.
     movie: []const u8,
     /// The carrier whose disc holds the movie.
     carrier: rooms.Carrier,
@@ -188,7 +193,7 @@ const Missions = struct {
 /// The userdata for one campaign mission.
 const Mission = struct {
     records: *Records,
-    /// Its place in the records' table: its number less the first's.
+    /// Its index in the records' table: its number minus the first mission's.
     place: usize,
     writable: bool,
 
@@ -340,9 +345,8 @@ fn get(state: *State) i32 {
             const value: ?u8 = if (@field(settings, @tagName(field))) |number| number else null;
             values.push(state, ?u8, value);
         },
-        inline .medal, .induction, .lesson, .only_ship => |field| values.push(state, Field.Type(field), @field(settings, @tagName(field))),
+        inline .medal, .only_ship => |field| values.push(state, Field.Type(field), @field(settings, @tagName(field))),
         inline .television_report, .news, .video_reports => |field| pushItems(state, mission.records, @field(settings, @tagName(field))),
-        inline .wing_twins, .flying_tigers, .second_part, .kamov_wing, .close_ion_cannons, .hurried_turrets, .ripper_from_below, .wide_advanced_gate, .counts_kills, .terminate_ends_well => |field| state.pushBoolean(@field(settings.rules, @tagName(field))),
         .debriefing => {
             state.newTable(0, debriefing.ratings);
             inline for (@typeInfo(Debriefing).@"struct".field_names, settings.debriefing) |rating, paragraphs| {
@@ -356,6 +360,10 @@ fn get(state: *State) i32 {
                 return 1;
             };
             records.pushText(state, mission.records.text[text - 1]);
+        },
+        inline else => |field| {
+            comptime std.debug.assert(field.isRule());
+            state.pushBoolean(@field(settings.rules, @tagName(field)));
         },
     }
     return 1;
@@ -378,7 +386,7 @@ fn setField(state: *State, mission: Mission, field: Field, given: i32) void {
         inline .hologram, .speech, .last_word => |name| {
             const label = comptime script_name ++ "." ++ @tagName(name);
             const file = values.read(state, ?[]const u8, given, label);
-            @field(settings.briefing, @tagName(name)) = if (file) |text| held.arena.dupe(u8, text) catch state.raise(label ++ ": out of memory", .{}) else null;
+            @field(settings.briefing, @tagName(name)) = if (file) |text| fileName(state, held, text, label) else null;
         },
         .carrier => settings.carrier = values.read(state, rooms.Carrier, given, script_name ++ ".carrier"),
         .objectives => {
@@ -398,11 +406,8 @@ fn setField(state: *State, mission: Mission, field: Field, given: i32) void {
         },
         .tier => settings.tier = readNumber(state, gameflow.CampaignMission.Tier, given, gameflow.last_tier, script_name ++ ".tier"),
         .chapter => settings.chapter = readNumber(state, gameflow.CampaignMission.Chapter, given, gameflow.last_chapter, script_name ++ ".chapter"),
-        inline .medal, .induction, .lesson, .only_ship => |name| {
+        inline .medal, .only_ship => |name| {
             @field(settings, @tagName(name)) = values.read(state, Field.Type(name), given, script_name ++ "." ++ @tagName(name));
-        },
-        inline .wing_twins, .flying_tigers, .second_part, .kamov_wing, .close_ion_cannons, .hurried_turrets, .ripper_from_below, .wide_advanced_gate, .counts_kills, .terminate_ends_well => |name| {
-            @field(settings.rules, @tagName(name)) = values.read(state, bool, given, script_name ++ "." ++ @tagName(name));
         },
         inline .television_report, .news, .video_reports => |name| {
             const label = comptime script_name ++ "." ++ @tagName(name);
@@ -416,6 +421,10 @@ fn setField(state: *State, mission: Mission, field: Field, given: i32) void {
             inline for (&settings.debriefing, @typeInfo(Debriefing).@"struct".field_names) |*paragraphs, rating| {
                 paragraphs.* = paragraphsOf(state, held, @field(read, rating).slice(), label);
             }
+        },
+        inline else => |name| {
+            comptime std.debug.assert(name.isRule());
+            @field(settings.rules, @tagName(name)) = values.read(state, bool, given, script_name ++ "." ++ @tagName(name));
         },
     }
 }
@@ -432,8 +441,8 @@ fn keptItems(comptime Kept: type, state: *State, held: *Records, given: anytype,
             @field(item, name) = switch (Type) {
                 language.Words => .{ .text = records.encoded(state, held.arena, value, label) },
                 []const language.Words => paragraphsOf(state, held, value.slice(), label),
-                []const u8 => kept(state, held, value, label),
-                ?[]const u8 => if (value) |text| kept(state, held, text, label) else null,
+                []const u8 => fileName(state, held, value, label),
+                ?[]const u8 => if (value) |text| fileName(state, held, text, label) else null,
                 else => value,
             };
         }
@@ -462,7 +471,7 @@ fn pushItems(state: *State, held: *const Records, items: anytype) void {
 }
 
 /// `text`, a file's name a script gave, copied into the records' arena.
-fn kept(state: *State, held: *Records, text: []const u8, comptime label: []const u8) []const u8 {
+fn fileName(state: *State, held: *Records, text: []const u8, comptime label: []const u8) []const u8 {
     return held.arena.dupe(u8, text) catch state.raise(label ++ ": out of memory", .{});
 }
 
@@ -473,7 +482,7 @@ fn paragraphsOf(state: *State, held: *Records, given: []const []const u8, compti
     return paragraphs;
 }
 
-/// Pushes `words` as UTF-8, a string read from the ITAC's text.
+/// Pushes `words` as UTF-8, reading a string number from the ITAC's text.
 fn pushWords(state: *State, held: *const Records, words: language.Words) void {
     records.pushText(state, words.in(held.language(.itac_text)));
 }
@@ -717,7 +726,7 @@ test "a campaign mission's awards and special cases" {
     try std.testing.expectEqual(gameobj.Type.of(.tempest), twelve.only_ship);
     try std.testing.expectEqual(null, held.missions[10].medal);
     try std.testing.expectEqual(null, held.missions[10].chapter);
-    try std.testing.expect(held.missions[10].induction);
+    try std.testing.expect(held.missions[10].rules.induction);
 
     try bind.testing.expectSourceError(thread, "records.missions[12].tier = 4", "CampaignMission.tier: expected a number from 1 to 3");
     try bind.testing.expectSourceError(thread, "records.missions[12].chapter = 0", "CampaignMission.chapter: expected a number from 1 to 5");

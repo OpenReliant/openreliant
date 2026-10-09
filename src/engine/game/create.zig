@@ -840,9 +840,9 @@ pub const Objects = struct {
         return .{ .tier = tier };
     }
 
-    /// The rules the mission played follows (`gameflow.missionRules`).
+    /// The rules the mission played follows (`gameflow.campaignField`).
     pub fn rules(all: *const Objects) gameflow.CampaignMission.Rules {
-        return gameflow.missionRules(all.mission_number);
+        return gameflow.campaignField(all.mission_number, .rules);
     }
 
     /// Whether the player's wing flies Kamovs: in a mission whose rules say so, mission 25 in the

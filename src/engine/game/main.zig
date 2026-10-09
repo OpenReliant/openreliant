@@ -684,7 +684,7 @@ fn runLock(world: gameobj.World, display: *hud.State) void {
 /// say it ends well (`gameflow.CampaignMission.Rules.terminate_ends_well`, from mission 28 in the
 /// original; `0x00494204`).
 pub fn missionRunEnd(player: *input.Player, mission_number: u16) void {
-    if (player.terminated != 0 and !gameflow.missionRules(mission_number).terminate_ends_well) player.ending = .destroyed;
+    if (player.terminated != 0 and !gameflow.campaignField(mission_number, .rules).terminate_ends_well) player.ending = .destroyed;
 }
 
 test missionRunEnd {

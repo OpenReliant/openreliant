@@ -216,7 +216,7 @@ pub fn lastWithoutLanding(number: u16, variables: *vm.Variables) bool {
 pub fn landing(mission: u16, second_part: bool, ending: Ending, variables: *vm.Variables) ?Landing {
     // Mission 25's second part may come numbered 251, which counts as 25 (`0x004ABE8D`).
     const number = if (mission == mission25_second_part) mission25 else mission;
-    const first_part = gameflow.missionRules(number).second_part and !second_part;
+    const first_part = gameflow.campaignField(number, .rules).second_part and !second_part;
     if (!first_part and lastWithoutLanding(number, variables)) return null;
     if (ending.sentHome()) return null;
     const rating = variables.mission_success;

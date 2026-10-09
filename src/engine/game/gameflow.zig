@@ -527,11 +527,10 @@ pub fn campaignOrder() *const Order {
     return &installed;
 }
 
-/// What the campaign uses for one of its missions besides the mission's file: the briefing room's
-/// movie and speech, the carrier, the objectives' names, what the mission awards, the special cases
-/// the original ties to missions 1 and 23, Enriquez's report and debriefing, and the ITAC's news
-/// items and video reports, and the rules the original applies to particular missions. The
-/// original decides each of these by the mission's number.
+/// What the campaign uses for one of its missions besides the mission's file, which the original
+/// decides by the mission's number: the briefing, the carrier, the objectives' names, what the
+/// mission awards, Enriquez's report and debriefing, the ITAC's news, and the rules for particular
+/// missions.
 ///
 /// **Improvement:** OpenReliant keeps them in a table indexed by the mission's number, and mods
 /// can change it (`openreliant.records.missions`,
@@ -552,12 +551,6 @@ pub const CampaignMission = struct {
     /// plays when the pilot gets it. After a mission with a medal, the crew in the rooms honour the
     /// pilot, even if the pilot didn't get it (`crew.kindOf`).
     medal: ?Medal = null,
-    /// Whether a new pilot sees the intro and the induction before this mission, when a campaign
-    /// starts with it (`winmain.CampaignStart`).
-    induction: bool = false,
-    /// Whether the loadout before this mission teaches the player, as mission 1's does: it starts
-    /// on the Predator with the tier's missiles, plays `loadout.ut` and blinks its exit button.
-    lesson: bool = false,
     /// The only ship the loadout before this mission offers, as mission 23's offers the Shroud;
     /// null for the ships the tier and the rank open. The loadout starts on it with the tier's
     /// missiles.
@@ -576,8 +569,15 @@ pub const CampaignMission = struct {
     rules: Rules = .{},
 
     /// The rules the original applies to particular missions by their numbers. Each is a question
-    /// the engine asks of the mission (`missionRules`) where the original compares its number.
+    /// the engine asks of the mission (`campaignField`) where the original compares its number.
     pub const Rules = struct {
+        /// A new pilot sees the intro and the induction before the mission, when a campaign starts
+        /// with it (`winmain.CampaignStart`).
+        induction: bool = false,
+        /// The loadout before the mission teaches the player: it starts on the Predator with the
+        /// tier's missiles, plays `loadout.ut` and blinks its exit button
+        /// (`loadout.Context.teaches`).
+        lesson: bool = false,
         /// The player's wing flies the `t_` twins of the player's ships
         /// (`create.Objects.slotType`).
         wing_twins: bool = false,
@@ -608,6 +608,8 @@ pub const CampaignMission = struct {
         /// The original's rules for mission `number`, for any number.
         pub fn original(number: u16) Rules {
             return .{
+                .induction = number == first,
+                .lesson = number == first,
                 .wing_twins = number >= twins_from,
                 .flying_tigers = number > last_volunteers,
                 .second_part = number == kamov_raid,
@@ -621,6 +623,9 @@ pub const CampaignMission = struct {
             };
         }
 
+        /// The mission a new pilot's induction comes before (`0x004AA229`), and whose loadout
+        /// teaches (`0x00441B6F`).
+        const first = 1;
         /// The first mission whose wing flies the twins (`create_object`, `mission_ship_create`).
         const twins_from = 14;
         /// The last mission the 45th fly as the Volunteers (`hudmovie_play`'s tables from
@@ -656,8 +661,6 @@ pub const CampaignMission = struct {
                 .tier = if (mission_tiers[number - 1] == 0) null else mission_tiers[number - 1],
                 .chapter = ribbonOf(number),
                 .medal = Medal.of(number),
-                .induction = number == original_induction,
-                .lesson = number == original_lesson,
                 .only_ship = if (number == original_shroud) .of(.shroud) else null,
                 .television_report = rooms.News.original(number),
                 .debriefing = debriefing.original(number),
@@ -669,11 +672,7 @@ pub const CampaignMission = struct {
         break :missions missions;
     };
 
-    /// The missions the original singles out by number: a new pilot's induction comes before
-    /// mission 1 (`0x004AA229`), the loadout teaches in mission 1 (`0x00441B6F`), and it offers
-    /// only the Shroud in mission 23 (`0x0044341E`).
-    const original_induction = 1;
-    const original_lesson = 1;
+    /// The mission whose loadout offers only the Shroud in the original (`0x0044341E`).
     const original_shroud = 23;
 };
 
@@ -705,20 +704,20 @@ pub fn campaignMission(mission: u16) ?*const CampaignMission {
     return &installed_missions[mission - first_mission];
 }
 
-/// The rules for mission `mission`: its settings', or for a mission outside the campaign's table,
-/// such as Instant Action's or a training mission, the original's for its number.
-pub fn missionRules(mission: u16) CampaignMission.Rules {
-    if (campaignMission(mission)) |settings| return settings.rules;
-    return .original(mission);
-}
-
-/// Field `field` of mission `mission`'s settings. A mission outside the campaign's table gets the
-/// field's default: no awards and no special cases.
+/// Field `field` of mission `mission`'s settings. A mission outside the campaign's table, such as
+/// Instant Action's or a training mission, has the original's carrier and rules for its number,
+/// and the defaults for the rest: no awards, no special cases, no report and no news.
 pub fn campaignField(mission: u16, comptime field: std.meta.FieldEnum(CampaignMission)) @FieldType(CampaignMission, @tagName(field)) {
     if (campaignMission(mission)) |settings| return @field(settings, @tagName(field));
-    const info = @typeInfo(CampaignMission).@"struct";
-    const at = @backingInt(field);
-    return comptime info.field_attrs[at].defaultValue(info.field_types[at]).?;
+    switch (field) {
+        .carrier => return .original(mission),
+        .rules => return .original(mission),
+        else => {
+            const info = @typeInfo(CampaignMission).@"struct";
+            const at = @backingInt(field);
+            return comptime info.field_attrs[at].defaultValue(info.field_types[at]).?;
+        },
+    }
 }
 
 /// The names campaign mission `mission` gives its objectives, in place of its row of the game's
@@ -868,7 +867,7 @@ test "the original's rules by mission number" {
     }
     // A mission outside the campaign's table, such as Instant Action's 29, follows the original's
     // rules for its number.
-    const instant_action = missionRules(29);
+    const instant_action = campaignField(29, .rules);
     try std.testing.expect(instant_action.wing_twins and instant_action.flying_tigers and instant_action.terminate_ends_well);
     try std.testing.expect(!instant_action.counts_kills and !instant_action.second_part);
     // A mod's rule stands in for the original's.
@@ -876,17 +875,17 @@ test "the original's rules by mission number" {
     missions[26].rules.second_part = true;
     installMissions(&missions);
     defer installMissions(&CampaignMission.original);
-    try std.testing.expect(missionRules(27).second_part);
+    try std.testing.expect(campaignField(27, .rules).second_part);
 }
 
 test campaignField {
     try std.testing.expectEqual(.black_eagle, campaignField(11, .medal));
     try std.testing.expectEqual(1, campaignField(11, .tier));
-    try std.testing.expect(campaignField(1, .induction));
+    try std.testing.expect(campaignField(1, .rules).induction);
     // A mission outside the table, such as Instant Action's, gets no awards and no special cases.
     try std.testing.expectEqual(null, campaignField(40, .medal));
     try std.testing.expectEqual(null, campaignField(0, .chapter));
-    try std.testing.expect(!campaignField(40, .lesson));
+    try std.testing.expect(!campaignField(40, .rules).lesson);
 }
 
 test "a mission's end awards what its settings hold" {
