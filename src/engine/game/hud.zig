@@ -2923,13 +2923,15 @@ pub const Objectives = struct {
         _,
     };
 
-    /// The table's rows past the missions' own: mission 25's second part.
+    /// The table's rows past the missions' own: mission 25's second part. The table is the
+    /// original's, so the row is mission 25's whichever missions have second parts.
     const second_part_row = 35;
+    const second_part_mission = 25;
 
     /// The table's row for mission `mission`, or its second part's: missions 1 to 35 in turn, then
     /// mission 25's second part (`hud_window_draw`, `0x00486CDE`). Null for the rest.
     pub fn rowOf(mission: u16, second_part: bool) ?usize {
-        if (mission == create.kamov_mission and second_part) return second_part_row;
+        if (mission == second_part_mission and second_part) return second_part_row;
         if (mission == 0 or mission > second_part_row) return null;
         return mission - 1;
     }
@@ -3791,7 +3793,7 @@ pub const State = struct {
             if (!shown) continue;
             try readout.draw(placing.pen(pen, readout.instrument()), readout.value(slot, frame.player));
         }
-        const status = ShipStatus.ofPlayer(slot, frame.all.mission_number, &state.ship_hits, frame.player.shield_reserves);
+        const status = ShipStatus.ofPlayer(slot, frame.all.rules().kamov_wing, &state.ship_hits, frame.player.shield_reserves);
         state.flashes.hits = status.hits;
         const status_pen = placing.pen(pen, .ship_status);
         try ShipStatus.draw(status, .player, status_pen, status_pen.placed(ShipStatus.offset, ShipStatus.across, ShipStatus.down), null);
@@ -4760,14 +4762,14 @@ pub const ShipStatus = struct {
 
     /// Mode 0 for the player's ship of `slot`, in mission `mission`: its schematic, the hits taken
     /// out of `hits` for a type the target display shows in its small form, its rings, and what
-    /// SHIELD BALANCING has shifted. In mission 25, a Kamov's schematic is drawn mirrored across,
-    /// but not its hits (`0x004895BE`, `0x00489600`).
-    pub fn ofPlayer(slot: *const create.Slot, mission: u16, hits: *Hits, reserves: gameobj.ShieldReserves) Shown {
+    /// SHIELD BALANCING has shifted. Where the player's wing flies Kamovs, `kamov_wing`, a Kamov's
+    /// schematic is drawn mirrored across, but not its hits (`0x004895BE`, `0x00489600`).
+    pub fn ofPlayer(slot: *const create.Slot, kamov_wing: bool, hits: *Hits, reserves: gameobj.ShieldReserves) Shown {
         const found, const shifted = playerRings(slot, reserves);
         var shown: Shown = .{ .rings = found, .reserves = shifted };
         const loaded = slot.type orelse return shown;
         shown.schematic = loaded.schematic orelse return shown;
-        shown.schematic_mirrored = mission == create.kamov_mission and slot.object.type.base() == .kamov;
+        shown.schematic_mirrored = kamov_wing and slot.object.type.base() == .kamov;
         const small = if (slot.combat) |combat| combat.display == .small else false;
         if (small) shown.hits = take(hits);
         return shown;
@@ -4922,12 +4924,12 @@ test "in mission 25, a Kamov's schematic is drawn mirrored, but not its hits" {
     loaded.schematic = .{ .art = undefined, .gpa = std.testing.allocator };
     slot.type = &loaded;
     var hits: Hits = .empty;
-    const shown = ShipStatus.ofPlayer(slot, create.kamov_mission, &hits, .{});
+    const shown = ShipStatus.ofPlayer(slot, true, &hits, .{});
     try std.testing.expect(shown.schematic_mirrored and !shown.hits_mirrored);
     // In another mission, or in another ship, it is drawn as it is.
-    try std.testing.expect(!ShipStatus.ofPlayer(slot, create.kamov_mission - 1, &hits, .{}).schematic_mirrored);
+    try std.testing.expect(!ShipStatus.ofPlayer(slot, false, &hits, .{}).schematic_mirrored);
     slot.object.type = .of(.sabre);
-    try std.testing.expect(!ShipStatus.ofPlayer(slot, create.kamov_mission, &hits, .{}).schematic_mirrored);
+    try std.testing.expect(!ShipStatus.ofPlayer(slot, true, &hits, .{}).schematic_mirrored);
 }
 
 test "the rings follow the shields and the armour" {
@@ -4954,12 +4956,12 @@ test "the rings follow the shields and the armour" {
     try std.testing.expectEqual(null, ShipStatus.rings(slot));
     var own_hits: Hits = .empty;
     const shield_power: f32 = @floatFromInt(combat.shield_power);
-    try std.testing.expectEqual(null, ShipStatus.ofPlayer(slot, 1, &own_hits, .{ .fore = 5 * shield_power }).reserves);
+    try std.testing.expectEqual(null, ShipStatus.ofPlayer(slot, false, &own_hits, .{ .fore = 5 * shield_power }).reserves);
 
     // Mode 0 shows what SHIELD BALANCING shifted as levels of the shield power.
     slot.object.type = .of(.sabre);
     own_hits.insert(.aft);
-    const player = ShipStatus.ofPlayer(slot, 1, &own_hits, .{ .fore = 5 * shield_power, .aft = 0 });
+    const player = ShipStatus.ofPlayer(slot, false, &own_hits, .{ .fore = 5 * shield_power, .aft = 0 });
     try std.testing.expectEqual([2]i32{ 4, -1 }, player.reserves.?);
     try std.testing.expect(player.rings != null);
     // With no schematic loaded, the hits stay for the next time.

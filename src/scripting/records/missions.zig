@@ -46,6 +46,16 @@ pub const Field = enum {
     debriefing,
     news,
     video_reports,
+    wing_twins,
+    flying_tigers,
+    second_part,
+    kamov_wing,
+    close_ion_cannons,
+    hurried_turrets,
+    ripper_from_below,
+    wide_advanced_gate,
+    counts_kills,
+    terminate_ends_well,
 
     /// The type of the value scripts read, which the definitions and the reference show.
     pub fn Type(comptime field: Field) type {
@@ -61,6 +71,7 @@ pub const Field = enum {
             .debriefing => Debriefing,
             .news => values.List(NewsItem, most_items),
             .video_reports => values.List(VideoReport, most_items),
+            .wing_twins, .flying_tigers, .second_part, .kamov_wing, .close_ion_cannons, .hurried_turrets, .ripper_from_below, .wide_advanced_gate, .counts_kills, .terminate_ends_well => bool,
         };
     }
 
@@ -82,10 +93,25 @@ pub const Field = enum {
             .television_report => "Enriquez's report on the rooms' television before the mission, as a list of parts that play one after another; an empty list for none. Reading gives a new list; assign a list to change it.",
             .debriefing => "Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs.",
             .news => "The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them.",
+            .wing_twins => "Whether the player's wing flies the `t_` twins of the player's ships, as from mission 14 on.",
+            .flying_tigers => "Whether the 45th fly as the 45th Flying Tigers rather than the 45th Volunteers, in the radio's films and in Moose's remarks, as after mission 13.",
+            .second_part => "Whether the mission has a second part, `mission<number>1.dte`, flown once the first part is won, as mission 25 has. The second part has no landing before it.",
+            .kamov_wing => "Whether the player's wing flies Kamovs, in the first part where the mission has two, as in mission 25. The Kamov's schematic is then drawn mirrored.",
+            .close_ion_cannons => "Whether the ion cannons' lock lets a player's ship come much closer before it breaks, as in mission 28.",
+            .hurried_turrets => "Whether the missile turrets wait half as long between launches, as in mission 28.",
+            .ripper_from_below => "Whether the Ripper lifts an object from below rather than from above, as in mission 26.",
+            .wide_advanced_gate => "Whether the advanced warp gates' tunnels are as wide as the prototype's, as in mission 8.",
+            .counts_kills => "Whether the player's kills count toward the mission's tally, as up to mission 27.",
+            .terminate_ends_well => "Whether the mission's script can end it with `TerminateMission` without the ending counting as the player's ship destroyed, as in mission 28.",
             .video_reports => "The video reports that VIDEO REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. Reading gives a new list; assign a list to change them.",
         };
     }
 };
+
+comptime {
+    // Each of the rules is a field of a mission's, of the same name.
+    for (@typeInfo(gameflow.CampaignMission.Rules).@"struct".field_names) |name| std.debug.assert(@hasField(Field, name));
+}
 
 /// The most paragraphs a script gives a debriefing, a news item or a video report, the most news
 /// items or video reports it gives a mission, and the most parts it gives a report.
@@ -316,6 +342,7 @@ fn get(state: *State) i32 {
         },
         inline .medal, .induction, .lesson, .only_ship => |field| values.push(state, Field.Type(field), @field(settings, @tagName(field))),
         inline .television_report, .news, .video_reports => |field| pushItems(state, mission.records, @field(settings, @tagName(field))),
+        inline .wing_twins, .flying_tigers, .second_part, .kamov_wing, .close_ion_cannons, .hurried_turrets, .ripper_from_below, .wide_advanced_gate, .counts_kills, .terminate_ends_well => |field| state.pushBoolean(@field(settings.rules, @tagName(field))),
         .debriefing => {
             state.newTable(0, debriefing.ratings);
             inline for (@typeInfo(Debriefing).@"struct".field_names, settings.debriefing) |rating, paragraphs| {
@@ -373,6 +400,9 @@ fn setField(state: *State, mission: Mission, field: Field, given: i32) void {
         .chapter => settings.chapter = readNumber(state, gameflow.CampaignMission.Chapter, given, gameflow.last_chapter, script_name ++ ".chapter"),
         inline .medal, .induction, .lesson, .only_ship => |name| {
             @field(settings, @tagName(name)) = values.read(state, Field.Type(name), given, script_name ++ "." ++ @tagName(name));
+        },
+        inline .wing_twins, .flying_tigers, .second_part, .kamov_wing, .close_ion_cannons, .hurried_turrets, .ripper_from_below, .wide_advanced_gate, .counts_kills, .terminate_ends_well => |name| {
+            @field(settings.rules, @tagName(name)) = values.read(state, bool, given, script_name ++ "." ++ @tagName(name));
         },
         inline .television_report, .news, .video_reports => |name| {
             const label = comptime script_name ++ "." ++ @tagName(name);
@@ -625,6 +655,32 @@ test "a campaign mission's report, debriefing, news and video reports" {
     try bind.testing.expectSourceError(thread, "records.missions[12].news = { { title = 'x' } }", "the field 'picture' is missing");
     try bind.testing.expectSourceError(thread, "records.missions[12].debriefing = { excellent = {} }", "there's no field 'excellent'");
     try bind.testing.expectSourceError(thread, "records.missions[12].video_reports = { { title = 'x', still = 1, movie = 'x.bik', carrier = 'nanny' } }", "CampaignMission.video_reports.carrier");
+}
+
+test "a campaign mission's rules" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var text: [1010][]const u8 = undefined;
+    var held = try testRecords(arena.allocator(), &text);
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    const thread = testThread(state, &held, true);
+
+    try bind.testing.runSource(thread,
+        \\local missions = records.missions
+        \\-- The original's, by the mission's number.
+        \\assert(missions[25].second_part and missions[25].kamov_wing and not missions[24].second_part)
+        \\assert(missions[14].wing_twins and missions[14].flying_tigers and not missions[13].flying_tigers)
+        \\assert(missions[28].hurried_turrets and not missions[28].counts_kills and missions[27].counts_kills)
+        \\-- A replacement campaign's mission 25 is a mission like any other.
+        \\missions[25].second_part = false
+        \\missions[25].kamov_wing = false
+        \\missions[12] = { wing_twins = true, terminate_ends_well = true }
+    );
+    try std.testing.expect(!held.missions[24].rules.second_part and !held.missions[24].rules.kamov_wing);
+    try std.testing.expect(held.missions[11].rules.wing_twins and held.missions[11].rules.terminate_ends_well);
+    try std.testing.expect(!held.missions[11].rules.flying_tigers);
+    try bind.testing.expectSourceError(thread, "records.missions[12].counts_kills = 1", "CampaignMission.counts_kills");
 }
 
 test "a campaign mission's awards and special cases" {

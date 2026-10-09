@@ -184,8 +184,11 @@ fn reportsAfter(mission: u16, variables: *vm.Variables) Reports {
     return chosen;
 }
 
-/// Mission 27, which ends without the landing as mission 25's second part may.
+/// Missions 25 and 27, which end without the landing where `yamato_alive` is clear, and the number
+/// mission 25's second part may come as (`0x004ABE8D`).
+const mission25 = 25;
 const mission27 = 27;
+const mission25_second_part = 251;
 
 /// The missions the ship lands on the Yamato after while the Reliant is its carrier, taking a
 /// failure's thread and bank: mission 7, and mission 8 where `reliant_alive` is clear.
@@ -196,7 +199,7 @@ const yamato_visit_without_reliant = 8;
 /// after it, where it is 25's second part, and a total failure in it ends the pilot's career in the
 /// shuttle at Fort Bear (`winmain.afterMission`).
 pub fn lastWithoutLanding(number: u16, variables: *vm.Variables) bool {
-    return (number == winmain.second_part_mission or number == mission27) and variables.yamato_alive == 0;
+    return (number == mission25 or number == mission27) and variables.yamato_alive == 0;
 }
 
 /// `play_landing_movie` (`0x004ABDE0`) after mission `mission` ended as `ending`: what it plays by
@@ -212,8 +215,8 @@ pub fn lastWithoutLanding(number: u16, variables: *vm.Variables) bool {
 /// thread and bank, whatever the rating.
 pub fn landing(mission: u16, second_part: bool, ending: Ending, variables: *vm.Variables) ?Landing {
     // Mission 25's second part may come numbered 251, which counts as 25 (`0x004ABE8D`).
-    const number = if (mission == winmain.second_part_number) winmain.second_part_mission else mission;
-    const first_part = number == winmain.second_part_mission and !second_part;
+    const number = if (mission == mission25_second_part) mission25 else mission;
+    const first_part = gameflow.missionRules(number).second_part and !second_part;
     if (!first_part and lastWithoutLanding(number, variables)) return null;
     if (ending.sentHome()) return null;
     const rating = variables.mission_success;
@@ -314,7 +317,7 @@ test "no landing" {
     variables.yamato_alive = 0;
     try std.testing.expectEqual(null, landing(27, false, .playing, &variables));
     try std.testing.expectEqual(null, landing(25, true, .playing, &variables));
-    try std.testing.expectEqual(null, landing(winmain.second_part_number, true, .playing, &variables));
+    try std.testing.expectEqual(null, landing(mission25_second_part, true, .playing, &variables));
     try std.testing.expect(landing(25, false, .playing, &variables) != null);
 }
 

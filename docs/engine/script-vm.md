@@ -305,7 +305,7 @@ the script go on. Its description is the developers' own, from the catalogue.
 | `0x4A` | `MatchSpeed` | Where the first argument names the player's ship, MATCH SPEED turns on, matching at once where it already was, while the second is set, and off otherwise | Yes |
 | `0x4B` | `MovingShipBackupCurve` | As `MovingShipFollowCurve`, the path flown backwards | Yes |
 | `0x4C` | `WaitForKey` | The thread waits until the player holds down the key or the joystick button of the action the argument numbers ([Controls](controls.md#whether-an-action-is-active)), while the display prompts for it ([Display](hud.md#the-key-prompt)). **Fix:** the game reads past the bindings for a number past the actions; OpenReliant runs on | Yes |
-| `0x4D` | `TerminateMission` | The mission ends once the frame is over, as one the player's ship is destroyed in where it is numbered below 28 (`0x00588338`, [The loop](loop.md)) | Yes |
+| `0x4D` | `TerminateMission` | The mission ends once the frame is over, as one the player's ship is destroyed in where it is numbered below 28 (`0x00588338`, [The loop](loop.md), [Rules by mission number](missions.md#rules-by-mission-number)) | Yes |
 | `0x4E` | `TurretSetTarget` | Each aimed turret on the component the first argument names, of each ship it names, aims at the ship the second names | Yes |
 | `0x4F` | `SetAnyTriggerState` | As `SetTriggerState`, for the one of the triggers of a condition the fourth argument counts | Yes |
 | `0x50` | `WaitForDirectorCam` | Waits while the camera shows the director's shots (view 13) | Yes |

@@ -679,15 +679,12 @@ fn runLock(world: gameobj.World, display: *hud.State) void {
     if (world.last_view.showsLock()) display.lock.frame(world, &display.missiles);
 }
 
-/// The first mission whose script can end it (`TerminateMission`) without its ending as one the
-/// player's ship is destroyed in (`0x00494204`).
-const terminated_ends_well_from = 28;
-
-/// `mission_run`'s work once its loop is over (`0x004941FC`): a mission numbered below
-/// `terminated_ends_well_from` that its script ended (`TerminateMission`) ends as one the player's
-/// ship is destroyed in.
+/// `mission_run`'s work once its loop is over (`0x004941FC`): a mission that its script ended
+/// (`TerminateMission`) ends as one the player's ship is destroyed in, unless the mission's rules
+/// say it ends well (`gameflow.CampaignMission.Rules.terminate_ends_well`, from mission 28 in the
+/// original; `0x00494204`).
 pub fn missionRunEnd(player: *input.Player, mission_number: u16) void {
-    if (player.terminated != 0 and mission_number < terminated_ends_well_from) player.ending = .destroyed;
+    if (player.terminated != 0 and !gameflow.missionRules(mission_number).terminate_ends_well) player.ending = .destroyed;
 }
 
 test missionRunEnd {
@@ -2155,7 +2152,7 @@ test cockpitShip {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
-    all.mission_number = create.kamov_mission;
+    all.mission_number = 25;
     // Mission 25's first part fits the Kamov's cockpit with the Phoenix's wire frame, and neither
     // spectral shields nor blind fire.
     try std.testing.expectEqualDeep(kamov_ship, cockpitShip(all, .of(.kamov)).?);

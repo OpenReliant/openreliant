@@ -71,7 +71,7 @@ before each (`0x005D6C8C`), which `WinMain` sets to the first as it opens the fr
 `WinMain` plays `play_landing_movie` (`0x004ABDE0`) as a mission ends, but not where the player's
 ship was destroyed or the ejected pilot killed or captured, nor where the mission was left from
 the pause menu (`mission_ending` 1, 3 and 4), nor after mission 25's first part, which leads into
-its second.
+its second ([Rules by mission number](missions.md#rules-by-mission-number)).
 
 It plays nothing after mission 25's second part or mission 27 where the game's variable 36 is
 clear, nor where the player's ship was sent home (`mission_ending` 6 and 7). A mission that ends a

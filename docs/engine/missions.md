@@ -16,6 +16,9 @@ their own for a case of their own (`0x004A9C42`, `0x004AA40A`):
 | 25 | `mission251.dte` | Once its first part is won (`mission25_second_part`, `0x00587CDC`): the second part |
 | 3 | `mission311.dte` | In a multiplayer game |
 
+In OpenReliant, any mission whose rules give it a second part has one ([Rules by mission
+number](#rules-by-mission-number)).
+
 `mission_file_read` (`0x0045A300`) reads the file. A loose file at that path comes first, where
 `file_exists` (`0x004AD6E0`, through `_access`) finds one: it is read as it is, up to `0xFA000`
 bytes, the size of the buffer, so it must be stored expanded. Otherwise `hog_load` reads the member
@@ -139,7 +142,8 @@ wings. A ship's object takes the slot of the ship's index among the mission's sh
   place, turned by its record.
 - Any other ship is an object of its kind, fitted by its loadout tier (`+0x3D`), at its place
   (`+0x1C`). From mission 14 on, a ship of a flight group in the player's wing flies the `t_` twin of
-  its kind, the player's ship types from `0xF4` on, and in mission 25's first part a Kamov (`0x2D`).
+  its kind, the player's ship types from `0xF4` on, and in mission 25's first part a Kamov (`0x2D`)
+  ([Rules by mission number](#rules-by-mission-number)).
   `create_object` makes a player's slot the loadout's ship, whatever the record's kind.
 - It gets its first order: Player Control for the player's ship, whose view the camera takes (view
   0), Multiplayer Control for another player's, and Do Nothing for the rest. Then it is turned by
@@ -212,6 +216,35 @@ chevrons, takes its red from it: full as a band passes, falling by 0.01 a tick e
 band's middle, to 0.25 at least. The band reaches the next ring or place of chevrons along the axis
 50 ticks later, 320 farther on. The marker is drawn along the line from the camera no farther than
 50000, and only in the views from the cockpit, 0 to 3.
+
+## Rules by mission number
+
+The game singles some missions out by their numbers:
+
+| Rule | Missions | Described in |
+|---|---|---|
+| The player's wing flies the `t_` twins of the player's ships | 14 on | [The mission's ships](#the-missions-ships) |
+| The 45th fly as the 45th Flying Tigers in the radio's films and Moose's remarks | 14 on | [Face films](../formats/fm8.md#playing), [Remarks](radio.md#remarks) |
+| A second part, `mission<number>1.dte`, flown once the first is won, with no landing between | 25 | [The file](#the-file), [Around a mission](movies.md#around-a-mission) |
+| The player's wing flies Kamovs in the first part, and the Kamov's schematic is drawn mirrored | 25 | [The mission's ships](#the-missions-ships) |
+| The ion cannons' lock lets a player's ship come much closer | 28 | [Ion cannons](ion-cannon.md) |
+| The missile turrets wait 1000 ticks between launches rather than 2000 | 28 | [Guns](guns.md) |
+| The Ripper lifts an object from below | 26 | [Orders](orders.md) |
+| The advanced warp gates' tunnels are as wide as the prototype's | 8 | [Gates](gates.md) |
+| The player's kills count toward the mission's tally | 1 to 27 | [Objects](objects.md) |
+| `TerminateMission` ends the mission without counting the player's ship destroyed | 28 on | [Script VM](script-vm.md) |
+
+**Improvement:** OpenReliant asks each of these of the mission's settings
+(`gameflow.CampaignMission.Rules`), which start with the original's and which mods can change
+([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)). A mission
+outside the campaign's table, such as Instant Action's mission 29 or a training mission, keeps the
+original's rules for its number. A second part's objectives come from the game's table, which has a
+row for mission 25's second part alone.
+
+Instant Action's mission 29, whose clock counts down, and the training missions 30 to 35
+(`create.Objects.training`) aren't campaign missions, so their own rules stay by number. Not yet in
+the settings: the landing, the chapters' news, the wing's pilots and the ITAC's squadrons
+([#1011](https://github.com/OpenReliant/openreliant/issues/1011)).
 
 ## In OpenReliant
 

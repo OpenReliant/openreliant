@@ -201,7 +201,7 @@ pub const Gates = struct {
             .warp_place = world.objects.slots[index].drawn,
             .warp_size = sizeOf(world.objects.slots[index].object.type),
         };
-        try record.tunnel.build(gates.gpa, gates.grid, gates.settings.tunnels.split(), gates.warp, kind, tunnelSize(kind, world.objects.mission_number));
+        try record.tunnel.build(gates.gpa, gates.grid, gates.settings.tunnels.split(), gates.warp, kind, tunnelSize(kind, world.objects.rules().wide_advanced_gate));
         errdefer record.tunnel.deinit(gates.gpa);
         try record.squares[0].build(gates.gpa, gates.flash);
         errdefer record.squares[0].deinit(gates.gpa);
@@ -327,18 +327,18 @@ fn recordTime(from: i32, now: i32) f32 {
 }
 
 /// A tunnel's size, which scales its radii: the prototype's 70, the advanced gate's 40, and 70
-/// again in mission 8 (`0x0041FE60`). A warp's radius takes no size (`tunnel.ringRadius`), and
-/// `Gates.make` leaves the Boridin out.
-fn tunnelSize(kind: Kind, mission_number: u16) f32 {
+/// again where the mission's rules widen the advanced gates, `wide_advanced`
+/// (`gameflow.CampaignMission.Rules.wide_advanced_gate`, mission 8 in the original; `0x0041FE60`).
+/// A warp's radius takes no size (`tunnel.ringRadius`), and `Gates.make` leaves the Boridin out.
+fn tunnelSize(kind: Kind, wide_advanced: bool) f32 {
     return switch (kind) {
-        .advanced => if (mission_number == wide_advanced_mission) proto_size else advanced_size,
+        .advanced => if (wide_advanced) proto_size else advanced_size,
         .proto, .warp, .boridin => proto_size,
     };
 }
 
 const proto_size: f32 = 70;
 const advanced_size: f32 = 40;
-const wide_advanced_mission = 8;
 
 /// `wgate_warp_size_table` (`0x004E3F38`): the types of object whose tunnels stand deeper, with
 /// how much deeper every vertex stands (`+0x1C`) and a warp's size (`+0x18`), which
@@ -1367,13 +1367,13 @@ test recordTime {
 }
 
 test tunnelSize {
-    try std.testing.expectEqual(proto_size, tunnelSize(.proto, 3));
-    try std.testing.expectEqual(advanced_size, tunnelSize(.advanced, 3));
+    try std.testing.expectEqual(proto_size, tunnelSize(.proto, false));
+    try std.testing.expectEqual(advanced_size, tunnelSize(.advanced, false));
     // In mission 8 the advanced gate's is as wide as the prototype's.
-    try std.testing.expectEqual(proto_size, tunnelSize(.advanced, wide_advanced_mission));
-    try std.testing.expectEqual(proto_size, tunnelSize(.proto, wide_advanced_mission));
-    try std.testing.expectEqual(proto_size, tunnelSize(.warp, 3));
-    try std.testing.expectEqual(proto_size, tunnelSize(.boridin, 3));
+    try std.testing.expectEqual(proto_size, tunnelSize(.advanced, true));
+    try std.testing.expectEqual(proto_size, tunnelSize(.proto, true));
+    try std.testing.expectEqual(proto_size, tunnelSize(.warp, false));
+    try std.testing.expectEqual(proto_size, tunnelSize(.boridin, false));
 }
 
 test depthOf {

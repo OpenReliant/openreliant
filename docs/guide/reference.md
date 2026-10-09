@@ -86,6 +86,16 @@ Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with thes
 | `debriefing` | [Debriefing](#debriefing) | Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs. |
 | `news` | list of [NewsItem](#newsitem) | The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them. |
 | `video_reports` | list of [VideoReport](#videoreport) | The video reports that VIDEO REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. Reading gives a new list; assign a list to change them. |
+| `wing_twins` | boolean | Whether the player's wing flies the `t_` twins of the player's ships, as from mission 14 on. |
+| `flying_tigers` | boolean | Whether the 45th fly as the 45th Flying Tigers rather than the 45th Volunteers, in the radio's films and in Moose's remarks, as after mission 13. |
+| `second_part` | boolean | Whether the mission has a second part, `mission<number>1.dte`, flown once the first part is won, as mission 25 has. The second part has no landing before it. |
+| `kamov_wing` | boolean | Whether the player's wing flies Kamovs, in the first part where the mission has two, as in mission 25. The Kamov's schematic is then drawn mirrored. |
+| `close_ion_cannons` | boolean | Whether the ion cannons' lock lets a player's ship come much closer before it breaks, as in mission 28. |
+| `hurried_turrets` | boolean | Whether the missile turrets wait half as long between launches, as in mission 28. |
+| `ripper_from_below` | boolean | Whether the Ripper lifts an object from below rather than from above, as in mission 26. |
+| `wide_advanced_gate` | boolean | Whether the advanced warp gates' tunnels are as wide as the prototype's, as in mission 8. |
+| `counts_kills` | boolean | Whether the player's kills count toward the mission's tally, as up to mission 27. |
+| `terminate_ends_well` | boolean | Whether the mission's script can end it with `TerminateMission` without the ending counting as the player's ship destroyed, as in mission 28. |
 
 ### `openreliant.hooks`
 

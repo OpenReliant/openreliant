@@ -100,7 +100,8 @@ its path (`0x0048D2CA`), and decodes its first chunk. **Fix:** the game doesn't 
 has a backslash, and crashes where it has none; OpenReliant takes the whole path. Six films of the
 45th change with the squadron's name (its pilot and Moose, talking, laughing and dying, from tables
 at `0x005026AC` and `0x00502754`): through mission 13 the 45th Tigers' play as the 45th Volunteers',
-and from mission 14 the reverse, the names compared without regard to case. A timer 15 times a
+and from mission 14 the reverse, the names compared without regard to case. In OpenReliant, the
+mission's rules decide ([Rules by mission number](../engine/missions.md#rules-by-mission-number)). A timer 15 times a
 second, which stands still while the game is paused, decodes the next chunk and copies the frame
 into the window's image (`hudmovie_image`, `0x0057C3BC`), and at the end chunk loops the film or
 holds it for the line as its flags say ([The radio](../engine/radio.md#the-window)). OpenReliant

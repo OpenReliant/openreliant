@@ -67,7 +67,7 @@ where the cannon's part or its focus is gone. Then:
 3. From the charge step to the glow step, unless the ship is the Victorious, the lock breaks where
    the ship is cloaked, more than 190000 from where the beam leaves (400000 for the Boridin), off
    the cannon's line by an angle whose cosine is under 0.90631, or, for a player's ship, nearer
-   than 8000 across the world's X and Z axes (110000 in mission 28). The order then pops and
+   than 8000 across the world's X and Z axes (110000 in mission 28, [Rules by mission number](missions.md#rules-by-mission-number)). The order then pops and
    pushes itself again at the ship, so the cannon starts again. While the mission's script sets
    `ion_cannons_hold_lock` ([Script VM](script-vm.md#the-games-variables)), the lock holds.
 4. Before the glow step, the cannon gives up once it has searched for 2500 ticks, and the order
