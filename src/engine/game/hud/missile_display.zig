@@ -169,8 +169,8 @@ pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!v
     for (shown.ring.entries) |entry| {
         const count = entry.left() orelse continue;
         if (entry.place == 0) {
-            try canvas.print("{d}", .{count}, count_at, .centre);
-            try canvas.string(@intCast(entry.name), name_at, .centre);
+            try canvas.print(.missiles_count, "{d}", .{count}, count_at, .centre);
+            try canvas.string(.missiles_name, @intCast(entry.name), name_at, .centre);
         }
         try canvas.shaky(@intCast(entry.shape + entry.place), ring_at);
     }

@@ -139,8 +139,8 @@ pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!v
             const drawing = if (own) |art| canvas.drawing(art) else canvas;
             try drawing.shaky(shape.index, shape.at);
         },
-        .string => |string| try canvas.string(string.id, string.at, .left),
-        .rounds => |rounds| try canvas.print("{d}", .{rounds.count}, rounds.at, .left),
+        .string => |string| try canvas.string(.gunnery_gun, string.id, string.at, .left),
+        .rounds => |rounds| try canvas.print(.gunnery_rounds, "{d}", .{rounds.count}, rounds.at, .left),
     };
 }
 

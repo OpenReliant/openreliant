@@ -1213,6 +1213,14 @@ pub const Radio = struct {
         radio.play(sound, bytes);
     }
 
+    /// The string of the name the window writes over the speaker's face (`hud.radio.frame`): the
+    /// speaker's, while their line plays; none while a line waits for the window, between lines,
+    /// and for a line without a name.
+    pub fn shownName(radio: *const Radio) ?u16 {
+        if (!radio.movie.playing or radio.movie.waiting) return null;
+        return radio.name;
+    }
+
     /// The ship whose line the window names while it is open or opening, unless it is cloaked
     /// (`hud_comms_marker`, `0x0048B0F0`; `hud_radar`, `0x00488BDE`); none for a pilot's line or
     /// nobody's.

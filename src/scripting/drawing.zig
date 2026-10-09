@@ -290,7 +290,7 @@ pub const Align = enum {
     right,
 
     /// The game's alignment it is.
-    fn game(alignment: Align) hud.Align {
+    pub fn game(alignment: Align) hud.Align {
         return switch (alignment) {
             .left => .left,
             .center => .centre,
@@ -321,8 +321,13 @@ pub const ShapeStyle = struct {
 
 /// How big a line of text is drawn, in the window's pixels.
 pub const Size = struct {
+    /// How far the line reaches, by the font's widths of its characters, and how tall the font is.
     width: f32,
     height: f32,
+    /// The box its letters' pixels cover, from the point it's drawn at, as its style aligns it;
+    /// nil for text without any, such as spaces. An outline font's letters can start and end
+    /// inside or outside the widths that lay the line out.
+    ink: ?hud.Clip,
 };
 
 /// What a layer is drawn on this frame, as the driver tells it (`presentation.Host`).
@@ -338,6 +343,8 @@ pub const View = struct {
     fonts: std.EnumArray(Font, ?*hud.Opened) = .initFill(null),
     art: ?*hud.Art = null,
     rasterizer: ?hud.outline.Rasterizer = null,
+    /// The power ball the flight display's scripts draw (`power_ball`); none on other layers.
+    power_ball: ?*hud.power.Ball = null,
 
     pub fn fontOf(view: View, font: Font) ?*hud.Opened {
         return if (font == .default) view.font else view.fonts.get(font);
@@ -357,6 +364,7 @@ const Command = union(enum) {
     rectangle: struct { from: [2]f32, to: [2]f32, colour: [4]f32 },
     picture: struct { image: *srtexture.Image, at: [2]f32, size: [2]f32, colour: [4]f32 },
     shape: struct { index: usize, at: [2]f32, colour: [4]f32, scale: f32 },
+    power_ball: struct { setting: [2]f32, at: [2]f32, size: [2]f32, colour: [4]f32 },
 };
 
 /// What scripts draw on one layer in a frame.
@@ -418,6 +426,12 @@ pub const Layer = struct {
                     else => {},
                 };
             },
+            .power_ball => |ball| if (view.power_ball) |drawn| {
+                // Every ball a frame draws turns with the same setting.
+                drawn.render(ball.setting, 0, null);
+                const edges: hud.Clip = .{ .left = ball.at[0], .top = ball.at[1], .right = ball.at[0] + ball.size[0], .bottom = ball.at[1] + ball.size[1] };
+                hud.drawImagePartOver(into, &drawn.image, edges, .{ 0, hud.power.ball_across }, .{ 0, 1 }, ball.colour);
+            },
         };
     }
 };
@@ -468,7 +482,7 @@ fn recordLine(call: Call, which: Which, from: Where, to: Where, given: ?LineStyl
 /// `openreliant.ui`).
 pub fn Package(comptime which: Which) type {
     return struct {
-        pub const register_display = if (which == .hud) api.Native("Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?}", "string", @import("registries.zig").registration(.display)) else {};
+        pub const register_display = if (which == .hud) api.Native("Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, `layout` moves and scales the instruments it names, and `parts` moves, scales, aligns, rewords or hides the parts of them it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name.", "name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?, parts: { [HudPart]: HudPartLayout }?}", "string", @import("registries.zig").registration(.display)) else {};
         pub const set_display_enabled = if (which == .hud) api.Function("Turns the display `name` on or off: the calling mod's by its own name, or any mod's by the qualified one. Returns whether it's registered.", &.{ "name", "enabled" }, struct {
             fn set(call: Call, name: []const u8, enabled: bool) bool {
                 return @import("registries.zig").show(call, .display, name, enabled);
@@ -476,6 +490,7 @@ pub fn Package(comptime which: Which) type {
         }.set) else {};
         pub const replaced = if (which == .hud) instruments.replaced else {};
         pub const bounds = if (which == .hud) instruments.bounds else {};
+        pub const part_bounds = if (which == .hud) instruments.part_bounds else {};
         pub const instruments_shown = if (which == .hud) instruments.instruments_shown else {};
         pub const guns = if (which == .hud) instruments.guns else {};
         pub const missiles = if (which == .hud) instruments.missiles else {};
@@ -501,6 +516,7 @@ pub fn Package(comptime which: Which) type {
         pub const comms = if (which == .hud) instruments.comms else {};
         pub const messages = if (which == .hud) instruments.messages else {};
         pub const subtitle = if (which == .hud) instruments.subtitle else {};
+        pub const speaker_name = if (which == .hud) instruments.speaker_name else {};
         pub const key_prompt = if (which == .hud) instruments.key_prompt else {};
         pub const jump_prompt = if (which == .hud) instruments.jump_prompt else {};
         pub const open_windows = if (which == .hud) instruments.open_windows else {};
@@ -527,6 +543,18 @@ pub fn Package(comptime which: Which) type {
                 scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .picture = .{ .image = image, .at = screenPoint(at), .size = extent, .colour = rgba(style.color, style.alpha) } });
             }
         }.draw);
+
+        pub const power_ball = if (which == .hud) api.Function("Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission.", &.{ "at", "size", "style" }, struct {
+            fn draw(call: Call, at: @Vector(3, f32), size: ?@Vector(3, f32), given: ?FillStyle) void {
+                const scripts = presentation.Presentation.of(call);
+                const setting = instruments.powerSetting(call) orelse call.raise("the power ball draws only during a mission", .{});
+                const style = given orelse FillStyle{};
+                const scale = if (scripts.views.get(which)) |view| view.scale else 1;
+                const side = @as(f32, hud.power.size) * scale;
+                const extent: [2]f32 = if (size) |asked| .{ @max(asked[0], 0), @max(asked[1], 0) } else .{ side, side };
+                scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .power_ball = .{ .setting = setting, .at = screenPoint(at), .size = extent, .colour = rgba(style.color, style.alpha) } });
+            }
+        }.draw) else {};
 
         pub const shape = api.Function("Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.", &.{ "at", "index", "style" }, struct {
             fn draw(call: Call, at: @Vector(3, f32), index: u32, given: ?ShapeStyle) void {
@@ -576,7 +604,7 @@ pub fn Package(comptime which: Which) type {
             }
         }.draw);
 
-        pub const measure = api.Function("The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale.", &.{ "text", "style" }, struct {
+        pub const measure = api.Function("The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale.", &.{ "text", "style" }, struct {
             fn measure(call: Call, words: []const u8, given: ?union(enum) { scale: f32, style: TextStyle }) Size {
                 const view = viewOf(call);
                 const style: TextStyle = if (given) |asked| switch (asked) {
@@ -591,6 +619,7 @@ pub fn Package(comptime which: Which) type {
                 return .{
                     .width = @as(f32, @floatFromInt(font.textWidth(encoded))) * times,
                     .height = @as(f32, @floatFromInt(font.font.header.height)) * times,
+                    .ink = hud.textInk(font, .{ 0, 0 }, encoded, style.@"align".game(), times) catch call.raise("out of memory", .{}),
                 };
             }
         }.measure);

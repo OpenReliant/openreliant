@@ -77,10 +77,10 @@ pub const Shown = struct {
 /// `hud_window_draw`'s window 4, in the view ahead: the title, each row's icon and name, the
 /// rules, then the bars (`hud_damage_bar`).
 pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!void {
-    try canvas.string(title, title_at, .right);
+    try canvas.string(.damage_title, title, title_at, .right);
     for (rows.values) |row| {
         try canvas.shaky(row.icon, row.icon_at);
-        try canvas.string(row.name, row.name_at, .left);
+        try canvas.string(.damage_names, row.name, row.name_at, .left);
     }
     for (rows.values) |row| try canvas.shape(rule_shape, row.rule_at);
     for (std.enums.values(System)) |system| {

@@ -28,6 +28,7 @@ type HudContactLook = "other" | "hostile" | "speaker" | "target" | "nav_point"
 type HudLight = "match_speed" | "blind_fire" | "smart_targeting" | "enemy_lock" | "missile_incoming" | "ecm" | "cloak" | "spectral_shields" | "reverse_thrust"
 type Action = "cockpit_camera" | "left_view_camera" | "right_view_camera" | "rear_view_camera" | "flyby_camera" | "target_camera" | "external_camera" | "missile_camera" | "next_enemy_target" | "previous_enemy_target" | "next_friendly_target" | "previous_friendly_target" | "next_subtarget" | "previous_subtarget" | "target_under_reticule" | "target_nearest_enemy" | "target_nearest_friendly" | "target_torpedo" | "smart_target" | "primary_target" | "afterburners" | "afterburner_toggle" | "reverse_thrust" | "jump_drive" | "match_speed" | "accelerate" | "decelerate" | "zero_throttle" | "full_throttle" | "roll_ship_clockwise" | "roll_ship_anti_clockwise" | "nose_up" | "nose_down" | "rotate_clockwise" | "rotate_anti_clockwise" | "strafe_left" | "strafe_right" | "joystick_roll" | "fire_lasers" | "full_guns" | "gunnery_window" | "gunnery_window_locked" | "synchronise_guns" | "toggle_blindfire" | "launch_missile" | "missile_window" | "rotate_missiles_clockwise" | "rotate_missiles_anticlockwise" | "comms_window" | "powerball_window" | "powerball_window_locked" | "full_power_to_gunnery" | "full_power_to_engines" | "full_power_to_shields" | "equalize_power" | "objectives_window" | "wing_status_window" | "wing_status_window_locked" | "damage_window" | "damage_window_locked" | "radar_ranges" | "shield_balancing" | "countermeasures" | "eject" | "cloak_ship" | "ecm" | "spectral_shields" | "attack_my_target" | "back_off" | "help_me" | "permission_to_land" | "display_kills" | "send_comms_message" | "key_config"
 type HudJumpPrompt = "jump" | "warp"
+type HudPart = "caption_text" | "caption_cursor" | "key_prompt_press" | "key_prompt_action" | "key_prompt_key" | "key_prompt_modifier" | "key_prompt_plus" | "view_name_text" | "subtitle_text" | "messages_text" | "fuel_figure" | "kills_figure" | "countermeasures_figure" | "gauges_speed" | "gauges_throttle" | "target_markers_range" | "clock_text" | "radio_speaker" | "radio_face" | "gunnery_gun" | "gunnery_rounds" | "missiles_count" | "missiles_name" | "target_display_name" | "target_display_pilot" | "target_display_range" | "target_display_speed" | "target_display_subtarget" | "damage_title" | "damage_names" | "power_title" | "power_figures" | "power_ball" | "objectives_title" | "objectives_heading" | "objectives_name" | "comms_title" | "comms_numbers" | "comms_items" | "wing_status_title" | "wing_status_numbers"
 type HudWindowPhase = "shut" | "opening" | "closing" | "open"
 type Font = "default" | "hud" | "menu_small" | "menu_large"
 type Align = "left" | "center" | "right"
@@ -276,6 +277,7 @@ type LineStyle = {
 type Size = {
     width: number,
     height: number,
+    ink: HudBounds?,
 }
 type Pointer = {
     at: vector,
@@ -371,6 +373,13 @@ type Outcome = {
 type HudLayout = {
     offset: vector?,
     scale: number?,
+}
+type HudPartLayout = {
+    offset: vector?,
+    scale: number?,
+    align: Align?,
+    hidden: boolean?,
+    text: string?,
 }
 
 -- Objects, missiles and turrets, which scripts hold by handles.
@@ -775,6 +784,8 @@ type Hud = {
     messages: { string },
     -- The line `DisplaySubTitle` shows near the foot of the screen in the director's view, whichever view it's in; nil for none, and outside a mission.
     subtitle: string?,
+    -- The name the radio's window writes over the speaker's face, while their line plays; nil while a line waits for the window, between lines, and outside a mission.
+    speaker_name: string?,
     -- The action whose key `WaitForKey`'s prompt asks the player to press; nil while nothing waits, and outside a mission.
     key_prompt: Action?,
     -- The prompt that flashes in the view ahead for what the mission has ready: the warp's or the jump's; nil for none, and outside a mission.
@@ -787,16 +798,20 @@ type Hud = {
     width: number,
     -- The window's height, in pixels.
     height: number,
-    -- Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name.
-    register_display: (name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?}) -> string,
+    -- Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, `layout` moves and scales the instruments it names, and `parts` moves, scales, aligns, rewords or hides the parts of them it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name.
+    register_display: (name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?, parts: { [HudPart]: HudPartLayout }?}) -> string,
     -- Turns the display `name` on or off: the calling mod's by its own name, or any mod's by the qualified one. Returns whether it's registered.
     set_display_enabled: (name: string, enabled: boolean) -> boolean,
     -- Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission.
     bounds: (instrument: HudInstrument) -> HudBounds?,
+    -- Where the part `part` of the game's instruments last drew, in the window's pixels, as the mods' displays place it, and even while one hides it; nil before it first draws, or outside a mission.
+    part_bounds: (part: HudPart) -> HudBounds?,
     -- How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission.
     window_state: (instrument: HudInstrument) -> HudWindowState?,
     -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
+    -- Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission.
+    power_ball: (at: vector, size: vector?, style: FillStyle?) -> (),
     -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     -- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
@@ -805,7 +820,7 @@ type Hud = {
     line: (from: vector, to: vector, style: LineStyle?) -> (),
     -- Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says.
     rectangle: (from: vector, to: vector, style: FillStyle?) -> (),
-    -- The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale.
+    -- The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale.
     measure: (text: string, style: (number | TextStyle)?) -> Size,
 }
 
@@ -845,7 +860,7 @@ type Ui = {
     line: (from: vector, to: vector, style: LineStyle?) -> (),
     -- Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says.
     rectangle: (from: vector, to: vector, style: FillStyle?) -> (),
-    -- The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale.
+    -- The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale.
     measure: (text: string, style: (number | TextStyle)?) -> Size,
 }
 
@@ -1029,17 +1044,20 @@ type Interfaces = {
         comms: { string },
         messages: { string },
         subtitle: string?,
+        speaker_name: string?,
         key_prompt: Action?,
         jump_prompt: HudJumpPrompt?,
         open_windows: { HudInstrument },
         shown: boolean,
         width: number,
         height: number,
-        register_display: (name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?}) -> string,
+        register_display: (name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?, parts: { [HudPart]: HudPartLayout }?}) -> string,
         set_display_enabled: (name: string, enabled: boolean) -> boolean,
         bounds: (instrument: HudInstrument) -> HudBounds?,
+        part_bounds: (part: HudPart) -> HudBounds?,
         window_state: (instrument: HudInstrument) -> HudWindowState?,
         picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
+        power_ball: (at: vector, size: vector?, style: FillStyle?) -> (),
         shape: (at: vector, index: number, style: ShapeStyle?) -> (),
         text: (at: vector, text: string, style: TextStyle?) -> (),
         line: (from: vector, to: vector, style: LineStyle?) -> (),

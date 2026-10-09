@@ -96,6 +96,9 @@ pub const Host = struct {
         /// The ship whose line the radio's window names, which the radar marks
         /// (`radio.Radio.speakingShip`); none for nobody's.
         speaker: ?u16 = null,
+        /// The string of the speaker's name the radio's window writes (`radio.Radio.shownName`);
+        /// none while it writes none.
+        speaker_name: ?u16 = null,
     };
 
     pub const Camera = struct {
@@ -329,6 +332,13 @@ pub const Presentation = struct {
         return shown.runtime.registries.placements();
     }
 
+    /// Where the displays put the parts of the game's instruments this frame
+    /// (`hud.Frame.parts`).
+    pub fn partPlacements(shown: *const Presentation) std.EnumArray(hud.parts.Part, hud.parts.Placement) {
+        if (shown.views.get(.hud) == null) return .initFill(.{});
+        return shown.runtime.registries.partPlacements();
+    }
+
     /// Draws what the scripts drew on `which` this frame into `into`, where it's shown. `sight`
     /// places what they drew in the world. First, the pictures taken out of the cache are freed
     /// (`drawing.Assets.release`).
@@ -537,19 +547,25 @@ test "a display stands in for the game's instruments and reads what they show" {
                 "player.luau",
                 \\local hud = require("openreliant.hud")
                 \\local frames = 0
-                \\hud.register_display("radar", {replaces = {"gunnery", "radar"}, layout = {clock = {offset = vector.create(10, -5, 0), scale = 1.5}}, frame = function()
+                \\hud.register_display("radar", {replaces = {"gunnery", "radar"}, layout = {clock = {offset = vector.create(10, -5, 0), scale = 1.5}},
+                \\    parts = {radio_speaker = {offset = vector.create(4, 0, 0), align = "right", text = "COMMS"}, radio_face = {scale = 2, hidden = true}}, frame = function()
                 \\    frames += 1
                 \\    if frames == 3 then error("broken") end
                 \\end})
                 \\assert(not pcall(hud.register_display, "bad", {replaces = {"nothing"}, frame = function() end}))
                 \\assert(not pcall(hud.register_display, "small", {layout = {clock = {scale = 0}}, frame = function() end}))
                 \\assert(not pcall(hud.register_display, "where", {layout = {nothing = {scale = 2}}, frame = function() end}))
+                \\-- A picture takes no text, a part must be one of the game's, and its text short enough.
+                \\assert(not pcall(hud.register_display, "face", {parts = {radio_face = {text = "x"}}, frame = function() end}))
+                \\assert(not pcall(hud.register_display, "part", {parts = {nothing = {scale = 2}}, frame = function() end}))
+                \\assert(not pcall(hud.register_display, "long", {parts = {radio_speaker = {text = string.rep("x", 65)}}, frame = function() end}))
                 \\return {engine_handlers = {on_frame = function()
                 \\    local guns, missiles, radar, target = hud.guns, hud.missiles, hud.radar, hud.target
                 \\    hud.text(vector.zero, string.format("%s %s %d %s %d %s %d %d %s %s %d %d %s", tostring(hud.instruments_shown),
                 \\        table.concat(hud.replaced, ","), radar.range, tostring(radar.zooming), hud.kills, missiles.armed,
                 \\        missiles.left, #missiles.ring, table.concat(hud.open_windows, ","), tostring(guns.all), target.component,
                 \\        hud.bounds("radar").right, tostring(hud.bounds("clock"))))
+                \\    hud.text(vector.zero, string.format("|%d %s %s", hud.part_bounds("radio_speaker").right, hud.speaker_name, tostring(hud.part_bounds("radio_face"))))
                 \\end}}
             },
         },
@@ -564,17 +580,28 @@ test "a display stands in for the game's instruments and reads what they show" {
     state.windows.status.getPtr(.gunnery).phase = .open;
     state.target = .{ .target = .at(0, 3), .slot = 0 };
     state.bounds.set(.radar, .{ .left = 1, .top = 2, .right = 30, .bottom = 40 });
+    state.part_bounds.set(.radio_speaker, .{ .left = 5, .top = 6, .right = 50, .bottom = 16 });
     var player: input.Player = .{};
     player.kills.count = 7;
     var view: engine.game.camera.Camera = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player } };
+    var strings_table: [2][]const u8 = .{ "", "Moose" };
+    const strings: engine.game.language.Language = .{ .strings = &strings_table };
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player, .strings = &strings, .speaker_name = 2 } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     // The scripts read the replaced instruments in the game's order, as the display has them.
     const placed = fixture.shown.instrumentPlacements();
     try std.testing.expect(placed.get(.radar).hidden and placed.get(.gunnery).hidden and !placed.get(.clock).hidden);
     try std.testing.expectEqual(hud.Placement{ .offset = .{ 10, -5 }, .scale = 1.5 }, placed.get(.clock));
-    try std.testing.expectEqualStrings("true radar,gunnery 1 false 7 raptor 4 2 gunnery true 3 30 nil", fixture.shown.layers.get(.hud).text.items);
+    try std.testing.expectEqualStrings("true radar,gunnery 1 false 7 raptor 4 2 gunnery true 3 30 nil|50 Moose nil", fixture.shown.layers.get(.hud).text.items);
+    // The parts it places: the speaker's name moved, aligned right and given other words, and the
+    // face drawn larger, but hidden.
+    const parts = fixture.shown.partPlacements();
+    const speaker = parts.get(.radio_speaker);
+    try std.testing.expectEqual(hud.Placement{ .offset = .{ 4, 0 } }, speaker.place);
+    try std.testing.expectEqual(hud.Align.right, speaker.alignment.?);
+    try std.testing.expectEqualStrings("COMMS", speaker.words.?.slice());
+    try std.testing.expectEqual(hud.Placement{ .scale = 2, .hidden = true }, parts.get(.radio_face).place);
     // While the display's layer isn't shown, the displays don't draw, and the instruments are as
     // the game has them.
     var shut = host;
@@ -753,6 +780,8 @@ test "a display reads the windows and the display's text" {
                 \\        o.showing, #o.list, o.list[1].name, tostring(o.list[1].current), o.list[2].number, tostring(o.list[2].name),
                 \\        table.concat(hud.comms, ","), table.concat(hud.messages, ","), hud.subtitle, hud.key_prompt,
                 \\        hud.jump_prompt))
+                \\    hud.power_ball(vector.create(10, 20, 0), vector.create(40, 30, 0), {alpha = 0.5})
+                \\    hud.power_ball(vector.zero)
                 \\end}}
             },
         },
@@ -794,9 +823,31 @@ test "a display reads the windows and the display's text" {
         .variables = &variables,
         .strings = &strings,
     } };
-    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
+    const picture = try hud.power.testing.picture(gpa);
+    defer picture.deinit(gpa);
+    const ball: *hud.power.Ball = try .create(gpa, picture);
+    defer ball.destroy(gpa);
+    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1, .power_ball = ball });
     fixture.shown.frame(host);
-    const shares = hud.power.percentages(engine.input.power.point(&slot.object));
+    // The power balls turn with the player's setting: one in a box of the script's, one at its size
+    // on the display.
+    const commands = fixture.shown.layers.get(.hud).commands.items;
+    const setting = engine.input.power.point(&slot.object);
+    try std.testing.expectEqual(setting, commands[1].power_ball.setting);
+    try std.testing.expectEqual([2]f32{ 40, 30 }, commands[1].power_ball.size);
+    try std.testing.expectEqual(0.5, commands[1].power_ball.colour[3]);
+    try std.testing.expectEqual([2]f32{ hud.power.size, hud.power.size }, commands[2].power_ball.size);
+    // Drawn, a ball fills its box with the ball's square of the image, without the room for the
+    // shake.
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    try fixture.shown.draw(.hud, recorder.interface(), null);
+    const drawn = recorder.drawn(recorder.draws.items.len - 2);
+    try std.testing.expectEqual(10, drawn[0].x);
+    try std.testing.expectEqual(50, drawn[2].x);
+    try std.testing.expectEqual(50, drawn[2].y);
+    try std.testing.expectEqual(hud.power.ball_across, drawn[2].u);
+    const shares = hud.power.percentages(setting);
     var buffer: [engine.game.mission.wing_size]hud.wing_status.Entry = undefined;
     const wing = hud.wing_status.entries(all, &buffer);
     var expected: [256]u8 = undefined;
@@ -1141,6 +1192,12 @@ test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
                 \\    local style = {font = "font.ttf", base_font = "menu_large", scale = 2}
                 \\    local size = ui.measure("AH", style)
                 \\    assert(size.width == 24 and size.height == 16)
+                \\    -- Where the letters' pixels fall, which a right alignment puts before the point.
+                \\    local ink = size.ink
+                \\    assert(ink.left < ink.right and ink.top < ink.bottom)
+                \\    local right = ui.measure("AH", {font = "font.ttf", base_font = "menu_large", scale = 2, align = "right"}).ink
+                \\    assert(right.left == ink.left - 24 and right.right == ink.right - 24)
+                \\    assert(ui.measure("  ", style).ink == nil)
                 \\    ui.text(vector.create(1, 2, 0), "AH", style)
                 \\    ui.text(vector.zero, "AH", {font = "menu_large"})
                 \\    -- Over a font whose letters use palette colours too, as the display's do.
@@ -1148,7 +1205,7 @@ test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
                 \\    ui.picture(vector.create(10, 20, 0), "icon.png", vector.create(12, 8, 0), {alpha = 0.5})
                 \\    ui.shape(vector.create(30, 40, 0), 1, {scale = 2})
                 \\    assert(not pcall(ui.picture, vector.zero, "bad.png"))
-                \\    local ok, err = pcall(ui.text, vector.zero, "AH", {font = "bad.ttf"})
+                \\    local ok, err = pcall(ui.text, vector.zero, "AH", {font = "bad.ttf", base_font = "menu_large"})
                 \\    assert(not ok and string.find(err, "can't be read as a TrueType or OpenType font", 1, true))
                 \\    assert(not pcall(ui.picture, vector.zero, "../icon.png"))
                 \\end}}
@@ -1201,7 +1258,9 @@ test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
     defer recorder.deinit();
     try fixture.shown.draw(.ui, recorder.interface(), null);
     try std.testing.expect(recorder.draws.items.len > 2);
+    // The frame ran to its end, every assertion holding, so it runs again.
     fixture.shown.frame(host);
+    try std.testing.expectEqual(5, fixture.shown.layers.get(.ui).commands.items.len);
     try std.testing.expectEqual(1, fixture.shown.assets.pictures.items.len);
     try fixture.shown.reload();
     fixture.shown.frame(host);

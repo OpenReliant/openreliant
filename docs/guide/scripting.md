@@ -1594,7 +1594,11 @@ return {
     text's colour, as the menus' fonts do. If most of a font's letters use colours of its palette
     instead, as the flight display's font does, each pixel is as strong as its colour is close to
     the letters' brightest colour.
-- `measure` takes a text style, or just a number for its scale, and measures as `text` draws.
+- `measure` takes a text style, or just a number for its scale, and measures as `text` draws:
+  `width` and `height` lay the line out, and `ink` is the box its letters' pixels cover, from the
+  point the text is drawn at as its `align` places it, or nil for text without any, such as spaces.
+  An outline font's letters can start and end inside or outside the font's widths, so `ink` lines
+  up what shows, such as columns of text whose first letters differ.
 - The pictures and fonts stay loaded once drawn, and a reload reads the files again. All the mods'
   pictures and fonts together can hold up to 128 files and 128 MiB, a picture taking 4 bytes a
   pixel: a 4096x4096 picture takes 64 MiB. When a new one doesn't fit, the pictures drawn longest
@@ -1657,6 +1661,10 @@ hud.register_display("radar", {
 - `hud.bounds(instrument)` gives where an instrument last drew, in the window's pixels, as the
   layouts place it, and also while a display stands in for it, so that a display can draw its own
   in the game's instrument's place.
+- `hud.power_ball(at, size, style)` draws the power window's ball, turning with the player's power
+  setting, with its top left corner at `at` and `size` in window pixels (nil for its size on the
+  game's display), for a display that stands in for the power window. Unlike the window's, it
+  doesn't shake when the ship is hit.
 - What the instruments show can be read in any view during a mission, for a display that stands in
   for one or one drawn outside the game:
   - `hud.guns`, the gun group, how the guns fire, their charge, whether the gunnery window shows
@@ -1695,8 +1703,10 @@ hud.register_display("radar", {
     show, with their names, which is current and which it's showing; and `hud.comms`, the items of the
     radio's menu.
   - The text the display writes: `hud.messages`, the message lines, oldest first; `hud.subtitle`,
-    the line `DisplaySubTitle` shows; `hud.key_prompt`, the action `WaitForKey` waits for; and
-    `hud.jump_prompt`, `jump` or `warp` while the prompt for what the mission has ready flashes.
+    the line `DisplaySubTitle` shows; `hud.speaker_name`, the name the radio's window writes over
+    the speaker's face while their line plays; `hud.key_prompt`, the action `WaitForKey` waits for;
+    and `hud.jump_prompt`, `jump` or `warp` while the prompt for what the mission has ready
+    flashes.
 
   `hud.instruments_shown` says whether the game's instruments show this frame, which is in the view
   ahead from the cockpit. Each reading is worked out as its instrument works it out, when the
@@ -1706,6 +1716,62 @@ hud.register_display("radar", {
 
 [`examples/mods/hud-layout`](../../examples/mods/hud-layout) draws a radar of its own in the game's
 radar's place, with the guns and missiles beside it.
+
+#### The instruments' parts
+
+A display can also place the parts of an instrument on their own, without standing in for it: the
+text each instrument writes, the face in the radio's window, and the power ball.
+
+```lua
+hud.register_display("comms", {
+    parts = {
+        -- The speaker's name, ending over the face's right edge.
+        radio_speaker = { offset = vector.create(132, 0, 0), align = "right" },
+        -- The face, half as large again.
+        radio_face = { scale = 1.5 },
+        -- The power window's title, in other words.
+        power_title = { text = "POWER" },
+        -- The target's pilot, left out.
+        target_display_pilot = { hidden = true },
+    },
+    frame = function(seconds) end,
+})
+```
+
+- `offset` and `scale` move and scale a part as `layout` does an instrument, on top of its
+  instrument's layout. A part grows from its own place: a text from the point its alignment lines
+  it up on, and a picture from its top left corner.
+- `align` lines a text part up on its point another way: `"left"`, `"center"` or `"right"`.
+- `text` gives a text part other words, at most 64 characters, written wherever it writes. A part
+  that writes several lines, such as `messages_text`, writes them on each.
+- `hidden` leaves a part out. Its instrument still works, and `hud.part_bounds(part)` gives where the
+  part last drew as the displays place it, also while it's hidden, so that a display can draw its
+  own in its place.
+- A picture takes no `align` or `text`. Where two displays place the same part, the one registered
+  later does.
+
+| Part | What it is |
+|---|---|
+| `caption_text`, `caption_cursor` | The date the launch types out, and the cursor after it while it types |
+| `key_prompt_press`, `key_prompt_action`, `key_prompt_key`, `key_prompt_modifier`, `key_prompt_plus` | `WaitForKey`'s prompt: PRESS, the action's name, the key's name on its cap or the joystick's button, and the modifier's name on its cap with the plus after it |
+| `view_name_text` | The view's name at the top of the screen |
+| `subtitle_text` | The line `DisplaySubTitle` shows |
+| `messages_text` | The message lines |
+| `fuel_figure`, `kills_figure`, `countermeasures_figure` | The readouts' figures |
+| `gauges_speed`, `gauges_throttle` | The targeting cluster's figures: the speed the ship makes, and the speed the throttle asks |
+| `target_markers_range` | The target's range by its brackets, and by the arrow toward a target off the screen |
+| `clock_text` | The clock's figures |
+| `radio_speaker` | The speaker's name over the face in the radio's window |
+| `radio_face` | The face of whoever speaks, in the radio's window (a picture) |
+| `gunnery_gun`, `gunnery_rounds` | The gunnery window's gun name, or FULL GUNS, and its rounds left |
+| `missiles_count`, `missiles_name` | The missile window's count and missile name |
+| `target_display_name`, `target_display_pilot`, `target_display_range`, `target_display_speed`, `target_display_subtarget` | The target displays' lines, in either form: the target's name, its pilot's, its range and speed, and the subtarget's name |
+| `damage_title`, `damage_names` | The damage window's title, and the systems' names |
+| `power_title`, `power_figures` | The power window's title, and its percentages |
+| `power_ball` | The power window's ball (a picture) |
+| `objectives_title`, `objectives_heading`, `objectives_name` | The objectives window's title, the objective's heading, and its name |
+| `comms_title`, `comms_numbers`, `comms_items` | The radio's menu, in either window that shows it: its title, the items' numbers, and the items |
+| `wing_status_title`, `wing_status_numbers` | The wing status window's title, and the wingmen's numbers |
 
 ### Screens
 

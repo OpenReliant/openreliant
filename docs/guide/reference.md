@@ -215,22 +215,25 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `comms` | list of string | The items of the radio's menu the comms window lists, in order, as the number keys pick them, whether or not the window is open; none outside a mission. |
 | `messages` | list of string | The message lines the display shows, oldest first; none outside a mission. |
 | `subtitle` | string, or nil | The line `DisplaySubTitle` shows near the foot of the screen in the director's view, whichever view it's in; nil for none, and outside a mission. |
+| `speaker_name` | string, or nil | The name the radio's window writes over the speaker's face, while their line plays; nil while a line waits for the window, between lines, and outside a mission. |
 | `key_prompt` | [Action](#action), or nil | The action whose key `WaitForKey`'s prompt asks the player to press; nil while nothing waits, and outside a mission. |
 | `jump_prompt` | [HudJumpPrompt](#hudjumpprompt), or nil | The prompt that flashes in the view ahead for what the mission has ready: the warp's or the jump's; nil for none, and outside a mission. |
 | `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing (`window_state`); none outside a mission. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
-| `register_display(name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name. |
+| `register_display(name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?, parts: { [HudPart]: HudPartLayout }?})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, `layout` moves and scales the instruments it names, and `parts` moves, scales, aligns, rewords or hides the parts of them it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name. |
 | `set_display_enabled(name: string, enabled: boolean)` | boolean | Turns the display `name` on or off: the calling mod's by its own name, or any mod's by the qualified one. Returns whether it's registered. |
 | `bounds(instrument: HudInstrument)` | [HudBounds](#hudbounds), or nil | Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission. |
+| `part_bounds(part: HudPart)` | [HudBounds](#hudbounds), or nil | Where the part `part` of the game's instruments last drew, in the window's pixels, as the mods' displays place it, and even while one hides it; nil before it first draws, or outside a mission. |
 | `window_state(instrument: HudInstrument)` | [HudWindowState](#hudwindowstate), or nil | How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
+| `power_ball(at: vector, size: vector?, style: FillStyle?)` | nothing | Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale. |
 
 ### `openreliant.ui`
 
@@ -255,7 +258,7 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale. |
 
 ### `openreliant.input`
 
@@ -567,22 +570,25 @@ turret, and a turret's own scripts on their turret.
 | `comms` | list of string | The items of the radio's menu the comms window lists, in order, as the number keys pick them, whether or not the window is open; none outside a mission. |
 | `messages` | list of string | The message lines the display shows, oldest first; none outside a mission. |
 | `subtitle` | string, or nil | The line `DisplaySubTitle` shows near the foot of the screen in the director's view, whichever view it's in; nil for none, and outside a mission. |
+| `speaker_name` | string, or nil | The name the radio's window writes over the speaker's face, while their line plays; nil while a line waits for the window, between lines, and outside a mission. |
 | `key_prompt` | [Action](#action), or nil | The action whose key `WaitForKey`'s prompt asks the player to press; nil while nothing waits, and outside a mission. |
 | `jump_prompt` | [HudJumpPrompt](#hudjumpprompt), or nil | The prompt that flashes in the view ahead for what the mission has ready: the warp's or the jump's; nil for none, and outside a mission. |
 | `open_windows` | list of [HudInstrument](#hudinstrument) | The game's windows that are open, opening or closing (`window_state`); none outside a mission. |
 | `shown` | boolean | Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read. |
 | `width` | number | The window's width, in pixels. |
 | `height` | number | The window's height, in pixels. |
-| `register_display(name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, and `layout` moves and scales the instruments it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name. |
+| `register_display(name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?, parts: { [HudPart]: HudPartLayout }?})` | string | Registers a display, which `name` qualified with the mod's name names. While the flight display shows, `frame` draws it with this package's functions each frame, until it's turned off with `set_display_enabled`. A failed `frame` turns off that display only. `replaces` lists the game's instruments it stands in for, which aren't drawn while it's on, `layout` moves and scales the instruments it names, and `parts` moves, scales, aligns, rewords or hides the parts of them it names; they keep working, and go back as they were as soon as it's turned off, fails or its mod stops. Returns the qualified name. |
 | `set_display_enabled(name: string, enabled: boolean)` | boolean | Turns the display `name` on or off: the calling mod's by its own name, or any mod's by the qualified one. Returns whether it's registered. |
 | `bounds(instrument: HudInstrument)` | [HudBounds](#hudbounds), or nil | Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission. |
+| `part_bounds(part: HudPart)` | [HudBounds](#hudbounds), or nil | Where the part `part` of the game's instruments last drew, in the window's pixels, as the mods' displays place it, and even while one hides it; nil before it first draws, or outside a mission. |
 | `window_state(instrument: HudInstrument)` | [HudWindowState](#hudwindowstate), or nil | How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
+| `power_ball(at: vector, size: vector?, style: FillStyle?)` | nothing | Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission. |
 | `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale. |
 
 ### I.Audio
 
@@ -632,7 +638,7 @@ turret, and a turret's own scripts on their turret.
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale. |
 
 ## The game's functions
 
@@ -1601,6 +1607,7 @@ A table a script gives, which may leave out any field.
 |---|---|
 | `width` | number |
 | `height` | number |
+| `ink` | [HudBounds](#hudbounds), or nil |
 
 ### Pointer
 
@@ -1767,6 +1774,16 @@ A table a script gives, which may leave out any field.
 | `offset` | vector, or nil |
 | `scale` | number, or nil |
 
+### HudPartLayout
+
+| Field | Type |
+|---|---|
+| `offset` | vector, or nil |
+| `scale` | number, or nil |
+| `align` | [Align](#align), or nil |
+| `hidden` | boolean, or nil |
+| `text` | string, or nil |
+
 ## Names of values
 
 A value that has a name in OpenReliant is given as a string: its name. One without a name is a
@@ -1859,6 +1876,10 @@ number. A script can set a field to either.
 ### HudJumpPrompt
 
 `jump`, `warp`.
+
+### HudPart
+
+`caption_text`, `caption_cursor`, `key_prompt_press`, `key_prompt_action`, `key_prompt_key`, `key_prompt_modifier`, `key_prompt_plus`, `view_name_text`, `subtitle_text`, `messages_text`, `fuel_figure`, `kills_figure`, `countermeasures_figure`, `gauges_speed`, `gauges_throttle`, `target_markers_range`, `clock_text`, `radio_speaker`, `radio_face`, `gunnery_gun`, `gunnery_rounds`, `missiles_count`, `missiles_name`, `target_display_name`, `target_display_pilot`, `target_display_range`, `target_display_speed`, `target_display_subtarget`, `damage_title`, `damage_names`, `power_title`, `power_figures`, `power_ball`, `objectives_title`, `objectives_heading`, `objectives_name`, `comms_title`, `comms_numbers`, `comms_items`, `wing_status_title`, `wing_status_numbers`.
 
 ### HudWindowPhase
 

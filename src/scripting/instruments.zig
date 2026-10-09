@@ -26,8 +26,10 @@ const gunnery = hud.gunnery;
 const create = engine.game.create;
 const Target = engine.hooks.Target;
 const Quadrant = engine.game.collision.Quadrant;
+const parts = hud.parts;
 const api = @import("api.zig");
 const Call = api.Call;
+const drawing = @import("drawing.zig");
 const values = @import("values.zig");
 const presentation = @import("presentation.zig");
 
@@ -51,6 +53,36 @@ pub const Layout = struct {
         if (!(scale > 0 and scale <= max_scale)) return null;
         const offset: @Vector(3, f32) = layout.offset orelse @splat(0);
         return .{ .offset = .{ offset[0], offset[1] }, .scale = scale };
+    }
+};
+
+/// Where a display puts a part of one of the game's instruments (`register_display`'s `parts`).
+pub const PartLayout = struct {
+    pub const script_name = "HudPartLayout";
+
+    /// How far it moves, in the game's pixels, as an instrument's `offset` does.
+    offset: ?@Vector(3, f32) = null,
+    /// How many times its own size it's drawn, growing from its own place.
+    scale: ?f32 = null,
+    /// For a text part, how it lines up on its place, in place of its own alignment.
+    @"align": ?drawing.Align = null,
+    /// Whether it's left out. It still works, and `part_bounds` still gives where it would draw.
+    hidden: ?bool = null,
+    /// For a text part, the words it writes in place of its own, at most 64 characters.
+    text: ?[]const u8 = null,
+
+    /// The placement it gives `part`. Raises an error for a scale out of bounds, too long a text,
+    /// or an alignment or text for a picture.
+    pub fn placement(layout: PartLayout, call: Call, part: parts.Part) parts.Placement {
+        const moved: Layout = .{ .offset = layout.offset, .scale = layout.scale };
+        var place = moved.placement() orelse call.raise("parts: {t}'s scale must be above 0 and at most {d}", .{ part, Layout.max_scale });
+        place.hidden = layout.hidden orelse false;
+        if (part.picture() and (layout.@"align" != null or layout.text != null)) call.raise("parts: {t} is a picture, which takes no align or text", .{part});
+        const words: ?parts.Words = if (layout.text) |text| words: {
+            var buffer: [parts.most_words + 1]u8 = undefined;
+            break :words parts.Words.of(language.encode(&buffer, text)) orelse call.raise("parts: {t}'s text must be at most {d} characters", .{ part, parts.most_words });
+        } else null;
+        return .{ .place = place, .alignment = if (layout.@"align") |alignment| alignment.game() else null, .words = words };
     }
 };
 
@@ -358,6 +390,13 @@ pub const bounds = api.Function("Where the game's instrument `instrument` last d
     }
 }.get);
 
+pub const part_bounds = api.Function("Where the part `part` of the game's instruments last drew, in the window's pixels, as the mods' displays place it, and even while one hides it; nil before it first draws, or outside a mission.", &.{"part"}, struct {
+    fn get(call: Call, part: parts.Part) ?hud.Clip {
+        const flight, _ = flightOf(call) orelse return null;
+        return flight.hud.part_bounds.get(part);
+    }
+}.get);
+
 pub const instruments_shown = api.Field(bool, "Whether the game's instruments show this frame: during a mission, in the view ahead from the cockpit.", struct {
     pub fn get(call: Call) bool {
         const host = presentation.Presentation.of(call).host orelse return false;
@@ -600,11 +639,17 @@ pub const damage = api.Field(?Damage, "The damage window, as it shows how well t
 
 pub const power = api.Field(?Power, "The power window, as it shows the shields', guns' and engines' shares of the player's power, as the whole percentages it writes, whether or not the window is open; nil outside a mission.", struct {
     pub fn get(call: Call) ?Power {
-        _, const slot = flightOf(call) orelse return null;
-        const shares = power_window.percentages(power_systems.point(&slot.object));
+        const shares = power_window.percentages(powerSetting(call) orelse return null);
         return .{ .shields = shares.get(.shields), .weapons = shares.get(.guns), .engines = shares.get(.engines) };
     }
 });
+
+/// The player's power setting, which the power window shows and its ball turns with; null outside
+/// a mission.
+pub fn powerSetting(call: Call) ?[2]f32 {
+    _, const slot = flightOf(call) orelse return null;
+    return power_systems.point(&slot.object);
+}
 
 pub const wingmen = api.Field(Wingmen, "The ships of the player's wing the wing status window shows, the player's first, whether or not the window is open; none outside a mission.", struct {
     pub fn get(call: Call) Wingmen {
@@ -661,6 +706,13 @@ pub const subtitle = api.Field(?Text, "The line `DisplaySubTitle` shows near the
     pub fn get(call: Call) ?Text {
         const flight, _ = flightOf(call) orelse return null;
         return stringOf(flight.strings, flight.hud.subtitle.string orelse return null);
+    }
+});
+
+pub const speaker_name = api.Field(?Text, "The name the radio's window writes over the speaker's face, while their line plays; nil while a line waits for the window, between lines, and outside a mission.", struct {
+    pub fn get(call: Call) ?Text {
+        const flight, _ = flightOf(call) orelse return null;
+        return stringOf(flight.strings, flight.speaker_name orelse return null);
     }
 });
 

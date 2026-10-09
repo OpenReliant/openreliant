@@ -66,7 +66,7 @@ const roots: []const type = list: {
     // The game's actions (`on_action`) and camera views (`camera.view`), which scripts pass and get
     // as strings, since mods add their own; and the layout a HUD display gives an instrument, which
     // only `register_display`'s definition takes.
-    break :list found ++ records.Values.kinds ++ .{ engine.input.controls.Action, engine.game.camera.View, instruments.Layout };
+    break :list found ++ records.Values.kinds ++ .{ engine.input.controls.Action, engine.game.camera.View, instruments.Layout, instruments.PartLayout };
 };
 
 /// The types of what scripts pass the functions and methods declared, which `given` follows.

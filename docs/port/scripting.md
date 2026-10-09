@@ -33,7 +33,9 @@ handles. HUD displays and selected screens record commands through the existing 
 Context shutdown and failed loads invalidate registrations and release callback references.
 
 A HUD display's `replaces` and `layout` give each of the game's instruments a placement
-(`Registry.placements`, `hud.Placement`), from the displays that are on, a later one winning. Once
+(`Registry.placements`, `hud.Placement`), and its `parts` each of their parts one
+(`Registry.partPlacements`, `hud.parts.Placement`), from the displays that are on, a later one
+winning. Once
 the scripts' frame has run, the driver keeps them for the frame
 (`Presentation.instrumentPlacements`): the flight display draws each instrument through a device
 of its own that moves, scales or hides it (`hud.Placings`), and the radar's backing in the scene

@@ -47,9 +47,9 @@ pub const ScriptFrames = struct {
     }
 
     /// Shows the layer `which` of `told`, written with `font` at `scale` of the window's pixels to
-    /// the game's, its shapes from `art`, with the fonts scripts can name.
-    pub fn show(frames: *const ScriptFrames, told: *scripting.presentation.Host, which: scripting.drawing.Which, font: *hud.Opened, scale: f32, art: ?*hud.Art) void {
-        var view: scripting.drawing.View = .{ .font = font, .gpa = frames.gpa, .screen = told.window, .scale = scale, .art = art, .rasterizer = frames.rasterizer };
+    /// the game's, its shapes from `art` and its power ball `ball`, with the fonts scripts can name.
+    pub fn show(frames: *const ScriptFrames, told: *scripting.presentation.Host, which: scripting.drawing.Which, font: *hud.Opened, scale: f32, art: ?*hud.Art, ball: ?*hud.power.Ball) void {
+        var view: scripting.drawing.View = .{ .font = font, .gpa = frames.gpa, .screen = told.window, .scale = scale, .art = art, .rasterizer = frames.rasterizer, .power_ball = ball };
         for (std.enums.values(scripting.drawing.Font)) |named| {
             if (named != .default) view.fonts.set(named, frames.fonts.get(named));
         }
@@ -62,7 +62,7 @@ pub const ScriptFrames = struct {
     pub fn screenFrame(frames: *ScriptFrames, window: [2]u32) void {
         const font = frames.fonts.get(.menu_small) orelse return;
         var shown = frames.host(window, false);
-        frames.show(&shown, .ui, font, game.interface.canvas.scaleFor(window), null);
+        frames.show(&shown, .ui, font, game.interface.canvas.scaleFor(window), null, null);
         frames.presentation.frame(shown);
     }
 
@@ -100,7 +100,7 @@ test ScriptFrames {
     try std.testing.expect(told.flying);
     try std.testing.expectEqual(null, told.views.get(.ui));
     // A layer shown writes in its own font, and can name the others.
-    frames.show(&told, .ui, &small, 2, null);
+    frames.show(&told, .ui, &small, 2, null, null);
     const view = told.views.get(.ui).?;
     try std.testing.expectEqual(&small, view.fontOf(.default).?);
     try std.testing.expectEqual(&large, view.fontOf(.menu_large).?);

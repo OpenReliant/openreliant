@@ -1211,10 +1211,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             var host = frames.host(size, !flow.in_front_end and !clock.paused);
             if (flow.in_front_end) {
                 const fonts = &front_resources.?;
-                frames.show(&host, .ui, &fonts.small.font, game.interface.canvas.scaleFor(size), if (fonts.shapes) |*art| art else null);
+                frames.show(&host, .ui, &fonts.small.font, game.interface.canvas.scaleFor(size), if (fonts.shapes) |*art| art else null, null);
             } else {
                 const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
-                if (script_font) |*file| frames.show(&host, layer, &file.font, display.ui_scale.of(size), &display.resources.art);
+                if (script_font) |*file| frames.show(&host, layer, &file.font, display.ui_scale.of(size), &display.resources.art, display.resources.scripts_ball);
                 host.camera = .{ .camera = &view, .now = clock.viewTime(), .player = objects.player };
                 host.flight = .{
                     .hud = &display.state,
@@ -1224,11 +1224,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .last_view = display.last_view,
                     .strings = display.strings,
                     .speaker = display.radio.speakingShip(&display.state.windows, objects),
+                    .speaker_name = display.radio.shownName(),
                 };
             }
             if (shown.runtime.registries.selected_screen != null and host.views.get(.ui) == null) host.views.set(.ui, host.views.get(.hud));
             shown.frame(host);
             display.placements = shown.instrumentPlacements();
+            display.parts = shown.partPlacements();
             if (host.camera != null) {
                 objects.slots[objects.player].object.flags.hidden = view.inside(objects.player);
             }
@@ -2236,6 +2238,8 @@ const Display = struct {
     /// Where the mods' displays put the instruments this frame, and which they stand in for, as
     /// the scripts' frame leaves them (`hud.Frame.placements`).
     placements: std.EnumArray(game.hud.Instrument, game.hud.Placement) = .initFill(.{}),
+    /// Where they put the instruments' parts (`hud.Frame.parts`).
+    parts: std.EnumArray(game.hud.parts.Part, game.hud.parts.Placement) = .initFill(.{}),
     /// The scripting console, which stands in the pause menu's place while it's up.
     console: ?*ScriptConsole = null,
 
@@ -2302,6 +2306,7 @@ const Display = struct {
             .edge_line = display.edge_line,
             .variables = if (display.play.loaded) |loaded| &loaded.script.variables else null,
             .placements = display.placements,
+            .parts = display.parts,
             .devices = display.devices,
         });
     }

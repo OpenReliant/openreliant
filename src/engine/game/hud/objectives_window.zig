@@ -66,16 +66,16 @@ pub fn words(objectives: *const Objectives) Words {
 /// `hud_window_draw`'s window 10, in the view ahead: the title, the heading, and beneath it the
 /// objective's name.
 pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!void {
-    try canvas.string(title, title_at, .right);
+    try canvas.string(.objectives_title, title, title_at, .right);
     const said = words(shown.objectives);
-    try canvas.string(said.heading, heading_at, .right);
+    try canvas.string(.objectives_heading, said.heading, heading_at, .right);
     const name = said.name orelse return;
     const text = switch (name) {
         .string => |string| canvas.pen.strings.string(string) orelse return,
         .text => |text| text,
         .missing => no_name,
     };
-    try canvas.wrapped(text, name_at, .left, name_width, name_line_height, name_lines);
+    try canvas.wrapped(.objectives_name, text, name_at, .left, name_width, name_line_height, name_lines);
 }
 
 test words {
