@@ -321,8 +321,13 @@ pub const ShapeStyle = struct {
 
 /// How big a line of text is drawn, in the window's pixels.
 pub const Size = struct {
+    /// How far the line reaches, by the font's widths of its characters, and how tall the font is.
     width: f32,
     height: f32,
+    /// The box its letters' pixels cover, from the point it's drawn at, as its style aligns it;
+    /// nil for text without any, such as spaces. An outline font's letters can start and end
+    /// inside or outside the widths that lay the line out.
+    ink: ?hud.Clip,
 };
 
 /// What a layer is drawn on this frame, as the driver tells it (`presentation.Host`).
@@ -576,7 +581,7 @@ pub fn Package(comptime which: Which) type {
             }
         }.draw);
 
-        pub const measure = api.Function("The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale.", &.{ "text", "style" }, struct {
+        pub const measure = api.Function("The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale.", &.{ "text", "style" }, struct {
             fn measure(call: Call, words: []const u8, given: ?union(enum) { scale: f32, style: TextStyle }) Size {
                 const view = viewOf(call);
                 const style: TextStyle = if (given) |asked| switch (asked) {
@@ -591,6 +596,7 @@ pub fn Package(comptime which: Which) type {
                 return .{
                     .width = @as(f32, @floatFromInt(font.textWidth(encoded))) * times,
                     .height = @as(f32, @floatFromInt(font.font.header.height)) * times,
+                    .ink = hud.textInk(font, .{ 0, 0 }, encoded, style.@"align".game(), times) catch call.raise("out of memory", .{}),
                 };
             }
         }.measure);

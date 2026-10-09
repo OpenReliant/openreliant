@@ -1141,6 +1141,12 @@ test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
                 \\    local style = {font = "font.ttf", base_font = "menu_large", scale = 2}
                 \\    local size = ui.measure("AH", style)
                 \\    assert(size.width == 24 and size.height == 16)
+                \\    -- Where the letters' pixels fall, which a right alignment puts before the point.
+                \\    local ink = size.ink
+                \\    assert(ink.left < ink.right and ink.top < ink.bottom)
+                \\    local right = ui.measure("AH", {font = "font.ttf", base_font = "menu_large", scale = 2, align = "right"}).ink
+                \\    assert(right.left == ink.left - 24 and right.right == ink.right - 24)
+                \\    assert(ui.measure("  ", style).ink == nil)
                 \\    ui.text(vector.create(1, 2, 0), "AH", style)
                 \\    ui.text(vector.zero, "AH", {font = "menu_large"})
                 \\    -- Over a font whose letters use palette colours too, as the display's do.
@@ -1148,7 +1154,7 @@ test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
                 \\    ui.picture(vector.create(10, 20, 0), "icon.png", vector.create(12, 8, 0), {alpha = 0.5})
                 \\    ui.shape(vector.create(30, 40, 0), 1, {scale = 2})
                 \\    assert(not pcall(ui.picture, vector.zero, "bad.png"))
-                \\    local ok, err = pcall(ui.text, vector.zero, "AH", {font = "bad.ttf"})
+                \\    local ok, err = pcall(ui.text, vector.zero, "AH", {font = "bad.ttf", base_font = "menu_large"})
                 \\    assert(not ok and string.find(err, "can't be read as a TrueType or OpenType font", 1, true))
                 \\    assert(not pcall(ui.picture, vector.zero, "../icon.png"))
                 \\end}}
@@ -1201,7 +1207,9 @@ test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
     defer recorder.deinit();
     try fixture.shown.draw(.ui, recorder.interface(), null);
     try std.testing.expect(recorder.draws.items.len > 2);
+    // The frame ran to its end, every assertion holding, so it runs again.
     fixture.shown.frame(host);
+    try std.testing.expectEqual(5, fixture.shown.layers.get(.ui).commands.items.len);
     try std.testing.expectEqual(1, fixture.shown.assets.pictures.items.len);
     try fixture.shown.reload();
     fixture.shown.frame(host);

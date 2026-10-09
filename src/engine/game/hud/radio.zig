@@ -33,6 +33,14 @@ comptime {
 pub const picture_at: [2]i32 = .{ 13, 19 };
 pub const name_at: [2]i32 = .{ 1, 2 };
 
+/// The size the window shows a face film at, in the display's pixels: the size of the game's own
+/// films ([`fm8.md`](../../../../docs/formats/fm8.md)).
+///
+/// **Improvement:** the game draws a film at its own size, so a mod's sharper film would cover the
+/// window. OpenReliant draws every film at this size, and a sharper one shows more detail in the
+/// same place.
+pub const film_size: [2]u32 = .{ 120, 100 };
+
 /// The first of the shapes for a speaker of `side`.
 pub fn firstShape(side: gameobj.Side(u16)) u16 {
     return if (side == .friendly) friendly_shapes else other_shapes;
@@ -52,8 +60,9 @@ pub const Shown = struct {
 /// `hud_window_draw`'s case 0, in every view: in the view ahead (`ahead`) while the window closes,
 /// the emblem. Otherwise a film that has stopped closes the window, and a line that is over closes
 /// it and stops the film. While the line plays, in the view ahead, the speaker's name and the film,
-/// each of its rows moved by the camera's shake (`hud.rowShift`); while it waits for the window,
-/// the shape its wait has come to. The shapes shake while the display does (`hud_blit`).
+/// at `film_size`, each of its rows moved by the camera's shake (`hud.rowShift`); while it waits
+/// for the window, the shape its wait has come to. The shapes shake while the display does
+/// (`hud_blit`).
 pub fn frame(shown: Shown, held: *windows.Windows, canvas: windows.Canvas, ahead: bool) windows.Canvas.Error!void {
     const radio = shown.radio;
     const movie = &radio.movie;
@@ -69,7 +78,7 @@ pub fn frame(shown: Shown, held: *windows.Windows, canvas: windows.Canvas, ahead
         if (!ahead) return;
         if (radio.name) |name| try canvas.string(name, name_at, .left);
         const shake: ?hud.Shake = if (shown.hit_shake > 0) .{ .hit_shake = shown.hit_shake, .interference = 0, .random = shown.random } else null;
-        canvas.imageShaken(&movie.picture, picture_at, shake);
+        canvas.imageShaken(&movie.picture, film_size, picture_at, shake);
         return;
     }
     if (!ahead) return;
@@ -83,33 +92,39 @@ test firstShape {
     try std.testing.expectEqual(0x148, firstShape(.neutral));
 }
 
-test "the film keeps its shape at any window's size" {
+test "the film keeps its shape at any window's size, and any film's" {
     const gpa = std.testing.allocator;
-    const across = 120;
-    const down = 100;
-    var rgba: [across * down * 4]u8 = @splat(0);
-    var level = [1]srtexture.Level{.{ .width = across, .height = down, .texels = &rgba }};
-    var picture: srtexture.Image = .{ .levels = &level };
+    const across = film_size[0];
+    const down = film_size[1];
     var random: Random = .{};
-    // The display is drawn at one scale both ways, from the least of the window's to 640 by 480,
-    // so the film stands 6 to 5 whatever the window's shape, and shaken, a row at a time, as well.
-    for ([_][2]u32{ .{ 1024, 768 }, .{ 1920, 1080 }, .{ 768, 1024 }, .{ 3440, 1440 }, .{ 640, 480 } }) |screen| {
-        var recorder: device.testing.Recorder = .{ .gpa = gpa };
-        defer recorder.deinit();
-        const scale = (hud.UiScale{}).of(screen);
-        const pen = hud.testing.pen(undefined, gpa, recorder.interface());
-        const canvas: windows.Canvas = .{ .pen = pen.sized(scale), .at = .{ 0, 0 }, .clip = null };
-        canvas.imageShaken(&picture, picture_at, null);
-        const quad = recorder.last();
-        try std.testing.expectApproxEqRel(across * scale, quad[2].x - quad[0].x, 1e-5);
-        try std.testing.expectApproxEqRel(down * scale, quad[2].y - quad[0].y, 1e-5);
-        recorder.clear();
-        canvas.imageShaken(&picture, picture_at, .{ .hit_shake = 1, .interference = 0, .random = &random });
-        try std.testing.expectEqual(down, recorder.draws.items.len);
-        for (0..down) |row| {
-            const strip = recorder.drawn(row);
-            try std.testing.expectApproxEqRel(across * scale, strip[2].x - strip[0].x, 1e-5);
-            try std.testing.expectApproxEqRel(scale, strip[2].y - strip[0].y, 1e-5);
+    // A film of the game's size, and a mod's four times sharper, both drawn at the game's size.
+    for ([_]u32{ 1, 4 }) |sharper| {
+        const rgba = try gpa.alloc(u8, across * down * sharper * sharper * 4);
+        defer gpa.free(rgba);
+        @memset(rgba, 0);
+        var level = [1]srtexture.Level{.{ .width = across * sharper, .height = down * sharper, .texels = rgba }};
+        var picture: srtexture.Image = .{ .levels = &level };
+        // The display is drawn at one scale both ways, from the least of the window's to 640 by
+        // 480, so the film stands 6 to 5 whatever the window's shape, and shaken, a row at a time,
+        // as well.
+        for ([_][2]u32{ .{ 1024, 768 }, .{ 1920, 1080 }, .{ 768, 1024 }, .{ 3440, 1440 }, .{ 640, 480 } }) |screen| {
+            var recorder: device.testing.Recorder = .{ .gpa = gpa };
+            defer recorder.deinit();
+            const scale = (hud.UiScale{}).of(screen);
+            const pen = hud.testing.pen(undefined, gpa, recorder.interface());
+            const canvas: windows.Canvas = .{ .pen = pen.sized(scale), .at = .{ 0, 0 }, .clip = null };
+            canvas.imageShaken(&picture, film_size, picture_at, null);
+            const quad = recorder.last();
+            try std.testing.expectApproxEqRel(@as(f32, across) * scale, quad[2].x - quad[0].x, 1e-5);
+            try std.testing.expectApproxEqRel(@as(f32, down) * scale, quad[2].y - quad[0].y, 1e-5);
+            recorder.clear();
+            canvas.imageShaken(&picture, film_size, picture_at, .{ .hit_shake = 1, .interference = 0, .random = &random });
+            try std.testing.expectEqual(down, recorder.draws.items.len);
+            for (0..down) |row| {
+                const strip = recorder.drawn(row);
+                try std.testing.expectApproxEqRel(@as(f32, across) * scale, strip[2].x - strip[0].x, 1e-5);
+                try std.testing.expectApproxEqRel(scale, strip[2].y - strip[0].y, 1e-5);
+            }
         }
     }
 }

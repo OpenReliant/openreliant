@@ -404,14 +404,15 @@ pub const Canvas = struct {
 
     /// `picture` with its top left corner at `at`, cut to the window.
     pub fn image(canvas: Canvas, picture: *srtexture.Image, at: [2]i32) void {
-        canvas.imageShaken(picture, at, null);
+        canvas.imageShaken(picture, .{ picture.width(), picture.height() }, at, null);
     }
 
-    /// `picture` with its top left corner at `at`, cut to the window, each row moved as `shake`
-    /// says where it shakes.
-    pub fn imageShaken(canvas: Canvas, picture: *srtexture.Image, at: [2]i32, shake: ?hud.Shake) void {
+    /// `picture` with its top left corner at `at`, drawn `size` of the display's pixels across and
+    /// down whatever its own size, cut to the window, each row moved as `shake` says where it
+    /// shakes.
+    pub fn imageShaken(canvas: Canvas, picture: *srtexture.Image, size: [2]u32, at: [2]i32, shake: ?hud.Shake) void {
         const corner = canvas.place(at);
-        hud.drawImage(canvas.pen.device, picture, .{ @floatFromInt(corner[0]), @floatFromInt(corner[1]) }, canvas.pen.colour, canvas.pen.scale, .{ .clip = canvas.clip, .shake = shake });
+        hud.drawImageAs(canvas.pen.device, picture, size, .{ @floatFromInt(corner[0]), @floatFromInt(corner[1]) }, canvas.pen.colour, canvas.pen.scale, .{ .clip = canvas.clip, .shake = shake });
     }
 
     /// `words` at `at` in the display's font, aligned as `alignment` says.

@@ -415,6 +415,37 @@ pub const Opened = struct {
         };
     }
 
+    /// The grey that byte `index` of a glyph is drawn in, for a font drawn in one colour.
+    fn level(opened: Opened, index: u8) u8 {
+        return switch (opened.paint) {
+            .inked => |cover| std.math.lossyCast(u8, @round(cover[index] * std.math.maxInt(u8))),
+            .ramp, .palette => rampLevel(index),
+        };
+    }
+
+    /// Whether byte `index` of a glyph draws a pixel: any but 0 through a palette, and any that
+    /// covers some of a pixel in one colour.
+    fn draws(opened: Opened, index: u8) bool {
+        return if (opened.paint == .palette) index != 0 else opened.level(index) != 0;
+    }
+
+    /// The pixels of character `code`'s bitmap glyph that are drawn, in the glyph's own pixels:
+    /// from the first column and row with one to past the last. Null for a glyph without any, or
+    /// one the font can't draw (`glyphImage`).
+    fn glyphInk(opened: Opened, code: u8) ?Clip {
+        const glyph = opened.font.glyph(code) orelse return null;
+        if (opened.paint == .palette and opened.colours() == null) return null;
+        var box: ?Clip = null;
+        for (glyph.pixels, 0..) |index, at| {
+            if (!opened.draws(index)) continue;
+            const x: f32 = @floatFromInt(at % glyph.width);
+            const y: f32 = @floatFromInt(at / glyph.width);
+            const pixel: Clip = .{ .left = x, .top = y, .right = x + 1, .bottom = y + 1 };
+            box = if (box) |found| found.join(pixel) else pixel;
+        }
+        return box;
+    }
+
     /// Frees the glyphs the GPU was given.
     pub fn deinit(opened: *Opened, gpa: Allocator) void {
         for (&opened.images) |*image| if (image.*) |made| {
@@ -807,6 +838,16 @@ pub const Clip = struct {
         };
     }
 
+    /// The least rectangle that holds both.
+    pub fn join(a: Clip, b: Clip) Clip {
+        return .{
+            .left = @min(a.left, b.left),
+            .top = @min(a.top, b.top),
+            .right = @max(a.right, b.right),
+            .bottom = @max(a.bottom, b.bottom),
+        };
+    }
+
     /// Whether it holds no pixel at all.
     pub fn empty(clip: Clip) bool {
         return clip.left >= clip.right or clip.top >= clip.bottom;
@@ -825,6 +866,7 @@ test Clip {
     try std.testing.expectEqual(Clip{ .left = 20, .top = 10, .right = 100, .bottom = 40 }, a.intersect(b));
     try std.testing.expect(!a.intersect(b).empty());
     try std.testing.expect(a.intersect(.{ .left = 100, .top = 0, .right = 200, .bottom = 40 }).empty());
+    try std.testing.expectEqual(Clip{ .left = 0, .top = 0, .right = 200, .bottom = 50 }, a.join(b));
     try std.testing.expectEqual(16, Clip.edge(10, 3, 2));
 }
 
@@ -932,17 +974,8 @@ fn glyphImage(opened: *Opened, gpa: Allocator, code: u8) Allocator.Error!?*srtex
     errdefer gpa.free(rgba);
     for (glyph.pixels, 0..) |index, at| {
         const pixel = rgba[at * 4 ..][0..4];
-        if (palette) |colours| {
-            pixel[0..3].* = paletteColour(colours, index);
-            pixel[3] = if (index == 0) 0 else 255;
-        } else {
-            const grey = switch (opened.paint) {
-                .inked => |cover| std.math.lossyCast(u8, @round(cover[index] * std.math.maxInt(u8))),
-                .ramp, .palette => rampLevel(index),
-            };
-            @memset(pixel[0..3], grey);
-            pixel[3] = if (grey == 0) 0 else 255;
-        }
+        if (palette) |colours| pixel[0..3].* = paletteColour(colours, index) else @memset(pixel[0..3], opened.level(index));
+        pixel[3] = if (opened.draws(index)) 255 else 0;
     }
     var image: srtexture.Image = try .single(gpa, glyph.width, opened.font.header.height, rgba);
     // **Improvement:** text in one colour, such as the menus', magnified from its coverage
@@ -1163,34 +1196,68 @@ pub fn drawTextIn(
     const outlined = if (opened.outline) |shown| try shown.at(scale) else null;
     const outline_tint = device.pack(if (opened.ink) |ink| inked(colour, ink) else colour);
     // The edge its outline glyphs stand on, first, under every glyph of the line (`edge_width`).
-    if (outlined) |glyphs| {
+    if (outlined != null) {
         const edge_tint = device.pack(.{ 0, 0, 0, colour[3] });
         const reach = edge_width * scale;
         var line: Line = .{ .opened = opened, .text = text, .scale = scale, .x = left };
-        while (line.next()) |glyph| {
-            if (opened.own_colours.isSet(glyph.code)) continue;
-            switch (glyphs.shown(glyph.code, glyph.left, top, scale)) {
-                .quad => |quad| for (edge_directions) |direction| {
-                    drawPart(into, quad.image, moved(quad.edges, direction, reach), quad.u, quad.v, edge_tint, clip);
-                },
-                .blank, .bitmap => {},
-            }
-        }
+        while (line.next()) |glyph| switch (glyphShown(opened, outlined, glyph.code, glyph.left, top, scale)) {
+            .quad => |quad| for (edge_directions) |direction| {
+                drawPart(into, quad.image, moved(quad.edges, direction, reach), quad.u, quad.v, edge_tint, clip);
+            },
+            .blank, .bitmap => {},
+        };
     }
     var line: Line = .{ .opened = opened, .text = text, .scale = scale, .x = left };
     while (line.next()) |glyph| {
-        if (outlined) |glyphs| if (!opened.own_colours.isSet(glyph.code)) switch (glyphs.shown(glyph.code, glyph.left, top, scale)) {
+        switch (glyphShown(opened, outlined, glyph.code, glyph.left, top, scale)) {
             .blank => continue,
             .bitmap => {},
             .quad => |quad| {
                 drawPart(into, quad.image, quad.edges, quad.u, quad.v, outline_tint, clip);
                 continue;
             },
-        };
+        }
         const image = try glyphImage(opened, gpa, glyph.code) orelse continue;
         drawPart(into, image, .{ .left = glyph.left, .top = top, .right = glyph.left + glyph.width, .bottom = top + height }, .{ 0, 1 }, .{ 0, 1 }, tint, clip);
     }
     return @intFromFloat(line.x);
+}
+
+/// The box the letters of `text` cover where `drawText` draws it at `at`: the pixels its glyphs
+/// draw, without the dark edge an outline font's glyphs stand on. Null for text without any, such
+/// as spaces.
+pub fn textInk(opened: *Opened, at: [2]i32, text: []const u8, alignment: Align, scale: f32) Allocator.Error!?Clip {
+    const left: f32 = @floatFromInt(textLeft(opened.*, at[0], text, alignment, scale));
+    const top: f32 = @floatFromInt(at[1]);
+    const outlined = if (opened.outline) |shown| try shown.at(scale) else null;
+    var box: ?Clip = null;
+    var line: Line = .{ .opened = opened, .text = text, .scale = scale, .x = left };
+    while (line.next()) |glyph| {
+        const covered: Clip = switch (glyphShown(opened, outlined, glyph.code, glyph.left, top, scale)) {
+            .blank => continue,
+            .quad => |quad| quad.edges,
+            .bitmap => bitmap: {
+                const ink = opened.glyphInk(glyph.code) orelse continue;
+                break :bitmap .{
+                    .left = glyph.left + ink.left * scale,
+                    .top = top + ink.top * scale,
+                    .right = glyph.left + ink.right * scale,
+                    .bottom = top + ink.bottom * scale,
+                };
+            },
+        };
+        box = if (box) |found| found.join(covered) else covered;
+    }
+    return box;
+}
+
+/// How character `code` of a line is drawn, its place starting at `left` on a line whose top is at
+/// `top`: from `outlined`, the outline font that stands in for `opened` at this size, or as its
+/// bitmap glyph where there is none or the glyph keeps its own colours.
+fn glyphShown(opened: *const Opened, outlined: ?outline.Sized, code: u8, left: f32, top: f32, scale: f32) outline.Shown {
+    const glyphs = outlined orelse return .bitmap;
+    if (opened.own_colours.isSet(code)) return .bitmap;
+    return glyphs.shown(code, left, top, scale);
 }
 
 /// The glyphs of a line of text in `opened`, `scale` times its size, from `x` across: each code and
@@ -1913,6 +1980,17 @@ test drawText {
     _ = try drawText(&opened, gpa, recorder.interface(), .{ 0, 0 }, text[0..1], .{ 1, 1, 1, 1 }, .left, 2);
     try std.testing.expectEqual(width * 2, recorder.drawn(0)[2].x);
     try std.testing.expectEqual(height * 2, recorder.drawn(0)[2].y);
+}
+
+test textInk {
+    // Each box of the font is 6 by 8, inked from column 1 to 4 and row 2 to 6, and a space has none.
+    var opened: Opened = .monochrome(try .parse(comptime outline.testing.font));
+    try std.testing.expectEqual(Clip{ .left = 11, .top = 22, .right = 27, .bottom = 27 }, (try textInk(&opened, .{ 10, 20 }, "A A", .left, 1)).?);
+    // Centred, the line starts half its width before the point, and twice the size, it covers twice
+    // as much.
+    try std.testing.expectEqual(Clip{ .left = 2, .top = 22, .right = 18, .bottom = 27 }, (try textInk(&opened, .{ 10, 20 }, "A A", .centre, 1)).?);
+    try std.testing.expectEqual(Clip{ .left = 2, .top = 4, .right = 10, .bottom = 14 }, (try textInk(&opened, .{ 0, 0 }, "H", .left, 2)).?);
+    try std.testing.expectEqual(null, try textInk(&opened, .{ 10, 20 }, "  ", .left, 1));
 }
 
 /// What `hud_init` loads for the display to draw with. An image is made of a shape or a glyph the

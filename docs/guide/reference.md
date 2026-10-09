@@ -230,7 +230,7 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale. |
 
 ### `openreliant.ui`
 
@@ -255,7 +255,7 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale. |
 
 ### `openreliant.input`
 
@@ -582,7 +582,7 @@ turret, and a turret's own scripts on their turret.
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale. |
 
 ### I.Audio
 
@@ -632,7 +632,7 @@ turret, and a turret's own scripts on their turret.
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
-| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale. |
+| `measure(text: string, style: (number \| TextStyle)?)` | [Size](#size) | The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale. |
 
 ## The game's functions
 
@@ -1601,6 +1601,7 @@ A table a script gives, which may leave out any field.
 |---|---|
 | `width` | number |
 | `height` | number |
+| `ink` | [HudBounds](#hudbounds), or nil |
 
 ### Pointer
 

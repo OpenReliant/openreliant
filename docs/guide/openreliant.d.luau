@@ -276,6 +276,7 @@ type LineStyle = {
 type Size = {
     width: number,
     height: number,
+    ink: HudBounds?,
 }
 type Pointer = {
     at: vector,
@@ -805,7 +806,7 @@ type Hud = {
     line: (from: vector, to: vector, style: LineStyle?) -> (),
     -- Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says.
     rectangle: (from: vector, to: vector, style: FillStyle?) -> (),
-    -- The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale.
+    -- The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale.
     measure: (text: string, style: (number | TextStyle)?) -> Size,
 }
 
@@ -845,7 +846,7 @@ type Ui = {
     line: (from: vector, to: vector, style: LineStyle?) -> (),
     -- Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says.
     rectangle: (from: vector, to: vector, style: FillStyle?) -> (),
-    -- The size of `text` in window pixels, as `text` draws it: `style` is a text style, or just a number for its scale.
+    -- The size of `text` in window pixels, as `text` draws it, and where its letters' pixels fall from the point it's drawn at: `style` is a text style, or just a number for its scale.
     measure: (text: string, style: (number | TextStyle)?) -> Size,
 }
 
