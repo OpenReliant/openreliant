@@ -303,8 +303,8 @@ back:
 | | | The items |
 
 What the items hold depends on the kind of file. Many hold what look like the addresses they had in
-the Xbox's memory when the file was written, which the game doesn't need from the file. The code is
-in [`resource.zig`](../../src/formats/games/bsg/resource.zig).
+the Xbox's memory when the file was written. The code is in
+[`resource.zig`](../../src/formats/games/bsg/resource.zig).
 
 ### Textures
 
@@ -321,10 +321,10 @@ A texture is one section of a header, a palette and the texels:
 | 32 | 96 | 0 in every texture |
 
 The palette is a texture's second item, of 32 to 256 colours of 4 bytes each: blue, green, red and
-alpha. In most palettes the alpha is 0 for every colour, and the texture is opaque. The 32-bit
-textures, the front end's skies, have no palette, and their texels are blue, green, red and a byte
-that isn't used. The last item holds every level's texels, largest first, padded to a multiple of
-4 bytes, each level swizzled as the Xbox keeps textures
+alpha. In most palettes the alpha is 0 for every colour, and OpenReliant takes such a texture as
+opaque. The 32-bit textures, the front end's skies, have no palette, and their texels are blue,
+green, red and a byte that isn't used. The last item holds every level's texels, largest first,
+padded to a multiple of 4 bytes, each level swizzled as the Xbox keeps textures
 ([Xbox formats](../formats/xbox.md#textures)).
 
 ### Meshes
@@ -349,7 +349,7 @@ material, as a 100-byte record and the names of four textures, empty for none:
 
 | Offset | Size | Field of a material |
 |---|---|---|
-| 0 | 4 | What it draws: 0 nothing but its colour, 2 its texture, 4 a texture whose name ends in a frame's number, such as `launchtube main000.tga`, 6 its texture with an environment map as its second. **Unknown:** 1. |
+| 0 | 4 | What it draws: 0 no texture, 2 its texture, 4 a texture whose name ends in a frame's number, such as `launchtube main000.tga`, 6 its texture with an environment map as its second. **Unknown:** 1. |
 | `0x2C` | 4 | How it joins what is behind it: 0 it covers it, 1 it adds to it, as lasers, glows and particles do, 5 **Unverified:** it mixes with it by the texture's alpha, as clouds and skies do |
 
 A section of collision data follows in all but a few meshes: positions and a tree of 64-byte boxes.
@@ -366,7 +366,7 @@ of its own, as 11 items:
 | 2 | The positions, three floats each |
 | 3 | The normals, three floats each |
 | 4 | The colours, red, green, blue and alpha floats, or empty for none |
-| 5 | The texture coordinates for the first texture, two floats each |
+| 5 | The texture coordinates for the first texture, two floats each, or empty for none |
 | 6 | The texture coordinates for the second, or empty for none |
 | 7 to 10 | Empty in every mesh. **Unknown.** |
 
@@ -482,8 +482,9 @@ texture of an archive as a PNG file.
   as its glow, a mixed one is blended by its alpha, and an opaque one with alpha in its picture
   is masked by it. The material's record and its textures' names are in its `extras`.
 - The guns, jets, vapour trails and cockpit are empty nodes named `gun_muzzle`, `engine_glow:1`,
-  `vapour_trail` and `cockpit_view`. A jet's glow is as wide and as high as its `Jet<n>Size`, and
-  as long. The hardpoints are empty nodes placed and turned by their matrices, named `missile` for
+  `vapour_trail` and `cockpit_view`. A jet's glow is a box as wide and as high as its
+  `Jet<n>Size`, and twice as long, since `from-gltf` takes half its length as how far the plume
+  reaches. The hardpoints are empty nodes placed and turned by their matrices, named `missile` for
   `SECONDARY`, `launch_point` for `LAUNCHTUBE`, and by their kind for the others, such as `turret`,
   with their attributes in their `extras`. A model mounted on a hardpoint is written under it in
   the same way, up to four mounts deep.

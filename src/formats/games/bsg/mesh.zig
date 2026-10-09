@@ -17,7 +17,7 @@ const Allocator = std.mem.Allocator;
 const layout = @import("../../layout.zig");
 const resource = @import("resource.zig");
 
-/// The start of every mesh.
+/// A mesh's version and kind (`resource.Start`).
 pub const version = 4;
 pub const kind = 0xABA9717E;
 

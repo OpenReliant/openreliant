@@ -57,8 +57,6 @@ pub const Options = struct {
 
 /// A texture a material names, and the picture to write of it.
 pub const Picture = struct {
-    /// The texture's name in the archive, such as `models/textures/sh_v2_viper01.btga`.
-    source: []const u8,
     /// The PNG file the glTF file names, such as `sh_v2_viper01.png`.
     file: []const u8,
     texture: texture_file.Texture,
@@ -139,41 +137,37 @@ const Making = struct {
     fn partNodes(made: *Making, model: model_file.Model, folder: []const u8, top: *std.ArrayList(u32)) Error!void {
         const allocator = made.arena();
         const chosen = try model.partsAt(allocator, made.level);
+        const parents = try allocator.alloc(?usize, chosen.len);
+        for (parents, chosen) |*parent, part| parent.* = parentOf(chosen, part);
+        // The parts' nodes come first, in the parts' order, so that a part finds its parent's.
+        const nodes = &made.gltf.nodes;
+        const first = nodes.items.len;
+        try nodes.appendNTimes(allocator, undefined, chosen.len);
         const children = try allocator.alloc(std.ArrayList(u32), chosen.len);
         @memset(children, .empty);
-        const nodes = try allocator.alloc(Node, chosen.len);
-        for (chosen, nodes) |part, *node| {
-            var extras: json.ObjectMap = .empty;
-            if (part.pivot) |pivot| try extras.put(allocator, "pivot", try numbersValue(allocator, &mirror(pivot)));
-            node.* = .{
-                .name = part.name,
-                .matrix = mirrorMatrix(part.matrix),
-                .mesh = if (part.mesh.len > 0) try made.partMesh(part.name, try part.meshPath(allocator, folder)) else null,
-                .extras = if (extras.count() > 0) .{ .object = extras } else null,
-            };
+        for (chosen, 0..) |part, at| {
+            // Made before it is stored, since the list of nodes moves as it grows.
+            const placed = try made.partNode(part, folder);
+            nodes.items[first + at] = placed;
+            const index: u32 = @intCast(first + at);
+            if (write_gltf.treeParent(parents, at)) |parent| try children[parent].append(allocator, index) else try top.append(allocator, index);
         }
-        // Children first, so that a parent's list is complete when its node is made.
-        const indices = try allocator.alloc(?u32, chosen.len);
-        @memset(indices, null);
-        for (0..chosen.len) |at| _ = try made.partNode(chosen, nodes, children, indices, at, 0);
-        for (chosen, indices) |part, index| {
-            if (parentOf(chosen, part) == null) try top.append(allocator, index.?);
+        for (nodes.items[first..][0..chosen.len], children) |*node, listed| {
+            if (listed.items.len > 0) node.children = listed.items;
         }
     }
 
-    /// The node of part `at` of `chosen`, made after its children; `nesting` guards against a
-    /// part that hangs from itself.
-    fn partNode(made: *Making, chosen: []const model_file.Part, nodes: []Node, children: []std.ArrayList(u32), indices: []?u32, at: usize, nesting: usize) Error!u32 {
-        if (indices[at]) |done| return done;
+    /// The node of `part`, a part of the model in the folder `folder`, without its children.
+    fn partNode(made: *Making, part: model_file.Part, folder: []const u8) Error!Node {
         const allocator = made.arena();
-        for (chosen, 0..) |other, child| {
-            if (child == at or nesting > chosen.len) continue;
-            if (parentOf(chosen, other) == at) try children[at].append(allocator, try made.partNode(chosen, nodes, children, indices, child, nesting + 1));
-        }
-        var node = nodes[at];
-        if (children[at].items.len > 0) node.children = children[at].items;
-        indices[at] = try made.gltf.node(node);
-        return indices[at].?;
+        var extras: json.ObjectMap = .empty;
+        if (part.pivot) |pivot| try extras.put(allocator, "pivot", try numbersValue(allocator, &mirror(pivot)));
+        return .{
+            .name = part.name,
+            .matrix = mirrorMatrix(part.matrix),
+            .mesh = if (part.mesh.len > 0) try made.partMesh(part.name, try part.meshPath(allocator, folder)) else null,
+            .extras = if (extras.count() > 0) .{ .object = extras } else null,
+        };
     }
 
     /// The node of a gun, an engine's glow, a vapour trail or the cockpit.
@@ -190,8 +184,8 @@ const Making = struct {
                 .cockpit => "cockpit_view",
             },
             .translation = mirror(defined.position),
-            // A glow's box is as wide and as high as the jet, and as long (`from-gltf` reads its
-            // half length as how far the plume reaches).
+            // A glow's box, a cube two across scaled, is as wide and as high as the jet, and twice
+            // as long: `from-gltf` takes half its length as how far the plume reaches.
             .scale = if (defined.size) |size| .{ size / 2, size / 2, size } else null,
             .extras = .{ .object = extras },
         });
@@ -328,7 +322,7 @@ const Making = struct {
         const read: texture_file.Texture = try .parse(allocator, bytes);
         const file = try std.fmt.allocPrint(allocator, "{s}.png", .{stem});
         std.mem.replaceScalar(u8, file, ' ', '_');
-        try made.pictures.append(allocator, .{ .source = source, .file = file, .texture = read });
+        try made.pictures.append(allocator, .{ .file = file, .texture = read });
         const found: Texture = .{ .ref = try made.gltf.texture(file), .alpha = read.hasAlpha() };
         try made.textures.put(allocator, source, found);
         return found;
@@ -401,7 +395,7 @@ fn attributesValue(arena: Allocator, attributes: []const level_file.Attribute) A
     var object: json.ObjectMap = .empty;
     for (attributes) |attribute| {
         const value: json.Value = switch (attribute.type) {
-            .number => if (attribute.number()) |n| .{ .float = n } else .{ .string = attribute.values[0] },
+            .number => if (attribute.number()) |n| .{ .float = n } else .{ .string = if (attribute.values.len > 0) attribute.values[0] else "" },
             .string => .{ .string = attribute.string() orelse "" },
             .vector => vector: {
                 var numbers: json.Array = .init(arena);
@@ -435,7 +429,7 @@ test write {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    // A ship of one triangle, a gun, a jet and a missile hardpoint whose model is a turret of one
+    // A ship of one triangle, a gun, a jet, and a turret's hardpoint whose model is a turret of one
     // triangle.
     const hull_mesh = try mesh_file.testing.build(arena, &.{.{
         .texture = "sh_v2_viper01.tga",
@@ -473,15 +467,7 @@ test write {
     try std.testing.expectEqual(0, written.missing.len);
 
     // Read back, the part's triangle, the turret's under its hardpoint, and the markers.
-    const Bin = struct {
-        bin: []const u8,
-        fn read(context: *const anyopaque, _: Allocator, name: []const u8) Allocator.Error!?[]u8 {
-            const files: *const @This() = @ptrCast(@alignCast(context));
-            return if (std.mem.eql(u8, name, "shv2vi00.bin")) @constCast(files.bin) else null;
-        }
-    };
-    const bin: Bin = .{ .bin = written.bin };
-    const document = try gltf.read(arena, written.json, .{ .context = &bin, .readFn = Bin.read });
+    const document = try write_gltf.testing.read(arena, written.json, written.bin, "shv2vi00.bin");
     const back = try gltf.triangles(arena, document, 1, &.{"sh_v2_viper01"});
     var names: std.ArrayList([]const u8) = .empty;
     for (back.objects) |object| try names.append(arena, object.name);
@@ -490,7 +476,8 @@ test write {
             if (std.mem.eql(u8, held, name)) break;
         } else return error.TestExpectedEqual;
     }
-    // The nose stays ahead, and the hull's triangle faces up, as it did in the game.
+    // The hull's triangle faces up, as it did in the game, and the gun on the right is on glTF's
+    // right, its X negated.
     const hull = for (back.objects) |object| {
         if (std.mem.eql(u8, object.name, "c1_viper2")) break object;
     } else unreachable;
@@ -498,5 +485,7 @@ test write {
     var points: [3]math.Vector = undefined;
     for (&points, corner) |*p, c| p.* = back.positions[c.position];
     try std.testing.expect(math.cross(points[1] - points[0], points[2] - points[0])[1] > 0);
+    try std.testing.expect(std.mem.find(u8, written.json, "-224.5") != null);
+    // The hardpoint keeps its attributes.
     try std.testing.expect(std.mem.find(u8, written.json, "\"Turret00\"") != null);
 }

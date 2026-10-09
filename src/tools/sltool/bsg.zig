@@ -193,6 +193,9 @@ fn extract(ctx: Context, archive: bsg.wart.Archive, out_path: []const u8) !void 
     var out_dir = try ctx.outputDir(out_path);
     defer out_dir.close(io);
 
+    // Each file's bytes live only as long as it takes to write it.
+    var scratch: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer scratch.deinit();
     var written: std.AutoHashMapUnmanaged(u32, u32) = .empty;
     var files: usize = 0;
     var copies: usize = 0;
@@ -204,10 +207,10 @@ fn extract(ctx: Context, archive: bsg.wart.Archive, out_path: []const u8) !void 
             copies += 1;
             continue;
         }
-        const data = try archive.unpackAlloc(ctx.arena, entry);
+        _ = scratch.reset(.retain_capacity);
+        const data = try archive.unpackAlloc(scratch.allocator(), entry);
         if (std.Io.Dir.path.dirnamePosix(path)) |folder| try out_dir.createDirPath(io, folder);
         try out_dir.writeFile(io, .{ .sub_path = path, .data = data });
-        ctx.arena.free(data);
         files += 1;
         bytes += entry.size;
     }
@@ -267,24 +270,30 @@ fn writeGltf(ctx: Context, archive: bsg.wart.Archive, name: []const u8, out_path
     for (written.missing) |path| try ctx.stdout.print("the archive doesn't hold {s}, which the model names\n", .{path});
 }
 
-/// Saves every texture of `archive` as a PNG file in `out_path`, under its own path with `.png`.
+/// Saves every texture of `archive` as a PNG file in `out_path`, under its own path with `.png`,
+/// once where the archive holds it more than once.
 fn textures(ctx: Context, archive: bsg.wart.Archive, out_path: []const u8) !void {
     const io = ctx.io;
     var out_dir = try ctx.outputDir(out_path);
     defer out_dir.close(io);
-    var written: std.StringHashMapUnmanaged(void) = .empty;
+    const members: Members = try .of(ctx, archive);
+    // Each texture's bytes, texels and picture live only as long as it takes to write it.
+    var scratch: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer scratch.deinit();
     var saved: usize = 0;
     for (archive.entries) |entry| {
         const path = try archive.name(entry);
-        if (!std.mem.endsWith(u8, path, texture_extension)) continue;
-        if (try written.fetchPut(ctx.arena, path, {}) != null) continue;
-        const read: bsg.texture.Texture = bsg.texture.Texture.parse(ctx.arena, try archive.unpackAlloc(ctx.arena, entry)) catch |err| {
+        if (!std.mem.endsWith(u8, path, texture_extension) or members.by_name.get(path).?.offset != entry.offset) continue;
+        _ = scratch.reset(.retain_capacity);
+        var item = ctx;
+        item.arena = scratch.allocator();
+        const read: bsg.texture.Texture = bsg.texture.Texture.parse(item.arena, try archive.unpackAlloc(item.arena, entry)) catch |err| {
             try ctx.stdout.print("{s}: {s}\n", .{ path, @errorName(err) });
             continue;
         };
-        const png_path = try ctx.arena.print("{s}.png", .{path[0 .. path.len - texture_extension.len]});
+        const png_path = try item.arena.print("{s}.png", .{path[0 .. path.len - texture_extension.len]});
         if (std.Io.Dir.path.dirnamePosix(png_path)) |folder| try out_dir.createDirPath(io, folder);
-        try savePicture(ctx, out_dir, png_path, read);
+        try savePicture(item, out_dir, png_path, read);
         saved += 1;
     }
     try ctx.stdout.print("saved {f} to {s}\n", .{ sltool.count(saved, "texture"), out_path });

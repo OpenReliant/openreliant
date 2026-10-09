@@ -192,6 +192,20 @@ pub fn bounds(points: []const [3]f32) struct { [3]f32, [3]f32 } {
     return .{ lo, hi };
 }
 
+/// The parent of item `index` in a glTF file's tree of nodes, where `parents` gives each item's
+/// parent by its index: null for none, and where the parents lead out of the list or back to the
+/// item, which a tree can't hold.
+pub fn treeParent(parents: []const ?usize, index: usize) ?usize {
+    const parent = parents[index] orelse return null;
+    var up: ?usize = parent;
+    for (0..parents.len) |_| {
+        const at = up orelse return parent;
+        if (at >= parents.len or at == index) return null;
+        up = parents[at];
+    }
+    return null;
+}
+
 /// `normal` made a unit long, as glTF's normals must be, or null for one too short to have a
 /// direction.
 pub fn unit(normal: math.Vector) ?math.Vector {
@@ -201,6 +215,36 @@ pub fn unit(normal: math.Vector) ?math.Vector {
 
 /// The shortest normal, or cross product, taken to have a direction.
 const least_length = 1e-6;
+
+/// Reading written documents back, for tests.
+pub const testing = struct {
+    /// The document of `json`, whose buffer is `bin`, named `bin_name`.
+    pub fn read(arena: Allocator, json: []const u8, bin: []const u8, bin_name: []const u8) gltf.Error!gltf.Document {
+        const Buffer = struct {
+            name: []const u8,
+            bytes: []const u8,
+
+            fn read(context: *const anyopaque, _: Allocator, name: []const u8) Allocator.Error!?[]u8 {
+                const buffer: *const @This() = @ptrCast(@alignCast(context));
+                return if (std.mem.eql(u8, name, buffer.name)) @constCast(buffer.bytes) else null;
+            }
+        };
+        const buffer: Buffer = .{ .name = bin_name, .bytes = bin };
+        return gltf.read(arena, json, .{ .context = &buffer, .readFn = Buffer.read });
+    }
+};
+
+test treeParent {
+    // 0 hangs from nothing, 1 from 0 and 2 from 1; 3 and 4 hang from each other, and 5 from an item
+    // the list doesn't hold.
+    const parents = [_]?usize{ null, 0, 1, 4, 3, 9 };
+    try std.testing.expectEqual(null, treeParent(&parents, 0));
+    try std.testing.expectEqual(0, treeParent(&parents, 1).?);
+    try std.testing.expectEqual(1, treeParent(&parents, 2).?);
+    try std.testing.expectEqual(null, treeParent(&parents, 3));
+    try std.testing.expectEqual(null, treeParent(&parents, 4));
+    try std.testing.expectEqual(null, treeParent(&parents, 5));
+}
 
 test unit {
     try std.testing.expectEqual(math.Vector{ 0, 0, 1 }, unit(.{ 0, 0, 3 }).?);
@@ -229,15 +273,7 @@ test Builder {
     try std.testing.expectEqual(8 + 36, written.bin.len);
 
     // The reader finds the triangle, and the marker by its name.
-    const Files = struct {
-        bin: []const u8,
-        fn read(context: *const anyopaque, _: Allocator, name: []const u8) Allocator.Error!?[]u8 {
-            const files: *const @This() = @ptrCast(@alignCast(context));
-            return if (std.mem.eql(u8, name, "ship.bin")) @constCast(files.bin) else null;
-        }
-    };
-    const files: Files = .{ .bin = written.bin };
-    const document = try gltf.read(arena, written.json, .{ .context = &files, .readFn = Files.read });
+    const document = try testing.read(arena, written.json, written.bin, "ship.bin");
     const back = try gltf.triangles(arena, document, 1, &.{"hull"});
     try std.testing.expectEqual(2, back.objects.len);
     try std.testing.expectEqualStrings("gun_muzzle", back.objects[1].name);

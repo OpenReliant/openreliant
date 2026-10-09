@@ -41,7 +41,9 @@ pub const Written = struct {
 /// `model` as glTF, its parts' level of detail `lod` (each part's coarsest where it has fewer),
 /// its buffer named `bin_name`.
 pub fn write(arena: Allocator, model: shp.Model, lod: usize, bin_name: []const u8) Allocator.Error!Written {
-    var made: Making = .{ .model = model, .gltf = .init(arena) };
+    const parents = try arena.alloc(?usize, model.parts.len);
+    for (parents, model.parts) |*parent, data| parent.* = if (data.part.parentIndex()) |index| index else null;
+    var made: Making = .{ .model = model, .parents = parents, .gltf = .init(arena) };
     const nodes = &made.gltf.nodes;
     // The parts' nodes come first, in the parts' order, so that a part finds its parent's.
     try nodes.appendNTimes(arena, undefined, model.parts.len);
@@ -51,7 +53,7 @@ pub fn write(arena: Allocator, model: shp.Model, lod: usize, bin_name: []const u
         // Made first, since making it adds nodes, which can move the list.
         const placed = try made.part(at, lod, &children[at]);
         nodes.items[at] = placed;
-        if (hangsFrom(model, at)) |parent| try children[parent].append(arena, @intCast(at)) else try made.gltf.roots.append(arena, @intCast(at));
+        if (gltf.write.treeParent(parents, at)) |parent| try children[parent].append(arena, @intCast(at)) else try made.gltf.roots.append(arena, @intCast(at));
     }
     for (nodes.items[0..model.parts.len], children) |*node, listed| {
         if (listed.items.len > 0) node.children = listed.items;
@@ -76,6 +78,8 @@ const Node = gltf.write.Node(PartExtras);
 
 const Making = struct {
     model: shp.Model,
+    /// Each part's parent, by its index.
+    parents: []const ?usize,
     gltf: gltf.write.Builder(PartExtras),
 
     /// The node of the model's part `index`, at its level `lod`, with its attachments' and its
@@ -95,7 +99,7 @@ const Making = struct {
             for (list.points) |point| try children.append(arena, try made.gltf.node(.{ .name = name, .translation = vector(point.position.toYUp()) }));
         }
         const flags = data.part.flags;
-        const from = if (hangsFrom(made.model, index)) |parent| made.model.parts[parent].part.position else Vec3.zero;
+        const from = if (gltf.write.treeParent(made.parents, index)) |parent| made.model.parts[parent].part.position else Vec3.zero;
         return .{
             .name = data.part.name(),
             .translation = vector(data.part.position.sub(from).toYUp()),
@@ -182,19 +186,6 @@ const Making = struct {
         return false;
     }
 };
-
-/// The part that part `index` of `model` hangs from, where it hangs from one: a parent that is one
-/// of the model's other parts, and isn't hung from it in turn, which the glTF file's tree can't hold.
-fn hangsFrom(model: shp.Model, index: usize) ?usize {
-    const parent = model.parts[index].part.parentIndex() orelse return null;
-    var up: ?u32 = parent;
-    for (0..model.parts.len) |_| {
-        const at = up orelse return parent;
-        if (at >= model.parts.len or at == index) return null;
-        up = model.parts[at].part.parentIndex();
-    }
-    return null;
-}
 
 /// The name of the material of a face without one.
 const untextured = "none";
@@ -335,15 +326,7 @@ test write {
     const written = try write(arena, model, 0, "ship.bin");
 
     // Read back, it holds the same triangles and the attachments by name.
-    const Files = struct {
-        bin: []const u8,
-        fn read(context: *const anyopaque, _: Allocator, name: []const u8) Allocator.Error!?[]u8 {
-            const files: *const @This() = @ptrCast(@alignCast(context));
-            return if (std.mem.eql(u8, name, "ship.bin")) @constCast(files.bin) else null;
-        }
-    };
-    const files: Files = .{ .bin = written.bin };
-    const document = try gltf.read(arena, written.json, .{ .context = &files, .readFn = Files.read });
+    const document = try gltf.write.testing.read(arena, written.json, written.bin, "ship.bin");
     const back = try gltf.triangles(arena, document, 1, &.{"yank_1"});
     // The cockpit's triangle and its eject point's marker, then the body's two triangles, and a
     // marker for each of its attachments and for the jump trail the builder put at the engine glow.
