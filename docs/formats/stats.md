@@ -2,7 +2,8 @@
 
 `shipstats.bin`, `gunstats.bin`, `missilestats.bin` and `pilotstats.bin` define every ship, gun,
 missile and pilot. The game ships two identical copies of each: one in `LANCER.CAB` and one in
-`resource.hog`.
+`resource.hog`. Battlestar Galactica keeps the same kinds of stats in text files
+([Battlestar Galactica](../games/battlestar-galactica.md#stats)).
 
 ```
 sltool stats list <file>

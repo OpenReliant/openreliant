@@ -1,5 +1,5 @@
-//! `sltool tim ...`: read TIM pictures, the PlayStation's own, as the PlayStation games on the
-//! original's engine keep them.
+//! `sltool tim ...`: read TIM pictures, the PlayStation's own, as the PlayStation games on
+//! StarLancer's engine keep them.
 
 const std = @import("std");
 

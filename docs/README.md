@@ -31,7 +31,8 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`formats/stats.md`](formats/stats.md) | Ship, gun, missile and pilot stat tables. |
 | [`formats/save.md`](formats/save.md) | Saved games: the IFF files of the campaign, the autosave and the restart point. |
 | [`formats/profile.md`](formats/profile.md) | `profile.bin`: the pilot's profile, the call sign and the pilot's record. |
-| [`formats/playstation.md`](formats/playstation.md) | The PlayStation's executables and TIM pictures, which the PlayStation games on the original's engine use. |
+| [`formats/playstation.md`](formats/playstation.md) | The PlayStation's executables and TIM pictures, which the PlayStation games on StarLancer's engine use. |
+| [`formats/xbox.md`](formats/xbox.md) | The Xbox's discs and executables, which the Xbox games on StarLancer's engine use. |
 | [`engine/missions.md`](engine/missions.md) | Missions: how a mission's start finds its file, reads it and binds it. |
 | [`engine/script-vm.md`](engine/script-vm.md) | The script VM at run time: threads, calls, commands, timers, events. |
 | [`engine/editor-link.md`](engine/editor-link.md) | The original's link to its mission editor and script debugger: the shared block, the messages, the holds and the steps. |
@@ -72,13 +73,15 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 
 ## Other games on the engine
 
-Other games on the original's engine share its mission format. `sltool` reads their files, which
-shows what a shared engine has to keep apart
-([#181](https://github.com/OpenReliant/openreliant/issues/181)). OpenReliant doesn't play them.
+Other games on StarLancer's engine share its mission format. Comparing them with StarLancer shows
+what a shared engine would have to keep apart
+([#181](https://github.com/OpenReliant/openreliant/issues/181),
+[#1017](https://github.com/OpenReliant/openreliant/issues/1017)). OpenReliant doesn't play them.
 
 | Path | Contents |
 |---|---|
 | [`games/star-trek-invasion.md`](games/star-trek-invasion.md) | Star Trek: Invasion: its disc, archive, missions and models, which `sltool trek` reads. |
+| [`games/battlestar-galactica.md`](games/battlestar-galactica.md) | Battlestar Galactica (2003): its disc, missions, command catalogue, stats, comms films and archives, which carry StarLancer's game logic forward, and `sltool bsg`, which reads them. |
 
 ## Conventions
 

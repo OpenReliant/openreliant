@@ -3,7 +3,9 @@
 The pilots' faces, which the radio's window plays as a pilot speaks ([Radio](../engine/radio.md)):
 `.fm8` files in `pilots.hog` ([`.HOG`](hog.md)), one for each pilot and head movement, such as
 `45Tigers_Plt.fm8`, `45Tigers_Plt_L.fm8` and `45Tigers_Plt_D.fm8`, and `static.fm8` for a dead
-channel. [`engine/game/talkie.zig`](../../src/engine/game/talkie.zig) decodes them.
+channel. [`engine/game/talkie.zig`](../../src/engine/game/talkie.zig) decodes them. Battlestar
+Galactica's comms films use the same chunks, without the scrambling
+([Battlestar Galactica](../games/battlestar-galactica.md#comms-films)).
 
 ```bash
 sltool fm8 info <film>                # its frames and chunks

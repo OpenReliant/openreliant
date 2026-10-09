@@ -1,6 +1,6 @@
 # PlayStation formats
 
-The PlayStation games on the original's engine, such as
+The PlayStation games on StarLancer's engine, such as
 [Star Trek: Invasion](../games/star-trek-invasion.md), keep some files in the console's own
 formats. The code is in [`src/formats/playstation/`](../../src/formats/playstation), and the discs'
 Mode 2 sectors are described in [Disc images](disc-images.md#image-layout).

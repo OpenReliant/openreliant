@@ -1,10 +1,12 @@
-//! `sltool cd ...`: look inside a game disc image (`.bin` or `.iso`) without mounting it.
+//! `sltool cd ...`: look inside a game disc image (`.bin` or `.iso`) without mounting it: an ISO
+//! 9660 disc, or an Xbox disc as `extract-xiso` writes it.
 
 const std = @import("std");
 
 const openreliant = @import("openreliant");
 const cdimage = openreliant.cdimage;
 const iso9660 = openreliant.iso9660;
+const xdvdfs = openreliant.xbox.xdvdfs;
 
 const sltool = @import("main.zig");
 const Context = sltool.Context;
@@ -34,40 +36,65 @@ pub const Command = union(enum) {
         };
         const image: cdimage.Image = try .open(ctx.io, .cwd(), image_path);
         defer image.close();
-        const volume: iso9660.Volume = try .open(image);
-
-        switch (command) {
-            .info => try info(ctx, &volume),
-            .ls => try list(ctx, &volume),
-            .extract => |operands| try extract(ctx, &volume, operands.out_dir),
+        switch (try Volume.open(image)) {
+            inline else => |volume| switch (command) {
+                .info => try info(ctx, &volume),
+                .ls => try list(ctx, &volume),
+                .extract => |operands| try extract(ctx, &volume, operands.out_dir),
+            },
         }
     }
 };
 
-fn info(ctx: Context, volume: *const iso9660.Volume) !void {
+/// The filesystem on a disc.
+const Volume = union(enum) {
+    iso9660: iso9660.Volume,
+    xdvdfs: xdvdfs.Volume,
+
+    /// An Xbox disc's volume where the image holds one, or else an ISO 9660 one.
+    fn open(image: cdimage.Image) !Volume {
+        if (xdvdfs.Volume.open(image)) |volume| {
+            return .{ .xdvdfs = volume };
+        } else |err| switch (err) {
+            error.NotXdvdfs => return .{ .iso9660 = try .open(image) },
+            else => |e| return e,
+        }
+    }
+};
+
+/// Describes the image and `volume`, an `iso9660.Volume` or an `xdvdfs.Volume`.
+fn info(ctx: Context, volume: anytype) !void {
     const image = volume.image;
     try ctx.stdout.print(
         \\layout:     {t} ({d} byte sectors)
         \\blocks:     {d} ({Bi:.1})
-        \\volume:     {s}
-        \\namespace:  {t}
         \\
     , .{
-        image.layout,                image.layout.sectorSize(),
-        image.block_count,           @as(u64, image.block_count) * cdimage.block_size,
-        try volume.label(ctx.arena), volume.namespace,
+        image.layout,      image.layout.sectorSize(),
+        image.block_count, @as(u64, image.block_count) * cdimage.block_size,
     });
+    switch (@TypeOf(volume.*)) {
+        iso9660.Volume => try ctx.stdout.print("volume:     {s}\nnamespace:  {t}\n", .{ try volume.label(ctx.arena), volume.namespace }),
+        xdvdfs.Volume => try ctx.stdout.writeAll("filesystem: Xbox (XDVDFS)\n"),
+        else => comptime unreachable,
+    }
 }
 
-fn list(ctx: Context, volume: *const iso9660.Volume) !void {
+/// Lists every file and folder of `volume`, with the time it was recorded where the filesystem
+/// keeps one.
+fn list(ctx: Context, volume: anytype) !void {
     var walker = try volume.walk(ctx.arena);
-    while (try walker.next()) |item| switch (item.entry.kind) {
-        .directory => try ctx.stdout.print("{s:>10}  {f}  {s}/\n", .{ "", item.entry.recorded_at, item.path }),
-        .file => try ctx.stdout.print("{d:>10}  {f}  {s}\n", .{ item.entry.extent.len, item.entry.recorded_at, item.path }),
-    };
+    while (try walker.next()) |item| {
+        switch (item.entry.kind) {
+            .directory => try ctx.stdout.print("{s:>10}  ", .{""}),
+            .file => try ctx.stdout.print("{d:>10}  ", .{item.entry.extent.len}),
+        }
+        if (@hasField(@TypeOf(item.entry), "recorded_at")) try ctx.stdout.print("{f}  ", .{item.entry.recorded_at});
+        try ctx.stdout.print("{s}{s}\n", .{ item.path, if (item.entry.kind == .directory) "/" else "" });
+    }
 }
 
-fn extract(ctx: Context, volume: *const iso9660.Volume, out_path: []const u8) !void {
+fn extract(ctx: Context, volume: anytype, out_path: []const u8) !void {
     const io = ctx.io;
     var out_dir = try ctx.outputDir(out_path);
     defer out_dir.close(io);
@@ -84,7 +111,7 @@ fn extract(ctx: Context, volume: *const iso9660.Volume, out_path: []const u8) !v
             var buffer: [64 * 1024]u8 = undefined;
             var writer = file.writer(io, &buffer);
             const extent = item.entry.extent;
-            // ISO 9660 counts a file's length in logical blocks, whatever its sectors hold.
+            // The filesystem counts a file's length in logical blocks, whatever its sectors hold.
             const sectors = @divCeil(extent.len, cdimage.block_size);
             if (try volume.image.hasForm2(extent.lba, sectors)) {
                 try volume.image.streamMode2Sectors(extent.lba, sectors, &writer.interface);

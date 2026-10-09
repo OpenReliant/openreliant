@@ -23,8 +23,6 @@ const zig_text = @import("zig_text.zig");
 /// command table.
 pub const catalogue: u32 = 0x004F0F50;
 
-pub const max_params = 8;
-
 /// `for_each_ship`: runs a callback for each ship of the ship, flight group or squad record in
 /// `ECX`, passing it the rest of the arguments.
 pub const for_each_ship: u32 = 0x0045D460;
@@ -37,27 +35,7 @@ const max_body = 0x400;
 const max_push_distance = 12;
 
 /// An entry of the catalogue, as the payload lays it out.
-const Entry = extern struct {
-    implementation: u32,
-    param_count: u32,
-    name: u32,
-    params: [max_params]Parameter,
-    description: u32,
-    flag: u32,
-
-    /// A parameter: a type, an unidentified word, and a label.
-    const Parameter = extern struct {
-        kinds: u32,
-        extra: u32,
-        label: u32,
-    };
-
-    comptime {
-        assert(@offsetOf(Entry, "params") == 0x0C);
-        assert(@offsetOf(Entry, "description") == 0x6C);
-        assert(@sizeOf(Entry) == 0x74);
-    }
-};
+const Entry = openreliant.engine.vm.Function;
 
 /// `CALL rel32`.
 const Call = extern struct {
@@ -106,18 +84,18 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader) (Error || std.mem.Al
     var at = catalogue;
     while (true) : (at += @sizeOf(Entry)) {
         const entry = try reader.record(Entry, at);
-        if (entry.implementation == 0) break;
+        if (entry.entry.implementation == .null) break;
 
-        if (entry.param_count > max_params) return error.TooManyParams;
-        const params = try arena.alloc(Param, entry.param_count);
+        if (entry.argument_count > Entry.max_params) return error.TooManyParams;
+        const params = try arena.alloc(Param, entry.argument_count);
         for (params, entry.params[0..params.len]) |*param, raw| {
-            param.* = .{ .kinds = raw.kinds, .extra = raw.extra, .label = try reader.string(raw.label) };
+            param.* = .{ .kinds = @bitCast(raw.kinds), .extra = raw.extra, .label = try reader.string(@backingInt(raw.label)) };
         }
         try commands.append(arena, .{
-            .implementation = entry.implementation,
-            .name = try reader.string(entry.name),
+            .implementation = @backingInt(entry.entry.implementation),
+            .name = try reader.string(@backingInt(entry.name)),
             .params = params,
-            .description = try reader.string(entry.description),
+            .description = try reader.string(@backingInt(entry.description)),
             .flag = entry.flag,
         });
     }
@@ -285,13 +263,13 @@ const TestPayload = struct {
         region.putString(name_at, name);
         region.putString(name_at + 0x10, "Does a thing");
         var record = std.mem.zeroes(Entry);
-        record.implementation = implementation;
-        record.name = name_at;
-        record.description = name_at + 0x10;
+        record.entry = .{ .implementation = @fromBackingInt(implementation) };
+        record.name = @fromBackingInt(name_at);
+        record.description = @fromBackingInt(name_at + 0x10);
         if (label) |text_label| {
             region.putString(name_at + 0x20, text_label);
-            record.param_count = 1;
-            record.params[0] = .{ .kinds = 0x400, .extra = 0, .label = name_at + 0x20 };
+            record.argument_count = 1;
+            record.params[0] = .{ .kinds = .{ .ship = true }, .extra = 0, .label = @fromBackingInt(name_at + 0x20) };
         }
         region.putRecord(catalogue + index * @sizeOf(Entry), record);
     }

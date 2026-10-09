@@ -8,6 +8,7 @@ const png = @import("openreliant").png;
 const version = @import("version");
 
 // The commands' files are `pub`, so that the test block at the end runs their tests.
+pub const bsg = @import("bsg.zig");
 pub const cd = @import("cd.zig");
 pub const dte = @import("dte.zig");
 pub const fat = @import("fat.zig");
@@ -74,6 +75,7 @@ pub fn positional(comptime Group: type, comptime verb: std.meta.Tag(Group), oper
 }
 
 const Command = union(enum) {
+    bsg: bsg.Command,
     cd: cd.Command,
     dte: dte.Command,
     fat: fat.Command,
@@ -99,7 +101,7 @@ const Command = union(enum) {
         \\
         \\commands:
         \\
-    ++ cd.Command.usage ++ dte.Command.usage ++ fat.Command.usage ++ fm8.Command.usage ++ fnt.Command.usage ++ hog.Command.usage ++ save.Command.usage ++ shp.Command.usage ++ speech.Command.usage ++ spr.Command.usage ++ stats.Command.usage ++ tcache.Command.usage ++ tim.Command.usage ++ trek.Command.usage ++
+    ++ bsg.Command.usage ++ cd.Command.usage ++ dte.Command.usage ++ fat.Command.usage ++ fm8.Command.usage ++ fnt.Command.usage ++ hog.Command.usage ++ save.Command.usage ++ shp.Command.usage ++ speech.Command.usage ++ spr.Command.usage ++ stats.Command.usage ++ tcache.Command.usage ++ tim.Command.usage ++ trek.Command.usage ++
         \\  help                            show this text
         \\  --version                       show the version
         \\

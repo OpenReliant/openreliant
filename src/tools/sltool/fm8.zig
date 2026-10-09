@@ -111,17 +111,26 @@ fn encode(ctx: Context, frames_path: []const u8, film_path: []const u8) !void {
 }
 
 fn extract(ctx: Context, bytes: []u8, source: []const u8, out_path: []const u8) !void {
+    const stem = std.Io.Dir.path.stem(std.Io.Dir.path.basename(source));
+    const written = try saveFrames(ctx, .{ .bytes = bytes }, stem, out_path);
+    try ctx.stdout.print("wrote {d} frames to {s}\n", .{ written, out_path });
+}
+
+/// Saves each frame of the film whose chunks `chunks` gives as an indexed PNG file over the
+/// film's palette, `<stem>_<n>.png` in the folder at `out_path`, and returns how many it saved. A
+/// chunk that doesn't decode is reported and passed over.
+pub fn saveFrames(ctx: Context, chunks: talkie.Chunks, stem: []const u8, out_path: []const u8) !usize {
     const io = ctx.io;
     var out_dir = try ctx.outputDir(out_path);
     defer out_dir.close(io);
-    const stem = std.Io.Dir.path.stem(std.Io.Dir.path.basename(source));
     var film: talkie.Film = .init(ctx.arena);
     defer film.deinit();
-    var chunks: talkie.Chunks = .{ .bytes = bytes };
+    var reading = chunks;
     var written: usize = 0;
-    while (chunks.next()) |chunk| {
+    var index: usize = 0;
+    while (reading.next()) |chunk| : (index += 1) {
         const decoded = film.decode(chunk) catch |err| {
-            try ctx.stdout.print("chunk {d} of {s} is not decoded: {s}\n", .{ written, source, @errorName(err) });
+            try ctx.stdout.print("chunk {d} of {s} is not decoded: {s}\n", .{ index, stem, @errorName(err) });
             continue;
         };
         if (!decoded) continue;
@@ -140,7 +149,7 @@ fn extract(ctx: Context, bytes: []u8, source: []const u8, out_path: []const u8) 
         try writer.interface.flush();
         written += 1;
     }
-    try ctx.stdout.print("wrote {d} frames to {s}\n", .{ written, out_path });
+    return written;
 }
 
 test Command {

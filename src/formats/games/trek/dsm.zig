@@ -1,15 +1,15 @@
-//! Star Trek: Invasion's `.DSM` missions, which have the layout of the original's `.DTE` missions:
-//! a directory of sections, each a count and an offset, in front of the sections themselves. The
+//! Star Trek: Invasion's `.DSM` missions, which have the layout of StarLancer's `.DTE` missions: a
+//! directory of sections, each a count and an offset, in front of the sections themselves. The
 //! directory has 128 entries rather than 27, and the sections come in another order. The script
-//! has the original's bytecode, and its triggers and parts have the original's records.
+//! has StarLancer's bytecode, and its triggers and parts have StarLancer's records.
 //!
-//! Six sections hold the original's records, and `Mission.asDte` points a `.DTE` directory at them,
-//! so that the original's mission reader (`dte.Mission`) reads them. The ships keep other records:
+//! Six sections hold StarLancer's records, and `Mission.asDte` points a `.DTE` directory at them,
+//! so that StarLancer's mission reader (`dte.Mission`) reads them. The ships keep other records:
 //! a ship names its model by a string, such as `VALKA`, and places it with whole numbers rather
 //! than floats. The other sections are described in
 //! [Star Trek: Invasion](../../../../docs/games/star-trek-invasion.md#missions).
 //!
-//! **Unknown:** what Invasion's Executor commands do. Commands `0x01` to `0x03` are the original's
+//! **Unknown:** what Invasion's Executor commands do. Commands `0x01` to `0x03` are StarLancer's
 //! (`CreateTimer`, `DestroyTimer` and `CreateFlightGroup`), and the rest differ.
 
 const std = @import("std");
@@ -21,7 +21,7 @@ const dte = @import("../../dte.zig");
 pub const section_count = 128;
 
 pub const Section = enum(u8) {
-    /// NUL-terminated names, addressed by byte offset, as the original's `strings`.
+    /// NUL-terminated names, addressed by byte offset, as StarLancer's `strings`.
     strings = 1,
     /// The ships, stride `0x44`: a ship's model is a string offset at `+0`, its name one at `+4`.
     ships = 3,
@@ -33,7 +33,7 @@ pub const Section = enum(u8) {
     parts = 9,
     _,
 
-    /// The original's section with the same records; null for one laid out otherwise, or not
+    /// StarLancer's section with the same records; null for one laid out otherwise, or not
     /// known.
     pub fn asDte(section: Section) ?dte.Section {
         return switch (section) {
@@ -75,8 +75,8 @@ pub const Mission = struct {
         return rest[0..@min(rest.len, pool.count)];
     }
 
-    /// The mission as the original's reader sees it: `directory` points at the sections that
-    /// hold the original's records (`Section.asDte`), and leaves every other section unused.
+    /// The mission as StarLancer's reader sees it: `directory` points at the sections that hold
+    /// StarLancer's records (`Section.asDte`), and leaves every other section unused.
     pub fn asDte(mission: Mission, directory: *[dte.section_count]dte.DirectoryEntry) dte.Mission {
         return .remapped(mission.image, mission.directory, Section, directory);
     }
@@ -97,10 +97,10 @@ test Mission {
     const mission: Mission = try .parse(&image);
     try std.testing.expectEqualStrings("VALKA\x00", mission.strings());
     var remapped: [dte.section_count]dte.DirectoryEntry = undefined;
-    const original = mission.asDte(&remapped);
-    try std.testing.expectEqualStrings("VALKA", original.name(0));
-    try std.testing.expectEqualSlices(u8, "\x34\x12", try original.script());
-    // The ships keep other records, so the original's reader sees none.
-    try std.testing.expect(!original.entry(.ships).isUsed());
+    const starlancer = mission.asDte(&remapped);
+    try std.testing.expectEqualStrings("VALKA", starlancer.name(0));
+    try std.testing.expectEqualSlices(u8, "\x34\x12", try starlancer.script());
+    // The ships keep other records, so StarLancer's reader sees none.
+    try std.testing.expect(!starlancer.entry(.ships).isUsed());
     try std.testing.expectError(error.NotAMission, Mission.parse(image[0..100]));
 }

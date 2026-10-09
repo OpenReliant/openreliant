@@ -1,5 +1,5 @@
 //! `sltool trek ...`: read Star Trek: Invasion's files: the archive on its disc, its `.DSM`
-//! missions, which have the original's format, and its `.TRK` models
+//! missions, which have StarLancer's format, and its `.TRK` models
 //! ([#181](https://github.com/OpenReliant/openreliant/issues/181)). `sltool tim` reads its
 //! pictures.
 
@@ -131,11 +131,7 @@ fn sections(ctx: Context, mission: trek.dsm.Mission) !void {
         if (!entry.isUsed()) continue;
         const section: trek.dsm.Section = @fromBackingInt(@intCast(index));
         try ctx.stdout.print("{d:>3}  {d:>5}   0x{x:0>2}  {x:0>8}  {f}", .{ index, entry.count, entry.formats.byte(), entry.offset, section });
-        if (section.asDte()) |original| {
-            try ctx.stdout.writeAll(", the original's ");
-            try openreliant.layout.formatTag(dte.Section, original, ctx.stdout);
-        }
-        try ctx.stdout.writeByte('\n');
+        try sltool.dte.printStarLancerSection(ctx, section.asDte());
     }
 }
 
