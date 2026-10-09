@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.9.0](https://github.com/OpenReliant/openreliant/compare/v0.8.1...v0.9.0) (2026-10-09)
+
+
+### Features
+
+* a mod's lines of speech play from WAV or MP3 recordings ([#1006](https://github.com/OpenReliant/openreliant/issues/1006)) ([319d5ac](https://github.com/OpenReliant/openreliant/commit/319d5ac07928e5fc53ec4e3b0f749e472ca470f5)), closes [#988](https://github.com/OpenReliant/openreliant/issues/988)
+* a spoken briefing plays its movie on the briefing room's screen, without its sound ([#1003](https://github.com/OpenReliant/openreliant/issues/1003)) ([83bf12d](https://github.com/OpenReliant/openreliant/commit/83bf12def43710157f36e4e0e6cdf3c91254860c)), closes [#1002](https://github.com/OpenReliant/openreliant/issues/1002)
+* HUD displays place the instruments' parts, and face films keep their size ([#1027](https://github.com/OpenReliant/openreliant/issues/1027)) ([96e4e13](https://github.com/OpenReliant/openreliant/commit/96e4e13b56ab1ac4338e917b9c4b3c6ab61fed10)), closes [#998](https://github.com/OpenReliant/openreliant/issues/998) [#999](https://github.com/OpenReliant/openreliant/issues/999) [#1000](https://github.com/OpenReliant/openreliant/issues/1000) [#1001](https://github.com/OpenReliant/openreliant/issues/1001)
+* mods change and add the combat maneuvers, and choose which one a ship flies ([#1026](https://github.com/OpenReliant/openreliant/issues/1026)) ([7074406](https://github.com/OpenReliant/openreliant/commit/70744067a583162579e67755aa9bc364a8d89443)), closes [#1024](https://github.com/OpenReliant/openreliant/issues/1024)
+* mods change the KILLBOARD's pilots and the missions they join, leave and sit out ([#1014](https://github.com/OpenReliant/openreliant/issues/1014)) ([0825a20](https://github.com/OpenReliant/openreliant/commit/0825a2006feefe383a6b1d50e5aa2adfc5fa6a7b)), closes [#1008](https://github.com/OpenReliant/openreliant/issues/1008)
+* mods set each campaign mission's landing, chapter news and wing pilots ([#1013](https://github.com/OpenReliant/openreliant/issues/1013)) ([57913bc](https://github.com/OpenReliant/openreliant/commit/57913bc7b008abab965cac5085dba71c7275242e)), closes [#1011](https://github.com/OpenReliant/openreliant/issues/1011)
+* mods set each campaign mission's report, debriefing and ITAC news ([#1009](https://github.com/OpenReliant/openreliant/issues/1009)) ([7f158a3](https://github.com/OpenReliant/openreliant/commit/7f158a3728bcbcf7fd87fc267dfa8d4cb5b68462)), closes [#984](https://github.com/OpenReliant/openreliant/issues/984)
+* mods set each campaign mission's tier, chapter, medal and special cases ([#1007](https://github.com/OpenReliant/openreliant/issues/1007)) ([7d3ec1a](https://github.com/OpenReliant/openreliant/commit/7d3ec1aee068bd7546589d7290be647a96b2f82a)), closes [#983](https://github.com/OpenReliant/openreliant/issues/983)
+* mods turn the game's rules for particular missions on and off ([#1012](https://github.com/OpenReliant/openreliant/issues/1012)) ([3b344aa](https://github.com/OpenReliant/openreliant/commit/3b344aa82bee6347f405ac66c23b58092d0400f7)), closes [#985](https://github.com/OpenReliant/openreliant/issues/985)
+* openreliant.radio, scripts say lines on the radio ([#991](https://github.com/OpenReliant/openreliant/issues/991)) ([6e38309](https://github.com/OpenReliant/openreliant/commit/6e383093ad8dc5e2d1b471b59171bf6f2741021b)), closes [#981](https://github.com/OpenReliant/openreliant/issues/981)
+* records.campaign, the campaign's missions as a list mods can change ([#979](https://github.com/OpenReliant/openreliant/issues/979)) ([220affa](https://github.com/OpenReliant/openreliant/commit/220affa78729a2ce7dcb49602e4f38a4a53d5dc1)), closes [#975](https://github.com/OpenReliant/openreliant/issues/975)
+* records.missions, each campaign mission's briefing, carrier, objectives and date ([#989](https://github.com/OpenReliant/openreliant/issues/989)) ([7fa3e26](https://github.com/OpenReliant/openreliant/commit/7fa3e265e897008d4ea377065af4048a504de447)), closes [#976](https://github.com/OpenReliant/openreliant/issues/976)
+* scripts list and destroy ships' parts, set the player's target and hold mission commands ([#997](https://github.com/OpenReliant/openreliant/issues/997)) ([2c7e672](https://github.com/OpenReliant/openreliant/commit/2c7e6720c4d6d3e1b24b0f451951488c1ba6d657)), closes [#995](https://github.com/OpenReliant/openreliant/issues/995)
+* sltool reads Battlestar Galactica's disc, missions, commands and comms films ([#1018](https://github.com/OpenReliant/openreliant/issues/1018)) ([9ea368b](https://github.com/OpenReliant/openreliant/commit/9ea368b2884ab5e1d4da4fe9a1c1e44b12c1848d))
+* sltool reads Star Trek: Invasion's disc, archive, missions and models ([#1016](https://github.com/OpenReliant/openreliant/issues/1016)) ([817cbc4](https://github.com/OpenReliant/openreliant/commit/817cbc41e0b52937a51e31e4910b8583066a7e0c))
+* sltool reads the Dreamcast version's disc, text and textures ([#1023](https://github.com/OpenReliant/openreliant/issues/1023)) ([28b5dd5](https://github.com/OpenReliant/openreliant/commit/28b5dd55801ad9efea2679f46165e5cb51b192b0)), closes [#1021](https://github.com/OpenReliant/openreliant/issues/1021)
+* world.set_objective, scripts set the state of a mission's objectives ([#992](https://github.com/OpenReliant/openreliant/issues/992)) ([a547832](https://github.com/OpenReliant/openreliant/commit/a5478325247f1ab4e6771775da8c83e8929d0d7b)), closes [#990](https://github.com/OpenReliant/openreliant/issues/990)
+
+
+### Fixes
+
+* a mission without a table of command flags reaches the players' ships ([#994](https://github.com/OpenReliant/openreliant/issues/994)) ([909b210](https://github.com/OpenReliant/openreliant/commit/909b21027205c3f68f34d39b2a72ee421c07a289)), closes [#993](https://github.com/OpenReliant/openreliant/issues/993)
+* losing a campaign mission no longer crashes the game ([#1031](https://github.com/OpenReliant/openreliant/issues/1031)) ([e96feb4](https://github.com/OpenReliant/openreliant/commit/e96feb4cfcc677f2c21d6e9a54f3a0f48a6c2bd5)), closes [#1030](https://github.com/OpenReliant/openreliant/issues/1030)
+* sltool shp from-gltf skips a texture whose file is missing ([#1020](https://github.com/OpenReliant/openreliant/issues/1020)) ([ea6ed0f](https://github.com/OpenReliant/openreliant/commit/ea6ed0fd6492d9bf98e30e75c7d4dc288d16eedd)), closes [#1005](https://github.com/OpenReliant/openreliant/issues/1005)
+
+
+### Documentation
+
+* a Buy Me a Coffee link on the README and the website ([#1029](https://github.com/OpenReliant/openreliant/issues/1029)) ([e5963fe](https://github.com/OpenReliant/openreliant/commit/e5963fe2277cd0c5770c39429831a11a4ed1badf))
+
 ## [0.8.1](https://github.com/OpenReliant/openreliant/compare/v0.8.0...v0.8.1) (2026-10-08)
 
 
