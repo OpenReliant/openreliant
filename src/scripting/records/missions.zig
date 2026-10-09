@@ -47,7 +47,7 @@ pub const Field = enum {
     pub fn about(field: Field) []const u8 {
         return switch (field) {
             .hologram => "The movie on the briefing room's screen, a Bink file of the game's or a mod's, such as `new_m01.bik`; nil for none.",
-            .speech => "Enriquez's words spoken over the briefing room in place of the movie, a speech file of the game's or a mod's, which end the briefing as they end; nil for none. Where there are words, they play, and the movie doesn't.",
+            .speech => "Enriquez's words spoken over the briefing room, a speech file of the game's or a mod's, which end the briefing as they end; nil for none. With words, the movie plays on the screen without its sound, and starts over if it ends before she does; set `hologram` to nil for an empty screen.",
             .last_word => "Enriquez's last word after the loadout, a speech file such as `ms_speech\\enrbr_tag01.ut`; nil leaves her silent.",
             .carrier => "The carrier the mission is flown from, whose rooms, briefing room, loadout and hangar the player sees.",
             .objectives => "The names of the objectives, which the mission's script numbers from 0 in `SetObjective`, at most ten. Reading gives a new list; assign a list to change them, or nil for the names the game's own table gives the mission's number.",

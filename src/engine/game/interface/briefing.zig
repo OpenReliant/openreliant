@@ -68,14 +68,18 @@ const movies = [_][]const u8{ "new_m01", "new_m02", "new_m03", "new_m04", "new_m
 const tag_format = "ms_speech\\enrbr_tag{d:0>2}.ut";
 
 /// What the briefing room plays before a mission: the movie on the room's screen, or Enriquez's
-/// words spoken over the room in its place, as at the campaign's end; and her last word after the
-/// loadout. Where a name is null, nothing plays there.
+/// words spoken over the room, as at the campaign's end; and her last word after the loadout.
+/// Where a name is null, nothing plays there.
 pub const Plan = struct {
     /// The movie, a Bink file of the game's or a mod's, such as `new_m01.bik`. Without a movie or
     /// words, the briefing ends at once, for the loadout.
     hologram: ?[]const u8 = null,
-    /// Enriquez's words in place of a movie, a speech file of the game's or a mod's, which end the
-    /// briefing as they end.
+    /// Enriquez's words, a speech file of the game's or a mod's, which end the briefing as they
+    /// end. With a movie too, the movie plays on the room's screen without its sound while she
+    /// speaks, and starts over if it ends first.
+    ///
+    /// **Improvement:** the original speaks words only at the campaign's end, with nothing on the
+    /// screen.
     speech: ?[]const u8 = null,
     /// Her last word, a speech file such as `ms_speech\enrbr_tag01.ut`; none leaves her animation
     /// silent.
@@ -511,7 +515,8 @@ pub const Briefing = struct {
 
     /// Enters the room at the timer count `ticks` (`0x004373BB` on): the voices fade out, Enriquez
     /// starts her animation, and the room's screen starts the mission's movie; or, at the
-    /// campaign's end, or where the campaign's records give the mission her words, she speaks.
+    /// campaign's end, or where the campaign's records give the mission her words, she speaks. A
+    /// movie the records also give plays without its sound while she does.
     fn begin(briefing: *Briefing, ticks: u32) void {
         briefing.context.sound.fadeAll(voices_fade_step);
         briefing.stage = .briefing;
@@ -523,6 +528,12 @@ pub const Briefing = struct {
         if (briefing.spoken()) |words| {
             briefing.readWords(words);
             briefing.sayWords(words);
+            // A movie the records also give plays under her words, without its sound.
+            const name = briefing.movie() orelse return;
+            briefing.film.open(briefing.context, name, .briefing);
+            const player = &(briefing.film.player orelse return);
+            briefing.playing = true;
+            player.bink.setVolume(0);
             return;
         }
         const name = briefing.movie() orelse {
@@ -538,7 +549,8 @@ pub const Briefing = struct {
 
     /// A pass of the briefing's loop (`0x004374F0` on), `in` read: O asks for a screenshot
     /// (`0x004375F1`); then Escape, the right button, or the movie's end ends it; where Enriquez
-    /// speaks in place of a movie, the end of her words, which Escape and the right button stop.
+    /// speaks, the end of her words, which Escape and the right button stop, whatever the movie
+    /// does.
     fn briefingPass(briefing: *Briefing, in: Input) ?Step {
         briefing.screenshot = in.keyboard.pressed(@backingInt(screenshot_key), .none, true);
         const sound = briefing.context.sound;
@@ -663,8 +675,8 @@ pub const Briefing = struct {
         return movieName(briefing.mission);
     }
 
-    /// Enriquez's words in place of a movie: at the campaign's end, `end_debriefing`; otherwise the
-    /// records' for the mission, where they give her any.
+    /// Enriquez's words: at the campaign's end, `end_debriefing`; otherwise the records' for the
+    /// mission, where they give her any.
     fn spoken(briefing: *const Briefing) ?[]const u8 {
         if (briefing.mission == end_mission) return end_debriefing;
         if (briefing.own != null) return null;
@@ -725,7 +737,14 @@ pub const Briefing = struct {
             briefing.next = ticks + frame_wait;
             briefing.step();
         }
-        if (briefing.playing and briefing.film.advance(now)) briefing.playing = false;
+        if (briefing.playing and briefing.film.advance(now)) {
+            // A movie under her words goes round again until she ends the briefing.
+            if (briefing.stage == .briefing and briefing.spoken() != null) {
+                briefing.film.loopBack(now);
+            } else {
+                briefing.playing = false;
+            }
+        }
     }
 
     /// Enriquez's next frame: in the briefing, looping through the segments of her animation; in
@@ -1027,7 +1046,7 @@ test "the campaign's end: Enriquez's speech, and no last word" {
     try std.testing.expectEqual(Step.over, passAt(&briefing, &keyboard, false, 2).?);
 }
 
-test "a campaign mission the records give words in place of a movie, then the last word they give" {
+test "a campaign mission the records give words without a movie, then the last word they give" {
     const gpa = std.testing.allocator;
     const speech = try cbox.testFile(gpa, 100, 64);
     defer gpa.free(speech);
@@ -1054,6 +1073,44 @@ test "a campaign mission the records give words in place of a movie, then the la
     try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, ticks));
     try std.testing.expectEqual(Stage.tag, briefing.stage);
     try std.testing.expect(briefing.line.len > 0);
+}
+
+test "a campaign mission the records give words and a movie: the movie plays on under her words" {
+    const gpa = std.testing.allocator;
+    const speech = try cbox.testFile(gpa, 100, 64);
+    defer gpa.free(speech);
+    var tested: rooms.testing.Tested = undefined;
+    try testFiles(&tested, &.{ "rel_c2bre.bik", "new_m05.bik" });
+    defer tested.deinit();
+    var lines = try testLines(&tested, &.{.{ .name = "dreamcast_brief12", .data = speech }});
+    defer lines.close(gpa);
+    var context = tested.context();
+    context.lines = &lines;
+    var keyboard: input.Keyboard = .{};
+    var briefing: Briefing = .open(context, 12, false, null, null, .{ .hologram = "new_m05.bik", .speech = "dreamcast_brief12.ut" });
+    defer briefing.close();
+    var frame: u64 = 0;
+    while (briefing.stage != .briefing) : (frame += 1) _ = passAt(&briefing, &keyboard, false, frame);
+    // She speaks, and the movie plays on the room's screen.
+    try std.testing.expect(briefing.speech.playing(&tested.sound));
+    try std.testing.expect(briefing.playing and briefing.film.player != null);
+    // Past its last frame, the movie goes round again while she speaks.
+    var last = briefing.film.frame().?;
+    var looped = false;
+    for (0..200) |_| {
+        try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, frame));
+        frame += 1;
+        const now = briefing.film.frame().?;
+        if (now < last) looped = true;
+        last = now;
+    }
+    try std.testing.expect(looped and briefing.playing);
+    // When her words end, so does the briefing, and the movie with it.
+    var out: [512][2]f32 = undefined;
+    tested.mixer.mix(&out);
+    try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, frame));
+    try std.testing.expectEqual(Stage.tag, briefing.stage);
+    try std.testing.expectEqual(null, briefing.film.player);
 }
 
 test "from the loadout, the last word alone" {
