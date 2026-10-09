@@ -1894,12 +1894,17 @@ const CampaignNext = union(enum) {
 /// replay asked for, so that the next mission's briefing follows it without the rooms, from the
 /// game's variables as the second part began.
 fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms, all: *game.create.Objects, player: *engine.input.Player, saving: Saving, flown: game.interface.main_menu.Flight, restart_point: ?*const save.Save, ship: ?game.create.TypeIndex, sound: *game.hog_snd.Sound, movies: *Movies, resources: *const game.bigfile.Hog) !?CampaignNext {
-    const loaded = play.loaded orelse return .main_menu;
-    const variables = &loaded.script.variables;
-    const landing = play.landing(player.ending, all.mission25_second_part);
-    const after = game.winmain.afterMission(campaign, player, variables, play.number, &all.mission25_second_part, all.campaign_tier, &all.wingmen);
+    // The game's variables as the mission left them, copied: letting the mission go frees its script,
+    // which holds them.
+    const landing, const after, const variables = ended: {
+        const loaded = play.loaded orelse return .main_menu;
+        const held = &loaded.script.variables;
+        const landing = play.landing(player.ending, all.mission25_second_part);
+        const after = game.winmain.afterMission(campaign, player, held, play.number, &all.mission25_second_part, all.campaign_tier, &all.wingmen);
+        break :ended .{ landing, after, held.* };
+    };
     switch (after) {
-        .goes_on, .second_part => campaign.variables = variables.*,
+        .goes_on, .second_part => campaign.variables = variables,
         .restart, .career_over, .story_end => {},
     }
     if (!try letGo(play, all, sound, landing, movies, resources)) return null;
@@ -1948,7 +1953,7 @@ fn campaignGoesOn(play: *Play, campaign: *game.gameflow.Campaign, rooms: *Rooms,
         // back at its first mission (`0x004AA6F2` on).
         .story_end => {
             if (!try rooms.endBriefing()) return null;
-            if (!try movies.storyEnd(game.xtrabits.ending.movies(variables))) return null;
+            if (!try movies.storyEnd(game.xtrabits.ending.movies(&variables))) return null;
             if (!try rooms.credits()) return null;
             campaign.mission = game.gameflow.campaignOrder().first();
             return .main_menu;
