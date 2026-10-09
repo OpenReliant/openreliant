@@ -240,7 +240,8 @@ chooses the maneuver:
 - its length is drawn from its range;
 - "run to ship" runs to the ship `fight_find_ship_to_run_to` finds, or where the ship is when it
   finds none;
-- a number with no maneuver runs nothing, and Fight chooses again on its next update.
+- a number with no maneuver runs nothing, and Fight chooses again on its next update, as it does
+  where a handler stops the choice without making one.
 
 Where the game would stop, hang or read past its tables, OpenReliant goes on:
 

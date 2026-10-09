@@ -382,7 +382,7 @@ test updateCloak {
 fn begin(fighter: Fighter, data: *FightData) void {
     const state = fighter.state;
     state.* = std.mem.zeroes(FightState);
-    state.maneuver = data.next() orelse @fromBackingInt(FightData.none);
+    state.maneuver = data.next() orelse .none;
     state.line = FightState.before_first;
     const allowed: Mirror = if (aidefend.find(state.maneuver)) |maneuver| maneuver.definition.mirror else .{};
     state.mirror = allowed.pick(fighter.random15());
@@ -410,8 +410,8 @@ const back_to_sphere: Choice = .{ .maneuver = .out_of_action_sphere, .ticks = 50
 
 /// The next maneuver, into the order's data for the next update to start (`chooseManeuver`).
 /// Where a hook's handler chose it, its length is drawn from its range, and a run to a ship runs
-/// to the nearest friendly capital ship. A number past the maneuvers runs nothing, and Fight
-/// chooses again on its next update.
+/// to the nearest friendly capital ship. A number past the maneuvers, or none, runs nothing, and
+/// Fight chooses again on its next update.
 fn choose(fighter: Fighter) void {
     const data = &fighter.entry().data.fight;
     data.fresh = true;
@@ -437,7 +437,7 @@ fn choose(fighter: Fighter) void {
 /// maneuver's range. Returns the maneuver, which handlers of the hook can change (`choose`).
 fn chooseManeuver(ctx: aigeneric.Context, index: u16) Maneuver {
     if (hooks.enter(.fight_choose_maneuver, chooseManeuver, .{ ctx, index })) |chosen| return chosen;
-    const fighter = Fighter.unchecked(ctx, index) orelse return @fromBackingInt(FightData.none);
+    const fighter = Fighter.unchecked(ctx, index) orelse return .none;
     const data = &fighter.entry().data.fight;
     const choice: Choice = if (fighter.enemy().object.flags.components)
         against_massive
@@ -451,7 +451,7 @@ fn chooseManeuver(ctx: aigeneric.Context, index: u16) Maneuver {
     return choice.maneuver;
 }
 
-/// A length for `maneuver`, drawn from its range.
+/// A length for `maneuver`, one of the installed maneuvers, drawn from its range.
 fn drawTicks(fighter: Fighter, maneuver: Maneuver) i16 {
     const definition = aidefend.find(maneuver).?.definition;
     // The game adds in 16 bits.

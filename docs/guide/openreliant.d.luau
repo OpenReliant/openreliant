@@ -1209,7 +1209,7 @@ declare class OrderPop
     function original(self): boolean?
 end
 
--- `object`, a ship under the Fight order, chooses its next combat maneuver, which starts on its next update. The result is the maneuver: one of the game's by its name (`Maneuver`), or one a mod adds by its number (`records.maneuvers`).
+-- `object`, a ship under the Fight order, chooses its next combat maneuver, which starts on its next update. The result is the maneuver: one of the game's by its name (`Maneuver`), or one a mod adds by its number (`records.maneuvers`). A handler that stops it without setting the result leaves no maneuver, and Fight chooses again on the ship's next update.
 declare class FightChooseManeuver
     object: Object
     result: Maneuver

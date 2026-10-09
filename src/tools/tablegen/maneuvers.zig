@@ -133,6 +133,11 @@ pub fn emit(w: *Io.Writer, arena: std.mem.Allocator, table: Table) !void {
     }
     try w.writeAll(
         \\    _,
+        \\
+        \\    /// No maneuver, which a Fight order keeps as 255 (`aifight.FightData.none`), and what a handler
+        \\    /// that stops `fight_choose_maneuver` without choosing one leaves.
+        \\    pub const none: Maneuver = @fromBackingInt(@import("../aifight.zig").FightData.none);
+        \\    pub const stopped = none;
         \\};
         \\
         \\pub const Info = struct {

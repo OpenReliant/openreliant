@@ -39,9 +39,10 @@ pub fn count(held: *const Records) usize {
 
 /// Adds a maneuver after the last, named after its number, with an empty script.
 pub fn append(state: *State, held: *Records) void {
-    const grown = held.arena.alloc(aidefend.Compiled, held.maneuvers.len + 1) catch state.raise("records.maneuvers: out of memory", .{});
+    const out_of_memory = "records." ++ list_name ++ ": out of memory";
+    const grown = held.arena.alloc(aidefend.Compiled, held.maneuvers.len + 1) catch state.raise(out_of_memory, .{});
     @memcpy(grown[0..held.maneuvers.len], held.maneuvers);
-    const name = std.fmt.allocPrint(held.arena, "maneuver {d}", .{held.maneuvers.len}) catch state.raise("records.maneuvers: out of memory", .{});
+    const name = std.fmt.allocPrint(held.arena, "maneuver {d}", .{held.maneuvers.len}) catch state.raise(out_of_memory, .{});
     grown[held.maneuvers.len] = .{ .definition = .{ .name = name } };
     held.maneuvers = grown;
 }
@@ -109,16 +110,12 @@ fn compile(state: *State, held: *Records, lines: []const []const u8, comptime la
     state.raise(label ++ ": line {d}, \"{s}\", doesn't compile: {s}", .{ failure.line + 1, lines[failure.line], aidefend.script.describe(failure.err) });
 }
 
-/// Records for the tests: the original's maneuvers, and nothing else.
-fn testRecords(arena: std.mem.Allocator) !Records {
-    return .init(arena, .{ .ships = &.{}, .ship_types = &.{}, .guns = &.{}, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{}, .itac_text = &.{} });
-}
-
 test "the combat maneuvers" {
     const bind = @import("../bind.zig");
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
-    var held = try testRecords(arena.allocator());
+    // The original's maneuvers, and no other records.
+    var held: Records = try .init(arena.allocator(), .{ .ships = &.{}, .ship_types = &.{}, .guns = &.{}, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{}, .itac_text = &.{} });
     const state = State.create(luau.testing.allocate, null).?;
     defer state.close();
     state.openLibraries();

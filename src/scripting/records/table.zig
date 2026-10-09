@@ -139,7 +139,7 @@ pub fn Table(comptime Spec: type) type {
             return 0;
         }
 
-        /// Whether the key at 2 numbers the entry after the last, of `count`.
+        /// Whether the key at 2 is the number after the last of `count` entries.
         fn isNext(state: *State, count: usize) bool {
             const number = bind.wholeIndex(state.toNumber(2) orelse return false) orelse return false;
             return number == first + count;

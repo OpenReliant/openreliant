@@ -1273,11 +1273,11 @@ test "a script chooses a mod's combat maneuver, and acts as the ship flies it" {
             .{
                 "a.luau",
                 \\local hooks = require("openreliant.hooks")
-                \\-- The mod's maneuver, number 10, then a number with no maneuver.
+                \\-- The mod's maneuver, number 10, and then none.
                 \\local chosen = 0
                 \\hooks.add("fight_choose_maneuver", function(e)
                 \\    chosen += 1
-                \\    e.result = if chosen == 1 then 10 else 200
+                \\    if chosen == 1 then e.result = 10 end
                 \\    return false
                 \\end)
                 \\-- After its script has run, the ship slows down further.
@@ -1310,7 +1310,7 @@ test "a script chooses a mod's combat maneuver, and acts as the ship flies it" {
     // Once its time is up, the ship flies no maneuver, and Fight chooses again on its next update.
     fixture.mission.clock.frame_start = 1001;
     aigeneric.objectOrders(ctx, fixture.sabre);
-    try std.testing.expectEqual(openreliant.engine.game.aifight.FightData.none, @backingInt(slot.state.fight.maneuver));
+    try std.testing.expectEqual(aidefend.maneuvers.Maneuver.none, slot.state.fight.maneuver);
     try std.testing.expectEqual(1001, slot.state.fight.maneuver_end);
     try std.testing.expectEqual(0.25, slot.object.throttle);
 }

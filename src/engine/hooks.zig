@@ -287,7 +287,7 @@ pub const functions = struct {
 
     pub const fight_choose_maneuver: Declaration = .{
         .address = 0x0040A3A0,
-        .about = "`object`, a ship under the Fight order, chooses its next combat maneuver, which starts on its next update. The result is the maneuver: one of the game's by its name (`Maneuver`), or one a mod adds by its number (`records.maneuvers`).",
+        .about = "`object`, a ship under the Fight order, chooses its next combat maneuver, which starts on its next update. The result is the maneuver: one of the game's by its name (`Maneuver`), or one a mod adds by its number (`records.maneuvers`). A handler that stops it without setting the result leaves no maneuver, and Fight chooses again on the ship's next update.",
         .Fields = struct {
             object: Object,
         },

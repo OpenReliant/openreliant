@@ -33,6 +33,11 @@ pub const Maneuver = enum(u16) {
     loop_the_loop = 8,
     run_to_ship = 9,
     _,
+
+    /// No maneuver, which a Fight order keeps as 255 (`aifight.FightData.none`), and what a handler
+    /// that stops `fight_choose_maneuver` without choosing one leaves.
+    pub const none: Maneuver = @fromBackingInt(@import("../aifight.zig").FightData.none);
+    pub const stopped = none;
 };
 
 pub const Info = struct {

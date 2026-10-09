@@ -325,7 +325,7 @@ pub fn compile(comptime lines: []const []const u8) [lines.len]Instruction {
         @setEvalBranchQuota(100_000);
         var out: [lines.len]Instruction = undefined;
         if (compileInto(lines, &out)) |failure| {
-            @compileError(std.fmt.comptimePrint("line {d}, \"{s}\": {s}", .{ failure.line, lines[failure.line], @errorName(failure.err) }));
+            @compileError(std.fmt.comptimePrint("line {d}, \"{s}\": {s}", .{ failure.line, lines[failure.line], describe(failure.err) }));
         }
         break :blk out;
     };

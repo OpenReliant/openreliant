@@ -1402,7 +1402,8 @@ end, { side = "hostile", class = "fighter" })
 - A game mode's records script can change and add maneuvers for the mode's missions alone
   ([Game modes](#game-modes)).
 - A maneuver that a handler chooses runs for a length drawn from its range. A number with no
-  maneuver runs nothing, and the ship chooses again on its next frame.
+  maneuver runs nothing, and the ship chooses again on its next frame. So does a handler that stops
+  the choice without setting `e.result`.
 - A handler of `maneuver_run` that stops it flies the ship itself, by setting its `yaw_input`,
   `pitch_input`, `roll_input` and `throttle`.
 
