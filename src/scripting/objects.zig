@@ -141,6 +141,12 @@ pub const fields = struct {
         }
     });
 
+    pub const engines_intact = api.Field(f32, "The share of its engines still intact: 1 when it's made, less a share for each engine part destroyed, down to 0 once every one is. A ship whose model has no engines keeps 1.", struct {
+        pub fn get(all: *const create.Objects, index: u16) f32 {
+            return all.slots[index].object.engines_intact;
+        }
+    });
+
     pub const radius = api.Field(f32, "How far its model reaches from its middle.", struct {
         pub fn get(all: *const create.Objects, index: u16) f32 {
             return all.slots[index].object.radius;
@@ -598,6 +604,10 @@ test "handles name objects until they are removed" {
         \\assert(seen[again])
     );
     try bind.testing.expectSourceError(thread, "sabre.type = 'predator'", "can only be read");
+    // The share of its engines left, as the engine keeps it, which scripts only read.
+    mission.objects.slots[sabre].object.engines_intact = 0.5;
+    try bind.testing.runSource(thread, "local ship = sabre; assert(ship.engines_intact == 0.5)");
+    try bind.testing.expectSourceError(thread, "sabre.engines_intact = 1", "can only be read");
     try bind.testing.expectSourceError(thread, "local x = sabre.top_speed", "no field 'top_speed'");
     try bind.testing.runSource(thread, "sabre.throttle = 0.5; sabre.yaw_input = -1");
     try std.testing.expectEqual(0.5, mission.objects.slots[sabre].object.throttle);

@@ -339,6 +339,8 @@ declare class Object
     velocity: vector
     -- How fast it moves: the length of its velocity.
     speed: number
+    -- The share of its engines still intact: 1 when it's made, less a share for each engine part destroyed, down to 0 once every one is. A ship whose model has no engines keeps 1.
+    engines_intact: number
     -- How far its model reaches from its middle.
     radius: number
     -- Whether it's the player's ship.

@@ -335,6 +335,7 @@ scripts on their object.
 | `orientation` | [Orientation](#orientation) | *Changes.* Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, the forward one keeping its direction. |
 | `velocity` | vector | *Changes.* How far it moves in a simulation step, of which there are 25 a second. Setting it pushes it, and its engines carry on from there. |
 | `speed` | number | How fast it moves: the length of its velocity. |
+| `engines_intact` | number | The share of its engines still intact: 1 when it's made, less a share for each engine part destroyed, down to 0 once every one is. A ship whose model has no engines keeps 1. |
 | `radius` | number | How far its model reaches from its middle. |
 | `is_player` | boolean | Whether it's the player's ship. |
 | `order` | string \| number, or nil | The order it's following: one of the game's (`Order`), or a mod's by its qualified name; nil for none. |
