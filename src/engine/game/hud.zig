@@ -2906,10 +2906,7 @@ pub const Objectives = struct {
     pub const Names = [per_mission]?[]const u8;
 
     /// What names an objective: a language string of the table's, or a game mode's own text.
-    pub const Name = union(enum) {
-        string: u16,
-        text: []const u8,
-    };
+    pub const Name = language.Words;
 
     /// How the window shows an objective. **Unknown:** what else sets an objective hidden than a
     /// mission's script.

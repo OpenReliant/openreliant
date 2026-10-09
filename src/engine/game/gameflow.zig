@@ -26,6 +26,9 @@ const briefing = @import("interface/briefing.zig");
 const rooms = @import("interface/rooms.zig");
 const hud = @import("hud.zig");
 const gameobj = @import("gameobj.zig");
+const debriefing = @import("itac/debriefing.zig");
+const news_reports = @import("itac/news_reports.zig");
+const video_reports = @import("videoreports.zig");
 
 pub const save = @import("gameflow/save.zig");
 
@@ -525,9 +528,9 @@ pub fn campaignOrder() *const Order {
 }
 
 /// What the campaign uses for one of its missions besides the mission's file: the briefing room's
-/// movie and speech, the carrier, the objectives' names, what the mission awards, and the special
-/// cases the original ties to missions 1 and 23. The original decides each of these by the
-/// mission's number.
+/// movie and speech, the carrier, the objectives' names, what the mission awards, the special cases
+/// the original ties to missions 1 and 23, Enriquez's report and debriefing, and the ITAC's news
+/// items and video reports. The original decides each of these by the mission's number.
 ///
 /// **Improvement:** OpenReliant keeps them in a table indexed by the mission's number, and mods
 /// can change it (`openreliant.records.missions`,
@@ -558,6 +561,16 @@ pub const CampaignMission = struct {
     /// null for the ships the tier and the rank open. The loadout starts on it with the tier's
     /// missiles.
     only_ship: ?gameobj.Type = null,
+    /// Enriquez's report on the rooms' television before the mission, in parts; empty for none.
+    television_report: []const rooms.News.Part = &.{},
+    /// Enriquez's debriefing of the mission in the ITAC, for each rating.
+    debriefing: debriefing.Text = @splat(&.{}),
+    /// The news items the ITAC's NEWS REPORTS adds in the rooms before the mission, and lists from
+    /// then on.
+    news: []const news_reports.Item = &.{},
+    /// The video reports the ITAC's VIDEO REPORTS adds in the rooms before the mission, and lists
+    /// from then on.
+    video_reports: []const video_reports.Report = &.{},
 
     /// A loadout tier a mission can move the campaign to, from 1 to `last_tier`.
     pub const Tier = std.math.IntFittingRange(1, last_tier);
@@ -577,6 +590,10 @@ pub const CampaignMission = struct {
                 .induction = number == original_induction,
                 .lesson = number == original_lesson,
                 .only_ship = if (number == original_shroud) .of(.shroud) else null,
+                .television_report = rooms.News.original(number),
+                .debriefing = debriefing.original(number),
+                .news = news_reports.Item.original(number),
+                .video_reports = video_reports.Report.original(number),
             };
         }
         break :missions missions;

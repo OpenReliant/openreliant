@@ -12,6 +12,7 @@ const std = @import("std");
 
 const canvas_module = @import("../interface/canvas.zig");
 const itac_module = @import("../itac.zig");
+const language = @import("../language.zig");
 const tables = @import("tables.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
@@ -93,7 +94,7 @@ pub const Squadrons = struct {
     /// The squadrons listed, by their places in the side's table (`0x0052505C`), and the strings of
     /// their names.
     items: [most]u8 = undefined,
-    titles: [most]u16 = undefined,
+    titles: [most]language.Words = undefined,
     item_count: u8 = 0,
     /// The squadron chosen, by its place in the list (`0x00525100`).
     selected: u8 = 0,
@@ -126,7 +127,7 @@ pub const Squadrons = struct {
         for (tables.squadrons[@backingInt(side)], 0..) |squadron, place| {
             if (side == .alliance and !listedBefore(squadron.name, mission)) continue;
             squadrons.items[squadrons.item_count] = @intCast(place);
-            squadrons.titles[squadrons.item_count] = squadron.name;
+            squadrons.titles[squadrons.item_count] = .{ .string = squadron.name };
             squadrons.item_count += 1;
         }
     }
@@ -189,7 +190,8 @@ pub const Squadrons = struct {
     /// the inquiry into their colonel.
     fn write(squadrons: *Squadrons, itac: *Itac) void {
         const squadron = squadrons.chosen(itac);
-        const told: []const u16 = if (squadron.name == cobras and itac.pilot.mission > inquiry_after) &.{ squadron.text, inquiry } else &.{squadron.text};
+        const history: language.Words = .{ .string = squadron.text };
+        const told: []const language.Words = if (squadron.name == cobras and itac.pilot.mission > inquiry_after) &.{ history, .{ .string = inquiry } } else &.{history};
         squadrons.text_len = itac.writeParagraphs(&squadrons.text, told, &squadrons.box);
     }
 
@@ -261,7 +263,7 @@ test "the Alliance's squadrons follow the campaign" {
     squadrons.listSide(.alliance, 13);
     try std.testing.expectEqual(tables.squadrons[0].len - 2, squadrons.item_count);
     for (squadrons.titles[0..squadrons.item_count]) |title| {
-        try std.testing.expect(title != volunteers and title != fifty_first);
+        try std.testing.expect(title.string != volunteers and title.string != fifty_first);
     }
     // The Coalition's, all of them.
     squadrons.listSide(.coalition, 13);

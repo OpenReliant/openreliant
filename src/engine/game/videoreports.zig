@@ -1,6 +1,7 @@
 //! `C:\lancer\game\videoreports.cpp`: VIDEO REPORTS, the ITAC's third section (`itac`), the war's
-//! video reports from the missions the campaign has come through (`tables.videos`), each with its
-//! title, two paragraphs and a still of `vidrep.spr`, chosen from a list. The play button plays the
+//! video reports from the missions the campaign has come through
+//! (`gameflow.CampaignMission.video_reports`), each with its title, two paragraphs and a still of
+//! `vidrep.spr`, chosen from a list. The play button plays the
 //! chosen report's movie from its disc's archive. The first report is chosen as it opens.
 //!
 //! `video_reports_draw` names the file's path (`0x004EE7B8`) as it takes memory (`0x0045079D`),
@@ -12,6 +13,7 @@ const canvas_module = @import("interface/canvas.zig");
 const disc_module = @import("interface/disc.zig");
 const rooms = @import("interface/rooms.zig");
 const itac_module = @import("itac.zig");
+const language = @import("language.zig");
 const tables = itac_module.tables;
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
@@ -86,11 +88,57 @@ const list_arrows = [2]Rect{ .{ .x = 514, .y = 368, .width = 27, .height = 27 },
 /// The button that plays the chosen report (`0x004EE788`).
 const play_button: Rect = .{ .x = 360, .y = 277, .width = 40, .height = 40 };
 
+/// A video report: its title, its paragraphs, the shape of its still in `vidrep.spr`, its movie,
+/// and the carrier whose disc holds the movie.
+pub const Report = struct {
+    title: language.Words,
+    paragraphs: []const language.Words = &.{},
+    still: u16,
+    movie: []const u8,
+    carrier: rooms.Carrier,
+
+    /// The original's video reports that VIDEO REPORTS lists from mission `mission` on: those its
+    /// table (`0x004EE5B0`) lists after the mission before. A report of the campaign's first part
+    /// is on the Reliant's disc, and one of its second on the Yamato's.
+    pub fn original(comptime mission: u16) []const Report {
+        return comptime reports: {
+            @setEvalBranchQuota(10_000);
+            var reports: []const Report = &.{};
+            for (tables.videos) |video| {
+                if (video.mission + 1 != mission) continue;
+                reports = reports ++ .{Report{
+                    .title = .{ .string = video.title },
+                    .paragraphs = language.Words.strings(video.paragraphs),
+                    .still = video.shape,
+                    .movie = video.movie,
+                    .carrier = if (video.part == reliant_part) .reliant else .yamato,
+                }};
+            }
+            break :reports reports;
+        };
+    }
+
+    /// The part of the campaign a report of the original's table comes from: 1 for the Reliant's,
+    /// and 2 for the Yamato's.
+    const reliant_part = 1;
+
+    /// The disc whose archive holds its movie, which the ITAC opens to play it (`0x0043F8A0`).
+    pub fn disc(report: Report) disc_module.Number {
+        return report.carrier.disc();
+    }
+
+    /// The name its movie is found by in the archive: what follows the last backslash of its name,
+    /// or all of it (`0x0043F8C1`).
+    pub fn movieName(report: Report) []const u8 {
+        const last = std.mem.findScalarLast(u8, report.movie, '\\') orelse return report.movie;
+        return report.movie[last + 1 ..];
+    }
+};
+
 pub const VideoReports = struct {
-    /// The reports listed, by their places in `tables.videos` (`video_reports_list`,
-    /// `0x0052510C`), and the strings of their titles.
-    items: [tables.videos.len]u8 = undefined,
-    titles: [tables.videos.len]u16 = undefined,
+    /// The reports listed (`video_reports_list`, `0x0052510C`), and their titles.
+    items: [itac_module.most_items]*const Report = undefined,
+    titles: [itac_module.most_items]language.Words = undefined,
     item_count: u8 = 0,
     /// The report chosen, by its place in the list (`video_reports_selected`, `0x005251D4`); none
     /// where none is listed.
@@ -114,7 +162,7 @@ pub const VideoReports = struct {
         video.first = 0;
         video.listed_count = 0;
         video.box = body_box;
-        video.item_count = itac_module.listBefore(&tables.videos, itac.pilot.mission, &video.items, &video.titles);
+        video.item_count = itac_module.listReached(.video_reports, itac.pilot.mission, &video.items, &video.titles);
         video.selected = if (video.item_count > 0) 0 else null;
         video.pictures.read(itac.context, pictures_name);
     }
@@ -152,9 +200,9 @@ pub const VideoReports = struct {
     }
 
     /// The report chosen; none where none is listed.
-    fn chosen(video: VideoReports) ?tables.VideoItem {
+    fn chosen(video: VideoReports) ?*const Report {
         const place = video.selected orelse return null;
-        return tables.videos[video.items[place]];
+        return video.items[place];
     }
 
     /// `video_reports_build` (`0x004508D0`): its sound, and for the report chosen, the body written,
@@ -195,11 +243,11 @@ pub const VideoReports = struct {
         const item = video.chosen() orelse return;
         if (video.pictures.shapes) |*pictures| {
             try itac_module.drawFaded(canvas, pictures, strip_palette, frame_shape, frame_at, fade);
-            const palette: usize = if (item.shape > plain_shapes) strip_palette else plain_palette;
+            const palette: usize = if (item.still > plain_shapes) strip_palette else plain_palette;
             for (strips) |strip| {
                 const rect = strip.rect();
                 canvas.wipe(.{ rect.x, rect.y }, .{ rect.x + rect.width - 1, rect.y + rect.height - 1 }, .{ 0, 0, 0 });
-                try itac_module.drawFaded(canvas.within(rect), pictures, palette, item.shape, .{ strip_x, strip.to - strip.from }, fade);
+                try itac_module.drawFaded(canvas.within(rect), pictures, palette, item.still, .{ strip_x, strip.to - strip.from }, fade);
             }
         }
         if (!itac.panesShow()) return;
@@ -217,30 +265,16 @@ pub const VideoReports = struct {
     }
 };
 
-/// The disc whose archive holds `item`'s movie, which the ITAC opens to play it (`0x0043F8A0`): the
-/// Reliant's for the first part of the campaign, and the Yamato's for the second.
-pub fn disc(item: tables.VideoItem) disc_module.Number {
-    const carrier: rooms.Carrier = if (item.part == 1) .reliant else .yamato;
-    return carrier.disc();
-}
-
-/// The name `item`'s movie is found by in the archive: what follows the last backslash of its name,
-/// or all of it (`0x0043F8C1`).
-pub fn movieName(item: tables.VideoItem) []const u8 {
-    const last = std.mem.findScalarLast(u8, item.movie, '\\') orelse return item.movie;
-    return item.movie[last + 1 ..];
-}
-
 test "the reports of the missions flown are listed" {
     var video: VideoReports = .{};
     // Before mission 1, the opening report alone; before mission 19, the Reliant's four; before
     // mission 28, all six.
     for ([_]struct { u16, u8 }{ .{ 1, 1 }, .{ 19, 4 }, .{ 28, 6 } }) |case| {
         const mission, const count = case;
-        video.item_count = itac_module.listBefore(&tables.videos, mission, &video.items, &video.titles);
+        video.item_count = itac_module.listReached(.video_reports, mission, &video.items, &video.titles);
         try std.testing.expectEqual(count, video.item_count);
     }
-    try std.testing.expectEqual(tables.videos[5].title, video.titles[5]);
+    try std.testing.expectEqual(tables.videos[5].title, video.titles[5].string);
 }
 
 test "VideoReports.lastFirst" {
@@ -252,18 +286,18 @@ test "VideoReports.lastFirst" {
     try std.testing.expectEqual(7, video.lastFirst());
 }
 
-test disc {
+test "Report.disc" {
     // The Reliant's reports are on the second disc, the Yamato's on the first.
-    try std.testing.expectEqual(.two, disc(tables.videos[0]));
-    try std.testing.expectEqual(.two, disc(tables.videos[3]));
-    try std.testing.expectEqual(.one, disc(tables.videos[4]));
+    try std.testing.expectEqual(.two, Report.original(1)[0].disc());
+    try std.testing.expectEqual(.two, Report.original(19)[0].disc());
+    try std.testing.expectEqual(.one, Report.original(20)[0].disc());
 }
 
-test movieName {
-    try std.testing.expectEqualStrings("new_intro.bik", movieName(tables.videos[0]));
-    var item = tables.videos[0];
-    item.movie = "movies\\foster.bik";
-    try std.testing.expectEqualStrings("foster.bik", movieName(item));
+test "Report.movieName" {
+    var report = Report.original(1)[0];
+    try std.testing.expectEqualStrings("new_intro.bik", report.movieName());
+    report.movie = "movies\\foster.bik";
+    try std.testing.expectEqualStrings("foster.bik", report.movieName());
 }
 
 test "Strip.rect" {

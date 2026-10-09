@@ -38,6 +38,7 @@ type BettyLine = "missiles_gone" | "armor_failing" | "screamer" | "havoc" | "jac
 type EffectStage = "before_hud" | "after_hud"
 type Axis = "x" | "y" | "z"
 type OptionKind = "toggle" | "choice" | "number" | "slider" | "text" | "heading"
+type Medal = "silver" | "black_eagle" | "valour" | "legion" | "navy_cross" | "medal_of_honour"
 type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total_failure" | "friendly_fire" | "ejecting" | number
 type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
 type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | number
@@ -46,7 +47,6 @@ type OrderPushed = "refused" | "taken" | "conflict"
 type MissionCommand = "print_ship_name" | "create_timer" | "destroy_timer" | "create_flight_group" | "destroy_flight_group" | "wait" | "play_speech" | "wait_for_speech" | "play_comms_movie" | "wait_for_movie" | "print_debug_message" | "set_ai" | "clear_ai" | "set_patrol_route" | "set_pilot" | "set_trigger_state" | "start_director_cam" | "start_ship_animation" | "ship_follow_curve" | "setup_launch" | "start_launch" | "display_sub_title" | "reset_code_priority" | "interrupt_trigger_code" | "comms_from_ship" | "comms_from_pilot" | "set_invulnerability" | "moving_ship_follow_curve" | "disable_object" | "position_relative" | "when_player_last_jumped" | "start_missile_cam" | "start_chase_cam" | "set_player_target" | "set_targetable" | "play_music" | "stop_director_cam" | "set_action_centre" | "dock" | "disable_taunts" | "fly" | "comms_from_ship_once" | "comms_from_pilot_once" | "disable_lights" | "set_environment_fx" | "multi_player_sync" | "disable_generic_comms" | "disable_guns" | "set_nav_point" | "set_escort_point" | "reset_after_burners" | "disable_missiles" | "disable_engines" | "disable_eject" | "set_hostile" | "reset_to_spawn_positions" | "update_environment_fx_state" | "set_primary_target" | "wait_for_jump_or_launch" | "do_not_disturb" | "set_environment_fx_nebula" | "start_ship_animation_reverse" | "snap_to_point" | "play_fosters_last_stand" | "open_instrument" | "close_instrument" | "destroy_sub_object" | "set_objective" | "set_rescue_probabilities" | "is_ship_this_player" | "set_flyback_marker" | "reset_flyback_marker" | "stop_ship_animation" | "set_ship_avoidance" | "match_speed" | "moving_ship_backup_curve" | "wait_for_key" | "terminate_mission" | "turret_set_target" | "set_any_trigger_state" | "wait_for_director_cam" | "kill_all_script_execution_execpt_me" | "stack_director_cam" | "scanner" | "replace_sub_object" | "fire" | "multiplayer_script_sync" | "friendly_fire" | "cloak" | "replenish_weapons" | "wills_blag" | "show_hud_icon" | "disable_listing" | "disable_object_at_next_jump" | "darrens_naughty_blag"
 type MissionCommandResult = "wait" | "run_on" | "hold" | number
 type RestartChoice = "replay_from_briefing" | "replay_from_launch" | "main_menu"
-type Medal = "silver" | "black_eagle" | "valour" | "legion" | "navy_cross" | "medal_of_honour"
 type Condition = "shot_at" | "destroyed" | "launched" | "camera_reached" | "ship_reached" | "proximity_close" | "proximity_general" | "object_scooped" | "player_ready_to_jump" | "jumped_in" | "fixed_gate_jumped_in" | "player_ready_to_warp" | "jumped_through_hoop" | "player_wants_backup" | "ripper_grabbed_object" | "ripper_dropped_object" | "cloaked" | "decloaked" | "targetted" | "player_l1_doubletap" | "player_l2_doubletap" | "player_r1_doubletap" | "player_r2_doubletap" | "player_l1_l2_r1_r2_pressed" | "player_l1_r1_pressed" | "game_timer_expired" | "tractor_beam_locked" | "tractor_beam_broken" | "inside_object" | "outside_object" | "docked" | "undocked" | "being_chased" | "call_reinforcements" | "explosion_ship" | number
 type PilotTier = "level_0" | "level_1" | "level_2" | number
 type PilotSkill = "low" | "medium" | "high" | number
@@ -328,6 +328,29 @@ type Choice = {
     value: boolean | number | string,
     label: string,
 }
+type ReportPart = {
+    scene: string,
+    movie: string?,
+}
+type Debriefing = {
+    failure: { string }?,
+    partial_failure: { string }?,
+    partial_success: { string }?,
+    success: { string }?,
+    success_bonus: { string }?,
+}
+type NewsItem = {
+    title: string,
+    paragraphs: { string }?,
+    picture: number,
+}
+type VideoReport = {
+    title: string,
+    paragraphs: { string }?,
+    still: number,
+    movie: string,
+    carrier: Carrier,
+}
 type Outcome = {
     ending: Ending,
     rating: Rating,
@@ -557,6 +580,10 @@ declare class CampaignMission
     induction: boolean
     lesson: boolean
     only_ship: ShipType?
+    television_report: { ReportPart }
+    debriefing: Debriefing
+    news: { NewsItem }
+    video_reports: { VideoReport }
 end
 type Records = {
     ships: { [number | string]: Ship },

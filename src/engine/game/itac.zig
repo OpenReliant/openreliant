@@ -481,15 +481,15 @@ pub const TitleList = struct {
         return .{ .width = list.width, .height = line_height, .most = most_lines };
     }
 
-    /// Lays out the strings `titles`, the whole list's, from the one at `first`, into `entries`;
-    /// how many it laid out.
-    pub fn layOut(list: TitleList, itac: *Itac, titles: []const u16, first: u8, entries: []ListEntry) u8 {
+    /// Lays out `titles`, the whole list's, from the one at `first`, into `entries`; how many it
+    /// laid out.
+    pub fn layOut(list: TitleList, itac: *Itac, titles: []const language.Words, first: u8, entries: []ListEntry) u8 {
         const font = &(itac.small orelse return 0).font;
         var top = list.top;
         var count: u8 = 0;
-        for (titles[@min(first, titles.len)..], first..) |id, place| {
+        for (titles[@min(first, titles.len)..], first..) |title, place| {
             if (count == entries.len) break;
-            const height = @as(i32, @intCast(list.lines().count(font, itac.string(id)))) * line_height;
+            const height = @as(i32, @intCast(list.lines().count(font, itac.words(title)))) * line_height;
             entries[count] = .{ .place = @intCast(place), .top = top, .rect = .{
                 .x = list.hotspot_x,
                 .y = @intCast(list.pane.y + top + list.hotspot_below),
@@ -505,12 +505,12 @@ pub const TitleList = struct {
 
     /// Writes the titles of `entries` into the pane, as far as `shown` of it has wiped in: the one
     /// at `chosen` in the headers' colour, the rest in the text's.
-    pub fn write(list: TitleList, itac: *Itac, canvas: Canvas, shown: Rect, titles: []const u16, entries: []const ListEntry, chosen: ?u8) Allocator.Error!void {
+    pub fn write(list: TitleList, itac: *Itac, canvas: Canvas, shown: Rect, titles: []const language.Words, entries: []const ListEntry, chosen: ?u8) Allocator.Error!void {
         const font = &(itac.small orelse return).font;
         const in_pane = canvas.within(shown);
         for (entries) |entry| {
             const colour = if (chosen == entry.place) header_colour else text_colour;
-            try in_pane.wrapped(font, .{ list.pane.x + across, list.pane.y + entry.top }, itac.string(titles[entry.place]), colour, .left, list.lines());
+            try in_pane.wrapped(font, .{ list.pane.x + across, list.pane.y + entry.top }, itac.words(titles[entry.place]), colour, .left, list.lines());
         }
     }
 };
@@ -561,18 +561,33 @@ pub fn paletteBefore(blocks: []const usize, shape: usize) usize {
     return palette;
 }
 
-/// The places in `table` of its records whose missions come before `mission`, the one the campaign
-/// has come to, in the table's order, and the strings of their titles; how many
-/// (`news_list_build`, `0x0044E490`; `video_reports_enter`, `0x004505AF`).
-pub fn listBefore(table: anytype, mission: u16, places: []u8, titles: []u16) u8 {
-    var count: u8 = 0;
-    for (table, 0..) |record, index| {
-        if (record.mission >= mission) continue;
-        places[count] = @intCast(index);
-        titles[count] = record.title;
-        count += 1;
+/// The most items NEWS REPORTS and VIDEO REPORTS list.
+///
+/// **Improvement:** the game's lists hold as many items as its tables, 24 news items and 6 video
+/// reports. OpenReliant lists up to 255, so that mods can add more.
+pub const most_items = std.math.maxInt(u8);
+
+/// Lists the items in `field` of the campaign's missions from mission 1 up to mission `mission`,
+/// the one the campaign has come to, with their titles in `titles`; how many it listed
+/// (`news_list_build`, `0x0044E490`; `video_reports_enter`, `0x004505AF`). When `items` is full,
+/// the oldest item makes room for the next.
+pub fn listReached(comptime field: std.meta.FieldEnum(gameflow.CampaignMission), mission: u16, items: anytype, titles: []language.Words) u8 {
+    var count: usize = 0;
+    var reached: u16 = gameflow.first_mission;
+    while (reached <= mission) : (reached += 1) {
+        const settings = gameflow.campaignMission(reached) orelse break;
+        for (@field(settings, @tagName(field))) |*item| {
+            if (count == items.len) {
+                std.mem.copyForwards(@TypeOf(items[0]), items[0 .. count - 1], items[1..count]);
+                std.mem.copyForwards(language.Words, titles[0 .. count - 1], titles[1..count]);
+                count -= 1;
+            }
+            items[count] = item;
+            titles[count] = item.title;
+            count += 1;
+        }
     }
-    return count;
+    return @intCast(count);
 }
 
 /// `text` in capitals (`CharUpperBuffA`, `language.upperCase`), copied into `buffer`, as NEWS
@@ -664,7 +679,7 @@ const Stage = union(enum) {
     leaving: Section,
     /// VIDEO REPORTS' play button pressed: the screen held until the left button is up
     /// (`video_reports_play`, `0x00450CC0`), then the report played.
-    report_pressed: tables.VideoItem,
+    report_pressed: *const video_reports.Report,
     /// A video report played: the hum and the sounds now and then start again.
     report_played,
     /// Closing: the hum fading, its closing sound, and on the Yamato its movie out.
@@ -745,7 +760,7 @@ pub const Itac = struct {
     /// REPLAY MISSION chosen (`replay_briefing`, `0x00520840`).
     replay: bool = false,
     /// The video report VIDEO REPORTS asks to play (`itac_video_request`, `0x005251DC`).
-    report: ?tables.VideoItem = null,
+    report: ?*const video_reports.Report = null,
 
     /// Opens it for `run`, at `now` and the game's `ticks`, with its fonts, shapes and sounds from
     /// `resource.hog`; what is missing is left out, which the log says.
@@ -786,6 +801,11 @@ pub const Itac = struct {
     /// The ITAC's string `id` (`itac_string`, `0x00440910`); none past its strings.
     pub fn string(itac: Itac, id: u32) []const u8 {
         return itac.context.strings.string(id) orelse "";
+    }
+
+    /// The text of `words`, with a string read from the ITAC's strings.
+    pub fn words(itac: Itac, given: language.Words) []const u8 {
+        return given.in(itac.context.strings.*);
     }
 
     /// A pass of its loop.
@@ -947,12 +967,12 @@ pub const Itac = struct {
     /// The report VIDEO REPORTS asked for, once the left button is up (`0x0043F883` on): every
     /// sound ended (`sound_end_all`), the archive of its disc opened (`cd_hog_open`), and its movie
     /// played from it on a screen cleared to black (`play_bink_movie_resourced`).
-    fn playReport(itac: *Itac, report: tables.VideoItem) Step {
+    fn playReport(itac: *Itac, report: *const video_reports.Report) Step {
         itac.context.rooms.sound.endAll();
         itac.hum = null;
-        itac.context.rooms.disc.open(video_reports.disc(report));
+        itac.context.rooms.disc.open(report.disc());
         itac.stage = .report_played;
-        return .{ .play = .{ .name = video_reports.movieName(report), .kind = .cleared_from_disc } };
+        return .{ .play = .{ .name = report.movieName(), .kind = .cleared_from_disc } };
     }
 
     /// A video report played (`0x0043F8E7` on): the hum and the sounds now and then again, as when
@@ -1168,15 +1188,14 @@ pub const Itac = struct {
         }
     }
 
-    /// Writes the strings `paragraphs` into `text`, a blank line between each two, as NEWS REPORTS
-    /// and VIDEO REPORTS write their bodies (`news_text_draw`, `0x0044E260`;
-    /// `video_reports_text_draw`, `0x00450A90`), and lets `box` scroll as far as they reach; how
-    /// much of `text` they take.
-    pub fn writeParagraphs(itac: *Itac, text: []u8, paragraphs: []const u16, box: *ScrollBox) usize {
+    /// Writes `paragraphs` into `text`, a blank line between each two, as NEWS REPORTS and VIDEO
+    /// REPORTS write their bodies (`news_text_draw`, `0x0044E260`; `video_reports_text_draw`,
+    /// `0x00450A90`), and lets `box` scroll as far as they reach; how much of `text` they take.
+    pub fn writeParagraphs(itac: *Itac, text: []u8, paragraphs: []const language.Words, box: *ScrollBox) usize {
         var writer: std.Io.Writer = .fixed(text);
-        for (paragraphs, 0..) |id, n| {
+        for (paragraphs, 0..) |paragraph, n| {
             if (n > 0) writer.writeAll(between) catch {};
-            writer.writeAll(itac.string(id)) catch {};
+            writer.writeAll(itac.words(paragraph)) catch {};
         }
         itac.fitText(box, text[0..writer.end]);
         return writer.end;
@@ -1219,11 +1238,11 @@ pub const Itac = struct {
         return true;
     }
 
-    /// The string `id` in capitals, copied into a room of `room` (`capitals`), at `at` in the
-    /// headers' colour, as the sections head their panes.
-    pub fn writeCapitals(itac: *Itac, canvas: Canvas, font: *hud.Opened, comptime room: usize, at: [2]i32, id: u16) Allocator.Error!void {
+    /// `title` in capitals, copied into a room of `room` (`capitals`), at `at` in the headers'
+    /// colour, as the sections head their panes.
+    pub fn writeCapitals(itac: *Itac, canvas: Canvas, font: *hud.Opened, comptime room: usize, at: [2]i32, title: language.Words) Allocator.Error!void {
         var buffer: [room]u8 = undefined;
-        try canvas.text(font, at, capitals(&buffer, itac.string(id)), header_colour, .left);
+        try canvas.text(font, at, capitals(&buffer, itac.words(title)), header_colour, .left);
     }
 
     /// PROFILE at `at` in `pane`, in the labels' colour, as far as `shown` of the pane has wiped in,
@@ -1278,6 +1297,22 @@ pub const Itac = struct {
         try canvas.onScreen().shape(&shapes.art, itac.pointerShape(), itac.pointer.at);
     }
 };
+
+test listReached {
+    var missions = gameflow.CampaignMission.original;
+    const extra = [_]news_reports.Item{.{ .title = .{ .text = "Extra" }, .picture = 1 }};
+    missions[11].news = &extra;
+    gameflow.installMissions(&missions);
+    defer gameflow.installMissions(&gameflow.CampaignMission.original);
+    // Up to mission 12, the items of missions 1 to 11 and mission 12's own; a list of three keeps
+    // the latest three.
+    var items: [3]*const news_reports.Item = undefined;
+    var titles: [3]language.Words = undefined;
+    try std.testing.expectEqual(3, listReached(.news, 12, &items, &titles));
+    try std.testing.expectEqual(&missions[10].news[0], items[1]);
+    try std.testing.expectEqual(&extra[0], items[2]);
+    try std.testing.expectEqualStrings("Extra", titles[2].text);
+}
 
 test "Newtown stands in for the ITAC's fonts" {
     try std.testing.expect(hud.outline.standsIn(large_font_name) and hud.outline.standsIn(small_font_name));

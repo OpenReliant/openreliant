@@ -149,8 +149,8 @@ mission 14. As it opens, the latest is chosen.
   then a paragraph on each of the medal, where the mission was rated a success with its bonus, the
   promotion, the ribbon and the fighters it brought. Where a nanny ship picked the pilot up in the
   mission, whether the objectives were met and the pickup's paragraph stand in their place.
-  "(more)" marks a body that runs past its box. **Improvement:** OpenReliant takes the medal, the
-  ribbon and the fighters from the mission's settings, which mods can change
+  "(more)" marks a body that runs past its box. **Improvement:** OpenReliant takes the paragraphs,
+  the medal, the ribbon and the fighters from the mission's settings, which mods can change
   ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)).
 - Mission Kills, the mission's, and Overall Kills, the campaign's; Rank and Level, the game's
   strings; their values fade with the section.
@@ -180,6 +180,12 @@ five paragraphs and a picture of `inter\itac\newsrep.spr`, which the section rea
 lets go of as it is left (`news_enter`, `0x0044DD90`; `news_leave`, `0x0044DE50`). As it opens,
 the latest is chosen, and the list steps on so that it shows at the foot.
 
+**Improvement:** OpenReliant takes the items from the missions' settings, which mods can change
+([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)). A mission's
+items are listed from the rooms before it on, so the original's item after mission 0 belongs to
+mission 1, and so on. The list holds up to 255 items, where the game's
+holds its table's 24; past that, the oldest make room.
+
 - The title, in capitals, in (58, 209, 255).
 - The body, in (255, 146, 58), which the arrows below it scroll: the paragraphs, a blank line between
   each two. "(more)" marks a body that runs past its box.
@@ -205,6 +211,12 @@ the campaign has come to (`video_reports_enter`, `0x00450540`), so that the firs
 mission 1. Each has a title, two paragraphs, a still of `inter\itac\vidrep.spr`, which the section
 reads as it opens and lets go of as it is left (`video_reports_leave`, `0x00450600`), and a movie in
 a disc's archive. As it opens, the first is chosen.
+
+**Improvement:** OpenReliant takes the reports from the missions' settings, which mods can change
+([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)). A mission's
+reports are listed from the rooms before it on, so the original's report after mission 7 belongs to
+mission 8, and so on. A report names the carrier whose disc holds its
+movie. The list holds up to 255 reports, where the game's holds its table's 6.
 
 | Report | Listed after mission | Movie | Disc |
 |---|---|---|---|
@@ -353,7 +365,8 @@ on and back. It opens with sound 5 and wipes in at (30, 72), 593 by 295.
   22, which the campaign doesn't fly, add none, and Klaus Steiner adds none from mission 19 to 23.
   **Improvement:** OpenReliant passes over whichever missions the campaign's order doesn't have, so
   missions a mod puts back add their kills ([The campaign's
-  missions](../guide/scripting.md#the-campaigns-missions)).
+  missions](../guide/scripting.md#the-campaigns-missions)). Not yet in the records: the pilots, and
+  the missions they join, leave and sit out ([#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
 - The board follows the campaign: John McGann and Brad Callan leave it after mission 5, Zoran
   Grandoni after 12, Angelo Fuser and Joe Dabo after 21, Manzo Takamatsu after 22 and Matt Moreno
   after 25, and Linc Stevenson joins it at mission 6 (`0x00441320`).

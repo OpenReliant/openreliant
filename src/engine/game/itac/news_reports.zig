@@ -1,6 +1,7 @@
-//! NEWS REPORTS, the ITAC's second section, which Use ITAC opens first: the news of the war after
-//! each mission the campaign has come through (`tables.news`), each with its title, a few
-//! paragraphs and a picture of `newsrep.spr`, chosen from a list. The latest is chosen as it opens.
+//! NEWS REPORTS, the ITAC's second section, which Use ITAC opens first: the news of the war from
+//! the missions the campaign has come through (`gameflow.CampaignMission.news`), each with its
+//! title, a few paragraphs and a picture of `newsrep.spr`, chosen from a list. The latest is chosen
+//! as it opens.
 //!
 //! **Unverified:** the file. Its code (`0x0044DD90` to `0x0044E4BF`) lies after `loadout.cpp`'s
 //! last assertion (`0x0044AC83`) and before VIDEO REPORTS', where no assertion names a file; it
@@ -9,7 +10,9 @@
 const std = @import("std");
 
 const canvas_module = @import("../interface/canvas.zig");
+const gameflow = @import("../gameflow.zig");
 const itac_module = @import("../itac.zig");
+const language = @import("../language.zig");
 const tables = @import("tables.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
@@ -55,11 +58,31 @@ const title_list: itac_module.TitleList = .{ .pane = list_pane, .top = 0, .hotsp
 const most_listed = 12;
 const list_arrows = [2]Rect{ .{ .x = 515, .y = 368, .width = 25, .height = 25 }, .{ .x = 540, .y = 368, .width = 25, .height = 25 } };
 
+/// A news item: its title, its paragraphs, and the shape of its picture in `newsrep.spr`.
+pub const Item = struct {
+    title: language.Words,
+    paragraphs: []const language.Words = &.{},
+    picture: u16,
+
+    /// The original's news items that NEWS REPORTS lists from mission `mission` on: those its table
+    /// (`news_items`, `0x004EB0E8`) lists after the mission before.
+    pub fn original(comptime mission: u16) []const Item {
+        return comptime items: {
+            @setEvalBranchQuota(10_000);
+            var items: []const Item = &.{};
+            for (tables.news) |item| {
+                if (item.mission + 1 != mission) continue;
+                items = items ++ .{Item{ .title = .{ .string = item.title }, .paragraphs = language.Words.strings(item.paragraphs), .picture = item.shape }};
+            }
+            break :items items;
+        };
+    }
+};
+
 pub const NewsReports = struct {
-    /// The items listed, by their places in `tables.news` (`news_list`, `0x00524E40`), and the
-    /// strings of their titles.
-    items: [tables.news.len]u8 = undefined,
-    titles: [tables.news.len]u16 = undefined,
+    /// The items listed (`news_list`, `0x00524E40`), and their titles.
+    items: [itac_module.most_items]*const Item = undefined,
+    titles: [itac_module.most_items]language.Words = undefined,
     item_count: u8 = 0,
     /// The item chosen, by its place in the list (`news_selected`, `0x00524D78`); none where none
     /// is listed.
@@ -89,10 +112,10 @@ pub const NewsReports = struct {
         itac.rebuild = true;
     }
 
-    /// `news_list_build` (`0x0044E490`): the items whose missions come before `mission`, the one
-    /// the campaign has come to, in the table's order.
+    /// `news_list_build` (`0x0044E490`): the items of the missions up to `mission`, the one the
+    /// campaign has come to.
     fn listItems(news: *NewsReports, mission: u16) void {
-        news.item_count = itac_module.listBefore(&tables.news, mission, &news.items, &news.titles);
+        news.item_count = itac_module.listReached(.news, mission, &news.items, &news.titles);
     }
 
     /// The furthest the list steps on, with its last item at the foot of those shown
@@ -123,9 +146,9 @@ pub const NewsReports = struct {
     }
 
     /// The item chosen; none where none is listed.
-    fn chosen(news: NewsReports) ?tables.NewsItem {
+    fn chosen(news: NewsReports) ?*const Item {
         const place = news.selected orelse return null;
-        return tables.news[news.items[place]];
+        return news.items[place];
     }
 
     /// `news_build` (`0x0044E0A0`): its sound, and for the item chosen, the body written, the list
@@ -142,7 +165,7 @@ pub const NewsReports = struct {
 
     /// The body of `item` (`news_text_draw`, `0x0044E260`): its paragraphs, a blank line between
     /// each two.
-    fn write(news: *NewsReports, itac: *Itac, item: tables.NewsItem) void {
+    fn write(news: *NewsReports, itac: *Itac, item: *const Item) void {
         news.text_len = itac.writeParagraphs(&news.text, item.paragraphs, &news.box);
     }
 
@@ -164,7 +187,7 @@ pub const NewsReports = struct {
     pub fn draw(news: *NewsReports, itac: *Itac, canvas: Canvas, fade: f32) canvas_module.Error!void {
         if (!news.pictures.open) return;
         const place = news.selected orelse return;
-        try news.pictures.draw(canvas, paletteOf(place), news.chosen().?.shape, picture_at, fade);
+        try news.pictures.draw(canvas, paletteOf(place), news.items[place].picture, picture_at, fade);
         if (!itac.panesShow()) return;
         try news.drawPanes(itac, canvas);
         try itac.drawMore(canvas, news.box);
@@ -202,7 +225,8 @@ test "NewsReports.listItems" {
     try std.testing.expectEqual(1, news.item_count);
     news.listItems(14);
     try std.testing.expectEqual(12, news.item_count);
-    try std.testing.expectEqual(13, tables.news[news.items[11]].mission);
+    try std.testing.expectEqual(&gameflow.CampaignMission.original[13].news[0], news.items[11]);
+    try std.testing.expectEqual(tables.news[11].title, news.titles[11].string);
     // The list steps on so that the latest shows at its foot.
     news.listItems(28);
     try std.testing.expectEqual(news.item_count - most_listed, news.lastFirst());

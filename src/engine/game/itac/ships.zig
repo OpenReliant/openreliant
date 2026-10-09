@@ -10,6 +10,7 @@ const std = @import("std");
 
 const canvas_module = @import("../interface/canvas.zig");
 const itac_module = @import("../itac.zig");
+const language = @import("../language.zig");
 const tables = @import("tables.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
@@ -95,7 +96,7 @@ pub const Ships = struct {
     pictures: itac_module.Pictures = .{},
     box: ScrollBox = body_box,
     /// The strings of the side's ships' names, which the list shows.
-    titles: [most]u16 = undefined,
+    titles: [most]language.Words = undefined,
     /// The entries the list shows, each a hotspot (`0x0051D268`).
     listed: [most]itac_module.ListEntry = undefined,
     listed_count: u8 = 0,
@@ -115,7 +116,7 @@ pub const Ships = struct {
 
     /// `0x00424410`: the strings of `side`'s ships' names, in the table's order.
     fn listSide(ships: *Ships, side: itac_module.Side) void {
-        for (tables.ships[@backingInt(side)], 0..) |ship, place| ships.titles[place] = ship.name;
+        for (tables.ships[@backingInt(side)], 0..) |ship, place| ships.titles[place] = .{ .string = ship.name };
     }
 
     /// `0x00423910`: the pictures let go of, where it is open.
@@ -208,7 +209,7 @@ pub const Ships = struct {
         const font = &(itac.small orelse return).font;
         if (itac.panes[figures].showing()) |shown| {
             const in_pane = canvas.within(shown);
-            try itac.writeCapitals(in_pane, font, name_room, .{ figures_pane.x + name_at[0], figures_pane.y + name_at[1] }, ship.name);
+            try itac.writeCapitals(in_pane, font, name_room, .{ figures_pane.x + name_at[0], figures_pane.y + name_at[1] }, .{ .string = ship.name });
             const rows: itac_module.Rows = .{ .canvas = in_pane, .font = font, .pane = figures_pane, .value_x = value_x };
             var crew: [8]u8 = undefined;
             const values = [labels.len][]const u8{

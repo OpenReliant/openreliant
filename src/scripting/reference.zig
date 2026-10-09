@@ -54,6 +54,7 @@ const roots: []const type = list: {
         if (packages.namespace(package)) |Namespace| found = found ++ namespaceTypes(Namespace);
     }
     for (std.enums.values(@import("builtin_interfaces.zig").Group)) |group| found = found ++ namespaceTypes(group.namespace());
+    found = found ++ missionFieldTypes();
     for (std.enums.values(script.Handler)) |handler| {
         found = found ++ @typeInfo(handler.Arguments()).@"struct".field_types;
     }
@@ -76,8 +77,16 @@ const passed: []const type = list: {
         if (packages.namespace(package)) |Namespace| found = found ++ namespaceParameters(Namespace);
     }
     for (std.enums.values(@import("builtin_interfaces.zig").Group)) |group| found = found ++ namespaceParameters(group.namespace());
-    break :list found;
+    // Load scripts give a campaign mission's fields too.
+    break :list found ++ missionFieldTypes();
 };
+
+/// The types of a campaign mission's fields (`records.missions`).
+fn missionFieldTypes() []const type {
+    var found: []const type = &.{};
+    for (std.enums.values(missions.Field)) |field| found = found ++ .{field.Type()};
+    return found;
+}
 
 /// The types of the parameters of the functions `Namespace` declares; none for a native one.
 fn namespaceParameters(comptime Namespace: type) []const type {

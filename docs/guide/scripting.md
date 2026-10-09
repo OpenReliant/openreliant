@@ -1217,8 +1217,8 @@ records.campaign = campaign
 
 `records.missions` holds the campaign's settings for each of its missions, indexed by the
 mission's number: what the briefing room plays before it, the carrier it's flown from, the names of
-its objectives, the date the launch shows, and what it awards. The game decides each of these by
-the mission's number. A mission's fields start with the game's values, and load scripts change
+its objectives, the date the launch shows, what it awards, Enriquez's report and debriefing, and
+the ITAC's news. The game decides each of these by the mission's number. A mission's fields start with the game's values, and load scripts change
 them in place, as they do a record's. The [reference](reference.md#openreliantrecords) lists the
 fields.
 
@@ -1249,6 +1249,19 @@ fields the table gives:
 records.missions[3] = { carrier = "yamato", hologram = "mycampaign_m03.bik", last_word = "ms_speech\\mycampaign_tag03.ut" }
 ```
 
+A restored mission can also have its own report on the rooms' television, its own debriefing and
+its own news in the ITAC:
+
+```lua
+local mission = records.missions[12]
+mission.television_report = { { scene = "dreamcast_0115.box" } }
+local debriefing = mission.debriefing
+debriefing.success = { "Good work out there.", "The Reliant is safe for now." }
+mission.debriefing = debriefing
+-- The news after mission 12, in the rooms before the next mission.
+records.missions[14].news = { { title = "Reliant survives ambush", paragraphs = { "..." }, picture = 13 } }
+```
+
 - Each mod changes only the fields it sets, in load order, so mods that change different fields of
   the same mission don't undo each other's changes.
 - Reading `objectives` gives a new list each time. To change the names, assign a list. Nil gives
@@ -1266,9 +1279,16 @@ records.missions[3] = { carrier = "yamato", hologram = "mycampaign_m03.bik", las
   and 23: the new pilot's `induction` and the loadout's `lesson` before mission 1, and the
   loadout's `only_ship`, the Shroud, before mission 23. A mod that moves or adds missions can move
   these with them.
-- Not yet in the records: the ITAC after each mission
-  ([#984](https://github.com/OpenReliant/openreliant/issues/984)), and the other rules the game
-  applies by a mission's number ([#985](https://github.com/OpenReliant/openreliant/issues/985)).
+- `television_report` is Enriquez's report on the rooms' television before the mission, and
+  `debriefing` her debriefing in the ITAC after it, with paragraphs for each rating.
+- `news` and `video_reports` are the ITAC's news items and video reports that appear in the rooms
+  before the mission, and stay listed after it. So the news of how a mission went goes on the
+  mission after it.
+- Reading `television_report`, `debriefing`, `news` or `video_reports` gives a new table with the
+  game's text in it, which you can change and assign back.
+- Not yet in the records: the other rules the game applies by a mission's number
+  ([#985](https://github.com/OpenReliant/openreliant/issues/985)), and the KILLBOARD's pilots
+  ([#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
 
 ## Saved games
 

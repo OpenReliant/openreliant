@@ -13,6 +13,7 @@ const canvas_module = @import("../interface/canvas.zig");
 const bars = @import("../../interface/loadout/bars.zig");
 const create = @import("../create.zig");
 const itac_module = @import("../itac.zig");
+const language = @import("../language.zig");
 const tables = @import("tables.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
@@ -83,7 +84,7 @@ pub const Fighters = struct {
     /// Each fighter's bars, by side (`loadout_ship_bars_init`, `0x00426600`).
     bars: [2][most]bars.ShipBars = undefined,
     /// The strings of the side's fighters' names, which the list shows.
-    titles: [most]u16 = undefined,
+    titles: [most]language.Words = undefined,
     /// The entries the list shows, each a hotspot (`0x0051D3C0`).
     listed: [most]itac_module.ListEntry = undefined,
     listed_count: u8 = 0,
@@ -107,7 +108,7 @@ pub const Fighters = struct {
 
     /// The strings of `side`'s fighters' names, in the table's order.
     fn listSide(fighters: *Fighters, side: itac_module.Side) void {
-        for (tables.fighters[@backingInt(side)], 0..) |fighter, place| fighters.titles[place] = fighter.name;
+        for (tables.fighters[@backingInt(side)], 0..) |fighter, place| fighters.titles[place] = .{ .string = fighter.name };
     }
 
     /// `0x00425960`: the pictures let go of, where it is open.
@@ -163,7 +164,7 @@ pub const Fighters = struct {
     /// The panes as they have wiped in: the name, the figures, the armament and the list.
     fn drawPanes(fighters: *Fighters, itac: *Itac, canvas: Canvas, fighter: tables.Fighter) canvas_module.Error!void {
         const font = &(itac.small orelse return).font;
-        if (itac.panes[name].showing()) |shown| try itac.writeCapitals(canvas.within(shown), font, line_room, .{ name_pane.x + name_at[0], name_pane.y + name_at[1] }, fighter.name);
+        if (itac.panes[name].showing()) |shown| try itac.writeCapitals(canvas.within(shown), font, line_room, .{ name_pane.x + name_at[0], name_pane.y + name_at[1] }, .{ .string = fighter.name });
         const fighter_bars = fighters.bars[@backingInt(itac.side)][fighters.selected];
         if (itac.panes[figures].showing()) |shown| try writeFigures(itac, .{ .canvas = canvas.within(shown), .font = font, .pane = figures_pane, .value_x = value_x }, fighter, fighter_bars);
         if (itac.panes[armament].showing()) |shown| try writeArmament(itac, .{ .canvas = canvas.within(shown), .font = font, .pane = armament_pane, .value_x = value_x }, fighter, fighter_bars);
