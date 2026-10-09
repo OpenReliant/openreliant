@@ -179,6 +179,9 @@ pub const Chunk = struct {
 pub const Chunks = struct {
     bytes: []u8,
     at: usize = 0,
+    /// Whether the chunks are scrambled, as the game's are. Battlestar Galactica's comms films
+    /// keep the same chunks plain (`games.bsg.comms`).
+    scrambled: bool = true,
 
     /// The next chunk, unscrambled in place (`unscramble`), or null past the end chunk or the
     /// film's end, or at a chunk too short for its header or reaching past the end.
@@ -193,7 +196,7 @@ pub const Chunks = struct {
         }
         const id: Id = .of(header.id);
         chunks.at = if (id == .end) chunks.bytes.len else chunks.at + size;
-        unscramble(rest[0..size]);
+        if (chunks.scrambled) unscramble(rest[0..size]);
         return .{ .id = id, .bytes = rest[0..size] };
     }
 };
@@ -508,6 +511,11 @@ test Chunks {
     // A chunk reaching past the end is not given.
     var short: Chunks = .{ .bytes = film[0..12] };
     try std.testing.expectEqual(null, short.next());
+    // Plain chunks are given as they are.
+    const plain = try gpa.dupe(u8, "fLED\x10\x00\x00\x0001234567");
+    defer gpa.free(plain);
+    var unscrambled: Chunks = .{ .bytes = plain, .scrambled = false };
+    try std.testing.expectEqualStrings("01234567", unscrambled.next().?.bytes[8..]);
 }
 
 test Film {

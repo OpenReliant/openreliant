@@ -297,9 +297,7 @@ pub const Volume = struct {
 
     /// Depth-first traversal of the whole volume. Everything is allocated from `arena`.
     pub fn walk(volume: *const Volume, arena: Allocator) !Walker {
-        var walker: Walker = .{ .volume = volume, .arena = arena, .stack = .empty };
-        try walker.push("", volume.root());
-        return walker;
+        return .init(volume, arena);
     }
 
     fn decodeIdentifier(volume: *const Volume, arena: Allocator, identifier: []const u8) ![]const u8 {
@@ -318,49 +316,65 @@ pub const Volume = struct {
     }
 };
 
-pub const Walker = struct {
-    volume: *const Volume,
-    arena: Allocator,
-    stack: std.ArrayList(Frame),
+pub const Walker = WalkerOf(Volume, Entry);
 
-    const Frame = struct {
-        path: []const u8,
-        entries: []const Entry,
-        index: usize = 0,
-    };
+/// A depth-first walk of a disc's folders, which yields each entry with its path, a folder's
+/// entries right after it. `Disc` lists a folder with `readDirectory` and gives the root with
+/// `root`; a `Listed` entry has a `name`, a `kind` and an `extent`. Xbox discs share it
+/// (`xbox/xdvdfs.zig`). Everything is allocated from the arena.
+pub fn WalkerOf(comptime Disc: type, comptime Listed: type) type {
+    return struct {
+        volume: *const Disc,
+        arena: Allocator,
+        stack: std.ArrayList(Frame),
 
-    pub const Item = struct {
-        /// Path from the root of the volume, `/`-separated.
-        path: []const u8,
-        entry: Entry,
-    };
+        const Walk = @This();
 
-    pub fn next(walker: *Walker) !?Item {
-        while (walker.stack.items.len > 0) {
-            const frame = &walker.stack.items[walker.stack.items.len - 1];
-            if (frame.index == frame.entries.len) {
-                _ = walker.stack.pop();
-                continue;
-            }
-            const entry = frame.entries[frame.index];
-            frame.index += 1;
+        const Frame = struct {
+            path: []const u8,
+            entries: []const Listed,
+            index: usize = 0,
+        };
 
-            const path = if (frame.path.len == 0)
-                entry.name
-            else
-                try std.mem.concat(walker.arena, u8, &.{ frame.path, "/", entry.name });
-            // `frame` is invalidated by the push below.
-            if (entry.kind == .directory) try walker.push(path, entry.extent);
-            return .{ .path = path, .entry = entry };
+        pub const Item = struct {
+            /// Path from the root of the volume, `/`-separated.
+            path: []const u8,
+            entry: Listed,
+        };
+
+        pub fn init(volume: *const Disc, arena: Allocator) !Walk {
+            var walker: Walk = .{ .volume = volume, .arena = arena, .stack = .empty };
+            try walker.push("", volume.root());
+            return walker;
         }
-        return null;
-    }
 
-    fn push(walker: *Walker, path: []const u8, dir: Extent) !void {
-        const entries = try walker.volume.readDirectory(walker.arena, dir);
-        try walker.stack.append(walker.arena, .{ .path = path, .entries = entries });
-    }
-};
+        pub fn next(walker: *Walk) !?Item {
+            while (walker.stack.items.len > 0) {
+                const frame = &walker.stack.items[walker.stack.items.len - 1];
+                if (frame.index == frame.entries.len) {
+                    _ = walker.stack.pop();
+                    continue;
+                }
+                const entry = frame.entries[frame.index];
+                frame.index += 1;
+
+                const path = if (frame.path.len == 0)
+                    entry.name
+                else
+                    try std.mem.concat(walker.arena, u8, &.{ frame.path, "/", entry.name });
+                // `frame` is invalidated by the push below.
+                if (entry.kind == .directory) try walker.push(path, entry.extent);
+                return .{ .path = path, .entry = entry };
+            }
+            return null;
+        }
+
+        fn push(walker: *Walk, path: []const u8, dir: Extent) !void {
+            const entries = try walker.volume.readDirectory(walker.arena, dir);
+            try walker.stack.append(walker.arena, .{ .path = path, .entries = entries });
+        }
+    };
+}
 
 /// Drops the `;1` version suffix, and the `.` ISO 9660 leaves on names without an extension.
 fn stripVersion(name: []const u8) []const u8 {

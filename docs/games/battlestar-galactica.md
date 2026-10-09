@@ -5,9 +5,22 @@ StarLancer. Its game logic is StarLancer's, carried forward: its missions keep S
 and script bytecode, its command catalogue and trigger conditions extend StarLancer's, and its
 stats, combat maneuvers and comms films come from StarLancer's. Its archives, models and executable
 are new. [#1017](https://github.com/OpenReliant/openreliant/issues/1017) tracks what it shares
-with StarLancer. `sltool` doesn't read its files yet.
+with StarLancer.
 
-This page describes the European Xbox disc.
+```bash
+sltool cd extract <image> <dir>                 # the disc's files
+sltool bsg sections <mission.dte>               # a mission's directory
+sltool bsg parts <mission.dte>                  # its script's routines
+sltool bsg triggers <mission.dte>               # its triggers
+sltool bsg script <mission.dte> <default.xbe>   # its script, with the commands' names
+sltool bsg commands <default.xbe>               # the command catalogue
+sltool bsg films <video.idx> <videodata.dat>    # the comms films
+sltool bsg film <video.idx> <videodata.dat> <number|all> <dir>   # their frames, as PNG files
+```
+
+The code is in [`src/formats/games/bsg/`](../../src/formats/games/bsg), and the Xbox's own formats
+are in [`src/formats/xbox/`](../../src/formats/xbox). This page describes the European Xbox
+disc.
 
 ## The disc
 
@@ -80,8 +93,9 @@ The script has StarLancer's bytecode ([Script VM](../engine/script-vm.md)), with
 and the comms films' names inline, as `push_string` runs. Given a directory in StarLancer's layout
 that points at these sections, StarLancer's mission reader reads the missions' parts, triggers and
 routines. One trigger, for example, plays the comms film `AD_01_06.wmv` with its line, waits three
-seconds and ends the mission. **Unknown:** two routines reach a `0x55` followed by a byte that
-isn't a StarLancer opcode, so the game may have changed `0x55` or added an instruction.
+seconds and ends the mission. `sltool bsg` reads them that way, and names the commands from the
+catalogue in the game's executable. **Unknown:** two routines reach a `0x55` followed by a byte
+that isn't a StarLancer opcode, so the game may have changed `0x55` or added an instruction.
 
 ## Commands
 
@@ -149,8 +163,9 @@ The executable names StarLancer's 35 conditions, with the Ripper's two renamed
 such as `Player_L1_DoubleTap`. It names new ones too: `JumpedOut`, `ShotAtMissile`,
 `Troopship Repelled`, `Collision`, `Docked With (Amasser)`, `Launched From (Amasser)`,
 `Roll Match Lost` and `Roll Match Lost Inner`. The missions' triggers use StarLancer's numbers for
-StarLancer's conditions, and numbers from 35 for new ones. **Unverified:** which new name
-has which number.
+StarLancer's conditions, and numbers from 35 for new ones. **Unverified:** which new name has which
+number. `sltool bsg triggers` shows the conditions by StarLancer's names, so the Troopship's show as
+the Ripper's, and new ones by number.
 
 ## Stats
 
@@ -191,8 +206,8 @@ of 256 (**Unknown**), then each film's offset. A film is a 12-byte header, then 
 | 8 | 4 | One more than the film's frames, in every film |
 
 The chunks are StarLancer's `fYEK` key frames and `fLED` delta frames, with the same key frame
-header, but without StarLancer's XOR scrambling. No `fDNE` chunk ends a film. Scrambled with
-StarLancer's key and ended with `fDNE`, a film decodes with `sltool fm8 extract`.
+header, but without StarLancer's XOR scrambling. No `fDNE` chunk ends a film. `sltool bsg film`
+decodes them with StarLancer's face film decoder.
 
 `vqmdata.txt` and `movies.txt` list comms films by name, such as `AD_01_01`, each with a `-` and a
 number from 0 to 2, separated by tabs. **Unknown:** what the number is.

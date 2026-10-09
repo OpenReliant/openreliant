@@ -81,7 +81,7 @@ what a shared engine would have to keep apart
 | Path | Contents |
 |---|---|
 | [`games/star-trek-invasion.md`](games/star-trek-invasion.md) | Star Trek: Invasion: its disc, archive, missions and models, which `sltool trek` reads. |
-| [`games/battlestar-galactica.md`](games/battlestar-galactica.md) | Battlestar Galactica (2003): its disc, missions, command catalogue, stats, comms films and archives, which carry StarLancer's game logic forward. |
+| [`games/battlestar-galactica.md`](games/battlestar-galactica.md) | Battlestar Galactica (2003): its disc, missions, command catalogue, stats, comms films and archives, which carry StarLancer's game logic forward, and `sltool bsg`, which reads them. |
 
 ## Conventions
 

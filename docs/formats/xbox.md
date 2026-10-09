@@ -2,13 +2,19 @@
 
 The Xbox games on StarLancer's engine, such as
 [Battlestar Galactica](../games/battlestar-galactica.md), come on discs with the Xbox's own
-filesystem and executable. `sltool` doesn't read them yet
-([#1017](https://github.com/OpenReliant/openreliant/issues/1017)).
+filesystem and executable. The code is in [`src/formats/xbox/`](../../src/formats/xbox).
+
+```bash
+sltool cd ls <image>              # every file
+sltool cd extract <image> <dir>   # copy everything off
+```
 
 ## Discs
 
 An Xbox disc holds an XDVDFS volume of 2048-byte sectors. An image that `extract-xiso` writes holds
-the volume alone. The volume descriptor is at the volume's sector 32:
+the volume alone, which `sltool cd` reads. **Not supported:** a whole disc's image, which holds
+more than the game's volume ([#1019](https://github.com/OpenReliant/openreliant/issues/1019)).
+The volume descriptor is at the volume's sector 32:
 
 | Offset | Size | Field |
 |---|---|---|
@@ -16,7 +22,8 @@ the volume alone. The volume descriptor is at the volume's sector 32:
 | 20 | 4 | The root directory's first sector |
 | 24 | 4 | The root directory's size in bytes |
 
-A directory is a binary tree of entries, each 4-byte aligned:
+A directory is a binary tree of entries sorted by name, each 4-byte aligned, and an empty one holds
+one entry of `0xFF` filler:
 
 | Offset | Size | Field |
 |---|---|---|

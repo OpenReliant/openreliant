@@ -59,9 +59,7 @@ pub const Executable = struct {
     /// The NUL-terminated string at `address`, of at most `longest` bytes; null where the text
     /// holds none.
     pub fn string(executable: Executable, address: u32, longest: usize) ?[]const u8 {
-        const bytes = executable.at(address) orelse return null;
-        const end = std.mem.findScalar(u8, bytes[0..@min(bytes.len, longest + 1)], 0) orelse return null;
-        return bytes[0..end];
+        return layout.string(executable.at(address) orelse return null, longest);
     }
 };
 

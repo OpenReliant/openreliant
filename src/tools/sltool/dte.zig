@@ -62,7 +62,7 @@ pub const Command = union(enum) {
             .triggers => try triggers(ctx, mission, models),
             .strings => try strings(ctx, mission),
             .parts => try parts(ctx, mission),
-            .script => try script(ctx, mission, models, .named),
+            .script => try script(ctx, mission, models, .starlancer),
             .check => try check(ctx, mission),
         }
     }
@@ -142,7 +142,8 @@ fn ships(ctx: Context, mission: dte.Mission) !void {
     }
 }
 
-fn triggers(ctx: Context, mission: dte.Mission, models: ?*Library) !void {
+/// Lists the triggers: each one's condition, by StarLancer's names, and the object it watches.
+pub fn triggers(ctx: Context, mission: dte.Mission, models: ?*Library) !void {
     const owners = try mission.triggerObjects(ctx.arena);
     const all_objects = try mission.objects();
     const all_ships = try mission.ships();
@@ -260,11 +261,15 @@ pub fn parts(ctx: Context, mission: dte.Mission) !void {
 }
 
 /// How a script's listing shows the Executor's commands.
-pub const Commands = enum {
-    /// By the original's names.
-    named,
-    /// By their numbers alone, for a game whose commands differ, such as Star Trek: Invasion.
+pub const Commands = union(enum) {
+    /// By StarLancer's names.
+    starlancer,
+    /// By their numbers alone, for a game whose commands differ and aren't known, such as Star
+    /// Trek: Invasion.
     numbered,
+    /// By another game's names, by their numbers, such as Battlestar Galactica's from its
+    /// executable.
+    listed: []const []const u8,
 };
 
 /// Disassembles each of the script's routines: its parts, and the blocks its triggers run.
@@ -344,11 +349,18 @@ fn printListing(
                         try ctx.stdout.writeAll("   (past the constants)");
                     }
                 },
-                .command => switch (commands) {
-                    .named => if (openreliant.engine.game.executor.commands.find(instruction.operands[0])) |command| {
-                        try ctx.stdout.print("   {s}", .{command.name});
-                    },
-                    .numbered => try ctx.stdout.print("   0x{X:0>2}", .{instruction.operands[0]}),
+                .command => {
+                    const number = instruction.operands[0];
+                    const name: ?[]const u8 = switch (commands) {
+                        .starlancer => if (openreliant.engine.game.executor.commands.find(number)) |command| command.name else null,
+                        .numbered => null,
+                        .listed => |names| if (number < names.len) names[number] else null,
+                    };
+                    if (name) |text| {
+                        try ctx.stdout.print("   {s}", .{text});
+                    } else if (commands != .starlancer) {
+                        try ctx.stdout.print("   0x{X:0>2}", .{number});
+                    }
                 },
                 else => try printIndex(ctx, mission, models, instruction),
             },
@@ -442,6 +454,16 @@ fn strings(ctx: Context, mission: dte.Mission) !void {
     const end = mission.stringPoolEnd();
     if (!pool.isUsed() or pool.offset > end) return;
     try printPool(ctx, mission.image[pool.offset..end]);
+}
+
+/// Ends a line of another game's mission directory with StarLancer's section that holds the same
+/// records, if one does.
+pub fn printStarLancerSection(ctx: Context, section: ?dte.Section) !void {
+    if (section) |same| {
+        try ctx.stdout.writeAll(", StarLancer's ");
+        try openreliant.layout.formatTag(dte.Section, same, ctx.stdout);
+    }
+    try ctx.stdout.writeByte('\n');
 }
 
 /// Lists the strings of a string pool, `pool`, each at its offset.

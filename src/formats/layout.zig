@@ -37,6 +37,13 @@ pub fn arrayMut(comptime T: type, bytes: []u8, count: usize) Error![]align(1) T 
     return std.mem.bytesAsSlice(T, bytes[0..size]);
 }
 
+/// The zero-terminated string at the start of `bytes`, of at most `longest` bytes; null where no
+/// zero byte ends one that short.
+pub fn string(bytes: []const u8, longest: usize) ?[]const u8 {
+    const end = std.mem.findScalar(u8, bytes[0..@min(bytes.len, longest + 1)], 0) orelse return null;
+    return bytes[0..end];
+}
+
 /// Writes a value of an open enum read from a file: its tag's name, or its number where the enum
 /// names none. Printing with `{t}` would panic on such a value, which files hold often.
 pub fn formatTag(comptime T: type, value: T, writer: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -122,4 +129,10 @@ test Big {
     const size: Big(u32) = .of(0x01020304);
     try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, &size.bytes);
     try std.testing.expectEqual(0x01020304, size.get());
+}
+
+test string {
+    try std.testing.expectEqualStrings("abc", string("abc\x00def", 3).?);
+    try std.testing.expectEqual(null, string("abcd\x00", 3));
+    try std.testing.expectEqual(null, string("abc", 8));
 }
