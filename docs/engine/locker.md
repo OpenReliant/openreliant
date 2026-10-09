@@ -27,14 +27,14 @@ Its timer, 15 times a second (`0x00437DE0`), is left out: nothing it counts show
 
 ## The lid
 
-On the Yamato the locker first plays `lockzomi.bik` over the screen, from the disc's archive. Then
+The movies are the mission's carrier's ([The carrier](rooms.md#the-carrier)). On the Yamato the locker first plays `lockzomi.bik` over the screen, from the disc's archive. Then
 the lid goes up: its movie plays from the disc's archive at 15 frames a second, with sound 5 of the
 rooms' `wlksmp.fat`.
 
 | Carrier | Up | Down |
 |---|---|---|
-| The Reliant, up to mission 18 | `rel_locklup.bik` | `rel_lockldo.bik` |
-| The Yamato, after it | `locklidup.bik` | `lokliddo.bik` |
+| The Reliant | `rel_locklup.bik` | `rel_lockldo.bik` |
+| The Yamato | `locklidup.bik` | `lokliddo.bik` |
 
 Once the lid is up, either button sends it down; so does Escape, at any time. The lid goes down in
 its own movie, with sound 4, and the locker closes as it ends, or at once on Escape. The rooms then

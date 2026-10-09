@@ -22,12 +22,27 @@ As the rooms open, they write the pilot's profile with the call sign ([The pilot
 - The rooms' pointer, and the in-game options', is where the system's is over the window, as the front end's is ([Front end](front-end.md#the-pointer)). The game adds up DirectInput's movements.
 - OpenReliant's version is written in the window's corner of the in-game options, as on the front end's screens. The rooms, the news report and the induction don't show it.
 - The in-game options' ABOUT STARLANCER is ABOUT OPENRELIANT ([The in-game options](#the-in-game-options)).
+- Each campaign mission's carrier is the one its record gives, the original's unless a mod changes it ([The carrier](#the-carrier)).
 - The loudest peaks of Enriquez's scenes are rounded off, as the radio's lines' are ([Radio](radio.md)). `--original` cuts them flat.
 - The rooms' sounds, the hum, the steps, the doors and the crew's lines, ring subtly in a small room of the ship, and Enriquez's scenes on the television and the monitors as the radio's voices do, in the cockpit's cabin, as over a speaker ([Sound](../port/sound.md#openal-soft)); the game plays them dry. `--no-reverb` and `--original` leave the rooms out.
 
+## The carrier
+
+A campaign mission is flown from a carrier: the Reliant up to mission 18, and the Yamato after it
+(`0x0043A04C`). What differs between the two follows the mission's carrier: the rooms and the disc
+that holds them, the briefing room ([Briefing](briefing.md#the-briefing-room)), the loadout's
+backdrop ([Loadout](loadout.md)), the locker ([Locker](locker.md)), the CD player
+([CD player](cd-player.md)), the ITAC's opening and closing ([The ITAC](itac.md)), and the hangar's
+movie before the launch and the endings after a mission ([Movies](movies.md)).
+
+**Improvement:** OpenReliant keeps each campaign mission's carrier in its record, the original's by
+default, which mods change ([Each mission of the
+campaign](../guide/scripting.md#each-mission-of-the-campaign)). A mission outside the campaign's
+table, such as Instant Action's, keeps the original's rule.
+
 ## A campaign's start
 
-As START GAME starts a campaign (`interface_run` returns 1), `WinMain` (`0x004AA1BA` on) starts the music fading out by 15 (`music_fade_out`) and opens the archive of the disc that holds the rooms: the second up to mission 18, the first after it (`cd_hog_open`). **Improvement:** a campaign mission's carrier is the one its record gives, the original's by default, which mods change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)); the rooms, their disc, the briefing room, the loadout's backdrop and the hangar's movie follow it. Before mission 1 it plays the new pilot's intro, `new_intro.bik`, from the disc on a cleared screen (`play_bink_movie_resourced`), then the induction ([The induction](#the-induction)), then from where the induction ended to the simulator pod:
+As START GAME starts a campaign (`interface_run` returns 1), `WinMain` (`0x004AA1BA` on) starts the music fading out by 15 (`music_fade_out`) and opens the archive of the disc that holds the rooms, the mission's carrier's: the second for the Reliant, the first for the Yamato (`cd_hog_open`, [The carrier](#the-carrier)). Before mission 1 it plays the new pilot's intro, `new_intro.bik`, from the disc on a cleared screen (`play_bink_movie_resourced`), then the induction ([The induction](#the-induction)), then from where the induction ended to the simulator pod:
 
 | Ended at | Movies | View |
 |---|---|---|

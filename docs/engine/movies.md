@@ -60,9 +60,9 @@ After the briefing, `WinMain` starts the music fading out by 15 (`music_fade_out
 voices (`sound_pause_all`), and waits a second, in which the timer fades the music out (`0x004AA3B2`
 on). **Unverified:** that the call it waits with is `Sleep`: the executable's protection hides its
 imports. Then, before the mission's loading, `hangar_movie_play` (`0x004ABD40`) opens the
-mission's disc, the second up to mission 18 and the first after it, and plays the next of three
-movies of the pilots readying (`play_bink_movie_resourced`): the Reliant's, `r_h_ta.bik` to
-`r_h_tc.bik`, or past mission 18 the Yamato's, `y_h_ta.bik` to `y_h_tc.bik`. It steps the count on
+disc of the mission's carrier ([The carrier](rooms.md#the-carrier)), the Reliant's second or the Yamato's first, and
+plays the next of three movies of the pilots readying in its hangar (`play_bink_movie_resourced`):
+the Reliant's, `r_h_ta.bik` to `r_h_tc.bik`, or the Yamato's, `y_h_ta.bik` to `y_h_tc.bik`. It steps the count on
 before each (`0x005D6C8C`), which `WinMain` sets to the first as it opens the front end
 (`0x004A9587`), so the second plays first.
 
@@ -131,10 +131,10 @@ never reached, as mission 16 ends no chapter.
 After the landing, or where there is none, `WinMain` plays how a mission of the campaign ended
 from the archive of the disc open, the mission's carrier's, on a cleared screen
 (`play_bink_movie_resourced`), then turns to the restart screen or the main menu
-([After a mission](rooms.md#after-a-mission)). The Reliant's movies play up to mission 18 and the
-Yamato's after it:
+([After a mission](rooms.md#after-a-mission)). The movies are the mission's carrier's
+([The carrier](rooms.md#the-carrier)):
 
-| Ending | Up to mission 18 | After mission 18 | Then |
+| Ending | The Reliant | The Yamato | Then |
 |---|---|---|---|
 | The player's ship destroyed, or the ejected pilot killed: the funeral | `new_funeral.bik` | `new_funeral2.bik` | The restart screen |
 | The ejected pilot captured: the pilot in the enemy's hands | `int.bik` | `int.bik` | The restart screen |

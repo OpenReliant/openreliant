@@ -27,8 +27,9 @@ piece again where none is.
 
 ## The screen
 
-As it opens, the CD player shows its picture behind the screen, `interface\rel_bunk2cd.tga` on the
-Reliant, up to mission 18, and `interface\brd2cd.tga` on the Yamato, after it, and reads
+As it opens, the CD player shows its picture behind the screen, by the mission's carrier
+([The carrier](rooms.md#the-carrier)): `interface\rel_bunk2cd.tga` on the Reliant, and `interface\brd2cd.tga` on the
+Yamato. It reads
 `cdplay.spr`, its shapes, and the ITAC's large font, `inter\itac\itacbig.fnt`. Nothing is chosen,
 nothing is paused and the modes are off, whatever music plays already. Its drawing
 (`cd_player_draw`, `0x00438890`) draws, in order:
