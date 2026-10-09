@@ -441,8 +441,7 @@ pub const Opened = struct {
             if (!opened.draws(index)) continue;
             const x: f32 = @floatFromInt(at % glyph.width);
             const y: f32 = @floatFromInt(at / glyph.width);
-            const pixel: Clip = .{ .left = x, .top = y, .right = x + 1, .bottom = y + 1 };
-            box = if (box) |found| found.join(pixel) else pixel;
+            box = .joined(box, .{ .left = x, .top = y, .right = x + 1, .bottom = y + 1 });
         }
         return box;
     }
@@ -849,6 +848,12 @@ pub const Clip = struct {
         };
     }
 
+    /// The least rectangle that holds `other` and `box`, where there is one, as a box grows to
+    /// take in what is drawn.
+    pub fn joined(box: ?Clip, other: Clip) Clip {
+        return if (box) |found| found.join(other) else other;
+    }
+
     /// Whether it holds no pixel at all.
     pub fn empty(clip: Clip) bool {
         return clip.left >= clip.right or clip.top >= clip.bottom;
@@ -868,6 +873,7 @@ test Clip {
     try std.testing.expect(!a.intersect(b).empty());
     try std.testing.expect(a.intersect(.{ .left = 100, .top = 0, .right = 200, .bottom = 40 }).empty());
     try std.testing.expectEqual(Clip{ .left = 0, .top = 0, .right = 200, .bottom = 50 }, a.join(b));
+    try std.testing.expectEqual(a, Clip.joined(null, a));
     try std.testing.expectEqual(16, Clip.edge(10, 3, 2));
 }
 
@@ -1253,7 +1259,7 @@ pub fn textInk(opened: *Opened, at: [2]i32, text: []const u8, alignment: Align, 
                 };
             },
         };
-        box = if (box) |found| found.join(covered) else covered;
+        box = .joined(box, covered);
     }
     return box;
 }
@@ -2441,11 +2447,7 @@ const Placing = struct {
 
     /// Takes the point `x`, `y` into the box drawn.
     fn cover(placing: *Placing, x: f32, y: f32) void {
-        const box = placing.drawn orelse {
-            placing.drawn = .{ .left = x, .top = y, .right = x, .bottom = y };
-            return;
-        };
-        placing.drawn = .{ .left = @min(box.left, x), .top = @min(box.top, y), .right = @max(box.right, x), .bottom = @max(box.bottom, y) };
+        placing.drawn = .joined(placing.drawn, .{ .left = x, .top = y, .right = x, .bottom = y });
     }
 };
 

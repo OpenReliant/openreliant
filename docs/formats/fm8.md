@@ -48,11 +48,10 @@ A key frame (`talkie_key`, `0x004A6980`) holds a whole frame and the palette:
 | 20 | 256 x 3 | The palette, red, green and blue a byte each, at `first * 3` |
 | 20 + `entries` x 3 | | The pixels, a byte each as an entry of the palette, row by row, compressed with [RefPack](refpack.md) |
 
-The frames are 120 by 100, made of blocks of 4 by 4 pixels. OpenReliant plays films of any size
-in whole blocks, and the radio's window draws each at 120 by 100
-([Faces](../guide/modding.md#faces)). The game looks through the entries for
-the colour it draws see-through, red 255, green 0 and blue 216, or red 254, green 0 and blue 215
-or 216, and converts the entries for the display's colour depth.
+The frames are 120 by 100, made of blocks of 4 by 4 pixels; OpenReliant also plays a mod's sharper
+films ([Faces](../guide/modding.md#faces)). The game looks through the entries for the colour it
+draws see-through, red 255, green 0 and blue 216, or red 254, green 0 and blue 215 or 216, and
+converts the entries for the display's colour depth.
 
 Ten films come from earlier versions of the tool that made them: `51stWL_Plt`, `51stWL_Plt_d`,
 `BuccnrsWL_Plt`, `CougerWL_Plt`, `CougerWL_Plt_d`, `StingerWL_Plt_D`, `StingerWL_Plt_L`,

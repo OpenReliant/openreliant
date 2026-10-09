@@ -1,10 +1,11 @@
 //! The parts of the game's instruments that the mods' displays can place on their own: each text
 //! the flight display writes, the face in the radio's window and the power ball
-//! ([#999](https://github.com/OpenReliant/openreliant/issues/999)). A display moves, scales or hides
+//! ([#998](https://github.com/OpenReliant/openreliant/issues/998),
+//! [#999](https://github.com/OpenReliant/openreliant/issues/999)). A display moves, scales or hides
 //! a part without standing in for its instrument, and gives a text part another alignment or
 //! other words (`Placement`). Each part draws through a placing of its own inside its instrument's
-//! (`hud.Pen.partText`), so it grows from its own place, and where it draws is kept for the
-//! scripts (`hud.State.part_bounds`).
+//! (`hud.Pen.partTextIn`, `hud.Pen.partImage`), so it grows from its own place, and where it draws
+//! is kept for the scripts (`hud.State.part_bounds`).
 //!
 //! **Improvement:** OpenReliant's, for the mods' displays.
 
@@ -128,9 +129,8 @@ pub const Parts = struct {
 
     /// Takes `box`, where `part` drew, into where it drew this frame.
     pub fn note(parts: *Parts, part: Part, box: ?hud.Clip) void {
-        const covered = box orelse return;
         const kept = parts.drawn.getPtr(part);
-        kept.* = if (kept.*) |found| found.join(covered) else covered;
+        kept.* = .joined(kept.*, box orelse return);
     }
 };
 
