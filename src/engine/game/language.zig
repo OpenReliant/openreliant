@@ -53,6 +53,40 @@ pub const Language = struct {
     }
 };
 
+/// Words to show: a string of a language table, by its id, or a mod's own text in the game's code
+/// page.
+pub const Words = union(enum) {
+    string: u16,
+    text: []const u8,
+
+    /// The text of `words`, reading a string from `table`; empty for an id past the table.
+    pub fn in(words: Words, table: Language) []const u8 {
+        return switch (words) {
+            .string => |id| table.string(id) orelse "",
+            .text => |text| text,
+        };
+    }
+
+    /// The strings `ids` as words, at compile time.
+    pub fn strings(comptime ids: []const u16) []const Words {
+        return comptime all: {
+            @setEvalBranchQuota(10_000);
+            var all: [ids.len]Words = undefined;
+            for (&all, ids) |*words, id| words.* = .{ .string = id };
+            const kept = all;
+            break :all &kept;
+        };
+    }
+};
+
+test Words {
+    const table: Language = .{ .strings = &.{ "Mission", "Kills" } };
+    try std.testing.expectEqualStrings("Kills", (Words{ .string = 2 }).in(table));
+    try std.testing.expectEqualStrings("", (Words{ .string = 3 }).in(table));
+    try std.testing.expectEqualStrings("Bananas", (Words{ .text = "Bananas" }).in(table));
+    try std.testing.expectEqual(5, Words.strings(&.{ 4, 5 })[1].string);
+}
+
 /// A character typed, as `WM_CHAR` gives it in the game's code page, 1252 (`codePage1252`): a
 /// question mark for one the page doesn't hold.
 pub fn fromUnicode(character: u21) u8 {

@@ -461,6 +461,11 @@ pub fn pushText(state: *State, text: []const u8) void {
 /// (`language.max_length`).
 pub fn textOf(state: *State, arena: Allocator, given: i32, comptime label: []const u8) []const u8 {
     const text = state.toString(given) orelse state.raise(label ++ ": expected a string, got {s}", .{state.typeName(given)});
+    return encoded(state, arena, text, label);
+}
+
+/// Converts `text`, a UTF-8 string a script gave, as `textOf` does.
+pub fn encoded(state: *State, arena: Allocator, text: []const u8, comptime label: []const u8) []const u8 {
     const characters = std.unicode.utf8CountCodepoints(text) catch state.raise(label ++ ": the string is not valid UTF-8", .{});
     if (characters > language.max_length) state.raise(label ++ ": expected at most {d} characters, got {d}", .{ language.max_length, characters });
     var buffer: [language.max_length]u8 = undefined;

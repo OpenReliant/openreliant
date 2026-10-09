@@ -92,7 +92,8 @@ const joining = 0x6E1;
 const joins_at = 6;
 
 /// The pilot who adds no kills from mission `away_from` to `away_to` (`killboard_kills`,
-/// `0x0044148C` on).
+/// `0x0044148C` on). Not yet in the records, with the pilots who leave and join
+/// ([#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
 const away = 0x6DB;
 const away_from = 19;
 const away_to = 23;

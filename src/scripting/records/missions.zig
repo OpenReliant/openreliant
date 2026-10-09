@@ -15,6 +15,8 @@ const hud = game.hud;
 const gameobj = game.gameobj;
 const language = game.language;
 const rooms = game.interface.rooms;
+const debriefing = game.itac.debriefing;
+const Rating = openreliant.engine.vm.Variables.Outcome;
 const luau = @import("../luau.zig");
 const State = luau.State;
 const bind = @import("../bind.zig");
@@ -40,6 +42,10 @@ pub const Field = enum {
     induction,
     lesson,
     only_ship,
+    television_report,
+    debriefing,
+    news,
+    video_reports,
 
     /// The type of the value scripts read, which the definitions and the reference show.
     pub fn Type(comptime field: Field) type {
@@ -51,6 +57,10 @@ pub const Field = enum {
             .medal => ?gameflow.Medal,
             .induction, .lesson => bool,
             .only_ship => ?gameobj.Type,
+            .television_report => values.List(ReportPart, most_parts),
+            .debriefing => Debriefing,
+            .news => values.List(NewsItem, most_items),
+            .video_reports => values.List(VideoReport, most_items),
         };
     }
 
@@ -69,8 +79,72 @@ pub const Field = enum {
             .induction => "Whether a new pilot sees the intro and the induction before the mission, when a campaign starts with it.",
             .lesson => "Whether the mission's loadout teaches the player, as mission 1's does: it starts on the Predator with the tier's missiles, plays `loadout.ut` and blinks its exit button.",
             .only_ship => "The only ship the mission's loadout offers, as mission 23's offers the Shroud; nil for the ships the tier and the rank open. The loadout starts on it with the tier's missiles.",
+            .television_report => "Enriquez's report on the rooms' television before the mission, as a list of parts that play one after another; an empty list for none. Reading gives a new list; assign a list to change it.",
+            .debriefing => "Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs.",
+            .news => "The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them.",
+            .video_reports => "The video reports that VIDEO REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. Reading gives a new list; assign a list to change them.",
         };
     }
+};
+
+/// The most paragraphs a script gives a debriefing, a news item or a video report, the most news
+/// items or video reports it gives a mission, and the most parts it gives a report.
+const most_paragraphs = 16;
+const most_items = 16;
+const most_parts = 8;
+
+const Paragraphs = values.List([]const u8, most_paragraphs);
+
+/// A part of Enriquez's report on the rooms' television, as scripts see it.
+pub const ReportPart = struct {
+    pub const script_name = "ReportPart";
+
+    /// Enriquez's scene, a `.box` file of the game's or a mod's, such as `0015.box`.
+    scene: []const u8,
+    /// The movie the scene plays over; nil for the carrier's television.
+    movie: ?[]const u8 = null,
+};
+
+/// A debriefing as scripts see it: Enriquez's paragraphs for each rating.
+pub const Debriefing = struct {
+    pub const script_name = "Debriefing";
+
+    failure: Paragraphs = .{},
+    partial_failure: Paragraphs = .{},
+    partial_success: Paragraphs = .{},
+    success: Paragraphs = .{},
+    success_bonus: Paragraphs = .{},
+};
+
+comptime {
+    // The fields go in the order of the ratings, which index the debriefing's text.
+    const fields = @typeInfo(Debriefing).@"struct".field_names;
+    std.debug.assert(fields.len == debriefing.ratings);
+    for (fields, 0..) |name, rating| std.debug.assert(std.mem.eql(u8, name, @tagName(@as(Rating, @fromBackingInt(@intCast(rating))))));
+}
+
+/// A news item, as scripts see it.
+pub const NewsItem = struct {
+    pub const script_name = "NewsItem";
+
+    title: []const u8,
+    paragraphs: Paragraphs = .{},
+    /// The shape of its picture in `inter\itac\newsrep.spr`.
+    picture: u16,
+};
+
+/// A video report, as scripts see it.
+pub const VideoReport = struct {
+    pub const script_name = "VideoReport";
+
+    title: []const u8,
+    paragraphs: Paragraphs = .{},
+    /// The shape of its still in `inter\itac\vidrep.spr`.
+    still: u16,
+    /// Its movie, a Bink file of the game's or a mod's.
+    movie: []const u8,
+    /// The carrier whose disc holds the movie.
+    carrier: rooms.Carrier,
 };
 
 /// The userdata for the campaign's missions.
@@ -241,6 +315,14 @@ fn get(state: *State) i32 {
             values.push(state, ?u8, value);
         },
         inline .medal, .induction, .lesson, .only_ship => |field| values.push(state, Field.Type(field), @field(settings, @tagName(field))),
+        inline .television_report, .news, .video_reports => |field| pushItems(state, mission.records, @field(settings, @tagName(field))),
+        .debriefing => {
+            state.newTable(0, debriefing.ratings);
+            inline for (@typeInfo(Debriefing).@"struct".field_names, settings.debriefing) |rating, paragraphs| {
+                pushParagraphs(state, mission.records, paragraphs);
+                state.rawSetField(-2, rating);
+            }
+        },
         .date => {
             const text = dateText(mission) orelse {
                 state.pushNil();
@@ -292,6 +374,86 @@ fn setField(state: *State, mission: Mission, field: Field, given: i32) void {
         inline .medal, .induction, .lesson, .only_ship => |name| {
             @field(settings, @tagName(name)) = values.read(state, Field.Type(name), given, script_name ++ "." ++ @tagName(name));
         },
+        inline .television_report, .news, .video_reports => |name| {
+            const label = comptime script_name ++ "." ++ @tagName(name);
+            const list = values.read(state, Field.Type(name), given, label);
+            const Kept = std.meta.Elem(@FieldType(gameflow.CampaignMission, @tagName(name)));
+            @field(settings, @tagName(name)) = keptItems(Kept, state, held, list.slice(), label);
+        },
+        .debriefing => {
+            const label = script_name ++ ".debriefing";
+            const read = values.read(state, Debriefing, given, label);
+            inline for (&settings.debriefing, @typeInfo(Debriefing).@"struct".field_names) |*paragraphs, rating| {
+                paragraphs.* = paragraphsOf(state, held, @field(read, rating).slice(), label);
+            }
+        },
+    }
+}
+
+/// The items a script gave, `given`, as a mission keeps them: report parts, news items or video
+/// reports of type `Kept`, whose fields have the same names as the script's. Their text is
+/// converted to the game's code page, and everything is copied into the records' arena.
+fn keptItems(comptime Kept: type, state: *State, held: *Records, given: anytype, comptime label: []const u8) []const Kept {
+    const items = held.arena.alloc(Kept, given.len) catch state.raise(label ++ ": out of memory", .{});
+    const info = @typeInfo(Kept).@"struct";
+    for (items, given) |*item, read| {
+        inline for (info.field_names, info.field_types) |name, Type| {
+            const value = @field(read, name);
+            @field(item, name) = switch (Type) {
+                language.Words => .{ .text = records.encoded(state, held.arena, value, label) },
+                []const language.Words => paragraphsOf(state, held, value.slice(), label),
+                []const u8 => kept(state, held, value, label),
+                ?[]const u8 => if (value) |text| kept(state, held, text, label) else null,
+                else => value,
+            };
+        }
+    }
+    return items;
+}
+
+/// Pushes `items`, a mission's report parts, news items or video reports, as a list of tables with
+/// the same fields.
+fn pushItems(state: *State, held: *const Records, items: anytype) void {
+    state.newTable(@intCast(items.len), 0);
+    for (items, 1..) |item, at| {
+        const info = @typeInfo(@TypeOf(item)).@"struct";
+        state.newTable(0, info.field_names.len);
+        inline for (info.field_names, info.field_types) |name, Type| {
+            const value = @field(item, name);
+            switch (Type) {
+                language.Words => pushWords(state, held, value),
+                []const language.Words => pushParagraphs(state, held, value),
+                else => values.push(state, Type, value),
+            }
+            state.rawSetField(-2, name);
+        }
+        state.rawSetIndex(-2, @intCast(at));
+    }
+}
+
+/// `text`, a file's name a script gave, copied into the records' arena.
+fn kept(state: *State, held: *Records, text: []const u8, comptime label: []const u8) []const u8 {
+    return held.arena.dupe(u8, text) catch state.raise(label ++ ": out of memory", .{});
+}
+
+/// The paragraphs a script gave, `given`, as text in the game's code page in the records' arena.
+fn paragraphsOf(state: *State, held: *Records, given: []const []const u8, comptime label: []const u8) []const language.Words {
+    const paragraphs = held.arena.alloc(language.Words, given.len) catch state.raise(label ++ ": out of memory", .{});
+    for (paragraphs, given) |*paragraph, text| paragraph.* = .{ .text = records.encoded(state, held.arena, text, label) };
+    return paragraphs;
+}
+
+/// Pushes `words` as UTF-8, a string read from the ITAC's text.
+fn pushWords(state: *State, held: *const Records, words: language.Words) void {
+    records.pushText(state, words.in(held.language(.itac_text)));
+}
+
+/// Pushes a list of `paragraphs`.
+fn pushParagraphs(state: *State, held: *const Records, paragraphs: []const language.Words) void {
+    state.newTable(@intCast(paragraphs.len), 0);
+    for (paragraphs, 1..) |paragraph, at| {
+        pushWords(state, held, paragraph);
+        state.rawSetIndex(-2, @intCast(at));
     }
 }
 
@@ -417,6 +579,52 @@ test "a campaign mission's fields, read and changed in place" {
     try bind.testing.expectSourceError(thread, "records.missions[29] = {}", "records.missions[29] does not exist: the campaign's missions are 1 to 28");
     try bind.testing.expectSourceError(thread, "records.missions[12] = nil", "a mission can't be removed");
     try bind.testing.expectSourceError(thread, "records.missions[12] = { [1] = 'x' }", "a table of fields has names for keys");
+}
+
+test "a campaign mission's report, debriefing, news and video reports" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var text: [1010][]const u8 = undefined;
+    var held = try testRecords(arena.allocator(), &text);
+    held.itac_text = try arena.allocator().alloc([]const u8, 1700);
+    @memset(held.itac_text, "");
+    held.itac_text[10] = "Placeholder"; // 11, the first paragraph of mission 12's failure
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    const thread = testThread(state, &held, true);
+
+    try bind.testing.runSource(thread,
+        \\local missions = records.missions
+        \\-- The original's values.
+        \\local cut = missions[12]
+        \\assert(#cut.television_report == 1 and cut.television_report[1].scene == "0115.box" and cut.television_report[1].movie == nil)
+        \\assert(#missions[1].television_report == 3 and missions[1].television_report[2].movie == "tv_cald.bik")
+        \\assert(#cut.debriefing.failure == 5 and cut.debriefing.failure[1] == "Placeholder")
+        \\assert(#cut.news == 0 and #missions[14].news == 1 and missions[14].news[1].picture == 15)
+        \\local chapter = missions[20].video_reports[1]
+        \\assert(chapter.movie == "new_chapter3.bik" and chapter.carrier == "yamato" and #chapter.paragraphs == 2)
+        \\-- A restoration's own.
+        \\cut.television_report = { { scene = "dreamcast_0115.box" } }
+        \\local debriefing = cut.debriefing
+        \\debriefing.success = { "Good work, Lieutenant.", "Café" }
+        \\cut.debriefing = debriefing
+        \\cut.news = { { title = "The Reliant holds", paragraphs = { "She took a beating." }, picture = 14 } }
+        \\missions[20].video_reports = {}
+        \\assert(cut.debriefing.success[2] == "Café" and cut.news[1].title == "The Reliant holds")
+    );
+    const twelve = held.missions[11];
+    try std.testing.expectEqualStrings("dreamcast_0115.box", twelve.television_report[0].scene);
+    try std.testing.expectEqual(null, twelve.television_report[0].movie);
+    // Assigning the table read back keeps the other ratings' paragraphs, now as text.
+    try std.testing.expectEqualStrings("Placeholder", twelve.debriefing[0][0].text);
+    try std.testing.expectEqualStrings("Caf\xe9", twelve.debriefing[3][1].text);
+    try std.testing.expectEqualStrings("The Reliant holds", twelve.news[0].title.text);
+    try std.testing.expectEqual(14, twelve.news[0].picture);
+    try std.testing.expectEqual(0, held.missions[19].video_reports.len);
+
+    try bind.testing.expectSourceError(thread, "records.missions[12].news = { { title = 'x' } }", "the field 'picture' is missing");
+    try bind.testing.expectSourceError(thread, "records.missions[12].debriefing = { excellent = {} }", "there's no field 'excellent'");
+    try bind.testing.expectSourceError(thread, "records.missions[12].video_reports = { { title = 'x', still = 1, movie = 'x.bik', carrier = 'nanny' } }", "CampaignMission.video_reports.carrier");
 }
 
 test "a campaign mission's awards and special cases" {

@@ -11,6 +11,7 @@ const std = @import("std");
 
 const canvas_module = @import("../interface/canvas.zig");
 const itac_module = @import("../itac.zig");
+const language = @import("../language.zig");
 const tables = @import("tables.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
@@ -88,7 +89,7 @@ pub const Personnel = struct {
     pictures: itac_module.Pictures = .{},
     box: ScrollBox = body_box,
     /// The strings of the side's personnel's names, which the list shows.
-    titles: [most]u16 = undefined,
+    titles: [most]language.Words = undefined,
     /// The entries the list shows, each a hotspot (`0x00524E80`).
     listed: [most]itac_module.ListEntry = undefined,
     listed_count: u8 = 0,
@@ -106,7 +107,7 @@ pub const Personnel = struct {
 
     /// The strings of `side`'s personnel's names, in the table's order (`0x0044E9F0`).
     fn listSide(people: *Personnel, side: itac_module.Side) void {
-        for (tables.personnel[@backingInt(side)], 0..) |person, place| people.titles[place] = person.name;
+        for (tables.personnel[@backingInt(side)], 0..) |person, place| people.titles[place] = .{ .string = person.name };
     }
 
     /// `0x0044E500`: the portraits let go of, where it is open.
@@ -207,7 +208,7 @@ pub const Personnel = struct {
         const font = &(itac.small orelse return).font;
         if (itac.panes[figures].showing()) |shown| {
             const in_pane = canvas.within(shown);
-            try itac.writeCapitals(in_pane, font, name_room, .{ figures_pane.x + name_at[0], figures_pane.y + name_at[1] }, person.name);
+            try itac.writeCapitals(in_pane, font, name_room, .{ figures_pane.x + name_at[0], figures_pane.y + name_at[1] }, .{ .string = person.name });
             const rows: itac_module.Rows = .{ .canvas = in_pane, .font = font, .pane = figures_pane, .value_x = value_x };
             var y: i32 = first_row;
             for ([_]struct { u16, u16, bool }{
@@ -239,5 +240,5 @@ test "the palettes the portraits are drawn with" {
 test "Personnel.listSide" {
     var people: Personnel = .{};
     people.listSide(.coalition);
-    try std.testing.expectEqual(tables.personnel[1][0].name, people.titles[0]);
+    try std.testing.expectEqual(tables.personnel[1][0].name, people.titles[0].string);
 }

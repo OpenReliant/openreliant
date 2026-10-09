@@ -14,6 +14,7 @@ const hud = @import("../hud.zig");
 const gameflow = @import("../gameflow.zig");
 const canvas_module = @import("../interface/canvas.zig");
 const itac_module = @import("../itac.zig");
+const language = @import("../language.zig");
 const tables = @import("tables.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
@@ -229,9 +230,9 @@ pub const Debriefing = struct {
             writer.writeAll(between) catch {};
             writer.writeAll(itac.string(pickup_texts[@min(record.pickups, pickup_texts.len - 1)])) catch {};
         } else {
-            for (textOf(record, number).paragraphs, 0..) |id, n| {
+            for (textOf(record, number), 0..) |paragraph, n| {
                 if (n > 0) writer.writeAll(between) catch {};
-                writer.writeAll(itac.string(id)) catch {};
+                writer.writeAll(itac.words(paragraph)) catch {};
             }
             if (gameflow.campaignField(number, .medal)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@backingInt(medal)]);
             if (record.promotion) |rank| addParagraph(&writer, itac, promotion_texts[rank]);
@@ -312,12 +313,11 @@ pub const Debriefing = struct {
 
     /// The panes as they have wiped in: the header, the body as far as it is scrolled, and the list.
     fn drawPanes(debriefing: *Debriefing, itac: *Itac, canvas: Canvas, small: *hud.Opened) canvas_module.Error!void {
-        if (itac.panes[header].showing()) |shown| if (debriefing.chosen()) |number| {
+        if (itac.panes[header].showing()) |shown| if (debriefing.chosen() != null) {
             const in_pane = canvas.within(shown);
             const top = header_pane.y + 1;
-            const heading = textOf(itac.pilot.campaign.kept(number), number).header;
             try in_pane.text(small, .{ header_pane.x + header_labels_x, top }, itac.string(from_string), header_colour, .left);
-            try in_pane.text(small, .{ header_pane.x + header_values_x, top }, itac.string(heading), header_colour, .left);
+            try in_pane.text(small, .{ header_pane.x + header_values_x, top }, itac.string(from_enriquez), header_colour, .left);
             try in_pane.text(small, .{ header_pane.x + header_labels_x, top + header_line }, itac.string(to_string), header_colour, .left);
             try in_pane.text(small, .{ header_pane.x + header_values_x, top + header_line }, itac.pilot.call_sign, header_colour, .left);
         };
@@ -333,16 +333,42 @@ pub const Debriefing = struct {
     }
 };
 
-/// The rating a mission's record has, as its debriefing's table is chosen by: success with its
-/// bonus where it has none (`0x00424DA4`).
-fn ratingOf(record: gameflow.MissionRecord) usize {
-    const rating = record.rating orelse return tables.debriefings.len - 1;
-    return @intCast(std.math.clamp(@backingInt(rating), 0, tables.debriefings.len - 1));
+/// Enriquez's debriefing of a mission: its paragraphs for each rating its script can give it, from
+/// a failure (0) to a success with its bonus (4).
+pub const Text = [ratings][]const language.Words;
+pub const ratings = tables.debriefings.len;
+
+/// The original's debriefing of mission `mission` (`debrief_texts`, `0x004E4A68`).
+pub fn original(comptime mission: u16) Text {
+    return comptime text: {
+        @setEvalBranchQuota(10_000);
+        var text: Text = undefined;
+        for (&text, tables.debriefings) |*paragraphs, table| paragraphs.* = language.Words.strings(table[mission - 1].paragraphs);
+        break :text text;
+    };
 }
 
-/// The debriefing of mission `number` as its record has it.
-fn textOf(record: gameflow.MissionRecord, number: u16) tables.Text {
-    return tables.debriefings[ratingOf(record)][number - 1];
+/// The string that heads every debriefing with who it's from, SQUADRON LEADER MARIA ENRIQUEZ. Every
+/// row of the game's table (`debrief_texts`) names it.
+const from_enriquez = 10;
+
+comptime {
+    @setEvalBranchQuota(10_000);
+    for (tables.debriefings) |table| for (table) |row| std.debug.assert(row.header == from_enriquez);
+}
+
+/// The rating that picks a mission's debriefing: the record's, or a success with its bonus where
+/// the record has none (`0x00424DA4`).
+fn ratingOf(record: gameflow.MissionRecord) usize {
+    const rating = record.rating orelse return ratings - 1;
+    return @intCast(std.math.clamp(@backingInt(rating), 0, ratings - 1));
+}
+
+/// The paragraphs of mission `number`'s debriefing for the rating its record has
+/// (`gameflow.CampaignMission.debriefing`).
+fn textOf(record: gameflow.MissionRecord, number: u16) []const language.Words {
+    const settings = gameflow.campaignMission(number) orelse return &.{};
+    return settings.debriefing[ratingOf(record)];
 }
 
 /// A paragraph of the ITAC's string `id` after those written.
@@ -385,6 +411,8 @@ test ratingOf {
 
 test textOf {
     // Mission 1 rated a success with its bonus, and rated a failure.
-    try std.testing.expectEqual(1641, textOf(.{ .rating = .success_bonus }, 1).paragraphs[0]);
-    try std.testing.expectEqual(364, textOf(.{ .rating = .failure }, 1).paragraphs[0]);
+    try std.testing.expectEqual(1641, textOf(.{ .rating = .success_bonus }, 1)[0].string);
+    try std.testing.expectEqual(364, textOf(.{ .rating = .failure }, 1)[0].string);
+    // A mission outside the campaign's table has none.
+    try std.testing.expectEqual(0, textOf(.{}, 40).len);
 }

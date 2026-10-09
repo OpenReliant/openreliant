@@ -82,6 +82,10 @@ Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with thes
 | `induction` | boolean | Whether a new pilot sees the intro and the induction before the mission, when a campaign starts with it. |
 | `lesson` | boolean | Whether the mission's loadout teaches the player, as mission 1's does: it starts on the Predator with the tier's missiles, plays `loadout.ut` and blinks its exit button. |
 | `only_ship` | [ShipType](#shiptype), or nil | The only ship the mission's loadout offers, as mission 23's offers the Shroud; nil for the ships the tier and the rank open. The loadout starts on it with the tier's missiles. |
+| `television_report` | list of [ReportPart](#reportpart) | Enriquez's report on the rooms' television before the mission, as a list of parts that play one after another; an empty list for none. Reading gives a new list; assign a list to change it. |
+| `debriefing` | [Debriefing](#debriefing) | Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs. |
+| `news` | list of [NewsItem](#newsitem) | The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them. |
+| `video_reports` | list of [VideoReport](#videoreport) | The video reports that VIDEO REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. Reading gives a new list; assign a list to change them. |
 
 ### `openreliant.hooks`
 
@@ -1624,6 +1628,49 @@ A table a script gives, which may leave out a field with a default.
 | `value` | boolean \| number \| string |
 | `label` | string |
 
+### ReportPart
+
+A table a script gives, which may leave out a field with a default.
+
+| Field | Type | Default |
+|---|---|---|
+| `scene` | string | needed |
+| `movie` | string, or nil | nil |
+
+### Debriefing
+
+A table a script gives, which may leave out any field.
+
+| Field | Type | Default |
+|---|---|---|
+| `failure` | list of string | none |
+| `partial_failure` | list of string | none |
+| `partial_success` | list of string | none |
+| `success` | list of string | none |
+| `success_bonus` | list of string | none |
+
+### NewsItem
+
+A table a script gives, which may leave out a field with a default.
+
+| Field | Type | Default |
+|---|---|---|
+| `title` | string | needed |
+| `paragraphs` | list of string | none |
+| `picture` | number | needed |
+
+### VideoReport
+
+A table a script gives, which may leave out a field with a default.
+
+| Field | Type | Default |
+|---|---|---|
+| `title` | string | needed |
+| `paragraphs` | list of string | none |
+| `still` | number | needed |
+| `movie` | string | needed |
+| `carrier` | [Carrier](#carrier) | needed |
+
 ### Outcome
 
 | Field | Type |
@@ -1771,6 +1818,10 @@ number. A script can set a field to either.
 
 `toggle`, `choice`, `number`, `slider`, `text`, `heading`.
 
+### Medal
+
+`silver`, `black_eagle`, `valour`, `legion`, `navy_cross`, `medal_of_honour`.
+
 ### Ending
 
 `playing`, `destroyed`, `rescued`, `captured`, `left`, `total_failure`, `friendly_fire`, `ejecting`, or a number.
@@ -1802,10 +1853,6 @@ number. A script can set a field to either.
 ### RestartChoice
 
 `replay_from_briefing`, `replay_from_launch`, `main_menu`.
-
-### Medal
-
-`silver`, `black_eagle`, `valour`, `legion`, `navy_cross`, `medal_of_honour`.
 
 ### Condition
 

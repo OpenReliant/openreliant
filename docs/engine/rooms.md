@@ -169,6 +169,8 @@ The report runs a loop of its own inside the rooms, which draws with the rooms' 
 
 **Fix:** the game takes the scene's name from the table on its stack by the mission's number, and outside missions 1 to 28 reads what lies either side of it. OpenReliant has no report there, and the rooms go on.
 
+**Improvement:** OpenReliant takes each mission's report from the mission's settings, which mods can change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)). A report is a list of parts, each a scene and the movie it plays over, the carrier's television if none is given.
+
 ## The crew
 
 As the rooms open, `vr_crew_pick` (`0x00437DF0`) picks the crew the player passes on the way to the briefing room's door, by how the mission before went (`0x00437E33` on): one kind after a mission that awards a medal by its table, whether or not the pilot won it, or a promotion at its end; another after a failure, or a pickup by a nanny ship; and a third after any other rating, the partial failure's among them. It draws one of the carrier's crew of that kind at random, each a sprite set from the disc's archive and a line, an MP3 file. It picks again as a game loads into the rooms, and as they open again after the briefing.

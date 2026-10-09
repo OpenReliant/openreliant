@@ -592,20 +592,37 @@ pub fn say(context: Context, speech: *cbox.Player, bytes: []u8, name: []const u8
 /// The volume Enriquez's scenes and words play at.
 const speech_volume = hog_snd.loudest;
 
-/// The news report on the television (`news_report`, `0x0043BA40`): the next mission's report,
-/// Enriquez's scene spoken over the television's movie, and mission 1's in three parts. Escape or
-/// a button of the pointer ends it, as does the speech's end.
+/// The news report on the television (`news_report`, `0x0043BA40`): the next mission's report
+/// (`gameflow.CampaignMission.television_report`). Each part is a scene of Enriquez's, spoken over
+/// a movie. When a part's speech ends, the next part plays, and the report ends after the last.
+/// Escape or a button of the pointer ends it early.
 pub const News = struct {
-    /// Mission 1's part playing: 1 the first, 2 the second, 0 the last, as for any other mission's
-    /// only one (`0x0043BB43`).
-    part: u8,
+    /// The report's parts.
+    parts: []const Part,
+    /// The part playing, from 0. The game numbers mission 1's three parts 1, 2 and 0, and any other
+    /// mission's one part 0 (`0x0043BB43`).
+    part: usize = 0,
+
+    /// A part of a report: Enriquez's scene, a `.box` file, and the movie it plays over, the
+    /// carrier's television (`reliant_television`, `yamato_television`) if none is given.
+    pub const Part = struct {
+        movie: ?[]const u8 = null,
+        scene: []const u8,
+    };
+
+    /// The original's report before mission `mission` (`0x0043BA60` on): its scene over the
+    /// television, and before mission 1, three parts.
+    pub fn original(comptime mission: u16) []const Part {
+        if (mission == three_parts) return &.{ .{ .scene = scenes[0] }, second, last };
+        return &.{.{ .scene = scenes[mission - 1] }};
+    }
 
     /// The mission whose report comes in three parts: the campaign's first.
-    pub const three_parts = gameflow.first_mission;
+    const three_parts = gameflow.first_mission;
 
-    /// Each mission's report, by its number from 1 (`0x0043BA60` on): Enriquez's scene, `%s.box`
-    /// of its name.
-    pub const scenes = [_][]const u8{ "0005a.box", "0015.box", "0025.box", "0035.box", "0045.box", "0055.box", "0065.box", "0075.box", "0085.box", "0095.box", "0105.box", "0115.box", "0125.box", "0135.box", "0145.box", "0155.box", "0165.box", "0175.box", "0185.box", "0195.box", "0205.box", "0215.box", "0225.box", "0235.box", "0245.box", "0255.box", "0265.box", "0275.box" };
+    /// Each mission's scene, from mission 1. The game makes the file's name from these with
+    /// `%s.box`.
+    const scenes = [_][]const u8{ "0005a.box", "0015.box", "0025.box", "0035.box", "0045.box", "0055.box", "0065.box", "0075.box", "0085.box", "0095.box", "0105.box", "0115.box", "0125.box", "0135.box", "0145.box", "0155.box", "0165.box", "0175.box", "0185.box", "0195.box", "0205.box", "0215.box", "0225.box", "0235.box", "0245.box", "0255.box", "0265.box", "0275.box" };
 
     /// The television's movies, the Reliant's and the Yamato's (`0x004E9054`, `0x004E90C0`), and
     /// mission 1's second and last parts (`0x0043C00B` on).
@@ -614,7 +631,9 @@ pub const News = struct {
     const second: Part = .{ .movie = "tv_cald.bik", .scene = "0005b.box" };
     const last: Part = .{ .movie = reliant_television, .scene = "0005c.box" };
 
-    const Part = struct { movie: []const u8, scene: []const u8 };
+    comptime {
+        assert(scenes.len == gameflow.last_mission);
+    }
 
     /// The label it shows: Click to Leave News Report.
     const label = 0x299;
@@ -968,36 +987,36 @@ pub const Rooms = struct {
         rooms.pickCrew(now);
     }
 
-    /// `news_report` (`0x0043BA40`), at `now`: the mission's report, its first part over the
-    /// television's movie. False where it has none.
+    /// `news_report` (`0x0043BA40`), at `now`: the mission's report, its first part playing. False
+    /// where it has none.
     ///
     /// **Fix:** outside the missions of the table of reports, the game reads what lies either side
     /// of it for the report's name. OpenReliant has no report there.
     fn startNews(rooms: *Rooms, now: u64) bool {
-        const mission = rooms.mission;
-        if (mission == 0 or mission > News.scenes.len) {
-            log.warn("mission {d} has no news report", .{mission});
+        const parts = gameflow.campaignField(rooms.mission, .television_report);
+        if (parts.len == 0) {
+            log.warn("mission {d} has no news report", .{rooms.mission});
             return false;
         }
-        rooms.news = .{ .part = if (mission == News.three_parts) 1 else 0 };
-        const television = switch (rooms.carrier) {
-            .reliant => News.reliant_television,
-            .yamato => News.yamato_television,
-        };
-        rooms.report(.{ .movie = television, .scene = News.scenes[mission - 1] }, now);
+        rooms.news = .{ .parts = parts };
+        rooms.report(parts[0], now);
         return true;
     }
 
     /// A part of the news report: its movie, looping, its first frame shown, and its scene spoken.
     fn report(rooms: *Rooms, part: News.Part, now: u64) void {
-        rooms.enter(part.movie, now, true);
+        const television = switch (rooms.carrier) {
+            .reliant => News.reliant_television,
+            .yamato => News.yamato_television,
+        };
+        rooms.enter(part.movie orelse television, now, true);
         rooms.film.loops = true;
         rooms.phase = .settled;
         speak(rooms.context, &rooms.speech, part.scene);
     }
 
     /// A pass of the news report's loop (`0x0043BD91` on), `in` read: whether it plays on. Escape
-    /// or a button ends it; as its speech ends, mission 1's next part, or the end.
+    /// or a button ends it; as its speech ends, the next part plays, or the report ends.
     fn newsPass(rooms: *Rooms, in: Input) bool {
         const news = &(rooms.news orelse return false);
         rooms.pointer.at = in.at;
@@ -1006,20 +1025,12 @@ pub const Rooms = struct {
             return false;
         }
         if (rooms.speech.playing(rooms.context.sound)) return true;
-        switch (news.part) {
-            1 => {
-                news.part = 2;
-                rooms.report(News.second, in.now);
-            },
-            2 => {
-                news.part = 0;
-                rooms.report(News.last, in.now);
-            },
-            else => {
-                rooms.endNews();
-                return false;
-            },
+        news.part += 1;
+        if (news.part == news.parts.len) {
+            rooms.endNews();
+            return false;
         }
+        rooms.report(news.parts[news.part], in.now);
         return true;
     }
 
@@ -1330,11 +1341,11 @@ test "the news report" {
     defer rooms.close();
     var frame: u64 = 0;
     while (rooms.news == null) : (frame += 1) try std.testing.expectEqual(null, passAt(&rooms, &keyboard, .{ 320, 200 }, false, false, frame));
-    try std.testing.expectEqual(1, rooms.news.?.part);
+    try std.testing.expectEqual(0, rooms.news.?.part);
     try std.testing.expectEqual(Phase.settled, rooms.phase);
     try std.testing.expect(rooms.speech.playing(&tested.sound));
     // Each part plays on while its speech does, and the next follows it.
-    for ([_]u8{ 2, 0 }) |part| {
+    for ([_]usize{ 1, 2 }) |part| {
         frame += 1;
         _ = passAt(&rooms, &keyboard, .{ 320, 200 }, false, false, frame);
         try std.testing.expect(rooms.film.player != null);
