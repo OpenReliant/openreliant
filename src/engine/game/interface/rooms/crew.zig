@@ -17,9 +17,7 @@
 
 const std = @import("std");
 
-const mp3 = @import("../../../../formats/mp3.zig");
 const wave = @import("../../../../formats/wave.zig");
-const bink = @import("../../../bink.zig");
 const gameflow = @import("../../gameflow.zig");
 const hog_snd = @import("../../hog_snd.zig");
 const canvas = @import("../canvas.zig");
@@ -248,29 +246,15 @@ fn show(context: rooms.Context, chosen: Member) ?Showing {
     return .{ .shapes = shapes, .first = chosen.first, .frames = chosen.frames };
 }
 
-/// The line `name` from the disc as a WAVE file (`decode`); null where it is left out, which the
-/// log says.
+/// The line `name` from the disc as a WAVE file (`bink.Codec.decodeMp3`); null where it is left
+/// out, which the log says.
 fn readLine(context: rooms.Context, name: []const u8) ?[]u8 {
     const bytes = context.read(name) orelse return null;
     defer context.gpa.free(bytes);
-    return decode(context.gpa, context.codec, bytes) catch |err| {
+    return context.codec.decodeMp3(context.gpa, bytes) catch |err| {
         log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
         return null;
     };
-}
-
-/// The MP3 file `bytes`, its frames (`formats/mp3.zig`) decoded by `codec`'s MP3 decoder into a
-/// WAVE file at the first frame's rate and channels.
-fn decode(gpa: std.mem.Allocator, codec: bink.Codec, bytes: []const u8) (bink.Error || error{NoFrames})![]u8 {
-    var frames: mp3.Frames = .init(bytes);
-    const opening = frames.next() orelse return error.NoFrames;
-    const stream = try codec.openMp3();
-    defer codec.close(stream);
-    var pcm: std.ArrayList(i16) = .empty;
-    defer pcm.deinit(gpa);
-    var frame: ?mp3.Frame = opening;
-    while (frame) |decoded| : (frame = frames.next()) try codec.samples(stream, decoded.bytes, gpa, &pcm);
-    return wave.pcm16(gpa, opening.header.rate, opening.header.channels, pcm.items);
 }
 
 test kindOf {

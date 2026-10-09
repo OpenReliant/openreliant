@@ -530,6 +530,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var radio: game.radio.Radio = .open(gpa, io, directory, &mods);
     defer radio.deinit(sound);
     radio.style = options.speech;
+    radio.codec = decoders.codec();
     sound.objects = objects;
     sound.missile_sound = options.missile_sound;
     // `bank_stdsmp`, which the positional sounds of a frame play from, and `smp3d.fat`, which the

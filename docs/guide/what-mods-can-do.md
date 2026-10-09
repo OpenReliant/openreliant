@@ -17,6 +17,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Add files under new names, for its own models, missions and scripts to use | [How files are replaced](modding.md#how-files-are-replaced) | [`teapot`](../../examples/mods/teapot) |
 | Replace a piece of music, which loops back where the game's does | [Music](modding.md#music) | |
 | Replace the pilots' faces and the lines they say | [Faces and voices](modding.md#faces-and-voices) | [`trent`](../../examples/mods/trent) |
+| Give lines of speech, briefings and Enriquez's scenes as WAV or MP3 recordings, which play as recorded | [Lines](modding.md#lines) | |
 
 ## Change the look
 
@@ -105,9 +106,8 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 
 These are planned, each in an issue:
 
-- Sounds, music, speech and movies in today's formats
-  ([#496](https://github.com/OpenReliant/openreliant/issues/496)), speech lines first
-  ([#988](https://github.com/OpenReliant/openreliant/issues/988))
+- Sounds, music and movies in today's formats, and lines of speech in FLAC, Ogg Vorbis or Opus
+  ([#496](https://github.com/OpenReliant/openreliant/issues/496))
 - What each campaign mission awards, the ITAC after it, and the other rules the game applies by a
   mission's number ([#983](https://github.com/OpenReliant/openreliant/issues/983),
   [#984](https://github.com/OpenReliant/openreliant/issues/984),

@@ -456,10 +456,10 @@ pub const Context = struct {
         return .of(context.gpa, bytes, name, .of(context.disc.mods, name));
     }
 
-    /// Reads the speech file `speech` from `speech_hog` (`hog_read_file`), with a mod's file taking
-    /// priority (`radio.readLine`); null if it can't be read.
+    /// Reads the speech file `speech` from `speech_hog` (`hog_read_file`), with a mod's recording
+    /// or file taking priority (`radio.readLine`); null if it can't be read.
     pub fn readLine(context: Context, speech: []const u8) ?[]u8 {
-        return radio.readLine(context.gpa, context.resources.mods, if (context.lines) |lines| lines.* else null, speech);
+        return radio.readLine(context.gpa, context.codec, context.resources.mods, if (context.lines) |lines| lines.* else null, speech);
     }
 };
 
@@ -545,10 +545,12 @@ pub const Film = struct {
 };
 
 /// One of Enriquez's scenes, the file `box` from the disc, spoken through `speech` from a screen,
-/// the scene before ended (`say`). A scene left out is not spoken.
+/// the scene before ended (`say`). A mod's recording of it, named as `box` without its extension,
+/// takes priority (`radio.readRecording`). A scene left out is not spoken.
 pub fn speak(context: Context, speech: *cbox.Player, box: []const u8) void {
     speech.stop(context.gpa, context.sound);
-    const bytes = context.read(box) orelse return;
+    const stem = box[0 .. std.mem.findScalar(u8, box, '.') orelse box.len];
+    const bytes = radio.readRecording(context.gpa, context.codec, context.resources.mods, stem) orelse context.read(box) orelse return;
     defer context.gpa.free(bytes);
     say(context, speech, bytes, box, .screen, null);
 }
@@ -578,7 +580,7 @@ pub const Voice = enum {
 /// LUFS loud, matched to it as the style's levels have it (`cbox.Style.Levels`). A file that is not
 /// speech is not spoken, which the log says.
 pub fn say(context: Context, speech: *cbox.Player, bytes: []u8, name: []const u8, from: Voice, follows: ?f32) void {
-    const parsed = cbox.Speech.parse(bytes) orelse {
+    const parsed = cbox.Line.parse(bytes) orelse {
         log.warn("{s} is left out: it is not speech", .{name});
         return;
     };
