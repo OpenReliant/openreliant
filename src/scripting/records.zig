@@ -19,10 +19,11 @@
 //! get it as a new list of the missions' numbers each time, and load scripts change it by assigning
 //! a new list ([#975](https://github.com/OpenReliant/openreliant/issues/975)).
 //!
-//! `missions` is what the campaign makes of each of its missions, by its number
-//! (`game.gameflow.CampaignMission`): what the briefing room plays, the carrier, the names of the
-//! objectives and the launch's date. Each is a proxy whose fields load scripts change in place, as
-//! they change a record's ([#976](https://github.com/OpenReliant/openreliant/issues/976)).
+//! `missions` holds the campaign's settings for each of its missions, by its number
+//! (`game.gameflow.CampaignMission`), and `killboard` the ITAC's KILLBOARD's pilots
+//! (`game.itac.killboard.Pilot`). Each entry is a proxy whose fields load scripts change in place,
+//! as they change a record's ([#976](https://github.com/OpenReliant/openreliant/issues/976),
+//! [#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -39,6 +40,7 @@ const values = @import("values.zig");
 const runtime = @import("runtime.zig");
 
 pub const missions = @import("records/missions.zig");
+pub const killboard = @import("records/killboard.zig");
 
 /// The proxies for records.
 pub const Values = bind.Binding(&.{ stats.Ship, game.create.combat_stats.Static, stats.Gun, stats.Missile, stats.Pilot, game.pilots.FaceRecord }, @backingInt(runtime.Tag.record_value), "record");
@@ -66,6 +68,9 @@ pub const Records = struct {
     /// from as it goes, once the load scripts have run (`gameflow.installMissions`). Their names are
     /// in `arena`.
     missions: []gameflow.CampaignMission,
+    /// The KILLBOARD's pilots, which the game takes once the load scripts have run
+    /// (`itac.killboard.install`). Their text is in `arena`.
+    killboard: []game.itac.killboard.Pilot,
     /// Where text from scripts is allocated. It must live as long as the game's original strings.
     arena: Allocator,
 
@@ -81,6 +86,7 @@ pub const Records = struct {
         itac_text: []const []const u8,
         campaign: game.gameflow.Order = .original,
         missions: []const gameflow.CampaignMission = &gameflow.CampaignMission.original,
+        killboard: []const game.itac.killboard.Pilot = &game.itac.killboard.Pilot.original,
     };
 
     /// Copies `tables` into `arena`.
@@ -96,6 +102,7 @@ pub const Records = struct {
             .itac_text = try arena.dupe([]const u8, tables.itac_text),
             .campaign = tables.campaign,
             .missions = try arena.dupe(gameflow.CampaignMission, tables.missions),
+            .killboard = try arena.dupe(game.itac.killboard.Pilot, tables.killboard),
             .arena = arena,
         };
     }
@@ -127,6 +134,8 @@ pub const Records = struct {
         saved.campaign = records.campaign;
         saved.missions = try gpa.dupe(gameflow.CampaignMission, records.missions);
         errdefer gpa.free(saved.missions);
+        saved.killboard = try gpa.dupe(game.itac.killboard.Pilot, records.killboard);
+        errdefer gpa.free(saved.killboard);
         inline for (comptime std.enums.values(Set), 0..) |set, made| {
             errdefer inline for (comptime std.enums.values(Set)[0..made]) |done| gpa.free(@field(saved, @tagName(done)));
             @field(saved, @tagName(set)) = try gpa.dupe(set.Element(), @field(records, @tagName(set)));
@@ -145,16 +154,19 @@ pub const Records = struct {
         itac_text: [][]const u8,
         campaign: game.gameflow.Order,
         missions: []gameflow.CampaignMission,
+        killboard: []game.itac.killboard.Pilot,
 
         pub fn restore(saved: Snapshot, records: *Records) void {
             inline for (comptime std.enums.values(Set)) |set| @memcpy(@field(records, @tagName(set)), @field(saved, @tagName(set)));
             records.campaign = saved.campaign;
             @memcpy(records.missions, saved.missions);
+            @memcpy(records.killboard, saved.killboard);
         }
 
         pub fn deinit(saved: Snapshot, gpa: Allocator) void {
             inline for (comptime std.enums.values(Set)) |set| gpa.free(@field(saved, @tagName(set)));
             gpa.free(saved.missions);
+            gpa.free(saved.killboard);
         }
     };
 };
@@ -265,20 +277,23 @@ pub fn register(state: *State) void {
         .{ "__tostring", luau.wrap(describe) },
     });
     missions.register(state);
+    killboard.register(state);
 }
 
 /// Pushes the `openreliant.records` package: a read-only table holding the record tables, the
-/// campaign's missions (`campaign`) and what the campaign makes of each (`missions`), which scripts
-/// can change only if `writable`. Call `register` first.
+/// campaign's missions (`campaign`), the settings of each (`missions`) and the KILLBOARD's pilots
+/// (`killboard`), which scripts can change only if `writable`. Call `register` first.
 pub fn push(state: *State, records: *Records, writable: bool) void {
-    state.newTable(0, std.enums.values(Set).len + 1);
+    state.newTable(0, std.enums.values(Set).len + 2);
     inline for (comptime std.enums.values(Set)) |set| {
         const proxy = state.newUserdata(SetProxy, SetProxy.tag);
         proxy.* = .{ .records = records, .set = set, .writable = writable };
         state.rawSetField(-2, @tagName(set));
     }
     missions.push(state, records, writable);
-    state.rawSetField(-2, "missions");
+    state.rawSetField(-2, missions.list_name);
+    killboard.push(state, records, writable);
+    state.rawSetField(-2, killboard.list_name);
     // `campaign` isn't held in the table, so that reading it gives a new list each time, and Luau
     // calls `__newindex` to assign it, read-only as the table is.
     state.newTable(0, 3);

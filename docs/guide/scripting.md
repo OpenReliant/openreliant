@@ -1299,8 +1299,31 @@ records.missions[14].news = { { title = "Reliant survives ambush", paragraphs = 
   ship lands on the Yamato instead, as after missions 7 and 8. `chapter_reports` are the news
   reports after the chapter's movie, each waiting on the game's variables, such as
   `rameses_alive`, and `alpha_5_pilot` and `alpha_6_pilot` the pilots the wing takes on.
-- Not yet in the records: the KILLBOARD's pilots
-  ([#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
+### The KILLBOARD's pilots
+
+`records.killboard` holds the pilots of the ITAC's KILLBOARD, numbered from 1, in the game's order.
+Each has the text the board shows, the kills it starts with and adds, its portrait, and the
+missions it joins the board at, leaves it after and sits out. A mod that restores or moves missions
+keeps the board in step with its campaign, and a campaign of its own gives the board's places
+pilots of its own:
+
+```lua
+local records = require("openreliant.records")
+
+for _, pilot in records.killboard do
+    if pilot.name == "Klaus Steiner" then
+        -- He flies the restored mission 22 after all.
+        pilot.sits_out = { 19, 20, 21, 23 }
+    end
+end
+records.killboard[19] = { name = "Trent Ramsey", squadron = "(45th Volunteers)", kills = 12, joins_at = 12 }
+```
+
+- The board always has the game's 19 places: a script changes pilots but can't add or remove them.
+  A pilot who should never show can leave after mission 0.
+- Text is read from the ITAC's strings and can be changed to any text, in the game's code page.
+- A pilot with `in_45th` set shows as one of the 45th Flying Tigers in the missions whose
+  `flying_tigers` rule is on ([Each mission of the campaign](#each-mission-of-the-campaign)).
 
 ## Saved games
 

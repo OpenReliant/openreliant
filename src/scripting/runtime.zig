@@ -60,6 +60,9 @@ pub const Tag = enum(luau.Tag) {
     /// The campaign's missions (`records.missions`), and one of them.
     campaign_missions = 10,
     campaign_mission = 11,
+    /// The KILLBOARD's pilots (`records.killboard`), and one of them.
+    killboard = 12,
+    killboard_pilot = 13,
 };
 
 /// What an object script's context runs on: an object of the mission, a missile in flight, or a

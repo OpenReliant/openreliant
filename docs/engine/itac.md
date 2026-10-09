@@ -368,8 +368,7 @@ on and back. It opens with sound 5 and wipes in at (30, 72), 593 by 295.
   22, which the campaign doesn't fly, add none, and Klaus Steiner adds none from mission 19 to 23.
   **Improvement:** OpenReliant passes over whichever missions the campaign's order doesn't have, so
   missions a mod puts back add their kills ([The campaign's
-  missions](../guide/scripting.md#the-campaigns-missions)). Not yet in the records: the pilots, and
-  the missions they join, leave and sit out ([#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
+  missions](../guide/scripting.md#the-campaigns-missions)).
 - The board follows the campaign: John McGann and Brad Callan leave it after mission 5, Zoran
   Grandoni after 12, Angelo Fuser and Joe Dabo after 21, Manzo Takamatsu after 22 and Matt Moreno
   after 25, and Linc Stevenson joins it at mission 6 (`0x00441320`).
@@ -379,6 +378,9 @@ on and back. It opens with sound 5 and wipes in at (30, 72), 593 by 295.
 - The player's row has their call sign over their squadron, the 45th Volunteers, which flies as the
   45th Flying Tigers from mission 14, as the 45th's pilots do, and their portrait by whether the
   pilot is female. The 45th's portraits take block 0's palette, the others' block 6's.
+- **Improvement:** OpenReliant keeps the pilots, with the missions they join, leave and sit out and
+  whether they fly in the 45th, in a table that mods can change ([The KILLBOARD's
+  pilots](../guide/scripting.md#the-killboards-pilots)). It starts with the original's.
 
 ## Tooltips
 

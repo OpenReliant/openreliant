@@ -26,10 +26,15 @@ const bind = @import("../bind.zig");
 const values = @import("../values.zig");
 const runtime = @import("../runtime.zig");
 const records = @import("../records.zig");
+const table = @import("table.zig");
 const Records = records.Records;
 
 /// The name scripts know a mission by.
 pub const script_name = "CampaignMission";
+
+/// How the reference and the definitions introduce the missions.
+pub const each = "Each of the campaign's missions";
+pub const entries_about = "The settings of each of the campaign's missions, by its number. Load scripts change their fields.";
 
 /// A mission's fields, as scripts name them.
 pub const Field = enum {
@@ -68,73 +73,73 @@ pub const Field = enum {
     cobras_inquiry,
     fifty_first_listed,
 
-    /// The type of the value scripts read, which the definitions and the reference show.
-    pub fn Type(comptime field: Field) type {
-        return switch (field) {
-            .hologram, .speech, .last_word, .date => ?[]const u8,
-            .carrier => rooms.Carrier,
-            .objectives => values.List([]const u8, hud.Objectives.per_mission),
-            .tier, .chapter => ?u8,
-            .medal => ?gameflow.Medal,
-            .only_ship => ?gameobj.Type,
-            .television_report => values.List(ReportPart, most_parts),
-            .debriefing => Debriefing,
-            .news => values.List(NewsItem, most_items),
-            .video_reports => values.List(VideoReport, most_items),
-            .landing_carrier => rooms.Carrier,
-            .yamato_visit => landing.YamatoVisit,
-            .chapter_reports => values.List(ChapterReport, landing.Reports.most),
-            .alpha_5_pilot, .alpha_6_pilot => pilots.Number,
-            else => if (field.isRule()) bool else @compileError("no type for " ++ @tagName(field)),
-        };
-    }
-
     /// Whether the field is one of the mission's rules (`gameflow.CampaignMission.Rules`), which
     /// scripts read and set as booleans.
     fn isRule(comptime field: Field) bool {
         return @hasField(gameflow.CampaignMission.Rules, @tagName(field));
     }
-
-    /// What the reference says of the field.
-    pub fn about(field: Field) []const u8 {
-        return switch (field) {
-            .hologram => "The movie on the briefing room's screen, a Bink file from the game or a mod, such as `new_m01.bik`; nil for none.",
-            .speech => "Enriquez's briefing spoken over the briefing room, a speech file from the game or a mod; nil for none. The briefing ends when she finishes. While she speaks, the movie plays on the screen without its sound, and starts over if it ends first; set `hologram` to nil for an empty screen.",
-            .last_word => "Enriquez's last word after the loadout, a speech file such as `ms_speech\\enrbr_tag01.ut`; nil leaves her silent.",
-            .carrier => "The carrier the mission is flown from. The player sees its rooms, briefing room, loadout and hangar.",
-            .objectives => "The names of the objectives, at most ten, which the mission's script numbers from 0 in `SetObjective`. Reading gives a new list; assign a list to change them, or nil for the names in the game's own table for the mission's number.",
-            .date => "The date the launch shows, which is the game's text for the mission's number; nil for a mission the game has no date for.",
-            .tier => "The loadout tier the campaign moves to when the mission ends, from 1 to 3; nil to leave the tier as it is. The tier and the pilot's rank decide which ships the loadout offers. The loadout before a mission uses the highest tier of the missions with lower numbers.",
-            .chapter => "The chapter of the story the mission ends, from 1 to 5; nil if it ends none. The pilot gets the chapter's ribbon, the debriefing mentions it, and the chapter's movie plays after the landing.",
-            .medal => "The medal the mission awards for a success with its bonus, unless a nanny ship picked the pilot up; nil for none. The medal's ceremony plays when the pilot gets it. After a mission with a medal, the crew in the rooms honour the pilot, even if the pilot didn't get it.",
-            .induction => "Whether a new pilot sees the intro and the induction before the mission, when a campaign starts with it.",
-            .lesson => "Whether the mission's loadout teaches the player, as mission 1's does: it starts on the Predator with the tier's missiles, plays `loadout.ut` and blinks its exit button.",
-            .only_ship => "The only ship the mission's loadout offers, as mission 23's offers the Shroud; nil for the ships the tier and the rank open. The loadout starts on it with the tier's missiles.",
-            .television_report => "Enriquez's report on the rooms' television before the mission, as a list of parts that play one after another; an empty list for none. Reading gives a new list; assign a list to change it.",
-            .debriefing => "Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs.",
-            .news => "The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them.",
-            .video_reports => "The video reports that VIDEO REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. Reading gives a new list; assign a list to change them.",
-            .landing_carrier => "The carrier the landing plays on after the mission, which picks the chapter's disc and zoom too where the mission ends a chapter: the Yamato from mission 18 on, the Reliant before.",
-            .yamato_visit => "Whether the ship lands on the Yamato after the mission with a failure's thread and bank, whatever the rating: `never`, `always` as after mission 7, or `when_reliant_lost` as after mission 8, where `reliant_alive` is clear.",
-            .chapter_reports => "The news reports that play after the chapter's movie, where the mission ends a chapter, at most eight. Each plays unless one of the game's variables in `unless` is 1, and then sets the variable `sets` to 1, if any. Reading gives a new list; assign a list to change them.",
-            .alpha_5_pilot => "The pilot who flies as Alpha 5 from the mission on, such as `diceman`; `none` leaves the pilot there as they are.",
-            .alpha_6_pilot => "The pilot who flies as Alpha 6 from the mission on, such as `bandit_volunteers_leader`; `none` leaves the pilot there as they are.",
-            .wing_twins => "Whether the player's wing flies the `t_` twins of the player's ships, as in missions 14 and later.",
-            .flying_tigers => "Whether the 45th fly as the 45th Flying Tigers rather than the 45th Volunteers, in the radio's films and in Moose's remarks, as after mission 13.",
-            .second_part => "Whether the mission has a second part, `mission<number>1.dte`, flown once the first part is won, as mission 25 has. The second part has no landing before it.",
-            .kamov_wing => "Whether the player's wing flies Kamovs, in the first part where the mission has two, as in mission 25. The Kamov's schematic is then drawn mirrored.",
-            .close_ion_cannons => "Whether the ion cannons' lock lets a player's ship come much closer before it breaks, as in mission 28.",
-            .hurried_turrets => "Whether the missile turrets wait half as long between launches, as in mission 28.",
-            .ripper_from_below => "Whether the Ripper lifts an object from below rather than from above, as in mission 26.",
-            .wide_advanced_gate => "Whether the advanced warp gates' tunnels are as wide as the prototype's, as in mission 8.",
-            .counts_kills => "Whether the player's kills count toward the mission's tally, as in missions 1 to 27.",
-            .terminate_ends_well => "Whether the mission's script can end it with `TerminateMission` without the ending counting as the player's ship destroyed, as in mission 28.",
-            .fort_bear_ending => "Whether, once the Yamato is lost (`yamato_alive` clear), no landing plays after the mission, and a total failure ends the pilot's career in the shuttle at Fort Bear, as in missions 25 and 27.",
-            .cobras_inquiry => "Whether the ITAC's history of the 705 Cobras tells of the inquiry into their colonel, as from mission 7 on.",
-            .fifty_first_listed => "Whether the ITAC's squadrons list the 51st Volunteers, as in missions 1 to 9.",
-        };
-    }
 };
+
+/// The type of `field`'s value as scripts read it, which the definitions and the reference show.
+pub fn TypeOf(comptime field: Field) type {
+    return switch (field) {
+        .hologram, .speech, .last_word, .date => ?[]const u8,
+        .carrier => rooms.Carrier,
+        .objectives => values.List([]const u8, hud.Objectives.per_mission),
+        .tier, .chapter => ?u8,
+        .medal => ?gameflow.Medal,
+        .only_ship => ?gameobj.Type,
+        .television_report => values.List(ReportPart, most_parts),
+        .debriefing => Debriefing,
+        .news => values.List(NewsItem, most_items),
+        .video_reports => values.List(VideoReport, most_items),
+        .landing_carrier => rooms.Carrier,
+        .yamato_visit => landing.YamatoVisit,
+        .chapter_reports => values.List(ChapterReport, landing.Reports.most),
+        .alpha_5_pilot, .alpha_6_pilot => pilots.Number,
+        else => if (field.isRule()) bool else @compileError("no type for " ++ @tagName(field)),
+    };
+}
+
+/// What the reference says of `field`.
+pub fn about(field: Field) []const u8 {
+    return switch (field) {
+        .hologram => "The movie on the briefing room's screen, a Bink file from the game or a mod, such as `new_m01.bik`; nil for none.",
+        .speech => "Enriquez's briefing spoken over the briefing room, a speech file from the game or a mod; nil for none. The briefing ends when she finishes. While she speaks, the movie plays on the screen without its sound, and starts over if it ends first; set `hologram` to nil for an empty screen.",
+        .last_word => "Enriquez's last word after the loadout, a speech file such as `ms_speech\\enrbr_tag01.ut`; nil leaves her silent.",
+        .carrier => "The carrier the mission is flown from. The player sees its rooms, briefing room, loadout and hangar.",
+        .objectives => "The names of the objectives, at most ten, which the mission's script numbers from 0 in `SetObjective`. Reading gives a new list; assign a list to change them, or nil for the names in the game's own table for the mission's number.",
+        .date => "The date the launch shows, which is the game's text for the mission's number; nil for a mission the game has no date for.",
+        .tier => "The loadout tier the campaign moves to when the mission ends, from 1 to 3; nil to leave the tier as it is. The tier and the pilot's rank decide which ships the loadout offers. The loadout before a mission uses the highest tier of the missions with lower numbers.",
+        .chapter => "The chapter of the story the mission ends, from 1 to 5; nil if it ends none. The pilot gets the chapter's ribbon, the debriefing mentions it, and the chapter's movie plays after the landing.",
+        .medal => "The medal the mission awards for a success with its bonus, unless a nanny ship picked the pilot up; nil for none. The medal's ceremony plays when the pilot gets it. After a mission with a medal, the crew in the rooms honour the pilot, even if the pilot didn't get it.",
+        .induction => "Whether a new pilot sees the intro and the induction before the mission, when a campaign starts with it.",
+        .lesson => "Whether the mission's loadout teaches the player, as mission 1's does: it starts on the Predator with the tier's missiles, plays `loadout.ut` and blinks its exit button.",
+        .only_ship => "The only ship the mission's loadout offers, as mission 23's offers the Shroud; nil for the ships the tier and the rank open. The loadout starts on it with the tier's missiles.",
+        .television_report => "Enriquez's report on the rooms' television before the mission, as a list of parts that play one after another; an empty list for none. Reading gives a new list; assign a list to change it.",
+        .debriefing => "Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs.",
+        .news => "The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them.",
+        .video_reports => "The video reports that VIDEO REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. Reading gives a new list; assign a list to change them.",
+        .landing_carrier => "The carrier the landing plays on after the mission, which picks the chapter's disc and zoom too where the mission ends a chapter: the Yamato from mission 18 on, the Reliant before.",
+        .yamato_visit => "Whether the ship lands on the Yamato after the mission with a failure's thread and bank, whatever the rating: `never`, `always` as after mission 7, or `when_reliant_lost` as after mission 8, where `reliant_alive` is clear.",
+        .chapter_reports => "The news reports that play after the chapter's movie, where the mission ends a chapter, at most eight. Each plays unless one of the game's variables in `unless` is 1, and then sets the variable `sets` to 1, if any. Reading gives a new list; assign a list to change them.",
+        .alpha_5_pilot => "The pilot who flies as Alpha 5 from the mission on, such as `diceman`; `none` leaves the pilot there as they are.",
+        .alpha_6_pilot => "The pilot who flies as Alpha 6 from the mission on, such as `bandit_volunteers_leader`; `none` leaves the pilot there as they are.",
+        .wing_twins => "Whether the player's wing flies the `t_` twins of the player's ships, as in missions 14 and later.",
+        .flying_tigers => "Whether the 45th fly as the 45th Flying Tigers rather than the 45th Volunteers, in the radio's films and in Moose's remarks, as after mission 13.",
+        .second_part => "Whether the mission has a second part, `mission<number>1.dte`, flown once the first part is won, as mission 25 has. The second part has no landing before it.",
+        .kamov_wing => "Whether the player's wing flies Kamovs, in the first part where the mission has two, as in mission 25. The Kamov's schematic is then drawn mirrored.",
+        .close_ion_cannons => "Whether the ion cannons' lock lets a player's ship come much closer before it breaks, as in mission 28.",
+        .hurried_turrets => "Whether the missile turrets wait half as long between launches, as in mission 28.",
+        .ripper_from_below => "Whether the Ripper lifts an object from below rather than from above, as in mission 26.",
+        .wide_advanced_gate => "Whether the advanced warp gates' tunnels are as wide as the prototype's, as in mission 8.",
+        .counts_kills => "Whether the player's kills count toward the mission's tally, as in missions 1 to 27.",
+        .terminate_ends_well => "Whether the mission's script can end it with `TerminateMission` without the ending counting as the player's ship destroyed, as in mission 28.",
+        .fort_bear_ending => "Whether, once the Yamato is lost (`yamato_alive` clear), no landing plays after the mission, and a total failure ends the pilot's career in the shuttle at Fort Bear, as in missions 25 and 27.",
+        .cobras_inquiry => "Whether the ITAC's history of the 705 Cobras tells of the inquiry into their colonel, as from mission 7 on.",
+        .fifty_first_listed => "Whether the ITAC's squadrons list the 51st Volunteers, as in missions 1 to 9.",
+    };
+}
 
 comptime {
     // Every rule has a field of the same name.
@@ -216,163 +221,34 @@ pub const VideoReport = struct {
     carrier: rooms.Carrier,
 };
 
-/// The userdata for the campaign's missions.
-const Missions = struct {
-    records: *Records,
-    writable: bool,
+/// The proxies of the campaign's missions (`table.Table`).
+const proxies = table.Table(@This());
+pub const register = proxies.register;
+pub const push = proxies.push;
 
-    const tag = @backingInt(runtime.Tag.campaign_missions);
+/// What the proxies need of the missions (`table.Table`).
+pub const list_name = "missions";
+pub const described = "the campaign's missions";
+pub const item_noun = "a mission";
+pub const list_tag = @backingInt(runtime.Tag.campaign_missions);
+pub const item_tag = @backingInt(runtime.Tag.campaign_mission);
 
-    fn of(state: *State, at: i32) *const Missions {
-        return state.checkUserdata(Missions, at, tag, "the campaign's missions");
-    }
-};
-
-/// The userdata for one campaign mission.
-const Mission = struct {
-    records: *Records,
-    /// Its index in the records' table: its number minus the first mission's.
-    place: usize,
-    writable: bool,
-
-    const tag = @backingInt(runtime.Tag.campaign_mission);
-
-    fn of(state: *State, at: i32) *const Mission {
-        return state.checkUserdata(Mission, at, tag, "a campaign mission");
-    }
-
-    fn number(mission: Mission) u16 {
-        return @intCast(mission.place + gameflow.first_mission);
-    }
-
-    fn settings(mission: Mission) *gameflow.CampaignMission {
-        return &mission.records.missions[mission.place];
-    }
-};
-
-/// Registers the metatables of the campaign's missions and of each mission.
-pub fn register(state: *State) void {
-    state.registerUserdata(Missions.tag, "missions", &.{
-        .{ "__index", luau.wrap(index) },
-        .{ "__newindex", luau.wrap(newIndex) },
-        .{ "__iter", luau.wrap(iterate) },
-        .{ "__len", luau.wrap(length) },
-        .{ "__tostring", luau.wrap(describeMissions) },
-    });
-    state.registerUserdata(Mission.tag, script_name, &.{
-        .{ "__index", luau.wrap(get) },
-        .{ "__newindex", luau.wrap(set) },
-        .{ "__tostring", luau.wrap(describeMission) },
-    });
+pub fn count(held: *const Records) usize {
+    return held.missions.len;
 }
 
-/// Pushes the campaign's missions, which scripts can change only if `writable`. Call `register`
-/// first.
-pub fn push(state: *State, held: *Records, writable: bool) void {
-    const missions = state.newUserdata(Missions, Missions.tag);
-    missions.* = .{ .records = held, .writable = writable };
+/// A mission, as its proxy holds it.
+const Mission = table.Item;
+
+/// The settings of `mission`.
+fn settingsOf(mission: Mission) *gameflow.CampaignMission {
+    return &mission.records.missions[mission.place];
 }
 
-/// The place in `held`'s table of the mission the key at `key` numbers; null for any other key.
-fn placeOf(state: *State, held: *const Records, key: i32) ?usize {
-    const number = bind.wholeIndex(state.toNumber(key) orelse return null) orelse return null;
-    if (number < gameflow.first_mission) return null;
-    const place = number - gameflow.first_mission;
-    return if (place < held.missions.len) place else null;
-}
-
-fn pushMission(state: *State, missions: *const Missions, place: usize) void {
-    const mission = state.newUserdata(Mission, Mission.tag);
-    mission.* = .{ .records = missions.records, .place = place, .writable = missions.writable };
-}
-
-/// The missions' `__index`: the mission of a number, nil for a number the campaign has none for.
-fn index(state: *State) i32 {
-    const missions = Missions.of(state, 1);
-    const place = placeOf(state, missions.records, 2) orelse {
-        state.pushNil();
-        return 1;
-    };
-    pushMission(state, missions, place);
-    return 1;
-}
-
-/// The missions' `__newindex`: `records.missions[n] = { ... }` changes the fields the table gives.
-fn newIndex(state: *State) i32 {
-    const missions = Missions.of(state, 1);
-    if (!missions.writable) state.raise("records can only be changed by load scripts", .{});
-    const place = placeOf(state, missions.records, 2) orelse {
-        _ = state.toDisplay(2);
-        state.raise("records.missions[{s}] does not exist: the campaign's missions are {d} to {d}", .{ state.toString(-1).?, gameflow.first_mission, missions.records.missions.len });
-    };
-    if (state.typeOf(3) == .nil) state.raise("records.missions: a mission can't be removed", .{});
-    if (state.typeOf(3) != .table) state.raise("records.missions: expected a table of fields, got {s}", .{state.typeName(3)});
-    const mission: Mission = .{ .records = missions.records, .place = place, .writable = true };
-    state.pushNil();
-    while (state.next(3)) {
-        const key = (if (state.typeOf(-2) == .string) state.toString(-2) else null) orelse
-            state.raise("records.missions: a table of fields has names for keys, not {s}", .{state.typeName(-2)});
-        setField(state, mission, fieldNamed(state, key), -1);
-        state.pop(1);
-    }
-    return 0;
-}
-
-/// The missions' `__iter`: each mission in turn, as its number and the mission.
-fn iterate(state: *State) i32 {
-    state.pushFunction(luau.wrap(step), "next");
-    state.pushCopy(1);
-    state.pushNil();
-    return 3;
-}
-
-/// The mission after the given number, or nothing after the last.
-fn step(state: *State) i32 {
-    const missions = Missions.of(state, 1);
-    const place: usize = if (state.typeOf(2) == .nil) 0 else (placeOf(state, missions.records, 2) orelse return 0) + 1;
-    if (place >= missions.records.missions.len) return 0;
-    state.pushNumber(@floatFromInt(place + gameflow.first_mission));
-    pushMission(state, missions, place);
-    return 2;
-}
-
-/// The missions' `__len`: how many the campaign has settings for.
-fn length(state: *State) i32 {
-    state.pushNumber(@floatFromInt(Missions.of(state, 1).records.missions.len));
-    return 1;
-}
-
-fn describeMissions(state: *State) i32 {
-    _ = Missions.of(state, 1);
-    state.pushString("missions");
-    return 1;
-}
-
-fn describeMission(state: *State) i32 {
-    _ = Mission.of(state, 1);
-    state.pushString(script_name);
-    return 1;
-}
-
-/// The field named `name`; an error for a name a mission doesn't have.
-fn fieldNamed(state: *State, name: []const u8) Field {
-    return std.meta.stringToEnum(Field, name) orelse
-        state.raise("{s} has no field '{s}' ({s})", .{ script_name, name, field_names });
-}
-
-/// The fields' names, for error messages.
-const field_names = names: {
-    var names: []const u8 = "";
-    for (std.enums.values(Field), 0..) |field, at| names = names ++ (if (at == 0) "" else ", ") ++ @tagName(field);
-    break :names names;
-};
-
-/// A mission's `__index`: the value of a field.
-fn get(state: *State) i32 {
-    const mission = Mission.of(state, 1).*;
-    const name = state.toString(2) orelse state.raise("{s}: a field has a name, not {s}", .{ script_name, state.typeName(2) });
-    const settings = mission.settings();
-    switch (fieldNamed(state, name)) {
+/// Pushes the value of `wanted` of `mission`.
+pub fn getField(state: *State, mission: Mission, wanted: Field) void {
+    const settings = settingsOf(mission);
+    switch (wanted) {
         inline .hologram, .speech, .last_word => |field| {
             const plan_field = comptime @tagName(field);
             if (@field(settings.briefing, plan_field)) |file| state.pushString(file) else state.pushNil();
@@ -383,48 +259,35 @@ fn get(state: *State) i32 {
             const value: ?u8 = if (@field(settings, @tagName(field))) |number| number else null;
             values.push(state, ?u8, value);
         },
-        inline .medal, .only_ship, .landing_carrier, .yamato_visit, .alpha_5_pilot, .alpha_6_pilot => |field| values.push(state, Field.Type(field), @field(settings, @tagName(field))),
-        inline .television_report, .news, .video_reports, .chapter_reports => |field| pushItems(state, mission.records, @field(settings, @tagName(field))),
+        inline .medal, .only_ship, .landing_carrier, .yamato_visit, .alpha_5_pilot, .alpha_6_pilot => |field| values.push(state, TypeOf(field), @field(settings, @tagName(field))),
+        inline .television_report, .news, .video_reports, .chapter_reports => |field| table.pushItems(state, mission.records, @field(settings, @tagName(field))),
         .debriefing => {
             state.newTable(0, debriefing.ratings);
             inline for (@typeInfo(Debriefing).@"struct".field_names, settings.debriefing) |rating, paragraphs| {
-                pushParagraphs(state, mission.records, paragraphs);
+                table.pushValue(state, mission.records, []const language.Words, paragraphs);
                 state.rawSetField(-2, rating);
             }
         },
         .date => {
-            const text = dateText(mission) orelse {
-                state.pushNil();
-                return 1;
-            };
+            const text = dateText(mission) orelse return state.pushNil();
             records.pushText(state, mission.records.text[text - 1]);
         },
-        inline else => |field| {
-            comptime std.debug.assert(field.isRule());
-            state.pushBoolean(@field(settings.rules, @tagName(field)));
+        inline else => |rule| {
+            comptime std.debug.assert(rule.isRule());
+            state.pushBoolean(@field(settings.rules, @tagName(rule)));
         },
     }
-    return 1;
-}
-
-/// A mission's `__newindex`: changes a field, for load scripts.
-fn set(state: *State) i32 {
-    const mission = Mission.of(state, 1).*;
-    if (!mission.writable) state.raise("records can only be changed by load scripts", .{});
-    const name = state.toString(2) orelse state.raise("{s}: a field has a name, not {s}", .{ script_name, state.typeName(2) });
-    setField(state, mission, fieldNamed(state, name), 3);
-    return 0;
 }
 
 /// Sets `field` of `mission` from the value at `given`.
-fn setField(state: *State, mission: Mission, field: Field, given: i32) void {
+pub fn setField(state: *State, mission: Mission, field: Field, given: i32) void {
     const held = mission.records;
-    const settings = mission.settings();
+    const settings = settingsOf(mission);
     switch (field) {
         inline .hologram, .speech, .last_word => |name| {
             const label = comptime script_name ++ "." ++ @tagName(name);
             const file = values.read(state, ?[]const u8, given, label);
-            @field(settings.briefing, @tagName(name)) = if (file) |text| fileName(state, held, text, label) else null;
+            @field(settings.briefing, @tagName(name)) = table.kept(?[]const u8, state, held, file, label);
         },
         .carrier => settings.carrier = values.read(state, rooms.Carrier, given, script_name ++ ".carrier"),
         .objectives => {
@@ -445,102 +308,25 @@ fn setField(state: *State, mission: Mission, field: Field, given: i32) void {
         .tier => settings.tier = readNumber(state, gameflow.CampaignMission.Tier, given, gameflow.last_tier, script_name ++ ".tier"),
         .chapter => settings.chapter = readNumber(state, gameflow.CampaignMission.Chapter, given, gameflow.last_chapter, script_name ++ ".chapter"),
         inline .medal, .only_ship, .landing_carrier, .yamato_visit, .alpha_5_pilot, .alpha_6_pilot => |name| {
-            @field(settings, @tagName(name)) = values.read(state, Field.Type(name), given, script_name ++ "." ++ @tagName(name));
+            @field(settings, @tagName(name)) = values.read(state, TypeOf(name), given, script_name ++ "." ++ @tagName(name));
         },
         inline .television_report, .news, .video_reports, .chapter_reports => |name| {
             const label = comptime script_name ++ "." ++ @tagName(name);
-            const list = values.read(state, Field.Type(name), given, label);
+            const list = values.read(state, TypeOf(name), given, label);
             const Kept = std.meta.Elem(@FieldType(gameflow.CampaignMission, @tagName(name)));
-            @field(settings, @tagName(name)) = keptItems(Kept, state, held, list.slice(), label);
+            @field(settings, @tagName(name)) = table.keptItems(Kept, state, held, list.slice(), label);
         },
         .debriefing => {
             const label = script_name ++ ".debriefing";
             const read = values.read(state, Debriefing, given, label);
             inline for (&settings.debriefing, @typeInfo(Debriefing).@"struct".field_names) |*paragraphs, rating| {
-                paragraphs.* = paragraphsOf(state, held, @field(read, rating).slice(), label);
+                paragraphs.* = table.kept([]const language.Words, state, held, @field(read, rating), label);
             }
         },
         inline else => |name| {
             comptime std.debug.assert(name.isRule());
             @field(settings.rules, @tagName(name)) = values.read(state, bool, given, script_name ++ "." ++ @tagName(name));
         },
-    }
-}
-
-/// The items a script gave, `given`, as a mission keeps them: report parts, news items or video
-/// reports of type `Kept`, whose fields have the same names as the script's. Their text is
-/// converted to the game's code page, and everything is copied into the records' arena.
-fn keptItems(comptime Kept: type, state: *State, held: *Records, given: anytype, comptime label: []const u8) []const Kept {
-    const items = held.arena.alloc(Kept, given.len) catch state.raise(label ++ ": out of memory", .{});
-    const info = @typeInfo(Kept).@"struct";
-    for (items, given) |*item, read| {
-        inline for (info.field_names, info.field_types) |name, Type| {
-            const value = @field(read, name);
-            @field(item, name) = switch (Type) {
-                language.Words => .{ .text = records.encoded(state, held.arena, value, label) },
-                []const language.Words => paragraphsOf(state, held, value.slice(), label),
-                []const u8 => fileName(state, held, value, label),
-                ?[]const u8 => if (value) |text| fileName(state, held, text, label) else null,
-                else => if (comptime values.isList(@TypeOf(value))) held.arena.dupe(@TypeOf(value).Item, value.slice()) catch state.raise(label ++ ": out of memory", .{}) else value,
-            };
-        }
-    }
-    return items;
-}
-
-/// Pushes `items`, a mission's report parts, news items or video reports, as a list of tables with
-/// the same fields.
-fn pushItems(state: *State, held: *const Records, items: anytype) void {
-    state.newTable(@intCast(items.len), 0);
-    for (items, 1..) |item, at| {
-        const info = @typeInfo(@TypeOf(item)).@"struct";
-        state.newTable(0, info.field_names.len);
-        inline for (info.field_names, info.field_types) |name, Type| {
-            const value = @field(item, name);
-            switch (Type) {
-                language.Words => pushWords(state, held, value),
-                []const language.Words => pushParagraphs(state, held, value),
-                []const u8, ?[]const u8 => values.push(state, Type, value),
-                else => if (@typeInfo(Type) == .pointer) pushValues(state, std.meta.Elem(Type), value) else values.push(state, Type, value),
-            }
-            state.rawSetField(-2, name);
-        }
-        state.rawSetIndex(-2, @intCast(at));
-    }
-}
-
-/// `text`, a file's name a script gave, copied into the records' arena.
-fn fileName(state: *State, held: *Records, text: []const u8, comptime label: []const u8) []const u8 {
-    return held.arena.dupe(u8, text) catch state.raise(label ++ ": out of memory", .{});
-}
-
-/// The paragraphs a script gave, `given`, as text in the game's code page in the records' arena.
-fn paragraphsOf(state: *State, held: *Records, given: []const []const u8, comptime label: []const u8) []const language.Words {
-    const paragraphs = held.arena.alloc(language.Words, given.len) catch state.raise(label ++ ": out of memory", .{});
-    for (paragraphs, given) |*paragraph, text| paragraph.* = .{ .text = records.encoded(state, held.arena, text, label) };
-    return paragraphs;
-}
-
-/// Pushes `words` as UTF-8, reading a string number from the ITAC's text.
-fn pushWords(state: *State, held: *const Records, words: language.Words) void {
-    records.pushText(state, words.in(held.language(.itac_text)));
-}
-
-/// Pushes a list of `items`, each a value of `T`.
-fn pushValues(state: *State, comptime T: type, items: []const T) void {
-    state.newTable(@intCast(items.len), 0);
-    for (items, 1..) |item, at| {
-        values.push(state, T, item);
-        state.rawSetIndex(-2, @intCast(at));
-    }
-}
-
-/// Pushes a list of `paragraphs`.
-fn pushParagraphs(state: *State, held: *const Records, paragraphs: []const language.Words) void {
-    state.newTable(@intCast(paragraphs.len), 0);
-    for (paragraphs, 1..) |paragraph, at| {
-        pushWords(state, held, paragraph);
-        state.rawSetIndex(-2, @intCast(at));
     }
 }
 
@@ -563,18 +349,18 @@ fn dateText(mission: Mission) ?u16 {
 /// row of the game's table, as the records' text holds the strings.
 fn pushObjectives(state: *State, mission: Mission) void {
     var objectives: hud.Objectives = .{};
-    objectives.reset(mission.number(), false, if (mission.settings().objectives) |*names| names else null);
+    objectives.reset(mission.number(), false, if (settingsOf(mission).objectives) |*names| names else null);
     const text = mission.records.language(.text);
     state.newTable(hud.Objectives.per_mission, 0);
-    var count: i32 = 0;
+    var listed: i32 = 0;
     for (0..hud.Objectives.per_mission) |objective| {
         const name = switch (objectives.name(@intCast(objective)) orelse continue) {
             .string => |string| text.string(string) orelse continue,
             .text => |own| own,
         };
-        count += 1;
+        listed += 1;
         records.pushText(state, name);
-        state.rawSetIndex(-2, count);
+        state.rawSetIndex(-2, listed);
     }
 }
 

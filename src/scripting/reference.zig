@@ -23,7 +23,9 @@ const missiles = @import("missiles.zig");
 const turrets = @import("turrets.zig");
 const instruments = @import("instruments.zig");
 const records = @import("records.zig");
-const missions = records.missions;
+/// The records' tables whose entries have named fields: each module declares `script_name`,
+/// `list_name`, `Field`, `TypeOf`, `about`, `each` and `entries_about`.
+const field_tables = .{ records.missions, records.killboard };
 const bind = @import("bind.zig");
 const script = @import("script.zig");
 const api = @import("api.zig");
@@ -54,7 +56,7 @@ const roots: []const type = list: {
         if (packages.namespace(package)) |Namespace| found = found ++ namespaceTypes(Namespace);
     }
     for (std.enums.values(@import("builtin_interfaces.zig").Group)) |group| found = found ++ namespaceTypes(group.namespace());
-    found = found ++ missionFieldTypes();
+    found = found ++ fieldTableTypes();
     for (std.enums.values(script.Handler)) |handler| {
         found = found ++ @typeInfo(handler.Arguments()).@"struct".field_types;
     }
@@ -77,14 +79,16 @@ const passed: []const type = list: {
         if (packages.namespace(package)) |Namespace| found = found ++ namespaceParameters(Namespace);
     }
     for (std.enums.values(@import("builtin_interfaces.zig").Group)) |group| found = found ++ namespaceParameters(group.namespace());
-    // Load scripts give a campaign mission's fields too.
-    break :list found ++ missionFieldTypes();
+    // Load scripts give the fields of the records' tables too.
+    break :list found ++ fieldTableTypes();
 };
 
-/// The types of a campaign mission's fields (`records.missions`).
-fn missionFieldTypes() []const type {
+/// The types of the fields of the records' tables (`field_tables`).
+fn fieldTableTypes() []const type {
     var found: []const type = &.{};
-    for (std.enums.values(missions.Field)) |field| found = found ++ .{field.Type()};
+    for (field_tables) |Table| {
+        for (std.enums.values(Table.Field)) |field| found = found ++ .{Table.TypeOf(field)};
+    }
     return found;
 }
 
@@ -345,9 +349,11 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         inline for (comptime values.shownFields(T)) |field| try w.print("    {s}: {s}\n", .{ field.name, comptime luauType(field.type) });
         try w.writeAll("end\n");
     }
-    try w.print("declare class {s}\n", .{missions.script_name});
-    inline for (comptime std.enums.values(missions.Field)) |field| try w.print("    {t}: {s}\n", .{ field, comptime luauType(field.Type()) });
-    try w.writeAll("end\n");
+    inline for (field_tables) |Table| {
+        try w.print("declare class {s}\n", .{Table.script_name});
+        inline for (comptime std.enums.values(Table.Field)) |field| try w.print("    {t}: {s}\n", .{ field, comptime luauType(Table.TypeOf(field)) });
+        try w.writeAll("end\n");
+    }
     try w.writeAll("type Records = {\n");
     inline for (comptime std.enums.values(records.Set)) |set| {
         const Element = set.Element();
@@ -356,8 +362,9 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     }
     try w.writeAll("    -- The campaign's missions, by their numbers, in the order it flies them. Load scripts change it by assigning a new list.\n");
     try w.writeAll("    campaign: { number },\n");
-    try w.writeAll("    -- What the campaign makes of each of its missions, by its number. Load scripts change their fields.\n");
-    try w.print("    missions: {{ [number]: {s} }},\n", .{missions.script_name});
+    inline for (field_tables) |Table| {
+        try w.print("    -- {s}\n    {s}: {{ [number]: {s} }},\n", .{ Table.entries_about, Table.list_name, Table.script_name });
+    }
     try w.writeAll("}\n");
 
     try w.writeAll("\n-- The packages made from declarations. `openreliant.self` is the script's own Object.\n");
@@ -779,7 +786,7 @@ fn writePackageSection(w: *Writer, comptime package: script.Package) Writer.Erro
     try w.print("\n### `{s}{t}`\n\n{s} For ", .{ script.Package.prefix, package, package.about() });
     try writePackageFamilies(w, package);
     try w.writeAll(" scripts.\n");
-    if (package == .records) try writeCampaignMission(w);
+    if (package == .records) inline for (field_tables) |Table| try writeFieldTable(w, Table);
     const declared = comptime packages.namespace(package);
     if (declared == null) return;
     const Namespace = declared.?;
@@ -794,11 +801,12 @@ fn writePackageSection(w: *Writer, comptime package: script.Package) Writer.Erro
     }
 }
 
-/// Writes the fields of a campaign mission (`records.missions`) on the reference page.
-fn writeCampaignMission(w: *Writer) Writer.Error!void {
-    try w.print("\nEach of the campaign's missions, `missions[n]`, is a `{s}` with these fields:\n\n| Field | Type | What it is |\n|---|---|---|\n", .{missions.script_name});
-    inline for (comptime std.enums.values(missions.Field)) |field| {
-        try w.print("| `{t}` | {s} | {s} |\n", .{ field, comptime markdownType(field.Type()), field.about() });
+/// Writes the fields of the entries of one of the records' tables (`field_tables`) on the reference
+/// page.
+fn writeFieldTable(w: *Writer, comptime Table: type) Writer.Error!void {
+    try w.print("\n{s}, `{s}[n]`, is a `{s}` with these fields:\n\n| Field | Type | What it is |\n|---|---|---|\n", .{ Table.each, Table.list_name, Table.script_name });
+    inline for (comptime std.enums.values(Table.Field)) |field| {
+        try w.print("| `{t}` | {s} | {s} |\n", .{ field, comptime markdownType(Table.TypeOf(field)), Table.about(field) });
     }
 }
 

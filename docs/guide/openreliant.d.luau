@@ -610,6 +610,19 @@ declare class CampaignMission
     cobras_inquiry: boolean
     fifty_first_listed: boolean
 end
+declare class KillboardPilot
+    name: string
+    squadron: string
+    ship: string?
+    kills: number
+    mean: number
+    spread: number
+    portrait: number
+    in_45th: boolean
+    joins_at: number?
+    leaves_after: number?
+    sits_out: { number }
+end
 type Records = {
     ships: { [number | string]: Ship },
     ship_types: { [number | string]: ShipTypeRecord },
@@ -621,8 +634,10 @@ type Records = {
     itac_text: { [number | string]: string },
     -- The campaign's missions, by their numbers, in the order it flies them. Load scripts change it by assigning a new list.
     campaign: { number },
-    -- What the campaign makes of each of its missions, by its number. Load scripts change their fields.
+    -- The settings of each of the campaign's missions, by its number. Load scripts change their fields.
     missions: { [number]: CampaignMission },
+    -- The KILLBOARD's pilots, numbered from 1. Load scripts change their fields.
+    killboard: { [number]: KillboardPilot },
 }
 
 -- The packages made from declarations. `openreliant.self` is the script's own Object.

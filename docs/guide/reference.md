@@ -105,6 +105,22 @@ Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with thes
 | `cobras_inquiry` | boolean | Whether the ITAC's history of the 705 Cobras tells of the inquiry into their colonel, as from mission 7 on. |
 | `fifty_first_listed` | boolean | Whether the ITAC's squadrons list the 51st Volunteers, as in missions 1 to 9. |
 
+Each of the KILLBOARD's pilots, `killboard[n]`, is a `KillboardPilot` with these fields:
+
+| Field | Type | What it is |
+|---|---|---|
+| `name` | string | The pilot's name. |
+| `squadron` | string | The line below the name: the pilot's squadron, in brackets. |
+| `ship` | string, or nil | The pilot's ship; nil leaves the column empty. |
+| `kills` | number | The kills the pilot starts a campaign with. |
+| `mean` | number | The kills each mission adds on average. |
+| `spread` | number | How far a mission's kills can stray from the mean: half the spread each way. |
+| `portrait` | number | The shape of the pilot's portrait in `inter\itac\kills.spr`. |
+| `in_45th` | boolean | Whether the pilot flies in the 45th: the portrait takes the 45th's palette, and the squadron shows as the 45th Flying Tigers in the missions whose `flying_tigers` rule is on. |
+| `joins_at` | number, or nil | The first mission the pilot is on the board in, as Linc Stevenson joins at mission 6; nil for every mission. |
+| `leaves_after` | number, or nil | The last mission the pilot is on the board in, as John McGann leaves after mission 5; nil for every mission. |
+| `sits_out` | list of number | The missions in which the pilot adds no kills, as Klaus Steiner sits out missions 19 to 23. |
+
 ### `openreliant.hooks`
 
 Handlers on the game's functions and events. For global and object scripts.
