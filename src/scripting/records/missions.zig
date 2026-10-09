@@ -233,6 +233,7 @@ pub const item_noun = "a mission";
 pub const list_tag = @backingInt(runtime.Tag.campaign_missions);
 pub const item_tag = @backingInt(runtime.Tag.campaign_mission);
 
+/// How many missions the records hold.
 pub fn count(held: *const Records) usize {
     return held.missions.len;
 }

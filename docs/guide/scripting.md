@@ -1110,6 +1110,11 @@ scripts can only read them.
 | `text` | The game's text, `language.dll`, by string id | 1 | |
 | `itac_text` | The ITAC's text, `itaclang.dll`, by string id | 1 | |
 
+The package also holds the campaign's order of missions, `campaign`
+([The campaign's missions](#the-campaigns-missions)), each mission's settings, `missions`
+([Each mission of the campaign](#each-mission-of-the-campaign)), and the KILLBOARD's pilots,
+`killboard` ([The KILLBOARD's pilots](#the-killboards-pilots)).
+
 Records are looked up by number or by name, with the field names of the [stat
 tables](../formats/stats.md). The definitions file for editors ([Editors](#editors)) lists every
 field of `Ship`, `Gun`, `Missile` and `Pilot`.
@@ -1261,6 +1266,30 @@ debriefing.success = { "Good work out there.", "The Reliant is safe for now." }
 mission.debriefing = debriefing
 -- The news after mission 12, in the rooms before the next mission.
 records.missions[14].news = { { title = "Reliant survives ambush", paragraphs = { "..." }, picture = 13 } }
+```
+
+It can award a medal, land on the other carrier, play a report of its own after the chapter's
+movie, and bring a pilot into the wing:
+
+```lua
+local mission = records.missions[13]
+mission.medal = "valour"
+mission.landing_carrier = "yamato"
+mission.chapter = 2
+mission.chapter_reports = { { movie = "mymod_news13.bik", unless = { "krasnaya_alive" } } }
+mission.alpha_5_pilot = "diceman"
+```
+
+A campaign of the mod's own turns off the game's rules for particular missions where its missions
+don't want them:
+
+```lua
+-- Mission 25 is an ordinary mission here: no second part, no Kamovs, and a landing whatever
+-- happens to the Yamato.
+local mission = records.missions[25]
+mission.second_part = false
+mission.kamov_wing = false
+mission.fort_bear_ending = false
 ```
 
 - Each mod changes only the fields it sets, in load order, so mods that change different fields of

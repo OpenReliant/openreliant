@@ -31,10 +31,12 @@ pub const item_noun = "a pilot";
 pub const list_tag = @backingInt(runtime.Tag.killboard);
 pub const item_tag = @backingInt(runtime.Tag.killboard_pilot);
 
+/// How many pilots the records hold.
 pub fn count(held: *const Records) usize {
     return held.killboard.len;
 }
 
+/// The proxies of the board's pilots (`table.Table`).
 const proxies = table.Table(@This());
 pub const register = proxies.register;
 pub const push = proxies.push;

@@ -23,9 +23,7 @@ const missiles = @import("missiles.zig");
 const turrets = @import("turrets.zig");
 const instruments = @import("instruments.zig");
 const records = @import("records.zig");
-/// The records' tables whose entries have named fields: each module declares `script_name`,
-/// `list_name`, `Field`, `TypeOf`, `about`, `each` and `entries_about`.
-const field_tables = .{ records.missions, records.killboard };
+const field_tables = records.field_tables;
 const bind = @import("bind.zig");
 const script = @import("script.zig");
 const api = @import("api.zig");

@@ -42,6 +42,10 @@ const runtime = @import("runtime.zig");
 pub const missions = @import("records/missions.zig");
 pub const killboard = @import("records/killboard.zig");
 
+/// The tables whose entries have named fields (`records/table.zig`), each a module that declares
+/// `script_name`, `list_name`, `Field`, `TypeOf`, `about`, `each` and `entries_about`.
+pub const field_tables = .{ missions, killboard };
+
 /// The proxies for records.
 pub const Values = bind.Binding(&.{ stats.Ship, game.create.combat_stats.Static, stats.Gun, stats.Missile, stats.Pilot, game.pilots.FaceRecord }, @backingInt(runtime.Tag.record_value), "record");
 
@@ -276,24 +280,23 @@ pub fn register(state: *State) void {
         .{ "__len", luau.wrap(length) },
         .{ "__tostring", luau.wrap(describe) },
     });
-    missions.register(state);
-    killboard.register(state);
+    inline for (field_tables) |Table| Table.register(state);
 }
 
 /// Pushes the `openreliant.records` package: a read-only table holding the record tables, the
 /// campaign's missions (`campaign`), the settings of each (`missions`) and the KILLBOARD's pilots
 /// (`killboard`), which scripts can change only if `writable`. Call `register` first.
 pub fn push(state: *State, records: *Records, writable: bool) void {
-    state.newTable(0, std.enums.values(Set).len + 2);
+    state.newTable(0, std.enums.values(Set).len + field_tables.len);
     inline for (comptime std.enums.values(Set)) |set| {
         const proxy = state.newUserdata(SetProxy, SetProxy.tag);
         proxy.* = .{ .records = records, .set = set, .writable = writable };
         state.rawSetField(-2, @tagName(set));
     }
-    missions.push(state, records, writable);
-    state.rawSetField(-2, missions.list_name);
-    killboard.push(state, records, writable);
-    state.rawSetField(-2, killboard.list_name);
+    inline for (field_tables) |Table| {
+        Table.push(state, records, writable);
+        state.rawSetField(-2, Table.list_name);
+    }
     // `campaign` isn't held in the table, so that reading it gives a new list each time, and Luau
     // calls `__newindex` to assign it, read-only as the table is.
     state.newTable(0, 3);
