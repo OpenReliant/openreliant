@@ -59,10 +59,14 @@ pub const Shown = struct {
 
 /// `hud_window_draw`'s case 0, in every view: in the view ahead (`ahead`) while the window closes,
 /// the emblem. Otherwise a film that has stopped closes the window, and a line that is over closes
-/// it and stops the film. While the line plays, in the view ahead, the speaker's name and the film,
-/// at `film_size`, each of its rows moved by the camera's shake (`hud.rowShift`); while it waits
+/// it and stops the film. While the line plays, in the view ahead, the film, at `film_size`, each
+/// of its rows moved by the camera's shake (`hud.rowShift`), and the speaker's name; while it waits
 /// for the window, the shape its wait has come to. The shapes shake while the display does
 /// (`hud_blit`).
+///
+/// **Improvement:** the game writes the name before it draws the film. Where the game puts them
+/// they don't overlap, so the order shows nothing; OpenReliant draws the film first, so that a name
+/// a mod's display moves onto the face stays on top (`hud.parts`).
 pub fn frame(shown: Shown, held: *windows.Windows, canvas: windows.Canvas, ahead: bool) windows.Canvas.Error!void {
     const radio = shown.radio;
     const movie = &radio.movie;
@@ -76,9 +80,9 @@ pub fn frame(shown: Shown, held: *windows.Windows, canvas: windows.Canvas, ahead
             return;
         }
         if (!ahead) return;
-        if (radio.shownName()) |name| try canvas.string(.radio_speaker, name, name_at, .left);
         const shake: ?hud.Shake = if (shown.hit_shake > 0) .{ .hit_shake = shown.hit_shake, .interference = 0, .random = shown.random } else null;
         canvas.image(.radio_face, &movie.picture, film_size, picture_at, shake);
+        if (radio.shownName()) |name| try canvas.string(.radio_speaker, name, name_at, .left);
         return;
     }
     if (!ahead) return;
