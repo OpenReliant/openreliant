@@ -1143,6 +1143,8 @@ fn testImage(gpa: Allocator, label: []const u8, files: []const TestFile, layout:
             for (blocks, 0..) |*block, lba| raw[lba * sector_size ..][0..sector_size].* = cdimage.testing.sector(@intCast(lba), block);
             return raw;
         },
+        // Only a `.cdi` image holds 2336-byte sectors, and StarLancer's PC discs aren't kept that way.
+        .mode2 => unreachable,
     }
 }
 

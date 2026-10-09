@@ -38,6 +38,15 @@ block fails, and so does a Mode 0 sector. `sltool cd extract` copies a file that
 sector as whole Mode 2 sectors: the 2336 bytes after each sector's header, which PlayStation tools
 read. [Star Trek: Invasion](../games/star-trek-invasion.md#the-disc)'s disc holds such a file.
 
+## DiscJuggler images
+
+A DiscJuggler `.cdi` image holds a disc's tracks back to back, each after its pregap, then a table
+of the sessions and tracks at the end of the file: its last 8 bytes give the table's version and
+where it starts. `sltool cd` reads the table as cdirip does, and opens the last data track. A
+burned Dreamcast disc keeps its data track in the second session, so the track starts at a disc
+address other than 0, such as 11702, and its sectors may be 2336 bytes: a Mode 2 sector without
+its sync pattern and header ([The Dreamcast version](dreamcast.md#the-disc)).
+
 ## Filesystem
 
 Both discs carry a plain ISO 9660 filesystem with no Joliet supplementary descriptor, so all names
@@ -81,7 +90,8 @@ sltool cd extract <image> <dir>   # copy everything off
 ```
 
 `sltool cd` also reads Xbox discs, as `extract-xiso` writes their images
-([Xbox formats](xbox.md#discs)).
+([Xbox formats](xbox.md#discs)), and DiscJuggler `.cdi` images
+([DiscJuggler images](#discjuggler-images)).
 
 `make game` runs the extraction for both discs, then installs `game/install/` from them with
 `openreliant install`, which unpacks disc 1's `LANCER.CAB`, an LZX-compressed Microsoft cabinet, and

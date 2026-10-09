@@ -43,6 +43,9 @@ pub const gltf = @import("formats/gltf.zig");
 /// Checksum files, used to check mod archives.
 pub const checksums = @import("formats/checksums.zig");
 
+/// The Dreamcast version of StarLancer.
+pub const dreamcast = @import("formats/dreamcast.zig");
+
 /// Other games on StarLancer's engine, and the formats of the consoles they run on.
 pub const games = @import("formats/games.zig");
 pub const playstation = @import("formats/playstation.zig");

@@ -8,11 +8,15 @@
 //! PlayStation discs also hold Mode 2 Form 2 sectors, which carry streamed audio and video in
 //! place of a logical block. `Image` copies the files that hold them as whole Mode 2 sectors.
 //!
-//! Only single-track data images are supported, which is all a StarLancer disc is.
+//! A DiscJuggler `.cdi` image holds several tracks, and `Image` reads its last data track
+//! (`cdimage/cdi.zig`). That track may store 2336-byte Mode 2 sectors without their sync pattern
+//! and header, and start at a disc address other than 0. Otherwise an image holds one data track.
 
 const std = @import("std");
 const Io = std.Io;
 const assert = std.debug.assert;
+
+pub const cdi = @import("cdimage/cdi.zig");
 
 /// Size of a complete sector as stored in a raw image.
 pub const raw_sector_size = 2352;
@@ -132,35 +136,44 @@ fn headerOf(sector: *const [raw_sector_size]u8) SectorError!*const Header {
     return header;
 }
 
-/// The subheader of a raw Mode 2 sector.
-fn subheaderOf(sector: *const [raw_sector_size]u8) *const XaSubheader {
-    return @ptrCast(sector[@sizeOf(Header)..][0..@sizeOf(XaSubheader)]);
+/// Whether a Mode 2 sector without its sync pattern and header is a Form 2 sector.
+fn mode2IsForm2(sector: *const [mode2_size]u8) bool {
+    const subheader: *const XaSubheader = @ptrCast(sector[0..@sizeOf(XaSubheader)]);
+    return subheader.submode.form2;
+}
+
+/// The logical block of a Mode 2 sector without its sync pattern and header.
+fn mode2Block(sector: *const [mode2_size]u8) SectorError!*const [block_size]u8 {
+    if (mode2IsForm2(sector)) return error.NoLogicalBlock;
+    return sector[2 * @sizeOf(XaSubheader) ..][0..block_size];
 }
 
 /// Returns the logical block stored inside a raw sector.
 pub fn userData(sector: *const [raw_sector_size]u8) SectorError!*const [block_size]u8 {
-    const offset: usize = switch ((try headerOf(sector)).mode) {
-        .mode1 => @sizeOf(Header),
-        .mode2 => if (subheaderOf(sector).submode.form2)
-            return error.NoLogicalBlock
-        else
-            @sizeOf(Header) + 2 * @sizeOf(XaSubheader),
-        .mode0, _ => return error.NoLogicalBlock,
+    return switch ((try headerOf(sector)).mode) {
+        .mode1 => sector[@sizeOf(Header)..][0..block_size],
+        .mode2 => mode2Block(sector[@sizeOf(Header)..]),
+        .mode0, _ => error.NoLogicalBlock,
     };
-    return sector[offset..][0..block_size];
 }
 
 /// Whether a raw sector is a Mode 2 Form 2 sector, which holds streamed audio or video rather than
 /// a logical block.
 pub fn isForm2(sector: *const [raw_sector_size]u8) SectorError!bool {
-    return (try headerOf(sector)).mode == .mode2 and subheaderOf(sector).submode.form2;
+    return (try headerOf(sector)).mode == .mode2 and mode2IsForm2(sector[@sizeOf(Header)..]);
 }
 
-/// A single-track data image, addressed in logical blocks.
+/// A data track's image, addressed in logical blocks.
 pub const Image = struct {
     source: Source,
     layout: Layout,
+    /// The sectors the image holds, from `first_lba`.
     block_count: u32,
+    /// The disc address of the image's first sector: 0 for a whole disc, or the start of a track
+    /// taken from a disc with several sessions, such as a `.cdi` image's.
+    first_lba: u32 = 0,
+    /// Where the first sector is in the file.
+    start: u64 = 0,
 
     pub const Source = union(enum) {
         file: struct { io: Io, handle: Io.File },
@@ -194,11 +207,42 @@ pub const Image = struct {
         cooked,
         /// Complete 2352-byte sectors (`.bin` of a `MODE1/2352` or `MODE2/2352` track).
         raw,
+        /// 2336-byte Mode 2 sectors without their sync pattern and header (a `.cdi` image's
+        /// `MODE2/2336` track).
+        mode2,
 
         pub fn sectorSize(layout: Layout) u32 {
             return switch (layout) {
                 .cooked => block_size,
                 .raw => raw_sector_size,
+                .mode2 => mode2_size,
+            };
+        }
+
+        /// The logical block of `sector`, a sector as this layout stores it.
+        fn block(layout: Layout, sector: []const u8) SectorError!*const [block_size]u8 {
+            return switch (layout) {
+                .cooked => sector[0..block_size],
+                .raw => userData(sector[0..raw_sector_size]),
+                .mode2 => mode2Block(sector[0..mode2_size]),
+            };
+        }
+
+        /// Whether `sector` is a Mode 2 Form 2 sector.
+        fn holdsForm2(layout: Layout, sector: []const u8) SectorError!bool {
+            return switch (layout) {
+                .cooked => false,
+                .raw => isForm2(sector[0..raw_sector_size]),
+                .mode2 => mode2IsForm2(sector[0..mode2_size]),
+            };
+        }
+
+        /// `sector` as a whole Mode 2 sector without its sync pattern and header.
+        fn mode2Sector(layout: Layout, sector: []const u8) ![]const u8 {
+            return switch (layout) {
+                .cooked => error.CookedImage,
+                .raw => if ((try headerOf(sector[0..raw_sector_size])).mode == .mode2) sector[@sizeOf(Header)..] else error.NotMode2,
+                .mode2 => sector,
             };
         }
     };
@@ -210,6 +254,7 @@ pub const Image = struct {
     }
 
     pub fn init(source: Source) !Image {
+        if (try fromCdi(source)) |image| return image;
         var probe: [sync_pattern.len]u8 = undefined;
         const layout: Layout = if (source.readAll(&probe, 0)) |_|
             if (std.mem.eql(u8, &probe, &sync_pattern)) .raw else .cooked
@@ -228,6 +273,30 @@ pub const Image = struct {
         };
     }
 
+    /// The last data track of a `.cdi` image; null for a file that isn't one.
+    fn fromCdi(source: Source) !?Image {
+        const size = try source.length();
+        var tail: [8]u8 = undefined;
+        if (size < tail.len) return null;
+        try source.readAll(&tail, size - tail.len);
+        const table_at = cdi.tableStart(&tail, size) orelse return null;
+        if (size - table_at.offset > cdi.max_table) return null;
+        var buffer: [cdi.max_table]u8 = undefined;
+        const table = buffer[0..@intCast(size - table_at.offset)];
+        try source.readAll(table, table_at.offset);
+        // A file whose last bytes only look like a `.cdi` image's is read as an image of another
+        // kind.
+        const found = cdi.lastDataTrack(table, table_at.version) catch return null;
+        const track = found orelse return error.NoDataTrack;
+        const layout: Layout = switch (track.sector_size) {
+            block_size => .cooked,
+            mode2_size => .mode2,
+            else => .raw,
+        };
+        if (track.offset + @as(u64, track.length) * layout.sectorSize() > table_at.offset) return error.NotADiscImage;
+        return .{ .source = source, .layout = layout, .block_count = track.length, .first_lba = track.first_lba, .start = track.offset };
+    }
+
     pub fn close(image: Image) void {
         switch (image.source) {
             .file => |f| f.handle.close(f.io),
@@ -242,13 +311,13 @@ pub const Image = struct {
         switch (image.layout) {
             .cooked => {
                 try image.checkRange(lba, count);
-                try image.source.readAll(out, @as(u64, lba) * block_size);
+                try image.source.readAll(out, image.offsetOf(lba));
             },
-            .raw => {
-                var sectors = try image.rawSectors(lba, count);
+            .raw, .mode2 => {
+                var sectors = try image.sectorsAt(lba, count);
                 var at: usize = 0;
                 while (try sectors.next()) |sector| : (at += block_size) {
-                    @memcpy(out[at..][0..block_size], try userData(sector));
+                    @memcpy(out[at..][0..block_size], try image.layout.block(sector));
                 }
             },
         }
@@ -258,9 +327,9 @@ pub const Image = struct {
     /// holds logical blocks alone, so never.
     pub fn hasForm2(image: Image, lba: u32, count: usize) !bool {
         if (image.layout == .cooked) return false;
-        var sectors = try image.rawSectors(lba, count);
+        var sectors = try image.sectorsAt(lba, count);
         while (try sectors.next()) |sector| {
-            if (try isForm2(sector)) return true;
+            if (try image.layout.holdsForm2(sector)) return true;
         }
         return false;
     }
@@ -270,27 +339,31 @@ pub const Image = struct {
     /// video. Only a raw image holds them.
     pub fn streamMode2Sectors(image: Image, lba: u32, count: usize, writer: *Io.Writer) !void {
         if (image.layout == .cooked) return error.CookedImage;
-        var sectors = try image.rawSectors(lba, count);
-        while (try sectors.next()) |sector| {
-            if ((try headerOf(sector)).mode != .mode2) return error.NotMode2;
-            try writer.writeAll(sector[@sizeOf(Header)..]);
-        }
+        var sectors = try image.sectorsAt(lba, count);
+        while (try sectors.next()) |sector| try writer.writeAll(try image.layout.mode2Sector(sector));
     }
 
     /// Fails unless the image holds the `count` sectors from `lba`.
     fn checkRange(image: Image, lba: u32, count: usize) error{EndOfImage}!void {
-        if (lba > image.block_count or image.block_count - lba < count) return error.EndOfImage;
+        if (lba < image.first_lba) return error.EndOfImage;
+        const at = lba - image.first_lba;
+        if (at > image.block_count or image.block_count - at < count) return error.EndOfImage;
     }
 
-    /// The `count` raw sectors from `lba`, read in turn.
-    fn rawSectors(image: Image, lba: u32, count: usize) error{EndOfImage}!RawSectors {
-        assert(image.layout == .raw);
+    /// Where the sector at disc address `lba` is in the file.
+    fn offsetOf(image: Image, lba: u32) u64 {
+        return image.start + @as(u64, lba - image.first_lba) * image.layout.sectorSize();
+    }
+
+    /// The `count` whole sectors from `lba`, read in turn.
+    fn sectorsAt(image: Image, lba: u32, count: usize) error{EndOfImage}!Sectors {
+        assert(image.layout != .cooked);
         try image.checkRange(lba, count);
         return .{ .image = image, .lba = lba, .end = lba + @as(u32, @intCast(count)) };
     }
 
-    /// Reads raw sectors in batches, so that a large extent doesn't cost a read for each sector.
-    const RawSectors = struct {
+    /// Reads whole sectors in batches, so that a large extent doesn't cost a read for each sector.
+    const Sectors = struct {
         image: Image,
         /// The next sector to read, and the sector after the last.
         lba: u32,
@@ -302,17 +375,18 @@ pub const Image = struct {
 
         const batch_sectors = 32;
 
-        fn next(sectors: *RawSectors) !?*const [raw_sector_size]u8 {
-            if (sectors.taken == sectors.held) {
-                if (sectors.lba == sectors.end) return null;
-                const n: u32 = @min(sectors.end - sectors.lba, batch_sectors);
-                try sectors.image.source.readAll(sectors.batch[0 .. n * raw_sector_size], @as(u64, sectors.lba) * raw_sector_size);
-                sectors.lba += n;
-                sectors.held = n;
-                sectors.taken = 0;
+        fn next(reading: *Sectors) !?[]const u8 {
+            const size = reading.image.layout.sectorSize();
+            if (reading.taken == reading.held) {
+                if (reading.lba == reading.end) return null;
+                const n: u32 = @min(reading.end - reading.lba, batch_sectors);
+                try reading.image.source.readAll(reading.batch[0 .. n * size], reading.image.offsetOf(reading.lba));
+                reading.lba += n;
+                reading.held = n;
+                reading.taken = 0;
             }
-            defer sectors.taken += 1;
-            return sectors.batch[sectors.taken * raw_sector_size ..][0..raw_sector_size];
+            defer reading.taken += 1;
+            return reading.batch[reading.taken * size ..][0..size];
         }
     };
 
@@ -352,6 +426,28 @@ pub const testing = struct {
         for (0..2) |copy| raw[@sizeOf(Header) + copy * @sizeOf(XaSubheader) ..][0..@sizeOf(XaSubheader)].* = std.mem.toBytes(subheader);
         @memcpy(raw[@sizeOf(Header) + 2 * @sizeOf(XaSubheader) ..][0..data.len], data);
         return raw;
+    }
+
+    /// A `.cdi` image of an audio track, then a data track of 2336-byte sectors, `blocks`, which
+    /// starts at disc address `first_lba`, each track after a pregap of one sector.
+    pub fn cdiImage(arena: std.mem.Allocator, first_lba: u32, blocks: []const [block_size]u8) std.mem.Allocator.Error![]u8 {
+        var out: std.ArrayList(u8) = .empty;
+        try out.appendNTimes(arena, 0, 2 * raw_sector_size);
+        try out.appendNTimes(arena, 0, mode2_size);
+        for (blocks, 0..) |*data, at| {
+            const whole = mode2Sector(first_lba + @as(u32, @intCast(at)), form1, data);
+            try out.appendSlice(arena, whole[@sizeOf(Header)..]);
+        }
+        const table_at = out.items.len;
+        try out.appendSlice(arena, try cdi.testing.table(arena, &.{
+            .{ .mode = 0, .sector_code = 2, .pregap = 1, .length = 1, .first_lba = 0 },
+            .{ .mode = 2, .sector_code = 1, .pregap = 1, .length = @intCast(blocks.len), .first_lba = first_lba },
+        }));
+        var tail: [8]u8 = undefined;
+        std.mem.writeInt(u32, tail[0..4], @backingInt(cdi.Version.v3_5), .little);
+        std.mem.writeInt(u32, tail[4..8], @intCast(out.items.len + tail.len - table_at), .little);
+        try out.appendSlice(arena, &tail);
+        return out.items;
     }
 
     /// The submode of a Form 1 data sector, and of a Form 2 sector of streamed audio.
@@ -431,6 +527,25 @@ test "Form 2 sectors are found and copied as whole Mode 2 sectors" {
     const cooked: Image = try .init(.{ .memory = &block });
     try std.testing.expect(!try cooked.hasForm2(0, 1));
     try std.testing.expectError(error.CookedImage, cooked.streamMode2Sectors(0, 1, &writer));
+}
+
+test "a .cdi image's data track" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const blocks = [_][block_size]u8{ @splat('a'), @splat('b'), @splat('c') };
+    const image: Image = try .init(.{ .memory = try testing.cdiImage(arena.allocator(), 11702, &blocks) });
+    try std.testing.expectEqual(Image.Layout.mode2, image.layout);
+    try std.testing.expectEqual(11702, image.first_lba);
+    try std.testing.expectEqual(3, image.block_count);
+
+    var out: [2 * block_size]u8 = undefined;
+    try image.readBlocks(11703, &out);
+    try std.testing.expectEqual('b', out[0]);
+    try std.testing.expectEqual('c', out[block_size]);
+    // The track holds nothing before its first sector, or past its last.
+    try std.testing.expectError(error.EndOfImage, image.readBlocks(0, &out));
+    try std.testing.expectError(error.EndOfImage, image.readBlocks(11704, &out));
+    try std.testing.expect(!try image.hasForm2(11702, 3));
 }
 
 test "sectors without a logical block are rejected" {

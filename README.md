@@ -76,7 +76,7 @@ The `sltool` utility, included with `openreliant` in each release, inspects, exp
 
 | Command | Description | Documentation |
 |---|---|---|
-| `sltool cd` | Inspect CD images, ISO 9660 filesystems and Xbox discs | [disc-images](docs/formats/disc-images.md), [xbox](docs/formats/xbox.md) |
+| `sltool cd` | Inspect CD images, ISO 9660 filesystems, DiscJuggler `.cdi` images and Xbox discs | [disc-images](docs/formats/disc-images.md), [xbox](docs/formats/xbox.md) |
 | `sltool hog` | Extract and pack `.HOG` archives (`BIGF` container / RefPack) | [hog](docs/formats/hog.md), [refpack](docs/formats/refpack.md) |
 | `sltool shp` | Inspect `.SHP` 3D models; export Wavefront OBJ or glTF; build a mod's model from OBJ or glTF | [shp](docs/formats/shp.md) |
 | `sltool spr` | Inspect `.SPR` 2D interface sprites; export PNG | [spr](docs/formats/spr.md) |
@@ -88,6 +88,7 @@ The `sltool` utility, included with `openreliant` in each release, inspects, exp
 | `sltool dte` | List a `.DTE` mission's ships, triggers and script parts; disassemble its bytecode | [dte](docs/formats/dte.md) |
 | `sltool save` | Show what saved games hold | [save](docs/formats/save.md) |
 | `sltool stats` | Parse ship, weapon, and pilot stat tables | [stats](docs/formats/stats.md) |
+| `sltool dreamcast` | Read the Dreamcast version's text tables and texture cache; export its textures to PNG | [dreamcast](docs/formats/dreamcast.md) |
 | `sltool trek` | Read Star Trek: Invasion's archive, missions and models; its missions share StarLancer's format | [star-trek-invasion](docs/games/star-trek-invasion.md) |
 | `sltool bsg` | Read Battlestar Galactica's missions, its command catalogue and its comms films; its missions keep StarLancer's records | [battlestar-galactica](docs/games/battlestar-galactica.md) |
 | `sltool tim` | Convert PlayStation TIM pictures to PNG | [playstation](docs/formats/playstation.md) |

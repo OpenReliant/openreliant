@@ -10,6 +10,7 @@ const version = @import("version");
 // The commands' files are `pub`, so that the test block at the end runs their tests.
 pub const bsg = @import("bsg.zig");
 pub const cd = @import("cd.zig");
+pub const dreamcast = @import("dreamcast.zig");
 pub const dte = @import("dte.zig");
 pub const fat = @import("fat.zig");
 pub const fm8 = @import("fm8.zig");
@@ -75,6 +76,33 @@ pub const Count = struct {
     }
 };
 
+/// Names for files written into one folder, so that a later file never overwrites an earlier one
+/// of the same name: a repeated name gets a `~N` suffix before its extension, such as
+/// `dest~2.SHP`. Names are compared without regard to case, as some filesystems compare them.
+pub const UniqueNames = struct {
+    taken: std.StringHashMapUnmanaged(void) = .empty,
+    /// How many names got a suffix.
+    renamed: usize = 0,
+
+    /// `name`, or `name` with a suffix if an earlier file took it.
+    pub fn of(names: *UniqueNames, arena: std.mem.Allocator, name: []const u8) ![]const u8 {
+        var unique = name;
+        var attempt: usize = 2;
+        while (try names.taken.fetchPut(arena, try std.ascii.allocLowerString(arena, unique), {}) != null) : (attempt += 1) {
+            const dot = std.mem.findScalarLast(u8, name, '.') orelse name.len;
+            unique = try arena.print("{s}~{d}{s}", .{ name[0..dot], attempt, name[dot..] });
+            if (attempt == 2) names.renamed += 1;
+        }
+        return unique;
+    }
+
+    /// Says how many files got a suffix, if any did.
+    pub fn report(names: UniqueNames, ctx: Context, comptime noun: []const u8) !void {
+        if (names.renamed == 0) return;
+        try ctx.stdout.print("{f} shared a name with an earlier one and got a ~N suffix\n", .{count(names.renamed, noun)});
+    }
+};
+
 /// The verb of a group's command, the first of `args`, and the operands after it. `Group` is a
 /// group's command type, a union with a field for each verb.
 pub fn verbOf(comptime Group: type, args: []const [:0]const u8) error{Usage}!struct { std.meta.Tag(Group), []const [:0]const u8 } {
@@ -97,6 +125,7 @@ pub fn positional(comptime Group: type, comptime verb: std.meta.Tag(Group), oper
 const Command = union(enum) {
     bsg: bsg.Command,
     cd: cd.Command,
+    dreamcast: dreamcast.Command,
     dte: dte.Command,
     fat: fat.Command,
     fm8: fm8.Command,
@@ -121,7 +150,7 @@ const Command = union(enum) {
         \\
         \\commands:
         \\
-    ++ bsg.Command.usage ++ cd.Command.usage ++ dte.Command.usage ++ fat.Command.usage ++ fm8.Command.usage ++ fnt.Command.usage ++ hog.Command.usage ++ save.Command.usage ++ shp.Command.usage ++ speech.Command.usage ++ spr.Command.usage ++ stats.Command.usage ++ tcache.Command.usage ++ tim.Command.usage ++ trek.Command.usage ++
+    ++ bsg.Command.usage ++ cd.Command.usage ++ dreamcast.Command.usage ++ dte.Command.usage ++ fat.Command.usage ++ fm8.Command.usage ++ fnt.Command.usage ++ hog.Command.usage ++ save.Command.usage ++ shp.Command.usage ++ speech.Command.usage ++ spr.Command.usage ++ stats.Command.usage ++ tcache.Command.usage ++ tim.Command.usage ++ trek.Command.usage ++
         \\  help                            show this text
         \\  --version                       show the version
         \\
@@ -220,6 +249,17 @@ test Command {
     const extract = try Command.parse(&.{ "cd", "extract", "disc.bin", "out" });
     try std.testing.expectEqualStrings("disc.bin", extract.cd.extract.image);
     try std.testing.expectEqualStrings("out", extract.cd.extract.out_dir);
+}
+
+test UniqueNames {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var names: UniqueNames = .{};
+    try std.testing.expectEqualStrings("dest.SHP", try names.of(arena.allocator(), "dest.SHP"));
+    try std.testing.expectEqualStrings("DEST~2.shp", try names.of(arena.allocator(), "DEST.shp"));
+    try std.testing.expectEqualStrings("README", try names.of(arena.allocator(), "README"));
+    try std.testing.expectEqualStrings("README~2", try names.of(arena.allocator(), "README"));
+    try std.testing.expectEqual(2, names.renamed);
 }
 
 test count {

@@ -78,7 +78,7 @@ pub const Volume = struct {
     /// The volume on `image`; `error.NotXdvdfs` where it holds none.
     pub fn open(image: cdimage.Image) !Volume {
         var block: [block_size]u8 = undefined;
-        image.readBlocks(descriptor_sector, &block) catch |err| switch (err) {
+        image.readBlocks(image.first_lba + descriptor_sector, &block) catch |err| switch (err) {
             error.EndOfImage => return error.NotXdvdfs,
             else => |e| return e,
         };
