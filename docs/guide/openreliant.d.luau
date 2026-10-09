@@ -584,6 +584,16 @@ declare class CampaignMission
     debriefing: Debriefing
     news: { NewsItem }
     video_reports: { VideoReport }
+    wing_twins: boolean
+    flying_tigers: boolean
+    second_part: boolean
+    kamov_wing: boolean
+    close_ion_cannons: boolean
+    hurried_turrets: boolean
+    ripper_from_below: boolean
+    wide_advanced_gate: boolean
+    counts_kills: boolean
+    terminate_ends_well: boolean
 end
 type Records = {
     ships: { [number | string]: Ship },

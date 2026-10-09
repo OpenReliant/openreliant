@@ -481,12 +481,12 @@ const missile_cone: f32 = 0.7;
 const missile_band: f32 = 0.1;
 const missile_turn: f32 = 0.1;
 
-/// The odds a missile turret launches each time it may (`0x004DC3F8`), and how long it waits after
-/// (1000 ticks in mission 28).
+/// The odds a missile turret launches each time it may (`0x004DC3F8`), and how long it waits after:
+/// 1000 ticks in a mission whose rules say so (`gameflow.CampaignMission.Rules.hurried_turrets`,
+/// mission 28 in the original).
 const launch_odds: f32 = 0.2;
 const launch_wait: i32 = 2000;
 const hurried_launch_wait: i32 = 1000;
-const hurried_mission = 28;
 
 /// A missile turret's waits: to look again once it drops its target; empty, before it reloads;
 /// and while its launcher plays its `reload` track forward and back. Then it holds `load` missiles.
@@ -554,7 +554,7 @@ fn missileStep(world: gameobj.World, index: u16, launcher: *Launcher) void {
                 missiles.launchFromTurret(world, index, model, launcher.launcher, launcher.target);
                 launcher.missiles -= 1;
             }
-            launcher.until = now + if (world.objects.mission_number == hurried_mission) hurried_launch_wait else launch_wait;
+            launcher.until = now + if (world.objects.rules().hurried_turrets) hurried_launch_wait else launch_wait;
         },
         .empty => if (launcher.until < now) {
             launcher.state = .loading;

@@ -376,17 +376,18 @@ pub fn createShip(game: aigeneric.Context, bound: *const mission.Mission, index:
     if (ship.pilotRecord()) |pilot| pilots.setPilot(&slot.object, pilot);
 }
 
-/// The type `mission_ship_create` asks for a mission ship of: its kind, save that from
-/// `create.twins_from_mission` on a ship of the player's wing flies the `t_` twin of its kind, or
-/// a Kamov in mission 25's first part.
+/// The type `mission_ship_create` asks for a mission ship of: its kind, save that a ship of the
+/// player's wing flies the `t_` twin of its kind in a mission whose rules say so (`wing_twins`,
+/// from mission 14 in the original), or a Kamov in mission 25's first part
+/// (`create.Objects.kamovPart`).
 ///
-/// **Fix:** from `create.twins_from_mission` on, the game takes a ship of the player's wing whose
-/// kind is none of the player's ships for the object in the slot its record's address gives, and
-/// reads the wing of a ship in no flight group from past the groups; OpenReliant makes the first of
-/// its own kind, and takes the second for a ship of no wing.
+/// **Fix:** in those missions, the game takes a ship of the player's wing whose kind is none of
+/// the player's ships for the object in the slot its record's address gives, and reads the wing of
+/// a ship in no flight group from past the groups; OpenReliant makes the first of its own kind, and
+/// takes the second for a ship of no wing.
 fn shipType(all: *const create.Objects, bound: *const mission.Mission, ship: dte.Ship) gameobj.Type {
     const kind: gameobj.Type = @fromBackingInt(ship.kind);
-    if (all.mission_number < create.twins_from_mission) return kind;
+    if (!all.rules().wing_twins) return kind;
     const group = bound.flightGroup(ship.flightGroup() orelse return kind) orelse return kind;
     if (group.wing != .player) return kind;
     if (all.kamovPart()) return .of(.kamov);
@@ -2517,10 +2518,10 @@ test shipType {
     // Before the 14th mission every ship is of its kind.
     try std.testing.expectEqual(gameobj.Type.of(.grendel), shipType(all, &bound, ships[0]));
     // From it on, the player's wing flies the twins, and mission 25's first part a Kamov.
-    all.mission_number = create.twins_from_mission;
+    all.mission_number = 14;
     try std.testing.expectEqual(gameobj.Type.of(.grendel).twin().?, shipType(all, &bound, ships[0]));
     try std.testing.expectEqual(gameobj.Type.of(.grendel), shipType(all, &bound, ships[1]));
-    all.mission_number = create.kamov_mission;
+    all.mission_number = 25;
     try std.testing.expectEqual(gameobj.Type.of(.kamov), shipType(all, &bound, ships[0]));
 }
 

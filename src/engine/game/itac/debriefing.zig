@@ -230,10 +230,7 @@ pub const Debriefing = struct {
             writer.writeAll(between) catch {};
             writer.writeAll(itac.string(pickup_texts[@min(record.pickups, pickup_texts.len - 1)])) catch {};
         } else {
-            for (textOf(record, number), 0..) |paragraph, n| {
-                if (n > 0) writer.writeAll(between) catch {};
-                writer.writeAll(itac.words(paragraph)) catch {};
-            }
+            itac.writeParagraphsTo(&writer, textOf(record, number));
             if (gameflow.campaignField(number, .medal)) |medal| if (record.rating == .success_bonus) addParagraph(&writer, itac, medal_texts[@backingInt(medal)]);
             if (record.promotion) |rank| addParagraph(&writer, itac, promotion_texts[rank]);
             if (gameflow.campaignField(number, .chapter)) |ribbon| addParagraph(&writer, itac, ribbon_texts[ribbon]);
@@ -367,8 +364,7 @@ fn ratingOf(record: gameflow.MissionRecord) usize {
 /// The paragraphs of mission `number`'s debriefing for the rating its record has
 /// (`gameflow.CampaignMission.debriefing`).
 fn textOf(record: gameflow.MissionRecord, number: u16) []const language.Words {
-    const settings = gameflow.campaignMission(number) orelse return &.{};
-    return settings.debriefing[ratingOf(record)];
+    return gameflow.campaignField(number, .debriefing)[ratingOf(record)];
 }
 
 /// A paragraph of the ITAC's string `id` after those written.

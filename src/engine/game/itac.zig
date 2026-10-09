@@ -1193,12 +1193,18 @@ pub const Itac = struct {
     /// `0x00450A90`), and lets `box` scroll as far as they reach; how much of `text` they take.
     pub fn writeParagraphs(itac: *Itac, text: []u8, paragraphs: []const language.Words, box: *ScrollBox) usize {
         var writer: std.Io.Writer = .fixed(text);
+        itac.writeParagraphsTo(&writer, paragraphs);
+        itac.fitText(box, text[0..writer.end]);
+        return writer.end;
+    }
+
+    /// Writes `paragraphs` to `writer`, a blank line between each two. What doesn't fit is left
+    /// out.
+    pub fn writeParagraphsTo(itac: *Itac, writer: *std.Io.Writer, paragraphs: []const language.Words) void {
         for (paragraphs, 0..) |paragraph, n| {
             if (n > 0) writer.writeAll(between) catch {};
             writer.writeAll(itac.words(paragraph)) catch {};
         }
-        itac.fitText(box, text[0..writer.end]);
-        return writer.end;
     }
 
     /// Lets `box` scroll as far as `text` reaches, broken into its lines in the small font.

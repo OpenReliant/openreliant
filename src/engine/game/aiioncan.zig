@@ -75,9 +75,10 @@ const aimed: f32 = 0.9063;
 const lock_cone: f64 = 0.90631;
 
 /// How close a player's ship may come to where the beam leaves, across the world's X and Z axes,
-/// before the lock breaks: closer in mission `close_mission` (`0x0040D74B`, `0x0040D758`).
+/// before the lock breaks: closer in a mission whose rules say so
+/// (`gameflow.CampaignMission.Rules.close_ion_cannons`, mission 28 in the original;
+/// `0x0040D74B`, `0x0040D758`).
 const nearest_player: f32 = 8000;
-const close_mission = 28;
 const close_mission_nearest: f32 = 110000;
 
 /// How long the cannon searches for its lock, in ticks, before it gives up (`0x0040D866`).
@@ -859,7 +860,7 @@ fn lockBreaks(world: gameobj.World, target: *const create.Slot, target_index: u1
     var breaks = target.object.flags.cloaked;
     if (math.distance(from, at) > kind.reach) breaks = true;
     if (target_index < world.objects.players) {
-        const nearest = if (world.objects.mission_number == close_mission) close_mission_nearest else nearest_player;
+        const nearest = if (world.objects.rules().close_ion_cannons) close_mission_nearest else nearest_player;
         if (math.distance(.{ from[0], 0, from[2] }, .{ at[0], 0, at[2] }) < nearest) breaks = true;
     }
     if (off < lock_cone) breaks = true;

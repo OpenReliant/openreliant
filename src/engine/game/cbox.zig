@@ -106,8 +106,8 @@ pub const Line = union(enum) {
     coded: Speech,
     recorded: wave.Wave,
 
-    /// `bytes`, a WAVE file where they start as one does, or else a speech file
-    /// (`Speech.parse`); null for neither, or for a WAVE file the decoder can't read.
+    /// `bytes` as a WAVE file if they start like one, or else as a speech file (`Speech.parse`);
+    /// null for neither, or for a WAVE file the decoder can't read.
     pub fn parse(bytes: []u8) ?Line {
         if (std.mem.startsWith(u8, bytes, "RIFF")) {
             const recorded = wave.Wave.parse(bytes) catch return null;
@@ -249,9 +249,9 @@ pub fn decode(gpa: Allocator, speech: Speech, peaks: Style.Peaks) Allocator.Erro
     return out;
 }
 
-/// `line` decoded, as loud as `style` has it after a recording `follows` LUFS loud, as a WAVE
-/// file of 16-bit PCM made in `gpa`. A recording keeps its rate and channels, and its peaks, which
-/// it holds within full scale already.
+/// `line` decoded into a WAVE file of 16-bit PCM made in `gpa`. Where `style` matches the levels
+/// and a recording came before it, `follows` LUFS loud, the line is brought down to that loudness.
+/// A recording keeps its rate and channels, and its peaks, which are within full scale already.
 fn prepared(gpa: Allocator, line: Line, style: Style, follows: ?f32) (Allocator.Error || wave.Decoder.Error)![]u8 {
     const samples, const channels = switch (line) {
         .coded => |speech| .{ try decode(gpa, speech, style.peaks), 1 },

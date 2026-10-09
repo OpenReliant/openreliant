@@ -278,7 +278,7 @@ Not ported: a multiplayer game's pages and the chat line they type in (`chat_typ
 
 The game has the pilots speak by themselves on the radio. Moose makes the squadron's remarks: pilot
 2 of the pilots' table, the 45th Tigers' Moose, after mission 13, and pilot 4, the 45th Volunteers',
-through it. `0x00453A50` picks a line of a table at random by `rand`. Unless it says otherwise
+through it ([Rules by mission number](missions.md#rules-by-mission-number)). `0x00453A50` picks a line of a table at random by `rand`. Unless it says otherwise
 below, each is said talking, the film looping (flags 5), queued (mode 1) and kept for good; mode 2
 queues it only while the radio is free.
 

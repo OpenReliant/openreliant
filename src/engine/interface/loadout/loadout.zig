@@ -113,11 +113,11 @@ pub const Context = struct {
         return context.tutorial and context.teaches();
     }
 
-    /// Whether the mission's loadout teaches (`gameflow.CampaignMission.lesson`, mission 1 in the
-    /// original). It then starts on the Predator with the tier's missiles, even with the lesson
-    /// turned off.
+    /// Whether the mission's loadout teaches (`gameflow.CampaignMission.Rules.lesson`, mission 1
+    /// in the original). It then starts on the Predator with the tier's missiles, even with the
+    /// lesson turned off.
     fn teaches(context: Context) bool {
-        return gameflow.campaignField(context.mission, .lesson);
+        return gameflow.campaignField(context.mission, .rules).lesson;
     }
 
     /// The only ship the mission's loadout offers, if any (`gameflow.CampaignMission.only_ship`).

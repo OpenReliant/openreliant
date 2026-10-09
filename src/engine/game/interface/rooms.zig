@@ -175,11 +175,10 @@ pub const Carrier = enum {
     reliant,
     yamato,
 
-    /// Mission `mission`'s: the campaign's for one of its missions (`gameflow.campaignMission`),
-    /// and the original's for any other.
+    /// Mission `mission`'s: the campaign's for one of its missions, and the original's for any
+    /// other (`gameflow.campaignField`).
     pub fn of(mission: u16) Carrier {
-        if (gameflow.campaignMission(mission)) |settings| return settings.carrier;
-        return .original(mission);
+        return gameflow.campaignField(mission, .carrier);
     }
 
     /// The original's: the Reliant up to mission 18, the Yamato after it (`0x0043A04C`).

@@ -514,8 +514,9 @@ dying. The game keeps them in `pilots\pilots.hog`, and `sltool hog ls pilots/pil
 names.
 
 A film with the name of one of the game's replaces it. The game plays the 45th's films under the
-squadron's name: the 45th Volunteers' through mission 13, and the 45th Tigers' from mission 14
-([Face films](../formats/fm8.md#playing)). So replace both, such as `45Volntrs_Moose.fm8` and
+squadron's name: the 45th Volunteers' through mission 13, and the 45th Tigers' from mission 14,
+or as a mission's `flying_tigers` says ([Face films](../formats/fm8.md#playing), [Each mission of
+the campaign](scripting.md#each-mission-of-the-campaign)). So replace both, such as `45Volntrs_Moose.fm8` and
 `45Tigers_Moose.fm8`. [`examples/mods/trent`](../../examples/mods/trent) gives Moose a new face this
 way, and renames him from a load script ([The records](scripting.md#the-records)).
 
@@ -532,10 +533,10 @@ The game keeps its lines in `ms_speech\msspeech.hog`, under names without an ext
 ms_speech/msspeech.hog lines` saves every line as a WAV file, to find the one to replace.
 
 A mod's line is best a recording, a WAV or MP3 file named after the line: `abrt_001.wav` or
-`abrt_001.mp3` replaces `ABRT_001`. It plays as recorded, at its own rate, mono or stereo, through
-the same style as the game's lines: the radio's room, and a briefing's last word matched to the
-narration's loudness. WAV files hold 16-bit or 8-bit PCM or IMA ADPCM, as audio editors write by
-default. MP3 is about a fifth the size of WAV: 64 kbit/s suits speech. Enriquez's scenes in the
+`abrt_001.mp3` replaces `ABRT_001`. It plays as recorded, at its own rate, mono or stereo, with
+the same effects as the game's lines: the radio's sound for a radio line, and a briefing's last word
+at the narration's loudness. WAV files can hold 16-bit or 8-bit PCM or IMA ADPCM, which audio
+editors write by default. MP3 is about a fifth the size of WAV: 64 kbit/s suits speech. Enriquez's scenes in the
 induction and the news reports take recordings too, named after the scene without `.box`, such as
 `0015.mp3` for `0015.box`.
 

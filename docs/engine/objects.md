@@ -618,7 +618,8 @@ voice, and goes in one of three styles, by `object_random15` over 3; the torpedo
 Having picked its style, a ship credits its end (`explode_kill_credit`, `0x00408500`): where the
 player's ship struck it last (`last_attacker`) and it is hostile, and a fighter by its type's class,
 a Kamov, a Kurgan or a Gurevich, the pilot has another kill (`kills_add`, which the display's skull
-readout shows), and a wingman remarks on it. It does this only while `kill_credit_on`
+readout shows, and which counts toward the mission's own tally up to mission 27, [Rules by mission
+number](missions.md#rules-by-mission-number)), and a wingman remarks on it. It does this only while `kill_credit_on`
 (`0x00529C6C`) is set, as a mission's start leaves it and the radio's menu can clear it
 ([The menu](radio.md#the-menu)).
 

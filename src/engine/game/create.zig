@@ -29,6 +29,7 @@ const cloak = @import("cloak.zig");
 const aigeneric = @import("aigeneric.zig");
 const collision = @import("collision.zig");
 const gameobj = @import("gameobj.zig");
+const gameflow = @import("gameflow.zig");
 const guns = @import("guns.zig");
 const missiles = @import("missiles.zig");
 const WingSlots = @import("mission.zig").WingSlots;
@@ -718,11 +719,9 @@ pub const Objects = struct {
     /// lately taken.
     damage_cleared_at: u32 = 0,
     /// `mission_number` (`0x00562DC8`): the number of the mission being played, from 1, or 0 for
-    /// OpenReliant's mission 0. A few of the game's rules single a mission out by it:
-    /// `create_object` and `mission_ship_create` give the player's wing the `t_` twins of the
-    /// player's ships from `twins_from_mission` on, the turrets launch their missiles sooner in
-    /// mission 28, the launch's caption and the objectives go by it, and the training missions
-    /// (`training`) have rules of their own.
+    /// OpenReliant's mission 0. The game singles some missions out by it, which OpenReliant asks of
+    /// the mission's settings instead (`rules`). The launch's caption and the objectives go by it,
+    /// and Instant Action's mission and the training missions (`training`) have rules of their own.
     mission_number: u16 = 0,
     /// `mission25_second_part` (`0x00587CDC`): whether mission 25's first part is won and its
     /// second is played, before which the player flies a Kamov.
@@ -841,18 +840,25 @@ pub const Objects = struct {
         return .{ .tier = tier };
     }
 
-    /// Whether the mission is mission 25's first part, in which the player's wing flies Kamovs.
+    /// The rules the mission played follows (`gameflow.campaignField`).
+    pub fn rules(all: *const Objects) gameflow.CampaignMission.Rules {
+        return gameflow.campaignField(all.mission_number, .rules);
+    }
+
+    /// Whether the player's wing flies Kamovs: in a mission whose rules say so, mission 25 in the
+    /// original, but not in its second part.
     pub fn kamovPart(all: *const Objects) bool {
-        return all.mission_number == kamov_mission and !all.mission25_second_part;
+        return all.rules().kamov_wing and !all.mission25_second_part;
     }
 
     /// The type `create_object` makes an object asked for as `asked` of in slot `index`: in a
-    /// player's slot, a Kamov in mission 25's first part, or else the ship the loadout chose, its
-    /// `t_` twin from `twins_from_mission` on; in any other slot, `asked`.
+    /// player's slot, a Kamov in mission 25's first part (`kamovPart`), or else the ship the
+    /// loadout chose, its `t_` twin in a mission whose rules say so (`wing_twins`, from mission 14
+    /// in the original); in any other slot, `asked`.
     ///
     /// Left out: in the simulator's training, a Yamato the loadout chose becomes a Reliant
     /// (`0x00466CDF`), which never happens: the training puts the player in a Grendel, and its
-    /// missions come after `twins_from_mission`, where the type is the twin already.
+    /// missions fly the twins, so the type is the twin already.
     ///
     /// Not ported: a multiplayer game, where every slot takes `asked`
     /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
@@ -860,7 +866,7 @@ pub const Objects = struct {
         if (index >= all.players or index >= all.loadout_ships.len) return asked;
         if (all.kamovPart()) return .of(.kamov);
         const chosen = all.loadout_ships[index] orelse return asked;
-        if (all.mission_number < twins_from_mission) return chosen;
+        if (!all.rules().wing_twins) return chosen;
         return chosen.twin() orelse chosen;
     }
 
@@ -912,12 +918,6 @@ pub const Objects = struct {
 
 /// The players' loadouts `player_loadouts` (`0x00588400`) holds, a slot each.
 pub const max_loadouts = 8;
-
-/// The first mission in which the player's wing flies the `t_` twins of the player's ships, and the
-/// mission whose first part has the player fly a Kamov (immediates in `create_object` and
-/// `mission_ship_create`).
-pub const twins_from_mission = 14;
-pub const kamov_mission = 25;
 
 /// The training missions, the first and the last (immediates in `cmd_SetInvulnerability_ship` and
 /// `permission_to_land`).
@@ -2214,9 +2214,9 @@ test "Objects.slotType" {
     try std.testing.expectEqual(gameobj.Type.of(.reaper), all.slotType(0, .of(.grendel)));
     try std.testing.expectEqual(gameobj.Type.of(.sabre), all.slotType(1, .of(.sabre)));
     // From the 14th mission on the loadout's twin, and in mission 25's first part a Kamov.
-    all.mission_number = twins_from_mission;
+    all.mission_number = 14;
     try std.testing.expectEqual(gameobj.Type.of(.reaper).twin().?, all.slotType(0, .of(.grendel)));
-    all.mission_number = kamov_mission;
+    all.mission_number = 25;
     try std.testing.expectEqual(gameobj.Type.of(.kamov), all.slotType(0, .of(.grendel)));
     all.mission25_second_part = true;
     try std.testing.expectEqual(gameobj.Type.of(.reaper).twin().?, all.slotType(0, .of(.grendel)));
@@ -2348,7 +2348,7 @@ test "a player's ship takes the racks its loadout fitted" {
     all.simulator = .{ .mode = .training };
     try std.testing.expectEqual(null, all.loadoutRacks(0));
     all.simulator = .{};
-    all.mission_number = kamov_mission;
+    all.mission_number = 25;
     try std.testing.expectEqual(null, all.createdRacks(0));
     try std.testing.expect(all.loadoutRacks(0) != null);
     // Another slot has none.

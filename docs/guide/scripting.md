@@ -1217,8 +1217,9 @@ records.campaign = campaign
 
 `records.missions` holds the campaign's settings for each of its missions, indexed by the
 mission's number: what the briefing room plays before it, the carrier it's flown from, the names of
-its objectives, the date the launch shows, what it awards, Enriquez's report and debriefing, and
-the ITAC's news. The game decides each of these by the mission's number. A mission's fields start with the game's values, and load scripts change
+its objectives, the date the launch shows, what it awards, Enriquez's report and debriefing, the
+ITAC's news, and the rules the game applies to particular missions. The game decides each of these
+by the mission's number. A mission's fields start with the game's values, and load scripts change
 them in place, as they do a record's. The [reference](reference.md#openreliantrecords) lists the
 fields.
 
@@ -1286,9 +1287,15 @@ records.missions[14].news = { { title = "Reliant survives ambush", paragraphs = 
   mission after it.
 - Reading `television_report`, `debriefing`, `news` or `video_reports` gives a new table with the
   game's text in it, which you can change and assign back.
-- Not yet in the records: the other rules the game applies by a mission's number
-  ([#985](https://github.com/OpenReliant/openreliant/issues/985)), and the KILLBOARD's pilots
-  ([#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
+- The rules the game applies to particular missions are fields too, each true or false: the wing's
+  `t_` twins from mission 14 (`wing_twins`), the Flying Tigers' name after mission 13
+  (`flying_tigers`), mission 25's `second_part` and Kamovs (`kamov_wing`), mission 28's
+  `close_ion_cannons`, `hurried_turrets` and `terminate_ends_well`, mission 26's
+  `ripper_from_below`, mission 8's `wide_advanced_gate`, and `counts_kills` up to mission 27. A
+  replacement campaign turns off the ones its missions don't want, such as mission 25's second part.
+- Not yet in the records: the landing, the chapters' news, the wing's pilots and the ITAC's
+  squadrons ([#1011](https://github.com/OpenReliant/openreliant/issues/1011)), and the KILLBOARD's
+  pilots ([#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
 
 ## Saved games
 

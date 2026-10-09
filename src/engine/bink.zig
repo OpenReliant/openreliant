@@ -68,8 +68,8 @@ pub const Codec = struct {
     }
 
     /// The MP3 file `bytes`, its frames (`formats/mp3.zig`) decoded by the MP3 decoder into a
-    /// WAVE file of 16-bit PCM at the first frame's rate and channels, made in `gpa`: as the rooms'
-    /// crew say their lines, and a mod's recorded speech.
+    /// WAVE file of 16-bit PCM at the first frame's rate and channels, made in `gpa`, for the
+    /// rooms' crew's lines and for a mod's recorded speech.
     pub fn decodeMp3(codec: Codec, gpa: Allocator, bytes: []const u8) (Error || error{NoFrames})![]u8 {
         var frames: mp3.Frames = .init(bytes);
         const opening = frames.next() orelse return error.NoFrames;

@@ -570,9 +570,10 @@ const drop_still: f32 = 0.05;
 /// OpenReliant takes this for it too.
 const grab_above: Vector = .{ 0, 2500, 0 };
 
-/// Where the Ripper lifts an object from below, in mission 26: 1000 under it (`0x0040FF32`).
+/// Where the Ripper lifts an object from below, in a mission whose rules say so
+/// (`gameflow.CampaignMission.Rules.ripper_from_below`, mission 26 in the original): 1000 under it
+/// (`0x0040FF32`).
 const grab_below: Vector = .{ 0, -1000, 0 };
-const below_mission = 26;
 
 /// How far the object is drawn toward the Ripper: to this far from it (`0x004104F3`).
 const lifted_to: f32 = 300;
@@ -719,7 +720,7 @@ pub fn grabInit(ctx: Context, index: u16) void {
     if (component) |part| {
         const place = object.partPlace(part) orelse object.drawn;
         state.at = place.point(grab_above);
-    } else if (all.mission_number == below_mission) {
+    } else if (all.rules().ripper_from_below) {
         state.at = object.drawn.point(grab_below);
         state.below = true;
     } else {

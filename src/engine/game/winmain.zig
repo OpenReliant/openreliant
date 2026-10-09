@@ -214,8 +214,12 @@ pub const mission_path_size = 32;
 /// `0x004AA40A`): `.\missions\mission<number>.dte`. Mission 25, once its first part is won
 /// (`mission25_second_part`, `0x00587CDC`), is `mission251.dte`, its second part; and in a
 /// multiplayer game mission 3 is `mission311.dte`.
+///
+/// **Improvement:** any mission whose rules give it a second part
+/// (`gameflow.CampaignMission.Rules.second_part`) has it in `mission<number>1.dte`, as mission 25
+/// has.
 pub fn missionPath(buffer: *[mission_path_size]u8, number: u16, second_part: bool, multiplayer: bool) []const u8 {
-    if (number == second_part_mission and second_part) return second_part_path;
+    if (second_part and gameflow.campaignField(number, .rules).second_part) return std.mem.print(buffer, "{s}{d}" ++ second_part_end ++ file_end, .{ path_start, number }) catch unreachable;
     if (number == multiplayer_mission and multiplayer) return multiplayer_path;
     return std.mem.print(buffer, "{s}{d}" ++ file_end, .{ path_start, number }) catch unreachable;
 }
@@ -224,12 +228,9 @@ pub fn missionPath(buffer: *[mission_path_size]u8, number: u16, second_part: boo
 const file_start = "mission";
 const file_end = ".dte";
 const path_start = ".\\missions\\" ++ file_start;
-/// Mission 25, whose second part is a file of its own (`0x00509728`), and the number `WinMain` takes
-/// for that part, which it makes mission 25's second part (`0x004AA43E`); and mission 3, whose
-/// multiplayer game is (`0x0050970C`).
-pub const second_part_mission = 25;
-pub const second_part_number = 251;
-const second_part_path = path_start ++ std.fmt.comptimePrint("{d}", .{second_part_number}) ++ file_end;
+/// What follows a mission's number in the name of its second part's file, as in `mission251.dte`
+/// (`0x00509728`); and mission 3, whose multiplayer game is a file of its own (`0x0050970C`).
+const second_part_end = "1";
 const multiplayer_mission = 3;
 const multiplayer_path = path_start ++ "311" ++ file_end;
 
@@ -285,14 +286,14 @@ pub const launch_wait = std.time.ns_per_s;
 /// before the Reliant's rooms (`vr_rooms`) (`0x004AA1BA` on). The music starts to fade out by
 /// `music_fade_step`, and the archive of the disc that holds the rooms opens
 /// (`rooms.Carrier.disc`). If the mission's settings ask for it
-/// (`gameflow.CampaignMission.induction`), a new pilot's intro (`new_intro`) and induction
+/// (`gameflow.CampaignMission.Rules.induction`), a new pilot's intro (`new_intro`) and induction
 /// (`interface.induction`) come first. The original does this before mission 1 (`0x004AA229`).
 pub const CampaignStart = struct {
     disc: disc.Number,
     induction: bool,
 
     pub fn of(mission: u16) CampaignStart {
-        return .{ .disc = rooms.Carrier.of(mission).disc(), .induction = gameflow.campaignField(mission, .induction) };
+        return .{ .disc = rooms.Carrier.of(mission).disc(), .induction = gameflow.campaignField(mission, .rules).induction };
     }
 };
 
@@ -306,8 +307,8 @@ test CampaignStart {
     try std.testing.expectEqual(CampaignStart{ .disc = .one, .induction = false }, CampaignStart.of(19));
     // A campaign that gives the induction to another mission.
     var missions = gameflow.CampaignMission.original;
-    missions[0].induction = false;
-    missions[4].induction = true;
+    missions[0].rules.induction = false;
+    missions[4].rules.induction = true;
     gameflow.installMissions(&missions);
     defer gameflow.installMissions(&gameflow.CampaignMission.original);
     try std.testing.expectEqual(CampaignStart{ .disc = .two, .induction = false }, CampaignStart.of(1));
@@ -332,13 +333,14 @@ test launchFade {
 
 /// Whether `WinMain` plays the landing (`play_landing_movie`, `xtrabits.landing`) after a mission
 /// it flew, number `mission`, ended as `ending` (`0x004AA4B2` on): not after the player's ship was
-/// destroyed, its pilot captured or the mission left, nor after mission 25's first part, which leads
-/// into its second (`second_part`); and not where a lobby launched the game (`lobby_launch`,
+/// destroyed, its pilot captured or the mission left, nor after the first part of a mission with
+/// two, mission 25 in the original, which leads into its second (`second_part`); and not where a
+/// lobby launched the game (`lobby_launch`,
 /// `0x00595C64`), as OpenReliant never is.
 pub fn landsAfter(ending: Ending, mission: u16, second_part: bool) bool {
     return switch (ending) {
         .destroyed, .captured, .left => false,
-        else => mission != second_part_mission or second_part,
+        else => !gameflow.campaignField(mission, .rules).second_part or second_part,
     };
 }
 
@@ -395,7 +397,7 @@ pub fn afterMission(campaign: *gameflow.Campaign, player: *input.Player, variabl
         .friendly_fire => return .{ .restart = execution.get(carrier) },
         else => {},
     }
-    if (mission == second_part_mission and !second_part.* and variables.mission_success != .total_failure) {
+    if (gameflow.campaignField(mission, .rules).second_part and !second_part.* and variables.mission_success != .total_failure) {
         second_part.* = true;
         return .second_part;
     }
@@ -538,6 +540,13 @@ test missionPath {
     try std.testing.expectEqualStrings(".\\missions\\mission3.dte", missionPath(&buffer, 3, false, false));
     try std.testing.expectEqualStrings(".\\missions\\mission311.dte", missionPath(&buffer, 3, false, true));
     try std.testing.expectEqualStrings(".\\missions\\mission65535.dte", missionPath(&buffer, 65535, false, false));
+    // A mission a mod gives a second part has it in a file of its own too.
+    var missions = gameflow.CampaignMission.original;
+    missions[26].rules.second_part = true;
+    gameflow.installMissions(&missions);
+    defer gameflow.installMissions(&gameflow.CampaignMission.original);
+    try std.testing.expectEqualStrings(".\\missions\\mission271.dte", missionPath(&buffer, 27, true, false));
+    try std.testing.expect(!landsAfter(.playing, 27, false));
 }
 
 /// The characters typed into the game's window (`typed_keys`, `0x005D547C`, and their count,

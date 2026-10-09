@@ -100,7 +100,7 @@ vertices after a centre vertex, two triangles for each segment between two rings
 
 A gate's tunnel is 344 or so times its size across at the mouth, each ring a sixth narrower than
 the last: `80 * 1.2^(8 - ring)` times the size, 70 for a proto gate's tunnel and 40 for an advanced
-gate's, 70 again in mission 8. The game works it out as `10 * 8 * 1.2^8 / (1.2^rings * rings)`
+gate's, 70 again in mission 8 ([Rules by mission number](missions.md#rules-by-mission-number)). The game works it out as `10 * 8 * 1.2^8 / (1.2^rings * rings)`
 times `1.2^(rings - ring) * rings * size`, in double precision.
 
 It is drawn with `warp128` (`ddwarp128` without a hardware renderer), added, by coordinates of its

@@ -832,7 +832,8 @@ those values.
 Ripper grabs target object (12) lifts its target aboard. Its init (`0x0040FD10`) makes the target
 invulnerable, takes the beams, flies the Ripper by `motion_plain`, held (`attached`), and has the two
 pass through each other. The Ripper stops 2500 above the target's component, in its frame, where the
-target names one; in mission 26, 1000 below the target, which it lifts from below; else at the
+target names one; in mission 26 ([Rules by mission number](missions.md#rules-by-mission-number)), 1000 below the target, which it lifts from
+below; else at the
 target. Its steps (`0x0040FF80`), each timed from its start:
 
 | Step | What happens |

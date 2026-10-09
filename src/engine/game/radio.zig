@@ -283,14 +283,23 @@ pub const Remarks = struct {
     kill_credit: bool = true,
 };
 
-/// Who makes the squadron's remarks: Moose, pilot 2 of the pilots' table, the 45th Tigers', after
-/// mission `hudmovie.last_volunteers_mission`, and pilot 4, the 45th Volunteers', through it
-/// (`0x0045681C`).
+/// Who makes the squadron's remarks: Moose, pilot 2 of the pilots' table, the 45th Tigers', where
+/// the 45th fly as the Flying Tigers, and pilot 4, the 45th Volunteers', otherwise (`0x0045681C`,
+/// `squadron`).
 const tigers_moose: u16 = @intCast(pilots.GamePilot.moose_tigers.number());
 const volunteers_moose: u16 = @intCast(pilots.GamePilot.moose_volunteers.number());
 
 fn moose(all: *const create.Objects) u16 {
-    return if (all.mission_number > hudmovie.last_volunteers_mission) tigers_moose else volunteers_moose;
+    return switch (squadron(all)) {
+        .volunteers => volunteers_moose,
+        .flying_tigers => tigers_moose,
+    };
+}
+
+/// The name the 45th fly under in the mission played
+/// (`gameflow.CampaignMission.Rules.flying_tigers`).
+fn squadron(all: *const create.Objects) hudmovie.Squadron {
+    return if (all.rules().flying_tigers) .flying_tigers else .volunteers;
 }
 
 /// `pick_line` (`0x00453A50`): one of `lines`, at random.
@@ -1178,7 +1187,7 @@ pub const Radio = struct {
     /// The film's timer for a frame of `ticks` (`hudmovie.Movie.run`): a film that held for its
     /// line, which is over, has stopped, and the window closes.
     pub fn runFilm(radio: *Radio, ctx: Context, ticks: u32) void {
-        if (!radio.movie.run(ticks, radio.speaking(ctx.sound), ctx.all.mission_number)) return;
+        if (!radio.movie.run(ticks, radio.speaking(ctx.sound), squadron(ctx.all))) return;
         if (ctx.windows) |windows| windows.close(.radio);
     }
 
@@ -1236,7 +1245,7 @@ pub const Radio = struct {
     /// started where a film was playing already; otherwise it waits for the window
     /// (`waitForWindow`).
     fn start(radio: *Radio, ctx: Context, film: []const u8, flags: hudmovie.Flags) void {
-        if (radio.movie.play(film, flags, ctx.all.mission_number)) radio.startLine(ctx.sound);
+        if (radio.movie.play(film, flags, squadron(ctx.all))) radio.startLine(ctx.sound);
     }
 
     /// The line said last (`line`) read from the archive, in place of the one before.

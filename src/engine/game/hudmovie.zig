@@ -22,10 +22,13 @@ pub const archive_path = "pilots/pilots.hog";
 /// is over while the line goes on, where the film holds for it (`Flags.hold`).
 pub const static_film = "pilots\\static.fm8";
 
-/// The last mission the 45th fly as the 45th Volunteers, and the films that change with the
-/// squadron's name: the Volunteers', and in the same order the Tigers' (`hudmovie_play`'s tables
-/// from `0x005026AC` and from `0x00502754`).
-pub const last_volunteers_mission = 13;
+/// The name the 45th fly under, which picks the version of their films (`squadronFilm`): the 45th
+/// Volunteers', or the 45th Flying Tigers' in a mission whose rules say so
+/// (`gameflow.CampaignMission.Rules.flying_tigers`, after mission 13 in the original).
+pub const Squadron = enum { volunteers, flying_tigers };
+
+/// The films that change with the squadron's name: the Volunteers', and in the same order the
+/// Tigers' (`hudmovie_play`'s tables from `0x005026AC` and from `0x00502754`).
 pub const volunteers = [_][]const u8{
     "pilots\\45volntrs_plt.fm8",   "pilots\\45volntrs_plt_l.fm8",   "pilots\\45volntrs_plt_d.fm8",
     "pilots\\45Volntrs_Moose.fm8", "pilots\\45Volntrs_Moose_l.fm8", "pilots\\45Volntrs_Moose_d.fm8",
@@ -68,11 +71,14 @@ pub const Flags = packed struct(u32) {
     }
 };
 
-/// The film `hudmovie_play` (`0x0048D23A`) plays for `name` in mission `mission`: through mission
-/// `last_volunteers_mission` a film of the 45th Tigers' as the 45th Volunteers', and after it the
-/// reverse, the names compared without regard to case.
-pub fn squadronFilm(name: []const u8, mission: u16) []const u8 {
-    const from: []const []const u8, const to: []const []const u8 = if (mission > last_volunteers_mission) .{ &volunteers, &tigers } else .{ &tigers, &volunteers };
+/// The film `hudmovie_play` (`0x0048D23A`) plays for `name` while the 45th fly as `squadron`: a
+/// film of the 45th Tigers' as the 45th Volunteers', or the reverse, the names compared without
+/// regard to case.
+pub fn squadronFilm(name: []const u8, squadron: Squadron) []const u8 {
+    const from: []const []const u8, const to: []const []const u8 = switch (squadron) {
+        .volunteers => .{ &tigers, &volunteers },
+        .flying_tigers => .{ &volunteers, &tigers },
+    };
     for (from, to) |was, becomes| {
         if (std.ascii.eqlIgnoreCase(name, was)) return becomes;
     }
@@ -154,15 +160,15 @@ pub const Movie = struct {
     }
 
     /// `hudmovie_play` (`0x0048D120`): plays the film at `path` (`pilots\<film>.fm8`) as `flags`
-    /// say, in the version for mission `mission`'s squadron (`squadronFilm`), and decodes its first
-    /// frame. Returns whether the line spoken with it starts at once, which it does when a film was
-    /// already playing, unless `flags.silent`. Otherwise the line waits for the window to open
-    /// (`waiting`).
+    /// say, in the version for the squadron's name, `squadron` (`squadronFilm`), and decodes its
+    /// first frame. Returns whether the line spoken with it starts at once, which it does when a
+    /// film was already playing, unless `flags.silent`. Otherwise the line waits for the window to
+    /// open (`waiting`).
     ///
     /// **Fix:** the game stops with a fatal error when `pilots.hog` lacks the film, and it lacks six
     /// films that the pilots' faces name. OpenReliant plays the dead channel's film in its place,
     /// and logs it when that film is missing too.
-    pub fn play(movie: *Movie, path: []const u8, flags: Flags, mission: u16) bool {
+    pub fn play(movie: *Movie, path: []const u8, flags: Flags, squadron: Squadron) bool {
         const now = movie.playing and !flags.silent;
         if (movie.playing) {
             movie.playing = false;
@@ -172,7 +178,7 @@ pub const Movie = struct {
             movie.waited = 0;
         }
         movie.flags = flags;
-        const chosen = squadronFilm(path, mission);
+        const chosen = squadronFilm(path, squadron);
         movie.load(chosen) catch |err| {
             log.warn("the radio's film {s} is left out: {s}", .{ chosen, @errorName(err) });
             movie.load(static_film) catch |static_err| {
@@ -283,7 +289,7 @@ pub const Movie = struct {
     ///
     /// **Fix:** the game frees the film and then reads on from it where one both holds and loops,
     /// which none does; OpenReliant stops it.
-    pub fn turn(movie: *Movie, speaking: bool, mission: u16) Turn {
+    pub fn turn(movie: *Movie, speaking: bool, squadron: Squadron) Turn {
         if (!movie.playing or movie.waiting) return .shown;
         if (movie.advance()) return .shown;
         if (movie.flags.hold) {
@@ -291,7 +297,7 @@ pub const Movie = struct {
                 movie.stop();
                 return .over;
             }
-            _ = movie.play(static_film, .static, mission);
+            _ = movie.play(static_film, .static, squadron);
         }
         if (!movie.flags.loop) return .shown;
         movie.next = 0;
@@ -302,12 +308,12 @@ pub const Movie = struct {
     /// The timer's turns for a frame of `ticks` of the game's clock: `talkie.frames_per_second`
     /// turns a second, which stand still while the game is paused. Whether a film has stopped with
     /// its line over, and the window is to close.
-    pub fn run(movie: *Movie, ticks: u32, speaking: bool, mission: u16) bool {
+    pub fn run(movie: *Movie, ticks: u32, speaking: bool, squadron: Squadron) bool {
         movie.timer += ticks * talkie.frames_per_second;
         var over = false;
         while (movie.timer >= ticks_per_second) {
             movie.timer -= ticks_per_second;
-            if (movie.turn(speaking, mission) == .over) over = true;
+            if (movie.turn(speaking, squadron) == .over) over = true;
         }
         return over;
     }
@@ -350,12 +356,11 @@ pub const testing = struct {
 };
 
 test squadronFilm {
-    // Through mission 13 the 45th are the Volunteers, and after it the Tigers, whichever the film
-    // names.
-    try std.testing.expectEqualStrings("pilots\\45volntrs_plt.fm8", squadronFilm("pilots\\45Tigers_Plt.fm8", 1));
-    try std.testing.expectEqualStrings("pilots\\45Tigers_Moose_d.fm8", squadronFilm("pilots\\45Volntrs_Moose_D.fm8", 14));
-    try std.testing.expectEqualStrings("pilots\\45Tigers_Plt.fm8", squadronFilm("pilots\\45Tigers_Plt.fm8", 14));
-    try std.testing.expectEqualStrings("pilots\\BUCC.fm8", squadronFilm("pilots\\BUCC.fm8", 1));
+    // The squadron's own film plays, whichever the film names.
+    try std.testing.expectEqualStrings("pilots\\45volntrs_plt.fm8", squadronFilm("pilots\\45Tigers_Plt.fm8", .volunteers));
+    try std.testing.expectEqualStrings("pilots\\45Tigers_Moose_d.fm8", squadronFilm("pilots\\45Volntrs_Moose_D.fm8", .flying_tigers));
+    try std.testing.expectEqualStrings("pilots\\45Tigers_Plt.fm8", squadronFilm("pilots\\45Tigers_Plt.fm8", .flying_tigers));
+    try std.testing.expectEqualStrings("pilots\\BUCC.fm8", squadronFilm("pilots\\BUCC.fm8", .volunteers));
 }
 
 test memberName {
@@ -379,36 +384,36 @@ test Movie {
     defer movie.deinit();
 
     // Started with none playing, a film waits with its line for the window, at its first frame.
-    try std.testing.expect(!movie.play("pilots\\BUCC.fm8", .once, 1));
+    try std.testing.expect(!movie.play("pilots\\BUCC.fm8", .once, .volunteers));
     try std.testing.expect(movie.playing and movie.waiting);
     try std.testing.expectEqual(1, movie.next);
     try std.testing.expectEqual([4]u8{ 0x40, 0x40, 0x40, 0xFF }, movie.rgba[0..4].*);
     try std.testing.expect(movie.picture.changed);
     // It stands still while it waits.
-    try std.testing.expect(!movie.run(100, true, 1));
+    try std.testing.expect(!movie.run(100, true, .volunteers));
     try std.testing.expectEqual(1, movie.next);
     movie.waiting = false;
 
     // Fifteen turns a second: a frame each 20 ticks of 3.
-    try std.testing.expect(!movie.run(6, true, 1));
+    try std.testing.expect(!movie.run(6, true, .volunteers));
     try std.testing.expectEqual(1, movie.next);
-    try std.testing.expect(!movie.run(1, true, 1));
+    try std.testing.expect(!movie.run(1, true, .volunteers));
     try std.testing.expectEqual(2, movie.next);
     // Once over, while its line goes on, the dead channel's film plays in its place, and loops.
-    _ = movie.run(14, true, 1);
+    _ = movie.run(14, true, .volunteers);
     try std.testing.expectEqual(Flags.static, movie.flags);
     try std.testing.expectEqual([4]u8{ 0x80, 0x80, 0x80, 0xFF }, movie.rgba[0..4].*);
-    _ = movie.run(40, true, 1);
+    _ = movie.run(40, true, .volunteers);
     try std.testing.expect(movie.playing);
     // Another film said now, with one playing, starts its line at once.
-    try std.testing.expect(movie.play("pilots\\BUCC.fm8", .once, 1));
+    try std.testing.expect(movie.play("pilots\\BUCC.fm8", .once, .volunteers));
     try std.testing.expect(!movie.waiting);
     // Over with its line over, it stops, and the window closes.
-    try std.testing.expect(movie.run(40, false, 1));
+    try std.testing.expect(movie.run(40, false, .volunteers));
     try std.testing.expect(!movie.playing);
 
     // A film the archive lacks plays as the dead channel's.
-    _ = movie.play("pilots\\nobody.fm8", .looping, 1);
+    _ = movie.play("pilots\\nobody.fm8", .looping, .volunteers);
     try std.testing.expect(movie.playing);
     try std.testing.expectEqual([4]u8{ 0x80, 0x80, 0x80, 0xFF }, movie.rgba[0..4].*);
     movie.stop();
@@ -429,12 +434,12 @@ test "a film of another size hands its texture back" {
         var movie: Movie = .openAt(gpa, io, tmp.dir, "pilots.hog");
         defer movie.deinit();
         // The window draws the film, which the device makes a texture of.
-        _ = movie.play("pilots\\small.fm8", .once, 1);
+        _ = movie.play("pilots\\small.fm8", .once, .volunteers);
         drawn.make(&movie.picture);
         // Another film of its size keeps the texture; one of another size hands it back.
-        _ = movie.play("pilots\\small.fm8", .once, 1);
+        _ = movie.play("pilots\\small.fm8", .once, .volunteers);
         try std.testing.expectEqual(0, drawn.released);
-        _ = movie.play("pilots\\large.fm8", .once, 1);
+        _ = movie.play("pilots\\large.fm8", .once, .volunteers);
         try std.testing.expectEqual(1, drawn.released);
         try std.testing.expectEqual(8, movie.picture.width());
         drawn.make(&movie.picture);
