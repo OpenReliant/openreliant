@@ -23,6 +23,7 @@ const missiles = @import("missiles.zig");
 const turrets = @import("turrets.zig");
 const instruments = @import("instruments.zig");
 const records = @import("records.zig");
+const missions = records.missions;
 const bind = @import("bind.zig");
 const script = @import("script.zig");
 const api = @import("api.zig");
@@ -335,6 +336,9 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         inline for (comptime values.shownFields(T)) |field| try w.print("    {s}: {s}\n", .{ field.name, comptime luauType(field.type) });
         try w.writeAll("end\n");
     }
+    try w.print("declare class {s}\n", .{missions.script_name});
+    inline for (comptime std.enums.values(missions.Field)) |field| try w.print("    {t}: {s}\n", .{ field, comptime luauType(field.Type()) });
+    try w.writeAll("end\n");
     try w.writeAll("type Records = {\n");
     inline for (comptime std.enums.values(records.Set)) |set| {
         const Element = set.Element();
@@ -343,6 +347,8 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     }
     try w.writeAll("    -- The campaign's missions, by their numbers, in the order it flies them. Load scripts change it by assigning a new list.\n");
     try w.writeAll("    campaign: { number },\n");
+    try w.writeAll("    -- What the campaign makes of each of its missions, by its number. Load scripts change their fields.\n");
+    try w.print("    missions: {{ [number]: {s} }},\n", .{missions.script_name});
     try w.writeAll("}\n");
 
     try w.writeAll("\n-- The packages made from declarations. `openreliant.self` is the script's own Object.\n");
@@ -764,6 +770,7 @@ fn writePackageSection(w: *Writer, comptime package: script.Package) Writer.Erro
     try w.print("\n### `{s}{t}`\n\n{s} For ", .{ script.Package.prefix, package, package.about() });
     try writePackageFamilies(w, package);
     try w.writeAll(" scripts.\n");
+    if (package == .records) try writeCampaignMission(w);
     const declared = comptime packages.namespace(package);
     if (declared == null) return;
     const Namespace = declared.?;
@@ -775,6 +782,14 @@ fn writePackageSection(w: *Writer, comptime package: script.Package) Writer.Erro
     inline for (comptime api.declared(Namespace, .function)) |name| {
         const function = @field(Namespace, name);
         try w.print("| `{s}` | {s} | {s} |\n", .{ comptime markdownCall(name, function), comptime markdownResult(function), function.description });
+    }
+}
+
+/// Writes the fields of a campaign mission (`records.missions`) on the reference page.
+fn writeCampaignMission(w: *Writer) Writer.Error!void {
+    try w.print("\nEach of the campaign's missions, `missions[n]`, is a `{s}` with these fields:\n\n| Field | Type | What it is |\n|---|---|---|\n", .{missions.script_name});
+    inline for (comptime std.enums.values(missions.Field)) |field| {
+        try w.print("| `{t}` | {s} | {s} |\n", .{ field, comptime markdownType(field.Type()), field.about() });
     }
 }
 

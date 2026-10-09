@@ -79,7 +79,7 @@ the buttons' tooltips, and every section.
 
 | | Use ITAC in the rooms | After a mission (`WinMain`, `0x004AA696`) |
 |---|---|---|
-| Opening | Sound 4 of `itacsnd.fat`, then the pilot's eye read, `itac_eye_recog.bik` from the disc, up to mission 18, or `inter\itac\itac open.bik` after it | None |
+| Opening | Sound 4 of `itacsnd.fat`, then, by the mission's carrier ([The carrier](rooms.md#the-carrier)), the pilot's eye read on the Reliant, `itac_eye_recog.bik` from the disc, or `inter\itac\itac open.bik` on the Yamato | None |
 | First section | NEWS REPORTS | DEBRIEFINGS, with REPLAY MISSION for the latest |
 | After | The rooms, from where the ITAC leaves the pilot | The rooms for the next mission, or with REPLAY MISSION the mission again |
 
@@ -89,7 +89,7 @@ sound 2 or 7 at `0x50`: the first between 500 and 700 game ticks later, each oth
 and 1300 after the last (`0x0043F654`).
 
 Escape, or the last button's movie in, closes it (`0x0043FA70`, `0x0043FADB`): the hum fades, sound
-6 plays at full volume, `inter\itac\itaclose.bik` plays after mission 18, and the screen holds until
+6 plays at full volume, `inter\itac\itaclose.bik` plays on the Yamato, and the screen holds until
 the sound has faded out. Every sound then ends. Escape leaves the section shown without its handler
 for leaving it.
 

@@ -156,10 +156,6 @@ const shroud_mission = 23;
 pub const predator = 0;
 const shroud = 10;
 
-/// The last mission whose loadout stands on the Reliant, before the Yamato's (`0x004426A0`,
-/// below `0x13`).
-const last_reliant_mission = 18;
-
 /// The loadout's near plane (`0x00442737`), where the briefing's is `srapi.in_flight_near`.
 ///
 /// Not ported: its far plane, 1000 (`sr + 0x16A2`), which OpenReliant's projection does without.
@@ -2675,11 +2671,11 @@ fn tierBefore(mission: u16) u2 {
     return tier;
 }
 
-/// The backdrop the loadout shows: the given carrier's (`Context.carrier`), or else by the
-/// mission's number, the Reliant's up to `last_reliant_mission` and the Yamato's after it
-/// (`0x004426A0`).
+/// The backdrop the loadout shows: the given carrier's (`Context.carrier`), or else the carrier
+/// of the mission (`rooms.Carrier.of`), which the original decides by the mission's number, the
+/// Reliant's up to mission 18 (`0x004426A0`, below `0x13`).
 fn backdrop(context: Context) []const u8 {
-    const carrier = context.carrier orelse if (context.mission <= last_reliant_mission) rooms.Carrier.reliant else .yamato;
+    const carrier = context.carrier orelse rooms.Carrier.of(context.mission);
     return switch (carrier) {
         .reliant => reliant_backdrop,
         .yamato => yamato_backdrop,

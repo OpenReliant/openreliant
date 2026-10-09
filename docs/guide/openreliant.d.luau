@@ -510,6 +510,14 @@ declare class Face
     squadron: string
     dying: string
 end
+declare class CampaignMission
+    hologram: string?
+    speech: string?
+    last_word: string?
+    carrier: Carrier
+    objectives: { string }
+    date: string?
+end
 type Records = {
     ships: { [number | string]: Ship },
     ship_types: { [number | string]: ShipTypeRecord },
@@ -521,6 +529,8 @@ type Records = {
     itac_text: { [number | string]: string },
     -- The campaign's missions, by their numbers, in the order it flies them. Load scripts change it by assigning a new list.
     campaign: { number },
+    -- What the campaign makes of each of its missions, by its number. Load scripts change their fields.
+    missions: { [number]: CampaignMission },
 }
 
 -- The packages made from declarations. `openreliant.self` is the script's own Object.

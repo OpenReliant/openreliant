@@ -1051,7 +1051,9 @@ the language string that names it, or -1 for none. Missions 1 to 35 have a row e
 second part the row after them; the display reads the row of the mission being flown. As
 `hud_init` readies the display for a mission (`objectives_reset`, `0x00499180`), the first objective
 of every row becomes the current one, each other with a name is listed, and the window shows the
-first (`objectives_shown`, `0x0056997E`):
+first (`objectives_shown`, `0x0056997E`). **Improvement:** a campaign mission takes the names its
+record gives its objectives, where a mod gives it any, and a game mode's mission the names the mode
+gives, in place of the row ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)):
 
 | State | Shown |
 |---|---|

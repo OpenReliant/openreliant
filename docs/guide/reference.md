@@ -64,7 +64,18 @@ OpenReliant's version, events for the global scripts, and game modes. For load, 
 
 ### `openreliant.records`
 
-The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, and the campaign's missions in the order it flies them (`campaign`). Only load scripts can change them. For load, global, object, player and menu scripts.
+The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), and what the campaign makes of each of them (`missions`). Only load scripts can change them. For load, global, object, player and menu scripts.
+
+Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with these fields:
+
+| Field | Type | What it is |
+|---|---|---|
+| `hologram` | string, or nil | The movie on the briefing room's screen, a Bink file of the game's or a mod's, such as `new_m01.bik`; nil for none. |
+| `speech` | string, or nil | Enriquez's words spoken over the briefing room in place of the movie, a speech file of the game's or a mod's, which end the briefing as they end; nil for none. Where there are words, they play, and the movie doesn't. |
+| `last_word` | string, or nil | Enriquez's last word after the loadout, a speech file such as `ms_speech\enrbr_tag01.ut`; nil leaves her silent. |
+| `carrier` | [Carrier](#carrier) | The carrier the mission is flown from, whose rooms, briefing room, loadout and hangar the player sees. |
+| `objectives` | list of string | The names of the objectives, which the mission's script numbers from 0 in `SetObjective`, at most ten. Reading gives a new list; assign a list to change them, or nil for the names the game's own table gives the mission's number. |
+| `date` | string, or nil | The date the launch shows, which is the game's text for the mission's number; nil for a mission the game has no date for. |
 
 ### `openreliant.hooks`
 

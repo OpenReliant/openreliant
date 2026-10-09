@@ -22,6 +22,9 @@ const Ending = @import("main.zig").Ending;
 const create = @import("create.zig");
 const hooks = @import("../hooks.zig");
 const movies = @import("xtrabits/movie.zig");
+const briefing = @import("interface/briefing.zig");
+const rooms = @import("interface/rooms.zig");
+const hud = @import("hud.zig");
 
 pub const save = @import("gameflow/save.zig");
 
@@ -518,6 +521,55 @@ pub fn campaignOrder() *const Order {
     return &installed;
 }
 
+/// What the campaign makes of one of its missions beyond the mission's file: what the briefing
+/// room plays before it, the carrier it's flown from, and the names of its objectives. The original
+/// decides each by the mission's number.
+///
+/// **Improvement:** OpenReliant keeps them in a table, by the mission's number, which mods change
+/// (`openreliant.records.missions`, [#976](https://github.com/OpenReliant/openreliant/issues/976)).
+pub const CampaignMission = struct {
+    briefing: briefing.Plan,
+    carrier: rooms.Carrier,
+    /// The names of its objectives in the game's code page, in place of its row of the game's
+    /// table (`hud.Objectives.reset`); null for the table's.
+    objectives: ?hud.Objectives.Names = null,
+
+    /// Each campaign mission's, by its number from 1, as the original has them.
+    pub const original: [last_mission]CampaignMission = missions: {
+        var missions: [last_mission]CampaignMission = undefined;
+        for (&missions, briefing.Plan.campaign, first_mission..) |*mission, plan, number| {
+            mission.* = .{ .briefing = plan, .carrier = .original(number) };
+        }
+        break :missions missions;
+    };
+};
+
+/// What the campaign makes of each of its missions, by its number from 1: the original's, until
+/// OpenReliant installs the records' (`installMissions`).
+var installed_missions: []const CampaignMission = &CampaignMission.original;
+
+/// Makes `missions` what the campaign makes of each of its missions, by its number from 1.
+/// OpenReliant installs the records' as it starts, which then hold them, so that the changes a game
+/// mode's records make for its missions come and go with them.
+pub fn installMissions(missions: []const CampaignMission) void {
+    installed_missions = missions;
+}
+
+/// What the campaign makes of mission `mission`; null for a number past the table's, such as
+/// Instant Action's or a training mission's.
+pub fn campaignMission(mission: u16) ?*const CampaignMission {
+    if (mission < first_mission or mission - first_mission >= installed_missions.len) return null;
+    return &installed_missions[mission - first_mission];
+}
+
+/// The names campaign mission `mission` gives its objectives, in place of its row of the game's
+/// table; null where it gives none.
+pub fn campaignObjectives(mission: u16) ?*const hud.Objectives.Names {
+    const settings = campaignMission(mission) orelse return null;
+    if (settings.objectives) |*names| return names;
+    return null;
+}
+
 /// The mission the campaign goes on to after mission `mission` (`Order.next`).
 pub fn nextMission(mission: u16) u16 {
     return installed.next(mission);
@@ -583,6 +635,62 @@ test Order {
     try std.testing.expectError(error.OutOfRange, Order.of(&.{ 1, story_end }));
     try std.testing.expectError(error.NotRising, Order.of(&.{ 1, 3, 2 }));
     try std.testing.expectError(error.NotRising, Order.of(&.{ 1, 1 }));
+}
+
+test "CampaignMission.original" {
+    for (CampaignMission.original, briefing.Plan.campaign, first_mission..) |mission, plan, number| {
+        try std.testing.expectEqual(plan, mission.briefing);
+        try std.testing.expectEqual(rooms.Carrier.original(@intCast(number)), mission.carrier);
+        try std.testing.expectEqual(null, mission.objectives);
+    }
+}
+
+test "the canon campaign's missions keep the rules OpenReliant 0.8 applied by number" {
+    // As 0.8 wrote them, by the mission's number: the Reliant up to mission 18, and its hangar's
+    // movies on the second disc; no objectives' names of the campaign's own; mission 1's movie for
+    // missions 12, 13, 17 and 22; and the last word for any number.
+    var hangar: movies.Hangar = .{};
+    for (0..1000) |number| {
+        const mission: u16 = @intCast(number);
+        const on_reliant = mission <= 18;
+        try std.testing.expectEqual(@as(rooms.Carrier, if (on_reliant) .reliant else .yamato), rooms.Carrier.of(mission));
+        const launch = hangar.next(mission);
+        try std.testing.expectEqual(@as(@TypeOf(launch.disc), if (on_reliant) .two else .one), launch.disc);
+        try std.testing.expectEqual(@as(u8, if (on_reliant) 'r' else 'y'), launch.name[0]);
+        try std.testing.expectEqual(null, campaignObjectives(mission));
+    }
+    for (CampaignMission.original, 1..) |mission, number| {
+        var movie: [16]u8 = undefined;
+        var tag: [32]u8 = undefined;
+        const shown: usize = switch (number) {
+            12, 13, 17, 22 => 1,
+            else => number,
+        };
+        try std.testing.expectEqualStrings(try std.fmt.bufPrint(&movie, "new_m{d:0>2}.bik", .{shown}), mission.briefing.hologram.?);
+        try std.testing.expectEqualStrings(try std.fmt.bufPrint(&tag, "ms_speech\\enrbr_tag{d:0>2}.ut", .{number}), mission.briefing.last_word.?);
+        try std.testing.expectEqual(null, mission.briefing.speech);
+    }
+}
+
+test installMissions {
+    var missions = CampaignMission.original;
+    missions[11].carrier = .yamato;
+    var names: hud.Objectives.Names = @splat(null);
+    names[0] = "Protect the Reliant";
+    missions[11].objectives = names;
+    installMissions(&missions);
+    defer installMissions(&CampaignMission.original);
+    // The carrier, and what follows it, comes from the installed table.
+    try std.testing.expectEqual(.yamato, rooms.Carrier.of(12));
+    try std.testing.expectEqual(.reliant, rooms.Carrier.of(11));
+    var hangar: movies.Hangar = .{};
+    try std.testing.expectEqualStrings("y_h_tb.bik", hangar.next(12).name);
+    try std.testing.expectEqualStrings("Protect the Reliant", campaignObjectives(12).?[0].?);
+    try std.testing.expectEqual(null, campaignObjectives(11));
+    // A number past the table's, such as Instant Action's, keeps the original's rule.
+    try std.testing.expectEqual(null, campaignMission(29));
+    try std.testing.expectEqual(.yamato, rooms.Carrier.of(29));
+    try std.testing.expectEqual(null, campaignMission(0));
 }
 
 test install {

@@ -22,7 +22,7 @@ The in-game options' SAVE and LOAD over the loadout open the saved games ([Front
 
 ## The briefing room
 
-The Reliant's briefing room serves up to mission 18, and the Yamato's after it:
+Each carrier has its briefing room, which serves the missions flown from it ([The carrier](rooms.md#the-carrier)): the Reliant's up to mission 18, and the Yamato's after it:
 
 | | Reliant | Yamato |
 |---|---|---|
@@ -71,7 +71,9 @@ In the last word, the animation runs up to frame 60 and stops there.
 
 ## The missions' movies
 
-The room's screen plays `%s.bik` of a table the briefing builds on its stack, indexed by the mission's number: `new_m01` to `new_m28`, missions 12, 13, 17 and 22, which the campaign has none of, taking mission 1's. A mod that puts them into the campaign still gets mission 1's ([#976](https://github.com/OpenReliant/openreliant/issues/976)). They lie on the disc of the mission's carrier: missions up to 18 on the second, the rest on the first.
+The room's screen plays `%s.bik` of a table the briefing builds on its stack, indexed by the mission's number: `new_m01` to `new_m28`, missions 12, 13, 17 and 22, which the campaign has none of, taking mission 1's. Enriquez's last word is `ms_speech\enrbr_tag%02d.ut` of the speech archive (`0x004E88C8`), for any mission's number. The movies lie on the disc of the mission's carrier ([The carrier](rooms.md#the-carrier)): the Reliant's on the second, the Yamato's on the first.
+
+**Improvement:** OpenReliant keeps each campaign mission's movie, last word and carrier in its records, the original's by default, which mods change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)). A mission can also have Enriquez's words spoken over the room in place of a movie, as at the campaign's end: the briefing ends when her words end, and the loadout and her last word follow.
 
 ## A game mode's briefing
 

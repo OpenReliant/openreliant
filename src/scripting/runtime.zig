@@ -57,6 +57,9 @@ pub const Tag = enum(luau.Tag) {
     missile = 8,
     /// A turret's handle (`turrets.Handle`).
     turret = 9,
+    /// The campaign's missions (`records.missions`), and one of them.
+    campaign_missions = 10,
+    campaign_mission = 11,
 };
 
 /// What an object script's context runs on: an object of the mission, a missile in flight, or a

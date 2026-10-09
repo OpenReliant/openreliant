@@ -39,7 +39,6 @@ const gameobj = openreliant.engine.game.gameobj;
 const pilots = openreliant.engine.game.pilots;
 const rooms = openreliant.engine.game.interface.rooms;
 const hud = openreliant.engine.game.hud;
-const language = openreliant.engine.game.language;
 const mods = openreliant.engine.game.bigfile.mods;
 const Mod = mods.Mod;
 const Ending = openreliant.engine.game.main.Ending;
@@ -427,23 +426,12 @@ fn entries(memory: Allocator, given: []const MissionGiven) (Allocator.Error || e
         .table => |table| .{
             .file = table.number,
             .number = table.as orelse table.number,
-            .objectives = if (table.objectives) |names| try objectiveNames(memory, names.slice()) else null,
+            .objectives = if (table.objectives) |names| try records.missions.objectiveNames(memory, names.slice()) else null,
             .hologram = if (table.hologram) |name| try memory.dupe(u8, name) else null,
             .last_word = if (table.last_word) |name| try memory.dupe(u8, name) else null,
         },
     };
     return kept;
-}
-
-fn objectiveNames(memory: Allocator, given: []const []const u8) (Allocator.Error || error{BadName})!hud.Objectives.Names {
-    var names: hud.Objectives.Names = @splat(null);
-    for (names[0..given.len], given) |*name, text| {
-        const characters = std.unicode.utf8CountCodepoints(text) catch return error.BadName;
-        if (characters > language.max_length) return error.BadName;
-        var buffer: [language.max_length]u8 = undefined;
-        name.* = try memory.dupe(u8, language.encode(&buffer, text));
-    }
-    return names;
 }
 
 /// What `openreliant.core` holds of game modes.
@@ -489,7 +477,7 @@ fn register(call: Call, given: Definition) []const u8 {
     };
     registry.adopt(mod.name, mod.about(.name) orelse mod.name, name, names, given) catch |err| switch (err) {
         error.OutOfMemory => call.raise("out of memory", .{}),
-        error.BadName => call.raise("an objective's name must be valid UTF-8 of at most {d} characters", .{language.max_length}),
+        error.BadName => call.raise(records.missions.bad_objective_name, .{}),
     };
     return registry.modes.items[registry.modes.items.len - 1].name;
 }

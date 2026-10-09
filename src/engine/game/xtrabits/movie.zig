@@ -27,6 +27,7 @@ const mss = @import("../../mss.zig");
 const hud = @import("../hud.zig");
 const canvas = @import("../interface/canvas.zig");
 const disc = @import("../interface/disc.zig");
+const rooms = @import("../interface/rooms.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const device = @import("../../surrender/srd3d/device.zig");
 const container = @import("../../../formats/bink.zig");
@@ -197,14 +198,16 @@ pub const Hangar = struct {
     const reliant = [3][]const u8{ "r_h_ta.bik", "r_h_tb.bik", "r_h_tc.bik" };
     const yamato = [3][]const u8{ "y_h_ta.bik", "y_h_tb.bik", "y_h_tc.bik" };
 
-    /// The movie before mission `mission`, the next of its three, which plays as
-    /// `play_bink_movie_resourced` plays it (`Kind.cleared_from_disc`).
+    /// The movie before mission `mission`, the next of its three in the hangar of the carrier
+    /// it's flown from (`rooms.Carrier.of`), which plays as `play_bink_movie_resourced` plays it
+    /// (`Kind.cleared_from_disc`).
     pub fn next(hangar: *Hangar, mission: u16) OnDisc {
         hangar.last = (hangar.last + 1) % 3;
-        return if (mission > last_from_reliant)
-            .{ .disc = .one, .name = yamato[hangar.last] }
-        else
-            .{ .disc = .two, .name = reliant[hangar.last] };
+        const carrier: rooms.Carrier = .of(mission);
+        return .{ .disc = carrier.disc(), .name = switch (carrier) {
+            .reliant => reliant[hangar.last],
+            .yamato => yamato[hangar.last],
+        } };
     }
 };
 

@@ -1009,12 +1009,59 @@ records.campaign = campaign
   the story's end after the last.
 - The number the player sees for a mission, in the autosave's name and the saved games' list, is
   its place on the list. The ITAC's debriefings list the missions on it.
-- A mission's other settings still come from its number, as in the game: the carrier whose rooms
-  brief it (the Reliant up to 18, the Yamato from 19), its briefing's hologram, Enriquez's last
-  word, and the medal, ribbon and tier it brings. So missions 12, 13, 17 and 22 play mission 1's
-  hologram ([#976](https://github.com/OpenReliant/openreliant/issues/976)).
+- What the campaign makes of each mission, such as its briefing and its carrier, is in
+  `records.missions` ([Each mission of the campaign](#each-mission-of-the-campaign)).
 - The campaign takes the list once, as OpenReliant starts, after every mod's load scripts and their
   `on_records_loaded` handlers. Changing it in a game mode's `records` script does nothing.
+
+### Each mission of the campaign
+
+`records.missions` holds what the campaign makes of each of its missions, by its number: what the
+briefing room plays before it, the carrier it's flown from, the names of its objectives and the
+date the launch shows. The game decides each by the mission's number. A mission's fields start as
+the game's, and load scripts change them in place, as they change a record's. The
+[reference](reference.md#openreliantrecords) lists the fields.
+
+A mod that changes one thing changes one field:
+
+```lua
+local records = require("openreliant.records")
+
+records.missions[5].objectives = { "Destroy the convoy", "Protect the Patriot" }
+```
+
+A mod that puts back missions the campaign doesn't fly gives them what the game lacks. A mod can't
+make a Bink movie for the briefing room's screen, so Enriquez can speak the briefing over the room
+instead, as she does at the campaign's end:
+
+```lua
+local mission = records.missions[12]
+mission.hologram = nil
+mission.speech = "dreamcast_brief12.ut"
+mission.date = "February 2, 2161"
+```
+
+A campaign of the mod's own sets each of its missions. Assigning a table to a mission changes the
+fields the table gives:
+
+```lua
+records.missions[3] = { carrier = "yamato", hologram = "mycampaign_m03.bik", last_word = "ms_speech\\mycampaign_tag03.ut" }
+```
+
+- Each mod changes only the fields it sets, in load order, so mods that change different fields of
+  the same mission don't undo each other's changes.
+- Reading `objectives` gives a new list each time. To change the names, assign a list. Nil gives
+  back the names the game's own table has for the mission's number.
+- Where a mission has `speech`, Enriquez speaks it in place of the hologram, and the briefing ends
+  when she does.
+- The carrier decides the rooms the player walks, the briefing room, the loadout's backdrop and the
+  hangar the launch starts in.
+- The game reads the missions as it goes, so a game mode's `records` script changes them for the
+  mode's missions alone.
+- Not yet in the records: what each mission awards
+  ([#983](https://github.com/OpenReliant/openreliant/issues/983)), the ITAC after it
+  ([#984](https://github.com/OpenReliant/openreliant/issues/984)), and the other rules the game
+  applies by a mission's number ([#985](https://github.com/OpenReliant/openreliant/issues/985)).
 
 ## Saved games
 

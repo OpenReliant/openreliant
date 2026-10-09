@@ -52,6 +52,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Run scripts with one mission | [Kinds of scripts](scripting.md#kinds-of-scripts) | |
 | Add game modes to the main menu, with rules of their own | [Game modes](scripting.md#game-modes) | [`arena`](../../examples/mods/arena), [`interceptor`](../../examples/mods/interceptor) |
 | Add campaigns, with briefing screens and movies | [Campaigns](scripting.md#campaigns) | [`campaign`](../../examples/mods/campaign) |
+| Put missions into the game's own campaign, or replace its missions, with each one's briefing, carrier, objectives and date, through the game's rooms and saved games | [The campaign's missions](scripting.md#the-campaigns-missions), [Each mission of the campaign](scripting.md#each-mission-of-the-campaign) | |
 | Change the stats and the text for a game mode's missions alone, leaving the game's campaign as it is | [Game modes](scripting.md#game-modes) | |
 
 ## Change how the game plays
@@ -97,13 +98,16 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 
 ## Not yet
 
-These are planned, each in an issue of the
-[modding milestone](https://github.com/OpenReliant/openreliant/milestone/19):
+These are planned, each in an issue:
 
 - Sounds, music, speech and movies in today's formats
-  ([#496](https://github.com/OpenReliant/openreliant/issues/496))
-- Campaigns that go through the game's rooms, ITAC and saved games
-  ([#641](https://github.com/OpenReliant/openreliant/issues/641))
+  ([#496](https://github.com/OpenReliant/openreliant/issues/496)), speech lines first
+  ([#988](https://github.com/OpenReliant/openreliant/issues/988))
+- What each campaign mission awards, the ITAC after it, and the other rules the game applies by a
+  mission's number ([#983](https://github.com/OpenReliant/openreliant/issues/983),
+  [#984](https://github.com/OpenReliant/openreliant/issues/984),
+  [#985](https://github.com/OpenReliant/openreliant/issues/985))
+- Campaigns of more than 28 missions ([#987](https://github.com/OpenReliant/openreliant/issues/987))
 - Post effects that read the scene's depth ([#633](https://github.com/OpenReliant/openreliant/issues/633))
 - KTX2 files with Basis Universal data ([#637](https://github.com/OpenReliant/openreliant/issues/637))
 - The loadout's panels and the power ball at any size

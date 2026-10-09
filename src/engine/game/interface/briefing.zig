@@ -38,6 +38,7 @@ const hog = @import("../../../formats/hog.zig");
 const input = @import("../../input.zig");
 const cbox = @import("../cbox.zig");
 const hog_snd = @import("../hog_snd.zig");
+const gameflow = @import("../gameflow.zig");
 const matmanager = @import("../matmanager.zig");
 const canvas = @import("canvas.zig");
 const rooms = @import("rooms.zig");
@@ -59,27 +60,60 @@ pub const end_debriefing = "enddebriefing.ut";
 
 /// The mission's movie, by its number from 1, which the room's screen plays, each `%s.bik`
 /// (`0x004E89A0`) of the table the briefing builds (`0x00437016` on). Missions 12, 13, 17 and 22,
-/// which the campaign has none of, take mission 1's. Not done yet: a mod that puts them into the
-/// campaign can't give them movies of their own
-/// ([#976](https://github.com/OpenReliant/openreliant/issues/976)).
-pub const movies = [_][]const u8{ "new_m01", "new_m02", "new_m03", "new_m04", "new_m05", "new_m06", "new_m07", "new_m08", "new_m09", "new_m10", "new_m11", "new_m01", "new_m01", "new_m14", "new_m15", "new_m16", "new_m01", "new_m18", "new_m19", "new_m20", "new_m21", "new_m01", "new_m23", "new_m24", "new_m25", "new_m26", "new_m27", "new_m28" };
+/// which the campaign has none of, take mission 1's.
+const movies = [_][]const u8{ "new_m01", "new_m02", "new_m03", "new_m04", "new_m05", "new_m06", "new_m07", "new_m08", "new_m09", "new_m10", "new_m11", "new_m01", "new_m01", "new_m14", "new_m15", "new_m16", "new_m01", "new_m18", "new_m19", "new_m20", "new_m21", "new_m01", "new_m23", "new_m24", "new_m25", "new_m26", "new_m27", "new_m28" };
 
-/// The movie of mission `mission` (`movies`), written into `buffer`; null for a mission the table
-/// has none for.
+/// Enriquez's last word before a mission, by its number, a speech file of `speech_hog`
+/// (`0x004E88C8`).
+const tag_format = "ms_speech\\enrbr_tag{d:0>2}.ut";
+
+/// What the briefing room plays before a mission: the movie on the room's screen, or Enriquez's
+/// words spoken over the room in its place, as at the campaign's end; and her last word after the
+/// loadout. Where a name is null, nothing plays there.
+pub const Plan = struct {
+    /// The movie, a Bink file of the game's or a mod's, such as `new_m01.bik`. Without a movie or
+    /// words, the briefing ends at once, for the loadout.
+    hologram: ?[]const u8 = null,
+    /// Enriquez's words in place of a movie, a speech file of the game's or a mod's, which end the
+    /// briefing as they end.
+    speech: ?[]const u8 = null,
+    /// Her last word, a speech file such as `ms_speech\enrbr_tag01.ut`; none leaves her animation
+    /// silent.
+    last_word: ?[]const u8 = null,
+
+    /// Each campaign mission's, by its number from 1, as the original has them: the movie of
+    /// `movies` and the last word of `tag_format`.
+    ///
+    /// **Improvement:** the original's are fixed by the mission's number. OpenReliant's records
+    /// hold them, which mods change (`openreliant.records.missions`,
+    /// [#976](https://github.com/OpenReliant/openreliant/issues/976)).
+    pub const campaign: [movies.len]Plan = plans: {
+        var plans: [movies.len]Plan = undefined;
+        for (&plans, movies, 1..) |*plan, movie, mission| plan.* = .{
+            .hologram = movie ++ ".bik",
+            .last_word = std.fmt.comptimePrint(tag_format, .{mission}),
+        };
+        break :plans plans;
+    };
+
+    comptime {
+        assert(campaign.len == gameflow.last_mission);
+    }
+};
+
+/// The movie of mission `mission` (`movies`); null for a mission the table has none for.
 ///
 /// **Fix:** past the table the game reads what lies beside it on the stack for the movie's name.
 /// OpenReliant plays none there, and the briefing ends at once.
-pub fn movieName(buffer: *[movie_name_size]u8, mission: u16) ?[]const u8 {
-    if (mission == 0 or mission > movies.len) return null;
-    return std.mem.print(buffer, "{s}.bik", .{movies[mission - 1]}) catch unreachable;
+pub fn movieName(mission: u16) ?[]const u8 {
+    if (mission == 0 or mission > Plan.campaign.len) return null;
+    return Plan.campaign[mission - 1].hologram;
 }
 
-pub const movie_name_size = 16;
-
-/// Enriquez's last word before mission `mission`, `ms_speech\enrbr_tag%02d.ut` of `speech_hog`
-/// (`0x004E88C8`), written into `buffer`, which holds it for any mission's number.
+/// Enriquez's last word before mission `mission` (`tag_format`), written into `buffer`, which holds
+/// it for any mission's number.
 fn tagLine(buffer: *[tag_line_size]u8, mission: u16) []const u8 {
-    return std.mem.print(buffer, "ms_speech\\enrbr_tag{d:0>2}.ut", .{mission}) catch unreachable;
+    return std.mem.print(buffer, tag_format, .{mission}) catch unreachable;
 }
 
 const tag_line_size = 32;
@@ -306,6 +340,9 @@ pub const Briefing = struct {
     room: *const Room,
     /// A game mode's room and movies, in place of the campaign's.
     own: ?Own = null,
+    /// What the campaign's records give the mission, in place of the original's by its number
+    /// (`Plan.campaign`); null for the original's.
+    plan: ?Plan = null,
     /// Whether it starts from the loadout, the way in and the briefing left out (`0x0051DB48`), as
     /// the developers' Enter with Control has it.
     from_loadout: bool,
@@ -355,15 +392,16 @@ pub const Briefing = struct {
 
     /// The briefing before mission `mission`, its door to be shown for a frame (`0x00437010` to
     /// `0x0043716F`); from the loadout where `from_loadout` has it; in a game mode's room and with
-    /// its movies where it gives `own`.
+    /// its movies where it gives `own`; and with what the campaign's records give the mission where
+    /// there is a `plan`.
     ///
     /// **Improvement:** its sounds, the movie's and Enriquez's words among them, ring subtly in a
     /// small room of the ship (`mss.Surroundings.inside`). The game plays them dry.
-    pub fn open(context: rooms.Context, mission: u16, from_loadout: bool, hologram: ?loadout.Context, own: ?Own) Briefing {
+    pub fn open(context: rooms.Context, mission: u16, from_loadout: bool, hologram: ?loadout.Context, own: ?Own, plan: ?Plan) Briefing {
         context.sound.surround(.inside);
         const carrier: rooms.Carrier = if (own) |given| given.carrier else .of(mission);
         const room = Room.of(carrier);
-        var briefing: Briefing = .{ .context = context, .mission = mission, .carrier = carrier, .room = room, .own = own, .from_loadout = from_loadout, .hologram_context = hologram };
+        var briefing: Briefing = .{ .context = context, .mission = mission, .carrier = carrier, .room = room, .own = own, .plan = plan, .from_loadout = from_loadout, .hologram_context = hologram };
         briefing.door.show(context.gpa, context.resources.*, room.door);
         return briefing;
     }
@@ -473,7 +511,7 @@ pub const Briefing = struct {
 
     /// Enters the room at the timer count `ticks` (`0x004373BB` on): the voices fade out, Enriquez
     /// starts her animation, and the room's screen starts the mission's movie; or, at the
-    /// campaign's end, she speaks.
+    /// campaign's end, or where the campaign's records give the mission her words, she speaks.
     fn begin(briefing: *Briefing, ticks: u32) void {
         briefing.context.sound.fadeAll(voices_fade_step);
         briefing.stage = .briefing;
@@ -482,14 +520,13 @@ pub const Briefing = struct {
         briefing.segment = 0;
         briefing.start = 0;
         briefing.next = ticks + first_wait;
-        if (briefing.mission == end_mission) {
-            briefing.readWords(end_debriefing);
-            briefing.sayWords(end_debriefing);
+        if (briefing.spoken()) |words| {
+            briefing.readWords(words);
+            briefing.sayWords(words);
             return;
         }
-        var buffer: [movie_name_size]u8 = undefined;
-        const name = briefing.movie(&buffer) orelse {
-            if (briefing.own == null) log.warn("mission {d} has no briefing's movie", .{briefing.mission});
+        const name = briefing.movie() orelse {
+            if (briefing.own == null and briefing.plan == null) log.warn("mission {d} has no briefing's movie", .{briefing.mission});
             return;
         };
         briefing.film.open(briefing.context, name, .briefing);
@@ -500,18 +537,18 @@ pub const Briefing = struct {
     }
 
     /// A pass of the briefing's loop (`0x004374F0` on), `in` read: O asks for a screenshot
-    /// (`0x004375F1`); then Escape, the right button, or the movie's end ends it; at the
-    /// campaign's end, the end of Enriquez's speech, which Escape and the right button stop.
+    /// (`0x004375F1`); then Escape, the right button, or the movie's end ends it; where Enriquez
+    /// speaks in place of a movie, the end of her words, which Escape and the right button stop.
     fn briefingPass(briefing: *Briefing, in: Input) ?Step {
         briefing.screenshot = in.keyboard.pressed(@backingInt(screenshot_key), .none, true);
         const sound = briefing.context.sound;
-        const ending = briefing.mission == end_mission;
+        const speaking = briefing.spoken() != null;
         const over = in.keyboard.pressed(input.scan.escape, .none, true) or
-            (!briefing.playing and !ending) or
+            (!briefing.playing and !speaking) or
             briefing.right.pressed(in.right) or
-            (ending and !briefing.speech.playing(sound));
+            (speaking and !briefing.speech.playing(sound));
         if (!over) return null;
-        if (ending) briefing.speech.stop(briefing.context.gpa, sound);
+        if (speaking) briefing.speech.stop(briefing.context.gpa, sound);
         briefing.playing = false;
         briefing.film.close();
         briefing.freeLine();
@@ -618,17 +655,28 @@ pub const Briefing = struct {
         if (briefing.lastWordLine(&buffer)) |line| briefing.readWords(line);
     }
 
-    /// The movie on the room's screen: the game mode's, or the campaign's by the mission's number
-    /// (`movieName`), written into `buffer`.
-    fn movie(briefing: *const Briefing, buffer: *[movie_name_size]u8) ?[]const u8 {
+    /// The movie on the room's screen: the game mode's, the records', or the campaign's by the
+    /// mission's number (`movieName`).
+    fn movie(briefing: *const Briefing) ?[]const u8 {
         if (briefing.own) |own| return own.movie;
-        return movieName(buffer, briefing.mission);
+        if (briefing.plan) |plan| return plan.hologram;
+        return movieName(briefing.mission);
     }
 
-    /// Enriquez's last word: the game mode's, or the campaign's by the mission's number
-    /// (`tagLine`), written into `buffer`.
+    /// Enriquez's words in place of a movie: at the campaign's end, `end_debriefing`; otherwise the
+    /// records' for the mission, where they give her any.
+    fn spoken(briefing: *const Briefing) ?[]const u8 {
+        if (briefing.mission == end_mission) return end_debriefing;
+        if (briefing.own != null) return null;
+        const plan = briefing.plan orelse return null;
+        return plan.speech;
+    }
+
+    /// Enriquez's last word: the game mode's, the records', or the campaign's by the mission's
+    /// number (`tagLine`), written into `buffer`.
     fn lastWordLine(briefing: *const Briefing, buffer: *[tag_line_size]u8) ?[]const u8 {
         if (briefing.own) |own| return own.last_word;
+        if (briefing.plan) |plan| return plan.last_word;
         return tagLine(buffer, briefing.mission);
     }
 
@@ -738,12 +786,22 @@ pub const Briefing = struct {
 };
 
 test movieName {
-    var buffer: [movie_name_size]u8 = undefined;
-    try std.testing.expectEqualStrings("new_m01.bik", movieName(&buffer, 1).?);
-    try std.testing.expectEqualStrings("new_m01.bik", movieName(&buffer, 22).?);
-    try std.testing.expectEqualStrings("new_m28.bik", movieName(&buffer, 28).?);
-    try std.testing.expectEqual(null, movieName(&buffer, 0));
-    try std.testing.expectEqual(null, movieName(&buffer, end_mission));
+    try std.testing.expectEqualStrings("new_m01.bik", movieName(1).?);
+    try std.testing.expectEqualStrings("new_m01.bik", movieName(22).?);
+    try std.testing.expectEqualStrings("new_m28.bik", movieName(28).?);
+    try std.testing.expectEqual(null, movieName(0));
+    try std.testing.expectEqual(null, movieName(end_mission));
+}
+
+test "Plan.campaign" {
+    // Each mission's last word is the one `tagLine` names, and none speaks in place of its movie.
+    var buffer: [tag_line_size]u8 = undefined;
+    for (Plan.campaign, 1..) |plan, mission| {
+        try std.testing.expectEqualStrings(tagLine(&buffer, @intCast(mission)), plan.last_word.?);
+        try std.testing.expectEqual(null, plan.speech);
+    }
+    try std.testing.expectEqualStrings("ms_speech\\enrbr_tag12.ut", Plan.campaign[11].last_word.?);
+    try std.testing.expectEqualStrings("new_m14.bik", Plan.campaign[13].hologram.?);
 }
 
 test Room {
@@ -798,7 +856,7 @@ test Briefing {
 
     // The door shows, then the briefing loads, its wait's sound paused as it ends, and the way in
     // plays, the door's sound and the room's chatter starting as its movie does.
-    var briefing: Briefing = .open(context, 1, false, null, null);
+    var briefing: Briefing = .open(context, 1, false, null, null, null);
     defer briefing.close();
     try std.testing.expectEqual(Stage.door, briefing.stage);
     try std.testing.expectEqual(.inside, tested.sound.surroundings);
@@ -836,7 +894,7 @@ test "Escape ends the briefing, and the right button the last word" {
     try testFiles(&tested, &.{ "rel_c2bre.bik", "new_m02.bik" });
     defer tested.deinit();
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(tested.context(), 2, false, null, null);
+    var briefing: Briefing = .open(tested.context(), 2, false, null, null, null);
     defer briefing.close();
     _ = passAt(&briefing, &keyboard, false, 0);
     _ = passAt(&briefing, &keyboard, false, 1);
@@ -858,7 +916,7 @@ test "O asks for a screenshot in the briefing, before Escape ends it" {
     try testFiles(&tested, &.{ "rel_c2bre.bik", "new_m02.bik" });
     defer tested.deinit();
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(tested.context(), 2, false, null, null);
+    var briefing: Briefing = .open(tested.context(), 2, false, null, null, null);
     defer briefing.close();
     const o = @backingInt(screenshot_key);
     // Not at the door.
@@ -888,7 +946,7 @@ test "the press that skipped the way in, still held, ends no stage" {
     try testFiles(&tested, &.{ "rel_c2bre.bik", "new_m02.bik" });
     defer tested.deinit();
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(tested.context(), 2, false, null, null);
+    var briefing: Briefing = .open(tested.context(), 2, false, null, null, null);
     defer briefing.close();
     _ = passAt(&briefing, &keyboard, true, 0);
     for (0..3) |_| try std.testing.expectEqual(null, passAt(&briefing, &keyboard, true, 1));
@@ -906,7 +964,7 @@ test "the Yamato's way in and the frames of Enriquez's animation" {
     try testFiles(&tested, &.{});
     defer tested.deinit();
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(tested.context(), 19, false, null, null);
+    var briefing: Briefing = .open(tested.context(), 19, false, null, null, null);
     defer briefing.close();
     try std.testing.expectEqual(&Room.yamato, briefing.room);
     try std.testing.expectEqualDeep(Step{ .movie = "amonoff_.bik" }, passAt(&briefing, &keyboard, false, 0).?);
@@ -954,7 +1012,7 @@ test "the campaign's end: Enriquez's speech, and no last word" {
     var context = tested.context();
     context.lines = &lines;
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(context, end_mission, false, null, null);
+    var briefing: Briefing = .open(context, end_mission, false, null, null, null);
     defer briefing.close();
     _ = passAt(&briefing, &keyboard, false, 0);
     _ = passAt(&briefing, &keyboard, false, 0);
@@ -969,12 +1027,41 @@ test "the campaign's end: Enriquez's speech, and no last word" {
     try std.testing.expectEqual(Step.over, passAt(&briefing, &keyboard, false, 2).?);
 }
 
+test "a campaign mission the records give words in place of a movie, then the last word they give" {
+    const gpa = std.testing.allocator;
+    const speech = try cbox.testFile(gpa, 100, 64);
+    defer gpa.free(speech);
+    var tested: rooms.testing.Tested = undefined;
+    try testFiles(&tested, &.{});
+    defer tested.deinit();
+    var lines = try testLines(&tested, &.{ .{ .name = "dreamcast_brief12", .data = speech }, .{ .name = "dreamcast_tag12", .data = speech } });
+    defer lines.close(gpa);
+    var context = tested.context();
+    context.lines = &lines;
+    var keyboard: input.Keyboard = .{};
+    var briefing: Briefing = .open(context, 12, false, null, null, .{ .speech = "dreamcast_brief12.ut", .last_word = "dreamcast_tag12.ut" });
+    defer briefing.close();
+    // The walk into the Reliant's room, as for any campaign mission.
+    try std.testing.expectEqual(&Room.reliant, briefing.room);
+    var ticks: u32 = 0;
+    while (briefing.stage != .briefing) : (ticks += 1) _ = passAt(&briefing, &keyboard, false, ticks);
+    // She speaks without a movie.
+    try std.testing.expect(briefing.speech.playing(&tested.sound));
+    try std.testing.expect(!briefing.playing);
+    // When her words end, the last word the records give follows, the loadout being left out.
+    var out: [512][2]f32 = undefined;
+    tested.mixer.mix(&out);
+    try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, ticks));
+    try std.testing.expectEqual(Stage.tag, briefing.stage);
+    try std.testing.expect(briefing.line.len > 0);
+}
+
 test "from the loadout, the last word alone" {
     var tested: rooms.testing.Tested = undefined;
     try testFiles(&tested, &.{});
     defer tested.deinit();
     var keyboard: input.Keyboard = .{};
-    var briefing: Briefing = .open(tested.context(), 3, true, null, null);
+    var briefing: Briefing = .open(tested.context(), 3, true, null, null, null);
     defer briefing.close();
     try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, 0));
     try std.testing.expectEqual(Stage.tag, briefing.stage);
@@ -986,7 +1073,7 @@ test "a game mode's briefing: its room and movie, without the walk in or a last 
     defer tested.deinit();
     var keyboard: input.Keyboard = .{};
     // Mission 19, which the campaign briefs on the Yamato, in the room the mode gives.
-    var briefing: Briefing = .open(tested.context(), 19, false, null, .{ .carrier = .reliant, .movie = "prequel_m01.bik" });
+    var briefing: Briefing = .open(tested.context(), 19, false, null, .{ .carrier = .reliant, .movie = "prequel_m01.bik" }, null);
     defer briefing.close();
     try std.testing.expectEqual(&Room.reliant, briefing.room);
     // From the door straight into the room, where the mod's movie plays.
