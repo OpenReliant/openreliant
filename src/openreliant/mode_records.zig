@@ -11,7 +11,8 @@ const game = openreliant.engine.game;
 
 /// Loads the game's tables from `records`: the ships' stats as `stats_load_ships` reads them, the
 /// ship types' words from the executable, the guns', the missiles' and the pilots' stats, and the
-/// pilots' faces. The text needs no loading, since the game reads it from the records.
+/// pilots' faces; and installs the combat maneuvers. The text needs no loading, since the game
+/// reads it from the records.
 pub fn loadTables(tables: *game.create.Stats, objects: *game.create.Objects, records: *const scripting.Records) void {
     tables.load(records.ships);
     tables.loadTypes(records.ship_types);
@@ -19,6 +20,7 @@ pub fn loadTables(tables: *game.create.Stats, objects: *game.create.Objects, rec
     objects.missile_stats.load(records.missiles);
     objects.pilots.load(records.pilots);
     objects.faces.load(records.faces);
+    game.aidefend.install(records.maneuvers);
 }
 
 /// What a game mode keeps of its own while its missions run, in place of the campaign's: its
@@ -70,10 +72,18 @@ test ModeState {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    try scripting.load.testing.makeMods(io, tmp.dir, &.{.{ "p", &.{
-        .{ "mod.ini", "[Mod]\nName=P\n" },
-        .{ "own.luau", "require('openreliant.records').ships[0].max_speed = 300" },
-    } }});
+    try scripting.load.testing.makeMods(io, tmp.dir, &.{.{
+        "p",
+        &.{
+            .{ "mod.ini", "[Mod]\nName=P\n" },
+            .{
+                "own.luau",
+                \\local records = require("openreliant.records")
+                \\records.ships[0].max_speed = 300
+                \\records.maneuvers[#records.maneuvers] = { name = "drift", script = { "SetSpeed(0.5)", "Wait(100)" } }
+            },
+        },
+    }});
     var opened: game.bigfile.mods.Mods = try .open(gpa, io, tmp.dir, null);
     defer opened.close(gpa);
     var arena: std.heap.ArenaAllocator = .init(gpa);
@@ -88,6 +98,7 @@ test ModeState {
     var random: openreliant.engine.random.Random = .{};
     const objects = try game.create.Objects.create(gpa, &random);
     defer objects.destroy();
+    defer game.aidefend.installOriginal();
     loadTables(tables, objects, &records);
     try std.testing.expectEqual(10, tables.flight[0].max_speed);
 
@@ -98,8 +109,10 @@ test ModeState {
     const mode: scripting.game_modes.Mode = .{ .name = "p:own", .mod = "p", .missions = &.{.{ .file = 91, .number = 91 }}, .ship = null, .kind = .once, .briefing = null, .records = "own.luau" };
     try state.apply(mode);
     try std.testing.expectEqual(300, tables.flight[0].max_speed);
+    try std.testing.expectEqualStrings("drift", game.aidefend.find(@fromBackingInt(10)).?.definition.name);
     state.restore();
     try std.testing.expectEqual(10, tables.flight[0].max_speed);
+    try std.testing.expectEqual(null, game.aidefend.find(@fromBackingInt(10)));
 
     // The mode's wingmen fly its missions, and the campaign's lose nobody to them.
     objects.wingmen.alpha[1] = 33;

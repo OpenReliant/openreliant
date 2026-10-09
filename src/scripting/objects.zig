@@ -19,6 +19,7 @@ const gameobj = engine.game.gameobj;
 const create = engine.game.create;
 const motion = engine.game.motion;
 const orders = engine.game.ai.orders;
+const aidefend = engine.game.aidefend;
 const Object = engine.hooks.Object;
 const luau = @import("luau.zig");
 const State = luau.State;
@@ -157,6 +158,16 @@ pub const fields = struct {
         pub fn get(all: *const create.Objects, index: u16) ?@import("orders.zig").Identifier {
             const entry = all.slots[index].current() orelse return null;
             return @import("orders.zig").identifierOf(all, entry.order);
+        }
+    });
+
+    pub const maneuver = api.Field(?aidefend.maneuvers.Maneuver, "The combat maneuver it flies while it follows the Fight order: one of the game's by its name (`Maneuver`), or one a mod adds by its number (`records.maneuvers`); nil while it follows another order.", struct {
+        pub fn get(all: *const create.Objects, index: u16) ?aidefend.maneuvers.Maneuver {
+            const fighting = &all.slots[index];
+            const entry = fighting.current() orelse return null;
+            if (entry.order != .fight) return null;
+            const flown = fighting.state.fight.maneuver;
+            return if (aidefend.find(flown) != null) flown else null;
         }
     });
 

@@ -10,6 +10,7 @@ type ShipType = "predator" | "naginata" | "grendel" | "crusader" | "coyote" | "m
 type ShipClass = "fighter" | "capital" | "support" | "other" | "torpedo" | "debris" | "mine" | "planet" | number
 type PilotNumber = "bandit_tigers_leader" | "diceman_tigers_leader" | "moose_tigers" | "moose_volunteers" | "bandit_volunteers_leader" | "viper" | "ronin_leader" | "ronin" | "frenchy" | "silky" | "mayday" | "trigger" | "hawkeye" | "worm" | "ego" | "diceman" | "bandit" | number | string
 type Side = "friendly" | "hostile" | "neutral" | number
+type Maneuver = "defend_dodge1" | "defend_dodge2" | "defend_dodge3" | "out_of_action_sphere" | "defend_runaway" | "attack_pursue" | "attack_massive_object" | "attack_medium_fighter" | "loop_the_loop" | "run_to_ship" | number
 type Invulnerability = "none" | "player_can_hit" | "full" | "eject_before_exploding" | number
 type PartClass = "hull" | "cockpit" | "turret" | "engine" | "shield_generator" | "comms_transmitter" | "gravity_drive" | "laser_turret" | "missile_turret" | "power_core" | "satellite_dish" | "service_door" | "shaft" | "surface_building" | "twin_power_cores" | "vent_hatch" | "ion_cannon" | "armored_plate" | "cap_gun" | "warp_projector" | "fuel_pod" | number
 type AttachmentKind = "missile" | "gun" | "engine_glow" | "gun_muzzle" | "light" | "pod" | "eject_point" | "case_ejector" | "launch_point" | "dock_point" | number
@@ -358,6 +359,11 @@ type ChapterReport = {
     unless: { GameVariable }?,
     sets: GameVariable?,
 }
+type ManeuverMirror = {
+    yaw: boolean?,
+    pitch: boolean?,
+    roll: boolean?,
+}
 type Outcome = {
     ending: Ending,
     rating: Rating,
@@ -394,6 +400,8 @@ declare class Object
     is_player: boolean
     -- The order it's following: one of the game's (`Order`), or a mod's by its qualified name; nil for none.
     order: (string | number)?
+    -- The combat maneuver it flies while it follows the Fight order: one of the game's by its name (`Maneuver`), or one a mod adds by its number (`records.maneuvers`); nil while it follows another order.
+    maneuver: Maneuver?
     -- What the order it's following is aimed at; nil while it follows none.
     target: Target?
     -- The object that last hit it; nil for none, or once that one has left the mission.
@@ -623,6 +631,13 @@ declare class KillboardPilot
     leaves_after: number?
     sits_out: { number }
 end
+declare class CombatManeuver
+    name: string
+    mirror: ManeuverMirror
+    min_ticks: number
+    max_ticks: number
+    script: { string }
+end
 type Records = {
     ships: { [number | string]: Ship },
     ship_types: { [number | string]: ShipTypeRecord },
@@ -638,6 +653,8 @@ type Records = {
     missions: { [number]: CampaignMission },
     -- The KILLBOARD's pilots, numbered from 1. Load scripts change their fields.
     killboard: { [number]: KillboardPilot },
+    -- The combat maneuvers the Fight order flies, numbered from 0 as the game numbers them. Load scripts change their fields and add new ones after the last.
+    maneuvers: { [number]: CombatManeuver },
 }
 
 -- The packages made from declarations. `openreliant.self` is the script's own Object.
@@ -1192,6 +1209,21 @@ declare class OrderPop
     function original(self): boolean?
 end
 
+-- `object`, a ship under the Fight order, chooses its next combat maneuver, which starts on its next update. The result is the maneuver: one of the game's by its name (`Maneuver`), or one a mod adds by its number (`records.maneuvers`).
+declare class FightChooseManeuver
+    object: Object
+    result: Maneuver
+    -- Runs the rest of the call now: the handlers after this one, then the function.
+    function original(self): Maneuver?
+end
+
+-- `object`, a ship under the Fight order, flies its combat maneuver for a frame (`object.maneuver`): the commands of its script run until one waits. A handler that stops it can fly the ship itself.
+declare class ManeuverRun
+    object: Object
+    -- Runs the rest of the call now: the handlers after this one, then the function.
+    function original(self): ()
+end
+
 -- `object` runs its current order, as it does each frame. Each order's routines have hooks of their own, such as `order_fight`.
 declare class ObjectOrders
     object: Object
@@ -1455,6 +1487,8 @@ type HooksAdd =
     ((name: "missile_launch_turret", handler: (e: MissileLaunchTurret) -> boolean?, filter: (Filter | (e: MissileLaunchTurret) -> boolean)?) -> HookHandle) &
     ((name: "order_push", handler: (e: OrderPush) -> boolean?, filter: (Filter | (e: OrderPush) -> boolean)?) -> HookHandle) &
     ((name: "order_pop", handler: (e: OrderPop) -> boolean?, filter: (Filter | (e: OrderPop) -> boolean)?) -> HookHandle) &
+    ((name: "fight_choose_maneuver", handler: (e: FightChooseManeuver) -> boolean?, filter: (Filter | (e: FightChooseManeuver) -> boolean)?) -> HookHandle) &
+    ((name: "maneuver_run", handler: (e: ManeuverRun) -> boolean?, filter: (Filter | (e: ManeuverRun) -> boolean)?) -> HookHandle) &
     ((name: "object_orders", handler: (e: ObjectOrders) -> boolean?, filter: (Filter | (e: ObjectOrders) -> boolean)?) -> HookHandle) &
     ((name: "vm_command", handler: (e: VmCommand) -> boolean?, filter: ((e: VmCommand) -> boolean)?) -> HookHandle) &
     ((name: "restart_screen", handler: (e: RestartScreen) -> boolean?, filter: ((e: RestartScreen) -> boolean)?) -> HookHandle) &
@@ -1623,6 +1657,8 @@ type HooksAfter =
     ((name: "missile_launch_turret", handler: (e: MissileLaunchTurret) -> boolean?, filter: (Filter | (e: MissileLaunchTurret) -> boolean)?) -> HookHandle) &
     ((name: "order_push", handler: (e: OrderPush) -> boolean?, filter: (Filter | (e: OrderPush) -> boolean)?) -> HookHandle) &
     ((name: "order_pop", handler: (e: OrderPop) -> boolean?, filter: (Filter | (e: OrderPop) -> boolean)?) -> HookHandle) &
+    ((name: "fight_choose_maneuver", handler: (e: FightChooseManeuver) -> boolean?, filter: (Filter | (e: FightChooseManeuver) -> boolean)?) -> HookHandle) &
+    ((name: "maneuver_run", handler: (e: ManeuverRun) -> boolean?, filter: (Filter | (e: ManeuverRun) -> boolean)?) -> HookHandle) &
     ((name: "object_orders", handler: (e: ObjectOrders) -> boolean?, filter: (Filter | (e: ObjectOrders) -> boolean)?) -> HookHandle) &
     ((name: "vm_command", handler: (e: VmCommand) -> boolean?, filter: ((e: VmCommand) -> boolean)?) -> HookHandle) &
     ((name: "restart_screen", handler: (e: RestartScreen) -> boolean?, filter: ((e: RestartScreen) -> boolean)?) -> HookHandle) &

@@ -345,6 +345,8 @@ The game's functions that have hooks:
 | `order_pop` | An object ends the order it runs; its result says whether it had one | `object` |
 | `object_orders` | An object runs its order, as it does each frame | `object` |
 | `order_retaliate` | A fighter turns on whoever last hit it | `object` |
+| `fight_choose_maneuver` | A ship under the Fight order chooses its next combat maneuver; its result is the maneuver | `object` |
+| `maneuver_run` | A ship under the Fight order flies its combat maneuver for a frame | `object` |
 | `radio_say` | The radio says a line | Only a function filter |
 | `vm_command` | The mission's script runs one of its commands; its result is what the command gives | Only a function filter |
 | `restart_screen` | The restart screen after a mission is lost or left; its result is the player's choice | Only a function filter |
@@ -1112,8 +1114,9 @@ scripts can only read them.
 
 The package also holds the campaign's order of missions, `campaign`
 ([The campaign's missions](#the-campaigns-missions)), each mission's settings, `missions`
-([Each mission of the campaign](#each-mission-of-the-campaign)), and the KILLBOARD's pilots,
-`killboard` ([The KILLBOARD's pilots](#the-killboards-pilots)).
+([Each mission of the campaign](#each-mission-of-the-campaign)), the KILLBOARD's pilots,
+`killboard` ([The KILLBOARD's pilots](#the-killboards-pilots)), and the combat maneuvers,
+`maneuvers` ([Combat maneuvers](#combat-maneuvers)).
 
 Records are looked up by number or by name, with the field names of the [stat
 tables](../formats/stats.md). The definitions file for editors ([Editors](#editors)) lists every
@@ -1353,6 +1356,55 @@ records.killboard[19] = { name = "Trent Ramsey", squadron = "(45th Volunteers)",
 - Text is read from the ITAC's strings and can be changed to any text, in the game's code page.
 - A pilot with `in_45th` set shows as one of the 45th Flying Tigers in the missions whose
   `flying_tigers` rule is on ([Each mission of the campaign](#each-mission-of-the-campaign)).
+
+### Combat maneuvers
+
+`records.maneuvers` holds the combat maneuvers that ships fly under the Fight order, numbered from 0
+as the game numbers them, from `defend_dodge1` to `run_to_ship` (9). Each has a `name`, the turning
+inputs it may `mirror`, the range of its length in ticks (`min_ticks` and `max_ticks`), and its
+`script`: a list of lines in the maneuvers' language ([Combat maneuvers](../engine/maneuvers.md)).
+A load script can change a maneuver, or add one by assigning to the number after the last:
+
+```lua
+local records = require("openreliant.records")
+
+-- A shorter loop the loop.
+records.maneuvers[8].max_ticks = 2000
+
+-- A barrel roll, number 10.
+records.maneuvers[#records.maneuvers] = {
+    name = "barrel roll",
+    mirror = { roll = true },
+    min_ticks = 1500,
+    max_ticks = 3000,
+    script = { "Cloak(off)", "SetSpeed(1)", "SetPitch(0.2)", "loop:", "SetRoll(1)", "Wait(500)", "Goto loop" },
+}
+```
+
+The game never chooses a maneuver that a mod adds. A handler of `fight_choose_maneuver` chooses
+one by setting `e.result`, and `object.maneuver` is the one a ship flies: the game's by name, a
+mod's by number, or nil while the ship isn't fighting.
+
+```lua
+local hooks = require("openreliant.hooks")
+
+-- One time in four, a hostile fighter rolls instead.
+hooks.add("fight_choose_maneuver", function(e)
+    if math.random(4) == 1 then
+        e.result = 10
+        return false
+    end
+end, { side = "hostile", class = "fighter" })
+```
+
+- A script is checked as it's set, and a line the language doesn't have is an error that gives its
+  number. A script has 255 lines at most, and there can be 255 maneuvers.
+- A game mode's records script can change and add maneuvers for the mode's missions alone
+  ([Game modes](#game-modes)).
+- A maneuver that a handler chooses runs for a length drawn from its range. A number with no
+  maneuver runs nothing, and the ship chooses again on its next frame.
+- A handler of `maneuver_run` that stops it flies the ship itself, by setting its `yaw_input`,
+  `pitch_input`, `roll_input` and `throttle`.
 
 ## Saved games
 

@@ -295,12 +295,6 @@ pub const choices = [3][3][]const Maneuver{
     },
 };
 
-/// The maneuver numbered `maneuver`, or null past the table.
-pub fn info(maneuver: Maneuver) ?Info {
-    const index = @backingInt(maneuver);
-    return if (index < table.len) table[index] else null;
-}
-
 /// Each maneuver's script, compiled: a line that does not compile fails the build.
 pub const compiled = blk: {
     var out: [table.len][]const script.Instruction = undefined;
@@ -318,8 +312,6 @@ comptime {
     }
 }
 
-test info {
-    for (table) |entry| try std.testing.expectEqual(entry.maneuver, info(entry.maneuver).?.maneuver);
-    try std.testing.expectEqual(null, info(@fromBackingInt(table.len)));
+test compiled {
     for (compiled, table) |instructions, entry| try std.testing.expectEqual(entry.script.len, instructions.len);
 }

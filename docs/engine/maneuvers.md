@@ -223,6 +223,25 @@ The Fight order and its maneuvers read the ship's pilot, a record of `pilot_stat
 The Fight order and every command run as described, but for multiplayer, where the host chooses
 the maneuvers ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 
+**Improvement:** the game's maneuvers are built into its executable. In OpenReliant, mods' load
+scripts can change them and add new ones (`records.maneuvers`, [Combat
+maneuvers](../guide/scripting.md#combat-maneuvers)). A script is compiled as a load script sets it,
+and `aidefend.install` installs the maneuvers whenever the game loads its tables from the records,
+so a game mode's records script changes them for its missions alone. A Fight order keeps the next
+maneuver's number in a byte, with 255 for none, so there can be 255 maneuvers. It keeps the line
+running in a byte too, with 255 for before the first line, so a script can have 255 lines. The
+scripts can use StarLancer's commands only
+([#1025](https://github.com/OpenReliant/openreliant/issues/1025)).
+
+The choice above never picks a maneuver that a mod adds. A handler of the hook
+`fight_choose_maneuver` can, and `maneuver_run` lets a handler fly the ship itself. Where a handler
+chooses the maneuver:
+
+- its length is drawn from its range;
+- "run to ship" runs to the ship `fight_find_ship_to_run_to` finds, or where the ship is when it
+  finds none;
+- a number with no maneuver runs nothing, and Fight chooses again on its next update.
+
 Where the game would stop, hang or read past its tables, OpenReliant goes on:
 
 - **Fix:** a script that runs off its end ends the maneuver, so Fight chooses another, where the

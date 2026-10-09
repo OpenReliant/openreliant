@@ -2,6 +2,11 @@
 //! that the Fight order runs. [`aidefend/maneuvers.zig`](aidefend/maneuvers.zig) holds the
 //! maneuvers, their scripts and the handlers of each opcode;
 //! [`aidefend/script.zig`](aidefend/script.zig) compiles the scripts as the payload does.
+//!
+//! The game runs the maneuvers that `install` leaves: the original's, or the ones mods' load
+//! scripts change or add ([#1024](https://github.com/OpenReliant/openreliant/issues/1024)).
+//! **Improvement:** the original's maneuvers are built into the executable, and mods can't change
+//! them.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -18,9 +23,71 @@ const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
 const objects = @import("objects.zig");
 const pilots = @import("pilots.zig");
+const aigeneric = @import("aigeneric.zig");
+const hooks = @import("../hooks.zig");
 
 pub const maneuvers = @import("aidefend/maneuvers.zig");
 pub const script = @import("aidefend/script.zig");
+
+/// A combat maneuver, as scripts see it in `records.maneuvers`.
+pub const Definition = struct {
+    /// Its name, such as "loop the loop".
+    name: []const u8,
+    /// The inputs it may mirror: each time it starts, a random choice among them.
+    mirror: Mirror = .{},
+    /// How long it runs, in ticks: a random number from `min_ticks` to `max_ticks`, unless Fight
+    /// gives a length of its own.
+    min_ticks: u16 = 0,
+    max_ticks: u16 = 0,
+    /// Its script, a command on each line (`script.zig`).
+    script: []const []const u8 = &.{},
+};
+
+/// A maneuver with its script compiled, as the game runs it: one of the original's
+/// (`Compiled.original`), or one that load scripts change or add (`install`).
+pub const Compiled = struct {
+    definition: Definition,
+    /// The script's lines, compiled.
+    program: []const script.Instruction = &.{},
+
+    /// The original's maneuvers, by number, compiled with the build.
+    pub const original: [maneuvers.table.len]Compiled = blk: {
+        var all: [maneuvers.table.len]Compiled = undefined;
+        for (&all, maneuvers.table, maneuvers.compiled) |*one, info, program| one.* = .{
+            .definition = .{ .name = info.name, .mirror = info.mirror, .min_ticks = info.min_ticks, .max_ticks = info.max_ticks, .script = info.script },
+            .program = program,
+        };
+        break :blk all;
+    };
+};
+
+/// The most maneuvers there can be: a Fight order keeps the one it starts next in a byte, which
+/// keeps one value for none (`aifight.FightData`).
+pub const most_maneuvers = aifight.FightData.none;
+
+/// The most lines a maneuver's script can have: the Fight order keeps the line running in a byte,
+/// which keeps one value for before the first line (`aifight.FightState.before_first`).
+pub const most_script_lines = aifight.FightState.before_first;
+
+/// The maneuvers the game runs.
+var installed: []const Compiled = &Compiled.original;
+
+/// Installs `all`, the maneuvers as the records leave them, `most_maneuvers` at most. They must
+/// stay in memory until the next install.
+pub fn install(all: []const Compiled) void {
+    installed = all[0..@min(all.len, most_maneuvers)];
+}
+
+/// Puts the original's maneuvers back.
+pub fn installOriginal() void {
+    installed = &Compiled.original;
+}
+
+/// The maneuver numbered `maneuver`, as installed; null for a number past the last.
+pub fn find(maneuver: maneuvers.Maneuver) ?*const Compiled {
+    const number = @backingInt(maneuver);
+    return if (number < installed.len) &installed[number] else null;
+}
 
 /// What a compiled instruction does: its first byte.
 pub const Opcode = enum(u8) {
@@ -50,6 +117,9 @@ pub const Opcode = enum(u8) {
 
 /// Which of the turning inputs a maneuver may mirror, and which it does once it has chosen.
 pub const Mirror = packed struct(u8) {
+    /// The name mods' scripts know it by.
+    pub const script_name = "ManeuverMirror";
+
     yaw: bool = false,
     pitch: bool = false,
     roll: bool = false,
@@ -194,17 +264,18 @@ pub const Instruction = extern union {
 /// most this many lines in one update. None of the game's scripts has one.
 const most_lines = 256;
 
-/// `maneuver_run` (`0x004069B0`): runs the Fight order's maneuver for an update. While no line
-/// waits it starts the next, each command running at once until one waits; then it runs the
-/// waiting one.
+/// `maneuver_run` (`0x004069B0`): runs the maneuver of the ship in slot `index`, under the Fight
+/// order, for an update. While no line waits it starts the next, each command running at once
+/// until one waits; then it runs the waiting one.
 ///
 /// **Fix:** a script that runs off its end stops the game with a syntax error; OpenReliant ends the
 /// maneuver there, so Fight chooses another.
 ///
 /// **Fix:** a maneuver number past the table runs nothing, where the game reads past it.
-pub fn run(fighter: Fighter) void {
-    const number = @backingInt(fighter.state.maneuver);
-    if (number < maneuvers.compiled.len) runScript(fighter, maneuvers.compiled[number]);
+pub fn run(ctx: aigeneric.Context, index: u16) void {
+    if (hooks.enter(.maneuver_run, run, .{ ctx, index })) |done| return done;
+    const fighter = Fighter.unchecked(ctx, index) orelse return;
+    if (find(fighter.state.maneuver)) |maneuver| runScript(fighter, maneuver.program);
 }
 
 /// The work of `maneuver_run` on the maneuver's compiled lines, `program`: the afterburner stays on
@@ -624,7 +695,7 @@ test run {
 
     // Every line up to the first that waits runs at once: the loop's pitch, mirrored, at the
     // pilot's limit, and half throttle. Then it waits on its Wait, the eighth line.
-    run(fighter);
+    run(fighter.ctx, fighter.index);
     try std.testing.expectEqual(-fighter.pilot.turn_limit, ship.pitch_input);
     try std.testing.expectEqual(0, ship.yaw_input);
     try std.testing.expectEqual(0.5, ship.throttle);
@@ -635,9 +706,9 @@ test run {
 
     // Once the time is up it stops waiting; the next update goes round the loop to the Wait again.
     mission.clock.frame_start = state.timer;
-    run(fighter);
+    run(fighter.ctx, fighter.index);
     try std.testing.expect(!state.waiting);
-    run(fighter);
+    run(fighter.ctx, fighter.index);
     try std.testing.expect(state.waiting);
     try std.testing.expectEqual(7, state.line);
     try std.testing.expectEqual(2000, state.timer);
@@ -661,6 +732,37 @@ test "a script that ends or never waits" {
     state.line = aifight.FightState.before_first;
     runScript(fighter, &comptime script.compile(&.{ "loop:", "Goto loop" }));
     try std.testing.expect(!state.waiting);
+}
+
+test install {
+    defer installOriginal();
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const fighter = try aifight.testing.fighter(&mission, 50000);
+    const state = fighter.state;
+
+    // The original's maneuvers, and a mod's own after them.
+    const drift = [_][]const u8{ "SetSpeed(0.25)", "Wait(100)" };
+    const added = Compiled.original ++ [_]Compiled{.{
+        .definition = .{ .name = "drift", .min_ticks = 1000, .max_ticks = 1000, .script = &drift },
+        .program = &comptime script.compile(&drift),
+    }};
+    install(&added);
+    try std.testing.expectEqualStrings("loop the loop", find(.loop_the_loop).?.definition.name);
+    try std.testing.expectEqualStrings("drift", find(@fromBackingInt(10)).?.definition.name);
+    try std.testing.expectEqual(null, find(@fromBackingInt(11)));
+
+    // The mod's maneuver runs its script.
+    state.maneuver = @fromBackingInt(10);
+    state.line = aifight.FightState.before_first;
+    run(fighter.ctx, fighter.index);
+    try std.testing.expectEqual(0.25, fighter.ship().throttle);
+    try std.testing.expect(state.waiting);
+    try std.testing.expectEqual(1, state.line);
+
+    installOriginal();
+    try std.testing.expectEqual(null, find(@fromBackingInt(10)));
 }
 
 test steerToPoint {

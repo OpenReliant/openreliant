@@ -74,6 +74,18 @@ pub const Error = error{
     LineOutOfRange,
 };
 
+/// What is wrong with a line that fails to compile with `err`, for a message.
+pub fn describe(err: Error) []const u8 {
+    return switch (err) {
+        error.UnknownCommand => "the language has no such command",
+        error.SyntaxError => "its arguments need parentheses, with commas between them",
+        error.InvalidGoto => "no line holds the label it goes to",
+        error.NoEndif => "no Endif closes it",
+        error.UnknownCondition => "If can only ask Goingtocrash",
+        error.LineOutOfRange => "it jumps to a line past 255",
+    };
+}
+
 /// The longest word the payload's buffers hold, and the arguments it reads.
 const max_word = 127;
 const max_args = 4;
@@ -293,15 +305,27 @@ pub fn compileLine(lines: []const []const u8, index: usize) Error!Instruction {
     };
 }
 
+/// A line that doesn't compile: its index, and why.
+pub const Failure = struct { line: usize, err: Error };
+
+/// Compiles every line of `lines` into `out`, as long as `lines`. Returns the first line that
+/// doesn't compile, if any.
+pub fn compileInto(lines: []const []const u8, out: []Instruction) ?Failure {
+    std.debug.assert(out.len == lines.len);
+    for (out, 0..) |*instruction, index| {
+        instruction.* = compileLine(lines, index) catch |err| return .{ .line = index, .err = err };
+    }
+    return null;
+}
+
 /// Compiles every line of a script known at compile time, where a line that does not compile is a
 /// compile error.
 pub fn compile(comptime lines: []const []const u8) [lines.len]Instruction {
     return comptime blk: {
         @setEvalBranchQuota(100_000);
         var out: [lines.len]Instruction = undefined;
-        for (&out, 0..) |*instruction, index| {
-            instruction.* = compileLine(lines, index) catch |err|
-                @compileError(std.fmt.comptimePrint("line {d}, \"{s}\": {s}", .{ index, lines[index], @errorName(err) }));
+        if (compileInto(lines, &out)) |failure| {
+            @compileError(std.fmt.comptimePrint("line {d}, \"{s}\": {s}", .{ failure.line, lines[failure.line], @errorName(failure.err) }));
         }
         break :blk out;
     };
@@ -371,6 +395,15 @@ test "errors" {
     try std.testing.expectError(error.UnknownCondition, compileLine(&lines, 4));
     try std.testing.expectError(error.NoEndif, compileLine(&lines, 5));
     try std.testing.expectError(error.SyntaxError, compileLine(&lines, 6));
+}
+
+test compileInto {
+    var out: [3]Instruction = undefined;
+    try std.testing.expectEqual(null, compileInto(&.{ "loop:", "Wait(10)", "Goto loop" }, &out));
+    try std.testing.expectEqual(Instruction{ .goto = 0 }, out[2]);
+    const failure = compileInto(&.{ "Wait(10)", "Jink(2000, 4000)", "Goto nowhere" }, &out).?;
+    try std.testing.expectEqual(1, failure.line);
+    try std.testing.expectEqual(error.UnknownCommand, failure.err);
 }
 
 test "keywords ignore case, labels do not need to match it either" {
