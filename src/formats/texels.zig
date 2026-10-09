@@ -5,6 +5,7 @@
 const std = @import("std");
 
 pub const bc5 = @import("texels/bc5.zig");
+pub const morton = @import("texels/morton.zig");
 
 /// How a level holds its pixels.
 pub const Format = enum {

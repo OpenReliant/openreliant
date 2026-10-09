@@ -2,7 +2,8 @@
 
 The Xbox games on StarLancer's engine, such as
 [Battlestar Galactica](../games/battlestar-galactica.md), come on discs with the Xbox's own
-filesystem and executable. The code is in [`src/formats/xbox/`](../../src/formats/xbox).
+filesystem and executable, and keep their textures in the Xbox's order. The code is in
+[`src/formats/xbox/`](../../src/formats/xbox).
 
 ```bash
 sltool cd ls <image>              # every file
@@ -56,3 +57,13 @@ The header's addresses are in memory, from the base address. A section header is
 | 12 | 4 | Its offset in the file |
 | 16 | 4 | Its size in the file |
 | 20 | 4 | The address of its name |
+
+## Textures
+
+The Xbox's GPU reads a texture's texels swizzled: in Morton order, the bits of a texel's column and
+its row interleaved into its index, the column's in the even bits and the row's in the odd ones.
+In a level wider than it is tall, or taller than it is wide, the longer side's bits past the shorter
+side's stay together above the interleaved ones, so the level is a run of square blocks. A texel at
+column 3 and row 1 of a 4 by 2 level is at index 7. The Dreamcast's twiddled textures are in Morton
+order too, with the row's bits first ([Dreamcast](dreamcast.md)).
+[`xbox/swizzle.zig`](../../src/formats/xbox/swizzle.zig) reads them.
