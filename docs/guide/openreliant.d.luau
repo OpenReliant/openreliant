@@ -11,6 +11,8 @@ type ShipClass = "fighter" | "capital" | "support" | "other" | "torpedo" | "debr
 type PilotNumber = "bandit_tigers_leader" | "diceman_tigers_leader" | "moose_tigers" | "moose_volunteers" | "bandit_volunteers_leader" | "viper" | "ronin_leader" | "ronin" | "frenchy" | "silky" | "mayday" | "trigger" | "hawkeye" | "worm" | "ego" | "diceman" | "bandit" | number | string
 type Side = "friendly" | "hostile" | "neutral" | number
 type Invulnerability = "none" | "player_can_hit" | "full" | "eject_before_exploding" | number
+type PartClass = "hull" | "cockpit" | "turret" | "engine" | "shield_generator" | "comms_transmitter" | "gravity_drive" | "laser_turret" | "missile_turret" | "power_core" | "satellite_dish" | "service_door" | "shaft" | "surface_building" | "twin_power_cores" | "vent_hatch" | "ion_cannon" | "armored_plate" | "cap_gun" | "warp_projector" | "fuel_pod" | number
+type AttachmentKind = "missile" | "gun" | "engine_glow" | "gun_muzzle" | "light" | "pod" | "eject_point" | "case_ejector" | "launch_point" | "dock_point" | number
 type MissileType = "none" | "screamer" | "raptor" | "havoc" | "jack_hammer" | "bandit" | "vagabond" | "solomon" | "imp" | "hawk" | "torpedo" | "fuel_pod" | number | string
 type TurretKind = "aimed" | "spinning" | "launcher"
 type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
@@ -21,7 +23,6 @@ type FaceFilm = "talking" | "laughing" | "squadron" | "dying" | number
 type HudInstrument = "caption" | "key_prompt" | "jump_prompt" | "target_markers" | "eject_marker" | "scanner" | "lights" | "view_name" | "subtitle" | "messages" | "nav_marker" | "fuel" | "kills" | "countermeasures" | "ship_status" | "gauges" | "radar" | "reticle" | "clock" | "radio" | "gunnery" | "missiles" | "target_display" | "damage" | "power" | "big_target_display" | "objectives" | "comms" | "wing_status"
 type TargetForm = "small" | "large" | number
 type Quadrant = "left" | "right" | "fore" | "aft"
-type PartClass = "hull" | "cockpit" | "turret" | "engine" | "shield_generator" | "comms_transmitter" | "gravity_drive" | "laser_turret" | "missile_turret" | "power_core" | "satellite_dish" | "service_door" | "shaft" | "surface_building" | "twin_power_cores" | "vent_hatch" | "ion_cannon" | "armored_plate" | "cap_gun" | "warp_projector" | "fuel_pod" | number
 type HudContactLook = "other" | "hostile" | "speaker" | "target" | "nav_point"
 type HudLight = "match_speed" | "blind_fire" | "smart_targeting" | "enemy_lock" | "missile_incoming" | "ecm" | "cloak" | "spectral_shields" | "reverse_thrust"
 type Action = "cockpit_camera" | "left_view_camera" | "right_view_camera" | "rear_view_camera" | "flyby_camera" | "target_camera" | "external_camera" | "missile_camera" | "next_enemy_target" | "previous_enemy_target" | "next_friendly_target" | "previous_friendly_target" | "next_subtarget" | "previous_subtarget" | "target_under_reticule" | "target_nearest_enemy" | "target_nearest_friendly" | "target_torpedo" | "smart_target" | "primary_target" | "afterburners" | "afterburner_toggle" | "reverse_thrust" | "jump_drive" | "match_speed" | "accelerate" | "decelerate" | "zero_throttle" | "full_throttle" | "roll_ship_clockwise" | "roll_ship_anti_clockwise" | "nose_up" | "nose_down" | "rotate_clockwise" | "rotate_anti_clockwise" | "strafe_left" | "strafe_right" | "joystick_roll" | "fire_lasers" | "full_guns" | "gunnery_window" | "gunnery_window_locked" | "synchronise_guns" | "toggle_blindfire" | "launch_missile" | "missile_window" | "rotate_missiles_clockwise" | "rotate_missiles_anticlockwise" | "comms_window" | "powerball_window" | "powerball_window_locked" | "full_power_to_gunnery" | "full_power_to_engines" | "full_power_to_shields" | "equalize_power" | "objectives_window" | "wing_status_window" | "wing_status_window_locked" | "damage_window" | "damage_window_locked" | "radar_ranges" | "shield_balancing" | "countermeasures" | "eject" | "cloak_ship" | "ecm" | "spectral_shields" | "attack_my_target" | "back_off" | "help_me" | "permission_to_land" | "display_kills" | "send_comms_message" | "key_config"
@@ -43,7 +44,7 @@ type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | nu
 type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "launch_jack_hammer" | "warp_in" | "warp_out" | "fly" | "run_away" | "land" | "escort" | "find_new_target" | "explode" | "ripper_grabs_target_object" | "object_attach" | "formation_regroup" | "patrol_route" | "toggle_cloak" | "ship_follow_curve" | "slow_rotate" | "jump_in" | "jump_out" | "find_scoop_up" | "random_spin_slow" | "random_spin_medium" | "random_spin_fast" | "fixed_gate_jump_in" | "fixed_gate_jump_out" | "formation" | "fixed_gate_open" | "fixed_gate_close" | "eject" | "fixed_gate_collapse" | "match_speed" | "dark_reign_shoot" | "move_to_spawn_pos" | "turns_object_lights_on" | "make_boridin_section_break_away" | "rotate_boridin_breakaway_warp_projector" | "start_warp_projection_from_boridin" | "make_ripper_drop_what_its_carrying" | "jump_in_spread" | "jump_out_spread" | "turns_object_lights_off" | "huuuuuuuge_explosion" | "immediately_set_ship_to_zero_velocity_and_rotation" | "fly_ship_backwards" | "player_control" | "multiplayer_control" | "avoid_target" | "torpedo" | "launch" | "fight" | "abandoned" | "scoop_up" | "eject_spin" | "dock" | "fire_ion_cannon" | "ripper_end_drop_object" | "ripper_attach_cargo_pod_to_mammoth" | "eject_fighter_attack" | "disrupted" | "make_capship_list_left" | "make_capship_list_right" | "friendly_fire" | "eject_player" | "ship_follow_curve_backwards" | "mill" | "deathmatch_respawn_effect" | "deathmatch_dark_reign_target" | number
 type OrderPushed = "refused" | "taken" | "conflict"
 type MissionCommand = "print_ship_name" | "create_timer" | "destroy_timer" | "create_flight_group" | "destroy_flight_group" | "wait" | "play_speech" | "wait_for_speech" | "play_comms_movie" | "wait_for_movie" | "print_debug_message" | "set_ai" | "clear_ai" | "set_patrol_route" | "set_pilot" | "set_trigger_state" | "start_director_cam" | "start_ship_animation" | "ship_follow_curve" | "setup_launch" | "start_launch" | "display_sub_title" | "reset_code_priority" | "interrupt_trigger_code" | "comms_from_ship" | "comms_from_pilot" | "set_invulnerability" | "moving_ship_follow_curve" | "disable_object" | "position_relative" | "when_player_last_jumped" | "start_missile_cam" | "start_chase_cam" | "set_player_target" | "set_targetable" | "play_music" | "stop_director_cam" | "set_action_centre" | "dock" | "disable_taunts" | "fly" | "comms_from_ship_once" | "comms_from_pilot_once" | "disable_lights" | "set_environment_fx" | "multi_player_sync" | "disable_generic_comms" | "disable_guns" | "set_nav_point" | "set_escort_point" | "reset_after_burners" | "disable_missiles" | "disable_engines" | "disable_eject" | "set_hostile" | "reset_to_spawn_positions" | "update_environment_fx_state" | "set_primary_target" | "wait_for_jump_or_launch" | "do_not_disturb" | "set_environment_fx_nebula" | "start_ship_animation_reverse" | "snap_to_point" | "play_fosters_last_stand" | "open_instrument" | "close_instrument" | "destroy_sub_object" | "set_objective" | "set_rescue_probabilities" | "is_ship_this_player" | "set_flyback_marker" | "reset_flyback_marker" | "stop_ship_animation" | "set_ship_avoidance" | "match_speed" | "moving_ship_backup_curve" | "wait_for_key" | "terminate_mission" | "turret_set_target" | "set_any_trigger_state" | "wait_for_director_cam" | "kill_all_script_execution_execpt_me" | "stack_director_cam" | "scanner" | "replace_sub_object" | "fire" | "multiplayer_script_sync" | "friendly_fire" | "cloak" | "replenish_weapons" | "wills_blag" | "show_hud_icon" | "disable_listing" | "disable_object_at_next_jump" | "darrens_naughty_blag"
-type MissionCommandResult = "wait" | "run_on" | number
+type MissionCommandResult = "wait" | "run_on" | "hold" | number
 type RestartChoice = "replay_from_briefing" | "replay_from_launch" | "main_menu"
 type Medal = "silver" | "black_eagle" | "valour" | "legion" | "navy_cross" | "medal_of_honour"
 type Condition = "shot_at" | "destroyed" | "launched" | "camera_reached" | "ship_reached" | "proximity_close" | "proximity_general" | "object_scooped" | "player_ready_to_jump" | "jumped_in" | "fixed_gate_jumped_in" | "player_ready_to_warp" | "jumped_through_hoop" | "player_wants_backup" | "ripper_grabbed_object" | "ripper_dropped_object" | "cloaked" | "decloaked" | "targetted" | "player_l1_doubletap" | "player_l2_doubletap" | "player_r1_doubletap" | "player_r2_doubletap" | "player_l1_l2_r1_r2_pressed" | "player_l1_r1_pressed" | "game_timer_expired" | "tractor_beam_locked" | "tractor_beam_broken" | "inside_object" | "outside_object" | "docked" | "undocked" | "being_chased" | "call_reinforcements" | "explosion_ship" | number
@@ -69,6 +70,24 @@ type Quadrants = {
     right: number,
     fore: number,
     aft: number,
+}
+type ShipPart = {
+    name: string,
+    class: PartClass?,
+    parent: number?,
+    component: number?,
+    armor: number?,
+    full_armor: number?,
+    invulnerable: Invulnerability?,
+    destroyed: boolean,
+    damaged: boolean,
+    position: vector?,
+}
+type ShipAttachment = {
+    part: number,
+    kind: AttachmentKind,
+    destroyed: boolean,
+    position: vector?,
 }
 type GameModeMission = {
     number: number,
@@ -413,6 +432,14 @@ declare class Object
     function set_surface(self, name: string?, parameters: { number }?): boolean
     -- Its turrets: its guns that turn to aim, spin their barrels or launch missiles, destroyed ones included, in the order of its guns.
     function turrets(self): { Turret }
+    -- Its parts, destroyed ones included, in the order the game numbers them: each part of its model, followed by the parts of the models that part carries, such as a turret's gun. Empty for an object without a model.
+    function parts(self): { ShipPart }
+    -- The attachment points on its parts, such as engine glows and missile hardpoints, part by part in the order of `object:parts()`.
+    function attachments(self): { ShipAttachment }
+    -- Destroys it the same way running out of armour does: a ship that lists components, such as a capital ship, loses its hull components, and any other ship explodes, unless its pilot ejects first. Returns false for an object that takes no damage, such as a nav point, and for one that is already exploding or jumping. Global scripts can destroy any object, and an object's scripts their own.
+    function destroy(self): boolean
+    -- Destroys its component number `component`, counting from 0, the same way a hit that takes its last armour does: the component blows up and takes the rest of its assembly with it, its damaged model shows in its place, and losing a hull part ends the ship. Returns false if the component is already destroyed, or the object is exploding or jumping. Global scripts can destroy any object's components, and an object's scripts their own.
+    function destroy_component(self, component: number): boolean
 end
 declare class Missile
     -- Its type, such as `raptor`, or the qualified name of one a mod adds.
@@ -566,6 +593,10 @@ type World = {
     objects: () -> { Object },
     -- Every missile in flight, newest first.
     missiles: () -> { Missile },
+    -- Makes `target`, or its component number `component`, the player's target, as a mission's SetPlayerTarget does: the display shows it, and the player stops matching speeds. Returns whether it worked: false for a target the player can't aim at, such as a destroyed component, and between missions.
+    set_player_target: (target: Object, component: number?) -> boolean,
+    -- Makes `target`, or its component number `component`, the mission's primary target, as a mission's SetPrimaryTarget does: the PRIMARY TARGET key selects it. Nil leaves the mission without one. Returns false between missions.
+    set_primary_target: (target: Object?, component: number?) -> boolean,
     -- Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names.
     set_objective: (objective: number, state: ObjectiveState) -> boolean,
 }
@@ -594,6 +625,8 @@ type Orders = {
 type Radio = {
     -- The ship `ship` says the speech file `speech` on the radio, a file of the game's or a mod's such as `ms_dice22_001.ut`, its pilot's face showing, as a mission's CommsFromShip does: at once, ending the line playing, unless `line` says otherwise. The line goes through the `radio_say` hook. A ship being destroyed, or a stand-in, says nothing. Returns whether the mission's radio took the line: false between missions.
     say: (ship: Object, speech: string, line: RadioLine?) -> boolean,
+    -- Whether the radio is saying a line, or has lines waiting to be said: false between missions, and where nothing is heard.
+    busy: () -> boolean,
     -- Pilot `pilot` says the speech file `speech` on the radio, with its face, as a mission's CommsFromPilot does: at once, ending the line playing, unless `line` says otherwise. The pilot is one of the game's by its name or number, or one a mod adds by its qualified name. The line goes through the `radio_say` hook. Returns whether the mission's radio took the line: false between missions.
     say_pilot: (pilot: PilotNumber, speech: string, line: RadioLine?) -> boolean,
 }
@@ -933,6 +966,8 @@ type Interfaces = {
         mission: Mission?,
         objects: () -> { Object },
         missiles: () -> { Missile },
+        set_player_target: (target: Object, component: number?) -> boolean,
+        set_primary_target: (target: Object?, component: number?) -> boolean,
         set_objective: (objective: number, state: ObjectiveState) -> boolean,
     },
     Campaign: {
@@ -1091,7 +1126,7 @@ declare class ObjectOrders
     function original(self): ()
 end
 
--- The mission's script runs one of its commands, `command`, on `arguments`: as many as the command takes, the first first, and 0 past them. They're the script's own values: numbers, and the places of the mission's ships and texts in its file. To change them, set `e.arguments` to a new list. The result is what the command gives: `"run_on"` lets the script's thread go on, `"wait"` ends its run until it runs next, and a number is the command's value, which lets it go on too. A handler that stops the command leaves `"run_on"`.
+-- The mission's script runs one of its commands, `command`, on `arguments`: as many as the command takes, the first first, and 0 past them. They're the script's own values: numbers, and the places of the mission's ships and texts in its file. To change them, set `e.arguments` to a new list. The result is what the command gives: `"run_on"` lets the script's thread go on, `"wait"` ends its run until it runs next, and a number is the command's value, which lets it go on too. A handler that stops the command leaves `"run_on"`; one that stops it and sets `"hold"` has the thread wait, and run the command again, on the same arguments and through this hook, the next time it runs.
 declare class VmCommand
     command: MissionCommand
     arguments: { number }

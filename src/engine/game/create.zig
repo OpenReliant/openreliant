@@ -592,6 +592,34 @@ pub const Slot = struct {
         return null;
     }
 
+    /// The number `collectComponents` gave `part`, which the mission's events and triggers use for
+    /// it; null for a part that isn't a component. Unlike `componentIndex`, it still works after the
+    /// part is destroyed and removed from the list (`objects.destroyPart`).
+    ///
+    /// **Improvement:** the original only finds the number of a component that is still listed
+    /// (`componentIndex`). Scripts read it after that too.
+    pub fn componentNumber(slot: *Slot, part: *const objects.Model.Part) ?u8 {
+        const model = if (slot.model) |*live| live else return null;
+        if (!part.component) return null;
+        const Counting = struct {
+            sought: *const objects.Model.Part,
+            counted: usize = 0,
+            found: bool = false,
+
+            fn visit(counting: *@This(), each: *objects.Model.Part) bool {
+                if (each == counting.sought) {
+                    counting.found = true;
+                    return false;
+                }
+                counting.counted += 1;
+                return counting.counted < gameobj.max_components;
+            }
+        };
+        var counting: Counting = .{ .sought = part };
+        _ = eachComponent(model, null, &counting);
+        return if (counting.found) @intCast(counting.counted) else null;
+    }
+
     /// Lets its guns go: it has none from now on.
     pub fn dropGuns(slot: *Slot, gpa: Allocator) void {
         gpa.free(slot.guns);
@@ -1668,28 +1696,41 @@ pub const Sweep = struct {
 pub fn collectComponents(slot: *Slot) void {
     const model = if (slot.model) |*live| live else return;
     slot.object.component_count = 0;
-    collectFrom(slot, model, null);
+    const Collecting = struct {
+        slot: *Slot,
+
+        fn visit(collecting: @This(), part: *objects.Model.Part) bool {
+            const object = &collecting.slot.object;
+            if (object.component_count >= gameobj.max_components) return false;
+            collecting.slot.components[@intCast(object.component_count)] = part;
+            object.component_count += 1;
+            part.component = true;
+            if (part.flags.targetable) part.targetable = true;
+            return true;
+        }
+    };
+    _ = eachComponent(model, null, Collecting{ .slot = slot });
 }
 
-/// The parts of `model` hanging from `parent`, or from its root for null: the marked ones, then
-/// each part's own children and whatever stands mounted on it.
-fn collectFrom(slot: *Slot, model: *objects.Model, parent: ?usize) void {
+/// Walks the parts of `model` that their records mark as components, in the order
+/// `collectComponents` lists them: first the marked parts that hang from `parent` (the root for
+/// null), then the components under each part, and those of the models mounted on it. Calls
+/// `visitor.visit` for each part; it returns false to stop the walk. Returns false if the walk was
+/// stopped.
+fn eachComponent(model: *objects.Model, parent: ?usize, visitor: anytype) bool {
     for (model.parts) |*part| {
         if (part.parent != parent or !part.flags.component) continue;
-        if (slot.object.component_count >= gameobj.max_components) return;
-        slot.components[@intCast(slot.object.component_count)] = part;
-        slot.object.component_count += 1;
-        part.component = true;
-        if (part.flags.targetable) part.targetable = true;
+        if (!visitor.visit(part)) return false;
     }
     for (model.parts, 0..) |part, index| {
         if (part.parent != parent) continue;
-        collectFrom(slot, model, index);
+        if (!eachComponent(model, index, visitor)) return false;
         for (model.mounts) |*mount| {
             if (mount.part != index) continue;
-            collectFrom(slot, &mount.model, null);
+            if (!eachComponent(&mount.model, null, visitor)) return false;
         }
     }
+    return true;
 }
 
 /// How far `create_object` has a part's `startup` track move on each simulation step.
@@ -2142,6 +2183,14 @@ test collectComponents {
     // Only the part the model marks is targetable.
     try std.testing.expect(slot.model.?.parts[2].targetable);
     try std.testing.expect(!slot.model.?.parts[1].targetable);
+
+    // A component keeps its number after it leaves the list, and the plain part has none.
+    slot.components[1] = null;
+    try std.testing.expectEqual(null, slot.componentIndex(&slot.model.?.parts[3]));
+    for ([_]usize{ 1, 3, 2 }, 0..) |part, number| {
+        try std.testing.expectEqual(number, slot.componentNumber(&slot.model.?.parts[part]).?);
+    }
+    try std.testing.expectEqual(null, slot.componentNumber(&slot.model.?.parts[0]));
 
     // A model of nothing but components lists no more than the object holds.
     var crowded: objects.testing.Parts(gameobj.max_components + 4) = undefined;

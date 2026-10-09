@@ -52,6 +52,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Run scripts with one mission | [Kinds of scripts](scripting.md#kinds-of-scripts) | |
 | Say lines on the radio, to add chatter or voice a mission that has none | [The radio](scripting.md#the-radio) | |
 | Set the state of a mission's objectives, for a mission whose script doesn't | [A mission's objectives](scripting.md#a-missions-objectives) | |
+| Set the player's target and the mission's primary target, such as the next component to destroy | [The player's target](scripting.md#the-players-target) | |
 | Add game modes to the main menu, with rules of their own | [Game modes](scripting.md#game-modes) | [`arena`](../../examples/mods/arena), [`interceptor`](../../examples/mods/interceptor) |
 | Add campaigns, with briefing screens and movies | [Campaigns](scripting.md#campaigns) | [`campaign`](../../examples/mods/campaign) |
 | Put missions into the game's own campaign, or replace its missions, with each one's briefing, carrier, objectives and date, through the game's rooms and saved games | [The campaign's missions](scripting.md#the-campaigns-missions), [Each mission of the campaign](scripting.md#each-mission-of-the-campaign) | |
@@ -70,6 +71,8 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Give ships orders, and add AI orders of their own | [Orders](scripting.md#orders), [Custom AI orders](scripting.md#custom-ai-orders) | [`custom-order`](../../examples/mods/custom-order), [`wingmen`](../../examples/mods/wingmen) |
 | Choose the pilot who flies a ship | [Objects](scripting.md#objects) | [`bananas`](../../examples/mods/bananas) |
 | Find what's near a ship, and work with positions and angles | [Where things are](scripting.md#where-things-are) | [`wingmen`](../../examples/mods/wingmen) |
+| List a ship's parts and attachment points, and see which are destroyed | [A ship's parts](scripting.md#a-ships-parts) | |
+| Destroy ships, or one of their components, such as a shield generator | [A ship's parts](scripting.md#a-ships-parts) | |
 | Keep data with each saved game and across every game, and run timers | [Saved games](scripting.md#saved-games), [Storage](scripting.md#storage), [Timers](scripting.md#timers) | [`tally`](../../examples/mods/tally) |
 | Let scripts and mods talk to each other | [Events](scripting.md#events), [Interfaces](scripting.md#interfaces) | [`wingmen`](../../examples/mods/wingmen) |
 

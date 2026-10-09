@@ -27,6 +27,7 @@ pub const core = @import("scripting/core.zig");
 pub const objects = @import("scripting/objects.zig");
 pub const missiles = @import("scripting/missiles.zig");
 pub const turrets = @import("scripting/turrets.zig");
+pub const parts = @import("scripting/parts.zig");
 pub const hooks = @import("scripting/hooks.zig");
 pub const running = @import("scripting/running.zig");
 pub const api = @import("scripting/api.zig");

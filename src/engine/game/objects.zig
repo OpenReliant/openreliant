@@ -1007,6 +1007,23 @@ pub fn frameTree(root: *Node, model: ?*Model, drawn: *Model.Local, fraction: f32
     parts.place(drawn.position, drawn.orientation);
 }
 
+/// Destroys `component`, one of `model`'s parts, the same way a hit that takes its last armour
+/// does (`component_damage`): it sets the armour of the part that takes the component's hits
+/// (`Model.hitPart`) below zero, and flags the model's root as `destroyed`. The objects' next pass
+/// then handles it like any other lost component (`loseComponents`): it blows up, posts its
+/// Destroyed event and takes its assembly with it, and losing a hull part ends the ship.
+///
+/// **Improvement:** in the original, a component is destroyed only by damage, or removed at once
+/// without an explosion (`DestroySubObject`). Scripts destroy one this way.
+pub fn destroyComponent(model: *Model, component: *Model.Part) void {
+    const struck = model.hitPart(component);
+    struck.armor = @min(struck.armor, destroyed_armor);
+    model.destroyed = true;
+}
+
+/// The armour `destroyComponent` sets: below zero, like a hit that destroys a component.
+const destroyed_armor: f32 = -1;
+
 /// `node_draw` (`0x0049A8C0`) for the roots flagged `destroyed`, as `mission_frame`'s pass that
 /// draws the objects reaches the object in slot `index`, in sight or not: its model's root, then,
 /// depth first, those of the models mounted on its shown parts. For each part of such a root that
@@ -1423,7 +1440,7 @@ pub const Model = struct {
         /// changes.
         targetable: bool = false,
         /// What its part is (part `+0x40`), which the target display names a subtarget by.
-        class: shp.Part.Class = @fromBackingInt(0),
+        class: shp.Part.Class = .none,
         /// The turret its part makes of its assembly, and which of the turret's parts it is (part
         /// `+0xF4`, `+0xF8`).
         turret_kind: shp.Part.TurretKind = .fixed,
@@ -1457,6 +1474,12 @@ pub const Model = struct {
         /// `0x10`).
         pub fn standing(part: *const Part) bool {
             return !part.hidden and !part.spent;
+        }
+
+        /// Whether it is destroyed: taken out of its model, or a component whose destruction
+        /// `loseComponents` has dealt with.
+        pub fn destroyed(part: *const Part) bool {
+            return part.removed or part.spent;
         }
 
         /// Where it stands as it was last drawn: its node's frame.
@@ -2406,6 +2429,19 @@ pub const Model = struct {
             return null;
         }
     };
+
+    /// The part that takes the hits on `component`, one of the model's parts, as `component_damage`
+    /// picks it: the first part of the component's assembly whose record gives it armour, such as a
+    /// turret's base rather than its barrels. It's the component itself if it has no assembly, or
+    /// if no part of the assembly has armour.
+    pub fn hitPart(model: *Model, component: *Part) *Part {
+        if (component.link_id == 0) return component;
+        var each = model.assembly(component.link_id);
+        while (each.next()) |at| {
+            if (model.parts[at].component_armor > 0) return &model.parts[at];
+        }
+        return component;
+    }
 
     /// Each model part `index` carries, in the order `carried` has them: the roots among its
     /// node's children.
@@ -4016,6 +4052,23 @@ test loseComponents {
     loseComponents(ctx, index);
     try std.testing.expect(!slot.object.flags.shield_generator);
     try std.testing.expect(live.parts[1].removed);
+}
+
+test destroyComponent {
+    const gpa = std.testing.allocator;
+    // A turret's assembly: its barrel, with no armour of its own, and its base, with 40.
+    var parts: testing.Parts(2) = undefined;
+    parts.init();
+    parts.member(0, 1, 1);
+    parts.turret(1, .turret, .aimed, 1, 0);
+    parts.data[1].part.component_armor = 40;
+    var model = try parts.create(gpa);
+    defer model.deinit(gpa);
+    // Hits on the barrel go to the base, so destroying the barrel takes the base's armour below 0.
+    try std.testing.expectEqual(&model.parts[1], model.hitPart(&model.parts[0]));
+    destroyComponent(&model, &model.parts[0]);
+    try std.testing.expect(model.parts[1].armor < 0 and model.destroyed);
+    try std.testing.expectEqual(0, model.parts[0].armor);
 }
 
 test "a ship that lists components ends with its hull" {

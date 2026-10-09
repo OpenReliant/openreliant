@@ -91,6 +91,8 @@ The mission's objects, the player's ship and the mission itself. For global scri
 | `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
 | `objects()` | list of [objects](#objects) | Every object in the mission, in the order of their slots. |
 | `missiles()` | list of [missile](#missiles) | Every missile in flight, newest first. |
+| `set_player_target(target: Object, component: number?)` | boolean | Makes `target`, or its component number `component`, the player's target, as a mission's SetPlayerTarget does: the display shows it, and the player stops matching speeds. Returns whether it worked: false for a target the player can't aim at, such as a destroyed component, and between missions. |
+| `set_primary_target(target: Object?, component: number?)` | boolean | Makes `target`, or its component number `component`, the mission's primary target, as a mission's SetPrimaryTarget does: the PRIMARY TARGET key selects it. Nil leaves the mission without one. Returns false between missions. |
 | `set_objective(objective: number, state: ObjectiveState)` | boolean | Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names. |
 
 ### `openreliant.self`
@@ -124,6 +126,7 @@ Lines said on the radio, as a mission's comms commands say them. For global and 
 | Name | Type | What it is |
 |---|---|---|
 | `say(ship: Object, speech: string, line: RadioLine?)` | boolean | The ship `ship` says the speech file `speech` on the radio, a file of the game's or a mod's such as `ms_dice22_001.ut`, its pilot's face showing, as a mission's CommsFromShip does: at once, ending the line playing, unless `line` says otherwise. The line goes through the `radio_say` hook. A ship being destroyed, or a stand-in, says nothing. Returns whether the mission's radio took the line: false between missions. |
+| `busy()` | boolean | Whether the radio is saying a line, or has lines waiting to be said: false between missions, and where nothing is heard. |
 | `say_pilot(pilot: PilotNumber, speech: string, line: RadioLine?)` | boolean | Pilot `pilot` says the speech file `speech` on the radio, with its face, as a mission's CommsFromPilot does: at once, ending the line playing, unless `line` says otherwise. The pilot is one of the game's by its name or number, or one a mod adds by its qualified name. The line goes through the `radio_say` hook. Returns whether the mission's radio took the line: false between missions. |
 
 ### `openreliant.hud`
@@ -375,6 +378,10 @@ scripts on their object.
 | `hook(name: string, handler: (e: any) -> boolean?, filter: (Filter \| (e: any) -> boolean)?)` | HookHandle | `hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own. |
 | `set_surface(name: string?, parameters: { number }?)` | boolean | Draws the object with the surface function `name`, the calling mod's by its own name or any mod's by the qualified one, reading `parameters`; nil draws it with its textures' functions again. Returns false if no function of that name is registered. Only player scripts can set it. |
 | `turrets()` | list of [turret](#turrets) | Its turrets: its guns that turn to aim, spin their barrels or launch missiles, destroyed ones included, in the order of its guns. |
+| `parts()` | list of [ShipPart](#shippart) | Its parts, destroyed ones included, in the order the game numbers them: each part of its model, followed by the parts of the models that part carries, such as a turret's gun. Empty for an object without a model. |
+| `attachments()` | list of [ShipAttachment](#shipattachment) | The attachment points on its parts, such as engine glows and missile hardpoints, part by part in the order of `object:parts()`. |
+| `destroy()` | boolean | Destroys it the same way running out of armour does: a ship that lists components, such as a capital ship, loses its hull components, and any other ship explodes, unless its pilot ejects first. Returns false for an object that takes no damage, such as a nav point, and for one that is already exploding or jumping. Global scripts can destroy any object, and an object's scripts their own. |
+| `destroy_component(component: number)` | boolean | Destroys its component number `component`, counting from 0, the same way a hit that takes its last armour does: the component blows up and takes the rest of its assembly with it, its damaged model shows in its place, and losing a hull part ends the ship. Returns false if the component is already destroyed, or the object is exploding or jumping. Global scripts can destroy any object's components, and an object's scripts their own. |
 
 ## Missiles
 
@@ -538,6 +545,8 @@ turret, and a turret's own scripts on their turret.
 | `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
 | `objects()` | list of [objects](#objects) | Every object in the mission, in the order of their slots. |
 | `missiles()` | list of [missile](#missiles) | Every missile in flight, newest first. |
+| `set_player_target(target: Object, component: number?)` | boolean | Makes `target`, or its component number `component`, the player's target, as a mission's SetPlayerTarget does: the display shows it, and the player stops matching speeds. Returns whether it worked: false for a target the player can't aim at, such as a destroyed component, and between missions. |
+| `set_primary_target(target: Object?, component: number?)` | boolean | Makes `target`, or its component number `component`, the mission's primary target, as a mission's SetPrimaryTarget does: the PRIMARY TARGET key selects it. Nil leaves the mission without one. Returns false between missions. |
 | `set_objective(objective: number, state: ObjectiveState)` | boolean | Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names. |
 
 ### I.Campaign
@@ -701,7 +710,7 @@ One of the missile turrets of `launcher` launches a Screamer at `target`.
 
 ### vm_command
 
-The mission's script runs one of its commands, `command`, on `arguments`: as many as the command takes, the first first, and 0 past them. They're the script's own values: numbers, and the places of the mission's ships and texts in its file. To change them, set `e.arguments` to a new list. The result is what the command gives: `"run_on"` lets the script's thread go on, `"wait"` ends its run until it runs next, and a number is the command's value, which lets it go on too. A handler that stops the command leaves `"run_on"`.
+The mission's script runs one of its commands, `command`, on `arguments`: as many as the command takes, the first first, and 0 past them. They're the script's own values: numbers, and the places of the mission's ships and texts in its file. To change them, set `e.arguments` to a new list. The result is what the command gives: `"run_on"` lets the script's thread go on, `"wait"` ends its run until it runs next, and a number is the command's value, which lets it go on too. A handler that stops the command leaves `"run_on"`; one that stops it and sets `"hold"` has the thread wait, and run the command again, on the same arguments and through this hook, the next time it runs.
 
 | Field | Type |
 |---|---|
@@ -1210,6 +1219,30 @@ Values given as tables of fields. Scripts can only read the ones OpenReliant giv
 | `fore` | number |
 | `aft` | number |
 
+### ShipPart
+
+| Field | Type |
+|---|---|
+| `name` | string |
+| `class` | [PartClass](#partclass), or nil |
+| `parent` | number, or nil |
+| `component` | number, or nil |
+| `armor` | number, or nil |
+| `full_armor` | number, or nil |
+| `invulnerable` | [Invulnerability](#invulnerability), or nil |
+| `destroyed` | boolean |
+| `damaged` | boolean |
+| `position` | vector, or nil |
+
+### ShipAttachment
+
+| Field | Type |
+|---|---|
+| `part` | number |
+| `kind` | [AttachmentKind](#attachmentkind) |
+| `destroyed` | boolean |
+| `position` | vector, or nil |
+
 ### GameModeMission
 
 | Field | Type |
@@ -1624,6 +1657,14 @@ number. A script can set a field to either.
 
 `none`, `player_can_hit`, `full`, `eject_before_exploding`, or a number.
 
+### PartClass
+
+`hull`, `cockpit`, `turret`, `engine`, `shield_generator`, `comms_transmitter`, `gravity_drive`, `laser_turret`, `missile_turret`, `power_core`, `satellite_dish`, `service_door`, `shaft`, `surface_building`, `twin_power_cores`, `vent_hatch`, `ion_cannon`, `armored_plate`, `cap_gun`, `warp_projector`, `fuel_pod`, or a number.
+
+### AttachmentKind
+
+`missile`, `gun`, `engine_glow`, `gun_muzzle`, `light`, `pod`, `eject_point`, `case_ejector`, `launch_point`, `dock_point`, or a number.
+
 ### MissileType
 
 `none`, `screamer`, `raptor`, `havoc`, `jack_hammer`, `bandit`, `vagabond`, `solomon`, `imp`, `hawk`, `torpedo`, `fuel_pod`, the qualified name of one a mod adds, or a number.
@@ -1663,10 +1704,6 @@ number. A script can set a field to either.
 ### Quadrant
 
 `left`, `right`, `fore`, `aft`.
-
-### PartClass
-
-`hull`, `cockpit`, `turret`, `engine`, `shield_generator`, `comms_transmitter`, `gravity_drive`, `laser_turret`, `missile_turret`, `power_core`, `satellite_dish`, `service_door`, `shaft`, `surface_building`, `twin_power_cores`, `vent_hatch`, `ion_cannon`, `armored_plate`, `cap_gun`, `warp_projector`, `fuel_pod`, or a number.
 
 ### HudContactLook
 
@@ -1754,7 +1791,7 @@ number. A script can set a field to either.
 
 ### MissionCommandResult
 
-`wait`, `run_on`, or a number.
+`wait`, `run_on`, `hold`, or a number.
 
 ### RestartChoice
 

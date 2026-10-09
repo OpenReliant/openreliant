@@ -1092,26 +1092,15 @@ fn positionRelativeShip(call: Call, ship: Ship) void {
     objects.setPosition(&ship.slot.object, &ship.slot.drawn, record.runtime_position);
 }
 
-/// `cmd_SetPlayerTarget` (`0x00458C80`, command `0x21`): where the first argument names the
-/// player's ship, the ship the second names, or its component (`push_component`), becomes the
-/// player's target, where it can be aimed at (`ai.targetValid`): the player's Player Control order
-/// is aimed at it, the display follows (`hud.State.targetChanged`), and the player stops matching
-/// speeds (`input.Player.matching_speed`).
+/// `cmd_SetPlayerTarget` (`0x00458C80`, command `0x21`): if the first argument names the player's
+/// ship, makes the ship the second argument names, or its component (`push_component`), the
+/// player's target, as long as the player can aim at it (`input.aimPlayer`).
 ///
 /// Not ported: a ship past the players' slots aimed through its Multiplayer Control order, which no
 /// ship has outside a multiplayer game ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn setPlayerTarget(call: Call, game: aigeneric.Context) void {
-    const machine = call.machine;
-    const world = game.world;
-    const all = world.objects;
-    if (call.argumentShip(all, 0) != all.player) return;
-    const aimed = shipTarget(machine, call.thread, call.args[1], 1);
-    if (!ai.targetValid(all, aimed, .{})) return;
-    const entry = ai.playerControlEntry(all) orelse return;
-    entry.target.index = aimed.index;
-    entry.target.component = aimed.component;
-    if (world.display) |display| display.targetChanged(all, false);
-    world.player.matching_speed = false;
+    if (call.argumentShip(game.world.objects, 0) != game.world.objects.player) return;
+    _ = input.aimPlayer(game.world, shipTarget(call.machine, call.thread, call.args[1], 1));
 }
 
 /// `cmd_SetTargetable` (`0x00458D50`, command `0x22`) and `cmd_SetTargetable_ship` (`0x00458D70`),

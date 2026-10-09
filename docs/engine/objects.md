@@ -732,8 +732,8 @@ the armour below zero, and 1 every such hit but a player's ship's; any other val
 hit that leaves armour to spare still wears it, and its ShotAt events still come.
 
 A component's armour comes from its part's record (`0x104`), and `component_damage`
-(`0x004645C0`) wears it down: the damage goes to the first part of the component's assembly that
-still has armour, a part with more than 2499 takes only a hit of 500 or more, an object with a
+(`0x004645C0`) wears it down: the damage goes to the first part of the component's assembly whose
+record gives it armour, a part with more than 2499 takes only a hit of 500 or more, an object with a
 shield generator keeps three quarters of a hit below 1000, and a component whose armour runs out
 marks its root as destroyed (node flag `0x40`). A collision does none of this. Every part node
 stays in its root's child list, whatever part `object_link_part` links it to, so the node holding

@@ -1673,6 +1673,21 @@ pub fn setPlayerTarget(display: *hud.State, all: *create.Objects, index: i16, co
     display.targetChanged(all, multiplayer);
 }
 
+/// What `cmd_SetPlayerTarget` (`0x00458C80`) does once it knows its target: if the player can aim
+/// at `target` (`ai.targetValid`), it becomes the player's target. The player's Player Control order
+/// is aimed at it, the display follows (`hud.State.targetChanged`), and the player stops matching
+/// speeds (`Player.matching_speed`). Returns whether it worked.
+pub fn aimPlayer(world: gameobj.World, target: aigeneric.Target) bool {
+    const all = world.objects;
+    if (!ai.targetValid(all, target, .{})) return false;
+    const entry = ai.playerControlEntry(all) orelse return false;
+    entry.target.index = target.index;
+    entry.target.component = target.component;
+    if (world.display) |display| display.targetChanged(all, false);
+    world.player.matching_speed = false;
+    return true;
+}
+
 // --- The flyback markers -----------------------------------------------------------------------
 
 /// The flyback markers a mission's script sets (`SetFlybackMarker`): objects the display points the
@@ -2131,6 +2146,29 @@ pub fn cycleSubtarget(display: ?*hud.State, all: *create.Objects, step: Step, mu
         if (part.targetable and part.standing()) return;
     }
     component.* = -1;
+}
+
+test aimPlayer {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const player = try mission.add(.of(.predator), @splat(0));
+    try std.testing.expect(try aigeneric.push(mission.orders(), player, .player_control, .none));
+    const sabre = try mission.add(.of(.sabre), .{ 0, 0, 5000 });
+    const world = mission.world();
+    const target = &mission.slot(player).orders[0].target;
+    // A ship that can't be targeted isn't taken.
+    mission.slot(sabre).object.flags.targetable = false;
+    try std.testing.expect(!aimPlayer(world, .at(sabre, null)));
+    try std.testing.expectEqual(null, target.slot());
+    // One that can is, and the player stops matching speeds.
+    mission.slot(sabre).object.flags.targetable = true;
+    mission.player.matching_speed = true;
+    try std.testing.expect(aimPlayer(world, .at(sabre, null)));
+    try std.testing.expectEqual(sabre, target.slot().?);
+    try std.testing.expect(!mission.player.matching_speed);
+    // A component the ship doesn't have isn't taken either.
+    try std.testing.expect(!aimPlayer(world, .at(sabre, 2)));
 }
 
 test matchSpeed {

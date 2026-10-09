@@ -1034,6 +1034,59 @@ test "a script sets the state of a mission's objectives, as SetObjective does" {
     try std.testing.expectEqual(2, display.objectives.shown);
 }
 
+test "scripts list a ship's parts, destroy it, and set the player's targets" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local world = require("openreliant.world")
+                \\return {
+                \\    engine_handlers = {
+                \\        on_mission_start = function()
+                \\            local sabre = world.objects()[2]
+                \\            local parts = sabre:parts()
+                \\            assert(#parts == 2 and #sabre:attachments() == 0)
+                \\            -- Its hull is already destroyed, and keeps its number.
+                \\            assert(parts[1].class == "hull" and parts[1].destroyed and parts[1].component == 0)
+                \\            assert(parts[2].class == "engine" and not parts[2].destroyed and parts[2].component == 1)
+                \\            assert(not sabre:destroy_component(0))
+                \\            assert(not pcall(sabre.destroy_component, sabre, 2))
+                \\            assert(sabre:destroy_component(1))
+                \\            assert(world.set_primary_target(sabre, 1))
+                \\            assert(not world.set_player_target(sabre, 0))
+                \\            -- With no hull left to lose, it explodes.
+                \\            assert(sabre:destroy())
+                \\            assert(sabre.order == "explode" and not sabre:destroy())
+                \\        end,
+                \\    },
+                \\}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    // The Sabre's hull and engine are components, and the hull is destroyed.
+    const engine_objects = openreliant.engine.game.objects;
+    var parts: engine_objects.testing.Parts(2) = undefined;
+    parts.init();
+    parts.components(.{ true, true }, .{ 1, 2 });
+    parts.data[0].part.class = .hull;
+    parts.data[1].part.class = .engine;
+    const slot = &fixture.mission.objects.slots[fixture.sabre];
+    slot.model = try parts.create(std.testing.allocator);
+    slot.object.flags.components = true;
+    create.collectComponents(slot);
+    engine_objects.destroyPart(slot, .{ .model = &slot.model.?, .index = 0 });
+    fixture.begin();
+    fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    try std.testing.expect(slot.model.?.destroyed and slot.model.?.parts[1].armor < 0);
+    try std.testing.expectEqual(fixture.sabre, fixture.mission.player.primary_target.?.index);
+    try std.testing.expectEqual(1, fixture.mission.player.primary_target.?.component);
+    try std.testing.expect(slot.object.flags.exploding);
+}
+
 test "a script chooses the movies of a mission's end, and the restart screen's choice" {
     const engine_game = openreliant.engine.game;
     const movie = engine_game.xtrabits.movie;
@@ -1247,6 +1300,59 @@ test "a script changes or stops the mission script's commands, and hears of ship
     try std.testing.expectEqual(.run_on, machine.runCommand(0, .print_debug_message, @splat(0)));
     openreliant.engine.hooks.tell(fixture.mission.world(), .proximity_close, .{ .object = .of(0), .other = .of(fixture.sabre), .distance = 2.5 });
     try std.testing.expectEqual(0.5, fixture.mission.slot(fixture.sabre).object.throttle);
+}
+
+test "a script holds a mission command, whose thread runs it again on its next run" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local hooks = require("openreliant.hooks")
+                \\local seen = 0
+                \\hooks.add("vm_command", function(e)
+                \\    if e.command == "destroy_timer" then
+                \\        assert(e.arguments[1] == 7)
+                \\        seen += 1
+                \\        if seen < 3 then
+                \\            e.result = "hold"
+                \\            return false
+                \\        end
+                \\    end
+                \\end)
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const vm = openreliant.engine.vm;
+    const gpa = std.testing.allocator;
+    // DestroyTimer(7), then one added to global 0.
+    const code = try vm.machine.testing.assemble(gpa, struct {
+        fn build(r: *vm.machine.testing.Routine) !void {
+            try r.op(.push_byte, &.{7});
+            try r.command("DestroyTimer");
+            try r.op(.select_global, &.{0});
+            try r.op(.push_byte, &.{1});
+            try r.op(.add_assign, &.{});
+            try r.op(.push_byte, &.{1});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(code);
+    var mission: vm.machine.testing.Fixture = undefined;
+    try mission.init(gpa, &.{.{ .code = code, .start = true }}, .{ .globals = &.{0} });
+    defer mission.deinit();
+    mission.machine.game = fixture.mission.orders();
+    // Held twice, the command waits; the third time it runs, on the same argument, and the
+    // thread goes on past it.
+    try mission.machine.start();
+    try std.testing.expectEqual(0, mission.global(0));
+    mission.machine.runThreads();
+    try std.testing.expectEqual(0, mission.global(0));
+    mission.machine.runThreads();
+    try std.testing.expectEqual(1, mission.global(0));
 }
 
 test "a handler that fails is removed, and its changes undone" {

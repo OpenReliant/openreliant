@@ -200,12 +200,15 @@ expose ([The reference](#the-reference)). Renaming a field breaks the mods that 
 ## Records
 
 [`records.zig`](../../src/scripting/records.zig) holds copies of the stat tables
-([Stat tables](../formats/stats.md)) and of the strings in `language.dll` and the ITAC's
-`itaclang.dll`, and the campaign's order (`gameflow.Order`). After the load scripts run, the game
-reads its stats and text from these copies, and the driver installs the order
-(`gameflow.install`). The package holds the tables, and its metatable gives `campaign`: `__index`
-pushes a new list each time, and `__newindex` takes a load script's list, since Luau calls it for a
-key the read-only table doesn't hold.
+([Stat tables](../formats/stats.md)), of the strings in `language.dll` and the ITAC's
+`itaclang.dll`, of the campaign's order (`gameflow.Order`), and of what the campaign makes of each
+mission (`gameflow.CampaignMission`). After the load scripts run, the game reads its stats and text
+from these copies, and the driver installs the order and the missions (`gameflow.install`,
+`gameflow.installMissions`). The package holds the tables, and its metatable gives `campaign`:
+`__index` pushes a new list each time, and `__newindex` takes a load script's list, since Luau calls
+it for a key the read-only table doesn't hold. `missions` gives a proxy for each mission
+([`records/missions.zig`](../../src/scripting/records/missions.zig)), whose fields load scripts
+change in place.
 Each table exposes as many records as the game reads from its file. Before each load script and each
 `on_records_loaded` handler, the records are saved, and they are restored if it fails, so a failed
 script leaves no changes behind.
@@ -219,8 +222,7 @@ a script is converted back, with characters the code page doesn't have replaced 
 opens. Mods run in load order, and each mod's scripts in the order its manifest lists them. After
 all of them, each script's `on_records_loaded` handler runs, in the same order. The table a script
 returns is checked: a load script may only return `engine_handlers`, and the only engine handler it
-may give is `on_records_loaded`. The log reports scripts of a kind this version doesn't run yet
-(`Missile` and `Turret`) and keys that aren't a script kind.
+may give is `on_records_loaded`. The log reports keys in `[Scripts]` that aren't a script kind.
 
 ## Script definitions
 
@@ -398,7 +400,9 @@ type's `stopped` where the type declares one, and zero otherwise.
 and runs the command itself in `Machine.runCommand`, the hooked function, on a copy of the
 arguments padded with zeros to the most any command takes (`executor.Arguments`). The command is a
 `MissionCommand`, the catalogue's names in snake case, and its result a `CommandResult`, whose
-`stopped` is `run_on`.
+`stopped` is `run_on`. A handler's `hold`, a value no command gives, has `Machine.command` put the
+arguments back on the stack and step back over the command instruction, as the game's waiting
+commands do (`Call.againItself`), so the thread runs the command again the next time it runs.
 
 ### Calling them
 

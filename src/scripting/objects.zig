@@ -378,6 +378,10 @@ pub const methods = struct {
     pub const hook = api.Native("`hooks.add`, for the calls that concern this object only: a handler for the hook `name`, with an optional `filter`. Returns the handler's handle. Global scripts can hook any object, and an object's scripts their own.", "name: string, handler: (e: any) -> boolean?, filter: (Filter | (e: any) -> boolean)?", "HookHandle", hooks.hookObject);
     pub const set_surface = api.Function("Draws the object with the surface function `name`, the calling mod's by its own name or any mod's by the qualified one, reading `parameters`; nil draws it with its textures' functions again. Returns false if no function of that name is registered. Only player scripts can set it.", &.{ "self", "name", "parameters" }, @import("shaders.zig").setSurface);
     pub const turrets = api.Function("Its turrets: its guns that turn to aim, spin their barrels or launch missiles, destroyed ones included, in the order of its guns.", &.{"self"}, turretsOn);
+    pub const parts = api.Function("Its parts, destroyed ones included, in the order the game numbers them: each part of its model, followed by the parts of the models that part carries, such as a turret's gun. Empty for an object without a model.", &.{"self"}, partsOf);
+    pub const attachments = api.Function("The attachment points on its parts, such as engine glows and missile hardpoints, part by part in the order of `object:parts()`.", &.{"self"}, attachmentsOf);
+    pub const destroy = api.Function("Destroys it the same way running out of armour does: a ship that lists components, such as a capital ship, loses its hull components, and any other ship explodes, unless its pilot ejects first. Returns false for an object that takes no damage, such as a nav point, and for one that is already exploding or jumping. Global scripts can destroy any object, and an object's scripts their own.", &.{"self"}, destroyObject);
+    pub const destroy_component = api.Function("Destroys its component number `component`, counting from 0, the same way a hit that takes its last armour does: the component blows up and takes the rest of its assembly with it, its damaged model shows in its place, and losing a hull part ends the ship. Returns false if the component is already destroyed, or the object is exploding or jumping. Global scripts can destroy any object's components, and an object's scripts their own.", &.{ "self", "component" }, destroyComponent);
 };
 
 /// `object:is_valid()`.
@@ -390,6 +394,70 @@ fn isValid(call: Call, handle: Handle) bool {
 fn turretsOn(call: Call, object: Object) @import("turrets.zig").List {
     const all = call.runtime().objects orelse call.raise("objects only exist while a game runs", .{});
     return @import("turrets.zig").on(all, object.slot());
+}
+
+/// `object:parts()`.
+fn partsOf(call: Call, object: Object) @import("parts.zig").Parts {
+    const all = call.runtime().objects orelse call.raise("objects only exist while a game runs", .{});
+    return @import("parts.zig").partsOf(&all.slots[object.slot()]);
+}
+
+/// `object:attachments()`.
+fn attachmentsOf(call: Call, object: Object) @import("parts.zig").Attachments {
+    const all = call.runtime().objects orelse call.raise("objects only exist while a game runs", .{});
+    return @import("parts.zig").attachmentsOf(&all.slots[object.slot()]);
+}
+
+/// `object:destroy()`: an object that lists components loses each hull component it still has
+/// (`objects.destroyComponent`), and losing the hull ends it. Any other object, or one without hull
+/// components, is destroyed the same way running out of armour does it (`ai.objectDestroyed`).
+fn destroyObject(call: Call, object: Object) bool {
+    const ctx = destroying(call, object);
+    const slot = &ctx.world.objects.slots[object.slot()];
+    if (!damageable(slot)) return false;
+    var hull = false;
+    if (slot.object.flags.components) {
+        for (slot.listed()) |listed| {
+            const part = listed orelse continue;
+            if (part.class != .hull or !part.standing()) continue;
+            const model = slot.model.?.holding(part) orelse continue;
+            engine.game.objects.destroyComponent(model, part);
+            hull = true;
+        }
+    }
+    if (!hull) engine.game.ai.objectDestroyed(ctx, object.slot(), true, false);
+    return true;
+}
+
+/// `object:destroy_component(component)`: `objects.destroyComponent`.
+fn destroyComponent(call: Call, object: Object, component: u8) bool {
+    const ctx = destroying(call, object);
+    const slot = &ctx.world.objects.slots[object.slot()];
+    const listed = slot.listed();
+    if (component >= listed.len) call.raise("the object has {d} components, numbered from 0", .{listed.len});
+    // A destroyed component is gone from the list.
+    const part = listed[component] orelse return false;
+    if (!damageable(slot) or part.destroyed()) return false;
+    const model = slot.model.?.holding(part) orelse return false;
+    engine.game.objects.destroyComponent(model, part);
+    return true;
+}
+
+/// Whether the object in `slot` can be destroyed now: it has stats, it isn't debris, and it isn't
+/// already exploding or jumping. Objects without stats, debris and jumping ships take no damage.
+fn damageable(slot: *const create.Slot) bool {
+    const combat = slot.combat orelse return false;
+    const flags = slot.object.flags;
+    return combat.class != .debris and !flags.exploding and !flags.jumping;
+}
+
+/// The mission that destroying `object` or one of its components works on. Raises an error if the
+/// calling script may not change `object` (`mayChange`), if no mission runs, or in an order
+/// callback, since destroying a ship changes its orders.
+fn destroying(call: Call, object: Object) engine.game.aigeneric.Context {
+    if (call.runtime().custom_orders.running) call.raise("order callbacks cannot destroy objects", .{});
+    if (!mayChange(call.context, object.slot())) call.raise("{t} scripts can't destroy this object", .{call.context.family});
+    return call.runtime().orders orelse call.raise("objects can only be destroyed while a mission runs", .{});
 }
 
 /// `object:give_order(order, target, component)`.

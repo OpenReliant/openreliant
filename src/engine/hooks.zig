@@ -294,7 +294,7 @@ pub const functions = struct {
 
     pub const vm_command: Declaration = .{
         .address = 0x0045BEA0,
-        .about = "The mission's script runs one of its commands, `command`, on `arguments`: as many as the command takes, the first first, and 0 past them. They're the script's own values: numbers, and the places of the mission's ships and texts in its file. To change them, set `e.arguments` to a new list. The result is what the command gives: `\"run_on\"` lets the script's thread go on, `\"wait\"` ends its run until it runs next, and a number is the command's value, which lets it go on too. A handler that stops the command leaves `\"run_on\"`.",
+        .about = "The mission's script runs one of its commands, `command`, on `arguments`: as many as the command takes, the first first, and 0 past them. They're the script's own values: numbers, and the places of the mission's ships and texts in its file. To change them, set `e.arguments` to a new list. The result is what the command gives: `\"run_on\"` lets the script's thread go on, `\"wait\"` ends its run until it runs next, and a number is the command's value, which lets it go on too. A handler that stops the command leaves `\"run_on\"`; one that stops it and sets `\"hold\"` has the thread wait, and run the command again, on the same arguments and through this hook, the next time it runs.",
         .Fields = struct {
             _thread: u8,
             command: executor.MissionCommand,

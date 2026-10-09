@@ -1,9 +1,10 @@
 //! The `openreliant.world` package ([#498](https://github.com/OpenReliant/openreliant/issues/498)),
 //! for global and mission scripts: the objects of the mission, its missiles in flight, the player's
-//! ship and the mission itself (`package`).
+//! ship and target, the mission itself and its objectives (`package`).
 
 const openreliant = @import("openreliant");
-const engine_hooks = openreliant.engine.hooks;
+const engine = openreliant.engine;
+const engine_hooks = engine.hooks;
 const Object = engine_hooks.Object;
 const create = openreliant.engine.game.create;
 const hud = openreliant.engine.game.hud;
@@ -17,6 +18,8 @@ const game = @import("game.zig");
 pub const package = struct {
     pub const objects = api.Function("Every object in the mission, in the order of their slots.", &.{}, allObjects);
     pub const missiles = api.Function("Every missile in flight, newest first.", &.{}, allMissiles);
+    pub const set_player_target = api.Function("Makes `target`, or its component number `component`, the player's target, as a mission's SetPlayerTarget does: the display shows it, and the player stops matching speeds. Returns whether it worked: false for a target the player can't aim at, such as a destroyed component, and between missions.", &.{ "target", "component" }, setPlayerTarget);
+    pub const set_primary_target = api.Function("Makes `target`, or its component number `component`, the mission's primary target, as a mission's SetPrimaryTarget does: the PRIMARY TARGET key selects it. Nil leaves the mission without one. Returns false between missions.", &.{ "target", "component" }, setPrimaryTarget);
     pub const set_objective = api.Function("Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names.", &.{ "objective", "state" }, setObjective);
 
     pub const player = api.Field(?Object, "The player's ship, while a mission runs; nil between missions.", struct {
@@ -42,6 +45,21 @@ fn setObjective(call: Call, objective: u8, state: hud.Objectives.Status) bool {
     const orders = call.runtime().orders orelse return false;
     const display = orders.world.display orelse return false;
     return display.objectives.set(objective, state);
+}
+
+/// `world.set_player_target(target, component)`: `input.aimPlayer`, as a mission's
+/// `SetPlayerTarget` calls it.
+fn setPlayerTarget(call: Call, target: Object, component: ?u8) bool {
+    const orders = call.runtime().orders orelse return false;
+    return engine.input.aimPlayer(orders.world, .at(target.slot(), if (component) |part| part else null));
+}
+
+/// `world.set_primary_target(target, component)`: `input.Player.primary_target`, as a mission's
+/// `SetPrimaryTarget` sets it.
+fn setPrimaryTarget(call: Call, target: ?Object, component: ?u8) bool {
+    const orders = call.runtime().orders orelse return false;
+    orders.world.player.primary_target = if (target) |aimed| .{ .index = aimed.slot(), .component = component } else null;
+    return true;
 }
 
 /// `world.objects()`.
