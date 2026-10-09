@@ -407,8 +407,8 @@ A handler that stops it leaves `"refused"`, and the object's orders stay as they
 
 ### Changing what the radio says
 
-`radio_say` runs as the radio says a line: from a mission's script, the simulator or the game's
-chatter. `e.speech` is the file of the line, such as `ms_hudtr_001.ut`, and `e.film` the film of
+`radio_say` runs as the radio says a line: from a mission's script, the simulator, the game's
+chatter or a mod's script ([The radio](#the-radio)). `e.speech` is the file of the line, such as `ms_hudtr_001.ut`, and `e.film` the film of
 the speaker's face. `e.mode` says when it's said: `"now"`, `"queued"` after the lines before it, or
 `"if_idle"`, only if the radio has nothing else to say.
 
@@ -809,6 +809,56 @@ local pulse = orders.register("pulse", {
   carry on.
 - The order goes away when the scripts that registered it stop or reload. A loaded saved game starts
   the global scripts again, and they register their orders again.
+
+## The radio
+
+`openreliant.radio` says lines on the radio, as a mission's comms commands do. Global and object
+scripts can use it while a mission runs.
+
+```lua
+local radio = require("openreliant.radio")
+
+-- As CommsFromPilot: Diceman says the mod's line, with his face.
+radio.say_pilot("diceman", "ms_dice22_001.ut")
+-- As CommsFromShip: the ship says it with its pilot's face, after the lines before it.
+radio.say(ship, "ms_dice22_002.ut", { mode = "queued", face = "laughing" })
+```
+
+- `say` takes a ship and shows its pilot's face. `say_pilot` takes a pilot by its name or number,
+  or one a mod adds by its qualified name.
+- The speech file is the game's or a mod's ([Lines](modding.md#lines)).
+- A line is said at once, ending the line playing, as the comms commands say theirs. With
+  `mode = "queued"` it's said after the lines before it, and with `"if_idle"` only if the radio has
+  nothing else to say.
+- `face` picks the film of the speaker's face: `"talking"`, `"laughing"`, `"squadron"` or `"dying"`.
+  With `once = true` the film plays once, then the dead channel's while the line goes on, as the
+  commands' Once forms play it.
+- Each line goes through the `radio_say` hook, so other mods can change or drop it
+  ([Changing what the radio says](#changing-what-the-radio-says)).
+- Between missions nothing is said, and both functions return false.
+
+A mission that prints its radio as debug text, such as the Dreamcast's mission 22, can be voiced
+from the `vm_command` hook ([The mission script's commands](#the-mission-scripts-commands)). A
+text's argument is its place in the mission's file, the same each time the mission runs, so a mod
+can keep a table of the line that stands for each text. `print(e.arguments[1])` shows the places
+as the mission runs.
+
+```lua
+local hooks = require("openreliant.hooks")
+
+-- The mod's table of the lines, by the place of the text each stands for:
+-- { [place] = { "diceman", "ms_dice22_016.ut" }, ... }
+local lines = require("lines")
+
+hooks.add("vm_command", function(e)
+    if e.command == "print_debug_message" then
+        local line = lines[e.arguments[1]]
+        if line then
+            radio.say_pilot(line[1], line[2])
+        end
+    end
+end)
+```
 
 ## Events
 
