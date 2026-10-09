@@ -55,6 +55,26 @@ pub const Context = struct {
     }
 };
 
+/// A number of things, as `{f}` writes it: `1 part`, `2 parts`.
+pub fn count(n: usize, comptime noun: []const u8) Count {
+    return countAs(n, noun, noun ++ "s");
+}
+
+/// `count` for a noun whose plural doesn't just add an `s`, such as `vertex` and `vertices`.
+pub fn countAs(n: usize, comptime one: []const u8, comptime many: []const u8) Count {
+    return .{ .n = n, .one = one, .many = many };
+}
+
+pub const Count = struct {
+    n: usize,
+    one: []const u8,
+    many: []const u8,
+
+    pub fn format(counted: Count, writer: *Io.Writer) Io.Writer.Error!void {
+        try writer.print("{d} {s}", .{ counted.n, if (counted.n == 1) counted.one else counted.many });
+    }
+};
+
 /// The verb of a group's command, the first of `args`, and the operands after it. `Group` is a
 /// group's command type, a union with a field for each verb.
 pub fn verbOf(comptime Group: type, args: []const [:0]const u8) error{Usage}!struct { std.meta.Tag(Group), []const [:0]const u8 } {
@@ -96,7 +116,7 @@ const Command = union(enum) {
     /// What `--version` shows, as `openreliant --version` shows its own.
     const version_line = "sltool " ++ version.string ++ "\n";
 
-    const usage = "sltool " ++ version.string ++ " reads and writes StarLancer's files, and reads those of other games on its engine.\n\n" ++
+    const usage = "sltool " ++ version.string ++ " reads and writes StarLancer's files, and reads files from other games on the same engine.\n\n" ++
         \\usage: sltool <command> ...
         \\
         \\commands:
@@ -200,6 +220,11 @@ test Command {
     const extract = try Command.parse(&.{ "cd", "extract", "disc.bin", "out" });
     try std.testing.expectEqualStrings("disc.bin", extract.cd.extract.image);
     try std.testing.expectEqualStrings("out", extract.cd.extract.out_dir);
+}
+
+test count {
+    var buffer: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("1 part, 2 faces, 3 vertices", try std.fmt.bufPrint(&buffer, "{f}, {f}, {f}", .{ count(1, "part"), count(2, "face"), countAs(3, "vertex", "vertices") }));
 }
 
 test positional {

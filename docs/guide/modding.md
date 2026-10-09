@@ -928,7 +928,8 @@ and options:
   maps](#material-maps)): its colour, its colour texture times its colour where it has one; its
   roughness and metalness, from its textures and values; its normal map; and its emissive map where
   it glows, `KHR_materials_emissive_strength` included. Every map takes the colour texture's size.
-  Textures must be PNG files; any other is left out, and the log says so.
+  Textures must be PNG files. A texture that isn't a PNG file, or whose file is missing or can't be
+  read, is skipped with a warning.
 - **What isn't read.** Animations, skins, morph targets, cameras, lights, sparse accessors, a second
   set of texture coordinates, and the extensions beyond the emissive strength. A file that requires
   an extension other than `KHR_materials_emissive_strength`, `KHR_materials_specular` or
@@ -943,10 +944,11 @@ empty nodes named as `from-gltf` reads them, and with `--textures` its pictures 
 sltool shp gltf USLF_Prd.SHP predator.gltf --textures tcachehw.dat palette.tga
 ```
 
-Each part is a node, under the part it hangs from, with its first level of detail (`--lod` picks
-another). Built again with `from-gltf`, every part but one named `cockpit` joins the body, and the
-textures take the new model's names. Share only your own work in a mod, never the game's models or
-pictures.
+Each part is a node under the part it hangs from, with its first level of detail (`--lod` picks
+another). Without `--textures`, the materials name their pictures, but the pictures aren't written.
+When you build the model again with `from-gltf`, every part except one named `cockpit` joins the
+body, the textures are renamed after the new model, and missing pictures are skipped. Share only
+your own work in a mod, never the game's models or pictures.
 
 ## Missions
 

@@ -26,7 +26,7 @@ pub const Command = union(enum) {
     textures: struct { model: []const u8, out_dir: []const u8 },
 
     pub const usage =
-        \\  trek ls <image>                 list the files in Star Trek: Invasion's archive on its
+        \\  trek ls <image>                 list the files in Star Trek: Invasion's archive on a
         \\                                  disc image
         \\  trek extract <image> <out-dir>  copy every file out of the archive
         \\  trek sections <mission>         list an Invasion mission's sections
@@ -93,7 +93,7 @@ fn list(ctx: Context, archive: trek.res.Archive) !void {
             if (item.streamed) "  (streamed)" else "",
         });
     }
-    try ctx.stdout.print("{d} files in {d} slots, {d} of them named by the executable\n", .{ files, archive.slots.len, archive.names.len });
+    try ctx.stdout.print("{d} files in {d} slots; the executable has names for {d}\n", .{ files, archive.slots.len, archive.names.len });
 }
 
 fn extract(ctx: Context, archive: trek.res.Archive, out_path: []const u8) !void {
@@ -120,7 +120,8 @@ fn extract(ctx: Context, archive: trek.res.Archive, out_path: []const u8) !void 
     }
     try ctx.stdout.print("extracted {d} files ({Bi:.1}) to {s}\n", .{ files, bytes, out_path });
     if (streamed != 0) try ctx.stdout.print(
-        "kept {d} of them, with streamed audio or video, as whole {d}-byte Mode 2 sectors\n",
+        "{d} of the files hold streamed audio or video, " ++
+            "so they were copied as whole {d}-byte Mode 2 sectors\n",
         .{ streamed, cdimage.mode2_size },
     );
 }

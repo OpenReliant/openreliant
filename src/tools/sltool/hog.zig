@@ -179,8 +179,8 @@ fn extract(ctx: Context, archive: hog.Archive, out_path: []const u8, raw: bool) 
     });
     if (renamed > 0) {
         try ctx.stdout.print(
-            "{d} member{s} shared a name with an earlier one and got a ~N suffix\n",
-            .{ renamed, if (renamed == 1) "" else "s" },
+            "{f} shared a name with an earlier one and got a ~N suffix\n",
+            .{sltool.count(renamed, "member")},
         );
     }
 }

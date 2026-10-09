@@ -31,7 +31,7 @@ pub const Command = union(enum) {
         };
         const picture: tim.Picture = try .parse(try ctx.readInput(path));
         switch (command) {
-            .info => try ctx.stdout.print("{d}x{d}, {f}, {d} colours in its first palette\n", .{
+            .info => try ctx.stdout.print("{d}x{d} pixels, {f}, {d} colours in the first palette\n", .{
                 picture.width, picture.height, picture.depth, picture.palette.len,
             }),
             .png => |operands| try ctx.writePng(.cwd(), operands.out, picture.width, picture.height, try picture.rgba(ctx.arena)),

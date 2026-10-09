@@ -1,15 +1,18 @@
-//! The textures `sltool shp from-gltf` writes beside a model for a glTF file's materials
-//! (`gltf.Material`), as a mod's pictures and material maps ([Modding](../../../docs/guide/modding.md#material-maps)):
-//! for a material whose texture is called `name`,
+//! The textures that `sltool shp from-gltf` writes next to a model for the materials of a glTF
+//! file (`gltf.Material`), as a mod's pictures and material maps
+//! ([Modding](../../../docs/guide/modding.md#material-maps)). For a material whose texture is
+//! called `name`, it writes:
 //!
-//! - `name.png`, its colour: its colour texture times its colour, or a picture of its colour alone;
-//! - `name_orm.png`, its material map: occlusion, roughness and metalness, from its textures and
+//! - `name.png`, the colour: the colour texture multiplied by the colour, or a plain picture of the
+//!   colour if there is no texture;
+//! - `name_orm.png`, the material map: occlusion, roughness and metalness, from the textures and
 //!   values;
-//! - `name_normal.png`, its normal map, where it has one;
-//! - `name_emissive.png`, the light it gives off, where it gives off any.
+//! - `name_normal.png`, the normal map, if the material has one;
+//! - `name_emissive.png`, the light the material gives off, if it gives off any.
 //!
-//! Every map is as large as the colour picture, which the game needs. A texture of another size is
-//! sampled to it, and one that isn't a PNG file is left out, and the log says so.
+//! The game needs every map to be the same size as the colour picture, so a texture of another size
+//! is resampled to that size. A texture whose file can't be read, or that isn't a PNG file, is
+//! skipped with a warning.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -82,14 +85,20 @@ pub fn of(arena: Allocator, material: gltf.Material, name: []const u8) Allocator
     return files.items;
 }
 
-/// The picture of `image`, a texture of `material`'s for `role`; null where there is none, or it
-/// isn't a PNG file it can read, which the log says.
+/// Reads `image`, the `role` texture of `material`. Returns null if there is no texture, and also,
+/// with a warning, if its file can't be read or isn't a PNG file.
 fn picture(arena: Allocator, image: ?gltf.Image, material: []const u8, comptime role: []const u8) Allocator.Error!?png.Picture {
-    const found = image orelse return null;
+    const found = switch (image orelse return null) {
+        .found => |found| found,
+        .missing => |file| {
+            log.warn("skipping the {s} texture of material {s}: can't read {s}", .{ role, material, file });
+            return null;
+        },
+    };
     return png.read(arena, found.bytes) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.NotAPng, error.Corrupt, error.Unsupported, error.BadSize => {
-            log.warn("the {s} texture of the material {s} is left out: it isn't a PNG file that can be read ({s})", .{ role, material, @errorName(err) });
+            log.warn("skipping the {s} texture of material {s}: can't read it as a PNG file ({s})", .{ role, material, @errorName(err) });
             return null;
         },
     };
@@ -131,15 +140,16 @@ test of {
     const glow = try png.read(gpa, files[2].bytes);
     try std.testing.expectEqualSlices(u8, &.{ 0, 255, 0, 255 }, glow.rgba[0..4]);
 
-    // A colour texture times its colour, its size the maps'; a texture that isn't a PNG is left
-    // out.
+    // The colour texture is multiplied by the colour and sets the size of every map. A texture
+    // that isn't a PNG file, or whose file can't be read, is skipped.
     var written: std.Io.Writer.Allocating = .init(gpa);
     try png.writeRgba(gpa, &written.writer, 2, 1, &.{ 255, 255, 255, 255, 0, 0, 0, 255 });
     const textured = try of(gpa, .{
         .name = "hull",
         .colour = .{ 0.5, 1, 1, 1 },
-        .colour_texture = .{ .bytes = written.written(), .mime = null },
-        .normal_texture = .{ .bytes = "not a picture", .mime = "image/jpeg" },
+        .colour_texture = .{ .found = .{ .bytes = written.written() } },
+        .normal_texture = .{ .found = .{ .bytes = "not a picture", .mime = "image/jpeg" } },
+        .metal_rough_texture = .{ .missing = "hull_metal.png" },
     }, "ship_1");
     try std.testing.expectEqual(2, textured.len);
     const hull = try png.read(gpa, textured[0].bytes);

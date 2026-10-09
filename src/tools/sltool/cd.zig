@@ -127,7 +127,8 @@ fn extract(ctx: Context, volume: anytype, out_path: []const u8) !void {
     };
     try ctx.stdout.print("extracted {d} files ({Bi:.1}) to {s}\n", .{ files, bytes, out_path });
     if (streamed != 0) try ctx.stdout.print(
-        "kept {d} of them, with streamed audio or video, as whole {d}-byte Mode 2 sectors\n",
+        "{d} of the files hold streamed audio or video, " ++
+            "so they were copied as whole {d}-byte Mode 2 sectors\n",
         .{ streamed, cdimage.mode2_size },
     );
 }

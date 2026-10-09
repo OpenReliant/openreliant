@@ -130,7 +130,7 @@ pub fn saveFrames(ctx: Context, chunks: talkie.Chunks, stem: []const u8, out_pat
     var index: usize = 0;
     while (reading.next()) |chunk| : (index += 1) {
         const decoded = film.decode(chunk) catch |err| {
-            try ctx.stdout.print("chunk {d} of {s} is not decoded: {s}\n", .{ index, stem, @errorName(err) });
+            try ctx.stdout.print("can't decode chunk {d} of {s}: {s}\n", .{ index, stem, @errorName(err) });
             continue;
         };
         if (!decoded) continue;

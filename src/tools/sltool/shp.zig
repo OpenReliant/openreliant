@@ -463,8 +463,8 @@ fn check(ctx: Context, data: []const u8) !void {
     }
 
     if (problems == 0) {
-        try ctx.stdout.print("ok: {d} parts, {d} vertices, {d} faces\n", .{
-            model.parts.len, model.vertexCount(), model.faceCount(),
+        try ctx.stdout.print("ok: {f}, {f}, {f}\n", .{
+            sltool.count(model.parts.len, "part"), sltool.countAs(model.vertexCount(), "vertex", "vertices"), sltool.count(model.faceCount(), "face"),
         });
         try ctx.stdout.writeAll("bounds:");
         for (std.enums.values(BoundsFrame)) |frame| {
@@ -529,7 +529,7 @@ fn writeModel(ctx: Context, model: shp.Model, out_path: []const u8) !void {
     try writer.interface.flush();
     var faces: usize = 0;
     for (model.parts) |part| faces += part.meshes[0].faces.len;
-    try ctx.stdout.print("wrote {s}: {d} parts, {d} faces\n", .{ out_path, model.parts.len, faces });
+    try ctx.stdout.print("wrote {s}: {f}, {f}\n", .{ out_path, sltool.count(model.parts.len, "part"), sltool.count(faces, "face") });
 }
 
 /// Builds the model the glTF file `bytes` at `path` makes, as `buildFromObj` builds one, scaled by
@@ -588,7 +588,7 @@ fn writeGltf(ctx: Context, model: shp.Model, out_path: []const u8, lod: u32, cac
     defer dir.close(ctx.io);
     try dir.writeFile(ctx.io, .{ .sub_path = std.Io.Dir.path.basename(out_path), .data = written.json });
     try dir.writeFile(ctx.io, .{ .sub_path = bin_name, .data = written.bin });
-    try ctx.stdout.print("wrote {s} and {s}: {d} parts, {d} materials\n", .{ out_path, bin_name, model.parts.len, written.materials.len });
+    try ctx.stdout.print("wrote {s} and {s}: {f}, {f}\n", .{ out_path, bin_name, sltool.count(model.parts.len, "part"), sltool.count(written.materials.len, "material") });
 
     const cache_bytes = try ctx.readInput(cache_path orelse return);
     const cache: openreliant.tcache.Cache = try .parse(ctx.arena, cache_bytes);
@@ -667,7 +667,7 @@ fn writeObj(ctx: Context, model: shp.Model, out_path: []const u8, lod: u32, mode
     }
 
     try out.flush();
-    try ctx.stdout.print("wrote {s}: {d} parts, {d} triangles\n", .{ out_path, exported, triangles });
+    try ctx.stdout.print("wrote {s}: {f}, {f}\n", .{ out_path, sltool.count(exported, "part"), sltool.count(triangles, "triangle") });
 }
 
 test Command {
