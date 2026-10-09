@@ -893,7 +893,13 @@ pub fn drawShapeWith(
 
 /// Draws `image` whole over the rectangle `edges` of the screen.
 pub fn drawImageOver(into: device.Device, image: *srtexture.Image, edges: Clip, colour: [4]f32) void {
-    drawPart(into, image, edges, .{ 0, 1 }, .{ 0, 1 }, device.pack(colour), null);
+    drawImagePartOver(into, image, edges, .{ 0, 1 }, .{ 0, 1 }, colour);
+}
+
+/// Draws the part of `image` between texture coordinates `u` and `v` over the rectangle `edges` of
+/// the screen.
+pub fn drawImagePartOver(into: device.Device, image: *srtexture.Image, edges: Clip, u: [2]f32, v: [2]f32, colour: [4]f32) void {
+    drawPart(into, image, edges, u, v, device.pack(colour), null);
 }
 
 /// Draws `image` with its top left corner at `corner` on the screen, `scale` times its own size,
@@ -2008,6 +2014,11 @@ pub const Resources = struct {
     target_fonts: TargetFonts,
     /// The power ball's tables, and the image it is drawn into.
     ball: *power.Ball,
+    /// The ball the mods' displays draw (`hud.power_ball`), apart from the window's, so that both
+    /// can draw in one frame.
+    ///
+    /// **Improvement:** OpenReliant's, for the mods' displays.
+    scripts_ball: *power.Ball,
 
     pub const font_name = "BLUFONT.FNT";
 
@@ -2027,7 +2038,9 @@ pub const Resources = struct {
         errdefer closeFont(&new, gpa);
         const picture = try matmanager.readPixels(gpa, archive, power.picture_name);
         defer picture.deinit(gpa);
-        return .{ .art = art, .font = font, .target_fonts = .{ .small = small, .new = new }, .ball = try .create(gpa, picture) };
+        const ball: *power.Ball = try .create(gpa, picture);
+        errdefer ball.destroy(gpa);
+        return .{ .art = art, .font = font, .target_fonts = .{ .small = small, .new = new }, .ball = ball, .scripts_ball = try .create(gpa, picture) };
     }
 
     /// Frees what `load` made in `gpa`, and the images made of its shapes and its fonts' glyphs.
@@ -2037,6 +2050,7 @@ pub const Resources = struct {
         closeFont(&resources.target_fonts.small, gpa);
         closeFont(&resources.target_fonts.new, gpa);
         resources.ball.destroy(gpa);
+        resources.scripts_ball.destroy(gpa);
         resources.* = undefined;
     }
 

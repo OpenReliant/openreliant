@@ -40,6 +40,9 @@ const most_jitter = 20;
 /// The width of the image the ball is drawn into, with room for the shake.
 pub const image_width = size + most_jitter;
 
+/// The share of the image's width that the ball fills, the rest being room for the shake.
+pub const ball_across: f32 = @as(f32, size) / image_width;
+
 /// A step across the ball, from one pixel to the next: its radius is 1 in the tables' sums
 /// (`0x004DC8D4`).
 const step: f32 = 1.0 / @as(f32, radius);
@@ -346,19 +349,23 @@ pub fn draw(shown: Shown, canvas: hud.windows.Canvas) hud.windows.Canvas.Error!v
     for (labels) |label| try canvas.shape(label.shape, label.at);
 }
 
-fn testingPicture(gpa: Allocator) !tga.Image {
-    const rgb = try gpa.alloc(u8, texture_size * texture_size * 3);
-    for (0..texture_size * texture_size) |at| {
-        // A gradient across, so that where the ball samples it shows.
-        const grey: u8 = @intCast(at % texture_size);
-        @memset(rgb[at * 3 ..][0..3], grey);
+/// What the tests here and in the scripts' make the ball from.
+pub const testing = struct {
+    /// A picture of `powerball.tga`'s size: a grey gradient across, so that where the ball samples
+    /// it shows. Its pixels are in `gpa`.
+    pub fn picture(gpa: Allocator) !tga.Image {
+        const rgb = try gpa.alloc(u8, texture_size * texture_size * 3);
+        for (0..texture_size * texture_size) |at| {
+            const grey: u8 = @intCast(at % texture_size);
+            @memset(rgb[at * 3 ..][0..3], grey);
+        }
+        return .{ .width = texture_size, .height = texture_size, .rgb = rgb };
     }
-    return .{ .width = texture_size, .height = texture_size, .rgb = rgb };
-}
+};
 
 test Ball {
     const gpa = std.testing.allocator;
-    const picture = try testingPicture(gpa);
+    const picture = try testing.picture(gpa);
     defer gpa.free(picture.rgb);
     const ball = try Ball.create(gpa, picture);
     defer ball.destroy(gpa);
@@ -388,7 +395,7 @@ test Ball {
 
 test "the shake moves the ball's rows to the right" {
     const gpa = std.testing.allocator;
-    const picture = try testingPicture(gpa);
+    const picture = try testing.picture(gpa);
     defer gpa.free(picture.rgb);
     const ball = try Ball.create(gpa, picture);
     defer ball.destroy(gpa);

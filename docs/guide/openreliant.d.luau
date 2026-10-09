@@ -798,6 +798,8 @@ type Hud = {
     window_state: (instrument: HudInstrument) -> HudWindowState?,
     -- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
+    -- Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission.
+    power_ball: (at: vector, size: vector?, style: FillStyle?) -> (),
     -- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     -- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
@@ -1041,6 +1043,7 @@ type Interfaces = {
         bounds: (instrument: HudInstrument) -> HudBounds?,
         window_state: (instrument: HudInstrument) -> HudWindowState?,
         picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
+        power_ball: (at: vector, size: vector?, style: FillStyle?) -> (),
         shape: (at: vector, index: number, style: ShapeStyle?) -> (),
         text: (at: vector, text: string, style: TextStyle?) -> (),
         line: (from: vector, to: vector, style: LineStyle?) -> (),

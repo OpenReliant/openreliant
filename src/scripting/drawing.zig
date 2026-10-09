@@ -343,6 +343,8 @@ pub const View = struct {
     fonts: std.EnumArray(Font, ?*hud.Opened) = .initFill(null),
     art: ?*hud.Art = null,
     rasterizer: ?hud.outline.Rasterizer = null,
+    /// The power ball the flight display's scripts draw (`power_ball`); none on other layers.
+    power_ball: ?*hud.power.Ball = null,
 
     pub fn fontOf(view: View, font: Font) ?*hud.Opened {
         return if (font == .default) view.font else view.fonts.get(font);
@@ -362,6 +364,7 @@ const Command = union(enum) {
     rectangle: struct { from: [2]f32, to: [2]f32, colour: [4]f32 },
     picture: struct { image: *srtexture.Image, at: [2]f32, size: [2]f32, colour: [4]f32 },
     shape: struct { index: usize, at: [2]f32, colour: [4]f32, scale: f32 },
+    power_ball: struct { setting: [2]f32, at: [2]f32, size: [2]f32, colour: [4]f32 },
 };
 
 /// What scripts draw on one layer in a frame.
@@ -422,6 +425,12 @@ pub const Layer = struct {
                     error.OutOfMemory => return error.OutOfMemory,
                     else => {},
                 };
+            },
+            .power_ball => |ball| if (view.power_ball) |drawn| {
+                // Every ball a frame draws turns with the same setting.
+                drawn.render(ball.setting, 0, null);
+                const edges: hud.Clip = .{ .left = ball.at[0], .top = ball.at[1], .right = ball.at[0] + ball.size[0], .bottom = ball.at[1] + ball.size[1] };
+                hud.drawImagePartOver(into, &drawn.image, edges, .{ 0, hud.power.ball_across }, .{ 0, 1 }, ball.colour);
             },
         };
     }
@@ -532,6 +541,18 @@ pub fn Package(comptime which: Which) type {
                 scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .picture = .{ .image = image, .at = screenPoint(at), .size = extent, .colour = rgba(style.color, style.alpha) } });
             }
         }.draw);
+
+        pub const power_ball = if (which == .hud) api.Function("Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission.", &.{ "at", "size", "style" }, struct {
+            fn draw(call: Call, at: @Vector(3, f32), size: ?@Vector(3, f32), given: ?FillStyle) void {
+                const scripts = presentation.Presentation.of(call);
+                const setting = instruments.powerSetting(call) orelse call.raise("the power ball draws only during a mission", .{});
+                const style = given orelse FillStyle{};
+                const scale = if (scripts.views.get(which)) |view| view.scale else 1;
+                const side = @as(f32, hud.power.size) * scale;
+                const extent: [2]f32 = if (size) |asked| .{ @max(asked[0], 0), @max(asked[1], 0) } else .{ side, side };
+                scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .power_ball = .{ .setting = setting, .at = screenPoint(at), .size = extent, .colour = rgba(style.color, style.alpha) } });
+            }
+        }.draw) else {};
 
         pub const shape = api.Function("Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.", &.{ "at", "index", "style" }, struct {
             fn draw(call: Call, at: @Vector(3, f32), index: u32, given: ?ShapeStyle) void {

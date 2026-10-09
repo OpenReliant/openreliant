@@ -1211,10 +1211,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             var host = frames.host(size, !flow.in_front_end and !clock.paused);
             if (flow.in_front_end) {
                 const fonts = &front_resources.?;
-                frames.show(&host, .ui, &fonts.small.font, game.interface.canvas.scaleFor(size), if (fonts.shapes) |*art| art else null);
+                frames.show(&host, .ui, &fonts.small.font, game.interface.canvas.scaleFor(size), if (fonts.shapes) |*art| art else null, null);
             } else {
                 const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
-                if (script_font) |*file| frames.show(&host, layer, &file.font, display.ui_scale.of(size), &display.resources.art);
+                if (script_font) |*file| frames.show(&host, layer, &file.font, display.ui_scale.of(size), &display.resources.art, display.resources.scripts_ball);
                 host.camera = .{ .camera = &view, .now = clock.viewTime(), .player = objects.player };
                 host.flight = .{
                     .hud = &display.state,

@@ -753,6 +753,8 @@ test "a display reads the windows and the display's text" {
                 \\        o.showing, #o.list, o.list[1].name, tostring(o.list[1].current), o.list[2].number, tostring(o.list[2].name),
                 \\        table.concat(hud.comms, ","), table.concat(hud.messages, ","), hud.subtitle, hud.key_prompt,
                 \\        hud.jump_prompt))
+                \\    hud.power_ball(vector.create(10, 20, 0), vector.create(40, 30, 0), {alpha = 0.5})
+                \\    hud.power_ball(vector.zero)
                 \\end}}
             },
         },
@@ -794,9 +796,31 @@ test "a display reads the windows and the display's text" {
         .variables = &variables,
         .strings = &strings,
     } };
-    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
+    const picture = try hud.power.testing.picture(gpa);
+    defer picture.deinit(gpa);
+    const ball: *hud.power.Ball = try .create(gpa, picture);
+    defer ball.destroy(gpa);
+    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1, .power_ball = ball });
     fixture.shown.frame(host);
-    const shares = hud.power.percentages(engine.input.power.point(&slot.object));
+    // The power balls turn with the player's setting: one in a box of the script's, one at its size
+    // on the display.
+    const commands = fixture.shown.layers.get(.hud).commands.items;
+    const setting = engine.input.power.point(&slot.object);
+    try std.testing.expectEqual(setting, commands[1].power_ball.setting);
+    try std.testing.expectEqual([2]f32{ 40, 30 }, commands[1].power_ball.size);
+    try std.testing.expectEqual(0.5, commands[1].power_ball.colour[3]);
+    try std.testing.expectEqual([2]f32{ hud.power.size, hud.power.size }, commands[2].power_ball.size);
+    // Drawn, a ball fills its box with the ball's square of the image, without the room for the
+    // shake.
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    try fixture.shown.draw(.hud, recorder.interface(), null);
+    const drawn = recorder.drawn(recorder.draws.items.len - 2);
+    try std.testing.expectEqual(10, drawn[0].x);
+    try std.testing.expectEqual(50, drawn[2].x);
+    try std.testing.expectEqual(50, drawn[2].y);
+    try std.testing.expectEqual(hud.power.ball_across, drawn[2].u);
+    const shares = hud.power.percentages(setting);
     var buffer: [engine.game.mission.wing_size]hud.wing_status.Entry = undefined;
     const wing = hud.wing_status.entries(all, &buffer);
     var expected: [256]u8 = undefined;

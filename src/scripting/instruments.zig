@@ -600,11 +600,17 @@ pub const damage = api.Field(?Damage, "The damage window, as it shows how well t
 
 pub const power = api.Field(?Power, "The power window, as it shows the shields', guns' and engines' shares of the player's power, as the whole percentages it writes, whether or not the window is open; nil outside a mission.", struct {
     pub fn get(call: Call) ?Power {
-        _, const slot = flightOf(call) orelse return null;
-        const shares = power_window.percentages(power_systems.point(&slot.object));
+        const shares = power_window.percentages(powerSetting(call) orelse return null);
         return .{ .shields = shares.get(.shields), .weapons = shares.get(.guns), .engines = shares.get(.engines) };
     }
 });
+
+/// The player's power setting, which the power window shows and its ball turns with; null outside
+/// a mission.
+pub fn powerSetting(call: Call) ?[2]f32 {
+    _, const slot = flightOf(call) orelse return null;
+    return power_systems.point(&slot.object);
+}
 
 pub const wingmen = api.Field(Wingmen, "The ships of the player's wing the wing status window shows, the player's first, whether or not the window is open; none outside a mission.", struct {
     pub fn get(call: Call) Wingmen {
