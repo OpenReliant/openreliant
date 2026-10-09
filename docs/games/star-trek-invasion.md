@@ -1,10 +1,10 @@
 # Star Trek: Invasion
 
-Star Trek: Invasion (Activision, 2000) is a PlayStation game by Warthog, who developed the original.
-Its missions have the original's `.DTE` format and the original's script bytecode, while its archive
-and models are its own and its pictures are the PlayStation's. `sltool trek` reads its files.
-OpenReliant doesn't play them: [#181](https://github.com/OpenReliant/openreliant/issues/181) tracks
-what the two games share, which points at what a shared engine has to keep apart.
+Star Trek: Invasion (Activision, 2000) is a PlayStation game by Warthog, who developed StarLancer.
+Its missions have StarLancer's `.DTE` format and script bytecode, while its archive and models are
+its own and its pictures are the PlayStation's. `sltool trek` reads its files. OpenReliant doesn't
+play them: [#181](https://github.com/OpenReliant/openreliant/issues/181) tracks what the two games
+share, which points at what a shared engine has to keep apart.
 
 ```bash
 sltool trek ls <image>                    # the archive's files, with their names
@@ -70,38 +70,38 @@ audio, and their sizes count whole Mode 2 sectors of 2336 bytes rather than logi
 
 ## Missions
 
-A `.DSM` mission has the original's layout ([`.DTE` missions](../formats/dte.md#directory)): a
-directory of sections, then the sections. The directory has 128 entries of the original's form,
-which fill the first 1024 bytes, and the sections come in another order. Every mission uses
+A `.DSM` mission has StarLancer's layout ([`.DTE` missions](../formats/dte.md#directory)): a
+directory of sections, then the sections. The directory has 128 entries of StarLancer's form, which
+fill the first 1024 bytes, and the sections come in another order. Every mission uses
 entries 0 to 22 and leaves the rest unused.
 
-| Section | Stride | Contents | The original's section |
+| Section | Stride | Contents | StarLancer's section |
 |---|---|---|---|
 | 0 | 4 | **Unknown.** | |
 | 1 | 1 | The string pool. | `strings` (0) |
 | 2 | 36 | **Unknown.** | |
 | 3 | `0x44` | The ships. A ship names its model by a string offset at `+0`, such as `VALKA` for the model `TRK\VALKA.TRK`, and its name by one at `+4`. It places the model with whole numbers rather than floats. | `ships` (3), laid out otherwise |
 | 4 | `0x14` | The flight groups. | `flight_groups` (4) |
-| 5 | `0x0C` | **Unverified:** the globals. Each starts with a name's string offset and holds a value, as the original's do. | |
+| 5 | `0x0C` | **Unverified:** the globals. Each starts with a name's string offset and holds a value, as StarLancer's do. | |
 | 6 | `0x30` | The triggers. | `triggers` (5) |
 | 7 | 2 | The script, counted in halfwords. | `script` (6) |
 | 8 | 8 | The objects. | `objects` (7) |
 | 9 | `0x1C` | The parts. | `parts` (8) |
 | 10 | `0x0C` | **Unknown.** | |
-| 11, 15 | `0x44` | Records in the shape of the original's curves, with whole numbers in place of floats. **Unknown:** what each section's records are for. | |
-| 12 | `0x1C` | **Unverified:** a second part table, as the original's `parts_b`. | |
-| 13 | 2 | **Unverified:** a second script, as the original's `script_b`. | |
+| 11, 15 | `0x44` | Records in the shape of StarLancer's curves, with whole numbers in place of floats. **Unknown:** what each section's records are for. | |
+| 12 | `0x1C` | **Unverified:** a second part table, as StarLancer's `parts_b`. | |
+| 13 | 2 | **Unverified:** a second script, as StarLancer's `script_b`. | |
 | 14 | 52 | **Unknown.** | |
 | 16, 17 | `0x0C` | **Unknown.** | |
 | 19 | `0x10` | **Unknown.** | |
 
-`sltool trek` reads the sections that hold the original's records with the original's mission
-reader, which it points at them.
+`sltool trek` reads the sections that hold StarLancer's records with StarLancer's mission reader,
+which it points at them.
 
-The script has the original's bytecode ([Script VM](../engine/script-vm.md)): every instruction
-the routines reach is one of the original's. The parts' names show the same mission editor, such as
+The script has StarLancer's bytecode ([Script VM](../engine/script-vm.md)): every instruction the
+routines reach is one of StarLancer's. The parts' names show the same mission editor, such as
 `StartUp` or `CamValkyrie1Stuff`, and the string pool holds names such as `Curve1_Join1_Point2`.
-The Executor's commands differ. Commands `0x01` to `0x03` are the original's `CreateTimer`,
+The Executor's commands differ. Commands `0x01` to `0x03` are StarLancer's `CreateTimer`,
 `DestroyTimer` and `CreateFlightGroup`, and the scripts call commands up to `0x80`. `sltool trek
 script` shows the commands by number. **Unknown:** what Invasion's other commands do.
 

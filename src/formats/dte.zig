@@ -1488,10 +1488,10 @@ pub const Mission = struct {
         return .{ .image = image, .directory = directory };
     }
 
-    /// The mission of another game on the original's engine, whose directory, `entries`, holds
-    /// the original's sections in another order. `Theirs` is that game's enum of its sections, and
-    /// its `asDte` gives the original's section an entry holds, or null for one laid out otherwise.
-    /// `directory` takes the original's entries; a section no entry holds is unused.
+    /// The mission of another game on StarLancer's engine, whose directory, `entries`, holds
+    /// StarLancer's sections in another order. `Theirs` is that game's enum of its sections, and
+    /// its `asDte` gives StarLancer's section an entry holds, or null for one laid out otherwise.
+    /// `directory` takes StarLancer's entries; a section no entry holds is unused.
     pub fn remapped(
         image: []const u8,
         entries: []align(1) const DirectoryEntry,

@@ -1,5 +1,5 @@
-//! Star Trek: Invasion (Activision, 2000), a PlayStation game by Warthog, who developed the
-//! original: its archive, its missions and its models. Its pictures are the PlayStation's TIM
+//! Star Trek: Invasion (Activision, 2000), a PlayStation game by Warthog, who developed
+//! StarLancer: its archive, its missions and its models. Its pictures are the PlayStation's TIM
 //! pictures (`playstation.tim`).
 
 pub const res = @import("trek/res.zig");

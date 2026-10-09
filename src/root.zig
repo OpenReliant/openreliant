@@ -43,7 +43,7 @@ pub const gltf = @import("formats/gltf.zig");
 /// Checksum files, used to check mod archives.
 pub const checksums = @import("formats/checksums.zig");
 
-/// Other games on the original's engine, and the formats of the PlayStation, which some of them
+/// Other games on StarLancer's engine, and the formats of the PlayStation, which some of them
 /// run on.
 pub const games = @import("formats/games.zig");
 pub const playstation = @import("formats/playstation.zig");

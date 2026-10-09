@@ -1,4 +1,4 @@
-//! The PlayStation's own formats, which the PlayStation games on the original's engine use: the
+//! The PlayStation's own formats, which the PlayStation games on StarLancer's engine use: the
 //! executable that a disc starts, and TIM pictures. The discs' Mode 2 sectors are in `cdimage.zig`.
 
 pub const exe = @import("playstation/exe.zig");

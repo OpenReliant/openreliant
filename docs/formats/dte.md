@@ -2,7 +2,9 @@
 
 Each of the 44 missions is one image: the ships it places, the globals it seeds, the triggers it
 arms, and the script they run. Star Trek: Invasion's `.DSM` missions have the same layout, with
-their sections in another order ([Star Trek: Invasion](../games/star-trek-invasion.md#missions)).
+their sections in another order ([Star Trek: Invasion](../games/star-trek-invasion.md#missions)),
+and Battlestar Galactica's `.dte` missions keep the same records behind another directory
+([Battlestar Galactica](../games/battlestar-galactica.md#missions)).
 
 ```bash
 sltool dte info <mission>        # counts and sizes
