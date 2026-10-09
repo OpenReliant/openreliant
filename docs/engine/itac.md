@@ -149,7 +149,9 @@ mission 14. As it opens, the latest is chosen.
   then a paragraph on each of the medal, where the mission was rated a success with its bonus, the
   promotion, the ribbon and the fighters it brought. Where a nanny ship picked the pilot up in the
   mission, whether the objectives were met and the pickup's paragraph stand in their place.
-  "(more)" marks a body that runs past its box.
+  "(more)" marks a body that runs past its box. **Improvement:** OpenReliant takes the medal, the
+  ribbon and the fighters from the mission's settings, which mods can change
+  ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)).
 - Mission Kills, the mission's, and Overall Kills, the campaign's; Rank and Level, the game's
   strings; their values fade with the section.
 - REPLAY MISSION, after a mission, for the latest debriefing: the campaign as the mission began, as

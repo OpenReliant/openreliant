@@ -126,6 +126,9 @@ Each attempt at a mission clears variable 34. The function has reports for missi
 `new_chapter3_thread1.bik`, `new_chapter3_thread2.bik` and `new_chapter2_thread3.bik`, which are
 never reached, as mission 16 ends no chapter.
 
+**Improvement:** OpenReliant takes the chapter a mission ends from the mission's settings, which
+start with the original's values and which mods can change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)).
+
 ### How a mission ended
 
 After the landing, or where there is none, `WinMain` plays how a mission of the campaign ended
@@ -159,7 +162,8 @@ ship picked the pilot up (`mission_end_record`, `0x00475B57` on), before the ITA
 | 23 | 5 | `new_navy_cross.bik` |
 | 27 | 6 | `new_medal_of_honour.bik` |
 
-**Improvement:** scripts can choose each of these movies, or none, with the hooks `mission_lost`, `career_over` and `medal_ceremony` ([Hooks](../guide/scripting.md#hooks)). A movie a hook chooses plays from a mod or from either disc's archive: where the archive open doesn't hold it, the other disc's opens for it, and the first opens again after it (`Movies.playChosen`).
+**Improvement:** OpenReliant takes each mission's medal from the mission's settings, which start
+with the original's values and which mods can change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)). Scripts can also choose each of these movies, or none, with the hooks `mission_lost`, `career_over` and `medal_ceremony` ([Hooks](../guide/scripting.md#hooks)). A movie a hook chooses plays from a mod or from either disc's archive: where the archive open doesn't hold it, the other disc's opens for it, and the first opens again after it (`Movies.playChosen`).
 
 ### The story's end
 

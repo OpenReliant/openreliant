@@ -41,10 +41,12 @@ The loadout screen (`loadout.cpp`, `0x00441AA0` to `0x0044B870`) is a hologram t
 
 The loadout offers the first ships of its table, from the Predator on, as many as the campaign's tier or the pilot's rank opens, the more of the two (`loadout_ships_create`, `0x00444760`), and they stand in the middle slots of the arc:
 
-- **The tier** (`campaign_tier`, `0x00562DF0`) opens 4, 7, 10 or 12 ships (`0x004EA408`). The loadout raises it as it loads to the highest the missions before this one bring (`mission_tiers`, `0x005009D8`): 1 from mission 12, 2 from mission 20, 3 from mission 22. The mission is flown at that tier, which arms its fighters' default missiles. **Improvement:** OpenReliant reads each mission's tier, whether its loadout teaches as the first's does, and the ship it offers alone as the 23rd's offers the Shroud, from the campaign's records, the original's by default, which mods change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)).
+- **The tier** (`campaign_tier`, `0x00562DF0`) opens 4, 7, 10 or 12 ships (`0x004EA408`). The loadout raises it as it loads to the highest the missions before this one bring (`mission_tiers`, `0x005009D8`): 1 from mission 12, 2 from mission 20, 3 from mission 22. The mission is flown at that tier, which arms its fighters' default missiles.
 - **The rank** (`pilot_rank`, `0x00562DEC`) opens 4 to 12 ships (`0x004EA418`). The end of a mission the pilot comes through promotes the pilot by the kills over the campaign, never down (`mission_end_record`, `0x00475A90`): ranks 1 to 8 at 35, 72, 115, 150, 200, 255, 275 and 300 kills (`rank_kills`, `0x005009F4`). Nothing is recorded where the player's ship was destroyed, the ejected pilot captured, or the script rated the mission a total failure. A new pilot starts at rank 0.
 
 The ship the loadout starts on is the Shroud in mission 23, the Predator in mission 1, and the campaign's saved one otherwise (`loadout_reset`, `0x004439D0`). In mission 23 only the Shroud is shown or can be clicked.
+
+**Improvement:** OpenReliant takes each mission's tier, whether its loadout teaches as mission 1's does, and the only ship it offers from the mission's settings, which start with the original's values and which mods can change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)).
 
 **Fix:** a saved ship the loadout does not offer, as a campaign begun again at an earlier mission leaves it, leaves the game without the chosen ship's object, which it then writes to. OpenReliant starts on the first ship offered, the Predator unless a game mode lists the ships.
 

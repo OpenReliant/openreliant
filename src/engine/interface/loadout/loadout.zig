@@ -106,25 +106,25 @@ pub const Context = struct {
     /// How it draws the models the original draws solid.
     look: Look = .original,
 
-    /// Whether the loadout teaches, in a mission whose records say so, the first in the original:
-    /// speaks `loadout.ut` and blinks its exit (`0x00441B6F`, `0x004433D2`), unless the lesson is
-    /// left out (`tutorial`).
+    /// Whether the loadout plays its lesson: `loadout.ut` and the blinking exit button
+    /// (`0x00441B6F`, `0x004433D2`). It does when the mission's loadout teaches (`teaches`) and the
+    /// lesson isn't turned off (`tutorial`).
     fn tutors(context: Context) bool {
         return context.tutorial and context.teaches();
     }
 
-    /// Whether the mission's records say its loadout teaches (`gameflow.CampaignMission.lesson`):
-    /// it starts on the Predator with the tier's missiles.
+    /// Whether the mission's loadout teaches (`gameflow.CampaignMission.lesson`, mission 1 in the
+    /// original). It then starts on the Predator with the tier's missiles, even with the lesson
+    /// turned off.
     fn teaches(context: Context) bool {
-        const own = gameflow.campaignMission(context.mission) orelse return false;
-        return own.lesson;
+        return gameflow.campaignField(context.mission, .lesson);
     }
 
-    /// The ship the mission's records say its loadout offers alone
-    /// (`gameflow.CampaignMission.only_ship`), the Shroud in mission 23 in the original.
+    /// The only ship the mission's loadout offers, if any (`gameflow.CampaignMission.only_ship`).
+    /// In the original, mission 23 offers only the Shroud, which it names by its object
+    /// (`0x00523994`).
     fn onlyShip(context: Context) ?create.TypeIndex {
-        const own = gameflow.campaignMission(context.mission) orelse return null;
-        const only = own.only_ship orelse return null;
+        const only = gameflow.campaignField(context.mission, .only_ship) orelse return null;
         return @intCast(only.number());
     }
 };
@@ -162,9 +162,7 @@ pub const Frame = struct {
     mouse: i3d.Interface.Mouse,
 };
 
-/// The ship a loadout that teaches starts on, the Predator, ship type 0 (`0x00523994`). Which
-/// missions teach, and which offer one ship alone, the Shroud in the original's mission 23
-/// (`0x0044341E`), the campaign's records say (`Context.teaches`, `Context.onlyShip`).
+/// The ship a loadout that teaches starts on: the Predator, ship type 0.
 pub const predator = 0;
 
 /// The loadout's near plane (`0x00442737`), where the briefing's is `srapi.in_flight_near`.
@@ -1339,14 +1337,14 @@ pub const Loadout = struct {
         try loadout.fitStartingRacks();
     }
 
-    /// The chosen ship's missiles as the ship page is first built (`0x00446918`): the tier's
-    /// (`fitTierDefault`) in a mission that teaches or offers one ship alone, the first and the
-    /// 23rd in the original, the campaign's saved racks
-    /// (`fitSaved`) otherwise, each glowing in with the red light's fade.
+    /// Fits the chosen ship's missiles when the ship page is first built (`0x00446918`), glowing
+    /// in as the red light fades in. A loadout that teaches or offers only one ship (missions 1
+    /// and 23 in the original) fits the tier's missiles (`fitTierDefault`). Any other fits the
+    /// campaign's saved racks (`fitSaved`).
     ///
-    /// **Fix:** where the saved ship is one the loadout does not offer, OpenReliant starts on the
-    /// Predator (`chosenFor`) and fits it the tier's missiles, where the saved racks are another
-    /// ship's.
+    /// **Fix:** if the loadout doesn't offer the saved ship, OpenReliant starts on the Predator
+    /// (`chosenFor`) and fits it the tier's missiles. The original fits the saved racks, which
+    /// belong to another ship.
     fn fitStartingRacks(loadout: *Loadout) Allocator.Error!void {
         const context = loadout.context;
         if (context.teaches() or context.onlyShip() != null or context.saved.ship != loadout.chosenType()) {
@@ -1401,8 +1399,8 @@ pub const Loadout = struct {
         loadout.interface.busy = false;
     }
 
-    /// Whether the loadout shows ship `index`: every ship it offers, but in a mission that offers
-    /// one ship alone, that ship, the Shroud in the original's mission 23 (`0x0044341E`).
+    /// Whether the loadout shows ship `index`. It shows every ship it offers, unless the mission
+    /// offers only one ship (`Context.onlyShip`, `0x0044341E`).
     fn showsShip(loadout: *const Loadout, index: usize) bool {
         const only = loadout.context.onlyShip() orelse return true;
         return index == only;
@@ -2676,14 +2674,14 @@ fn partsToScene(gpa: Allocator, scene: *srcore.Scene, tree: *objects.Model) Allo
     while (each.next()) |mount| try partsToScene(gpa, scene, &mount.model);
 }
 
-/// The campaign's tier before mission `mission` (`0x00441AA9` to `0x00441AD9`): the highest the
-/// missions numbered before it reach (`gameflow.CampaignMission.tier`).
+/// The campaign's tier before mission `mission` (`0x00441AA9` to `0x00441AD9`): the highest tier
+/// of the missions with lower numbers (`gameflow.CampaignMission.tier`).
 fn tierBefore(mission: u16) u2 {
     var tier: u2 = 0;
     var before: u16 = gameflow.first_mission;
     while (before < mission) : (before += 1) {
-        const own = gameflow.campaignMission(before) orelse break;
-        if (own.tier) |reached| tier = @max(tier, reached);
+        const settings = gameflow.campaignMission(before) orelse break;
+        if (settings.tier) |reached| tier = @max(tier, reached);
     }
     return tier;
 }
@@ -2714,14 +2712,14 @@ fn reach(model: *const shp.Model) f32 {
     return farthest;
 }
 
-/// Which of the `offered` ships the loadout starts on (`loadout_reset`, `0x004439D0`): the ship a
-/// mission offers alone, the Shroud in the original's mission 23; the Predator in a mission that
-/// teaches, the first in the original; and the campaign's saved one otherwise. Where a game mode
-/// lists the ships (`Context.ships`), the saved one in every mission.
+/// Which of the `offered` ships the loadout starts on (`loadout_reset`, `0x004439D0`): the only
+/// ship the mission offers, if it offers one; the Predator, if the loadout teaches; otherwise the
+/// campaign's saved ship. In the original, these are the Shroud in mission 23 and the Predator in
+/// mission 1. A game mode that lists its ships (`Context.ships`) always starts on the saved one.
 ///
-/// **Fix:** a saved ship the loadout does not offer, as a campaign begun again at an earlier
-/// mission leaves it, leaves the game without the chosen ship's object, which it then writes to.
-/// OpenReliant starts on the first offered, the Predator unless a game mode lists the ships.
+/// **Fix:** if the loadout doesn't offer the saved ship, which happens when a campaign starts again
+/// at an earlier mission, the original has no object for the chosen ship and writes to it anyway.
+/// OpenReliant starts on the first ship offered, the Predator unless a game mode lists the ships.
 fn chosenFor(context: Context, offered: []const tables.Offer) u8 {
     const wanted: ?create.TypeIndex = if (context.ships != null)
         context.saved.ship
@@ -2912,7 +2910,7 @@ test chosenFor {
     context.mission = 23;
     const shroud: create.TypeIndex = @intCast(gameobj.Type.of(.shroud).number());
     try std.testing.expectEqual(shroud, chosenFor(context, every));
-    // A mission the records give a ship alone starts on it.
+    // A mission that offers only one ship starts on it.
     var missions = gameflow.CampaignMission.original;
     missions[4].only_ship = .of(.grendel);
     gameflow.installMissions(&missions);

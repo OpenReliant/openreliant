@@ -1215,11 +1215,12 @@ records.campaign = campaign
 
 ### Each mission of the campaign
 
-`records.missions` holds what the campaign makes of each of its missions, by its number: what the
-briefing room plays before it, the carrier it's flown from, the names of its objectives and the
-date the launch shows. The game decides each by the mission's number. A mission's fields start as
-the game's, and load scripts change them in place, as they change a record's. The
-[reference](reference.md#openreliantrecords) lists the fields.
+`records.missions` holds the campaign's settings for each of its missions, indexed by the
+mission's number: what the briefing room plays before it, the carrier it's flown from, the names of
+its objectives, the date the launch shows, and what it awards. The game decides each of these by
+the mission's number. A mission's fields start with the game's values, and load scripts change
+them in place, as they do a record's. The [reference](reference.md#openreliantrecords) lists the
+fields.
 
 A mod that changes one thing changes one field:
 
@@ -1260,12 +1261,11 @@ records.missions[3] = { carrier = "yamato", hologram = "mycampaign_m03.bik", las
   hangar the launch starts in.
 - The game reads the missions as it goes, so a game mode's `records` script changes them for the
   mode's missions alone.
-- What a mission brings the campaign is in its record too: the loadout's `tier` its end reaches,
-  the `chapter` of the story it ends, with its ribbon and its movie, and the `medal` it awards for
-  a success with its bonus. So is what the game does by the first mission's and the 23rd's
-  numbers: the new pilot's `induction` before the first, the first loadout's `lesson`, and the
-  23rd's loadout, which offers its `only_ship`, the Shroud, alone. A mod that moves or adds
-  missions moves these with them.
+- A mission's awards are fields too: the loadout `tier` it unlocks, the `chapter` it ends, which
+  gives a ribbon and a movie, and its `medal`. So are the special cases the game ties to missions 1
+  and 23: the new pilot's `induction` and the loadout's `lesson` before mission 1, and the
+  loadout's `only_ship`, the Shroud, before mission 23. A mod that moves or adds missions can move
+  these with them.
 - Not yet in the records: the ITAC after each mission
   ([#984](https://github.com/OpenReliant/openreliant/issues/984)), and the other rules the game
   applies by a mission's number ([#985](https://github.com/OpenReliant/openreliant/issues/985)).
