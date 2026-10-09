@@ -20,6 +20,7 @@ const maneuvers = aidefend.maneuvers;
 const Maneuver = maneuvers.Maneuver;
 const Bearing = maneuvers.Bearing;
 const aigeneric = @import("aigeneric.zig");
+const hooks = @import("../hooks.zig");
 const cloak = @import("cloak.zig");
 const Order = @import("ai/orders.zig").Order;
 const create = @import("create.zig");
@@ -337,7 +338,7 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
     aim(fighter);
     callForHelp(fighter);
     updateCloak(fighter);
-    aidefend.run(fighter);
+    aidefend.run(fighter.ctx, fighter.index);
 }
 
 /// `fight_update_cloak` (`0x00409EC0`): a ship whose model can cloak cloaks once the maneuver's
@@ -381,9 +382,9 @@ test updateCloak {
 fn begin(fighter: Fighter, data: *FightData) void {
     const state = fighter.state;
     state.* = std.mem.zeroes(FightState);
-    state.maneuver = data.next() orelse @fromBackingInt(FightData.none);
+    state.maneuver = data.next() orelse .none;
     state.line = FightState.before_first;
-    const allowed: Mirror = if (maneuvers.info(state.maneuver)) |info| info.mirror else .{};
+    const allowed: Mirror = if (aidefend.find(state.maneuver)) |maneuver| maneuver.definition.mirror else .{};
     state.mirror = allowed.pick(fighter.random15());
     state.maneuver_end = @as(i32, @as(u16, @bitCast(data.ticks))) + fighter.now();
     state.ship = data.ship;
@@ -407,14 +408,37 @@ const against_massive: Choice = .{ .maneuver = .attack_massive_object, .ticks = 
 const as_massive: Choice = .{ .maneuver = .attack_medium_fighter, .ticks = 10000 };
 const back_to_sphere: Choice = .{ .maneuver = .out_of_action_sphere, .ticks = 500 };
 
-/// `fight_choose_maneuver` (`0x0040A3A0`): the next maneuver, into the order's data for the next
-/// update to start. A target with components is attacked as a massive object, and a ship with
-/// components attacks as one; between two ships without, a ship strays back to the action sphere
-/// where it has left it, and otherwise chooses by where the two are (`byPosition`). Where the
-/// choice gives no length, it is drawn from the maneuver's range.
+/// The next maneuver, into the order's data for the next update to start (`chooseManeuver`).
+/// Where a hook's handler chose it, its length is drawn from its range, and a run to a ship runs
+/// to the nearest friendly capital ship. A number past the maneuvers, or none, runs nothing, and
+/// Fight chooses again on its next update.
 fn choose(fighter: Fighter) void {
     const data = &fighter.entry().data.fight;
     data.fresh = true;
+    data.maneuver = FightData.none;
+    const maneuver = chooseManeuver(fighter.ctx, fighter.index);
+    if (data.next()) |chosen| if (chosen == maneuver) return;
+    if (aidefend.find(maneuver) == null) {
+        data.maneuver = FightData.none;
+        data.ticks = 0;
+        return;
+    }
+    data.setNext(maneuver);
+    data.ticks = drawTicks(fighter, maneuver);
+    // With no such ship, it runs to where it is.
+    if (maneuver == .run_to_ship) data.ship = shipToRunTo(fighter) orelse fighter.index;
+}
+
+/// `fight_choose_maneuver` (`0x0040A3A0`): the next maneuver of the ship in slot `index`, under
+/// the Fight order, into the order's data for the next update to start. A target with components
+/// is attacked as a massive object, and a ship with components attacks as one; between two ships
+/// without, a ship strays back to the action sphere where it has left it, and otherwise chooses by
+/// where the two are (`byPosition`). Where the choice gives no length, it is drawn from the
+/// maneuver's range. Returns the maneuver, which handlers of the hook can change (`choose`).
+fn chooseManeuver(ctx: aigeneric.Context, index: u16) Maneuver {
+    if (hooks.enter(.fight_choose_maneuver, chooseManeuver, .{ ctx, index })) |chosen| return chosen;
+    const fighter = Fighter.unchecked(ctx, index) orelse return .none;
+    const data = &fighter.entry().data.fight;
     const choice: Choice = if (fighter.enemy().object.flags.components)
         against_massive
     else if (fighter.ship().flags.components)
@@ -423,11 +447,15 @@ fn choose(fighter: Fighter) void {
         outOfSphere(fighter) orelse byPosition(fighter);
     data.setNext(choice.maneuver);
     if (choice.ship) |friend| data.ship = friend;
-    data.ticks = choice.ticks orelse drawn: {
-        const info = maneuvers.table[@backingInt(choice.maneuver)];
-        // The game adds in 16 bits.
-        break :drawn @truncate(fighter.randomBetween(info.min_ticks, info.max_ticks));
-    };
+    data.ticks = choice.ticks orelse drawTicks(fighter, choice.maneuver);
+    return choice.maneuver;
+}
+
+/// A length for `maneuver`, one of the installed maneuvers, drawn from its range.
+fn drawTicks(fighter: Fighter, maneuver: Maneuver) i16 {
+    const definition = aidefend.find(maneuver).?.definition;
+    // The game adds in 16 bits.
+    return @truncate(fighter.randomBetween(definition.min_ticks, definition.max_ticks));
 }
 
 /// How far off a ship outside the action sphere its target must be, inside it, for the ship to

@@ -1,7 +1,8 @@
-//! A table of the records that scripts see as a list of proxies numbered from 1, each with named
-//! fields that load scripts change in place: the campaign's missions (`records.missions`) and the
-//! KILLBOARD's pilots (`records.killboard`). Assigning a table of fields to an entry changes only the
-//! fields the table holds. Entries can't be added or removed.
+//! A table of the records that scripts see as a list of proxies, each with named fields that load
+//! scripts change in place: the campaign's missions (`records.missions`), the KILLBOARD's pilots
+//! (`records.killboard`) and the combat maneuvers (`records.maneuvers`). Assigning a table of fields
+//! to an entry changes only the fields the table holds. Entries can't be removed, and only a table
+//! that can grow takes new ones, at the end.
 
 const std = @import("std");
 
@@ -36,9 +37,16 @@ pub const Item = struct {
 /// - `Field`, the entries' fields;
 /// - `count(records)`, how many entries the table has;
 /// - `getField(state, item, field)`, which pushes a field's value, and `setField(state, item,
-///   field, given)`, which sets it from the value at `given`.
+///   field, given)`, which sets it from the value at `given`;
+/// - optionally `first`, the number of the first entry, 1 if it has none; and
+/// - optionally `append(state, records)`, which adds an entry at the end, for a table that can
+///   grow, with `most`, the most entries it holds. Assigning a table of fields to the number after
+///   the last adds an entry and fills it.
 pub fn Table(comptime Spec: type) type {
     return struct {
+        const first: usize = if (@hasDecl(Spec, "first")) Spec.first else 1;
+        const grows = @hasDecl(Spec, "append");
+
         /// The userdata for the table.
         const List = struct {
             records: *Records,
@@ -79,8 +87,8 @@ pub fn Table(comptime Spec: type) type {
         /// other key.
         fn placeOf(state: *State, held: *const Records, key: i32) ?usize {
             const number = bind.wholeIndex(state.toNumber(key) orelse return null) orelse return null;
-            if (number < 1) return null;
-            const place = number - 1;
+            if (number < first) return null;
+            const place = number - first;
             return if (place < Spec.count(held)) place else null;
         }
 
@@ -105,9 +113,18 @@ pub fn Table(comptime Spec: type) type {
         fn newIndex(state: *State) i32 {
             const list = List.of(state, 1);
             if (!list.writable) state.raise("records can only be changed by load scripts", .{});
-            const place = placeOf(state, list.records, 2) orelse {
+            const place = placeOf(state, list.records, 2) orelse added: {
+                const count = Spec.count(list.records);
+                if (grows and isNext(state, count) and count < Spec.most) {
+                    Spec.append(state, list.records);
+                    break :added count;
+                }
                 _ = state.toDisplay(2);
-                state.raise("records.{s}[{s}] does not exist: {s} are 1 to {d}", .{ Spec.list_name, state.toString(-1).?, Spec.described, Spec.count(list.records) });
+                const shown = state.toString(-1).?;
+                const last = first + count - 1;
+                if (grows and count < Spec.most) state.raise("records.{s}[{s}] does not exist: {s} are {d} to {d}; assign to records.{s}[{d}] to add one, up to {d} in all", .{ Spec.list_name, shown, Spec.described, first, last, Spec.list_name, first + count, Spec.most });
+                if (grows) state.raise("records.{s}[{s}] does not exist: {s} are {d} to {d}, the most there can be", .{ Spec.list_name, shown, Spec.described, first, last });
+                state.raise("records.{s}[{s}] does not exist: {s} are {d} to {d}", .{ Spec.list_name, shown, Spec.described, first, last });
             };
             if (state.typeOf(3) == .nil) state.raise("records.{s}: {s} can't be removed", .{ Spec.list_name, Spec.item_noun });
             if (state.typeOf(3) != .table) state.raise("records.{s}: expected a table of fields, got {s}", .{ Spec.list_name, state.typeName(3) });
@@ -120,6 +137,12 @@ pub fn Table(comptime Spec: type) type {
                 state.pop(1);
             }
             return 0;
+        }
+
+        /// Whether the key at 2 is the number after the last of `count` entries.
+        fn isNext(state: *State, count: usize) bool {
+            const number = bind.wholeIndex(state.toNumber(2) orelse return false) orelse return false;
+            return number == first + count;
         }
 
         /// The table's `__iter`: each entry in turn, as its number and the entry.
@@ -135,7 +158,7 @@ pub fn Table(comptime Spec: type) type {
             const list = List.of(state, 1);
             const place: usize = if (state.typeOf(2) == .nil) 0 else (placeOf(state, list.records, 2) orelse return 0) + 1;
             if (place >= Spec.count(list.records)) return 0;
-            state.pushNumber(@floatFromInt(place + 1));
+            state.pushNumber(@floatFromInt(place + first));
             pushItem(state, list, place);
             return 2;
         }

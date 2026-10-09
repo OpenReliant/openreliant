@@ -71,6 +71,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Run a script on each missile in flight, to retarget it or set it off | [Missile scripts](scripting.md#missile-scripts) | |
 | Run a script on each turret, to choose what it aims at | [Turret scripts](scripting.md#turret-scripts) | |
 | Give ships orders, and add AI orders of their own | [Orders](scripting.md#orders), [Custom AI orders](scripting.md#custom-ai-orders) | [`custom-order`](../../examples/mods/custom-order), [`wingmen`](../../examples/mods/wingmen) |
+| Change the AI's combat maneuvers, add new ones, and choose which one a fighting ship flies | [Combat maneuvers](scripting.md#combat-maneuvers) | |
 | Choose the pilot who flies a ship | [Objects](scripting.md#objects) | [`bananas`](../../examples/mods/bananas) |
 | Find what's near a ship, and work with positions and angles | [Where things are](scripting.md#where-things-are) | [`wingmen`](../../examples/mods/wingmen) |
 | List a ship's parts and attachment points, and see which are destroyed | [A ship's parts](scripting.md#a-ships-parts) | |

@@ -1263,6 +1263,58 @@ test "mods can intercept warp orders and receive filtered Undocked events" {
     try std.testing.expectEqual(0, fixture.mission.slot(fixture.sabre).state.warp.step);
 }
 
+test "a script chooses a mod's combat maneuver, and acts as the ship flies it" {
+    const aidefend = openreliant.engine.game.aidefend;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local hooks = require("openreliant.hooks")
+                \\-- The mod's maneuver, number 10, and then none.
+                \\local chosen = 0
+                \\hooks.add("fight_choose_maneuver", function(e)
+                \\    chosen += 1
+                \\    if chosen == 1 then e.result = 10 end
+                \\    return false
+                \\end)
+                \\-- After its script has run, the ship slows down further.
+                \\hooks.after("maneuver_run", function(e)
+                \\    if e.object.maneuver == 10 then e.object.throttle *= 0.5 end
+                \\end)
+            },
+        },
+    }});
+    defer fixture.deinit();
+    defer aidefend.installOriginal();
+    // The load scripts would add the maneuver to `records.maneuvers`.
+    const drift = [_][]const u8{ "SetSpeed(0.5)", "Wait(100)" };
+    const added = aidefend.Compiled.original ++ [_]aidefend.Compiled{.{
+        .definition = .{ .name = "drift", .min_ticks = 1000, .max_ticks = 1000, .script = &drift },
+        .program = &comptime aidefend.script.compile(&drift),
+    }};
+    aidefend.install(&added);
+
+    // Fight's init chooses the maneuver, its length from its range, and the first update starts
+    // and runs it.
+    const ctx = fixture.mission.orders();
+    try std.testing.expect(try aigeneric.pushShip(ctx, fixture.sabre, .fight, 0, null));
+    aigeneric.objectOrders(ctx, fixture.sabre);
+    const slot = fixture.mission.slot(fixture.sabre);
+    try std.testing.expectEqual(10, @backingInt(slot.state.fight.maneuver));
+    try std.testing.expectEqual(1000, slot.state.fight.maneuver_end);
+    try std.testing.expectEqual(0.25, slot.object.throttle);
+
+    // Once its time is up, the ship flies no maneuver, and Fight chooses again on its next update.
+    fixture.mission.clock.frame_start = 1001;
+    aigeneric.objectOrders(ctx, fixture.sabre);
+    try std.testing.expectEqual(aidefend.maneuvers.Maneuver.none, slot.state.fight.maneuver);
+    try std.testing.expectEqual(1001, slot.state.fight.maneuver_end);
+    try std.testing.expectEqual(0.25, slot.object.throttle);
+}
+
 test "a script changes or stops the mission script's commands, and hears of ships close by" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{

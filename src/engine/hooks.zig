@@ -24,6 +24,7 @@ const assert = std.debug.assert;
 const dte = @import("../formats/dte.zig");
 const vm = @import("vm.zig");
 const ai = @import("game/ai.zig");
+const aidefend = @import("game/aidefend.zig");
 const aigeneric = @import("game/aigeneric.zig");
 const collision = @import("game/collision.zig");
 const create = @import("game/create.zig");
@@ -282,6 +283,23 @@ pub const functions = struct {
             object: Object,
         },
         .Result = bool,
+    };
+
+    pub const fight_choose_maneuver: Declaration = .{
+        .address = 0x0040A3A0,
+        .about = "`object`, a ship under the Fight order, chooses its next combat maneuver, which starts on its next update. The result is the maneuver: one of the game's by its name (`Maneuver`), or one a mod adds by its number (`records.maneuvers`). A handler that stops it without setting the result leaves no maneuver, and Fight chooses again on the ship's next update.",
+        .Fields = struct {
+            object: Object,
+        },
+        .Result = aidefend.maneuvers.Maneuver,
+    };
+
+    pub const maneuver_run: Declaration = .{
+        .address = 0x004069B0,
+        .about = "`object`, a ship under the Fight order, flies its combat maneuver for a frame (`object.maneuver`): the commands of its script run until one waits. A handler that stops it can fly the ship itself.",
+        .Fields = struct {
+            object: Object,
+        },
     };
 
     pub const object_orders: Declaration = .{

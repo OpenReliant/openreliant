@@ -121,6 +121,16 @@ Each of the KILLBOARD's pilots, `killboard[n]`, is a `KillboardPilot` with these
 | `leaves_after` | number, or nil | The last mission the pilot is on the board in, as John McGann leaves after mission 5; nil for every mission. |
 | `sits_out` | list of number | The missions in which the pilot adds no kills, as Klaus Steiner sits out missions 19 to 23. |
 
+Each of the combat maneuvers, `maneuvers[n]`, is a `CombatManeuver` with these fields:
+
+| Field | Type | What it is |
+|---|---|---|
+| `name` | string | Its name, such as "loop the loop". |
+| `mirror` | [ManeuverMirror](#maneuvermirror) | The inputs it may mirror: each time it starts, a random choice among them. |
+| `min_ticks` | number | The fewest ticks it runs, unless the Fight order gives a length of its own. |
+| `max_ticks` | number | The most ticks it runs: Fight draws its length from `min_ticks` up to this. |
+| `script` | list of string | Its script: a command of the maneuvers' language on each line. Setting it compiles it, and a line that doesn't compile is an error. |
+
 ### `openreliant.hooks`
 
 Handlers on the game's functions and events. For global and object scripts.
@@ -385,6 +395,7 @@ scripts on their object.
 | `radius` | number | How far its model reaches from its middle. |
 | `is_player` | boolean | Whether it's the player's ship. |
 | `order` | string \| number, or nil | The order it's following: one of the game's (`Order`), or a mod's by its qualified name; nil for none. |
+| `maneuver` | [Maneuver](#maneuver), or nil | The combat maneuver it flies while it follows the Fight order: one of the game's by its name (`Maneuver`), or one a mod adds by its number (`records.maneuvers`); nil while it follows another order. |
 | `target` | [Target](#target), or nil | What the order it's following is aimed at; nil while it follows none. |
 | `last_attacker` | [object](#objects), or nil | The object that last hit it; nil for none, or once that one has left the mission. |
 | `throttle` | number | *Changes.* Its throttle: 1 is full, 2 the afterburner's and -1 reverse thrust's. Its order or its pilot usually sets it each frame. |
@@ -743,6 +754,23 @@ One of the missile turrets of `launcher` launches a Screamer at `target`.
 |---|---|
 | `object` | [object](#objects) |
 | `result` | boolean |
+
+### fight_choose_maneuver
+
+`object`, a ship under the Fight order, chooses its next combat maneuver, which starts on its next update. The result is the maneuver: one of the game's by its name (`Maneuver`), or one a mod adds by its number (`records.maneuvers`). A handler that stops it without setting the result leaves no maneuver, and Fight chooses again on the ship's next update.
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
+| `result` | [Maneuver](#maneuver) |
+
+### maneuver_run
+
+`object`, a ship under the Fight order, flies its combat maneuver for a frame (`object.maneuver`): the commands of its script run until one waits. A handler that stops it can fly the ship itself.
+
+| Field | Type |
+|---|---|
+| `object` | [object](#objects) |
 
 ### object_orders
 
@@ -1715,6 +1743,16 @@ A table a script gives, which may leave out a field with a default.
 | `unless` | list of [GameVariable](#gamevariable) | none |
 | `sets` | [GameVariable](#gamevariable), or nil | nil |
 
+### ManeuverMirror
+
+A table a script gives, which may leave out any field.
+
+| Field | Type | Default |
+|---|---|---|
+| `yaw` | boolean | false |
+| `pitch` | boolean | false |
+| `roll` | boolean | false |
+
 ### Outcome
 
 | Field | Type |
@@ -1749,6 +1787,10 @@ number. A script can set a field to either.
 ### Side
 
 `friendly`, `hostile`, `neutral`, or a number.
+
+### Maneuver
+
+`defend_dodge1`, `defend_dodge2`, `defend_dodge3`, `out_of_action_sphere`, `defend_runaway`, `attack_pursue`, `attack_massive_object`, `attack_medium_fighter`, `loop_the_loop`, `run_to_ship`, or a number.
 
 ### Invulnerability
 
