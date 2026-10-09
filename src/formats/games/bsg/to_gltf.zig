@@ -184,9 +184,7 @@ const Making = struct {
                 .cockpit => "cockpit_view",
             },
             .translation = mirror(defined.position),
-            // A glow's box, a cube two across scaled, is as wide and as high as the jet, and twice
-            // as long: `from-gltf` takes half its length as how far the plume reaches.
-            .scale = if (defined.size) |size| .{ size / 2, size / 2, size } else null,
+            .scale = if (defined.size) |size| glowScale(size) else null,
             .extras = .{ .object = extras },
         });
     }
@@ -332,6 +330,17 @@ const Making = struct {
 /// The engine glow `from-gltf` gives a jet: the one the player's ships use.
 const engine_glow = 1;
 
+/// How many times a jet's size its glow's size is, across and along. **Unverified:** what a jet's
+/// size measures. These make a glow as large next to its ship as StarLancer's fighters' glows: the
+/// Viper's jets, 60, glow 120 by 120 by 480, as a Crusader's glows are 100 by 100 by 400.
+const glow_across = 2;
+const glow_along = 8;
+
+/// The scale of a jet's glow's marker, from which `from-gltf` takes the glow's size.
+fn glowScale(size: f32) [3]f32 {
+    return .{ size * glow_across, size * glow_across, size * glow_along };
+}
+
 /// The index in `chosen` of the part `part` hangs from, or null where it hangs from none of them.
 fn parentOf(chosen: []const model_file.Part, part: model_file.Part) ?usize {
     const parent = part.parent orelse return null;
@@ -413,6 +422,11 @@ fn numbersValue(arena: Allocator, values: []const f32) Allocator.Error!json.Valu
     var array: json.Array = .init(arena);
     for (values) |value| try array.append(.{ .float = value });
     return .{ .array = array };
+}
+
+test glowScale {
+    // The Viper's jets glow as large as a Crusader's: 120 by 120 by 480.
+    try std.testing.expectEqual([3]f32{ 120, 120, 480 }, glowScale(60));
 }
 
 test mirrorMatrix {

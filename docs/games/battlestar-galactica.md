@@ -482,9 +482,10 @@ texture of an archive as a PNG file.
   as its glow, a mixed one is blended by its alpha, and an opaque one with alpha in its picture
   is masked by it. The material's record and its textures' names are in its `extras`.
 - The guns, jets, vapour trails and cockpit are empty nodes named `gun_muzzle`, `engine_glow:1`,
-  `vapour_trail` and `cockpit_view`. A jet's glow is a box as wide and as high as its
-  `Jet<n>Size`, and twice as long, since `from-gltf` takes half its length as how far the plume
-  reaches. The hardpoints are empty nodes placed and turned by their matrices, named `missile` for
+  `vapour_trail` and `cockpit_view`. A jet's glow is as large next to its ship as StarLancer's
+  fighters' glows: its marker's scale, from which `from-gltf` takes the glow's size, is twice its
+  `Jet<n>Size` across and eight times it along, 120 by 120 by 480 for the Viper's jets of 60, as a
+  Crusader's glows are 100 by 100 by 400. The hardpoints are empty nodes placed and turned by their matrices, named `missile` for
   `SECONDARY`, `launch_point` for `LAUNCHTUBE`, and by their kind for the others, such as `turret`,
   with their attributes in their `extras`. A model mounted on a hardpoint is written under it in
   the same way, up to four mounts deep.
