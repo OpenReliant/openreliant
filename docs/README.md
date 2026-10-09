@@ -33,6 +33,7 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`formats/profile.md`](formats/profile.md) | `profile.bin`: the pilot's profile, the call sign and the pilot's record. |
 | [`formats/playstation.md`](formats/playstation.md) | The PlayStation's executables and TIM pictures, which the PlayStation games on StarLancer's engine use. |
 | [`formats/xbox.md`](formats/xbox.md) | The Xbox's discs and executables, which the Xbox games on StarLancer's engine use. |
+| [`formats/dreamcast.md`](formats/dreamcast.md) | The Dreamcast version: its disc, its text tables and its texture cache. |
 | [`engine/missions.md`](engine/missions.md) | Missions: how a mission's start finds its file, reads it and binds it. |
 | [`engine/script-vm.md`](engine/script-vm.md) | The script VM at run time: threads, calls, commands, timers, events. |
 | [`engine/editor-link.md`](engine/editor-link.md) | The original's link to its mission editor and script debugger: the shared block, the messages, the holds and the steps. |

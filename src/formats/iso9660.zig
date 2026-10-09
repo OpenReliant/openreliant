@@ -185,7 +185,8 @@ pub const Volume = struct {
         var primary: ?VolumeDescriptor = null;
         var joliet: ?VolumeDescriptor = null;
 
-        var lba: u32 = VolumeDescriptor.first_lba;
+        // A track of a later session starts its volume at its own first sector.
+        var lba: u32 = image.first_lba + VolumeDescriptor.first_lba;
         while (true) : (lba += 1) {
             var block: [block_size]u8 = undefined;
             image.readBlocks(lba, &block) catch |err| switch (err) {

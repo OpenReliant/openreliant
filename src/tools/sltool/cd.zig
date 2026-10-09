@@ -73,6 +73,7 @@ fn info(ctx: Context, volume: anytype) !void {
         image.layout,      image.layout.sectorSize(),
         image.block_count, @as(u64, image.block_count) * cdimage.block_size,
     });
+    if (image.first_lba != 0) try ctx.stdout.print("first block: {d}, a track of a later session\n", .{image.first_lba});
     switch (@TypeOf(volume.*)) {
         iso9660.Volume => try ctx.stdout.print("volume:     {s}\nnamespace:  {t}\n", .{ try volume.label(ctx.arena), volume.namespace }),
         xdvdfs.Volume => try ctx.stdout.writeAll("filesystem: Xbox (XDVDFS)\n"),

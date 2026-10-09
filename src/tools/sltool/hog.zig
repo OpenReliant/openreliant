@@ -146,13 +146,9 @@ fn extract(ctx: Context, archive: hog.Archive, out_path: []const u8, raw: bool) 
     defer out_dir.close(io);
 
     // Member names are not unique, and several duplicates hold different data, so a later member
-    // must not overwrite an earlier one. Names are tracked case-insensitively because a
-    // case-insensitive filesystem would collide `interpal.TGA` with `interpal.tga` as well.
-    var taken: std.StringHashMapUnmanaged(void) = .empty;
-    defer taken.deinit(ctx.arena);
-
+    // must not overwrite an earlier one.
+    var names: sltool.UniqueNames = .{};
     var written: u64 = 0;
-    var renamed: usize = 0;
     for (archive.entries) |entry| {
         const bytes = if (raw)
             try archive.readRaw(ctx.arena, entry)
@@ -160,14 +156,7 @@ fn extract(ctx: Context, archive: hog.Archive, out_path: []const u8, raw: bool) 
             (try archive.read(ctx.arena, entry)).bytes;
         defer ctx.arena.free(bytes);
 
-        var name = entry.name;
-        var attempt: usize = 2;
-        while (try taken.fetchPut(ctx.arena, try std.ascii.allocLowerString(ctx.arena, name), {}) != null) : (attempt += 1) {
-            name = try disambiguate(ctx.arena, entry.name, attempt);
-            if (attempt == 2) renamed += 1;
-        }
-
-        try out_dir.writeFile(io, .{ .sub_path = name, .data = bytes });
+        try out_dir.writeFile(io, .{ .sub_path = try names.of(ctx.arena, entry.name), .data = bytes });
         written += bytes.len;
     }
 
@@ -177,12 +166,7 @@ fn extract(ctx: Context, archive: hog.Archive, out_path: []const u8, raw: bool) 
         if (raw) ", as stored" else ", decompressed",
         out_path,
     });
-    if (renamed > 0) {
-        try ctx.stdout.print(
-            "{f} shared a name with an earlier one and got a ~N suffix\n",
-            .{sltool.count(renamed, "member")},
-        );
-    }
+    try names.report(ctx, "member");
 }
 
 /// Packs every file of the folder `dir_path` into a new archive at `path`, each file a member of
@@ -243,12 +227,6 @@ fn pack(ctx: Context, dir_path: []const u8, path: []const u8, flags: Command.Pac
         counts.get(.already_compressed),
         counts.get(.stored),
     });
-}
-
-/// `dest.SHP` becomes `dest~2.SHP`, keeping the extension so the file still opens as its type.
-fn disambiguate(gpa: std.mem.Allocator, name: []const u8, index: usize) ![]const u8 {
-    const dot = std.mem.findScalarLast(u8, name, '.') orelse name.len;
-    return gpa.print("{s}~{d}{s}", .{ name[0..dot], index, name[dot..] });
 }
 
 test Command {
@@ -321,15 +299,4 @@ test pack {
     const checksum = try tmp.dir.readFileAlloc(io, "MOD.HOG" ++ checksums.extension, arena, .unlimited);
     try std.testing.expectEqual(checksums.digest(packed_bytes), (try checksums.digestOf(checksum, "MOD.HOG")).?);
     try std.testing.expect(std.mem.endsWith(u8, checksum, "  MOD.HOG\n"));
-}
-
-test disambiguate {
-    const gpa = std.testing.allocator;
-    const renamed = try disambiguate(gpa, "dest.SHP", 2);
-    defer gpa.free(renamed);
-    try std.testing.expectEqualStrings("dest~2.SHP", renamed);
-
-    const bare = try disambiguate(gpa, "README", 3);
-    defer gpa.free(bare);
-    try std.testing.expectEqualStrings("README~3", bare);
 }

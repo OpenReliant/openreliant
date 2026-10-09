@@ -57,6 +57,15 @@ pub const Channel = extern struct {
     loss: u32,
 
     pub const absent: Channel = .{ .mask = 0, .shift = 0, .loss = 8 };
+
+    /// This component of `pixel`, scaled from its own bits to 8, to the nearest; null for a
+    /// component the format doesn't have.
+    pub fn value(channel: Channel, pixel: u32) ?u8 {
+        if (channel.mask == 0 or channel.loss >= 8) return null;
+        const max = (@as(u32, 1) << @intCast(8 - channel.loss)) - 1;
+        const v: u32 = (pixel & channel.mask) >> @intCast(channel.shift);
+        return @intCast((v * 255 + max / 2) / max);
+    }
 };
 
 /// A pixel layout: its size, then where each component lies in it. `pixel_format_set`
@@ -257,9 +266,7 @@ fn opaqueColour(rgb: [3]u8) [4]u8 {
 
 /// The component `channel` describes of `pixel`, scaled from its own bits to 8, to the nearest.
 fn widen(comptime channel: Channel, pixel: u16) u8 {
-    const max = (1 << (8 - channel.loss)) - 1;
-    const v: u32 = (pixel & channel.mask) >> channel.shift;
-    return @intCast((v * 255 + max / 2) / max);
+    return channel.value(pixel).?;
 }
 
 /// An entry whose pixels the file holds.

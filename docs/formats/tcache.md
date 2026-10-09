@@ -2,7 +2,9 @@
 
 `tcachehw.dat` and `tcachesw.dat`, installed beside the game, hold every texture the models and
 effects use, converted and mipmapped ahead of time. The game reads textures from nothing else. The
-software renderer uses `tcachesw.dat`; the hardware renderers use `tcachehw.dat`.
+software renderer uses `tcachesw.dat`; the hardware renderers use `tcachehw.dat`. The Dreamcast
+version's cache, `DREAMCACHEHW.DAT`, has the same header with other entries
+([The Dreamcast version](dreamcast.md#textures)).
 
 ```bash
 sltool tcache info <cache>                                # entries, formats
