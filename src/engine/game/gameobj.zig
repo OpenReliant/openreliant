@@ -219,8 +219,13 @@ pub const Component = extern struct {
     /// the halfword: 2 keeps off every hit, and 1 every hit a player's ship did not deal, as
     /// `Invulnerability.protects` reads an object's. Any other value keeps off none.
     pub fn protects(component: Component, by_player: bool) bool {
-        const invulnerable = std.math.cast(u8, component.invulnerable) orelse return false;
-        return @as(Invulnerability, @fromBackingInt(invulnerable)).protects(by_player);
+        return component.invulnerability().protects(by_player);
+    }
+
+    /// Its invulnerability, named as an object's is; `none` for a value too large for one.
+    pub fn invulnerability(component: Component) Invulnerability {
+        const invulnerable = std.math.cast(u8, component.invulnerable) orelse return .none;
+        return @fromBackingInt(invulnerable);
     }
 
     comptime {

@@ -592,16 +592,8 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     var share = byDifficulty(world, index, kind, value);
     if (!object.flags.exploding) friendly_fire.warn(world, index, attacker, kind, share);
 
-    // The assembly's first part that still has armour takes the hit.
-    var struck = component;
-    if (component.link_id != 0) {
-        var each = model.assembly(component.link_id);
-        while (each.next()) |at| {
-            if (model.parts[at].component_armor <= 0) continue;
-            struck = &model.parts[at];
-            break;
-        }
-    }
+    // The assembly's first part that has armour takes the hit.
+    const struck = model.hitPart(component);
     if (struck.component_armor == 0) return;
     // A part with armour to spare takes only a heavy hit, and only from what can hurt it.
     if (struck.component_armor > heavy_component) {

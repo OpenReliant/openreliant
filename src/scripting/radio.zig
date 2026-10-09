@@ -15,6 +15,7 @@ const Call = api.Call;
 /// What `openreliant.radio` holds.
 pub const package = struct {
     pub const say = api.Function("The ship `ship` says the speech file `speech` on the radio, a file of the game's or a mod's such as `ms_dice22_001.ut`, its pilot's face showing, as a mission's CommsFromShip does: at once, ending the line playing, unless `line` says otherwise. The line goes through the `radio_say` hook. A ship being destroyed, or a stand-in, says nothing. Returns whether the mission's radio took the line: false between missions.", &.{ "ship", "speech", "line" }, sayShip);
+    pub const busy = api.Function("Whether the radio is saying a line, or has lines waiting to be said: false between missions, and where nothing is heard.", &.{}, isBusy);
     pub const say_pilot = api.Function("Pilot `pilot` says the speech file `speech` on the radio, with its face, as a mission's CommsFromPilot does: at once, ending the line playing, unless `line` says otherwise. The pilot is one of the game's by its name or number, or one a mod adds by its qualified name. The line goes through the `radio_say` hook. Returns whether the mission's radio took the line: false between missions.", &.{ "pilot", "speech", "line" }, sayPilot);
 };
 
@@ -51,6 +52,12 @@ fn sayPilot(call: Call, pilot: pilots.Number, speech: []const u8, given: ?Line) 
     const on_air, const ctx = onAir(call) orelse return false;
     on_air.sayPilot(ctx, @backingInt(pilot), line.face, speech, line.mode, line.flags(), radio.no_expiry);
     return true;
+}
+
+/// `radio.busy()`: `Radio.busy` (`radio_busy`).
+fn isBusy(call: Call) bool {
+    const on_air, const ctx = onAir(call) orelse return false;
+    return on_air.busy(ctx.sound);
 }
 
 /// The mission's radio and what it reaches, while a mission runs with one that is heard.

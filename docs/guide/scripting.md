@@ -439,12 +439,15 @@ do this.
 `e.arguments` holds its arguments, the first first, with 0 past the ones it takes.
 
 - Returning `false` stops the command, and the script goes on after it.
-- The arguments are the script's own values. A ship or a text is the place of its record in the
+- The arguments are the script's own values. A ship or a text is the offset of its record in the
   mission's file, so most handlers only look at `e.command`, or change a number such as a time.
   The list can't be changed in place; a handler sets `e.arguments` to a new one.
 - `e.result` is what the command gives: `"run_on"`, `"wait"`, which ends the script's run until it
   runs next, or a number, the command's value
   ([MissionCommandResult](reference.md#missioncommandresult)).
+- A handler that stops a command and sets `e.result = "hold"` holds it: the script's thread waits,
+  and runs the command again, on the same arguments and through the handlers, the next time it
+  runs. A mission's own waiting commands, such as WaitForSpeech, wait this way.
 
 ```lua
 local hooks = require("openreliant.hooks")
@@ -604,6 +607,116 @@ local right = util.turn(facing, "y", math.rad(10))
 
 `util.angles` and `util.from_angles` turn an orientation into pitch, yaw and roll and back, and
 `util.normalize_angle` brings an angle within half a turn either way.
+
+### A ship's parts
+
+`object:parts()` lists the parts of an object's model, destroyed ones included, in the order the
+game numbers them: each part, followed by the parts of the models it carries, such as a turret's
+gun or a missile on its rail. `object:attachments()` lists the attachment points on those parts,
+such as engine glows, gun muzzles and missile hardpoints ([ShipPart](reference.md#shippart),
+[ShipAttachment](reference.md#shipattachment)). Every script can read them.
+
+```lua
+-- Whether a ship can still fly: it has no engines, or one that isn't destroyed.
+local function can_fly(ship)
+    local engines, working = 0, 0
+    for _, part in ship:parts() do
+        if part.class == "engine" and not part.damaged then
+            engines += 1
+            if not part.destroyed then
+                working += 1
+            end
+        end
+    end
+    return engines == 0 or working > 0
+end
+```
+
+- `class` says what a part is, such as `"hull"`, `"engine"` or `"shield_generator"`
+  ([PartClass](reference.md#partclass)). Most parts, such as a hull's plating, have none.
+- `parent` is the index in the list of the part it hangs from, and an attachment's `part` the
+  index of the part that carries it.
+- Components are the parts a ship lists by number, such as a capital ship's engines, shield
+  generators and turrets. Missions, the `destroyed` event and `object:give_order` name them by that
+  number, from 0. `component` gives it, and a component keeps it once it's destroyed. `armor` and
+  `full_armor` are what a component has left and what it starts with, and `invulnerable` what a
+  mission's SetInvulnerability gave it: `"full"` keeps off every hit.
+- `damaged` marks the parts of a component's damaged model, which stay hidden until the component
+  is destroyed.
+- `position` is the current position of a part or an attachment in the world, and nil once its part
+  is destroyed.
+- Each call gives a new list, which doesn't change as the ship does.
+
+Global scripts can destroy any object, and an object script its own.
+`object:destroy_component(component)` destroys a component the same way a hit that takes its last
+armour does: it blows up, takes the rest of its assembly with it, such as a turret's barrels, shows
+its damaged model and sends its `destroyed` event. Losing a hull part ends the ship.
+`object:destroy()` destroys a whole object the same way running out of armour does: a ship that
+lists components loses its hull components, and any other ship explodes, unless its pilot ejects
+first. Both return false when there's nothing to destroy, such as for a nav point, a component
+that's already destroyed, or a ship that is already exploding or jumping.
+
+```lua
+-- Every shield generator the convoy has left goes down at once.
+for _, part in convoy:parts() do
+    if part.class == "shield_generator" and part.component and not part.destroyed then
+        convoy:destroy_component(part.component)
+    end
+end
+```
+
+### The player's target
+
+`world.set_player_target(target, component)` makes a ship, or its component number `component`,
+the player's target, as a mission's SetPlayerTarget does. It returns false for a target the player
+can't aim at, such as a destroyed component or a ship that can't be targeted.
+`world.set_primary_target(target, component)` makes it the mission's primary target, as
+SetPrimaryTarget does. The PRIMARY TARGET key selects the primary target. Nil leaves the mission
+without one.
+
+```lua
+local hooks = require("openreliant.hooks")
+local world = require("openreliant.world")
+
+-- As each shield generator goes down, the nearest one left that can be hit becomes the player's
+-- target.
+local function nearest_generator()
+    local nearest, ship, distance = nil, nil, math.huge
+    for _, object in world.objects() do
+        if object.side == "hostile" then
+            for _, part in object:parts() do
+                if part.class == "shield_generator" and part.component and not part.destroyed
+                    and part.invulnerable ~= "full" then
+                    local away = vector.magnitude(part.position - world.player.position)
+                    if away < distance then
+                        nearest, ship, distance = part, object, away
+                    end
+                end
+            end
+        end
+    end
+    return ship, nearest
+end
+
+local function class_of(ship, component)
+    for _, part in ship:parts() do
+        if part.component == component then
+            return part.class
+        end
+    end
+end
+
+hooks.add("destroyed", function(e)
+    if e.component == nil or class_of(e.object, e.component) ~= "shield_generator" then
+        return
+    end
+    local ship, generator = nearest_generator()
+    if ship then
+        world.set_player_target(ship, generator.component)
+        world.set_primary_target(ship, generator.component)
+    end
+end)
+```
 
 ## Object scripts
 
@@ -836,26 +949,42 @@ radio.say(ship, "ms_dice22_002.ut", { mode = "queued", face = "laughing" })
 - Each line goes through the `radio_say` hook, so other mods can change or drop it
   ([Changing what the radio says](#changing-what-the-radio-says)).
 - Between missions nothing is said, and both functions return false.
+- `radio.busy()` says whether the radio is saying a line, or has lines waiting.
 
 A mission that prints its radio as debug text, such as the Dreamcast's mission 22, can be voiced
-from the `vm_command` hook ([The mission script's commands](#the-mission-scripts-commands)). A
-text's argument is its place in the mission's file, the same each time the mission runs, so a mod
-can keep a table of the line that stands for each text. `print(e.arguments[1])` shows the places
-as the mission runs.
+from the `vm_command` hook ([The mission script's commands](#the-mission-scripts-commands)). The
+argument of a text is its offset in the mission's file, which is the same each time the mission
+runs, so a mod can keep a table that gives the line for each text. `print(e.arguments[1])` shows
+the offsets as the mission runs. To work one out ahead, add the script section's offset in the file
+(`sltool dte sections`), the offset of the text's `push_string` in the script (`sltool dte
+script`), and 2.
+
+A script whose waits were timed for reading text runs ahead of the voices. Holding the wait that
+follows each voiced text while the radio is busy keeps the mission in step with what is said.
 
 ```lua
 local hooks = require("openreliant.hooks")
+local radio = require("openreliant.radio")
 
--- The mod's table of the lines, by the place of the text each stands for:
+-- The mod's table of lines, by the offset of the text each one replaces:
 -- { [place] = { "diceman", "ms_dice22_016.ut" }, ... }
 local lines = require("lines")
+local voiced = false
 
 hooks.add("vm_command", function(e)
     if e.command == "print_debug_message" then
         local line = lines[e.arguments[1]]
+        voiced = line ~= nil
         if line then
-            radio.say_pilot(line[1], line[2])
+            radio.say_pilot(line[1], line[2], { mode = "queued" })
         end
+    elseif e.command == "wait" and voiced then
+        -- The script waits on after the line, once the radio has said it.
+        if radio.busy() then
+            e.result = "hold"
+            return false
+        end
+        voiced = false
     end
 end)
 ```
@@ -2161,6 +2290,7 @@ line, and the game carries on.
 | Surface and lighting functions | 64 at once, all mods together ([Surface and lighting functions](#surface-and-lighting-functions)) |
 | A mod's options | One page of up to 64 options, a choice of up to 32 choices, and a text of up to 24 characters ([Options](#options)) |
 | A game mode's missions | 64 ([Game modes](#game-modes)) |
+| An object's parts and attachment points | `object:parts()` lists up to 256 parts, and `object:attachments()` up to 512 attachment points. The rest are left out ([A ship's parts](#a-ships-parts)) |
 
 ## When something goes wrong
 

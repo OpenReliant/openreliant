@@ -52,9 +52,16 @@ pub const run_on: u32 = 1;
 /// A command's result, as the hook on `vm_command` gives it to scripts: `wait` (0) ends the thread's
 /// run until it runs next, `run_on` (1) lets it run on, and any other number is the command's own
 /// result, which the script reads as the command's value and which lets the thread run on too.
+/// Only a hook's handler gives `hold` (`Machine.command`).
 pub const CommandResult = enum(u32) {
     wait = yield,
     run_on = run_on,
+    /// The command doesn't run yet: the thread waits, and runs it again on the same arguments the
+    /// next time it runs, the way a waiting command runs itself again (`Call.againItself`). None of
+    /// the game's commands give this value.
+    ///
+    /// **Improvement:** the original has no scripting apart from its mission scripts.
+    hold = std.math.maxInt(u32),
     _,
 
     /// What a command gives where a handler stops it: the thread runs on.
@@ -939,7 +946,8 @@ pub const Machine = struct {
 
     /// `vm_command` (`0x0045BEA0`): runs a command of the catalogue on its arguments, the top of
     /// the stack, which it pops (`runCommand`). Its result takes the first argument's place, above
-    /// the stack, and is the thread's result.
+    /// the stack, and is the thread's result. A command a hook holds (`CommandResult.hold`) puts
+    /// its arguments back instead, and the thread waits to run it again.
     fn command(machine: *Machine, index: u8, number: u8) Fault!u32 {
         const thread = &machine.threads[index];
         if (number >= executor.commands.table.len) return error.OutOfRange;
@@ -950,6 +958,11 @@ pub const Machine = struct {
         var arguments: executor.Arguments = @splat(0);
         @memcpy(arguments[0..count], thread.record.stack[thread.top..][0..count]);
         const result = machine.runCommand(index, @fromBackingInt(number), arguments);
+        if (result == .hold) {
+            thread.top += count;
+            const call: Call = .{ .machine = machine, .thread = index, .args = &.{} };
+            return call.againItself();
+        }
         return machine.commandResult(index, @backingInt(result));
     }
 

@@ -301,6 +301,10 @@ pub const Part = extern struct {
         /// The name scripts know these by.
         pub const script_name = "PartClass";
 
+        /// Class 0, which most parts have, such as a hull's plating and fittings. It isn't one of
+        /// the named classes.
+        pub const none: Class = @fromBackingInt(0);
+
         /// Hull sections, going by their names. The target display's large form shows the armour
         /// of the first a ship has (`hud_window_draw`).
         hull = 1,
@@ -537,6 +541,10 @@ pub const Attachment = extern struct {
     /// Named after the models the engine loads for each kind, or what `node_mount` (`0x00499A10`)
     /// makes of them.
     pub const Kind = enum(u32) {
+        /// The name scripts know these by.
+        pub const script_name = "AttachmentKind";
+
+        /// A missile hardpoint, which holds a rack: a pod, or a missile on its rail.
         missile = 0,
         /// Mounted as an object of its own, whose components follow the model's.
         gun = 1,
