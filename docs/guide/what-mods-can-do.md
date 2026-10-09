@@ -51,6 +51,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Start a mission partway, or watch any of its ships, to check it | [Checking a mission](modding.md#checking-a-mission) | |
 | Run scripts with one mission | [Kinds of scripts](scripting.md#kinds-of-scripts) | |
 | Say lines on the radio, to add chatter or voice a mission that has none | [The radio](scripting.md#the-radio) | |
+| Set the state of a mission's objectives, for a mission whose script doesn't | [A mission's objectives](scripting.md#a-missions-objectives) | |
 | Add game modes to the main menu, with rules of their own | [Game modes](scripting.md#game-modes) | [`arena`](../../examples/mods/arena), [`interceptor`](../../examples/mods/interceptor) |
 | Add campaigns, with briefing screens and movies | [Campaigns](scripting.md#campaigns) | [`campaign`](../../examples/mods/campaign) |
 | Put missions into the game's own campaign, or replace its missions, with each one's briefing, carrier, objectives and date, through the game's rooms and saved games | [The campaign's missions](scripting.md#the-campaigns-missions), [Each mission of the campaign](scripting.md#each-mission-of-the-campaign) | |

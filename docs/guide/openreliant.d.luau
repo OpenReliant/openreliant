@@ -15,6 +15,7 @@ type MissileType = "none" | "screamer" | "raptor" | "havoc" | "jack_hammer" | "b
 type TurretKind = "aimed" | "spinning" | "launcher"
 type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 type Carrier = "reliant" | "yamato"
+type ObjectiveState = "hidden" | "listed" | "current" | number
 type RadioMode = "now" | "queued" | "if_idle" | number
 type FaceFilm = "talking" | "laughing" | "squadron" | "dying" | number
 type HudInstrument = "caption" | "key_prompt" | "jump_prompt" | "target_markers" | "eject_marker" | "scanner" | "lights" | "view_name" | "subtitle" | "messages" | "nav_marker" | "fuel" | "kills" | "countermeasures" | "ship_status" | "gauges" | "radar" | "reticle" | "clock" | "radio" | "gunnery" | "missiles" | "target_display" | "damage" | "power" | "big_target_display" | "objectives" | "comms" | "wing_status"
@@ -565,6 +566,8 @@ type World = {
     objects: () -> { Object },
     -- Every missile in flight, newest first.
     missiles: () -> { Missile },
+    -- Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names.
+    set_objective: (objective: number, state: ObjectiveState) -> boolean,
 }
 
 -- The objects around the script's own object or missile.
@@ -930,6 +933,7 @@ type Interfaces = {
         mission: Mission?,
         objects: () -> { Object },
         missiles: () -> { Missile },
+        set_objective: (objective: number, state: ObjectiveState) -> boolean,
     },
     Campaign: {
         mission: Mission?,

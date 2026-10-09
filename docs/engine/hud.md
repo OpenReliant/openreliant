@@ -1065,7 +1065,9 @@ A mission's script sets an objective's state with `SetObjective` (command `0x43`
 below 36; an objective made current becomes the one the window shows. The table's names,
 [`hud/objectives.zig`](../../src/engine/game/hud/objectives.zig), `make objective-tables` derives
 from the executable. **Fix:** the game writes an objective past the ten into the next mission's row,
-and mission 0's before the table; OpenReliant writes none.
+and mission 0's before the table; OpenReliant writes none. **Improvement:** a mod's script sets an
+objective's state as `SetObjective` does, for a mission whose own script doesn't
+([A mission's objectives](../guide/scripting.md#a-missions-objectives)).
 
 **Improvement:** a game mode can name its missions' objectives, in place of the table's row for the
 number the mission flies as ([Game modes](../guide/scripting.md#game-modes),

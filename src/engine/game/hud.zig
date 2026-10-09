@@ -2914,6 +2914,9 @@ pub const Objectives = struct {
     /// How the window shows an objective. **Unknown:** what else sets an objective hidden than a
     /// mission's script.
     pub const Status = enum(i16) {
+        /// The name scripts know these values by.
+        pub const script_name = "ObjectiveState";
+
         /// Not shown: paging through the window passes it over.
         hidden = 0,
         /// Shown as an objective.
@@ -2994,14 +2997,15 @@ pub const Objectives = struct {
 
     /// `cmd_SetObjective` (`0x00459870`): objective `objective` of the mission takes state
     /// `state`, and one made current is the one the window shows. An objective past the ten, or a
-    /// mission the table has no row for, changes nothing.
+    /// mission the table has no row for, changes nothing. Returns whether it changed.
     ///
     /// **Fix:** the game writes an objective past the ten into the next mission's, and mission 0's
     /// before the table.
-    pub fn set(objectives: *Objectives, objective: u32, state: Status) void {
-        if (!objectives.named() or objective >= per_mission) return;
+    pub fn set(objectives: *Objectives, objective: u32, state: Status) bool {
+        if (!objectives.named() or objective >= per_mission) return false;
         objectives.states[objective] = state;
         if (state == .current) objectives.shown = @intCast(objective);
+        return true;
     }
 };
 
@@ -3087,18 +3091,18 @@ test Objectives {
     try std.testing.expectEqual(.listed, objectives.states[1]);
     try std.testing.expectEqual(.hidden, objectives.states[2]);
     // Its script makes the second current, which the window then shows.
-    objectives.set(1, .current);
+    try std.testing.expect(objectives.set(1, .current));
     try std.testing.expectEqual(1, objectives.shown);
-    objectives.set(0, .hidden);
+    try std.testing.expect(objectives.set(0, .hidden));
     try std.testing.expectEqual(1, objectives.shown);
     // Past the ten, nothing changes.
-    objectives.set(10, .listed);
+    try std.testing.expect(!objectives.set(10, .listed));
     // Mission 25's second part has a row of its own; mission 0 none.
     try std.testing.expectEqual(35, Objectives.rowOf(25, true));
     try std.testing.expectEqual(24, Objectives.rowOf(25, false));
     try std.testing.expectEqual(null, Objectives.rowOf(0, false));
     objectives.reset(0, false, null);
-    objectives.set(0, .listed);
+    try std.testing.expect(!objectives.set(0, .listed));
     try std.testing.expectEqual(.hidden, objectives.states[0]);
 }
 
@@ -3115,7 +3119,7 @@ test "a game mode names a mission's objectives" {
     try std.testing.expectEqualStrings("Land", objectives.name(2).?.text);
     try std.testing.expectEqual(null, objectives.name(1));
     // Its script sets them as the game's missions' scripts set theirs.
-    objectives.set(2, .current);
+    try std.testing.expect(objectives.set(2, .current));
     try std.testing.expectEqual(2, objectives.shown);
     // Mission 1 named by the mode shows the mode's names, not the table's.
     objectives.reset(1, false, &names);

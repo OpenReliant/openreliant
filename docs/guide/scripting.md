@@ -860,6 +860,26 @@ hooks.add("vm_command", function(e)
 end)
 ```
 
+## A mission's objectives
+
+A mission's script shows its objectives in the objectives window with `SetObjective`, which numbers
+them from 0 to 9. `world.set_objective(objective, state)` does the same from a global or mission
+script: `"listed"` shows the objective, `"current"` shows it as the current one, which the window
+then shows, and `"hidden"` takes it away. It returns false between missions, and in a mission whose
+objectives nothing names.
+
+```lua
+local world = require("openreliant.world")
+
+-- The convoy's escort is down: on to the troop carriers.
+world.set_objective(0, "listed")
+world.set_objective(1, "current")
+```
+
+The objectives' names come from the game's table, by the mission's number. A campaign mission's
+can come from its record ([Each mission of the campaign](#each-mission-of-the-campaign)), and a game
+mode's mission's from the mode ([Game modes](#game-modes)).
+
 ## Events
 
 Scripts send each other events: `core.send_global_event(name, data)` to the global and mission

@@ -853,7 +853,7 @@ fn jumpingOrLaunching(call: Call, ship: Ship) void {
 /// numbers takes the state the second gives (`hud.Objectives.set`).
 fn setObjective(call: Call, game: aigeneric.Context) void {
     const display = game.world.display orelse return;
-    display.objectives.set(call.args[0], @fromBackingInt(halfword(call.args[1])));
+    _ = display.objectives.set(call.args[0], @fromBackingInt(halfword(call.args[1])));
 }
 
 /// `cmd_SetShipAvoidance` (`0x00459A30`, command `0x49`) and `cmd_SetShipAvoidance_ship`

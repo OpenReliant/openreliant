@@ -996,6 +996,44 @@ test "a script says lines on the radio, as the comms commands do" {
     try std.testing.expectEqual(openreliant.engine.game.hudmovie.Flags.once, ship.flags);
 }
 
+test "a script sets the state of a mission's objectives, as SetObjective does" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local world = require("openreliant.world")
+                \\-- Between missions, nothing changes.
+                \\assert(not world.set_objective(0, "current"))
+                \\return {
+                \\    engine_handlers = {
+                \\        on_mission_start = function()
+                \\            assert(world.set_objective(1, "listed"))
+                \\            assert(world.set_objective(2, "current"))
+                \\            assert(world.set_objective(0, "hidden"))
+                \\            assert(not pcall(world.set_objective, 10, "listed"))
+                \\            assert(not pcall(world.set_objective, 0, "finished"))
+                \\        end,
+                \\    },
+                \\}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    var display: openreliant.engine.game.hud.State = .{};
+    display.objectives.reset(22, false, null);
+    var shown = fixture.mission.world();
+    shown.display = &display;
+    fixture.game.scripts.begin(.of(shown), .{ .number = 22, .file = "mission22.dte" }, 1);
+    fixture.game.scripts.started(.{ .number = 22, .file = "mission22.dte" });
+    try std.testing.expectEqual(.hidden, display.objectives.states[0]);
+    try std.testing.expectEqual(.listed, display.objectives.states[1]);
+    try std.testing.expectEqual(.current, display.objectives.states[2]);
+    try std.testing.expectEqual(2, display.objectives.shown);
+}
+
 test "a script chooses the movies of a mission's end, and the restart screen's choice" {
     const engine_game = openreliant.engine.game;
     const movie = engine_game.xtrabits.movie;

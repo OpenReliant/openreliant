@@ -91,6 +91,7 @@ The mission's objects, the player's ship and the mission itself. For global scri
 | `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
 | `objects()` | list of [objects](#objects) | Every object in the mission, in the order of their slots. |
 | `missiles()` | list of [missile](#missiles) | Every missile in flight, newest first. |
+| `set_objective(objective: number, state: ObjectiveState)` | boolean | Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names. |
 
 ### `openreliant.self`
 
@@ -537,6 +538,7 @@ turret, and a turret's own scripts on their turret.
 | `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
 | `objects()` | list of [objects](#objects) | Every object in the mission, in the order of their slots. |
 | `missiles()` | list of [missile](#missiles) | Every missile in flight, newest first. |
+| `set_objective(objective: number, state: ObjectiveState)` | boolean | Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names. |
 
 ### I.Campaign
 
@@ -1637,6 +1639,10 @@ number. A script can set a field to either.
 ### Carrier
 
 `reliant`, `yamato`.
+
+### ObjectiveState
+
+`hidden`, `listed`, `current`, or a number.
 
 ### RadioMode
 
