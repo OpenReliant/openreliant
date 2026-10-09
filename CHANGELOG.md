@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/OpenReliant/openreliant/compare/v0.8.1...v0.8.2) (2026-10-09)
+
+
+### Fixes
+
+* records.campaign, the campaign's missions as a list mods can change ([220affa](https://github.com/OpenReliant/openreliant/commit/220affa78729a2ce7dcb49602e4f38a4a53d5dc1)), closes [#975](https://github.com/OpenReliant/openreliant/issues/975)
+
 ## [0.8.1](https://github.com/OpenReliant/openreliant/compare/v0.8.0...v0.8.1) (2026-10-08)
 
 
