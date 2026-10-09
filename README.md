@@ -98,7 +98,7 @@ The `sltool` utility, included with `openreliant` in each release, inspects, exp
 | `sltool stats` | Parse ship, weapon, and pilot stat tables | [stats](docs/formats/stats.md) |
 | `sltool dreamcast` | Read the Dreamcast version's text tables and texture cache; export its textures to PNG | [dreamcast](docs/formats/dreamcast.md) |
 | `sltool trek` | Read Star Trek: Invasion's archive, missions and models; its missions share StarLancer's format | [star-trek-invasion](docs/games/star-trek-invasion.md) |
-| `sltool bsg` | Read Battlestar Galactica's missions, its command catalogue and its comms films; its missions keep StarLancer's records | [battlestar-galactica](docs/games/battlestar-galactica.md) |
+| `sltool bsg` | Read Battlestar Galactica's missions, its command catalogue, its comms films and its archives; its missions keep StarLancer's records | [battlestar-galactica](docs/games/battlestar-galactica.md) |
 | `sltool tim` | Convert PlayStation TIM pictures to PNG | [playstation](docs/formats/playstation.md) |
 
 ---

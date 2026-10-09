@@ -63,6 +63,10 @@ with the header's decompressed size are all rejected rather than producing trunc
 
 Every compressed member of `resource.hog` decompresses to exactly the size its header declares.
 
+Battlestar Galactica, a later Warthog game, keeps RefPack streams without the header in its
+archives, in chunks of up to 128 KiB that `decompressInto` unpacks one by one
+([Battlestar Galactica](../games/battlestar-galactica.md#archives)).
+
 ## Compressing
 
 `refpack.compressAlloc` writes a stream of the one form the game expands: `10 FB`, a 3-byte size,
