@@ -224,15 +224,16 @@ and a few modern ones beside them:
 | Interface fonts | `.fnt`, TrueType or OpenType | A font editor ([Fonts](#fonts)) |
 | Music | WAV, 16-bit PCM or IMA ADPCM, at any rate | An audio editor ([Music](#music)) |
 | A mod's engine and gun sounds | WAV, PCM or IMA ADPCM | An audio editor ([Ship types](#ship-types), [Guns](#guns)) |
-| Lines of speech | The game's speech files | `sltool speech encode`, from WAV ([Lines](#lines)) |
+| Lines of speech | WAV (16-bit or 8-bit PCM, or IMA ADPCM) or MP3, at any rate, mono or stereo; or the game's speech files | An audio editor, or `sltool speech encode` from WAV ([Lines](#lines)) |
 | Pilots' faces | `.fm8` face films | `sltool fm8 encode`, from PNG frames ([Faces](#faces)) |
 | Missions | `.dte` | A mission editor ([Missions](#missions)) |
 | Stats tables | `.bin` | Better changed from a load script ([The records](scripting.md#the-records)) |
 | Sound banks | `.fat` | No tool yet: `sltool fat extract` saves a bank's sounds, but can't build a bank |
 | Movies | Bink (`.bik`) | RAD Game Tools' Bink tools |
 
-Sounds, music, speech and movies in today's formats are planned
-([#496](https://github.com/OpenReliant/openreliant/issues/496)).
+Sounds, music and movies in today's formats are planned
+([#496](https://github.com/OpenReliant/openreliant/issues/496)), as are lines in FLAC, Ogg Vorbis
+or Opus.
 
 ### Music
 
@@ -526,19 +527,30 @@ and picks 256 for them otherwise, the see-through colour kept as it is.
 
 ### Lines
 
-A line is a speech file in the game's codec ([Speech files](../formats/speech.md)). The game keeps
-its lines in `ms_speech\msspeech.hog`, under names without an extension, such as `ABRT_001`. A mod's
-line replaces the game's line with the same name, with or without the extension `.ut`:
-`abrt_001.ut` and `abrt_001` both replace `ABRT_001`, and where both are there, `abrt_001` is used.
-`sltool speech extract ms_speech/msspeech.hog lines` saves every line as a WAV file, to find the
-one to replace.
+The game keeps its lines in `ms_speech\msspeech.hog`, under names without an extension, such as
+`ABRT_001`. A mod's line replaces the game's line with the same name. `sltool speech extract
+ms_speech/msspeech.hog lines` saves every line as a WAV file, to find the one to replace.
 
-`sltool speech encode <line.wav> <line.ut>` makes a line from a WAV file, which it mixes to mono at
+A mod's line is best a recording, a WAV or MP3 file named after the line: `abrt_001.wav` or
+`abrt_001.mp3` replaces `ABRT_001`. It plays as recorded, at its own rate, mono or stereo, through
+the same style as the game's lines: the radio's room, and a briefing's last word matched to the
+narration's loudness. WAV files hold 16-bit or 8-bit PCM or IMA ADPCM, as audio editors write by
+default. MP3 is about a fifth the size of WAV: 64 kbit/s suits speech. Enriquez's scenes in the
+induction and the news reports take recordings too, named after the scene without `.box`, such as
+`0015.mp3` for `0015.box`.
+
+A line can also be a speech file in the game's own codec ([Speech files](../formats/speech.md)),
+named `abrt_001.ut` or `abrt_001`, which works in older versions of OpenReliant too. Where a mod has
+both, the recording is used, and where it has both speech files, `abrt_001`. The codec suits short
+radio lines like the game's own, but distorts long, clean speech, such as a spoken briefing.
+`sltool speech encode <line.wav> <line.ut>` makes one from a WAV file, which it mixes to mono at
 22,050 Hz, the rate the radio plays at:
 
 ```bash
 sltool speech encode taunt.wav trptnt_001.ut
 ```
+
+**Improvement:** the original plays lines in its own codec alone.
 
 ### A pilot's voice
 

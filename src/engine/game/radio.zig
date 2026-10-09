@@ -16,6 +16,7 @@ const Io = std.Io;
 const log = std.log.scoped(.radio);
 
 const hog = @import("../../formats/hog.zig");
+const bink = @import("../bink.zig");
 const bigfile = @import("bigfile.zig");
 const aigeneric = @import("aigeneric.zig");
 const cbox = @import("cbox.zig");
@@ -864,15 +865,16 @@ pub const Queued = struct {
 
 /// Reads the speech file that `speech` names into `gpa`, from a mod or from the speech archive
 /// `archive` (`speech_hog`), as `hog_read_file` (`0x004C7F60`) does (`bigfile.memberName` and
-/// `bigfile.readNamed`). A mod's file takes priority (`modLine`). Returns null if there's no
-/// archive and no mod has the file, and also, with a warning, if the archive doesn't have it or it
-/// can't be read.
+/// `bigfile.readNamed`). A mod's recording of the line takes priority (`readRecording`), then a
+/// mod's file in the game's format (`modLine`). Returns null if there's no archive and no mod has
+/// the line, and also, with a warning, if the archive doesn't have it or it can't be read.
 ///
 /// **Fix:** the game stops with a fatal error where a line is missing (`HOG_bigread2`);
 /// OpenReliant warns and leaves the line out.
-pub fn readLine(gpa: Allocator, mods: *const bigfile.Mods, archive: ?hog.Archive, speech: []const u8) ?[]u8 {
+pub fn readLine(gpa: Allocator, codec: ?bink.Codec, mods: *const bigfile.Mods, archive: ?hog.Archive, speech: []const u8) ?[]u8 {
     var buffer: [bigfile.member_name_room]u8 = undefined;
     const name = bigfile.memberName(&buffer, speech);
+    if (readRecording(gpa, codec, mods, name)) |recording| return recording;
     const modded = modLine(gpa, mods, name) catch |err| {
         log.warn("can't read the line {s}: {t}", .{ name, err });
         return null;
@@ -887,6 +889,41 @@ pub fn readLine(gpa: Allocator, mods: *const bigfile.Mods, archive: ?hog.Archive
         log.warn("the line {s} is not in {s}", .{ name, speech_archive });
         return null;
     };
+}
+
+/// The extensions of a mod's recording of a line, in the order they're looked for: a WAVE file
+/// (`wave.Decoder`), then an MP3 file.
+pub const recording_extensions = [_][]const u8{ ".wav", ".mp3" };
+
+/// A mod's recording of the line `name`, its name without the extension, as a WAVE file in `gpa`:
+/// `name.wav` as it is, or `name.mp3` decoded by `codec` (`bink.Codec.decodeMp3`). Null where no
+/// mod has either, and, with a warning, where one can't be read or there's no codec for an MP3
+/// file.
+///
+/// **Improvement:** the original plays lines in its own codec alone, which badly distorts long,
+/// clean speech such as a spoken briefing.
+pub fn readRecording(gpa: Allocator, codec: ?bink.Codec, mods: *const bigfile.Mods, name: []const u8) ?[]u8 {
+    var buffer: [bigfile.member_name_room + ".wav".len]u8 = undefined;
+    inline for (recording_extensions) |extension| {
+        const named = std.mem.print(&buffer, "{s}" ++ extension, .{name}) catch return null;
+        const read = mods.readFile(gpa, named) catch |err| {
+            log.warn("can't read the recording {s}: {t}", .{ named, err });
+            return null;
+        };
+        if (read) |bytes| {
+            if (comptime std.mem.eql(u8, extension, ".wav")) return bytes;
+            defer gpa.free(bytes);
+            const decoder = codec orelse {
+                log.warn("the recording {s} is left out: there's no MP3 decoder", .{named});
+                return null;
+            };
+            return decoder.decodeMp3(gpa, bytes) catch |err| {
+                log.warn("the recording {s} is left out: {t}", .{ named, err });
+                return null;
+            };
+        }
+    }
+    return null;
 }
 
 /// The line `name` (`bigfile.memberName`) from the last mod that has it: a file of that name, as
@@ -919,6 +956,9 @@ pub const Radio = struct {
     /// Added by OpenReliant: the mods, whose lines take priority over the archive's
     /// (`bigfile.Mods`).
     mods: *const bigfile.Mods = &bigfile.Mods.none,
+    /// Added by OpenReliant: what decodes a mod's recording of a line in MP3 (`readRecording`);
+    /// none leaves such recordings out.
+    codec: ?bink.Codec = null,
     player: cbox.Player = .{},
     /// How the lines sound.
     style: cbox.Style = .{},
@@ -1219,14 +1259,14 @@ pub const Radio = struct {
 
     /// Reads the speech file that `speech` names, from a mod or the archive (`readLine`).
     fn readSpeech(radio: *Radio, speech: []const u8) ?[]u8 {
-        return readLine(radio.gpa, radio.mods, radio.archive, speech);
+        return readLine(radio.gpa, radio.codec, radio.mods, radio.archive, speech);
     }
 
     /// `bytes`, a speech file, played (`cbox.Player.start`) at the volume every line the game plays
     /// takes, the line playing ended; one that is not a speech file is left out with a warning.
     fn play(radio: *Radio, sound: *hog_snd.Sound, bytes: []u8) void {
-        const parsed = cbox.Speech.parse(bytes) orelse {
-            log.warn("a line of the radio's is not a speech file", .{});
+        const parsed = cbox.Line.parse(bytes) orelse {
+            log.warn("a line of the radio's is not a speech file or a recording", .{});
             return;
         };
         _ = radio.player.start(radio.gpa, sound, parsed, hog_snd.loudest, radio.style, null);
@@ -1431,6 +1471,8 @@ test readLine {
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/voices/abrt_001", .data = "a mod's line" });
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/voices/abrt_001.ut", .data = "the same line with the extension" });
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/voices/abrt_003.ut", .data = "a mod's line with the extension" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/voices/abrt_002.wav", .data = "a mod's recording" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/voices/abrt_003.mp3", .data = "a recording no decoder reads" });
     var mods: bigfile.Mods = try .open(gpa, io, tmp.dir, null);
     defer mods.close(gpa);
     var archive: hog.Archive = try .open(gpa, io, tmp.dir, "speech.hog");
@@ -1438,30 +1480,32 @@ test readLine {
 
     // A mod's line by the name the archive uses, which wins over the same name with the extension,
     // and then a line from the archive.
-    const modded = readLine(gpa, &mods, archive, "ms_speech\\ABRT_001.ut").?;
+    const modded = readLine(gpa, null, &mods, archive, "ms_speech\\ABRT_001.ut").?;
     defer gpa.free(modded);
     try std.testing.expectEqualStrings("a mod's line", modded);
-    const own = readLine(gpa, &mods, archive, "ABRT_002.ut").?;
-    defer gpa.free(own);
-    try std.testing.expectEqualStrings("the game's other line", own);
-    // A mod's line with the extension, as sltool writes it.
-    const extended = readLine(gpa, &mods, archive, "ABRT_003.ut").?;
+    // A mod's recording wins over the game's line.
+    const recorded = readLine(gpa, null, &mods, archive, "ABRT_002.ut").?;
+    defer gpa.free(recorded);
+    try std.testing.expectEqualStrings("a mod's recording", recorded);
+    // A mod's line with the extension, as sltool writes it; an MP3 recording without the codec to
+    // decode it is left out for it.
+    const extended = readLine(gpa, null, &mods, archive, "ABRT_003.ut").?;
     defer gpa.free(extended);
     try std.testing.expectEqualStrings("a mod's line with the extension", extended);
     // Without the archive, only the mods' lines.
-    const alone = readLine(gpa, &mods, null, "ABRT_001.ut").?;
+    const alone = readLine(gpa, null, &mods, null, "ABRT_001.ut").?;
     defer gpa.free(alone);
     try std.testing.expectEqualStrings("a mod's line", alone);
-    try std.testing.expectEqual(null, readLine(gpa, &mods, null, "ABRT_002.ut"));
+    try std.testing.expectEqual(null, readLine(gpa, null, &mods, null, "ABRT_004.ut"));
     // Read as the game reads them: as stored unless they start `10 FB`, the name cut at the first
     // dot when `ut` follows, with case.
-    const stored = readLine(gpa, &mods, archive, "ABRT_004.ut").?;
+    const stored = readLine(gpa, null, &mods, archive, "ABRT_004.ut").?;
     defer gpa.free(stored);
     try std.testing.expectEqualStrings("\x00\xFB\x00\x00speech", stored);
-    const cut = readLine(gpa, &mods, archive, "x.ut.wav").?;
+    const cut = readLine(gpa, null, &mods, archive, "x.ut.wav").?;
     defer gpa.free(cut);
     try std.testing.expectEqualStrings("cut at the first dot", cut);
-    try std.testing.expectEqual(null, readLine(gpa, &mods, archive, "ABRT_002.UT"));
+    try std.testing.expectEqual(null, readLine(gpa, null, &mods, archive, "ABRT_002.UT"));
 }
 
 test "PERMISSION TO LAND's answers wait their time, then the radio says them" {

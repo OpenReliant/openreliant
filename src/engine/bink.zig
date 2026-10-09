@@ -13,6 +13,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const container = @import("../formats/bink.zig");
+const mp3 = @import("../formats/mp3.zig");
 const wave = @import("../formats/wave.zig");
 const mss = @import("mss.zig");
 
@@ -64,6 +65,21 @@ pub const Codec = struct {
     }
     pub fn close(codec: Codec, stream: Stream) void {
         codec.vtable.close(codec.context, stream);
+    }
+
+    /// The MP3 file `bytes`, its frames (`formats/mp3.zig`) decoded by the MP3 decoder into a
+    /// WAVE file of 16-bit PCM at the first frame's rate and channels, made in `gpa`: as the rooms'
+    /// crew say their lines, and a mod's recorded speech.
+    pub fn decodeMp3(codec: Codec, gpa: Allocator, bytes: []const u8) (Error || error{NoFrames})![]u8 {
+        var frames: mp3.Frames = .init(bytes);
+        const opening = frames.next() orelse return error.NoFrames;
+        const stream = try codec.openMp3();
+        defer codec.close(stream);
+        var pcm: std.ArrayList(i16) = .empty;
+        defer pcm.deinit(gpa);
+        var frame: ?mp3.Frame = opening;
+        while (frame) |decoded| : (frame = frames.next()) try codec.samples(stream, decoded.bytes, gpa, &pcm);
+        return wave.pcm16(gpa, opening.header.rate, opening.header.channels, pcm.items);
     }
 };
 

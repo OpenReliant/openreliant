@@ -97,6 +97,46 @@ pub const Speech = struct {
     }
 };
 
+/// A line the speech player plays: one in the game's codec (`Speech`), or a mod's recording, a
+/// WAVE file that `wave.Decoder` reads, mono or stereo, at its own rate. An MP3 recording is
+/// decoded to a WAVE file as it's read (`radio.readRecording`).
+///
+/// **Improvement:** the original plays its own codec alone.
+pub const Line = union(enum) {
+    coded: Speech,
+    recorded: wave.Wave,
+
+    /// `bytes`, a WAVE file where they start as one does, or else a speech file
+    /// (`Speech.parse`); null for neither, or for a WAVE file the decoder can't read.
+    pub fn parse(bytes: []u8) ?Line {
+        if (std.mem.startsWith(u8, bytes, "RIFF")) {
+            const recorded = wave.Wave.parse(bytes) catch return null;
+            _ = wave.Decoder.init(recorded) catch return null;
+            return .{ .recorded = recorded };
+        }
+        return .{ .coded = Speech.parse(bytes) orelse return null };
+    }
+
+    /// Samples a second.
+    pub fn rate(line: Line) u32 {
+        return switch (line) {
+            .coded => speech_rate,
+            .recorded => |recorded| recorded.rate,
+        };
+    }
+
+    /// How many of the game's ticks it plays for, rounded up.
+    pub fn ticks(line: Line) u32 {
+        return switch (line) {
+            .coded => |speech| speech.ticks(),
+            .recorded => |recorded| @intCast(@min(@divCeil(@as(u64, recorded.frameCount()) * ticks_per_second, recorded.rate), std.math.maxInt(u32))),
+        };
+    }
+};
+
+/// The rate of the game's codec (`rate`), as `Line.rate` names it.
+const speech_rate = rate;
+
 /// `speech_unscramble` (`0x00462000`): the stream of `bytes`, a speech file, XORed with `key`
 /// (`scramble.xor`), unless the file's first bytes are `man`, which the game writes over a file's
 /// length as it unscrambles it, or `CB`. OpenReliant leaves the length.
@@ -151,10 +191,11 @@ pub const Style = struct {
     pub const original: Style = .{ .peaks = .cut, .room = .dry, .levels = .recorded };
 };
 
-/// **Improvement:** `samples`, at the speech's `rate`, brought down to the loudness `target`, in
-/// LUFS, where they are louder, as ITU-R BS.1770 measures both (`mss.loudness`).
-pub fn bringDown(gpa: Allocator, samples: []i16, target: f32) Allocator.Error!void {
-    const measured = try loudness.integrated(gpa, samples, 1, rate) orelse return;
+/// **Improvement:** `samples`, interleaved in `channels` at `at_rate`, brought down to the
+/// loudness `target`, in LUFS, where they are louder, as ITU-R BS.1770 measures both
+/// (`mss.loudness`).
+pub fn bringDown(gpa: Allocator, samples: []i16, channels: u16, at_rate: u32, target: f32) Allocator.Error!void {
+    const measured = try loudness.integrated(gpa, samples, channels, at_rate) orelse return;
     if (measured <= target) return;
     const gain = std.math.pow(f32, 10, (target - measured) / 20);
     for (samples) |*value| value.* = @intFromFloat(@round(@as(f32, @floatFromInt(value.*)) * gain));
@@ -208,13 +249,28 @@ pub fn decode(gpa: Allocator, speech: Speech, peaks: Style.Peaks) Allocator.Erro
     return out;
 }
 
-/// `speech` decoded, as loud as `style` has it after a recording `follows` LUFS loud, as a WAVE
-/// file of 16-bit PCM made in `gpa`.
-fn prepared(gpa: Allocator, speech: Speech, style: Style, follows: ?f32) Allocator.Error![]u8 {
-    const samples = try decode(gpa, speech, style.peaks);
+/// `line` decoded, as loud as `style` has it after a recording `follows` LUFS loud, as a WAVE
+/// file of 16-bit PCM made in `gpa`. A recording keeps its rate and channels, and its peaks, which
+/// it holds within full scale already.
+fn prepared(gpa: Allocator, line: Line, style: Style, follows: ?f32) (Allocator.Error || wave.Decoder.Error)![]u8 {
+    const samples, const channels = switch (line) {
+        .coded => |speech| .{ try decode(gpa, speech, style.peaks), 1 },
+        .recorded => |recorded| .{ try decodeRecording(gpa, recorded), recorded.channels },
+    };
     defer gpa.free(samples);
-    if (style.levels == .matched) if (follows) |target| try bringDown(gpa, samples, target);
-    return wave.pcm16(gpa, rate, 1, samples);
+    if (style.levels == .matched) if (follows) |target| try bringDown(gpa, samples, channels, line.rate(), target);
+    return wave.pcm16(gpa, line.rate(), channels, samples);
+}
+
+/// The samples of `recorded`, a WAVE file `wave.Decoder` reads, as 16-bit PCM made in `gpa`,
+/// interleaved in its channels.
+fn decodeRecording(gpa: Allocator, recorded: wave.Wave) (Allocator.Error || wave.Decoder.Error)![]i16 {
+    var decoder: wave.Decoder = try .init(recorded);
+    const channels = recorded.channels;
+    const out = try gpa.alloc(i16, @as(usize, decoder.frames) * channels);
+    var at: usize = 0;
+    while (decoder.next()) |frame| : (at += channels) @memcpy(out[at..][0..channels], frame[0..channels]);
+    return out;
 }
 
 /// The speech as it plays through the speech sample (`speech_start`, `0x00461EB0`; `speech_stop`,
@@ -240,8 +296,8 @@ pub const Player = struct {
         held: u32,
     };
 
-    /// `speech_start`: `speech` played through `sound`'s speech sample, the line playing ended:
-    /// once, in the middle, at `rate`, as loud as the speech volume, the master volume and
+    /// `speech_start`: `line` played through `sound`'s speech sample, the line playing ended:
+    /// once, in the middle, at its rate, as loud as the speech volume, the master volume and
     /// `volume`, 0 to 127, make it (`hog_snd.Sound.speechVolume`), sounding as `style` has it; where
     /// it follows a recording `follows` LUFS loud, matched to it as the style's levels have it.
     /// Where there's no speech sample, timed by the game's clock instead (`unheard`). Whether it
@@ -249,11 +305,11 @@ pub const Player = struct {
     ///
     /// Not ported: a line that loops (bit 0 of the game's flags), which nothing the game ships
     /// asks for.
-    pub fn start(player: *Player, gpa: Allocator, sound: *hog_snd.Sound, speech: Speech, volume: i32, style: Style, follows: ?f32) bool {
+    pub fn start(player: *Player, gpa: Allocator, sound: *hog_snd.Sound, line: Line, volume: i32, style: Style, follows: ?f32) bool {
         player.stop(gpa, sound);
-        const driver = sound.driver orelse return player.time(sound, speech);
-        const handle = sound.speech orelse return player.time(sound, speech);
-        player.file = prepared(gpa, speech, style, follows) catch |err| {
+        const driver = sound.driver orelse return player.time(sound, line);
+        const handle = sound.speech orelse return player.time(sound, line);
+        player.file = prepared(gpa, line, style, follows) catch |err| {
             log.warn("a line of speech cannot be decoded: {s}", .{@errorName(err)});
             return false;
         };
@@ -269,17 +325,17 @@ pub const Player = struct {
         });
         driver.setSampleLoopCount(handle, hog_snd.once);
         driver.setSamplePan(handle, hog_snd.centre);
-        driver.setSamplePlaybackRate(handle, rate);
+        driver.setSamplePlaybackRate(handle, line.rate());
         driver.setSampleVolume(handle, sound.speechVolume(volume));
         driver.startSample(handle);
         return true;
     }
 
-    /// A line nobody hears, `speech`, timed from now by `sound`'s clock (`unheard`). Whether it
+    /// A line nobody hears, `line`, timed from now by `sound`'s clock (`unheard`). Whether it
     /// plays, which it does where the sound has the clock.
-    fn time(player: *Player, sound: *const hog_snd.Sound, speech: Speech) bool {
+    fn time(player: *Player, sound: *const hog_snd.Sound, line: Line) bool {
         const clock = sound.clock orelse return false;
-        player.unheard = .{ .until = clock.game_ticks +% speech.ticks() };
+        player.unheard = .{ .until = clock.game_ticks +% line.ticks() };
         return true;
     }
 
@@ -440,10 +496,10 @@ test bringDown {
         value.* = @intFromFloat(@round(16000 * @sin(2 * std.math.pi * 997 * t)));
     }
     const before = (try loudness.integrated(gpa, &samples, 1, rate)).?;
-    try bringDown(gpa, &samples, before - 12);
+    try bringDown(gpa, &samples, 1, rate, before - 12);
     try std.testing.expectApproxEqAbs(before - 12, (try loudness.integrated(gpa, &samples, 1, rate)).?, 0.1);
     const quieter = samples;
-    try bringDown(gpa, &samples, before);
+    try bringDown(gpa, &samples, 1, rate, before);
     try std.testing.expectEqualSlices(i16, &quieter, &samples);
 }
 
@@ -459,7 +515,7 @@ test Player {
     defer gpa.free(file);
     const speech = Speech.parse(file).?;
     try std.testing.expect(!player.playing(sound));
-    try std.testing.expect(player.start(gpa, sound, speech, hog_snd.loudest, .{}, null));
+    try std.testing.expect(player.start(gpa, sound, .{ .coded = speech }, hog_snd.loudest, .{}, null));
     try std.testing.expect(player.playing(sound));
     try std.testing.expect(player.file.len > 0);
     player.stop(gpa, sound);
@@ -467,9 +523,41 @@ test Player {
     try std.testing.expectEqual(0, player.file.len);
     // Without the memory to decode it, the line doesn't play.
     var failing: std.testing.FailingAllocator = .init(gpa, .{ .fail_index = 0 });
-    try std.testing.expect(!player.start(failing.allocator(), sound, speech, hog_snd.loudest, .{}, null));
+    try std.testing.expect(!player.start(failing.allocator(), sound, .{ .coded = speech }, hog_snd.loudest, .{}, null));
     try std.testing.expect(!player.playing(sound));
     try std.testing.expectEqual(0, player.file.len);
+    // A mod's recording plays at its own rate and in its own channels.
+    const samples = [_]i16{ 100, -100, 2000, -2000, 0, 0 };
+    const recording = try wave.pcm16(gpa, 11025, 2, &samples);
+    defer gpa.free(recording);
+    try std.testing.expect(player.start(gpa, sound, Line.parse(recording).?, hog_snd.loudest, .{}, null));
+    try std.testing.expect(player.playing(sound));
+    const played = try wave.Wave.parse(player.file);
+    try std.testing.expectEqual(11025, played.rate);
+    try std.testing.expectEqual(2, played.channels);
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&samples), played.data);
+    player.stop(gpa, sound);
+}
+
+test Line {
+    const gpa = std.testing.allocator;
+    // The game's speech file, at the codec's rate.
+    const file = try testFile(gpa, 2000, 400);
+    defer gpa.free(file);
+    const coded = Line.parse(file).?;
+    try std.testing.expectEqual(rate, coded.rate());
+    try std.testing.expectEqual(coded.coded.ticks(), coded.ticks());
+    // A recording of a second at 8000 samples a second, mono, plays for a second of ticks.
+    const quiet: [8000]i16 = @splat(0);
+    const recording = try wave.pcm16(gpa, 8000, 1, &quiet);
+    defer gpa.free(recording);
+    const recorded = Line.parse(recording).?;
+    try std.testing.expectEqual(8000, recorded.rate());
+    try std.testing.expectEqual(ticks_per_second, recorded.ticks());
+    // A WAVE file the decoder can't read, such as one of 24-bit samples, is neither.
+    const wide = try gpa.dupe(u8, comptime wave.testing.file(.{ .format = .pcm, .channels = 1, .rate = 8000, .byte_rate = 24000, .block_align = 3, .bits = 24 }, "", "", "\x00\x00\x00"));
+    defer gpa.free(wide);
+    try std.testing.expectEqual(null, Line.parse(wide));
 }
 
 test "a line nobody hears is timed by the game's clock" {
@@ -483,7 +571,7 @@ test "a line nobody hears is timed by the game's clock" {
     const file = try testFile(gpa, rate, 40);
     defer gpa.free(file);
     const speech = Speech.parse(file).?;
-    try std.testing.expect(player.start(gpa, &sound, speech, hog_snd.loudest, .{}, null));
+    try std.testing.expect(player.start(gpa, &sound, .{ .coded = speech }, hog_snd.loudest, .{}, null));
     clock.game_ticks +%= 99;
     try std.testing.expect(player.playing(&sound));
     // Paused, it keeps the tick it had left, however long the pause lasts.
@@ -495,11 +583,11 @@ test "a line nobody hears is timed by the game's clock" {
     clock.game_ticks +%= 1;
     try std.testing.expect(!player.playing(&sound));
     // Stopped, it's over at once.
-    try std.testing.expect(player.start(gpa, &sound, speech, hog_snd.loudest, .{}, null));
+    try std.testing.expect(player.start(gpa, &sound, .{ .coded = speech }, hog_snd.loudest, .{}, null));
     player.stop(gpa, &sound);
     try std.testing.expect(!player.playing(&sound));
     // Without the clock, a line ends as it starts.
     sound.clock = null;
-    try std.testing.expect(!player.start(gpa, &sound, speech, hog_snd.loudest, .{}, null));
+    try std.testing.expect(!player.start(gpa, &sound, .{ .coded = speech }, hog_snd.loudest, .{}, null));
     try std.testing.expect(!player.playing(&sound));
 }

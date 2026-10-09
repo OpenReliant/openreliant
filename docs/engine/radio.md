@@ -344,5 +344,11 @@ instructor speaks in the reminders and the launch's words, and answers PERMISSIO
 A line plays through the speech sample ([Sound](sound.md#speech)), its peaks rounded off and in
 the cockpit's cabin unless `--original`.
 
+**Improvement:** a mod's recording of a line, a WAV or MP3 file named after it, plays in its place
+as recorded, at its own rate and in its own channels, in the same room and matched to the same
+loudness ([Lines](../guide/modding.md#lines)). The radio reads it before the line in the game's
+codec (`radio.readRecording`), and decodes an MP3 file with FFmpeg's MP3 decoder, as the crew's
+lines are.
+
 Without a speech sample, as with `--no-sound`, a line still lasts as long as it would play, so its
 face shows and a mission's script that waits for it waits as long ([Speech](sound.md#speech)).
