@@ -1231,11 +1231,12 @@ records.missions[5].objectives = { "Destroy the convoy", "Protect the Patriot" }
 
 A mod that puts back missions the campaign doesn't fly gives them what the game lacks. A mod can't
 make a Bink movie for the briefing room's screen, so Enriquez can speak the briefing over the room
-instead, as she does at the campaign's end:
+instead, as she does at the campaign's end, while another mission's movie that fits plays on the
+screen without its sound:
 
 ```lua
 local mission = records.missions[12]
-mission.hologram = nil
+mission.hologram = "new_m05.bik"
 mission.speech = "dreamcast_brief12.ut"
 mission.date = "February 2, 2161"
 ```
@@ -1251,8 +1252,10 @@ records.missions[3] = { carrier = "yamato", hologram = "mycampaign_m03.bik", las
   the same mission don't undo each other's changes.
 - Reading `objectives` gives a new list each time. To change the names, assign a list. Nil gives
   back the names the game's own table has for the mission's number.
-- Where a mission has `speech`, Enriquez speaks it in place of the hologram, and the briefing ends
-  when she does.
+- Where a mission has `speech`, Enriquez speaks it over the room, and the briefing ends when she
+  does. The hologram plays on the room's screen meanwhile without its sound, and starts over if it
+  ends first, so another mission's movie can show something fitting. A hologram of nil leaves the
+  screen empty.
 - The carrier decides the rooms the player walks, the briefing room, the loadout's backdrop and the
   hangar the launch starts in.
 - The game reads the missions as it goes, so a game mode's `records` script changes them for the
