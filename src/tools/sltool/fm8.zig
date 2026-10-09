@@ -63,7 +63,7 @@ fn info(ctx: Context, bytes: []u8) !void {
     }
     try ctx.stdout.print("\n{d} frames of {d} x {d}, {d} of them key frames, {d:.2} s at {d} a second", .{ frames, film.width, film.height, keys, @as(f64, @floatFromInt(frames)) / talkie.frames_per_second, talkie.frames_per_second });
     if (film.transparent) |index_seen| try ctx.stdout.print(", see-through entry {d}", .{index_seen});
-    if (bad > 0) try ctx.stdout.print(", {d} chunks not decoded", .{bad});
+    if (bad > 0) try ctx.stdout.print(", {f} couldn't be decoded", .{sltool.count(bad, "chunk")});
     try ctx.stdout.writeByte('\n');
 }
 
@@ -107,13 +107,13 @@ fn encode(ctx: Context, frames_path: []const u8, film_path: []const u8) !void {
         return err;
     };
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = film_path, .data = film });
-    try ctx.stdout.print("wrote {d} frames of {d} by {d} to {s}, {d} bytes\n", .{ frames.len, width, height, film_path, film.len });
+    try ctx.stdout.print("wrote {f} of {d} by {d} to {s}, {f}\n", .{ sltool.count(frames.len, "frame"), width, height, film_path, sltool.count(film.len, "byte") });
 }
 
 fn extract(ctx: Context, bytes: []u8, source: []const u8, out_path: []const u8) !void {
     const stem = std.Io.Dir.path.stem(std.Io.Dir.path.basename(source));
     const written = try saveFrames(ctx, .{ .bytes = bytes }, stem, out_path);
-    try ctx.stdout.print("wrote {d} frames to {s}\n", .{ written, out_path });
+    try ctx.stdout.print("wrote {f} to {s}\n", .{ sltool.count(written, "frame"), out_path });
 }
 
 /// Saves each frame of the film whose chunks `chunks` gives as an indexed PNG file over the
@@ -130,7 +130,7 @@ pub fn saveFrames(ctx: Context, chunks: talkie.Chunks, stem: []const u8, out_pat
     var index: usize = 0;
     while (reading.next()) |chunk| : (index += 1) {
         const decoded = film.decode(chunk) catch |err| {
-            try ctx.stdout.print("chunk {d} of {s} is not decoded: {s}\n", .{ index, stem, @errorName(err) });
+            try ctx.stdout.print("can't decode chunk {d} of {s}: {s}\n", .{ index, stem, @errorName(err) });
             continue;
         };
         if (!decoded) continue;

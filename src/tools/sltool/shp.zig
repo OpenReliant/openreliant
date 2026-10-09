@@ -31,8 +31,8 @@ pub const Command = union(enum) {
 
     pub const usage =
         \\  shp info <model>                parts, meshes, materials and bounds
-        \\  shp check <model>               validate indices, bounds and normals, and write the
-        \\                                  model again to check that it comes back the same
+        \\  shp check <model>               validate indices, bounds and normals, and check that
+        \\                                  rewriting the model gives the same bytes
         \\  shp chunks <model>              list the raw chunk stream
         \\  shp components <model>          list the components objects of the model name by index,
         \\                                  finding mounted models beside it
@@ -463,8 +463,8 @@ fn check(ctx: Context, data: []const u8) !void {
     }
 
     if (problems == 0) {
-        try ctx.stdout.print("ok: {d} parts, {d} vertices, {d} faces\n", .{
-            model.parts.len, model.vertexCount(), model.faceCount(),
+        try ctx.stdout.print("ok: {f}, {f}, {f}\n", .{
+            sltool.count(model.parts.len, "part"), sltool.countAs(model.vertexCount(), "vertex", "vertices"), sltool.count(model.faceCount(), "face"),
         });
         try ctx.stdout.writeAll("bounds:");
         for (std.enums.values(BoundsFrame)) |frame| {
@@ -473,17 +473,17 @@ fn check(ctx: Context, data: []const u8) !void {
         }
         try ctx.stdout.writeByte('\n');
     } else {
-        try ctx.stdout.print("{d} problems\n", .{problems});
+        try ctx.stdout.print("{f}\n", .{sltool.count(problems, "problem")});
         return error.ModelInconsistent;
     }
 
     var written: Io.Writer.Allocating = .init(ctx.arena);
     try model.write(&written.writer);
     if (std.mem.findDiff(u8, data, written.written())) |offset| {
-        try ctx.stdout.print("written again, it differs from offset {x:0>8}\n", .{offset});
+        try ctx.stdout.print("rewriting the model changes its bytes from offset {x:0>8}\n", .{offset});
         return error.Differs;
     }
-    try ctx.stdout.writeAll("written again: the same bytes\n");
+    try ctx.stdout.writeAll("rewritten byte for byte\n");
 }
 
 /// Writes a level's faces as OBJ faces, all wound alike, and returns how many. Odd strip members
@@ -529,7 +529,7 @@ fn writeModel(ctx: Context, model: shp.Model, out_path: []const u8) !void {
     try writer.interface.flush();
     var faces: usize = 0;
     for (model.parts) |part| faces += part.meshes[0].faces.len;
-    try ctx.stdout.print("wrote {s}: {d} parts, {d} faces\n", .{ out_path, model.parts.len, faces });
+    try ctx.stdout.print("wrote {s}: {f}, {f}\n", .{ out_path, sltool.count(model.parts.len, "part"), sltool.count(faces, "face") });
 }
 
 /// Builds the model the glTF file `bytes` at `path` makes, as `buildFromObj` builds one, scaled by
@@ -588,7 +588,7 @@ fn writeGltf(ctx: Context, model: shp.Model, out_path: []const u8, lod: u32, cac
     defer dir.close(ctx.io);
     try dir.writeFile(ctx.io, .{ .sub_path = std.Io.Dir.path.basename(out_path), .data = written.json });
     try dir.writeFile(ctx.io, .{ .sub_path = bin_name, .data = written.bin });
-    try ctx.stdout.print("wrote {s} and {s}: {d} parts, {d} materials\n", .{ out_path, bin_name, model.parts.len, written.materials.len });
+    try ctx.stdout.print("wrote {s} and {s}: {f}, {f}\n", .{ out_path, bin_name, sltool.count(model.parts.len, "part"), sltool.count(written.materials.len, "material") });
 
     const cache_bytes = try ctx.readInput(cache_path orelse return);
     const cache: openreliant.tcache.Cache = try .parse(ctx.arena, cache_bytes);
@@ -667,7 +667,7 @@ fn writeObj(ctx: Context, model: shp.Model, out_path: []const u8, lod: u32, mode
     }
 
     try out.flush();
-    try ctx.stdout.print("wrote {s}: {d} parts, {d} triangles\n", .{ out_path, exported, triangles });
+    try ctx.stdout.print("wrote {s}: {f}, {f}\n", .{ out_path, sltool.count(exported, "part"), sltool.count(triangles, "triangle") });
 }
 
 test Command {

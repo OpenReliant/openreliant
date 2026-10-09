@@ -27,14 +27,14 @@ pub const Command = union(enum) {
         \\  bsg parts <mission>             list its script's routines
         \\  bsg triggers <mission>          list its triggers
         \\  bsg script <mission> <default.xbe>
-        \\                                  disassemble its script, with the commands' names
-        \\                                  from the game's executable
+        \\                                  disassemble its script, naming the commands from the
+        \\                                  game's executable
         \\  bsg commands <default.xbe>      list the commands in the game's executable
         \\  bsg films <video.idx> <videodata.dat>
         \\                                  list the comms films
         \\  bsg film <video.idx> <videodata.dat> <number|all> <out-dir>
-        \\                                  save a comms film's frames, or every film's, as PNG
-        \\                                  files
+        \\                                  save the frames of one comms film, or of all of them,
+        \\                                  as PNG files
         \\
     ;
 
@@ -121,7 +121,7 @@ fn film(ctx: Context, all: Films, which: []const u8, out_path: []const u8) !void
     const first, const last = if (std.mem.eql(u8, which, "all")) .{ 0, count } else number: {
         const number = std.fmt.parseInt(usize, which, 10) catch count;
         if (number >= count) {
-            try ctx.stdout.print("{s} is not a film: there are {d}, numbered from 0, or all\n", .{ which, count });
+            try ctx.stdout.print("there is no film {s}: give a number from 0 to {d}, or all\n", .{ which, count -| 1 });
             return error.NoSuchFilm;
         }
         break :number .{ number, number + 1 };
@@ -132,11 +132,7 @@ fn film(ctx: Context, all: Films, which: []const u8, out_path: []const u8) !void
         const stem = try ctx.arena.print("film_{d:0>3}", .{number});
         frames += try sltool.fm8.saveFrames(ctx, .{ .bytes = chosen.chunks, .scrambled = false }, stem, out_path);
     }
-    if (last - first == 1) {
-        try ctx.stdout.print("wrote {d} frames of film {d} to {s}\n", .{ frames, first, out_path });
-    } else {
-        try ctx.stdout.print("wrote {d} frames of {d} films to {s}\n", .{ frames, last - first, out_path });
-    }
+    try ctx.stdout.print("wrote {f} of {f} to {s}\n", .{ sltool.count(frames, "frame"), sltool.count(last - first, "film"), out_path });
 }
 
 test Command {

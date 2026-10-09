@@ -923,12 +923,14 @@ and options:
   `gun_muzzle:1`. A marker is a cube two units across, scaled, turned and moved as its node is, so
   scale an engine glow's marker along its length to give its plume that length. Every node's
   transform is applied, and `--scale` scales the whole model.
-- **Materials.** Each material becomes a texture called after the model and its number, such as
-  `viper_0.png` for `viper.shp`, written beside the model with its maps ([Material
-  maps](#material-maps)): its colour, its colour texture times its colour where it has one; its
-  roughness and metalness, from its textures and values; its normal map; and its emissive map where
-  it glows, `KHR_materials_emissive_strength` included. Every map takes the colour texture's size.
-  Textures must be PNG files; any other is left out, and the log says so.
+- **Materials.** Each material becomes a texture named after the model and its number, such as
+  `viper_0.png` for `viper.shp`, written next to the model with its maps ([Material
+  maps](#material-maps)): the colour, which is the colour texture multiplied by the colour if there
+  is one; the roughness and metalness, from the textures and values; the normal map; and the
+  emissive map if the material glows, `KHR_materials_emissive_strength` included. Every map has the
+  size of the colour texture.
+  Textures must be PNG files. A texture that isn't a PNG file, or whose file is missing or can't be
+  read, is skipped with a warning.
 - **What isn't read.** Animations, skins, morph targets, cameras, lights, sparse accessors, a second
   set of texture coordinates, and the extensions beyond the emissive strength. A file that requires
   an extension other than `KHR_materials_emissive_strength`, `KHR_materials_specular` or
@@ -943,10 +945,11 @@ empty nodes named as `from-gltf` reads them, and with `--textures` its pictures 
 sltool shp gltf USLF_Prd.SHP predator.gltf --textures tcachehw.dat palette.tga
 ```
 
-Each part is a node, under the part it hangs from, with its first level of detail (`--lod` picks
-another). Built again with `from-gltf`, every part but one named `cockpit` joins the body, and the
-textures take the new model's names. Share only your own work in a mod, never the game's models or
-pictures.
+Each part is a node under the part it hangs from, with its first level of detail (`--lod` picks
+another). Without `--textures`, the materials name their pictures, but the pictures aren't written.
+When you build the model again with `from-gltf`, every part except one named `cockpit` joins the
+body, the textures are renamed after the new model, and missing pictures are skipped. Share only
+your own work in a mod, never the game's models or pictures.
 
 ## Missions
 

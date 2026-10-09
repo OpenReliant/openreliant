@@ -56,7 +56,7 @@ pub const Section = enum(u8) {
     command_flags = 11,
     _,
 
-    /// StarLancer's section with the same records; null for one laid out otherwise, or not
+    /// StarLancer's section with the same record layout, or null if the layout differs or isn't
     /// known.
     pub fn asDte(section: Section) ?dte.Section {
         return switch (section) {

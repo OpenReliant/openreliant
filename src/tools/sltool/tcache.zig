@@ -129,7 +129,7 @@ fn extract(
         const level = texture.level(0) orelse continue;
         try savePng(ctx, out_dir, texture.name(), level, &palette);
     }
-    try ctx.stdout.print("wrote {d} textures to {s}\n", .{ chosen.items.len, out_path });
+    try ctx.stdout.print("wrote {f} to {s}\n", .{ sltool.count(chosen.items.len, "texture"), out_path });
 }
 
 /// Saves `level`, in `palette`'s colours, as the PNG file `<name>.png` in `dir`.

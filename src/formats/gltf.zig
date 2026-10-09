@@ -29,8 +29,8 @@ pub const Error = Allocator.Error || error{
     MissingBuffer,
 };
 
-/// Reads the file `name` beside the glTF file, for its buffers and images; null where there is
-/// none.
+/// Reads the file `name` next to the glTF file, for its buffers and images. Returns null if the
+/// file can't be read.
 pub const Files = struct {
     context: *const anyopaque,
     readFn: *const fn (context: *const anyopaque, arena: Allocator, name: []const u8) Allocator.Error!?[]u8,
@@ -117,15 +117,16 @@ pub fn read(arena: Allocator, bytes: []const u8, files: Files) Error!Document {
     for (buffers, listed, 0..) |*buffer, value, at| {
         if (value != .object) return error.BadIndex;
         buffer.* = if (value.object.get("uri")) |uri|
-            try resource(arena, files, string(uri) orelse return error.BadIndex)
+            try resource(arena, files, string(uri) orelse return error.BadIndex) orelse return error.MissingBuffer
         else if (at == 0) binary orelse return error.MissingBuffer else return error.MissingBuffer;
     }
     document.buffers = buffers;
     return document;
 }
 
-/// The bytes `uri` names: a `data:` URI's, base64, or a file's beside the glTF file.
-fn resource(arena: Allocator, files: Files, uri: []const u8) Error![]const u8 {
+/// The bytes of `uri`: decoded from a base64 `data:` URI, or read from a file next to the glTF
+/// file. Returns null if the file can't be read.
+fn resource(arena: Allocator, files: Files, uri: []const u8) Error!?[]const u8 {
     if (std.mem.startsWith(u8, uri, "data:")) {
         const comma = std.mem.findScalar(u8, uri, ',') orelse return error.BadIndex;
         const encoded = uri[comma + 1 ..];
@@ -135,10 +136,13 @@ fn resource(arena: Allocator, files: Files, uri: []const u8) Error![]const u8 {
         decoder.decode(decoded, encoded) catch return error.BadIndex;
         return decoded;
     }
-    // A file's name may be escaped as a URI's path is.
+    return files.read(arena, try fileName(arena, uri));
+}
+
+/// The file name in `uri`, with its percent escapes decoded.
+fn fileName(arena: Allocator, uri: []const u8) Allocator.Error![]const u8 {
     const name = try arena.alloc(u8, uri.len);
-    const unescaped = std.Uri.percentDecodeBackwards(name, uri);
-    return try files.read(arena, unescaped) orelse error.MissingBuffer;
+    return std.Uri.percentDecodeBackwards(name, uri);
 }
 
 fn string(value: json.Value) ?[]const u8 {
@@ -508,15 +512,20 @@ const Mode = enum(u32) {
 
 // --- Materials ---------------------------------------------------------------------------------
 
-/// A picture a material's texture takes: the bytes of its file, with the file's media type where
-/// the glTF file gives it.
-pub const Image = struct {
-    bytes: []const u8,
-    mime: ?[]const u8,
+/// The picture of a material's texture.
+pub const Image = union(enum) {
+    /// The file's bytes, and its media type if the glTF file gives one.
+    found: struct {
+        bytes: []const u8,
+        mime: ?[]const u8 = null,
+    },
+    /// The name of a file that can't be read, such as a picture that `sltool shp gltf` names but
+    /// doesn't write without `--textures`.
+    missing: []const u8,
 };
 
-/// A material, in glTF's metallic workflow: each colour and value in linear light, each texture
-/// optional, its values multiplied by the matching factor.
+/// A material in glTF's metallic workflow. Colours and values are in linear light, every texture
+/// is optional, and a texture's values are multiplied by the matching factor.
 pub const Material = struct {
     name: []const u8,
     /// Its colour and alpha (`baseColorFactor`), and their texture.
@@ -570,16 +579,21 @@ pub fn materials(arena: Allocator, document: Document) Error![]Material {
     return out;
 }
 
-/// The picture of the texture the member `name` of `object` names (a texture info), if any.
+/// The picture of the texture that the member `name` of `object` refers to (a texture info), or
+/// null if there is none.
 fn image(arena: Allocator, document: Document, object: json.ObjectMap, name: []const u8) Error!?Image {
     const info = object.get(name) orelse return null;
     if (info != .object) return error.BadIndex;
     const texture = try document.item("textures", index(info.object, "index") orelse return error.BadIndex);
     const source = try document.item("images", index(texture, "source") orelse return null);
     const mime = if (source.get("mimeType")) |given| string(given) else null;
-    if (source.get("uri")) |uri| return .{ .bytes = try resource(arena, document.files, string(uri) orelse return error.BadIndex), .mime = mime };
+    if (source.get("uri")) |value| {
+        const uri = string(value) orelse return error.BadIndex;
+        const bytes = try resource(arena, document.files, uri) orelse return .{ .missing = try fileName(arena, uri) };
+        return .{ .found = .{ .bytes = bytes, .mime = mime } };
+    }
     const view: View = try .of(document, index(source, "bufferView") orelse return error.BadIndex);
-    return .{ .bytes = view.bytes, .mime = mime };
+    return .{ .found = .{ .bytes = view.bytes, .mime = mime } };
 }
 
 /// Files for the tests: none.
@@ -651,6 +665,25 @@ test materials {
     try std.testing.expectEqual(1, found[0].roughness);
     try std.testing.expectEqual([3]f32{ 0, 2, 0 }, found[0].emissive);
     try std.testing.expectEqual(null, found[0].colour_texture);
+}
+
+test "a texture whose file is missing" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+    // Without `--textures`, `sltool shp gltf` names the picture but doesn't write it. The
+    // material keeps the file's name, and the model is built without the texture.
+    const document = try read(gpa,
+        \\{"asset": {"version": "2.0"},
+        \\ "materials": [{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}}],
+        \\ "textures": [{"source": 0}], "images": [{"uri": "Sabre%20hull.png"}]}
+    , no_files);
+    const found = try materials(gpa, document);
+    try std.testing.expectEqualStrings("Sabre hull.png", found[0].colour_texture.?.missing);
+    // A missing buffer still stops the build, because the model can't be built without it.
+    try std.testing.expectError(error.MissingBuffer, read(gpa,
+        \\{"asset": {"version": "2.0"}, "buffers": [{"byteLength": 4, "uri": "sabre.bin"}]}
+    , no_files));
 }
 
 test {

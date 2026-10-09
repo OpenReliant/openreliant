@@ -171,16 +171,16 @@ fn extract(ctx: Context, archive: hog.Archive, out_path: []const u8, raw: bool) 
         written += bytes.len;
     }
 
-    try ctx.stdout.print("extracted {d} members ({Bi:.1}{s}) to {s}\n", .{
-        archive.entries.len,
+    try ctx.stdout.print("extracted {f} ({Bi:.1}{s}) to {s}\n", .{
+        sltool.count(archive.entries.len, "member"),
         written,
         if (raw) ", as stored" else ", decompressed",
         out_path,
     });
     if (renamed > 0) {
         try ctx.stdout.print(
-            "{d} member{s} shared a name with an earlier one and got a ~N suffix\n",
-            .{ renamed, if (renamed == 1) "" else "s" },
+            "{f} shared a name with an earlier one and got a ~N suffix\n",
+            .{sltool.count(renamed, "member")},
         );
     }
 }
@@ -235,8 +235,8 @@ fn pack(ctx: Context, dir_path: []const u8, path: []const u8, flags: Command.Pac
         try Io.Dir.cwd().writeFile(io, .{ .sub_path = checksum_path, .data = line.written() });
         try ctx.stdout.print("wrote {s}\n", .{checksum_path});
     }
-    try ctx.stdout.print("packed {d} members ({Bi:.1}) into {s}: {d} compressed, {d} already compressed, {d} stored\n", .{
-        members.len,
+    try ctx.stdout.print("packed {f} ({Bi:.1}) into {s}: {d} compressed, {d} already compressed, {d} stored\n", .{
+        sltool.count(members.len, "member"),
         bytes.len,
         path,
         counts.get(.compressed),

@@ -130,8 +130,8 @@ fn extract(ctx: Context, path: []const u8, out_path: []const u8) !void {
         try out_dir.writeFile(io, .{ .sub_path = name, .data = file });
         written += 1;
     }
-    try ctx.stdout.print("wrote {d} lines to {s}", .{ written, out_path });
-    if (skipped > 0) try ctx.stdout.print(", {d} members not speech files left out", .{skipped});
+    try ctx.stdout.print("wrote {f} to {s}", .{ sltool.count(written, "line"), out_path });
+    if (skipped > 0) try ctx.stdout.print(", skipped {f} that aren't speech files", .{sltool.count(skipped, "member")});
     try ctx.stdout.writeByte('\n');
 }
 

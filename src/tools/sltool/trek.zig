@@ -26,7 +26,7 @@ pub const Command = union(enum) {
     textures: struct { model: []const u8, out_dir: []const u8 },
 
     pub const usage =
-        \\  trek ls <image>                 list the files in Star Trek: Invasion's archive on its
+        \\  trek ls <image>                 list the files in Star Trek: Invasion's archive on a
         \\                                  disc image
         \\  trek extract <image> <out-dir>  copy every file out of the archive
         \\  trek sections <mission>         list an Invasion mission's sections
@@ -93,7 +93,7 @@ fn list(ctx: Context, archive: trek.res.Archive) !void {
             if (item.streamed) "  (streamed)" else "",
         });
     }
-    try ctx.stdout.print("{d} files in {d} slots, {d} of them named by the executable\n", .{ files, archive.slots.len, archive.names.len });
+    try ctx.stdout.print("{f} in {f}; the executable has names for {d}\n", .{ sltool.count(files, "file"), sltool.count(archive.slots.len, "slot"), archive.names.len });
 }
 
 fn extract(ctx: Context, archive: trek.res.Archive, out_path: []const u8) !void {
@@ -118,10 +118,10 @@ fn extract(ctx: Context, archive: trek.res.Archive, out_path: []const u8) !void 
         if (item.streamed) streamed += 1;
         bytes += item.copiedSize();
     }
-    try ctx.stdout.print("extracted {d} files ({Bi:.1}) to {s}\n", .{ files, bytes, out_path });
+    try ctx.stdout.print("extracted {f} ({Bi:.1}) to {s}\n", .{ sltool.count(files, "file"), bytes, out_path });
     if (streamed != 0) try ctx.stdout.print(
-        "kept {d} of them, with streamed audio or video, as whole {d}-byte Mode 2 sectors\n",
-        .{ streamed, cdimage.mode2_size },
+        "copied {f} with streamed audio or video as whole {d}-byte Mode 2 sectors\n",
+        .{ sltool.count(streamed, "file"), cdimage.mode2_size },
     );
 }
 
@@ -165,7 +165,7 @@ fn textures(ctx: Context, path: []const u8, out_path: []const u8) !void {
         try ctx.writePng(out_dir, name, picture.width, picture.height, try picture.rgba(ctx.arena));
         saved += 1;
     }
-    try ctx.stdout.print("wrote {d} textures to {s}\n", .{ saved, out_path });
+    try ctx.stdout.print("wrote {f} to {s}\n", .{ sltool.count(saved, "texture"), out_path });
 }
 
 test Command {
