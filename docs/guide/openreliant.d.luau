@@ -15,6 +15,8 @@ type MissileType = "none" | "screamer" | "raptor" | "havoc" | "jack_hammer" | "b
 type TurretKind = "aimed" | "spinning" | "launcher"
 type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 type Carrier = "reliant" | "yamato"
+type RadioMode = "now" | "queued" | "if_idle" | number
+type FaceFilm = "talking" | "laughing" | "squadron" | "dying" | number
 type HudInstrument = "caption" | "key_prompt" | "jump_prompt" | "target_markers" | "eject_marker" | "scanner" | "lights" | "view_name" | "subtitle" | "messages" | "nav_marker" | "fuel" | "kills" | "countermeasures" | "ship_status" | "gauges" | "radar" | "reticle" | "clock" | "radio" | "gunnery" | "missiles" | "target_display" | "damage" | "power" | "big_target_display" | "objectives" | "comms" | "wing_status"
 type TargetForm = "small" | "large" | number
 type Quadrant = "left" | "right" | "fore" | "aft"
@@ -37,7 +39,6 @@ type OptionKind = "toggle" | "choice" | "number" | "slider" | "text" | "heading"
 type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total_failure" | "friendly_fire" | "ejecting" | number
 type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
 type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | number
-type RadioMode = "now" | "queued" | "if_idle" | number
 type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "launch_jack_hammer" | "warp_in" | "warp_out" | "fly" | "run_away" | "land" | "escort" | "find_new_target" | "explode" | "ripper_grabs_target_object" | "object_attach" | "formation_regroup" | "patrol_route" | "toggle_cloak" | "ship_follow_curve" | "slow_rotate" | "jump_in" | "jump_out" | "find_scoop_up" | "random_spin_slow" | "random_spin_medium" | "random_spin_fast" | "fixed_gate_jump_in" | "fixed_gate_jump_out" | "formation" | "fixed_gate_open" | "fixed_gate_close" | "eject" | "fixed_gate_collapse" | "match_speed" | "dark_reign_shoot" | "move_to_spawn_pos" | "turns_object_lights_on" | "make_boridin_section_break_away" | "rotate_boridin_breakaway_warp_projector" | "start_warp_projection_from_boridin" | "make_ripper_drop_what_its_carrying" | "jump_in_spread" | "jump_out_spread" | "turns_object_lights_off" | "huuuuuuuge_explosion" | "immediately_set_ship_to_zero_velocity_and_rotation" | "fly_ship_backwards" | "player_control" | "multiplayer_control" | "avoid_target" | "torpedo" | "launch" | "fight" | "abandoned" | "scoop_up" | "eject_spin" | "dock" | "fire_ion_cannon" | "ripper_end_drop_object" | "ripper_attach_cargo_pod_to_mammoth" | "eject_fighter_attack" | "disrupted" | "make_capship_list_left" | "make_capship_list_right" | "friendly_fire" | "eject_player" | "ship_follow_curve_backwards" | "mill" | "deathmatch_respawn_effect" | "deathmatch_dark_reign_target" | number
 type OrderPushed = "refused" | "taken" | "conflict"
 type MissionCommand = "print_ship_name" | "create_timer" | "destroy_timer" | "create_flight_group" | "destroy_flight_group" | "wait" | "play_speech" | "wait_for_speech" | "play_comms_movie" | "wait_for_movie" | "print_debug_message" | "set_ai" | "clear_ai" | "set_patrol_route" | "set_pilot" | "set_trigger_state" | "start_director_cam" | "start_ship_animation" | "ship_follow_curve" | "setup_launch" | "start_launch" | "display_sub_title" | "reset_code_priority" | "interrupt_trigger_code" | "comms_from_ship" | "comms_from_pilot" | "set_invulnerability" | "moving_ship_follow_curve" | "disable_object" | "position_relative" | "when_player_last_jumped" | "start_missile_cam" | "start_chase_cam" | "set_player_target" | "set_targetable" | "play_music" | "stop_director_cam" | "set_action_centre" | "dock" | "disable_taunts" | "fly" | "comms_from_ship_once" | "comms_from_pilot_once" | "disable_lights" | "set_environment_fx" | "multi_player_sync" | "disable_generic_comms" | "disable_guns" | "set_nav_point" | "set_escort_point" | "reset_after_burners" | "disable_missiles" | "disable_engines" | "disable_eject" | "set_hostile" | "reset_to_spawn_positions" | "update_environment_fx_state" | "set_primary_target" | "wait_for_jump_or_launch" | "do_not_disturb" | "set_environment_fx_nebula" | "start_ship_animation_reverse" | "snap_to_point" | "play_fosters_last_stand" | "open_instrument" | "close_instrument" | "destroy_sub_object" | "set_objective" | "set_rescue_probabilities" | "is_ship_this_player" | "set_flyback_marker" | "reset_flyback_marker" | "stop_ship_animation" | "set_ship_avoidance" | "match_speed" | "moving_ship_backup_curve" | "wait_for_key" | "terminate_mission" | "turret_set_target" | "set_any_trigger_state" | "wait_for_director_cam" | "kill_all_script_execution_execpt_me" | "stack_director_cam" | "scanner" | "replace_sub_object" | "fire" | "multiplayer_script_sync" | "friendly_fire" | "cloak" | "replenish_weapons" | "wills_blag" | "show_hud_icon" | "disable_listing" | "disable_object_at_next_jump" | "darrens_naughty_blag"
@@ -108,6 +109,11 @@ type OrderFlags = {
 type OrderEntry = {
     order: string | number,
     target: Target,
+}
+type RadioLine = {
+    mode: RadioMode?,
+    face: FaceFilm?,
+    once: boolean?,
 }
 type HudGuns = {
     group: number,
@@ -579,6 +585,14 @@ type Orders = {
     cancel: (object: Object) -> boolean,
     -- Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's.
     clear: (object: Object) -> boolean,
+}
+
+-- Lines said on the radio, as a mission's comms commands say them.
+type Radio = {
+    -- The ship `ship` says the speech file `speech` on the radio, a file of the game's or a mod's such as `ms_dice22_001.ut`, its pilot's face showing, as a mission's CommsFromShip does: at once, ending the line playing, unless `line` says otherwise. The line goes through the `radio_say` hook. A ship being destroyed, or a stand-in, says nothing. Returns whether the mission's radio took the line: false between missions.
+    say: (ship: Object, speech: string, line: RadioLine?) -> boolean,
+    -- Pilot `pilot` says the speech file `speech` on the radio, with its face, as a mission's CommsFromPilot does: at once, ending the line playing, unless `line` says otherwise. The pilot is one of the game's by its name or number, or one a mod adds by its qualified name. The line goes through the `radio_say` hook. Returns whether the mission's radio took the line: false between missions.
+    say_pilot: (pilot: PilotNumber, speech: string, line: RadioLine?) -> boolean,
 }
 
 -- Drawing over the flight display, while it's shown: text, lines and rectangles, in the window's pixels.

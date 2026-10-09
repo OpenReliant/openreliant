@@ -260,6 +260,10 @@ pub fn setPilot(object: *GameObject, pilot: i32) void {
 /// How a pilot's face moves as it says a line, which of its face's films plays (`radio_say_pilot`,
 /// `radio_say_ship`).
 pub const Head = enum(u32) {
+    /// The name scripts know these values by: which of a pilot's face films plays as a line is
+    /// said.
+    pub const script_name = "FaceFilm";
+
     talking = 0,
     laughing = 1,
     /// The 45th's own pilot, the film every pilot has in this place.

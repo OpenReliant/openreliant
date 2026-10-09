@@ -19,6 +19,7 @@ const async_package = @import("async.zig");
 const vfs = @import("vfs.zig");
 const util = @import("util.zig");
 const orders = @import("orders.zig");
+const radio = @import("radio.zig");
 const options = @import("options.zig");
 const postprocessing = @import("postprocessing.zig");
 const shaders = @import("shaders.zig");
@@ -40,6 +41,7 @@ pub fn namespace(comptime package: script.Package) ?type {
         .vfs => vfs.package,
         .util => util.package,
         .orders => orders.package,
+        .radio => radio.package,
         .options => options.package,
         .postprocessing => postprocessing.package,
         .shaders => shaders.package,

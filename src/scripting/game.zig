@@ -941,6 +941,61 @@ test "a script stops or changes the radio's lines" {
     try std.testing.expectEqualStrings("mphud_001.ut", radio.queue[1].speech.slice());
 }
 
+test "a script says lines on the radio, as the comms commands do" {
+    const radio_module = openreliant.engine.game.radio;
+    const hog_snd = openreliant.engine.game.hog_snd;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local radio = require("openreliant.radio")
+                \\local world = require("openreliant.world")
+                \\-- Between missions, nothing is said.
+                \\assert(not radio.say_pilot("diceman", "ms_dice22_001.ut"))
+                \\return {
+                \\    engine_handlers = {
+                \\        on_mission_start = function()
+                \\            assert(radio.say_pilot("diceman", "ms_dice22_001.ut", { mode = "queued" }))
+                \\            assert(radio.say(world.player, "ms_dice22_002.ut", { mode = "queued", face = "laughing", once = true }))
+                \\        end,
+                \\    },
+                \\}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var archives: radio_module.testing.Archives = undefined;
+    try archives.init(gpa, io, &.{}, &.{});
+    defer archives.deinit();
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, null);
+    defer speaker.sound.shutdown();
+    var radio = archives.radio(gpa, io);
+    defer radio.deinit(&speaker.sound);
+    var heard = fixture.mission.world();
+    heard.radio = &radio;
+    heard.hearing = speaker.hearing(&fixture.mission.clock);
+    fixture.game.scripts.begin(.of(heard), .{ .number = 22, .file = "mission22.dte" }, 1);
+    fixture.game.scripts.started(.{ .number = 22, .file = "mission22.dte" });
+
+    // Diceman by his pilot, his face talking and looping; the player's ship by its pilot's face,
+    // laughing, played once.
+    try std.testing.expectEqual(2, radio.count);
+    const diceman = radio.queue[0];
+    try std.testing.expectEqualStrings("ms_dice22_001.ut", diceman.speech.slice());
+    try std.testing.expectEqual(radio_module.pilot_base + @backingInt(openreliant.engine.game.pilots.GamePilot.diceman), diceman.object);
+    try std.testing.expectEqual(openreliant.engine.game.hudmovie.Flags.looping, diceman.flags);
+    const ship = radio.queue[1];
+    try std.testing.expectEqualStrings("ms_dice22_002.ut", ship.speech.slice());
+    try std.testing.expectEqual(@as(i32, fixture.mission.objects.player), ship.object);
+    try std.testing.expectEqual(openreliant.engine.game.hudmovie.Flags.once, ship.flags);
+}
+
 test "a script chooses the movies of a mission's end, and the restart screen's choice" {
     const engine_game = openreliant.engine.game;
     const movie = engine_game.xtrabits.movie;

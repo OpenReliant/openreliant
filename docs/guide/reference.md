@@ -116,6 +116,15 @@ What the order table says of each order, the orders each object has, and ending 
 | `cancel(object: Object)` | boolean | Ends the order `object` follows, as an order ends itself: its exit runs, and the order below it carries on. Returns whether it had one. Global scripts can end any object's orders, and an object's scripts their own object's. |
 | `clear(object: Object)` | boolean | Drops all of `object`'s orders, as a mission's ClearAI does, where the one it follows gives way. Returns whether they were dropped. Global scripts can drop any object's orders, and an object's scripts their own object's. |
 
+### `openreliant.radio`
+
+Lines said on the radio, as a mission's comms commands say them. For global and object scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `say(ship: Object, speech: string, line: RadioLine?)` | boolean | The ship `ship` says the speech file `speech` on the radio, a file of the game's or a mod's such as `ms_dice22_001.ut`, its pilot's face showing, as a mission's CommsFromShip does: at once, ending the line playing, unless `line` says otherwise. The line goes through the `radio_say` hook. A ship being destroyed, or a stand-in, says nothing. Returns whether the mission's radio took the line: false between missions. |
+| `say_pilot(pilot: PilotNumber, speech: string, line: RadioLine?)` | boolean | Pilot `pilot` says the speech file `speech` on the radio, with its face, as a mission's CommsFromPilot does: at once, ending the line playing, unless `line` says otherwise. The pilot is one of the game's by its name or number, or one a mod adds by its qualified name. The line goes through the `radio_say` hook. Returns whether the mission's radio took the line: false between missions. |
+
 ### `openreliant.hud`
 
 Drawing over the flight display, while it's shown: text, lines and rectangles, in the window's pixels. For player scripts.
@@ -1260,6 +1269,16 @@ A table a script gives, which may leave out a field with a default.
 | `order` | string \| number |
 | `target` | [Target](#target) |
 
+### RadioLine
+
+A table a script gives, which may leave out any field.
+
+| Field | Type | Default |
+|---|---|---|
+| `mode` | [RadioMode](#radiomode) | `"now"` |
+| `face` | [FaceFilm](#facefilm) | `"talking"` |
+| `once` | boolean | false |
+
 ### HudGuns
 
 | Field | Type |
@@ -1619,6 +1638,14 @@ number. A script can set a field to either.
 
 `reliant`, `yamato`.
 
+### RadioMode
+
+`now`, `queued`, `if_idle`, or a number.
+
+### FaceFilm
+
+`talking`, `laughing`, `squadron`, `dying`, or a number.
+
 ### HudInstrument
 
 `caption`, `key_prompt`, `jump_prompt`, `target_markers`, `eject_marker`, `scanner`, `lights`, `view_name`, `subtitle`, `messages`, `nav_marker`, `fuel`, `kills`, `countermeasures`, `ship_status`, `gauges`, `radar`, `reticle`, `clock`, `radio`, `gunnery`, `missiles`, `target_display`, `damage`, `power`, `big_target_display`, `objectives`, `comms`, `wing_status`.
@@ -1706,10 +1733,6 @@ number. A script can set a field to either.
 ### DamageKind
 
 `bullet`, `missile`, `collision`, `crash`, `screamer`, or a number.
-
-### RadioMode
-
-`now`, `queued`, `if_idle`, or a number.
 
 ### Order
 

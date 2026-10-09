@@ -36,6 +36,7 @@ pub const snapshot = @import("scripting/snapshot.zig");
 pub const vfs = @import("scripting/vfs.zig");
 pub const util = @import("scripting/util.zig");
 pub const orders = @import("scripting/orders.zig");
+pub const radio = @import("scripting/radio.zig");
 pub const async = @import("scripting/async.zig");
 pub const storage = @import("scripting/storage.zig");
 pub const options = @import("scripting/options.zig");
