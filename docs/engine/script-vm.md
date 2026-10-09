@@ -82,7 +82,8 @@ The array `push_array` and `select_array` reach is a block of 64 of the game's v
 `jump_ready` (`0x0052A3F0`) up to the next global (`0x0052A4F0`), which scripts use by number. The
 engine and the shipped missions use the first 38. A number past the block reaches the globals after
 it in the game; OpenReliant gives every number a byte names a variable of its own
-([`vm.Variables`](../../src/engine/vm.zig)).
+([`vm.Variables`](../../src/engine/vm.zig)). Mods' scripts name a variable by its name in the
+table below, or by its number (`GameVariable`).
 
 | Number | Name | What it holds |
 |---|---|---|

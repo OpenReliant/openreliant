@@ -29,6 +29,7 @@ const gameobj = @import("gameobj.zig");
 const debriefing = @import("itac/debriefing.zig");
 const news_reports = @import("itac/news_reports.zig");
 const video_reports = @import("videoreports.zig");
+const landing = @import("xtrabits/landing.zig");
 
 pub const save = @import("gameflow/save.zig");
 
@@ -529,8 +530,8 @@ pub fn campaignOrder() *const Order {
 
 /// What the campaign uses for one of its missions besides the mission's file, which the original
 /// decides by the mission's number: the briefing, the carrier, the objectives' names, what the
-/// mission awards, Enriquez's report and debriefing, the ITAC's news, and the rules for particular
-/// missions.
+/// mission awards, Enriquez's report and debriefing, the ITAC's news, the landing and the chapter's
+/// news after it, the wing's pilots, and the rules for particular missions.
 ///
 /// **Improvement:** OpenReliant keeps them in a table indexed by the mission's number, and mods
 /// can change it (`openreliant.records.missions`,
@@ -565,6 +566,17 @@ pub const CampaignMission = struct {
     /// The video reports the ITAC's VIDEO REPORTS adds in the rooms before the mission, and lists
     /// from then on.
     video_reports: []const video_reports.Report = &.{},
+    /// The carrier the landing plays on after the mission, which picks the chapter's disc and zoom
+    /// too (`landing.landing`).
+    landing_carrier: rooms.Carrier = .reliant,
+    /// Whether the ship lands on the Yamato after the mission with a failure's thread and bank.
+    yamato_visit: landing.YamatoVisit = .never,
+    /// The news reports that play after the chapter's movie, where the mission ends a chapter.
+    chapter_reports: []const landing.Report = &.{},
+    /// The pilots who fly as Alpha 5 and Alpha 6 from the mission on (`pilots.Wingmen.update`);
+    /// `none` leaves the pilot there as they are.
+    alpha_5_pilot: pilots.Number = .none,
+    alpha_6_pilot: pilots.Number = .none,
     /// The rules the original applies to particular missions by their numbers.
     rules: Rules = .{},
 
@@ -601,6 +613,15 @@ pub const CampaignMission = struct {
         wide_advanced_gate: bool = false,
         /// The player's kills count toward the mission's tally (`deathmatch.addKills`).
         counts_kills: bool = false,
+        /// Where the Yamato is lost (`yamato_alive` clear), no landing plays after the mission, and
+        /// a total failure ends the pilot's career in the shuttle at Fort Bear
+        /// (`landing.lastWithoutLanding`).
+        fort_bear_ending: bool = false,
+        /// The ITAC's history of the 705 Cobras adds the inquiry into their colonel
+        /// (`itac.squadrons`).
+        cobras_inquiry: bool = false,
+        /// The ITAC's squadrons list the 51st Volunteers (`itac.squadrons`).
+        fifty_first_listed: bool = false,
         /// The mission's script can end it (`TerminateMission`) without the ending counting as the
         /// player's ship destroyed (`main.missionRunEnd`).
         terminate_ends_well: bool = false,
@@ -619,6 +640,9 @@ pub const CampaignMission = struct {
                 .ripper_from_below = number == ripper_below,
                 .wide_advanced_gate = number == wide_advanced,
                 .counts_kills = number <= last_counted,
+                .fort_bear_ending = number == kamov_raid or number == yamato_lost,
+                .cobras_inquiry = number > cobras_tried,
+                .fifty_first_listed = number <= fifty_first_last,
                 .terminate_ends_well = number >= ends_well_from,
             };
         }
@@ -642,6 +666,12 @@ pub const CampaignMission = struct {
         const wide_advanced = 8;
         /// The last mission whose kills count (`0x004B152F`).
         const last_counted = 27;
+        /// Mission 27, which like mission 25 has no landing once the Yamato is lost (`0x004ABEA7`).
+        const yamato_lost = 27;
+        /// The last mission before the ITAC tells of the 705 Cobras' inquiry (`0x00450235`), and
+        /// the last it lists the 51st Volunteers in (`0x00450450`).
+        const cobras_tried = 6;
+        const fifty_first_last = 9;
         /// The first mission whose script ends it well (`0x00494204`).
         const ends_well_from = 28;
     };
@@ -666,6 +696,11 @@ pub const CampaignMission = struct {
                 .debriefing = debriefing.original(number),
                 .news = news_reports.Item.original(number),
                 .video_reports = video_reports.Report.original(number),
+                .landing_carrier = landing.originalCarrier(number),
+                .yamato_visit = .original(number),
+                .chapter_reports = landing.Report.original(number),
+                .alpha_5_pilot = pilots.storyPilots(number)[0],
+                .alpha_6_pilot = pilots.storyPilots(number)[1],
                 .rules = .original(number),
             };
         }
@@ -705,12 +740,14 @@ pub fn campaignMission(mission: u16) ?*const CampaignMission {
 }
 
 /// Field `field` of mission `mission`'s settings. A mission outside the campaign's table, such as
-/// Instant Action's or a training mission, has the original's carrier and rules for its number,
-/// and the defaults for the rest: no awards, no special cases, no report and no news.
+/// Instant Action's or a training mission, has the original's carriers and rules for its number,
+/// and the defaults for the rest: no awards, no special cases, no reports, no news and no new
+/// pilots.
 pub fn campaignField(mission: u16, comptime field: std.meta.FieldEnum(CampaignMission)) @FieldType(CampaignMission, @tagName(field)) {
     if (campaignMission(mission)) |settings| return @field(settings, @tagName(field));
     switch (field) {
         .carrier => return .original(mission),
+        .landing_carrier => return landing.originalCarrier(mission),
         .rules => return .original(mission),
         else => {
             const info = @typeInfo(CampaignMission).@"struct";
@@ -864,7 +901,24 @@ test "the original's rules by mission number" {
         try std.testing.expectEqual(number == 8, rules.wide_advanced_gate);
         try std.testing.expectEqual(number <= 27, rules.counts_kills);
         try std.testing.expectEqual(number == 28, rules.terminate_ends_well);
+        try std.testing.expectEqual(number == 25 or number == 27, rules.fort_bear_ending);
+        try std.testing.expectEqual(number > 6, rules.cobras_inquiry);
+        try std.testing.expectEqual(number <= 9, rules.fifty_first_listed);
+        // The landing on the Yamato from mission 18, and the visits after missions 7 and 8.
+        try std.testing.expectEqual(if (number >= 18) rooms.Carrier.yamato else .reliant, mission.landing_carrier);
+        try std.testing.expectEqual(switch (number) {
+            7 => landing.YamatoVisit.always,
+            8 => landing.YamatoVisit.when_reliant_lost,
+            else => landing.YamatoVisit.never,
+        }, mission.yamato_visit);
+        // Chapters 1 and 2 have news, and so has mission 16, which ends none.
+        try std.testing.expectEqual(number == 7 or number == 11 or number == 16, mission.chapter_reports.len > 0);
+        try std.testing.expect(mission.alpha_5_pilot != .none and mission.alpha_6_pilot != .none);
     }
+    // Alpha 5 and 6 change with the stretches of the campaign.
+    try std.testing.expectEqual(pilots.Number.named(.bandit), CampaignMission.original[4].alpha_5_pilot);
+    try std.testing.expectEqual(pilots.Number.named(.diceman), CampaignMission.original[5].alpha_5_pilot);
+    try std.testing.expectEqual(pilots.Number.named(.diceman_tigers_leader), CampaignMission.original[27].alpha_6_pilot);
     // A mission outside the campaign's table, such as Instant Action's 29, follows the original's
     // rules for its number.
     const instant_action = campaignField(29, .rules);

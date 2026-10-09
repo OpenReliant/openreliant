@@ -1218,8 +1218,8 @@ records.campaign = campaign
 `records.missions` holds the campaign's settings for each of its missions, indexed by the
 mission's number: what the briefing room plays before it, the carrier it's flown from, the names of
 its objectives, the date the launch shows, what it awards, Enriquez's report and debriefing, the
-ITAC's news, and the rules the game applies to particular missions. The game decides each of these
-by the mission's number. A mission's fields start with the game's values, and load scripts change
+ITAC's news, the landing and the chapter's news after it, the wing's pilots, and the rules the game
+applies to particular missions. The game decides each of these by the mission's number. A mission's fields start with the game's values, and load scripts change
 them in place, as they do a record's. The [reference](reference.md#openreliantrecords) lists the
 fields.
 
@@ -1291,11 +1291,16 @@ records.missions[14].news = { { title = "Reliant survives ambush", paragraphs = 
   `t_` twins from mission 14 (`wing_twins`), the Flying Tigers' name after mission 13
   (`flying_tigers`), mission 25's `second_part` and Kamovs (`kamov_wing`), mission 28's
   `close_ion_cannons`, `hurried_turrets` and `terminate_ends_well`, mission 26's
-  `ripper_from_below`, mission 8's `wide_advanced_gate`, and `counts_kills` up to mission 27. A
-  replacement campaign turns off the ones its missions don't want, such as mission 25's second part.
-- Not yet in the records: the landing, the chapters' news, the wing's pilots and the ITAC's
-  squadrons ([#1011](https://github.com/OpenReliant/openreliant/issues/1011)), and the KILLBOARD's
-  pilots ([#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
+  `ripper_from_below`, mission 8's `wide_advanced_gate`, `counts_kills` up to mission 27,
+  missions 25 and 27's `fort_bear_ending`, and the ITAC's `cobras_inquiry` from mission 7 and
+  `fifty_first_listed` up to mission 9. A replacement campaign turns off the ones its missions
+  don't want, such as mission 25's second part.
+- `landing_carrier` is where the landing plays after the mission, and `yamato_visit` whether the
+  ship lands on the Yamato instead, as after missions 7 and 8. `chapter_reports` are the news
+  reports after the chapter's movie, each waiting on the game's variables, such as
+  `rameses_alive`, and `alpha_5_pilot` and `alpha_6_pilot` the pilots the wing takes on.
+- Not yet in the records: the KILLBOARD's pilots
+  ([#1008](https://github.com/OpenReliant/openreliant/issues/1008)).
 
 ## Saved games
 

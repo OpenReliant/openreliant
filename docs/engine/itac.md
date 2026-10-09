@@ -314,13 +314,16 @@ then 27).
 
 ALLIANCE SQUADRONS and COALITION SQUADRONS (`0x004EBD10`, 19 records; `0x004EBF28`, 8). The
 Alliance's list follows the campaign: the 45th Volunteers show before mission 13 and the 45th Flying
-Tigers from it, and the 51st Volunteers up to mission 9 (`0x00450440`).
+Tigers from it, and the 51st Volunteers up to mission 9 (`0x00450440`). **Improvement:** OpenReliant
+follows the mission's rules, the 45th's name as the radio's films and the KILLBOARD have it, after
+mission 13, which gives the same in every mission the original campaign reaches
+([Rules by mission number](missions.md#rules-by-mission-number)).
 
 - The name, in capitals, in (58, 209, 255), then Class, Leader, Base and Nation, 28 apart.
 - The picture of `inter\itac\squads.spr` at (80, 263), with the palette its record names, fading
   with the section.
 - PROFILE, over the history, which its arrows scroll. After mission 6, the 705 Cobras' tells of the
-  inquiry into their colonel (`0x00450235`). "(more)" marks a history that runs past its box.
+  inquiry into their colonel (`0x00450235`, [Rules by mission number](missions.md#rules-by-mission-number)). "(more)" marks a history that runs past its box.
 - The list of the names, down to the foot of its pane; the Alliance's has arrows that step it on,
   no further than to leave 13 showing, and back. A press on a name chooses it.
 

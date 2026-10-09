@@ -100,6 +100,10 @@ The movies and the bank follow the carrier and the mission's rating (`0x004ABDEC
 Mission 7 always ends on the Yamato, and mission 8 where the game's variable 32 is clear, each
 with a failure's thread and bank whatever the rating.
 
+**Improvement:** OpenReliant takes the landing's carrier, the visits to the Yamato and the missions
+without a landing once the Yamato is lost from the mission's settings, which start with the
+original's and which mods can change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign), [Rules by mission number](missions.md#rules-by-mission-number)).
+
 ### A chapter's end
 
 The chapters' table (`chapter_of_mission`, `0x00509C00`, a byte for each of missions 1 to 32) names
@@ -126,8 +130,9 @@ Each attempt at a mission clears variable 34. The function has reports for missi
 `new_chapter3_thread1.bik`, `new_chapter3_thread2.bik` and `new_chapter2_thread3.bik`, which are
 never reached, as mission 16 ends no chapter.
 
-**Improvement:** OpenReliant takes the chapter a mission ends from the mission's settings, which
-start with the original's values and which mods can change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)).
+**Improvement:** OpenReliant takes the chapter a mission ends and the news reports after its movie
+from the mission's settings, which start with the original's values and which mods can change
+([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)). A chapter plays up to 8 reports, where the original's play at most 3.
 
 ### How a mission ended
 

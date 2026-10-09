@@ -4,6 +4,7 @@
 //! (`Face`). **Unverified:** the two lie between `particles.cpp`'s code and this file's.
 
 const std = @import("std");
+const gameflow = @import("gameflow.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
@@ -531,6 +532,15 @@ const stretches = [_]struct { last: u16, pilots: [2]GamePilot }{
     .{ .last = 28, .pilots = .{ .hawkeye, .diceman_tigers_leader } },
 };
 
+/// The pilots the original gives Alpha 5 and Alpha 6 in mission `number`: its stretch's
+/// (`stretches`). Past the campaign's missions, none, which leaves the pilots there as they are.
+pub fn storyPilots(number: u16) [2]Number {
+    if (number > 0) for (stretches) |stretch| {
+        if (number <= stretch.last) return .{ .named(stretch.pilots[0]), .named(stretch.pilots[1]) };
+    };
+    return .{ .none, .none };
+}
+
 /// The places of the wing `update_pilots` fills from `stretches`: Alpha 5 and Alpha 6.
 const story_places = 4;
 
@@ -553,18 +563,18 @@ pub const Wingmen = struct {
     }
 
     /// `update_pilots` (`0x0049CD70`) for mission `number`, as the campaign moves on to it and as it
-    /// starts (`gameflow.endMission`, `main.startMission`): Alpha 5 and Alpha 6 take the
-    /// stretch's pilots (`stretches`), then each wingman whose pilot has died takes the first free
-    /// pilot of the pool, which is then in the wing.
+    /// starts (`gameflow.endMission`, `main.startMission`): Alpha 5 and Alpha 6 take the mission's
+    /// pilots (`gameflow.CampaignMission.alpha_5_pilot`, the stretch's in the original), then each
+    /// wingman whose pilot has died takes the first free pilot of the pool, which is then in the
+    /// wing.
     ///
     /// **Fix:** with no pilot free, the game stops with "Uh Oh, update_pilots has run out of
     /// pilots"; OpenReliant logs it and leaves the place empty.
     pub fn update(wingmen: *Wingmen, number: u16) void {
-        if (number > 0) for (stretches) |stretch| {
-            if (number > stretch.last) continue;
-            wingmen.alpha[story_places..].* = .{ stretch.pilots[0].number(), stretch.pilots[1].number() };
-            break;
-        };
+        const story = [2]Number{ gameflow.campaignField(number, .alpha_5_pilot), gameflow.campaignField(number, .alpha_6_pilot) };
+        for (wingmen.alpha[story_places..], story) |*place, pilot| {
+            if (pilot != .none) place.* = @backingInt(pilot);
+        }
         for (wingmen.alpha[1..]) |*pilot| {
             if (pilot.* != -1) continue;
             const replacement = for (&wingmen.pool) |*held| {
@@ -609,6 +619,21 @@ pub const Wingmen = struct {
         }
     }
 };
+
+test "a mod's Alpha 5 and 6" {
+    var missions = gameflow.CampaignMission.original;
+    missions[11].alpha_5_pilot = .named(.hawkeye);
+    missions[11].alpha_6_pilot = .none;
+    gameflow.installMissions(&missions);
+    defer gameflow.installMissions(&gameflow.CampaignMission.original);
+    var wingmen: Wingmen = .{};
+    wingmen.update(11);
+    const before = wingmen.alpha[5];
+    // Mission 12 brings Hawkeye in as Alpha 5, and leaves Alpha 6 as it is.
+    wingmen.update(12);
+    try std.testing.expectEqual(GamePilot.hawkeye.number(), wingmen.alpha[4]);
+    try std.testing.expectEqual(before, wingmen.alpha[5]);
+}
 
 test Wingmen {
     var wingmen: Wingmen = .{};
