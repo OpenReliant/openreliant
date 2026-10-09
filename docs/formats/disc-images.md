@@ -21,9 +21,22 @@ Addresses count 75 frames to the second and start after a two-second pregap, so 
 at `00:02:00` and the ISO 9660 primary volume descriptor, at block 16, is at `00:02:16`.
 
 `sltool` detects the layout from the first twelve bytes: an image that starts with the sync pattern
-is raw, anything else is treated as 2048-byte logical blocks. Mode 2 Form 1 sectors are also
-understood, with their user data at offset 24; Mode 2 Form 2 and Mode 0 sectors carry no logical
-block and are rejected. EDC and ECC are not checked.
+is raw, anything else is treated as 2048-byte logical blocks. EDC and ECC are not checked.
+
+PlayStation discs use Mode 2 sectors (`MODE2/2352`). After the header comes a 4-byte subheader,
+stored twice, whose submode byte says which form the sector has:
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 16 | Sync pattern, address and mode, as in Mode 1 |
+| 16 | 8 | Subheader, stored twice |
+| 24 | 2048 | Form 1: one logical block, then 280 bytes of EDC and ECC |
+| 24 | 2324 | Form 2: streamed audio or video, then 4 bytes of EDC |
+
+Bit 5 of the submode marks Form 2. A Form 2 sector carries no logical block, so reading one as a
+block fails, and so does a Mode 0 sector. `sltool cd extract` copies a file that holds any Form 2
+sector as whole Mode 2 sectors: the 2336 bytes after each sector's header, which PlayStation tools
+read. [Star Trek: Invasion](../games/star-trek-invasion.md#the-disc)'s disc holds such a file.
 
 ## Filesystem
 

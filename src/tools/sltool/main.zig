@@ -4,6 +4,7 @@ const std = @import("std");
 const Io = std.Io;
 
 const files = @import("openreliant").engine.files;
+const png = @import("openreliant").png;
 const version = @import("version");
 
 // The commands' files are `pub`, so that the test block at the end runs their tests.
@@ -22,6 +23,8 @@ pub const speech_encode = @import("speech_encode.zig");
 pub const spr = @import("spr.zig");
 pub const stats = @import("stats.zig");
 pub const tcache = @import("tcache.zig");
+pub const tim = @import("tim.zig");
+pub const trek = @import("trek.zig");
 
 /// What every subcommand needs to do its work.
 pub const Context = struct {
@@ -38,6 +41,16 @@ pub const Context = struct {
     pub fn outputDir(ctx: Context, path: []const u8) !Io.Dir {
         try Io.Dir.cwd().createDirPath(ctx.io, path);
         return Io.Dir.cwd().openDir(ctx.io, path, .{});
+    }
+
+    /// Writes `pixels`, `width` by `height` 8-bit RGBA, as the PNG file `path` in `dir`.
+    pub fn writePng(ctx: Context, dir: Io.Dir, path: []const u8, width: u32, height: u32, pixels: []const u8) !void {
+        const file = try dir.createFile(ctx.io, path, .{});
+        defer file.close(ctx.io);
+        var buffer: [32 * 1024]u8 = undefined;
+        var writer = file.writer(ctx.io, &buffer);
+        try png.writeRgba(ctx.arena, &writer.interface, width, height, pixels);
+        try writer.interface.flush();
     }
 };
 
@@ -73,18 +86,20 @@ const Command = union(enum) {
     spr: spr.Command,
     stats: stats.Command,
     tcache: tcache.Command,
+    tim: tim.Command,
+    trek: trek.Command,
     help,
     @"--version",
 
     /// What `--version` shows, as `openreliant --version` shows its own.
     const version_line = "sltool " ++ version.string ++ "\n";
 
-    const usage = "sltool " ++ version.string ++ " reads and writes StarLancer's files.\n\n" ++
+    const usage = "sltool " ++ version.string ++ " reads and writes StarLancer's files, and reads those of other games on its engine.\n\n" ++
         \\usage: sltool <command> ...
         \\
         \\commands:
         \\
-    ++ cd.Command.usage ++ dte.Command.usage ++ fat.Command.usage ++ fm8.Command.usage ++ fnt.Command.usage ++ hog.Command.usage ++ save.Command.usage ++ shp.Command.usage ++ speech.Command.usage ++ spr.Command.usage ++ stats.Command.usage ++ tcache.Command.usage ++
+    ++ cd.Command.usage ++ dte.Command.usage ++ fat.Command.usage ++ fm8.Command.usage ++ fnt.Command.usage ++ hog.Command.usage ++ save.Command.usage ++ shp.Command.usage ++ speech.Command.usage ++ spr.Command.usage ++ stats.Command.usage ++ tcache.Command.usage ++ tim.Command.usage ++ trek.Command.usage ++
         \\  help                            show this text
         \\  --version                       show the version
         \\

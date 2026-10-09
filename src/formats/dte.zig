@@ -126,6 +126,9 @@ pub const DirectoryEntry = extern struct {
     /// Sections the template reserves but this mission does not use.
     pub const unused_offset: u32 = 0xFFFF;
 
+    /// The entry of a section the mission doesn't use.
+    pub const unused: DirectoryEntry = .{ .count = 0, ._unused = 0, .formats = .{}, .offset = unused_offset };
+
     /// Four flags, in the low bits, which binding the mission notes where any section has them
     /// (`mission_bind_section`); nothing reads them. Every entry of a shipped mission holds the
     /// same: all four in most, the first three in `mission191` and `mission271`, the first two in
@@ -1485,14 +1488,27 @@ pub const Mission = struct {
         return .{ .image = image, .directory = directory };
     }
 
+    /// The mission of another game on the original's engine, whose directory, `entries`, holds
+    /// the original's sections in another order. `Theirs` is that game's enum of its sections, and
+    /// its `asDte` gives the original's section an entry holds, or null for one laid out otherwise.
+    /// `directory` takes the original's entries; a section no entry holds is unused.
+    pub fn remapped(
+        image: []const u8,
+        entries: []align(1) const DirectoryEntry,
+        comptime Theirs: type,
+        directory: *[section_count]DirectoryEntry,
+    ) Mission {
+        directory.* = @splat(.unused);
+        for (entries, 0..) |held, index| {
+            const theirs: Theirs = @fromBackingInt(@intCast(index));
+            if (theirs.asDte()) |section| directory[@backingInt(section)] = held;
+        }
+        return .{ .image = image, .directory = directory };
+    }
+
     pub fn entry(mission: Mission, section: Section) DirectoryEntry {
         const index = @backingInt(section);
-        return if (index < mission.directory.len) mission.directory[index] else .{
-            .count = 0,
-            ._unused = 0,
-            .formats = .{},
-            .offset = DirectoryEntry.unused_offset,
-        };
+        return if (index < mission.directory.len) mission.directory[index] else .unused;
     }
 
     /// The records of a fixed-stride section, as `T`.

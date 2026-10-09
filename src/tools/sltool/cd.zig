@@ -73,6 +73,7 @@ fn extract(ctx: Context, volume: *const iso9660.Volume, out_path: []const u8) !v
     defer out_dir.close(io);
 
     var files: usize = 0;
+    var streamed: usize = 0;
     var bytes: u64 = 0;
     var walker = try volume.walk(ctx.arena);
     while (try walker.next()) |item| switch (item.entry.kind) {
@@ -82,13 +83,26 @@ fn extract(ctx: Context, volume: *const iso9660.Volume, out_path: []const u8) !v
             defer file.close(io);
             var buffer: [64 * 1024]u8 = undefined;
             var writer = file.writer(io, &buffer);
-            try volume.image.streamExtent(item.entry.extent.lba, item.entry.extent.len, &writer.interface);
+            const extent = item.entry.extent;
+            // ISO 9660 counts a file's length in logical blocks, whatever its sectors hold.
+            const sectors = @divCeil(extent.len, cdimage.block_size);
+            if (try volume.image.hasForm2(extent.lba, sectors)) {
+                try volume.image.streamMode2Sectors(extent.lba, sectors, &writer.interface);
+                streamed += 1;
+                bytes += @as(u64, sectors) * cdimage.mode2_size;
+            } else {
+                try volume.image.streamExtent(extent.lba, extent.len, &writer.interface);
+                bytes += extent.len;
+            }
             try writer.interface.flush();
             files += 1;
-            bytes += item.entry.extent.len;
         },
     };
     try ctx.stdout.print("extracted {d} files ({Bi:.1}) to {s}\n", .{ files, bytes, out_path });
+    if (streamed != 0) try ctx.stdout.print(
+        "kept {d} of them, with streamed audio or video, as whole {d}-byte Mode 2 sectors\n",
+        .{ streamed, cdimage.mode2_size },
+    );
 }
 
 test Command {

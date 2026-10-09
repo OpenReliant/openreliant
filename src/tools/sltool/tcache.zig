@@ -136,13 +136,7 @@ fn extract(
 pub fn savePng(ctx: Context, dir: std.Io.Dir, name: []const u8, level: tcache.Level, palette: *const tga.Palette) !void {
     const pixels = try level.rgba(ctx.arena, palette);
     defer ctx.arena.free(pixels);
-    const file_name = try ctx.arena.print("{s}.png", .{name});
-    const file = try dir.createFile(ctx.io, file_name, .{});
-    defer file.close(ctx.io);
-    var buffer: [32 * 1024]u8 = undefined;
-    var writer = file.writer(ctx.io, &buffer);
-    try png.writeRgba(ctx.arena, &writer.interface, level.width, level.height, pixels);
-    try writer.interface.flush();
+    try ctx.writePng(dir, try ctx.arena.print("{s}.png", .{name}), level.width, level.height, pixels);
 }
 
 test Command {
