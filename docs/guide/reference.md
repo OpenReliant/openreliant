@@ -86,6 +86,11 @@ Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with thes
 | `debriefing` | [Debriefing](#debriefing) | Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs. |
 | `news` | list of [NewsItem](#newsitem) | The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them. |
 | `video_reports` | list of [VideoReport](#videoreport) | The video reports that VIDEO REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. Reading gives a new list; assign a list to change them. |
+| `landing_carrier` | [Carrier](#carrier) | The carrier the landing plays on after the mission, which picks the chapter's disc and zoom too where the mission ends a chapter: the Yamato from mission 18 on, the Reliant before. |
+| `yamato_visit` | [YamatoVisit](#yamatovisit) | Whether the ship lands on the Yamato after the mission with a failure's thread and bank, whatever the rating: `never`, `always` as after mission 7, or `when_reliant_lost` as after mission 8, where `reliant_alive` is clear. |
+| `chapter_reports` | list of [ChapterReport](#chapterreport) | The news reports that play after the chapter's movie, where the mission ends a chapter, at most eight. Each plays unless one of the game's variables in `unless` is 1, and then sets the variable `sets` to 1, if any. Reading gives a new list; assign a list to change them. |
+| `alpha_5_pilot` | [PilotNumber](#pilotnumber) | The pilot who flies as Alpha 5 from the mission on, such as `diceman`; `none` leaves the pilot there as they are. |
+| `alpha_6_pilot` | [PilotNumber](#pilotnumber) | The pilot who flies as Alpha 6 from the mission on, such as `bandit_volunteers_leader`; `none` leaves the pilot there as they are. |
 | `wing_twins` | boolean | Whether the player's wing flies the `t_` twins of the player's ships, as in missions 14 and later. |
 | `flying_tigers` | boolean | Whether the 45th fly as the 45th Flying Tigers rather than the 45th Volunteers, in the radio's films and in Moose's remarks, as after mission 13. |
 | `second_part` | boolean | Whether the mission has a second part, `mission<number>1.dte`, flown once the first part is won, as mission 25 has. The second part has no landing before it. |
@@ -96,6 +101,9 @@ Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with thes
 | `wide_advanced_gate` | boolean | Whether the advanced warp gates' tunnels are as wide as the prototype's, as in mission 8. |
 | `counts_kills` | boolean | Whether the player's kills count toward the mission's tally, as in missions 1 to 27. |
 | `terminate_ends_well` | boolean | Whether the mission's script can end it with `TerminateMission` without the ending counting as the player's ship destroyed, as in mission 28. |
+| `fort_bear_ending` | boolean | Whether, once the Yamato is lost (`yamato_alive` clear), no landing plays after the mission, and a total failure ends the pilot's career in the shuttle at Fort Bear, as in missions 25 and 27. |
+| `cobras_inquiry` | boolean | Whether the ITAC's history of the 705 Cobras tells of the inquiry into their colonel, as from mission 7 on. |
+| `fifty_first_listed` | boolean | Whether the ITAC's squadrons list the 51st Volunteers, as in missions 1 to 9. |
 
 ### `openreliant.hooks`
 
@@ -1681,6 +1689,16 @@ A table a script gives, which may leave out a field with a default.
 | `movie` | string | needed |
 | `carrier` | [Carrier](#carrier) | needed |
 
+### ChapterReport
+
+A table a script gives, which may leave out a field with a default.
+
+| Field | Type | Default |
+|---|---|---|
+| `movie` | string | needed |
+| `unless` | list of [GameVariable](#gamevariable) | none |
+| `sets` | [GameVariable](#gamevariable), or nil | nil |
+
 ### Outcome
 
 | Field | Type |
@@ -1831,6 +1849,14 @@ number. A script can set a field to either.
 ### Medal
 
 `silver`, `black_eagle`, `valour`, `legion`, `navy_cross`, `medal_of_honour`.
+
+### YamatoVisit
+
+`never`, `always`, `when_reliant_lost`.
+
+### GameVariable
+
+`jump_ready`, `warp_ready`, `backup_available`, `player_missiles_left`, `mcgann_alive`, `ivan_petrov_alive`, `kulov_alive`, `mission_over`, `landing_cleared`, `al_rahan_alive`, `sharif_alive`, `steiner_alive`, `mission_success`, `players`, `krasnaya_alive`, `rameses_alive`, `kozah_alive`, `fixed_gate_alive`, `warp_gate_alive`, `last_success`, `objectives_met`, `czar_alive`, `ghost_alive`, `reliant_alive`, `countdown`, `chapter2_thread3_shown`, `yamato_alive`, `ion_cannons_hold_lock`, or a number.
 
 ### Ending
 

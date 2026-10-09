@@ -13,6 +13,7 @@ const std = @import("std");
 const canvas_module = @import("../interface/canvas.zig");
 const itac_module = @import("../itac.zig");
 const language = @import("../language.zig");
+const gameflow = @import("../gameflow.zig");
 const tables = @import("tables.zig");
 const Canvas = canvas_module.Canvas;
 const Rect = canvas_module.Rect;
@@ -75,16 +76,14 @@ const title_list: itac_module.TitleList = .{ .pane = list_pane, .top = 2, .width
 const list_arrows = [2]Rect{ .{ .x = 515, .y = 367, .width = 27, .height = 27 }, .{ .x = 542, .y = 367, .width = 27, .height = 27 } };
 const shown_at_least = 13;
 
-/// The squadrons the Alliance's list shows only before, from or up to a mission (`0x00450450`), and
-/// the squadron whose history tells of the inquiry after mission 6, and that part's string
-/// (`0x00450235`).
+/// The squadrons the Alliance's list shows only in some missions (`0x00450450`): the 45th as the
+/// Volunteers or as the Flying Tigers, and the 51st Volunteers; and the squadron whose history can
+/// tell of the inquiry into their colonel, and that part's string (`0x00450235`). The mission's
+/// rules decide each (`gameflow.CampaignMission.Rules`).
 const volunteers = 0x1C8;
 const flying_tigers = 0x1C9;
-const renamed_from = 13;
 const fifty_first = 0x1CB;
-const fifty_first_last = 9;
 const cobras = 0x1D0;
-const inquiry_after = 6;
 const inquiry = 0x218;
 
 /// The most squadrons a side lists.
@@ -191,7 +190,8 @@ pub const Squadrons = struct {
     fn write(squadrons: *Squadrons, itac: *Itac) void {
         const squadron = squadrons.chosen(itac);
         const history: language.Words = .{ .string = squadron.text };
-        const told: []const language.Words = if (squadron.name == cobras and itac.pilot.mission > inquiry_after) &.{ history, .{ .string = inquiry } } else &.{history};
+        const tried = gameflow.campaignField(itac.pilot.mission, .rules).cobras_inquiry;
+        const told: []const language.Words = if (squadron.name == cobras and tried) &.{ history, .{ .string = inquiry } } else &.{history};
         squadrons.text_len = itac.writeParagraphs(&squadrons.text, told, &squadrons.box);
     }
 
@@ -245,11 +245,17 @@ pub const Squadrons = struct {
 };
 
 /// Whether the Alliance's list shows the squadron named `name` before mission `mission`.
+///
+/// **Improvement:** the game shows the 45th as the Flying Tigers from mission 13, where the radio's
+/// films and the KILLBOARD name them so after it. OpenReliant follows the mission's
+/// `flying_tigers` rule for all three, which answers the same for every mission the original
+/// campaign reaches, since it has no mission 13.
 fn listedBefore(name: u16, mission: u16) bool {
+    const rules = gameflow.campaignField(mission, .rules);
     return switch (name) {
-        volunteers => mission < renamed_from,
-        flying_tigers => mission >= renamed_from,
-        fifty_first => mission <= fifty_first_last,
+        volunteers => !rules.flying_tigers,
+        flying_tigers => rules.flying_tigers,
+        fifty_first => rules.fifty_first_listed,
         else => true,
     };
 }
@@ -259,8 +265,8 @@ test "the Alliance's squadrons follow the campaign" {
     // Before mission 9, the 45th Volunteers and the 51st Volunteers, but not the Flying Tigers.
     squadrons.listSide(.alliance, 9);
     try std.testing.expectEqual(tables.squadrons[0].len - 1, squadrons.item_count);
-    // From mission 13, the Flying Tigers in place of the Volunteers, and no 51st.
-    squadrons.listSide(.alliance, 13);
+    // From mission 14, the Flying Tigers in place of the Volunteers, and no 51st.
+    squadrons.listSide(.alliance, 14);
     try std.testing.expectEqual(tables.squadrons[0].len - 2, squadrons.item_count);
     for (squadrons.titles[0..squadrons.item_count]) |title| {
         try std.testing.expect(title.string != volunteers and title.string != fifty_first);

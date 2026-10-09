@@ -16,7 +16,10 @@ const gameobj = game.gameobj;
 const language = game.language;
 const rooms = game.interface.rooms;
 const debriefing = game.itac.debriefing;
-const Rating = openreliant.engine.vm.Variables.Outcome;
+const landing = game.xtrabits.landing;
+const pilots = game.pilots;
+const vm = openreliant.engine.vm;
+const Rating = vm.Variables.Outcome;
 const luau = @import("../luau.zig");
 const State = luau.State;
 const bind = @import("../bind.zig");
@@ -46,6 +49,11 @@ pub const Field = enum {
     debriefing,
     news,
     video_reports,
+    landing_carrier,
+    yamato_visit,
+    chapter_reports,
+    alpha_5_pilot,
+    alpha_6_pilot,
     wing_twins,
     flying_tigers,
     second_part,
@@ -56,6 +64,9 @@ pub const Field = enum {
     wide_advanced_gate,
     counts_kills,
     terminate_ends_well,
+    fort_bear_ending,
+    cobras_inquiry,
+    fifty_first_listed,
 
     /// The type of the value scripts read, which the definitions and the reference show.
     pub fn Type(comptime field: Field) type {
@@ -70,6 +81,10 @@ pub const Field = enum {
             .debriefing => Debriefing,
             .news => values.List(NewsItem, most_items),
             .video_reports => values.List(VideoReport, most_items),
+            .landing_carrier => rooms.Carrier,
+            .yamato_visit => landing.YamatoVisit,
+            .chapter_reports => values.List(ChapterReport, landing.Reports.most),
+            .alpha_5_pilot, .alpha_6_pilot => pilots.Number,
             else => if (field.isRule()) bool else @compileError("no type for " ++ @tagName(field)),
         };
     }
@@ -99,6 +114,11 @@ pub const Field = enum {
             .debriefing => "Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs.",
             .news => "The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them.",
             .video_reports => "The video reports that VIDEO REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. Reading gives a new list; assign a list to change them.",
+            .landing_carrier => "The carrier the landing plays on after the mission, which picks the chapter's disc and zoom too where the mission ends a chapter: the Yamato from mission 18 on, the Reliant before.",
+            .yamato_visit => "Whether the ship lands on the Yamato after the mission with a failure's thread and bank, whatever the rating: `never`, `always` as after mission 7, or `when_reliant_lost` as after mission 8, where `reliant_alive` is clear.",
+            .chapter_reports => "The news reports that play after the chapter's movie, where the mission ends a chapter, at most eight. Each plays unless one of the game's variables in `unless` is 1, and then sets the variable `sets` to 1, if any. Reading gives a new list; assign a list to change them.",
+            .alpha_5_pilot => "The pilot who flies as Alpha 5 from the mission on, such as `diceman`; `none` leaves the pilot there as they are.",
+            .alpha_6_pilot => "The pilot who flies as Alpha 6 from the mission on, such as `bandit_volunteers_leader`; `none` leaves the pilot there as they are.",
             .wing_twins => "Whether the player's wing flies the `t_` twins of the player's ships, as in missions 14 and later.",
             .flying_tigers => "Whether the 45th fly as the 45th Flying Tigers rather than the 45th Volunteers, in the radio's films and in Moose's remarks, as after mission 13.",
             .second_part => "Whether the mission has a second part, `mission<number>1.dte`, flown once the first part is won, as mission 25 has. The second part has no landing before it.",
@@ -109,6 +129,9 @@ pub const Field = enum {
             .wide_advanced_gate => "Whether the advanced warp gates' tunnels are as wide as the prototype's, as in mission 8.",
             .counts_kills => "Whether the player's kills count toward the mission's tally, as in missions 1 to 27.",
             .terminate_ends_well => "Whether the mission's script can end it with `TerminateMission` without the ending counting as the player's ship destroyed, as in mission 28.",
+            .fort_bear_ending => "Whether, once the Yamato is lost (`yamato_alive` clear), no landing plays after the mission, and a total failure ends the pilot's career in the shuttle at Fort Bear, as in missions 25 and 27.",
+            .cobras_inquiry => "Whether the ITAC's history of the 705 Cobras tells of the inquiry into their colonel, as from mission 7 on.",
+            .fifty_first_listed => "Whether the ITAC's squadrons list the 51st Volunteers, as in missions 1 to 9.",
         };
     }
 };
@@ -153,6 +176,21 @@ comptime {
     std.debug.assert(fields.len == debriefing.ratings);
     for (fields, 0..) |name, rating| std.debug.assert(std.mem.eql(u8, name, @tagName(@as(Rating, @fromBackingInt(@intCast(rating))))));
 }
+
+/// A news report after a chapter's movie, as scripts see it.
+pub const ChapterReport = struct {
+    pub const script_name = "ChapterReport";
+
+    /// Its movie, a Bink file from the game or a mod.
+    movie: []const u8,
+    /// The game's variables that keep it from playing where one is 1.
+    unless: values.List(vm.GameVariable, most_conditions) = .{},
+    /// The variable it sets to 1 as it plays; nil for none.
+    sets: ?vm.GameVariable = null,
+};
+
+/// The most variables a chapter's news report waits on.
+const most_conditions = 4;
 
 /// A news item, as scripts see it.
 pub const NewsItem = struct {
@@ -345,8 +383,8 @@ fn get(state: *State) i32 {
             const value: ?u8 = if (@field(settings, @tagName(field))) |number| number else null;
             values.push(state, ?u8, value);
         },
-        inline .medal, .only_ship => |field| values.push(state, Field.Type(field), @field(settings, @tagName(field))),
-        inline .television_report, .news, .video_reports => |field| pushItems(state, mission.records, @field(settings, @tagName(field))),
+        inline .medal, .only_ship, .landing_carrier, .yamato_visit, .alpha_5_pilot, .alpha_6_pilot => |field| values.push(state, Field.Type(field), @field(settings, @tagName(field))),
+        inline .television_report, .news, .video_reports, .chapter_reports => |field| pushItems(state, mission.records, @field(settings, @tagName(field))),
         .debriefing => {
             state.newTable(0, debriefing.ratings);
             inline for (@typeInfo(Debriefing).@"struct".field_names, settings.debriefing) |rating, paragraphs| {
@@ -406,10 +444,10 @@ fn setField(state: *State, mission: Mission, field: Field, given: i32) void {
         },
         .tier => settings.tier = readNumber(state, gameflow.CampaignMission.Tier, given, gameflow.last_tier, script_name ++ ".tier"),
         .chapter => settings.chapter = readNumber(state, gameflow.CampaignMission.Chapter, given, gameflow.last_chapter, script_name ++ ".chapter"),
-        inline .medal, .only_ship => |name| {
+        inline .medal, .only_ship, .landing_carrier, .yamato_visit, .alpha_5_pilot, .alpha_6_pilot => |name| {
             @field(settings, @tagName(name)) = values.read(state, Field.Type(name), given, script_name ++ "." ++ @tagName(name));
         },
-        inline .television_report, .news, .video_reports => |name| {
+        inline .television_report, .news, .video_reports, .chapter_reports => |name| {
             const label = comptime script_name ++ "." ++ @tagName(name);
             const list = values.read(state, Field.Type(name), given, label);
             const Kept = std.meta.Elem(@FieldType(gameflow.CampaignMission, @tagName(name)));
@@ -443,7 +481,7 @@ fn keptItems(comptime Kept: type, state: *State, held: *Records, given: anytype,
                 []const language.Words => paragraphsOf(state, held, value.slice(), label),
                 []const u8 => fileName(state, held, value, label),
                 ?[]const u8 => if (value) |text| fileName(state, held, text, label) else null,
-                else => value,
+                else => if (comptime values.isList(@TypeOf(value))) held.arena.dupe(@TypeOf(value).Item, value.slice()) catch state.raise(label ++ ": out of memory", .{}) else value,
             };
         }
     }
@@ -462,7 +500,8 @@ fn pushItems(state: *State, held: *const Records, items: anytype) void {
             switch (Type) {
                 language.Words => pushWords(state, held, value),
                 []const language.Words => pushParagraphs(state, held, value),
-                else => values.push(state, Type, value),
+                []const u8, ?[]const u8 => values.push(state, Type, value),
+                else => if (@typeInfo(Type) == .pointer) pushValues(state, std.meta.Elem(Type), value) else values.push(state, Type, value),
             }
             state.rawSetField(-2, name);
         }
@@ -485,6 +524,15 @@ fn paragraphsOf(state: *State, held: *Records, given: []const []const u8, compti
 /// Pushes `words` as UTF-8, reading a string number from the ITAC's text.
 fn pushWords(state: *State, held: *const Records, words: language.Words) void {
     records.pushText(state, words.in(held.language(.itac_text)));
+}
+
+/// Pushes a list of `items`, each a value of `T`.
+fn pushValues(state: *State, comptime T: type, items: []const T) void {
+    state.newTable(@intCast(items.len), 0);
+    for (items, 1..) |item, at| {
+        values.push(state, T, item);
+        state.rawSetIndex(-2, @intCast(at));
+    }
 }
 
 /// Pushes a list of `paragraphs`.
@@ -690,6 +738,42 @@ test "a campaign mission's rules" {
     try std.testing.expect(held.missions[11].rules.wing_twins and held.missions[11].rules.terminate_ends_well);
     try std.testing.expect(!held.missions[11].rules.flying_tigers);
     try bind.testing.expectSourceError(thread, "records.missions[12].counts_kills = 1", "CampaignMission.counts_kills");
+}
+
+test "a campaign mission's landing, chapter news and wing pilots" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var text: [1010][]const u8 = undefined;
+    var held = try testRecords(arena.allocator(), &text);
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    const thread = testThread(state, &held, true);
+
+    try bind.testing.runSource(thread,
+        \\local missions = records.missions
+        \\-- The original's values.
+        \\assert(missions[18].landing_carrier == "yamato" and missions[17].landing_carrier == "reliant")
+        \\assert(missions[7].yamato_visit == "always" and missions[8].yamato_visit == "when_reliant_lost")
+        \\local report = missions[11].chapter_reports[3]
+        \\assert(report.movie == "new_chapter2_thread3.bik" and report.unless[1] == 6 and report.sets == "chapter2_thread3_shown")
+        \\assert(missions[7].chapter_reports[1].unless[1] == "rameses_alive")
+        \\assert(missions[6].alpha_5_pilot == "diceman" and missions[25].fort_bear_ending)
+        \\-- A restoration's own.
+        \\local cut = missions[12]
+        \\cut.landing_carrier = "yamato"
+        \\cut.yamato_visit = "never"
+        \\cut.chapter_reports = { { movie = "dreamcast_news12.bik", unless = { "krasnaya_alive", 20 } } }
+        \\cut.alpha_6_pilot = "none"
+    );
+    const twelve = held.missions[11];
+    try std.testing.expectEqual(.yamato, twelve.landing_carrier);
+    try std.testing.expectEqualStrings("dreamcast_news12.bik", twelve.chapter_reports[0].movie);
+    try std.testing.expectEqualSlices(vm.GameVariable, &.{ .krasnaya_alive, @fromBackingInt(20) }, twelve.chapter_reports[0].unless);
+    try std.testing.expectEqual(null, twelve.chapter_reports[0].sets);
+    try std.testing.expectEqual(.none, twelve.alpha_6_pilot);
+
+    try bind.testing.expectSourceError(thread, "records.missions[12].yamato_visit = 'sometimes'", "CampaignMission.yamato_visit");
+    try bind.testing.expectSourceError(thread, "records.missions[12].chapter_reports = { { unless = {} } }", "the field 'movie' is missing");
 }
 
 test "a campaign mission's awards and special cases" {

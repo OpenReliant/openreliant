@@ -436,6 +436,35 @@ comptime {
     assert(@sizeOf(Variables) == Variables.count * @sizeOf(u32));
 }
 
+/// One of the game's variables, by its number, under the name its field in `Variables` has, such as
+/// `rameses_alive` for variable 18; `jump_ready` and `warp_ready` are 0 and 1. Any other number of
+/// the block is a variable too, without a name. Scripts name the variables a chapter's news reports
+/// wait for this way.
+pub const GameVariable = @Enum(u8, .nonexhaustive, &variable_names.names, &variable_names.numbers);
+
+const variable_names = names: {
+    @setEvalBranchQuota(10_000);
+    const info = @typeInfo(Variables).@"struct";
+    var names: []const []const u8 = &.{ "jump_ready", "warp_ready" };
+    var numbers: []const u8 = &.{ 0, 1 };
+    for (info.field_names, info.field_types) |name, Type| {
+        if (@sizeOf(Type) != @sizeOf(u32)) continue;
+        names = names ++ .{name};
+        numbers = numbers ++ .{Variables.number(name)};
+    }
+    var fixed_names: [names.len][]const u8 = undefined;
+    var fixed_numbers: [numbers.len]u8 = undefined;
+    @memcpy(&fixed_names, names);
+    @memcpy(&fixed_numbers, numbers);
+    break :names .{ .names = fixed_names, .numbers = fixed_numbers };
+};
+
+test GameVariable {
+    try std.testing.expectEqual(Variables.number("rameses_alive"), @backingInt(GameVariable.rameses_alive));
+    try std.testing.expectEqual(1, @backingInt(GameVariable.warp_ready));
+    try std.testing.expectEqual(36, @backingInt(GameVariable.yamato_alive));
+}
+
 test Variables {
     var variables: Variables = .{};
     variables.slot(0).* = 1;

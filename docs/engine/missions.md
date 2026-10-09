@@ -233,6 +233,9 @@ The game singles some missions out by their numbers:
 | The advanced warp gates' tunnels are as wide as the prototype's | 8 | [Gates](gates.md) |
 | The player's kills count toward the mission's tally | 1 to 27 | [Objects](objects.md) |
 | `TerminateMission` ends the mission without counting the player's ship destroyed | 28 on | [Script VM](script-vm.md) |
+| Once the Yamato is lost, no landing, and a total failure ends at Fort Bear | 25, 27 | [Around a mission](movies.md#around-a-mission) |
+| The ITAC tells of the 705 Cobras' inquiry | 7 on | [The squadrons](itac.md#the-squadrons) |
+| The ITAC lists the 51st Volunteers | 1 to 9 | [The squadrons](itac.md#the-squadrons) |
 
 **Improvement:** OpenReliant asks each of these of the mission's settings
 (`gameflow.CampaignMission.Rules`), which start with the original's and which mods can change
@@ -242,9 +245,9 @@ original's rules for its number. A second part's objectives come from the game's
 row for mission 25's second part alone.
 
 Instant Action's mission 29, whose clock counts down, and the training missions 30 to 35
-(`create.Objects.training`) aren't campaign missions, so their own rules stay by number. Not yet in
-the settings: the landing, the chapters' news, the wing's pilots and the ITAC's squadrons
-([#1011](https://github.com/OpenReliant/openreliant/issues/1011)).
+(`create.Objects.training`) aren't campaign missions, so their own rules stay by number. The
+landing's carrier, the visits to the Yamato, the chapters' news and the wing's Alpha 5 and 6 are
+settings of their own ([Around a mission](movies.md#around-a-mission)).
 
 ## In OpenReliant
 

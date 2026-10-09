@@ -693,7 +693,8 @@ As the campaign moves on from a mission, before the autosave (`mission_end_recor
 `0x00475BE8`), and again as each mission starts, once its script has started, `update_pilots`
 (`0x0049CD70`) gives Alpha 5 and 6 the pilots of the campaign's stretch: Bandit and Viper to
 mission 5, Diceman and the 45th Volunteers' Bandit to mission 13, Diceman and the 45th Tigers'
-Bandit to mission 22, and Hawkeye and the 45th Tigers' Diceman to mission 28. Each other place left empty takes the first free pilot of the pool, which is then in
+Bandit to mission 22, and Hawkeye and the 45th Tigers' Diceman to mission 28 (**Improvement:** in
+OpenReliant, each mission's settings name them, [Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)). Each other place left empty takes the first free pilot of the pool, which is then in
 the wing; with none free, the game stops (**Fix:** OpenReliant logs it and leaves the place empty).
 Then, in missions 1 to 28 out of the simulator, the start gives each of the player's wingmen its
 place's pilot (`object_set_pilot`, `0x00493DD1` to `0x00493E0A`), in place of the one the mission's

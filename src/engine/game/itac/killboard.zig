@@ -60,12 +60,12 @@ const own_pilots = [_]u16{ 0x515, 0x6E1, 0x6E7 };
 /// The arrows that step the board on and back (`0x004EA2A8`).
 const arrows = [2]Rect{ .{ .x = 293, .y = 377, .width = 26, .height = 26 }, .{ .x = 319, .y = 377, .width = 26, .height = 26 } };
 
-/// The player's squadron, the 45th Volunteers, which flies as the 45th Flying Tigers from
-/// `renamed_from`, as do the pilots whose squadron the board names by these strings
-/// (`0x004416BF`, `0x00441735`).
+/// The player's squadron, the 45th Volunteers, which flies as the 45th Flying Tigers where the
+/// mission's rules say so (`gameflow.CampaignMission.Rules.flying_tigers`, from mission 14 in the
+/// original), as do the pilots whose squadron the board names by these strings (`0x004416BF`,
+/// `0x00441735`).
 const volunteers = 0x1C8;
 const flying_tigers = 0x1C9;
-const renamed_from = 14;
 const squadron_mates = [_]u16{ 0x6E8, 0x519, 0x6E2 };
 
 /// The room a row's lines are written into (`0x00441540`).
@@ -233,18 +233,18 @@ pub const Killboard = struct {
 
     /// A row's name and squadron, ship and kills.
     fn drawRow(kill_board: *const Killboard, itac: *Itac, in_pane: Canvas, font: *hud.Opened, entry: Entry, top: i32) canvas_module.Error!void {
-        const mission = itac.pilot.mission;
+        const tigers = gameflow.campaignField(itac.pilot.mission, .rules).flying_tigers;
         var text: [line_room]u8 = undefined;
         switch (entry) {
             .player => {
-                const squadron = itac.string(if (mission >= renamed_from) flying_tigers else volunteers);
+                const squadron = itac.string(if (tigers) flying_tigers else volunteers);
                 const named = std.mem.print(&text, "{s}\n({s})", .{ itac.pilot.call_sign, squadron }) catch "";
                 try in_pane.wrapped(font, at(name_column, top + name_y), named, itac_module.text_colour, .left, squadron_lines);
             },
             .pilot => |place| {
                 const pilot = tables.pilots[place];
                 try in_pane.text(font, at(name_column, top + name_y), itac.string(pilot.name), itac_module.text_colour, .left);
-                const renamed = mission >= renamed_from and std.mem.findScalar(u16, &squadron_mates, pilot.call_sign) != null;
+                const renamed = tigers and std.mem.findScalar(u16, &squadron_mates, pilot.call_sign) != null;
                 const squadron = if (renamed) std.mem.print(&text, "({s})", .{itac.string(flying_tigers)}) catch "" else itac.string(pilot.call_sign);
                 try in_pane.wrapped(font, at(name_column, top + squadron_y), squadron, itac_module.text_colour, .left, squadron_lines);
                 if (pilot.ship > 0) try in_pane.text(font, at(ship_column, top + figures_y), itac.string(pilot.ship), itac_module.text_colour, .left);

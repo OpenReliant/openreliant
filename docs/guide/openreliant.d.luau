@@ -39,6 +39,8 @@ type EffectStage = "before_hud" | "after_hud"
 type Axis = "x" | "y" | "z"
 type OptionKind = "toggle" | "choice" | "number" | "slider" | "text" | "heading"
 type Medal = "silver" | "black_eagle" | "valour" | "legion" | "navy_cross" | "medal_of_honour"
+type YamatoVisit = "never" | "always" | "when_reliant_lost"
+type GameVariable = "jump_ready" | "warp_ready" | "backup_available" | "player_missiles_left" | "mcgann_alive" | "ivan_petrov_alive" | "kulov_alive" | "mission_over" | "landing_cleared" | "al_rahan_alive" | "sharif_alive" | "steiner_alive" | "mission_success" | "players" | "krasnaya_alive" | "rameses_alive" | "kozah_alive" | "fixed_gate_alive" | "warp_gate_alive" | "last_success" | "objectives_met" | "czar_alive" | "ghost_alive" | "reliant_alive" | "countdown" | "chapter2_thread3_shown" | "yamato_alive" | "ion_cannons_hold_lock" | number
 type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total_failure" | "friendly_fire" | "ejecting" | number
 type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
 type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | number
@@ -351,6 +353,11 @@ type VideoReport = {
     movie: string,
     carrier: Carrier,
 }
+type ChapterReport = {
+    movie: string,
+    unless: { GameVariable }?,
+    sets: GameVariable?,
+}
 type Outcome = {
     ending: Ending,
     rating: Rating,
@@ -584,6 +591,11 @@ declare class CampaignMission
     debriefing: Debriefing
     news: { NewsItem }
     video_reports: { VideoReport }
+    landing_carrier: Carrier
+    yamato_visit: YamatoVisit
+    chapter_reports: { ChapterReport }
+    alpha_5_pilot: PilotNumber
+    alpha_6_pilot: PilotNumber
     wing_twins: boolean
     flying_tigers: boolean
     second_part: boolean
@@ -594,6 +606,9 @@ declare class CampaignMission
     wide_advanced_gate: boolean
     counts_kills: boolean
     terminate_ends_well: boolean
+    fort_bear_ending: boolean
+    cobras_inquiry: boolean
+    fifty_first_listed: boolean
 end
 type Records = {
     ships: { [number | string]: Ship },

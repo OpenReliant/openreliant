@@ -11,6 +11,7 @@ const vm = @import("../../vm.zig");
 const Rating = vm.Variables.Outcome;
 const Ending = @import("../main.zig").Ending;
 const disc = @import("../interface/disc.zig");
+const rooms = @import("../interface/rooms.zig");
 const winmain = @import("../winmain.zig");
 const gameflow = @import("../gameflow.zig");
 const movie = @import("movie.zig");
@@ -52,8 +53,11 @@ pub const Reports = struct {
     movies: [most][]const u8 = undefined,
     count: usize = 0,
 
-    /// The most a chapter plays, as mission 11's does.
-    const most = 3;
+    /// The most a chapter plays.
+    ///
+    /// **Improvement:** the original's chapters play at most 3, as mission 11's does. OpenReliant
+    /// plays up to 8, so that mods can add more.
+    pub const most = 8;
 
     pub fn slice(reports: *const Reports) []const []const u8 {
         return reports.movies[0..reports.count];
@@ -107,11 +111,45 @@ const yamato: Carrier = .{
     .banks = .{ "ylande.fat", "ylandd.fat", "ylandc.fat", "ylandb.fat", "ylanda.fat" },
 };
 
-/// Whether mission `mission` ends on the Yamato: from mission 18 on, the last the pilot flies from
-/// the Reliant (`0x004ABF2D`).
-pub fn onYamato(mission: u16) bool {
-    return mission >= movie.last_from_reliant;
+/// The carrier the original's landing plays on after mission `number`: the Yamato from mission 18
+/// on, the last the pilot flies from the Reliant (`0x004ABF2D`), and the Reliant before it. It
+/// picks the chapter's disc and zoom too.
+pub fn originalCarrier(number: u16) rooms.Carrier {
+    return if (number >= movie.last_from_reliant) .yamato else .reliant;
 }
+
+/// Whether the ship lands on the Yamato after a mission flown from the Reliant, taking a failure's
+/// thread and bank whatever the rating: never, always, as after mission 7, or where the Reliant
+/// is lost (`reliant_alive` clear), as after mission 8.
+pub const YamatoVisit = enum {
+    pub const script_name = "YamatoVisit";
+
+    never,
+    always,
+    when_reliant_lost,
+
+    /// The original's visit after mission `number`.
+    pub fn original(number: u16) YamatoVisit {
+        return switch (number) {
+            yamato_visit => .always,
+            yamato_visit_without_reliant => .when_reliant_lost,
+            else => .never,
+        };
+    }
+
+    /// Whether the ship visits the Yamato, by the game's `variables`.
+    fn visits(visit: YamatoVisit, variables: *const vm.Variables) bool {
+        return switch (visit) {
+            .never => false,
+            .always => true,
+            .when_reliant_lost => variables.reliant_alive == 0,
+        };
+    }
+
+    /// The missions the original's ship visits the Yamato after (`play_landing_movie`).
+    const yamato_visit = 7;
+    const yamato_visit_without_reliant = 8;
+};
 
 /// Each chapter's movie (`0x00509BE8`), the first for none.
 const chapter_movies = [_][]const u8{ "dummy.bik", "new_chapter1.bik", "new_chapter2.bik", "new_chapter3.bik", "new_chapter4.bik", "new_chapter5.bik" };
@@ -135,71 +173,64 @@ fn chapterOf(mission: u16) ?gameflow.CampaignMission.Chapter {
 const zoom_before_yamato = "thread_zoom.bik";
 const zoom_from_yamato = "rthread_zoom.bik";
 
-/// A news report: its movie, which plays where each of the game's variables `unless` names is other
-/// than 1, and the variable it then sets to 1, where it sets one. The variables are the game's,
-/// by number (`vm.Variables`).
-const Report = struct {
+/// A news report after a chapter's movie: its movie, which plays unless one of the game's variables
+/// `unless` names is 1, and the variable it then sets to 1, if any.
+pub const Report = struct {
     movie: []const u8,
-    unless: []const u8,
-    sets: ?u8 = null,
+    unless: []const vm.GameVariable = &.{},
+    sets: ?vm.GameVariable = null,
+
+    /// The original's reports after the chapter mission `mission` ends.
+    pub fn original(comptime mission: u16) []const Report {
+        for (news) |entry| if (entry.mission == mission) return entry.reports;
+        return &.{};
+    }
 };
 
-const flag = vm.Variables.number;
-
-/// The reports after a chapter's movie, by the mission that ends it (`0x004AC07F` on): each
-/// waits for the campaign's flag of what it reports to be cleared, as a ship destroyed. Mission
-/// 16's are never reached, as it ends no chapter.
+/// The original's reports after a chapter's movie, by the mission that ends it (`0x004AC07F` on):
+/// each waits for the campaign's flag of what it reports to be cleared, as a ship destroyed.
+/// Mission 16's are never reached, as it ends no chapter.
 const news = [_]struct { mission: u16, reports: []const Report }{
     .{ .mission = 7, .reports = &.{
-        .{ .movie = "new_chapter1_thread1.bik", .unless = &.{flag("rameses_alive")} },
+        .{ .movie = "new_chapter1_thread1.bik", .unless = &.{.rameses_alive} },
     } },
     .{ .mission = 11, .reports = &.{
-        .{ .movie = "new_chapter2_thread1.bik", .unless = &.{flag("czar_alive")} },
-        .{ .movie = "new_chapter2_thread2.bik", .unless = &.{flag("krasnaya_alive")} },
-        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{flag("_unknown_6")}, .sets = flag("chapter2_thread3_shown") },
+        .{ .movie = "new_chapter2_thread1.bik", .unless = &.{.czar_alive} },
+        .{ .movie = "new_chapter2_thread2.bik", .unless = &.{.krasnaya_alive} },
+        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{._unknown_6}, .sets = .chapter2_thread3_shown },
     } },
     .{ .mission = 16, .reports = &.{
-        .{ .movie = "new_chapter3_thread1.bik", .unless = &.{flag("mcgann_alive")} },
-        .{ .movie = "new_chapter3_thread2.bik", .unless = &.{flag("warp_gate_alive")} },
-        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{ flag("_unknown_6"), flag("chapter2_thread3_shown") } },
+        .{ .movie = "new_chapter3_thread1.bik", .unless = &.{.mcgann_alive} },
+        .{ .movie = "new_chapter3_thread2.bik", .unless = &.{.warp_gate_alive} },
+        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{ ._unknown_6, .chapter2_thread3_shown } },
     } },
 };
 
-comptime {
-    for (news) |mission| std.debug.assert(mission.reports.len <= Reports.most);
-}
-
-/// The reports after the chapter mission `mission` ends, by the game's `variables`, which a report
-/// that plays may set.
+/// The reports after the chapter mission `mission` ends
+/// (`gameflow.CampaignMission.chapter_reports`), by the game's `variables`, which a report that
+/// plays may set. A chapter plays at most `Reports.most`; the rest are left out.
 fn reportsAfter(mission: u16, variables: *vm.Variables) Reports {
     var chosen: Reports = .{};
-    for (news) |entry| {
-        if (entry.mission != mission) continue;
-        report: for (entry.reports) |report| {
-            for (report.unless) |number| if (variables.slot(number).* == 1) continue :report;
-            chosen.append(report.movie);
-            if (report.sets) |number| variables.slot(number).* = 1;
-        }
+    report: for (gameflow.campaignField(mission, .chapter_reports)) |report| {
+        if (chosen.count == Reports.most) break;
+        for (report.unless) |variable| if (variables.slot(@backingInt(variable)).* == 1) continue :report;
+        chosen.append(report.movie);
+        if (report.sets) |variable| variables.slot(@backingInt(variable)).* = 1;
     }
     return chosen;
 }
 
-/// Missions 25 and 27, which end without the landing where `yamato_alive` is clear, and the number
-/// mission 25's second part may come as (`0x004ABE8D`).
+/// Mission 25, and the number its second part may come as (`0x004ABE8D`).
 const mission25 = 25;
-const mission27 = 27;
 const mission25_second_part = 251;
 
-/// The missions the ship lands on the Yamato after while the Reliant is its carrier, taking a
-/// failure's thread and bank: mission 7, and mission 8 where `reliant_alive` is clear.
-const yamato_visit = 7;
-const yamato_visit_without_reliant = 8;
-
-/// Whether mission `number` is mission 25 or 27 with `yamato_alive` clear (`0x004ABEA7`): no landing plays
-/// after it, where it is 25's second part, and a total failure in it ends the pilot's career in the
-/// shuttle at Fort Bear (`winmain.afterMission`).
+/// Whether mission `number` ends without a landing because the Yamato is lost: its rules say so
+/// (`gameflow.CampaignMission.Rules.fort_bear_ending`, missions 25 and 27 in the original;
+/// `0x004ABEA7`) and `yamato_alive` is clear. No landing plays after it, or after its second part
+/// where it has two, and a total failure in it ends the pilot's career in the shuttle at Fort Bear
+/// (`winmain.afterMission`).
 pub fn lastWithoutLanding(number: u16, variables: *vm.Variables) bool {
-    return (number == mission25 or number == mission27) and variables.yamato_alive == 0;
+    return gameflow.campaignField(number, .rules).fort_bear_ending and variables.yamato_alive == 0;
 }
 
 /// `play_landing_movie` (`0x004ABDE0`) after mission `mission` ended as `ending`: what it plays by
@@ -207,12 +238,13 @@ pub fn lastWithoutLanding(number: u16, variables: *vm.Variables) bool {
 /// news report may set; null for nothing. `second_part` is mission 25's second part
 /// (`mission25_second_part`).
 ///
-/// Nothing plays after mission 25's second part or mission 27 where `yamato_alive` is clear, nor where
-/// the ship was sent home (`Ending.sentHome`). A mission that ends a chapter, unless the
-/// script rated it a total failure, ends in the chapter; any other in the landing, on the Yamato
-/// from mission 18 on and after mission 7, and after mission 8 where `reliant_alive` is
-/// clear, and on the Reliant otherwise. Mission 7's and 8's landings on the Yamato take a failure's
-/// thread and bank, whatever the rating.
+/// Nothing plays after mission 25's second part or mission 27 where `yamato_alive` is clear
+/// (`lastWithoutLanding`), nor where the ship was sent home (`Ending.sentHome`). A mission that
+/// ends a chapter, unless the script rated it a total failure, ends in the chapter; any other in
+/// the landing on its carrier (`gameflow.CampaignMission.landing_carrier`), the Yamato from mission
+/// 18 on in the original. A visit to the Yamato (`YamatoVisit`), after mission 7 and after mission
+/// 8 where `reliant_alive` is clear, lands there with a failure's thread and bank, whatever the
+/// rating.
 pub fn landing(mission: u16, second_part: bool, ending: Ending, variables: *vm.Variables) ?Landing {
     // Mission 25's second part may come numbered 251, which counts as 25 (`0x004ABE8D`).
     const number = if (mission == mission25_second_part) mission25 else mission;
@@ -220,15 +252,21 @@ pub fn landing(mission: u16, second_part: bool, ending: Ending, variables: *vm.V
     if (!first_part and lastWithoutLanding(number, variables)) return null;
     if (ending.sentHome()) return null;
     const rating = variables.mission_success;
+    const carrier = gameflow.campaignField(number, .landing_carrier);
     if (rating != .total_failure) if (chapterOf(number)) |chapter| return .{ .chapter = .{
-        .disc = if (onYamato(number)) .one else .two,
-        .zoom = if (onYamato(number)) zoom_from_yamato else zoom_before_yamato,
+        .disc = carrier.disc(),
+        .zoom = switch (carrier) {
+            .reliant => zoom_before_yamato,
+            .yamato => zoom_from_yamato,
+        },
         .movie = chapter_movies[chapter],
         .reports = reportsAfter(number, variables),
     } };
-    const visiting = number == yamato_visit or (number == yamato_visit_without_reliant and variables.reliant_alive == 0);
-    if (visiting) return .{ .touchdown = yamato.touchdown(.failure) };
-    return .{ .touchdown = (if (onYamato(number)) yamato else reliant).touchdown(rating) };
+    if (gameflow.campaignField(number, .yamato_visit).visits(variables)) return .{ .touchdown = yamato.touchdown(.failure) };
+    return .{ .touchdown = switch (carrier) {
+        .reliant => reliant.touchdown(rating),
+        .yamato => yamato.touchdown(rating),
+    } };
 }
 
 fn campaign() vm.Variables {
@@ -319,6 +357,29 @@ test "no landing" {
     try std.testing.expectEqual(null, landing(25, true, .playing, &variables));
     try std.testing.expectEqual(null, landing(mission25_second_part, true, .playing, &variables));
     try std.testing.expect(landing(25, false, .playing, &variables) != null);
+}
+
+test "a mod's landing and chapter news" {
+    var missions = gameflow.CampaignMission.original;
+    // Mission 12 lands on the Yamato, ends chapter 2 with a report of its own, and visits the
+    // Yamato where the Reliant is lost.
+    missions[11].landing_carrier = .yamato;
+    missions[11].chapter = 2;
+    const reports = [_]Report{.{ .movie = "dreamcast_news12.bik", .unless = &.{.krasnaya_alive}, .sets = ._unused_20 }};
+    missions[11].chapter_reports = &reports;
+    missions[13].yamato_visit = .when_reliant_lost;
+    gameflow.installMissions(&missions);
+    defer gameflow.installMissions(&gameflow.CampaignMission.original);
+    var variables = campaign();
+    variables.mission_success = .success;
+    variables.krasnaya_alive = 0;
+    const chapter = landing(12, false, .playing, &variables).?.chapter;
+    try std.testing.expectEqual(disc.Number.one, chapter.disc);
+    try std.testing.expectEqualStrings("rthread_zoom.bik", chapter.zoom);
+    try std.testing.expectEqualStrings("dreamcast_news12.bik", chapter.reports.slice()[0]);
+    try std.testing.expectEqual(1, variables.slot(20).*);
+    variables.reliant_alive = 0;
+    try std.testing.expectEqualStrings("thread04.bik", landing(14, false, .playing, &variables).?.touchdown.thread.?);
 }
 
 test lastWithoutLanding {
