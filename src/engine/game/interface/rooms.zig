@@ -170,13 +170,20 @@ pub fn entryView(comptime entry: Entry) u8 {
     return comptime viewAt(@backingInt(entry));
 }
 
-/// The carrier the rooms are on: the Reliant up to mission 18, the Yamato after it
-/// (`0x0043A04C`).
+/// The carrier the rooms are on, which a campaign mission is flown from.
 pub const Carrier = enum {
     reliant,
     yamato,
 
+    /// Mission `mission`'s: the campaign's for one of its missions (`gameflow.campaignMission`),
+    /// and the original's for any other.
     pub fn of(mission: u16) Carrier {
+        if (gameflow.campaignMission(mission)) |settings| return settings.carrier;
+        return .original(mission);
+    }
+
+    /// The original's: the Reliant up to mission 18, the Yamato after it (`0x0043A04C`).
+    pub fn original(mission: u16) Carrier {
         return if (mission > movie.last_from_reliant) .yamato else .reliant;
     }
 

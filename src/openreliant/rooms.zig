@@ -649,9 +649,12 @@ pub const Driver = struct {
     }
 
     /// The briefing of mission `mission` with the loadout `hologram`, in a game mode's room where
-    /// it gives `own`.
+    /// it gives `own`, or with what the campaign makes of the mission otherwise
+    /// (`gameflow.campaignMission`).
     fn briefWith(driver: *Driver, mission: u16, from_loadout: bool, hologram: loadout.Context, own: ?briefing.Own) !?Briefed {
-        var meeting: briefing.Briefing = .open(driver.context(), mission, from_loadout, hologram, own);
+        const flown = if (own == null) game.gameflow.campaignMission(mission) else null;
+        const plan = if (flown) |given| given.briefing else null;
+        var meeting: briefing.Briefing = .open(driver.context(), mission, from_loadout, hologram, own, plan);
         defer meeting.close();
         try driver.present(.{ .briefing = &meeting });
         while (true) {

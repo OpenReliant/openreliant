@@ -27,7 +27,7 @@ As the rooms open, they write the pilot's profile with the call sign ([The pilot
 
 ## A campaign's start
 
-As START GAME starts a campaign (`interface_run` returns 1), `WinMain` (`0x004AA1BA` on) starts the music fading out by 15 (`music_fade_out`) and opens the archive of the disc that holds the rooms: the second up to mission 18, the first after it (`cd_hog_open`). Before mission 1 it plays the new pilot's intro, `new_intro.bik`, from the disc on a cleared screen (`play_bink_movie_resourced`), then the induction ([The induction](#the-induction)), then from where the induction ended to the simulator pod:
+As START GAME starts a campaign (`interface_run` returns 1), `WinMain` (`0x004AA1BA` on) starts the music fading out by 15 (`music_fade_out`) and opens the archive of the disc that holds the rooms: the second up to mission 18, the first after it (`cd_hog_open`). **Improvement:** a campaign mission's carrier is the one its record gives, the original's by default, which mods change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)); the rooms, their disc, the briefing room, the loadout's backdrop and the hangar's movie follow it. Before mission 1 it plays the new pilot's intro, `new_intro.bik`, from the disc on a cleared screen (`play_bink_movie_resourced`), then the induction ([The induction](#the-induction)), then from where the induction ended to the simulator pod:
 
 | Ended at | Movies | View |
 |---|---|---|

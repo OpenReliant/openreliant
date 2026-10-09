@@ -330,7 +330,7 @@ pub const Package = enum {
     pub fn about(package: Package) []const u8 {
         return switch (package) {
             .core => "OpenReliant's version, events for the global scripts, and game modes.",
-            .records => "The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, and the campaign's missions in the order it flies them (`campaign`). Only load scripts can change them.",
+            .records => "The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), and what the campaign makes of each of them (`missions`). Only load scripts can change them.",
             .hooks => "Handlers on the game's functions and events.",
             .world => "The mission's objects, the player's ship and the mission itself.",
             .self => "The script's own object, as a handle: an object script's object, a missile script's missile, or the player's ship for a player script, nil between games.",

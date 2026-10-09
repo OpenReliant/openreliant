@@ -18,6 +18,11 @@
 //! `campaign` is the campaign's missions in the order it flies them (`game.gameflow.Order`). Scripts
 //! get it as a new list of the missions' numbers each time, and load scripts change it by assigning
 //! a new list ([#975](https://github.com/OpenReliant/openreliant/issues/975)).
+//!
+//! `missions` is what the campaign makes of each of its missions, by its number
+//! (`game.gameflow.CampaignMission`): what the briefing room plays, the carrier, the names of the
+//! objectives and the launch's date. Each is a proxy whose fields load scripts change in place, as
+//! they change a record's ([#976](https://github.com/OpenReliant/openreliant/issues/976)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -26,11 +31,14 @@ const openreliant = @import("openreliant");
 const stats = openreliant.stats;
 const game = openreliant.engine.game;
 const language = game.language;
+const gameflow = game.gameflow;
 const luau = @import("luau.zig");
 const State = luau.State;
 const bind = @import("bind.zig");
 const values = @import("values.zig");
 const runtime = @import("runtime.zig");
+
+pub const missions = @import("records/missions.zig");
 
 /// The proxies for records.
 pub const Values = bind.Binding(&.{ stats.Ship, game.create.combat_stats.Static, stats.Gun, stats.Missile, stats.Pilot, game.pilots.FaceRecord }, @backingInt(runtime.Tag.record_value), "record");
@@ -54,6 +62,10 @@ pub const Records = struct {
     /// The campaign's missions in the order it flies them, which the game takes once the load
     /// scripts have run (`game.gameflow.install`).
     campaign: game.gameflow.Order,
+    /// What the campaign makes of each of its missions, by its number from 1, which the game reads
+    /// from as it goes, once the load scripts have run (`gameflow.installMissions`). Their names are
+    /// in `arena`.
+    missions: []gameflow.CampaignMission,
     /// Where text from scripts is allocated. It must live as long as the game's original strings.
     arena: Allocator,
 
@@ -68,6 +80,7 @@ pub const Records = struct {
         text: []const []const u8,
         itac_text: []const []const u8,
         campaign: game.gameflow.Order = .original,
+        missions: []const gameflow.CampaignMission = &gameflow.CampaignMission.original,
     };
 
     /// Copies `tables` into `arena`.
@@ -82,6 +95,7 @@ pub const Records = struct {
             .text = try arena.dupe([]const u8, tables.text),
             .itac_text = try arena.dupe([]const u8, tables.itac_text),
             .campaign = tables.campaign,
+            .missions = try arena.dupe(gameflow.CampaignMission, tables.missions),
             .arena = arena,
         };
     }
@@ -111,6 +125,8 @@ pub const Records = struct {
     pub fn snapshot(records: Records, gpa: Allocator) Allocator.Error!Snapshot {
         var saved: Snapshot = undefined;
         saved.campaign = records.campaign;
+        saved.missions = try gpa.dupe(gameflow.CampaignMission, records.missions);
+        errdefer gpa.free(saved.missions);
         inline for (comptime std.enums.values(Set), 0..) |set, made| {
             errdefer inline for (comptime std.enums.values(Set)[0..made]) |done| gpa.free(@field(saved, @tagName(done)));
             @field(saved, @tagName(set)) = try gpa.dupe(set.Element(), @field(records, @tagName(set)));
@@ -128,14 +144,17 @@ pub const Records = struct {
         text: [][]const u8,
         itac_text: [][]const u8,
         campaign: game.gameflow.Order,
+        missions: []gameflow.CampaignMission,
 
         pub fn restore(saved: Snapshot, records: *Records) void {
             inline for (comptime std.enums.values(Set)) |set| @memcpy(@field(records, @tagName(set)), @field(saved, @tagName(set)));
             records.campaign = saved.campaign;
+            @memcpy(records.missions, saved.missions);
         }
 
         pub fn deinit(saved: Snapshot, gpa: Allocator) void {
             inline for (comptime std.enums.values(Set)) |set| gpa.free(@field(saved, @tagName(set)));
+            gpa.free(saved.missions);
         }
     };
 };
@@ -245,18 +264,21 @@ pub fn register(state: *State) void {
         .{ "__len", luau.wrap(length) },
         .{ "__tostring", luau.wrap(describe) },
     });
+    missions.register(state);
 }
 
-/// Pushes the `openreliant.records` package: a read-only table holding the record tables, and with
-/// them the campaign's missions (`campaign`), which scripts can change only if `writable`. Call
-/// `register` first.
+/// Pushes the `openreliant.records` package: a read-only table holding the record tables, the
+/// campaign's missions (`campaign`) and what the campaign makes of each (`missions`), which scripts
+/// can change only if `writable`. Call `register` first.
 pub fn push(state: *State, records: *Records, writable: bool) void {
-    state.newTable(0, std.enums.values(Set).len);
+    state.newTable(0, std.enums.values(Set).len + 1);
     inline for (comptime std.enums.values(Set)) |set| {
         const proxy = state.newUserdata(SetProxy, SetProxy.tag);
         proxy.* = .{ .records = records, .set = set, .writable = writable };
         state.rawSetField(-2, @tagName(set));
     }
+    missions.push(state, records, writable);
+    state.rawSetField(-2, "missions");
     // `campaign` isn't held in the table, so that reading it gives a new list each time, and Luau
     // calls `__newindex` to assign it, read-only as the table is.
     state.newTable(0, 3);
@@ -344,7 +366,7 @@ fn newIndex(state: *State) i32 {
             if (state.typeOf(3) == .nil) state.raise("records can't be removed: missions refer to them by number", .{});
             const records = proxy.records;
             if (comptime set.isText()) {
-                @field(records, @tagName(set))[place] = textOf(state, records.arena, 3);
+                @field(records, @tagName(set))[place] = textOf(state, records.arena, 3, "text");
             } else {
                 const T = set.Element();
                 const record = &@field(records, @tagName(set))[place];
@@ -428,20 +450,25 @@ fn pushRecord(state: *State, records: *Records, comptime set: Set, place: usize,
 }
 
 /// Pushes a string from the game's code page, converted to UTF-8.
-fn pushText(state: *State, text: []const u8) void {
+pub fn pushText(state: *State, text: []const u8) void {
     var buffer: [language.max_length * language.max_utf8_bytes]u8 = undefined;
     state.pushString(language.decode(&buffer, text[0..@min(text.len, language.max_length)]));
 }
 
 /// Converts the UTF-8 string at `given` to the game's code page and copies it into `arena`.
-/// Characters the code page doesn't have become `?` (`language.encode`). Raises an error if the
-/// value isn't a valid UTF-8 string or is longer than the game allows (`language.max_length`).
-fn textOf(state: *State, arena: Allocator, given: i32) []const u8 {
-    const text = state.toString(given) orelse state.raise("text: expected a string, got {s}", .{state.typeName(given)});
-    const characters = std.unicode.utf8CountCodepoints(text) catch state.raise("text: the string is not valid UTF-8", .{});
-    if (characters > language.max_length) state.raise("text: expected at most {d} characters, got {d}", .{ language.max_length, characters });
+/// Characters the code page doesn't have become `?` (`language.encode`). Raises an error that names
+/// `label` if the value isn't a valid UTF-8 string or is longer than the game allows
+/// (`language.max_length`).
+pub fn textOf(state: *State, arena: Allocator, given: i32, comptime label: []const u8) []const u8 {
+    const text = state.toString(given) orelse state.raise(label ++ ": expected a string, got {s}", .{state.typeName(given)});
+    const characters = std.unicode.utf8CountCodepoints(text) catch state.raise(label ++ ": the string is not valid UTF-8", .{});
+    if (characters > language.max_length) state.raise(label ++ ": expected at most {d} characters, got {d}", .{ language.max_length, characters });
     var buffer: [language.max_length]u8 = undefined;
-    return arena.dupe(u8, language.encode(&buffer, text)) catch state.raise("text: out of memory", .{});
+    return arena.dupe(u8, language.encode(&buffer, text)) catch state.raise(label ++ ": out of memory", .{});
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }
 
 test "records can be read and changed by number and by name" {
@@ -660,10 +687,12 @@ test "Records.snapshot" {
     records.guns[0].range = 5;
     records.text[0] = "y";
     records.campaign = try .of(&.{1});
+    records.missions[11].carrier = .yamato;
     saved.restore(&records);
     try std.testing.expectEqual(0, records.guns[0].range);
     try std.testing.expectEqualStrings("x", records.text[0]);
     try std.testing.expectEqual(game.gameflow.Order.original, records.campaign);
+    try std.testing.expectEqual(.reliant, records.missions[11].carrier);
 }
 
 test "the field names scripts see don't change" {

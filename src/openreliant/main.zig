@@ -311,8 +311,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer game_modes.deinit();
     const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .option_pages = &option_pages, .bindings_file = settings_file, .modes = &game_modes };
     try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
-    // The campaign flies its missions in the order the load scripts leave (`records.campaign`).
+    // The campaign flies its missions in the order the load scripts leave (`records.campaign`), and
+    // makes of each what they leave (`records.missions`).
     game.gameflow.install(records.campaign);
+    game.gameflow.installMissions(records.missions);
     // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
     // scripts while a game runs (`GameScripts`).
     const presentation = try scripting.Presentation.start(gpa, io, mods.list, &records, version.string, shared);
@@ -1058,7 +1060,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             flow.flown = flight;
             play.number = flight.mission;
             play.file_number = flight.file orelse flight.mission;
-            play.objectives = flight.objectives;
+            play.objectives = flight.objectives orelse game.gameflow.campaignObjectives(flight.mission);
             play.wing = flight.wing;
             play.file = missionFile(io, arena, directory, &resources, play.file_number, objects.mission25_second_part) catch |err| switch (err) {
                 error.MissingMission => {
