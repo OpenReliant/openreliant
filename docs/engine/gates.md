@@ -158,11 +158,14 @@ wide on either side. Its endpoints stream particles with a 120-tick life.
 The opening depth follows square-root easing. Ring spacing is 900 units for ships without
 components and 4000 for ships with them. Rings start updating once the depth exceeds 800.
 Their radii grow from five percent of the ship type's warp size to its full size. The
-extension then moves the rings along the tunnel. At entry, the portal clips the ship,
-the departure sound plays and the player's camera holds view 10. The ship moves forward
-while the tunnel fades. Fighters stretch along their drawn Z axis between progress 0.2 and
-0.6, without changing their flight orientation. The order hides the ship and queues Warp In at its target, keeping
-the sequence number. A self-targeted departure ends without an arrival.
+extension then moves the rings along the tunnel. At entry, the portal clips the ship, the
+departure sound plays and the player's camera holds view 10. The ship moves forward along its
+own orientation while the tunnel fades (`0x0041F039`). Fighters stretch along their drawn Z axis
+between progress 0.2 and 0.6, without changing their flight orientation: each frame the game
+copies the object's orientation into its frame and stretches that copy (`0x0041F129`,
+`0x0041F13F`), so the stretch never builds on the frame before. The order hides the ship and
+queues Warp In at its target, keeping the sequence number. A self-targeted departure ends without
+an arrival.
 
 Warp In (`0x0041E5C0`, `0x0041F260`) stops the ship and uses the target's orientation. The
 sequence spreads arrivals along the target's X axis: 0, -3000, +3000, -6000, +6000. It

@@ -115,6 +115,12 @@ pub fn halfTurn(angle: f32) f32 {
     return angle;
 }
 
+/// OpenReliant's: whether each of `v`'s components is a finite number, neither infinite nor NaN.
+pub fn isFinite(v: Vector) bool {
+    for (@as([3]f32, v)) |component| if (!std.math.isFinite(component)) return false;
+    return true;
+}
+
 /// `v` scaled to a length of 1 (`vec3_normalize`, `0x004C1370`). The zero vector becomes a tiny
 /// one pointing forward.
 pub fn normalize(v: Vector) Vector {
@@ -495,6 +501,12 @@ test halfTurn {
     try std.testing.expectApproxEqAbs(std.math.tau - 4, halfTurn(-4), 1e-6);
     // Once only: two turns past, it comes round by one.
     try std.testing.expectApproxEqAbs(8 - std.math.tau, halfTurn(8), 1e-6);
+}
+
+test isFinite {
+    try std.testing.expect(isFinite(.{ 1, -2, 3e38 }));
+    try std.testing.expect(!isFinite(.{ 0, std.math.nan(f32), 0 }));
+    try std.testing.expect(!isFinite(.{ 0, 0, -std.math.inf(f32) }));
 }
 
 test normalize {
