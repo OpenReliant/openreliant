@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.10.0](https://github.com/OpenReliant/openreliant/compare/v0.9.0...v0.10.0) (2026-10-10)
+
+
+### Features
+
+* OpenReliant tells the player when a newer release is out ([#1063](https://github.com/OpenReliant/openreliant/issues/1063)) ([d7ad8ab](https://github.com/OpenReliant/openreliant/commit/d7ad8ab708a25b65614599a86fa2e04b5ef599fa)), closes [#1062](https://github.com/OpenReliant/openreliant/issues/1062)
+* sltool converts Battlestar Galactica's models to glTF ([#1038](https://github.com/OpenReliant/openreliant/issues/1038)) ([8e580d9](https://github.com/OpenReliant/openreliant/commit/8e580d977251b6854227139f7356779ff1b3791e))
+* sltool reads Battlestar Galactica's archives ([#1035](https://github.com/OpenReliant/openreliant/issues/1035)) ([078600b](https://github.com/OpenReliant/openreliant/commit/078600bec9b372601a21cc84f32124f6316e73d2))
+* the editor link, and openreliant debug to step through mission scripts ([#1058](https://github.com/OpenReliant/openreliant/issues/1058)) ([0f01ec9](https://github.com/OpenReliant/openreliant/commit/0f01ec91f536e14e217ece884911bc9fac868a35))
+
+
+### Fixes
+
+* a mod's license.txt and Markdown files don't count as game files ([#1047](https://github.com/OpenReliant/openreliant/issues/1047)) ([cf5b79f](https://github.com/OpenReliant/openreliant/commit/cf5b79ffe0b119f52e5c186cd6cfd86ba3c0d149)), closes [#1043](https://github.com/OpenReliant/openreliant/issues/1043)
+* a warping ship moves along its own orientation, and OpenAL gets only finite values ([#1050](https://github.com/OpenReliant/openreliant/issues/1050)) ([7d744a5](https://github.com/OpenReliant/openreliant/commit/7d744a569114335dc4adeaad99730826668b22c9)), closes [#971](https://github.com/OpenReliant/openreliant/issues/971)
+* settings changed in the rooms are saved when the window closes there ([#1048](https://github.com/OpenReliant/openreliant/issues/1048)) ([7c43002](https://github.com/OpenReliant/openreliant/commit/7c43002ccc9fd1916f0f95cd8a6edb227ec169e3)), closes [#940](https://github.com/OpenReliant/openreliant/issues/940)
+* the engine's sound and the radio's line stop when a mission ends ([#1046](https://github.com/OpenReliant/openreliant/issues/1046)) ([af98169](https://github.com/OpenReliant/openreliant/commit/af98169c04317e11709bf8608aed33d639d14c5b)), closes [#973](https://github.com/OpenReliant/openreliant/issues/973) [#1045](https://github.com/OpenReliant/openreliant/issues/1045)
+* the pause menu's joystick and monitor icons are solid, as the original draws them ([#1054](https://github.com/OpenReliant/openreliant/issues/1054)) ([fe08882](https://github.com/OpenReliant/openreliant/commit/fe0888249c5048f2d21d43baa5b80385996e5d6d)), closes [#1055](https://github.com/OpenReliant/openreliant/issues/1055)
+* the player's files are written safely, and a save after its companions ([#1049](https://github.com/OpenReliant/openreliant/issues/1049)) ([d9b5351](https://github.com/OpenReliant/openreliant/commit/d9b535115651a8e97278a044a479892f7bdf0c2c)), closes [#939](https://github.com/OpenReliant/openreliant/issues/939)
+
+
+### Documentation
+
+* CONTRIBUTING.md says which text uses which spelling ([#1044](https://github.com/OpenReliant/openreliant/issues/1044)) ([cb1c153](https://github.com/OpenReliant/openreliant/commit/cb1c1533974e301dbce4ccda40c4b4e6e5505900))
+* one website section for where OpenReliant stands and what's coming ([#1064](https://github.com/OpenReliant/openreliant/issues/1064)) ([c384d1a](https://github.com/OpenReliant/openreliant/commit/c384d1aca10dbb868bf0a2a37f3eabc8cb0b8ca8))
+* StarLancer's editor was Warthog's, and a full client is our Snout ([#1061](https://github.com/OpenReliant/openreliant/issues/1061)) ([9a2ab26](https://github.com/OpenReliant/openreliant/commit/9a2ab265b787b25969951383d09a65bd7ed485d4))
+* the website's status says plainly what works ([#1033](https://github.com/OpenReliant/openreliant/issues/1033)) ([7cd642a](https://github.com/OpenReliant/openreliant/commit/7cd642a8e32e1eb27a5018b8fd56018c29470fe9))
+
 ## [0.9.0](https://github.com/OpenReliant/openreliant/compare/v0.8.1...v0.9.0) (2026-10-09)
 
 
