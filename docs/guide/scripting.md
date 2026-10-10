@@ -159,7 +159,7 @@ Some functions only work in some kinds of script:
 
 ### In a network game
 
-Network games come in 1.1 ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The scripts
+Network games come after 1.0 ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The scripts
 are already split the way they will run in them, so a mod written now works there too if it keeps
 to these rules:
 

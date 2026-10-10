@@ -28,7 +28,7 @@ Every change beyond a trivial one has an issue, and its pull request closes it.
    the author in a comment when one helps.
 2. Work on one feature at a time, on its own branch.
 3. Give anything you find and leave for later an issue of its own, under the milestone of the
-   release it belongs to, or Enhancements for an improvement over the original, and link it from
+   roadmap it belongs to, or Enhancements for an improvement over the original, and link it from
    the code and the docs where the gap is:
 
    ```zig
