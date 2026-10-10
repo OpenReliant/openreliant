@@ -79,6 +79,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | Option | Description |
 |---|---|
 | `--no-mods` | Start without the mods in the game's `mods` folder ([Modding](modding.md)) |
+| `--mods-catalogue <url>` | The URL of the catalogue of mods on the web, a `mods.json` index, which the mods screen's GET MODS button opens ([Getting mods from the catalogue](modding.md#getting-mods-from-the-catalogue)). The OpenReliant mods site's by default; `none` hides GET MODS |
 | `--no-intro` | Start without the three movies the game plays as it starts, as `--mission` and `--screenshot` do |
 | `--developer-mode` | The tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading when they or their shaders are saved ([Scripting](scripting.md#the-console)) |
 | `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls, the `[OpenReliant]` settings and the details in `[Device]` are not read, so that it comes out the same each time |

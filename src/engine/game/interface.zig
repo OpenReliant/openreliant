@@ -22,6 +22,7 @@ pub const in_game_options = @import("interface/in_game_options.zig");
 pub const induction = @import("interface/induction.zig");
 pub const locker = @import("interface/locker.zig");
 pub const main_menu = @import("interface/main_menu.zig");
+pub const mod_catalogue = @import("interface/mod_catalogue.zig");
 pub const mod_manager = @import("interface/mod_manager.zig");
 pub const mod_options = @import("interface/mod_options.zig");
 pub const game_modes = @import("interface/game_modes.zig");

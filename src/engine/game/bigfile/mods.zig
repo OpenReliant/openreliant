@@ -260,11 +260,10 @@ pub const Mod = struct {
     /// Returns null otherwise. An invalid version is logged and ignored.
     fn needsLater(mod: Mod, running: std.SemanticVersion) ?std.SemanticVersion {
         const text = mod.about(.openreliant) orelse return null;
-        const needed = parseVersion(text) orelse {
+        return versionNeeded(text, running) catch {
             log.warn("{s}: {s}: ignoring {s}={s}, which is not a valid version", .{ mod.name, manifest_name, Field.openreliant.key(), text });
             return null;
         };
-        return if (needed.order(running) == .gt) needed else null;
     }
 
     /// The number of files in the mod, including its manifest, thumbnail and scripts.
@@ -1013,7 +1012,7 @@ fn isScript(name: []const u8) bool {
 
 /// Parses a version such as `0.7` or `0.7.1`. A missing patch number counts as 0. Returns null if
 /// `text` isn't a version.
-fn parseVersion(text: []const u8) ?std.SemanticVersion {
+pub fn parseVersion(text: []const u8) ?std.SemanticVersion {
     var buffer: [max_version]u8 = undefined;
     const full = if (std.mem.count(u8, text, ".") == 1)
         std.mem.print(&buffer, "{s}.0", .{text}) catch return null
@@ -1024,6 +1023,14 @@ fn parseVersion(text: []const u8) ?std.SemanticVersion {
 
 /// The longest version string `parseVersion` accepts.
 const max_version = 64;
+
+/// The version `text` names, such as `0.7` or `0.7.1`, if it is newer than `running`; null if it
+/// isn't. `error.BadVersion` if `text` isn't a version. The mods' manifests and the catalogue of
+/// mods on the web both say which OpenReliant a mod needs this way.
+pub fn versionNeeded(text: []const u8, running: std.SemanticVersion) error{BadVersion}!?std.SemanticVersion {
+    const needed = parseVersion(text) orelse return error.BadVersion;
+    return if (needed.order(running) == .gt) needed else null;
+}
 
 /// Whether `name` is a checksum file, by its extension, ignoring case.
 fn isChecksum(name: []const u8) bool {

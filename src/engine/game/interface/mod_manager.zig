@@ -104,8 +104,8 @@ pub const description_lines: Canvas.Lines = .{ .width = details_lines.width, .he
 
 /// The box the chosen mod's thumbnail fits in, at the panel's top, keeping its proportions, and the
 /// gap below it. The description takes the lines left below it.
-const thumbnail_box: [2]i32 = .{ details_lines.width, 70 };
-const thumbnail_gap = 6;
+pub const thumbnail_box: [2]i32 = .{ details_lines.width, 70 };
+pub const thumbnail_gap = 6;
 /// The most pixels' bytes a thumbnail is read to, far more than the panel shows.
 const most_thumbnail_bytes = 16 * 1024 * 1024;
 
@@ -154,6 +154,13 @@ const options_button: canvas_module.Button = .{ .at = options_button_at, .label 
 const options_label_from = 33;
 const options_rect: Rect = .{ .x = @intCast(options_button_at[0]), .y = @intCast(options_button_at[1]), .width = 100, .height = 15 };
 
+/// GET MODS, above the list's frame on the left, opposite the restart note: a button with the
+/// settings screen's shapes that opens the GET MODS screen (`mod_catalogue`). Shown only when a
+/// catalogue URL is given (`Source.catalogue`).
+const catalogue_button_at: [2]i32 = .{ list_frame.at[0], list_frame.at[1] - restart_note_above - 2 };
+const catalogue_button: canvas_module.Button = .{ .at = catalogue_button_at, .label = .{ .text = .{ .words = "GET MODS" }, .at = .{ catalogue_button_at[0] + options_label_from, catalogue_button_at[1] - 1 } } };
+const catalogue_rect: Rect = .{ .x = @intCast(catalogue_button_at[0]), .y = @intCast(catalogue_button_at[1]), .width = 100, .height = 15 };
+
 /// A mod in the list and whether it is on.
 const Row = struct {
     mod: *const Mod,
@@ -177,30 +184,49 @@ const Row = struct {
 };
 
 /// The thumbnails of the mods chosen so far, by their names, each read once and kept until the
-/// front end closes (`deinit`), as the device keeps a picture it draws for good.
-const Thumbnails = struct {
+/// front end closes (`deinit`), as the device keeps a picture it draws for good. The GET MODS
+/// screen keeps the catalogue's thumbnails in one too, by the mods' ids.
+pub const Thumbnails = struct {
     gpa: ?Allocator = null,
     entries: std.ArrayList(Entry) = .empty,
     /// How many times REFRESH has read the `mods` folder again; only the thumbnails read since
     /// the last time are used, as a mod's thumbnail may have changed.
     listing: u32 = 0,
 
-    const Entry = struct { name: []u8, listing: u32, image: ?*srtexture.Image };
+    /// A thumbnail kept: the mod's name, the listing it was read in, and its picture, or null for
+    /// a mod without one.
+    pub const Entry = struct { name: []u8, listing: u32, image: ?*srtexture.Image };
 
     /// `mod`'s thumbnail, read the first time it is asked for in this listing; null if it has
     /// none, or it can't be read, which the log says.
     fn of(thumbnails: *Thumbnails, gpa: Allocator, mod: *const Mod) ?*srtexture.Image {
-        for (thumbnails.entries.items) |entry| {
-            if (entry.listing == thumbnails.listing and std.mem.eql(u8, entry.name, mod.name)) return entry.image;
-        }
-        thumbnails.gpa = gpa;
+        if (thumbnails.kept(mod.name)) |entry| return entry.image;
         const image = read(gpa, mod);
-        const name = gpa.dupe(u8, mod.name) catch return forget(gpa, image);
-        thumbnails.entries.append(gpa, .{ .name = name, .listing = thumbnails.listing, .image = image }) catch {
-            gpa.free(name);
-            return forget(gpa, image);
+        return if (thumbnails.keep(gpa, mod.name, image)) image else null;
+    }
+
+    /// The thumbnail kept for the mod `name` in this listing, if there is one.
+    pub fn kept(thumbnails: Thumbnails, name: []const u8) ?Entry {
+        for (thumbnails.entries.items) |entry| {
+            if (entry.listing == thumbnails.listing and std.mem.eql(u8, entry.name, name)) return entry;
+        }
+        return null;
+    }
+
+    /// Keeps `image`, or none, as the thumbnail of the mod `name` in this listing. Returns false
+    /// when there is no memory to keep it; the image is freed then.
+    pub fn keep(thumbnails: *Thumbnails, gpa: Allocator, name: []const u8, image: ?*srtexture.Image) bool {
+        thumbnails.gpa = gpa;
+        const copied = gpa.dupe(u8, name) catch {
+            forgetThumbnail(gpa, image);
+            return false;
         };
-        return image;
+        thumbnails.entries.append(gpa, .{ .name = copied, .listing = thumbnails.listing, .image = image }) catch {
+            gpa.free(copied);
+            forgetThumbnail(gpa, image);
+            return false;
+        };
+        return true;
     }
 
     /// `mod`'s thumbnail decoded, with its mipmaps; null if it has none, or it can't be read.
@@ -210,34 +236,14 @@ const Thumbnails = struct {
             return null;
         }) orelse return null;
         defer gpa.free(bytes);
-        const picture = png.readLimited(gpa, bytes, most_thumbnail_bytes) catch |err| {
-            log.warn("{s}: {s} is left out: {s}", .{ mod.name, bigfile.mods.thumbnail_name, @errorName(err) });
-            return null;
-        };
-        const image = gpa.create(srtexture.Image) catch {
-            picture.deinit(gpa);
-            return null;
-        };
-        image.* = srtexture.mipmapped(gpa, picture) catch {
-            gpa.destroy(image);
-            return null;
-        };
-        return image;
+        return decodeThumbnail(gpa, bytes, mod.name);
     }
 
-    /// Lets go of `image`, which there was no room to keep; returns null.
-    fn forget(gpa: Allocator, image: ?*srtexture.Image) ?*srtexture.Image {
-        if (image) |held| {
-            held.deinit(gpa);
-            gpa.destroy(held);
-        }
-        return null;
-    }
-
-    fn deinit(thumbnails: *Thumbnails) void {
+    /// Frees every thumbnail kept.
+    pub fn deinit(thumbnails: *Thumbnails) void {
         const gpa = thumbnails.gpa orelse return;
         for (thumbnails.entries.items) |entry| {
-            _ = forget(gpa, entry.image);
+            forgetThumbnail(gpa, entry.image);
             gpa.free(entry.name);
         }
         thumbnails.entries.deinit(gpa);
@@ -245,9 +251,35 @@ const Thumbnails = struct {
     }
 };
 
+/// Decodes the thumbnail of the mod `name` from the PNG `bytes`, with its mipmaps. Returns null if
+/// it can't be decoded, with a warning in the log. The GET MODS screen uses it for the catalogue's
+/// thumbnails too.
+pub fn decodeThumbnail(gpa: Allocator, bytes: []const u8, name: []const u8) ?*srtexture.Image {
+    const picture = png.readLimited(gpa, bytes, most_thumbnail_bytes) catch |err| {
+        log.warn("{s}: the thumbnail is left out: {s}", .{ name, @errorName(err) });
+        return null;
+    };
+    const image = gpa.create(srtexture.Image) catch {
+        picture.deinit(gpa);
+        return null;
+    };
+    image.* = srtexture.mipmapped(gpa, picture) catch {
+        gpa.destroy(image);
+        return null;
+    };
+    return image;
+}
+
+/// Frees a thumbnail made by `decodeThumbnail`, if there is one.
+pub fn forgetThumbnail(gpa: Allocator, image: ?*srtexture.Image) void {
+    const held = image orelse return;
+    held.deinit(gpa);
+    gpa.destroy(held);
+}
+
 /// The size `picture` is drawn at in the thumbnail's box: as large as fits, keeping its
 /// proportions.
-fn thumbnailSize(picture: *const srtexture.Image) [2]i32 {
+pub fn thumbnailSize(picture: *const srtexture.Image) [2]i32 {
     const width: f32 = @floatFromInt(picture.width());
     const height: f32 = @floatFromInt(picture.height());
     const fit = @min(@as(f32, @floatFromInt(thumbnail_box[0])) / width, @as(f32, @floatFromInt(thumbnail_box[1])) / height);
@@ -258,6 +290,8 @@ fn thumbnailSize(picture: *const srtexture.Image) [2]i32 {
 pub const Item = union(enum) {
     button: Button,
     options,
+    /// GET MODS.
+    catalogue,
     /// An arrow that moves the chosen mod up or down the order.
     move: Arrow,
     scroll: Arrow,
@@ -284,6 +318,8 @@ pub const Leave = union(enum) {
     end: settings.End,
     /// OPTIONS: on to the options of the mod of this name.
     options: []const u8,
+    /// GET MODS: on to the GET MODS screen.
+    catalogue,
 };
 
 /// The mods, and where to find them again.
@@ -298,6 +334,9 @@ pub const Source = struct {
     version: ?std.SemanticVersion,
     /// The pages of options the mods' scripts offer.
     pages: mod_options.Pages,
+    /// The URL of the catalogue of mods on the web (`bigfile.catalogue`), which GET MODS opens. Null
+    /// hides GET MODS.
+    catalogue: ?[]const u8 = null,
 };
 
 /// The screen's state.
@@ -320,6 +359,8 @@ pub const ModManager = struct {
     /// Whether the chosen mod's scripts offer a page of options, which OPTIONS opens; kept up to date
     /// as each pass begins.
     has_options: bool = false,
+    /// Whether a catalogue URL is given, so GET MODS is shown.
+    has_catalogue: bool = false,
     /// The mods REFRESH opened, which the rows are of from then on, until the screen is left
     /// (`release`).
     scanned: ?struct { gpa: Allocator, mods: bigfile.Mods } = null,
@@ -339,6 +380,7 @@ pub const ModManager = struct {
         screen.list = .of(screen.count, shown_rows, context.ticks);
         if (screen.count > 0) screen.chosen = 0;
         screen.has_options = screen.optionsOf(context.source) != null;
+        screen.has_catalogue = context.source.catalogue != null;
         screen.showThumbnail(context.source);
     }
 
@@ -385,7 +427,7 @@ pub const ModManager = struct {
     /// the ones removed, with the state and the order the settings file has. The list goes back to
     /// the top, with the mod that was chosen still chosen where it remains. The mods as they now
     /// stand are the ones CANCEL CHANGES puts back.
-    fn refresh(screen: *ModManager, context: Context) Allocator.Error!void {
+    pub fn refresh(screen: *ModManager, context: Context) Allocator.Error!void {
         const source = context.source;
         const order: Order = .{ .profile = context.settings_file.profile };
         var found: bigfile.Mods = try .installed(source.gpa, source.io, source.game, source.version, order);
@@ -435,6 +477,7 @@ pub const ModManager = struct {
         screen.lit = null;
         screen.list.scrollBy(pointer.wheel, context.keyboard, context.ticks);
         screen.has_options = screen.optionsOf(context.source) != null;
+        screen.has_catalogue = context.source.catalogue != null;
         const under = screen.itemAt(pointer.at) orelse return null;
         if (!pointer.down) {
             screen.lit = under;
@@ -449,6 +492,7 @@ pub const ModManager = struct {
                 .cancel_changes => try screen.cancel(context),
             },
             .options => if (screen.optionsOf(context.source)) |mod| return .{ .options = mod },
+            .catalogue => return .catalogue,
             .move => |way| try screen.move(way, context),
             .scroll => |way| {
                 screen.list.scrollHeld(way, context.ticks);
@@ -464,6 +508,7 @@ pub const ModManager = struct {
     pub fn itemAt(screen: ModManager, at: [2]i32) ?Item {
         for (std.enums.values(Button)) |button| if (button.rect().holds(at)) return .{ .button = button };
         if (screen.has_options and options_rect.holds(at)) return .options;
+        if (screen.has_catalogue and catalogue_rect.holds(at)) return .catalogue;
         if (arrows.itemAt(at)) |arrow| return .{ .scroll = arrow };
         if (movers.itemAt(at)) |arrow| return .{ .move = arrow };
         for (screen.list.rows.first..screen.list.rows.end(), 0..) |row, place| {
@@ -547,6 +592,7 @@ pub const ModManager = struct {
         try screen.drawList(canvas, art);
         try screen.drawDetails(canvas);
         if (screen.has_options) try options_button.draw(canvas, art, settings.button_shapes, std.meta.eql(screen.lit, Item.options));
+        if (screen.has_catalogue) try catalogue_button.draw(canvas, art, settings.button_shapes, std.meta.eql(screen.lit, Item.catalogue));
         for (std.enums.values(Button)) |button| {
             try button.shown().draw(canvas, art, settings.button_shapes, std.meta.eql(screen.lit, Item{ .button = button }));
         }
@@ -591,7 +637,7 @@ pub const ModManager = struct {
         return switch (screen.lit orelse return null) {
             .scroll => |arrow| if (pair == .scroll) arrow else null,
             .move => |arrow| if (pair == .move) arrow else null,
-            .button, .options, .check, .choose => null,
+            .button, .options, .catalogue, .check, .choose => null,
         };
     }
 
@@ -1071,6 +1117,20 @@ test "the list scrolls, and OK, MAIN MENU and Escape end the screen" {
     try std.testing.expectEqual(Leave{ .end = .main_menu }, fixture.click(Button.leave.rect().centre()).?);
     fixture.keyboard.down[input.scan.escape] = true;
     try std.testing.expectEqual(Leave{ .end = .back }, fixture.screen.frame(fixture.context(.{})).?);
+}
+
+test "GET MODS opens the catalogue screen when a catalogue URL is given" {
+    var fixture: Fixture = undefined;
+    try fixture.init("");
+    defer fixture.deinit();
+    // Without a catalogue URL, there is no button.
+    try std.testing.expectEqual(null, fixture.screen.itemAt(catalogue_rect.centre()));
+    try std.testing.expectEqual(null, fixture.click(catalogue_rect.centre()));
+    var context = fixture.context(.{ .at = catalogue_rect.centre(), .down = true });
+    context.source.catalogue = "https://example.invalid/mods.json";
+    fixture.screen.enter(context);
+    try std.testing.expectEqual(Item.catalogue, fixture.screen.itemAt(catalogue_rect.centre()).?);
+    try std.testing.expectEqual(Leave.catalogue, fixture.screen.frame(context).?);
 }
 
 test "a mod the settings file can't keep stays on and in place" {

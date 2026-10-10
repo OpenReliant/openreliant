@@ -12,6 +12,9 @@ const FrameSize = engine.surrender.srd3d.device.FrameSize;
 const help = @import("help.zig");
 const version = @import("version");
 
+/// What `--mods-catalogue` takes to hide GET MODS.
+pub const no_catalogue = "none";
+
 /// Everything `openreliant` takes on its command line, in the order the help page lists them.
 pub const Arg = enum {
     @"--original",
@@ -54,6 +57,7 @@ pub const Arg = enum {
     @"--no-compressor",
     @"--no-sound",
     @"--no-mods",
+    @"--mods-catalogue",
     @"--no-intro",
     @"--developer-mode",
     @"--screenshot",
@@ -140,6 +144,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--no-compressor" = .{ .section = .sound, .text = "leave the mix's loudness as it is, only keeping its peaks in check" },
     .@"--no-sound" = .{ .section = .sound, .text = "play without sound" },
     .@"--no-mods" = .{ .section = .other, .text = "start without the mods in the game's mods folder" },
+    .@"--mods-catalogue" = .{ .section = .other, .value = "<url>", .text = "the URL of the catalogue of mods on the web, a mods.json index, which the mods screen's GET MODS button opens. The OpenReliant mods site's by default; " ++ no_catalogue ++ " hides GET MODS" },
     .@"--no-intro" = .{ .section = .other, .text = "start without the three movies the game plays as it starts, as --mission and --screenshot do" },
     .@"--developer-mode" = .{ .section = .other, .text = "the tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading when they or their shaders are saved" },
     .@"--screenshot" = .{ .section = .other, .value = "<file.png>", .text = "draw one frame, with the camera settled, to a PNG, and quit; the controls, the [OpenReliant] settings and the details in [Device] are not read, so that it comes out the same each time; the mods the mods screen turned off stay off" },
@@ -255,6 +260,9 @@ pub const Options = struct {
     intro: bool = true,
     /// Whether to load the mods in the game's `mods` folder (`game.bigfile.Mods`).
     mods: bool = true,
+    /// The URL of the catalogue of mods on the web (`bigfile.catalogue`), which the mods screen's
+    /// GET MODS opens; null hides GET MODS.
+    mods_catalogue: ?[]const u8 = game.bigfile.catalogue.default_url,
     /// Whether the tools for writing mods' scripts are on: the scripting console, and folder mods'
     /// scripts reloading as they're saved (`console.Driver`).
     developer_mode: bool = false,
@@ -464,6 +472,7 @@ pub const Options = struct {
                 if (axes.next() != null) return error.BadValue;
             },
             .@"--no-mods" => options.mods = false,
+            .@"--mods-catalogue" => options.mods_catalogue = if (std.mem.eql(u8, value, no_catalogue)) null else value,
             .@"--no-intro" => options.intro = false,
             .@"--developer-mode" => options.developer_mode = true,
             .@"--fullscreen" => options.fullscreen = true,
@@ -631,6 +640,9 @@ test Options {
     // Mods are loaded unless `--no-mods` is given.
     try std.testing.expect((try parsed(&.{})).mods);
     try std.testing.expect(!(try parsed(&.{"--no-mods"})).mods);
+    try std.testing.expectEqualStrings(game.bigfile.catalogue.default_url, (try parsed(&.{})).mods_catalogue.?);
+    try std.testing.expectEqualStrings("https://example.invalid/mods.json", (try parsed(&.{ "--mods-catalogue", "https://example.invalid/mods.json" })).mods_catalogue.?);
+    try std.testing.expectEqual(null, (try parsed(&.{ "--mods-catalogue", "none" })).mods_catalogue);
     // As the game has it unless told otherwise.
     try std.testing.expectEqual(null, (try parsed(&.{})).difficulty);
     try std.testing.expectEqual(.hard, (try parsed(&.{ "--difficulty", "hard" })).difficulty.?);

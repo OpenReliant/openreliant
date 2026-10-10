@@ -1895,7 +1895,7 @@ number. A script can set a field to either.
 
 ### FrontEndScreen
 
-`main_menu`, `game_options`, `audio`, `briefing`, `landing_movie`, `pilot_roster`, `saved_games`, `connection`, `video`, `controls`, `mods`, `mod_options`, `game_modes`, `mode_briefing`, `mode_ending`, or a number.
+`main_menu`, `game_options`, `audio`, `briefing`, `landing_movie`, `pilot_roster`, `saved_games`, `connection`, `video`, `controls`, `mods`, `mod_options`, `game_modes`, `mode_briefing`, `mode_ending`, `mod_catalogue`, or a number.
 
 ### Key
 
