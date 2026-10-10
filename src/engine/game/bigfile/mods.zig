@@ -71,9 +71,18 @@ pub const script_extension = ".luau";
 /// matched ignoring case. Like scripts, shaders don't replace game files.
 pub const shader_extensions = [_][]const u8{ ".frag", ".glsl" };
 
-/// Files that belong to the mod itself rather than replacing game files, besides its scripts and
-/// shaders.
-const own_files = [_][]const u8{ manifest_name, thumbnail_name };
+/// A mod's licence notice, for its players. The game never reads a file with this name, so it
+/// doesn't replace a game file, and mods that each carry one don't replace each other's
+/// ([#1043](https://github.com/OpenReliant/openreliant/issues/1043)).
+const license_name = "license.txt";
+
+/// The file extension of Markdown, matched ignoring case. The game never reads Markdown, so a
+/// mod's documentation in it, such as `README.md`, doesn't replace game files either.
+const markdown_extension = ".md";
+
+/// Files that belong to the mod itself rather than replacing game files, besides its scripts,
+/// shaders and Markdown files.
+const own_files = [_][]const u8{ manifest_name, thumbnail_name, license_name };
 
 /// The fields of a mod's manifest, each under its key in `manifest_section`.
 pub const Field = enum {
@@ -980,12 +989,13 @@ fn freeIndex(comptime Value: type, index: *std.StringHashMapUnmanaged(Value), gp
     index.deinit(gpa);
 }
 
-/// Whether the file `name` belongs to the mod itself (`own_files` or a script), ignoring case.
+/// Whether the file `name` belongs to the mod itself (`own_files`, a script, a shader or a
+/// Markdown file), ignoring case.
 fn isOwn(name: []const u8) bool {
     for (own_files) |own| {
         if (std.ascii.eqlIgnoreCase(name, own)) return true;
     }
-    return isScript(name) or isShader(name);
+    return isScript(name) or isShader(name) or hasExtension(name, &.{markdown_extension});
 }
 
 /// Whether `name` is a shader, ignoring case.
@@ -1000,8 +1010,8 @@ fn hasExtension(name: []const u8, extensions: []const []const u8) bool {
     return false;
 }
 
-/// Whether `name` is a file that replaces or adds a game file: anything except the manifest, the
-/// thumbnail and scripts.
+/// Whether `name` is a file that replaces or adds a game file: anything that doesn't belong to the
+/// mod itself (`isOwn`).
 fn isGameFile(name: []const u8) bool {
     return !isOwn(name);
 }
@@ -1229,7 +1239,11 @@ test FileSet {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    for ([_][]const u8{ "mods/a/SKY.TGA", "mods/a/mod.ini", "mods/b/sky.tga", "mods/c/mod.ini", "mods/c/other.wav" }) |path| {
+    for ([_][]const u8{
+        "mods/a/SKY.TGA",   "mods/a/mod.ini", "mods/a/License.txt", "mods/a/README.md",
+        "mods/b/sky.tga",   "mods/c/mod.ini", "mods/c/other.wav",   "mods/c/license.txt",
+        "mods/c/readme.MD",
+    }) |path| {
         try tmp.dir.createDirPath(io, std.fs.path.dirname(path).?);
         try tmp.dir.writeFile(io, .{ .sub_path = path, .data = "x" });
     }
@@ -1237,9 +1251,12 @@ test FileSet {
     defer opened.close(gpa);
     var set: FileSet = try .of(gpa, &opened.list[0]);
     defer set.deinit(gpa);
-    // B replaces a's sky, whatever its case; c holds no file of a's, its manifest being its own.
+    // B replaces a's sky, whatever its case. C holds no file of a's: the manifests, the licence
+    // notices and the Markdown files belong to each mod, and replace nothing.
     try std.testing.expect(set.sharedWith(&opened.list[1]));
     try std.testing.expect(!set.sharedWith(&opened.list[2]));
+    try std.testing.expect(!opened.has("license.txt"));
+    try std.testing.expect(!opened.has("readme.md"));
 }
 
 test "the order says which mods are on and when they load" {
