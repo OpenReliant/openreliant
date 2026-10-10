@@ -1017,13 +1017,14 @@ pub const Radio = struct {
         radio.archive = null;
     }
 
-    /// `radio_reset` (`0x004560F0`), as a mission starts and as it ends: the line playing ended
-    /// (`speech_stop_all`, `0x004620D0`), the queue emptied, and the window naming no one.
+    /// `radio_reset` (`0x004560F0`), which `hud_init` calls as a mission starts: the queue emptied,
+    /// and the window naming no one. OpenReliant also ends the line playing (`stopSpeech`), which
+    /// the original has done as the mission before ended, and which the radio needs as it closes.
     ///
     /// **Fix:** the game leaves a film playing into the next mission, whose first line then starts
     /// before its window has opened; OpenReliant stops it.
     pub fn reset(radio: *Radio, sound: ?*hog_snd.Sound) void {
-        if (sound) |heard| radio.player.stop(radio.gpa, heard) else radio.player.deinit(radio.gpa);
+        if (sound) |heard| radio.stopSpeech(heard) else radio.player.deinit(radio.gpa);
         radio.dropLine();
         radio.movie.stop();
         radio.movie.waiting = false;
@@ -1033,6 +1034,13 @@ pub const Radio = struct {
         radio.write = 0;
         radio.read = 0;
         radio.reports = @splat(null);
+    }
+
+    /// `speech_stop_all` (`0x004620D0`), as a mission ends (`mission_end`, at `0x00494370`): the
+    /// line playing ends. The queue and the window are left as they are, and the next mission's
+    /// start clears them (`reset`).
+    pub fn stopSpeech(radio: *Radio, sound: *hog_snd.Sound) void {
+        radio.player.stop(radio.gpa, sound);
     }
 
     /// `speech_playing` (`0x004620A0`): whether a line plays (`cbox.Player.playing`).
@@ -1446,6 +1454,10 @@ test "a line nobody hears lasts as long as it would with sound" {
     clock.game_ticks += 1;
     radio.frame(ctx);
     try std.testing.expectEqual(0, radio.count);
+    // As a mission ends, the line playing stops at once.
+    try std.testing.expect(radio.speaking(&sound));
+    radio.stopSpeech(&sound);
+    try std.testing.expect(!radio.speaking(&sound));
     radio.reset(&sound);
     try std.testing.expect(!radio.speaking(&sound));
 }
