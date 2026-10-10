@@ -72,7 +72,11 @@ pub const Extra = struct {
     vtable: *const VTable,
 
     pub const VTable = struct {
-        /// Saved game `slot` of `call_sign` has been written.
+        /// Saved game `slot` of `call_sign` is being written: what's kept beside it is written first
+        /// (`Folder.store`). A failure fails the save.
+        storing: *const fn (context: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) Folder.StoreError!void,
+        /// Saved game `slot` of `call_sign` has been written: what an earlier save of the slot kept
+        /// beside it, and this one doesn't, can go.
         stored: *const fn (context: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) void,
         /// Saved game `slot` of `call_sign` has been loaded into the game.
         loaded: *const fn (context: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) void,
@@ -514,7 +518,7 @@ pub const autosave_string = 0x18A;
 /// `mission_end_record`'s save (`0x00475BF6` to `0x00475C28`), once a mission's end has moved the
 /// campaign on: the game as saved game 0 of the pilot, named for the mission it has moved on to,
 /// `prefix` being the game's string `autosave_string`.
-pub fn autosave(game: Game, folder: Folder, gpa: std.mem.Allocator, prefix: []const u8) (Folder.Error || std.mem.Allocator.Error)!void {
+pub fn autosave(game: Game, folder: Folder, gpa: std.mem.Allocator, prefix: []const u8) Folder.StoreError!void {
     var buffer: [name_room]u8 = undefined;
     const name = autosaveName(&buffer, prefix, game.campaign.mission) catch prefix;
     const saved = game.capture(name);
@@ -541,7 +545,7 @@ pub const Folder = struct {
     /// What else is kept with each saved game; null for nothing.
     extra: ?Extra = null,
 
-    pub const Error = error{ BadCallSign, NoSpaceLeft } || Io.Dir.WriteFileError || Io.Dir.CreateDirPathError;
+    pub const Error = error{ BadCallSign, NoSpaceLeft } || files.WriteAtomicError || Io.Dir.CreateDirPathError;
 
     /// The bytes of saved game `slot` of `call_sign`; null where there is none, or it can't be
     /// read.
@@ -576,7 +580,7 @@ pub const Folder = struct {
     }
 
     /// Writes `bytes` as the file of `extension` that goes with saved game `slot` of `call_sign`,
-    /// as `put` writes the saved game's own.
+    /// as `put` writes the saved game's own. Each is written safely (`files.writeAtomic`).
     pub fn putCompanion(folder: Folder, call_sign: []const u8, slot: u8, extension: []const u8, bytes: []const u8) Error!void {
         if (std.mem.findAny(u8, call_sign, winmain.Typed.file_name_refused) != null) return error.BadCallSign;
         var spelled: [files.max_path]u8 = undefined;
@@ -590,7 +594,7 @@ pub const Folder = struct {
         var joined: [files.max_path]u8 = undefined;
         const written = files.find(folder.io, folder.dir, path, &found) orelse
             try std.mem.print(&joined, "{s}/{s}", .{ saves, path[folder_name.len + 1 ..] });
-        try folder.dir.writeFile(folder.io, .{ .sub_path = written, .data = bytes });
+        try files.writeAtomic(folder.io, folder.dir, written, bytes);
     }
 
     /// Removes saved game `slot` of `call_sign`, where there is one, and what goes with it.
@@ -643,20 +647,27 @@ pub const Folder = struct {
     }
 
     /// Writes `save` as saved game `slot` of `call_sign` (`game_save`), with its `.mods` file
-    /// where the loadout's choice holds a mod's ship type or missile (`ModChoice`).
-    pub fn store(folder: Folder, gpa: std.mem.Allocator, call_sign: []const u8, slot: u8, save: *const Save) (Error || std.mem.Allocator.Error)!void {
+    /// where the loadout's choice holds a mod's ship type or missile (`ModChoice`), and what
+    /// `extra` keeps beside it. The files that go with the save are written first and the save
+    /// next, so a new save is only listed once they're all there, and a failure of any of them
+    /// fails the save and leaves the slot as it was. The files an earlier save of the slot had,
+    /// and this one doesn't, are removed last.
+    pub fn store(folder: Folder, gpa: std.mem.Allocator, call_sign: []const u8, slot: u8, save: *const Save) StoreError!void {
         const bytes = try write(gpa, save);
         defer gpa.free(bytes);
-        try folder.put(call_sign, slot, bytes);
-        if (save.mods.empty()) {
-            folder.removeCompanion(call_sign, slot, mods_extension);
-        } else {
+        if (!save.mods.empty()) {
             const text = try save.mods.text(gpa);
             defer gpa.free(text);
             try folder.putCompanion(call_sign, slot, mods_extension, text);
         }
+        if (folder.extra) |extra| try extra.vtable.storing(extra.context, folder, call_sign, slot);
+        try folder.put(call_sign, slot, bytes);
+        if (save.mods.empty()) folder.removeCompanion(call_sign, slot, mods_extension);
         if (folder.extra) |extra| extra.vtable.stored(extra.context, folder, call_sign, slot);
     }
+
+    /// The ways `store` can fail: a file's write, or the memory to build the save.
+    pub const StoreError = Error || std.mem.Allocator.Error;
 
     /// The most OpenReliant reads of a saved game, far past the game's.
     const most_read = 1 << 16;
@@ -992,6 +1003,45 @@ test Folder {
     _ = try tmp.dir.statFile(std.testing.io, folder_name ++ "/AceGAME04.mods/inside", .{});
 }
 
+test "a save whose companion files can't be written isn't written" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const Failing = struct {
+        fn storing(_: *anyopaque, _: Folder, _: []const u8, _: u8) Folder.StoreError!void {
+            return error.NoSpaceLeft;
+        }
+        fn ignored(_: *anyopaque, _: Folder, _: []const u8, _: u8) void {}
+    };
+    var context: u8 = 0;
+    const plain: Folder = .{ .io = std.testing.io, .dir = tmp.dir };
+    const failing: Folder = .{
+        .io = std.testing.io,
+        .dir = tmp.dir,
+        .extra = .{ .context = &context, .vtable = &.{ .storing = Failing.storing, .stored = Failing.ignored, .loaded = Failing.ignored, .removed = Failing.ignored } },
+    };
+    var save = testSave("First");
+    // In an empty slot, no save is written.
+    try std.testing.expectError(error.NoSpaceLeft, failing.store(gpa, "Ace", 2, &save));
+    try std.testing.expectEqual(null, plain.file(gpa, "Ace", 2));
+    // Over an older save, the older one stays as it was, with its `.mods` file, which a new save
+    // without mods' choices would remove once it's written.
+    try plain.store(gpa, "Ace", 2, &save);
+    const older_mods = "[Loadout]\nShip=pot:pot\n";
+    try plain.putCompanion("Ace", 2, mods_extension, older_mods);
+    var second = testSave("Second");
+    try std.testing.expectError(error.NoSpaceLeft, failing.store(gpa, "Ace", 2, &second));
+    var back = empty();
+    try std.testing.expect(plain.load(gpa, "Ace", 2, &back));
+    try std.testing.expectEqualStrings("First", back.name.slice());
+    const kept = plain.companion(gpa, "Ace", 2, mods_extension, most_mods_read).?;
+    defer gpa.free(kept);
+    try std.testing.expectEqualStrings(older_mods, kept);
+    // Written, the new save takes the older one's place, and its `.mods` file goes.
+    try plain.store(gpa, "Ace", 2, &second);
+    try std.testing.expectEqual(null, plain.companion(gpa, "Ace", 2, mods_extension, most_mods_read));
+}
+
 test Extra {
     const gpa = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
@@ -1002,9 +1052,11 @@ test Extra {
         const extension = ".KEPT";
         read: ?[]u8 = null,
 
-        fn stored(_: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) void {
-            folder.putCompanion(call_sign, slot, extension, "kept") catch unreachable;
+        fn storing(_: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) Folder.StoreError!void {
+            try folder.putCompanion(call_sign, slot, extension, "kept");
         }
+
+        fn stored(_: *anyopaque, _: Folder, _: []const u8, _: u8) void {}
 
         fn loaded(context: *anyopaque, folder: Folder, call_sign: []const u8, slot: u8) void {
             const kept: *@This() = @ptrCast(@alignCast(context));
@@ -1019,7 +1071,7 @@ test Extra {
     const folder: Folder = .{
         .io = std.testing.io,
         .dir = tmp.dir,
-        .extra = .{ .context = &kept, .vtable = &.{ .stored = Kept.stored, .loaded = Kept.loaded, .removed = Kept.removed } },
+        .extra = .{ .context = &kept, .vtable = &.{ .storing = Kept.storing, .stored = Kept.stored, .loaded = Kept.loaded, .removed = Kept.removed } },
     };
     var save = testSave("First");
     try folder.store(gpa, "Ace", 3, &save);
