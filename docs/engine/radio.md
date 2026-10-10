@@ -53,7 +53,8 @@ The pilots mods add follow the game's 194.
 `radio_reset` (`0x004560F0`), as `hud_init` readies a mission, empties the queue and names nobody;
 it also clears the remarks' state and the script's switches over them. **Fix:** the game leaves a
 film playing into the next mission, whose first line then starts before its window has opened;
-OpenReliant stops it.
+OpenReliant stops it. The line playing has already stopped as the mission before ended
+([Speech](sound.md#speech)).
 
 ## The window
 

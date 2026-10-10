@@ -165,6 +165,11 @@ keeps it going through three states (`0x0058CB04`):
 
 In view 13 neither is heard.
 
+Both sounds loop until they're ended. As a mission ends, `mission_end` (`0x004942B0`) ends the 2D
+sounds, then the music, then every 3D sound (`sound_3d_end_all`, `0x00481BA0`, called at
+`0x0049436B`), so the engine stops with the mission. OpenReliant does the same as it lets the
+mission go.
+
 **Fix:** a player whose ship starts in space, or launches from any other carrier, flies the whole
 mission without the engine's sound or the afterburner's, since the update does nothing until the
 engine has a voice. The campaign launches the player from the Reliant or the Yamato, but missions 81
@@ -209,6 +214,11 @@ decodes the line into the buffers as it plays ([Speech files](../formats/speech.
 decodes a line whole as it starts and plays it on the sample
 ([`cbox.zig`](../../src/engine/game/cbox.zig)), which then goes through OpenAL Soft's resampling
 and the master bus like every sound ([Sound](../port/sound.md)).
+
+As a mission ends, `mission_end` stops the speech after the 3D sounds (`speech_stop_all`,
+`0x004620D0`, called at `0x00494370`): it ends the eight streams and the speech sample, so a line
+still playing stops with the mission. OpenReliant stops the radio's line there too
+(`radio.Radio.stopSpeech`), and the next mission's start empties the radio's queue (`radio_reset`).
 
 **Improvement:** the recordings push past full scale in a few samples of every thousand, which the
 game cuts flat, and crackle; OpenReliant rounds the peaks off, unchanged within 0.8 of full scale

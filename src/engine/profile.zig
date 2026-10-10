@@ -194,6 +194,17 @@ pub const File = struct {
         file.profile.text = try file.profile.remove(file.arena, section, key) orelse return;
         file.changed = true;
     }
+
+    /// Writes the settings to `settings_name` in the game's folder `dir`, if they changed since the
+    /// last save. OpenReliant's loops call it each pass, and once more on the way out, so a change
+    /// is saved however the game ends. A failure is logged once, and the change is written with the
+    /// next one.
+    pub fn save(file: *File, io: Io, dir: Io.Dir) void {
+        if (!file.changed) return;
+        file.changed = false;
+        files.writeFile(io, dir, settings_name, file.profile.text) catch |err|
+            log.warn("the settings can't be saved to {s}: {t}", .{ settings_name, err });
+    }
 };
 
 test "File.remove" {
@@ -324,6 +335,25 @@ test File {
     try file.writeInt("Device", "gamma", -5);
     try std.testing.expect(file.changed);
     try std.testing.expectEqualStrings("-5", file.profile.value("Device", "gamma").?);
+}
+
+test "File.save" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var file: File = .{ .arena = arena.allocator(), .profile = .empty };
+    // Nothing changed, so nothing is written.
+    file.save(io, tmp.dir);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(io, settings_name, .{}));
+    // A change is written over the file, found in any case.
+    try tmp.dir.writeFile(io, .{ .sub_path = "STARLANCER.INI", .data = "" });
+    try file.write("Sound", "Musicvolume", "80");
+    file.save(io, tmp.dir);
+    try std.testing.expect(!file.changed);
+    const read: Profile = .read(io, arena.allocator(), tmp.dir);
+    try std.testing.expectEqualStrings("80", read.value("Sound", "Musicvolume").?);
 }
 
 test atol {

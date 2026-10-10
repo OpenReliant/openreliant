@@ -786,6 +786,23 @@ test engineUpdate {
     try std.testing.expect(sound.voices_3d[sound.burner_voice.?].isFree());
 }
 
+test "Sound.end3DAll ends the player's engine, which loops until it's ended" {
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try testing.open(&speaker);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const player = try mission.add(.of(.predator), .{ 0, 0, 0 });
+    const v = play(sound, testing.scene(&mission), null, null, player, engineSound(.of(.predator)), 0, .player_engines).?;
+    const sample = sound.voices_3d[v].sample;
+    try std.testing.expectEqual(mss.Status.playing, driver.sample3DStatus(sample));
+    sound.end3DAll();
+    try std.testing.expectEqual(mss.Status.done, driver.sample3DStatus(sample));
+    try std.testing.expectEqual(0, sound.voices_3d[v].priority);
+}
+
 test hearEngine {
     var speaker: hog_snd.testing.Speaker = undefined;
     try testing.open(&speaker);

@@ -81,16 +81,36 @@ pub fn readFile(io: Io, gpa: Allocator, dir: Io.Dir, path: []const u8, limit: Io
 
 /// Writes `data` to the game's file `path` under `dir`, as Windows does: over the file `find` finds,
 /// whatever the case of its name, or else as a new file named by `path`'s last name in the folder
-/// `find` finds. error.FileNotFound when that folder isn't there.
-pub fn writeFile(io: Io, dir: Io.Dir, path: []const u8, data: []const u8) !void {
+/// `find` finds. error.FileNotFound when that folder isn't there. The file is written safely
+/// (`writeAtomic`).
+pub fn writeFile(io: Io, dir: Io.Dir, path: []const u8, data: []const u8) (WriteAtomicError || error{ FileNotFound, NameTooLong })!void {
     var buffer: [max_path]u8 = undefined;
-    if (find(io, dir, path, &buffer)) |spelled| return dir.writeFile(io, .{ .sub_path = spelled, .data = data });
+    if (find(io, dir, path, &buffer)) |spelled| return writeAtomic(io, dir, spelled, data);
     const name = leaf(path);
     const folder = path[0 .. path.len - name.len];
     const found = if (std.mem.trim(u8, folder, separators).len == 0) "" else find(io, dir, folder, &buffer) orelse return error.FileNotFound;
     var joined: [max_path]u8 = undefined;
     const sub_path = if (found.len == 0) name else std.mem.print(&joined, "{s}/{s}", .{ found, name }) catch return error.NameTooLong;
-    return dir.writeFile(io, .{ .sub_path = sub_path, .data = data });
+    return writeAtomic(io, dir, sub_path, data);
+}
+
+/// The ways `writeAtomic` can fail.
+pub const WriteAtomicError = Io.Dir.CreateFileAtomicError || Io.File.Writer.Error || Io.File.SyncError || Io.File.Atomic.ReplaceError;
+
+/// Writes `data` to the file `sub_path` under `dir` without risking the file there: into a new
+/// file in the same folder, flushed to the disk, which then takes the old file's place in one
+/// step. A crash, a power cut or a full disk during the write leaves the old file as it was. A
+/// write that fails deletes its new file; one cut short by a crash can leave it in the folder,
+/// named with hex digits, where nothing reads it.
+///
+/// **Improvement:** the original writes its settings, the pilot's profile and the saved games
+/// over the old files, so a write cut short leaves them broken.
+pub fn writeAtomic(io: Io, dir: Io.Dir, sub_path: []const u8, data: []const u8) WriteAtomicError!void {
+    var file = try dir.createFileAtomic(io, sub_path, .{ .replace = true });
+    defer file.deinit(io);
+    try file.file.writeStreamingAll(io, data);
+    try file.file.sync(io);
+    try file.replace(io);
 }
 
 test leaf {
@@ -137,6 +157,11 @@ test writeFile {
         if (std.ascii.eqlIgnoreCase(entry.name, "starlancer.ini")) count += 1;
     }
     try std.testing.expectEqual(1, count);
+    // Nothing is left beside the files written, such as a new file that took no file's place.
+    var all: usize = 0;
+    entries = top.iterate();
+    while (try entries.next(io)) |_| all += 1;
+    try std.testing.expectEqual(2, all);
 
     // A new file goes into the folder as it is spelled; a missing folder is an error.
     try writeFile(io, tmp.dir, "saves\\new.sav", "made");

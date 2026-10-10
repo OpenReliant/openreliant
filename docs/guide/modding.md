@@ -126,7 +126,9 @@ The manifest's other sections list what the mod runs and adds:
 
 The original never reads a file called `mod.ini`, so an archive with a manifest still works with it,
 and the manifest doesn't replace any game file. Neither does the thumbnail, `mod.png`
-([The thumbnail](#the-thumbnail)).
+([The thumbnail](#the-thumbnail)), a licence notice called `license.txt`, or a Markdown file such
+as `README.md`. These belong to the mod, so two mods that each carry a `license.txt` don't
+replace each other's.
 
 ## Load order
 
