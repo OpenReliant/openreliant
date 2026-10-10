@@ -8,6 +8,8 @@
 //! with the node's name, and each triangle keeps its material's number. A named node without a mesh
 //! becomes a marker, which a name such as `gun_muzzle:1` turns into an attachment. `Material` holds
 //! each material's colour, metalness, roughness and glow, and the textures they come from.
+//!
+//! `write` writes glTF files, for `sltool shp gltf` and `sltool bsg gltf`.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -16,6 +18,7 @@ const json = std.json;
 const obj = @import("obj.zig");
 const math = @import("../engine/surrender/math.zig");
 pub const maps = @import("gltf/maps.zig");
+pub const write = @import("gltf/write.zig");
 
 pub const Error = Allocator.Error || error{
     /// The file is neither a glTF file's JSON nor a `.glb` file, or its JSON isn't glTF's.

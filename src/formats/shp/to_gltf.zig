@@ -23,7 +23,6 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const builtin = @import("builtin");
 
 const shp = @import("../shp.zig");
 const Vec3 = shp.Vec3;
@@ -42,65 +41,30 @@ pub const Written = struct {
 /// `model` as glTF, its parts' level of detail `lod` (each part's coarsest where it has fewer),
 /// its buffer named `bin_name`.
 pub fn write(arena: Allocator, model: shp.Model, lod: usize, bin_name: []const u8) Allocator.Error!Written {
-    var made: Making = .{ .arena = arena, .model = model };
+    const parents = try arena.alloc(?usize, model.parts.len);
+    for (parents, model.parts) |*parent, data| parent.* = if (data.part.parentIndex()) |index| index else null;
+    var made: Making = .{ .model = model, .parents = parents, .gltf = .init(arena) };
+    const nodes = &made.gltf.nodes;
     // The parts' nodes come first, in the parts' order, so that a part finds its parent's.
-    try made.nodes.appendNTimes(arena, undefined, model.parts.len);
+    try nodes.appendNTimes(arena, undefined, model.parts.len);
     const children = try arena.alloc(std.ArrayList(u32), model.parts.len);
     @memset(children, .empty);
     for (0..model.parts.len) |at| {
         // Made first, since making it adds nodes, which can move the list.
         const placed = try made.part(at, lod, &children[at]);
-        made.nodes.items[at] = placed;
-        if (hangsFrom(model, at)) |parent| try children[parent].append(arena, @intCast(at)) else try made.roots.append(arena, @intCast(at));
+        nodes.items[at] = placed;
+        if (gltf.write.treeParent(parents, at)) |parent| try children[parent].append(arena, @intCast(at)) else try made.gltf.roots.append(arena, @intCast(at));
     }
-    for (made.nodes.items[0..model.parts.len], children) |*node, listed| {
+    for (nodes.items[0..model.parts.len], children) |*node, listed| {
         if (listed.items.len > 0) node.children = listed.items;
     }
-    const document: Document = .{
-        .asset = .{ .version = "2.0", .generator = "sltool shp gltf" },
-        .scene = 0,
-        .scenes = &.{.{ .nodes = made.roots.items }},
-        .nodes = made.nodes.items,
-        .meshes = made.meshes.items,
-        .materials = made.materials.items,
-        .textures = made.textures.items,
-        .images = made.images.items,
-        .accessors = made.accessors.items,
-        .bufferViews = made.views.items,
-        .buffers = &.{.{ .uri = bin_name, .byteLength = made.bin.items.len }},
-    };
-    var json: std.Io.Writer.Allocating = .init(arena);
-    json.writer.print("{f}", .{std.json.fmt(document, .{ .emit_null_optional_fields = false, .whitespace = .indent_1 })}) catch return error.OutOfMemory;
+    const written = try made.gltf.finish("sltool shp gltf", bin_name);
     var names: std.ArrayList([]const u8) = .empty;
-    for (made.materials.items) |material| {
+    for (made.gltf.materials.items) |material| {
         if (!std.mem.eql(u8, material.name, untextured)) try names.append(arena, material.name);
     }
-    return .{ .json = json.written(), .bin = made.bin.items, .materials = names.items };
+    return .{ .json = written.json, .bin = written.bin, .materials = names.items };
 }
-
-/// The glTF file's JSON, its members named as the specification names them.
-const Document = struct {
-    asset: struct { version: []const u8, generator: []const u8 },
-    scene: u32,
-    scenes: []const struct { nodes: []const u32 },
-    nodes: []const Node,
-    meshes: []const Mesh,
-    materials: []const Material,
-    textures: []const struct { source: u32 },
-    images: []const struct { uri: []const u8 },
-    accessors: []const Accessor,
-    bufferViews: []const BufferView,
-    buffers: []const struct { uri: []const u8, byteLength: usize },
-};
-
-const Node = struct {
-    name: []const u8,
-    translation: ?[3]f32 = null,
-    rotation: ?[4]f32 = null,
-    mesh: ?u32 = null,
-    children: ?[]const u32 = null,
-    extras: ?PartExtras = null,
-};
 
 /// What a part's node holds of the part besides its place and its mesh.
 const PartExtras = struct {
@@ -110,69 +74,21 @@ const PartExtras = struct {
     component_armor: i32,
 };
 
-const Mesh = struct {
-    name: []const u8,
-    primitives: []const Primitive,
-};
-
-const Primitive = struct {
-    attributes: struct { POSITION: u32, NORMAL: u32, TEXCOORD_0: u32 },
-    material: u32,
-};
-
-const Material = struct {
-    name: []const u8,
-    pbrMetallicRoughness: struct {
-        baseColorTexture: struct { index: u32 },
-        metallicFactor: f32 = 0,
-        roughnessFactor: f32 = 1,
-    },
-    doubleSided: bool = false,
-};
-
-const Accessor = struct {
-    bufferView: u32,
-    componentType: u32 = @backingInt(gltf.Component.float),
-    count: usize,
-    type: []const u8,
-    min: ?[3]f32 = null,
-    max: ?[3]f32 = null,
-};
-
-const BufferView = struct {
-    buffer: u32 = 0,
-    byteOffset: usize,
-    byteLength: usize,
-    target: u32 = array_buffer,
-};
-
-comptime {
-    std.debug.assert(builtin.target.cpu.arch.endian() == .little);
-}
-
-/// glTF's number for a buffer of vertex attributes.
-const array_buffer = 34962;
+const Node = gltf.write.Node(PartExtras);
 
 const Making = struct {
-    arena: Allocator,
     model: shp.Model,
-    nodes: std.ArrayList(Node) = .empty,
-    roots: std.ArrayList(u32) = .empty,
-    meshes: std.ArrayList(Mesh) = .empty,
-    materials: std.ArrayList(Material) = .empty,
-    textures: std.ArrayList(@typeInfo(@FieldType(Document, "textures")).pointer.child) = .empty,
-    images: std.ArrayList(@typeInfo(@FieldType(Document, "images")).pointer.child) = .empty,
-    accessors: std.ArrayList(Accessor) = .empty,
-    views: std.ArrayList(BufferView) = .empty,
-    bin: std.ArrayList(u8) = .empty,
+    /// Each part's parent, by its index.
+    parents: []const ?usize,
+    gltf: gltf.write.Builder(PartExtras),
 
     /// The node of the model's part `index`, at its level `lod`, with its attachments' and its
     /// points' nodes made and listed in `children`.
     fn part(made: *Making, index: usize, lod: usize, children: *std.ArrayList(u32)) Allocator.Error!Node {
-        const arena = made.arena;
+        const arena = made.gltf.arena;
         const data = &made.model.parts[index];
         for (data.attachments) |attachment| {
-            try children.append(arena, try made.node(.{
+            try children.append(arena, try made.gltf.node(.{
                 .name = try attachmentName(arena, attachment),
                 .translation = vector(attachment.position.toYUp()),
                 .rotation = rotation(attachment.orientation),
@@ -180,10 +96,10 @@ const Making = struct {
         }
         for (data.point_lists) |list| {
             const name = pointName(list.kind) orelse continue;
-            for (list.points) |point| try children.append(arena, try made.node(.{ .name = name, .translation = vector(point.position.toYUp()) }));
+            for (list.points) |point| try children.append(arena, try made.gltf.node(.{ .name = name, .translation = vector(point.position.toYUp()) }));
         }
         const flags = data.part.flags;
-        const from = if (hangsFrom(made.model, index)) |parent| made.model.parts[parent].part.position else Vec3.zero;
+        const from = if (gltf.write.treeParent(made.parents, index)) |parent| made.model.parts[parent].part.position else Vec3.zero;
         return .{
             .name = data.part.name(),
             .translation = vector(data.part.position.sub(from).toYUp()),
@@ -197,16 +113,11 @@ const Making = struct {
         };
     }
 
-    fn node(made: *Making, value: Node) Allocator.Error!u32 {
-        try made.nodes.append(made.arena, value);
-        return @intCast(made.nodes.items.len - 1);
-    }
-
     /// The mesh of `level`, a level of `data`'s part, a primitive for each material its faces
     /// take; null for a level without faces to draw.
     fn mesh(made: *Making, data: *const shp.PartData, level: shp.Mesh) Allocator.Error!?u32 {
-        const arena = made.arena;
-        var primitives: std.ArrayList(Primitive) = .empty;
+        const arena = made.gltf.arena;
+        var primitives: std.ArrayList(gltf.write.Primitive) = .empty;
         var seen: std.ArrayList(u32) = .empty;
         for (level.faces) |face| {
             if (!drawn(face) or std.mem.findScalar(u32, seen.items, face.material) != null) continue;
@@ -215,18 +126,16 @@ const Making = struct {
             try primitives.append(arena, try made.primitive(level, face.material, try made.material(name)));
         }
         if (primitives.items.len == 0) return null;
-        try made.meshes.append(arena, .{ .name = data.part.name(), .primitives = primitives.items });
-        return @intCast(made.meshes.items.len - 1);
+        return try made.gltf.mesh(.{ .name = data.part.name(), .primitives = primitives.items });
     }
 
     /// The faces of `level` that take its material `taken`, as a primitive drawn with the glTF
     /// material `material_index`.
-    fn primitive(made: *Making, level: shp.Mesh, taken: u32, material_index: u32) Allocator.Error!Primitive {
+    fn primitive(made: *Making, level: shp.Mesh, taken: u32, material_index: u32) Allocator.Error!gltf.write.Primitive {
+        const arena = made.gltf.arena;
         var positions: std.ArrayList([3]f32) = .empty;
         var normals: std.ArrayList([3]f32) = .empty;
         var uvs: std.ArrayList([2]f32) = .empty;
-        var lo: [3]f32 = @splat(std.math.inf(f32));
-        var hi: [3]f32 = @splat(-std.math.inf(f32));
         for (level.faces) |face| {
             if (!drawn(face) or face.material != taken) continue;
             // Odd strip members list their last two corners the other way round (`sltool shp obj`).
@@ -234,54 +143,37 @@ const Making = struct {
             var places: [3]Vec3 = undefined;
             for (&places, corners) |*place, corner| place.* = level.vertices[face.vertices[corner]].position;
             for (corners, places) |corner, place| {
-                const at = vector(place.toYUp());
                 const vertex = level.vertices[face.vertices[corner]];
-                for (&lo, &hi, at) |*low, *high, value| {
-                    low.* = @min(low.*, value);
-                    high.* = @max(high.*, value);
-                }
-                try positions.append(made.arena, at);
-                try normals.append(made.arena, vector(unitNormal(vertex.normal, places).toYUp()));
-                try uvs.append(made.arena, .{ face.u[corner], face.v[corner] });
+                try positions.append(arena, vector(place.toYUp()));
+                try normals.append(arena, vector(unitNormal(vertex.normal, places).toYUp()));
+                try uvs.append(arena, .{ face.u[corner], face.v[corner] });
             }
         }
         const count = positions.items.len;
+        const lo, const hi = gltf.write.bounds(positions.items);
         return .{
             .attributes = .{
-                .POSITION = try made.accessor(std.mem.sliceAsBytes(positions.items), .{ .bufferView = 0, .count = count, .type = "VEC3", .min = lo, .max = hi }),
-                .NORMAL = try made.accessor(std.mem.sliceAsBytes(normals.items), .{ .bufferView = 0, .count = count, .type = "VEC3" }),
-                .TEXCOORD_0 = try made.accessor(std.mem.sliceAsBytes(uvs.items), .{ .bufferView = 0, .count = count, .type = "VEC2" }),
+                .POSITION = try made.gltf.accessor(std.mem.sliceAsBytes(positions.items), .vertices, .{ .count = count, .type = "VEC3", .min = lo, .max = hi }),
+                .NORMAL = try made.gltf.accessor(std.mem.sliceAsBytes(normals.items), .vertices, .{ .count = count, .type = "VEC3" }),
+                .TEXCOORD_0 = try made.gltf.accessor(std.mem.sliceAsBytes(uvs.items), .vertices, .{ .count = count, .type = "VEC2" }),
             },
             .material = material_index,
         };
-    }
-
-    /// An accessor of `bytes`, put in the buffer in a view of their own, as `described`. glTF's
-    /// buffers are little-endian, as the floats are in memory on the machines OpenReliant runs on.
-    fn accessor(made: *Making, bytes: []const u8, described: Accessor) Allocator.Error!u32 {
-        try made.views.append(made.arena, .{ .byteOffset = made.bin.items.len, .byteLength = bytes.len });
-        try made.bin.appendSlice(made.arena, bytes);
-        var listed = described;
-        listed.bufferView = @intCast(made.views.items.len - 1);
-        try made.accessors.append(made.arena, listed);
-        return @intCast(made.accessors.items.len - 1);
     }
 
     /// The material named `name`, with its picture, made where it is the first face of its name.
     /// It is double-sided where any of the model's faces that take a material of that name is.
     fn material(made: *Making, name: []const u8) Allocator.Error!u32 {
         const shown = if (name.len > 0) name else untextured;
-        for (made.materials.items, 0..) |held, at| {
+        for (made.gltf.materials.items, 0..) |held, at| {
             if (std.mem.eql(u8, held.name, shown)) return @intCast(at);
         }
-        try made.images.append(made.arena, .{ .uri = try made.arena.print("{s}.png", .{shown}) });
-        try made.textures.append(made.arena, .{ .source = @intCast(made.images.items.len - 1) });
-        try made.materials.append(made.arena, .{
+        const picture = try made.gltf.texture(try made.gltf.arena.print("{s}.png", .{shown}));
+        return made.gltf.material(.{
             .name = shown,
-            .pbrMetallicRoughness = .{ .baseColorTexture = .{ .index = @intCast(made.textures.items.len - 1) } },
+            .pbrMetallicRoughness = .{ .baseColorTexture = picture },
             .doubleSided = made.twoSided(name),
         });
-        return @intCast(made.materials.items.len - 1);
     }
 
     /// Whether any face of the model's that takes a material named `name` is drawn from both
@@ -294,19 +186,6 @@ const Making = struct {
         return false;
     }
 };
-
-/// The part that part `index` of `model` hangs from, where it hangs from one: a parent that is one
-/// of the model's other parts, and isn't hung from it in turn, which the glTF file's tree can't hold.
-fn hangsFrom(model: shp.Model, index: usize) ?usize {
-    const parent = model.parts[index].part.parentIndex() orelse return null;
-    var up: ?u32 = parent;
-    for (0..model.parts.len) |_| {
-        const at = up orelse return parent;
-        if (at >= model.parts.len or at == index) return null;
-        up = model.parts[at].part.parentIndex();
-    }
-    return null;
-}
 
 /// The name of the material of a face without one.
 const untextured = "none";
@@ -325,18 +204,13 @@ fn vector(v: Vec3) [3]f32 {
 /// length, as some of the game's models leave it, the normal of the triangle with corners
 /// `corners`, or straight up for a triangle with no area.
 fn unitNormal(normal: Vec3, corners: [3]Vec3) Vec3 {
-    const given = normal.vector();
-    if (math.length(given) > least_length) return .of(math.normalize(given));
-    const across = shp.front(corners);
-    if (math.length(across) > least_length) return .of(math.normalize(across));
+    if (gltf.write.unit(normal.vector())) |given| return .of(given);
+    if (gltf.write.unit(shp.front(corners))) |across| return .of(across);
     return straight_up;
 }
 
 /// Straight up in the model's frame, whose Y points down.
 const straight_up: Vec3 = .{ .x = 0, .y = -1, .z = 0 };
-
-/// The shortest normal, or cross product, taken to have a direction.
-const least_length = 1e-6;
 
 /// The node name of `attachment`, as `from-gltf` reads it (`from_obj.Role`).
 fn attachmentName(arena: Allocator, attachment: shp.Attachment) Allocator.Error![]const u8 {
@@ -452,15 +326,7 @@ test write {
     const written = try write(arena, model, 0, "ship.bin");
 
     // Read back, it holds the same triangles and the attachments by name.
-    const Files = struct {
-        bin: []const u8,
-        fn read(context: *const anyopaque, _: Allocator, name: []const u8) Allocator.Error!?[]u8 {
-            const files: *const @This() = @ptrCast(@alignCast(context));
-            return if (std.mem.eql(u8, name, "ship.bin")) @constCast(files.bin) else null;
-        }
-    };
-    const files: Files = .{ .bin = written.bin };
-    const document = try gltf.read(arena, written.json, .{ .context = &files, .readFn = Files.read });
+    const document = try gltf.write.testing.read(arena, written.json, written.bin, "ship.bin");
     const back = try gltf.triangles(arena, document, 1, &.{"yank_1"});
     // The cockpit's triangle and its eject point's marker, then the body's two triangles, and a
     // marker for each of its attachments and for the jump trail the builder put at the engine glow.

@@ -18,6 +18,8 @@ sltool bsg films <video.idx> <videodata.dat>    # the comms films
 sltool bsg film <video.idx> <videodata.dat> <number|all> <dir>   # their frames, as PNG files
 sltool bsg ls <archive.hxb>                     # an archive's files
 sltool bsg extract <archive.hxb> <dir>          # every file of it, unpacked and checked
+sltool bsg gltf <archive.hxb> <model> <out.gltf> [--lod <1-5>]   # a model as glTF 2.0
+sltool bsg textures <archive.hxb> <dir>         # every texture as a PNG file
 ```
 
 The code is in [`src/formats/games/bsg/`](../../src/formats/games/bsg), and the Xbox's own formats
@@ -270,19 +272,105 @@ checksum and writing a repeated file once. The code is in
 |---|---|---|
 | `.lvl` | Text | An object's definition ([Object definitions](#object-definitions)), or a particle effect's. |
 | `.mdl` | Text | A model's parts ([Models](#models)). |
-| `.bmsh` | Binary | A part's mesh. |
-| `.banr` | Binary | **Unknown.** It comes with some meshes, under the same name. |
-| `.btga` | Binary | A texture. |
-| `.bwav` | Binary | A sound. |
-| `.bxm` | Binary | A piece of music. |
+| `.bmsh` | Binary | A part's mesh ([Meshes](#meshes)). |
+| `.banr` | Binary | **Unknown.** It comes with some meshes, under the same name ([#1037](https://github.com/OpenReliant/openreliant/issues/1037)). |
+| `.btga` | Binary | A texture ([Textures](#textures)). |
+| `.bwav` | Binary | A sound. **Unknown:** its layout ([#1036](https://github.com/OpenReliant/openreliant/issues/1036)). |
+| `.bxm` | Binary | A piece of music. **Unknown:** its layout ([#1036](https://github.com/OpenReliant/openreliant/issues/1036)). |
 | `.set` | Text | Lists of numbers, beside each mission's music and in `sfx/coll.set`. **Unknown:** what they set. |
 | `.tnf` | Binary | A font's table, 2050 bytes, with its picture as a `.btga` of the same name. **Unknown:** its layout. |
 | `.loc` | Text | The menus' text in one language. |
 
-Every binary kind but the fonts starts with a Unix time, from 2002 to 2004, which looks like when
-the file was written. **Unknown:** the rest of their header. A mesh holds a texture's name, such as
-`sh_v1_viper01.tga`, its vertices' positions and normals as floats, and its triangles as 16-bit
-indices, among what look like addresses in the Xbox's memory.
+### Binary files
+
+Every binary kind but the fonts has the same layout: a 12-byte start, then sections to the end of
+the file.
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 4 | When the file was written, as a Unix time, from 2002 to 2004 |
+| 4 | 4 | 4 in a mesh, 1 in the other kinds. **Unknown:** whether it is a version. |
+| 8 | 4 | The same in every file of a kind but the textures, which have five values. **Unknown:** what it is. |
+
+A section is a count of items, their total size, the size of each item, and then the items back to
+back:
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 4 | The count of items |
+| 4 | 4 | Their total size |
+| 8 | 4 each | Each item's size |
+| | | The items |
+
+What the items hold depends on the kind of file. Many hold what look like the addresses they had in
+the Xbox's memory when the file was written. The code is in
+[`resource.zig`](../../src/formats/games/bsg/resource.zig).
+
+### Textures
+
+A texture is one section of a header, a palette and the texels:
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 4 | The width, a power of two |
+| 4 | 4 | The height, a power of two |
+| 8 | 4 | The count of levels |
+| 12 | 4 | The format, by the Xbox's Direct3D numbers: `0x0B` for 8-bit indices into the palette, `0x07` for 32-bit colour |
+| 16 | 4 | 0 in every texture |
+| 20 | 12 | 2, 2 and 2 in every texture. **Unknown.** |
+| 32 | 96 | 0 in every texture |
+
+The palette is a texture's second item, of 32 to 256 colours of 4 bytes each: blue, green, red and
+alpha. In most palettes the alpha is 0 for every colour, and OpenReliant takes such a texture as
+opaque. The 32-bit textures, the front end's skies, have no palette, and their texels are blue,
+green, red and a byte that isn't used. The last item holds every level's texels, largest first,
+padded to a multiple of 4 bytes, each level swizzled as the Xbox keeps textures
+([Xbox formats](../formats/xbox.md#textures)).
+
+### Meshes
+
+A mesh is a part of a model: its triangles, the materials they take, and their collision data. Its
+first section holds the mesh's header, a 184-byte record for each submesh, and each submesh's
+material, as a 100-byte record and the names of four textures, empty for none:
+
+| Item | Size | Holds |
+|---|---|---|
+| 0 | `0x38` | The header |
+| 1 | 184 for each submesh | **Unknown:** the submeshes' records. An environment-mapped submesh's holds the text `spherical`. |
+| 2 + 5n | 100 | Submesh n's material |
+| 3 + 5n to 6 + 5n | | Its textures' names, such as `sh_v2_viper01.tga`, each ending in a zero byte |
+
+| Offset | Size | Field of the header |
+|---|---|---|
+| 0 | 4 | The count of submeshes |
+| `0x18` | 12 | Half the mesh's size along each axis |
+| `0x24` | 12 | The middle of its box |
+| `0x30` | 4 | **Unverified:** the radius of a sphere about the middle |
+
+| Offset | Size | Field of a material |
+|---|---|---|
+| 0 | 4 | What it draws: 0 no texture, 2 its texture, 4 a texture whose name ends in a frame's number, such as `launchtube main000.tga`, 6 its texture with an environment map as its second. **Unknown:** 1. |
+| `0x2C` | 4 | How it joins what is behind it: 0 it covers it, 1 it adds to it, as lasers, glows and particles do, 5 **Unverified:** it mixes with it by the texture's alpha, as clouds and skies do |
+
+A section of collision data follows in all but a few meshes: positions and a tree of 64-byte boxes.
+**Unknown:** its layout ([#1037](https://github.com/OpenReliant/openreliant/issues/1037)). A
+mesh with no submeshes, such as a bridge's, holds only collision data.
+
+A section for each submesh then holds its triangles and its vertices, each kind of value an array
+of its own, as 11 items:
+
+| Item | Holds |
+|---|---|
+| 0 | A `0x4C`-byte record: the count of vertices at `0x0C`, and of indices at `0x34` |
+| 1 | The triangles, three 16-bit indices each, padded to a multiple of 4 bytes |
+| 2 | The positions, three floats each |
+| 3 | The normals, three floats each |
+| 4 | The colours, red, green, blue and alpha floats, or empty for none |
+| 5 | The texture coordinates for the first texture, two floats each, or empty for none |
+| 6 | The texture coordinates for the second, or empty for none |
+| 7 to 10 | Empty in every mesh. **Unknown.** |
+
+The code is in [`mesh.zig`](../../src/formats/games/bsg/mesh.zig).
 
 ### Object definitions
 
@@ -352,6 +440,61 @@ model's own, which starts with a comment naming the Maya scene, such as
 
 A part has a name, its parent's name (empty for none), a 4 by 4 matrix, a `pivot` point, and the
 mesh it draws. The mesh is the file of that name in the model's folder, in lowercase and with
-`.bmsh` for `.msh`. A part's name starts with `c1` to `c5`, one set of parts for each level of
-detail: the Viper has one part at each level, and the Galactica 84 parts at the first and none at
-the others.
+`.bmsh` for `.msh`. The matrix is Direct3D's, row by row: a point is a row multiplied by it, and its
+last row is where the part stands in its parent's frame. A part's vertices are in its own frame,
+and its pivot is where it turns, such as a turret's barrels about their pivot.
+
+Most parts' names hold their level of detail, `c1` to `c5`, 1 the finest, as the first word between
+underscores that is `c` and a digit: `c1_viper2`, or `sh_bs_basestar01_c4_basestar_top`. Each level
+has its own parts: the Viper has one part at each level, and the Galactica 84 parts at the first and
+none at the others. The pieces a ship breaks into, such as `xd_debris01`, have no level.
+
+A hardpoint of an object's definition with an `_object` attribute mounts another model there, such
+as a launch tube's door (`ltgaga01`) or the Galactica's turrets (`WGT1LA00`). **Unverified:** that a
+turret's `_MinRotX` to `_MaxRotY` attributes limit how far it turns.
+
+### The frame
+
+The positions are in Direct3D's left-handed frame: X to the right, Y up and Z forward. The Viper's
+nose is at +Z and its canopy at +Y. Seen from its front, a triangle's corners go clockwise. The
+executable shows it. The routine at `0x000CE060`, which sets Direct3D's render states for what is
+drawn next, sets render state `0x93`, the cull mode, to `0x901`, `D3DCULL_CCW`, which culls the
+triangles whose corners go counter-clockwise on the screen; to `0x900`, `D3DCULL_CW`, where a flag
+at `0x0044DE10` is set; and to 0, `D3DCULL_NONE`, for what is drawn from both sides
+(`0x000CF177` on).
+
+### To glTF
+
+`sltool bsg gltf` writes a model of an archive as glTF 2.0, for a modelling tool such as Blender,
+with its textures as PNG files beside it. `sltool shp from-gltf` builds a StarLancer model of it
+for a mod ([Models from glTF](../guide/modding.md#models-from-gltf)). A fighter needs no `--scale`:
+the Viper is 1226 units long, as long as StarLancer's fighters. `sltool bsg textures` saves every
+texture of an archive as a PNG file.
+
+- The model's node is named as the model is, such as `shv2vi00`. Its `extras` hold the Maya scene
+  and every attribute of the object's definition.
+- Each part at the level `--lod` gives, 1 by default, or the nearest level the model has, is a node
+  under its parent's, named as the part is, with its mesh and its place. The parts without a level
+  are written at every level. A part's pivot is in its node's `extras`.
+- Each submesh is a primitive with its texture coordinates, and its colours as the attribute
+  `_COLOR`, which a reader keeps without drawing. Its material is named after its texture, whose
+  picture is `<texture>.png` beside the glTF file. An additive material is black with its picture
+  as its glow, a mixed one is blended by its alpha, and an opaque one with alpha in its picture
+  is masked by it. The material's record and its textures' names are in its `extras`.
+- The guns, jets, vapour trails and cockpit are empty nodes named `gun_muzzle`, `engine_glow:1`,
+  `vapour_trail` and `cockpit_view`. A jet's glow is as large next to its ship as StarLancer's
+  fighters' glows: its marker's scale, from which `from-gltf` takes the glow's size, is twice its
+  `Jet<n>Size` across and eight times it along, 120 by 120 by 480 for the Viper's jets of 60, as a
+  Crusader's glows are 100 by 100 by 400. The hardpoints are empty nodes placed and turned by their matrices, named `missile` for
+  `SECONDARY`, `launch_point` for `LAUNCHTUBE`, and by their kind for the others, such as `turret`,
+  with their attributes in their `extras`. A model mounted on a hardpoint is written under it in
+  the same way, up to four mounts deep.
+- Every X is negated, to turn Direct3D's left-handed frame into glTF's right-handed one, and every
+  triangle's corners go the other way round, so that the model isn't mirrored and its triangles
+  face out.
+
+`from-gltf` reads the gun muzzles, the engine glows, the missiles and the launch points, and passes
+over the other markers. **Unverified:** what a jet's size measures, and so how large its glow is.
+**Not written:** the collision data, the environment maps, and an animated texture's frames past
+the first ([#1037](https://github.com/OpenReliant/openreliant/issues/1037)).
+The code is in [`to_gltf.zig`](../../src/formats/games/bsg/to_gltf.zig).

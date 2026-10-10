@@ -9,6 +9,8 @@
 
 const std = @import("std");
 
+const morton = @import("../texels/morton.zig");
+
 /// The codebook of a VQ texture: 256 entries of 4 texels.
 pub const codebook_size = 256 * 4 * @sizeOf(u16);
 
@@ -45,20 +47,10 @@ fn blocks(side: u32) usize {
     return texels(side) / 4;
 }
 
-/// The index of the block at `x`, `y` in twiddled order: the bits of the row and the column
-/// interleaved, the row's in the even bits.
+/// The index of the block at `x`, `y` in twiddled order (`texels.morton`): the bits of the row and
+/// the column interleaved, the row's in the even bits.
 pub fn twiddled(x: u32, y: u32) u32 {
-    return spread(y) | spread(x) << 1;
-}
-
-/// `value` with its bits moved apart: bit `i` to bit `2i`.
-fn spread(value: u32) u32 {
-    var v = value & 0xFFFF;
-    v = (v | v << 8) & 0x00FF00FF;
-    v = (v | v << 4) & 0x0F0F0F0F;
-    v = (v | v << 2) & 0x33333333;
-    v = (v | v << 1) & 0x55555555;
-    return v;
+    return morton.spread(y) | morton.spread(x) << 1;
 }
 
 pub const Error = error{ BadSize, Truncated };

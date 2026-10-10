@@ -1,6 +1,7 @@
 //! `sltool bsg ...`: read Battlestar Galactica's files: its `.dte` missions, which keep StarLancer's
-//! records, the command catalogue in its executable, its comms films and its `.hxb` archives
-//! ([#1017](https://github.com/OpenReliant/openreliant/issues/1017)). `sltool cd` reads its disc.
+//! records, the command catalogue in its executable, its comms films, its `.hxb` archives, and the
+//! models and textures they hold ([#1017](https://github.com/OpenReliant/openreliant/issues/1017)).
+//! `sltool cd` reads its disc.
 
 const std = @import("std");
 
@@ -23,6 +24,9 @@ pub const Command = union(enum) {
     film: struct { index: []const u8, data: []const u8, number: []const u8, out_dir: []const u8 },
     ls: struct { archive: []const u8 },
     extract: struct { archive: []const u8, out_dir: []const u8 },
+    /// Writes a model as glTF 2.0 (`bsg.to_gltf`), with its textures as PNG files beside it.
+    gltf: struct { archive: []const u8, model: []const u8, out: []const u8, level: u8 = 1 },
+    textures: struct { archive: []const u8, out_dir: []const u8 },
 
     pub const usage =
         \\  bsg sections <mission>          list a Battlestar Galactica mission's sections
@@ -40,14 +44,31 @@ pub const Command = union(enum) {
         \\  bsg ls <archive.hxb>            list the files in an archive
         \\  bsg extract <archive.hxb> <out-dir>
         \\                                  unpack every file of an archive, checking each one
+        \\  bsg gltf <archive.hxb> <model> <out.gltf> [--lod <1-5>]
+        \\                                  write a model, such as shv2vi00, as glTF 2.0 for a
+        \\                                  modelling tool, with its parts, guns, engines and
+        \\                                  hardpoints, and its textures as PNG files beside it
+        \\  bsg textures <archive.hxb> <out-dir>
+        \\                                  save every texture of an archive as a PNG file
         \\
     ;
 
     pub fn parse(args: []const [:0]const u8) error{Usage}!Command {
         const verb, const operands = try sltool.verbOf(Command, args);
-        return switch (verb) {
-            inline else => |tag| sltool.positional(Command, tag, operands),
-        };
+        switch (verb) {
+            .gltf => {
+                if (operands.len != 3 and operands.len != 5) return error.Usage;
+                var command: Command = .{ .gltf = .{ .archive = operands[0], .model = operands[1], .out = operands[2] } };
+                if (operands.len == 5) {
+                    if (!std.mem.eql(u8, operands[3], "--lod")) return error.Usage;
+                    const level = std.fmt.parseInt(u8, operands[4], 10) catch return error.Usage;
+                    if (level < 1 or level > bsg.model.coarsest_level) return error.Usage;
+                    command.gltf.level = level;
+                }
+                return command;
+            },
+            inline else => |tag| return sltool.positional(Command, tag, operands),
+        }
     }
 
     pub fn run(command: Command, ctx: Context) !void {
@@ -72,6 +93,8 @@ pub const Command = union(enum) {
             .film => |operands| try film(ctx, try readFilms(ctx, operands.index, operands.data), operands.number, operands.out_dir),
             .ls => |operands| try list(ctx, try readArchive(ctx, operands.archive)),
             .extract => |operands| try extract(ctx, try readArchive(ctx, operands.archive), operands.out_dir),
+            .gltf => |operands| try writeGltf(ctx, try readArchive(ctx, operands.archive), operands.model, operands.out, operands.level),
+            .textures => |operands| try textures(ctx, try readArchive(ctx, operands.archive), operands.out_dir),
         }
     }
 };
@@ -170,6 +193,9 @@ fn extract(ctx: Context, archive: bsg.wart.Archive, out_path: []const u8) !void 
     var out_dir = try ctx.outputDir(out_path);
     defer out_dir.close(io);
 
+    // Each file's bytes live only as long as it takes to write it.
+    var scratch: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer scratch.deinit();
     var written: std.AutoHashMapUnmanaged(u32, u32) = .empty;
     var files: usize = 0;
     var copies: usize = 0;
@@ -181,16 +207,105 @@ fn extract(ctx: Context, archive: bsg.wart.Archive, out_path: []const u8) !void 
             copies += 1;
             continue;
         }
-        const data = try archive.unpackAlloc(ctx.arena, entry);
+        _ = scratch.reset(.retain_capacity);
+        const data = try archive.unpackAlloc(scratch.allocator(), entry);
         if (std.Io.Dir.path.dirnamePosix(path)) |folder| try out_dir.createDirPath(io, folder);
         try out_dir.writeFile(io, .{ .sub_path = path, .data = data });
-        ctx.arena.free(data);
         files += 1;
         bytes += entry.size;
     }
     try ctx.stdout.print("extracted {f} ({Bi:.1}) to {s}", .{ sltool.count(files, "file"), bytes, out_path });
     if (copies != 0) try ctx.stdout.print(", skipping {f}", .{sltool.count(copies, "duplicate")});
     try ctx.stdout.writeByte('\n');
+}
+
+/// The members of an archive by name, for `bsg.to_gltf`, the first of a name where the archive
+/// holds it more than once.
+const Members = struct {
+    archive: bsg.wart.Archive,
+    by_name: std.StringHashMapUnmanaged(bsg.wart.Entry),
+
+    fn of(ctx: Context, archive: bsg.wart.Archive) !Members {
+        var by_name: std.StringHashMapUnmanaged(bsg.wart.Entry) = .empty;
+        for (archive.entries) |entry| {
+            const held = try by_name.getOrPut(ctx.arena, try archive.name(entry));
+            if (!held.found_existing) held.value_ptr.* = entry;
+        }
+        return .{ .archive = archive, .by_name = by_name };
+    }
+
+    fn files(members: *const Members) bsg.to_gltf.Files {
+        return .{ .context = members, .readFn = read };
+    }
+
+    fn read(context: *const anyopaque, arena: std.mem.Allocator, name: []const u8) bsg.to_gltf.ReadError!?[]const u8 {
+        const members: *const Members = @ptrCast(@alignCast(context));
+        const entry = members.by_name.get(name) orelse return null;
+        return members.archive.unpackAlloc(arena, entry) catch |err| switch (err) {
+            error.OutOfMemory => |e| e,
+            else => error.BadMember,
+        };
+    }
+};
+
+/// Writes the model `name` of `archive` as the glTF file `out_path`, at level `level`, with its
+/// buffer beside it, named after it with `.bin`, and its textures as PNG files.
+fn writeGltf(ctx: Context, archive: bsg.wart.Archive, name: []const u8, out_path: []const u8, level: u8) !void {
+    const members: Members = try .of(ctx, archive);
+    const stem = std.Io.Dir.path.stem(out_path);
+    const bin_name = try ctx.arena.print("{s}.bin", .{stem});
+    const written = bsg.to_gltf.write(ctx.arena, members.files(), name, .{ .level = level }, bin_name) catch |err| switch (err) {
+        error.MissingModel => {
+            try ctx.stdout.print("the archive holds no model {s}: it holds models/<model>/<model>.mdl files\n", .{name});
+            return err;
+        },
+        else => |e| return e,
+    };
+    const dir = try ctx.outputDir(std.Io.Dir.path.dirname(out_path) orelse ".");
+    defer dir.close(ctx.io);
+    try dir.writeFile(ctx.io, .{ .sub_path = std.Io.Dir.path.basename(out_path), .data = written.json });
+    try dir.writeFile(ctx.io, .{ .sub_path = bin_name, .data = written.bin });
+    for (written.pictures) |picture| try savePicture(ctx, dir, picture.file, picture.texture);
+    try ctx.stdout.print("wrote {s}, {s} and {f}\n", .{ out_path, bin_name, sltool.count(written.pictures.len, "texture") });
+    for (written.missing) |path| try ctx.stdout.print("the archive doesn't hold {s}, which the model names\n", .{path});
+}
+
+/// Saves every texture of `archive` as a PNG file in `out_path`, under its own path with `.png`,
+/// once where the archive holds it more than once.
+fn textures(ctx: Context, archive: bsg.wart.Archive, out_path: []const u8) !void {
+    const io = ctx.io;
+    var out_dir = try ctx.outputDir(out_path);
+    defer out_dir.close(io);
+    const members: Members = try .of(ctx, archive);
+    // Each texture's bytes, texels and picture live only as long as it takes to write it.
+    var scratch: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer scratch.deinit();
+    var saved: usize = 0;
+    for (archive.entries) |entry| {
+        const path = try archive.name(entry);
+        if (!std.mem.endsWith(u8, path, texture_extension) or members.by_name.get(path).?.offset != entry.offset) continue;
+        _ = scratch.reset(.retain_capacity);
+        var item = ctx;
+        item.arena = scratch.allocator();
+        const read: bsg.texture.Texture = bsg.texture.Texture.parse(item.arena, try archive.unpackAlloc(item.arena, entry)) catch |err| {
+            try ctx.stdout.print("{s}: {s}\n", .{ path, @errorName(err) });
+            continue;
+        };
+        const png_path = try item.arena.print("{s}.png", .{path[0 .. path.len - texture_extension.len]});
+        if (std.Io.Dir.path.dirnamePosix(png_path)) |folder| try out_dir.createDirPath(io, folder);
+        try savePicture(item, out_dir, png_path, read);
+        saved += 1;
+    }
+    try ctx.stdout.print("saved {f} to {s}\n", .{ sltool.count(saved, "texture"), out_path });
+}
+
+/// The extension of a texture in an archive.
+const texture_extension = ".btga";
+
+/// Saves the largest level of `texture` as the PNG file `path` in `dir`.
+fn savePicture(ctx: Context, dir: std.Io.Dir, path: []const u8, texture: bsg.texture.Texture) !void {
+    const pixels = try texture.rgba(ctx.arena);
+    try ctx.writePng(dir, path, texture.header.width, texture.header.height, pixels);
 }
 
 test extract {
@@ -224,5 +339,8 @@ test Command {
     try std.testing.expectEqualStrings("all", (try Command.parse(&.{ "film", "video.idx", "videodata.dat", "all", "out" })).film.number);
     try std.testing.expectError(error.Usage, Command.parse(&.{ "script", "M1a.dte" }));
     try std.testing.expectEqualStrings("out", (try Command.parse(&.{ "extract", "bigwad.hxb", "out" })).extract.out_dir);
+    try std.testing.expectEqual(1, (try Command.parse(&.{ "gltf", "bigwad.hxb", "shv2vi00", "viper.gltf" })).gltf.level);
+    try std.testing.expectEqual(3, (try Command.parse(&.{ "gltf", "bigwad.hxb", "shv2vi00", "viper.gltf", "--lod", "3" })).gltf.level);
+    try std.testing.expectError(error.Usage, Command.parse(&.{ "gltf", "bigwad.hxb", "shv2vi00", "viper.gltf", "--lod", "6" }));
     try std.testing.expectError(error.Usage, Command.parse(&.{"play"}));
 }

@@ -32,7 +32,7 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`formats/save.md`](formats/save.md) | Saved games: the IFF files of the campaign, the autosave and the restart point. |
 | [`formats/profile.md`](formats/profile.md) | `profile.bin`: the pilot's profile, the call sign and the pilot's record. |
 | [`formats/playstation.md`](formats/playstation.md) | The PlayStation's executables and TIM pictures, which the PlayStation games on StarLancer's engine use. |
-| [`formats/xbox.md`](formats/xbox.md) | The Xbox's discs and executables, which the Xbox games on StarLancer's engine use. |
+| [`formats/xbox.md`](formats/xbox.md) | The Xbox's discs, executables and swizzled textures, which the Xbox games on StarLancer's engine use. |
 | [`formats/dreamcast.md`](formats/dreamcast.md) | The Dreamcast version: its disc, its text tables and its texture cache. |
 | [`engine/missions.md`](engine/missions.md) | Missions: how a mission's start finds its file, reads it and binds it. |
 | [`engine/script-vm.md`](engine/script-vm.md) | The script VM at run time: threads, calls, commands, timers, events. |
@@ -82,7 +82,7 @@ what a shared engine would have to keep apart
 | Path | Contents |
 |---|---|
 | [`games/star-trek-invasion.md`](games/star-trek-invasion.md) | Star Trek: Invasion: its disc, archive, missions and models, which `sltool trek` reads. |
-| [`games/battlestar-galactica.md`](games/battlestar-galactica.md) | Battlestar Galactica (2003): its disc, missions, command catalogue, stats, comms films and archives, which carry StarLancer's game logic forward, and `sltool bsg`, which reads them. |
+| [`games/battlestar-galactica.md`](games/battlestar-galactica.md) | Battlestar Galactica (2003): its disc, missions, command catalogue, stats, comms films, archives, models and textures, which carry StarLancer's game logic forward, and `sltool bsg`, which reads them and converts the models to glTF. |
 
 ## Conventions
 
