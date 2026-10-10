@@ -797,13 +797,17 @@ pub const Driver = struct {
         return .{ .pointer = pointer, .keyboard = &driver.movies.devices.keyboard, .typed = driver.movies.typed, .ticks = driver.clock.game_ticks, .saves = saves };
     }
 
-    /// Starts a frame for the outline fonts (`Outlines.startFrame`), reads the window's messages
-    /// since the last pass, as the message pump does, reads the keyboard, moves the pointer on and
-    /// runs the timer, which steps the fades, and runs the console's pass and the scripts' frame
+    /// Saves what the last pass changed in the settings, as the main loop does: the settings
+    /// screen's changes, and the bindings scripts changed (`profile.File.save`). Then starts a
+    /// frame for the outline fonts (`Outlines.startFrame`), reads the window's messages since the
+    /// last pass, as the message pump does, reads the keyboard, moves the pointer on and runs the
+    /// timer, which steps the fades, and runs the console's pass and the scripts' frame
     /// (`ScriptFrames.screenFrame`). Returns false if the window was closed, which quits the game
     /// (`game_exit`).
     fn pump(driver: *Driver) !bool {
         if (driver.closed) return false;
+        // `starlancer.ini` is in the game's folder, where the saved games are too.
+        driver.settings_file.save(driver.saves.io, driver.saves.dir);
         driver.outlines.startFrame();
         const movies = driver.movies;
         const devices = movies.devices;

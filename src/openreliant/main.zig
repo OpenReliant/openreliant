@@ -240,6 +240,10 @@ fn readStats(io: Io, arena: Allocator, directory: Io.Dir, mods: *const game.bigf
 /// Plays from the game's folder `directory`, at `game_path`, with its settings file
 /// `settings_file`, which the pause menu's screens write to.
 fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []const u8, directory: Io.Dir, settings_file: *engine.profile.File) !void {
+    // Settings changed since the last save are written however the game ends. This matters when
+    // the window is closed in the rooms, the briefing or a movie: their loops return from `run`
+    // without reaching the main loop's save.
+    defer settings_file.save(io, directory);
     // OpenReliant's mods, whose files take priority over the game's files wherever they are; none
     // with `--no-mods`. The mods screen sets which are on and the order they load in, for a
     // screenshot too.
@@ -1356,11 +1360,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             window.holdMouse(hold) catch {};
         }
         // What the menu's screens saved goes to the file.
-        if (settings_file.changed) {
-            settings_file.changed = false;
-            engine.files.writeFile(io, directory, engine.profile.settings_name, settings_file.profile.text) catch |err|
-                std.log.warn("the settings can't be saved to {s}: {t}", .{ engine.profile.settings_name, err });
-        }
+        settings_file.save(io, directory);
         if (frames_left) |*left| {
             left.* -= 1;
             if (left.* == 0) {
