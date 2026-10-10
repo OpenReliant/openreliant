@@ -44,6 +44,9 @@ each mission's start and each mission's end write it as the game does.
 - **Improvement:** OpenReliant writes the file only where the profile has changed since it was last
   read or written. The game writes it again in each pass of the pilot roster while the pointer's
   button is held anywhere off the call sign.
+- **Improvement:** the game writes the file over the old one, so a write cut short leaves it broken.
+  OpenReliant writes a new file, flushed to the disk, which then takes the old one's place in one
+  step (`files.writeAtomic`).
 - **Fix:** the call sign the profile gives ends with its 32 bytes, where the game copies the name
   up to its terminator wherever that lies.
 

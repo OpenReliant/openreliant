@@ -110,21 +110,29 @@ pub const GameScripts = struct {
 
     /// What the saved games' folder tells them as a game is saved, loaded and removed.
     pub fn extra(scripts: *GameScripts) save.Extra {
-        return .{ .context = scripts, .vtable = &.{ .stored = stored, .loaded = loaded, .removed = removed } };
+        return .{ .context = scripts, .vtable = &.{ .storing = storing, .stored = stored, .loaded = loaded, .removed = removed } };
     }
 
-    /// As a game is saved, its scripts' state is written beside it. With no scripts, there's
-    /// nothing to keep, and a file left from an earlier save in the slot is removed.
+    /// Whether there are scripts whose state a saved game keeps.
+    fn any(scripts: *const GameScripts) bool {
+        return scripts.running != null or scripts.presentation != null;
+    }
+
+    /// As a game is saved, its scripts' state is written beside it, before the save itself. A
+    /// state that can't be written fails the save, which would otherwise go with the slot's older
+    /// state. With no scripts, there's nothing to keep.
+    fn storing(context: *anyopaque, folder: save.Folder, call_sign: []const u8, slot: u8) save.Folder.StoreError!void {
+        const scripts: *GameScripts = @ptrCast(@alignCast(context));
+        if (!scripts.any()) return;
+        const bytes = try scripting.snapshot.take(scripts.gpa, scripts.running, scripts.presentation, scripts.shared.storage);
+        defer scripts.gpa.free(bytes);
+        try folder.putCompanion(call_sign, slot, scripting.snapshot.extension, bytes);
+    }
+
+    /// Once a game without scripts is saved, the state an earlier save left in the slot goes.
     fn stored(context: *anyopaque, folder: save.Folder, call_sign: []const u8, slot: u8) void {
         const scripts: *GameScripts = @ptrCast(@alignCast(context));
-        if (scripts.running == null and scripts.presentation == null) return folder.removeCompanion(call_sign, slot, scripting.snapshot.extension);
-        const bytes = scripting.snapshot.take(scripts.gpa, scripts.running, scripts.presentation, scripts.shared.storage) catch |err| {
-            std.log.warn("the scripts' state can't be saved: {s}", .{@errorName(err)});
-            return;
-        };
-        defer scripts.gpa.free(bytes);
-        folder.putCompanion(call_sign, slot, scripting.snapshot.extension, bytes) catch |err|
-            std.log.warn("the scripts' state can't be saved: {s}", .{@errorName(err)});
+        if (!scripts.any()) folder.removeCompanion(call_sign, slot, scripting.snapshot.extension);
     }
 
     /// As a game is loaded, its scripts' state is read, and they start from it: at once where a

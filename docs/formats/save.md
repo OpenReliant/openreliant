@@ -38,6 +38,14 @@ after the call sign's terminator, which OpenReliant writes as zeros.
   can't hold saves nothing, where the game would take a separator in it for a folder's. The game
   checks the disk by writing `0x1400` bytes to `saves\test.bin` before each save, then writes the
   save without checking it; OpenReliant checks the save's own write.
+- **Improvement:** the game writes a save over the old file, so a crash, a power cut or a full disk
+  while saving leaves a broken file. OpenReliant writes each file of a save into a new file,
+  flushed to the disk, which then takes the old one's place in one step (`files.writeAtomic`). The
+  files that go with the save, its `.mods` file and the scripts' state, are written first and the
+  save next, so a new save is only listed once they're there. If any of them can't be written, the
+  game isn't saved and the slot keeps what it held: the saved games screen says the save failed,
+  and a failed autosave is logged. Files an older save of the slot had, and the new one doesn't,
+  are removed once the new save is written.
 - **Improvement:** the mods' scripts keep their state with each saved game, in a file of the same
   name with the extension `.scripts` beside it (`save.companionName`), so that the saved game stays
   as the game writes it. The saves folder tells the driver as a game is saved, loaded or removed
