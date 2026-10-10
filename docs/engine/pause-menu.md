@@ -121,6 +121,11 @@ font, centred, 65 pixels below:
 | CONTROL DEVICES (`0x10A`) | `0x17F`, `0x182` (a joystick) | 0.5 W, 0.5 H | 2 |
 | VIDEO (`0x10B`) | `0x181`, `0x184` (a monitor) | 0.75 W, 0.5 H | 4 |
 
+The inside of the joystick's base and of the monitor's screen are pixels of index 0, as are a few
+of the speaker's. The game draws them in the palette's colour 0, so the icons are solid, and
+OpenReliant draws them the same way ([Sprites](../formats/spr.md#rows)). The display's other shapes
+leave index 0 clear ([#1053](https://github.com/OpenReliant/openreliant/issues/1053)).
+
 Buttons (see [Buttons](#buttons)): LEAVE MISSION (`0x32B`, 7) where the others have OK, RESTART
 (`0x181`, 5), CONTINUE (`0x180`, 6). Escape: 6.
 
