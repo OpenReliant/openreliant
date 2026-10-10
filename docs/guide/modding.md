@@ -1100,9 +1100,11 @@ most:
 | List a stats table | `sltool stats list <stats.bin>` |
 
 `sltool help` lists every command, and the [README](../../README.md#reverse-engineering--analysis-tools)
-links each one to its format's page. `openreliant` has two commands for mod makers too:
-`openreliant missions` checks missions ([Checking a mission](#checking-a-mission)), and
-`openreliant hooks` lists the hooks scripts can use ([Hooks](scripting.md#hooks)).
+links each one to its format's page. `openreliant` has three commands for mod makers too:
+`openreliant missions` checks missions ([Checking a mission](#checking-a-mission)),
+`openreliant hooks` lists the hooks scripts can use ([Hooks](scripting.md#hooks)), and
+`openreliant debug` steps through a mission's script as the game plays it
+([Debugging mission scripts](debugging.md)).
 
 ## Sharing a mod
 

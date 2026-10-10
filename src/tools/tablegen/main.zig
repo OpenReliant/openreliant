@@ -108,6 +108,7 @@ pub const rooms = @import("rooms.zig");
 pub const sources = @import("sources.zig");
 pub const sequences = @import("sequences.zig");
 pub const speech = @import("speech.zig");
+pub const statements = @import("statements.zig");
 pub const views = @import("views.zig");
 pub const objectives = @import("objectives.zig");
 pub const x86 = @import("x86.zig");
@@ -124,6 +125,8 @@ const Handler = struct {
     opcode: u8,
     address: u32,
     shape: eval.Shape,
+    /// Whether the instruction starts a statement (`statements.read`).
+    starts_statement: bool,
 };
 
 const usage =
@@ -405,6 +408,11 @@ fn opcodes(init: std.process.Init, arena: std.mem.Allocator, paths: @FieldType(M
         return 1;
     };
 
+    const starts = statements.read(reader) catch |err| {
+        std.debug.print("vm_starts_statement at {x:0>8}: {t}\n", .{ statements.function, err });
+        return 1;
+    };
+
     const functions = try x86.parse(arena, listing);
     var by_address: std.AutoHashMapUnmanaged(u32, x86.Function) = .empty;
     for (functions) |function| try by_address.put(arena, function.address, function);
@@ -427,7 +435,7 @@ fn opcodes(init: std.process.Init, arena: std.mem.Allocator, paths: @FieldType(M
             std.debug.print("opcode {x:0>2} ({s}): {t}\n", .{ opcode, handler.name, err });
             return 1;
         };
-        try handlers.append(arena, .{ .opcode = @intCast(opcode), .address = entry, .shape = shape });
+        try handlers.append(arena, .{ .opcode = @intCast(opcode), .address = entry, .shape = shape, .starts_statement = starts[opcode] });
     }
 
     try writeOutput(init, paths.output, emit, .{ handlers.items, length });
@@ -470,6 +478,9 @@ fn emit(w: *Io.Writer, handlers: []const Handler, length: usize) !void {
         \\    /// cannot, the bytes that follow are reached only by a branch, so a linear sweep
         \\    /// would decode whatever happens to sit there.
         \\    falls_through: bool,
+        \\    /// Whether the instruction starts a statement, which a step of the editor link stops before
+        \\    /// (`vm_starts_statement`, 0x{[statements]X:0>8}).
+        \\    starts_statement: bool,
         \\    /// Address of the handler in the payload executable.
         \\    handler: u32,
         \\}};
@@ -477,14 +488,14 @@ fn emit(w: *Io.Writer, handlers: []const Handler, length: usize) !void {
         \\/// Every opcode the VM implements, in order.
         \\pub const table = [_]Info{{
         \\
-    , .{ .table = dispatch_table, .length = length });
+    , .{ .table = dispatch_table, .length = length, .statements = statements.function });
 
     for (handlers) |handler| {
         try w.print(
-            "    .{{ .opcode = 0x{X:0>2}, .operands = {d}, .form = .{t}, .falls_through = {}, .handler = 0x{X:0>8} }},\n",
+            "    .{{ .opcode = 0x{X:0>2}, .operands = {d}, .form = .{t}, .falls_through = {}, .starts_statement = {}, .handler = 0x{X:0>8} }},\n",
             .{
-                handler.opcode,              handler.shape.operands, handler.shape.form,
-                handler.shape.falls_through, handler.address,
+                handler.opcode,              handler.shape.operands,   handler.shape.form,
+                handler.shape.falls_through, handler.starts_statement, handler.address,
             },
         );
     }

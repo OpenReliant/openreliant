@@ -21,6 +21,7 @@ const Pointer = engine.Pointer;
 pub const opcodes = @import("vm/opcodes.zig");
 pub const conditions = @import("vm/conditions.zig");
 pub const machine = @import("vm/machine.zig");
+pub const editor = @import("vm/editor.zig");
 pub const triggers = @import("vm/triggers.zig");
 pub const Machine = machine.Machine;
 pub const Implementation = machine.Implementation;

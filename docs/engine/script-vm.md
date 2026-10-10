@@ -73,8 +73,7 @@ array is the game's variables ([The game's variables](#the-games-variables)).
 
 The loop also serves the original's mission editor and script debugger, over the editor link
 ([The editor link](editor-link.md)): with an editor linked, it stops a thread before a byte that
-section 10, one flag per script byte, marks, reports the position, and steps from there. Not ported
-([#539](https://github.com/OpenReliant/openreliant/issues/539)).
+section 10, one flag per script byte, marks, reports the position, and steps from there.
 
 ## The game's variables
 
@@ -591,5 +590,6 @@ nothing, where the game faults. The watches' lists are as long as the mission ne
 writes them into tables of a fixed size without looking. An event on a squad whose table or members
 can't be read is raised on none of its triggers, and logged once.
 
-Not ported: the editor link ([The editor link](editor-link.md)); and the events that code OpenReliant does not run yet posts
-([#307](https://github.com/OpenReliant/openreliant/issues/307)).
+Not ported: the editor link's live changes to the mission
+([#1057](https://github.com/OpenReliant/openreliant/issues/1057)); and the events that code
+OpenReliant does not run yet posts ([#307](https://github.com/OpenReliant/openreliant/issues/307)).

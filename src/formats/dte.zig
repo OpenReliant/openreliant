@@ -23,6 +23,8 @@ pub const section_count = 27;
 /// Writing mission files and their scripts.
 pub const write = @import("dte/write.zig");
 pub const assemble = @import("dte/assemble.zig");
+/// A script's instructions as text.
+pub const listing = @import("dte/listing.zig");
 
 /// Identity and typed references for mission source collections (#608).
 pub const source = @import("dte/source.zig");
@@ -1529,9 +1531,28 @@ pub const Mission = struct {
     /// Where a section's records start in the image, and how many there are.
     pub const Span = struct { offset: u32, count: u16 };
 
+    /// How many bytes a section's reservation holds: from its start to the next section's, or to
+    /// the image's end. The mission editor's files reserve more than a section's records fill,
+    /// which the editor link's copies can fill (`game.mission.editor`). None for an unused section.
+    pub fn room(mission: Mission, section: Section) u32 {
+        const slot = mission.entry(section);
+        if (!slot.isUsed() or slot.offset > mission.image.len) return 0;
+        var end: u32 = @intCast(mission.image.len);
+        for (mission.directory) |other| {
+            if (other.isUsed() and other.offset > slot.offset) end = @min(end, other.offset);
+        }
+        return end - slot.offset;
+    }
+
     /// The script bytecode, which the directory counts in halfwords.
     pub fn script(mission: Mission) Error![]const u8 {
         return std.mem.sliceAsBytes(try mission.records(u16, .script));
+    }
+
+    /// The size of the script's flags (section 10) as the editor link copies them: a byte for each
+    /// of the script's bytes, rounded up to a multiple of 4 (`script_flags_size`, `0x00457B70`).
+    pub fn scriptFlagsSize(mission: Mission) u32 {
+        return std.mem.alignForward(u32, @as(u32, mission.entry(.script).count) * @sizeOf(u16), 4);
     }
 
     /// The mission's name as OpenReliant keeps it in section `openreliant_name`; null for a mission
@@ -1851,6 +1872,12 @@ test "directory and records line up" {
     // Where each section's records lie: none for an unused one; past the image, an error.
     try std.testing.expectEqual(Mission.Span{ .offset = ships_at, .count = 1 }, (try mission.span(.ships)).?);
     try std.testing.expectEqual(null, try mission.span(.triggers));
+    // A section's reservation runs to the next section's start, and the last one's to the image's
+    // end, whatever its records fill.
+    try std.testing.expectEqual(ships_at - pool_at, mission.room(.strings));
+    try std.testing.expectEqual(name_at - ships_at, mission.room(.ships));
+    try std.testing.expectEqual(image.len - name_at, mission.room(.openreliant_name));
+    try std.testing.expectEqual(0, mission.room(.triggers));
     directory[@backingInt(Section.ships)].offset = image.len + 1;
     try std.testing.expectError(error.Truncated, (try Mission.parse(&image)).span(.ships));
 }
@@ -2101,11 +2128,11 @@ test "follows a branch rather than sweeping past a jump" {
         0x1C, 0x00, 0x22, 0x01, 0x21, 0x17, 0x27, 0x00, 0x28, 0x00, 0x02, 0x24, 0x00, 0x07,
         0x22, 0x15, 0x42, 0x00, 0x04, 0x22, 0x18, 0x21, 0x17, 0x32, 0x01, 0x43, 0x32, 0x01,
     };
-    const listing = (try disassemble(std.testing.allocator, &section, 0)).?;
-    defer std.testing.allocator.free(listing.instructions);
+    const disassembly = (try disassemble(std.testing.allocator, &section, 0)).?;
+    defer std.testing.allocator.free(disassembly.instructions);
 
-    try std.testing.expect(!listing.incomplete);
-    try std.testing.expectEqual(@as(usize, 0), listing.unreached);
+    try std.testing.expect(!disassembly.incomplete);
+    try std.testing.expectEqual(@as(usize, 0), disassembly.unreached);
 
     // Addresses are offsets into the section, so the header shifts them by two.
     const expected = [_]struct { usize, Opcode }{
@@ -2114,19 +2141,19 @@ test "follows a branch rather than sweeping past a jump" {
         .{ 14, .call_part },    .{ 16, .jump },      .{ 19, .call_part },
         .{ 21, .command },      .{ 23, .push_byte }, .{ 25, .@"return" },
     };
-    try std.testing.expectEqual(expected.len, listing.instructions.len);
-    for (expected, listing.instructions) |want, got| {
+    try std.testing.expectEqual(expected.len, disassembly.instructions.len);
+    for (expected, disassembly.instructions) |want, got| {
         try std.testing.expectEqual(want[0], got.address);
         try std.testing.expectEqual(want[1], got.opcode);
     }
     // The branch and the jump agree on where the two arms are, and only the jump is unconditional.
-    const branch = listing.instructions[5].flow.branch;
+    const branch = disassembly.instructions[5].flow.branch;
     try std.testing.expectEqual(@as(usize, 19), branch.target);
     try std.testing.expect(branch.conditional);
-    const jump = listing.instructions[7].flow.branch;
+    const jump = disassembly.instructions[7].flow.branch;
     try std.testing.expectEqual(@as(usize, 21), jump.target);
     try std.testing.expect(!jump.conditional);
-    try std.testing.expect(!listing.instructions[11].fallsThrough());
+    try std.testing.expect(!disassembly.instructions[11].fallsThrough());
 }
 
 test "reads a weighted branch's arms" {

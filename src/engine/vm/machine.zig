@@ -12,8 +12,8 @@
 //! rest). Where the game would fault, or read past a table, OpenReliant ends the thread and logs
 //! why.
 //!
-//! Not ported: the breakpoints and steps that `vm_run` serves the original's editor link
-//! (docs/engine/editor-link.md, [#539](https://github.com/OpenReliant/openreliant/issues/539)).
+//! While the editor link has an editor there, `vm_run` stops a thread at the bytes the editor
+//! flagged and steps it as the editor asks (`vm.editor`, docs/engine/editor-link.md).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -32,6 +32,10 @@ const aigeneric = @import("../game/aigeneric.zig");
 const create = @import("../game/create.zig");
 const gameobj = @import("../game/gameobj.zig");
 const hud = @import("../game/hud.zig");
+
+/// The bit of a script byte's flag that the editor sets to stop the script before the byte
+/// (`vm_run`, `0x0045C9AD`).
+pub const stop_flag: u8 = 1 << 0;
 
 /// The value `push_null` pushes: no object (`0x0045C4B5`), which the mission's lookups take for
 /// none (`bind.Mission.named`).
@@ -146,6 +150,8 @@ pub const Running = struct {
     ip: ?u32 = null,
     /// Where the running block ends, and its constants start (`Thread.block_end`).
     block_end: u32 = 0,
+    /// Where the running block ended as the editor's step over began (`Thread.step_block_end`).
+    step_block_end: u32 = 0,
     /// Where the running part's first argument lies on the stack; null for a block started with
     /// none (`Thread.frame`).
     frame: ?u8 = null,
@@ -309,6 +315,12 @@ pub const Machine = struct {
     finished: bool = false,
     /// `vm_first_finished` (`0x00537410`): set once the pool's first thread finishes.
     first_finished: bool = false,
+    /// What the VM keeps for the editor link: whether an editor is there, its hold on the script,
+    /// its step and its pause of the mission.
+    editor: vm.editor.Editor = .{},
+    /// OpenReliant's: the thread the editor stopped last, until it runs again, which the script's
+    /// start runs on as the editor releases it (`startPart`).
+    stopped: ?u8 = null,
     store: Store = .none,
     tags: Tags = .{},
     /// `vm_clock` (`0x00538C9C`): seconds of the mission.
@@ -397,12 +409,13 @@ pub const Machine = struct {
 
     /// `mission_script_start` (`0x0045CBC0`), as the mission's binding ends: every object's kept
     /// events emptied, the clock, the timers, the threads and the tags reset, the handlers' verdict
-    /// and the last jump's time too, and the timers set running. Then each start part runs, every
-    /// object's triggers are armed, and each ship's Destroyed flag is cleared and its components
-    /// all intact. Where a curve starts at the ship, the first such curve's ships are made
-    /// (`0x0045CD71`): the ship it starts at, those its tangents are drawn to, and the ship it ends
-    /// at, each where its slot holds no object made yet, which the start part may have left
-    /// (`executor.createShip`).
+    /// and the last jump's time too, the editor's pause, hold and step cleared, and the timers set
+    /// running. Then the editor's messages are read, and read again a fifth of a second later
+    /// (`0x0045CC95`), before each start part runs (`startPart`). Then every object's triggers are
+    /// armed, and each ship's Destroyed flag is cleared and its components all intact. Where a
+    /// curve starts at the ship, the first such curve's ships are made (`0x0045CD71`): the ship it
+    /// starts at, those its tangents are drawn to, and the ship it ends at, each where its slot
+    /// holds no object made yet, which the start part may have left (`executor.createShip`).
     ///
     /// **Fix:** the game takes the object past its array for a curve that names no ship;
     /// OpenReliant passes over it.
@@ -414,6 +427,7 @@ pub const Machine = struct {
         @memset(machine.event_values, std.mem.zeroes(vm.ObjectEvents));
         machine._unknown_00537401 = unknown_00537401_reset;
         machine.first_finished = false;
+        machine.editor.reset();
         machine.last_jumped = never_jumped;
         machine.verdict = true;
         machine.clock = 0;
@@ -423,8 +437,11 @@ pub const Machine = struct {
         machine.timer_count = 0;
         machine.ticked = false;
         machine.timers_running = true;
+        machine.editor.check();
+        machine.editor.sleep(vm.editor.start_wait_ms);
+        machine.editor.check();
         for (try file.parts()) |part| {
-            if (part.flags.start and !part.isEmpty()) machine.runPart(part);
+            if (part.flags.start and !part.isEmpty()) machine.startPart(part);
         }
         const triggers = try machine.mission.triggers();
         for (try file.objects()) |object| {
@@ -447,6 +464,30 @@ pub const Machine = struct {
     /// `part_run` (`0x0045BAA0`): runs a part's block at once, on a new thread.
     pub fn runPart(machine: *Machine, part: dte.Part) void {
         _ = machine.startThread(machine.mission.blockAt(.script, part.block()), null, false, null, null);
+    }
+
+    /// A start part, as the script starts (`mission_script_start`, `0x0045CCCD`): run at once
+    /// (`runPart`), then the editor's messages read and a millisecond waited. While the editor
+    /// holds the script, the start waits on it, reading its messages each millisecond. Once the
+    /// editor releases the thread it stopped, the thread runs on. A step that left the script
+    /// released as its thread yielded ends the wait, and the next thread to run takes the step on.
+    ///
+    /// **Fix:** while the editor holds the script, the game runs the part again on a new thread
+    /// each time round. Each one runs the part's statements before the stop again and stops at the
+    /// same byte, and a release goes to the newest. OpenReliant runs the stopped thread on from
+    /// where it stopped.
+    fn startPart(machine: *Machine, part: dte.Part) void {
+        const editor = &machine.editor;
+        machine.runPart(part);
+        while (true) {
+            editor.check();
+            editor.sleep(vm.editor.part_wait_ms);
+            switch (editor.hold) {
+                .none => return,
+                .held => {},
+                .released => machine.runThread(machine.stopped orelse return),
+            }
+        }
     }
 
     /// `vm_thread_start` (`0x0045B8D0`): starts a thread on `block`, the one at `into` or a free
@@ -503,6 +544,7 @@ pub const Machine = struct {
     fn resetThreads(machine: *Machine) void {
         machine.thread_count = 0;
         machine.threads = @splat(.{});
+        machine.stopped = null;
     }
 
     /// `vm_thread_run` (`0x0045BA30`): runs a thread until it yields or finishes, unless it waits
@@ -792,9 +834,21 @@ pub const Machine = struct {
     /// `vm_run` (`0x0045C980`): runs the thread from its instruction pointer, an opcode at a time,
     /// until a handler returns zero. True once the thread has finished, which a `return` at call
     /// depth zero does.
+    ///
+    /// Before each opcode, the editor link may stop the thread (`stopsBefore`): the script is held,
+    /// the editor told where, and the thread stays at that byte. A run that ends as its thread
+    /// yields while the editor steps through or over statements releases the hold again
+    /// (`0x0045CAD3`), so that the next thread to run carries the step on. A thread that finishes
+    /// ends the step.
     fn run(machine: *Machine, index: u8) bool {
+        if (machine.stopped == index) machine.stopped = null;
         var previous: u32 = 1;
         while (previous != 0) {
+            if (machine.stopsBefore(index)) |offset| {
+                machine.stopped = index;
+                machine.editor.stop(offset);
+                return machine.runEnds(index);
+            }
             previous = machine.step(index, previous) catch |fault| {
                 log.warn("a script thread ends at {d}: {s}", .{ machine.threads[index].ip orelse 0, @errorName(fault) });
                 machine.finished = true;
@@ -802,9 +856,78 @@ pub const Machine = struct {
                 return true;
             };
         }
+        const stepping = machine.editor.step != .none and machine.editor.step != .run_on;
+        if (!machine.finished and stepping) machine.editor.hold = .released;
+        return machine.runEnds(index);
+    }
+
+    /// The end of `vm_run` (`0x0045CAE1`): a thread with calls still open hasn't finished. One that
+    /// has finished ends the editor's step, and the pool's first thread sets `first_finished`.
+    fn runEnds(machine: *Machine, index: u8) bool {
         if (machine.threads[index].record.call_depth != 0) return false;
-        if (machine.finished and index == 0) machine.first_finished = true;
+        if (machine.finished) {
+            if (index == 0) machine.first_finished = true;
+            machine.editor.step = .none;
+        }
         return machine.finished;
+    }
+
+    /// Whether the thread stops before its next instruction for the editor, as `vm_run` checks
+    /// before each opcode (`0x0045C995` to `0x0045CA52`), and the offset in the script of the byte
+    /// it stops before. With an editor there, it stops before a byte the editor flagged
+    /// (`flaggedAt`), except where the editor released the script with a run on, which goes past
+    /// it. The first instruction after a release takes the hold off and starts the step: a step
+    /// over notes the running block's end. A step stops before the next instruction that starts a
+    /// statement (`opcodes.Info.starts_statement`); a step over only once the running block's end
+    /// is the one noted again, or a part has returned.
+    fn stopsBefore(machine: *Machine, index: u8) ?u32 {
+        const editor = &machine.editor;
+        if (!editor.present) return null;
+        const thread = &machine.threads[index];
+        const at = thread.ip orelse return null;
+        const offset = at -% machine.mission.file.entry(.script).offset;
+        if (machine.flaggedAt(offset)) {
+            if (editor.hold != .released) return offset;
+            if (editor.step == .run_on) {
+                editor.hold = .none;
+                editor.step = .none;
+                return null;
+            }
+        }
+        if (editor.step == .none) return null;
+        if (editor.hold == .released) {
+            editor.hold = .none;
+            switch (editor.step) {
+                .run_on => editor.step = .none,
+                .over => {
+                    thread.step_block_end = thread.block_end;
+                    editor.step_returned = false;
+                },
+                else => {},
+            }
+            return null;
+        }
+        const opcode = machine.mission.byte(at) catch return null;
+        const info = vm.opcodes.find(opcode) orelse return null;
+        if (!info.starts_statement) return null;
+        if (editor.step == .over and thread.block_end != thread.step_block_end and !editor.step_returned) return null;
+        return offset;
+    }
+
+    /// Whether the byte `offset` bytes into the script (section 6) is one the editor flagged to
+    /// stop before: bit 0 of its flag among the script's flags (section 10), which the editor sends
+    /// (tag `0x09`).
+    ///
+    /// **Fix:** the game counts a byte of `script_b` from the script's start too, and reads its
+    /// flag from past the flags' end; OpenReliant takes a byte outside the script, or past the
+    /// flags, as unflagged.
+    fn flaggedAt(machine: *const Machine, offset: u32) bool {
+        const script = machine.mission.file.entry(.script);
+        if (offset >= @as(u32, script.count) * @sizeOf(u16)) return false;
+        const flags = machine.mission.file.entry(.script_flags);
+        if (offset >= flags.count) return false;
+        const flag = machine.mission.byte(flags.offset + offset) catch return false;
+        return flag & stop_flag != 0;
     }
 
     /// One opcode's handler (`vm_dispatch_table`, `0x004F6350`): what it does, with the handler's
@@ -1069,6 +1192,7 @@ pub const Machine = struct {
         if (count > thread.top) return error.StackUnderflow;
         thread.top -= @intCast(count);
         thread.record.call_depth -%= 1;
+        machine.editor.step_returned = true;
         return 1;
     }
 
@@ -1271,6 +1395,32 @@ pub const testing = struct {
         return routine.finish();
     }
 
+    /// The size of the instruction `opcode` starts, as the tests lay out their scripts.
+    pub fn instructionSize(comptime opcode: dte.Opcode) u32 {
+        const info = comptime (vm.opcodes.find(@backingInt(opcode)) orelse @compileError("no instruction " ++ @tagName(opcode)));
+        return 1 + @as(u32, info.operands);
+    }
+
+    /// Where the first part of the tests' scripts starts its instructions, past its length
+    /// halfword.
+    pub const first_instruction: u32 = @sizeOf(u16);
+
+    /// A block that sets global 0 to 1 and global 1 to 2, a statement each, which the caller
+    /// frees.
+    pub fn twoStatements(gpa: Allocator) ![]u8 {
+        return assemble(gpa, struct {
+            fn build(r: *Routine) !void {
+                try r.op(.select_global, &.{0});
+                try r.op(.push_byte, &.{1});
+                try r.op(.assign, &.{});
+                try r.op(.select_global, &.{1});
+                try r.op(.push_byte, &.{2});
+                try r.op(.assign, &.{});
+                try finishPartOps(r);
+            }
+        }.build);
+    }
+
     /// A block that adds one to global `global`, which the caller frees.
     pub fn counting(gpa: Allocator, comptime global: u8) ![]u8 {
         return assemble(gpa, struct {
@@ -1308,6 +1458,8 @@ pub const testing = struct {
         /// Section 24, a word for each command (`dte.CommandFlags`); none where it is empty, as
         /// the words past the section lie in the file's zeros.
         command_flags: []const dte.CommandFlags = &.{},
+        /// Section 10, a byte for each byte of the script, which the editor link flags.
+        script_flags: []const u8 = &.{},
     };
 
     pub const Fixture = struct {
@@ -1316,8 +1468,21 @@ pub const testing = struct {
         machine: Machine,
 
         /// A mission whose script holds `parts` one after another, each a part of its own, with
-        /// `records`, and a machine on it.
+        /// `records` (`image`), and a machine on it.
         pub fn init(fixture: *Fixture, gpa: Allocator, parts: []const Part, records: Records) !void {
+            fixture.mission = try .bind(gpa, try image(gpa, parts, records));
+            fixture.random = .{};
+            fixture.machine = .init(gpa, &fixture.mission, &fixture.random);
+        }
+
+        pub fn deinit(fixture: *Fixture) void {
+            fixture.machine.deinit();
+            fixture.mission.deinit();
+        }
+
+        /// The image of a mission whose script holds `parts` one after another, each a part of its
+        /// own, with `records`, made in `gpa`, which the caller frees.
+        pub fn image(gpa: Allocator, parts: []const Part, records: Records) ![]u8 {
             var script: std.ArrayList(u8) = .empty;
             defer script.deinit(gpa);
             var descriptors: std.ArrayList(dte.Part) = .empty;
@@ -1349,15 +1514,8 @@ pub const testing = struct {
             section(&sections, .formations, records.formations.len, std.mem.sliceAsBytes(records.formations));
             section(&sections, .formation_points, records.formation_points.len, std.mem.sliceAsBytes(records.formation_points));
             section(&sections, .command_flags, records.command_flags.len, std.mem.sliceAsBytes(records.command_flags));
-            const image = try write.write(gpa, &sections, .{});
-            fixture.mission = try .bind(gpa, image);
-            fixture.random = .{};
-            fixture.machine = .init(gpa, &fixture.mission, &fixture.random);
-        }
-
-        pub fn deinit(fixture: *Fixture) void {
-            fixture.machine.deinit();
-            fixture.mission.deinit();
+            section(&sections, .script_flags, records.script_flags.len, records.script_flags);
+            return write.write(gpa, &sections, .{});
         }
 
         /// The `link` of a trigger whose block is that of part `index` of `parts`: where the part's
@@ -2261,6 +2419,158 @@ test "a command's flags are read where its number places them, whatever the sect
         try fixture.machine.start();
         try std.testing.expectEqual(!within, fixture.machine.skips_players);
     }
+}
+
+test "the editor stops a thread before a flagged byte and steps it statement by statement" {
+    const gpa = std.testing.allocator;
+    const code = try testing.twoStatements(gpa);
+    defer gpa.free(code);
+    // The part's first store comes after a select and a push, and its second after another of
+    // each.
+    const store = testing.first_instruction + testing.instructionSize(.select_global) + testing.instructionSize(.push_byte);
+    const second_store = store + testing.instructionSize(.assign) + testing.instructionSize(.select_global) + testing.instructionSize(.push_byte);
+    var flags: [64]u8 = @splat(0);
+    flags[testing.first_instruction] = 1;
+    var fixture: testing.Fixture = undefined;
+    try fixture.init(gpa, &.{.{ .code = code }}, .{ .globals = &.{ 0, 0 }, .script_flags = &flags });
+    defer fixture.deinit();
+    var listener: vm.editor.testing.Listener = .{};
+    fixture.machine.editor = .{ .present = true, .connection = listener.connection() };
+    try fixture.machine.start();
+
+    // The part stops before its flagged first byte, held, having done nothing.
+    fixture.machine.runPart((try fixture.mission.file.parts())[0]);
+    try std.testing.expectEqual(1, listener.count);
+    try std.testing.expectEqual(testing.first_instruction, listener.last());
+    try std.testing.expect(fixture.machine.editor.holds());
+    try std.testing.expectEqual(1, fixture.machine.thread_count);
+    // Held, it stops there again.
+    fixture.machine.runThreads();
+    try std.testing.expectEqual(testing.first_instruction, listener.last());
+    try std.testing.expectEqual(0, fixture.global(0));
+
+    // A step goes on to the next statement, the first store, and stops before it.
+    fixture.machine.editor.release(.into);
+    fixture.machine.runThreads();
+    try std.testing.expectEqual(store, listener.last());
+    try std.testing.expectEqual(0, fixture.global(0));
+    // The next step stores, and stops before the second store.
+    fixture.machine.editor.release(.into);
+    fixture.machine.runThreads();
+    try std.testing.expectEqual(second_store, listener.last());
+    try std.testing.expectEqual(1, fixture.global(0));
+    try std.testing.expectEqual(0, fixture.global(1));
+
+    // A run on goes to the end, which ends the step.
+    fixture.machine.editor.release(.run_on);
+    fixture.machine.runThreads();
+    try std.testing.expectEqual(2, fixture.global(1));
+    try std.testing.expectEqual(0, fixture.machine.thread_count);
+    try std.testing.expectEqual(vm.editor.Step.none, fixture.machine.editor.step);
+}
+
+test "a run on goes past the flagged byte, and with no editor the flags stop nothing" {
+    const gpa = std.testing.allocator;
+    const code = try testing.twoStatements(gpa);
+    defer gpa.free(code);
+    var flags: [64]u8 = @splat(0);
+    flags[testing.first_instruction] = 1;
+    for ([_]bool{ true, false }) |present| {
+        var fixture: testing.Fixture = undefined;
+        try fixture.init(gpa, &.{.{ .code = code }}, .{ .globals = &.{ 0, 0 }, .script_flags = &flags });
+        defer fixture.deinit();
+        var listener: vm.editor.testing.Listener = .{};
+        fixture.machine.editor = .{ .present = present, .connection = listener.connection() };
+        try fixture.machine.start();
+        fixture.machine.runPart((try fixture.mission.file.parts())[0]);
+        if (present) {
+            try std.testing.expectEqual(1, listener.count);
+            fixture.machine.editor.release(.run_on);
+            fixture.machine.runThreads();
+            try std.testing.expectEqual(1, listener.count);
+            try std.testing.expectEqual(vm.editor.Hold.none, fixture.machine.editor.hold);
+        } else try std.testing.expectEqual(0, listener.count);
+        try std.testing.expectEqual(2, fixture.global(1));
+    }
+}
+
+test "a step over passes the statements of a part it calls" {
+    const gpa = std.testing.allocator;
+    const caller = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            try r.op(.call_part, &.{1});
+            try r.op(.select_global, &.{1});
+            try r.op(.push_byte, &.{2});
+            try r.op(.assign, &.{});
+            try r.op(.push_byte, &.{1});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(caller);
+    const called = try testing.counting(gpa, 0);
+    defer gpa.free(called);
+    const store = testing.first_instruction + testing.instructionSize(.call_part) + testing.instructionSize(.select_global) + testing.instructionSize(.push_byte);
+    var flags: [128]u8 = @splat(0);
+    flags[testing.first_instruction] = 1;
+    var fixture: testing.Fixture = undefined;
+    try fixture.init(gpa, &.{ .{ .code = caller }, .{ .code = called } }, .{ .globals = &.{ 0, 0 }, .script_flags = &flags });
+    defer fixture.deinit();
+    var listener: vm.editor.testing.Listener = .{};
+    fixture.machine.editor = .{ .present = true, .connection = listener.connection() };
+    try fixture.machine.start();
+    fixture.machine.runPart((try fixture.mission.file.parts())[0]);
+    try std.testing.expectEqual(testing.first_instruction, listener.last());
+
+    // Stepped over, the call runs the part whole, and the step stops before the caller's store.
+    fixture.machine.editor.release(.over);
+    fixture.machine.runThreads();
+    try std.testing.expectEqual(2, listener.count);
+    try std.testing.expectEqual(store, listener.last());
+    try std.testing.expectEqual(1, fixture.global(0));
+    try std.testing.expectEqual(0, fixture.global(1));
+}
+
+test "the script's start waits on the editor, and runs a start part it held on from where it stopped" {
+    const gpa = std.testing.allocator;
+    // A start part that counts global 0 up in a part it calls, then sets global 1 to 2, the editor
+    // stopping it before the second statement.
+    const caller = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            try r.op(.call_part, &.{1});
+            try r.op(.select_global, &.{1});
+            try r.op(.push_byte, &.{2});
+            try r.op(.assign, &.{});
+            try r.op(.push_byte, &.{1});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(caller);
+    const called = try testing.counting(gpa, 0);
+    defer gpa.free(called);
+    const second = testing.first_instruction + testing.instructionSize(.call_part);
+    const store = second + testing.instructionSize(.select_global) + testing.instructionSize(.push_byte);
+    var flags: [128]u8 = @splat(0);
+    flags[second] = 1;
+    var fixture: testing.Fixture = undefined;
+    try fixture.init(gpa, &.{ .{ .code = caller, .start = true }, .{ .code = called } }, .{ .globals = &.{ 0, 0 }, .script_flags = &flags });
+    defer fixture.deinit();
+    // The editor steps once from the stop, then runs on.
+    var listener: vm.editor.testing.Listener = .{ .releases = &.{ .into, .run_on } };
+    fixture.machine.editor = .{ .present = true, .connection = listener.connection() };
+    listener.editor = &fixture.machine.editor;
+    try fixture.machine.start();
+
+    // The start waited for both releases, and the part's first statement ran once.
+    try std.testing.expectEqual(2, listener.checks);
+    try std.testing.expectEqual(2, listener.count);
+    try std.testing.expectEqual(second, listener.offsets[0]);
+    try std.testing.expectEqual(store, listener.offsets[1]);
+    try std.testing.expectEqual(1, fixture.global(0));
+    try std.testing.expectEqual(2, fixture.global(1));
+    try std.testing.expectEqual(0, fixture.machine.thread_count);
+    try std.testing.expectEqual(vm.editor.Hold.none, fixture.machine.editor.hold);
+    // A fifth of a second before the start parts, then a millisecond each time round.
+    try std.testing.expectEqual(vm.editor.start_wait_ms + 3 * vm.editor.part_wait_ms, listener.slept);
 }
 
 test "a mission without section 24 takes the flags the mission editor writes" {

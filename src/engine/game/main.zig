@@ -263,6 +263,14 @@ pub const Clock = struct {
         clock.advanceTimer(ticks);
     }
 
+    /// Takes `now`, the platform's count of hundredths of a second, as where the timer has reached,
+    /// with none of its ticks run: past the mission's start, as `mission_run` counts the timer's
+    /// ticks from where they stand as its loop begins (`0x00494148`), and while the editor pauses
+    /// the mission, when the timer runs none of its routines (`0x004A6FC0`).
+    pub fn skipTo(clock: *Clock, now: u64) void {
+        clock.timer_at = now;
+    }
+
     /// Runs the timer on for `ticks` hundredths of a second.
     pub fn advanceTimer(clock: *Clock, ticks: u32) void {
         for (0..ticks) |_| hog_snd.tickTimer(clock);
@@ -621,18 +629,28 @@ pub fn controlsFrame(controls: Controls) void {
 /// After the orders, in a frame in which game time passes, mods' scripts run their `on_update`
 /// handlers with the seconds of game time the frame covers.
 ///
-/// Whether the mission is over: as the camera has it (`missionOver`), which sets the script's
-/// `mission_over`, or as the script has it, which ends the mission before the frame's work; or,
-/// once the frame's work is done, where the script has ended it (`TerminateMission`), as
+/// How the frame ended: the mission over as the camera has it (`missionOver`), which sets the
+/// script's `mission_over`, or as the script has it, which ends the mission before the frame's
+/// work; or, once the frame's work is done, where the script has ended it (`TerminateMission`), as
 /// `mission_run` finds after the frame (`0x004941AF`).
-pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?*Loaded) bool {
-    input.nextNavPoint(orders.world);
+///
+/// While the editor pauses the mission, or holds its script with the editor there
+/// (`vm.editor.Editor.leavesFrame`), the frame leaves out its work after the check of
+/// `mission_over` (`0x0049288E`, `mission.Loaded.leaveFrame`).
+pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?*Loaded) FrameEnd {
     const over = missionOver(orders.world);
     const player = orders.world.player;
     if (loaded) |playing| {
         const variables = &playing.script.variables;
         if (over) variables.mission_over = 1;
-        if (variables.mission_over != 0) return true;
+        if (variables.mission_over != 0) return .over;
+        if (playing.script.editor.leavesFrame()) {
+            playing.leaveFrame(orders.world);
+            return .left_out;
+        }
+    }
+    input.nextNavPoint(orders.world);
+    if (loaded) |playing| {
         if (orders.world.clock.frame_duration != 0 and player.ending == .playing and player.showing != .landing) {
             playing.tickClock(orders.world.clock.game_ticks);
             playing.flush(orders);
@@ -668,8 +686,18 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     if (orders.world.countermeasures) |dropped| dropped.frame(orders.world);
     if (orders.world.shockwaves) |waves| waves.frame(orders.world);
     if (orders.world.display) |display| runLock(orders.world, display);
-    return over or player.terminated != 0;
+    return if (over or player.terminated != 0) .over else .played;
 }
+
+/// How `missionFrame` ended.
+pub const FrameEnd = enum {
+    /// The frame's work ran, and the mission plays on.
+    played,
+    /// The mission is over.
+    over,
+    /// The editor link left the frame's work out.
+    left_out,
+};
 
 /// `mission_frame`'s missile lock (`hud_missile_lock`, `0x00491520`), which runs while the last
 /// frame's view shows it (`0x004933D7`), whatever the camera has switched to since, but not while
@@ -1905,6 +1933,9 @@ pub const Start = struct {
     /// takes the time (`srand(time(NULL))`, `0x004936AE`): the driver gives the clock's, or a
     /// fixed one for a run that comes out the same each time.
     seed: u64 = Random.default_seed,
+    /// OpenReliant's: the editor link's session, which works on the mission from its script's start
+    /// (`mission.editor.Session.begin`); null where no editor can link.
+    editor: ?*@import("mission/editor.zig").Session = null,
 };
 
 /// Where the mission's start makes the camera's marker (`create.Objects.camera_marker`), which the
@@ -1936,7 +1967,8 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 ///    `0x004124D0`, `vm.Variables.players`), and starts the script (`mission.Loaded.start`),
 ///    whose start part makes the mission's first ships and gives them their orders, a launch
 ///    among them. The mods' scripts for the mission start just before that
-///    (`hooks.Scripts.begin`);
+///    (`hooks.Scripts.begin`), and the editor link's session takes the mission
+///    (`mission.editor.Session.begin`);
 /// 3. lists the player's wing's icons (`startWing`), and makes the camera's marker in the next
 ///    slot;
 /// 4. lets go of the types no object is of any more, and loads the model of each type the mission
@@ -2033,6 +2065,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     orders.world.mission = &loaded.bound;
     orders.world.events = &loaded.events;
     if (all.scripts) |scripts| scripts.begin(orders, mission, scriptSeed(world.random, number));
+    if (start.editor) |session| session.begin(loaded, mission);
     try loaded.start(orders);
 
     givePilots(all, number, start.wing);

@@ -1,7 +1,7 @@
 //! `C:\lancer\game\mission.cpp`: a mission in play. Its file bound (`bind`), its events raised on
 //! its script's triggers (`events`), its script run each frame (`Loaded.process`), its ships kept
-//! where their objects are (`syncShips`), a ship's object found from its record (`shipSlot`), and
-//! its flight groups listed in the wings (`buildWings`).
+//! where their objects are (`syncShips`), a ship's object found from its record (`shipSlot`), its
+//! flight groups listed in the wings (`buildWings`), and the editor link's handlers (`editor`).
 //!
 //! Not ported: the second and third wings' lists (`0x00515D7C`, `0x00515D94`), which nothing reads.
 
@@ -9,6 +9,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 pub const bind = @import("mission/bind.zig");
+pub const editor = @import("mission/editor.zig");
 pub const events = @import("mission/events.zig");
 pub const Mission = bind.Mission;
 
@@ -35,8 +36,14 @@ pub const Loaded = struct {
     script: vm.Machine,
     events: events.Events,
     /// The game's ticks when the script's clock started (`vm_clock_start`), from which it counts
-    /// the mission's seconds (`tickClock`).
+    /// the mission's seconds (`tickClock`), moved on by the ticks the editor held the script
+    /// (`holdClock`).
     clock_from: u32 = 0,
+    /// The game's ticks as the clock last ticked or held.
+    clock_at: u32 = 0,
+    /// OpenReliant's: the editor link's session, which works on the mission from its script's start
+    /// and hears of its end (`editor.Session`); null where no editor can link.
+    session: ?*editor.Session = null,
 
     /// Binds `image`, made in `gpa`, which the mission then owns, with its script ready to start
     /// (`mission_bind_sections`) and no events waiting (`init_mission`). The script draws its
@@ -54,6 +61,7 @@ pub const Loaded = struct {
     }
 
     pub fn destroy(loaded: *Loaded) void {
+        if (loaded.session) |session| session.end();
         const gpa = loaded.bound.gpa;
         loaded.events.deinit();
         loaded.script.deinit();
@@ -71,6 +79,7 @@ pub const Loaded = struct {
     pub fn start(loaded: *Loaded, game: aigeneric.Context) !void {
         try loaded.events.watch(game.world.objects.players);
         loaded.clock_from = game.world.clock.game_ticks;
+        loaded.clock_at = loaded.clock_from;
         loaded.script.game = game;
         try loaded.script.start();
         const ships = try loaded.bound.ships();
@@ -91,17 +100,15 @@ pub const Loaded = struct {
     /// `process_mission` (`0x0045A570`), once a frame from `mission_frame`: the script's threads
     /// run on (`vm.Machine.runThreads`), the mission's ships take their objects' places
     /// (`syncShips`), and once the script's clock has ticked, its timers run and the watches of
-    /// the proximity conditions look for ships close by (`events.Events.checkProximity`). The
-    /// script acts on the game through `game`.
-    ///
-    /// Not ported: the editor link's hold on the script, which holds the threads, the timers and
-    /// the watches (docs/engine/editor-link.md,
-    /// [#539](https://github.com/OpenReliant/openreliant/issues/539)).
+    /// the proximity conditions look for ships close by (`events.Events.checkProximity`). While the
+    /// editor holds the script, only the ships take their places. The script acts on the game
+    /// through `game`.
     pub fn process(loaded: *Loaded, game: aigeneric.Context) void {
         const script = &loaded.script;
         script.game = game;
-        script.runThreads();
+        if (!script.editor.holds()) script.runThreads();
         syncShips(game.world.objects, loaded.bound.ships() catch &.{});
+        if (script.editor.holds()) return;
         if (script.ticked and script.timers_running) {
             script.runTimers();
             script.ticked = false;
@@ -118,14 +125,31 @@ pub const Loaded = struct {
     }
 
     /// The script's clock ticking once a second of the mission (`executor.clockTick`), for each
-    /// second `game_ticks` has run past it since the clock started.
+    /// second `game_ticks` has run past it since the clock started, the ticks the editor held the
+    /// script aside.
     ///
     /// **Improvement:** the game ticks it from a timer of its own (`vm_clock_start`, `0x00457C10`)
-    /// that the pause stops; OpenReliant counts the game's ticks, `main.ticks_per_second` to the
-    /// second, which the pause stops too.
+    /// that the pause and the editor's hold stop (`vm_clock_tick`, `0x00458910`); OpenReliant
+    /// counts the game's ticks, `main.ticks_per_second` to the second, which the pause stops too,
+    /// and leaves out the hold's (`holdClock`).
     pub fn tickClock(loaded: *Loaded, game_ticks: u32) void {
+        loaded.clock_at = game_ticks;
         const seconds = (game_ticks -% loaded.clock_from) / ticks_per_second;
         while (loaded.script.clock < seconds) executor.clockTick(&loaded.script);
+    }
+
+    /// The script's clock held, as the game's ticks run on to `game_ticks` while the editor holds
+    /// the script: they don't count toward its seconds.
+    fn holdClock(loaded: *Loaded, game_ticks: u32) void {
+        loaded.clock_from +%= game_ticks -% loaded.clock_at;
+        loaded.clock_at = game_ticks;
+    }
+
+    /// What `mission_frame` does while the editor leaves out its work (`0x004934AE`): the mission's
+    /// ships take their objects' places (`syncShips`), and the script's clock holds.
+    pub fn leaveFrame(loaded: *Loaded, world: gameobj.World) void {
+        loaded.holdClock(world.clock.game_ticks);
+        syncShips(world.objects, loaded.bound.ships() catch &.{});
     }
 };
 

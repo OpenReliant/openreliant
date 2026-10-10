@@ -32,6 +32,7 @@ const game = engine.game;
 const save = game.gameflow.save;
 const camera = game.camera;
 // The program's own files are `pub`, so that the test block at the end runs their tests.
+pub const debug_command = @import("debug.zig");
 pub const help = @import("help.zig");
 pub const hooks_command = @import("hooks.zig");
 pub const install = @import("install.zig");
@@ -111,6 +112,7 @@ pub fn main(init: std.process.Init) !u8 {
     if (args.len > 1 and std.mem.eql(u8, args[1], "joysticks")) return joysticks.main(init.io, arena, args[2..]);
     if (args.len > 1 and std.mem.eql(u8, args[1], "missions")) return missions.main(init.io, arena, args[2..]);
     if (args.len > 1 and std.mem.eql(u8, args[1], "hooks")) return hooks_command.main(init.io, args[2..]);
+    if (args.len > 1 and std.mem.eql(u8, args[1], "debug")) return debug_command.main(init.io, init.gpa, args[2..]);
     const io = init.io;
     const asked = switch (Options.parse(args[1..], .{})) {
         .play => |options| options,
@@ -244,6 +246,18 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // the window is closed in the rooms, the briefing or a movie: their loops return from `run`
     // without reaching the main loop's save.
     defer settings_file.save(io, directory);
+    // The editor link, which a mission editor or a script debugger connects to (`--editor-link`),
+    // open from the start, so that an editor waiting for the game is there before the first
+    // mission's script starts.
+    var editor_link: EditorLink = undefined;
+    const editor: ?*game.mission.editor.Session = if (options.editor_link) linked: {
+        editor_link.open(gpa, io, options.editor_link_port) catch |err| {
+            std.log.warn("the editor link can't listen at port {d}, so it's off: {s}", .{ options.editor_link_port, @errorName(err) });
+            break :linked null;
+        };
+        break :linked &editor_link.session;
+    } else null;
+    defer if (editor != null) editor_link.close();
     // OpenReliant's mods, whose files take priority over the game's files wherever they are; none
     // with `--no-mods`. The mods screen sets which are on and the order they load in, for a
     // screenshot too.
@@ -726,6 +740,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .presentation = presentation,
         .radio = &radio,
         .seed = options.fixedSeed(),
+        .editor = editor,
         .io = io,
     };
     defer play.end();
@@ -878,8 +893,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 devices.mouse.wheel += turned;
             },
         };
+        // The editor link: an editor connecting or going, and its messages.
+        if (editor) |session| {
+            session.poll();
+            app.editor_linked = session.link.present();
+        }
         // While the window is inactive, the sound is paused, as the message pump pauses it, and a
-        // mission loaded too.
+        // mission loaded too; but not behind an editor.
         try game.winmain.followActivation(&app, pausing, play.loaded != null);
         if (output) |open| open.update();
         const size = presenter.size();
@@ -1119,8 +1139,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             // them: the simulation steps on every fourth, reading the keyboard as it goes, and runs the
             // objects' updates. A screenshot takes one tick a frame so that the camera settles the same
             // way on every run.
+            // While the editor pauses the mission, the timer's ticks pass unrun.
             const now = platform.window.nanoseconds();
-            if (options.skip_launch and player_launch.under_way) {
+            const editor_paused = if (play.loaded) |loaded| loaded.script.editor.paused else false;
+            if (editor_paused) {
+                clock.skipTo(now / platform.window.tick_nanoseconds);
+            } else if (options.skip_launch and player_launch.under_way) {
                 clock.advanceBy(now / platform.window.tick_nanoseconds, PlayerLaunch.skip_ticks);
             } else if (frames_left != null) clock.advanceBy(now / platform.window.tick_nanoseconds, 1) else clock.advanceToFine(now, platform.window.tick_nanoseconds);
             // While the communications window is open the keys 1 to 8 are its menu's.
@@ -1140,7 +1164,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 // the player's controls, and then, before anything is drawn, has every object's frames
                 // drawn between its last two places, as far into the step as the clock is; the camera
                 // follows the player's.
-                const over = game.main.missionFrame(orders, .of(&clock, smooth_motion, options.riders), play.loaded);
+                const ended = game.main.missionFrame(orders, .of(&clock, smooth_motion, options.riders), play.loaded);
                 // The mission over, once the camera has watched the player's end or the pilot's pickup,
                 // once the player's ship has landed, or once its script ends it, the game settles how
                 // it ended and goes on from it (`missionEnded`): the campaign to its next mission or
@@ -1149,7 +1173,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 // One `--mission` named pauses into the menu over the last frame, where RESTART, and
                 // CONTINUE with nothing left to continue, fly it again; a screenshot, or a game told
                 // not to (`--no-pause-menu`), starts it again straight away.
-                if (over) {
+                if (ended == .over) {
                     game.main.missionRunEnd(world.player, objects.mission_number);
                     if (flow.from_front_end) {
                         if (!try missionEnded(&flow, &front, &play, &rooms.?, objects, world.player, saving, asked_ship, sound, &movies, &resources)) return;
@@ -1165,46 +1189,50 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         continue;
                     }
                 }
-                if (test_keys.active(play.number)) {
-                    // A change of ship starts the mission again, which leaves the rest of the pass
-                    // out likewise.
-                    const changed = for (test_keys.ship_keys) |step| {
-                        if (devices.keyboard.pressed(@backingInt(step[0]), .none, true)) {
-                            try play.changeShip(orders, step[1]);
-                            break true;
-                        }
-                    } else false;
-                    if (changed) continue;
-                    if (devices.keyboard.pressed(@backingInt(test_keys.wing_key), .none, true)) test_keys.bringWing(orders);
-                }
+                // While the editor leaves the mission's frame out, its controls and its launch
+                // wait too, as `mission_frame` returns before them (`0x0049288E`).
+                if (ended != .left_out) {
+                    if (test_keys.active(play.number)) {
+                        // A change of ship starts the mission again, which leaves the rest of the
+                        // pass out likewise.
+                        const changed = for (test_keys.ship_keys) |step| {
+                            if (devices.keyboard.pressed(@backingInt(step[0]), .none, true)) {
+                                try play.changeShip(orders, step[1]);
+                                break true;
+                            }
+                        } else false;
+                        if (changed) continue;
+                        if (devices.keyboard.pressed(@backingInt(test_keys.wing_key), .none, true)) test_keys.bringWing(orders);
+                    }
 
-                game.main.controlsFrame(.{
-                    .orders = orders,
-                    .devices = &devices,
-                    .camera = &view,
-                    .display = &display.state,
-                    .sight = display.sight,
-                    .screen = display.screen,
-                    .ui_scale = display.ui_scale,
-                    .last_view = last_view,
-                    .cockpit = if (cockpit.shown) |*shown| shown else null,
-                    .forces = &force_feedback,
-                    .random = &rand,
-                    .smooth_motion = smooth_motion,
-                });
-                // Foster's last stand, once the script has asked for it, which the game plays as
-                // its targeting keys end.
-                if (display.state.fosters_last_stand) {
-                    if (!try movies.fostersLastStand(play.number, &clock, sound, &radio)) return;
-                    display.state.fosters_last_stand = false;
-                }
-                switch (player_launch.step(slot, clock.mission_ticks)) {
-                    .under_way => if (options.skip_launch) continue,
-                    .ended => {
-                        if (play.loaded) |loaded| for (asked_parts) |part| loaded.runPart(orders, part);
-                        watch.frame(&view, objects, clock.viewTime());
-                    },
-                    .over => watch.frame(&view, objects, clock.viewTime()),
+                    game.main.controlsFrame(.{
+                        .orders = orders,
+                        .devices = &devices,
+                        .camera = &view,
+                        .display = &display.state,
+                        .sight = display.sight,
+                        .screen = display.screen,
+                        .ui_scale = display.ui_scale,
+                        .last_view = last_view,
+                        .cockpit = if (cockpit.shown) |*shown| shown else null,
+                        .forces = &force_feedback,
+                        .random = &rand,
+                        .smooth_motion = smooth_motion,
+                    });
+                    // Foster's last stand, once the script has asked for it, which the game plays
+                    // as its targeting keys end.
+                    if (display.state.fosters_last_stand) {
+                        if (!try movies.fostersLastStand(play.number, &clock, sound, &radio)) return;
+                        display.state.fosters_last_stand = false;
+                    }
+                    switch (player_launch.step(slot, clock.mission_ticks)) {
+                        .under_way => if (options.skip_launch) continue,
+                        .ended => {
+                            if (play.loaded) |loaded| for (asked_parts) |part| loaded.runPart(orders, part);
+                            watch.frame(&view, objects, clock.viewTime());
+                        },
+                        .over => watch.frame(&view, objects, clock.viewTime()),
+                    }
                 }
             }
         }
@@ -2056,6 +2084,27 @@ const Loading = struct {
     };
 };
 
+/// The editor link (`--editor-link`): the port a mission editor or a script debugger connects to,
+/// the link's messages, and the session that works on each mission with them. It mustn't move
+/// once opened.
+const EditorLink = struct {
+    server: platform.link.Server,
+    link: engine.link.Link,
+    session: game.mission.editor.Session,
+
+    fn open(editor: *EditorLink, gpa: Allocator, io: Io, port: u16) !void {
+        try editor.server.start(gpa, io, port);
+        editor.link = .init(gpa, editor.server.transport(), game.mission.editor.game, version.string);
+        editor.session = .init(&editor.link, io);
+        std.log.info("the editor link listens at 127.0.0.1:{d}", .{port});
+    }
+
+    fn close(editor: *EditorLink) void {
+        editor.link.deinit();
+        editor.server.stop();
+    }
+};
+
 /// The mission being played: the file it starts from, and the mission loaded for play, which
 /// starts again as each attempt ends, with what each start readies (`game.main.startMission`).
 const Play = struct {
@@ -2104,6 +2153,9 @@ const Play = struct {
     /// options fix (`Options.fixedSeed`), or else the clock's at the start, as the game takes the
     /// time.
     seed: ?u64 = null,
+    /// The editor link's session, which works on each mission from its script's start
+    /// (`--editor-link`); null where no editor can link.
+    editor: ?*game.mission.editor.Session = null,
     io: Io,
 
     /// Starts the mission, letting go of the one before, the loading screen shown first
@@ -2129,7 +2181,12 @@ const Play = struct {
             .objectives = play.objectives,
             .wing = play.wing,
             .seed = play.seed orelse clockSeed(play.io),
+            .editor = play.editor,
         }, try play.gpa.dupe(u8, play.file), play.number);
+        // The game's ticks count from here, as `mission_run` counts them from where they stand as
+        // its loop begins, so that the time the start took, the editor's holds in it among it,
+        // passes with none.
+        play.clock.skipTo(platform.window.ticks());
         const all = orders.world.objects;
         if (play.presentation) |shown| {
             var file_buffer: [game.winmain.mission_path_size]u8 = undefined;

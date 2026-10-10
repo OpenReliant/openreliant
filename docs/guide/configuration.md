@@ -81,6 +81,8 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--no-mods` | Start without the mods in the game's `mods` folder ([Modding](modding.md)) |
 | `--no-intro` | Start without the three movies the game plays as it starts, as `--mission` and `--screenshot` do |
 | `--developer-mode` | The tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading when they or their shaders are saved ([Scripting](scripting.md#the-console)) |
+| `--editor-link` | Listen for a mission editor or a script debugger, such as `openreliant debug`, on this computer's own address, 127.0.0.1, which can then pause the mission and stop and step its script, as the original's editor link does ([Debugging mission scripts](debugging.md)) |
+| `--editor-link-port <port>` | With `--editor-link`, the port to listen at; 22539 by default |
 | `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls, the `[OpenReliant]` settings and the details in `[Device]` are not read, so that it comes out the same each time |
 | `--screenshot-ticks <ticks>` | With `--screenshot`, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default |
 | `--seed <number>` | Start each mission's random numbers from this seed, so that a run comes out the same each time, for testing; by default, as in the game, from the clock as the mission starts, and from a fixed seed with `--screenshot` |
@@ -94,6 +96,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `openreliant install` | Install the game's files from the StarLancer discs into a directory |
 | `openreliant joysticks` | List the joysticks and gamepads, and which one the game uses |
 | `openreliant missions` | List the game's missions, its own and those added to its `missions` folder, and check that each loads |
+| `openreliant debug` | Debug the script of the mission a game started with `--editor-link` plays ([Debugging mission scripts](debugging.md)) |
 
 Each command's `--help` shows its options.
 

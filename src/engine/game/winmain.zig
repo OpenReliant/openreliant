@@ -46,6 +46,10 @@ pub const App = struct {
     /// `app_inactive_paused` (`0x005D6CAD`): whether the pump has paused the game for the window
     /// going inactive.
     paused: bool = false,
+    /// Whether an editor is linked (`editor_absent`, `0x004F634C`, inverted). `0x004A8260` puts the
+    /// window away only while none is (`0x004A8270`), so with one the game plays on while its
+    /// window is inactive, behind the editor.
+    editor_linked: bool = false,
 };
 
 /// `message_pump` (`0x004AAB20`), the part that follows the window's activation. Going inactive,
@@ -58,11 +62,14 @@ pub const App = struct {
 /// **Improvement:** OpenReliant pauses a mission `loaded` into its menu in single player too, where
 /// the game pauses only the sound and the timer's ticks pile up while the window is away. Active
 /// again, the music goes on; the rest waits for the menu's CONTINUE.
+///
+/// With an editor linked, the window counts as active (`App.editor_linked`).
 pub fn followActivation(app: *App, pausing: main.Pausing, loaded: bool) !void {
-    if (app.active and app.paused) {
+    const active = app.active or app.editor_linked;
+    if (active and app.paused) {
         pausing.sound.pauseMusic(false);
         app.paused = false;
-    } else if (!app.active and !app.paused) {
+    } else if (!active and !app.paused) {
         pausing.sound.pauseMusic(true);
         if (loaded) try main.pause(pausing, true);
         app.paused = true;
@@ -124,6 +131,12 @@ test followActivation {
     try main.pause(pausing, false);
     try std.testing.expect(!clock.paused and !menu.isOpen());
     try std.testing.expectEqual(mss.Status.playing, driver.sampleStatus(sound.voices[v].sample));
+
+    // With an editor linked, the game plays on behind it.
+    app.editor_linked = true;
+    app.active = false;
+    try followActivation(&app, pausing, true);
+    try std.testing.expect(!clock.paused and !app.paused and !menu.isOpen());
 }
 
 /// What `WinMain` reads of the settings' `[Device]` as the game starts (`0x004A8FB3`) that

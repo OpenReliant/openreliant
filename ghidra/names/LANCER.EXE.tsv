@@ -1646,7 +1646,7 @@ address	kind	name	type	comment
 00588734	data	mission_loaded	byte	Set from the end of mission_start to mission_end
 005dc1e8	data	net_session	int	Nonzero in a multiplayer session
 005ddd28	data	window_suspended	int	Set while the game's window is put away, from 0x004A8260 until input_init clears it; the message pump pauses the sound, and in a multiplayer session the mission, while it is set and the renderer runs. Unverified: what putting the window away is
-004a8260	function	window_suspend	void (void)	Unverified name: where the window is full-screen (0x004F634C), saves its style and placement, changes them and sets window_suspended; then acquires the input again
+004a8260	function	window_suspend	void (void)	Unverified name: unless an editor is linked (editor_absent clear) or 0x005D60B8 is set, saves the window's style and placement, changes them and sets window_suspended; then acquires the input again
 00494cb0	function	missiles_init	void (void)	Once, guarded by missiles_initialised: allocates missiles (200 of 0x28) and missile_trails (200 of 0x48), marks them free, fills missile_net_ids with -1, loads the stats (stats_load_missiles) and missiletrail\mtrail2
 00494d80	function	missiles_reset	void (void)	Frees every live missile's object and every trail's meshes as a mission ends, marks both pools free and empties missile_list and missile_trail_list
 00495720	function	missiles_move	void (void)	The simulation step's move of each live missile, after objects_update: takes its next place, eases pitch and yaw rates toward input times turn rate by the rate inertias, turns by them, damps velocity by the inertia outside orders 0, 1 and 11, adds (1 - inertia) * throttle * max_speed along the nose, moves, and flags the root committed and unframed
@@ -3015,13 +3015,13 @@ address	kind	name	type	comment
 00457670	function	editor_link_check	int __fastcall (void *view)	From mission_script_start only: opens the link on first use, reads the editor's messages (editor_link_read) and takes the editor as there, or counts a miss (editor_link_misses) and on the 513th takes it as gone (editor_absent); while there, at a vm_clock multiple of 5 with nothing held, sends tag 0x1B with vm_first_finished
 00457730	function	editor_link_read		Acts on each message waiting from the editor, by its tag (0x00 to 0x17; above, fatal_error), counting the editor's count down to 0, then flushes; reads nothing while the block's byte at +4 is 0. Returns whether it read any
 00457a20	function	editor_link_send		Sends a message to the editor (editor_link_post into the game's outbox at +0x40108, its payloads at +0x40208), mapping a view for it where it holds none; does nothing with no link
-00457a80	function	editor_link_post		Posts a message into an outbox: an 8-byte entry (tag, size, offset) after the last waiting, its payload after the last payload, a tag already waiting left out; an empty outbox sets the block's byte at +4. Flushes after the count, the entry and the payload
+00457a80	function	editor_link_post		Posts a message into an outbox: an 8-byte entry (tag, size, offset) after the last waiting, its payload after the last payload; with its sixth argument set, a tag already waiting is left out, which the game's own sends never set. An empty outbox sets the block's byte at +4. Flushes after the count, the entry and the payload
 00457b90	function	editor_link_create	int (void)	CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 0xD4A08, FileMappingObject), which opens the editor's block where the editor made it first
 00457bb0	function	editor_link_map	void * __fastcall (int block)	MapViewOfFile(block, FILE_MAP_ALL_ACCESS, 0, 0, 0)
 00457be0	function	editor_link_flush	void __fastcall (void *at, int size)	FlushViewOfFile
 004520a0	function	editor_ships_place		The editor's tag 0x00: each mission ship's runtime_position, runtime_yaw, runtime_pitch and runtime_roll from the ships table it sends
 0045a6d0	function	editor_ship_move		The editor's tag 0x01: places the object of the mission ship whose object_id it names at the place it gives (object_place)
-0045a730	function	editor_table_counts		The editor's tag 0x02: sets the counts of the mission's tables from the 50 halfwords it sends, by the table of their addresses at 0x004EE978
+0045a730	function	editor_table_counts		The editor's tag 0x02: sets the counts of the mission's tables from the 50 halfwords it sends, one for each entry of editor_tables that has a count's address, keeping vm_timer_count as it was
 0045a770	function	editor_table_copy		Copies a message's payload over a table of the loaded mission, the table's count times its record's size: the editor's tags 0x03 to 0x05 and 0x07 to 0x0E
 0045ad80	function	editor_ships_copy		The editor's tag 0x06: each mission ship's object_id, name with the halfword after it, flight_group, kind, launch_from to launch_gate, formation_point with the halfword after it, marker_curve with the two bytes after it, and marker_at from the ships table it sends
 0045a800	function	editor_ship_remove		The editor's tag 0x11: retires the object of the mission ship it sends (ship_index, object_retire)
@@ -3032,10 +3032,27 @@ address	kind	name	type	comment
 004f0f3c	data	editor_link_name	char[18]	FileMappingObject, the name of the block the editor link shares
 0052a1dc	data	editor_link_block	int	The editor link's block, which the first editor_link_check makes; 0 before
 0052a1d4	data	editor_link_misses	ushort	Checks in a row that found no message from the editor; on the 513th the editor is taken as gone
-004f634c	data	editor_absent	bool	Set while no editor is linked: the game sends nothing, and vm_run neither stops at breakpoints nor steps. mission_script_start sets it; a check that reads a message clears it, and the 513th miss in a row sets it again
+004f634c	data	editor_absent	bool	Set while no editor is linked: the game sends nothing, and vm_run neither stops at breakpoints nor steps. WinMain and mission_script_start set it; a check that reads a message clears it, and the 513th miss in a row sets it again. While it is clear, a hold makes mission_frame leave out its work and timer_callback pass over the script clock, and window_suspend leaves the window as it is
 0052a1d8	data	editor_picked_ship	int	The mission ship the editor picks (tag 0x16), as a pointer into mission_ships; nothing reads it
 005373f8	data	vm_hold	char	The editor's hold on the script: -1 released, 0 none, 1 held at a breakpoint or a step; while held, vm_clock_tick leaves the clock alone and the timer passes over the script clock's routine
 00537582	data	vm_step_mode	char	What the editor's last release asked for (editor_run_control): -1 none, 1 run on, 2 stop before the next statement, 3 step over
 00537581	data	editor_paused	bool	Set by the editor's tag 0x15, command 0: mission_frame leaves out its work and the timer runs none of its routines
 00537414	data	vm_step_returned	bool	Set as a return happens (vm_return), which ends a step over at the next statement
 005270e4	data	editor_unused	char[32]	The 32 bytes the editor's tag 0x17 writes, which nothing reads
+0045a7b0	function	editor_timer_parts		The editor's tag 0x10: renumbers each script timer's part (index_renumber, mode 0) as parts are added or removed: the payload's first word is the first part that changed, and its halfword at +4 how many were added, or removed where negative
+00451440	function	index_renumber		Renumbers an index kept 1, 2 or 4 bytes wide, for records added or removed at a place: an index before the place stays; where records are removed, the index of the place itself becomes none (mode 0, index_set_none) or the change (mode 1); the others move by the change (index_shift), except in mode 1; mode 3 moves a record instead (index_move)
+004514b0	function	index_move		Renumbers an index for a record moved from one place to another: the record's own index becomes the new place, and those between move one toward the old (index_shift)
+00451510	function	index_set_none		Sets an index 1, 2 or 4 bytes wide to none, all ones
+00451540	function	index_set		Sets an index 1, 2 or 4 bytes wide to a value; 4 bytes wide, only its low halfword
+00451570	function	index_shift		Moves an index 1, 2 or 4 bytes wide on by a change, unless it is none; 4 bytes wide, only its low halfword
+004513f0	function	reference_renumber		Unverified: renumbers a reference whose high halfword is the one given, by its low halfword, or with its last argument set its low 12 bits (index_renumber)
+00451390	function	align4	uint __fastcall (uint size)	Rounds a size up to a multiple of 4
+00457b70	function	script_flags_size	uint (void)	The script flags' size as the editor's tag 0x09 copies them: a byte for each of the script's bytes, rounded up to a multiple of 4 (align4)
+00457bd0	function	editor_link_unmap	void __fastcall (void *view)	UnmapViewOfFile, for a view editor_link_send mapped for itself
+004579bc	data	editor_link_cases	void *[24]	editor_link_read's jump table: where it handles each tag from the editor, 0x00 to 0x17
+0045a95c	data	run_control_cases	void *[5]	editor_run_control's jump table, by its command, 0 to 4
+004575e4	data	vm_starts_statement_cases	void *[2]	vm_starts_statement's two answers: true, then false
+004575ec	data	vm_starts_statement_index	byte[57]	For each opcode from 0x16 to 0x4E, which of vm_starts_statement_cases answers it
+004ee970	data	editor_tables	uint[200]	The tables the editor's tag 0x02 sets the counts of, 16 bytes each: the table's address, its record's size and its capacity (halfwords), its count's address, and a word that is 1 in each entry used (Unknown). Only the ships, the flight groups, the objects, the triggers and the parts have a count's address; a sixth entry names 0x00525700, with records of 0x34 bytes and no count
+004a6f80	function	timer_callback	void __stdcall (uint id, uint message, uint user, uint unused1, uint unused2)	The multimedia timers' callback for each timer timer_start starts: runs the timer's routine and counts it, under the timer's lock in mode 0; none while window_suspended or editor_paused is set, nor the script clock's (vm_clock_timer) while vm_hold is above 0 with an editor linked
+0052a1e4	data	vm_clock_timer	void *	The timer vm_clock_start starts for vm_clock_tick, which timer_callback passes over while the editor holds the script

@@ -260,20 +260,8 @@ pub fn parts(ctx: Context, mission: dte.Mission) !void {
     try ctx.stdout.print("\n{d} of {d} entry blocks decode cleanly\n", .{ decoded, filled });
 }
 
-/// How a script's listing shows the Executor's commands.
-pub const Commands = union(enum) {
-    /// By StarLancer's names.
-    starlancer,
-    /// By their numbers alone, for a game whose commands differ and aren't known, such as Star
-    /// Trek: Invasion.
-    numbered,
-    /// By another game's names, by their numbers, such as Battlestar Galactica's from its
-    /// executable.
-    listed: []const []const u8,
-};
-
 /// Disassembles each of the script's routines: its parts, and the blocks its triggers run.
-pub fn script(ctx: Context, mission: dte.Mission, models: ?*Library, commands: Commands) !void {
+pub fn script(ctx: Context, mission: dte.Mission, models: ?*Library, commands: dte.listing.Commands) !void {
     const code = try mission.script();
     const all_parts = try mission.parts();
     const list = try mission.routines(ctx.arena);
@@ -301,7 +289,7 @@ pub fn script(ctx: Context, mission: dte.Mission, models: ?*Library, commands: C
             try ctx.stdout.writeAll("  no block here\n");
             continue;
         };
-        try printListing(ctx, mission, models, listing, constants, commands);
+        try dte.listing.write(ctx.stdout, mission, listing, constants, .{ .commands = commands, .components = componentNames(models) });
         if (constants.len != 0) {
             try ctx.stdout.writeAll("  constants:");
             for (constants) |value| try ctx.stdout.print(" {d}", .{value});
@@ -310,143 +298,31 @@ pub fn script(ctx: Context, mission: dte.Mission, models: ?*Library, commands: C
     }
 }
 
-fn printListing(
-    ctx: Context,
-    mission: dte.Mission,
-    models: ?*Library,
-    listing: dte.Disassembly,
-    constants: []align(1) const u32,
-    commands: Commands,
-) !void {
-    var previous: ?usize = null;
-    for (listing.instructions) |instruction| {
-        // A hole means the bytes between two reached instructions are not reached themselves.
-        if (previous) |end| {
-            if (instruction.address > end) {
-                try ctx.stdout.print("  {d:>6}  ... {d} bytes not reached\n", .{ end, instruction.address - end });
-            }
-        }
-        previous = instruction.address + instruction.size();
-
-        // Long inline runs are shown as their text, so only the head needs a hex column.
-        var bytes: [11]u8 = undefined;
-        var at: usize = 0;
-        at += (std.mem.print(bytes[at..], "{x:0>2}", .{@backingInt(instruction.opcode)}) catch break).len;
-        for (instruction.operands) |b| {
-            at += (std.mem.print(bytes[at..], " {x:0>2}", .{b}) catch break).len;
-        }
-        try ctx.stdout.print("  {d:>6}  {s:<11} ", .{ instruction.address, bytes[0..@min(at, bytes.len)] });
-        try openreliant.layout.formatTag(dte.Opcode, instruction.opcode, ctx.stdout);
-
-        switch (instruction.flow) {
-            .call => try printIndex(ctx, mission, models, instruction),
-            .next => switch (instruction.opcode) {
-                .push_constant => {
-                    const index = instruction.operands[0];
-                    if (index < constants.len) {
-                        try ctx.stdout.print("   = {d}", .{constants[index]});
-                    } else {
-                        try ctx.stdout.writeAll("   (past the constants)");
-                    }
-                },
-                .command => {
-                    const number = instruction.operands[0];
-                    const name: ?[]const u8 = switch (commands) {
-                        .starlancer => if (openreliant.engine.game.executor.commands.find(number)) |command| command.name else null,
-                        .numbered => null,
-                        .listed => |names| if (number < names.len) names[number] else null,
-                    };
-                    if (name) |text| {
-                        try ctx.stdout.print("   {s}", .{text});
-                    } else if (commands != .starlancer) {
-                        try ctx.stdout.print("   0x{X:0>2}", .{number});
-                    }
-                },
-                else => try printIndex(ctx, mission, models, instruction),
-            },
-            .branch => |branch| try ctx.stdout.print("   -> {d}{s}", .{
-                branch.target, if (branch.conditional) " if zero" else "",
-            }),
-            .inline_data => |data| try printInline(ctx, data),
-            .random => |arms| {
-                var iterator = arms;
-                var separator: []const u8 = "   -> ";
-                while (iterator.next()) |target| {
-                    try ctx.stdout.print("{s}{d}", .{ separator, target });
-                    separator = " | ";
-                }
-            },
-            .@"return" => {},
-        }
-        try ctx.stdout.writeByte('\n');
-    }
-    if (listing.incomplete) try ctx.stdout.writeAll("  a reached byte is not an opcode\n");
+/// Names component `index` of a ship (`writeComponent`).
+fn printComponent(ctx: Context, models: ?*Library, ship: dte.Ship, index: u8) !void {
+    const library = models orelse return;
+    try writeComponent(library, ctx.stdout, ship, index);
 }
 
-/// Shows the operand of an instruction that takes an index, and the name of what it indexes where
-/// the mission holds one.
-fn printIndex(ctx: Context, mission: dte.Mission, models: ?*Library, instruction: dte.Instruction) !void {
-    switch (instruction.opcode) {
-        .push_component, .push_component_alt => if (instruction.operands.len == 2) {
-            const index = instruction.operands[0];
-            const all = try mission.ships();
-            if (index >= all.len) return ctx.stdout.print("   {d}, component {d}", .{ index, instruction.operands[1] });
-            try ctx.stdout.print("   {d}  {s}, component {d}", .{ index, mission.name(all[index].name), instruction.operands[1] });
-            return printComponent(ctx, models, all[index], instruction.operands[1]);
-        },
-        else => {},
-    }
-    if (instruction.operands.len != 1) return;
-    const index = instruction.operands[0];
-    try ctx.stdout.print("   {d}", .{index});
-    const name: []const u8 = switch (instruction.opcode) {
-        .call_part, .spawn_part => blk: {
-            const all = mission.parts() catch break :blk "";
-            break :blk if (index < all.len) mission.name(all[index].name) else "";
-        },
-        .push_ship => blk: {
-            const all = mission.ships() catch break :blk "";
-            break :blk if (index < all.len) mission.name(all[index].name) else "";
-        },
-        .push_global, .select_global => blk: {
-            const all = mission.globals() catch break :blk "";
-            break :blk if (index < all.len) mission.name(all[index].name) else "";
-        },
-        else => "",
-    };
-    if (name.len != 0) try ctx.stdout.print("  {s}", .{name});
+/// How a script's listing names components: by the models found beside the mission, if any.
+fn componentNames(models: ?*Library) ?dte.listing.Components {
+    const library = models orelse return null;
+    return .{ .context = library, .write = writeComponent };
 }
 
 /// Names component `index` of a ship: the part it is in the model of the ship's type, found beside
-/// the mission. Nothing when the model cannot be found.
-fn printComponent(ctx: Context, models: ?*Library, ship: dte.Ship, index: u8) !void {
-    const library = models orelse return;
+/// the mission. Nothing when the model can't be found or read.
+fn writeComponent(context: *anyopaque, writer: *Io.Writer, ship: dte.Ship, index: u8) Io.Writer.Error!void {
+    const library: *Library = @ptrCast(@alignCast(context));
     const ship_type = openreliant.engine.game.create.models.shipType(ship.kind) orelse return;
     const model = ship_type.model orelse return;
-    const list = try library.components(model) orelse return;
+    const list = (library.components(model) catch return) orelse return;
     if (index >= list.len) {
-        return ctx.stdout.print(" out of range: {s} lists {d}", .{ model, list.len });
+        return writer.print(" out of range: {s} lists {d}", .{ model, list.len });
     }
     const component = list[index];
-    try ctx.stdout.print(" \"{s}\"", .{std.mem.trimEnd(u8, component.part.name(), " ")});
-    if (component.depth != 0) try ctx.stdout.print(" on {s}", .{component.model});
-}
-
-/// Renders an inline run as text when it is one, and as hex otherwise.
-fn printInline(ctx: Context, data: []const u8) !void {
-    const text = std.mem.sliceTo(data, 0);
-    const printable = text.len + 1 == data.len and
-        text.len != 0 and
-        for (text) |c| {
-            if (!std.ascii.isPrint(c)) break false;
-        } else true;
-
-    if (printable) {
-        try ctx.stdout.print("   \"{s}\"", .{text});
-        return;
-    }
-    try ctx.stdout.writeAll("  ");
-    for (data) |b| try ctx.stdout.print(" {x:0>2}", .{b});
+    try writer.print(" \"{s}\"", .{std.mem.trimEnd(u8, component.part.name(), " ")});
+    if (component.depth != 0) try writer.print(" on {s}", .{component.model});
 }
 
 fn strings(ctx: Context, mission: dte.Mission) !void {
