@@ -495,7 +495,9 @@ front end's scale, and draws that layer last over the screen.
 [`snapshot.zig`](../../src/scripting/snapshot.zig) keeps the scripts' state with a saved game, in a
 file beside it, `saves\<call sign>GAME<slot>.scripts` (`save.companionName`). The saves folder
 tells the driver as a game is saved, loaded or removed (`save.Extra`, which `GameScripts` in the
-driver implements), and the driver writes, reads or removes the file. The game is saved between
+driver implements), and the driver writes, reads or removes the file. The file is written before
+the save itself, and if it can't be written, the game isn't saved
+([Saved games](../formats/save.md#in-openreliant)). The game is saved between
 missions, so the file holds what lasts a whole game: the storage's game sections, each global and
 player script that runs with what its `on_save` returned, and those scripts' timers. Mission and
 object scripts don't run then, and menu scripts run across games.

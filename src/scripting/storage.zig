@@ -261,8 +261,9 @@ pub const Storage = struct {
         for (0..count) |_| try storage.decodeSection(r, mod, .global);
     }
 
-    /// Writes the global sections of each mod whose sections changed to the game folder. Called
-    /// once a frame, and as OpenReliant quits. A file that can't be written is logged.
+    /// Writes the global sections of each mod whose sections changed to the game folder, each file
+    /// safely (`files.writeAtomic`). The main loop calls it every two seconds, and once more as
+    /// OpenReliant quits. A file that can't be written is logged.
     pub fn flush(storage: *Storage) void {
         const folder = storage.folder orelse return;
         if (storage.changed.count() == 0) return;
@@ -291,7 +292,7 @@ pub const Storage = struct {
         }
         var name_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
         const path = try std.mem.print(&name_buffer, folder_name ++ "/{s}" ++ file_extension, .{mod});
-        try folder.dir.writeFile(folder.io, .{ .sub_path = path, .data = bytes.written() });
+        try openreliant.engine.files.writeAtomic(folder.io, folder.dir, path, bytes.written());
     }
 
     /// Registers the metatable of a section's handle.

@@ -1466,7 +1466,7 @@ end
   game. Global and object scripts change it; the other scripts can only read it.
 - A global section is kept in the game folder, in `storage\<mod>.data`, across every game. Any
   script can change it. OpenReliant writes the sections that changed at most every 2 seconds, and
-  as it quits.
+  as it quits. A crash or a full disk during a write leaves the file as it was before.
 - The global section called `options` holds the mod's options ([Options](#options)), and
   `global_section` doesn't open it.
 - Each mod has its own sections: two mods' sections of the same name are separate. All of a mod's
