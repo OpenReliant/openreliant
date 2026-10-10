@@ -14,10 +14,12 @@ the disassembly bears out what follows.
 `CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 0xD4A08, "FileMappingObject")`
 (`editor_link_create`, `0x00457B90`, the name at `0x004F0F3C`), which opens the editor's block where
 the editor made it first; maps a view of it (`MapViewOfFile` with `FILE_MAP_ALL_ACCESS`,
-`0x00457BB0`); zeroes the editor's message count, so that a message the editor posted before is
-lost; and flushes the view (`FlushViewOfFile`, `0x00457BE0`). A view that can't be mapped stops the
-game. The game maps a view for each exchange where it holds none, and lets it go after
-(`editor_link_unmap`, `0x00457BD0`).
+`0x00457BB0`); zeroes both message counts, so that the messages either side posted before are lost;
+and flushes the counts (`FlushViewOfFile`, `0x00457BE0`). A view that can't be mapped stops the game
+("file map creation error"). Each check maps a view of its own, as `mission_script_start` gives it
+none, and never lets it go, nor does `editor_link_open` let go of its own; a check that can't map one
+reads through a null pointer. `editor_link_send` lets go of the view it maps (`editor_link_unmap`,
+`0x00457BD0`).
 
 | Offset | Size | Field |
 |---|---|---|
@@ -75,7 +77,7 @@ request").
 
 | Tag | Payload | What the game does |
 |---|---|---|
-| `0x00` | None | Sets each mission ship's runtime place and angles, `runtime_position`, `runtime_yaw`, `runtime_pitch` and `runtime_roll`, from the ships the editor keeps at `0x80208` in the block, `0x4C` bytes each (`editor_ships_place`, `0x004520A0`) |
+| `0x00` | None | Sets each mission ship's runtime place and angles from the ships the editor keeps at `0x80208` in the block, `0x4C` bytes each (`editor_ships_place`, `0x004520A0`): `runtime_position` from the record's `+0x08`, and `runtime_yaw`, `runtime_pitch` and `runtime_roll` from its halfwords at `+0x20`, `+0x2C` and `+0x3C`, which aren't where a mission ship keeps them. **Unknown:** the rest of the editor's record |
 | `0x01` | `object_id` (`u32`), then the place at `+0x08`, three floats | Places the object of each mission ship with that `object_id` there, then builds the curves again (`editor_ship_move`, `0x0045A6D0`, `curves_rebuild`) |
 | `0x02` | 50 halfwords | Sets the counts of the mission's tables ([The tables' counts](#the-tables-counts)), then frees every thread (`editor_table_counts`, `0x0045A730`, `vm_threads_reset`) |
 | `0x03` to `0x05`, `0x07` to `0x0E` | A table | Copies the table over the loaded mission's ([The table copies](#the-table-copies)) |
@@ -85,7 +87,7 @@ request").
 | `0x11` | A ship, `0x4C` bytes | Retires the object at the index that `ship_index` (`0x004531C0`) works out from the payload's own address (`editor_ship_remove`, `0x0045A800`). That address lies in the block, not among the mission's ships, so the index isn't the ship's (**Unverified:** what the editor meant to send) |
 | `0x12` | A ship, `0x4C` bytes | Retires an object as `0x11` does, then makes a ship from the payload's record (`editor_ship_remake`, `0x0045A820`, `mission_ship_create`) |
 | `0x13` | None | Nothing |
-| `0x14` | A mission ship's index (`u32`) | Stands the player's ship four of the ship's radii behind it, looking at it (`editor_view_ship`, `0x0045A850`) |
+| `0x14` | A mission ship's index (`u32`) | Where the ship has an object, places the player's ship four of the object's radii (`0x004DC424`) back from the ship's runtime place along the world's Z axis, and turns it to look at the ship (`editor_view_ship`, `0x0045A850`) |
 | `0x15` | 8 bytes | Run control ([Run control](#run-control)) |
 | `0x16` | A mission ship's index (`u16`) | Picks the ship (`editor_picked_ship`, `0x0052A1D8`), which nothing reads |
 | `0x17` | 32 bytes | Keeps them at `0x005270E4`, which nothing reads |
