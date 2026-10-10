@@ -23,6 +23,7 @@ const matmanager = game.matmanager;
 const interface = game.interface;
 const canvas = interface.canvas;
 const main_menu = interface.main_menu;
+const mod_catalogue = interface.mod_catalogue;
 const mod_manager = interface.mod_manager;
 const mod_options = interface.mod_options;
 const game_modes = interface.game_modes;
@@ -68,6 +69,9 @@ pub const Screen = enum(u8) {
     /// OpenReliant's ending of a game mode, after its last mission: the mod's screen that the mode
     /// names stands in for it. Without one, the front end goes straight on to the main menu.
     mode_ending = 104,
+    /// OpenReliant's GET MODS screen (`mod_catalogue`): the catalogue of mods on the web, opened by
+    /// the mods screen's GET MODS button.
+    mod_catalogue = 105,
     _,
 
     pub fn format(screen: Screen, writer: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -254,7 +258,7 @@ fn screenFiles(screen: Screen) ?struct { shapes: []const u8, background: []const
         .audio => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .audio).?.background },
         .controls => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .controls).?.background },
         .video => .{ .shapes = settings.shapes_name, .background = settings.opening(.game_options, .video).?.background },
-        .mods, .mod_options => .{ .shapes = settings.shapes_name, .background = mod_manager.opening.background },
+        .mods, .mod_options, .mod_catalogue => .{ .shapes = settings.shapes_name, .background = mod_manager.opening.background },
         .game_modes, .mode_briefing, .mode_ending => .{ .shapes = settings.shapes_name, .background = game_modes.opening.background },
         .pilot_roster => .{ .shapes = pilot_roster.shapes_name, .background = pilot_roster.background_name },
         .saved_games => .{ .shapes = saved_games.shapes_name, .background = saved_games.opening(.roster).background },
@@ -310,6 +314,10 @@ pub const Interface = struct {
     settings: settings.Settings = .{},
     mod_manager: mod_manager.ModManager = .{},
     mod_options: mod_options.ModOptions = .{},
+    mod_catalogue: mod_catalogue.ModCatalogue = .{},
+    /// Whether the GET MODS screen installed a mod. The mods screen then rereads the `mods` folder
+    /// when it is entered.
+    mods_installed: bool = false,
     game_modes: game_modes.GameModes = .{},
     /// The screen a mod's screen stands in for, while it is shown (`Scripted`).
     scripted_shown: ?Screen = null,
@@ -329,9 +337,10 @@ pub const Interface = struct {
     /// driver plays before the next frame (`game.xtrabits.movie`).
     movie: ?[]const u8 = null,
 
-    /// Lets go of what the screens keep for the whole run, such as the mods' thumbnails.
+    /// Frees what the screens keep for the whole run, such as the mods' thumbnails and the catalogue.
     pub fn deinit(front: *Interface) void {
         front.mod_manager.deinit();
+        front.mod_catalogue.deinit();
     }
 
     /// A frame of `interface_run`: the shown screen entered where it has just been chosen, the
@@ -430,6 +439,22 @@ pub const Interface = struct {
                         front.options_of = mod;
                         front.screen = .mod_options;
                     },
+                    .catalogue => front.screen = .mod_catalogue,
+                }
+                return null;
+            },
+            .mod_catalogue => {
+                const mods = context.mods orelse return front.backToOptions();
+                const settings_file = context.settings orelse return front.backToOptions();
+                const left = front.mod_catalogue.frame(catalogueContext(front, context, settings_file, mods, pointer)) orelse return null;
+                switch (left) {
+                    // Back to the mods screen, with no movie in between. It rereads the `mods` folder
+                    // if a mod was installed.
+                    .mods => |outcome| {
+                        front.mods_installed = outcome.installed;
+                        front.screen = .mods;
+                    },
+                    .main_menu => front.leaveToMenus(.main_menu),
                 }
                 return null;
             },
@@ -584,6 +609,7 @@ pub const Interface = struct {
             .main_menu, .game_options, .pilot_roster => true,
             .audio, .controls, .video => context.settings != null,
             .mods, .mod_options => context.settings != null and context.mods != null,
+            .mod_catalogue => context.settings != null and context.mods != null and context.mods.?.catalogue != null,
             .saved_games => context.saves != null,
             .game_modes => context.modes.len > 0,
             .briefing, .landing_movie, .connection, .mode_briefing, .mode_ending, _ => false,
@@ -619,7 +645,14 @@ pub const Interface = struct {
             .audio => if (context.settings) |settings_file| front.settings.enter(.game_options, .audio, settingsContext(front, context, settings_file, front.pointer)),
             .controls => if (context.settings) |settings_file| front.settings.enter(.game_options, .controls, settingsContext(front, context, settings_file, front.pointer)),
             .video => if (context.settings) |settings_file| front.settings.enter(.game_options, .video, settingsContext(front, context, settings_file, front.pointer)),
-            .mods => if (context.settings) |settings_file| if (context.mods) |mods| front.mod_manager.enter(modsContext(front, context, settings_file, mods, front.pointer)),
+            .mods => if (context.settings) |settings_file| if (context.mods) |mods| {
+                const mods_context = modsContext(front, context, settings_file, mods, front.pointer);
+                front.mod_manager.enter(mods_context);
+                // Rereads the mods folder, like REFRESH does, to list the mods GET MODS installed.
+                if (front.mods_installed) front.mod_manager.refresh(mods_context) catch |err| log.warn("the mods folder can't be read again: {s}", .{@errorName(err)});
+                front.mods_installed = false;
+            },
+            .mod_catalogue => if (context.settings) |settings_file| if (context.mods) |mods| front.mod_catalogue.enter(catalogueContext(front, context, settings_file, mods, front.pointer)),
             .mod_options => if (context.mods) |mods| {
                 const shown = front.mod_options.enter(front.options_of, optionsContext(front, context, mods, front.pointer));
                 if (!shown) front.screen = .mods;
@@ -654,10 +687,10 @@ pub const Interface = struct {
     /// Leaves the screen entered, as it ends its loop.
     fn leave(front: *Interface, context: Context) void {
         if (front.entered == .pilot_roster) pilot_roster.Roster.leave(context.typed);
-        // The mods screen keeps what REFRESH opened while its options are shown, and frees it as either
-        // is left for another screen.
-        const to_options = front.entered == .mods and front.screen == .mod_options;
-        if ((front.entered == .mods or front.entered == .mod_options) and !to_options) front.mod_manager.release();
+        // The mods screen keeps what REFRESH opened while a mod's options or the catalogue are shown,
+        // and frees it when any of the three is left for another screen.
+        const to_own = front.entered == .mods and (front.screen == .mod_options or front.screen == .mod_catalogue);
+        if ((front.entered == .mods or front.entered == .mod_options or front.entered == .mod_catalogue) and !to_own) front.mod_manager.release();
         front.entered = null;
     }
 
@@ -713,6 +746,7 @@ pub const Interface = struct {
             .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown, front.pointer),
             .mods => try front.mod_manager.draw(drawn, art, front.pointer),
             .mod_options => try front.mod_options.draw(drawn, art, front.pointer),
+            .mod_catalogue => try front.mod_catalogue.draw(drawn, art, front.pointer),
             .game_modes => try front.game_modes.draw(drawn, art, front.pointer),
             .pilot_roster => try front.pilot_roster.draw(drawn, art, &resources.dialog, front.pointer, front.pilot),
             .saved_games => try front.saved_games.draw(drawn, art, &resources.dialog, front.pointer, front.pilot.call_sign.slice()),
@@ -743,6 +777,11 @@ fn settingsContext(front: *const Interface, context: Context, settings_file: *pr
 
 /// What a pass of the mods screen reads, with the pointer at `pointer`.
 fn modsContext(front: *const Interface, context: Context, settings_file: *profile.File, source: mod_manager.Source, pointer: canvas.Pointer) mod_manager.Context {
+    return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .settings_file = settings_file, .ticks = front.ticks, .source = source };
+}
+
+/// What a pass of the GET MODS screen reads, with the pointer at `pointer`.
+fn catalogueContext(front: *const Interface, context: Context, settings_file: *profile.File, source: mod_manager.Source, pointer: canvas.Pointer) mod_catalogue.Context {
     return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .settings_file = settings_file, .ticks = front.ticks, .source = source };
 }
 

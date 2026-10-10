@@ -784,7 +784,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .video = video_settings,
         .saves = .{ .gpa = gpa, .folder = saving.folder, .game = saving.gameOf(&flow.loading), .strings = &strings, .local_time = localDate },
         // The mods screen, which with `--no-mods` stays shut.
-        .mods = if (options.mods) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic, .pages = option_pages.pages() } else null,
+        .mods = if (options.mods) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic, .pages = option_pages.pages(), .catalogue = options.mods_catalogue } else null,
         .modes = game_modes.shown.items,
         // The menu scripts' screens that stand in for the front end's own.
         .scripted = if (presentation) |shown| shown.scripted() else null,

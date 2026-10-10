@@ -182,6 +182,72 @@ You can also edit it by hand.
 - A screenshot taken with `--screenshot` follows the section too, so it loads only the mods that
   are on.
 
+### Getting mods from the catalogue
+
+GET MODS, above the list on the mods screen, opens the catalogue of mods on the web: the mods on
+[OpenReliant's mods page](https://openreliant.github.io/openreliant-mods/), read from its
+`mods.json` index. The screen lists them like the mods screen does, grouped under the site's top
+categories (SHIPS, MISSIONS, ...); a click on a heading folds the group, and another unfolds it.
+The panel shows the chosen mod's thumbnail, version, author, full category, the OpenReliant
+version it needs, its size and its description. INSTALL downloads the mod's archive and its
+checksum file into the `mods` folder, and checks the archive against the checksum before putting
+it in place, so the mod loads exactly like one copied there by hand. UPDATE does the same for a mod
+that is installed in an older version, shown in gold in the list, with the panel saying which
+version is installed and which one the update brings. A mod that needs a newer OpenReliant is red
+and can't be installed. RELOAD reads the catalogue again. One download runs at a time: INSTALL and
+RELOAD wait for it. OK goes back to the mods screen, which now lists the installed mods. Like every
+change on the mods screen, they take effect at the next start.
+
+The catalogue and the downloads run in the background, so the menus keep working, and the panel
+shows the download's progress. OpenReliant connects to the web only for this screen: to read the
+catalogue, and to download the mods you install. `--mods-catalogue <url>` reads another catalogue,
+such as one of your own, and `--mods-catalogue none` hides GET MODS. The screen lists at most 127
+mods. A download can't be cancelled yet
+([#1040](https://github.com/OpenReliant/openreliant/issues/1040)), and the mods screen doesn't say
+yet which of its mods have an update
+([#1041](https://github.com/OpenReliant/openreliant/issues/1041)).
+
+#### The catalogue's format
+
+`mods.json` is a JSON object with a `format` of 1 (the default when the key is missing) and a `mods`
+list. Each mod is an object. `id` and `archive` are required, the other keys are optional, and keys
+OpenReliant doesn't know are ignored, as the top-level `generated` key is, which says when the index
+was written.
+
+| Key | What it is |
+|---|---|
+| `id` | The mod's name in the `mods` folder. Its archive is named `<id>.hog`. A mod whose id can't be a file name is skipped |
+| `name`, `version`, `author`, `description`, `openreliant` | The same values as the manifest's keys of those names ([The manifest](#the-manifest)); `openreliant` is the OpenReliant version the mod needs |
+| `category` | The site's category, such as `ships/fighters/alliance` |
+| `updated` | The date and time of its latest release |
+| `size` | The archive's size in bytes |
+| `archive` | The URL of the archive |
+| `checksum` | The URL of its checksum file ([Checksums](#checksums)). Without one, the archive isn't checked and no checksum file is written next to it |
+| `thumbnail` | The URL of its thumbnail, a PNG ([The thumbnail](#the-thumbnail)) |
+| `url` | The URL of its web page |
+
+```json
+{
+  "format": 1,
+  "mods": [
+    {
+      "id": "viper",
+      "name": "Viper Mk II",
+      "category": "ships/fighters",
+      "version": "1.3",
+      "author": "Someone",
+      "description": "The Viper Mk II, flyable.",
+      "openreliant": "0.7",
+      "size": 5624773,
+      "archive": "https://github.com/OpenReliant/openreliant-mods/releases/download/viper-v1.3/viper.hog",
+      "checksum": "https://github.com/OpenReliant/openreliant-mods/releases/download/viper-v1.3/viper.hog.sha256",
+      "thumbnail": "https://openreliant.github.io/openreliant-mods/thumbs/viper.png",
+      "url": "https://openreliant.github.io/openreliant-mods/mods/viper/"
+    }
+  ]
+}
+```
+
 ## How files are replaced
 
 A file in a mod replaces every game file with the same name, wherever the game keeps it: inside its
@@ -1121,7 +1187,8 @@ included, and works just as the folder did. `--checksum` writes `coyote.hog.sha2
 - Share only work you may share: your own, or work whose licence lets you share it. Fonts, models,
   pictures and sounds from elsewhere each have a licence of their own.
 - [OpenReliant's mods page](https://openreliant.github.io/openreliant-mods/) lists mods made for
-  OpenReliant.
+  OpenReliant, and the mods screen's GET MODS installs them from it
+  ([Getting mods from the catalogue](#getting-mods-from-the-catalogue)).
 
 ### The thumbnail
 
