@@ -1,6 +1,6 @@
-//! OpenReliant's editor link (docs/engine/editor-link.md): the link the original keeps with Digital
-//! Anvil's mission editor and script debugger, carried over a transport that works on every system
-//! in place of the original's block of shared memory. This module is the part no game owns: how the
+//! OpenReliant's editor link (docs/engine/editor-link.md): the link the original keeps with its own
+//! mission editor and script debugger, carried over a transport that works on every system in
+//! place of the original's block of shared memory. This module is the part no game owns: how the
 //! messages travel, framed on a stream of bytes (`Header`), and whether an editor is there. A game
 //! acts on the messages itself (StarLancer's in `game.mission.editor`), and a script VM reports
 //! through it where a thread stopped (`vm.editor`).

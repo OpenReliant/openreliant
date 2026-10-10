@@ -1,7 +1,7 @@
 # The editor link
 
-Digital Anvil's own mission editor and script debugger, which never shipped, could drive the
-original while it ran. The two share a block of named memory: the editor replaces the loaded
+StarLancer's own mission editor and script debugger, which Warthog made with the game and never
+released, could drive the original while it ran. The two share a block of named memory: the editor replaces the loaded
 mission's tables, moves and remakes its ships, pauses the mission, and stops, steps and runs the
 script, and the game reports where the script stopped. Nothing public speaks this link.
 
@@ -312,10 +312,43 @@ Values are the script's words, unsigned.
 - Run control's part runs only where its index is within the mission's parts, where the original
   reads past the parts' table.
 
+### Clients
+
+`openreliant debug` is a small client that shows what the link does
+([Debugging mission scripts](../guide/debugging.md)). A full mission editor and script debugger is a
+project of its own, which builds on this page.
+
+The editor the original talks to was the game team's own. Paul Hughes, one of StarLancer's lead
+programmers at Warthog, called "the mission system and editor on SL" a monster
+([WCNews](https://wcnews.com/articles/p2paulhughes.shtml)), and in April 2001 WCNews reported that
+he would finish the editor, though Warthog would not release it
+([WCNews](https://www.wcnews.com/news/update/3201)). Warthog's later engine, Tusk, had a WYSIWYG
+editor, Snout, which "has grown out of level editors, object editors, mission editors, productivity
+and simulation tools" (Warthog's
+[results of 3 July 2002](https://web.archive.org/web/20030901020916/http://www.hemscott.com:80/scripts/AFXnewstory.dll/text?EPIC=WHOG&SerialNumber=399&NewsType=CDP&Indate=03/07/2002)).
+StarLancer's editor was most likely one of those mission editors, which makes this link the
+protocol of a predecessor of Snout, and a full client OpenReliant's counterpart of Snout: a WYSIWYG
+mission editor for the games that keep StarLancer's mission records and script VM. Battlestar Galactica's Xbox executable holds neither of the link's strings ("unidentified comms
+request", `FileMappingObject`), but its command catalogue has a `DebugBreak` command (`0x2C`,
+"Causes a debug breakpoint to be hit") that StarLancer's lacks. **Unverified:** whether it keeps a
+link of another kind.
+
+The original's tags already edit the running mission in place, as a WYSIWYG editor does: they
+place, move, remove and remake its ships, and send the player's view to one. What such a client
+needs that OpenReliant doesn't carry yet:
+
+- the editor's live changes to the mission, the original's tags
+  ([#1057](https://github.com/OpenReliant/openreliant/issues/1057));
+- the live scene: the objects' places, orientations and orders, which the original's editor kept
+  from its own copy of the mission ([#1059](https://github.com/OpenReliant/openreliant/issues/1059));
+- the mission format as a library, so that it reads and writes missions as OpenReliant does
+  ([#1060](https://github.com/OpenReliant/openreliant/issues/1060));
+- the other games' script dialects, which `Hello`'s `vm` names
+  ([#1017](https://github.com/OpenReliant/openreliant/issues/1017)).
+
 ### Writing a client
 
-`openreliant debug` is a small client ([Debugging mission scripts](../guide/debugging.md)). Another
-works the same way:
+A client works the way `openreliant debug` does:
 
 1. Connect to 127.0.0.1 at the port, and read `Hello`.
 2. On `Mission file`, which comes right after `Mission started`, send tag `0x09` with the script's

@@ -2,11 +2,13 @@
 
 `openreliant debug` stops a mission's script at breakpoints, steps through it a statement at a
 time, and shows where it stopped and what it holds. It talks to the game over the editor link, the
-link the original kept with Digital Anvil's own mission editor and script debugger
-([The editor link](../engine/editor-link.md)), so the game has to be started with `--editor-link`.
+link the original kept with its own mission editor and script debugger, which Warthog made with the
+game and never released ([The editor link](../engine/editor-link.md)), so the game has to be started
+with `--editor-link`.
 
 It's a small debugger that shows what the link can do. A full mission editor and debugger is a
-project of its own, which talks to the game over the same link.
+project of its own, which talks to the game over the same link
+([Clients](../engine/editor-link.md#clients)).
 
 ## Starting it
 

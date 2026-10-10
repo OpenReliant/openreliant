@@ -145,6 +145,11 @@ These numbers hold other commands:
 | `0x5A` | `WillsBlag` | `CreateAsteroidField` |
 | `0x5E` | `DarrensNaughtyBlag` | `SetFlameTrail` |
 
+`DebugBreak` is described as "Causes a debug breakpoint to be hit". The executable holds neither of
+the strings of StarLancer's editor link ("unidentified comms request", `FileMappingObject`).
+**Unverified:** whether it keeps a link to its editor of another kind
+([The editor link](../engine/editor-link.md#clients)).
+
 The commands after StarLancer's run from `0x5F` to `0xA0`, in this order: `SetPlayerBombs`,
 `IgnoreForCollision`, the tutorial's waits from `WaitForDecreaseVelocity` to `WaitForStrafeRight`
 (`0x61` to `0x6B`), `PointAt`, `WaitForFirePrimaryMissiles`, `WaitForFireSecondaryMissiles`,
