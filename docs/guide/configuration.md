@@ -133,7 +133,7 @@ OpenReliant adds:
 
 ## Configuration file (starlancer.ini)
 
-Settings are read from `starlancer.ini` in the game directory. If the file is missing, every setting keeps its default; if it exists but can't be read, the log says so. The game keeps its volumes, its view and its brightness there:
+Settings are read from `starlancer.ini` in the game directory. If the file is missing, every setting keeps its default; if it exists but can't be read, the log says so. A change made in the game is written to the file straight away, and again as the game ends, so closing the window doesn't lose it. The game keeps its volumes, its view and its brightness there:
 
 ```ini
 [Sound]
