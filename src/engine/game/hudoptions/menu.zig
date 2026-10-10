@@ -49,6 +49,18 @@ pub const Shape = enum(u32) {
     knob = 0x188,
     _,
 
+    /// Whether the shape draws its pixels of index 0 in the palette's colour 0, as `VFX_shape_draw`
+    /// does, rather than leaving them clear (`hud.Art.drawZero`). The icons do: the inside of the
+    /// joystick's base and of the monitor's screen are index 0, and so are a few of the speaker's
+    /// pixels. The other shapes keep the display's clear index 0
+    /// ([#1053](https://github.com/OpenReliant/openreliant/issues/1053)).
+    fn drawsZero(shape: Shape) bool {
+        return switch (shape) {
+            .joystick, .speaker, .monitor, .joystick_lit, .speaker_lit, .monitor_lit => true,
+            else => false,
+        };
+    }
+
     /// The shape, or null for none.
     pub fn get(shape: Shape) ?Shape {
         return if (shape == .none) null else shape;
@@ -270,6 +282,7 @@ pub const Ui = struct {
 
     /// Draws `shape` with its anchor at `at`.
     pub fn drawShape(ui: Ui, shape: Shape, at: [2]i32, colour: [4]f32) Error!void {
+        if (shape.drawsZero()) ui.art.drawZero(ui.gpa, @backingInt(shape));
         try hud.drawShape(ui.art, ui.gpa, ui.target, @backingInt(shape), at, colour, ui.scale);
     }
 
