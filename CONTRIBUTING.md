@@ -322,6 +322,10 @@ Document each finding under [`docs/`](docs/README.md), by topic, in the same cha
   `openreliant` is the executable.
 - **Plain English.** Use ordinary technical English in normal sentence order: "the key bindings",
   "is presented to the game as a joystick device".
+- **Spelling.** Docs, comments and code use British spelling: "colour", `hud.Align.centre`. The
+  words OpenReliant adds to the game's screens, and every name that scripts see, use American
+  spelling: COLOR DEPTH, `color`, `"center"`. Names that come from the original game keep its
+  spelling, such as the action `synchronise_guns`.
 - **Punctuation.** Use colons, commas, parentheses or a second sentence. The project's text keeps
   to these in place of em and en dashes, which `make check-files` refuses.
 
