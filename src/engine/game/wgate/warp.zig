@@ -425,7 +425,10 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
                 held.deeper * capital_depth_speed + slot.object.bounds_max.z - slot.object.bounds_min.z
             else
                 held.deeper * depth_speed + departure_speed;
-            objects.setPosition(&slot.object, &slot.drawn, slot.drawn.ahead(distance * delta));
+            // Along the ship's own orientation, as the game moves it along its object's
+            // (`0x0041F039`), not along the stretched one `frame` draws it with.
+            const unstretched: math.Place = .{ .position = slot.drawn.position, .orientation = slot.object.root.orientation };
+            objects.setPosition(&slot.object, &slot.drawn, unstretched.ahead(distance * delta));
             if (held.progress > departure_fade_start) held.tunnel.fadeOut((held.progress - departure_fade_start) / (1 - departure_fade_start));
             if (held.warp_effect) |*effect| {
                 effect.angle += delta * effect.spin;
@@ -449,14 +452,17 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
     }
 }
 
-/// `order_warp_out` step 5 stretches a fighter's drawn frame along Z while it enters.
-/// Apply it after `frameTree`, which rebuilds OpenReliant's interpolated frame each frame.
+/// `order_warp_out` step 5 stretches a fighter's drawn frame along Z while it enters: its own
+/// orientation, scaled, as the game copies the object's orientation into its frame and stretches
+/// that each frame (`0x0041F129`, `0x0041F13F`). Building it from the drawn frame instead would
+/// stretch the stretch again each frame, since the frozen ship's frame isn't rebuilt
+/// (`objects.frameTree`), and the ship, which moves along it, would fly off to infinity.
 pub fn frame(slot: *create.Slot, record: ?*const wgate.Record) void {
     if (slot.running(.warp_out) == null or slot.state.warp.step != @backingInt(OutStep.enter) or slot.object.flags.components) return;
     const held = record orelse return;
     if (held.progress <= spin_rise_end or held.progress >= stretch_end) return;
     const length = ease.in(1, stretch_length, (held.progress - spin_rise_end) / (stretch_end - spin_rise_end));
-    slot.drawn.orientation = math.product(slot.drawn.orientation, math.scaling(.{ 1, 1, length }));
+    slot.drawn.orientation = math.product(slot.object.root.orientation, math.scaling(.{ 1, 1, length }));
     if (slot.model) |*model| model.place(slot.drawn.position, slot.drawn.orientation);
 }
 
@@ -755,6 +761,35 @@ test "warp stretching affects the drawn fighter frame, not its flight orientatio
     frame(slot, record);
     try std.testing.expectApproxEqAbs(2, math.length(math.forward(slot.drawn.orientation)), 1e-5);
     try std.testing.expectEqual(math.identity, slot.object.root.orientation);
+    // The frozen ship's drawn frame isn't rebuilt between frames, and the stretch doesn't grow on
+    // itself.
+    frame(slot, record);
+    try std.testing.expectApproxEqAbs(2, math.length(math.forward(slot.drawn.orientation)), 1e-5);
+}
+
+test "a ship entering its warp tunnel moves along its own orientation, not the stretched one" {
+    var run: wgate.testing.Run = undefined;
+    try run.init(std.testing.allocator);
+    defer run.deinit(std.testing.allocator);
+    _ = try run.mission.add(.of(.predator), @splat(0));
+    const ship = try run.mission.add(.of(.predator), @splat(0));
+    const target = try run.mission.addOther(.{ 0, 0, 100000 });
+    const ctx = run.orders();
+    _ = try aigeneric.pushShip(ctx, ship, .warp_out, target, null);
+    aigeneric.objectOrders(ctx, ship);
+    const slot = run.mission.slot(ship);
+    const record = (try run.built.gates.make(ctx.world, ship, .warp, @splat(0))).?;
+    slot.state.warp.step = @backingInt(OutStep.enter);
+    record.progress = 0.4;
+    // Drawn five times as long, as at the stretch's end.
+    slot.drawn.orientation = math.product(slot.object.root.orientation, math.scaling(.{ 1, 1, stretch_length }));
+    const ticks = 10;
+    slot.state.warp.updated = ctx.world.clock.frame_start - ticks;
+    const before = slot.drawn.position;
+    outUpdate(ctx, ship);
+    const moved = math.length(slot.drawn.position - before);
+    const step = (record.deeper * depth_speed + departure_speed) * ticks * gameobj.progress_per_tick;
+    try std.testing.expectApproxEqAbs(step, moved, step * 1e-4);
 }
 
 test "Warp In restores a reused tunnel's colours after the departure fade" {

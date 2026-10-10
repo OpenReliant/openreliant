@@ -86,6 +86,24 @@ const Voice = struct {
     velocity: mss.Vector = @splat(0),
 };
 
+/// The vectors OpenAL is given: a 3D sample's, and the listener's velocity (`Renderer.takes`).
+const Setting = enum {
+    position,
+    velocity,
+    direction,
+    listener_velocity,
+
+    /// What the log calls it.
+    fn label(setting: Setting) []const u8 {
+        return switch (setting) {
+            .position => "a 3D sound's position",
+            .velocity => "a 3D sound's velocity",
+            .direction => "a 3D sound's direction",
+            .listener_velocity => "the listener's velocity",
+        };
+    }
+};
+
 /// A stream: its source, and its sound, whole in a buffer of its own.
 const Stream = struct {
     source: c.ALuint = 0,
@@ -331,6 +349,8 @@ pub const Renderer = struct {
     streams: [mss.max_streams]Stream = @splat(.{}),
     /// The banks' sounds, decoded once each, by a hash of their files.
     buffers: std.AutoHashMapUnmanaged(u64, Buffer) = .empty,
+    /// The vectors the game has given that OpenAL can't take, each logged the first time (`takes`).
+    refused: std.EnumSet(Setting) = .empty,
 
     /// A renderer at `rate`, into `channels` interleaved float channels: 2, 4, 6 for 5.1 or 8 for
     /// 7.1; any other count renders stereo. `headphones` says whether the output is, for HRTF's
@@ -627,6 +647,29 @@ pub const Renderer = struct {
 
     // --- 3D samples ------------------------------------------------------------------------------
 
+    /// Whether OpenAL takes `v` as `setting`: each of its components a finite number. OpenAL
+    /// refuses any other value and logs an error for each call, so OpenReliant leaves the call out,
+    /// and the sample keeps what was set before, which its velocity is also worked out from. The
+    /// log says so the first time for each setting
+    /// ([#971](https://github.com/OpenReliant/openreliant/issues/971)).
+    fn takes(renderer: *Renderer, setting: Setting, v: mss.Vector) bool {
+        if (math.isFinite(v)) return true;
+        if (!renderer.refused.contains(setting)) {
+            renderer.refused.insert(setting);
+            log.warn("{s} isn't a finite number ({d}, {d}, {d}), so OpenAL isn't given it; later ones aren't logged", .{ setting.label(), v[0], v[1], v[2] });
+        }
+        return false;
+    }
+
+    /// A 3D sample's velocity, held along the line to the listener as the software mixer holds it,
+    /// for a shift `doppler_factor` times as strong.
+    fn setVelocity(renderer: *Renderer, voice: *Voice) void {
+        const factor: mss.Vector = @splat(doppler_factor);
+        const held = mss.positional.dopplerVelocity(voice.position, voice.velocity * factor) / factor;
+        const moving = openAl(held) * @as(mss.Vector, @splat(velocity_scale));
+        if (renderer.takes(.velocity, moving)) c.alSource3f(voice.source, c.AL_VELOCITY, moving[0], moving[1], moving[2]);
+    }
+
     fn sample3D(renderer: *Renderer, handle: mss.Sample3D) *Voice {
         return &renderer.samples_3d[@backingInt(handle)];
     }
@@ -674,22 +717,24 @@ pub const Renderer = struct {
 
     pub fn set3DPosition(renderer: *Renderer, handle: mss.Sample3D, position: mss.Vector) void {
         const voice = renderer.sample3D(handle);
-        voice.position = position;
         const at = openAl(position);
+        if (!renderer.takes(.position, at)) return;
+        voice.position = position;
         c.alSource3f(voice.source, c.AL_POSITION, at[0], at[1], at[2]);
-        setVelocity(voice);
+        renderer.setVelocity(voice);
     }
 
     pub fn set3DOrientation(renderer: *Renderer, handle: mss.Sample3D, face: mss.Vector, up: mss.Vector) void {
         _ = up;
         const toward = openAl(face);
-        c.alSource3f(renderer.sample3D(handle).source, c.AL_DIRECTION, toward[0], toward[1], toward[2]);
+        if (renderer.takes(.direction, toward)) c.alSource3f(renderer.sample3D(handle).source, c.AL_DIRECTION, toward[0], toward[1], toward[2]);
     }
 
     pub fn set3DVelocity(renderer: *Renderer, handle: mss.Sample3D, velocity: mss.Vector) void {
+        if (!renderer.takes(.velocity, velocity)) return;
         const voice = renderer.sample3D(handle);
         voice.velocity = velocity;
-        setVelocity(voice);
+        renderer.setVelocity(voice);
     }
 
     pub fn set3DSampleDistances(renderer: *Renderer, handle: mss.Sample3D, max: f32, min: f32) void {
@@ -715,12 +760,11 @@ pub const Renderer = struct {
     /// against each other. Its speed is held within half the speed of sound, as a sample's is along
     /// the line to it.
     pub fn set3DListenerVelocity(renderer: *Renderer, velocity: mss.Vector) void {
-        _ = renderer;
         const speed = @sqrt(math.dot(velocity, velocity));
         const most = speed_of_sound / velocity_scale / 2 / doppler_factor;
         const held = if (speed > most) velocity * @as(mss.Vector, @splat(most / speed)) else velocity;
         const moving = openAl(held) * @as(mss.Vector, @splat(velocity_scale));
-        c.alListener3f(c.AL_VELOCITY, moving[0], moving[1], moving[2]);
+        if (renderer.takes(.listener_velocity, moving)) c.alListener3f(c.AL_VELOCITY, moving[0], moving[1], moving[2]);
     }
 
     pub fn start3DSample(renderer: *Renderer, handle: mss.Sample3D) void {
@@ -915,15 +959,6 @@ fn openAl(v: mss.Vector) mss.Vector {
     return .{ v[0], v[1], -v[2] };
 }
 
-/// A 3D sample's velocity, held along the line to the listener as the software mixer holds it, for
-/// a shift `doppler_factor` times as strong.
-fn setVelocity(voice: *Voice) void {
-    const factor: mss.Vector = @splat(doppler_factor);
-    const held = mss.positional.dopplerVelocity(voice.position, voice.velocity * factor) / factor;
-    const moving = openAl(held) * @as(mss.Vector, @splat(velocity_scale));
-    c.alSource3f(voice.source, c.AL_VELOCITY, moving[0], moving[1], moving[2]);
-}
-
 fn setPitch(voice: *Voice) void {
     const buffer = voice.buffer orelse return;
     if (buffer.rate == 0) return;
@@ -1065,6 +1100,25 @@ test "Doppler" {
     driver.set3DVelocity(placed, .{ 0, 0, 0.005 });
     c.alGetSource3f(renderer.sample3D(placed).source, c.AL_VELOCITY, &velocity[0], &velocity[1], &velocity[2]);
     try std.testing.expectApproxEqAbs(-0.005 * velocity_scale, velocity[2], 1e-3);
+}
+
+test "a vector that isn't finite is left out" {
+    const renderer = Renderer.create(std.testing.allocator, 22050, 2, .{}, false) catch return error.SkipZigTest;
+    defer renderer.destroy();
+    const driver = renderer.driver();
+    const placed = driver.allocate3DSample().?;
+    const source = renderer.sample3D(placed).source;
+    driver.set3DPosition(placed, .{ 0, 0, 10 });
+    _ = c.alGetError();
+    // OpenAL isn't given it, so it raises no error, and the sample keeps its place.
+    driver.set3DPosition(placed, .{ std.math.nan(f32), 0, 10 });
+    driver.set3DOrientation(placed, .{ 0, std.math.inf(f32), 0 }, .{ 0, 1, 0 });
+    try std.testing.expectEqual(c.AL_NO_ERROR, c.alGetError());
+    var position: [3]c.ALfloat = undefined;
+    c.alGetSource3f(source, c.AL_POSITION, &position[0], &position[1], &position[2]);
+    try std.testing.expectEqual(-10, position[2]);
+    try std.testing.expect(renderer.refused.contains(.position) and renderer.refused.contains(.direction));
+    try std.testing.expect(!renderer.refused.contains(.velocity));
 }
 
 test "HRTF" {
