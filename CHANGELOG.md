@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.1](https://github.com/OpenReliant/openreliant/compare/v0.9.0...v0.9.1) (2026-10-10)
+
+
+### Fixes
+
+* a mod's license.txt and Markdown files don't count as game files ([#1047](https://github.com/OpenReliant/openreliant/issues/1047)) ([5e64ce8](https://github.com/OpenReliant/openreliant/commit/5e64ce8ff26767e6c767e65fdf20f69440993ea8))
+* a warping ship moves along its own orientation, and OpenAL gets only finite values ([#1050](https://github.com/OpenReliant/openreliant/issues/1050)) ([5e64ce8](https://github.com/OpenReliant/openreliant/commit/5e64ce8ff26767e6c767e65fdf20f69440993ea8))
+* settings changed in the rooms are saved when the window closes there ([#1048](https://github.com/OpenReliant/openreliant/issues/1048)) ([5e64ce8](https://github.com/OpenReliant/openreliant/commit/5e64ce8ff26767e6c767e65fdf20f69440993ea8))
+* the engine's sound and the radio's line stop when a mission ends ([#1046](https://github.com/OpenReliant/openreliant/issues/1046)) ([5e64ce8](https://github.com/OpenReliant/openreliant/commit/5e64ce8ff26767e6c767e65fdf20f69440993ea8))
+* the pause menu's joystick and monitor icons are solid, as the original draws them ([#1054](https://github.com/OpenReliant/openreliant/issues/1054)) ([113bc44](https://github.com/OpenReliant/openreliant/commit/113bc443475b598d884b1b197b84bfa623a4f590))
+* the player's files are written safely, and a save after its companions ([#1049](https://github.com/OpenReliant/openreliant/issues/1049)) ([5e64ce8](https://github.com/OpenReliant/openreliant/commit/5e64ce8ff26767e6c767e65fdf20f69440993ea8))
+
 ## [0.9.0](https://github.com/OpenReliant/openreliant/compare/v0.8.1...v0.9.0) (2026-10-09)
 
 
