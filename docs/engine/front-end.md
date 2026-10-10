@@ -131,6 +131,13 @@ the main menu as it ends.
 the menu: a button like QUIT's and INSTANT ACTION's, at (40, 441), 20 by 15, with its label to its
 right. It opens the game modes screen ([The game modes screen](#the-game-modes-screen)).
 
+**Improvement:** the menu shows the player a newer release of OpenReliant, which OpenReliant
+checks for as it starts ([Newer releases](../guide/configuration.md#newer-releases)). While no
+dialog is up and the pointer's button is up, so that a click under way doesn't answer it, the menu
+puts up QUIT's dialog with "A new version of OpenReliant, 0.10.0, is available. Open its download
+page?" in `interface_font_large`. YES opens the release's page in the web browser. Either
+answer, or Escape, closes the dialog, and it doesn't come back for that release.
+
 ### The developers' keys
 
 With `developer_mode` set:
@@ -284,7 +291,7 @@ OpenReliant's VIDEO tab holds OpenReliant's graphics options above the game's ro
 | GRAPHICS | A row at y 121: ORIGINAL, MODERN or CUSTOM; RESTART TO APPLY, in gold, to the left of x 565 while an option waits for the next start |
 | The graphics' pane | From (45, 155), 520 by 97, framed as the controls' panes are, its rows 30 apart from y 162, three at a time; its arrows at (570, 155) and (570, 175), as the controls' list has them |
 | RESOLUTION, FRAME RATE LIMIT, DEFAULT VIEW, BRIGHTNESS, FIELD OF VIEW | Rows from y 262; the sliders' knobs from x 367, their tracks until 592, and FIELD OF VIEW's degrees from x 600 |
-| FULL SCREEN, VSYNC, VR TRANSITIONS | Boxes at (45, 262), (45, 292) and (45, 322), beside the first three rows, their labels from x 67, where the controls have their controllers |
+| FULL SCREEN, VSYNC, VR TRANSITIONS, CHECK FOR UPDATES | Boxes at (45, 262), (45, 292), (45, 322) and (45, 352), beside the first four rows, their labels from x 67, where the controls have their controllers |
 
 GRAPHICS sets every graphics option at once but UI SCALE and MOD EFFECTS, which it leaves as they are: its arrows flip between ORIGINAL, the original's look as `--original` gives it, and MODERN, OpenReliant's, every improvement on. It shows CUSTOM once an option differs from both, and from CUSTOM its arrow on sets ORIGINAL and its arrow back MODERN. ORIGINAL also brings back, from the next start, the original's way with everything the tab has no row for, as `--original` does, but for the sound, which stays as the AUDIO tab has it ([Configuration](../guide/configuration.md#openreliants-settings)).
 
@@ -292,7 +299,7 @@ The pane holds the options, a row each: the game's TEXTURE DETAIL, GRAPHIC DETAI
 
 The options change the picture at once and are written to `[OpenReliant]` at once, but for ORIGINAL's base, the game's three details, REAL LIGHTS, which the models are built with, LINEAR LIGHT and COLOR DEPTH, which change the GPU's formats, and OUTLINE FONTS, which take effect at the next start: while one of them differs from what the game runs with, RESTART TO APPLY stands beside GRAPHICS. The details are written to `[Device]`, as the game's renderer writes them, `Tdetail` 0 to 2 for LOW, MEDIUM and HIGH, `Gdetail` 0 to 2, and `Lmaps` 1 or 0: TEXTURE DETAIL caps the textures' sides at 128 or 256 ([Texture cache](../formats/tcache.md#loading)); GRAPHIC DETAIL sets how many bits the explosions keep flying, how far the shields' levels reach, how fine the gates' tunnels are, how many rocks the Ice Field has, the loadout's ships' level of detail while they move, and the levels of detail's divisor, which OpenReliant holds at 1.5, 2 or 3 (`game.main.detailDivisor`); LIGHT MAPS draws the models' second passes ([Rendering](rendering.md#shading-modes)). GRAPHICS' presets leave them at their highest.
 
-OpenReliant's own rows below change at once, as the driver applies them, and are written to `[OpenReliant]` ([Configuration](../guide/configuration.md#openreliants-settings)): RESOLUTION steps through NATIVE, the window's own size, and 75, 50 and 25 percent of it, each as tall as the front end's 480 rows or more; FULL SCREEN fills the display, as Alt and Enter do; VSYNC waits for the display; FRAME RATE LIMIT steps through DISPLAY, the display's rate where vsync is off, 30, 60, 120, 144 and 240 frames a second, and NONE; FIELD OF VIEW's knob sets how far the views the player flies in see up and down, in whole degrees, from 34 at the start of its travel to 94 at its end, the game's 64 in the middle, and the degrees are written past its track, with the degree sign the menus' fonts have at `0xB0` ([Camera](camera.md#projection)).
+OpenReliant's own rows below change at once, as the driver applies them, and are written to `[OpenReliant]` ([Configuration](../guide/configuration.md#openreliants-settings)): RESOLUTION steps through NATIVE, the window's own size, and 75, 50 and 25 percent of it, each as tall as the front end's 480 rows or more; FULL SCREEN fills the display, as Alt and Enter do; VSYNC waits for the display; CHECK FOR UPDATES turns OpenReliant's check for a newer release on or off from the next start ([Newer releases](../guide/configuration.md#newer-releases)); FRAME RATE LIMIT steps through DISPLAY, the display's rate where vsync is off, 30, 60, 120, 144 and 240 frames a second, and NONE; FIELD OF VIEW's knob sets how far the views the player flies in see up and down, in whole degrees, from 34 at the start of its travel to 94 at its end, the game's 64 in the middle, and the degrees are written past its track, with the degree sign the menus' fonts have at `0xB0` ([Camera](camera.md#projection)).
 
 RESET DEFAULTS sets the game's defaults and OpenReliant's, MODERN among them, and CANCEL CHANGES puts back what the tab opened with.
 

@@ -51,6 +51,7 @@ const drawn = presenting.drawn;
 pub const Rooms = @import("rooms.zig").Driver;
 const RoomsEnd = @import("rooms.zig").End;
 pub const test_keys = @import("test_keys.zig");
+pub const updates = @import("updates.zig");
 pub const ScriptConsole = @import("console.zig").Driver;
 pub const ScriptFrames = @import("script_frames.zig").ScriptFrames;
 pub const GameScripts = @import("game_scripts.zig").GameScripts;
@@ -258,6 +259,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         break :linked &editor_link.session;
     } else null;
     defer if (editor != null) editor_link.close();
+    // The check for a newer release of OpenReliant, in the background, which the log and the main
+    // menu tell of (`updates.zig`). A screenshot never checks.
+    var update_check: updates.Check = .{ .settings_file = settings_file };
+    if (options.update_check and options.screenshot == null) update_check.start();
+    defer update_check.close();
     // OpenReliant's mods, whose files take priority over the game's files wherever they are; none
     // with `--no-mods`. The mods screen sets which are on and the order they load in, for a
     // screenshot too.
@@ -433,6 +439,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .smooth_motion = &smooth_motion,
         .mod_effects = &gpu.mod_effects,
         .field_of_view = &field_of_view,
+        .update_check = options.update_check,
     };
     // The screenshots the 0 key saves in flight and O in the briefing, in the game's folder.
     var screenshots: game.xtrabits.screenshot.Screenshots = .{ .io = io, .directory = directory };
@@ -808,6 +815,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .modes = game_modes.shown.items,
         // The menu scripts' screens that stand in for the front end's own.
         .scripted = if (presentation) |shown| shown.scripted() else null,
+        .release = update_check.release(),
     };
     // The Reliant's rooms and the briefing, which run in loops of their own, with what they read,
     // play and draw with: made as the front end's resources open.
@@ -898,6 +906,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             session.poll();
             app.editor_linked = session.link.present();
         }
+        update_check.poll();
         // While the window is inactive, the sound is paused, as the message pump pauses it, and a
         // mission loaded too; but not behind an editor.
         try game.winmain.followActivation(&app, pausing, play.loaded != null);

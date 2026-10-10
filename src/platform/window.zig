@@ -324,3 +324,8 @@ pub fn localTime(since_1970: i64) ?LocalTime {
         .day_of_week = std.math.cast(u8, time.day_of_week) orelse return null,
     };
 }
+
+/// Opens `url` in the system's web browser (`SDL_OpenURL`); a failure is logged.
+pub fn openUrl(url: [:0]const u8) Error!void {
+    if (!c.SDL_OpenURL(url)) return fail("SDL_OpenURL");
+}

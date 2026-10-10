@@ -126,8 +126,8 @@ pub const Own = struct {
 
     pub const Hrtf = enum { auto, on, off };
 
-    /// The display's options: what the screen chooses, and what the driver tells, which choosing
-    /// leaves as it is.
+    /// The display's options and the check for a newer release, which the video tab's rows hold:
+    /// what the screen chooses, and what the driver tells, which choosing leaves as it is.
     pub const Display = struct {
         chosen: Chosen = .{},
         told: Told = .{},
@@ -145,6 +145,9 @@ pub const Own = struct {
             /// How far the views the player flies in see up and down, in degrees
             /// (`camera.factorsFor`).
             field_of_view: f32 = camera.original_field_of_view,
+            /// Whether OpenReliant checks for a newer release of itself as it starts, which the
+            /// main menu shows the player (`main_menu.Release`).
+            update_check: bool = true,
         };
 
         pub const Told = struct {

@@ -89,6 +89,39 @@ const game_modes_label: Label = .{ .text = .{ .words = "GAME MODES" }, .at = .{ 
 /// The question QUIT asks (`0x00428EFF`): Do you really want to Quit?
 pub const quit_question = 0x374;
 
+/// OpenReliant's notice of a newer release, with its version, which YES answers by opening the
+/// release's page.
+const release_question = "A new version of OpenReliant, {s}, is available. Open its download page?";
+
+/// The longest version the notice shows (`Release.pending`), and the room its words take.
+pub const max_version = 32;
+const release_question_size = release_question.len + max_version;
+
+/// OpenReliant's: a newer release of OpenReliant than the one playing, which the menu shows the
+/// player once its check has found it (`openreliant/updates.zig`).
+///
+/// **Improvement:** the original never looks for a newer version of itself.
+pub const Release = struct {
+    context: *anyopaque,
+    vtable: *const VTable,
+
+    pub const VTable = struct {
+        /// The version of a newer release the menu hasn't shown yet, such as 0.10.0, at most
+        /// `max_version` characters.
+        pending: *const fn (context: *anyopaque) ?[]const u8,
+        /// The player answered the notice: `open` whether they asked for the release's page.
+        answered: *const fn (context: *anyopaque, open: bool) void,
+    };
+
+    pub fn pending(release: Release) ?[]const u8 {
+        return release.vtable.pending(release.context);
+    }
+
+    pub fn answered(release: Release, open: bool) void {
+        release.vtable.answered(release.context, open);
+    }
+};
+
 /// The click, a sound of `bank_stdsmp`, as the item chosen plays it: at 127, panned to the middle.
 const click_sound = 0xB;
 const click_volume = 0x7F;
@@ -186,6 +219,8 @@ pub const Context = struct {
     bank: ?fat.Bank = null,
     /// Whether the mods' scripts have registered game modes, which GAME MODES leads to.
     game_modes: bool = false,
+    /// OpenReliant's: the newer release the menu shows the player, if any.
+    release: ?Release = null,
 };
 
 /// The menu's state.
@@ -198,8 +233,11 @@ pub const MainMenu = struct {
     developer: bool = false,
     /// The mission the developers' keys start (`mission_number`), whose number they type.
     mission: u16 = 1,
-    /// QUIT's question while it is up.
+    /// QUIT's question, or OpenReliant's notice of a newer release, while it is up.
     confirm: ?dialog.Confirm = null,
+    /// The version of the newer release the dialog shows, where it shows one rather than asking
+    /// whether to quit.
+    release: ?[]const u8 = null,
     /// Whether it shows GAME MODES, as the last pass found (`Context.game_modes`).
     has_modes: bool = false,
 
@@ -211,6 +249,7 @@ pub const MainMenu = struct {
     pub fn enter(menu: *MainMenu, pointer: *Pointer, sound: ?*hog_snd.Sound) void {
         menu.under = null;
         menu.confirm = null;
+        menu.release = null;
         pointer.at = .{ 320, 200 };
         if (sound) |playing| if (!playing.musicPlaying()) playing.playMusic(music_name, 0, music_level, .now);
     }
@@ -219,14 +258,27 @@ pub const MainMenu = struct {
     /// question is up it takes the frame (`interface_confirm`). Otherwise the developers' code and
     /// keys, then the item under the pointer, chosen while the pointer's button is down, with a
     /// click.
+    ///
+    /// OpenReliant's: while no dialog is up, a newer release the menu hasn't shown yet comes first,
+    /// in the same dialog, once the pointer's button is up, so that a click under way doesn't
+    /// answer it. YES opens the release's page, and either answer closes it for good.
     pub fn frame(menu: *MainMenu, context: Context) ?Choice {
         const keyboard = context.keyboard;
         const escaped = keyboard.pressed(input.scan.escape, .none, true);
         if (menu.confirm) |*confirm| {
             const answer = confirm.frame(context.pointer, escaped) orelse return null;
             menu.confirm = null;
-            return if (answer) .quit else null;
+            if (menu.release == null) return if (answer) .quit else null;
+            menu.release = null;
+            if (context.release) |release| release.answered(answer);
+            return null;
         }
+        if (context.release) |release| if (!context.pointer.down) if (release.pending()) |version| {
+            menu.release = version;
+            // The words are put together as the notice is drawn.
+            menu.confirm = .{ .message = .{ .words = "" } };
+            return null;
+        };
         if (escaped) {
             menu.confirm = .{ .message = .{ .string = quit_question } };
             return null;
@@ -288,9 +340,9 @@ pub const MainMenu = struct {
     }
 
     /// `main_menu_draw`: the panels' labels in blue, QUIT's and INSTANT ACTION's buttons and labels,
-    /// the item under the pointer lit and a panel's labels in gold, QUIT's question where it is
-    /// up, then the pointer, and with the developers' keys on the mission's number. The menu's
-    /// background is drawn behind it all (`background_set`).
+    /// the item under the pointer lit and a panel's labels in gold, QUIT's question or the notice
+    /// of a newer release where it is up, then the pointer, and with the developers' keys on the
+    /// mission's number. The menu's background is drawn behind it all (`background_set`).
     pub fn draw(menu: MainMenu, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, pointer: Pointer, developer_font: ?*hud.Opened) canvas_module.Error!void {
         const large = canvas.fonts.large;
         const small = canvas.fonts.small;
@@ -317,7 +369,12 @@ pub const MainMenu = struct {
                 .game_modes => try canvas.shape(art, lit_button_shape, game_modes_button),
             }
         }
-        if (menu.confirm) |confirm| try confirm.draw(canvas, dialog_art);
+        if (menu.confirm) |confirm| {
+            var asked = confirm;
+            var buffer: [release_question_size]u8 = undefined;
+            if (menu.release) |version| asked.message = .{ .words = std.mem.print(&buffer, release_question, .{version}) catch "" };
+            try asked.draw(canvas, dialog_art);
+        }
         try canvas.drawVersion();
         try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
         if (menu.developer) if (developer_font) |font| {
@@ -357,6 +414,58 @@ test "QUIT asks first" {
     // YES, once the button comes up, quits.
     try std.testing.expectEqual(null, menu.frame(.{ .pointer = .{ .at = .{ 295, 275 }, .down = true }, .keyboard = &keyboard }));
     try std.testing.expectEqual(Choice.quit, menu.frame(.{ .pointer = .{ .at = .{ 295, 275 } }, .keyboard = &keyboard }).?);
+}
+
+/// A newer release found by a check, for the tests, and how the player answered.
+const FoundRelease = struct {
+    version: ?[]const u8 = "0.10.0",
+    answer: ?bool = null,
+
+    fn release(found: *FoundRelease) Release {
+        return .{ .context = found, .vtable = &.{ .pending = pending, .answered = answered } };
+    }
+
+    fn pending(context: *anyopaque) ?[]const u8 {
+        const found: *FoundRelease = @ptrCast(@alignCast(context));
+        return found.version;
+    }
+
+    fn answered(context: *anyopaque, open: bool) void {
+        const found: *FoundRelease = @ptrCast(@alignCast(context));
+        found.answer = open;
+        found.version = null;
+    }
+};
+
+test "a newer release is shown once, and YES opens its page" {
+    var keyboard: input.Keyboard = .{};
+    var menu: MainMenu = .{};
+    var found: FoundRelease = .{};
+    // Not while the pointer's button is down, so that a click under way doesn't answer it.
+    try std.testing.expectEqual(null, menu.frame(.{ .pointer = .{ .at = .{ 5, 5 }, .down = true }, .keyboard = &keyboard, .release = found.release() }));
+    try std.testing.expectEqual(null, menu.confirm);
+    // With the button up, the notice comes up, and takes the frame.
+    try std.testing.expectEqual(null, menu.frame(.{ .pointer = .{ .at = .{ 5, 5 } }, .keyboard = &keyboard, .release = found.release() }));
+    try std.testing.expectEqualStrings("0.10.0", menu.release.?);
+    // YES, once the button comes up, opens the page, and the menu goes on without quitting.
+    try std.testing.expectEqual(null, menu.frame(.{ .pointer = .{ .at = .{ 295, 275 }, .down = true }, .keyboard = &keyboard, .release = found.release() }));
+    try std.testing.expectEqual(null, menu.frame(.{ .pointer = .{ .at = .{ 295, 275 } }, .keyboard = &keyboard, .release = found.release() }));
+    try std.testing.expectEqual(true, found.answer.?);
+    try std.testing.expect(menu.confirm == null and menu.release == null);
+    // Shown once, it doesn't come again, and QUIT asks as before.
+    try std.testing.expectEqual(null, menu.frame(.{ .pointer = .{ .at = .{ 340, 450 }, .down = true }, .keyboard = &keyboard, .release = found.release() }));
+    try std.testing.expect(menu.confirm != null and menu.release == null);
+}
+
+test "Escape closes the notice of a newer release" {
+    var keyboard: input.Keyboard = .{};
+    var menu: MainMenu = .{};
+    var found: FoundRelease = .{};
+    _ = menu.frame(.{ .pointer = .{}, .keyboard = &keyboard, .release = found.release() });
+    keyboard.down[input.scan.escape] = true;
+    try std.testing.expectEqual(null, menu.frame(.{ .pointer = .{}, .keyboard = &keyboard, .release = found.release() }));
+    try std.testing.expectEqual(false, found.answer.?);
+    try std.testing.expect(menu.confirm == null);
 }
 
 test "Escape asks to quit, and NO goes back to the menu" {

@@ -83,6 +83,7 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--developer-mode` | The tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading when they or their shaders are saved ([Scripting](scripting.md#the-console)) |
 | `--editor-link` | Listen for a mission editor or a script debugger, such as `openreliant debug`, on this computer's own address, 127.0.0.1, which can then pause the mission and stop and step its script, as the original's editor link does ([Debugging mission scripts](debugging.md)) |
 | `--editor-link-port <port>` | With `--editor-link`, the port to listen at; 22539 by default |
+| `--no-update-check` | Don't check for a newer release of OpenReliant. By default it checks as it starts, logs a newer release and shows it once in the main menu ([Newer releases](#newer-releases)) |
 | `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls, the `[OpenReliant]` settings and the details in `[Device]` are not read, so that it comes out the same each time |
 | `--screenshot-ticks <ticks>` | With `--screenshot`, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default |
 | `--seed <number>` | Start each mission's random numbers from this seed, so that a run comes out the same each time, for testing; by default, as in the game, from the clock as the mission starts, and from a fixed seed with `--screenshot` |
@@ -193,9 +194,19 @@ Samples=8
 | `Compressor` | 1 or 0, which AUDIO's COMPRESSOR sets | `--no-compressor` |
 | `DeveloperMode` | 1 or 0; 0 by default | `--developer-mode` |
 | `TextureCompression` | 1 or 0; 1 by default: the mods' pictures compressed for the GPU ([Modding](modding.md#compression)) | `--uncompressed-textures` |
+| `UpdateCheck` | 1 or 0, which VIDEO's CHECK FOR UPDATES sets: whether OpenReliant checks for a newer release as it starts ([Newer releases](#newer-releases)) | `--no-update-check` |
+| `UpdateSeen` | The newest release the main menu has shown you, such as `0.10.0`, which the main menu writes | |
 
 The mods screen keeps which mods are on, and the order they load in, in a section of its own, `[OpenReliantMods]` ([The mods screen](modding.md#the-mods-screen)).
 
 In the example, the game has the original's look and sound, but with the bloom and eight samples a pixel. A setting you leave out keeps its default, or `Original`'s where it is 1.
 
-The settings screen keeps the graphics' settings so: a preset chosen with VIDEO's GRAPHICS is written as `Original` alone, and a graphics option changed after it is written only where it differs from what `Original` gives, and taken out where it is the same. As `Original` plays the original's mixer, ORIGINAL writes `Hrtf`, `Reverb` and `Compressor` beside it while OpenAL Soft plays the sound, so that the sound stays as AUDIO has it. A screenshot taken with `--screenshot` leaves this section out, so that it comes out the same for everyone.
+The settings screen keeps the graphics' settings like this: a preset chosen with VIDEO's GRAPHICS is written as `Original` alone, and a graphics option changed after it is written only where it differs from what `Original` gives, and taken out where it is the same. As `Original` plays the original's mixer, ORIGINAL writes `Hrtf`, `Reverb` and `Compressor` beside it while OpenAL Soft plays the sound, so that the sound stays as AUDIO has it. A screenshot taken with `--screenshot` leaves this section out, so that it comes out the same for everyone.
+
+## Newer releases
+
+As it starts, OpenReliant asks GitHub's API for its latest release, in the background, and gives up after 5 seconds. The game never waits for the answer, as it starts or as it quits, so a slow or missing connection never holds it up. The request names OpenReliant as the program asking and carries nothing else about you or your game. GitHub sees your address, as it does for any web page. **Improvement:** the original never looks for a newer version of itself.
+
+When a release newer than yours is out, the log says so, with the address of the release's page, and the main menu shows it once, in a dialog like QUIT's: YES opens the page in your default web browser, and NO closes the dialog. `UpdateSeen` keeps the release it showed you, so the dialog comes back only for a newer one. A build from source counts as the release it was built from, and pre-releases are never shown.
+
+To turn the check off, untick CHECK FOR UPDATES on the settings screen's VIDEO tab, which takes effect at the next start, set `UpdateCheck=0`, or start with `--no-update-check`. A run with `--screenshot` never checks.

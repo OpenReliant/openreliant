@@ -20,7 +20,7 @@ const Presenter = @import("presenter.zig").Presenter;
 const log = std.log.scoped(.settings);
 
 /// OpenReliant's section of the file.
-const section = "OpenReliant";
+pub const section = "OpenReliant";
 
 /// Reads OpenReliant's options from the settings file's `[OpenReliant]` into `options`: `Original`
 /// first, as `--original` does, then the others, each changing what it set, as an option after
@@ -72,12 +72,13 @@ const keys = [_]Key{
     .{ .name = hrtf_key, .takes = "auto, on or off", .read = hrtf },
     .{ .name = reverb_key, .takes = on_off, .read = reverb },
     .{ .name = compressor_key, .takes = on_off, .read = compressor },
+    .{ .name = update_check_key, .takes = on_off, .read = onOff("update_check") },
     .{ .name = "DeveloperMode", .takes = on_off, .read = onOff("developer_mode") },
     .{ .name = "TextureCompression", .takes = on_off, .read = onOff("texture_compression") },
 };
 
-/// The keys the settings screen writes (`Own`): the display's options, the graphics' and the
-/// sound's.
+/// The keys the settings screen writes (`Own`): the display's options, the check for a newer
+/// release, the graphics' and the sound's.
 const original_key = "Original";
 const fullscreen_key = "Fullscreen";
 const size_key = "Size";
@@ -103,6 +104,7 @@ const mod_effects_key = "ModEffects";
 const hrtf_key = "Hrtf";
 const reverb_key = "Reverb";
 const compressor_key = "Compressor";
+const update_check_key = "UpdateCheck";
 
 /// An option of the settings screen's, by its field, and the key that keeps it.
 const FieldKey = struct { field: []const u8, name: []const u8 };
@@ -254,6 +256,9 @@ pub const Own = struct {
     /// are drawn, as the game draws them; none in the tests, which show them as they come.
     field_of_view: ?*f32 = null,
     ui_scale: ?*engine.game.hud.UiScale = null,
+    /// Whether OpenReliant checks for a newer release as it starts, as chosen, which takes effect
+    /// at the next start (`updates.zig`).
+    update_check: bool = true,
 
     pub const Display = struct {
         window: *platform.window.Window,
@@ -372,6 +377,7 @@ pub const Own = struct {
             current.chosen.vsync = pacing.vsync;
         }
         if (own.field_of_view) |degrees| current.chosen.field_of_view = degrees.*;
+        current.chosen.update_check = own.update_check;
         const display = own.display orelse return current;
         current.chosen.size = display.presenter.gpu.settings.size;
         current.chosen.fullscreen = display.window.fillsDisplay();
@@ -381,7 +387,7 @@ pub const Own = struct {
 
     /// Writes what has changed of the display's options, and applies it from the next frame on:
     /// the frames' size, the window filling the display or not, their pacing, the GPU's vsync, and
-    /// the field of view.
+    /// the field of view. The check for a newer release is written, for the next start.
     fn setDisplay(context: *anyopaque, chosen: screen.Own.Display.Chosen) void {
         const own: *Own = @ptrCast(@alignCast(context));
         own.changeDisplay(chosen) catch |err| log.warn("the display's options are not kept: {s}", .{@errorName(err)});
@@ -415,6 +421,10 @@ pub const Own = struct {
                 try file.remove(section, field_of_view_key);
             } else try file.write(section, field_of_view_key, try file.arena.print("{d}", .{chosen.field_of_view}));
             if (own.field_of_view) |degrees| degrees.* = chosen.field_of_view;
+        }
+        if (chosen.update_check != current.update_check) {
+            try file.writeInt(section, update_check_key, @intFromBool(chosen.update_check));
+            own.update_check = chosen.update_check;
         }
         const display = own.display orelse return;
         const gpu = display.presenter.gpu;
@@ -492,6 +502,7 @@ comptime {
     std.debug.assert(std.meta.eql(options.settings.size, display.size));
     std.debug.assert(options.fullscreen == display.fullscreen and options.settings.vsync == display.vsync);
     std.debug.assert(options.fps == display.frame_rate and options.field_of_view == display.field_of_view);
+    std.debug.assert(options.update_check == display.update_check);
 }
 
 /// The graphics' options as the game starts with them, the options' (`read`) and the game's
@@ -558,6 +569,7 @@ test read {
         \\Vsync=0
         \\OutlineFonts=1
         \\DeveloperMode=1
+        \\UpdateCheck=0
     );
     try std.testing.expect(chosen.settings.bloom and chosen.settings.sixteen_bit);
     try std.testing.expectEqual(8, chosen.settings.samples);
@@ -569,6 +581,7 @@ test read {
     try std.testing.expect(!chosen.smooth_motion and !chosen.settings.vsync);
     try std.testing.expect(chosen.original and chosen.outline_fonts and chosen.developer_mode);
     try std.testing.expect(!plain.developer_mode);
+    try std.testing.expect(plain.update_check and !chosen.update_check);
     const sound = chosen.sound.?;
     try std.testing.expectEqual(.on, sound.player.openal.hrtf);
     try std.testing.expectEqual(1, sound.master.?.ratio);
@@ -657,6 +670,11 @@ test "Own's display options" {
     try std.testing.expectEqual(80, optionsOf(file.profile.text).field_of_view);
     shown.setDisplay(.{});
     try std.testing.expectEqual(null, file.profile.value(section, field_of_view_key));
+    // The check for a newer release is written, and read back the same.
+    shown.setDisplay(.{ .update_check = false });
+    try std.testing.expectEqualStrings("0", file.profile.value(section, update_check_key).?);
+    try std.testing.expect(!shown.display().chosen.update_check);
+    try std.testing.expect(!optionsOf(file.profile.text).update_check);
 }
 
 test "Own's graphics options" {

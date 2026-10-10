@@ -3,15 +3,15 @@
 //! and OpenReliant's graphics options. At the top, GRAPHICS and its presets, with the graphics
 //! options in a pane below it (`graphics.Graphics`); below that, rows laid out as the original's
 //! are: RESOLUTION, DEFAULT VIEW and BRIGHTNESS, with FRAME RATE LIMIT and FIELD OF VIEW, and the
-//! check boxes FULL SCREEN, VSYNC and VR TRANSITIONS left of them, where the controls have their
-//! controllers. DEFAULT VIEW and VR TRANSITIONS change at once, and are written at once; the
-//! brightness changes the device's gamma ramp at once, and is written as the screen is left
-//! (`save`).
+//! check boxes FULL SCREEN, VSYNC, VR TRANSITIONS and CHECK FOR UPDATES left of them, where the
+//! controls have their controllers. DEFAULT VIEW and VR TRANSITIONS change at once, and are written
+//! at once; the brightness changes the device's gamma ramp at once, and is written as the screen is
+//! left (`save`).
 //!
 //! **Improvement:** RESOLUTION chooses the size OpenReliant draws its frames at, a share of the
-//! window's own, where the game's chooses the display's mode. FULL SCREEN, VSYNC, FRAME RATE LIMIT
-//! and FIELD OF VIEW are OpenReliant's own. They change at once, as the driver applies them
-//! (`settings.Own`).
+//! window's own, where the game's chooses the display's mode. FULL SCREEN, VSYNC, FRAME RATE LIMIT,
+//! FIELD OF VIEW and CHECK FOR UPDATES are OpenReliant's own. They change at once, as the driver
+//! applies them (`settings.Own`), but for CHECK FOR UPDATES, which takes effect at the next start.
 //!
 //! Not ported: 3D RENDER MODE, which chooses the game's Direct3D device; and TEXTURE DETAIL, GRAPHIC
 //! DETAIL and LIGHT MAPS, at whose highest OpenReliant draws
@@ -95,17 +95,20 @@ pub const Choice = enum {
 pub const Arrow = struct { choice: Choice, step: Step };
 
 /// The check boxes, left of the rows, where the controls have their controllers: FULL SCREEN beside
-/// RESOLUTION, VSYNC beside FRAME RATE LIMIT, and the game's VR TRANSITIONS beside DEFAULT VIEW.
+/// RESOLUTION, VSYNC beside FRAME RATE LIMIT, the game's VR TRANSITIONS beside DEFAULT VIEW, and
+/// CHECK FOR UPDATES beside BRIGHTNESS.
 pub const Check = enum {
     fullscreen,
     vsync,
     transitions,
+    update_check,
 
     fn row(check: Check) Row {
         return switch (check) {
             .fullscreen => .resolution,
             .vsync => .frame_rate,
             .transitions => .default_view,
+            .update_check => .brightness,
         };
     }
 
@@ -119,6 +122,7 @@ pub const Check = enum {
             .fullscreen => .{ .words = "FULL SCREEN" },
             .vsync => .{ .words = "VSYNC" },
             .transitions => .{ .string = 0x2D4 },
+            .update_check => .{ .words = "CHECK FOR UPDATES" },
         };
     }
 };
@@ -442,6 +446,10 @@ pub const Video = struct {
                 .transitions => if (context.video) |video| {
                     try setTransitions(video, !video.transitions.*, context.settings_file);
                 },
+                .update_check => {
+                    chosen.update_check = !chosen.update_check;
+                    tab.applyDisplay(context);
+                },
             },
         }
         return false;
@@ -518,6 +526,7 @@ pub const Video = struct {
                 .fullscreen => chosen.fullscreen,
                 .vsync => chosen.vsync,
                 .transitions => if (shown) |video| video.transitions.* else default_transitions,
+                .update_check => chosen.update_check,
             };
             try check.box().draw(canvas, art, check.words(), on, true);
         }
@@ -550,6 +559,7 @@ test "the rows stand below the graphics" {
     try std.testing.expectEqual(352, Row.brightness.line().y);
     try std.testing.expectEqual(382, Row.field_of_view.line().y);
     try std.testing.expectEqual([2]i32{ 45, 322 }, Check.transitions.box().at);
+    try std.testing.expectEqual([2]i32{ 45, 352 }, Check.update_check.box().at);
 }
 
 test Range {
@@ -647,7 +657,11 @@ test "the arrows and the boxes change the video" {
     _ = try tab.choose(.{ .check = .fullscreen }, context);
     _ = try tab.choose(.{ .check = .vsync }, context);
     _ = try tab.choose(.{ .arrow = .{ .choice = .frame_rate, .step = .on } }, context);
-    try std.testing.expectEqual(Display.Chosen{ .size = .{ .share = 75 }, .fullscreen = true, .vsync = false, .frame_rate = 30 }, recorder.display.chosen);
+    // CHECK FOR UPDATES' box, beside BRIGHTNESS, goes to the driver too.
+    const update_check = tab.itemAt(context, .{ 50, 358 }).?;
+    try std.testing.expectEqual(Item{ .check = .update_check }, update_check);
+    _ = try tab.choose(update_check, context);
+    try std.testing.expectEqual(Display.Chosen{ .size = .{ .share = 75 }, .fullscreen = true, .vsync = false, .frame_rate = 30, .update_check = false }, recorder.display.chosen);
     // GRAPHICS' arrows, above, set the original's look.
     const original = tab.itemAt(context, .{ 342, 127 }).?;
     try std.testing.expectEqual(Item{ .graphics = .{ .preset = .on } }, original);

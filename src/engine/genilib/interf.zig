@@ -297,6 +297,8 @@ pub const Context = struct {
     modes: []const game_modes.Mode = &.{},
     /// The mods' screens that stand in for the front end's own; none leaves the front end its own.
     scripted: ?Scripted = null,
+    /// OpenReliant's: the newer release the main menu shows the player, if any.
+    release: ?main_menu.Release = null,
 };
 
 /// The front end's state, which the game keeps in globals.
@@ -372,6 +374,7 @@ pub const Interface = struct {
                     .sound = context.sound,
                     .bank = context.bank,
                     .game_modes = context.modes.len > 0,
+                    .release = context.release,
                 }) orelse return null;
                 return switch (choice) {
                     .quit => .quit,
