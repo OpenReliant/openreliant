@@ -71,10 +71,11 @@ whose low bit picks the kind and whose upper seven bits are a count:
 Pixels are palette indices. What a row skips, or leaves past its end, stays transparent. The game's
 `VFX_shape_draw` (`winvfx16.dll`, `0x10003596`) draws every pixel of a run in its palette colour,
 index 0 included. OpenReliant draws index 0 so for the crew in the rooms, who show over a movie's
-frame ([The crew](../engine/rooms.md#the-crew)), and for the ITAC's shapes, which the game draws
-straight into the frame over the picture behind it ([The ITAC](../engine/itac.md#the-screen)). It
-leaves index 0 transparent everywhere else
-([#518](https://github.com/OpenReliant/openreliant/issues/518)).
+frame ([The crew](../engine/rooms.md#the-crew)), for the ITAC's shapes, which the game draws
+straight into the frame over the picture behind it ([The ITAC](../engine/itac.md#the-screen)), and
+for the pause menu's icons ([Pause menu](../engine/pause-menu.md#main-1)). It leaves index 0
+transparent everywhere else
+([#1053](https://github.com/OpenReliant/openreliant/issues/1053)).
 
 ## Palettes
 

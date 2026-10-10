@@ -540,12 +540,12 @@ test globalPalette {
     try std.testing.expectEqual(@intFromPtr(&bytes[palette_at]), @intFromPtr(global));
 
     // Every line is drawn in its entry's colour, 6-bit levels widened; white without a palette.
-    const art: Art = .{ .set = undefined, .images = &.{}, .pictured = &.{}, .global = global };
+    const art: Art = .{ .set = undefined, .images = &.{}, .pictured = &.{}, .zero_drawn = &.{}, .global = global };
     const entry = art.paletteColour(1);
     try std.testing.expectEqual(@as(f32, @floatFromInt(spr.expandLevel(3))) / 255, entry[0]);
     try std.testing.expectEqual(@as(f32, @floatFromInt(spr.expandLevel(5))) / 255, entry[2]);
     try std.testing.expectEqual(1, entry[3]);
-    const bare: Art = .{ .set = undefined, .images = &.{}, .pictured = &.{} };
+    const bare: Art = .{ .set = undefined, .images = &.{}, .pictured = &.{}, .zero_drawn = &.{} };
     try std.testing.expectEqual([4]f32{ 1, 1, 1, 1 }, bare.paletteColour(1));
 
     // A set too short to hold the block has none.
@@ -563,18 +563,20 @@ pub const Art = struct {
     images: []?srtexture.Image,
     /// Whether each of `images` was made from a picture (`Pictures`).
     pictured: []bool,
+    /// The shapes whose pixels of index 0 are drawn whatever `index_zero` says (`drawZero`).
+    zero_drawn: []bool,
     /// The palette every shape is drawn with: VFX's global palette.
     global: ?*const [spr.palette_size]u8 = null,
     /// OpenReliant's: where the pictures that stand in for the shapes are read from; the shapes
     /// alone without.
     pictures: ?Pictures = null,
-    /// How the shapes' pixels of index 0 show.
+    /// How the shapes' pixels of index 0 show, but for the shapes `drawZero` marks.
     index_zero: IndexZero = .clear,
 
     /// How a set's pixels of index 0 show. What a row skips stays clear either way.
     ///
     /// Not ported: index 0 drawn wherever else the game shows it
-    /// ([#518](https://github.com/OpenReliant/openreliant/issues/518)).
+    /// ([#1053](https://github.com/OpenReliant/openreliant/issues/1053)).
     pub const IndexZero = enum {
         /// Left clear, as OpenReliant draws the sets.
         clear,
@@ -614,14 +616,29 @@ pub const Art = struct {
         errdefer gpa.free(images);
         @memset(images, null);
         const pictured = try gpa.alloc(bool, set.count());
+        errdefer gpa.free(pictured);
         @memset(pictured, false);
-        return .{ .set = set, .images = images, .pictured = pictured, .global = global, .pictures = pictures };
+        const zero_drawn = try gpa.alloc(bool, set.count());
+        @memset(zero_drawn, false);
+        return .{ .set = set, .images = images, .pictured = pictured, .zero_drawn = zero_drawn, .global = global, .pictures = pictures };
     }
 
     pub fn deinit(art: *Art, gpa: Allocator) void {
         for (art.images) |held| if (held) |made| made.deinit(gpa);
         gpa.free(art.images);
         gpa.free(art.pictured);
+        gpa.free(art.zero_drawn);
+    }
+
+    /// Draws the shape at `index` with its pixels of index 0, as `IndexZero.drawn` has them, for a
+    /// set whose other shapes leave them clear. An image already made of it without them is let go
+    /// of, and made again as it is next drawn.
+    pub fn drawZero(art: *Art, gpa: Allocator, index: usize) void {
+        if (index >= art.zero_drawn.len or art.zero_drawn[index]) return;
+        art.zero_drawn[index] = true;
+        if (art.pictured[index]) return;
+        if (art.images[index]) |made| made.deinit(gpa);
+        art.images[index] = null;
     }
 
     /// The shape whose rectangle the shape at `index` is drawn over: its own, or for a picture
@@ -669,7 +686,8 @@ pub const Art = struct {
         const count = @as(usize, found.width()) * found.height();
         const indices = try gpa.alloc(u8, count);
         defer gpa.free(indices);
-        const drawn: ?[]bool = switch (art.index_zero) {
+        const index_zero: IndexZero = if (art.zero_drawn[index]) .drawn else art.index_zero;
+        const drawn: ?[]bool = switch (index_zero) {
             .clear => null,
             .drawn => try gpa.alloc(bool, count),
         };
@@ -6331,7 +6349,7 @@ test "the sight glides back to the middle" {
     // middle, and rests within two of it.
     var recorder: device.testing.Recorder = .{ .gpa = std.testing.allocator };
     defer recorder.deinit();
-    var art: Art = .{ .set = undefined, .images = &.{}, .pictured = &.{} };
+    var art: Art = .{ .set = undefined, .images = &.{}, .pictured = &.{}, .zero_drawn = &.{} };
     const pen = testing.pen(&art, std.testing.allocator, recorder.interface());
     const aims = try drawReticle(&state, pen, .chase, .{ .at = .{ 600, 400 } }, .on, 10);
     try std.testing.expect(!aims);
@@ -6528,6 +6546,13 @@ test "a shape's pixels of index 0 show as the art has them" {
         const image = (try art.image(gpa, 1)).?;
         for (alphas, 0..) |alpha, pixel| try std.testing.expectEqual(alpha, image.levels[0].texels[pixel * 4 + 3]);
     }
+    // In a set that leaves them clear, one shape can draw them, its image made again.
+    var art: Art = try .init(gpa, try .parse(bytes), null, null);
+    defer art.deinit(gpa);
+    _ = try art.image(gpa, 1);
+    art.drawZero(gpa, 1);
+    const image = (try art.image(gpa, 1)).?;
+    for (drawn, 0..) |alpha, pixel| try std.testing.expectEqual(alpha, image.levels[0].texels[pixel * 4 + 3]);
 }
 
 test "an image cut to a clip keeps the part of it inside" {
