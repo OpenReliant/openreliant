@@ -551,6 +551,11 @@ as one that isn't valid, since the game is saved between missions.
   front end starts the scripts as the game goes into the rooms; a load in the rooms starts them again
   at once. A saved game without the file starts them as a new game.
 - A file of another version, or a damaged one, is logged, and what's left of it goes unread.
+- Loading reads a file of up to `snapshot.max_size`, 256 MiB, and `snapshot.take` keeps within it.
+  It gathers the state first (`Gathered.gather`), then measures each mod's share of the file: its
+  game sections (`Storage.measureGame`), what its scripts saved and its timers. Where the file
+  would pass the limit, the mod with the largest share is left out, then the next, until the rest
+  fits (`Gathered.fit`), and each is logged. Their scripts get `on_init` when the game is loaded.
 - The restart point keeps the same state in memory (`Saving.restartPoint`), and a replay or the
   pause menu's RESTART starts the scripts again from it. RESTART ends the mission first, so that the
   scripts don't hear the end of a mission they never saw start.
@@ -589,9 +594,9 @@ take. A value that holds the same table twice is copied twice, so a few tables c
 millions: the check stops past 16 MiB (`stored.max_kept`), which bounds its time as well as the
 copy, since it runs in Zig, where the time limit doesn't reach.
 
-The mods' game sections and their `on_save` values together can pass the 16 MiB that loading a
-saved game reads of their file, which loses every mod's state in that save
-([#1076](https://github.com/OpenReliant/openreliant/issues/1076)).
+Together, the mods' game sections and what their scripts save can take far more than one mod may
+keep, so the file kept with a saved game has a limit of its own, past which the mods that keep the
+most are left out ([Saved games](#saved-games)).
 
 ## Options
 

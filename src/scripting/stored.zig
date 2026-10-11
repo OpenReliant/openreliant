@@ -243,6 +243,17 @@ pub fn encode(w: *Io.Writer, value: Value) Io.Writer.Error!void {
     }
 }
 
+/// How many bytes `encodeFn` writes, called with a writer and then `args`: `encode`, or another
+/// function that writes the binary form.
+pub fn encodedSize(comptime encodeFn: anytype, args: anytype) usize {
+    // The buffer only saves a call for each small write.
+    var buffer: [64]u8 = undefined;
+    var counting: Io.Writer.Discarding = .init(&buffer);
+    // Only the writer can fail, and counting never does.
+    @call(.auto, encodeFn, .{&counting.writer} ++ args) catch unreachable;
+    return @intCast(counting.fullCount());
+}
+
 pub const DecodeError = error{ Damaged, OutOfMemory };
 
 /// Reads a value in the binary form from `r`, made in `gpa`.
@@ -376,4 +387,11 @@ test "Value.footprint" {
     defer buffer.deinit();
     try encode(&buffer.writer, value);
     try std.testing.expect(buffer.written().len <= value.footprint());
+}
+
+test encodedSize {
+    // A string takes its kind, its length and its bytes, past the buffer as well.
+    try std.testing.expectEqual(1 + @sizeOf(u32) + 3, encodedSize(encode, .{Value{ .string = "abc" }}));
+    const long: [1000]u8 = @splat('x');
+    try std.testing.expectEqual(1 + @sizeOf(u32) + long.len, encodedSize(encode, .{Value{ .string = &long }}));
 }
