@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/OpenReliant/openreliant/compare/v0.10.0...v0.10.1) (2026-10-11)
+
+
+### Fixes
+
+* the installer knows the French release, and the French Krasny loads ([#1067](https://github.com/OpenReliant/openreliant/issues/1067)) ([0aa1f86](https://github.com/OpenReliant/openreliant/commit/0aa1f8604ae1e70aba4463df3051791a7f1266a6)), closes [#1065](https://github.com/OpenReliant/openreliant/issues/1065) [#1066](https://github.com/OpenReliant/openreliant/issues/1066)
+
 ## [0.10.0](https://github.com/OpenReliant/openreliant/compare/v0.9.0...v0.10.0) (2026-10-10)
 
 
