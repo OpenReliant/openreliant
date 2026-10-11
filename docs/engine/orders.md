@@ -59,6 +59,10 @@ needs between updates.
 
 `player_controls` keeps the mouse's stick position in the first two words of its data.
 
+**Fix:** the game takes a target's slot on trust, and a mission's `SetAI` can aim an order at any
+ship number, past the last of the 400 slots too. OpenReliant reads a target's slot only where it is
+one of the slots (`aigeneric.Target.slotIn`), so an order aimed past them aims at nothing.
+
 `order_push` (`0x0040CC10`) takes a slot, an order and its target, and:
 
 1. fails if the ship refuses the order (`order_refused`, `0x0040CA00`): the ship is a player's,
@@ -82,6 +86,11 @@ the popped order was one-shot, the order below starts again: it is marked as sta
 is zeroed. `orders_pop_all` (`0x0040CF80`) pops every order, and `orders_clear` (`0x0040CF50`) drops
 them all at once when the current order gives way to clearing, so only that order's `exit` runs.
 
+A mod's script can stop a pop through `order_pop`'s hook ([Scripting](../port/scripting.md#hooks)),
+which leaves the order on the stack. OpenReliant's `orders_pop_all` then stops at the first pop that
+leaves the stack no shorter. The orders a mod registers that OpenReliant removes, as the mod's
+scripts close or the object goes, pop without the hook.
+
 The script command `SetAI` pushes an order aimed at the ship, flight group or squad it names, on
 each ship it applies to, and `ClearAI` clears the orders of each ship that is not a player's.
 
@@ -93,10 +102,15 @@ and each ship of a squad (`squad_walk`, `0x00401D80`): its members in turn from 
 they are its own, a ship as the member names its component, a flight group's ships whole, and a
 squad's own walk. Dock, Escort, the search for a new target, the search for a pod to scoop up,
 [Dark Reign shoot](ion-cannon.md#picking-a-ship) and [Launch](launch.md#the-order) walk their
-targets so. **Fix:** the game walks a squad that holds itself round for ever, reads a member no
-record stands for from address zero, and stops with a fatal error at a member of a kind it does
-not know; OpenReliant gives a squad no members once the walk has gone down more squads than the
-mission has, and passes over such a member.
+targets so. A squad that two members name is walked twice.
+
+**Fix:** the game walks a squad that holds itself, directly or through other squads, round for
+ever, reads a member no record stands for from address zero, and stops with a fatal error at a
+member of a kind it does not know. A walk also doubles with each squad of a chain whose squads each
+name the next one twice, so a long chain hangs the game. OpenReliant passes over a squad the walk is
+already inside, goes into no more than 4096 squads in one walk (`bind.Mission.SquadPath`), and
+passes over such a member. The triggers' count of a squad's members, `for_each_ship` and `in_squad`
+walk squads the same way ([Script VM](script-vm.md)).
 
 ## Running orders
 
@@ -108,6 +122,17 @@ mission has, and passes over such a member.
    again each time it runs.
 4. A one-shot order runs its update and pops itself, and `object_orders` then runs the order below.
    Any other order runs its `init` first if it is starting, then its update.
+
+   **Fix:** the game runs the update of the order it found before the `init`, even where the
+   `init` popped that order or pushed another, and then marks the order now on top as started, so
+   that order's own `init` never runs. Of the game's orders, only Rotate Boridin breakaway warp
+   projector (37) pops itself in its `init`. OpenReliant runs the update only while the order is
+   still on top, and the order that took its place starts on its next run.
+
+   **Fix:** after a one-shot order's update, the game pops the order on top and runs the orders
+   again, whatever the pop did, so a one-shot order whose update pushes another order runs again
+   and again until the stack overflows. OpenReliant runs the orders again only where the pass left
+   the stack shorter, which also stops a one-shot order whose pop a script stops.
 5. Afterwards it clears the throttle and both burns while the object's engines are disabled
    (`DisableEngines`), both burns when it has no afterburner fuel, and reverse thrust unless the
    object has `can_reverse`.
@@ -613,6 +638,10 @@ while the point lies within 18 degrees of its nose or its tail.
 
 Its exit, the Nanny's too (`0x00407D10`), leaves the ship's first pass-through slot empty. The
 ship stays attached.
+
+**Fix:** the exit leaves the motion as it is, so a ship whose order ends while it slides in goes on
+flying `motion_follow`, which then reads the next order's state as its path. OpenReliant puts a
+ship still on `motion_follow` back on `motion_forward`, as Ship Follow Curve's exit does.
 
 **Fix:** where the ship has no docking point the game stops, and where the station has no port
 that the component names it faults. OpenReliant logs either, and the order ends.

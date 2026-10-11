@@ -4479,7 +4479,7 @@ fn pickTarget(state: *State, all: *create.Objects, step: input.Step, among: inpu
 /// Whether the player's `target` lists components and isn't friendly, which a subtarget key needs
 /// to find one.
 fn listsComponents(all: *const create.Objects, target: aigeneric.Target) bool {
-    const index = target.slot() orelse return false;
+    const index = target.slotIn(all) orelse return false;
     const object = &all.slots[index].object;
     return object.flags.components and object.side != .friendly;
 }

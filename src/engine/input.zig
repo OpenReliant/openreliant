@@ -2042,7 +2042,7 @@ pub fn matchTargetSpeed(player: *Player, all: *create.Objects, view: camera.View
     if (!player.matching_speed) return;
     const entry = ai.playerControlEntry(all) orelse return;
     const ship = &all.slots[all.player];
-    if (entry.target.slot()) |index| {
+    if (entry.target.slotIn(all)) |index| {
         const target = &all.slots[index];
         if (target.object.flags.cloaked) return;
         const within = math.distance(ship.drawn.position, target.drawn.position) <= hud.pick_range;
@@ -2130,7 +2130,7 @@ pub fn seekTarget(all: *const create.Objects, target: *aigeneric.Target, step: S
 pub fn cycleSubtarget(display: ?*hud.State, all: *create.Objects, step: Step, multiplayer: bool) void {
     const entry = ai.playerControlEntry(all) orelse return;
     if (display) |shown| for ([_]hud.windows.Window{ .big_target, .target }) |window| shown.windows.renew(window);
-    const slot = &all.slots[entry.target.slot() orelse return];
+    const slot = &all.slots[entry.target.slotIn(all) orelse return];
     if (!slot.object.flags.components or slot.object.side == .friendly) return;
     const window = hud.targetWindow(slot);
     if (display) |shown| if (shown.windows.status.get(window).phase == .shut) {

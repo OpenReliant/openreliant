@@ -1707,6 +1707,36 @@ test "a mission's start part makes its ships and gives them their orders" {
     try std.testing.expectEqual(@import("aieject.zig").RescueOdds{ .rescued = 33, .captured = 33, .killed = 34 }, world.player.rescue_odds);
 }
 
+test "an order SetAI aims past the last slot finds no ship there" {
+    const gpa = std.testing.allocator;
+    var routine: Routine = .init(gpa);
+    defer routine.deinit();
+    try createFlightGroups(&routine, &.{ 0, 1 });
+    // The Sabre scoops up ship 400, past the last slot.
+    const past: u16 = gameobj.max_objects;
+    try routine.op(.push_flight_group, &.{1});
+    try routine.op(.push_byte, &.{@intCast(@backingInt(Order.scoop_up))});
+    try routine.op(.push_byte, &.{1});
+    try routine.opWide(.push_ship_wide, past);
+    try routine.command("SetAI");
+    const code = try finishPart(&routine);
+    defer gpa.free(code);
+
+    var game: vm.machine.testing.Game = undefined;
+    try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
+        .ships = &.{ shipRecord(0, 0, @backingInt(gameobj.GameType.predator)), shipRecord(1, 1, @backingInt(gameobj.GameType.sabre)) },
+        .flight_groups = &.{ groupRecord(2, .player), groupRecord(3, .none) },
+    });
+    defer game.deinit();
+    try game.start(game.spawning());
+    const all = game.mission.objects;
+    const entry = all.slots[1].orders[0];
+    try std.testing.expectEqual(Order.scoop_up, entry.order);
+    try std.testing.expectEqual(past, entry.target.ship());
+    // Its start and its updates find no pod there, and read no slot past the last.
+    for (0..3) |_| aigeneric.objectOrders(game.orders(), 1);
+}
+
 test "the launch commands set ships up, start them, and wait for them" {
     const gpa = std.testing.allocator;
     var routine: Routine = .init(gpa);
