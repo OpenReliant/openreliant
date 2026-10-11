@@ -480,7 +480,8 @@ pub fn eachShip(world: gameobj.World, target: aigeneric.Target, visitor: anytype
         },
         .squad => {
             const mission = world.mission orelse return false;
-            return squadWalk(mission, std.math.cast(u16, target.index) orelse return false, visitor, 0);
+            var walk: bind.Mission.SquadPath.Walk = .{};
+            return squadWalk(mission, &walk.start(std.math.cast(u16, target.index) orelse return false), visitor);
         },
         _ => return false,
     }
@@ -494,18 +495,18 @@ fn groupWalk(mission: *const bind.Mission, group: dte.FlightGroup, visitor: anyt
     return false;
 }
 
-/// `squad_walk` (`0x00401D80`): `eachShip`'s walk of squad `squad`, `depth` squads down: its
-/// members in turn (`bind.Mission.squadMembers`): a ship, as the member names its component; a
-/// flight group's ships, whole; and a squad's own walk.
-fn squadWalk(mission: *const bind.Mission, squad: u16, visitor: anytype, depth: usize) bool {
-    var members = mission.squadMembers(squad, depth);
+/// `squad_walk` (`0x00401D80`): `eachShip`'s walk of the squad `path` stands in: its members in
+/// turn (`bind.Mission.squadMembers`): a ship, as the member names its component; a flight group's
+/// ships, whole; and a squad's own walk, where the path goes into it (`SquadPath.into`).
+fn squadWalk(mission: *const bind.Mission, path: *const bind.Mission.SquadPath, visitor: anytype) bool {
+    var members = mission.squadMembers(path.squad);
     while (members.next()) |member| switch (member) {
         .ship => |ship| {
             const component: ?u16 = if (ship.component) |part| part else null;
             if (visitor.visit(aigeneric.Target.at(ship.index, component))) return true;
         },
         .flight_group => |group| if (groupWalk(mission, group, visitor)) return true,
-        .squad => |inner| if (squadWalk(mission, inner, visitor, depth + 1)) return true,
+        .squad => |inner| if (path.into(inner)) |deeper| if (squadWalk(mission, &deeper, visitor)) return true,
     };
     return false;
 }
@@ -624,16 +625,46 @@ test eachShip {
     var two: Seen = .{ .stop_at = 2 };
     try std.testing.expect(eachShip(world, squad, &two));
     try std.testing.expectEqual(2, two.count);
-    // A squad that holds itself is walked down no more squads than the mission has, and the walk
-    // ends.
+    // A squad that holds itself is passed over as its own member.
     var cycle: Seen = .{};
     try std.testing.expect(!eachShip(world, .group(.squad, 2), &cycle));
-    try std.testing.expectEqual(squads.len + 1, cycle.count);
-    for (cycle.targets[0..cycle.count]) |seen| try std.testing.expectEqual(aigeneric.Target.at(3, null), seen);
+    try std.testing.expectEqualSlices(aigeneric.Target, &.{.at(3, null)}, cycle.targets[0..cycle.count]);
     // With no mission bound, a flight group names no ship.
     var none: Seen = .{};
     try std.testing.expect(!eachShip(game.mission.world(), .group(.flight_group, 0), &none));
     try std.testing.expectEqual(0, none.count);
+}
+
+test "eachShip walks a squad named twice twice, as far as a walk goes" {
+    const gpa = std.testing.allocator;
+    const records = dte.testing;
+    const SquadPath = bind.Mission.SquadPath;
+    const Game = @import("../vm.zig").machine.testing.Game;
+    const Counted = struct {
+        count: usize = 0,
+
+        pub fn visit(counted: *@This(), _: aigeneric.Target) bool {
+            counted.count += 1;
+            return false;
+        }
+    };
+    // Squad 0 names squad 1 twice, which names the ship twice: four visits.
+    const short: records.DoubledChain(1, 2) = .init();
+    var game: Game = undefined;
+    try game.init(gpa, &.{}, .{ .ships = &records.ships(1, 0), .objects = &short.objects, .squads = &short.squads, .squad_members = &short.members });
+    defer game.deinit();
+    var four: Counted = .{};
+    _ = eachShip(game.world(), .group(.squad, 0), &four);
+    try std.testing.expectEqual(4, four.count);
+    // A chain of 40 such squads would take 2^40 visits; the walk stops after going into
+    // `most_entered` squads.
+    const long: records.DoubledChain(1, 40) = .init();
+    var deep: Game = undefined;
+    try deep.init(gpa, &.{}, .{ .ships = &records.ships(1, 0), .objects = &long.objects, .squads = &long.squads, .squad_members = &long.members });
+    defer deep.deinit();
+    var many: Counted = .{};
+    _ = eachShip(deep.world(), .group(.squad, 0), &many);
+    try std.testing.expect(many.count > 0 and many.count <= 2 * SquadPath.most_entered);
 }
 
 /// `object_cruise_speed` (`0x00403060`): `max_speed` scaled by `speed_factor`, by the share of its

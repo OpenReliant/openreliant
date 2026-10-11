@@ -10,6 +10,8 @@ const Format = texels.Format;
 
 pub const extension = ".dds";
 
+/// Why a file can't be read: it isn't a DDS file, it contradicts itself, or it holds what this
+/// reader doesn't take, such as a cube map or a side longer than `texels.max_side`.
 pub const Error = error{ NotADds, Corrupt, Unsupported };
 
 const magic = "DDS ";
@@ -49,6 +51,7 @@ pub fn read(bytes: []const u8, buffer: *[texels.max_levels][]const u8) Error!tex
     const width = word(bytes, width_at);
     const height = word(bytes, height_at);
     if (width == 0 or height == 0) return error.Corrupt;
+    if (width > texels.max_side or height > texels.max_side) return error.Unsupported;
     if (word(bytes, caps2_at) & cube_or_volume != 0) return error.Unsupported;
     const flags = word(bytes, 8);
     const count: usize = if (flags & has_mipmap_count != 0) @max(word(bytes, levels_at), 1) else 1;
@@ -151,4 +154,8 @@ test read {
     defer gpa.free(other);
     try std.testing.expectError(error.Unsupported, read(other, &buffer));
     try std.testing.expectError(error.NotADds, read("PNG", &buffer));
+    // A side longer than any picture's.
+    const wide = try testing.file(gpa, "DX10", 98, texels.max_side + 1, 8, 1, &data);
+    defer gpa.free(wide);
+    try std.testing.expectError(error.Unsupported, read(wide, &buffer));
 }

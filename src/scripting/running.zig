@@ -36,6 +36,8 @@ pub const Running = struct {
     mission: bool = false,
     /// Whether it has stopped, and waits for the calls walking its list to finish (`Runner.sweep`).
     stopped: bool = false,
+    /// How many calls in a row of each of its engine handlers ran out of time.
+    timeouts: std.EnumArray(script.Handler, runtime.Timeouts) = .initFill(.{}),
 };
 
 /// The scripts that run in one place, in the order they started.
@@ -127,7 +129,7 @@ pub const Runner = struct {
         runner.walking += 1;
         defer runner.leave();
         const called = runner.runtime.callIn(context, callbacks, name, .{timer.data}) orelse return missingCallback(context, name);
-        if (called == .failed) log.warn("{s}: the timer {s} failed", .{ context.modOf().name, name });
+        if (called.raised()) log.warn("{s}: the timer {s} failed", .{ context.modOf().name, name });
     }
 
     fn missingCallback(context: *const Context, name: []const u8) void {
@@ -214,16 +216,20 @@ pub const Runner = struct {
         for (runner.lists) |*list| runner.callEach(list, handler, arguments);
     }
 
+    /// Calls `handler` of the script at `at` in `list`, and lets go of it where the call failed,
+    /// or ran out of time too many times in a row (`runtime.Timeouts`).
     fn callPassed(runner: *Runner, list: *List, at: usize, comptime handler: script.Handler, passed: anytype) void {
         const running = &list.items[at];
         if (running.stopped) return;
         const function = running.offered.handlers.get(handler) orelse return;
-        if (runner.runtime.call(running.context, function, passed) != .failed) return;
-        // The call may have added scripts to the list, which moves it.
-        const failed = &list.items[at];
-        log.warn("{s}: {s}: {t} failed, and isn't called again", .{ failed.context.modOf().name, failed.name, handler });
+        const called = runner.runtime.call(running.context, function, passed);
+        // The call may have added scripts to the list, which moves it, or stopped this one, which
+        // let go of its handlers.
+        const held = &list.items[at];
+        if (!held.timeouts.getPtr(handler).removes(called) or held.offered.handlers.get(handler) != function) return;
+        log.warn("{s}: {s}: {t} {s}, and isn't called again", .{ held.context.modOf().name, held.name, handler, runtime.Timeouts.why(called) });
         runner.runtime.release(function);
-        failed.offered.handlers.set(handler, null);
+        held.offered.handlers.set(handler, null);
     }
 
     /// Ends a walk of the lists, sweeping them once the last walk is done.
@@ -233,19 +239,25 @@ pub const Runner = struct {
     }
 
     /// Stops the script at `at` in `list`: lets go of what it offered, and closes its mod's context
-    /// once none of its scripts there runs. It leaves the list once no call walks it (`sweep`).
+    /// once none of its scripts there runs (`closeUnused`). It leaves the list once no call walks
+    /// it (`sweep`).
     pub fn stopScript(runner: *Runner, list: *List, at: usize) void {
         const running = &list.items[at];
         if (running.stopped) return;
         running.stopped = true;
         running.offered.release(runner.runtime);
-        const context = running.context;
-        const shared = for (list.items) |*other| {
-            if (!other.stopped and other.context == context) break true;
-        } else false;
-        if (!shared) runner.closeContext(context);
+        runner.closeUnused(list, running.context);
         runner.stopped = true;
         if (runner.walking == 0) runner.sweep();
+    }
+
+    /// Closes `context` where none of its scripts in `list` runs: after its last script there
+    /// stops, or where none of the scripts it was opened for started.
+    pub fn closeUnused(runner: *Runner, list: *const List, context: *Context) void {
+        for (list.items) |*other| {
+            if (!other.stopped and other.context == context) return;
+        }
+        runner.closeContext(context);
     }
 
     /// Stops every script of `list`.
@@ -303,7 +315,7 @@ pub const Runner = struct {
                 const called = runner.runtime.callIn(running.context, table, name, .{sent.data.ref}) orelse continue;
                 switch (called) {
                     .returned_false => return,
-                    .failed => log.warn("{s}: {s}: the handler of the event {s} failed", .{ list.items[at].context.modOf().name, list.items[at].name, name }),
+                    .failed, .timed_out => log.warn("{s}: {s}: the handler of the event {s} failed", .{ list.items[at].context.modOf().name, list.items[at].name, name }),
                     .returned, .returned_nil => {},
                 }
             }

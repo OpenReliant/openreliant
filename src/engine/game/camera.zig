@@ -10,6 +10,7 @@ const input = @import("../input.zig");
 const controls = @import("../input/controls.zig");
 const Random = @import("../random.zig").Random;
 const create = @import("create.zig");
+const Order = @import("ai/orders.zig").Order;
 const hud = @import("hud.zig");
 const gameobj = @import("gameobj.zig");
 const missiles = @import("missiles.zig");
@@ -151,7 +152,8 @@ pub const View = enum(u8) {
     flyby = 0x24,
     /// Watches the player's ship dock at a Nanny, from beside the Nanny.
     nanny_dock = 0x2B,
-    /// Orbits beside the player while the warp tunnel opens.
+    /// Orbits beside the player while the warp tunnel opens, turned as the ship stood when it lined
+    /// up for the warp, or as the ship stands while it runs no Warp Out (`playerRunning`).
     warp_prepare = 9,
     /// Holds the preparation camera as the ship enters its warp.
     warp_depart = 10,
@@ -164,7 +166,9 @@ pub const View = enum(u8) {
     /// The second: from above the player's ship and behind it, looking down as it rises, then from
     /// beside it, looking back at it as the view slides along it (`landingShip`).
     landing_ship = 0x25,
-    /// The Yamato's launch: beside the ship, rising with time and following its position.
+    /// The Yamato's launch: beside the ship, rising with time and following its position. Until the
+    /// ship is clear of the bay, and `yamato_look_delay` ticks after, it faces the way the ship
+    /// does. While the ship runs no Yamato launch, it always looks at the ship (`playerRunning`).
     yamato_beside = 0x0F,
     /// Far ahead of the ship, held still with a fixed pitch, looking back toward the bay.
     yamato_ahead = 0x10,
@@ -735,13 +739,13 @@ pub const Camera = struct {
             },
             .yamato_beside => {
                 camera.place = yamatoBeside(world.player, camera.shown(world));
-                if (world.game) |game| {
-                    const state = game.objects.slots[game.objects.player].state.launch;
+                if (world.game) |game| if (playerRunning(game, .launch)) |slot| if (slot.state.launch.style == .yamato) {
+                    const state = slot.state.launch;
                     const step = state.step.as(yamato_launch.Step);
                     if (!state.step.reached(yamato_launch.Step.clear) or
                         (step == .clear and state.due + yamato_look_delay >= game.clock.frame_start))
                         camera.place.orientation = world.player.orientation;
-                }
+                };
             },
             .yamato_ahead => {},
             .yamato_aside => camera.place = lookingAt(camera.place.position, world.player.position),
@@ -767,10 +771,8 @@ pub const Camera = struct {
             .nanny_dock => camera.place = lookingAt(world.object.place().point(nanny_dock_offset), world.player.position),
             .warp_prepare => {
                 const turn = math.rotation(.y, warp_prepare_yaw - camera.shown(world) * warp_prepare_turn);
-                const facing = if (world.game) |game|
-                    game.objects.slots[game.objects.player].state.warp.orientation
-                else
-                    world.player.orientation;
+                const warping = if (world.game) |game| playerRunning(game, .warp_out) else null;
+                const facing = if (warping) |slot| slot.state.warp.orientation else world.player.orientation;
                 camera.place = .{
                     .position = world.player.position + math.transform(facing, math.transform(turn, warp_prepare_offset)),
                     .orientation = math.product(facing, turn),
@@ -1290,6 +1292,15 @@ const warp_arrive_distance: f32 = 10000;
 const warp_arrive_distance_low: f32 = 3000;
 const warp_arrive_roll: f32 = -0.003;
 
+/// The player's slot in `game`, where the player's ship runs `order`, for a view that reads that
+/// order's state. In the game only Warp Out and the Yamato's launch switch to those views, which
+/// read the state whatever order the ship runs. A script can switch to them at any time
+/// (`camera.set_view`), so OpenReliant reads the state only while the order runs.
+fn playerRunning(game: gameobj.World, order: Order) ?*const create.Slot {
+    const slot = &game.objects.slots[game.objects.player];
+    return if (slot.running(order) != null) slot else null;
+}
+
 fn yamatoBeside(player: Subject, since: f32) Place {
     const offset = math.lerp(yamato_beside_start, yamato_beside_end, since * yamato_beside_rate);
     return lookingAt(player.place().point(offset), player.position);
@@ -1315,6 +1326,39 @@ test "the Yamato cutaways follow or hold their original camera positions" {
     // The original extrapolates past the interpolation's end instead of clamping it.
     try std.testing.expectApproxEqAbs(770, view.place.position[1], 1e-3);
     try std.testing.expectEqual(moved.position[2] + 500, view.place.position[2]);
+}
+
+test "the views that read an order's state read it only while that order runs" {
+    const aigeneric = @import("aigeneric.zig");
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ship = try mission.add(.of(.predator), @splat(0));
+    mission.objects.player = ship;
+    const slot = mission.slot(ship);
+    const player: Subject = .{ .position = .{ 100, 200, 300 }, .orientation = math.identity };
+    const turned = math.rotation(.y, 1);
+    for ([_]View{ .warp_prepare, .yamato_beside }) |shown| {
+        var view: Camera = .{};
+        try std.testing.expect(view.setView(shown, ship, false, true, 0));
+        _ = view.frame(.{ .object = player, .player = player, .ticks = 1, .now = 0 });
+        const alone = view.place;
+        // Another order's state, which the views would read as a turn and as a launch's step.
+        try std.testing.expect(try aigeneric.push(mission.orders(), ship, .player_control, .none));
+        slot.state.warp.orientation = turned;
+        slot.state.launch.style = .yamato;
+        try std.testing.expect(view.setView(shown, ship, false, true, 0));
+        _ = view.frame(.{ .object = player, .player = player, .ticks = 1, .now = 0, .game = mission.world() });
+        try std.testing.expectEqual(alone, view.place);
+        aigeneric.popAll(mission.orders(), ship);
+    }
+    // Warping out, the view turns as the ship stood when it lined up.
+    var view: Camera = .{};
+    try std.testing.expect(try aigeneric.push(mission.orders(), ship, .warp_out, .none));
+    slot.state.warp.orientation = turned;
+    try std.testing.expect(view.setView(.warp_prepare, ship, false, true, 0));
+    _ = view.frame(.{ .object = player, .player = player, .ticks = 1, .now = 0, .game = mission.world() });
+    try std.testing.expectApproxEqAbs(1, math.dot(math.forward(view.place.orientation), math.forward(math.product(turned, math.rotation(.y, warp_prepare_yaw)))), 1e-5);
 }
 
 /// Where the launch's views stand, in the frame of what they watch as they are switched to

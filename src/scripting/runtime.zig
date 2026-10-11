@@ -175,8 +175,16 @@ pub const Runtime = struct {
     random: std.Random.DefaultPrng,
     /// The call in progress, if any (`begin`).
     running: ?Running = null,
+    /// How many calls are in progress, each inside the last.
+    calls: u32 = 0,
+    /// The contexts closed while calls ran, whose references wait until no call runs (`close`),
+    /// linked through `Context.next_closing`.
+    closing: ?*Context = null,
     /// Interrupt calls since the clock was last read.
     interrupts: u32 = 0,
+    /// The error handler every call into a script runs with (`luau.State.traceback`), made once so
+    /// that a call takes no memory before it is protected.
+    traceback: luau.Ref = undefined,
     /// The objects that handles stand for, while a game runs (`objects.zig`).
     objects: ?*Objects = null,
     /// The game the scripts run in, while one runs, for the game side.
@@ -207,7 +215,25 @@ pub const Runtime = struct {
     const Running = struct {
         /// The memory category of the running mod.
         category: u8,
+        /// When the call began, moved on by the time the calls inside it took, which the time limit
+        /// counts from.
         started: Io.Clock.Timestamp,
+        /// Whether the call ran out of time (`interrupt`).
+        timed_out: bool = false,
+
+        /// The call as it goes on after a call inside it that took `took`: its clock moves on by as
+        /// much, so that the time limit counts only its own time.
+        fn after(running: Running, took: Io.Clock.Duration) Running {
+            var resumed = running;
+            resumed.started = running.started.addDuration(took);
+            return resumed;
+        }
+    };
+
+    /// A call begun (`begin`): the call it interrupts, if any, and when it began.
+    const Begun = struct {
+        outer: ?Running,
+        began: Io.Clock.Timestamp,
     };
 
     /// Luau's functions that scripts don't get, on either side: a function's environment is the
@@ -225,8 +251,12 @@ pub const Runtime = struct {
         const state = runtime.state;
         state.setCallbackData(runtime);
         state.setInterrupt(interrupt);
+        state.setPanic(panic);
         state.inheritThreadData();
         state.openLibraries();
+        state.pushFunction(State.traceback, "traceback");
+        runtime.traceback = state.ref(-1);
+        state.pop(1);
         state.pushFunction(luau.wrap(require), "require");
         state.setGlobal("require");
         state.pushFunction(luau.wrap(print), "print");
@@ -293,22 +323,23 @@ pub const Runtime = struct {
 
     /// Opens a mod for scripts of `family`, so that they can be required. `mod` is the mod's index
     /// in `mods`. An object script's context names its object (`object`). The mod's scripts are
-    /// compiled the first time it's opened (`compiled`).
+    /// compiled the first time it's opened (`compiled`). Its thread and its table of modules are
+    /// made in protected mode as the engine's (`protect`), as a script can open one, such as with
+    /// `object:add_script`, where running out of memory would otherwise skip what frees the context.
     pub fn open(runtime: *Runtime, mod: u16, family: script.Family, runs_on: ?RunsOn) Allocator.Error!*Context {
         _ = try runtime.compiled(mod);
-        const state = runtime.state;
         const context = try runtime.gpa.create(Context);
         errdefer runtime.gpa.destroy(context);
         try runtime.contexts.ensureUnusedCapacity(runtime.gpa, 1);
-        if (!state.checkStack(context_stack)) return error.OutOfMemory;
-        const thread = state.newThread();
-        context.* = .{ .runtime = runtime, .mod = mod, .family = family, .runs_on = runs_on, .thread = thread, .thread_ref = state.ref(-1) };
-        state.pop(1);
+        var made: Opened = .{};
+        if (!runtime.protect(luau.wrap(makeContext), &made)) {
+            if (made.thread_ref) |kept| runtime.release(kept);
+            return error.OutOfMemory;
+        }
+        const thread = made.thread.?;
+        context.* = .{ .runtime = runtime, .mod = mod, .family = family, .runs_on = runs_on, .thread = thread, .thread_ref = made.thread_ref.?, .loaded = made.loaded.? };
         thread.setThreadData(context);
         thread.setMemoryCategory(context.category());
-        state.newTable(0, 0);
-        context.loaded = state.ref(-1);
-        state.pop(1);
         runtime.contexts.appendAssumeCapacity(context);
         return context;
     }
@@ -381,6 +412,11 @@ pub const Runtime = struct {
     /// Closes a mod opened for scripts that stop before the others, such as a mission's: its
     /// scripts can be collected, and it can't be called again. The context itself stays until the
     /// runtime is destroyed, since coroutines its scripts made may still point to it.
+    ///
+    /// A script can stop its own scripts while it runs, such as a missile's script that sets off
+    /// its missile, which stops the missile's scripts. Its thread then runs on, so a context closed
+    /// while calls run keeps its references until no call runs (`letGoClosing`): Luau can't then
+    /// collect a thread in the middle of a call.
     pub fn close(runtime: *Runtime, context: *Context) void {
         if (context.closed) return;
         runtime.custom_orders.removeContext(runtime, context);
@@ -389,6 +425,14 @@ pub const Runtime = struct {
         runtime.post_effects.removeContext(context);
         runtime.mod_shaders.removeContext(runtime.gpa, context);
         context.closed = true;
+        if (runtime.calls == 0) return runtime.letGo(context);
+        context.next_closing = runtime.closing;
+        runtime.closing = context;
+    }
+
+    /// Lets go of what a closed context holds in the state: its thread and its tables can then be
+    /// collected.
+    fn letGo(runtime: *Runtime, context: *Context) void {
         const state = runtime.state;
         state.unref(context.loaded);
         state.unref(context.thread_ref);
@@ -396,6 +440,15 @@ pub const Runtime = struct {
         context.callbacks = null;
         if (context.console) |console| state.unref(console);
         context.console = null;
+    }
+
+    /// Lets go of the contexts closed while calls ran (`close`), once none runs.
+    fn letGoClosing(runtime: *Runtime) void {
+        while (runtime.closing) |context| {
+            runtime.closing = context.next_closing;
+            context.next_closing = null;
+            runtime.letGo(context);
+        }
     }
 
     /// Makes a value in protected mode, with `build` and its `arguments` pushing it, and returns a
@@ -415,14 +468,20 @@ pub const Runtime = struct {
             }
         };
         var request: Request = .{ .arguments = arguments };
+        if (!runtime.protect(luau.wrap(Request.run), &request)) return null;
+        return request.made;
+    }
+
+    /// Calls `function` with `data` in protected mode on the state's main thread, as the engine's
+    /// own work, which counts against no mod's memory. Where memory runs out, its error is popped
+    /// and the result is false.
+    fn protect(runtime: *Runtime, function: luau.Function, data: *anyopaque) bool {
         const outer = runtime.running;
         runtime.running = null;
         defer runtime.running = outer;
-        if (runtime.state.protectedCallC(luau.wrap(Request.run), &request) != .ok) {
-            runtime.state.pop(1);
-            return null;
-        }
-        return request.made;
+        if (runtime.state.protectedCallC(function, data) == .ok) return true;
+        runtime.state.pop(1);
+        return false;
     }
 
     /// Starts `math.random` on the game side again from `seed`.
@@ -433,6 +492,7 @@ pub const Runtime = struct {
     /// Runs the script `name` like `require` does, and returns a reference to its result. Returns
     /// null if the script fails; the error is logged.
     pub fn run(runtime: *Runtime, context: *Context, name: []const u8) ?luau.Ref {
+        if (context.closed) return null;
         const registrations = runtime.custom_orders.entries.items.len;
         const actions_generation = runtime.input_actions.generation;
         const registrations_presentation = runtime.registries.entries.items.len;
@@ -441,10 +501,7 @@ pub const Runtime = struct {
         const thread = context.thread;
         _ = thread.getGlobal("require");
         thread.pushString(name);
-        const outer = runtime.begin(context);
-        const status = thread.protectedCall(1, 1);
-        runtime.end(outer);
-        if (status != .ok) {
+        if (runtime.protectedRun(context, 1, 1).status != .ok) {
             runtime.custom_orders.removeSince(runtime, context, registrations);
             runtime.input_actions.removeSince(context, actions_generation);
             runtime.registries.removeSince(runtime, context, registrations_presentation);
@@ -463,7 +520,7 @@ pub const Runtime = struct {
     pub fn call(runtime: *Runtime, context: *Context, function: luau.Ref, arguments: anytype) Called {
         if (context.closed) return .failed;
         const thread = context.thread;
-        if (!thread.checkStack(arguments.len + 2)) return .failed;
+        if (!thread.checkStack(arguments.len + 3)) return .failed;
         _ = thread.pushRef(function);
         return runtime.callPushed(context, arguments);
     }
@@ -474,12 +531,9 @@ pub const Runtime = struct {
     pub fn callKeeping(runtime: *Runtime, context: *Context, function: luau.Ref, gpa: Allocator) ?stored.Value {
         if (context.closed) return null;
         const thread = context.thread;
-        if (!thread.checkStack(2)) return null;
+        if (!thread.checkStack(3)) return null;
         _ = thread.pushRef(function);
-        const outer = runtime.begin(context);
-        const status = thread.protectedCall(0, 1);
-        runtime.end(outer);
-        if (status != .ok) {
+        if (runtime.protectedRun(context, 0, 1).status != .ok) {
             runtime.recover(context, thread);
             return null;
         }
@@ -490,6 +544,8 @@ pub const Runtime = struct {
     }
 
     /// Calls a registered function and validates its returned value inside a protected boundary.
+    /// The value is kept for the check once the call has ended, so that keeping it can't take the
+    /// mod past its memory limit outside a protected call.
     pub fn callResult(runtime: *Runtime, context: *Context, table: luau.Ref, key: [:0]const u8, comptime T: type, arguments: anytype) ?T {
         if (context.closed) return null;
         const thread = context.thread;
@@ -501,9 +557,7 @@ pub const Runtime = struct {
         }
         thread.remove(-2);
         inline for (arguments) |argument| pushArgument(thread, argument);
-        const outer = runtime.begin(context);
-        defer runtime.end(outer);
-        if (thread.protectedCall(arguments.len, 1) != .ok) {
+        if (runtime.protectedRun(context, arguments.len, 1).status != .ok) {
             runtime.recover(context, thread);
             return null;
         }
@@ -566,9 +620,9 @@ pub const Runtime = struct {
         defer thread.setTop(base);
         _ = thread.pushRef(request.function.?);
         runtime.release(request.function.?);
-        const outer = runtime.begin(context);
-        defer runtime.end(outer);
-        if (thread.protectedCall(0, luau.all_results) != .ok) {
+        const begun = runtime.begin(context);
+        defer _ = runtime.end(begun);
+        if (thread.protectedCallWith(0, luau.all_results, runtime.traceback) != .ok) {
             runtime.recover(context, thread);
             return false;
         }
@@ -581,7 +635,7 @@ pub const Runtime = struct {
             if (at > base + 1) w.writeByte('\t') catch {};
             _ = thread.getGlobal("tostring");
             thread.pushCopy(at);
-            if (thread.protectedCall(1, 1) != .ok) {
+            if (thread.protectedCallWith(1, 1, runtime.traceback) != .ok) {
                 runtime.recover(context, thread);
                 return false;
             }
@@ -596,7 +650,7 @@ pub const Runtime = struct {
     pub fn callIn(runtime: *Runtime, context: *Context, table: luau.Ref, key: [:0]const u8, arguments: anytype) ?Called {
         if (context.closed) return .failed;
         const thread = context.thread;
-        if (!thread.checkStack(arguments.len + 3)) return .failed;
+        if (!thread.checkStack(arguments.len + 4)) return .failed;
         _ = thread.pushRef(table);
         const found = thread.rawGetField(-1, key);
         thread.remove(-2);
@@ -611,12 +665,10 @@ pub const Runtime = struct {
     fn callPushed(runtime: *Runtime, context: *Context, arguments: anytype) Called {
         const thread = context.thread;
         inline for (arguments) |argument| pushArgument(thread, argument);
-        const outer = runtime.begin(context);
-        const status = thread.protectedCall(arguments.len, 1);
-        runtime.end(outer);
-        if (status != .ok) {
+        const ran = runtime.protectedRun(context, arguments.len, 1);
+        if (ran.status != .ok) {
             runtime.recover(context, thread);
-            return .failed;
+            return if (ran.timed_out) .timed_out else .failed;
         }
         defer thread.pop(1);
         return switch (thread.typeOf(-1)) {
@@ -624,6 +676,18 @@ pub const Runtime = struct {
             .boolean => if (thread.toBoolean(-1)) .returned else .returned_false,
             else => .returned,
         };
+    }
+
+    /// How a call into a script went (`protectedRun`): its status, and whether it ran out of time.
+    const Ran = struct { status: luau.Status, timed_out: bool };
+
+    /// Calls the function below the top `arguments` of the context's thread as the context's mod
+    /// (`begin`, `end`), in protected mode, leaving `results` results as `State.protectedCall`
+    /// does.
+    fn protectedRun(runtime: *Runtime, context: *const Context, arguments: i32, results: i32) Ran {
+        const begun = runtime.begin(context);
+        const status = context.thread.protectedCallWith(arguments, results, runtime.traceback);
+        return .{ .status = status, .timed_out = runtime.end(begun) };
     }
 
     /// After a failed call: logs the error, and runs a full garbage collection so that a script
@@ -635,16 +699,26 @@ pub const Runtime = struct {
 
     /// Starts a call into a mod's scripts: its allocations count against the mod's memory, and the
     /// time limit starts. Returns the call it interrupts, if any, which `end` resumes: a hook's
-    /// handler can run the game's function, whose own hooks call other handlers.
-    fn begin(runtime: *Runtime, context: *const Context) ?Running {
-        const outer = runtime.running;
-        runtime.running = .{ .category = context.category(), .started = .now(runtime.io, .awake) };
+    /// handler can run the game's function, whose own hooks call other handlers. A call that
+    /// begins while no other runs first lets go of the contexts closed meanwhile (`close`).
+    fn begin(runtime: *Runtime, context: *const Context) Begun {
+        if (runtime.calls == 0) runtime.letGoClosing();
+        runtime.calls += 1;
+        const now: Io.Clock.Timestamp = .now(runtime.io, .awake);
+        const begun: Begun = .{ .outer = runtime.running, .began = now };
+        runtime.running = .{ .category = context.category(), .started = now };
         runtime.interrupts = 0;
-        return outer;
+        return begun;
     }
 
-    fn end(runtime: *Runtime, outer: ?Running) void {
-        runtime.running = outer;
+    /// Ends the call `begun` started, and goes on with the call it interrupted, whose clock stood
+    /// still meanwhile: time spent in the handlers it ran, other mods' included, doesn't count
+    /// against it. Returns whether the call ran out of time.
+    fn end(runtime: *Runtime, begun: Begun) bool {
+        const timed_out = if (runtime.running) |running| running.timed_out else false;
+        runtime.calls -= 1;
+        runtime.running = if (begun.outer) |outer| outer.after(begun.began.untilNow(runtime.io)) else null;
+        return timed_out;
     }
 
     /// Luau's allocator, using C's allocator. Refuses allocations that would take the running mod
@@ -666,11 +740,29 @@ pub const Runtime = struct {
     fn interrupt(state: *State, collecting: bool) void {
         if (collecting) return;
         const runtime = state.callbackData(Runtime).?;
-        const running = runtime.running orelse return;
+        const running = if (runtime.running) |*held| held else return;
         runtime.interrupts +%= 1;
         if (runtime.interrupts % interrupt_stride != 0) return;
         if (running.started.untilNow(runtime.io).raw.nanoseconds < runtime.options.limits.time.nanoseconds) return;
+        running.timed_out = true;
         state.raise("script timed out after {f}", .{runtime.options.limits.time});
+    }
+
+    /// Logs an error that no protected call caught, as Luau aborts the process after it. Every
+    /// call into a script is protected, so it's a bug of OpenReliant's, and the log keeps its
+    /// message.
+    fn panic(state: *State, status: luau.Status) void {
+        const message = if (state.typeOf(-1) == .string) state.toString(-1).? else switch (status) {
+            .memory_error => "out of memory",
+            .handler_error => "an error in the error handler",
+            else => "an error that isn't a string",
+        };
+        log.err("a script's error was raised outside every protected call, and OpenReliant stops: {s}", .{message});
+    }
+
+    /// How much memory the scripts of `context`'s mod have left (`Limits.memory`).
+    pub fn memoryLeft(runtime: *const Runtime, context: *const Context) usize {
+        return runtime.options.limits.memory -| runtime.state.totalBytes(context.category());
     }
 };
 
@@ -678,12 +770,56 @@ pub const Runtime = struct {
 pub const Called = enum {
     /// It raised an error, which is logged.
     failed,
+    /// It ran out of time (`Limits.time`), which is logged as an error is. A call can be slow once
+    /// for reasons that aren't its own, such as the system or a collection, so a handler that runs
+    /// out of time is removed only once it does `max_timeouts` times in a row (`Timeouts`).
+    timed_out,
     /// It returned a value other than nil and `false`.
     returned,
     /// It returned nil, or nothing.
     returned_nil,
     /// It returned `false`, which stops a hook's later handlers.
     returned_false,
+
+    /// Whether it raised an error, running out of time included.
+    pub fn raised(called: Called) bool {
+        return called == .failed or called == .timed_out;
+    }
+};
+
+/// How many calls in a row a handler may run out of time before it's removed (`Called.timed_out`).
+/// Many handlers that each keep to the limit can still hold up a frame; a budget across all of
+/// them isn't kept yet ([#1077](https://github.com/OpenReliant/openreliant/issues/1077)).
+pub const max_timeouts: u8 = 3;
+
+/// How many calls in a row of one of a mod's functions ran out of time, such as a hook's handler or
+/// an engine handler, which keeps a function that is slow once: it's let go of where a call fails,
+/// or where `max_timeouts` calls in a row run out of time.
+pub const Timeouts = struct {
+    in_a_row: u8 = 0,
+
+    /// Counts a call, which went as `called` says, and returns whether the function is to be let go
+    /// of.
+    pub fn removes(timeouts: *Timeouts, called: Called) bool {
+        switch (called) {
+            .failed => return true,
+            .timed_out => {
+                timeouts.in_a_row +|= 1;
+                return timeouts.in_a_row >= max_timeouts;
+            },
+            .returned, .returned_nil, .returned_false => {
+                timeouts.in_a_row = 0;
+                return false;
+            },
+        }
+    }
+
+    /// Why a function goes after `called` (`removes`), as the log says it.
+    pub fn why(called: Called) []const u8 {
+        return if (called == .timed_out) timed_out_in_a_row else "failed";
+    }
+
+    const timed_out_in_a_row = std.fmt.comptimePrint("ran out of time {d} times in a row", .{max_timeouts});
 };
 
 /// Pushes an argument of `Runtime.call`.
@@ -782,6 +918,8 @@ pub const Context = struct {
     console: ?luau.Ref = null,
     /// Whether it has been closed (`Runtime.close`).
     closed: bool = false,
+    /// The next context closed while calls ran (`Runtime.closing`).
+    next_closing: ?*Context = null,
 
     pub fn modOf(context: *const Context) *const Mod {
         return &context.runtime.mods[context.mod];
@@ -949,8 +1087,26 @@ fn keepValue(state: *State) i32 {
     return 0;
 }
 
-/// How much stack opening a context takes.
-const context_stack = 2;
+/// What opening a context makes in the state (`makeContext`).
+const Opened = struct {
+    thread: ?*State = null,
+    thread_ref: ?luau.Ref = null,
+    loaded: ?luau.Ref = null,
+};
+
+/// Makes a context's thread and its table of the modules `require` has run, each kept by a
+/// reference. Runs in protected mode (`Runtime.open`).
+fn makeContext(state: *State) i32 {
+    const opened = state.toLightUserdata(Opened, 1).?;
+    const thread = state.newThread();
+    opened.thread_ref = state.ref(-1);
+    opened.thread = thread;
+    state.pop(1);
+    state.newTable(0, 0);
+    opened.loaded = state.ref(-1);
+    state.pop(1);
+    return 0;
+}
 
 /// How much stack checking a returned table takes (`Context.offerOf`): the table, a key and a
 /// value, a nested table's key and value, and a copy's table, key and value.
@@ -1156,4 +1312,71 @@ test "Runtime.recompileFolders" {
     _ = scripts.state.pushRef(second);
     try std.testing.expectEqual(2, scripts.state.toNumber(-1).?);
     scripts.state.pop(1);
+}
+
+test "a context closed during its own call keeps its thread until no call runs" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const load = @import("load.zig");
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try load.testing.makeMods(io, tmp.dir, &.{.{ "a", &.{.{ "mod.ini", "" }} }});
+    var opened: mods.Mods = try .open(gpa, io, tmp.dir, null);
+    defer opened.close(gpa);
+    const scripts = try Runtime.create(gpa, io, opened.list, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });
+    defer scripts.destroy();
+    const context = try scripts.open(0, .global, null);
+    // A function that closes its own context, as a missile's script that sets off its missile
+    // stops itself, then runs a full collection, and returns whether its thread is still held.
+    const Closes = struct {
+        fn push(state: *State) void {
+            state.pushFunction(luau.wrap(run), "closes");
+        }
+
+        fn run(state: *State) i32 {
+            const own = state.threadData(Context).?;
+            own.runtime.close(own);
+            own.runtime.state.collectGarbage();
+            state.pushBoolean(own.runtime.state.pushRef(own.thread_ref) == .thread);
+            own.runtime.state.pop(1);
+            return 1;
+        }
+    };
+    const function = scripts.make(Closes.push, .{}).?;
+    defer scripts.release(function);
+    try std.testing.expectEqual(Called.returned, scripts.call(context, function, .{}));
+    try std.testing.expect(context.closed);
+    // A closed context can't be called. Once no call runs, the next call lets go of it, and the
+    // context that call closes waits in its place.
+    try std.testing.expectEqual(Called.failed, scripts.call(context, function, .{}));
+    try std.testing.expectEqual(context, scripts.closing.?);
+    const other = try scripts.open(0, .global, null);
+    try std.testing.expectEqual(Called.returned, scripts.call(other, function, .{}));
+    try std.testing.expectEqual(other, scripts.closing.?);
+    try std.testing.expect(scripts.state.pushRef(context.thread_ref) != .thread);
+    scripts.state.pop(1);
+}
+
+test "Runtime.Running.after" {
+    const started: Io.Clock.Timestamp = .{ .raw = .fromNanoseconds(1000), .clock = .awake };
+    const running: Runtime.Running = .{ .category = 1, .started = started };
+    // A call inside it that took 300 nanoseconds moves its clock on by as much.
+    const resumed = running.after(.{ .raw = .fromNanoseconds(300), .clock = .awake });
+    try std.testing.expectEqual(1300, resumed.started.raw.nanoseconds);
+    try std.testing.expectEqual(1, resumed.category);
+}
+
+test Timeouts {
+    var timeouts: Timeouts = .{};
+    // Running out of time now and then is let be; a call that returns starts the count again.
+    try std.testing.expect(!timeouts.removes(.timed_out));
+    try std.testing.expect(!timeouts.removes(.timed_out));
+    try std.testing.expect(!timeouts.removes(.returned_nil));
+    for (1..max_timeouts) |_| try std.testing.expect(!timeouts.removes(.timed_out));
+    try std.testing.expect(timeouts.removes(.timed_out));
+    // A call that fails goes at once.
+    var failing: Timeouts = .{};
+    try std.testing.expect(failing.removes(.failed));
+    try std.testing.expectEqualStrings("failed", Timeouts.why(.failed));
+    try std.testing.expectEqualStrings("ran out of time 3 times in a row", Timeouts.why(.timed_out));
 }

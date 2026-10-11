@@ -11,6 +11,10 @@
 //!
 //! A section is a table of fields, each named by a string and holding plain data. Reading a field
 //! gives a copy, so changing a table read from a section changes nothing until it's stored again.
+//!
+//! A mod's scripts may keep up to `max_storage` in each place, counted as the memory the sections
+//! take (`stored.Value.footprint`), so that they keep to a limit as the scripts' own memory does,
+//! and so that a file of global sections always reads back.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -47,14 +51,69 @@ const version: u16 = 1;
 /// The longest file a mod's global sections may take.
 const max_file = 16 << 20;
 
+/// What a global sections' file holds before its sections: its magic, its version and its count of
+/// sections.
+const file_header = magic.len + @sizeOf(u16) + @sizeOf(u32);
+
+/// Room the engine keeps in each mod's file for what it stores for the mod itself, such as its
+/// options (`options.zig`) and its game modes' progress, past what the mod's scripts may store.
+const engine_room: usize = 1 << 20;
+
+/// The most a mod's scripts may keep in each place, in sections and their fields, as the memory
+/// they take. A section's binary form takes no more than its memory, so a file of global sections
+/// always fits in `max_file`.
+pub const max_storage: usize = max_file - file_header - engine_room;
+
+/// Why a section can't be changed or made: memory runs out, or the mod's scripts would keep more than
+/// `max_storage` in its place.
+pub const Error = Allocator.Error || error{StorageFull};
+
+/// Whether a change counts against the mod's `max_storage`: a script's does, while what the
+/// engine keeps for the mod, and what a file holds as it's read back, don't.
+const Limit = enum {
+    quota,
+    none,
+
+    /// What a change within `limit` can fail with: only a change that counts against the quota
+    /// can find the storage full.
+    fn Failure(comptime limit: Limit) type {
+        return switch (limit) {
+            .quota => Error,
+            .none => Allocator.Error,
+        };
+    }
+};
+
 /// A section: its mod, its name and where it's kept, and its fields.
 const Section = struct {
     mod: []const u8,
     name: []const u8,
     scope: Scope,
     fields: std.ArrayList(Field) = .empty,
+    /// The memory it takes, with its fields (`footprint`, `Field.footprint`).
+    used: usize,
 
-    const Field = struct { key: []const u8, value: Value };
+    const Field = struct {
+        key: []const u8,
+        value: Value,
+
+        /// The memory a field of `key` holding `value` takes: the field, its key's bytes, and what
+        /// the value holds. Its binary form takes no more.
+        fn footprint(key: []const u8, value: Value) usize {
+            return @sizeOf(Field) - @sizeOf(Value) + key.len + value.footprint();
+        }
+    };
+
+    /// The memory a section of `mod` named `name` takes without its fields. Its binary form
+    /// (`encodeSection`) takes no more.
+    fn footprint(mod: []const u8, name: []const u8) usize {
+        return @sizeOf(Section) + mod.len + name.len;
+    }
+
+    /// Whether it's kept with the saved game: a game section that holds fields.
+    fn keptWithGame(section: *const Section) bool {
+        return section.scope == .game and section.fields.items.len > 0;
+    }
 
     fn deinit(section: *Section, gpa: Allocator) void {
         for (section.fields.items) |field| {
@@ -103,40 +162,63 @@ pub const Storage = struct {
         return null;
     }
 
-    /// The section `name` of `mod` kept in `scope`, made empty if there's none yet.
-    fn obtain(storage: *Storage, mod: []const u8, name: []const u8, scope: Scope) Allocator.Error!*Section {
+    /// The section `name` of `mod` kept in `scope`, made empty if there's none yet, within the
+    /// mod's `max_storage` where `limit` says.
+    fn obtain(storage: *Storage, mod: []const u8, name: []const u8, scope: Scope, comptime limit: Limit) limit.Failure()!*Section {
         if (storage.find(mod, name, scope)) |section| return section;
+        const used = Section.footprint(mod, name);
+        if (limit == .quota) {
+            if (storage.usage(mod, scope) + used > max_storage) return error.StorageFull;
+        }
         try storage.sections.ensureUnusedCapacity(storage.gpa, 1);
         const section = try storage.gpa.create(Section);
         errdefer storage.gpa.destroy(section);
         const mod_copy = try storage.gpa.dupe(u8, mod);
         errdefer storage.gpa.free(mod_copy);
-        section.* = .{ .mod = mod_copy, .name = try storage.gpa.dupe(u8, name), .scope = scope };
+        section.* = .{ .mod = mod_copy, .name = try storage.gpa.dupe(u8, name), .scope = scope, .used = used };
         storage.sections.appendAssumeCapacity(section);
         return section;
     }
 
-    /// Sets the field `key` of `section` to `value`, which it takes over; nil takes the field out.
-    fn set(storage: *Storage, section: *Section, key: []const u8, value: Value) Allocator.Error!void {
+    /// The memory the sections of `mod` kept in `scope` take, with their fields.
+    fn usage(storage: *const Storage, mod: []const u8, scope: Scope) usize {
+        var total: usize = 0;
+        for (storage.sections.items) |section| {
+            if (section.scope == scope and std.mem.eql(u8, section.mod, mod)) total += section.used;
+        }
+        return total;
+    }
+
+    /// Sets the field `key` of `section` to `value`, which it takes over unless it fails; nil takes
+    /// the field out. Where `limit` says, a change that would take the mod's sections in their place
+    /// past `max_storage` is refused, unless it makes them smaller.
+    fn set(storage: *Storage, section: *Section, key: []const u8, value: Value, comptime limit: Limit) limit.Failure()!void {
+        const at = section.find(key);
+        const old = if (at) |found| Section.Field.footprint(key, section.fields.items[found].value) else 0;
+        const new = if (value == .nil) 0 else Section.Field.footprint(key, value);
+        if (limit == .quota) {
+            if (new > old and storage.usage(section.mod, section.scope) - old + new > max_storage) return error.StorageFull;
+        }
         if (section.scope == .global) try storage.markChanged(section.mod);
-        if (section.find(key)) |at| {
-            const field = &section.fields.items[at];
+        if (at) |found| {
+            const field = &section.fields.items[found];
             field.value.deinit(storage.gpa);
             if (value == .nil) {
                 storage.gpa.free(field.key);
-                _ = section.fields.orderedRemove(at);
+                _ = section.fields.orderedRemove(found);
             } else field.value = value;
-            return;
+        } else if (value != .nil) {
+            try section.fields.ensureUnusedCapacity(storage.gpa, 1);
+            section.fields.appendAssumeCapacity(.{ .key = try storage.gpa.dupe(u8, key), .value = value });
         }
-        if (value == .nil) return;
-        try section.fields.ensureUnusedCapacity(storage.gpa, 1);
-        section.fields.appendAssumeCapacity(.{ .key = try storage.gpa.dupe(u8, key), .value = value });
+        section.used = section.used - old + new;
     }
 
     /// Sets the field `key` of the section `name` of `mod` kept in `scope` to `value`, which it takes
-    /// over unless it fails; nil takes the field out.
+    /// over unless it fails; nil takes the field out. What the engine keeps for a mod, such as its
+    /// options, doesn't count against the mod's `max_storage`.
     pub fn put(storage: *Storage, mod: []const u8, name: []const u8, scope: Scope, key: []const u8, value: Value) Allocator.Error!void {
-        try storage.set(try storage.obtain(mod, name, scope), key, value);
+        try storage.set(try storage.obtain(mod, name, scope, .none), key, value, .none);
     }
 
     fn markChanged(storage: *Storage, mod: []const u8) Allocator.Error!void {
@@ -163,19 +245,34 @@ pub const Storage = struct {
                 held.value.deinit(storage.gpa);
             }
             section.fields.clearRetainingCapacity();
+            section.used = Section.footprint(section.mod, section.name);
         }
     }
 
-    /// Writes the game sections in the binary form (`stored.encode`).
-    pub fn encodeGame(storage: *const Storage, w: *Io.Writer) Io.Writer.Error!void {
+    /// Writes the game sections in the binary form (`stored.encode`), but those of the mods in
+    /// `left_out`.
+    pub fn encodeGame(storage: *const Storage, w: *Io.Writer, left_out: *const std.array_hash_map.String(void)) Io.Writer.Error!void {
         var count: u32 = 0;
-        for (storage.sections.items) |section| count += @intFromBool(section.scope == .game and section.fields.items.len > 0);
+        for (storage.sections.items) |section| count += @intFromBool(section.keptWithGame() and !left_out.contains(section.mod));
         try w.writeInt(u32, count, .little);
         for (storage.sections.items) |section| {
-            if (section.scope != .game or section.fields.items.len == 0) continue;
-            try stored.encode(w, .{ .string = section.mod });
-            try encodeSection(w, section);
+            if (section.keptWithGame() and !left_out.contains(section.mod)) try encodeGameSection(w, section);
         }
+    }
+
+    /// Adds to each mod's share in `shares` the bytes its game sections take in `encodeGame`.
+    pub fn measureGame(storage: *const Storage, gpa: Allocator, shares: *std.array_hash_map.String(usize)) Allocator.Error!void {
+        for (storage.sections.items) |section| {
+            if (!section.keptWithGame()) continue;
+            const share = try shares.getOrPutValue(gpa, section.mod, 0);
+            share.value_ptr.* += stored.encodedSize(encodeGameSection, .{section});
+        }
+    }
+
+    /// Writes a game section as `encodeGame` does: its mod's name, then the section.
+    fn encodeGameSection(w: *Io.Writer, section: *const Section) Io.Writer.Error!void {
+        try stored.encode(w, .{ .string = section.mod });
+        try encodeSection(w, section);
     }
 
     /// Reads game sections written by `encodeGame`, in place of the game sections there are.
@@ -209,7 +306,7 @@ pub const Storage = struct {
             .string => |bytes| bytes,
             else => return error.Damaged,
         };
-        const section = try storage.obtain(mod, section_name, scope);
+        const section = try storage.obtain(mod, section_name, scope, .none);
         const count = r.takeInt(u32, .little) catch return error.Damaged;
         for (0..count) |_| {
             const key = try stored.decode(r, storage.gpa);
@@ -219,7 +316,7 @@ pub const Storage = struct {
                 else => return error.Damaged,
             };
             const value = try stored.decode(r, storage.gpa);
-            storage.set(section, field_key, value) catch |err| {
+            storage.set(section, field_key, value, .none) catch |err| {
                 value.deinit(storage.gpa);
                 return err;
             };
@@ -290,6 +387,8 @@ pub const Storage = struct {
         for (storage.sections.items) |section| {
             if (section.scope == .global and std.mem.eql(u8, section.mod, mod)) try encodeSection(w, section);
         }
+        // A file that reading would refuse is left unwritten, which keeps the file there was.
+        if (bytes.written().len > max_file) return error.FileTooBig;
         var name_buffer: [Io.Dir.max_path_bytes]u8 = undefined;
         const path = try std.mem.print(&name_buffer, folder_name ++ "/{s}" ++ file_extension, .{mod});
         try openreliant.engine.files.writeAtomic(folder.io, folder.dir, path, bytes.written());
@@ -341,11 +440,19 @@ fn setField(state: *State) i32 {
     const storage = storageOf(call);
     const gpa = storage.gpa;
     const value = stored.capture(state, gpa, 3, "storage");
-    storage.set(section, key, value) catch {
+    storage.set(section, key, value, .quota) catch |err| {
         value.deinit(gpa);
-        call.raise("out of memory", .{});
+        raiseError(call, err, section.scope);
     };
     return 0;
+}
+
+/// Raises `err`, which a change of one of the calling mod's sections kept in `scope` ran into.
+fn raiseError(call: Call, err: Error, scope: Scope) noreturn {
+    switch (err) {
+        error.OutOfMemory => call.raise("out of memory", .{}),
+        error.StorageFull => call.raise("storage: the mod's {t} sections would take more than {d} bytes", .{ scope, max_storage }),
+    }
 }
 
 /// `__iter`: each field's name and a copy of its value, from a copy of the section made as the
@@ -372,7 +479,7 @@ fn storageOf(call: Call) *Storage {
 /// The handle of the calling mod's section `name` in `scope`.
 fn sectionOf(call: Call, name: []const u8, scope: Scope) Handle {
     const storage = storageOf(call);
-    return .{ .section = storage.obtain(call.context.modOf().name, name, scope) catch call.raise("out of memory", .{}) };
+    return .{ .section = storage.obtain(call.context.modOf().name, name, scope, .quota) catch |err| raiseError(call, err, scope) };
 }
 
 /// What `openreliant.storage` holds.
@@ -448,17 +555,17 @@ test "sections keep their fields, and go to a file and back" {
     const gpa = std.testing.allocator;
     var storage: Storage = .{ .gpa = gpa };
     defer storage.deinit();
-    const game = try storage.obtain("a", "tally", .game);
-    try storage.set(game, "kills", .{ .number = 3 });
-    try storage.set(game, "best", .{ .number = 5 });
-    try storage.set(game, "best", .nil);
-    const global = try storage.obtain("a", "settings", .global);
-    try storage.set(global, "reach", .{ .number = 50000 });
+    const game = try storage.obtain("a", "tally", .game, .quota);
+    try storage.set(game, "kills", .{ .number = 3 }, .quota);
+    try storage.set(game, "best", .{ .number = 5 }, .quota);
+    try storage.set(game, "best", .nil, .quota);
+    const global = try storage.obtain("a", "settings", .global, .quota);
+    try storage.set(global, "reach", .{ .number = 50000 }, .quota);
     try std.testing.expect(storage.changed.contains("a"));
 
     var bytes: Io.Writer.Allocating = .init(gpa);
     defer bytes.deinit();
-    try storage.encodeGame(&bytes.writer);
+    try storage.encodeGame(&bytes.writer, &.empty);
     storage.clearGame();
     try std.testing.expectEqual(null, storage.read("a", "tally", .game, "kills"));
     var r: Io.Reader = .fixed(bytes.written());
@@ -468,4 +575,66 @@ test "sections keep their fields, and go to a file and back" {
     try std.testing.expectEqual(3, back.fields.items[0].value.number);
     // The global section stays as it was.
     try std.testing.expectEqual(50000, storage.find("a", "settings", .global).?.fields.items[0].value.number);
+}
+
+test "the game sections of mods left out aren't written, and each mod's share is what's written" {
+    const gpa = std.testing.allocator;
+    var storage: Storage = .{ .gpa = gpa };
+    defer storage.deinit();
+    for ([_][]const u8{ "a", "b" }) |mod| {
+        const section = try storage.obtain(mod, "tally", .game, .quota);
+        try storage.set(section, "kills", .{ .number = 3 }, .quota);
+    }
+    // An empty section isn't written, so its mod has no share.
+    _ = try storage.obtain("c", "empty", .game, .quota);
+    var shares: std.array_hash_map.String(usize) = .empty;
+    defer shares.deinit(gpa);
+    try storage.measureGame(gpa, &shares);
+    try std.testing.expectEqual(2, shares.count());
+
+    var left_out: std.array_hash_map.String(void) = .empty;
+    defer left_out.deinit(gpa);
+    try left_out.put(gpa, "a", {});
+    var bytes: Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try storage.encodeGame(&bytes.writer, &left_out);
+    // The count of sections, then b's alone.
+    try std.testing.expectEqual(@sizeOf(u32) + shares.get("b").?, bytes.written().len);
+    storage.clearGame();
+    var r: Io.Reader = .fixed(bytes.written());
+    try storage.decodeGame(&r);
+    try std.testing.expectEqual(null, storage.read("a", "tally", .game, "kills"));
+    try std.testing.expectEqual(3, storage.read("b", "tally", .game, "kills").?.number);
+}
+
+test "a mod's scripts keep to their storage, and a file that wouldn't read back isn't written" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var storage: Storage = .{ .gpa = gpa, .folder = .{ .io = io, .dir = tmp.dir } };
+    defer storage.deinit();
+    const section = try storage.obtain("a", "big", .global, .quota);
+    // A field up to what's left fits, and a field past it doesn't.
+    const room = max_storage - storage.usage("a", .global) - Section.Field.footprint("x", .{ .string = "" });
+    try storage.set(section, "x", .{ .string = try gpa.alloc(u8, room) }, .quota);
+    try std.testing.expectEqual(max_storage, storage.usage("a", .global));
+    const more = try gpa.alloc(u8, 1);
+    defer gpa.free(more);
+    try std.testing.expectError(error.StorageFull, storage.set(section, "y", .{ .string = more }, .quota));
+    try std.testing.expectError(error.StorageFull, storage.obtain("a", "another", .global, .quota));
+    // Another mod, and the mod's game sections, have their own room.
+    _ = try storage.obtain("b", "big", .global, .quota);
+    _ = try storage.obtain("a", "tally", .game, .quota);
+    // A smaller value goes in all the same, and so does what the engine keeps for the mod.
+    try storage.set(section, "x", .{ .number = 1 }, .quota);
+    try storage.put("a", "options", .global, "flee", .{ .number = 0.9 });
+    try std.testing.expect(storage.usage("a", .global) < max_storage);
+    storage.flush();
+    try std.testing.expect(storage.read("a", "big", .global, "x") != null);
+    // A file past what reading takes is left as it was.
+    try storage.put("a", "options", .global, "huge", .{ .string = try gpa.alloc(u8, max_file) });
+    storage.flush();
+    const length = (try tmp.dir.statFile(io, folder_name ++ "/a" ++ file_extension, .{})).size;
+    try std.testing.expect(length < max_file);
 }

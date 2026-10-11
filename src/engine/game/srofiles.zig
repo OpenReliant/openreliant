@@ -190,12 +190,13 @@ pub const Settings = struct {
     /// The model's objects get colours of their own to fade and cloak by: the model's header
     /// flag `cloak`, or a ship type's model in a multiplayer mission (`model_load`).
     cloak: bool = false,
-    /// A static light stands in this part's class, which `staticLightsMark` works out, so its
-    /// meshes take baked colours for `staticLightsBake` to fill.
+    /// Whether a static light is in this part's class (`staticLightsMark`), so that its meshes get
+    /// baked colours for `staticLightsBake` to fill.
     static_light: bool = false,
-    /// **Improvement:** the steady lights shine on what stands near as real lights, as the
-    /// blinking ones do, rather than being baked into the meshes of their parts' class
-    /// (`staticLightsBake`). The model keeps it for its objects (`Loaded.real_lights`).
+    /// **Improvement:** the steady lights shine on nearby objects as real lights, like the blinking
+    /// ones, rather than being baked into the meshes of their parts' class (`staticLightsBake`).
+    /// A light that reaches past its own model stays baked (`reachesPastModel`). The model keeps
+    /// the setting for its objects (`Loaded.real_lights`).
     real_lights: bool = false,
 };
 
@@ -550,8 +551,9 @@ test Cloaking {
 /// A model's parts, their meshes built (`model_load`, `0x004A44D0`, once it has read the file).
 pub const Loaded = struct {
     parts: []LoadedPart,
-    /// Whether its steady lights were left out of the bake to shine as real lights
-    /// (`Settings.real_lights`), which its objects' lights then cast (`objects.Model.Light.cast`).
+    /// Whether its steady lights shine as real lights (`Settings.real_lights`). Those that reach
+    /// no farther than the model were left out of the bake, and its objects' lights cast them
+    /// (`objects.Model.Light.cast`).
     real_lights: bool = false,
 
     pub fn deinit(loaded: Loaded, gpa: Allocator) void {
@@ -601,10 +603,11 @@ fn prefetchTextures(gpa: Allocator, textures: *srtexture.Table, model: *const sh
     try textures.prefetch(names.items, prefix.copy());
 }
 
-/// Builds every level of every part of `model` (`model_load`), and bakes the static lights it
-/// carries into their vertex colours. `multiplayer_ship` is a ship type's model in a multiplayer
-/// mission, which with the model's header flag `cloak` gives its objects colours of their own and
-/// each part its meshes for the cloak (`Cloaking`), made once the lights are baked.
+/// Builds every level of every part of `model` (`model_load`), and bakes the model's static
+/// lights into its vertex colours (`staticLightsBake`). `multiplayer_ship` marks a ship type's
+/// model in a multiplayer mission. If it is set, or the model's header has the flag `cloak`, the
+/// model's objects get colours of their own, and each part gets meshes for the cloak
+/// (`Cloaking`), which are made after the lights are baked.
 pub fn modelLoad(gpa: Allocator, textures: *srtexture.Table, model: *const shp.Model, settings: Settings, multiplayer_ship: bool) Error!Loaded {
     var level_settings = settings;
     level_settings.cloak = model.header.flags.cloak or multiplayer_ship;
@@ -638,7 +641,7 @@ pub fn modelLoad(gpa: Allocator, textures: *srtexture.Table, model: *const shp.M
         loaded.* = .{ .flags = flags, .meshes = meshes, .levels = levels };
         made += 1;
     }
-    if (!settings.real_lights) staticLightsBake(model, parts);
+    staticLightsBake(model, parts, settings.real_lights);
     if (level_settings.cloak) {
         const shimmer = try settings.prefix.texture(textures, Cloaking.image);
         // A part with no meshes has none for the cloak either.
@@ -695,10 +698,14 @@ pub fn staticLightsMark(model: *const shp.Model) [2]bool {
 
 /// `static_lights_bake` (`0x004A4310`): bakes every static light into the meshes of every level of
 /// the parts of its own class.
-pub fn staticLightsBake(model: *const shp.Model, parts: []LoadedPart) void {
+///
+/// **Improvement:** with `real_lights`, it bakes only the lights that reach past their model
+/// (`reachesPastModel`), and the others shine as real lights.
+pub fn staticLightsBake(model: *const shp.Model, parts: []LoadedPart, real_lights: bool) void {
     for (model.parts) |*part| {
         for (part.attachments) |attachment| {
             if (!isStaticLight(attachment)) continue;
+            if (real_lights and !reachesPastModel(model, parts, part, attachment)) continue;
             const light = staticLight(part, attachment);
             for (model.parts, parts) |*other, *loaded| {
                 if (other.part.flags.damaged != part.part.flags.damaged) continue;
@@ -706,6 +713,26 @@ pub fn staticLightsBake(model: *const shp.Model, parts: []LoadedPart) void {
             }
         }
     }
+}
+
+/// Whether the static light that `attachment` of `holder` carries reaches past every vertex of the
+/// parts of its class, which is all the bake lights. With real lights, such a light stays baked
+/// (`Settings.real_lights`). In the original it only lights its own model, so how far it reaches
+/// beyond the model makes no difference, and it can be very far: the grazer satellite's yellow
+/// light has a brightness of 800 and a range of 1000, so it reaches 800,000 units. As a real light
+/// it would light everything within about 770,000 units at full strength.
+pub fn reachesPastModel(model: *const shp.Model, parts: []const LoadedPart, holder: *const shp.PartData, attachment: shp.Attachment) bool {
+    const light = staticLight(holder, attachment);
+    for (model.parts, parts) |*part, loaded| {
+        if (part.part.flags.damaged != holder.part.flags.damaged) continue;
+        // The light in the part's own frame, as the bake places it.
+        const at = light.position - part.part.position.vector();
+        for (loaded.meshes) |mesh| for (mesh.positions) |position| {
+            const away = at - position;
+            if (math.dot(away, away) >= light.radius * light.radius) return false;
+        };
+    }
+    return true;
 }
 
 /// `static_light_bake` (`0x004A4130`): adds a light to one mesh's baked colours. A vertex within
@@ -1193,18 +1220,77 @@ test staticLightsBake {
     }
 
     // The light shines on the parts of its own class alone.
-    staticLightsBake(&model, &loaded);
+    staticLightsBake(&model, &loaded, false);
     try std.testing.expectApproxEqAbs(0.25, colours[0][0][0], 1e-5);
     try std.testing.expectEqual(0, colours[1][0][0]);
     // A light past red adds no colour.
     lights[0].id = @backingInt(shp.Attachment.Light.cyan);
-    staticLightsBake(&model, &loaded);
+    staticLightsBake(&model, &loaded, false);
     try std.testing.expectApproxEqAbs(0.25, colours[0][0][0], 1e-5);
     try std.testing.expectEqual(0, colours[0][0][1]);
     try std.testing.expectEqual(0, colours[0][0][2]);
 }
 
-test "a model loaded with real lights keeps them out of the bake for its objects" {
+test "staticLightsBake with real lights" {
+    // A red light at 100 along X reaching 100, and two vertices halfway out to it, facing it.
+    var meshes = [_]shp.Mesh{};
+    var lights = [_]shp.Attachment{testLight(@backingInt(shp.Attachment.Light.red), 100, 1, 100)};
+    var parts = [_]shp.PartData{testPart(&meshes, std.mem.zeroes(shp.Part.Flags))};
+    parts[0].attachments = &lights;
+    const model: shp.Model = .{ .header = std.mem.zeroes(shp.Header), .parts = &parts, .trailing_bytes = 0 };
+    var positions = [_]Vector{ .{ 50, 0, 0 }, .{ 50, 0, 0 } };
+    var normals = [_]Vector{ .{ 1, 0, 0 }, .{ 1, 0, 0 } };
+    var colours: [2][4]f32 = @splat(@splat(0));
+    var built: [1]srapiext.Mesh = @splat(empty);
+    built[0].positions = &positions;
+    built[0].normals = &normals;
+    built[0].baked = &colours;
+    var loaded = [_]LoadedPart{.{ .flags = .{}, .meshes = &built, .levels = &.{} }};
+
+    // It reaches past both vertices, so it is baked.
+    staticLightsBake(&model, &loaded, true);
+    try std.testing.expectApproxEqAbs(0.25, colours[0][0], 1e-5);
+    // With the second vertex past its reach, it bakes nothing, and shines as a real light instead.
+    positions[1] = .{ -200, 0, 0 };
+    staticLightsBake(&model, &loaded, true);
+    try std.testing.expectApproxEqAbs(0.25, colours[0][0], 1e-5);
+    // Without real lights, it is baked all the same.
+    staticLightsBake(&model, &loaded, false);
+    try std.testing.expectApproxEqAbs(0.5, colours[0][0], 1e-5);
+}
+
+test reachesPastModel {
+    // A red light at 100 along X reaching 100, on an intact part with a vertex halfway out to it,
+    // and a damaged part with a vertex far off.
+    var meshes = [_]shp.Mesh{};
+    const red = @backingInt(shp.Attachment.Light.red);
+    var lights = [_]shp.Attachment{testLight(red, 100, 1, 100)};
+    var intact = testPart(&meshes, std.mem.zeroes(shp.Part.Flags));
+    intact.attachments = &lights;
+    var damaged_flags = std.mem.zeroes(shp.Part.Flags);
+    damaged_flags.damaged = true;
+    var parts = [_]shp.PartData{ intact, testPart(&meshes, damaged_flags) };
+    const model: shp.Model = .{ .header = std.mem.zeroes(shp.Header), .parts = &parts, .trailing_bytes = 0 };
+    var near = [_]Vector{.{ 50, 0, 0 }};
+    var far = [_]Vector{.{ -1000, 0, 0 }};
+    var built: [2]srapiext.Mesh = @splat(empty);
+    built[0].positions = &near;
+    built[1].positions = &far;
+    const loaded = [_]LoadedPart{
+        .{ .flags = .{}, .meshes = built[0..1], .levels = &.{} },
+        .{ .flags = .{}, .meshes = built[1..2], .levels = &.{} },
+    };
+
+    // The far vertex is on a part of the other class, so the light reaches past its model.
+    try std.testing.expect(reachesPastModel(&model, &loaded, &parts[0], lights[0]));
+    // A shorter range falls short of its own vertex.
+    try std.testing.expect(!reachesPastModel(&model, &loaded, &parts[0], testLight(red, 100, 1, 40)));
+    // With both parts intact, the far vertex is in its class and past its reach.
+    parts[1].part.flags.damaged = false;
+    try std.testing.expect(!reachesPastModel(&model, &loaded, &parts[0], lights[0]));
+}
+
+test "a model loaded with real lights keeps the setting for its objects" {
     const gpa = std.testing.allocator;
     var meshes = [_]shp.Mesh{};
     var lights = [_]shp.Attachment{testLight(@backingInt(shp.Attachment.Light.red), 100, 1, 100)};

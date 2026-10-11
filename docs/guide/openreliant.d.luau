@@ -1219,7 +1219,7 @@ declare class OrderPush
     function original(self): OrderPushed?
 end
 
--- `object` ends the order it runs, which its exit runs for where it has started, and the order below starts again. The result says whether it had one.
+-- `object` ends the order it runs, which its exit runs for where it has started, and the order below starts again. The result says whether it had one. The orders a mod registers that OpenReliant removes, as the mod's scripts close or the object goes, pop without this hook.
 declare class OrderPop
     object: Object
     result: boolean

@@ -52,8 +52,12 @@ pub const OpenError = error{
     NotAHog,
     /// The header's size field disagrees with the file.
     SizeMismatch,
-    /// The directory ran out of room before the first member.
+    /// The directory ran out of room before the first member, or the header puts it outside the
+    /// file.
     CorruptDirectory,
+    /// A member's name isn't a plain file name (`validName`): it would name a file in another
+    /// folder.
+    BadMemberName,
 };
 
 pub const Archive = struct {
@@ -78,21 +82,29 @@ pub const Archive = struct {
         const file_size = try file.length(io);
         if (header.archive_size.get() != file_size) return error.SizeMismatch;
 
-        const directory = try gpa.alloc(u8, header.data_offset.get() -| @sizeOf(Header));
+        // The directory lies between the header and the first member, inside the file.
+        const data_offset = header.data_offset.get();
+        if (data_offset < @sizeOf(Header) or data_offset > file_size) return error.CorruptDirectory;
+        const directory = try gpa.alloc(u8, data_offset - @sizeOf(Header));
         defer gpa.free(directory);
-        _ = try file.readPositionalAll(io, directory, @sizeOf(Header));
+        if (try file.readPositionalAll(io, directory, @sizeOf(Header)) != directory.len) return error.CorruptDirectory;
 
         var entries: std.ArrayList(Entry) = .empty;
-        errdefer entries.deinit(gpa);
+        errdefer {
+            for (entries.items) |entry| gpa.free(entry.name);
+            entries.deinit(gpa);
+        }
 
         var pos: usize = 0;
         for (0..header.entry_count.get()) |_| {
-            const entry = parseEntry(directory[pos..], @intCast(file_size)) orelse break;
-            try entries.append(gpa, .{
-                .name = try gpa.dupe(u8, entry.name),
-                .offset = entry.offset,
-                .size = entry.size,
-            });
+            const entry = switch (parseEntry(directory[pos..], @intCast(file_size))) {
+                .entry => |entry| entry,
+                .filler => break,
+                .bad_name => return error.BadMemberName,
+            };
+            const name = try gpa.dupe(u8, entry.name);
+            errdefer gpa.free(name);
+            try entries.append(gpa, .{ .name = name, .offset = entry.offset, .size = entry.size });
             pos += entry.encoded_len;
         }
         if (entries.items.len == 0) return error.CorruptDirectory;
@@ -178,24 +190,31 @@ const ParsedEntry = struct {
     encoded_len: usize,
 };
 
-/// Reads one directory record: a `Record`, then a NUL-terminated name. Returns null when the bytes
-/// are not a plausible record, which is how the trailing filler is detected.
-fn parseEntry(directory: []const u8, file_size: u32) ?ParsedEntry {
-    const record = layout.view(Record, directory) catch return null;
+/// What a directory record turns out to be: an entry; filler, bytes that aren't a plausible record,
+/// which is how the trailing filler is found; or a record whose name isn't a plain file name.
+const Parsed = union(enum) {
+    entry: ParsedEntry,
+    filler,
+    bad_name,
+};
+
+/// Reads one directory record: a `Record`, then a NUL-terminated name.
+fn parseEntry(directory: []const u8, file_size: u32) Parsed {
+    const record = layout.view(Record, directory) catch return .filler;
     const offset = record.offset.get();
     const size = record.size.get();
-    if (offset > file_size or size > file_size - offset) return null;
+    if (offset > file_size or size > file_size - offset) return .filler;
 
     const rest = directory[@sizeOf(Record)..];
-    const end = std.mem.findScalar(u8, rest, 0) orelse return null;
+    const end = std.mem.findScalar(u8, rest, 0) orelse return .filler;
     const name = rest[0..end];
-    if (!validName(name)) return null;
-    return .{ .name = name, .offset = offset, .size = size, .encoded_len = @sizeOf(Record) + end + 1 };
+    if (!printable(name)) return .filler;
+    if (!validName(name)) return .bad_name;
+    return .{ .entry = .{ .name = name, .offset = offset, .size = size, .encoded_len = @sizeOf(Record) + end + 1 } };
 }
 
-/// Whether a directory record holds `name`: one or more bytes of printable ASCII, as `parseEntry`
-/// reads a name, and as every shipped archive's names are.
-pub fn validName(name: []const u8) bool {
+/// Whether `name` is one or more bytes of printable ASCII, as `parseEntry` reads a name.
+fn printable(name: []const u8) bool {
     if (name.len == 0) return false;
     for (name) |c| {
         if (c < 0x20 or c >= 0x7F) return false;
@@ -203,20 +222,46 @@ pub fn validName(name: []const u8) bool {
     return true;
 }
 
+/// Whether `name` can be a member's name: printable ASCII, as every shipped archive's names are,
+/// and a plain file name, which names a file in one folder on every system: no `/`, `\` or `:`,
+/// and not `.` or `..`. The members are a flat namespace, and `sltool hog extract` writes each to
+/// the file its name gives.
+pub fn validName(name: []const u8) bool {
+    if (!printable(name)) return false;
+    if (std.mem.findAny(u8, name, "/\\:") != null) return false;
+    return !std.mem.eql(u8, name, ".") and !std.mem.eql(u8, name, "..");
+}
+
 test parseEntry {
     var directory: [32]u8 = @splat(0);
     (try layout.viewMut(Record, &directory)).* = .{ .offset = .of(0x1000), .size = .of(0x200) };
     @memcpy(directory[@sizeOf(Record)..][0..8], "ship.shp");
 
-    const entry = parseEntry(&directory, 0x10000).?;
+    const entry = parseEntry(&directory, 0x10000).entry;
     try std.testing.expectEqualStrings("ship.shp", entry.name);
     try std.testing.expectEqual(@as(u32, 0x1000), entry.offset);
     try std.testing.expectEqual(@as(u32, 0x200), entry.size);
     try std.testing.expectEqual(@as(usize, 17), entry.encoded_len);
 
     // Past the end of the archive, and the uninitialized filler both shipped archives end with.
-    try std.testing.expectEqual(@as(?ParsedEntry, null), parseEntry(&directory, 0x100));
-    try std.testing.expectEqual(@as(?ParsedEntry, null), parseEntry(&(@as([32]u8, @splat(0xCD))), 0x100000));
+    try std.testing.expectEqual(Parsed.filler, parseEntry(&directory, 0x100));
+    try std.testing.expectEqual(Parsed.filler, parseEntry(&(@as([32]u8, @splat(0xCD))), 0x100000));
+
+    // A name that would name a file in another folder.
+    for ([_][]const u8{ "../../evil", "a/b", "a\\b", "c:evil", "..", "." }) |name| {
+        @memset(directory[@sizeOf(Record)..], 0);
+        @memcpy(directory[@sizeOf(Record)..][0..name.len], name);
+        try std.testing.expectEqual(Parsed.bad_name, parseEntry(&directory, 0x10000));
+    }
+}
+
+test validName {
+    try std.testing.expect(validName("ship.shp"));
+    try std.testing.expect(validName("..ship"));
+    try std.testing.expect(validName("New_a y trans.bik"));
+    for ([_][]const u8{ "", "../ship.shp", "a/b", "a\\b", "c:ship", ".", "..", "ship\x01" }) |name| {
+        try std.testing.expect(!validName(name));
+    }
 }
 
 /// The order `sltool hog pack` gives a folder's files, so that a folder packs the same wherever it
@@ -437,6 +482,37 @@ test "a header counting entries the directory lacks" {
     header.magic = magic.*;
     try tmp.dir.writeFile(io, .{ .sub_path = "short.hog", .data = bytes[0 .. bytes.len - 1] });
     try std.testing.expectError(error.SizeMismatch, Archive.open(gpa, io, tmp.dir, "short.hog"));
+}
+
+test "a directory outside the file, or a member's name that leaves the folder, is refused" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const bytes = try build(gpa, &.{ .{ .name = "a.tga", .data = "x" }, .{ .name = "safe_name0", .data = "y" } });
+    defer gpa.free(bytes);
+    const header = try layout.viewMut(Header, bytes);
+    const data_offset = header.data_offset.get();
+
+    // A second member whose name climbs out of the folder: `sltool hog extract` would write it
+    // there.
+    const name_at = std.mem.find(u8, bytes, "safe_name0").?;
+    @memcpy(bytes[name_at..][0..10], "../../evil");
+    try tmp.dir.writeFile(io, .{ .sub_path = "climbs.hog", .data = bytes });
+    try std.testing.expectError(error.BadMemberName, Archive.open(gpa, io, tmp.dir, "climbs.hog"));
+    @memcpy(bytes[name_at..][0..10], "safe_name0");
+
+    // The directory starts no earlier than the header's end, and ends no later than the file.
+    for ([_]u32{ 0, @sizeOf(Header) - 1, @intCast(bytes.len + 1), std.math.maxInt(u32) }) |offset| {
+        header.data_offset = .of(offset);
+        try tmp.dir.writeFile(io, .{ .sub_path = "outside.hog", .data = bytes });
+        try std.testing.expectError(error.CorruptDirectory, Archive.open(gpa, io, tmp.dir, "outside.hog"));
+    }
+    header.data_offset = .of(data_offset);
+    try tmp.dir.writeFile(io, .{ .sub_path = "whole.hog", .data = bytes });
+    var archive: Archive = try .open(gpa, io, tmp.dir, "whole.hog");
+    archive.close(gpa);
 }
 
 test build {

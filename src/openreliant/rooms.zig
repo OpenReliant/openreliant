@@ -39,7 +39,6 @@ const simulator_pod = loadout.simulator_pod;
 const Movies = @import("movies.zig").Movies;
 const GameScripts = @import("game_scripts.zig").GameScripts;
 const ScriptConsole = @import("console.zig").Driver;
-const drawn = @import("presenter.zig").drawn;
 const version = @import("version");
 
 const log = std.log.scoped(.rooms);
@@ -1072,17 +1071,17 @@ const Shown = struct {
         const target = driver.canvasFor(shown.window);
         switch (shown.screen) {
             .induction => |tour| tour.draw(target),
-            .rooms => |inside| try drawn(inside.draw(target, driver.clock.game_ticks)),
-            .options => |menu| try drawn(menu.draw(target, &driver.front.dialog, driver.pointer)),
-            .saved_games => |screen| try drawn(screen.draw(target, &driver.front.dialog, driver.pointer, driver.pilot.call_sign.slice())),
-            .settings => |screen| try drawn(screen.draw(target, &driver.front.dialog, .{ .devices = driver.movies.devices, .sound = driver.sound, .video = driver.video }, driver.pointer)),
-            .briefing => |meeting| try drawn(meeting.draw(target)),
-            .restart => |screen| try drawn(screen.draw(target, driver.pointer)),
-            .credits => |screen| try drawn(screen.draw(target)),
-            .itac => |terminal| try drawn(terminal.draw(target)),
-            .pod => |pod| try drawn(pod.draw(target)),
-            .locker => |case| try drawn(case.draw(target)),
-            .cd_player => |player| try drawn(player.draw(target)),
+            .rooms => |inside| try inside.draw(target, driver.clock.game_ticks),
+            .options => |menu| try menu.draw(target, &driver.front.dialog, driver.pointer),
+            .saved_games => |screen| try screen.draw(target, &driver.front.dialog, driver.pointer, driver.pilot.call_sign.slice()),
+            .settings => |screen| try screen.draw(target, &driver.front.dialog, .{ .devices = driver.movies.devices, .sound = driver.sound, .video = driver.video }, driver.pointer),
+            .briefing => |meeting| try meeting.draw(target),
+            .restart => |screen| try screen.draw(target, driver.pointer),
+            .credits => |screen| try screen.draw(target),
+            .itac => |terminal| try terminal.draw(target),
+            .pod => |pod| try pod.draw(target),
+            .locker => |case| try case.draw(target),
+            .cd_player => |player| try player.draw(target),
         }
         if (driver.movies.scripts) |scripts| try scripts.drawUi(target.target);
         if (driver.console) |console| try console.shown.draw(target.target, shown.window, driver.strings, .menus);

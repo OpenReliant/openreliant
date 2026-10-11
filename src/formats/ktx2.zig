@@ -16,6 +16,8 @@ const Format = texels.Format;
 
 pub const extension = ".ktx2";
 
+/// Why a file can't be read: it isn't a KTX2 file, it contradicts itself, or it holds what this
+/// reader doesn't take, such as an array or a side longer than `texels.max_side`.
 pub const Error = error{ NotAKtx2, Corrupt, Unsupported };
 
 const identifier = [12]u8{ 0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, '\r', '\n', 0x1A, '\n' };
@@ -46,24 +48,44 @@ const Supercompression = enum(u32) {
 /// `bytes`, a KTX2 file, read: its levels are `bytes`' own, in `buffer`.
 pub fn read(bytes: []const u8, buffer: *[texels.max_levels][]const u8) Error!texels.Contained {
     if (bytes.len < index_at or !std.mem.eql(u8, bytes[0..identifier.len], &identifier)) return error.NotAKtx2;
-    const width = word(bytes, width_at);
-    const height = word(bytes, height_at);
-    if (width == 0 or height == 0) return error.Corrupt;
-    if (word(bytes, depth_at) > 1 or word(bytes, layers_at) > 1 or word(bytes, faces_at) != 1) return error.Unsupported;
     if (word(bytes, supercompression_at) != @backingInt(Supercompression.none)) return error.Unsupported;
-    const format = vulkanFormat(word(bytes, format_at)) orelse return error.Unsupported;
-    const count: usize = @max(word(bytes, levels_at), 1);
-    if (count > texels.max_levels or bytes.len < index_at + count * entry_size) return error.Corrupt;
-    const index_bytes = bytes[index_at..][0 .. count * entry_size];
-    for (buffer[0..count], 0..) |*level, index| {
+    const picture = try Picture.of(bytes);
+    const index_bytes = bytes[index_at..][0 .. picture.count * entry_size];
+    for (buffer[0..picture.count], 0..) |*level, index| {
         const offset = try entryWord(index_bytes, index, 0);
         const length = try entryWord(index_bytes, index, 1);
-        const size = format.size(@max(width >> @intCast(index), 1), @max(height >> @intCast(index), 1));
-        if (length != size or offset > bytes.len or bytes.len - offset < length) return error.Corrupt;
+        if (length != picture.levelSize(index) or offset > bytes.len or bytes.len - offset < length) return error.Corrupt;
         level.* = bytes[offset..][0..length];
     }
-    return .{ .width = width, .height = height, .format = format, .levels = buffer[0..count] };
+    return .{ .width = picture.width, .height = picture.height, .format = picture.format, .levels = buffer[0..picture.count] };
 }
+
+/// What a file's header says of its picture, once checked: a 2D picture of a format OpenReliant
+/// reads, with sides from 1 to `texels.max_side`, and as many levels as its index has room for.
+const Picture = struct {
+    width: u32,
+    height: u32,
+    format: Format,
+    count: usize,
+
+    fn of(bytes: []const u8) Error!Picture {
+        const width = word(bytes, width_at);
+        const height = word(bytes, height_at);
+        if (width == 0 or height == 0) return error.Corrupt;
+        if (width > texels.max_side or height > texels.max_side) return error.Unsupported;
+        if (word(bytes, depth_at) > 1 or word(bytes, layers_at) > 1 or word(bytes, faces_at) != 1) return error.Unsupported;
+        const format = vulkanFormat(word(bytes, format_at)) orelse return error.Unsupported;
+        const count: usize = @max(word(bytes, levels_at), 1);
+        if (count > texels.max_levels or bytes.len < index_at + count * entry_size) return error.Corrupt;
+        return .{ .width = width, .height = height, .format = format, .count = count };
+    }
+
+    /// The bytes level `index` takes.
+    fn levelSize(picture: Picture, index: usize) usize {
+        const shift: u5 = @intCast(index);
+        return picture.format.size(@max(picture.width >> shift, 1), @max(picture.height >> shift, 1));
+    }
+};
 
 /// `bytes`, a KTX2 file whose levels are supercompressed with Zstandard, as a file of the same
 /// picture without supercompression, made in `gpa`, which `read` takes; null for a file that isn't
@@ -72,12 +94,18 @@ pub fn inflated(gpa: Allocator, bytes: []const u8) (Error || Allocator.Error)!?[
     if (bytes.len < index_at or !std.mem.eql(u8, bytes[0..identifier.len], &identifier)) return error.NotAKtx2;
     const scheme: Supercompression = @fromBackingInt(word(bytes, supercompression_at));
     if (scheme != .zstandard) return null;
-    const count: usize = @max(word(bytes, levels_at), 1);
-    if (count > texels.max_levels or bytes.len < index_at + count * entry_size) return error.Corrupt;
+    const picture = try Picture.of(bytes);
+    const count = picture.count;
     const index = bytes[index_at..][0 .. count * entry_size];
 
+    // Each level's length uncompressed is the one its size gives, so a file can't ask for more
+    // than its picture holds.
     var length: usize = index_at + index.len;
-    for (0..count) |level| length = std.math.add(usize, length, try entryWord(index, level, 2)) catch return error.Corrupt;
+    for (0..count) |level| {
+        const size = try entryWord(index, level, 2);
+        if (size != picture.levelSize(level)) return error.Corrupt;
+        length += size;
+    }
     const made = try gpa.alloc(u8, length);
     errdefer gpa.free(made);
     @memcpy(made[0..index_at], bytes[0..index_at]);
@@ -205,6 +233,10 @@ test read {
     defer gpa.free(short);
     try std.testing.expectError(error.Corrupt, read(short, &buffer));
     try std.testing.expectError(error.NotAKtx2, read("DDS ", &buffer));
+    // A side longer than any picture's.
+    const wide = try testing.file(gpa, 141, texels.max_side + 1, 4, &levels);
+    defer gpa.free(wide);
+    try std.testing.expectError(error.Unsupported, read(wide, &buffer));
 }
 
 test inflated {
@@ -226,7 +258,10 @@ test inflated {
     const plain = try testing.file(gpa, 141, 4, 4, &levels);
     defer gpa.free(plain);
     try std.testing.expectEqual(null, try inflated(gpa, plain));
-    // A level that inflates to another length than its entry says.
-    std.mem.writeInt(u64, packed_file[index_at + 16 ..][0..8], 15, .little);
-    try std.testing.expectError(error.Corrupt, inflated(gpa, packed_file));
+    // A level whose length uncompressed isn't its size's, however much it asks for, is refused
+    // before anything is made.
+    for ([_]u64{ 15, std.math.maxInt(u32) }) |claimed| {
+        std.mem.writeInt(u64, packed_file[index_at + 16 ..][0..8], claimed, .little);
+        try std.testing.expectError(error.Corrupt, inflated(gpa, packed_file));
+    }
 }
