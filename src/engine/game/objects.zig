@@ -1223,8 +1223,8 @@ pub const Model = struct {
         /// The point light it casts (node kind 5), with its id's colour, its brightness and its
         /// range, which reaches every object that takes lights; null for none. In the original,
         /// only a blinking light with a brightness casts one, and the loader bakes the steady
-        /// lights into the meshes instead (`static_lights_bake`). With real lights, a steady light
-        /// casts one too (`createLights`). Its position is set when it's drawn.
+        /// lights into the meshes instead (`static_lights_bake`). With real lights, most steady
+        /// lights cast one too (`createLights`). Its position is set when it's drawn.
         cast: ?srlight.Light,
         /// Added by OpenReliant: the light a blinking light throws back off the walls around it
         /// while it shines, as an even ambient light on what stands there (`Model.bounceLights`);
@@ -1816,7 +1816,7 @@ pub const Model = struct {
         const order = try linkOrder(gpa, model);
         errdefer gpa.free(order);
         var built: Model = .{ .source = model, .loaded = loaded, .parts = parts, .order = order, .lights = &.{}, .glows = &.{}, .mounts = &.{} };
-        const lights = try createLights(gpa, model, effects.light_sprites, loaded.real_lights);
+        const lights = try createLights(gpa, model, loaded, effects.light_sprites);
         errdefer gpa.free(lights);
         const glows = try createGlows(gpa, model, effects.glows);
         errdefer gpa.free(glows);
@@ -2021,9 +2021,11 @@ pub const Model = struct {
     }
 
     /// One light for each attachment of kind `light` a part carries, at its place in the model
-    /// (`node_mount_light`), with its sprites or the light it casts, or both. With `real_lights`,
-    /// a steady light casts one too, in the colour the bake would give it, where it has one.
-    fn createLights(gpa: Allocator, model: *const shp.Model, images: LightSprites, real_lights: bool) Allocator.Error![]Light {
+    /// (`node_mount_light`), with its sprites or the light it casts, or both. Where the model was
+    /// loaded with real lights, a steady light casts one too, in the colour the bake gives it. A
+    /// light the bake gives no colour casts nothing, and neither does one that reaches past its
+    /// model, which stays baked (`srofiles.reachesPastModel`).
+    fn createLights(gpa: Allocator, model: *const shp.Model, loaded: *const srofiles.Loaded, images: LightSprites) Allocator.Error![]Light {
         var each: Attached = .of(model, .light);
         const lights = try gpa.alloc(Light, each.count());
         for (lights) |*light| {
@@ -2055,7 +2057,8 @@ pub const Model = struct {
             }
             const blinks = light.blink.blinks();
             const colour = if (blinks) lightColour(attachment.light()) else steadyColour(attachment.light());
-            const steady_shines = real_lights and @reduce(.Or, @as(Vector, colour) > @as(Vector, @splat(0)));
+            const steady_shines = !blinks and loaded.real_lights and @reduce(.Or, @as(Vector, colour) > @as(Vector, @splat(0))) and
+                !srofiles.reachesPastModel(model, loaded.parts, &model.parts[found.part], attachment.*);
             if (attachment.light_brightness > 0 and (blinks or steady_shines)) {
                 light.cast = .{
                     .mask = 0,
@@ -3228,9 +3231,13 @@ test "Model.Light.Sprites.show" {
     try std.testing.expectEqual([2]f32{ 0, 0 }, flare.half_size);
 }
 
-test "a model's steady lights shine as real lights where it was loaded so" {
+test "a model loaded with real lights casts its steady lights, but for those that stay baked" {
     const gpa = std.testing.allocator;
-    var loaded_parts = [1]srofiles.LoadedPart{.{ .flags = .{}, .levels = &.{}, .meshes = &.{} }};
+    // A hull that reaches 100 along X, farther than its lights.
+    var positions = [_]Vector{.{ 100, 0, 0 }};
+    var meshes: [1]srapiext.Mesh = @splat(srofiles.empty);
+    meshes[0].positions = &positions;
+    var loaded_parts = [1]srofiles.LoadedPart{.{ .flags = .{}, .levels = &.{}, .meshes = &meshes }};
     const loaded: srofiles.Loaded = .{ .parts = &loaded_parts, .real_lights = true };
     // A steady blue light, a steady cyan one, past the bake's colours, and a blinking red one.
     var attachments: [3]shp.Attachment = @splat(.{
@@ -3284,6 +3291,14 @@ test "a model's steady lights shine as real lights where it was loaded so" {
     try std.testing.expectEqual(null, built.lights[0].bounce);
     try std.testing.expectEqual(100, built.lights[2].cast.?.kind.point.range);
     try std.testing.expectEqual(0.25, built.lights[2].bounce.?.intensity);
+
+    // On a smaller hull, which the steady light reaches past, it stays baked and casts nothing.
+    // The blinking one still casts.
+    positions[0] = .{ 10, 0, 0 };
+    var small: Model = try .create(gpa, &model, &loaded, .{});
+    defer small.deinit(gpa);
+    try std.testing.expectEqual(null, small.lights[0].cast);
+    try std.testing.expect(small.lights[2].cast != null);
 }
 
 test steadyColour {
