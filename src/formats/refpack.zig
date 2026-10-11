@@ -342,9 +342,13 @@ const Command = struct {
     }
 };
 
-/// Decompresses a complete RefPack stream, header included.
+/// Decompresses a complete RefPack stream, header included, of the one form the game expands
+/// (`gameExpands`), whose 3-byte size keeps what it allocates to `max_size`. Another form is
+/// `error.BadSignature`.
 pub fn decompressAlloc(gpa: Allocator, stream: []const u8) (Error || Allocator.Error)![]u8 {
+    if (!gameExpands(stream)) return error.BadSignature;
     const header = try readHeader(stream);
+    std.debug.assert(header.decompressed_size <= max_size);
     const out = try gpa.alloc(u8, header.decompressed_size);
     errdefer gpa.free(out);
     const written = try decompressInto(out, stream[header.len..]);
@@ -808,6 +812,9 @@ test "round-trips a real stream shape" {
     const out = try decompressAlloc(gpa, &stream);
     defer gpa.free(out);
     try std.testing.expectEqualStrings("abcdabcdabcd", out);
+    // Another form, whose 4-byte size could ask for gigabytes, isn't one the game expands.
+    const wide = [_]u8{ 0x90, 0xFB, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC };
+    try std.testing.expectError(error.BadSignature, decompressAlloc(gpa, &wide));
 }
 
 /// Compresses `data` and checks what comes back: what OpenReliant's decoder gives, and what the

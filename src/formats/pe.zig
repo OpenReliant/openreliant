@@ -310,12 +310,14 @@ pub const Image = struct {
         return image.bytes[section.raw_offset..end];
     }
 
-    /// Translates a relative virtual address to a file offset.
+    /// Translates a relative virtual address to a file offset, within the file; null for an
+    /// address no section's stored bytes hold.
     pub fn fileOffset(image: Image, rva: u32) ?u32 {
         const section = image.sectionContaining(rva) orelse return null;
         const delta = rva - section.virtual_address;
         if (delta >= section.raw_size) return null;
-        return section.raw_offset + delta;
+        const offset = std.math.add(u32, section.raw_offset, delta) catch return null;
+        return if (offset < image.bytes.len) offset else null;
     }
 
     /// Reads a NUL-terminated string at `rva`.
@@ -680,6 +682,13 @@ test "maps each section to its own file offset" {
     try std.testing.expectEqual(@as(?u32, null), image.fileOffset(0x5300));
     try std.testing.expectEqual(@as(?u32, null), image.fileOffset(0x3000));
     try std.testing.expectEqual(@as(u8, 0xAA), bytes[image.fileOffset(0x5123).?]);
+    // A section whose stored bytes the header puts past the file, or past what a 32-bit offset
+    // counts, maps nothing, and has no string.
+    const section: *align(1) SectionHeader = @constCast(&image.sections[1]);
+    section.raw_offset = 0xFFFFFF00;
+    try std.testing.expectEqual(@as(?u32, null), image.fileOffset(0x5000));
+    try std.testing.expectEqual(@as(?u32, null), image.fileOffset(0x52FF));
+    try std.testing.expectEqual(null, image.stringAt(0x5000));
 }
 
 test "finds a string as LoadString does" {

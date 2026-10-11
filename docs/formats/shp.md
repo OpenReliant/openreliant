@@ -58,6 +58,18 @@ name, `krasny.shp`: `kr` and `as`.
 **Fix:** OpenReliant reads what the file holds and stops at its end. The end of the file ends the
 stream as the terminator does, and the bytes of a chunk's records past the end read as zero.
 
+### What a file can ask for
+
+The loader allocates as many records as each chunk counts, even when they take no bytes of the
+file, and finds a chunk by scanning every chunk left. So a few bytes of file can ask for gigabytes
+of records, and a file of many chunks that lacks a tag the loader asks for makes every search pass
+over all of them.
+
+**Fix:** OpenReliant gives a model's records a budget of 16 times its file's size plus 1 MiB, and
+refuses a model that asks for more (`TooManyRecords`). A shipped model's records take less than
+twice its file's bytes. It finds each chunk through an index of where each tag's chunks start,
+built in one pass, which finds the same chunks as the scan.
+
 ### Tags
 
 | Tag | Record | Record sizes seen | Belongs to |

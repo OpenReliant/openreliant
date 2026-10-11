@@ -1729,7 +1729,7 @@ pub const Mission = struct {
     pub fn name(mission: Mission, offset: u16) []const u8 {
         const pool = mission.entry(.strings);
         if (!pool.isUsed()) return "";
-        const start = pool.offset + offset;
+        const start = std.math.add(usize, pool.offset, offset) catch return "";
         if (start >= mission.image.len) return "";
         const rest = mission.image[start..];
         const end = std.mem.findScalar(u8, rest, 0) orelse return "";
@@ -1880,6 +1880,10 @@ test "directory and records line up" {
     try std.testing.expectEqual(0, mission.room(.triggers));
     directory[@backingInt(Section.ships)].offset = image.len + 1;
     try std.testing.expectError(error.Truncated, (try Mission.parse(&image)).span(.ships));
+    // A string pool placed so that its offset and a name's add up past the image names nothing,
+    // even past what 32 bits hold.
+    directory[@backingInt(Section.strings)].offset = std.math.maxInt(u32) - 4;
+    try std.testing.expectEqualStrings("", (try Mission.parse(&image)).name(0x20));
 }
 
 test "Mission.findPart and findShip" {
