@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.2](https://github.com/OpenReliant/openreliant/compare/v0.10.1...v0.10.2) (2026-10-11)
+
+
+### Fixes
+
+* a mod's shader that the GPU refuses is left out, rather than blanking the game ([#1080](https://github.com/OpenReliant/openreliant/issues/1080)) ([24f59ca](https://github.com/OpenReliant/openreliant/commit/24f59ca39a7ad795e23b1570de2ee164e74e7322))
+* mission 251's satellites no longer turn everything yellow ([#1086](https://github.com/OpenReliant/openreliant/issues/1086)) ([24f59ca](https://github.com/OpenReliant/openreliant/commit/24f59ca39a7ad795e23b1570de2ee164e74e7322))
+* mods' scripts keep to their limits, and can't crash or stall the game ([#1078](https://github.com/OpenReliant/openreliant/issues/1078)) ([24f59ca](https://github.com/OpenReliant/openreliant/commit/24f59ca39a7ad795e23b1570de2ee164e74e7322))
+* orders, squads and scripts from missions and mods can't hang or crash the game ([#1073](https://github.com/OpenReliant/openreliant/issues/1073)) ([24f59ca](https://github.com/OpenReliant/openreliant/commit/24f59ca39a7ad795e23b1570de2ee164e74e7322))
+* the file readers refuse what a hostile file asks for ([#1071](https://github.com/OpenReliant/openreliant/issues/1071)) ([24f59ca](https://github.com/OpenReliant/openreliant/commit/24f59ca39a7ad795e23b1570de2ee164e74e7322))
+* the mods' state kept with a saved game always reads back ([#1081](https://github.com/OpenReliant/openreliant/issues/1081)) ([24f59ca](https://github.com/OpenReliant/openreliant/commit/24f59ca39a7ad795e23b1570de2ee164e74e7322))
+
 ## [0.10.1](https://github.com/OpenReliant/openreliant/compare/v0.10.0...v0.10.1) (2026-10-11)
 
 
