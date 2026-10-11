@@ -110,6 +110,11 @@ const Section = struct {
         return @sizeOf(Section) + mod.len + name.len;
     }
 
+    /// Whether it's kept with the saved game: a game section that holds fields.
+    fn keptWithGame(section: *const Section) bool {
+        return section.scope == .game and section.fields.items.len > 0;
+    }
+
     fn deinit(section: *Section, gpa: Allocator) void {
         for (section.fields.items) |field| {
             gpa.free(field.key);
@@ -244,16 +249,30 @@ pub const Storage = struct {
         }
     }
 
-    /// Writes the game sections in the binary form (`stored.encode`).
-    pub fn encodeGame(storage: *const Storage, w: *Io.Writer) Io.Writer.Error!void {
+    /// Writes the game sections in the binary form (`stored.encode`), but those of the mods in
+    /// `left_out`.
+    pub fn encodeGame(storage: *const Storage, w: *Io.Writer, left_out: *const std.array_hash_map.String(void)) Io.Writer.Error!void {
         var count: u32 = 0;
-        for (storage.sections.items) |section| count += @intFromBool(section.scope == .game and section.fields.items.len > 0);
+        for (storage.sections.items) |section| count += @intFromBool(section.keptWithGame() and !left_out.contains(section.mod));
         try w.writeInt(u32, count, .little);
         for (storage.sections.items) |section| {
-            if (section.scope != .game or section.fields.items.len == 0) continue;
-            try stored.encode(w, .{ .string = section.mod });
-            try encodeSection(w, section);
+            if (section.keptWithGame() and !left_out.contains(section.mod)) try encodeGameSection(w, section);
         }
+    }
+
+    /// Adds to each mod's share in `shares` the bytes its game sections take in `encodeGame`.
+    pub fn measureGame(storage: *const Storage, gpa: Allocator, shares: *std.array_hash_map.String(usize)) Allocator.Error!void {
+        for (storage.sections.items) |section| {
+            if (!section.keptWithGame()) continue;
+            const share = try shares.getOrPutValue(gpa, section.mod, 0);
+            share.value_ptr.* += stored.encodedSize(encodeGameSection, .{section});
+        }
+    }
+
+    /// Writes a game section as `encodeGame` does: its mod's name, then the section.
+    fn encodeGameSection(w: *Io.Writer, section: *const Section) Io.Writer.Error!void {
+        try stored.encode(w, .{ .string = section.mod });
+        try encodeSection(w, section);
     }
 
     /// Reads game sections written by `encodeGame`, in place of the game sections there are.
@@ -546,7 +565,7 @@ test "sections keep their fields, and go to a file and back" {
 
     var bytes: Io.Writer.Allocating = .init(gpa);
     defer bytes.deinit();
-    try storage.encodeGame(&bytes.writer);
+    try storage.encodeGame(&bytes.writer, &.empty);
     storage.clearGame();
     try std.testing.expectEqual(null, storage.read("a", "tally", .game, "kills"));
     var r: Io.Reader = .fixed(bytes.written());
@@ -556,6 +575,36 @@ test "sections keep their fields, and go to a file and back" {
     try std.testing.expectEqual(3, back.fields.items[0].value.number);
     // The global section stays as it was.
     try std.testing.expectEqual(50000, storage.find("a", "settings", .global).?.fields.items[0].value.number);
+}
+
+test "the game sections of mods left out aren't written, and each mod's share is what's written" {
+    const gpa = std.testing.allocator;
+    var storage: Storage = .{ .gpa = gpa };
+    defer storage.deinit();
+    for ([_][]const u8{ "a", "b" }) |mod| {
+        const section = try storage.obtain(mod, "tally", .game, .quota);
+        try storage.set(section, "kills", .{ .number = 3 }, .quota);
+    }
+    // An empty section isn't written, so its mod has no share.
+    _ = try storage.obtain("c", "empty", .game, .quota);
+    var shares: std.array_hash_map.String(usize) = .empty;
+    defer shares.deinit(gpa);
+    try storage.measureGame(gpa, &shares);
+    try std.testing.expectEqual(2, shares.count());
+
+    var left_out: std.array_hash_map.String(void) = .empty;
+    defer left_out.deinit(gpa);
+    try left_out.put(gpa, "a", {});
+    var bytes: Io.Writer.Allocating = .init(gpa);
+    defer bytes.deinit();
+    try storage.encodeGame(&bytes.writer, &left_out);
+    // The count of sections, then b's alone.
+    try std.testing.expectEqual(@sizeOf(u32) + shares.get("b").?, bytes.written().len);
+    storage.clearGame();
+    var r: Io.Reader = .fixed(bytes.written());
+    try storage.decodeGame(&r);
+    try std.testing.expectEqual(null, storage.read("a", "tally", .game, "kills"));
+    try std.testing.expectEqual(3, storage.read("b", "tally", .game, "kills").?.number);
 }
 
 test "a mod's scripts keep to their storage, and a file that wouldn't read back isn't written" {
