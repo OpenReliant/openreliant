@@ -250,7 +250,8 @@ return {
 
 [Engine handlers](reference.md#engine-handlers) says what each one gets. They're called in the order
 the scripts started: the global and mission scripts' first, in load order, then each object's. A
-handler that raises an error is logged and isn't called again.
+handler that raises an error is logged and isn't called again, and so is one that runs out of time
+three times in a row ([Limits](#limits)).
 
 `on_mission_end` gets the mission's `outcome`: its `ending` for the player, such as `"destroyed"` or
 `"left"` ([Ending](reference.md#ending)), and the `rating` the mission's script gave it, such as
@@ -521,7 +522,8 @@ handler is for. `radio_say` and `vm_command` concern no object, so they only tak
   added. So a later mod's handler that returns `false` stops an earlier mod's.
 - `hooks.add` and `hooks.after` return a handle, and `handle:remove()` removes the handler.
 - A handler that raises an error is logged with its file and line, and removed, and the changes it
-  made to `e` are undone.
+  made to `e` are undone. One that runs out of time is removed once it has three times in a row,
+  since a call can be slow once for reasons that aren't its own.
 
 ## Objects
 
@@ -1473,6 +1475,10 @@ end
   scripts see the same sections.
 - Values are plain data, copied as they're stored and as they're read, so changing a table read
   from a section changes nothing until it's stored again. Setting a field to nil removes it.
+- A mod's sections hold up to just under 15 MiB in each place, the game's and the global, measured
+  as the memory they take. A change past that is an error, but one that makes them smaller works. A
+  value stored at once can take up to 16 MiB, a table that holds the same table twice counting it
+  twice.
 
 ## Timers
 
@@ -2407,8 +2413,8 @@ versions, and a replacement made for one can stop fitting the next.
 - `vfs.read_mod(name)` reads a file of the calling mod.
 - Both return nil if there is no such file, or if the name is a folder. `vfs.exists(name)` says
   whether `vfs.read` would find it.
-- A script can read a loose file of up to half its mod's memory limit (32 MiB). A bigger file is an
-  error.
+- A script can read a file of up to what its mod's scripts have left of their memory. A bigger
+  file is an error.
 
 ## The console
 
@@ -2493,7 +2499,8 @@ line, and the game carries on.
 |---|---|
 | A call into a script | 1 second in a load script, and 100 milliseconds in any other |
 | A mod's scripts' memory | 64 MiB |
-| A loose file a script reads | 32 MiB, half of that memory ([Files](#files)) |
+| A file a script reads | What the mod's scripts have left of that memory ([Files](#files)) |
+| A mod's storage | Just under 15 MiB in each place, the game's and the global ([Storage](#storage)) |
 | Drawing each frame | 4096 things and 64 KiB of text over the flight display (`hud` and `debug` together), and as much over the menus (`ui`). What's past that isn't drawn |
 | The pictures and fonts scripts draw | 128 files and 128 MiB at once, all mods together, the pictures drawn longest ago making room for new ones ([Pictures, shapes and fonts](#pictures-shapes-and-fonts)) |
 | Camera views, HUD displays and screens | About 200 together in one run of OpenReliant, counting the ones registered before a reload ([Camera views](#camera-views)) |
@@ -2515,7 +2522,9 @@ line, and the game carries on.
 | `... is an event, whose fields can't be changed` | Events can only be read |
 | `... concerns no object to filter by` | That hook only takes a function as its filter |
 | `the object is no longer in the mission` | `object:is_valid()` before using a handle kept from earlier |
-| `script timed out` | A loop that doesn't end, or does too much at once |
+| `script timed out` | A loop that doesn't end, or does too much at once. A handler that runs out of time three times in a row is removed |
+| `storage: the mod's ... sections would take more than` | The mod keeps too much: take fields out of its sections |
+| `too much data to keep` | A value that holds the same tables over and over, or too much data at once |
 | `... is not available to load scripts` | Load scripts can't use that package |
 | `object scripts can't change this object's ...` | An object's scripts can only change their own object |
 | `only plain data can be passed on` | An event's or a timer's data holds a function or something else that isn't plain data |
