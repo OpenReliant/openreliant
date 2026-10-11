@@ -63,12 +63,3 @@ pub const Presenter = struct {
         screenshots.save(gpa, picture) catch |err| log.err("the screenshot can't be saved: {s}", .{@errorName(err)});
     }
 };
-
-/// What an overlay's drawing fails with: running out of memory alone. A shape the file does not
-/// hold draws nothing, as it does in the game.
-pub fn drawn(result: anytype) Allocator.Error!void {
-    result catch |err| switch (err) {
-        error.OutOfMemory => |out| return out,
-        else => {},
-    };
-}

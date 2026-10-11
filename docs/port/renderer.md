@@ -82,7 +82,10 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
 - Once the frame that copies an image's pixels up has gone to the GPU, the device marks the image
   held (`Image.held`), and the texture table lets go of its own copy after the frame
   (`Table.releaseHeld`). Code that reads an image's pixels checks `Image.readable` first, as the
-  sun's redrawing does.
+  sun's redrawing does. An image whose pixels were let go of is never sent up again
+  (`Image.holdsPixels`, `Gpu.slotOf`): it keeps the texture it has, or draws without a texture,
+  and the log says so once. Sending it would copy whatever else lies in the transfer buffer into
+  its texture.
 - A frame goes to the GPU whatever fails as it is recorded, as SDL wants once a swapchain texture
   is acquired, so the copies it recorded still run; where the frame couldn't be put on the swapchain
   texture, that texture is cleared. The textures waiting to go up are copied all together, after
@@ -229,6 +232,10 @@ shader is OpenReliant's own, which `make shaders` compiles as before.
   a surface function has the lighting function's. The driver compiles each with the lighting
   function that draws, and again when that changes (`mod_shaders.zig`). Replacing or removing a
   variant releases its pipelines (`Gpu.removeVariant`).
+- A variant that compiled but that the GPU refuses to make a pipeline with is left out, like one
+  that doesn't compile, and the log says so (`Gpu.pipeline`). The draws that asked for that
+  pipeline use OpenReliant's own fragment shader, and later draws no longer pick the variant. A
+  variant compiled again is tried again.
 - The variants read one more uniform block (`variants.Uniforms`, set 3, binding 3): the surface
   function's parameters, which each run pushes where they change, the lighting function's, and
   the seconds passed. Runs with different parameters don't join. The `Surface` a function changes
