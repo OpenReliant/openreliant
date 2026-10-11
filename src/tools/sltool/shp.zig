@@ -188,13 +188,19 @@ fn listComponents(ctx: Context, path: []const u8) !void {
 fn chunks(ctx: Context, data: []const u8) !void {
     var reader: shp.Reader = .init(data);
     try ctx.stdout.writeAll("  offset   tag  record  count  name\n");
-    while (try reader.next()) |chunk| {
-        const offset = reader.pos - chunk.data.len - @sizeOf(shp.ChunkHeader);
+    while (reader.next()) |chunk| {
+        const offset = reader.pos - chunk.size() - @sizeOf(shp.ChunkHeader);
         try ctx.stdout.print("{x:0>8}  {x:0>4} {d:>7} {d:>6}  {f}\n", .{
             offset, @backingInt(chunk.tag), chunk.record_size, chunk.count, chunk.tag,
         });
     }
-    try ctx.stdout.print("{x:0>8}  ffff                 end\n", .{reader.pos});
+    if (reader.atTerminator()) {
+        try ctx.stdout.print("{x:0>8}  ffff                 end\n", .{reader.pos});
+    } else if (reader.pos > data.len) {
+        try ctx.stdout.print("{x:0>8}  the file ends {d} bytes short of the last chunk's records, with no terminator\n", .{ data.len, reader.pos - data.len });
+    } else {
+        try ctx.stdout.print("{x:0>8}  the file ends with no terminator\n", .{data.len});
+    }
 }
 
 fn info(ctx: Context, model: shp.Model) !void {

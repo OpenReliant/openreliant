@@ -141,8 +141,20 @@ pub const Chunk = struct {
     tag: Tag,
     record_size: u16,
     count: u16,
-    /// `count * record_size` bytes.
+    /// Its records: `count * record_size` bytes, or fewer where the file ends inside them.
     data: []const u8,
+
+    /// How many bytes its records take in the stream, whether the file holds them all or not.
+    pub fn size(chunk: Chunk) usize {
+        return @as(usize, chunk.record_size) * chunk.count;
+    }
+
+    /// What the file holds of record `index`: `record_size` bytes, or fewer where the file ends
+    /// inside it.
+    fn record(chunk: Chunk, index: usize) []const u8 {
+        const start = @min(index * chunk.record_size, chunk.data.len);
+        return chunk.data[start..][0..@min(chunk.record_size, chunk.data.len - start)];
+    }
 };
 
 /// A chunk of a tag the format does not name, kept whole. `model_load` (`0x004A44D0`) asks for no
@@ -908,10 +920,6 @@ pub const RecordSizes = struct {
 // --- reading ----------------------------------------------------------------------------------
 
 pub const Error = error{
-    /// A chunk header or its records run past the end of the file.
-    Truncated,
-    /// The stream ended without a terminator chunk.
-    NoTerminator,
     /// The stream does not begin with a header chunk.
     NotAModel,
 };
@@ -926,39 +934,46 @@ pub const Reader = struct {
         return .{ .data = data };
     }
 
-    /// Reads the chunk at `offset` without moving the cursor, or null at the terminator. As
-    /// `model_take_chunk` (`0x004A2EB0`) does, it reads the tag first and stops at the
-    /// terminator's (`0x004A2ECC`) without reading its record size and count, so the file need
+    /// Reads the chunk at `offset` without moving the cursor, or null at the terminator or the end
+    /// of the file. As `model_take_chunk` (`0x004A2EB0`) does, it reads the tag first and stops at
+    /// the terminator's (`0x004A2ECC`) without reading its record size and count, so the file need
     /// not hold them, nor the bytes they count.
-    fn at(reader: Reader, offset: usize) Error!?Chunk {
-        if (offset > reader.data.len) return error.Truncated;
-        const tag = try layout.view(Tag, reader.data[offset..]);
+    ///
+    /// **Fix:** the loader never checks a chunk against the end of the file, and reads on past it
+    /// into Surrender's memory, where the file's block keeps its name. OpenReliant stops at the end
+    /// of the file as at the terminator, and gives a chunk whose records run past it only the
+    /// bytes the file holds.
+    fn at(reader: Reader, offset: usize) ?Chunk {
+        const left = reader.data[@min(offset, reader.data.len)..];
+        const tag = layout.view(Tag, left) catch return null;
         if (tag.* == .end) return null;
-        const header = try layout.view(ChunkHeader, reader.data[offset..]);
-        const body = offset + @sizeOf(ChunkHeader);
-        const len = @as(usize, header.record_size) * header.count;
-        if (body + len > reader.data.len) return error.Truncated;
-        return .{
-            .tag = header.tag,
-            .record_size = header.record_size,
-            .count = header.count,
-            .data = reader.data[body..][0..len],
-        };
+        const header = layout.view(ChunkHeader, left) catch return null;
+        const body = left[@sizeOf(ChunkHeader)..];
+        var chunk: Chunk = .{ .tag = header.tag, .record_size = header.record_size, .count = header.count, .data = body };
+        chunk.data = body[0..@min(chunk.size(), body.len)];
+        return chunk;
     }
 
-    /// Advances to the next chunk, or null at the terminator.
-    pub fn next(reader: *Reader) Error!?Chunk {
-        const chunk = try reader.at(reader.pos) orelse return null;
-        reader.pos += @sizeOf(ChunkHeader) + chunk.data.len;
+    /// Whether the stream ends at a terminator at the cursor, rather than at the end of the file.
+    pub fn atTerminator(reader: Reader) bool {
+        const left = reader.data[@min(reader.pos, reader.data.len)..];
+        const tag = layout.view(Tag, left) catch return false;
+        return tag.* == .end;
+    }
+
+    /// Advances to the next chunk, or null at the terminator or the end of the file.
+    pub fn next(reader: *Reader) ?Chunk {
+        const chunk = reader.at(reader.pos) orelse return null;
+        reader.pos += @sizeOf(ChunkHeader) + chunk.size();
         return chunk;
     }
 
     /// Scans forward for `tag`. On a match the cursor moves past that chunk; on reaching the
-    /// terminator the cursor is left untouched and null is returned.
-    pub fn take(reader: *Reader, tag: Tag) Error!?Chunk {
+    /// terminator or the end of the file the cursor is left untouched and null is returned.
+    pub fn take(reader: *Reader, tag: Tag) ?Chunk {
         var scan = reader.pos;
-        while (try reader.at(scan)) |chunk| {
-            scan += @sizeOf(ChunkHeader) + chunk.data.len;
+        while (reader.at(scan)) |chunk| {
+            scan += @sizeOf(ChunkHeader) + chunk.size();
             if (chunk.tag == tag) {
                 reader.pos = scan;
                 return chunk;
@@ -969,26 +984,28 @@ pub const Reader = struct {
 
     /// `take`, decoded into `tag`'s records.
     pub fn takeRecords(reader: *Reader, gpa: Allocator, comptime tag: Tag) ![]Record(tag) {
-        const chunk = try reader.take(tag) orelse return gpa.alloc(Record(tag), 0);
+        const chunk = reader.take(tag) orelse return gpa.alloc(Record(tag), 0);
         return records(Record(tag), gpa, chunk);
     }
 
     /// `takeRecords`, with what each record holds past those bytes (`tails`).
     pub fn takeRecordsAndTails(reader: *Reader, gpa: Allocator, comptime tag: Tag) !struct { []Record(tag), []const []const u8 } {
-        const chunk = try reader.take(tag) orelse return .{ try gpa.alloc(Record(tag), 0), &.{} };
+        const chunk = reader.take(tag) orelse return .{ try gpa.alloc(Record(tag), 0), &.{} };
         return .{ try records(Record(tag), gpa, chunk), try tails(gpa, chunk, @sizeOf(Record(tag))) };
     }
 };
 
 /// Copies a chunk's records into `T`, exactly as the loader does: `min(record_size, @sizeOf(T))`
-/// bytes each, with anything the file does not carry left zeroed.
+/// bytes each, with anything the file does not carry left zeroed, the bytes past its end among
+/// them (`Reader.at`).
 pub fn records(comptime T: type, gpa: Allocator, chunk: Chunk) Allocator.Error![]T {
     const out = try gpa.alloc(T, chunk.count);
     @memset(std.mem.sliceAsBytes(out), 0);
 
-    const copy = @min(@as(usize, chunk.record_size), @sizeOf(T));
     for (out, 0..) |*record, i| {
-        @memcpy(std.mem.asBytes(record)[0..copy], chunk.data[i * chunk.record_size ..][0..copy]);
+        const held = chunk.record(i);
+        const copy = @min(held.len, @sizeOf(T));
+        @memcpy(std.mem.asBytes(record)[0..copy], held[0..copy]);
     }
     return out;
 }
@@ -999,10 +1016,13 @@ fn tails(gpa: Allocator, chunk: Chunk, kept: usize) Allocator.Error![]const []co
     if (chunk.record_size <= kept) return &.{};
     const size = chunk.record_size - kept;
     const bytes = try gpa.alloc(u8, @as(usize, chunk.count) * size);
+    @memset(bytes, 0);
     const out = try gpa.alloc([]const u8, chunk.count);
     for (out, 0..) |*tail, i| {
         const into = bytes[i * size ..][0..size];
-        @memcpy(into, chunk.data[i * chunk.record_size + kept ..][0..size]);
+        const in_file = chunk.record(i);
+        const held = in_file[@min(kept, in_file.len)..];
+        @memcpy(into[0..held.len], held);
         tail.* = into;
     }
     return out;
@@ -1155,18 +1175,22 @@ pub const Model = struct {
         const firing_arcs = try reader.takeRecords(gpa, .firing_arc);
 
         // The size of each tag's records, the chunks of tags the format does not name, and the
-        // terminator, which should be the last thing in the file.
+        // terminator, which should be the last thing in the file. An unnamed chunk the file ends
+        // inside is kept with zeros past the end, as `Reader.at` reads it.
         var record_sizes: RecordSizes = .none;
         var unnamed: std.ArrayList(UnnamedChunk) = .empty;
         var named: usize = 0;
         var scan: Reader = .init(data);
-        while (try scan.next()) |chunk| {
+        while (scan.next()) |chunk| {
             if (chunk.tag.isNamed()) {
                 record_sizes.note(chunk.tag, chunk.record_size);
                 named += 1;
             } else {
+                const whole = try gpa.alloc(u8, chunk.size());
+                @memset(whole, 0);
+                @memcpy(whole[0..chunk.data.len], chunk.data);
                 var kept = chunk;
-                kept.data = try gpa.dupe(u8, chunk.data);
+                kept.data = whole;
                 try unnamed.append(gpa, .{ .after = named, .chunk = kept });
             }
         }
@@ -1323,7 +1347,7 @@ const ChunkWriter = struct {
         while (chunks.unnamed.len > 0 and (all or chunks.unnamed[0].after <= chunks.written)) {
             const chunk = chunks.unnamed[0].chunk;
             if (chunk.tag.isNamed()) return error.NamedTag;
-            if (chunk.data.len != @as(usize, chunk.record_size) * chunk.count) return error.UnevenChunk;
+            if (chunk.data.len != chunk.size()) return error.UnevenChunk;
             try chunks.out.writeAll(std.mem.asBytes(&ChunkHeader{ .tag = chunk.tag, .record_size = chunk.record_size, .count = chunk.count }));
             try chunks.out.writeAll(chunk.data);
             chunks.unnamed = chunks.unnamed[1..];
@@ -1565,7 +1589,7 @@ test "the bytes of an attachment's record past those the engine keeps come back 
     try model.write(&file.writer);
     const data = file.written();
     var reader: Reader = .init(data);
-    const chunk = (try reader.take(.attachment)).?;
+    const chunk = reader.take(.attachment).?;
     // The chunk's records end where the reader now stands.
     const record = reader.pos - chunk.data.len;
     for (data[record + @sizeOf(Attachment) ..][0 .. 168 - @sizeOf(Attachment)], 0..) |*byte, i| byte.* = @intCast(i + 1);
@@ -1615,7 +1639,7 @@ test "chunks of a tag the format does not name come back where they were" {
     // One such chunk after the part's record, which the loader passes over, and one before the
     // terminator.
     var reader: Reader = .init(data);
-    _ = try reader.take(.part);
+    _ = reader.take(.part);
     const after_part = reader.pos;
     const before_end = data.len - @sizeOf(ChunkHeader);
     const first = [_]u8{ 0x05, 0x00, 0x04, 0x00, 0x02, 0x00, 1, 2, 3, 4, 5, 6, 7, 8 };
@@ -1764,27 +1788,48 @@ test "a missing chunk does not move the cursor" {
     var reader: Reader = .init(data);
     // Nothing in this stream carries trigger polygons, so the search must fail without consuming
     // the header chunk that follows the cursor.
-    try std.testing.expectEqual(@as(?Chunk, null), try reader.take(.trigger_polygon));
+    try std.testing.expectEqual(@as(?Chunk, null), reader.take(.trigger_polygon));
     try std.testing.expectEqual(@as(usize, 0), reader.pos);
 
-    const header = (try reader.take(.header)).?;
+    const header = reader.take(.header).?;
     try std.testing.expectEqual(@as(u16, 1), header.count);
     try std.testing.expect(reader.pos > 0);
 }
 
-test "truncated streams are rejected" {
+test "a file that ends early ends the stream, and reads as zero past its end" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
     var buffer: [1024]u8 = undefined;
     const data = buildTestModel(&buffer);
+    // The model's last chunk is its firing arcs, one record, here with its last two rows set.
+    const arcs_end = data.len - @sizeOf(ChunkHeader);
+    @memset(data[arcs_end - 4 .. arcs_end], 0xFF);
+    const whole = try Model.parse(arena, data);
+    try std.testing.expectEqual(0xFFFF, whole.firing_arcs[0].rows[31]);
 
-    var short: Reader = .init(data[0 .. data.len - 8]);
-    try std.testing.expectError(error.Truncated, short.take(.end));
+    // Cut 4 bytes into the arc, as the French release's `krasny.shp` is: the rest reads as before,
+    // and the last two rows as zero, where the original reads on into the block's name.
+    const cut = try Model.parse(arena, data[0 .. arcs_end - 4]);
+    try std.testing.expectEqualDeep(whole.parts, cut.parts);
+    try std.testing.expectEqualSlices(u16, whole.firing_arcs[0].rows[0..30], cut.firing_arcs[0].rows[0..30]);
+    try std.testing.expectEqual(0, cut.firing_arcs[0].rows[30]);
+    try std.testing.expectEqual(0, cut.firing_arcs[0].rows[31]);
 
+    // The end of the file ends the stream wherever it falls: before a chunk, or inside a header.
     var empty: Reader = .init(&.{});
-    try std.testing.expectError(error.Truncated, empty.next());
-
-    // The terminator needs its tag's two bytes.
-    var half: Reader = .init(data[0 .. data.len - @sizeOf(ChunkHeader) + 1]);
-    try std.testing.expectError(error.Truncated, half.take(.end));
+    try std.testing.expectEqual(null, empty.next());
+    var no_terminator: Reader = .init(data[0..arcs_end]);
+    try std.testing.expectEqual(null, no_terminator.take(.end));
+    var half_tag: Reader = .init(data[0 .. arcs_end + 1]);
+    try std.testing.expectEqual(null, half_tag.take(.end));
+    // Only a whole tag is a terminator.
+    half_tag.pos = arcs_end;
+    try std.testing.expect(!half_tag.atTerminator());
+    var whole_tag: Reader = .init(data[0 .. arcs_end + @sizeOf(Tag)]);
+    whole_tag.pos = arcs_end;
+    try std.testing.expect(whole_tag.atTerminator());
 }
 
 test "the terminator ends a model at its tag, whatever it counts" {
