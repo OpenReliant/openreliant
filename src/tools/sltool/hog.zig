@@ -185,7 +185,7 @@ fn pack(ctx: Context, dir_path: []const u8, path: []const u8, flags: Command.Pac
     while (try entries.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!hog.validName(entry.name)) {
-            std.debug.print("{s}: a member's name is printable ASCII\n", .{entry.name});
+            std.debug.print("{s}: a member's name is a plain file name in printable ASCII\n", .{entry.name});
             return error.BadName;
         }
         try names.append(ctx.arena, try ctx.arena.dupe(u8, entry.name));

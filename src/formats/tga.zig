@@ -59,6 +59,9 @@ pub const Packet = packed struct(u8) {
     pub fn run(packet: Packet) usize {
         return @as(usize, packet.count) + 1;
     }
+
+    /// The most pixels a packet stands for.
+    pub const longest = std.math.maxInt(u7) + 1;
 };
 
 pub const Descriptor = packed struct(u8) {
@@ -151,7 +154,13 @@ pub fn decode(gpa: Allocator, bytes: []const u8) (Error || Allocator.Error)!Imag
 
     var at = header.colorMapOffset();
     if (header.color_map_type == .present) at += @as(usize, header.color_map_length) * @divCeil(@as(usize, header.color_map_entry_bits), 8);
+    if (at > bytes.len) return error.Truncated;
     const count = @as(usize, header.width) * header.height;
+    // The pixels come from the data alone: data that can't hold them is refused before they are
+    // made. A run-length packet, a byte and a pixel at the least, gives at most `Packet.longest`.
+    const room = bytes.len - at;
+    const most = if (encoded) room / (@sizeOf(Packet) + bytes_per_pixel) * Packet.longest else room / bytes_per_pixel;
+    if (count > most) return error.Truncated;
     const rgb = try gpa.alloc(u8, count * 3);
     errdefer gpa.free(rgb);
 
@@ -281,6 +290,19 @@ test decode {
     try std.testing.expectEqual([3]u8{ 0, 255, 0 }, encoded.pixel(1, 1));
 
     try std.testing.expectError(error.Truncated, decode(gpa, rle[0 .. rle.len - 1]));
+    // A header that asks for 65535 by 65535 pixels over a few bytes, uncompressed or run-length
+    // encoded, is refused before the pixels are made, as is a colour map past the file's end.
+    var huge = plain;
+    @memset(huge[12..16], 0xFF);
+    try std.testing.expectError(error.Truncated, decode(gpa, &huge));
+    var huge_rle = rle;
+    @memset(huge_rle[12..16], 0xFF);
+    try std.testing.expectError(error.Truncated, decode(gpa, &huge_rle));
+    var mapped_past = plain;
+    mapped_past[1] = 1;
+    std.mem.writeInt(u16, mapped_past[5..7], 0xFFFF, .little);
+    mapped_past[7] = 24;
+    try std.testing.expectError(error.Truncated, decode(gpa, &mapped_past));
     var mapped: [1024]u8 = undefined;
     const indexed = try decode(gpa, try testImage(&mapped, ""));
     defer indexed.deinit(gpa);
