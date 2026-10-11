@@ -38,6 +38,12 @@ pub const Level = struct {
     pub const Format = texels.Format;
     pub const blocks = texels.blocks;
     pub const block_side = texels.block_side;
+
+    /// Whether it holds its pixels: the bytes its size and format take. It has none once they
+    /// were let go of (`Image.releasePixels`).
+    pub fn holdsPixels(level: Level) bool {
+        return level.texels.len == level.format.size(level.width, level.height);
+    }
 };
 
 /// A level of 8-bit or 16-bit RGBA, as pictures are read and mipmapped: the only formats that
@@ -188,7 +194,7 @@ pub const Image = struct {
     /// nor let go of once the device held them (`Table.releaseHeld`).
     pub fn readable(image: Image) bool {
         const finest = image.levels[0];
-        return finest.format == .rgba8 and finest.texels.len == finest.format.size(finest.width, finest.height);
+        return finest.format == .rgba8 and finest.holdsPixels();
     }
 
     pub fn width(image: Image) u32 {
@@ -254,6 +260,16 @@ pub const Image = struct {
     pub fn destroy(image: *Image, gpa: Allocator) void {
         image.deinit(gpa);
         gpa.destroy(image);
+    }
+
+    /// OpenReliant's: whether every level of it and of its maps holds its pixels
+    /// (`Level.holdsPixels`), which a device needs to send them up.
+    pub fn holdsPixels(image: Image) bool {
+        for (image.levels) |level| if (!level.holdsPixels()) return false;
+        for (image.maps.list()) |map| if (map) |levels| for (levels) |level| {
+            if (!level.holdsPixels()) return false;
+        };
+        return true;
     }
 
     /// OpenReliant's: lets go of its pixels and its maps', keeping their sizes, once the device
@@ -914,6 +930,26 @@ test "Image.single" {
     try std.testing.expectEqual(1, image.levels.len);
     try std.testing.expectEqual(2, image.width());
     try std.testing.expectEqual(1, image.height());
+}
+
+test "Image.holdsPixels" {
+    const gpa = std.testing.allocator;
+    var image = try Image.single(gpa, 2, 2, try gpa.dupe(u8, &@as([16]u8, @splat(0xFF))));
+    defer image.deinit(gpa);
+    try std.testing.expect(image.holdsPixels());
+    // Once its pixels are let go of, its levels keep their sizes with none.
+    image.releasePixels(gpa);
+    try std.testing.expect(!image.holdsPixels());
+    try std.testing.expectEqual(2, image.levels[0].width);
+    // Neither does a level with fewer bytes than its size takes.
+    var short: [12]u8 = @splat(0);
+    try std.testing.expect(!(Level{ .width = 2, .height = 2, .texels = &short }).holdsPixels());
+    // Nor an image whose map has let go of its pixels.
+    var whole: [16]u8 = @splat(0);
+    var levels = [_]Level{.{ .width = 2, .height = 2, .texels = &whole }};
+    var released = [_]Level{.{ .width = 2, .height = 2, .texels = &.{} }};
+    const mapped: Image = .{ .levels = &levels, .maps = .{ .normal = &released } };
+    try std.testing.expect(!mapped.holdsPixels());
 }
 
 test "images sample bilinearly and wrap" {

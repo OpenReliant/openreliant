@@ -500,6 +500,9 @@ pub const Gpu = struct {
     brightness: f32 = 1,
     gamma_failed: bool = false,
     pipelines: std.AutoHashMapUnmanaged(PipelineKey, *c.SDL_GPUGraphicsPipeline) = .empty,
+    /// Whether the log has said that an image whose pixels were let go of was drawn again
+    /// (`warnReleased`).
+    warned_released: bool = false,
     arrays: std.ArrayList(Array) = .empty,
     /// The textures placed and changed that wait to go up to the GPU, oldest first.
     uploads: std.ArrayList(Upload) = .empty,
@@ -1085,15 +1088,23 @@ pub const Gpu = struct {
     }
 
     /// Where an image's texture lies, placing it the first time, and sending its pixels up again
-    /// into the same layer when they have changed.
+    /// into the same layer when they have changed. An image whose pixels were let go of
+    /// (`srtexture.Image.releasePixels`) is never sent up again: it keeps the texture it has, or
+    /// draws without a texture if it has none (`warnReleased`).
     fn slotOf(gpu: *Gpu, image: *srtexture.Image) Error!?Slot {
         if (image.levels.len == 0) return null;
         if (Slot.of(image.*)) |slot| {
             if (image.changed) {
-                try gpu.queue(.{ .levels = image.levels, .maps = image.maps, .slot = slot, .image = image });
+                if (image.holdsPixels()) {
+                    try gpu.queue(.{ .levels = image.levels, .maps = image.maps, .slot = slot, .image = image });
+                } else gpu.warnReleased(image);
                 image.changed = false;
             }
             return slot;
+        }
+        if (!image.holdsPixels()) {
+            gpu.warnReleased(image);
+            return null;
         }
         // An image compressed in a format the GPU doesn't take draws without its texture. The
         // texture table compresses only to formats the GPU takes (`takes`).
@@ -1102,6 +1113,14 @@ pub const Gpu = struct {
         image.texture = .{ .handle = slot.asHandle(), .holder = gpu.holder() };
         image.changed = false;
         return slot;
+    }
+
+    /// Says in the log, the first time, that an image whose pixels were let go of is drawn again
+    /// (`slotOf`).
+    fn warnReleased(gpu: *Gpu, image: *const srtexture.Image) void {
+        if (gpu.warned_released) return;
+        gpu.warned_released = true;
+        log.warn("a {d}x{d} texture is drawn again after its pixels were let go of, so it isn't sent up again", .{ image.width(), image.height() });
     }
 
     /// Queues `item`, in place of one for the same layer that still waits, which it supersedes:
@@ -1736,7 +1755,8 @@ pub const Gpu = struct {
 
     /// The pipeline for a topology and render states, made the first time it is needed: depth
     /// tested greater or equal, as the driver's reversed depth has it, and written as the state
-    /// says; blended by the driver's factors, or not at all.
+    /// says; blended by the driver's factors, or not at all. A mod's variant that the GPU refuses
+    /// to draw with is left out, and the pipeline uses OpenReliant's own shader.
     fn pipeline(gpu: *Gpu, key: PipelineKey) Error!*c.SDL_GPUGraphicsPipeline {
         if (gpu.pipelines.get(key)) |found| return found;
         try gpu.pipelines.ensureUnusedCapacity(gpu.gpa, 1);
@@ -1795,7 +1815,16 @@ pub const Gpu = struct {
             // to go with it.
             .has_depth_stencil_target = key.into == .scene,
         };
-        const made = c.SDL_CreateGPUGraphicsPipeline(gpu.handle, &info) orelse return fail("SDL_CreateGPUGraphicsPipeline");
+        const made = c.SDL_CreateGPUGraphicsPipeline(gpu.handle, &info) orelse own: {
+            // The GPU can refuse a mod's variant even though it compiled. The variant is then left
+            // out, like one that doesn't compile, and its draws look as if it had none: these draw
+            // with OpenReliant's own shader, and later ones no longer pick it (`Variants.pick`).
+            const refused = gpu.mod_shaders.shaders.fetchRemove(key.variant) orelse return fail("SDL_CreateGPUGraphicsPipeline");
+            log.warn("a mod's surface or lighting function is left out: the GPU can't draw with it: {s}", .{c.SDL_GetError()});
+            c.SDL_ReleaseGPUShader(gpu.handle, refused.value);
+            info.fragment_shader = gpu.fragment_shader;
+            break :own c.SDL_CreateGPUGraphicsPipeline(gpu.handle, &info) orelse return fail("SDL_CreateGPUGraphicsPipeline");
+        };
         gpu.pipelines.putAssumeCapacity(key, made);
         return made;
     }
@@ -2014,6 +2043,8 @@ test Packing {
 /// `packing` places them, into layer `layer` of `texture`.
 fn uploadLevels(copy: *c.SDL_GPUCopyPass, transfer: *c.SDL_GPUTransferBuffer, mapped: [*]u8, packing: *Packing, texture: *c.SDL_GPUTexture, layer: u16, levels: []const srtexture.Level) void {
     for (levels, 0..) |level, index| {
+        // An image whose pixels were let go of isn't queued (`Gpu.slotOf`).
+        std.debug.assert(level.holdsPixels());
         const at = packing.place(level.texels.len);
         @memcpy(mapped[at..][0..level.texels.len], level.texels);
         // A compressed level's rows are whole blocks, though the level may be smaller than one.
@@ -2240,6 +2271,28 @@ test "uploads are done, and their images held, only once their frame has gone to
     try gpu.queue(.{ .levels = &changed, .slot = .{ .array = 0, .layer = 1 }, .image = &second });
     try std.testing.expectEqual(1, gpu.uploads.items.len);
     try std.testing.expectEqual(@as([*]const srtexture.Level, &changed), gpu.uploads.items[0].levels.ptr);
+}
+
+test "an image whose pixels were let go of isn't sent up again" {
+    const gpa = std.testing.allocator;
+    var gpu: Gpu = undefined;
+    gpu.gpa = gpa;
+    gpu.uploads = .empty;
+    gpu.warned_released = false;
+    defer gpu.uploads.deinit(gpa);
+    // An image the GPU took, whose pixels were then let go of, marked changed: it keeps its
+    // texture, and nothing goes up.
+    var released = [1]srtexture.Level{.{ .width = 4, .height = 4, .texels = &.{} }};
+    var image: srtexture.Image = .{ .levels = &released, .changed = true };
+    const slot: Slot = .{ .array = 0, .layer = 2 };
+    image.texture = .{ .handle = slot.asHandle(), .holder = gpu.holder() };
+    try std.testing.expectEqual(slot, (try gpu.slotOf(&image)).?);
+    try std.testing.expectEqual(0, gpu.uploads.items.len);
+    try std.testing.expect(!image.changed and gpu.warned_released);
+    // With its texture handed back, it draws without one.
+    image.texture = null;
+    try std.testing.expectEqual(null, try gpu.slotOf(&image));
+    try std.testing.expectEqual(0, gpu.uploads.items.len);
 }
 
 test grownCapacity {
