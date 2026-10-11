@@ -692,7 +692,11 @@ pub const Art = struct {
             .drawn => try gpa.alloc(bool, count),
         };
         defer if (drawn) |marks| gpa.free(marks);
-        try found.decodeInto(indices, drawn);
+        // The sprite reader takes a block as a shape only once all its rows decode
+        // (`spr.Block.classify`), so this can't fail. A shape whose rows run out early isn't one,
+        // and draws nothing, which the log doesn't say yet
+        // ([#1079](https://github.com/OpenReliant/openreliant/issues/1079)).
+        found.decodeInto(indices, drawn) catch return null;
         const rgba = try gpa.alloc(u8, count * 4);
         errdefer gpa.free(rgba);
         for (indices, 0..) |at, pixel| {
@@ -717,8 +721,9 @@ pub const Art = struct {
     }
 };
 
-/// What drawing the display can fail with: a shape its sprite file can't give, and memory.
-pub const Error = spr.Error || Allocator.Error;
+/// What drawing the display can fail with: only running out of memory, since a shape that can't be
+/// drawn draws nothing (`Art.image`).
+pub const Error = Allocator.Error;
 
 /// Draws the shape at `index` with its anchor at `at`, `scale` times its own size. A shape's
 /// bounds are in a frame whose origin is that anchor, so they say where it hangs from the point. A
@@ -4737,6 +4742,24 @@ test Charge {
     var absent: Charge = .{ .setting = .absent, .ticks = 5 };
     try std.testing.expect(!absent.run(.ecm, 100));
     try std.testing.expectEqual(5, absent.ticks);
+}
+
+test "a shape whose rows run out early draws nothing, without an error" {
+    const gpa = std.testing.allocator;
+    const file = try spr.testing.paletteAndShape(gpa);
+    defer gpa.free(file);
+    // The shape's last row is cut short, as in a broken set from a mod.
+    var art: Art = try .init(gpa, try .parse(file[0 .. file.len - 2]), null, null);
+    defer art.deinit(gpa);
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    for (0..2) |_| try drawShape(&art, gpa, recorder.interface(), 1, .{ 10, 10 }, untinted, 1);
+    try std.testing.expectEqual(0, recorder.draws.items.len);
+    // The same shape, whole, draws.
+    var good: Art = try .init(gpa, try .parse(file), null, null);
+    defer good.deinit(gpa);
+    try drawShape(&good, gpa, recorder.interface(), 1, .{ 10, 10 }, untinted, 1);
+    try std.testing.expectEqual(1, recorder.draws.items.len);
 }
 
 test "drawLights notes the lights it lights" {

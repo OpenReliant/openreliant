@@ -24,7 +24,8 @@ pub const size: [2]u32 = hud.original_screen;
 /// The whole of the front end's screen.
 pub const whole_screen: Rect = .{ .x = 0, .y = 0, .width = size[0], .height = size[1] };
 
-pub const Error = spr.Error || Allocator.Error;
+/// What drawing a screen can fail with: the same as drawing the display (`hud.Error`).
+pub const Error = hud.Error;
 
 /// The colours the front end ramps its text through (`interface_palette_ramp`, `0x004287C0`),
 /// from a `0xRRGGBB` value: the main menu's labels and the dialogs, a panel's labels under the

@@ -47,7 +47,6 @@ const Presenter = presenting.Presenter;
 pub const ModShaders = @import("mod_shaders.zig").ModShaders;
 pub const whole_shaders = @import("whole_shaders.zig");
 const WholeShaders = whole_shaders.Loaded;
-const drawn = presenting.drawn;
 pub const Rooms = @import("rooms.zig").Driver;
 const RoomsEnd = @import("rooms.zig").End;
 pub const test_keys = @import("test_keys.zig");
@@ -2026,10 +2025,10 @@ const FrontEndDisplay = struct {
 
     fn draw(context: *anyopaque) Allocator.Error!void {
         const shown: *FrontEndDisplay = @ptrCast(@alignCast(context));
-        try drawn(shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.settings, version.string));
+        try shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.settings, version.string);
         if (shown.presentation) |scripts| try scripts.draw(.ui, shown.target, null);
         // The pointer over a mod's screen that stands in for the front end's own.
-        try drawn(shown.front.drawPointer(shown.resources, shown.target, shown.window, shown.strings));
+        try shown.front.drawPointer(shown.resources, shown.target, shown.window, shown.strings);
         if (shown.console) |console| try console.draw(shown.target, shown.window, shown.strings, .menus);
     }
 };
@@ -2328,7 +2327,7 @@ const Display = struct {
 
     fn draw(context: *anyopaque) Allocator.Error!void {
         const display: *Display = @ptrCast(@alignCast(context));
-        return drawn(display.drawOverlay());
+        return display.drawOverlay();
     }
 
     /// What Surrender's overlay slot (`sr + 0x88`) holds: the pause menu while paused

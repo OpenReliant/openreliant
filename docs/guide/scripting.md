@@ -2355,7 +2355,8 @@ float lighting(float cosine, vec4 parameters) {
   the light falling on them, not their highlights.
 - Give helper functions names unique to your mod. The lighting function and a surface function can
   come from different mods, and they are compiled into one shader. If they don't compile together,
-  the log says so, and that surface function's surfaces draw without it.
+  or the GPU can't draw with them, the log says so, and that surface function's surfaces draw
+  without it.
 - Each registration compiles the function on its own, and a mistake in it is an error in the
   script, with the file and the line. Compiled variants are kept in the shader cache.
 - `enabled = false` registers a function turned off.

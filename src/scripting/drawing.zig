@@ -420,12 +420,7 @@ pub const Layer = struct {
                 .bottom = @max(rectangle.from[1], rectangle.to[1]),
             }, rectangle.colour),
             .picture => |picture| hud.drawImageOver(into, picture.image, .{ .left = picture.at[0], .top = picture.at[1], .right = picture.at[0] + picture.size[0], .bottom = picture.at[1] + picture.size[1] }, picture.colour),
-            .shape => |shape| if (view.art) |art| {
-                hud.drawShape(art, view.gpa, into, shape.index, .{ hud.round(shape.at[0]), hud.round(shape.at[1]) }, shape.colour, shape.scale * view.scale) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    else => {},
-                };
-            },
+            .shape => |shape| if (view.art) |art| try hud.drawShape(art, view.gpa, into, shape.index, .{ hud.round(shape.at[0]), hud.round(shape.at[1]) }, shape.colour, shape.scale * view.scale),
             .power_ball => |ball| if (view.power_ball) |drawn| {
                 // Every ball a frame draws turns with the same setting.
                 drawn.render(ball.setting, 0, null);
