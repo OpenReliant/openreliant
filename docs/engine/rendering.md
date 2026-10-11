@@ -294,15 +294,20 @@ walks its nodes from the root (`0x00459090`), clearing or setting the renderer o
 The static lights go out and come back with the rest. Mission 4 lights its two satellites so
 (`Stork1Sat1`, `Stork1Sat2`).
 
-**Improvement:** OpenReliant leaves the steady lights out of the bake, and makes each one shine as
-a real light, like a blinking light (`objects.Model.Light.cast`): in the colour the bake gives it
-(none past red), with the same reach and falloff. It lights every pixel of a hull smoothly, on
-moving parts as well as fixed ones, and lights whatever stands nearby, other ships as well as both
-classes of its own model's parts. The GPU device lights each pixel with the 64 lights nearest the
-camera, and the pipeline lights the vertices with any others. Steady lights keep their own reach:
-the longer reach and the thrown-back light of the launch hangar's beacons apply to blinking lights
-only ([Launches](launch.md#in-openreliant)). `--original`, `--baked-lights` and the REAL LIGHTS
-setting bake them as the original does (`srofiles.Settings.real_lights`).
+**Improvement:** OpenReliant leaves the steady lights out of the bake and casts each one as a real
+light, like a blinking light (`objects.Model.Light.cast`), in the colour the bake gives it (none
+past red) and with the same reach and falloff. It lights each pixel of a hull smoothly, on moving
+parts as well as fixed ones, and it also lights nearby objects: other ships, and both classes of its
+own model's parts. The GPU device lights each pixel with the 64 lights nearest the camera, and the
+pipeline lights the vertices with any others. A light that reaches past every vertex of the parts of
+its own class stays baked (`srofiles.reachesPastModel`). In the original, a steady light only lights
+its own model, so how far it reaches beyond the model makes no difference, and some lights reach
+very far: the grazer satellite's yellow light has a brightness of 800 and a range of 1000, so it
+reaches 800,000 units, and as a real light it would light everything within about 770,000 units at
+full strength. Steady lights keep their own reach: the longer reach and the thrown-back light of the
+launch hangar's beacons apply to blinking lights only ([Launches](launch.md#in-openreliant)).
+`--original`, `--baked-lights` and the REAL LIGHTS setting bake them all, as the original does
+(`srofiles.Settings.real_lights`).
 
 `mesh_light` takes an object's own colours (flag `0x80000`) in place of its mesh's baked colours, so
 a model that can cloak, whose parts have colours of their own for the [cloak](cloak.md), never shows
