@@ -178,16 +178,26 @@ fn firstToTry(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.lessThan(u8, a, b);
 }
 
-/// A release whose disc 1 the installer knows.
+/// A release whose disc 1 the installer knows, by its fingerprint: the size of the disc's cabinet,
+/// which tells the releases apart.
 const Release = struct {
     name: []const u8,
-    /// The size of the disc's cabinet, which tells the releases apart.
     cabinet_size: u64,
 };
 
+/// The releases the installer knows, which the installation guide lists too
+/// (`docs/guide/installation.md`, "Releases").
 const releases = [_]Release{
     .{ .name = "the North American release", .cabinet_size = 226_746_308 },
+    .{ .name = "the French release", .cabinet_size = 222_899_028 },
 };
+
+comptime {
+    // Each release has a fingerprint of its own.
+    for (releases, 0..) |release, i| {
+        for (releases[0..i]) |before| std.debug.assert(before.cabinet_size != release.cabinet_size);
+    }
+}
 
 /// Where to report a release the installer doesn't know.
 const issues_url = "https://github.com/OpenReliant/openreliant/issues";

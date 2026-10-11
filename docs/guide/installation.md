@@ -53,15 +53,24 @@ If you have disc images or folders with the discs' files, name them with `--from
 ./openreliant install --from "StarLancer Disc 1.bin" --from "StarLancer Disc 2.bin" StarLancer
 ```
 
-#### Other releases
+#### Releases
 
-If the installer says it does not recognize your disc (for example, from a regional release), add `--force` to install from it anyway:
+The installer knows a release by the size of disc 1's `LANCER.CAB`, and says which one it is as it installs:
+
+| Release | Size of `LANCER.CAB` |
+|---|---|
+| North American | 226,746,308 bytes |
+| French | 222,899,028 bytes |
+
+A French copy plays in French: its text, its voices and its movies.
+
+If the installer doesn't recognize your disc because it's from another release, add `--force` to install from it anyway:
 
 ```bash
 ./openreliant install --force StarLancer
 ```
 
-Please also open an issue on GitHub stating which release you have and the size the installer gives for `LANCER.CAB`, so support can be added.
+Please also open an issue on GitHub saying which release you have and the size the installer gives for `LANCER.CAB`, so it can be added to the list.
 
 ### 4. Launch the game
 
