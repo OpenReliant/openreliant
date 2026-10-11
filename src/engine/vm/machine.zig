@@ -28,6 +28,7 @@ const executor = @import("../game/executor.zig");
 const hooks = @import("../hooks.zig");
 const mission = @import("../game/mission.zig");
 const bind = mission.bind;
+const SquadPath = bind.Mission.SquadPath;
 const aigeneric = @import("../game/aigeneric.zig");
 const create = @import("../game/create.zig");
 const gameobj = @import("../game/gameobj.zig");
@@ -136,9 +137,13 @@ pub const Fault = error{
     NoStore,
     /// An integer division by zero.
     DivisionByZero,
-    /// Squads that hold one another round in a circle.
-    SquadCycle,
+    /// The thread ran `most_steps` opcodes in one run without waiting, which would hang the game.
+    RunsTooLong,
 };
+
+/// The most opcodes a thread runs in one run (`Machine.run`), far more than a run of a shipped
+/// mission takes.
+pub const most_steps: usize = 1_000_000;
 
 /// A thread as OpenReliant runs it: the game's record, with the places the game keeps in it as
 /// pointers kept beside it.
@@ -755,32 +760,35 @@ pub const Machine = struct {
         machine.walk_first = null;
         machine.walk_count = 0;
         const rest: Call = .{ .machine = machine, .thread = call.thread, .args = call.args[1..] };
-        machine.walkEntity(rest, game, call.args[0], each, 0) catch |fault| {
+        machine.walkEntity(rest, game, call.args[0], each) catch |fault| {
             log.warn("a command's ships are walked no further: {s}", .{@errorName(fault)});
         };
     }
 
-    /// `for_each_ship`'s walk (`for_each_ship_walk`, `0x0045D480`) of `entity`, `depth` squads
-    /// down, in `game`. A squad's members run from the first its record at `entity` names
-    /// (`bind.Mission.squadMembersFrom`).
-    ///
-    /// **Fix:** the game walks a squad that holds itself round for ever, and walks a member of the
-    /// object table no record stands for from address zero; OpenReliant stops once the walk has
-    /// gone down more squads than the mission has, and passes over the member.
-    fn walkEntity(machine: *Machine, call: Call, game: aigeneric.Context, entity: u32, each: ShipImplementation, depth: usize) Fault!void {
+    /// `for_each_ship`'s walk (`for_each_ship_walk`, `0x0045D480`) of `entity`, in `game`: a ship,
+    /// a flight group's ships, or a squad's members (`walkSquad`).
+    fn walkEntity(machine: *Machine, call: Call, game: aigeneric.Context, entity: u32, each: ShipImplementation) Fault!void {
         if (entity == bind.Mission.no_place) return;
         if (machine.mission.holds(.ships, entity)) return machine.walkShip(call, game, entity, each);
         if (machine.mission.holds(.flight_groups, entity)) return machine.walkGroup(call, game, try machine.groupAt(entity), each);
         if (!machine.mission.holds(.squads, entity)) return;
-        const squads = try machine.mission.recordsIn(dte.Squad, .squads);
-        if (depth > squads.len) return error.SquadCycle;
+        var walk: SquadPath.Walk = .{};
+        return machine.walkSquad(call, game, entity, each, &walk.start(machine.mission.squadIndex(entity) orelse bind.Mission.no_record));
+    }
+
+    /// `for_each_ship_walk`'s walk of the squad at `place`, which `path` stands in. Its members run
+    /// from the first its record at `place` names (`bind.Mission.squadMembersFrom`), and the walk
+    /// goes down into a squad among them where the path goes into it (`SquadPath.into`).
+    ///
+    /// **Fix:** the game walks a member of the object table no record stands for from address zero;
+    /// OpenReliant passes over the member.
+    fn walkSquad(machine: *Machine, call: Call, game: aigeneric.Context, place: u32, each: ShipImplementation, path: *const SquadPath) Fault!void {
         // The game takes a squad whose first member's low byte is `no_member_low` for one with
         // none.
-        const first_member = entity + @offsetOf(dte.Squad, "first_member");
+        const first_member = place + @offsetOf(dte.Squad, "first_member");
         if (try machine.mission.byte(first_member) == no_member_low) return;
-        const own = machine.mission.squadIndex(entity) orelse bind.Mission.no_record;
         const first = try machine.mission.halfword(first_member);
-        var members = machine.mission.squadMembersFrom(own, first);
+        var members = machine.mission.squadMembersFrom(path.squad, first);
         while (members.next()) |member| switch (member) {
             .ship => |ship| {
                 if (ship.component) |component| machine.tags.add(component, machine.threads[call.thread].top);
@@ -788,7 +796,7 @@ pub const Machine = struct {
                 if (ship.component != null) machine.tags.pop();
             },
             .flight_group => |group| try machine.walkGroup(call, game, group, each),
-            .squad => |inner| try machine.walkEntity(call, game, machine.mission.recordPlace(.squads, inner), each, depth + 1),
+            .squad => |inner| if (path.into(inner)) |deeper| try machine.walkSquad(call, game, machine.mission.recordPlace(.squads, inner), each, &deeper),
         };
     }
 
@@ -835,6 +843,12 @@ pub const Machine = struct {
     /// until a handler returns zero. True once the thread has finished, which a `return` at call
     /// depth zero does.
     ///
+    /// **Improvement:** jumps only go forward and calls nest only as deep as the thread's stack
+    /// holds, but a part can call another many times, which calls another many times, and so on.
+    /// Such a script runs for ages without waiting, and the game hangs. OpenReliant stops a run
+    /// after `most_steps` opcodes, as it stops a thread that faults: the log says where, the
+    /// script ends, and the game goes on.
+    ///
     /// Before each opcode, the editor link may stop the thread (`stopsBefore`): the script is held,
     /// the editor told where, and the thread stays at that byte. A run that ends as its thread
     /// yields while the editor steps through or over statements releases the hold again
@@ -843,13 +857,15 @@ pub const Machine = struct {
     fn run(machine: *Machine, index: u8) bool {
         if (machine.stopped == index) machine.stopped = null;
         var previous: u32 = 1;
-        while (previous != 0) {
+        var steps: usize = 0;
+        while (previous != 0) : (steps += 1) {
             if (machine.stopsBefore(index)) |offset| {
                 machine.stopped = index;
                 machine.editor.stop(offset);
                 return machine.runEnds(index);
             }
-            previous = machine.step(index, previous) catch |fault| {
+            const stepped = if (steps < most_steps) machine.step(index, previous) else error.RunsTooLong;
+            previous = stepped catch |fault| {
                 log.warn("a script thread ends at {d}: {s}", .{ machine.threads[index].ip orelse 0, @errorName(fault) });
                 machine.finished = true;
                 machine.threads[index].record.call_depth = 0;
@@ -951,7 +967,7 @@ pub const Machine = struct {
             },
             .in_squad, .not_in_squad => {
                 const values = try thread.pair();
-                const in = try machine.inSquad(values.b, values.a.*, dte.Trigger.whole_object, 0);
+                const in = try machine.inSquad(values.b, values.a.*, dte.Trigger.whole_object);
                 values.a.* = @intFromBool(in == (opcode == .in_squad));
             },
             inline .assign, .add_assign, .sub_assign, .mul_assign, .div_assign, .add_assign_f, .sub_assign_f, .mul_assign_f, .div_assign_f => |store| {
@@ -1268,21 +1284,26 @@ pub const Machine = struct {
     ///
     /// **Fix:** the game reads a squad no record stands for from address zero, and a member past
     /// the object table from past it; OpenReliant passes over both.
-    pub fn inSquad(machine: *Machine, squad: u32, object: u32, tag: u8, depth: u8) Fault!bool {
+    pub fn inSquad(machine: *Machine, squad: u32, object: u32, tag: u8) Fault!bool {
+        var walk: SquadPath.Walk = .{};
+        return machine.inSquadAlong(squad, object, tag, &walk.start(machine.mission.squadIndex(squad) orelse bind.Mission.no_record));
+    }
+
+    /// `inSquad` for the squad at `squad`, which `path` stands in, going down into a squad among
+    /// its members where the path goes into it (`SquadPath.into`).
+    fn inSquadAlong(machine: *Machine, squad: u32, object: u32, tag: u8, path: *const SquadPath) Fault!bool {
         const bound = machine.mission;
-        if (depth > (try bound.recordsIn(dte.Squad, .squads)).len) return error.SquadCycle;
         const first = try bound.halfword(try bind.Mission.fieldPlace(squad, @offsetOf(dte.Squad, "first_member")));
         if (first == dte.Squad.no_member) return false;
-        const own = bound.squadIndex(squad) orelse bind.Mission.no_record;
         const members = try bound.recordsIn(dte.SquadMember, .squad_members);
         const objects = try bound.recordsIn(dte.Object, .objects);
         for (members[@min(first, members.len)..]) |member| {
-            if (member.squad != own) break;
+            if (member.squad != path.squad) break;
             if (try bound.halfword(object) == member.object_id and member.component == tag) return true;
             if (bound.recordOf(member.object_id)) |record| switch (record) {
                 .ship => {},
                 .flight_group => |at| if (try machine.inFlightGroup(object, bound.recordPlace(.flight_groups, at))) return true,
-                .squad => |at| if (try machine.inSquad(bound.recordPlace(.squads, at), object, tag, depth + 1)) return true,
+                .squad => |at| if (path.into(at)) |deeper| if (try machine.inSquadAlong(bound.recordPlace(.squads, at), object, tag, &deeper)) return true,
             } else if (member.object_id < objects.len and objects[member.object_id].kind == .flight_group) {
                 // A flight group the object table names with no record is a null group, which a
                 // ship of no group is in.
@@ -2031,6 +2052,47 @@ test "a fault ends the thread" {
     try std.testing.expectEqual(0, fixture.machine.thread_count);
 }
 
+test "a thread that runs too long without waiting ends after most_steps" {
+    const gpa = std.testing.allocator;
+    const Calls = struct {
+        /// A part that calls part `next` a hundred times, then returns.
+        fn of(comptime next: u8) fn (*testing.Routine) anyerror!void {
+            return struct {
+                fn build(r: *testing.Routine) !void {
+                    for (0..100) |_| try r.op(.call_part, &.{next});
+                    try r.op(.push_byte, &.{0});
+                    try r.op(.@"return", &.{});
+                }
+            }.build;
+        }
+    };
+    // Three parts that each call the next a hundred times, and the last adds one to global 0:
+    // a million additions, and more steps.
+    const first = try testing.assemble(gpa, Calls.of(1));
+    defer gpa.free(first);
+    const second = try testing.assemble(gpa, Calls.of(2));
+    defer gpa.free(second);
+    const third = try testing.assemble(gpa, Calls.of(3));
+    defer gpa.free(third);
+    const last = try testing.assemble(gpa, struct {
+        fn build(r: *testing.Routine) !void {
+            try r.op(.select_global, &.{0});
+            try r.op(.push_byte, &.{1});
+            try r.op(.add_assign, &.{});
+            try r.op(.push_byte, &.{0});
+            try r.op(.@"return", &.{});
+        }
+    }.build);
+    defer gpa.free(last);
+    var fixture: testing.Fixture = undefined;
+    try fixture.init(gpa, &.{ .{ .code = first, .start = true }, .{ .code = second }, .{ .code = third }, .{ .code = last } }, .{ .globals = &.{0} });
+    defer fixture.deinit();
+    try fixture.machine.start();
+    // The run stopped part of the way, and the thread ended as a fault ends it.
+    try std.testing.expect(fixture.global(0) > 0 and fixture.global(0) < 100 * 100 * 100);
+    try std.testing.expectEqual(0, fixture.machine.thread_count);
+}
+
 test "in_flight_group and in_squad" {
     const gpa = std.testing.allocator;
     const code = try testing.assemble(gpa, struct {
@@ -2282,33 +2344,85 @@ test "DestroyTimer destroys the timer before it fires" {
     try std.testing.expect(fixture.machine.timers[0].isFree());
 }
 
-test "in_squad ends the thread on a squad that holds itself" {
+test "in_squad passes over a squad that names itself, and walks a doubled chain only so far" {
     const gpa = std.testing.allocator;
-    const code = try testing.assemble(gpa, struct {
-        fn build(r: *testing.Routine) !void {
-            try r.op(.select_global, &.{0});
-            try r.op(.push_ship, &.{0});
-            try r.op(.push_squad, &.{0});
-            try r.op(.in_squad, &.{});
-            try r.op(.assign, &.{});
-            try r.op(.@"return", &.{});
+    const Code = struct {
+        /// Sets global 0 to whether ship `ship` is in squad 0.
+        fn of(allocator: Allocator, comptime ship: u8) ![]u8 {
+            return testing.assemble(allocator, struct {
+                fn build(r: *testing.Routine) !void {
+                    try r.op(.select_global, &.{0});
+                    try r.op(.push_ship, &.{ship});
+                    try r.op(.push_squad, &.{0});
+                    try r.op(.in_squad, &.{});
+                    try r.op(.assign, &.{});
+                    try r.op(.@"return", &.{});
+                }
+            }.build);
         }
-    }.build);
-    defer gpa.free(code);
+    };
     const records = dte.testing;
+    const member = records.squadMember;
+    const whole_ship = dte.Trigger.whole_object;
+    // Squad 0, object 1, names itself twice, then ship 0.
+    const first = try Code.of(gpa, 0);
+    defer gpa.free(first);
     var fixture: testing.Fixture = undefined;
-    // Squad 0, object 1, is its own only member.
-    try fixture.init(gpa, &.{.{ .code = code, .start = true }}, .{
+    try fixture.init(gpa, &.{.{ .code = first, .start = true }}, .{
         .globals = &.{7},
         .ships = &records.ships(1, 0),
         .objects = &.{ records.object(.ship, 0, 0), records.object(.squad, 0, 0) },
         .squads = &.{records.squad(1, 0)},
-        .squad_members = &.{records.squadMember(1, 0, dte.Trigger.whole_object)},
+        .squad_members = &.{ member(1, 0, whole_ship), member(1, 0, whole_ship), member(0, 0, whole_ship) },
     });
     defer fixture.deinit();
     try fixture.machine.start();
-    try std.testing.expectEqual(7, fixture.global(0));
-    try std.testing.expectEqual(0, fixture.machine.thread_count);
+    try std.testing.expectEqual(1, fixture.global(0));
+    // A chain of 40 squads that each name the next twice, which ship 1 is not in: the walk stops
+    // after going into `SquadPath.most_entered` squads, and the thread goes on.
+    const second = try Code.of(gpa, 1);
+    defer gpa.free(second);
+    const chain: records.DoubledChain(2, 40) = .init();
+    var deep: testing.Fixture = undefined;
+    try deep.init(gpa, &.{.{ .code = second, .start = true }}, .{
+        .globals = &.{7},
+        .ships = &records.ships(2, 0),
+        .objects = &chain.objects,
+        .squads = &chain.squads,
+        .squad_members = &chain.members,
+    });
+    defer deep.deinit();
+    try deep.machine.start();
+    try std.testing.expectEqual(0, deep.global(0));
+}
+
+test "for_each_ship walks a squad named twice twice, as far as a walk goes" {
+    const gpa = std.testing.allocator;
+    const records = dte.testing;
+    const Each = struct {
+        fn none(_: Call, _: Machine.Ship) void {}
+    };
+    // Squad 0 names squad 1 twice, which names the ship twice: four runs.
+    const short: records.DoubledChain(1, 2) = .init();
+    var game: testing.Game = undefined;
+    try game.init(gpa, &.{}, .{ .ships = &records.ships(1, 0), .objects = &short.objects, .squads = &short.squads, .squad_members = &short.members });
+    defer game.deinit();
+    const machine = &game.fixture.machine;
+    machine.game = game.orders();
+    var args = [_]u32{machine.mission.recordPlace(.squads, 0)};
+    Machine.forEachShip(.{ .machine = machine, .thread = 0, .args = &args }, Each.none);
+    try std.testing.expectEqual(4, machine.walk_count);
+    // A chain of 40 such squads would take 2^40 runs; the walk stops after going into
+    // `SquadPath.most_entered` squads.
+    const long: records.DoubledChain(1, 40) = .init();
+    var deep: testing.Game = undefined;
+    try deep.init(gpa, &.{}, .{ .ships = &records.ships(1, 0), .objects = &long.objects, .squads = &long.squads, .squad_members = &long.members });
+    defer deep.deinit();
+    const walked = &deep.fixture.machine;
+    walked.game = deep.orders();
+    args[0] = walked.mission.recordPlace(.squads, 0);
+    Machine.forEachShip(.{ .machine = walked, .thread = 0, .args = &args }, Each.none);
+    try std.testing.expect(walked.walk_count > 0 and walked.walk_count <= 2 * SquadPath.most_entered);
 }
 
 test "in_squad takes the members of the squad the place names as squad_index counts it" {

@@ -86,6 +86,14 @@ pub const Routine = struct {
         try routine.code.appendSlice(routine.gpa, operands);
     }
 
+    /// An instruction whose one operand is a halfword, such as `push_ship_wide`: big-endian, as the
+    /// engine reads it.
+    pub fn opWide(routine: *Routine, opcode: Opcode, operand: u16) Error!void {
+        var operands: [2]u8 = undefined;
+        std.mem.writeInt(u16, &operands, operand, .big);
+        return routine.op(opcode, &operands);
+    }
+
     /// `branch_if_zero` or `jump` to `target`, over a big-endian displacement counted from its own
     /// place.
     pub fn branch(routine: *Routine, opcode: Opcode, target: Label) Error!void {
@@ -142,10 +150,7 @@ pub const Routine = struct {
             break :index routine.constants.items.len - 1;
         };
         if (index <= std.math.maxInt(u8)) return routine.op(.push_constant, &.{@intCast(index)});
-        const wide = std.math.cast(u16, index) orelse return error.TooManyConstants;
-        var operands: [2]u8 = undefined;
-        std.mem.writeInt(u16, &operands, wide, .big);
-        try routine.op(.push_constant_wide, &operands);
+        try routine.opWide(.push_constant_wide, std.math.cast(u16, index) orelse return error.TooManyConstants);
     }
 
     /// The routine's bytes: the block's length word, which counts itself, the instructions and
@@ -261,7 +266,7 @@ test emit {
     try routine.randomBranch(second, &.{.{ .target = third, .threshold = 50, .extra = 0x45 }});
     routine.place(second);
     try routine.pushString("new_sim02.wav");
-    try routine.op(.push_ship_wide, &.{ 0x01, 0x02 });
+    try routine.opWide(.push_ship_wide, 0x0102);
     routine.place(third);
     try routine.op(.@"return", &.{});
     const bytes = try routine.finish();

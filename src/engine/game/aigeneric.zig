@@ -99,10 +99,24 @@ pub const Target = extern struct {
         return std.math.cast(u16, target.index);
     }
 
-    /// `slot`, where it is one of `all`'s slots, which the game takes on trust.
+    /// `slot`, where it is one of `all`'s slots.
+    ///
+    /// **Fix:** the game takes a target's index on trust, and a mission's SetAI can aim an order
+    /// at any number, past the last slot too. OpenReliant looks a target's slot up only through
+    /// this and `shipIn`, which give none there.
     pub fn slotIn(target: Target, all: *const create.Objects) ?u16 {
-        const index = target.slot() orelse return null;
-        return if (index < all.slots.len) index else null;
+        return inSlots(target.slot(), all);
+    }
+
+    /// `ship`, where it is one of `all`'s slots (`slotIn`).
+    pub fn shipIn(target: Target, all: *const create.Objects) ?u16 {
+        return inSlots(target.ship(), all);
+    }
+
+    /// `index`, where it is one of `all`'s slots.
+    fn inSlots(index: ?u16, all: *const create.Objects) ?u16 {
+        const found = index orelse return null;
+        return if (found < all.slots.len) found else null;
     }
 
     /// The component it names, or null for the whole ship.
@@ -164,6 +178,22 @@ test Target {
     try std.testing.expect(Target.at(7, 2).eql(.at(7, 2)));
     try std.testing.expect(!Target.at(7, 2).eql(.at(7, null)));
     try std.testing.expect(!Target.at(1, null).eql(group));
+}
+
+test "Target.slotIn" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const last: u16 = @intCast(all.slots.len - 1);
+    // The last slot is one of them; the one past it, which a mission's SetAI can aim at, isn't.
+    try std.testing.expectEqual(last, Target.at(last, null).shipIn(all));
+    try std.testing.expectEqual(null, Target.at(last + 1, null).shipIn(all));
+    try std.testing.expectEqual(last, Target.at(last, 2).slotIn(all));
+    try std.testing.expectEqual(null, Target.at(last + 1, 2).slotIn(all));
+    try std.testing.expectEqual(null, Target.group(.flight_group, last + 1).slotIn(all));
+    // A flight group names no ship.
+    try std.testing.expectEqual(null, Target.group(.flight_group, 0).shipIn(all));
 }
 
 /// How far apart ships fly abreast, in the places `Entry.abreast` counts: Formation's and Jump In's
@@ -536,6 +566,12 @@ const Named = struct {
 /// whether there was one. Unless the popped order was one-shot, the order below starts again.
 pub fn pop(ctx: Context, index: u16) bool {
     if (hooks.enter(.order_pop, pop, .{ ctx, index })) |done| return done;
+    return popUnhooked(ctx, index);
+}
+
+/// `pop`, without the scripts' hook, so no script can stop it. OpenReliant uses it where an order
+/// must go, as when a mod's orders are forgotten (`forgetIn`).
+fn popUnhooked(ctx: Context, index: u16) bool {
     const slot = &ctx.world.objects.slots[index];
     const object = &slot.object;
     const running = slot.current() orelse return false;
@@ -624,10 +660,15 @@ pub fn clear(ctx: Context, index: u16) Error!void {
     if (try giveWay(ctx, index, null)) ctx.world.objects.slots[index].object.order_count = 0;
 }
 
-/// `orders_pop_all` (`0x0040CF80`): pops every order, running each `exit` in turn.
+/// `orders_pop_all` (`0x0040CF80`): pops every order, running each `exit` in turn. A script can stop
+/// a pop (`order_pop`'s hook) and leave the order where it is, so this stops at the first pop that
+/// leaves the stack no shorter, rather than loop for ever.
 pub fn popAll(ctx: Context, index: u16) void {
-    while (ctx.world.objects.slots[index].object.order_count > 0) {
-        if (!pop(ctx, index)) return;
+    const object = &ctx.world.objects.slots[index].object;
+    while (object.order_count > 0) {
+        const count = object.order_count;
+        _ = pop(ctx, index);
+        if (object.order_count >= count) return;
     }
 }
 
@@ -642,7 +683,8 @@ pub fn forgetCustom(ctx: Context, index: u16) void {
 }
 
 /// Removes one registered order, or all registered orders where `order` is null. Unknown
-/// original-file order numbers are left alone, as they are without scripts.
+/// original-file order numbers are left alone, as they are without scripts. The order on top pops
+/// past the scripts' hook (`popUnhooked`), since a script that stops the pop would leave it there.
 fn forgetIn(ctx: Context, index: u16, order: ?Order) void {
     const slot = &ctx.world.objects.slots[index];
     var at: usize = 0;
@@ -654,7 +696,7 @@ fn forgetIn(ctx: Context, index: u16, order: ?Order) void {
             continue;
         }
         if (at == 0) {
-            _ = pop(ctx, index);
+            _ = popUnhooked(ctx, index);
         } else remove(slot, at);
     }
 }
@@ -697,6 +739,19 @@ fn remove(slot: *create.Slot, at: usize) void {
 ///
 /// **Improvement:** registered orders run protected script callbacks through the engine's script
 /// bridge. Completion or failure pops the order using the existing stack rules (#615).
+///
+/// **Fix:** the game runs the update of the order it found on top even where its `init` popped it
+/// or pushed another, and then marks the order now on top as started, so that order's own `init`
+/// never runs. Of the game's orders, only Rotate Boridin breakaway warp projector (37) pops itself
+/// in its `init`. OpenReliant runs the update only while the order is still on top, and leaves the
+/// order that replaced it to start on its next run. The same goes for a script that pushes an order
+/// as it hears of the start (`order_started`).
+///
+/// **Fix:** after a one-shot order's update, the game pops the order on top and runs the orders
+/// again, whatever the pop did. A one-shot order whose update pushes another order then runs again
+/// and again, until the stack overflows. OpenReliant runs the orders again only where the pass left
+/// the stack shorter, which also stops a one-shot order whose pop a script stops (`order_pop`'s
+/// hook).
 pub fn objectOrders(ctx: Context, index: u16) void {
     if (hooks.enter(.object_orders, objectOrders, .{ ctx, index })) |done| return done;
     startQueued(ctx, index);
@@ -709,6 +764,7 @@ pub fn objectOrders(ctx: Context, index: u16) void {
     object.reverse_thrust = false;
     if (slot.current()) |entry| run: {
         const running = infoOf(ctx.world.objects, entry.order) orelse break :run;
+        const depth = slot.stack().len;
         if (!running.flags.one_shot) {
             if (object.order_starting) {
                 if (orders.info(running.order) == null) {
@@ -718,8 +774,10 @@ pub fn objectOrders(ctx: Context, index: u16) void {
                         break :run;
                     }
                 } else runInit(ctx, index, running);
+                if (!onTop(slot, running.order, depth)) break :run;
                 object.order_starting = false;
                 hooks.tell(ctx, .order_started, .{ .object = .of(index), .order = running.order });
+                if (!onTop(slot, running.order, depth)) break :run;
             }
             if (orders.info(running.order) == null) {
                 if (!custom(ctx, index, running.order, .update)) _ = pop(ctx, index);
@@ -731,7 +789,7 @@ pub fn objectOrders(ctx: Context, index: u16) void {
             const starting = object.order_starting;
             _ = pop(ctx, index);
             object.order_starting = starting;
-            objectOrders(ctx, index);
+            if (slot.stack().len < depth) objectOrders(ctx, index);
         }
     }
     if (object.flags.engines_disabled) {
@@ -745,6 +803,13 @@ pub fn objectOrders(ctx: Context, index: u16) void {
     }
     if (!object.flags.can_reverse) object.reverse_thrust = false;
     if (index == ctx.world.objects.player) if (ctx.world.forces) |forces| forces.afterburner(object.afterburner, ctx.world.clock.frame_start);
+}
+
+/// Whether `order` is still the order on top of the slot's stack, `depth` orders deep, as it was
+/// before its `init` ran (`objectOrders`).
+fn onTop(slot: *const create.Slot, order: Order, depth: usize) bool {
+    const current = slot.current() orelse return false;
+    return current.order == order and slot.stack().len == depth;
 }
 
 /// `orders_update` (`0x0040C8F0`): the orders of every object that is not disabled, once a frame,
@@ -1234,6 +1299,109 @@ test objectOrders {
     slot.object.flags.engines_disabled = true;
     objectOrders(ctx, index);
     try std.testing.expectEqual(0, slot.object.throttle);
+}
+
+test "an order whose init pops it leaves the order below to start" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    const index = try mission.addOther(@splat(0));
+    const slot = &mission.objects.slots[index];
+
+    // Order 37's init pops it. The update it would run next is skipped, and Slow Rotate, below,
+    // starts on the next run.
+    try std.testing.expect(try push(ctx, index, .slow_rotate, .none));
+    try std.testing.expect(try push(ctx, index, .rotate_boridin_breakaway_warp_projector, .none));
+    objectOrders(ctx, index);
+    try std.testing.expectEqual(1, slot.object.order_count);
+    try std.testing.expectEqual(Order.slow_rotate, slot.orders[0].order);
+    try std.testing.expect(slot.object.order_starting);
+    try std.testing.expectEqual(0, slot.object.yaw_input);
+    objectOrders(ctx, index);
+    try std.testing.expect(!slot.object.order_starting);
+    try std.testing.expectEqual(aifuncs.spin_input, slot.object.yaw_input);
+}
+
+/// A stand-in for the scripts: its handlers stop every pop and say that it popped, and push Fly on
+/// an object as they hear that it started an order.
+const Meddler = struct {
+    scripts: hooks.Scripts,
+    ctx: Context,
+
+    /// Makes this the stand-in for `mission`'s scripts, with handlers for `hook`.
+    fn attach(meddler: *Meddler, mission: *gameobj.testing.Mission, hook: hooks.Hook) void {
+        meddler.* = .{ .scripts = .{ .context = meddler, .vtable = &vtable }, .ctx = mission.orders() };
+        meddler.scripts.hooked.insert(hook);
+        mission.objects.scripts = &meddler.scripts;
+    }
+
+    const vtable: hooks.Scripts.VTable = .{
+        .call = call,
+        .begin = undefined,
+        .started = undefined,
+        .ended = undefined,
+        .update = undefined,
+        .step = undefined,
+    };
+
+    fn call(context: *anyopaque, c: *hooks.Call) void {
+        const meddler: *Meddler = @ptrCast(@alignCast(context));
+        switch (c.hook) {
+            .order_pop => @as(*bool, @ptrCast(@alignCast(c.result.?))).* = true,
+            .order_started => {
+                const fields: *const hooks.Fields(.order_started) = @ptrCast(@alignCast(c.fields));
+                _ = give(meddler.ctx, fields.object.slot(), .fly, .none);
+            },
+            else => if (c.original) |original| original(c),
+        }
+    }
+};
+
+test "a script that stops every pop" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    const index = try mission.addOther(@splat(0));
+    const slot = &mission.objects.slots[index];
+    var meddler: Meddler = undefined;
+    meddler.attach(&mission, .order_pop);
+
+    try std.testing.expect(try push(ctx, index, .slow_rotate, .none));
+    try std.testing.expect(try push(ctx, index, .fly, .none));
+    // Popping them all stops at the first pop, which the script stops.
+    popAll(ctx, index);
+    try std.testing.expectEqual(2, slot.object.order_count);
+    // A one-shot order that stays on top runs once a pass.
+    try std.testing.expect(try push(ctx, index, .toggle_cloak, .none));
+    objectOrders(ctx, index);
+    try std.testing.expectEqual(3, slot.object.order_count);
+    try std.testing.expectEqual(Order.toggle_cloak, slot.orders[0].order);
+    // With Toggle Cloak taken off, Fly is on top again, and forgetting it pops it all the same.
+    remove(slot, 0);
+    forget(ctx, .fly);
+    try std.testing.expectEqual(1, slot.object.order_count);
+    try std.testing.expectEqual(Order.slow_rotate, slot.orders[0].order);
+}
+
+test "a script that pushes an order as one starts" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ctx = mission.orders();
+    const index = try mission.addOther(@splat(0));
+    const slot = &mission.objects.slots[index];
+    var meddler: Meddler = undefined;
+    meddler.attach(&mission, .order_started);
+
+    // Slow Rotate starts, and Fly takes its place before Slow Rotate's update runs. Fly starts on
+    // the next run.
+    try std.testing.expect(try push(ctx, index, .slow_rotate, .none));
+    objectOrders(ctx, index);
+    try std.testing.expectEqual(0, slot.object.yaw_input);
+    try std.testing.expectEqual(Order.fly, slot.orders[0].order);
+    try std.testing.expect(slot.object.order_starting);
 }
 
 test queue {

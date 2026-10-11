@@ -106,6 +106,7 @@ pub const Mission = struct {
     /// section that runs past the image fails, where the game would read past its buffer.
     pub fn bind(gpa: Allocator, image: []u8) !Mission {
         errdefer gpa.free(image);
+        SquadPath.stopped = false;
         const file: dte.Mission = try .parse(image);
         var mission: Mission = .{
             .gpa = gpa,
@@ -372,18 +373,18 @@ pub const Mission = struct {
         return rest[0 .. std.mem.findScalar(u8, rest, 0) orelse return error.OutsideImage];
     }
 
-    /// The members of squad `squad`, reached `depth` squads down a walk, as `squad_walk`
-    /// (`0x00401D80`) and a condition's count of a squad's members (`condition_squad_add`,
-    /// `0x004533D0`) take them, from the squad's first: none where the mission has no such squad.
+    /// The members of squad `squad`, as `squad_walk` (`0x00401D80`) and a condition's count of a
+    /// squad's members (`condition_squad_add`, `0x004533D0`) take them, from the squad's first: none
+    /// where the mission has no such squad. A walk goes down into the squads among them along a
+    /// `SquadPath`.
     ///
-    /// **Fix:** the game walks a squad that holds itself round for ever, reads a member no record
-    /// stands for from address zero, and stops with a fatal error at a member of a kind it does not
-    /// know ("oh disaster, biblical proportions" in `squad_walk`, "unknown ai group member" in
-    /// `condition_squad_add`); OpenReliant gives no members once a walk has gone down more squads
-    /// than the mission has, and passes over such a member (`SquadMembers`).
-    pub fn squadMembers(mission: *const Mission, squad: u16, depth: usize) SquadMembers {
+    /// **Fix:** the game reads a member no record stands for from address zero, and stops with a
+    /// fatal error at a member of a kind it does not know ("oh disaster, biblical proportions" in
+    /// `squad_walk`, "unknown ai group member" in `condition_squad_add`); OpenReliant passes over
+    /// such a member (`SquadMembers`).
+    pub fn squadMembers(mission: *const Mission, squad: u16) SquadMembers {
         const squads = mission.file.squads() catch &.{};
-        if (squad >= squads.len or depth > squads.len) return .{ .mission = mission, .squad = squad, .members = &.{} };
+        if (squad >= squads.len) return .{ .mission = mission, .squad = squad, .members = &.{} };
         return mission.squadMembersFrom(squad, squads[squad].first_member);
     }
 
@@ -430,6 +431,59 @@ pub const Mission = struct {
                 };
             }
             return null;
+        }
+    };
+
+    /// Where a walk of a squad's members stands as it goes down into the squads among them: the
+    /// squad it walks, and the squads it is inside. The game's four walks of a squad's members go
+    /// down so: `squad_walk` (`0x00401D80`),
+    /// `condition_squad_add` (`0x004533D0`), `for_each_ship_walk` (`0x0045D480`) and
+    /// `object_in_squad` (`0x00452AC0`). A squad that two members name is walked twice, as the
+    /// game walks it.
+    ///
+    /// **Fix:** the game walks a squad that holds itself, directly or through other squads, round
+    /// for ever. A walk also doubles with each squad of a chain whose squads each name the next one
+    /// twice, so a long chain hangs the game. OpenReliant passes over a squad the walk is already
+    /// inside, and goes into no more than `most_entered` squads in one walk.
+    pub const SquadPath = struct {
+        squad: u16,
+        /// The squad the walk went into this one from, if any.
+        outer: ?*const SquadPath,
+        walk: *Walk,
+
+        /// The most squads one walk goes into. A walk of a mission that names each squad once goes
+        /// into each squad once at most.
+        pub const most_entered: usize = 4096;
+
+        /// Whether a walk of the mission bound last has stopped at `most_entered`, which is logged
+        /// once a mission.
+        var stopped = false;
+
+        /// What a whole walk shares: how many squads it has gone into.
+        pub const Walk = struct {
+            entered: usize = 0,
+
+            /// The walk's start, at squad `squad`.
+            pub fn start(walk: *Walk, squad: u16) SquadPath {
+                return .{ .squad = squad, .outer = null, .walk = walk };
+            }
+        };
+
+        /// The walk gone down into `inner`, a member of the squad it walks: null where the walk is
+        /// inside `inner` already, or has gone into `most_entered` squads.
+        pub fn into(path: *const SquadPath, inner: u16) ?SquadPath {
+            var at: ?*const SquadPath = path;
+            while (at) |outer| {
+                if (outer.squad == inner) return null;
+                at = outer.outer;
+            }
+            if (path.walk.entered >= most_entered) {
+                if (!stopped) log.warn("a walk of a squad's members stops after {d} squads: the mission's squads name one another too many times", .{most_entered});
+                stopped = true;
+                return null;
+            }
+            path.walk.entered += 1;
+            return .{ .squad = inner, .outer = path, .walk = path.walk };
         }
     };
 };
@@ -653,7 +707,7 @@ test "Mission.squadMembers" {
     defer mission.deinit();
 
     const Member = Mission.SquadMembers.Member;
-    var members = mission.squadMembers(0, 0);
+    var members = mission.squadMembers(0);
     try std.testing.expectEqual(Member{ .ship = .{ .index = 0, .component = 2 } }, members.next().?);
     const group = members.next().?.flight_group;
     try std.testing.expectEqual(2, group.object_id);
@@ -663,21 +717,15 @@ test "Mission.squadMembers" {
     // The next member is another squad's, which ends the walk.
     try std.testing.expectEqual(null, members.next());
     try std.testing.expectEqual(null, members.next());
-    var inner = mission.squadMembers(1, 1);
+    var inner = mission.squadMembers(1);
     try std.testing.expectEqual(Member{ .ship = .{ .index = 0, .component = null } }, inner.next().?);
     try std.testing.expectEqual(null, inner.next());
     // A squad the mission lacks has no members.
-    var missing = mission.squadMembers(3, 0);
+    var missing = mission.squadMembers(3);
     try std.testing.expectEqual(null, missing.next());
-    // A squad that holds itself gives itself while the walk is no more squads down than the
-    // mission has, and nothing after, so a walk down it ends.
-    var depth: usize = 0;
-    while (true) : (depth += 1) {
-        var cycle = mission.squadMembers(2, depth);
-        const found = cycle.next() orelse break;
-        try std.testing.expectEqual(Member{ .squad = 2 }, found);
-    }
-    try std.testing.expectEqual(4, depth);
+    // A squad that holds itself gives itself.
+    var cycle = mission.squadMembers(2);
+    try std.testing.expectEqual(Member{ .squad = 2 }, cycle.next().?);
     // From a member of the squad's on, and from past the members, none.
     var from = mission.squadMembersFrom(0, 3);
     try std.testing.expectEqual(Member{ .ship = .{ .index = 1, .component = null } }, from.next().?);
@@ -685,6 +733,29 @@ test "Mission.squadMembers" {
     try std.testing.expectEqual(null, from.next());
     var past = mission.squadMembersFrom(0, 7);
     try std.testing.expectEqual(null, past.next());
+}
+
+test "Mission.SquadPath" {
+    const SquadPath = Mission.SquadPath;
+    var walk: SquadPath.Walk = .{};
+    const top = walk.start(0);
+    // A walk goes into a squad as often as members name it, but not into one it is inside.
+    const one = top.into(1).?;
+    try std.testing.expectEqual(null, one.into(0));
+    try std.testing.expectEqual(null, one.into(1));
+    const two = one.into(2).?;
+    try std.testing.expectEqual(null, two.into(0));
+    try std.testing.expect(top.into(1) != null);
+    try std.testing.expect(two.into(3) != null);
+    try std.testing.expectEqual(4, walk.entered);
+    // It goes into `most_entered` squads at most, however it gets there.
+    while (top.into(1) != null) {}
+    try std.testing.expectEqual(SquadPath.most_entered, walk.entered);
+    try std.testing.expect(SquadPath.stopped);
+    try std.testing.expectEqual(null, top.into(2));
+    // A new walk starts the count again.
+    var other: SquadPath.Walk = .{};
+    try std.testing.expect(other.start(0).into(1) != null);
 }
 
 test "the records, as the script names them" {
