@@ -415,7 +415,7 @@ pub const Folder = struct {
                 else => continue,
             }
             if (!hog.validName(entry.name)) {
-                log.warn("skipping {s}/{s}: file names must be printable ASCII, like archive member names", .{ name, entry.name });
+                log.warn("skipping {s}/{s}: file names must be plain names in printable ASCII, like archive member names", .{ name, entry.name });
                 continue;
             }
             const owned = try gpa.dupe(u8, entry.name);

@@ -922,6 +922,8 @@ pub const RecordSizes = struct {
 pub const Error = error{
     /// The stream does not begin with a header chunk.
     NotAModel,
+    /// The chunks count more records than the model's budget allows (`Reader.budget`).
+    TooManyRecords,
 };
 
 /// Walks the chunk stream the way the loader does: `take` scans forward for a tag and, on a miss,
@@ -929,6 +931,16 @@ pub const Error = error{
 pub const Reader = struct {
     data: []const u8,
     pos: usize = 0,
+    /// Where the chunks of each tag the loader asks for start, in the stream's order, once
+    /// `listStarts` has listed them; null to scan the stream, as the loader does. With them, `take`
+    /// finds a chunk without passing over the chunks before it, so a file of many chunks that
+    /// lacks a tag can't make each search pass over them all.
+    starts: ?*const Starts = null,
+    /// The bytes of records `takeRecords` may still allocate.
+    budget: usize = std.math.maxInt(usize),
+
+    /// The chunks' starts, a list for each tag up to the last the loader asks for.
+    pub const Starts = [@backingInt(Tag.firing_arc) + 1]std.ArrayList(usize);
 
     pub fn init(data: []const u8) Reader {
         return .{ .data = data };
@@ -968,9 +980,30 @@ pub const Reader = struct {
         return chunk;
     }
 
+    /// Lists where the chunks of each tag start (`starts`), in one pass over the stream.
+    pub fn listStarts(data: []const u8, gpa: Allocator) Allocator.Error!Starts {
+        var starts: Starts = @splat(.empty);
+        var scan: Reader = .init(data);
+        while (true) {
+            const start = scan.pos;
+            const chunk = scan.next() orelse break;
+            const tag = @backingInt(chunk.tag);
+            if (tag < starts.len) try starts[tag].append(gpa, start);
+        }
+        return starts;
+    }
+
     /// Scans forward for `tag`. On a match the cursor moves past that chunk; on reaching the
     /// terminator or the end of the file the cursor is left untouched and null is returned.
     pub fn take(reader: *Reader, tag: Tag) ?Chunk {
+        if (reader.starts) |starts| if (@backingInt(tag) < starts.len) {
+            const list = starts[@backingInt(tag)].items;
+            const first = std.sort.partitionPoint(usize, list, reader.pos, before);
+            if (first == list.len) return null;
+            const chunk = reader.at(list[first]).?;
+            reader.pos = list[first] + @sizeOf(ChunkHeader) + chunk.size();
+            return chunk;
+        };
         var scan = reader.pos;
         while (reader.at(scan)) |chunk| {
             scan += @sizeOf(ChunkHeader) + chunk.size();
@@ -982,16 +1015,29 @@ pub const Reader = struct {
         return null;
     }
 
-    /// `take`, decoded into `tag`'s records.
-    pub fn takeRecords(reader: *Reader, gpa: Allocator, comptime tag: Tag) ![]Record(tag) {
+    fn before(cursor: usize, start: usize) bool {
+        return start < cursor;
+    }
+
+    /// `take`, decoded into `tag`'s records, which the budget pays for.
+    pub fn takeRecords(reader: *Reader, gpa: Allocator, comptime tag: Tag) (Error || Allocator.Error)![]Record(tag) {
         const chunk = reader.take(tag) orelse return gpa.alloc(Record(tag), 0);
+        try reader.spend(chunk, @sizeOf(Record(tag)));
         return records(Record(tag), gpa, chunk);
     }
 
     /// `takeRecords`, with what each record holds past those bytes (`tails`).
-    pub fn takeRecordsAndTails(reader: *Reader, gpa: Allocator, comptime tag: Tag) !struct { []Record(tag), []const []const u8 } {
+    pub fn takeRecordsAndTails(reader: *Reader, gpa: Allocator, comptime tag: Tag) (Error || Allocator.Error)!struct { []Record(tag), []const []const u8 } {
         const chunk = reader.take(tag) orelse return .{ try gpa.alloc(Record(tag), 0), &.{} };
+        try reader.spend(chunk, @max(@sizeOf(Record(tag)), chunk.record_size));
         return .{ try records(Record(tag), gpa, chunk), try tails(gpa, chunk, @sizeOf(Record(tag))) };
+    }
+
+    /// Takes what `chunk`'s records cost, `size` bytes each, from the budget.
+    fn spend(reader: *Reader, chunk: Chunk, size: usize) Error!void {
+        const cost = std.math.mul(usize, chunk.count, size) catch return error.TooManyRecords;
+        if (cost > reader.budget) return error.TooManyRecords;
+        reader.budget -= cost;
     }
 };
 
@@ -1090,6 +1136,12 @@ pub const PartData = struct {
     }
 };
 
+/// The bytes of records a model may have (`Model.parse`): `budget_per_byte` for each byte of its
+/// file, and `budget_base` more. A shipped model's records take less than twice its bytes, where an
+/// earlier exporter wrote shorter records than the engine keeps.
+const budget_per_byte = 16;
+const budget_base = 1 << 20;
+
 /// A parsed model. Everything is allocated from the allocator passed to `parse`, which is expected
 /// to be an arena.
 pub const Model = struct {
@@ -1116,8 +1168,19 @@ pub const Model = struct {
     ///     lists, and finally the firing arcs.
     ///
     /// The chunks of tags the format does not name, which the loader passes over, it keeps whole.
+    ///
+    /// **Fix:** the loader allocates the records each chunk counts (`model_take_chunk`,
+    /// `0x004A2EB0`), even where they take no bytes of the file, and scans every chunk left for a
+    /// tag a model lacks, so a small file can make it allocate gigabytes, or take hours.
+    /// OpenReliant gives a model's records a budget, and finds each chunk through an index of
+    /// where the chunks start.
     pub fn parse(gpa: Allocator, data: []const u8) !Model {
+        var starts = try Reader.listStarts(data, gpa);
+        defer for (&starts) |*list| list.deinit(gpa);
         var reader: Reader = .init(data);
+        reader.starts = &starts;
+        reader.budget = std.math.mul(usize, data.len, budget_per_byte) catch std.math.maxInt(usize);
+        reader.budget +|= budget_base;
 
         const headers = try reader.takeRecords(gpa, .header);
         if (headers.len == 0) return error.NotAModel;
@@ -1186,6 +1249,7 @@ pub const Model = struct {
                 record_sizes.note(chunk.tag, chunk.record_size);
                 named += 1;
             } else {
+                try reader.spend(chunk, chunk.record_size);
                 const whole = try gpa.alloc(u8, chunk.size());
                 @memset(whole, 0);
                 @memcpy(whole[0..chunk.data.len], chunk.data);
@@ -1830,6 +1894,38 @@ test "a file that ends early ends the stream, and reads as zero past its end" {
     var whole_tag: Reader = .init(data[0 .. arcs_end + @sizeOf(Tag)]);
     whole_tag.pos = arcs_end;
     try std.testing.expect(whole_tag.atTerminator());
+}
+
+test "a model's records stay within its budget" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // A header, then a parts chunk that counts 65535 parts of no bytes each: 18 bytes of file that
+    // would have the loader allocate 20 MB of parts, and more for what each part asks for.
+    var buffer: [@sizeOf(ChunkHeader) * 3 + @sizeOf(Header)]u8 = @splat(0);
+    var stream: std.Io.Writer = .fixed(&buffer);
+    try stream.writeAll(std.mem.asBytes(&ChunkHeader{ .tag = .header, .record_size = @sizeOf(Header), .count = 1 }));
+    try stream.splatByteAll(0, @sizeOf(Header));
+    try stream.writeAll(std.mem.asBytes(&ChunkHeader{ .tag = .part, .record_size = 0, .count = std.math.maxInt(u16) }));
+    try stream.writeAll(std.mem.asBytes(&ChunkHeader.terminator));
+    try std.testing.expectError(error.TooManyRecords, Model.parse(arena, stream.buffered()));
+}
+
+test "the index of the chunks' starts finds what a scan finds" {
+    var buffer: [1024]u8 = undefined;
+    const data = buildTestModel(&buffer);
+    var starts = try Reader.listStarts(data, std.testing.allocator);
+    defer for (&starts) |*list| list.deinit(std.testing.allocator);
+    var indexed: Reader = .init(data);
+    indexed.starts = &starts;
+    var scanned: Reader = .init(data);
+    // Every tag the loader asks for, in an order that misses some and finds others twice.
+    const asked = [_]Tag{ .part, .header, .lod, .firing_arc, .vertex, .lod, .face, .header, .material, .tree_node, .point, .firing_arc, .trigger_polygon };
+    for (asked) |tag| {
+        try std.testing.expectEqualDeep(scanned.take(tag), indexed.take(tag));
+        try std.testing.expectEqual(scanned.pos, indexed.pos);
+    }
 }
 
 test "the terminator ends a model at its tag, whatever it counts" {
