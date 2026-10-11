@@ -13,6 +13,9 @@ sltool spr extract <sprite> <out-dir>   # every shape as an indexed PNG, with th
 make sprites                            # every shape into game/sprites
 ```
 
+Privateer 2, StarLancer's predecessor, keeps its pictures in the same format, as `.SHP` files
+([Privateer 2](../games/privateer-2.md#sprites)), and `sltool spr` reads them as they are.
+
 ## Layout
 
 | Offset | Size | Field |

@@ -145,7 +145,7 @@ const Command = union(enum) {
     /// What `--version` shows, as `openreliant --version` shows its own.
     const version_line = "sltool " ++ version.string ++ "\n";
 
-    const usage = "sltool " ++ version.string ++ " reads and writes StarLancer's files, and reads files from other games on the same engine.\n\n" ++
+    const usage = "sltool " ++ version.string ++ " reads and writes StarLancer's files, and reads files from other games on the same engine and from its predecessor, Privateer 2.\n\n" ++
         \\usage: sltool <command> ...
         \\
         \\commands:

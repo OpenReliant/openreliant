@@ -6,6 +6,10 @@ alignment.
 
 Every integer in the container is **big-endian**.
 
+Privateer 2, StarLancer's predecessor, uses the same container for its `.BIG` files and for some of
+its `.IFF` files, with no member compressed ([Privateer 2](../games/privateer-2.md#archives)). `sltool hog` reads
+them as they are.
+
 ```bash
 sltool hog info <archive>              # size, member count, how much is compressed
 sltool hog ls <archive>                # offset, stored size, real size, name
