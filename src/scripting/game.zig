@@ -262,6 +262,7 @@ pub const Game = struct {
                     };
                 }
             }
+            if (context) |opened| game.runner.closeUnused(game.onObject(index), opened);
         }
         game.turretsAdded(index);
     }
@@ -283,6 +284,7 @@ pub const Game = struct {
                 while (each.next()) |name| _ = game.startScript(game.onObject(index), opened, name, false, null, false) catch |err| {
                     log.warn("{s}: {s} can't start on turret {d} of object {d}: {s}", .{ mod.name, name, turret.gun, index, @errorName(err) });
                 };
+                game.runner.closeUnused(game.onObject(index), opened);
             }
         }
     }
@@ -310,6 +312,7 @@ pub const Game = struct {
                     log.warn("{s}: {s} can't start on missile {d}: {s}", .{ mod.name, name, record, @errorName(err) });
                 };
             }
+            if (context) |opened| game.runner.closeUnused(game.onMissile(record), opened);
         }
     }
 
@@ -341,6 +344,7 @@ pub const Game = struct {
     const vtable: engine_hooks.Scripts.VTable = .{
         .call = hookCall,
         .begin = begin,
+        .frame = frame,
         .started = started,
         .ended = ended,
         .update = update,
@@ -420,6 +424,13 @@ pub const Game = struct {
         const context = try game.runtime.open(mod, .global, null);
         game.mission_mods.appendAssumeCapacity(context);
         while (listed.next()) |name| _ = try game.startScript(game.global(), context, name, true, null, false);
+    }
+
+    /// Keeps the world the frame has as what the scripts' orders run against, while a mission runs:
+    /// the copy `begin` kept holds pointers that can change between frames.
+    fn frame(context: *anyopaque, orders: aigeneric.Context) void {
+        const game = ofScripts(context);
+        if (game.runtime.orders != null) game.runtime.orders = orders;
     }
 
     fn started(context: *anyopaque, mission: engine_hooks.Mission) void {
@@ -526,7 +537,11 @@ pub fn addScript(call: Call, object: Object, name: []const u8, payload: ?data.Da
         drop(scripts, payload);
         call.raise("out of memory", .{});
     };
-    const started = game.startScript(list, context, file, false, payload, false) catch call.raise("out of memory", .{});
+    const started = game.startScript(list, context, file, false, payload, false) catch {
+        game.runner.closeUnused(list, context);
+        call.raise("out of memory", .{});
+    };
+    if (started == null) game.runner.closeUnused(list, context);
     return started != null;
 }
 
@@ -1439,6 +1454,84 @@ test "a handler that fails is removed, and its changes undone" {
     create.resetSlot(fixture.mission.orders(), fixture.sabre);
     try std.testing.expect(fixture.game.hooks.handlers.get(.object_removed).items.len == 0);
     try std.testing.expect(hooked.contains(.object_removed));
+}
+
+test "a handler that runs out of time is kept until it does so three times in a row" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local hooks = require("openreliant.hooks")
+                \\local calls = 0
+                \\hooks.add("damage_by_difficulty", function(e)
+                \\    calls += 1
+                \\    e.value = 7
+                \\    if calls ~= 3 then while true do end end
+                \\end)
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const handlers = &fixture.game.hooks.handlers.getPtr(.damage_by_difficulty).items;
+    // Its first two calls run out of time: their changes are undone, and it stays.
+    for (0..2) |_| try std.testing.expectEqual(3, fixture.scaled(fixture.sabre, 3));
+    try std.testing.expectEqual(1, handlers.len);
+    // A call that returns starts the count again.
+    try std.testing.expectEqual(7, fixture.scaled(fixture.sabre, 3));
+    for (0..runtime.max_timeouts - 1) |_| try std.testing.expectEqual(3, fixture.scaled(fixture.sabre, 3));
+    try std.testing.expectEqual(1, handlers.len);
+    try std.testing.expectEqual(3, fixture.scaled(fixture.sabre, 3));
+    try std.testing.expectEqual(0, handlers.len);
+}
+
+test "the scripts give their orders against the world as each frame has it" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "a", &.{ .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" }, .{ "a.luau", "" } } }});
+    defer fixture.deinit();
+    var orders = fixture.mission.orders();
+    orders.world.view = .director;
+    // Before a mission, the frame changes nothing.
+    fixture.game.scripts.frame(orders);
+    try std.testing.expectEqual(null, fixture.game.runtime.orders);
+    // During one, the scripts keep the frame's.
+    fixture.begin();
+    try std.testing.expect(fixture.game.runtime.orders.?.world.view != .director);
+    fixture.game.scripts.frame(orders);
+    try std.testing.expectEqual(.director, fixture.game.runtime.orders.?.world.view);
+}
+
+test "a mod's scripts that fail to start leave no context open" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\nType.sabre=fails.luau\nMissile=fails.luau\n" },
+            .{
+                "a.luau",
+                \\local world = require("openreliant.world")
+                \\return { engine_handlers = { on_mission_start = function()
+                \\    for _ = 1, 3 do assert(not world.objects()[2]:add_script("fails")) end
+                \\end } }
+            },
+            .{ "fails.luau", "error('broken')" },
+        },
+    }});
+    defer fixture.deinit();
+    fixture.begin();
+    // The Sabre's script fails as the Sabre joins the mission, and so does a missile's as it flies.
+    openreliant.engine.hooks.tell(fixture.mission.world(), .object_added, .{ .object = .of(fixture.sabre) });
+    const all = fixture.mission.objects;
+    const slot: create.Slot = .{ .object = std.mem.zeroes(gameobj.GameObject) };
+    const record = all.missiles.add(.{ .slot = slot, .launcher = 0, .launcher_reuses = all.reuses[0], .type = .of(.raptor), .target = .at(fixture.sabre, null) }).?;
+    openreliant.engine.hooks.tell(fixture.mission.world(), .missile_added, .{ .missile = .of(record), .launcher = .of(0) });
+    fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    // Only the global script's context stays open.
+    var open: usize = 0;
+    for (fixture.game.runtime.contexts.items) |context| open += @intFromBool(!context.closed);
+    try std.testing.expectEqual(1, open);
 }
 
 test "the engine calls the scripts' handlers, and a mission's scripts run with it" {

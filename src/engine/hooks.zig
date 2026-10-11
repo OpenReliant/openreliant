@@ -710,7 +710,8 @@ pub const Scripts = struct {
         /// Runs the handlers of `call.hook`.
         call: *const fn (context: *anyopaque, call: *Call) void,
         /// A mission begins, before its objects are made: its own scripts start, and the scripts'
-        /// random numbers start again from `seed`. Its orders run against `ctx` until it ends.
+        /// random numbers start again from `seed`. Its orders run against `ctx`, until the first
+        /// frame (`frame`).
         begin: *const fn (context: *anyopaque, ctx: aigeneric.Context, mission: Mission, seed: u64) void,
         /// The mission has started (`on_mission_start`, `mission_started`).
         started: *const fn (context: *anyopaque, mission: Mission) void,
@@ -720,6 +721,10 @@ pub const Scripts = struct {
         update: *const fn (context: *anyopaque, seconds: f32) void,
         /// A simulation step (`on_step`).
         step: *const fn (context: *anyopaque) void,
+        /// A frame of the mission begins: the orders the scripts give run against `ctx`, the world
+        /// as the frame has it, until the next frame. The world's pointers, such as to the
+        /// cockpit's model, can change between frames.
+        frame: ?*const fn (context: *anyopaque, ctx: aigeneric.Context) void = null,
         /// Metadata and callbacks for orders registered by mods, absent without a registry.
         order_info: ?*const fn (context: *anyopaque, order: orders.Order) ?orders.Info = null,
         order_run: ?*const fn (context: *anyopaque, ctx: aigeneric.Context, index: u16, order: orders.Order, role: routines.Role) bool = null,
@@ -727,6 +732,10 @@ pub const Scripts = struct {
 
     pub fn begin(scripts: *Scripts, ctx: aigeneric.Context, mission: Mission, seed: u64) void {
         scripts.vtable.begin(scripts.context, ctx, mission, seed);
+    }
+
+    pub fn frame(scripts: *Scripts, ctx: aigeneric.Context) void {
+        if (scripts.vtable.frame) |takes| takes(scripts.context, ctx);
     }
 
     pub fn started(scripts: *Scripts, mission: Mission) void {

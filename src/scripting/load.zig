@@ -62,7 +62,7 @@ fn runWithin(gpa: Allocator, io: Io, opened: []const Mod, held: *records.Records
     for (pending.items) |entry| {
         const saved = try held.snapshot(gpa);
         defer saved.deinit(gpa);
-        if (scripts.call(entry.context, entry.handler, .{}) == .failed) saved.restore(held);
+        if (scripts.call(entry.context, entry.handler, .{}).raised()) saved.restore(held);
     }
 }
 
@@ -125,6 +125,9 @@ fn tellUnknown(mod: *const Mod) void {
 }
 
 pub const testing = struct {
+    /// `run`, with the scripts held to the limits given.
+    pub const runLimited = runWithin;
+
     /// Creates a game folder in `dir` with the mods `made`, each a folder of files.
     pub fn makeMods(io: Io, dir: Io.Dir, made: []const struct { []const u8, []const struct { []const u8, []const u8 } }) !void {
         for (made) |mod| {

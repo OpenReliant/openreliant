@@ -12,6 +12,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const assert = std.debug.assert;
 
 const luau = @import("luau.zig");
 const State = luau.State;
@@ -42,6 +43,32 @@ pub const Value = union(enum) {
     table: []const Pair,
 
     pub const Pair = struct { key: Value, value: Value };
+
+    /// The memory the value takes: itself, and the bytes and pairs it holds. Its binary form
+    /// (`encode`) never takes more.
+    pub fn footprint(value: Value) usize {
+        return @sizeOf(Value) + value.held();
+    }
+
+    /// The memory the value holds beyond itself.
+    fn held(value: Value) usize {
+        return switch (value) {
+            .string => |bytes| bytes.len,
+            .table => |pairs| total: {
+                var total = pairs.len * @sizeOf(Pair);
+                for (pairs) |pair| total += pair.key.held() + pair.value.held();
+                break :total total;
+            },
+            .nil, .boolean, .number, .vector, .handle => 0,
+        };
+    }
+
+    comptime {
+        // Each value's binary form fits in the memory the value takes itself: its kind and the
+        // largest fixed form, a vector, or the start of a string or a table.
+        assert(@sizeOf(Value) >= 1 + 3 * @sizeOf(f32) and @sizeOf(Value) >= 1 + @sizeOf(u32));
+        assert(@sizeOf(Pair) == 2 * @sizeOf(Value));
+    }
 
     pub fn deinit(value: Value, gpa: Allocator) void {
         switch (value) {
@@ -75,23 +102,37 @@ pub const Value = union(enum) {
 /// How deep a table may hold tables, as for events (`data.max_depth`).
 const max_depth = data.max_depth;
 
+/// The most memory a value kept outside Luau may take (`Value.footprint`), which `capture` counts
+/// as it checks the value. A table that holds the same table twice is copied twice, so a few
+/// tables can stand for a great many, and the count also bounds the time the check takes, which the
+/// scripts' time limit doesn't reach.
+pub const max_kept: usize = 16 << 20;
+
 /// How much stack copying one level takes.
 const level_stack = 5;
 
 /// The plain data at `at` of `state`, copied into `gpa`. Raises an error naming `label` for
-/// anything that isn't plain data, or where memory runs out.
+/// anything that isn't plain data, where the copy would take more than `max_kept`, or where memory
+/// runs out.
 pub fn capture(state: *State, gpa: Allocator, at: i32, label: []const u8) Value {
     const index = state.absolute(at);
     // Everything is checked before anything is copied: Luau's errors skip Zig's defers, so the
     // copy itself only fails with a Zig error, which lets go of what it made.
-    check(state, index, label, 0);
+    var left: usize = max_kept;
+    check(state, index, label, 0, &left);
     return copy(state, gpa, index, 0) catch state.raise("{s}: out of memory", .{label});
 }
 
-/// Raises an error naming `label` where the value at `at` isn't plain data.
-fn check(state: *State, at: i32, label: []const u8, depth: u32) void {
+/// Raises an error naming `label` where the value at `at` isn't plain data, or where its copy
+/// would take more than the `left` bytes, which it counts down by what the copy takes
+/// (`Value.footprint`).
+fn check(state: *State, at: i32, label: []const u8, depth: u32, left: *usize) void {
     if (!state.checkStack(level_stack)) state.raise("{s}: out of memory", .{label});
-    switch (state.typeOf(at)) {
+    const kind = state.typeOf(at);
+    const takes = @sizeOf(Value) + if (kind == .string) state.toString(at).?.len else 0;
+    if (takes > left.*) state.raise("{s}: too much data to keep, more than {d} bytes", .{ label, max_kept });
+    left.* -= takes;
+    switch (kind) {
         .nil, .none, .boolean, .number, .vector, .string => {},
         .userdata => if (state.toUserdata(objects.Handle, at, objects.Handle.tag) == null)
             state.raise("{s}: only plain data can be kept, not {s}", .{ label, state.typeName(at) }),
@@ -100,8 +141,8 @@ fn check(state: *State, at: i32, label: []const u8, depth: u32) void {
             state.pushNil();
             while (state.next(at)) {
                 const top = state.top();
-                check(state, top - 1, label, depth + 1);
-                check(state, top, label, depth + 1);
+                check(state, top - 1, label, depth + 1, left);
+                check(state, top, label, depth + 1, left);
                 state.pop(1);
             }
         },
@@ -308,4 +349,31 @@ test "capture refuses what isn't plain data, and lets go of what it copied" {
     try bind.testing.runSource(thread, "keep({ a = 'x', b = { 1, 2 } })");
     try bind.testing.expectSourceError(thread, "keep({ a = 'x', b = { 1, print } })", "only plain data");
     try bind.testing.expectSourceError(thread, "local t = {}; t.t = t; keep(t)", "holds itself");
+    // A table that holds the same table twice is kept twice, but no more than `max_kept` of it, so
+    // a few tables can't stand for millions.
+    try bind.testing.runSource(thread, "local shared = { 1, 2 }; keep({ a = shared, b = shared })");
+    try bind.testing.expectSourceError(thread, "local t = {} for i = 1, 30 do t = { t, t } end keep(t)", "too much data");
+}
+
+test "Value.footprint" {
+    const gpa = std.testing.allocator;
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    state.openLibraries();
+    state.sandbox();
+    const thread = state.newSandboxedThread();
+    const bind = @import("bind.zig");
+    try bind.testing.runSource(thread,
+        \\kept = { name = "wing", count = 3, at = vector.create(1, 2, 3), list = { true, false, "a" } }
+    );
+    _ = thread.getGlobal("kept");
+    const value = capture(thread, gpa, -1, "kept");
+    defer value.deinit(gpa);
+    // The table, its four pairs, the list's three, and the strings' bytes.
+    try std.testing.expectEqual(@sizeOf(Value) + 7 * @sizeOf(Value.Pair) + "namewingcountatlista".len, value.footprint());
+    // The binary form takes no more.
+    var buffer: std.Io.Writer.Allocating = .init(gpa);
+    defer buffer.deinit();
+    try encode(&buffer.writer, value);
+    try std.testing.expect(buffer.written().len <= value.footprint());
 }
