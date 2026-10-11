@@ -29,6 +29,25 @@ file ([`formats/wave.zig`](../../src/formats/wave.zig)) whose RIFF length matche
 sample, with a `fact` chunk giving the length) at 11,025, 22,050 or 44,100 Hz, mono or stereo; the
 other is 16-bit PCM. `sltool fat extract` writes them unchanged.
 
+## Version 1.00
+
+Privateer 2, StarLancer's predecessor, keeps its sounds in banks of the format's first version
+([Privateer 2](../games/privateer-2.md#sound-banks)). `sltool fat ls` lists them, and `sltool fat extract` writes their
+sounds as stored. The header is the same, with `1.00` as its magic. Each entry is 16 bytes:
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 4 | Offset of the sound from the start of the bank |
+| 4 | 3 | The sound's size decoded, in bytes |
+| 7 | 1 | **Unknown:** 1 in every shipped bank |
+| 8 | 4 | Priority, 10 in every shipped bank |
+| 12 | 4 | **Unknown:** `01 00 01 00` in the speech banks, and `01 00 01 03` in the others |
+
+An entry gives no stored size, so a sound runs to the next sound or to the end of the bank. Every
+shipped bank holds one sound. The sounds aren't WAVE files but raw 4-bit samples: each decodes to
+four times its stored size in 16-bit samples. **Unknown:** the codec. Decoded as IMA, OKI or Yamaha
+ADPCM, the samples drift far from zero, which recordings don't ([#1074](https://github.com/OpenReliant/openreliant/issues/1074)).
+
 ## Playback
 
 The engine reads a whole bank into memory with its generic file loader, `hog_read_file`
