@@ -43,6 +43,8 @@ const Registered = struct {
     priority: i32,
     callbacks: ?luau.Ref,
     enabled: bool = true,
+    /// How many of its callbacks' calls in a row ran out of time.
+    timeouts: runtime.Timeouts = .{},
 };
 
 /// Registrations are never renumbered or reused while this runtime lives.
@@ -114,11 +116,13 @@ pub const Registry = struct {
         defer scripts.release(target_ref);
         const seconds = @as(f32, @floatFromInt(ctx.world.clock.frameTicks())) / engine.game.main.ticks_per_second;
         const called = scripts.callIn(held.context, callbacks, @tagName(role), .{ ship_ref, target_ref, seconds }) orelse return true;
-        if (called == .failed) {
-            registry.entries.items[at].enabled = false;
-            log.warn("{s}: custom order {s} failed and is disabled", .{ held.context.modOf().name, held.name.slice() });
-            return false;
+        const entry = &registry.entries.items[at];
+        if (entry.timeouts.removes(called)) {
+            entry.enabled = false;
+            log.warn("{s}: custom order {s} {s}, and is disabled", .{ held.context.modOf().name, held.name.slice(), runtime.Timeouts.why(called) });
         }
+        // A call that ran out of time fails for this ship, as one that failed does.
+        if (called.raised()) return false;
         return role != .update or called != .returned_false;
     }
 };

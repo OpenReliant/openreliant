@@ -621,6 +621,9 @@ pub fn controlsFrame(controls: Controls) void {
 /// controller (`input.force.Forces.pushFrame`). A mission and the sandbox alike run this once a
 /// frame, before the camera's own frame and anything drawn.
 ///
+/// As the frame begins, mods' scripts take the world as the frame has it, which the orders they
+/// give run against (`hooks.Scripts.frame`).
+///
 /// Before the orders, in a frame that runs ticks while the mission plays on and its scene isn't
 /// the landing's, the mission (`loaded`) raises the events waiting (`mission.Loaded.flush`) and its
 /// script runs its frame's work (`mission.Loaded.process`), its clock ticking first for the
@@ -638,6 +641,7 @@ pub fn controlsFrame(controls: Controls) void {
 /// (`vm.editor.Editor.leavesFrame`), the frame leaves out its work after the check of
 /// `mission_over` (`0x0049288E`, `mission.Loaded.leaveFrame`).
 pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?*Loaded) FrameEnd {
+    if (orders.world.objects.scripts) |scripts| scripts.frame(orders);
     const over = missionOver(orders.world);
     const player = orders.world.player;
     if (loaded) |playing| {
@@ -2064,6 +2068,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     loaded.script.variables.players = all.players;
     orders.world.mission = &loaded.bound;
     orders.world.events = &loaded.events;
+    orders.world.variables = &loaded.script.variables;
     if (all.scripts) |scripts| scripts.begin(orders, mission, scriptSeed(world.random, number));
     if (start.editor) |session| session.begin(loaded, mission);
     try loaded.start(orders);
@@ -2284,9 +2289,31 @@ test startMission {
         .cockpit = &shown,
         .display = &state,
     };
+    // A stand-in for the scripts, which keeps the world the mission's start gives them.
+    const Watcher = struct {
+        scripts: hooks.Scripts,
+        world: ?gameobj.World = null,
+
+        const vtable: hooks.Scripts.VTable = .{ .call = undefined, .begin = begin, .started = started, .ended = undefined, .update = undefined, .step = undefined };
+
+        fn begin(context: *anyopaque, ctx: aigeneric.Context, _: hooks.Mission, _: u64) void {
+            const watcher: *@This() = @ptrCast(@alignCast(context));
+            watcher.world = ctx.world;
+        }
+
+        fn started(_: *anyopaque, _: hooks.Mission) void {}
+    };
+    var watcher: Watcher = .{ .scripts = .{ .context = undefined, .vtable = &Watcher.vtable } };
+    watcher.scripts.context = &watcher;
     {
+        mission.objects.scripts = &watcher.scripts;
         const loaded = try startMission(gpa, start, image, 0);
         defer loaded.destroy();
+        mission.objects.scripts = null;
+        // The scripts' orders run against the mission's records, events and variables.
+        try std.testing.expectEqual(&loaded.bound, watcher.world.?.mission.?);
+        try std.testing.expectEqual(&loaded.events, watcher.world.?.events.?);
+        try std.testing.expectEqual(&loaded.script.variables, watcher.world.?.variables.?);
 
         // The mission's ships in the first slots, the player's with its model, then the camera's marker.
         const all = mission.objects;

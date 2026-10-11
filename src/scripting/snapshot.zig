@@ -31,7 +31,9 @@ const Presentation = @import("presentation.zig").Presentation;
 /// The extension of the file beside each saved game (`save.companionName`).
 pub const extension = ".scripts";
 
-/// The most a file of scripts' state may take.
+/// The most a file of scripts' state may take. The mods' storage and their `on_save` values together
+/// can take more, which loses every mod's state in the save
+/// ([#1076](https://github.com/OpenReliant/openreliant/issues/1076)).
 pub const max_size = 16 << 20;
 
 /// What the file starts with, and the version of its form.

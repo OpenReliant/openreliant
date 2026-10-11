@@ -32,6 +32,8 @@ const Entry = struct {
     kind: Kind,
     callbacks: ?luau.Ref,
     enabled: bool = true,
+    /// How many of its callbacks' calls in a row ran out of time.
+    timeouts: runtime.Timeouts = .{},
     shown: bool = true,
     letterbox: bool = false,
     /// A display's: the game's instruments it stands in for, and where it puts them and their
@@ -197,12 +199,12 @@ pub const Registry = struct {
             text_count.* = layer.text.items.len;
         }
         if (scripts.callIn(entry.context, callbacks, key, args)) |called| {
-            if (called == .failed) {
-                for (&shown.layers.values, commands, text) |*layer, command_count, text_count| {
-                    layer.commands.shrinkRetainingCapacity(command_count);
-                    layer.text.shrinkRetainingCapacity(text_count);
-                }
-                log.warn("{s}: registered {t} {s} failed and is disabled", .{ entry.context.modOf().name, entry.kind, entry.name.slice() });
+            if (called.raised()) for (&shown.layers.values, commands, text) |*layer, command_count, text_count| {
+                layer.commands.shrinkRetainingCapacity(command_count);
+                layer.text.shrinkRetainingCapacity(text_count);
+            };
+            if (registry.entries.items[index].timeouts.removes(called)) {
+                log.warn("{s}: registered {t} {s} {s}, and is disabled", .{ entry.context.modOf().name, entry.kind, entry.name.slice(), runtime.Timeouts.why(called) });
                 registry.disable(scripts, index);
             }
         }

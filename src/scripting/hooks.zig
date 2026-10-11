@@ -18,7 +18,8 @@
 //!   true for a call it's for. The engine checks all but a function itself, without calling into
 //!   Luau.
 //! - A handler that raises an error is logged and removed, and the changes it made to `e` are
-//!   undone.
+//!   undone. One that runs out of time is removed once it does so `runtime.max_timeouts` times in a
+//!   row, as one slow call can come from the system or another mod (`runtime.Called.timed_out`).
 //!
 //! While hooks run, handlers that are added or removed only take effect once the outermost hook is
 //! done, so that a hook's list of handlers doesn't change under it.
@@ -217,6 +218,8 @@ const Handler = struct {
     when: When,
     filter: Filter,
     removed: bool = false,
+    /// How many of its calls and its filter's in a row ran out of time (`Dispatch.keepOrDrop`).
+    timeouts: runtime_module.Timeouts = .{},
 
     fn release(handler: *Handler, runtime: *Runtime) void {
         runtime.release(handler.function);
@@ -307,7 +310,7 @@ const Dispatch = struct {
             const ran = dispatch.ran;
             switch (dispatch.callHandler(handler)) {
                 // Its changes are undone, unless the function ran with them.
-                .failed => if (dispatch.ran == ran) dispatch.restore(saved),
+                .failed, .timed_out => if (dispatch.ran == ran) dispatch.restore(saved),
                 .returned_false => dispatch.stopped = true,
                 .returned, .returned_nil => {},
             }
@@ -321,7 +324,7 @@ const Dispatch = struct {
             if (handler.removed or handler.when != .after or !dispatch.wants(handler)) continue;
             const saved = dispatch.save();
             switch (dispatch.callHandler(handler)) {
-                .failed => dispatch.restore(saved),
+                .failed, .timed_out => dispatch.restore(saved),
                 .returned_false => return,
                 .returned, .returned_nil => {},
             }
@@ -339,30 +342,27 @@ const Dispatch = struct {
         }
         const function = filter.function orelse return true;
         const event = dispatch.eventRef() orelse return false;
-        return switch (dispatch.hooks.runtime.call(handler.context, function, .{event})) {
+        return switch (dispatch.keepOrDrop(handler, dispatch.hooks.runtime.call(handler.context, function, .{event}))) {
             .returned => true,
-            .returned_nil, .returned_false => false,
-            .failed => failed: {
-                dispatch.drop(handler);
-                break :failed false;
-            },
+            .returned_nil, .returned_false, .failed, .timed_out => false,
         };
     }
 
-    /// Calls `handler`, removing it if it fails. Where there's no memory for `e`, the handler is
-    /// passed over as though it had failed, but kept.
+    /// Calls `handler`, removing it if it fails (`keepOrDrop`). Where there's no memory for `e`, the
+    /// handler is passed over as though it had failed, but kept.
     fn callHandler(dispatch: *Dispatch, handler: *Handler) runtime_module.Called {
         const event = dispatch.eventRef() orelse return .failed;
-        const called = dispatch.hooks.runtime.call(handler.context, handler.function, .{event});
-        if (called == .failed) dispatch.drop(handler);
-        return called;
+        return dispatch.keepOrDrop(handler, dispatch.hooks.runtime.call(handler.context, handler.function, .{event}));
     }
 
-    /// Removes a handler that failed.
-    fn drop(dispatch: *Dispatch, handler: *Handler) void {
-        log.warn("{s}: a handler of {s} failed, and is removed", .{ handler.context.modOf().name, dispatch.access.name });
+    /// Removes `handler` where a call of its own or of its filter's failed, as `called` says, or
+    /// ran out of time too many times in a row (`runtime.Timeouts`). Returns `called`.
+    fn keepOrDrop(dispatch: *Dispatch, handler: *Handler, called: runtime_module.Called) runtime_module.Called {
+        if (!handler.timeouts.removes(called)) return called;
+        log.warn("{s}: a handler of {s} {s}, and is removed", .{ handler.context.modOf().name, dispatch.access.name, runtime_module.Timeouts.why(called) });
         handler.removed = true;
         dispatch.hooks.removed = true;
+        return called;
     }
 
     /// The reference to `e`, made the first time; null where there's no memory for it.

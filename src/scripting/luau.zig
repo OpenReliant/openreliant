@@ -92,6 +92,16 @@ pub const State = opaque {
         }.call;
     }
 
+    /// Sets what runs where an error is raised with no protected call to catch it, just before Luau
+    /// aborts the process (`lua_Callbacks.panic`).
+    pub fn setPanic(state: *State, comptime run: fn (*State, Status) void) void {
+        state.callbacks().panic = &struct {
+            fn call(raw_state: ?*c.lua_State, code: c_int) callconv(.c) void {
+                run(of(raw_state), @fromBackingInt(code));
+            }
+        }.call;
+    }
+
     /// Makes new threads, such as coroutines, inherit their parent's thread data.
     pub fn inheritThreadData(state: *State) void {
         state.callbacks().userthread = &struct {
@@ -395,18 +405,36 @@ pub const State = opaque {
 
     /// Calls the function below the `arguments` on the stack in protected mode. On success it
     /// leaves `results` results, or all of them for `all_results`; on failure it leaves the error
-    /// message with a traceback.
+    /// message with a traceback. It pushes a new `traceback` function as the error handler, which
+    /// takes memory before the call is protected. That suits a call made while a script runs, whose
+    /// own protected call catches running out of memory, and tests; the engine's calls into scripts
+    /// use `protectedCallWith`.
     pub fn protectedCall(state: *State, arguments: i32, results: i32) Status {
-        const base = state.top() - arguments;
         state.pushFunction(traceback, "traceback");
+        return state.protectedCallTopHandler(arguments, results);
+    }
+
+    /// `protectedCall`, with `handler` as the error handler: a reference to `traceback`, made
+    /// beforehand, so that nothing takes memory before the call is protected. Needs a free place
+    /// on the stack.
+    pub fn protectedCallWith(state: *State, arguments: i32, results: i32, handler: Ref) Status {
+        _ = state.pushRef(handler);
+        return state.protectedCallTopHandler(arguments, results);
+    }
+
+    /// Calls the function below the `arguments` with the error handler on top of the stack, which
+    /// it moves below the function and takes away again.
+    fn protectedCallTopHandler(state: *State, arguments: i32, results: i32) Status {
+        const base = state.top() - 1 - arguments;
         state.insert(base);
         const status: Status = @fromBackingInt(c.lua_pcall(state.raw(), arguments, results, base));
         c.lua_remove(state.raw(), base);
         return status;
     }
 
-    /// Error handler for `protectedCall`: adds a traceback to the message.
-    fn traceback(raw_state: ?*c.lua_State) callconv(.c) c_int {
+    /// The error handler of the protected calls (`protectedCall`, `protectedCallWith`): adds a
+    /// traceback to the message.
+    pub fn traceback(raw_state: ?*c.lua_State) callconv(.c) c_int {
         const L = raw_state.?;
         const message = c.lua_tolstring(L, 1, null);
         c.luaL_traceback(L, L, message, 1);
@@ -564,6 +592,34 @@ test "a script runs, and errors report the line" {
     try std.testing.expect(std.mem.startsWith(u8, message, "bad:2: attempt to index nil"));
 }
 
+test "a protected call with its handler made beforehand takes no memory before it is protected" {
+    const state = State.create(testing.allocate, null).?;
+    defer state.close();
+    state.openLibraries();
+    state.pushFunction(State.traceback, "traceback");
+    const handler = state.ref(-1);
+    state.pop(1);
+    const nothing = compile("return").?;
+    defer nothing.free();
+    try std.testing.expectEqual(Status.ok, state.load("=nothing", nothing.bytes));
+    var allocations: usize = 0;
+    testing.countAllocations(state, &allocations);
+    try std.testing.expectEqual(Status.ok, state.protectedCallWith(0, 0, handler));
+    try std.testing.expectEqual(0, allocations);
+    // A new handler for each call takes memory first.
+    try std.testing.expectEqual(Status.ok, state.load("=nothing", nothing.bytes));
+    try std.testing.expectEqual(Status.ok, state.protectedCall(0, 0));
+    try std.testing.expect(allocations > 0);
+    // The handler adds the traceback all the same.
+    const failing = compile("local function deeper() error('broke') end\ndeeper()").?;
+    defer failing.free();
+    try std.testing.expectEqual(Status.ok, state.load("=failing", failing.bytes));
+    try std.testing.expectEqual(Status.runtime_error, state.protectedCallWith(0, 0, handler));
+    const message = state.toString(-1).?;
+    try std.testing.expect(std.mem.startsWith(u8, message, "failing:1: broke"));
+    try std.testing.expect(std.mem.find(u8, message, "deeper") != null);
+}
+
 test "a syntax error is reported when loading" {
     const state = State.create(testing.allocate, null).?;
     defer state.close();
@@ -657,6 +713,17 @@ pub const testing = struct {
             return null;
         }
         return std.c.realloc(ptr, new);
+    }
+
+    /// Counts each block `state` allocates from now on in `count` (`lua_Callbacks.onallocate`),
+    /// which the state's callback data then points to.
+    pub fn countAllocations(state: *State, count: *usize) void {
+        state.setCallbackData(count);
+        state.callbacks().onallocate = &struct {
+            fn call(raw_state: ?*c.lua_State, _: ?*anyopaque, _: usize, _: usize, _: u8, _: c_int, _: c_int) callconv(.c) void {
+                State.of(raw_state).callbackData(usize).?.* += 1;
+            }
+        }.call;
     }
 
     /// Gives the scripts on `thread` `rawgetmetatable`, which reaches a locked metatable
