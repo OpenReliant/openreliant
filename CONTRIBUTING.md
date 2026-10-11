@@ -347,6 +347,10 @@ make check-files
 When names or Zig types exported to Ghidra changed, also run `make ghidra-annotate`, which needs
 the reverse-engineering toolchain.
 
+CI also runs the tests in ReleaseFast, as releases are built
+([Builds and releases](docs/port/platform.md#builds-and-releases)).
+`zig build test --release=fast --summary all` does the same locally.
+
 The repository holds the engine and its tools. The game's files, and everything extracted or
 derived from them, live in the git-ignored `game/` directory. The pre-commit hook, `make
 check-files` and CI keep it that way, and keep em and en dashes out of the text.
