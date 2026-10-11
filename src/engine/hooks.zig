@@ -278,7 +278,7 @@ pub const functions = struct {
 
     pub const order_pop: Declaration = .{
         .address = 0x0040CE70,
-        .about = "`object` ends the order it runs, which its exit runs for where it has started, and the order below starts again. The result says whether it had one.",
+        .about = "`object` ends the order it runs, which its exit runs for where it has started, and the order below starts again. The result says whether it had one. The orders a mod registers that OpenReliant removes, as the mod's scripts close or the object goes, pop without this hook.",
         .Fields = struct {
             object: Object,
         },

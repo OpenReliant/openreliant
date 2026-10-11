@@ -474,7 +474,7 @@ pub fn fighterAttack(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
-    const pod = &all.slots[slot.orders[0].target.ship() orelse return];
+    const pod = &all.slots[slot.orders[0].target.shipIn(all) orelse return];
     if (pod.object.flags.exploding) {
         object.throttle = ai.full_throttle;
         return;

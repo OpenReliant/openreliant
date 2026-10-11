@@ -18,6 +18,7 @@ const vm = @import("../vm.zig");
 const gameobj = @import("../game/gameobj.zig");
 const hooks = @import("../hooks.zig");
 const Kinds = @import("../game/executor/commands.zig").Kinds;
+const SquadPath = @import("../game/mission/bind.zig").Mission.SquadPath;
 
 const conditions = vm.conditions;
 const Machine = vm.Machine;
@@ -342,7 +343,7 @@ pub fn raiseOnGroups(machine: *Machine, ship: u16, event: Event) void {
         var tally: Tally = .{ .handlers = handlers };
         switch (group.of) {
             .flight_group => |flight_group| tally.addFlightGroup(machine, flight_group),
-            .squad => |squad| if (handlers != null) tally.addSquad(machine, squad, 0),
+            .squad => |squad| if (handlers != null) tally.addSquad(machine, squad),
         }
         machine.verdict = tally.verdict(event.values);
         raise(machine, group.object, event.onGroup());
@@ -402,7 +403,7 @@ pub const Groups = struct {
         const place = machine.mission.recordPlace(.ships, groups.ship);
         for (squads[@min(first, squads.len)..], first..) |squad, index| {
             if (!holdsTriggers(machine, squad.object_id)) continue;
-            const holds = machine.inSquad(machine.mission.recordPlace(.squads, index), place, groups.qualifier, 0) catch |err| holds: {
+            const holds = machine.inSquad(machine.mission.recordPlace(.squads, index), place, groups.qualifier) catch |err| holds: {
                 if (machine.firstTime(.squad_members)) log.warn("the members of squad {d} can't be read, so no event is raised on its triggers: {s}", .{ index, @errorName(err) });
                 break :holds false;
             };
@@ -491,18 +492,26 @@ const Tally = struct {
         }
     }
 
-    /// `condition_squad_add` (`0x004533D0`): the members of squad `squad`, `depth` squads down, in
-    /// turn (`bind.Mission.squadMembers`): a ship as the component its membership names, each ship
-    /// of a flight group whole, and a squad's own members in turn.
-    fn addSquad(tally: *Tally, machine: *Machine, squad: u16, depth: usize) void {
-        var members = machine.mission.squadMembers(squad, depth);
+    /// `condition_squad_add` (`0x004533D0`): the members of squad `squad`, in turn
+    /// (`addSquadAlong`).
+    fn addSquad(tally: *Tally, machine: *Machine, squad: u16) void {
+        var walk: SquadPath.Walk = .{};
+        tally.addSquadAlong(machine, &walk.start(squad));
+    }
+
+    /// `addSquad` for the squad `path` stands in: its members in turn
+    /// (`bind.Mission.squadMembers`), a ship as the component its membership names, each ship of
+    /// a flight group whole, and a squad's own members in turn, where the path goes into it
+    /// (`SquadPath.into`).
+    fn addSquadAlong(tally: *Tally, machine: *Machine, path: *const SquadPath) void {
+        var members = machine.mission.squadMembers(path.squad);
         while (members.next()) |member| switch (member) {
             .ship => |ship| {
                 tally.add(machine, ship.index, ship.component orelse dte.Trigger.whole_object);
                 tally.count +%= 1;
             },
             .flight_group => |group| tally.addFlightGroup(machine, group),
-            .squad => |inner| tally.addSquad(machine, inner, depth + 1),
+            .squad => |inner| if (path.into(inner)) |deeper| tally.addSquadAlong(machine, &deeper),
         };
     }
 
@@ -909,24 +918,68 @@ test groupsOf {
     }
 }
 
-test "a squad whose members can't be walked raises no event" {
+test "a squad's tally counts a squad named twice twice, as far as a walk goes" {
+    const gpa = std.testing.allocator;
+    const records = dte.testing;
+    // Squad 0 names squad 1 twice, which names the ship twice: four members.
+    const short: records.DoubledChain(1, 2) = .init();
+    var fixture: machine_testing.Fixture = undefined;
+    try fixture.init(gpa, &.{}, .{ .ships = &records.ships(1, 0), .objects = &short.objects, .squads = &short.squads, .squad_members = &short.members });
+    defer fixture.deinit();
+    var four: Tally = .{ .handlers = .pass };
+    four.addSquad(&fixture.machine, 0);
+    try std.testing.expectEqual(4, four.count);
+    // A chain of 40 such squads would take 2^40 members; the walk stops after going into
+    // `SquadPath.most_entered` squads.
+    const long: records.DoubledChain(1, 40) = .init();
+    var deep: machine_testing.Fixture = undefined;
+    try deep.init(gpa, &.{}, .{ .ships = &records.ships(1, 0), .objects = &long.objects, .squads = &long.squads, .squad_members = &long.members });
+    defer deep.deinit();
+    var many: Tally = .{ .handlers = .pass };
+    many.addSquad(&deep.machine, 0);
+    try std.testing.expect(many.count > 0 and many.count <= 2 * SquadPath.most_entered);
+    // A squad that names itself is passed over as its own member: a ship in it raises the squad's
+    // event, and counts once.
+    const code = try machine_testing.counting(gpa, 0);
+    defer gpa.free(code);
+    const parts = [_]machine_testing.Part{.{ .code = code }};
+    const whole = dte.Trigger.whole_object;
+    var cycle: machine_testing.Fixture = undefined;
+    try cycle.init(gpa, &parts, .{
+        .globals = &.{0},
+        .ships = &records.ships(1, 0),
+        .squads = &.{records.squad(1, 0)},
+        .squad_members = &.{ memberRecord(1, 0, whole), memberRecord(1, 0, whole), memberRecord(0, 0, whole) },
+        .objects = &.{ objectRecord(.ship, 0, 0), objectRecord(.squad, 0, 1) },
+        .triggers = &.{testing.trigger(&parts, 0, .destroyed, .always)},
+    });
+    defer cycle.deinit();
+    var groups = groupsOf(&cycle.machine, 0, whole);
+    try std.testing.expectEqual(0, groups.next().?.of.squad);
+    var once: Tally = .{ .handlers = .pass };
+    once.addSquad(&cycle.machine, 0);
+    try std.testing.expectEqual(1, once.count);
+}
+
+test "a squad whose members can't be read raises no event" {
     const gpa = std.testing.allocator;
     const code = try machine_testing.counting(gpa, 0);
     defer gpa.free(code);
     const parts = [_]machine_testing.Part{.{ .code = code }};
-
-    // Squad 0 holds itself, so walking its members never ends.
     const whole = dte.Trigger.whole_object;
     var fixture: machine_testing.Fixture = undefined;
     try fixture.init(gpa, &parts, .{
         .globals = &.{0},
         .ships = &.{shipRecord(0, dte.Ship.no_flight_group, 0)},
         .squads = &.{dte.testing.squad(1, 0)},
-        .squad_members = &.{memberRecord(1, 0, whole)},
+        .squad_members = &.{memberRecord(0, 0, whole)},
         .objects = &.{ objectRecord(.ship, 0, 0), objectRecord(.squad, 0, 1) },
         .triggers = &.{testing.trigger(&parts, 0, .destroyed, .always)},
     });
     defer fixture.deinit();
+    // The members' section says it holds more records than the file has room for.
+    const entry = @backingInt(dte.Section.squad_members) * @sizeOf(dte.DirectoryEntry);
+    std.mem.writeInt(u16, fixture.mission.image[entry..][0..2], std.math.maxInt(u16), .little);
     var groups = groupsOf(&fixture.machine, 0, whole);
     try std.testing.expectEqual(null, groups.next());
     try std.testing.expect(fixture.machine.warned.contains(.squad_members));

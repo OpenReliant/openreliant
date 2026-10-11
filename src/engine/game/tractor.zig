@@ -484,7 +484,7 @@ pub const Stage = enum(i32) {
 pub fn scoopUpInit(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
-    const pod = targetOf(slot) orelse return;
+    const pod = targetOf(all, slot) orelse return;
     const state = &slot.state.scoop_up;
     state.stage = .claiming;
     state.since = 0;
@@ -507,7 +507,7 @@ pub fn scoopUpExit(ctx: Context, index: u16) void {
     const slot = &all.slots[index];
     const state = &slot.state.scoop_up;
     if (state.stage.claimed()) {
-        if (targetOf(slot)) |pod| all.slots[pod].object.flags.tractored = false;
+        if (targetOf(all, slot)) |pod| all.slots[pod].object.flags.tractored = false;
     }
     if (ctx.world.tractors) |tractors| if (state.held()) |place| tractors.free(place);
     slot.object.network.scooping = false;
@@ -565,7 +565,7 @@ pub fn scoopUp(ctx: Context, index: u16) void {
     const state = &slot.state.scoop_up;
     const now = ctx.world.clock.frame_start;
     const seconds = inSeconds(gameobj.ticksSince(&state.updated, now));
-    const pod_index = targetOf(slot) orelse return;
+    const pod_index = targetOf(all, slot) orelse return;
     const pod = &all.slots[pod_index];
     const tractor = tractorOf(world, state.*);
     if (pod.object.gone()) {
@@ -663,9 +663,9 @@ pub fn scoopUp(ctx: Context, index: u16) void {
     }
 }
 
-/// The ship its order in `slot` aims at, where it names one.
-fn targetOf(slot: *const create.Slot) ?u16 {
-    return (slot.current() orelse return null).target.ship();
+/// The ship its order in `slot` aims at, where it names one of `all`'s.
+fn targetOf(all: *const create.Objects, slot: *const create.Slot) ?u16 {
+    return (slot.current() orelse return null).target.shipIn(all);
 }
 
 /// The tractor Scoop Up holds through `state`, where it holds one.

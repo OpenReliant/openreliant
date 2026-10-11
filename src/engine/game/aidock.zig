@@ -310,10 +310,18 @@ pub fn update(ctx: Context, index: u16) void {
 /// exit (`dock_limpet_exit`, `0x004081C0`), which its exit at the Czar jumps to
 /// (`dock_limpet_czar_exit`, `0x004084A0`), also restores forward motion and clears attachment;
 /// the pod's (`dock_limpet_pod_exit`, `0x004084E0`) clears both pass-through slots.
+///
+/// **Fix:** a station dock that ends while the ship slides in leaves it flying by `motion_follow`,
+/// which then reads the next order's state as its path. Ship Follow Curve's exit puts the motion
+/// back, and OpenReliant does the same here: a ship still sliding flies ahead (`motion_forward`)
+/// again.
 pub fn exit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     switch (slot.orders[0].data.dock.style) {
-        .station, .nanny => slot.object.passes_through[0] = .none,
+        .station, .nanny => {
+            slot.object.passes_through[0] = .none;
+            if (slot.motion == .follow) slot.motion = .forward;
+        },
         .limpet_car, .limpet_car_czar => {
             slot.motion = .forward;
             slot.object.flags.attached = false;
@@ -1072,6 +1080,26 @@ test "a ship docked at a Nanny passes through nothing more" {
     // Its exit is the station's.
     try std.testing.expect(aigeneric.pop(dock.orders(), index));
     try std.testing.expectEqual(gameobj.Slot.none, slot.object.passes_through[0]);
+}
+
+test "a dock that ends as the ship slides in puts its motion back" {
+    var dock: TestDock = undefined;
+    try dock.init();
+    defer dock.deinit();
+    const index = dock.freighters[0];
+    const slot = dock.game.slot(index);
+    try std.testing.expect(try aigeneric.push(dock.orders(), index, .dock, .at(dock.station, 0)));
+    aigeneric.objectOrders(dock.orders(), index);
+    // Sliding in, it flies by the dock's path, and the order ending puts it back on its own motion.
+    slot.motion = .follow;
+    try std.testing.expect(aigeneric.pop(dock.orders(), index));
+    try std.testing.expectEqual(motion.Motion.forward, slot.motion.?);
+    // Once it is in, it backs into its berth, and stays on that.
+    try std.testing.expect(try aigeneric.push(dock.orders(), index, .dock, .at(dock.station, 0)));
+    aigeneric.objectOrders(dock.orders(), index);
+    slot.motion = .backward;
+    try std.testing.expect(aigeneric.pop(dock.orders(), index));
+    try std.testing.expectEqual(motion.Motion.backward, slot.motion.?);
 }
 
 test "a Nanny rearms a ship and releases it after the original waits" {

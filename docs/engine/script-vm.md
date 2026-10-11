@@ -57,6 +57,14 @@ ends when one returns zero. The thread has then finished if a `return` ran at ca
 which sets `vm_finished`; otherwise it has yielded, and resumes at its instruction pointer on its
 next run.
 
+`jump` (`0x0045C2B0`) and `branch_if_zero` (`0x0045C270`) move the instruction pointer forward by
+the big-endian halfword after the opcode, counted from that halfword. The displacement is unsigned,
+so a script never jumps back, and calls nest only as deep as the thread's stack allows. A part can
+still call another many times, which calls another many times, and so on, and such a run can go on
+for ages without waiting, which hangs the game. **Improvement:** OpenReliant ends a run after a
+million opcodes (`machine.most_steps`), as it ends a thread that faults: the log says where, and
+the script ends.
+
 The opcodes take the stack's values as unsigned: the comparisons test with `CMP` and `SBB`, the
 divisions are `DIV`, and the sums and products wrap. The float opcodes load a value with `FILD`, as
 an exact whole number, so the float comparisons compare as the others do. The float arithmetic
@@ -561,13 +569,16 @@ hold, in the place of a timer of its own.
 **Fix:** where the game faults or reads past a table, OpenReliant ends the thread and logs why: an
 integer division by zero, a stack that runs past its 32 places or below its first, an opcode with no
 handler, an instruction or a record past the image, an argument read with no frame, a store with no
-target, a local past the fifth, and squads that hold one another round in a circle.
+target, and a local past the fifth.
 `in_flight_group` and `in_squad` end the thread on a place past the address space, such as
 `push_null`'s, where the game faults. A command whose flags in section 24 lie past the image, as for
 a section that starts at the file's end, takes none, where the game reads past its copy of the file.
 The entries of a part table past the mission's parts have no block, where the game leaves them as
-`malloc` gave them. `for_each_ship` stops at a squad that holds itself round, which the game walks
-for ever, and passes over a member no record stands for, and a ship past the last object's slot.
+`malloc` gave them. `for_each_ship` and `in_squad` go down into squads as the orders' walks do
+([Targets that name several ships](orders.md#targets-that-name-several-ships)): they pass over a
+squad they are already inside, which the game walks round for ever, and go into no more than 4096
+squads in one walk. `for_each_ship` passes over a member no record stands for, and a ship past the
+last object's slot.
 A ninth component tag is dropped, where the game writes past its list of eight. No thread starts
 where the pool has none free, and no timer is made where the table is full, where the game takes
 one past them. A call through the second part table to a part with no block does nothing, where
@@ -584,8 +595,8 @@ record, which the matcher compares, where the game compares the index against it
 255 finds none of the threads no trigger started, and a trigger past 255 finds its own. The matcher
 takes an object's slice of the trigger list as far as the object table and the list reach, where the
 game reads past them. The handlers' count of a squad passes over a member of a kind the game has no
-name for, where the game stops ("unknown ai group member"), and one no record stands for, and stops
-at a squad that holds itself round. Cloaking an object that stands for no mission's ship posts
+name for, where the game stops ("unknown ai group member"), and one no record stands for, and goes
+down into squads as the orders' walks do. Cloaking an object that stands for no mission's ship posts
 nothing, where the game faults. The watches' lists are as long as the mission needs, where the game
 writes them into tables of a fixed size without looking. An event on a squad whose table or members
 can't be read is raised on none of its triggers, and logged once.

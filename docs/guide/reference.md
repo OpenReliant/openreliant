@@ -754,7 +754,7 @@ One of the missile turrets of `launcher` launches a Screamer at `target`.
 
 ### order_pop
 
-`object` ends the order it runs, which its exit runs for where it has started, and the order below starts again. The result says whether it had one.
+`object` ends the order it runs, which its exit runs for where it has started, and the order below starts again. The result says whether it had one. The orders a mod registers that OpenReliant removes, as the mod's scripts close or the object goes, pop without this hook.
 
 | Field | Type |
 |---|---|
