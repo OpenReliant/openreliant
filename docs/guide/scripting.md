@@ -1440,6 +1440,10 @@ return {
 - The same goes for the restart point. The scripts' state is kept as each mission of the campaign
   starts, and a replay or the pause menu's RESTART puts it back, so that the scripts start the
   mission again as they were.
+- All the mods' state together, their game sections ([Storage](#storage)), what their scripts
+  saved and their timers, can take up to 256 MiB. If it would take more, the mods that keep the
+  most are left out until the rest fits, and the log names them. When the game is loaded, their
+  scripts get `on_init`, like those of a mod added since.
 - Mission and object scripts don't run between missions, so they aren't kept. Menu scripts run
   across games, so they aren't kept either.
 
@@ -2502,6 +2506,7 @@ line, and the game carries on.
 | A mod's scripts' memory | 64 MiB |
 | A file a script reads | What the mod's scripts have left of that memory ([Files](#files)) |
 | A mod's storage | Just under 15 MiB in each place, the game's and the global ([Storage](#storage)) |
+| The state kept with a saved game | 256 MiB, all mods together. The mods that keep the most are left out until the rest fits ([Saved games](#saved-games)) |
 | Drawing each frame | 4096 things and 64 KiB of text over the flight display (`hud` and `debug` together), and as much over the menus (`ui`). What's past that isn't drawn |
 | The pictures and fonts scripts draw | 128 files and 128 MiB at once, all mods together, the pictures drawn longest ago making room for new ones ([Pictures, shapes and fonts](#pictures-shapes-and-fonts)) |
 | Camera views, HUD displays and screens | About 200 together in one run of OpenReliant, counting the ones registered before a reload ([Camera views](#camera-views)) |
