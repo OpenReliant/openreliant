@@ -143,7 +143,6 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--no-compressor" = .{ .section = .sound, .text = "leave the mix's loudness as it is, only keeping its peaks in check" },
     .@"--no-sound" = .{ .section = .sound, .text = "play without sound" },
     .@"--no-mods" = .{ .section = .other, .text = "start without the mods in the game's mods folder" },
-
     .@"--no-intro" = .{ .section = .other, .text = "start without the three movies the game plays as it starts, as --mission and --screenshot do" },
     .@"--developer-mode" = .{ .section = .other, .text = "the tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading when they or their shaders are saved" },
     .@"--editor-link" = .{ .section = .other, .text = "listen for a mission editor or a script debugger, such as openreliant debug, on this computer's own address, 127.0.0.1, which can then pause the mission and stop and step its script, as the original's editor link does" },
@@ -263,7 +262,6 @@ pub const Options = struct {
     intro: bool = true,
     /// Whether to load the mods in the game's `mods` folder (`game.bigfile.Mods`).
     mods: bool = true,
-
     /// Whether the tools for writing mods' scripts are on: the scripting console, and folder mods'
     /// scripts reloading as they're saved (`console.Driver`).
     developer_mode: bool = false,
@@ -478,7 +476,6 @@ pub const Options = struct {
                 if (axes.next() != null) return error.BadValue;
             },
             .@"--no-mods" => options.mods = false,
-
             .@"--no-intro" => options.intro = false,
             .@"--developer-mode" => options.developer_mode = true,
             .@"--editor-link" => options.editor_link = true,

@@ -204,12 +204,13 @@ for it. OK goes back to the mods screen, which now lists the installed mods. Lik
 the mods screen, they take effect at the next start.
 
 The catalogue and the downloads run in the background, so the menus keep working, and the panel
-shows the download's progress. OpenReliant connects to the web only for this screen: to read the
-repositories, and to download the mods you install. Everything is downloaded over HTTPS: a plain
-`http` link is changed to `https` before it is requested, and so is every redirect, so nothing is
-read in plain text, and plain HTTP never replaces HTTPS when HTTPS fails. Only a repository on your
-own machine (`localhost`, `127.0.0.1` or `::1`) is read over plain HTTP. The screen lists at most 127
-mods. A download can't be cancelled yet
+shows the download's progress. Besides the check for a newer release
+([Newer releases](configuration.md#newer-releases)), OpenReliant connects to the web only for this
+screen: to read the repositories, and to download the mods you install. Everything is downloaded
+over HTTPS: a plain `http` link is changed to `https` before it is requested, and so is every
+redirect, so nothing is read in plain text, and plain HTTP never replaces HTTPS when HTTPS fails.
+Only a repository on your own machine (`localhost`, `127.0.0.1` or `::1`) is read over plain HTTP.
+The screen lists at most 127 mods. A download can't be cancelled yet
 ([#1040](https://github.com/OpenReliant/openreliant/issues/1040)), and the mods screen doesn't say
 yet which of its mods have an update
 ([#1041](https://github.com/OpenReliant/openreliant/issues/1041)).
