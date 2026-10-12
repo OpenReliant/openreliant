@@ -83,7 +83,7 @@ pub const sun_distance: f32 = 1000;
 /// as the key lights do and reaches only the objects that ask for it (`srlight.Light.inclusive`),
 /// the planets and their atmospheres (`create.planet_light_mask`). It has the key lights' colour,
 /// unless a mod gives the planets another (`create.planets.light`), which changes the light of no
-/// other model.
+/// other model. Each frame takes the colour the records give it then (`Backdrop.frame`).
 pub const LightRole = enum { key_01, fill_02, ambient_04, key_08, fill_10, ambient_20, planets_40 };
 pub const Lights = std.EnumArray(LightRole, srlight.Light);
 
@@ -93,7 +93,7 @@ pub const key_colour: [3]f32 = .{ 1, 1, 0.8 };
 /// The fill lights' colour until `nebula_select` gives them the nebula's.
 pub const default_fill: [3]f32 = .{ 0, 0.5, 1 };
 
-/// The lights as `backdrop_create` makes them, and the planets' own.
+/// The lights as `backdrop_create` makes them, and the planets' own, with the key lights' colour.
 pub fn initialLights() Lights {
     return .init(.{
         .key_01 = .{ .mask = 0x01, .intensity = 1, .colour = key_colour, .kind = .{ .directional = sun_direction }, .shadowed = true },
@@ -105,7 +105,7 @@ pub fn initialLights() Lights {
         .planets_40 = .{
             .mask = 0x40,
             .intensity = 1,
-            .colour = planets.light() orelse key_colour,
+            .colour = key_colour,
             .kind = .{ .directional = sun_direction },
             .shadowed = true,
             .inclusive = true,
@@ -477,6 +477,9 @@ pub const Backdrop = struct {
     /// environment's effects, which `main.drawFrame` adds before the lights, the lights keeping a
     /// list of their own (`environfx.Environment.frame`).
     pub fn frame(backdrop: *Backdrop, gpa: Allocator, scene: *srcore.Scene, context: *srapi.Context, view: camera.View, cockpit_mode: camera.CockpitMode) Allocator.Error!void {
+        // The records are loaded after the backdrop is made, and a game mode's records can change
+        // between missions, so the planets' light takes their colour as it's drawn.
+        backdrop.lights.getPtr(.planets_40).colour = planets.light() orelse key_colour;
         for (&backdrop.lights.values) |*light| try xtrabits.sceneAdd(gpa, scene, .{ .light = light }, .background);
         // Toward the sun, in the camera's frame.
         const toward = context.turn(backdrop.sun_direction);
@@ -618,11 +621,7 @@ test initialLights {
     try std.testing.expectEqual(4, reaching_with);
     try std.testing.expectEqual(4, reaching_without);
     try std.testing.expectEqual(0.7, lights.get(.fill_10).intensity);
-    // The planets' light has the key lights' colour, unless a mod gives the planets another.
     try std.testing.expectEqual(key_colour, lights.get(.planets_40).colour);
-    planets.installLight(.{ 1, 1, 1 });
-    defer planets.installOriginal();
-    try std.testing.expectEqual([3]f32{ 1, 1, 1 }, initialLights().get(.planets_40).colour);
 }
 
 /// A texture table holding the sun's textures and the nebulae's, each 8 by 4.
@@ -686,6 +685,7 @@ test "Backdrop.frame" {
     };
     try backdrop.frame(gpa, &scene, &context, .chase, .open);
     try std.testing.expectEqual(7, scene.lights.items.len);
+    try std.testing.expectEqual(key_colour, scene.lights.getLast().colour);
     // The fields, the dust, `sunlayer3`, `sunlayer2` and `sunlayer1`; the flares on the overlay.
     try std.testing.expectEqual(field_count + 4, scene.layers.get(.background).items.len);
     try std.testing.expectEqual(flares.len, scene.layers.get(.overlay).items.len);
@@ -718,6 +718,14 @@ test "Backdrop.frame" {
     try std.testing.expectApproxEqAbs(std.math.atan(@as(f32, 8.0 * 2.0 / 768.0)), glare.outer, 1e-6);
     try std.testing.expectApproxEqAbs(1, glare.toward[2], 1e-5);
     for (backdrop.fields) |field| try std.testing.expectEqual(glare, field.glare);
+
+    // The planets' light has the key lights' colour, unless a mod gives the planets another, which
+    // the next frame takes.
+    planets.installLight(.{ 1, 1, 1 });
+    defer planets.installOriginal();
+    scene.clear();
+    try backdrop.frame(gpa, &scene, &context, .chase, .open);
+    try std.testing.expectEqual([3]f32{ 1, 1, 1 }, scene.lights.getLast().colour);
 }
 
 test "Backdrop.place" {
