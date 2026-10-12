@@ -209,7 +209,13 @@ shows the download's progress. Besides the check for a newer release
 screen: to read the repositories, and to download the mods you install. Everything is downloaded
 over HTTPS: a plain `http` link is changed to `https` before it is requested, and so is every
 redirect, so nothing is read in plain text, and plain HTTP never replaces HTTPS when HTTPS fails.
-Only a repository on your own machine (`localhost`, `127.0.0.1` or `::1`) is read over plain HTTP.
+Your own machine (such as `localhost`, `127.0.0.1` or `::1`) is read only for a repository there,
+along with the thumbnails and archives its index links, and over plain HTTP. A repository on the web
+can't point OpenReliant at your machine: such a link, or a redirect to your machine, fails with THE
+CATALOG POINTS AT THIS COMPUTER. A server that stops answering fails with THE SERVER DOESN'T
+ANSWER: an index or a thumbnail gives up after a minute, or after 15 seconds with nothing arriving,
+and an archive after 30 seconds with nothing arriving. RELOAD then reads the repositories again,
+and tries again the thumbnails that failed. Quitting OpenReliant never waits for a download.
 The screen lists at most 127 mods. A download can't be cancelled yet
 ([#1040](https://github.com/OpenReliant/openreliant/issues/1040)), and the mods screen doesn't say
 yet which of its mods have an update
@@ -259,7 +265,7 @@ top-level `generated` key is, which says when the index was written.
 | `name`, `version`, `author`, `description`, `openreliant` | The same values as the manifest's keys of those names ([The manifest](#the-manifest)); `openreliant` is the OpenReliant version the mod needs |
 | `category` | The site's category, such as `ships/fighters/alliance` |
 | `updated` | The date and time of its latest release |
-| `size` | The archive's size in bytes. The download stops as soon as more arrives, or when the server announces another size |
+| `size` | The archive's size in bytes. The download stops as soon as more arrives, or when the server announces another size. A HOG archive holds at most 4 GiB less one byte (4294967295 bytes), since its offsets are 32-bit, so a mod with a larger size is skipped |
 | `archive` | The URL of the archive, on any host. An `http` link is requested as `https` |
 | `sha256` | The archive's SHA-256 digest, as 64 hexadecimal digits, with or without the `sha256:` prefix GitHub gives a release asset's digest. The download is checked against it, and it is written as the archive's checksum file |
 | `thumbnail` | The URL of its thumbnail, a PNG ([The thumbnail](#the-thumbnail)) |
@@ -297,8 +303,9 @@ Anyone can host a repository:
 - Keep the ids unique: a mod's id is its name in the `mods` folder, and OpenReliant loads one mod
   of a name.
 - Tell players to add the repository to `starlancer.ini` ([Repositories](#repositories)). To try
-  it on your own machine first, serve the files at `http://127.0.0.1`, the one kind of address
-  OpenReliant reads over plain HTTP.
+  it on your own machine first, serve the index at `http://127.0.0.1` and link its archives and
+  thumbnails there too: only a repository on your machine may link to it, and only your machine
+  is read over plain HTTP.
 
 The site generator of [openreliant-mods](https://github.com/OpenReliant/openreliant-mods), in
 `.github/scripts/site.py`, writes the index from the collection's releases, and can serve as the

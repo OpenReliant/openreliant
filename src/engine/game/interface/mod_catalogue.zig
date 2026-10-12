@@ -217,9 +217,6 @@ pub const Leave = union(enum) {
 
 /// The screen's state.
 pub const ModCatalogue = struct {
-    /// The HTTP client every download uses, made when the screen first opens and kept until the
-    /// front end closes.
-    client: ?std.http.Client = null,
     /// The download of the repositories' indexes, one after another: the index of the repository
     /// being read, by its place in the settings file's list, and the catalogue the indexes are
     /// gathered into. Null while nothing is read.
@@ -278,7 +275,6 @@ pub const ModCatalogue = struct {
     pub fn enter(screen: *ModCatalogue, context: Context) void {
         const source = context.source;
         screen.running = source.version;
-        if (screen.client == null) screen.client = .{ .allocator = source.gpa, .io = source.io };
         screen.lit = null;
         screen.held = false;
         screen.installed_any = false;
@@ -289,14 +285,12 @@ pub const ModCatalogue = struct {
         if (screen.loaded == null and screen.reading == null) screen.startReading(context);
     }
 
-    /// Frees everything the screen holds, when the front end closes. The downloads are cancelled
-    /// before the client they use is freed.
+    /// Frees everything the screen holds, when the front end closes. The downloads are let go of
+    /// without waiting for them, and end on their own threads (`web.Download.abandon`).
     pub fn deinit(screen: *ModCatalogue) void {
         screen.fetch.deinit();
         screen.thumbnail_fetch.deinit();
         screen.install.deinit();
-        if (screen.client) |*client| client.deinit();
-        screen.client = null;
         if (screen.gathering) |*gathering| gathering.deinit();
         screen.gathering = null;
         screen.reading = null;
@@ -309,11 +303,6 @@ pub const ModCatalogue = struct {
         screen.thumbnails.deinit();
         if (screen.present) |*present| present.mods.close(present.gpa);
         screen.present = null;
-    }
-
-    /// The HTTP client, once the screen has been entered.
-    fn httpClient(screen: *ModCatalogue) ?*std.http.Client {
-        return if (screen.client) |*client| client else null;
     }
 
     /// The catalogue's mods, at most `most_mods` of them.
@@ -419,8 +408,7 @@ pub const ModCatalogue = struct {
         const source = context.source;
         while (screen.reading) |index| {
             const repository = Repositories.of(context.settings_file.profile).at(index) orelse break;
-            const client = screen.httpClient() orelse break;
-            screen.fetch.start(source.gpa, source.io, client, repository.url, catalogue.most_index_bytes) catch |err| {
+            screen.fetch.start(source.gpa, .{ .url = repository.url, .most_bytes = catalogue.most_index_bytes, .loopback = .of(repository.url) }) catch |err| {
                 log.warn("{s}: the catalogue can't be read: {s}", .{ repository.name, @errorName(err) });
                 screen.recordFailure(source.gpa, repository.name, catalogue.Failure.ofStart(err));
                 screen.reading = index + 1;
@@ -587,10 +575,12 @@ pub const ModCatalogue = struct {
         };
     }
 
-    /// RELOAD: reads the repositories again, when it can (`canReload`).
+    /// RELOAD: reads the repositories again, when it can (`canReload`), and the thumbnails as
+    /// their mods are chosen, so that one that couldn't be downloaded is tried again.
     fn reload(screen: *ModCatalogue, context: Context) void {
         if (!screen.canReload()) return;
         screen.scan(context);
+        screen.thumbnails.listing += 1;
         screen.startReading(context);
     }
 
@@ -599,10 +589,9 @@ pub const ModCatalogue = struct {
         const index = screen.chosen orelse return;
         if (screen.actionFor(index) == .none) return;
         const source = context.source;
-        const client = screen.httpClient() orelse return;
         const entry = screen.entries()[index];
         screen.forgetOutcome();
-        screen.install.start(source.gpa, source.io, client, source.game, entry) catch |err| {
+        screen.install.start(source.gpa, source.game, entry) catch |err| {
             log.warn("the mod {s} can't be installed: {s}", .{ entry.id, @errorName(err) });
             screen.recordOutcome(source.gpa, entry.id, catalogue.Failure.ofStart(err));
             return;
@@ -670,9 +659,8 @@ pub const ModCatalogue = struct {
         const entry = screen.entries()[index];
         const url = entry.thumbnail orelse return;
         if (screen.thumbnails.kept(entry.id) != null) return;
-        const client = screen.httpClient() orelse return;
         const id = gpa.dupe(u8, entry.id) catch return;
-        screen.thumbnail_fetch.start(gpa, source.io, client, url, catalogue.most_thumbnail_bytes) catch |err| {
+        screen.thumbnail_fetch.start(gpa, .{ .url = url, .most_bytes = catalogue.most_thumbnail_bytes, .loopback = entry.loopback() }) catch |err| {
             log.warn("{s}: can't download the thumbnail: {s}", .{ entry.id, @errorName(err) });
             gpa.free(id);
             _ = screen.thumbnails.keep(gpa, entry.id, null);
@@ -855,7 +843,7 @@ pub const ModCatalogue = struct {
     fn statusLine(screen: ModCatalogue, buffer: *[name_buffer]u8, index: u8) ?Note {
         const entry = screen.entries()[index];
         if (screen.installing == index) {
-            const text = if (screen.install.progress.fraction()) |fraction|
+            const text = if (screen.install.fraction()) |fraction|
                 std.mem.print(buffer, "DOWNLOADING {d}%", .{@as(u32, @intFromFloat(fraction * 100))}) catch "DOWNLOADING"
             else
                 "DOWNLOADING";
@@ -890,7 +878,7 @@ pub const ModCatalogue = struct {
     /// Draws the progress bar at the bottom of the panel, filled to the download's progress.
     fn drawBar(screen: ModCatalogue, canvas: Canvas) void {
         canvas.box(bar_at, .{ bar_width, bar_height });
-        const fraction = screen.install.progress.fraction() orelse return;
+        const fraction = screen.install.fraction() orelse return;
         const filled: i32 = @intFromFloat(@round(fraction * @as(f32, @floatFromInt(bar_width - 2 * bar_inside))));
         if (filled <= 0) return;
         canvas.wipe(.{ bar_at[0] + bar_inside, bar_at[1] + bar_inside }, .{ bar_at[0] + bar_inside + filled - 1, bar_at[1] + bar_height - bar_inside - 1 }, canvas_module.gold);
@@ -1038,7 +1026,7 @@ const Fixture = struct {
         fixture.screen = .{};
         if (text) |given| {
             fixture.screen.loaded = .init(gpa);
-            try fixture.screen.loaded.?.add(.{ .name = "test", .url = "" }, given);
+            try fixture.screen.loaded.?.add(.{ .name = "test", .url = "http://127.0.0.1/mods.json" }, given);
         }
         fixture.screen.enter(fixture.context(.{}));
     }
@@ -1205,7 +1193,7 @@ test "UPDATE downloads the mod into the mods folder, and the mods screen is told
     var text: [1024]u8 = undefined;
     try fixture.init(Fixture.index(&text, server.url(&archive_url, "/alpha.hog"), archive.len, &digest));
     defer fixture.deinit();
-    defer server.stop(gpa, fixture.screen.httpClient().?);
+    defer server.stop(gpa);
     const screen = &fixture.screen;
     // Alpha is selected, with an update to get. UPDATE starts the download; INSTALL and RELOAD then
     // do nothing until it ends.
@@ -1213,7 +1201,7 @@ test "UPDATE downloads the mod into the mods folder, and the mods screen is told
     try std.testing.expectEqual(0, screen.installing.?);
     try std.testing.expect(!screen.canReload());
     try std.testing.expectEqual(null, screen.itemAt(Button.reload.rect().centre()));
-    try screen.install.group.await(io);
+    _ = try catalogue.testing.wait(&screen.install);
     // The next pass takes the install in: the archive is in the mods folder with its checksum file,
     // the panel says so, and OK tells the mods screen.
     try std.testing.expectEqual(null, screen.frame(fixture.context(.{})));
@@ -1262,7 +1250,7 @@ test "the repositories are read one after another, and one that can't be read is
     var fixture: Fixture = undefined;
     try fixture.initWith(null, settings_text);
     defer fixture.deinit();
-    defer server.stop(gpa, fixture.screen.httpClient().?);
+    defer server.stop(gpa);
     const screen = &fixture.screen;
     // Entering the screen starts reading the first repository. Each pass takes one in and starts
     // the next, until all three have been tried.
@@ -1271,7 +1259,7 @@ test "the repositories are read one after another, and one that can't be read is
     var passes: usize = 0;
     while (screen.reading != null) : (passes += 1) {
         try std.testing.expect(passes < 3);
-        try screen.fetch.group.await(io);
+        _ = try catalogue.testing.wait(&screen.fetch);
         try std.testing.expectEqual(null, screen.frame(fixture.context(.{})));
     }
     try std.testing.expectEqual(3, passes);

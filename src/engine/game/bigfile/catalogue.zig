@@ -6,19 +6,19 @@
 //! digest and size. The mods of every repository are listed together; where two repositories list
 //! the same id, the first one listed wins.
 //!
-//! Everything is downloaded over HTTPS (`secured`): a plain `http` link is changed to `https`
-//! before the request, and so is each redirect, which `Answer.open` follows itself. Plain HTTP
-//! never replaces HTTPS when HTTPS fails. Only a loopback address, such as a repository tried on
-//! the player's own machine, is read over plain HTTP.
+//! Everything is downloaded as `web` downloads: over HTTPS, on a thread of its own that the game
+//! never waits for, and within a time limit. The player's own machine is read only for a repository
+//! there and its links (`Entry.loopback`).
 //!
-//! `Fetch` downloads a file from the web into memory on another thread, up to a limit. The screen
-//! uses it for the indexes and for the thumbnails. `Install` downloads a mod's archive into the
-//! `mods` folder on another thread, stops as soon as more arrives than the catalogue's size, and
-//! checks the archive against the catalogue's digest, which it writes next to the archive as the
-//! archive's checksum file. The screen polls both once per frame, so the menus keep running during
-//! a download. Both use one `std.http.Client` the screen owns: the client's connection pool is
-//! protected by a lock, and each download makes its own request, so one client serves every
-//! download at once.
+//! `Fetch` downloads a file from the web into memory, up to a limit. The screen uses it for the
+//! indexes and for the thumbnails. `Install` downloads a mod's archive into the `mods` folder, stops
+//! as soon as more arrives than the catalogue's size, and checks the archive against the
+//! catalogue's digest, which it writes next to the archive as the archive's checksum file. The
+//! screen polls both once per frame, so the menus keep running during a download. An index or a
+//! thumbnail gives up after a minute, or 15 seconds without anything arriving, and an archive after
+//! 30 seconds without anything arriving (`fetch_limits`, `install_limits`). A download the screen
+//! lets go of, as OpenReliant quits, stops on its own thread; an archive's part file is deleted then,
+//! unless OpenReliant has ended first, in which case the next install of the mod replaces it.
 //!
 //! **Improvement:** the original has no mods, and never reads the web.
 
@@ -32,6 +32,7 @@ const files = @import("../../files.zig");
 const profile = @import("../../profile.zig");
 const mods = @import("mods.zig");
 const order = @import("order.zig");
+const web = @import("../../web.zig");
 
 const log = std.log.scoped(.catalogue);
 
@@ -111,14 +112,15 @@ pub const most_index_bytes = 4 * 1024 * 1024;
 /// The size limit of a thumbnail, in bytes.
 pub const most_thumbnail_bytes = 2 * 1024 * 1024;
 
-/// The size of the buffers a response is read and an archive is written through.
-const chunk_size = 64 * 1024;
-/// The longest redirect location accepted, as GitHub's release downloads redirect. RFC 9110
-/// recommends at least 8000 bytes.
-const redirect_size = 8 * 1024;
-/// How many redirects a download follows at most. GitHub's release downloads redirect once, to
-/// another host.
-const most_redirects = 5;
+/// The largest archive an entry may have: a HOG archive's offsets and sizes are 32-bit (`hog`), so
+/// it can't be larger. A larger size skips the entry, as a missing one does.
+pub const most_archive_bytes: u64 = std.math.maxInt(u32);
+/// How long an index or a thumbnail may take: a minute in all, and 15 seconds without anything
+/// arriving.
+pub const fetch_limits: web.Limits = .{ .whole = .fromSeconds(60), .quiet = .fromSeconds(15) };
+/// How long an archive may go without anything arriving: 30 seconds. A large one takes as long as
+/// it takes while data keeps arriving.
+pub const install_limits: web.Limits = .{ .quiet = .fromSeconds(30) };
 /// The longest line of a checksum file: the digest's digits, two spaces, the name and a newline.
 const checksum_line_size = 2 * Sha256.digest_length + 2 + files.max_path + 1;
 
@@ -153,6 +155,9 @@ pub const Entry = struct {
     url: ?[]const u8 = null,
     /// The name of the repository that lists it (`Repository.name`).
     repository: []const u8,
+    /// Whether that repository is on the player's own machine, whose links may then go there too
+    /// (`loopback`).
+    local: bool = false,
 
     /// The name the screen shows.
     pub fn title(entry: Entry) []const u8 {
@@ -175,18 +180,25 @@ pub const Entry = struct {
         return archiveNameOf(entry.id, buffer);
     }
 
-    /// Why a listed mod can't be an entry.
-    pub const Skipped = error{ NoId, BadId, NoArchive, BadDigest, NoSize };
+    /// Whether its links may go to the player's own machine: only where its repository is there.
+    pub fn loopback(entry: Entry) web.Loopback {
+        return if (entry.local) .allowed else .refused;
+    }
 
-    /// The entry for the mod `listed` of the repository `repository`, if the index gives
-    /// everything it needs: an id that can name a mod (`validId`), the archive's URL, its digest
-    /// (`parseDigest`) and its size.
-    fn from(listed: Listed, repository: []const u8) Skipped!Entry {
+    /// Why a listed mod can't be an entry.
+    pub const Skipped = error{ NoId, BadId, NoArchive, BadDigest, NoSize, TooLarge };
+
+    /// The entry for the mod `listed` of the repository `repository`, which is on the player's
+    /// machine where `local`, if the index gives everything it needs: an id that can name a mod
+    /// (`validId`), the archive's URL, its digest (`parseDigest`) and its size, at most
+    /// `most_archive_bytes`.
+    fn from(listed: Listed, repository: []const u8, local: bool) Skipped!Entry {
         const id = listed.id orelse return error.NoId;
         if (!validId(id)) return error.BadId;
         const archive = listed.archive orelse return error.NoArchive;
         const digest = parseDigest(listed.sha256 orelse return error.BadDigest) orelse return error.BadDigest;
         const size = listed.size orelse return error.NoSize;
+        if (size > most_archive_bytes) return error.TooLarge;
         return .{
             .id = id,
             .name = listed.name,
@@ -202,6 +214,7 @@ pub const Entry = struct {
             .thumbnail = listed.thumbnail,
             .url = listed.url,
             .repository = repository,
+            .local = local,
         };
     }
 
@@ -213,6 +226,7 @@ pub const Entry = struct {
             error.NoArchive => "it has no archive link",
             error.BadDigest => "it has no sha256 digest of 64 hexadecimal digits",
             error.NoSize => "it has no size",
+            error.TooLarge => "its size is larger than an archive can be",
         };
     }
 
@@ -321,7 +335,8 @@ pub const Catalogue = struct {
     /// Adds the mods of the index `text` of `repository`. The catalogue copies every string it
     /// keeps, so the caller can free `text` afterwards. A mod that lacks a key it needs, or whose
     /// id can't name a mod, is skipped with a warning in the log, and so is a mod whose id a
-    /// repository added before listed already: the first repository wins.
+    /// repository added before listed already: the first repository wins. The log escapes what the
+    /// index says, as the index may come from anywhere.
     pub fn add(catalogue: *Catalogue, repository: Repository, text: []const u8) ParseError!void {
         const arena = catalogue.arena.allocator();
         const index = std.json.parseFromSliceLeaky(Index, arena, text, .{ .ignore_unknown_fields = true, .allocate = .alloc_always }) catch |err| switch (err) {
@@ -331,9 +346,10 @@ pub const Catalogue = struct {
         if (index.format > format) return error.NewerFormat;
         if (index.format < format) return error.UnknownFormat;
         const name = try arena.dupe(u8, repository.name);
+        const local = web.Loopback.of(repository.url) == .allowed;
         for (index.mods) |listed| {
-            const entry = Entry.from(listed, name) catch |err| {
-                log.warn("{s}: the mod '{s}' is skipped: {s}", .{ name, listed.id orelse "", Entry.reason(err) });
+            const entry = Entry.from(listed, name, local) catch |err| {
+                log.warn("{s}: the mod \"{f}\" is skipped: {s}", .{ name, std.zig.fmtString(listed.id orelse ""), Entry.reason(err) });
                 continue;
             };
             if (catalogue.find(entry.id)) |earlier| {
@@ -356,37 +372,15 @@ pub const Catalogue = struct {
     }
 };
 
-/// How far a download has got. The download thread writes it and the screen's thread reads it,
-/// so the fields are atomic.
-pub const Progress = struct {
-    state: std.atomic.Value(State) = .init(.idle),
-    received: std.atomic.Value(u64) = .init(0),
-    /// The download's length: the catalogue's size for an archive, and for a fetch the content
-    /// length the server announced, 0 until it is known or when the server compresses the file.
-    total: std.atomic.Value(u64) = .init(0),
-
-    pub const State = enum(u8) {
-        /// Not started, or finished and already collected.
-        idle,
-        running,
-        /// The download is complete; `finish` collects the result.
-        done,
-        /// The download failed; `failure` says why.
-        failed,
-    };
-
-    /// The download's state.
-    pub fn current(progress: *const Progress) State {
-        return progress.state.load(.acquire);
-    }
-
-    /// The share of the download received so far, from 0 to 1; null when the length is unknown.
-    pub fn fraction(progress: *const Progress) ?f32 {
-        const total = progress.total.load(.monotonic);
-        if (total == 0) return null;
-        const received = progress.received.load(.monotonic);
-        return @min(1, @as(f32, @floatFromInt(received)) / @as(f32, @floatFromInt(total)));
-    }
+/// Where a download is.
+pub const State = enum {
+    /// Not started, or finished and already collected.
+    idle,
+    running,
+    /// The download is complete; `finish` collects the result.
+    done,
+    /// The download failed; `failure` says why.
+    failed,
 };
 
 /// Why a download failed. `words` says it as the screen shows it.
@@ -410,6 +404,11 @@ pub const Failure = enum {
     bad_redirect,
     /// The URL in the index can't be used: it isn't a URL, or isn't `https` or `http`.
     bad_url,
+    /// The URL in the index names the player's own machine, which only a repository there may
+    /// (`web.Loopback`).
+    refused_address,
+    /// The server stopped answering, or took longer than the download may (`web.Limits`).
+    no_answer,
     /// The content isn't what was expected: not an index, or compressed in a way that can't be
     /// read.
     bad_content,
@@ -439,6 +438,8 @@ pub const Failure = enum {
             .too_many_redirects => "THE SERVER REDIRECTS TOO MANY TIMES",
             .bad_redirect => "THE SERVER SENT A BAD REDIRECT",
             .bad_url => "THE ADDRESS IN THE CATALOG IS INVALID",
+            .refused_address => "THE CATALOG POINTS AT THIS COMPUTER",
+            .no_answer => "THE SERVER DOESN'T ANSWER",
             .bad_content => "THE FILE ISN'T AS EXPECTED",
             .too_large => "THE FILE IS LARGER THAN ALLOWED",
             .wrong_size => "THE ARCHIVE ISN'T THE SIZE THE CATALOG SAYS",
@@ -461,6 +462,8 @@ pub const Failure = enum {
             error.TooManyRedirects => .too_many_redirects,
             error.RedirectWithoutLocation, error.RedirectTooLong, error.BadRedirect => .bad_redirect,
             error.UnsupportedUriScheme, error.UriMissingHost, error.InvalidHostName, error.InvalidFormat, error.InvalidPort, error.UnexpectedCharacter => .bad_url,
+            error.LoopbackRefused => .refused_address,
+            error.Timeout => .no_answer,
             error.UnknownHostName,
             error.NameServerFailure,
             error.NoAddressReturned,
@@ -498,7 +501,7 @@ pub const Failure = enum {
     }
 
     /// The failure that an error of starting a download maps to.
-    pub fn ofStart(err: (Allocator.Error || Io.ConcurrentError)) Failure {
+    pub fn ofStart(err: StartError) Failure {
         return switch (err) {
             error.OutOfMemory => .out_of_memory,
             else => .cant_start,
@@ -506,181 +509,73 @@ pub const Failure = enum {
     }
 };
 
-/// The URL `uri` is requested at: `https` where it says `http`, unless its host is a loopback
-/// address, which a repository tried on the player's own machine has. Fails for any other scheme,
-/// such as `ws` or `ftp`, which the HTTP client would otherwise take.
-fn secured(uri: std.Uri) error{UnsupportedUriScheme}!std.Uri {
-    var secure = uri;
-    if (std.ascii.eqlIgnoreCase(uri.scheme, "https")) {
-        secure.scheme = "https";
-    } else if (std.ascii.eqlIgnoreCase(uri.scheme, "http")) {
-        secure.scheme = if (isLoopback(uri)) "http" else "https";
-    } else return error.UnsupportedUriScheme;
-    return secure;
-}
+/// Why a download can't start: no memory, or no thread.
+pub const StartError = Allocator.Error || std.Thread.SpawnError;
 
-/// Whether `uri` names the player's own machine: `localhost`, `127.0.0.1` or `::1`.
-fn isLoopback(uri: std.Uri) bool {
-    const host = uri.host orelse return false;
-    var buffer: [64]u8 = undefined;
-    const raw = host.toRaw(&buffer) catch return false;
-    const name = std.mem.trim(u8, raw, "[]");
-    return std.ascii.eqlIgnoreCase(name, "localhost") or std.mem.eql(u8, name, "127.0.0.1") or std.mem.eql(u8, name, "::1");
-}
-
-/// A request the server answered with OK, whose body `reader` reads. It is made in place, since
-/// the response points into the request.
-const Answer = struct {
-    gpa: Allocator,
-    request: std.http.Client.Request,
-    response: std.http.Client.Response,
-    transfer_buffer: [chunk_size]u8,
-    decompress: std.http.Decompress,
-    decompress_buffer: []u8,
-    /// Where the redirects' locations are resolved, each against the one before, so two take
-    /// turns.
-    locations: [2][redirect_size]u8,
-
-    /// Requests `url` with `client`, following redirects itself (`most_redirects`), each to its
-    /// location made `secured`. Besides the client's and the URL parser's errors, fails with
-    /// `error.NotFound` for a 404, `error.ServerRefused` for any other status than OK,
-    /// `error.TooManyRedirects`, and `error.RedirectWithoutLocation`, `error.RedirectTooLong` or
-    /// `error.BadRedirect` for a redirect that can't be followed.
-    fn open(answer: *Answer, gpa: Allocator, client: *std.http.Client, url: []const u8) !void {
-        answer.gpa = gpa;
-        answer.decompress_buffer = &.{};
-        var uri = try secured(try std.Uri.parse(url));
-        var hops: usize = 0;
-        while (true) : (hops += 1) {
-            answer.request = try client.request(.GET, uri, .{ .redirect_behavior = .unhandled });
-            errdefer answer.request.deinit();
-            try answer.request.sendBodiless();
-            answer.response = try answer.request.receiveHead(&.{});
-            const head = &answer.response.head;
-            if (head.status.class() != .redirect) switch (head.status) {
-                .ok => return,
-                .not_found => return error.NotFound,
-                else => return error.ServerRefused,
-            };
-            if (hops == most_redirects) return error.TooManyRedirects;
-            const location = head.location orelse return error.RedirectWithoutLocation;
-            const buffer = &answer.locations[hops % answer.locations.len];
-            if (location.len > buffer.len) return error.RedirectTooLong;
-            @memcpy(buffer[0..location.len], location);
-            var aux: []u8 = buffer;
-            const resolved = uri.resolveInPlace(location.len, &aux) catch |err| switch (err) {
-                error.NoSpaceLeft => return error.RedirectTooLong,
-                else => return error.BadRedirect,
-            };
-            uri = try secured(resolved);
-            log.debug("{s} redirects to {f}", .{ url, uri });
-            answer.request.deinit();
-        }
-    }
-
-    /// The length the server announced for the body, where it isn't compressed; null otherwise.
-    fn length(answer: *const Answer) ?u64 {
-        const head = &answer.response.head;
-        return if (head.content_encoding == .identity) head.content_length else null;
-    }
-
-    /// The body, decompressed if the server compressed it. Fails with
-    /// `error.UnsupportedCompressionMethod` for a compression that can't be read.
-    fn reader(answer: *Answer) !*Io.Reader {
-        const head = &answer.response.head;
-        answer.decompress_buffer = switch (head.content_encoding) {
-            .identity => &.{},
-            .zstd => try answer.gpa.alloc(u8, std.compress.zstd.default_window_len),
-            .deflate, .gzip => try answer.gpa.alloc(u8, std.compress.flate.max_window_len),
-            .compress => return error.UnsupportedCompressionMethod,
-        };
-        return answer.response.readerDecompressing(&answer.transfer_buffer, &answer.decompress, answer.decompress_buffer);
-    }
-
-    /// The error the body's reading failed with, where the reader said `error.ReadFailed`: the
-    /// body's, else the connection's.
-    fn bodyError(answer: *const Answer) anyerror {
-        if (answer.response.bodyErr()) |err| return err;
-        if (answer.request.connection) |connection| if (connection.getReadError()) |err| return err;
-        return error.ReadFailed;
-    }
-
-    fn deinit(answer: *Answer) void {
-        answer.gpa.free(answer.decompress_buffer);
-        answer.request.deinit();
-        answer.* = undefined;
-    }
-};
-
-/// A download of a file from the web into memory, on another thread: an index, or a thumbnail.
-/// A new `Fetch` (`.{}`) is idle until `start`.
+/// A download of a file from the web into memory: an index, or a thumbnail. A new `Fetch` (`.{}`)
+/// is idle until `start`.
 pub const Fetch = struct {
-    /// What the download runs with, from `start` until the fetch is idle again.
-    job: ?Job = null,
-    group: Io.Group = .init,
-    progress: Progress = .{},
-    /// The bytes received, once the download is done; freed by `finish` or `deinit`.
-    bytes: std.ArrayList(u8) = .empty,
+    download: web.Download(Job) = .{},
+    /// What `finish` copies the bytes with, and the URL, for the log, copied with it.
+    gpa: ?Allocator = null,
+    url: ?[]u8 = null,
+    /// The bytes received, once the download is done, allocated with `web.allocator`.
+    bytes: ?[]u8 = null,
     /// Why the download failed, once it has.
     failure: ?Failure = null,
 
-    const Job = struct {
-        gpa: Allocator,
-        io: Io,
-        client: *std.http.Client,
-        url: []u8,
+    /// What to download.
+    pub const Request = struct {
+        url: []const u8,
         /// The most bytes accepted; a longer file fails the download.
-        limit: usize,
+        most_bytes: usize,
+        /// Whether the URL may name the player's own machine.
+        loopback: web.Loopback = .refused,
+        limits: web.Limits = fetch_limits,
     };
 
-    /// Starts downloading `url` with `client`, accepting at most `limit` bytes. The fetch must be
-    /// idle.
-    pub fn start(fetch: *Fetch, gpa: Allocator, io: Io, client: *std.http.Client, url: []const u8, limit: usize) (Allocator.Error || Io.ConcurrentError)!void {
-        std.debug.assert(fetch.state() == .idle);
-        const copied = try gpa.dupe(u8, url);
-        errdefer gpa.free(copied);
-        fetch.* = .{ .job = .{ .gpa = gpa, .io = io, .client = client, .url = copied, .limit = limit } };
-        fetch.progress.state.store(.running, .release);
-        fetch.group.concurrent(io, run, .{fetch}) catch |err| {
-            fetch.progress.state.store(.idle, .release);
-            fetch.job = null;
-            return err;
-        };
-    }
+    /// What the download's thread runs (`web.Download`).
+    pub const Job = struct {
+        url: []u8,
+        most_bytes: usize,
+        loopback: web.Loopback,
 
-    /// The download's state.
-    pub fn state(fetch: *const Fetch) Progress.State {
-        return fetch.progress.current();
-    }
-
-    /// The download thread: downloads the file, then sets the final state.
-    fn run(fetch: *Fetch) Io.Cancelable!void {
-        const job = fetch.job.?;
-        fetch.receive(job) catch |err| {
-            log.warn("can't download {s}: {s}", .{ job.url, @errorName(err) });
-            fetch.failure = .of(err);
-            fetch.progress.state.store(.failed, .release);
-            return;
-        };
-        fetch.progress.state.store(.done, .release);
-    }
-
-    /// Downloads the file into `bytes`, up to the job's limit (`error.StreamTooLong` past it).
-    fn receive(fetch: *Fetch, job: Job) !void {
-        var answer: Answer = undefined;
-        try answer.open(job.gpa, job.client, job.url);
-        defer answer.deinit();
-        if (answer.length()) |length| {
-            if (length > job.limit) return error.StreamTooLong;
-            fetch.progress.total.store(length, .monotonic);
+        pub fn run(job: *Job, io: Io, progress: *web.Progress) ![]u8 {
+            return web.fetch(io, job.url, job.most_bytes, job.loopback, progress);
         }
-        const reader = try answer.reader();
-        // The reader's limit is exclusive: one more accepts a file of exactly the limit's size.
-        reader.appendRemaining(job.gpa, &fetch.bytes, .limited(job.limit + 1)) catch |err| switch (err) {
-            error.ReadFailed => return answer.bodyError(),
-            else => |other| return other,
-        };
-        fetch.progress.received.store(fetch.bytes.items.len, .monotonic);
+
+        pub fn deinit(job: *Job) void {
+            web.allocator.free(job.url);
+        }
+
+        pub fn discard(bytes: []u8) void {
+            web.allocator.free(bytes);
+        }
+    };
+
+    /// Starts downloading `request`. The fetch must be idle.
+    pub fn start(fetch: *Fetch, gpa: Allocator, request: Request) StartError!void {
+        std.debug.assert(fetch.state() == .idle);
+        const url = try gpa.dupe(u8, request.url);
+        errdefer gpa.free(url);
+        const job_url = try web.allocator.dupe(u8, request.url);
+        try fetch.download.start(.{ .url = job_url, .most_bytes = request.most_bytes, .loopback = request.loopback }, request.limits);
+        fetch.gpa = gpa;
+        fetch.url = url;
+    }
+
+    /// The download's state. Takes its answer in once it has arrived, logging why it failed.
+    pub fn state(fetch: *Fetch) State {
+        if (fetch.download.take()) |answer| {
+            if (answer) |bytes| fetch.bytes = bytes else |err| {
+                log.warn("can't download {f}: {s}", .{ std.zig.fmtString(fetch.url.?), @errorName(err) });
+                fetch.failure = .of(err);
+            }
+        }
+        if (fetch.download.busy()) return .running;
+        if (fetch.bytes != null) return .done;
+        if (fetch.failure != null) return .failed;
+        return .idle;
     }
 
     /// Returns the downloaded bytes once the download is done; the caller frees them with the
@@ -688,143 +583,153 @@ pub const Fetch = struct {
     /// is no memory for the copy. Afterwards the fetch is idle and can be started again.
     pub fn finish(fetch: *Fetch) ?[]u8 {
         if (fetch.state() != .done) return null;
-        const job = fetch.job.?;
-        fetch.group.await(job.io) catch {};
-        const bytes = fetch.bytes.toOwnedSlice(job.gpa) catch null;
+        const bytes = fetch.gpa.?.dupe(u8, fetch.bytes.?) catch null;
         fetch.release();
         return bytes;
     }
 
-    /// Cancels the download if it runs, and frees what the fetch holds. A download that runs stops
-    /// at its next read, so this waits for at most one chunk.
+    /// Lets go of the download if it runs, without waiting for it (`web.Download.abandon`), and
+    /// frees what the fetch holds. Afterwards the fetch is idle.
     pub fn deinit(fetch: *Fetch) void {
-        const job = fetch.job orelse return;
-        fetch.group.cancel(job.io);
+        fetch.download.abandon();
         fetch.release();
     }
 
     fn release(fetch: *Fetch) void {
-        const job = fetch.job.?;
-        fetch.bytes.deinit(job.gpa);
-        job.gpa.free(job.url);
+        if (fetch.bytes) |bytes| web.allocator.free(bytes);
+        if (fetch.url) |url| fetch.gpa.?.free(url);
         fetch.* = .{};
     }
 };
 
-/// A download of a mod's archive into the `mods` folder, on another thread. The archive is saved
-/// as `<id>.hog` once it is complete, is the catalogue's size and matches the catalogue's digest,
-/// with the digest written next to it as `<id>.hog.sha256`.
+/// A download of a mod's archive into the `mods` folder. The archive is saved as `<id>.hog` once
+/// it is complete, is the catalogue's size and matches the catalogue's digest, with the digest
+/// written next to it as `<id>.hog.sha256`. A new `Install` (`.{}`) is idle until `start`.
 pub const Install = struct {
-    /// What the download runs with, from `start` until the install is idle again.
-    job: ?Job = null,
-    group: Io.Group = .init,
-    progress: Progress = .{},
+    download: web.Download(Job) = .{},
+    /// The mod's id, for the log, copied with `gpa`.
+    gpa: ?Allocator = null,
+    id: ?[]u8 = null,
+    /// Whether the archive is in place, once the download has ended.
+    done: bool = false,
     /// Why the download failed, once it has.
     failure: ?Failure = null,
 
-    const Job = struct {
-        gpa: Allocator,
-        io: Io,
-        client: *std.http.Client,
-        /// The game folder; the archive goes into its `mods` folder.
+    /// What the download's thread runs (`web.Download`).
+    pub const Job = struct {
+        /// The game folder; the archive goes into its `mods` folder. OpenReliant closes it as it
+        /// quits, without waiting for the download, so the job opens the `mods` folder first.
         game: Io.Dir,
         id: []u8,
         archive_url: []u8,
         digest: checksums.Digest,
         size: u64,
+        loopback: web.Loopback,
+
+        /// Downloads the archive into its part file, hashing the bytes on their way, and stops with
+        /// `error.WrongSize` as soon as more arrives than the catalogue's size, or when the server
+        /// announces another size. Then puts the archive in place (`ArchiveSink.place`). A download
+        /// that stops early, or is let go of, deletes its part file.
+        pub fn run(job: *Job, io: Io, progress: *web.Progress) !void {
+            progress.total.store(job.size, .monotonic);
+            var name_buffer: [files.max_path]u8 = undefined;
+            const archive_name = try archiveNameOf(job.id, &name_buffer);
+            var folder = try modsFolder(io, job.game);
+            defer folder.close(io);
+            var client: std.http.Client = .{ .allocator = web.allocator, .io = io };
+            defer client.deinit();
+            var answer: web.Answer = undefined;
+            try answer.open(web.allocator, &client, job.archive_url, job.loopback, progress);
+            defer answer.deinit();
+            if (answer.length()) |length| if (length != job.size) return error.WrongSize;
+            var sink: ArchiveSink = undefined;
+            try sink.open(io, folder, archive_name);
+            errdefer sink.abandon();
+            const reader = try answer.reader();
+            var received: u64 = 0;
+            while (true) {
+                const read = reader.stream(sink.writer(), .limited(web.chunk_size)) catch |err| switch (err) {
+                    error.EndOfStream => break,
+                    error.ReadFailed => return answer.bodyError(),
+                    error.WriteFailed => return error.CantWrite,
+                };
+                received += read;
+                if (received > job.size) return error.WrongSize;
+                progress.add(read);
+            }
+            if (received != job.size) return error.WrongSize;
+            try sink.place(job.digest);
+        }
+
+        pub fn deinit(job: *Job) void {
+            web.allocator.free(job.id);
+            web.allocator.free(job.archive_url);
+        }
     };
 
-    /// Starts installing `entry` with `client`. The install must be idle.
-    pub fn start(install: *Install, gpa: Allocator, io: Io, client: *std.http.Client, game: Io.Dir, entry: Entry) (Allocator.Error || Io.ConcurrentError)!void {
+    /// Starts installing `entry` into the `mods` folder of `game`. The install must be idle.
+    pub fn start(install: *Install, gpa: Allocator, game: Io.Dir, entry: Entry) StartError!void {
         std.debug.assert(install.state() == .idle);
         const id = try gpa.dupe(u8, entry.id);
         errdefer gpa.free(id);
-        const archive_url = try gpa.dupe(u8, entry.archive);
-        errdefer gpa.free(archive_url);
-        install.* = .{ .job = .{ .gpa = gpa, .io = io, .client = client, .game = game, .id = id, .archive_url = archive_url, .digest = entry.digest, .size = entry.size } };
-        install.progress.total.store(entry.size, .monotonic);
-        install.progress.state.store(.running, .release);
-        install.group.concurrent(io, run, .{install}) catch |err| {
-            install.progress.state.store(.idle, .release);
-            install.job = null;
+        const job_id = try web.allocator.dupe(u8, entry.id);
+        const archive_url = web.allocator.dupe(u8, entry.archive) catch |err| {
+            web.allocator.free(job_id);
             return err;
         };
+        try install.download.start(.{
+            .game = game,
+            .id = job_id,
+            .archive_url = archive_url,
+            .digest = entry.digest,
+            .size = entry.size,
+            .loopback = entry.loopback(),
+        }, install_limits);
+        install.gpa = gpa;
+        install.id = id;
     }
 
-    /// The download's state.
-    pub fn state(install: *const Install) Progress.State {
-        return install.progress.current();
-    }
-
-    /// The download thread: downloads the archive, then sets the final state.
-    fn run(install: *Install) Io.Cancelable!void {
-        const job = install.job.?;
-        install.work(job) catch |err| {
-            log.warn("can't install the mod {s}: {s}", .{ job.id, @errorName(err) });
-            install.failure = .of(err);
-            install.progress.state.store(.failed, .release);
-            return;
-        };
-        log.info("installed the mod {s} in the mods folder", .{job.id});
-        install.progress.state.store(.done, .release);
-    }
-
-    /// Downloads the archive into its part file, hashing the bytes on their way, and stops with
-    /// `error.WrongSize` as soon as more arrives than the catalogue's size, or when the server
-    /// announces another size. Then puts the archive in place (`ArchiveSink.place`).
-    fn work(install: *Install, job: Job) !void {
-        const io = job.io;
-        var name_buffer: [files.max_path]u8 = undefined;
-        const archive_name = try archiveNameOf(job.id, &name_buffer);
-        var answer: Answer = undefined;
-        try answer.open(job.gpa, job.client, job.archive_url);
-        defer answer.deinit();
-        if (answer.length()) |length| if (length != job.size) return error.WrongSize;
-        var folder = try modsFolder(io, job.game);
-        defer folder.close(io);
-        var sink: ArchiveSink = undefined;
-        try sink.open(io, folder, archive_name);
-        errdefer sink.abandon();
-        const reader = try answer.reader();
-        var received: u64 = 0;
-        while (true) {
-            const read = reader.stream(sink.writer(), .limited(chunk_size)) catch |err| switch (err) {
-                error.EndOfStream => break,
-                error.ReadFailed => return answer.bodyError(),
-                error.WriteFailed => return error.CantWrite,
-            };
-            received += read;
-            if (received > job.size) return error.WrongSize;
-            install.progress.received.store(received, .monotonic);
+    /// The download's state. Takes its answer in once it has arrived, logging how it ended.
+    pub fn state(install: *Install) State {
+        if (install.download.take()) |answer| {
+            if (answer) |_| {
+                log.info("installed the mod {s} in the mods folder", .{install.id.?});
+                install.done = true;
+            } else |err| {
+                log.warn("can't install the mod {s}: {s}", .{ install.id.?, @errorName(err) });
+                install.failure = .of(err);
+            }
         }
-        if (received != job.size) return error.WrongSize;
-        try sink.place(job.digest);
+        if (install.download.busy()) return .running;
+        if (install.done) return .done;
+        if (install.failure != null) return .failed;
+        return .idle;
     }
 
-    /// Waits for the thread to end, once the download is done or has failed, and frees what the
-    /// install holds. Afterwards the install is idle and can be started again.
+    /// The share of the archive received so far, while it downloads.
+    pub fn fraction(install: Install) ?f32 {
+        const progress = install.download.progress() orelse return null;
+        return progress.fraction();
+    }
+
+    /// Forgets the install once the download is done or has failed. Afterwards the install is idle
+    /// and can be started again.
     pub fn finish(install: *Install) void {
         switch (install.state()) {
             .idle, .running => return,
-            .done, .failed => {},
+            .done, .failed => install.release(),
         }
-        const job = install.job.?;
-        install.group.await(job.io) catch {};
-        install.release();
     }
 
-    /// Cancels the download if it runs, and frees what the install holds. A download that runs
-    /// stops at its next read, so this waits for at most one chunk, and the part file is deleted.
+    /// Lets go of the download if it runs, without waiting for it (`web.Download.abandon`), and
+    /// frees what the install holds. The download deletes its part file on its own thread.
     pub fn deinit(install: *Install) void {
-        const job = install.job orelse return;
-        install.group.cancel(job.io);
+        install.download.abandon();
         install.release();
     }
 
     fn release(install: *Install) void {
-        const job = install.job.?;
-        job.gpa.free(job.id);
-        job.gpa.free(job.archive_url);
+        if (install.id) |id| install.gpa.?.free(id);
         install.* = .{};
     }
 };
@@ -851,9 +756,9 @@ const ArchiveSink = struct {
     /// The part file, while it is open.
     file: ?Io.File,
     file_writer: Io.File.Writer,
-    file_buffer: [chunk_size]u8,
+    file_buffer: [web.chunk_size]u8,
     hashed: Io.Writer.Hashed(Sha256),
-    hash_buffer: [chunk_size]u8,
+    hash_buffer: [web.chunk_size]u8,
 
     /// What the part files are named: the archive's name, or its checksum file's, plus this.
     const part_extension = ".part";
@@ -980,6 +885,9 @@ test "the index is read, and mods that can't be installed are left out" {
         \\"},
         \\  {"id": "plain", "size": 1, "archive": "https://example.com/plain.hog", "sha256": "
     ++ "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB" ++
+        \\"},
+        \\  {"id": "huge", "size": 4294967296, "archive": "https://example.com/huge.hog", "sha256": "
+    ++ digest ++
         \\"}
         \\]}
     );
@@ -993,6 +901,7 @@ test "the index is read, and mods that can't be installed are left out" {
     try std.testing.expectEqualStrings("plain", entries[1].title());
     try std.testing.expectEqualStrings("test", entries[0].repository);
     try std.testing.expectEqual(5624773, entries[0].size);
+    try std.testing.expectEqual(.refused, entries[0].loopback());
     // The digest is read with or without GitHub's prefix, in either case.
     try std.testing.expectEqual(@as([32]u8, @splat(0xab)), entries[0].digest);
     try std.testing.expectEqual(@as([32]u8, @splat(0xab)), entries[1].digest);
@@ -1022,6 +931,13 @@ test "the index is read, and mods that can't be installed are left out" {
     try std.testing.expectEqualStrings("delta", catalogue.entries()[2].id);
     try std.testing.expectEqualStrings("other", catalogue.entries()[2].repository);
     try std.testing.expectEqual(null, catalogue.find("omega"));
+    // A repository on the player's machine may send its mods' downloads there.
+    try catalogue.add(.{ .name = "mine", .url = "http://127.0.0.1:8000/mods.json" },
+        \\{"mods": [{"id": "epsilon", "size": 1, "archive": "/epsilon.hog", "sha256": "
+    ++ "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" ++
+        \\"}]}
+    );
+    try std.testing.expectEqual(.allowed, catalogue.find("epsilon").?.loopback());
 }
 
 test "an index that isn't JSON, or of another format, is refused" {
@@ -1083,26 +999,7 @@ test Failure {
     try std.testing.expectEqual(.newer_format, Failure.of(error.NewerFormat));
     try std.testing.expectEqual(.unreachable_server, Failure.of(error.ConnectionRefused));
     try std.testing.expectEqual(.out_of_memory, Failure.ofStart(error.OutOfMemory));
-    try std.testing.expectEqual(.cant_start, Failure.ofStart(error.ConcurrencyUnavailable));
-}
-
-test "every address is requested over HTTPS, but a loopback one" {
-    const Case = struct { url: []const u8, scheme: []const u8 };
-    for ([_]Case{
-        .{ .url = "https://example.com/mods.json", .scheme = "https" },
-        .{ .url = "http://example.com/mods.json", .scheme = "https" },
-        .{ .url = "HTTP://Example.com:8080/mods.json", .scheme = "https" },
-        .{ .url = "http://127.0.0.1:8000/mods.json", .scheme = "http" },
-        .{ .url = "http://localhost/mods.json", .scheme = "http" },
-        .{ .url = "http://[::1]:8000/mods.json", .scheme = "http" },
-        .{ .url = "https://127.0.0.1/mods.json", .scheme = "https" },
-    }) |case| {
-        const uri = try secured(try std.Uri.parse(case.url));
-        try std.testing.expectEqualStrings(case.scheme, uri.scheme);
-    }
-    try std.testing.expectError(error.UnsupportedUriScheme, secured(try std.Uri.parse("ws://127.0.0.1/mods.json")));
-    try std.testing.expectError(error.UnsupportedUriScheme, secured(try std.Uri.parse("ftp://example.com/mods.json")));
-    try std.testing.expectError(error.UnsupportedUriScheme, secured(try std.Uri.parse("file:///mods.json")));
+    try std.testing.expectEqual(.cant_start, Failure.ofStart(error.SystemResources));
 }
 
 test "an archive is written as a part, then placed with its checksum file once it matches" {
@@ -1190,8 +1087,9 @@ pub const testing = struct {
         served: []const File,
         group: Io.Group = .init,
 
-        /// A file the server serves at `path`: its body and status, and for a redirect, where to.
-        pub const File = struct { path: []const u8, body: []const u8, status: std.http.Status = .ok, location: ?[]const u8 = null };
+        /// A file the server serves at `path`: its body and status, for a redirect, where to, and
+        /// how long the server waits before it answers, as a server that has stalled does.
+        pub const File = struct { path: []const u8, body: []const u8, status: std.http.Status = .ok, location: ?[]const u8 = null, stall: ?Io.Duration = null };
 
         /// Starts serving `served` on a free port.
         pub fn start(server: *Server, io: Io, served: []const File) !void {
@@ -1214,8 +1112,8 @@ pub const testing = struct {
             while (true) {
                 const stream = server.listening.?.accept(io) catch return;
                 defer stream.close(io);
-                var in_buffer: [redirect_size]u8 = undefined;
-                var out_buffer: [redirect_size]u8 = undefined;
+                var in_buffer: [web.redirect_size]u8 = undefined;
+                var out_buffer: [web.redirect_size]u8 = undefined;
                 var in = stream.reader(io, &in_buffer);
                 var out = stream.writer(io, &out_buffer);
                 var http_server: std.http.Server = .init(&in.interface, &out.interface);
@@ -1229,6 +1127,7 @@ pub const testing = struct {
                     if (std.mem.eql(u8, file.path, target)) break file;
                 } else null;
                 if (found) |file| {
+                    if (file.stall) |stall| io.sleep(stall, .awake) catch return;
                     const headers: []const std.http.Header = if (file.location) |location| &.{.{ .name = "location", .value = location }} else &.{};
                     request.respond(file.body, .{ .status = file.status, .keep_alive = false, .extra_headers = headers }) catch {};
                 } else {
@@ -1239,15 +1138,15 @@ pub const testing = struct {
 
         /// Stops the server and waits for its thread: asks it for `/stop`, or closes its socket if
         /// that can't be asked, then closes the socket.
-        pub fn stop(server: *Server, gpa: Allocator, client: *std.http.Client) void {
+        pub fn stop(server: *Server, gpa: Allocator) void {
             const io = server.io;
             var buffer: [128]u8 = undefined;
             var fetch: Fetch = .{};
             defer fetch.deinit();
-            const asked = if (fetch.start(gpa, io, client, server.url(&buffer, "/stop"), 1024)) |_| asked: {
-                fetch.group.await(io) catch {};
-                break :asked fetch.state() == .done;
-            } else |_| false;
+            const asked = if (fetch.start(gpa, .{ .url = server.url(&buffer, "/stop"), .most_bytes = 1024, .loopback = .allowed })) |_|
+                (wait(&fetch) catch .running) == .done
+            else |_|
+                false;
             if (!asked) {
                 server.listening.?.deinit(io);
                 server.listening = null;
@@ -1257,13 +1156,22 @@ pub const testing = struct {
             server.listening = null;
         }
     };
+
+    /// Polls `download`, a `Fetch` or an `Install`, until its download has ended, and returns its
+    /// state then.
+    pub fn wait(download: anytype) !State {
+        for (0..2000) |_| {
+            const now = download.state();
+            if (now != .running) return now;
+            try std.testing.io.sleep(.fromMilliseconds(5), .awake);
+        }
+        return error.TestTimeout;
+    }
 };
 
 test "the catalogue and a mod download from the web, and the archive is checked on install" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
-    var client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
     const archive = "the alpha's archive";
     const digest_hex = std.fmt.bytesToHex(checksums.digest(archive), .lower);
     var index_buffer: [512]u8 = undefined;
@@ -1280,19 +1188,20 @@ test "the catalogue and a mod download from the web, and the archive is checked 
         .{ .path = "/loop", .body = "", .status = .found, .location = "/loop" },
         .{ .path = "/nowhere", .body = "", .status = .found },
         .{ .path = "/elsewhere", .body = "", .status = .found, .location = "ws://127.0.0.1:1/alpha.hog" },
+        .{ .path = "/stalled.json", .body = index, .stall = .fromMilliseconds(400) },
     });
-    defer server.stop(gpa, &client);
+    defer server.stop(gpa);
     var buffer: [128]u8 = undefined;
 
-    // The index downloads and parses as a catalogue.
+    // The index downloads and parses as a catalogue. The test server is on the player's machine,
+    // as a repository tried there is.
     var fetch: Fetch = .{};
     defer fetch.deinit();
-    try fetch.start(gpa, io, &client, server.url(&buffer, "/mods.json"), most_index_bytes);
-    try fetch.group.await(io);
-    try std.testing.expectEqual(.done, fetch.state());
-    try std.testing.expectEqual(index.len, fetch.progress.received.load(.monotonic));
+    try fetch.start(gpa, .{ .url = server.url(&buffer, "/mods.json"), .most_bytes = most_index_bytes, .loopback = .allowed });
+    try std.testing.expectEqual(.done, try testing.wait(&fetch));
     const bytes = fetch.finish().?;
     defer gpa.free(bytes);
+    try std.testing.expectEqualStrings(index, bytes);
     var read: Catalogue = .init(gpa);
     defer read.deinit();
     try read.add(test_repository, bytes);
@@ -1300,57 +1209,57 @@ test "the catalogue and a mod download from the web, and the archive is checked 
     try std.testing.expectEqual(.idle, fetch.state());
     // A missing file fails with not found, a server error with a refusal, and a file over the
     // limit as too large.
-    try fetch.start(gpa, io, &client, server.url(&buffer, "/missing.json"), most_index_bytes);
-    try fetch.group.await(io);
-    try std.testing.expectEqual(.failed, fetch.state());
-    try std.testing.expectEqual(.not_found, fetch.failure.?);
+    const Case = struct { path: []const u8, most_bytes: usize = most_index_bytes, failure: Failure };
+    for ([_]Case{
+        .{ .path = "/missing.json", .failure = .not_found },
+        .{ .path = "/broken.json", .failure = .server_refused },
+        .{ .path = "/alpha.hog", .most_bytes = archive.len - 1, .failure = .too_large },
+        // Too many redirects, one without a location, and one to a scheme the downloads refuse
+        // each fail in their own way.
+        .{ .path = "/loop", .failure = .too_many_redirects },
+        .{ .path = "/nowhere", .failure = .bad_redirect },
+        .{ .path = "/elsewhere", .failure = .bad_url },
+    }) |case| {
+        try fetch.start(gpa, .{ .url = server.url(&buffer, case.path), .most_bytes = case.most_bytes, .loopback = .allowed });
+        try std.testing.expectEqual(.failed, try testing.wait(&fetch));
+        try std.testing.expectEqual(case.failure, fetch.failure.?);
+        fetch.deinit();
+    }
+    // A file of exactly the limit's size is accepted, and a redirect is followed to its file.
+    try fetch.start(gpa, .{ .url = server.url(&buffer, "/alpha.hog"), .most_bytes = archive.len, .loopback = .allowed });
+    try std.testing.expectEqual(.done, try testing.wait(&fetch));
     fetch.deinit();
-    try fetch.start(gpa, io, &client, server.url(&buffer, "/broken.json"), most_index_bytes);
-    try fetch.group.await(io);
-    try std.testing.expectEqual(.server_refused, fetch.failure.?);
-    fetch.deinit();
-    try fetch.start(gpa, io, &client, server.url(&buffer, "/alpha.hog"), archive.len - 1);
-    try fetch.group.await(io);
-    try std.testing.expectEqual(.too_large, fetch.failure.?);
-    fetch.deinit();
-    // A file of exactly the limit's size is accepted.
-    try fetch.start(gpa, io, &client, server.url(&buffer, "/alpha.hog"), archive.len);
-    try fetch.group.await(io);
-    try std.testing.expectEqual(.done, fetch.state());
-    fetch.deinit();
-    // A redirect is followed to its file; too many, one without a location, and one to a scheme
-    // the downloads refuse each fail in their own way.
-    try fetch.start(gpa, io, &client, server.url(&buffer, "/moved"), most_index_bytes);
-    try fetch.group.await(io);
-    try std.testing.expectEqual(.done, fetch.state());
+    try fetch.start(gpa, .{ .url = server.url(&buffer, "/moved"), .most_bytes = most_index_bytes, .loopback = .allowed });
+    try std.testing.expectEqual(.done, try testing.wait(&fetch));
     const moved = fetch.finish().?;
     defer gpa.free(moved);
     try std.testing.expectEqualStrings(archive, moved);
-    try fetch.start(gpa, io, &client, server.url(&buffer, "/loop"), most_index_bytes);
-    try fetch.group.await(io);
-    try std.testing.expectEqual(.too_many_redirects, fetch.failure.?);
+    // Where the player's machine isn't allowed, it isn't read.
+    try fetch.start(gpa, .{ .url = server.url(&buffer, "/mods.json"), .most_bytes = most_index_bytes });
+    try std.testing.expectEqual(.failed, try testing.wait(&fetch));
+    try std.testing.expectEqual(.refused_address, fetch.failure.?);
     fetch.deinit();
-    try fetch.start(gpa, io, &client, server.url(&buffer, "/nowhere"), most_index_bytes);
-    try fetch.group.await(io);
-    try std.testing.expectEqual(.bad_redirect, fetch.failure.?);
+    // A server that stops answering is given up on, and so the fetch can start again.
+    try fetch.start(gpa, .{ .url = server.url(&buffer, "/stalled.json"), .most_bytes = most_index_bytes, .loopback = .allowed, .limits = .{ .quiet = .fromMilliseconds(100) } });
+    try std.testing.expectEqual(.failed, try testing.wait(&fetch));
+    try std.testing.expectEqual(.no_answer, fetch.failure.?);
     fetch.deinit();
-    try fetch.start(gpa, io, &client, server.url(&buffer, "/elsewhere"), most_index_bytes);
-    try fetch.group.await(io);
-    try std.testing.expectEqual(.bad_url, fetch.failure.?);
+    // A fetch let go of mid-download returns at once.
+    try fetch.start(gpa, .{ .url = server.url(&buffer, "/stalled.json"), .most_bytes = most_index_bytes, .loopback = .allowed });
+    const before = Io.Clock.awake.now(io);
     fetch.deinit();
+    try std.testing.expect(before.durationTo(Io.Clock.awake.now(io)).toMilliseconds() < 100);
+    try std.testing.expectEqual(.idle, fetch.state());
 
     // The mod is installed in the mods folder, with its checksum file.
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     var archive_url: [128]u8 = undefined;
-    const alpha: Entry = .{ .id = "alpha", .size = archive.len, .archive = server.url(&archive_url, "/alpha.hog"), .digest = checksums.digest(archive), .repository = "test" };
+    const alpha: Entry = .{ .id = "alpha", .size = archive.len, .archive = server.url(&archive_url, "/alpha.hog"), .digest = checksums.digest(archive), .repository = "test", .local = true };
     var install: Install = .{};
     defer install.deinit();
-    try install.start(gpa, io, &client, tmp.dir, alpha);
-    try install.group.await(io);
-    try std.testing.expectEqual(.done, install.state());
-    try std.testing.expectEqual(archive.len, install.progress.received.load(.monotonic));
-    try std.testing.expectEqual(1, install.progress.fraction().?);
+    try install.start(gpa, tmp.dir, alpha);
+    try std.testing.expectEqual(.done, try testing.wait(&install));
     install.finish();
     try std.testing.expectEqual(.idle, install.state());
     const written = try tmp.dir.readFileAlloc(io, "mods/alpha.hog", gpa, .limited(1024));
@@ -1364,9 +1273,8 @@ test "the catalogue and a mod download from the web, and the archive is checked 
     wrong.id = "wrong";
     wrong.size = "another archive".len;
     wrong.archive = server.url(&archive_url, "/wrong.hog");
-    try install.start(gpa, io, &client, tmp.dir, wrong);
-    try install.group.await(io);
-    try std.testing.expectEqual(.failed, install.state());
+    try install.start(gpa, tmp.dir, wrong);
+    try std.testing.expectEqual(.failed, try testing.wait(&install));
     try std.testing.expectEqual(.checksum_mismatch, install.failure.?);
     install.finish();
     try std.testing.expectError(error.FileNotFound, tmp.dir.access(io, "mods/wrong.hog", .{}));
@@ -1374,28 +1282,31 @@ test "the catalogue and a mod download from the web, and the archive is checked 
     try std.testing.expectError(error.FileNotFound, tmp.dir.access(io, "mods/wrong.hog.sha256.part", .{}));
     // An archive that isn't the catalogue's size isn't installed either, whether the server says
     // so up front or more bytes arrive than the catalogue says.
-    var sized = alpha;
-    sized.size = archive.len + 1;
-    try install.start(gpa, io, &client, tmp.dir, sized);
-    try install.group.await(io);
-    try std.testing.expectEqual(.wrong_size, install.failure.?);
-    install.finish();
-    sized.size = 3;
-    try install.start(gpa, io, &client, tmp.dir, sized);
-    try install.group.await(io);
-    try std.testing.expectEqual(.wrong_size, install.failure.?);
-    install.finish();
+    for ([_]u64{ archive.len + 1, 3 }) |size| {
+        var sized = alpha;
+        sized.size = size;
+        try install.start(gpa, tmp.dir, sized);
+        try std.testing.expectEqual(.failed, try testing.wait(&install));
+        try std.testing.expectEqual(.wrong_size, install.failure.?);
+        install.finish();
+    }
     // A redirect to the archive is followed.
     var moved_entry = alpha;
     moved_entry.archive = server.url(&archive_url, "/moved");
-    try install.start(gpa, io, &client, tmp.dir, moved_entry);
-    try install.group.await(io);
-    try std.testing.expectEqual(.done, install.state());
+    try install.start(gpa, tmp.dir, moved_entry);
+    try std.testing.expectEqual(.done, try testing.wait(&install));
     install.finish();
-    // A URL that can't be used fails at once.
+    // A URL that can't be used fails at once, and so does a link to the player's machine from a
+    // repository that isn't there.
     var unusable = alpha;
     unusable.archive = "ftp://example.invalid/alpha.hog";
-    try install.start(gpa, io, &client, tmp.dir, unusable);
-    try install.group.await(io);
+    try install.start(gpa, tmp.dir, unusable);
+    try std.testing.expectEqual(.failed, try testing.wait(&install));
     try std.testing.expectEqual(.bad_url, install.failure.?);
+    install.finish();
+    var remote = alpha;
+    remote.local = false;
+    try install.start(gpa, tmp.dir, remote);
+    try std.testing.expectEqual(.failed, try testing.wait(&install));
+    try std.testing.expectEqual(.refused_address, install.failure.?);
 }
