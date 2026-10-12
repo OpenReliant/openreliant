@@ -31,6 +31,8 @@
 const std = @import("std");
 const Io = std.Io;
 
+const openreliant = @import("openreliant");
+
 const image = @import("image.zig");
 const testing = @import("testing.zig");
 
@@ -743,4 +745,55 @@ test read {
     defer out.deinit();
     try emit(&out.writer, tables);
     try testing.expectZig(out.written());
+}
+
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.game.itac.tables;
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tables: Tables = undefined;
+    tables.lit_shapes = try copiedAll(arena, LitShape, &committed.lit_shapes);
+    for (&tables.debriefings, committed.debriefings) |*rating, from| {
+        for (rating, from) |*text, entry| text.* = copied(Text, entry);
+    }
+    for (&tables.news, committed.news) |*item, entry| item.* = copied(News, entry);
+    for (&tables.videos, committed.videos) |*item, entry| item.* = copied(Video, entry);
+    for (&tables.fighters, committed.fighters) |*side, from| {
+        const fighters = try arena.alloc(Fighter, from.len);
+        for (fighters, from) |*fighter, entry| {
+            fighter.* = .{
+                .name = entry.name,
+                .type = entry.type,
+                .clearance = entry.clearance,
+                .crew = entry.crew,
+                .guns = try copiedAll(arena, Gun, entry.guns),
+                .specials = entry.specials,
+                .shape = entry.shape,
+                .ship_type = entry.ship_type,
+            };
+        }
+        side.* = fighters;
+    }
+    for (&tables.ships, committed.ships) |*side, from| side.* = try copiedAll(arena, Ship, from);
+    for (&tables.squadrons, committed.squadrons) |*side, from| side.* = try copiedAll(arena, Squadron, from);
+    for (&tables.personnel, committed.personnel) |*side, from| side.* = try copiedAll(arena, Person, from);
+    for (&tables.pilots, committed.pilots) |*pilot, entry| pilot.* = copied(Pilot, entry);
+    var out: Io.Writer.Allocating = .init(arena);
+    try emit(&out.writer, tables);
+    try testing.expectCommitted(@embedFile("committed itac"), out.written());
+}
+
+/// `from`, a record of the committed tables, as the reader's record `T` with the same fields.
+fn copied(comptime T: type, from: anytype) T {
+    var made: T = undefined;
+    inline for (@typeInfo(T).@"struct".field_names) |name| @field(made, name) = @field(from, name);
+    return made;
+}
+
+/// Each of `from`'s records `copied`, in `arena`.
+fn copiedAll(arena: std.mem.Allocator, comptime T: type, from: anytype) ![]const T {
+    const made = try arena.alloc(T, from.len);
+    for (made, from) |*record, entry| record.* = copied(T, entry);
+    return made;
 }

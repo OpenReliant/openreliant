@@ -48,6 +48,7 @@ pub const exported = [_]Export{
     .{ "MissionObject", dte.Object },
     .{ "ObjectKind", dte.Object.Kind },
     .{ "ObjectKindSet", dte.Object.KindSet },
+    .{ "ObjectToolFlags", dte.Object.ToolFlags },
     .{ "MissionPart", dte.Part },
     .{ "MissionPartFlags", dte.Part.Flags },
     .{ "Squad", dte.Squad },

@@ -2247,6 +2247,9 @@ address	kind	name	type	comment
 00552520	data	bombard_flashes_framed_at	int	frame_start at the flashes' last frame, which nothing reads
 0046a312	function	bombard_flashes_frame	void (void)	The body of bombard_hook, which jumps into it: each of the ten flashes idle past its time starts (bombard_flash_start), one shown 35 ticks goes idle up to 1000 ticks at random, and one showing takes its size from the pbang sheet's cells and a grey of 0.1, then 0.3 down to nothing; nothing draws them
 0046a6f0	function	environment_effect_2	uint (void)	Whether effect 2 is on, which nothing calls; bombard_hook reads the bit itself
+004ff74c	data	bombard_cells	float[32]	The Planet Bombard flashes' picture sheet's eight cells, each its left, top, right and bottom in pixels on a 256 by 256 sheet, growing from the first to the last; bombard_flashes_create turns them into texture coordinates in place
+004ff7cc	data	bombard_cell_steps	short[16]	The cell a showing Planet Bombard flash takes at each of the 16 steps of its 35 ticks: 0 to 7 in turn, then 7
+0054f0c8	data	bombard_cell_scales	float[16]	Each bombard_cells cell's width and height over the first cell's, in pairs, which bombard_flashes_frame reads one float at a time by cell
 0051d1a4	data	wgate_records	void *[32]	The gates' records (wgate_create, 0x88 bytes each)
 0051d224	data	wgate_mask	uint	A bit for each record in use
 0051d198	data	wgate_segments	int	The tunnels' segments round, by the detail
@@ -3047,6 +3050,7 @@ address	kind	name	type	comment
 00451510	function	index_set_none		Sets an index 1, 2 or 4 bytes wide to none, all ones
 00451540	function	index_set		Sets an index 1, 2 or 4 bytes wide to a value; 4 bytes wide, only its low halfword
 00451570	function	index_shift		Moves an index 1, 2 or 4 bytes wide on by a change, unless it is none; 4 bytes wide, only its low halfword
+00451620	function	editor_tables_fill	void (void)	Fills editor_tables as the game starts, one of the C runtime's static initializers (through the jump at 0x00451610): the capacity and count of the entry of 0x00525700, and the entries after it, most of them with a count's address, the squads (0x16), their members (0x17), the formations (0x19), their points (0x1A) and the curves (0x1B) among them
 004513f0	function	reference_renumber		Unverified: renumbers a reference whose high halfword is the one given, by its low halfword, or with its last argument set its low 12 bits (index_renumber)
 00451390	function	align4	uint __fastcall (uint size)	Rounds a size up to a multiple of 4
 00457b70	function	script_flags_size	uint (void)	The script flags' size as the editor's tag 0x09 copies them: a byte for each of the script's bytes, rounded up to a multiple of 4 (align4)
@@ -3055,6 +3059,6 @@ address	kind	name	type	comment
 0045a95c	data	run_control_cases	void *[5]	editor_run_control's jump table, by its command, 0 to 4
 004575e4	data	vm_starts_statement_cases	void *[2]	vm_starts_statement's two answers: true, then false
 004575ec	data	vm_starts_statement_index	byte[57]	For each opcode from 0x16 to 0x4E, which of vm_starts_statement_cases answers it
-004ee970	data	editor_tables	uint[200]	The tables the editor's tag 0x02 sets the counts of, 16 bytes each: the table's address, its record's size and its capacity (halfwords), its count's address, and a word that is 1 in each entry used (Unknown). Only the ships, the flight groups, the objects, the triggers and the parts have a count's address; a sixth entry names 0x00525700, with records of 0x34 bytes and no count
+004ee970	data	editor_tables	uint[200]	The tables a reference's tag numbers, 16 bytes each: the address of the table's pointer, its record's size and its capacity (halfwords), its count's address, and a byte that is 1 in some entries (Unknown). The image holds the ships, the flight groups, the objects, the triggers, the parts, and the table and record size of 0x00525700; editor_tables_fill fills the rest as the game starts. The editor's tag 0x02 sets the counts
 004a6f80	function	timer_callback	void __stdcall (uint id, uint message, uint user, uint unused1, uint unused2)	The multimedia timers' callback for each timer timer_start starts: runs the timer's routine and counts it, under the timer's lock in mode 0; none while window_suspended or editor_paused is set, nor the script clock's (vm_clock_timer) while vm_hold is above 0 with an editor linked
 0052a1e4	data	vm_clock_timer	void *	The timer vm_clock_start starts for vm_clock_tick, which timer_callback passes over while the editor holds the script

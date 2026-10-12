@@ -116,20 +116,29 @@ mission's sections reserve beyond their records ([The mission file](../formats/d
 
 ### The tables' counts
 
-`editor_tables` (`0x004EE970`) lists 50 tables, 16 bytes each:
+`editor_tables` (`0x004EE970`) lists 50 tables, 16 bytes each. A reference to a record carries the
+number of its table's entry as its tag
+([References in the records](../formats/dte.md#references-in-the-records)).
 
 | Offset | Size | Field |
 |---|---|---|
-| `0x00` | 4 | The table's address |
+| `0x00` | 4 | The address of the table's pointer, such as `mission_ships` |
 | `0x04` | 2 | Its record's size |
 | `0x06` | 2 | Its capacity, in records |
 | `0x08` | 4 | Its count's address, or 0 |
-| `0x0C` | 4 | **Unknown:** 1 in each entry used |
+| `0x0C` | 1 | **Unknown:** 1 in some entries, such as the mission file's tables, and 0 in the rest |
+
+The executable's image holds the first five entries: the ships (512 at most), the flight groups
+(256), the objects (896), the triggers (1024) and the parts (256). Of the sixth, it holds only the
+table, `0x00525700`, and the record size, `0x34` bytes. As the game starts, `editor_tables_fill`
+(`0x00451620`), one of the C runtime's static initializers, fills in the rest of the sixth entry and
+the entries after it. Most of these have a count's address, among them the squads (entry `0x16`),
+their members (`0x17`), the formations (`0x19`), their points (`0x1A`), the curves (`0x1B`), the
+script, the globals, the timers and the command catalogues. **Unknown:** the tables of some of the
+entries.
 
 Tag `0x02` sets each count from the halfword at the same place in its payload, where the entry has a
-count's address. Five do: the ships (512 at most), the flight groups (256), the objects (896), the
-triggers (1024) and the parts (256). A sixth entry names `0x00525700`, with records of `0x34` bytes
-and no count; the rest are empty. The script's timers keep their count (`vm_timer_count`).
+count's address. The script's timers keep their count (`vm_timer_count`).
 
 ### The timers' parts
 

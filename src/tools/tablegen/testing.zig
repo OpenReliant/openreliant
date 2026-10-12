@@ -61,7 +61,27 @@ pub fn expectZig(source: []const u8) !void {
     const allocator = std.testing.allocator;
     const terminated = try allocator.dupeSentinel(u8, source, 0);
     defer allocator.free(terminated);
-    var tree = try std.zig.Ast.parse(allocator, terminated, .{});
+    var tree = try parse(allocator, terminated);
     defer tree.deinit(allocator);
+}
+
+/// Fails unless `emitted`, an emitter's output, is `committed`, the table committed from it, once
+/// formatted as each make target formats what tablegen writes (`zig fmt`).
+pub fn expectCommitted(committed: []const u8, emitted: []const u8) !void {
+    const allocator = std.testing.allocator;
+    const terminated = try allocator.dupeSentinel(u8, emitted, 0);
+    defer allocator.free(terminated);
+    var tree = try parse(allocator, terminated);
+    defer tree.deinit(allocator);
+    const formatted = try tree.renderAlloc(allocator);
+    defer allocator.free(formatted);
+    try std.testing.expectEqualStrings(committed, formatted);
+}
+
+/// `source` parsed, which fails unless it parses without errors. The tree refers to `source`.
+fn parse(allocator: std.mem.Allocator, source: [:0]const u8) !std.zig.Ast {
+    var tree = try std.zig.Ast.parse(allocator, source, .{});
+    errdefer tree.deinit(allocator);
     try std.testing.expectEqual(0, tree.errors.len);
+    return tree;
 }

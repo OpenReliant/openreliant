@@ -228,3 +228,11 @@ test check {
     near.max_distance = 1;
     try std.testing.expectError(error.BadDefinition, check(near));
 }
+
+test "emit writes the committed table again" {
+    const committed = sound3d.sounds;
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, .{ .definitions = &committed.definitions, .classes = committed.classes, .engines = committed.engines });
+    try testing.expectCommitted(@embedFile("committed sounds"), out.written());
+}

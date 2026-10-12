@@ -594,7 +594,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
                 held.effects.startBurst(held.record);
             }
             state.advance(.{ .in = .flashing }, now);
-            sound3d.playIn(world, null, null, index, .jumpin, 1, sound3d.fxClass(all, index));
+            hearArrival(world, index);
             if (index == all.player) {
                 if (world.camera) |view| {
                     const pick = arrivalView(world.random.fraction());
@@ -662,6 +662,31 @@ fn flash(world: gameobj.World, slot: *create.Slot, dt: f32) void {
         slot.motion = .jump_in;
         object.flags.jumping = false;
     }
+}
+
+/// When the player hears their own ship jump in.
+pub const ArrivalSound = enum {
+    /// **Improvement:** the player's own jump-in sound is measured from the ship as it arrives, so
+    /// that it is heard however long the jump was.
+    heard,
+    /// As the game measures it: from the camera before it moves to the arrival, so that after a
+    /// jump longer than the sound reaches, it is not heard.
+    original,
+};
+
+/// The ship in slot `index` heard jumping in (`jumpin`), from the camera (`0x004167CF`). For the
+/// player's ship the camera still watches where the jump began, as the game moves it to the
+/// arrival only after (`0x0041683B`), so after a jump longer than the sound reaches (250,000), the
+/// player doesn't hear their own. With `ArrivalSound.heard`, the player's own is measured from the
+/// ship instead; from then on it is heard from the camera, which by then watches the arrival.
+fn hearArrival(world: gameobj.World, index: u16) void {
+    const all = world.objects;
+    const class = sound3d.fxClass(all, index);
+    if (index != all.player or world.arrival_sound == .original) return sound3d.playIn(world, null, null, index, .jumpin, 1, class);
+    const hearing = world.hearing orelse return;
+    var scene = hearing.scene(world);
+    scene.camera.position = all.slots[index].drawn.position;
+    _ = sound3d.play(hearing.sound, scene, null, null, index, .jumpin, 1, class);
 }
 
 /// The view the player's arrival is watched from, by `share`, a random number divided by the
@@ -818,6 +843,33 @@ test "the player's arrival is watched from a cutaway, and ends in the cockpit" {
     try std.testing.expect(!mission.player.jumping_in);
     try std.testing.expectEqual(camera.View.cockpit, view.view);
     try std.testing.expect(!view.locked);
+}
+
+test "the player hears their own ship jump in, however long the jump" {
+    const hog_snd = @import("hog_snd.zig");
+    const sounds = @import("sound3d/sounds.zig");
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(4, null);
+    const bank = comptime hog_snd.testing.bank(80);
+    speaker.sound.open3D(try @import("../../formats/fat.zig").Bank.parse(&bank));
+    for ([_]ArrivalSound{ .heard, .original }) |arrival_sound| {
+        var mission: gameobj.testing.Mission = undefined;
+        try mission.init(std.testing.allocator);
+        defer mission.deinit();
+        // The listener stays at the start, far beyond the sound's reach from the arrival.
+        const player = try mission.add(.of(.predator), @splat(0));
+        const target = try mission.add(.of(.predator), .{ 0, 0, 1000000 });
+        var ctx = mission.orders();
+        ctx.world.hearing = speaker.hearing(&mission.clock);
+        ctx.world.arrival_sound = arrival_sound;
+        _ = try aigeneric.pushShip(ctx, player, .jump_in, target, null);
+        nextFrame(&mission, ctx, player);
+        const heard = for (speaker.sound.voices_3d[0..speaker.sound.voice_3d_count]) |voice| {
+            if (voice.owner == player and voice.sound == @backingInt(sounds.Sound.jumpin)) break true;
+        } else false;
+        try std.testing.expectEqual(arrival_sound == .heard, heard);
+        sound3d.endAll(&speaker.sound);
+    }
 }
 
 test "the ships that jump out with the player's form up behind it" {

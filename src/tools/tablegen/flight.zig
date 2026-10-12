@@ -132,3 +132,12 @@ test read {
     try testing.expectZig(out.written());
     try std.testing.expect(std.mem.find(u8, out.written(), "=> .flat") == null);
 }
+
+test "emit writes the committed table again" {
+    var types: [create.ship_type_count]Turns = undefined;
+    for (&types, 0..) |*turns, ship_type| turns.* = create.flight_stats.turns(@intCast(ship_type));
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, &types);
+    try testing.expectCommitted(@embedFile("committed flight"), out.written());
+}

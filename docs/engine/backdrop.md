@@ -64,6 +64,16 @@ Each frame (`stars_project`, `0x004C5380`):
 
 After a camera cut, `backdrop_reset_streaks` (`0x004A5C80`) stops the next frame drawing streaks: `camera_set_view` calls it on every switch, and `mission_frame` once the view differs from the last frame's (`camera_view_last`, `0x00539A64`).
 
+**Improvement:** the sun's glare washes out the stars near the sun, as it would in an eye or a
+camera ([#390](https://github.com/OpenReliant/openreliant/issues/390), `srstars.Glare`). A star
+is hidden within the angle from the sun that `sunlayer1` reaches: its texture's width times its
+size over 768, in view units, which is about 2.4 degrees with the game's textures. It shows whole
+from the angle that `sunlayer3`, the glow, reaches, about 18.4 degrees. In between, the share of
+the star that shows grows with the square of its angle from the sun, as a star's contrast against
+an eye's glare does. The glare is as strong as the share of the sun that shows
+([OpenReliant's sun](#openreliants-sun)), so a ship or a planet in front of the sun brings the
+stars back. The dust fades the same way. `--original` draws every star at its own brightness.
+
 ## Dust
 
 200 motes in a cube of side 8191, placed by the C runtime's `rand`, grey at half brightness. They are fixed in the world, repeating every 8192 units: each frame a mote is placed within 4096 of the camera on each axis. Its brightness is `16 * (0.25 - d² / 8191²) / (100m + 1)`, clamped to 0 to 1, with `d` its distance, so motes fade out by 4096 away. They streak like stars,
@@ -101,6 +111,29 @@ Drawn back at the game's size, each redrawn texture keeps the original's light t
 
 `--original` draws the game's textures and keeps its visibility.
 
+## Planets
+
+`create_object` sets up eleven object types as planets, Neptune to Venus (`0x5F` to `0x69`), and
+their models of less detail (`0xC9` to `0xD3`) ([Creating an object](objects.md#creating-an-object)).
+The four with an atmosphere, Neptune, Uranus, Jupiter and Venus, turn westward about their own Y,
+and none of them leans. Earth (`0x6A`) isn't among them, although the combat table lists it as a
+planet, so the game lights and places it as a ship.
+
+**Improvement:** OpenReliant keeps the planets in a table (`create.planets`). It starts as the
+original's, and mods' load scripts can change it and add to it (`records.planets`,
+[Planets](../guide/scripting.md#planets)). Each entry gives:
+
+- the object type;
+- how fast the planet turns about its north pole, which is its model's -Y. Positive values turn it
+  eastward. The original's planets turn westward at 0.07 radians a second;
+- how far and in which direction the pole leans from the up direction of the planet as the mission
+  places it;
+- its atmosphere's colour and edges, or the mod's surface function that draws the atmosphere, with
+  the numbers it reads ([A mod's atmosphere](#a-mods-atmosphere)).
+
+A type that a mod adds uses its base type's entry unless the table has an entry for it. Every planet
+that turns, leans or has an atmosphere gets an entry in the atmospheres' table, which holds 64.
+
 ## Planet atmospheres
 
 Four of the planets have an atmosphere: a ring round the rim that glows in the planet's colour and
@@ -126,7 +159,10 @@ It is drawn over `atmos`, added by the alpha of its own colours, and never culle
 the types that get one.
 
 At the end of `backdrop_frame`, each planet with an atmosphere turns about its own Y by 0.0007 of a
-radian for each tick since the last frame (`planets_turned_at`, `0x00595BC0`). With the hardware
+radian for each tick since the last frame (`planets_turned_at`, `0x00595BC0`). OpenReliant turns
+each planet as the planets' table says. It keeps the total angle each planet has turned, and each
+frame turns the planet from its orientation in the mission, leaned as the table says, by that
+angle, so that the planet turns about its leaning pole. With the hardware
 renderer, and the planet not disabled, its ring stands where the planet does, turned to face the
 camera, as solid as the lens flares are bright (`backdrop.flareBrightness`), on the background
 layer, which the world is drawn over. The ring's radius is the part's, its farthest vertex from the
@@ -137,17 +173,49 @@ the ring stands round it.
 **Improvement:** the atmosphere is a haze (`atmosphere.Style.haze`). The ring is made of 96 quads,
 round at any size, and is there at all times: each of its vertices is as solid as the flares are
 bright, or as `atmosphere.hazeAt` has it where that is more, 0.15 on the side away from the sun and
-0.6 on the side toward it, and between them as the cosine goes. The planet's terminator is softer,
-the sun reaching a little way round into its night side, where each pixel is lit
-([Renderer](../port/renderer.md#improvements)). `--original` makes the ring of 20 quads, only as
-solid as the flares are bright, and keeps the terminator hard.
+0.6 on the side toward it, and between them as the cosine goes. The ring is drawn larger as the
+camera comes near, by 1 / sqrt(1 - (r / d)^2) for a planet of radius r seen from d away, so that its
+edges stand as shares of the planet's visible edge: in the ring's plane, which passes through the
+planet's middle, that edge stands farther out than the radius, and at the game's size the ring
+slips inside it, behind the planet. The planet's terminator is softer, the sun reaching a little way
+round into its night side, where each pixel is lit ([Renderer](../port/renderer.md#improvements)).
+`--original` makes the ring of 20 quads, as large as built, only as solid as the flares are bright,
+and keeps the terminator hard.
 
-**Fix:** a fifth atmosphere would write past the table; OpenReliant makes none. With the sun square
-to the view, the game leaves the flares' brightness unset for the rings; OpenReliant keeps the last.
-`DestroyFlightGroup` counts one atmosphere fewer for any planet of the types from `0x60` to `0x69`
-and `0xCA` to `0xD3`, whether it has one or not, leaving out both Neptunes, looks for its ring
-among the atmospheres before the last alone, and frees the one it finds while keeping it in the
-table, which goes on drawing it; OpenReliant lets go of the planet's own and takes it out.
+**Fix:** a fifth atmosphere would write past the end of the table. **Improvement:** OpenReliant's
+table holds 64 planets, counting every planet that turns, leans or has an atmosphere. Past that it
+makes no more. With the sun square to the view, the game leaves the flares' brightness unset for
+the rings; OpenReliant keeps the last.
+
+**Fix:** for any planet of the types `0x60` to `0x69` and `0xCA` to `0xD3`, `DestroyFlightGroup`
+counts one atmosphere fewer whether the planet has one or not, which leaves out both Neptunes. It
+looks for the planet's ring only among the atmospheres before the last, and frees the one it finds
+but keeps it in the table, which goes on drawing it. OpenReliant frees the planet's own ring and
+removes its entry, so the planet also stops turning.
+
+### A mod's atmosphere
+
+**Improvement:** a mod's surface function can draw a planet's atmosphere in place of the ring, where
+the planets' table names one (`atmosphere.Shell`), so that a mod can draw it from a physical model,
+each channel falling off with height, lit by the sun and shaded by the planet. The function is
+looked up by name as the mission makes the planet, since the mods register their functions after
+their load scripts set the table; a name that no mod registers leaves the planet its ring, if it has
+one. The function draws on a ring of 96 quads with no texture, and what it leaves is added over what
+lies behind it. Each frame the ring stands at the middle of the planet's sphere, facing the camera,
+and each of its circles stands as far out as the sphere of its radius looks from the camera: the
+inner circle's sphere is the table's inner edge times the radius, and the outer circle's its outer
+edge. The sphere is the middle of the bounds of the planet's first part and half their widest span,
+which for Earth's model stands 1.25 million units off the object's origin; for a flattened planet
+the radius is its equatorial radius. The ring takes the planet's own frame, with the sphere's middle
+as its origin and the sphere's radius as its unit, and its circles turn each frame to face the
+camera in it, so that the function can trace the line of sight through each pixel and find the
+planet's pole ([A planet's atmosphere](../guide/scripting.md#a-planets-atmosphere)). The ring is lit
+by the planets' key light alone, so the function reads the sun's direction. It isn't drawn while the
+camera stands within its outer edge. `--original` draws it too, since a mod asks for it, but lights
+each vertex, which leaves the function no direction toward the sun. The ring is drawn on the
+background layer and the planet on the world layer, so the planet hides the ring within its edge:
+haze in front of the planet's disk is drawn by a surface function on the planet's texture, which
+adds it in linear light (`Surface.scattered`).
 
 ## Lights
 
@@ -211,11 +279,31 @@ refuses.
   radius, turned at random within 0.3 of a half turn about each axis of one of three spots, picked
   at random.
 - One that has shown for 35 ticks goes idle until a random time up to 1000 ticks on.
-- One showing takes its size from the cells of `pbang` in turn, and its grey is 0.1 for the first
+- One showing takes its size from a table of eight cells of a picture sheet (`0x004FF74C`: each
+  cell's left, top, right and bottom in pixels, on a sheet of 256 by 256). A step of 16 over its 35
+  ticks picks the cell (`0x004FF7CC`): each in turn, then the last. Its grey is 0.1 for the first
   half of its time, then from 0.3 down to nothing; an idle one's is nothing.
 
-Nothing adds the flashes to the scene, so the game never shows them, and OpenReliant leaves Planet
-Bombard out.
+The sheet doesn't ship: `pbang` is a single flash, 32 by 32, and each frame a flash shows, its
+texture coordinates are set back to the whole of it, so only the cells' sizes matter. Nothing adds
+the flashes to the scene, so the game never shows them.
+
+**Improvement:** OpenReliant draws each flash as it shows, standing where it burst on Titan, on the
+world's layer ([`environfx/bombard.zig`](../../src/engine/game/environfx/bombard.zig)). `--original`
+leaves them unseen. The game runs the routine as the last part of any Titan is drawn, the flashes
+standing on the last Titan made; OpenReliant runs it once a frame, as that Titan is drawn.
+
+**Fix:** the game keeps each cell's width and height over the first cell's in pairs (`0x0054F0C8`)
+but reads them one value at a time by cell. A flash then takes the widths and heights of the first
+four cells in turn, 1, 1, 1.55, 1.42, 2.09, 1.92 and 2.91 times its size, then 2.75 from tick 15 on.
+OpenReliant takes each cell's width, so that a flash grows steadily through all eight, from its
+size to five times it.
+
+**Fix:** a flash due before the effect came on, as every flash is when a mission turns it on, keeps
+the tick it was due at, so it shows for a single frame at its largest, with a grey below nothing.
+OpenReliant starts it at that frame. And the game sets the flashes waiting only as its renderer
+starts, though each mission counts its ticks from 0 again, so that one can wait minutes into the
+next mission; OpenReliant sets them waiting again as each mission starts.
 
 ### The ice field
 

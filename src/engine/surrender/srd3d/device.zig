@@ -140,9 +140,53 @@ pub const State = struct {
     /// (`srtexture.ModSurface.see_through`), so its alpha is the texture's as the function leaves
     /// it, whatever the vertices' colours.
     see_through: bool = false,
+    /// OpenReliant's: the frame of the object it draws, which a mod's surface function reads its
+    /// pixels' places in (`Frame`). The camera's own for what no object draws.
+    frame: Frame = .camera,
     /// How its texture is filtered (`D3DTSS_MAGFILTER`, `D3DTSS_MINFILTER`, `D3DTSS_MIPFILTER`).
     filter: Filter = .linear,
 };
+
+/// OpenReliant's: an object's frame in the camera's, as the pipeline turns its model's points into
+/// the camera's frame (`srmesh.pipe`): its axes, scaled as the object is drawn
+/// (`srapi.Context.objectMatrix`), and where its origin stands.
+pub const Frame = struct {
+    axes: math.Matrix,
+    origin: math.Vector,
+
+    /// The camera's own frame.
+    pub const camera: Frame = .{ .axes = math.identity, .origin = @splat(0) };
+
+    /// What turns a point of the camera's frame into the object's, as three rows of a matrix with
+    /// the move in their last column; zeros where the axes can't be turned back, as for an object
+    /// drawn at a scale of 0.
+    pub fn toObject(frame: Frame) [3][4]f32 {
+        const back = math.inverse(frame.axes) orelse return std.mem.zeroes([3][4]f32);
+        const move: [3]f32 = -math.transform(back, frame.origin);
+        var rows: [3][4]f32 = undefined;
+        for (&rows, 0..) |*row, r| row.* = .{ back[r * 3], back[r * 3 + 1], back[r * 3 + 2], move[r] };
+        return rows;
+    }
+};
+
+test Frame {
+    // An object turned a quarter turn about Y, twice its size, 10 along X from the camera.
+    const frame: Frame = .{ .axes = .{ 0, 0, 2, 0, 2, 0, -2, 0, 0 }, .origin = .{ 10, 0, 0 } };
+    const rows = frame.toObject();
+    // Its point (1, 2, 3) stands at axes times it plus the origin in the camera's frame, and turns
+    // back to (1, 2, 3).
+    const point: math.Vector = .{ 1, 2, 3 };
+    const seen = math.transform(frame.axes, point) + frame.origin;
+    for (rows, 0..) |row, r| {
+        const back = row[0] * seen[0] + row[1] * seen[1] + row[2] * seen[2] + row[3];
+        try std.testing.expectApproxEqAbs(point[r], back, 1e-5);
+    }
+    // The camera's own frame leaves points where they are.
+    try std.testing.expectEqual([3][4]f32{ .{ 1, 0, 0, 0 }, .{ 0, 1, 0, 0 }, .{ 0, 0, 1, 0 } }, Frame.camera.toObject());
+    // An object drawn at a scale of 0 has no frame to turn back into.
+    const flat: Frame = .{ .axes = @splat(0), .origin = @splat(0) };
+    try std.testing.expectEqual(std.mem.zeroes([3][4]f32), flat.toObject());
+}
 
 /// How a draw's texture is filtered: linearly, or from the nearest texel of its finest level, as
 /// the background image is (`begin_scene`, `0x100077A0`).
@@ -308,6 +352,17 @@ test unpack {
     try std.testing.expectEqual([4]f32{ 128.0 / 255.0, 64.0 / 255.0, 0, 1 }, unpack(pack(.{ 0.5, 0.25, 0, 1 })));
 }
 
+/// A device that draws nothing, for a frame that runs without being seen. What draws with it still
+/// does its other work, such as the display's windows opening and closing.
+pub const unseen: Device = .{ .ptr = &unseen_place, .vtable = &.{ .begin = nothing, .end = nothing, .draw = drawNothing, .overlay = nothing } };
+
+/// What `unseen` points at, which its functions never read.
+var unseen_place: u8 = 0;
+
+fn nothing(_: *anyopaque) void {}
+
+fn drawNothing(_: *anyopaque, _: State, _: Primitive, _: []const Vertex, _: ?[]const u16) void {}
+
 /// Devices for the tests of what draws with one.
 pub const testing = struct {
     /// A device that keeps what it is asked to draw, and hands the lights it is given room for.
@@ -359,8 +414,6 @@ pub const testing = struct {
             return @ptrCast(@alignCast(ptr));
         }
 
-        fn nothing(_: *anyopaque) void {}
-
         fn draw(ptr: *anyopaque, state: State, primitive: Primitive, vertices: []const Vertex, indices: ?[]const u16) void {
             const recorder = from(ptr);
             if (recorder.textures) |*textures| if (state.texture) |image| textures.make(image);
@@ -382,6 +435,17 @@ pub const testing = struct {
         }
     };
 };
+
+test unseen {
+    // It takes a whole frame, lights none of it and keeps nothing.
+    const state: State = .{ .texture = null, .depth = .{ .testing = false, .writing = false }, .blend = null };
+    const corners = [3]Vertex{ .{ .x = 0, .y = 0, .z = 0, .rhw = 1, .diffuse = white }, .{ .x = 1, .y = 0, .z = 0, .rhw = 1, .diffuse = white }, .{ .x = 0, .y = 1, .z = 0, .rhw = 1, .diffuse = white } };
+    unseen.begin();
+    unseen.draw(state, .fan, &corners, null);
+    unseen.overlay();
+    unseen.end();
+    try std.testing.expectEqual(0, unseen.lights(&.{.{ .mask = 1, .kind = .{ .directional = .{ .toward = .{ 0, 0, 1 }, .colour = .{ 1, 1, 1 } } } }}));
+}
 
 test "testing.Recorder" {
     var recorder: testing.Recorder = .{ .gpa = std.testing.allocator };

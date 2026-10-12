@@ -21,12 +21,14 @@
 //!
 //! `missions` holds the campaign's settings for each of its missions, by its number
 //! (`game.gameflow.CampaignMission`), `killboard` the ITAC's KILLBOARD's pilots
-//! (`game.itac.killboard.Pilot`), and `maneuvers` the combat maneuvers (`game.aidefend.Compiled`).
-//! Each entry is a proxy whose fields load scripts change in place, as they change a record's
+//! (`game.itac.killboard.Pilot`), `maneuvers` the combat maneuvers (`game.aidefend.Compiled`), and
+//! `planets` the object types set up as planets (`game.create.planets.Planet`). Each entry is a
+//! proxy whose fields load scripts change in place, as they change a record's
 //! ([#976](https://github.com/OpenReliant/openreliant/issues/976),
 //! [#1008](https://github.com/OpenReliant/openreliant/issues/1008),
-//! [#1024](https://github.com/OpenReliant/openreliant/issues/1024)). Load scripts can also add
-//! maneuvers.
+//! [#1024](https://github.com/OpenReliant/openreliant/issues/1024),
+//! [#1092](https://github.com/OpenReliant/openreliant/issues/1092)). Load scripts can also add
+//! maneuvers and planets.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -45,10 +47,11 @@ const runtime = @import("runtime.zig");
 pub const missions = @import("records/missions.zig");
 pub const killboard = @import("records/killboard.zig");
 pub const maneuvers = @import("records/maneuvers.zig");
+pub const planets = @import("records/planets.zig");
 
 /// The tables whose entries have named fields (`records/table.zig`), each a module that declares
 /// `script_name`, `list_name`, `Field`, `TypeOf`, `about`, `each` and `entries_about`.
-pub const field_tables = .{ missions, killboard, maneuvers };
+pub const field_tables = .{ missions, killboard, maneuvers, planets };
 
 /// The proxies for records.
 pub const Values = bind.Binding(&.{ stats.Ship, game.create.combat_stats.Static, stats.Gun, stats.Missile, stats.Pilot, game.pilots.FaceRecord }, @backingInt(runtime.Tag.record_value), "record");
@@ -82,6 +85,9 @@ pub const Records = struct {
     /// The combat maneuvers, which the game takes with the stats (`aidefend.install`). Load scripts
     /// can add to them. Their names and their scripts, as text and compiled, are in `arena`.
     maneuvers: []game.aidefend.Compiled,
+    /// The object types set up as planets, which the game takes with the stats
+    /// (`create.planets.install`). Load scripts can add to them.
+    planets: []game.create.planets.Planet,
     /// Where text from scripts is allocated. It must live as long as the game's original strings.
     arena: Allocator,
 
@@ -99,6 +105,7 @@ pub const Records = struct {
         missions: []const gameflow.CampaignMission = &gameflow.CampaignMission.original,
         killboard: []const game.itac.killboard.Pilot = &game.itac.killboard.Pilot.original,
         maneuvers: []const game.aidefend.Compiled = &game.aidefend.Compiled.original,
+        planets: []const game.create.planets.Planet = &game.create.planets.original,
     };
 
     /// Copies `tables` into `arena`.
@@ -116,6 +123,7 @@ pub const Records = struct {
             .missions = try arena.dupe(gameflow.CampaignMission, tables.missions),
             .killboard = try arena.dupe(game.itac.killboard.Pilot, tables.killboard),
             .maneuvers = try arena.dupe(game.aidefend.Compiled, tables.maneuvers),
+            .planets = try arena.dupe(game.create.planets.Planet, tables.planets),
             .arena = arena,
         };
     }
@@ -152,6 +160,9 @@ pub const Records = struct {
         saved.maneuvers = try gpa.dupe(game.aidefend.Compiled, records.maneuvers);
         errdefer gpa.free(saved.maneuvers);
         saved.maneuvers_held = records.maneuvers;
+        saved.planets = try gpa.dupe(game.create.planets.Planet, records.planets);
+        errdefer gpa.free(saved.planets);
+        saved.planets_held = records.planets;
         inline for (comptime std.enums.values(Set), 0..) |set, made| {
             errdefer inline for (comptime std.enums.values(Set)[0..made]) |done| gpa.free(@field(saved, @tagName(done)));
             @field(saved, @tagName(set)) = try gpa.dupe(set.Element(), @field(records, @tagName(set)));
@@ -175,6 +186,10 @@ pub const Records = struct {
         /// The maneuvers' table itself, which adding a maneuver replaces with a longer one, maybe
         /// in an arena that's freed after the script runs (`game_modes.ModeRecords`).
         maneuvers_held: []game.aidefend.Compiled,
+        planets: []game.create.planets.Planet,
+        /// The planets' table itself, which adding a planet replaces with a longer one, like the
+        /// maneuvers' table.
+        planets_held: []game.create.planets.Planet,
 
         pub fn restore(saved: Snapshot, records: *Records) void {
             inline for (comptime std.enums.values(Set)) |set| @memcpy(@field(records, @tagName(set)), @field(saved, @tagName(set)));
@@ -183,6 +198,8 @@ pub const Records = struct {
             @memcpy(records.killboard, saved.killboard);
             records.maneuvers = saved.maneuvers_held;
             @memcpy(records.maneuvers, saved.maneuvers);
+            records.planets = saved.planets_held;
+            @memcpy(records.planets, saved.planets);
         }
 
         pub fn deinit(saved: Snapshot, gpa: Allocator) void {
@@ -190,6 +207,7 @@ pub const Records = struct {
             gpa.free(saved.missions);
             gpa.free(saved.killboard);
             gpa.free(saved.maneuvers);
+            gpa.free(saved.planets);
         }
     };
 };
@@ -304,8 +322,8 @@ pub fn register(state: *State) void {
 
 /// Pushes the `openreliant.records` package: a read-only table holding the record tables, the
 /// campaign's missions (`campaign`), the settings of each (`missions`), the KILLBOARD's pilots
-/// (`killboard`) and the combat maneuvers (`maneuvers`), which scripts can change only if
-/// `writable`. Call `register` first.
+/// (`killboard`), the combat maneuvers (`maneuvers`) and the planets (`planets`), which scripts can
+/// change only if `writable`. Call `register` first.
 pub fn push(state: *State, records: *Records, writable: bool) void {
     state.newTable(0, std.enums.values(Set).len + field_tables.len);
     inline for (comptime std.enums.values(Set)) |set| {

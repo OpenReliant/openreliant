@@ -615,6 +615,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var atmospheres: game.create.atmosphere.Atmospheres = try .init(gpa, &textures);
     defer atmospheres.deinit();
     atmospheres.style = options.atmospheres;
+    if (presentation) |shown| atmospheres.surfaces = shown.surfaceNames();
     const extra_images: game.create.extra.Images = try .load(&textures);
     var flash: game.main.flash.Flash = .{};
     // The countermeasures' model, read once for the whole run, as `decoys_init` reads it.
@@ -632,6 +633,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var shields: game.shield.Shields = try .create(gpa, &textures, explosions.settings.detail, options.shields);
     defer shields.deinit(gpa);
     environment.ice_field = try .create(arena, &textures, explosions.settings.detail, options.ice_field, &rand);
+    environment.flashes = try .create(arena, &textures, options.bombard, &rand, 0);
     var gates: game.wgate.Gates = try .init(gpa, &textures, explosions.settings.detail, options.gates);
     defer gates.deinit();
     var ion_cannons: game.aiioncan.Cannons = try .init(gpa, &textures);
@@ -640,7 +642,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     const forces_library = engine.input.force.load(io, arena, directory, &mods);
     var force_feedback: engine.input.force.Forces = .{ .library = &forces_library, .settings = options.forces };
     // What the objects run in, the camera's view brought up to date each frame.
-    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .view = view.view, .last_view = view.view, .shake = &view.hit_shake, .random = &rand, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .trails = &trails, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .atmospheres = &atmospheres, .extras = &extra_images, .escort_marker = escort_marker, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
+    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .view = view.view, .last_view = view.view, .shake = &view.hit_shake, .random = &rand, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .trails = &trails, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .atmospheres = &atmospheres, .extras = &extra_images, .escort_marker = escort_marker, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
 
     world.launch_steam = options.launch_steam;
 
@@ -1234,7 +1236,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         display.state.fosters_last_stand = false;
                     }
                     switch (player_launch.step(slot, clock.mission_ticks)) {
-                        .under_way => if (options.skip_launch) continue,
+                        // The skipped frame isn't drawn, but the display's frame still runs,
+                        // unseen: the radio's lines start and end in it (`hud_draw`), and a
+                        // mission's script may wait for a line to end before the player launches.
+                        .under_way => if (options.skip_launch) {
+                            display.device = srd3d.device.unseen;
+                            display.screen = size;
+                            try display.drawDisplay();
+                            continue;
+                        },
                         .ended => {
                             if (play.loaded) |loaded| for (asked_parts) |part| loaded.runPart(orders, part);
                             watch.frame(&view, objects, clock.viewTime());
@@ -1465,10 +1475,11 @@ fn endsInPauseMenu(options: Options, frames_left: ?usize) bool {
 }
 
 /// The player's launch at the start of a `--mission`, which `--skip-launch` plays through without
-/// drawing it, each frame running `skip_ticks` ticks as at 60 frames a second, and after which the
-/// parts `--part` names run (`partsNamed`). It is under way from the mission's start until the
-/// player's ship has been under its Launch order and no longer is; or, for a mission whose player
-/// doesn't launch, until `give_up_ticks` pass without the launch starting.
+/// drawing it, each frame running `skip_ticks` ticks as at 60 frames a second and the display's
+/// frame unseen (`device.unseen`), and after which the parts `--part` names run (`partsNamed`). It
+/// is under way from the mission's start until the player's ship has been under its Launch order
+/// and no longer is; or, for a mission whose player doesn't launch, until `give_up_ticks` pass
+/// without the launch starting.
 const PlayerLaunch = struct {
     under_way: bool,
     launched: bool = false,

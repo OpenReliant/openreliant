@@ -203,6 +203,7 @@ Part flags at `0xF0`:
 | `0x20` | Geomorph positions, likewise |
 | `0x40` | Set by the loader when a static light exists in this part's class; the part's meshes then hold [baked colours](../engine/rendering.md#meshes) |
 | `0x80` | With `Lmaps` set, bind a second texture, `l<material>`, which a hardware renderer adds over the part's lit faces ([Rendering](../engine/rendering.md#shading-modes)) |
+| `0x200` | A part with armour to spare that any heavy hit hurts, not only a torpedo's ([Components](../engine/objects.md#components)), such as the Latov's shaft and the Czar's core cover, which a Jack Hammer breaks |
 | `0x1000` | A component the player can target: the live object marks the component's node [targetable](../engine/objects.md#the-model-hierarchy) |
 
 ### Attachment point (tag `0x09`)

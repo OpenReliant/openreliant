@@ -1,5 +1,10 @@
-// What the device's shader and the bloom's share of colour: sRGB's encoding, both ways, and the
-// ordered dither to a colour's levels. `#include`d, and compiled with each.
+// What the device's shader and the bloom's share of colour: sRGB's encoding, both ways, the ordered
+// dither to a colour's levels, and a colour's luminance. `#include`d, and compiled with each.
+
+// A colour's luminance, its channels weighted as sRGB's primaries are.
+float luminance(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
 
 // A colour as a texture or a vertex holds it, sRGB-encoded, in linear light.
 vec3 decoded(vec3 c) {

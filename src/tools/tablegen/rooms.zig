@@ -179,3 +179,10 @@ test read {
     try emit(&out.writer, views);
     try testing.expectZig(out.written());
 }
+
+test "emit writes the committed table again" {
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, &rooms.views.views);
+    try testing.expectCommitted(@embedFile("committed rooms"), out.written());
+}

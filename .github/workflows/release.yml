@@ -7,6 +7,11 @@
 #
 # Run by hand from the Actions tab, it builds everything and keeps the archives as the run's
 # artifacts, but publishes nothing.
+#
+# The builds are attached after release-please has published the release, so the repository's
+# immutable releases must stay off: GitHub refuses files for an immutable release once it is
+# published, which left v0.11.0 without builds. Keeping each release a draft until its builds are
+# on would let immutability stay on (#1104).
 name: Release
 
 on:

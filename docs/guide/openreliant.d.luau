@@ -305,6 +305,7 @@ type SurfaceFunction = {
     everywhere: boolean?,
     see_through: boolean?,
     writes_depth: boolean?,
+    bloom: number?,
     parameters: { number }?,
     enabled: boolean?,
 }
@@ -647,6 +648,17 @@ declare class CombatManeuver
     max_ticks: number
     script: { string }
 end
+declare class Planet
+    type: ShipType
+    spin: number
+    tilt: number
+    tilt_toward: number
+    atmosphere_color: vector?
+    atmosphere_inner: number
+    atmosphere_outer: number
+    atmosphere_surface: string?
+    atmosphere_parameters: { number }
+end
 type Records = {
     ships: { [number | string]: Ship },
     ship_types: { [number | string]: ShipTypeRecord },
@@ -664,6 +676,8 @@ type Records = {
     killboard: { [number]: KillboardPilot },
     -- The combat maneuvers the Fight order flies, numbered from 0 as the game numbers them. Load scripts change their fields and add new ones after the last.
     maneuvers: { [number]: CombatManeuver },
+    -- The object types that the game sets up as planets when a mission makes them: lit by the sun alone, always drawn, and colliding with nothing. Each turns about its axis and leans as its entry says, and has its atmosphere. The original's are Neptune to Venus and their far models, in the order of their types. Load scripts can change their fields and add planets after the last one, such as Earth.
+    planets: { [number]: Planet },
 }
 
 -- The packages made from declarations. `openreliant.self` is the script's own Object.
@@ -906,7 +920,7 @@ type Postprocessing = {
 
 -- Surface and lighting functions: GLSL functions from the mod that change how surfaces are lit.
 type Shaders = {
-    -- Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets.
+    -- Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads, and `bloom`, from 0 to 1, how much of its surfaces' light blooms. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets.
     register_surface: (definition: SurfaceFunction) -> string,
     -- Registers a lighting function: a GLSL function `lighting` from the calling mod's file `shader`, which changes how much of each light reaches a pixel. One draws at a time: the enabled one registered last. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line.
     register_lighting: (definition: LightingFunction) -> string,

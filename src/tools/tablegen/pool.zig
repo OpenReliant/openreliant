@@ -74,3 +74,10 @@ test read {
     try std.testing.expect(std.mem.find(u8, out.written(), ".{ .pilot = 119, .status = .free },") != null);
     try testing.expectZig(out.written());
 }
+
+test "emit writes the committed table again" {
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, &pilots.starting_pool);
+    try testing.expectCommitted(@embedFile("committed pool"), out.written());
+}

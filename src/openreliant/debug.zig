@@ -526,7 +526,7 @@ const Debugger = struct {
         debugger.sayRoutine(found, index);
         debugger.say("\n", .{});
         var number: usize = 0;
-        for (made.instructions) |instruction| {
+        for (made.instructions, 0..) |instruction, at| {
             const address: u32 = @intCast(instruction.address);
             const stop_mark: u8 = if (debugger.stopped == address) '>' else ' ';
             const break_mark: u8 = if (debugger.breaksAt(found, address)) '*' else ' ';
@@ -534,7 +534,7 @@ const Debugger = struct {
                 number += 1;
                 debugger.say("{c}{c}{d:>4}", .{ stop_mark, break_mark, number });
             } else debugger.say("{c}{c}    ", .{ stop_mark, break_mark });
-            dte.listing.writeInstruction(debugger.out, found.mission, instruction, constants, .{}) catch {};
+            dte.listing.writeInstructionAt(debugger.out, found.mission, made.instructions, at, constants, .{}) catch {};
             debugger.say("\n", .{});
         }
     }

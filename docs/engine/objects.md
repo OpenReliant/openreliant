@@ -113,9 +113,10 @@ count again; then come the guns' charge and rounds, their groups and the gun mod
 `targetable`, where the type allows it. Capital ships, planets, gates,
 asteroids and a few other types get more set up for their kind.
 
-The planets, types `0x5F` to `0x69` and `0xC9` to `0xD3`, first make their atmosphere where they
-have one ([Backdrop](backdrop.md#planet-atmospheres)); then each planet is set up alike
-(`0x00467BAB`). The object's flags gain `components`, `no_collisions` and `frozen`. Each node hanging
+The planets are types `0x5F` to `0x69` and `0xC9` to `0xD3` in the original, and the types in the
+planets' table in OpenReliant ([Planets](backdrop.md#planets)). A planet first makes its atmosphere
+if it has one ([Backdrop](backdrop.md#planet-atmospheres)), and then every planet is set up the same
+way (`0x00467BAB`). The object's flags gain `components`, `no_collisions` and `frozen`. Each node hanging
 from the root has its scene object's flags set to `0x101100`, lit, always drawn and bit 20, and
 its light mask to `0x37`, so that only the second key light, mask `0x08`, reaches it, and its
 offset from the root (`+0x3C`) cleared, so that it stands at the object's origin. Each of its
@@ -735,8 +736,10 @@ hit that leaves armour to spare still wears it, and its ShotAt events still come
 
 A component's armour comes from its part's record (`0x104`), and `component_damage`
 (`0x004645C0`) wears it down: the damage goes to the first part of the component's assembly whose
-record gives it armour, a part with more than 2499 takes only a hit of 500 or more, an object with a
-shield generator keeps three quarters of a hit below 1000, and a component whose armour runs out
+record gives it armour, a part with more than 2499 takes only a hit of 500 or more, and only a
+torpedo's unless its record's flags have bit `0x200` (`0x00464798`), as the Latov's shaft and the
+Czar's core cover do, which a Jack Hammer breaks; an object with a shield generator keeps three
+quarters of a hit below 1000, and a component whose armour runs out
 marks its root as destroyed (node flag `0x40`). A collision does none of this. Every part node
 stays in its root's child list, whatever part `object_link_part` links it to, so the node holding
 a component (`node_holder`, `0x00499EE0`) is always its model's root: the object's, or that of a

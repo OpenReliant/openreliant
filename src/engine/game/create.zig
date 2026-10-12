@@ -53,6 +53,7 @@ pub const flight_stats = @import("create/flight.zig");
 pub const combat_stats = @import("create/combat.zig");
 pub const library = @import("create/library.zig");
 pub const atmosphere = @import("create/atmosphere.zig");
+pub const planets = @import("create/planets.zig");
 pub const escort = @import("create/escort.zig");
 pub const extra = @import("create/extra.zig");
 
@@ -680,6 +681,9 @@ pub const Objects = struct {
     /// makes in the slot after the mission's ships, and which the Yamato's launch moves beside the
     /// player's bay; null until a mission's start makes it.
     camera_marker: ?u16 = null,
+    /// `bombard_planet` (`0x005531A8`): the slot of the last Titan made, on which Planet Bombard's
+    /// flashes burst (`environfx.bombard`); null until one is made.
+    bombarded: ?u16 = null,
     types: [max_ship_types]TypeUse = @splat(.{}),
     /// Each ship type's gun groups (`0x00545900`), which `gun_groups_build` works out from an
     /// object of the type.
@@ -792,6 +796,7 @@ pub const Objects = struct {
         all.types = @splat(.{});
         all.count = 0;
         all.camera_marker = null;
+        all.bombarded = null;
         all.in_stalag = false;
         // The game lets the exhaust's list go as the mission before ends (`exhaust_ships_reset`).
         all.exhaust.reset();
@@ -1070,8 +1075,8 @@ fn wreckOf(object_type: gameobj.Type) ?Wreck {
 /// The routine that most capital ships, bases and stations get for a destroyed component, the
 /// Ulysses' its own, OpenReliant picks by type as it needs it (`explode.ComponentLoss`).
 ///
-/// Titan's last part takes the Planet Bombard's routine (`0x0046841D`), which moves ten flashes that
-/// nothing draws, so OpenReliant leaves it out. Not ported: the comms relay, the deathmatch's
+/// Titan's last part takes Planet Bombard's routine (`0x0046841D`), for which `createObject` keeps
+/// Titan's slot (`bombards`). Not ported: the comms relay, the deathmatch's
 /// power-ups and beacons, multiplayer map 83 and the Dark Reign's slot in a multiplayer game
 /// (`0x005DB500`), which only the multiplayer arenas have
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The wrecks, the gates, the planets
@@ -1091,6 +1096,21 @@ fn typeMade(slot: *Slot, ship_type: gameobj.Type) void {
         },
         else => {},
     }
+}
+
+/// Whether objects of `ship_type` are Titan, whose last part `create_object` gives the routine that
+/// moves Planet Bombard's flashes as the part is drawn (`bombard_hook`), keeping Titan's slot
+/// (`0x0046840D`, `Objects.bombarded`).
+pub fn bombards(ship_type: gameobj.Type) bool {
+    return switch (ship_type.base()) {
+        .titan_hi, .titan_lo => true,
+        else => false,
+    };
+}
+
+test bombards {
+    try std.testing.expect(bombards(.of(.titan_hi)) and bombards(.of(.titan_lo)));
+    try std.testing.expect(!bombards(.of(.saturn_hi)) and !bombards(.of(.predator)));
 }
 
 /// What an asteroid is made as (`typeMade`): fully invulnerable, and attached.
@@ -1153,17 +1173,9 @@ const proto_power_core = "Protogate Power core";
 const rotate_end = "Rotate End";
 const rotate_inner = "Rotate Inner";
 
-/// The planets' types, whose objects `create_object` sets up as planets (`planetMade`): Neptune to
-/// Venus, and their models of less detail.
-const planet_types = [_][2]u32{ .{ 0x5F, 0x69 }, .{ 0xC9, 0xD3 } };
-
-/// Whether `ship_type` is a planet's (`planet_types`).
+/// Whether `ship_type` is a planet's, as the planets' table has it (`planets.of`).
 pub fn isPlanet(ship_type: gameobj.Type) bool {
-    const number = @backingInt(ship_type.base());
-    for (planet_types) |range| {
-        if (number >= range[0] and number <= range[1]) return true;
-    }
-    return false;
+    return planets.of(ship_type) != null;
 }
 
 /// What each part hanging from a planet's root is drawn with (`0x00467BE9`): lit, always drawn,
@@ -1172,7 +1184,7 @@ const planet_part_flags: @import("../surrender/surrenderlib/srapiext.zig").Objec
 
 /// The lights that do not reach a planet's parts (`0x00467BF0`): all but the second key light,
 /// mask `0x08`, which alone lights them.
-const planet_light_mask: u32 = 0x37;
+pub const planet_light_mask: u32 = 0x37;
 
 /// The part of `create_object` for a planet (`0x00467BAB`), once its atmosphere is made, for those
 /// that have one (`atmosphere.Atmospheres.made`): the object lists components, collides with
@@ -1356,6 +1368,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
             object.flags.attached = true;
         }
         typeMade(slot, ship_type);
+        if (bombards(ship_type)) all.bombarded = index;
     }
     object.wing_icon = 0;
     pilots.setPilot(object, if (combat.side == .hostile) coalition_pilot else 0);

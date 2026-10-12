@@ -64,7 +64,7 @@ OpenReliant's version, events for the global scripts, and game modes. For load, 
 
 ### `openreliant.records`
 
-The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), and what the campaign makes of each of them (`missions`). Only load scripts can change them. For load, global, object, player and menu scripts.
+The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), what the campaign makes of each of them (`missions`), the KILLBOARD's pilots (`killboard`), the combat maneuvers (`maneuvers`) and the planets (`planets`). Only load scripts can change them. For load, global, object, player and menu scripts.
 
 Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with these fields:
 
@@ -130,6 +130,20 @@ Each of the combat maneuvers, `maneuvers[n]`, is a `CombatManeuver` with these f
 | `min_ticks` | number | The fewest ticks it runs, unless the Fight order gives a length of its own. |
 | `max_ticks` | number | The most ticks it runs: Fight draws its length from `min_ticks` up to this. |
 | `script` | list of string | Its script: a command of the maneuvers' language on each line. Setting it compiles it, and a line that doesn't compile is an error. |
+
+Each of the planets, `planets[n]`, is a `Planet` with these fields:
+
+| Field | Type | What it is |
+|---|---|---|
+| `type` | [ShipType](#shiptype) | Its object type, such as `neptune_hi` or `earth`: OpenReliant's name or the type's number, or the qualified name of a type a mod adds. A type a mod adds uses its base type's entry unless the table has an entry for it. If a type has several entries, the first one counts. A planet added without a type has the marker's type, which is never made, until its type is set. |
+| `spin` | number | How fast it turns about its north pole, in radians a second. Positive turns it eastward, as most planets turn, which is counter-clockwise seen from above its north pole. Negative turns it westward. Its north pole is its model's -Y, which is up on the screen when the planet isn't turned. The original turns the planets that have an atmosphere westward at -0.07, one turn every 90 seconds, and doesn't turn the others. |
+| `tilt` | number | How far its north pole leans away from north, in radians. North is the up direction of the planet as the mission places it, which is the world's up if the mission doesn't turn the planet. |
+| `tilt_toward` | number | Which way its north pole leans, as an angle in radians around north: 0 leans it toward +Z, and `math.pi / 2` toward +X, both of the planet as the mission places it. |
+| `atmosphere_color` | vector, or nil | The colour of its atmosphere, or nil for none. The atmosphere is a band that faces the camera and fades from this colour at its inner edge to nothing at its outer edge. It is added over the sky behind the planet, and is brighter toward the sun. In the original, Neptune, Uranus, Jupiter and Venus have one. |
+| `atmosphere_inner` | number | Where its atmosphere's band starts, as a share of the planet's radius as the camera sees it: 0.85 in the original. With a surface function, its ring starts here, in the radii of the planet's sphere. |
+| `atmosphere_outer` | number | Where its atmosphere's band ends, as a share of the planet's radius as the camera sees it: 0.95 for Neptune and Uranus, and 1.005 for Jupiter and Venus, in the original. The planet hides the band within its edge. With a surface function, its ring ends here, in the radii of the planet's sphere. |
+| `atmosphere_surface` | string, or nil | The surface function that draws its atmosphere in place of the band, by the calling mod's own name or the qualified one, or nil. It draws on a ring that faces the camera through the middle of the planet's sphere, from `atmosphere_inner` to `atmosphere_outer` times the sphere's radius as the camera sees it, and its light is added over what lies behind it. The planet hides the ring within its edge. The function works in the planet's own frame, with the sphere's middle as the origin and its radius as the unit, so it can trace the line of sight through each pixel. Where no mod registers a function of that name, the planet keeps its band. The scripting guide shows one. |
+| `atmosphere_parameters` | list of number | The numbers its atmosphere's surface function reads, up to four; those left out are 0. |
 
 ### `openreliant.hooks`
 
@@ -306,7 +320,7 @@ Surface and lighting functions: GLSL functions from the mod that change how surf
 
 | Name | Type | What it is |
 |---|---|---|
-| `register_surface(definition: SurfaceFunction)` | string | Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets. |
+| `register_surface(definition: SurfaceFunction)` | string | Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads, and `bloom`, from 0 to 1, how much of its surfaces' light blooms. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets. |
 | `register_lighting(definition: LightingFunction)` | string | Registers a lighting function: a GLSL function `lighting` from the calling mod's file `shader`, which changes how much of each light reaches a pixel. One draws at a time: the enabled one registered last. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. |
 | `set_enabled(name: string, enabled: boolean)` | boolean | Turns the calling mod's function `name` on or off, by its own name or the qualified one. Returns whether the mod has it. |
 | `set_parameters(name: string, parameters: { number })` | boolean | Sets the numbers the calling mod's function `name` reads on its textures and everywhere it draws, up to four; those left out are 0. Returns whether the mod has it. |
@@ -1653,6 +1667,7 @@ A table a script gives, which may leave out a field with a default.
 | `everywhere` | boolean | false |
 | `see_through` | boolean | false |
 | `writes_depth` | boolean | true |
+| `bloom` | number | 1 |
 | `parameters` | list of number | none |
 | `enabled` | boolean | true |
 

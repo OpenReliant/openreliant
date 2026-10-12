@@ -3,7 +3,8 @@
 //! makes once at start-up and every ship's attachments of kind `engine_glow` then draw, and the
 //! capital ships' exhaust, which burns the player's ship flying into it (`Exhaust`). The file also
 //! holds the environment effects a script turns on (`environment_effect_set`, `0x00469C60`), which
-//! the backdrop draws with its own ([`backdrop.zig`](backdrop.zig)): the ice field (`IceField`).
+//! the backdrop draws with its own ([`backdrop.zig`](backdrop.zig)): the ice field (`IceField`), and
+//! the flashes of Planet Bombard, which Titan moves on as it is drawn (`bombard`).
 //! Only `environment_effect_set` asserts, so only its code names the file; the glows, the exhaust
 //! and the ice field lie in the stretch the linker gave it, between `Create.cpp`'s code and
 //! `erayfx.cpp`'s ([`sources.zig`](../sources.zig)).
@@ -29,6 +30,7 @@ const backdrop = @import("backdrop.zig");
 const nebula = @import("nebula.zig");
 const xtrabits = @import("xtrabits.zig");
 const Detail = @import("explode.zig").Detail;
+pub const bombard = @import("environfx/bombard.zig");
 const log = std.log.scoped(.environfx);
 
 /// What a mission's script asks of the space it is flown in, which `environment_update`
@@ -54,6 +56,9 @@ pub const Environment = struct {
     /// The ice field's rocks, which the renderer's start builds (`backdrop_create`); none leaves
     /// the ice field unseen.
     ice_field: ?*IceField = null,
+    /// Planet Bombard's flashes, which the renderer's start builds too
+    /// (`environment_effects_create`); none leaves them out.
+    flashes: ?*bombard.Bombard = null,
 
     /// `environment_update` (`0x00469D30`), as a fixed gate's jump ends or the script asks
     /// (`UpdateEnvironmentFXState`): the nebula asked for shows where the sky shows another
@@ -122,6 +127,25 @@ pub const Environment = struct {
         environment.effects = .{};
         environment.asked = .{};
         environment.next_jump = @splat(.none);
+        if (environment.flashes) |flashes| flashes.reset();
+    }
+
+    /// `bombard_hook` (`0x0046A300`), which the last part of the Titan in `slot` runs as the objects
+    /// pass draws it, at frame `now`: while effect 2 is on, Planet Bombard's flashes move on over
+    /// the Titan (`bombard.Bombard.frame`), standing at its first part's radius, and OpenReliant
+    /// draws them (`bombard.Bombard.draw`).
+    ///
+    /// The game runs it as the last part of any Titan is drawn, the flashes standing on the last
+    /// Titan made; OpenReliant runs it as that Titan is drawn (`create.Objects.bombarded`), so that
+    /// they move on once a frame.
+    pub fn bombardDrawn(environment: *const Environment, gpa: Allocator, scene: *srcore.Scene, slot: *const create.Slot, random: *Random, now: i32) Allocator.Error!void {
+        if (!environment.effects.bombard_flashes) return;
+        const flashes = environment.flashes orelse return;
+        const model = if (slot.model) |*held| held else return;
+        if (model.parts.len == 0) return;
+        const planet: bombard.Planet = .{ .root = slot.drawn, .radius = model.parts[0].object.radius };
+        flashes.frame(planet, random, now);
+        try flashes.draw(gpa, scene, planet);
     }
 
     /// The effects' frame (`0x00469C50`), which `backdrop_frame` runs after the lights, before the
@@ -144,23 +168,26 @@ pub const NextJump = enum(u8) { none = 0, disable = 1, enable = 2 };
 pub const Effect = enum(u5) {
     ice_field = 0,
     planet_bombard = 1,
+    /// The one effect besides the ice field that the game has implemented. The table leaves it
+    /// unnamed, and only Titan's routine reads it (`bombard_hook`), which moves Planet Bombard's
+    /// flashes on (`bombard`); `environment_effect_2` (`0x0046A6F0`), which answers whether it is
+    /// on, is never called.
+    bombard_flashes = 2,
     _,
-
-    /// The one effect beside the ice field that the game has implemented. It has no name, and only
-    /// Titan's Planet Bombard reads it (`0x0046A300`), whose flashes nothing draws; `0x0046A6F0`,
-    /// which answers whether it is on, is never called.
-    const unnamed = 2;
 
     /// Whether the game has implemented it (`0x004FF748`): the ice field and effect 2.
     pub fn implemented(effect: Effect) bool {
-        return effect == .ice_field or @backingInt(effect) == unnamed;
+        return switch (effect) {
+            .ice_field, .bombard_flashes => true,
+            .planet_bombard, _ => false,
+        };
     }
 
     /// Whether it waits for `environment_update` to turn on or off, as the table's first two do.
     pub fn waits(effect: Effect) bool {
         return switch (effect) {
             .ice_field, .planet_bombard => true,
-            _ => false,
+            .bombard_flashes, _ => false,
         };
     }
 
@@ -169,7 +196,7 @@ pub const Effect = enum(u5) {
         return switch (effect) {
             .ice_field => writer.writeAll("Ice Field"),
             .planet_bombard => writer.writeAll("Planet Bombard"),
-            _ => writer.print("effect {d}", .{@backingInt(effect)}),
+            .bombard_flashes, _ => writer.print("effect {d}", .{@backingInt(effect)}),
         };
     }
 };
@@ -178,7 +205,7 @@ pub const Effect = enum(u5) {
 pub const Effects = packed struct(u32) {
     ice_field: bool = false,
     planet_bombard: bool = false,
-    _unknown_2: bool = false,
+    bombard_flashes: bool = false,
     _unknown_3: u29 = 0,
 
     /// Turns `effect`'s bit on or off.
@@ -652,10 +679,10 @@ test "Environment.setEffect" {
     try std.testing.expect(environment.asked.ice_field and !environment.effects.ice_field);
     // Effect 2 is on at once, and what is asked for is then what is on.
     environment.setEffect(2, true);
-    try std.testing.expect(environment.effects._unknown_2 and !environment.asked.ice_field);
-    // The planets' bombardment is not implemented, and nothing changes.
+    try std.testing.expect(environment.effects.bombard_flashes and !environment.asked.ice_field);
+    // Effect 1, which the table names Planet Bombard, the game refuses, and nothing changes.
     environment.setEffect(1, true);
-    try std.testing.expectEqual(@as(Effects, .{ ._unknown_2 = true }), environment.asked);
+    try std.testing.expectEqual(@as(Effects, .{ .bombard_flashes = true }), environment.asked);
     // A number past 31 is its low five bits'.
     environment.setEffect(32, true);
     try std.testing.expect(environment.asked.ice_field);
@@ -664,6 +691,44 @@ test "Environment.setEffect" {
     try std.testing.expectEqual(@as(Effects, .{}), environment.effects);
     try std.testing.expectEqual(@as(Effects, .{}), environment.asked);
     try std.testing.expectEqual(.none, environment.next_jump[3]);
+}
+
+test "Titan moves Planet Bombard's flashes on as it is drawn, while effect 2 is on" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    const textures = try srtexture.testing.Textures.init(gpa, &.{bombard.texture_name});
+    defer textures.deinit(gpa);
+    var random: Random = .{};
+    var environment: Environment = .{ .sky = undefined, .textures = undefined, .space = undefined };
+    const flashes = try bombard.Bombard.create(gpa, &textures.table, .drawn, &random, 0);
+    defer flashes.destroy(gpa);
+    environment.flashes = flashes;
+    const titan = try mission.addWith(model.types(), .of(.predator), .{ 5000, 0, 0 });
+    const slot = &mission.objects.slots[titan];
+    slot.model.?.parts[0].object.radius = 1000;
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+
+    // While effect 2 is off, the flashes wait.
+    try environment.bombardDrawn(gpa, &scene, slot, &random, 10);
+    try std.testing.expect(!flashes.flashes[0].showing);
+    try std.testing.expectEqual(0, scene.layers.get(.world).items.len);
+    // On, they burst at the Titan's first part's radius, and are drawn.
+    environment.setEffect(@backingInt(Effect.bombard_flashes), true);
+    try environment.bombardDrawn(gpa, &scene, slot, &random, 10);
+    try std.testing.expectEqual(bombard.flash_count, scene.layers.get(.world).items.len);
+    for (flashes.flashes) |flash| {
+        try std.testing.expect(flash.showing);
+        try std.testing.expectApproxEqAbs(1000, math.length(flash.object.position - slot.drawn.position), 1e-2);
+    }
+    // A mission's start turns the effect off and sets them waiting again.
+    environment.resetEffects();
+    try std.testing.expect(!environment.effects.bombard_flashes and !flashes.flashes[0].showing);
 }
 
 test "Environment.changeObjects" {

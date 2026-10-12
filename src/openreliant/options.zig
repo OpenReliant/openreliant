@@ -103,7 +103,7 @@ const Doc = struct {
 
 /// Every option's help, which the compiler holds to having one for each.
 const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
-    .@"--original" = .{ .section = .original, .text = "the original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no material maps, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the Ice Field's rocks drawn only near the middle of the view, the loading screen's picture picked by the screen's width, the movies drawn at their size in the middle of the screen with Bink's blocks and its colour in steps of two pixels, the gates' tunnels as coarse as the original's, the ride through the worm rumbling the more often the higher the frame rate, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the levels of detail changing as near as the original's, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the radio's lines cut flat at their loudest and heard dry, Enriquez's last word in the briefing as loud as its recording, the loadout's ships and missiles solid, the interface's text in the game's bitmap fonts, and the sound mixed plainly in stereo" },
+    .@"--original" = .{ .section = .original, .text = "the original's look and sound: 16-bit colour, one sample a pixel, bilinear filtering, lighting each vertex, light worked out on encoded colours, no material maps, no shadows, motion that moves on with the game's ticks, a launching ship a frame behind the retainer that lowers it, lights from the latest shots only, muzzle flashes that light nothing and none from the turrets, a jump's flare that lights nothing, the force feedback's own effects only, a blow shaking the camera only while the controller rumbles, an explosion's debris lit by every light, its fireballs, rings, particles and burning bits as few, plain and brief as the original's, the Uber Explode as coarse, unlit and tied to the frame rate as the original's, a damaged ship's smoke as even as the original's, the shields' bubbles as coarse as the original's, the tractor beams as thin as the original's, the hangar's beacons falling short of the launching ship, a ship landing on the Reliant tilted as it came, its tube's door left open, the planets' atmospheres as coarse and fleeting as the original's and their terminators as hard, the Ice Field's rocks drawn only near the middle of the view, the bombardment of Titan in mission 25 unseen, the loading screen's picture picked by the screen's width, the movies drawn at their size in the middle of the screen with Bink's blocks and its colour in steps of two pixels, the gates' tunnels as coarse as the original's, the ride through the worm rumbling the more often the higher the frame rate, the sun and its lens flares from their small textures and the sun's glow going out at once behind what hides it, the stars shining right up to the sun, the levels of detail changing as near as the original's, the marker for a target out of sight placed as the original misplaces it, a missile's sound left where it was launched, the player's own jump-in sound unheard after a long jump, the radio's lines cut flat at their loudest and heard dry, Enriquez's last word in the briefing as loud as its recording, the loadout's ships and missiles solid, the interface's text in the game's bitmap fonts, and the sound mixed plainly in stereo" },
     .@"--mission" = .{ .section = .mission, .value = "<number>", .text = "start this mission right away instead of opening the main menu. The number is the one in the mission's file name, mission<number>.dte, loaded from a mod, the game's missions folder or resource.hog. Mission 0 is OpenReliant's sandbox, which is built into openreliant for games without a mission 0" },
     .@"--ship" = .{ .section = .mission, .value = "<type>", .text = "the ship type to fly, by its number in shipstats.bin or its name, such as predator or a mod's teapot:teapot, in place of the loadout screen's choice, with its default missiles; the mission's own by default" },
     .@"--view" = .{ .section = .mission, .value = "<0|1|2>", .text = "the view it starts in, as the game's settings keep it: 0 the cockpit; 1 the chase view; 2 no cockpit. The settings' own by default, which the settings screen's VIDEO changes" },
@@ -316,6 +316,8 @@ pub const Options = struct {
     launch_steam: game.launch.yamato.Steam = .soft,
     /// How the Reliant's landing brings the ship down.
     touchdown: game.ailand.Touchdown = .level,
+    /// When the player hears their own ship jump in.
+    arrival_sound: game.jump.ArrivalSound = .heard,
     /// How the radio's lines sound.
     speech: game.cbox.Style = .{},
     /// How the tractors' and the Rippers' beams are drawn.
@@ -332,6 +334,8 @@ pub const Options = struct {
     movie_look: engine.bink.Look = .{},
     /// Which of the Ice Field's rocks are drawn.
     ice_field: game.environfx.IceField.Reach = .whole_view,
+    /// Whether Planet Bombard's flashes over Titan are drawn.
+    bombard: game.environfx.bombard.Shown = .drawn,
     /// How finely the gates' tunnels are built, and how often the ride through the worm rumbles.
     gates: game.wgate.Settings = .{},
     /// How far the finer levels of detail reach.
@@ -430,6 +434,7 @@ pub const Options = struct {
                 options.hangar_beacons = .own;
                 options.launch_steam = .original;
                 options.touchdown = .original;
+                options.arrival_sound = .original;
                 options.speech = .original;
                 options.beam_glow = .none;
                 options.jump_light = .none;
@@ -439,6 +444,7 @@ pub const Options = struct {
                 options.movie_size = .screen;
                 options.movie_look = .original;
                 options.ice_field = .original;
+                options.bombard = .original;
                 options.gates = .original;
                 options.detail_reach = .original;
                 options.edge_line = .original;
@@ -713,10 +719,14 @@ test Options {
     try std.testing.expect(!(try parsed(&.{"--no-mod-effects"})).mod_effects);
     try std.testing.expectEqual(.whole_view, plain.ice_field);
     try std.testing.expectEqual(.original, retro.ice_field);
+    try std.testing.expectEqual(.drawn, plain.bombard);
+    try std.testing.expectEqual(.original, retro.bombard);
     try std.testing.expectEqual(game.wgate.Settings{}, plain.gates);
     try std.testing.expectEqual(game.wgate.Settings.original, retro.gates);
     try std.testing.expectEqual(.level, plain.touchdown);
     try std.testing.expectEqual(.original, retro.touchdown);
+    try std.testing.expectEqual(.heard, plain.arrival_sound);
+    try std.testing.expectEqual(.original, retro.arrival_sound);
     try std.testing.expectEqual(game.cbox.Style.original, retro.speech);
     try std.testing.expectEqual(game.cbox.Style{}, plain.speech);
     try std.testing.expectEqual(.to_the_ship, plain.hangar_beacons);

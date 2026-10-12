@@ -8,6 +8,8 @@
 const std = @import("std");
 const Io = std.Io;
 
+const openreliant = @import("openreliant");
+
 const image = @import("image.zig");
 const testing = @import("testing.zig");
 const zig_text = @import("zig_text.zig");
@@ -210,4 +212,28 @@ test read {
     try std.testing.expect(std.mem.find(u8, out.written(), ".{ .type = 0x21, .other_half = 0x5D, ._unknown_08 = null, .mode = .bursts,") != null);
     // The empty records past the two are sweeps of type 0.
     try std.testing.expect(std.mem.find(u8, out.written(), ".{ .type = 0x00, .other_half = 0x00, ._unknown_08 = 0x00, .mode = .sweep,") != null);
+}
+
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.game.explode.split.sequences.records;
+    var records: [committed.len]Record = undefined;
+    for (&records, committed) |*record, entry| {
+        record.* = .{
+            .type = entry.type,
+            .other_half = entry.other_half,
+            ._unknown_08 = entry._unknown_08,
+            .mode = @fromBackingInt(@backingInt(entry.mode)),
+            .fireball = entry.fireball,
+            .big_fireball = entry.big_fireball,
+            .bit_size = entry.bit_size,
+            .bits = entry.bits,
+            .bodies = entry.bodies,
+            .duration = entry.duration,
+            .variants = entry.variants,
+        };
+    }
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, &records);
+    try testing.expectCommitted(@embedFile("committed sequences"), out.written());
 }

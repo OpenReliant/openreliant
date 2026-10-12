@@ -20,6 +20,7 @@ const log = std.log.scoped(.scripts);
 
 const openreliant = @import("openreliant");
 const ModSurface = openreliant.engine.surrender.surrenderlib.srtexture.ModSurface;
+const atmosphere = openreliant.engine.game.create.atmosphere;
 const api = @import("api.zig");
 const Call = api.Call;
 const values = @import("values.zig");
@@ -65,6 +66,10 @@ pub const SurfaceDefinition = struct {
     /// model made see-through, so that of two models that cut into each other the nearer hides the
     /// other; false for something like a glow or a cloud.
     writes_depth: bool = true,
+    /// How much of the light of the surfaces it draws blooms, from 0, none, to 1, all of it, as
+    /// everything else blooms. It counts where they are drawn solid or added over what lies behind
+    /// them, not where they blend by their alpha, and the function can change it for each pixel.
+    bloom: f32 = 1,
     /// The numbers it reads as `parameters`; those left out are 0.
     parameters: Parameters = .{},
     enabled: bool = true,
@@ -114,7 +119,13 @@ pub const Function = struct {
     everywhere: bool,
     see_through: bool,
     writes_depth: bool,
+    bloom: f32,
     textures: []const []const u8,
+
+    /// The surface function as a texture or every lit surface draws with it.
+    pub fn surface(function: Function) ModSurface {
+        return .{ .function = function.function, .parameters = function.parameters, .see_through = function.see_through, .writes_depth = function.writes_depth, .bloom = function.bloom };
+    }
 };
 
 /// A function registered.
@@ -127,10 +138,17 @@ const Entry = struct {
     everywhere: bool,
     see_through: bool = false,
     writes_depth: bool = true,
+    bloom: f32 = 1,
     /// Owned copies of the texture names.
     textures: []const []const u8,
     /// The host's function, or null if there is no host.
     function: ?u16,
+
+    /// The surface function as an object draws with it, as the host compiled it, reading
+    /// `parameters`.
+    fn surface(entry: Entry, function: u16, parameters: [parameter_count]f32) ModSurface {
+        return .{ .function = function, .parameters = parameters, .see_through = entry.see_through, .writes_depth = entry.writes_depth, .bloom = entry.bloom };
+    }
 };
 
 /// The functions the scripts have registered.
@@ -187,6 +205,26 @@ pub const Registry = struct {
         return null;
     }
 
+    /// The surface function registered as `name`, qualified, as the host compiled it; null for any
+    /// other name, a lighting function's, or a function the host refused.
+    pub fn surfaceNamed(registry: *Registry, name: []const u8) ?ModSurface {
+        const entry = registry.find(name) orelse return null;
+        if (entry.kind != .surface) return null;
+        const function = entry.function orelse return null;
+        return entry.surface(function, @splat(0));
+    }
+
+    /// What finds the surface functions the planets name for their atmospheres
+    /// (`game.create.atmosphere.SurfaceNames`).
+    pub fn surfaceNames(registry: *Registry) atmosphere.SurfaceNames {
+        return .{ .context = registry, .find = findSurface };
+    }
+
+    fn findSurface(context: *anyopaque, name: []const u8) ?ModSurface {
+        const registry: *Registry = @ptrCast(@alignCast(context));
+        return registry.surfaceNamed(name);
+    }
+
     /// Tells the host what to draw from now on.
     fn sync(registry: *const Registry) void {
         const host = registry.host orelse return;
@@ -207,6 +245,7 @@ pub const Registry = struct {
                 .everywhere = entry.everywhere,
                 .see_through = entry.see_through,
                 .writes_depth = entry.writes_depth,
+                .bloom = entry.bloom,
                 .textures = entry.textures,
             };
             count += 1;
@@ -222,7 +261,7 @@ fn freeTextures(gpa: Allocator, textures: []const []const u8) void {
 
 /// What `openreliant.shaders` holds.
 pub const package = struct {
-    pub const register_surface = api.Function("Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets.", &.{"definition"}, registerSurface);
+    pub const register_surface = api.Function("Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads, and `bloom`, from 0 to 1, how much of its surfaces' light blooms. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets.", &.{"definition"}, registerSurface);
     pub const register_lighting = api.Function("Registers a lighting function: a GLSL function `lighting` from the calling mod's file `shader`, which changes how much of each light reaches a pixel. One draws at a time: the enabled one registered last. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line.", &.{"definition"}, registerLighting);
     pub const set_enabled = api.Function("Turns the calling mod's function `name` on or off, by its own name or the qualified one. Returns whether the mod has it.", &.{ "name", "enabled" }, setEnabled);
     pub const set_parameters = api.Function("Sets the numbers the calling mod's function `name` reads on its textures and everywhere it draws, up to four; those left out are 0. Returns whether the mod has it.", &.{ "name", "parameters" }, setParameters);
@@ -233,10 +272,12 @@ fn registryOf(call: Call) *Registry {
 }
 
 fn registerSurface(call: Call, given: SurfaceDefinition) []const u8 {
+    if (!(given.bloom >= 0 and given.bloom <= 1)) call.raise("bloom must be from 0 to 1, not {d}", .{given.bloom});
     return register(call, .surface, given.name, given.shader, given.parameters, given.enabled, .{
         .everywhere = given.everywhere,
         .see_through = given.see_through,
         .writes_depth = given.writes_depth,
+        .bloom = given.bloom,
         .textures = given.textures.slice(),
     });
 }
@@ -251,6 +292,7 @@ const Drawing = struct {
     everywhere: bool = false,
     see_through: bool = false,
     writes_depth: bool = true,
+    bloom: f32 = 1,
     textures: []const []const u8 = &.{},
 };
 
@@ -289,6 +331,7 @@ fn register(call: Call, kind: Kind, local: []const u8, shader: []const u8, param
         .everywhere = drawing.everywhere,
         .see_through = drawing.see_through,
         .writes_depth = drawing.writes_depth,
+        .bloom = drawing.bloom,
         .textures = owned,
         .function = function,
     });
@@ -343,7 +386,7 @@ pub fn setSurface(call: Call, object: Object, name: ?[]const u8, given: ?Paramet
         if (entry.kind != .surface) call.raise("{s} is a lighting function", .{qualified});
         const parameters = (given orelse Parameters{}).padded(0);
         // Without a host the function draws nothing, and the object draws as it is.
-        if (entry.function) |function| surface = .{ .function = function, .parameters = parameters, .see_through = entry.see_through, .writes_depth = entry.writes_depth };
+        if (entry.function) |function| surface = entry.surface(function, parameters);
     }
     if (all.slots[object.slot()].model) |*model| for (model.parts) |*part| {
         part.object.surface = surface;

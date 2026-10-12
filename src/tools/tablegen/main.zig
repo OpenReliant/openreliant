@@ -562,3 +562,22 @@ test Mode {
 test {
     std.testing.refAllDecls(@This());
 }
+
+test "emit writes the committed table again" {
+    const testing = @import("testing.zig");
+    const committed = openreliant.engine.vm.opcodes.table;
+    var handlers: [committed.len]Handler = undefined;
+    for (&handlers, committed) |*handler, entry| {
+        handler.* = .{
+            .opcode = entry.opcode,
+            .address = entry.handler,
+            .shape = .{ .operands = entry.operands, .form = std.meta.stringToEnum(eval.Form, @tagName(entry.form)).?, .falls_through = entry.falls_through },
+            .starts_statement = entry.starts_statement,
+        };
+    }
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    // The table runs to the last opcode a handler implements.
+    try emit(&out.writer, &handlers, @as(usize, committed[committed.len - 1].opcode) + 1);
+    try testing.expectCommitted(@embedFile("committed opcodes"), out.written());
+}

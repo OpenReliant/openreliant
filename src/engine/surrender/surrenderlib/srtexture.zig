@@ -76,6 +76,9 @@ pub const ModSurface = struct {
     /// solid model does, so that of two that cut into each other the nearer hides the other.
     see_through: bool = false,
     writes_depth: bool = true,
+    /// The share of the light of the surfaces it draws that blooms, from 0 to 1, where they are drawn
+    /// solid or added over what lies behind them; the function can lower it for each pixel.
+    bloom: f32 = 1,
 };
 
 /// A device that keeps the textures it makes of images (`Image.texture`). `texture_release`
