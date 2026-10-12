@@ -237,10 +237,23 @@ shader is OpenReliant's own, which `make shaders` compiles as before.
   pipeline use OpenReliant's own fragment shader, and later draws no longer pick the variant. A
   variant compiled again is tried again.
 - The variants read one more uniform block (`variants.Uniforms`, set 3, binding 3): the surface
-  function's parameters, which each run pushes where they change, the lighting function's, and
-  the seconds passed. Runs with different parameters don't join. The `Surface` a function changes
-  also gives the size in pixels of the frame it draws into (`frameSize`), which `gl_FragCoord`
-  counts in, from the frame's uniforms.
+  function's parameters, the lighting function's, the seconds passed, and what turns a point of
+  the camera's frame into the frame of the object drawn. Each run pushes the parameters and the
+  object's frame where they change, and runs with different ones don't join. The driver hands the
+  device each object's frame with its draws (`device.State.frame`, `Driver.takeObject`): its axes
+  in the camera's frame, scaled as it is drawn, and where its origin stands, as the pipeline turns
+  its model's points (`srmesh.pipe`). The GPU device turns it back for the shader
+  (`device.Frame.toObject`).
+- The `Surface` a function changes also gives the size in pixels of the frame it draws into
+  (`frameSize`), which `gl_FragCoord` counts in, from the frame's uniforms; where the pixel stands
+  in its object's own frame (`local`); the direction toward the sun (`toSun`), the first
+  directional light that casts shadows and reaches the pixel (`sunIndex`), which for a planet is
+  the only light; and how much of the sun lights the pixel in each channel (`sunlight`). That starts
+  as the shader's own share of the light (`directionalShare`): the cosine, from -0.25 past a
+  planet's terminator, through the lighting function. Where the function changes it, the sun
+  lights the pixel by the function's share, before the shadows of other objects, and a material's
+  highlight from the sun dims as far as it does. `objectPoint` and `objectDirection` turn a point
+  and a direction of the camera's frame into the object's.
 - A surface function registered as see-through (`srtexture.ModSurface.see_through`) makes a
   surface the game draws solid blend by the alpha the function sets: the driver puts it aside with
   the blended draws, which are sorted farthest first (`seeThrough`, `drawDeferred`), and the device

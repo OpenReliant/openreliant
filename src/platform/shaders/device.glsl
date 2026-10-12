@@ -116,11 +116,13 @@ layout(set = 3, binding = 1) uniform Lighting {
 // OpenReliant's shaders from mods (gpu/variants.zig): a variant of this shader compiled with a mod's
 // lighting function, MOD_LIGHTING, and a mod's surface function, MOD_SURFACE, inserted where
 // `mod_functions` stands below. What they read: the surface function's parameters, the lighting
-// function's, and in time's x the seconds passed.
+// function's, in time's x the seconds passed, and what turns a point of the camera's frame into the
+// frame of the object drawn, as three rows with the move in their last column.
 layout(set = 3, binding = 3) uniform Custom {
     vec4 surface;
     vec4 lighting;
     vec4 time;
+    vec4 object[3];
 } custom;
 
 // The pixel as a mod's surface function reads and sets it. Its colours are encoded, as a picture
@@ -135,6 +137,11 @@ struct Surface {
     float metallic;
     // Light the surface gives off, added after it is lit: its texture's emissive map's, or none.
     vec3 glow;
+    // How much of the sun lights the pixel in each channel, as a share of the sun's strength, before
+    // the shadows of other objects: at first OpenReliant's own, the cosine between the normal and
+    // `toSun`, which a planet's atmosphere carries a little past the terminator. Set it to light the
+    // pixel by a law of your own, or to shade it.
+    vec3 sunlight;
     // Read only: the texture coordinates, where the pixel stands in the camera's frame, the
     // direction toward the eye, and the width and height in pixels of the frame it is drawn into,
     // which `gl_FragCoord` counts in.
@@ -142,7 +149,27 @@ struct Surface {
     vec3 position;
     vec3 toEye;
     vec2 frameSize;
+    // Read only: the direction toward the sun, the light that casts shadows, in the camera's frame
+    // and a unit long, or none where the sun doesn't reach the pixel; and where the pixel stands in
+    // its object's own frame, as the object's model holds it.
+    vec3 toSun;
+    vec3 local;
 };
+
+// Where a point of the camera's frame, such as `position`, stands in the frame of the object drawn,
+// as `local` does.
+vec3 objectPoint(vec3 p) {
+    vec4 q = vec4(p, 1.0);
+    return vec3(dot(custom.object[0], q), dot(custom.object[1], q), dot(custom.object[2], q));
+}
+
+// A direction of the camera's frame, such as `toSun`, in the frame of the object drawn, a unit long;
+// none for none.
+vec3 objectDirection(vec3 d) {
+    vec3 turned = vec3(dot(custom.object[0].xyz, d), dot(custom.object[1].xyz, d), dot(custom.object[2].xyz, d));
+    float size = length(turned);
+    return size < 1e-12 ? vec3(0.0) : turned / size;
+}
 
 #ifdef MOD_LIGHTING
 // The mod's lighting function: how much of a light reaches a pixel at `cosine`, from 0 to 1, between
@@ -284,13 +311,49 @@ vec3 highlight(Lit s, vec3 l) {
     return pi * microfacets * shadowing * fresnel / (4.0 * nv);
 }
 
+// How far a planet's atmosphere carries the sun past its terminator, as a share of its cosine.
+const float terminatorWrap = 0.25;
+
+// How much of directional light `light`, `strength` strong, reaches a pixel of normal `n`, as a
+// share of its strength: the cosine between them, through the mod's lighting function; 0 where the
+// light falls behind the pixel.
+float directionalShare(vec3 n, Light light, float strength) {
+    if (strength <= 0.0) return 0.0;
+    float share = dot(n, light.vector.xyz) / strength;
+    // A planet's atmosphere carries the sun a little way past its terminator: the key light's
+    // cosine is taken from -terminatorWrap rather than from 0.
+    if ((shade & 0x400u) != 0u && light.shadowed != 0u) share = (share + terminatorWrap) / (1.0 + terminatorWrap);
+    if (share <= 0.0) return 0.0;
+#ifdef MOD_LIGHTING
+    share = lighting(min(share, 1.0), custom.lighting);
+#endif
+    return share;
+}
+
+// The sun, for the pixel of surface `s`: the first directional light that casts shadows and
+// reaches it, as OpenReliant's key lights do; -1 where none does.
+int sunIndex(Lit s) {
+    if (mask == 0xFFFFFFFFu || dot(s.normal, s.normal) < 0.5) return -1;
+    for (uint i = 0u; i < frameLights.count.x; i++) {
+        Light light = frameLights.lights[i];
+        if ((light.mask & mask) == 0u && light.kind == 0u && light.shadowed != 0u) return int(i);
+    }
+    return -1;
+}
+
+#ifdef MOD_SURFACE
+// The sun as the mod's surface function leaves it (`modSurface`): its light, whether the function
+// changed how much of it reaches the pixel, and in each channel how much does.
+int modSun = -1;
+bool modSunChanged = false;
+vec3 modSunlight = vec3(0.0);
+#endif
+
 // What the directional and point lights add to this pixel, as the pipeline adds them for each
 // vertex (srmesh.zig): nothing for a vertex that comes lit already, as every one does in the
 // original's look. A shadowed light is scaled by how much of the sun reaches the pixel, looked up
 // once, and only where such a light faces it. On a material's pixel, the highlights each light
 // gives go to `highlights`.
-const float terminatorWrap = 0.25;
-
 vec3 lights(Lit s, out vec3 highlights) {
     highlights = vec3(0.0);
     if (mask == 0xFFFFFFFFu || dot(s.normal, s.normal) < 0.5) return vec3(0.0);
@@ -302,21 +365,18 @@ vec3 lights(Lit s, out vec3 highlights) {
         Light light = frameLights.lights[i];
         if ((light.mask & mask) != 0u) continue;
         if (light.kind == 0u) {
-            float amount = dot(n, light.vector.xyz);
-            float strength = sqrt(dot(light.vector.xyz, light.vector.xyz));
-            // A planet's atmosphere carries the sun a little way past its terminator: the key
-            // light's cosine is taken from -terminatorWrap rather than from 0.
-            if ((shade & 0x400u) != 0u && light.shadowed != 0u) {
-                amount = (amount / strength + terminatorWrap) / (1.0 + terminatorWrap) * strength;
-            }
-            if (amount <= 0.0) continue;
-#ifdef MOD_LIGHTING
-            amount = lighting(min(amount / strength, 1.0), custom.lighting) * strength;
+            float strength = length(light.vector.xyz);
+            float share = directionalShare(n, light, strength);
+            vec3 shares = vec3(share);
+#ifdef MOD_SURFACE
+            if (int(i) == modSun && modSunChanged) shares = modSunlight;
 #endif
+            if (all(lessThanEqual(shares, vec3(0.0)))) continue;
+            vec3 amount = shares * strength;
             // In linear light the key light falls off as light does. A fill light, the nebula's
             // glow, falls off as the original's did, which its colour and strength were chosen
             // for: otherwise the side of a ship away from the sun glows with it.
-            if (frame.settings.w > 0.0 && light.shadowed == 0u) amount = decoded(vec3(amount)).x;
+            if (frame.settings.w > 0.0 && light.shadowed == 0u) amount = decoded(amount);
             float reaching = 1.0;
             if (shaded && light.shadowed != 0u) {
                 if (sun < 0.0) sun = sunlit(n);
@@ -329,7 +389,12 @@ vec3 lights(Lit s, out vec3 highlights) {
             // reflectance's share of the light, so that metal takes the nebula's tint as paint
             // does; where the reflections show the nebula itself, nothing.
             vec3 glow = frame.reflection.x > 0.0 ? vec3(0.0) : s.reflectance * amount;
-            vec3 reflected = light.shadowed == 0u ? glow : highlight(s, light.vector.xyz / strength) * strength;
+            vec3 kept = vec3(1.0);
+#ifdef MOD_SURFACE
+            // The sun's highlight dims as far as the surface function shades the sun.
+            if (int(i) == modSun && modSunChanged) kept = min(shares / max(share, 1e-6), vec3(1.0));
+#endif
+            vec3 reflected = light.shadowed == 0u ? glow : highlight(s, light.vector.xyz / strength) * strength * kept;
             highlights += reflected * reaching * light.color.rgb;
             continue;
         }
@@ -717,8 +782,22 @@ vec4 hologram(vec4 c, float alpha) {
 // function changes them; a surface without one becomes one where it does.
 void modSurface(inout vec4 texel, inout Lit s, inout vec3 glow) {
     bool linear = frame.settings.w > 0.0;
-    Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, glow, uv, place, s.toEye, frame.reflection.zy);
+    // The sun, and how much of it OpenReliant lets through, which the function starts from.
+    modSun = sunIndex(s);
+    vec3 toSun = vec3(0.0);
+    float share = 0.0;
+    if (modSun >= 0) {
+        Light light = frameLights.lights[modSun];
+        float strength = length(light.vector.xyz);
+        toSun = strength > 0.0 ? light.vector.xyz / strength : vec3(0.0);
+        share = directionalShare(s.normal, light, strength);
+    }
+    Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, glow, vec3(share), uv, place, s.toEye, frame.reflection.zy, toSun, objectPoint(place));
     surface(m, custom.surface, custom.time.x);
+    // Where the function leaves the sunlight as it was, the sun lights the pixel as OpenReliant's
+    // own law has it, at the normal the function leaves.
+    modSunChanged = any(notEqual(m.sunlight, vec3(share)));
+    modSunlight = max(m.sunlight, vec3(0.0));
     texel = vec4(linear ? decoded(m.color) : m.color, m.alpha);
     if (dot(s.normal, s.normal) > 0.5 && dot(m.normal, m.normal) > 1e-12) s.normal = normalize(m.normal);
     if (m.roughness != s.roughness || m.metallic != s.metallic) {

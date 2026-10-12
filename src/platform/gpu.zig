@@ -436,6 +436,9 @@ const Run = struct {
     key: PipelineKey,
     /// Its surface function's parameters, where its variant has one.
     parameters: [4]f32 = @splat(0),
+    /// What turns a point of the camera's frame into its object's, where its variant has a surface
+    /// function (`device.Frame.toObject`).
+    object: [3][4]f32 = variants.no_object,
     /// The face of the reflections' cube it is drawn into, or null for the frame.
     face: ?u3 = null,
     /// Null while no vertex of the run has a texture.
@@ -1077,6 +1080,7 @@ pub const Gpu = struct {
                 .variant = picked.variant,
             },
             .parameters = picked.parameters,
+            .object = if (picked.surface) state.frame.toObject() else variants.no_object,
             .face = gpu.face,
             .array = if (slot) |s| s.array else null,
             .held = state.filter == .point,
@@ -1544,8 +1548,9 @@ pub const Gpu = struct {
         for (runs) |run| {
             if (run.face != face) continue;
             c.SDL_BindGPUGraphicsPipeline(pass, gpu.pipelines.get(run.key).?);
-            if (!std.meta.eql(custom.surface, run.parameters)) {
+            if (!std.meta.eql(custom.surface, run.parameters) or !std.meta.eql(custom.object, run.object)) {
                 custom.surface = run.parameters;
+                custom.object = run.object;
                 c.SDL_PushGPUFragmentUniformData(commands, variants.uniform_slot, &custom, @sizeOf(variants.Uniforms));
             }
             const array = gpu.arrays.items[run.array orelse gpu.blank.array];
@@ -1913,7 +1918,7 @@ fn appendList(gpa: Allocator, list: *std.ArrayList(u32), primitive: device.Primi
 /// texture joins any.
 fn join(last: *Run, next: Run) bool {
     if (!std.meta.eql(last.key, next.key) or last.held != next.held or last.face != next.face) return false;
-    if (!std.meta.eql(last.parameters, next.parameters)) return false;
+    if (!std.meta.eql(last.parameters, next.parameters) or !std.meta.eql(last.object, next.object)) return false;
     if (last.array != null and next.array != null and last.array.? != next.array.?) return false;
     if (last.first + last.count != next.first) return false;
     last.count += next.count;

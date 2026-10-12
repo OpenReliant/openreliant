@@ -411,6 +411,16 @@ pub const Driver = struct {
         return if (function.see_through) function else null;
     }
 
+    /// What a draw of `object`'s polygons takes from it: its mod's surface function, and its frame
+    /// in the camera's for the function (`device.Frame`).
+    fn takeObject(driver: *const Driver, st: *device.State, object: *const srapiext.MeshObject) void {
+        st.surface = object.surface;
+        st.frame = .{
+            .axes = driver.context.objectMatrix(object.orientation, object.scale),
+            .origin = driver.context.view(object.position),
+        };
+    }
+
     /// `draw_mesh_sorted` (`0x10002D10`).
     fn drawMeshSorted(driver: *Driver, drawn: *const srmesh.Drawn, layer: Layer, arena: Allocator) Allocator.Error!void {
         var list: std.ArrayList(srcore.Deferred) = .empty;
@@ -479,7 +489,7 @@ pub const Driver = struct {
         const material = surface.material;
         var st = driver.state(surface, pass, layer);
         st.soft_terminator = drawn.object.soft_terminator;
-        st.surface = drawn.object.surface;
+        driver.takeObject(&st, drawn.object);
         driver.vertices.clearRetainingCapacity();
         driver.indices.clearRetainingCapacity();
         var start: usize = 0;
@@ -570,7 +580,7 @@ pub const Driver = struct {
         const material = item.surface.material;
         switch (item.item) {
             .polygon => |p| {
-                st.surface = p.drawn.object.surface;
+                driver.takeObject(&st, p.drawn.object);
                 if (seeThrough(p.drawn, item.surface)) |function| {
                     st.see_through = true;
                     st.blend = factors(.alpha);
