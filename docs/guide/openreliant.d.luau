@@ -655,6 +655,8 @@ declare class Planet
     atmosphere_color: vector?
     atmosphere_inner: number
     atmosphere_outer: number
+    atmosphere_surface: string?
+    atmosphere_parameters: { number }
 end
 type Records = {
     ships: { [number | string]: Ship },

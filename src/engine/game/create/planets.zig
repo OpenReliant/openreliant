@@ -35,6 +35,13 @@ pub const Planet = struct {
     atmosphere_colour: ?[3]f32 = null,
     atmosphere_inner: f32 = atmosphere.inner_edge,
     atmosphere_outer: f32 = 1,
+    /// The surface function that draws its atmosphere, by its qualified name, such as
+    /// `realistic-planets:titan_haze`, in place of the band the colour gives
+    /// (`atmosphere.Shell`); null for none. The mods register their functions after they set the
+    /// planets, so the name is looked up as a mission makes the planet.
+    atmosphere_surface: ?[]const u8 = null,
+    /// The numbers that function reads.
+    atmosphere_parameters: [4]f32 = @splat(0),
 
     /// The planet with the atmosphere `given`, if there is one.
     fn withLook(planet: Planet, given: ?atmosphere.Look) Planet {

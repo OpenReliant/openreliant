@@ -3,7 +3,8 @@
 //! `create_object` makes as it makes the planet (`Atmospheres.made`) and `backdrop_frame` turns to
 //! the camera each frame, as bright as the lens flares, the planet turning slowly as it goes
 //! (`Atmospheres.frame`). The planets' table (`planets`) says which planets have one, and how each
-//! planet turns and leans.
+//! planet turns and leans. A mod's surface function can draw a planet's atmosphere instead
+//! (`Shell`).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -22,6 +23,9 @@ const xtrabits = @import("../xtrabits.zig");
 const Vector = math.Vector;
 
 const log = std.log.scoped(.create);
+
+/// The lights that don't reach a planet, which a mod's atmosphere shares (`Shell`).
+const planet_light_mask = create.planet_light_mask;
 
 /// How many atmospheres the game's table holds (`0x00545868` to `0x005458F8`).
 pub const original_capacity = 4;
@@ -56,17 +60,24 @@ pub const Style = enum {
 
     /// How large a ring is drawn against its build, for a planet of `radius` with the camera
     /// `distance` from its middle. A haze's is as much larger as the planet's visible edge stands
-    /// out in the ring's plane, which passes through the planet's middle facing the camera:
-    /// `1 / sqrt(1 - (radius / distance)^2)`, so that the ring keeps to the edge as the camera
+    /// out in the ring's plane (`edgeFactor`), so that the ring keeps to the edge as the camera
     /// comes near, where at the game's size it slips inside it, behind the planet. Null where the
     /// camera is inside the planet. The game draws it as built.
     pub fn scaleFor(style: Style, radius: f32, distance: f32) ?f32 {
         return switch (style) {
-            .haze => if (distance > radius) 1 / @sqrt(1 - (radius / distance) * (radius / distance)) else null,
+            .haze => edgeFactor(radius, distance),
             .original => 1,
         };
     }
 };
+
+/// How much farther than `radius` from a sphere's middle its edge looks from the camera `distance`
+/// away, in the plane through its middle facing the camera: `1 / sqrt(1 - (radius / distance)^2)`.
+/// Null where the camera stands within the sphere.
+fn edgeFactor(radius: f32, distance: f32) ?f32 {
+    if (!(distance > radius)) return null;
+    return 1 / @sqrt(1 - (radius / distance) * (radius / distance));
+}
 
 /// How solid a haze is on its planet's night side, and on its sunlit side (`Style.haze`).
 pub const haze_night: f32 = 0.15;
@@ -112,34 +123,25 @@ pub const Ring = struct {
     /// The radius of the planet it was made for.
     radius: f32,
 
-    /// The ring of a planet of `radius` that looks as `look` says (`create_object`,
-    /// `0x0046795D`): a band of `quads` (`loadout.bandMesh`), flat, its first circle drawn
-    /// in to the look's inner edge and its second to its outer edge, over `image`,
-    /// added by the alpha of its colours; the first circle in the look's colour, the second black,
-    /// all solid until the frame sets their alpha. It is never culled, and is coloured by its own.
+    /// The ring of a planet of `radius` that looks as `look` says (`create_object`, `0x0046795D`):
+    /// a flat band of `quads` from the look's inner edge to its outer edge (`flatBand`), over
+    /// `image`, added by the alpha of its colours; the first circle in the look's colour, the
+    /// second black, all solid until the frame sets their alpha. It is never culled, and is
+    /// coloured by its own.
     pub fn create(gpa: Allocator, image: *srtexture.Image, radius: f32, look: Look, quads: u16) Allocator.Error!*Ring {
         std.debug.assert(quads <= round_segments);
         const ring = try gpa.create(Ring);
         errdefer gpa.destroy(ring);
         ring.radius = radius;
-        ring.mesh = try loadout.bandMesh(gpa, quads, radius, 0);
+        ring.mesh = try flatBand(gpa, quads, radius, look.inner_edge, look.outer_edge);
         errdefer ring.mesh.deinit(gpa);
         const mesh = &ring.mesh;
-        mesh.surfaces[0] = .{
-            .polygons = @intCast(mesh.polygons.len),
-            .material = .onePass(.{ .coordinates = .mesh, .lit = true, .blend = .add_alpha }),
-            .textures = .{ .{ .image = image }, .none },
-        };
+        mesh.surfaces[0].textures = .{ .{ .image = image }, .none };
         const colours = ring.colours[0 .. 2 * @as(usize, quads)];
-        for (mesh.positions[0..quads], mesh.positions[quads..], colours[0..quads], colours[quads..]) |*inner, *outer, *inner_colour, *outer_colour| {
-            inner.* *= @splat(look.inner_edge);
-            outer.* *= @splat(look.outer_edge);
+        for (colours[0..quads], colours[quads..]) |*inner_colour, *outer_colour| {
             inner_colour.* = .{ look.colour[0], look.colour[1], look.colour[2], 1 };
             outer_colour.* = .{ 0, 0, 0, 1 };
         }
-        srapi.calcPolyNormals(mesh);
-        srapi.calcVertexNormals(mesh);
-        srapi.findBoundingBox(mesh);
         ring.level = .{.{ .mesh = mesh, .until = std.math.inf(f32) }};
         ring.object = .{
             .flags = .{ .not_culled = true, .owns_mesh = true, .baked_object = true },
@@ -172,6 +174,126 @@ pub const Ring = struct {
     }
 };
 
+/// A flat band of `quads` facing along Z (`loadout.bandMesh`), `radius` from its middle, its first
+/// circle drawn in to `inner` times that and its second out to `outer` times, with its faces'
+/// planes, its vertex normals and its bounds worked out again for them. Its one surface is lit,
+/// added by its alpha, with no texture.
+fn flatBand(gpa: Allocator, quads: u16, radius: f32, inner: f32, outer: f32) Allocator.Error!srapiext.Mesh {
+    var mesh = try loadout.bandMesh(gpa, quads, radius, 0);
+    errdefer mesh.deinit(gpa);
+    mesh.surfaces[0] = .{
+        .polygons = @intCast(mesh.polygons.len),
+        .material = .onePass(.{ .coordinates = .mesh, .lit = true, .blend = .add_alpha }),
+    };
+    for (mesh.positions[0..quads], mesh.positions[quads..]) |*near, *far| {
+        near.* *= @splat(inner);
+        far.* *= @splat(outer);
+    }
+    srapi.calcPolyNormals(&mesh);
+    srapi.calcVertexNormals(&mesh);
+    srapi.findBoundingBox(&mesh);
+    return mesh;
+}
+
+/// A planet's sphere as its model's first part holds it, at its most detail: the middle of its
+/// bounds, which may stand off the model's origin, as Earth's does, and half the widest of their
+/// spans.
+pub const Sphere = struct {
+    middle: Vector,
+    radius: f32,
+
+    pub fn of(mesh: *const srapiext.Mesh) Sphere {
+        const low, const high = mesh.bounds;
+        return .{ .middle = (low + high) * @as(Vector, @splat(0.5)), .radius = @reduce(.Max, high - low) / 2 };
+    }
+};
+
+/// What finds a mod's surface function by its qualified name, for a planet whose atmosphere one
+/// draws (`planets.Planet.atmosphere_surface`): the scripts' registry, which the driver hands over.
+pub const SurfaceNames = struct {
+    context: *anyopaque,
+    find: *const fn (context: *anyopaque, name: []const u8) ?srtexture.ModSurface,
+};
+
+/// **Improvement:** a planet's atmosphere that a mod's surface function draws
+/// (`planets.Planet.atmosphere_surface`), in place of the band. It is a flat ring of
+/// `round_segments` quads that faces the camera through the middle of the planet's sphere, from the
+/// planet's `atmosphere_inner` to its `atmosphere_outer` times the sphere's radius, each circle as
+/// far out as the sphere of its radius looks from the camera (`place`). Its frame is the planet's
+/// own, as the planet's model holds it, with the sphere's middle as the origin and the sphere's
+/// radius as the unit, so that the function can trace the line of sight through each pixel, and
+/// find the planet's pole for a planet that isn't round. It has no texture, and what the function
+/// leaves is added over what lies behind it. It is lit as the planets are, by the second key light
+/// alone (`create.planet_light_mask`), so that the function reads the direction toward the sun.
+/// Both styles draw it, since a mod asks for it.
+pub const Shell = struct {
+    mesh: srapiext.Mesh,
+    level: [1]srapiext.Level,
+    object: srapiext.MeshObject,
+    /// The planet's mesh its sphere is taken from (`Sphere.of`), each frame: `create_object` moves
+    /// a planet's meshes onto the middle of their vertices after it makes the atmosphere.
+    planet: *const srapiext.Mesh,
+    /// Its inner and outer edges, in the sphere's radii.
+    inner: f32,
+    outer: f32,
+    /// Its circles' directions from the middle, a unit long, in the plane that faces along Z,
+    /// which `place` turns to face the camera.
+    around: [round_segments]Vector,
+
+    pub fn create(gpa: Allocator, planet: *const srapiext.Mesh, inner: f32, outer: f32, surface: srtexture.ModSurface) Allocator.Error!*Shell {
+        const shell = try gpa.create(Shell);
+        errdefer gpa.destroy(shell);
+        shell.mesh = try flatBand(gpa, round_segments, 1, inner, outer);
+        for (&shell.around, shell.mesh.positions[round_segments..]) |*each, far| each.* = math.normalize(far);
+        shell.planet = planet;
+        shell.inner = inner;
+        shell.outer = outer;
+        shell.level = .{.{ .mesh = &shell.mesh, .until = std.math.inf(f32) }};
+        shell.object = .{
+            .flags = .{ .lit = true, .not_culled = true, .owns_mesh = true },
+            .position = @splat(0),
+            .radius = outer,
+            .levels = &shell.level,
+            .light_mask = planet_light_mask,
+            .colour = .{ 0, 0, 0, 1 },
+            .surface = surface,
+        };
+        return shell;
+    }
+
+    /// Places it for a frame, with the planet's model at `position`, turned by `orientation`, and
+    /// the camera at `camera`. It takes the planet's frame, with the sphere's middle as its origin
+    /// and the sphere's radius as its unit, and its circles stand round the middle in the plane
+    /// that faces the camera, each as far out as the edge of the sphere of its radius looks in that
+    /// plane (`edgeFactor`). Its faces' normals follow the plane. False where the camera stands
+    /// within its outer edge, which it can't be drawn round.
+    pub fn place(shell: *Shell, position: Vector, orientation: math.Matrix, camera: Vector) bool {
+        const sphere: Sphere = .of(shell.planet);
+        const middle = position + math.transform(orientation, sphere.middle);
+        const distance = math.length(camera - middle) / sphere.radius;
+        const inner = shell.inner * (edgeFactor(shell.inner, distance) orelse return false);
+        const outer = shell.outer * (edgeFactor(shell.outer, distance) orelse return false);
+        const facing = math.lookAt(math.transform(math.transpose(orientation), camera - middle));
+        for (shell.around, shell.mesh.positions[0..round_segments], shell.mesh.positions[round_segments..]) |each, *near, *far| {
+            const turned = math.transform(facing, each);
+            near.* = turned * @as(Vector, @splat(inner));
+            far.* = turned * @as(Vector, @splat(outer));
+        }
+        srapi.calcPolyNormals(&shell.mesh);
+        srapi.calcVertexNormals(&shell.mesh);
+        shell.object.position = middle;
+        shell.object.orientation = orientation;
+        shell.object.scale = sphere.radius;
+        shell.object.radius = outer;
+        return true;
+    }
+
+    pub fn destroy(shell: *Shell, gpa: Allocator) void {
+        shell.mesh.deinit(gpa);
+        gpa.destroy(shell);
+    }
+};
+
 /// The atmospheres of the mission's planets, how the planets turn and lean, and the texture the
 /// atmospheres are drawn over.
 pub const Atmospheres = struct {
@@ -179,6 +301,8 @@ pub const Atmospheres = struct {
     image: *srtexture.Image,
     /// How they are drawn.
     style: Style = .haze,
+    /// What finds the surface functions the planets name for their atmospheres, where mods run.
+    surfaces: ?SurfaceNames = null,
     entries: [planets.most]Entry = undefined,
     count: usize = 0,
     /// The frame the planets last turned at (`0x00595BC0`).
@@ -192,10 +316,18 @@ pub const Atmospheres = struct {
     /// reads.
     pub const Entry = struct {
         ring: ?*Ring,
+        /// The atmosphere a mod's surface function draws, in place of the ring (`Shell`).
+        shell: ?*Shell = null,
         turn: f32,
         lean: math.Matrix = math.identity,
         turned: f32 = 0,
         planet: u16,
+
+        /// Lets go of its atmosphere, ring or shell.
+        fn destroy(entry: Entry, gpa: Allocator) void {
+            if (entry.ring) |ring| ring.destroy(gpa);
+            if (entry.shell) |shell| shell.destroy(gpa);
+        }
     };
 
     /// As `objects_reset` (`0x00466630`) loads `atmos`, with no atmospheres.
@@ -206,7 +338,7 @@ pub const Atmospheres = struct {
     /// As a mission ends (`0x004666B0`), and as the next starts (`objects_reset`): every
     /// atmosphere let go.
     pub fn reset(atmospheres: *Atmospheres) void {
-        for (atmospheres.entries[0..atmospheres.count]) |entry| if (entry.ring) |ring| ring.destroy(atmospheres.gpa);
+        for (atmospheres.entries[0..atmospheres.count]) |entry| entry.destroy(atmospheres.gpa);
         atmospheres.count = 0;
     }
 
@@ -216,8 +348,9 @@ pub const Atmospheres = struct {
 
     /// The part of `create_object` for a planet, run once the object in slot `index` is made. A
     /// planet that turns, leans or has an atmosphere (`planets.of`) gets an entry, and its
-    /// atmosphere's ring, as wide as its model's first part. With the haze style, the planet's
-    /// terminator is softened.
+    /// atmosphere's ring, as wide as its model's first part, or the shell a mod's surface function
+    /// draws it on (`Shell`) where the planet names one that a mod registered. With the haze style,
+    /// the planet's terminator is softened where it has a ring.
     ///
     /// **Fix:** the game assumes at most `original_capacity` atmospheres, and a fifth would write
     /// past the end of its table. **Improvement:** OpenReliant's table holds up to `planets.most`
@@ -228,22 +361,49 @@ pub const Atmospheres = struct {
         const slot = &all.slots[index];
         const planet = planets.of(slot.object.type) orelse return;
         const look = planet.look();
-        if (look == null and planet.spin == 0 and planet.tilt == 0) return;
+        const surface = atmospheres.surfaceOf(planet, index);
+        if (look == null and surface == null and planet.spin == 0 and planet.tilt == 0) return;
         const model = if (slot.model) |*held| held else return;
         if (model.parts.len == 0) return;
         if (atmospheres.count == atmospheres.entries.len) {
             log.warn("planet {d} doesn't turn and has no atmosphere: the table already holds {d} planets", .{ index, atmospheres.entries.len });
             return;
         }
-        const ring = if (look) |each| Ring.create(atmospheres.gpa, atmospheres.image, model.parts[0].object.radius, each, atmospheres.style.quads()) catch |err| none: {
-            log.warn("planet {d} has no atmosphere: {s}", .{ index, @errorName(err) });
-            break :none null;
-        } else null;
-        atmospheres.entries[atmospheres.count] = .{ .ring = ring, .turn = planet.turnPerTick(), .lean = planet.lean(), .planet = index };
+        const levels = model.parts[0].object.levels;
+        const shell: ?*Shell = shell: {
+            const function = surface orelse break :shell null;
+            if (levels.len == 0) break :shell null;
+            break :shell Shell.create(atmospheres.gpa, levels[0].mesh, planet.atmosphere_inner, planet.atmosphere_outer, function) catch |err| {
+                log.warn("planet {d} has no atmosphere of its mod's: {s}", .{ index, @errorName(err) });
+                break :shell null;
+            };
+        };
+        const ring: ?*Ring = ring: {
+            if (shell != null) break :ring null;
+            const each = look orelse break :ring null;
+            break :ring Ring.create(atmospheres.gpa, atmospheres.image, model.parts[0].object.radius, each, atmospheres.style.quads()) catch |err| {
+                log.warn("planet {d} has no atmosphere: {s}", .{ index, @errorName(err) });
+                break :ring null;
+            };
+        };
+        atmospheres.entries[atmospheres.count] = .{ .ring = ring, .shell = shell, .turn = planet.turnPerTick(), .lean = planet.lean(), .planet = index };
         atmospheres.count += 1;
         if (ring != null and atmospheres.style == .haze) {
             for (model.parts) |*each| each.object.soft_terminator = true;
         }
+    }
+
+    /// The surface function that draws `planet`'s atmosphere, reading the planet's parameters,
+    /// where it names one that a mod registered. A name no mod registered is logged.
+    fn surfaceOf(atmospheres: *const Atmospheres, planet: *const planets.Planet, index: u16) ?srtexture.ModSurface {
+        const name = planet.atmosphere_surface orelse return null;
+        const names = atmospheres.surfaces orelse return null;
+        var surface = names.find(names.context, name) orelse {
+            log.warn("planet {d}'s atmosphere names the surface function {s}, which no mod registers", .{ index, name });
+            return null;
+        };
+        surface.parameters = planet.atmosphere_parameters;
+        return surface;
     }
 
     /// The last step of `backdrop_frame` (`0x004A5CD0`), at frame `now`. Each planet turns about
@@ -251,9 +411,10 @@ pub const Atmospheres = struct {
     /// at once. For each planet that isn't disabled, its atmosphere's ring is moved to the planet,
     /// turned to face the camera at `camera`, sized for the camera's distance (`Style.scaleFor`),
     /// faded (`Ring.fade`) by the lens flares' `brightness` (`backdrop.flareBrightness`) and the sun
-    /// along `sun`, and added to the background layer. The
-    /// original's software renderer draws no atmosphere. A planet's parts sit at its origin
-    /// (`create.planetMade`), so it turns in place, and the ring stays round it.
+    /// along `sun`, and added to the background layer; a mod's shell is placed for the camera
+    /// (`Shell.place`) and added there. The original's software renderer draws no atmosphere. A
+    /// planet's parts sit at its origin (`create.planetMade`), so it turns in place, and the ring
+    /// stays round it.
     ///
     /// **Improvement:** the game turns the drawn planet a little further each frame. OpenReliant
     /// keeps the total angle instead, and each frame turns the planet from its orientation in the
@@ -269,6 +430,10 @@ pub const Atmospheres = struct {
             planet.drawn.orientation = math.turned(math.product(planet.object.root.orientation, entry.lean), .y, entry.turned);
             if (planet.model) |*model| model.place(planet.drawn.position, planet.drawn.orientation);
             if (planet.object.flags.disabled) continue;
+            if (entry.shell) |shell| {
+                if (shell.place(planet.drawn.position, planet.drawn.orientation, camera)) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &shell.object }, .background);
+                continue;
+            }
             const ring = entry.ring orelse continue;
             const object = &ring.object;
             object.position = planet.drawn.position;
@@ -290,7 +455,7 @@ pub const Atmospheres = struct {
     pub fn release(atmospheres: *Atmospheres, index: u16) void {
         for (atmospheres.entries[0..atmospheres.count], 0..) |entry, at| {
             if (entry.planet != index) continue;
-            if (entry.ring) |ring| ring.destroy(atmospheres.gpa);
+            entry.destroy(atmospheres.gpa);
             @memmove(atmospheres.entries[at .. atmospheres.count - 1], atmospheres.entries[at + 1 .. atmospheres.count]);
             atmospheres.count -= 1;
             return;
@@ -471,6 +636,99 @@ test "an atmosphere round its planet, turning in place" {
     try std.testing.expectEqual(Vector{ 1000, 0, 0 }, all.slots[planet].drawn.position);
     try std.testing.expect(!std.meta.eql(before, all.slots[planet].drawn.orientation));
     try std.testing.expectEqual(all.slots[planet].drawn.position, atmospheres.entries[0].ring.?.object.position);
+}
+
+test Sphere {
+    // Earth's model holds its sphere off its origin.
+    var mesh: srapiext.Mesh = undefined;
+    mesh.bounds = .{ .{ -300, -1000, -2000 }, .{ 1700, 1000, 0 } };
+    const sphere: Sphere = .of(&mesh);
+    try std.testing.expectEqual(Vector{ 700, 0, -1000 }, sphere.middle);
+    try std.testing.expectEqual(1000, sphere.radius);
+}
+
+test "a mod's surface function draws a planet's atmosphere" {
+    defer planets.installOriginal();
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    var image: srtexture.Image = .{ .levels = &.{} };
+    var atmospheres: Atmospheres = .{ .gpa = gpa, .image = &image };
+    defer atmospheres.deinit();
+    const all = mission.objects;
+    // The scripts know one function, `test:air`.
+    const names = struct {
+        fn find(_: *anyopaque, name: []const u8) ?srtexture.ModSurface {
+            return if (std.mem.eql(u8, name, "test:air")) .{ .function = 7 } else null;
+        }
+    };
+    var context: u8 = 0;
+    atmospheres.surfaces = .{ .context = &context, .find = names.find };
+    // Earth, its sphere off its model's origin, with a colour as well, and Venus, which names a
+    // function no mod registers.
+    model.mesh.bounds = .{ .{ -300, -1000, -2000 }, .{ 1700, 1000, 0 } };
+    const table = [_]planets.Planet{
+        .{ .type = .of(.earth), .atmosphere_colour = .{ 1, 1, 1 }, .atmosphere_inner = 0.9, .atmosphere_outer = 1.1, .atmosphere_surface = "test:air", .atmosphere_parameters = .{ 1, 2, 3, 4 } },
+        .{ .type = .of(.venus_hi), .atmosphere_colour = .{ 1, 1, 1 }, .atmosphere_surface = "test:nothing" },
+    };
+    planets.install(&table);
+    const earth = try mission.addWith(model.types(), .of(.predator), @splat(0));
+    all.slots[earth].object.type = .of(.earth);
+    const venus = try mission.addWith(model.types(), .of(.predator), .{ 0, 0, 1e7 });
+    all.slots[venus].object.type = .of(.venus_hi);
+    atmospheres.made(all, earth);
+    atmospheres.made(all, venus);
+
+    // Earth's is a shell the function draws, reading Earth's numbers, and no band.
+    const shell = atmospheres.entries[0].shell.?;
+    try std.testing.expectEqual(null, atmospheres.entries[0].ring);
+    try std.testing.expectEqual(7, shell.object.surface.?.function);
+    try std.testing.expectEqual([4]f32{ 1, 2, 3, 4 }, shell.object.surface.?.parameters);
+    // It is lit as the planets are, its faces facing along its Z, so that the function reads the
+    // direction toward the sun.
+    try std.testing.expect(shell.object.flags.lit);
+    try std.testing.expectEqual(create.planet_light_mask, shell.object.light_mask);
+    for (shell.mesh.normals) |normal| try std.testing.expectApproxEqAbs(1, @abs(normal[2]), 1e-5);
+    // Venus's function isn't there, so it has its band.
+    try std.testing.expectEqual(null, atmospheres.entries[1].shell);
+    try std.testing.expect(atmospheres.entries[1].ring != null);
+
+    // Earth turned, from five radii off: the shell takes Earth's frame, round the sphere's middle
+    // with a radius to a unit, and its circles stand in the plane that faces the camera, each as
+    // far out as the sphere of its radius looks.
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    const turn = math.rotation(.x, 0.5);
+    all.slots[earth].object.root.orientation = turn;
+    const middle = math.transform(turn, Vector{ 700, 0, -1000 });
+    const toward: Vector = .{ 0, 0, -1 };
+    try atmospheres.frame(gpa, &scene, all, middle + toward * @as(Vector, @splat(5000)), .{ 1, 0, 0 }, 0, 0);
+    try std.testing.expectEqual(2, scene.layers.get(.background).items.len);
+    try math.testing.expectVectorWithin(middle, shell.object.position, 1e-3);
+    try std.testing.expectEqual(1000, shell.object.scale);
+    try math.testing.expectMatrixWithin(turn, shell.object.orientation, 1e-6);
+    for (shell.mesh.positions) |at| try std.testing.expectApproxEqAbs(0, math.dot(math.transform(turn, at), toward), 1e-5);
+    for (shell.mesh.normals) |normal| try std.testing.expectApproxEqAbs(1, @abs(math.dot(math.transform(turn, normal), toward)), 1e-5);
+    const seen = struct {
+        fn edge(radius: f32, distance: f32) f32 {
+            return radius / @sqrt(1 - (radius / distance) * (radius / distance));
+        }
+    }.edge;
+    try std.testing.expectApproxEqAbs(seen(0.9, 5), math.length(shell.mesh.positions[0]), 1e-5);
+    try std.testing.expectApproxEqAbs(seen(1.1, 5), math.length(shell.mesh.positions[round_segments]), 1e-5);
+
+    // With the camera within its outer edge, it isn't drawn.
+    scene.clear();
+    try atmospheres.frame(gpa, &scene, all, middle + Vector{ 0, 0, -1050 }, .{ 1, 0, 0 }, 0, 0);
+    try std.testing.expectEqual(1, scene.layers.get(.background).items.len);
+
+    // Destroyed, the planet's shell goes.
+    atmospheres.release(earth);
+    try std.testing.expectEqual(1, atmospheres.count);
 }
 
 test "Style.scaleFor" {

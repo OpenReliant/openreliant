@@ -128,7 +128,8 @@ original's, and mods' load scripts can change it and add to it (`records.planets
   eastward. The original's planets turn westward at 0.07 radians a second;
 - how far and in which direction the pole leans from the up direction of the planet as the mission
   places it;
-- its atmosphere's colour and edges.
+- its atmosphere's colour and edges, or the mod's surface function that draws the atmosphere, with
+  the numbers it reads ([A mod's atmosphere](#a-mods-atmosphere)).
 
 A type that a mod adds uses its base type's entry unless the table has an entry for it. Every planet
 that turns, leans or has an atmosphere gets an entry in the atmospheres' table, which holds 64.
@@ -191,6 +192,27 @@ counts one atmosphere fewer whether the planet has one or not, which leaves out 
 looks for the planet's ring only among the atmospheres before the last, and frees the one it finds
 but keeps it in the table, which goes on drawing it. OpenReliant frees the planet's own ring and
 removes its entry, so the planet also stops turning.
+
+### A mod's atmosphere
+
+**Improvement:** a mod's surface function can draw a planet's atmosphere in place of the ring, where
+the planets' table names one (`atmosphere.Shell`), so that a mod can draw it from a physical model,
+each channel falling off with height, lit by the sun and shaded by the planet. The function is
+looked up by name as the mission makes the planet, since the mods register their functions after
+their load scripts set the table; a name that no mod registers leaves the planet its ring, if it has
+one. The function draws on a ring of 96 quads with no texture, and what it leaves is added over what
+lies behind it. Each frame the ring stands at the middle of the planet's sphere, facing the camera,
+and each of its circles stands as far out as the sphere of its radius looks from the camera: the
+inner circle's sphere is the table's inner edge times the radius, and the outer circle's its outer
+edge. The sphere is the middle of the bounds of the planet's first part and half their widest span,
+which for Earth's model stands 1.25 million units off the object's origin; for a flattened planet
+the radius is its equatorial radius. The ring takes the planet's own frame, with the sphere's middle
+as its origin and the sphere's radius as its unit, and its circles turn each frame to face the
+camera in it, so that the function can trace the line of sight through each pixel and find the
+planet's pole ([A planet's atmosphere](../guide/scripting.md#a-planets-atmosphere)). The ring is lit
+by the planets' key light alone, so the function reads the sun's direction. It isn't drawn while the
+camera stands within its outer edge. `--original` draws it too, since a mod asks for it, but lights
+each vertex, which leaves the function no direction toward the sun.
 
 ## Lights
 

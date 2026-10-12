@@ -1420,8 +1420,10 @@ turns about its north pole (`spin`, in radians a second, positive eastward), how
 direction its pole leans (`tilt` and `tilt_toward`, in radians), and its atmosphere: the colour of
 the band round its rim (`atmosphere_color`, nil for none) and where the band starts and ends
 (`atmosphere_inner` and `atmosphere_outer`, as shares of its radius as the camera sees it; the
-planet hides the band within its edge). A load script can change a
-planet, or add one by assigning to the number after the last:
+planet hides the band within its edge), or a mod's surface function that draws the atmosphere
+instead, with the numbers it reads (`atmosphere_surface` and `atmosphere_parameters`, [A planet's
+atmosphere](#a-planets-atmosphere)). A load script can change a planet, or add one by assigning to
+the number after the last:
 
 ```lua
 local records = require("openreliant.records")
@@ -2390,7 +2392,8 @@ float lighting(float cosine, vec4 parameters) {
   An effect in screen space, such as scan lines, divides by it to look the same at any resolution:
   `gl_FragCoord.y / s.frameSize.y` runs from 0 to 1 up the frame.
 - `s.toSun` points toward the sun: the light that casts shadows, which is the only light that
-  reaches a planet. `s.sunlight` starts as how much of it OpenReliant lets through, the cosine
+  reaches a planet. It needs PER-PIXEL LIGHTING, which gives each pixel its normal, and is zero
+  without it. `s.sunlight` starts as how much of it OpenReliant lets through, the cosine
   between the normal and `toSun`, which a planet's atmosphere carries a little way past the
   terminator. Set it to light the pixel by a law of your own, such as one measured for a planet,
   or to shade it, as a ring shades its planet; the shadows of other objects still fall on it.
@@ -2426,6 +2429,62 @@ float lighting(float cosine, vec4 parameters) {
 lighting function makes each light fall in flat bands, and a surface function on every lit surface
 draws a dark line round the outlines. Shift F6 turns it on and off, and Shift F5 changes the
 number of bands.
+
+### A planet's atmosphere
+
+A load script can have one of its mod's surface functions draw a planet's atmosphere in place of
+the band, by the function's own name or the qualified one, with up to four numbers it reads
+([Planets](#planets)):
+
+```lua
+local records = require("openreliant.records")
+
+for n = 1, #records.planets do
+    local planet = records.planets[n]
+    if planet.type == "titan_hi" then
+        planet.atmosphere_surface = "haze"
+        planet.atmosphere_parameters = { 0.02 }
+        planet.atmosphere_inner = 0.95
+        planet.atmosphere_outer = 1.15
+    end
+end
+```
+
+A player script registers the function, as it registers any surface function, and each mission looks
+it up by its name as it makes the planet. The function draws on a ring that faces the camera through
+the middle of the planet's sphere, from `atmosphere_inner` to `atmosphere_outer` times the sphere's
+radius as the camera sees them, and its light is added over what lies behind it. The function works
+in the planet's own frame, as the planet's model holds it, with the sphere's middle as the origin
+and the sphere's radius as the unit, so it can trace the line of sight through each pixel:
+
+```glsl
+void surface(inout Surface s, vec4 parameters, float time) {
+    // The camera, the line of sight through the pixel and the sun, in the planet's radii.
+    vec3 eye = objectPoint(vec3(0.0));
+    vec3 ray = normalize(s.local - eye);
+    vec3 sun = objectDirection(s.toSun);
+    // Where the line passes nearest the middle, and how high above the sphere that is.
+    vec3 nearest = eye - dot(eye, ray) * ray;
+    float height = length(nearest) - 1.0;
+    // A glow that thins with height, on the side toward the sun. It ends a pixel inside the
+    // planet's edge rather than at it, so that the edge's pixels, which show the planet and the sky
+    // around it, get it too.
+    float lit = max(dot(normalize(nearest), sun), 0.0);
+    float edge = clamp(1.0 + height / fwidth(height), 0.0, 1.0);
+    s.color = vec3(0.0);
+    s.sunlight = vec3(0.0);
+    s.glow = vec3(0.3, 0.5, 1.0) * exp(-max(height, 0.0) / parameters.x) * lit * edge;
+}
+```
+
+- For a flattened planet, the unit is its equatorial radius. Its north pole is the frame's -Y, as
+  in the planet's model, so a function can draw its haze round the flattened shape.
+- The ring is drawn over the planet, so the function decides where the planet shows through. A
+  sharp cut at the planet's edge leaves the edge's pixels without the glow, as the function runs
+  once for each pixel, at its middle.
+- The band's colour isn't used where a function draws the atmosphere. A name no mod registers
+  leaves the planet its band, and the log says so.
+- The ring isn't drawn while the camera stands within its outer edge.
 
 ## Replacing OpenReliant's shaders
 
