@@ -681,6 +681,9 @@ pub const Objects = struct {
     /// makes in the slot after the mission's ships, and which the Yamato's launch moves beside the
     /// player's bay; null until a mission's start makes it.
     camera_marker: ?u16 = null,
+    /// `bombard_planet` (`0x005531A8`): the slot of the last Titan made, on which Planet Bombard's
+    /// flashes burst (`environfx.bombard`); null until one is made.
+    bombarded: ?u16 = null,
     types: [max_ship_types]TypeUse = @splat(.{}),
     /// Each ship type's gun groups (`0x00545900`), which `gun_groups_build` works out from an
     /// object of the type.
@@ -793,6 +796,7 @@ pub const Objects = struct {
         all.types = @splat(.{});
         all.count = 0;
         all.camera_marker = null;
+        all.bombarded = null;
         all.in_stalag = false;
         // The game lets the exhaust's list go as the mission before ends (`exhaust_ships_reset`).
         all.exhaust.reset();
@@ -1071,8 +1075,8 @@ fn wreckOf(object_type: gameobj.Type) ?Wreck {
 /// The routine that most capital ships, bases and stations get for a destroyed component, the
 /// Ulysses' its own, OpenReliant picks by type as it needs it (`explode.ComponentLoss`).
 ///
-/// Titan's last part takes the Planet Bombard's routine (`0x0046841D`), which moves ten flashes that
-/// nothing draws, so OpenReliant leaves it out. Not ported: the comms relay, the deathmatch's
+/// Titan's last part takes Planet Bombard's routine (`0x0046841D`), for which `createObject` keeps
+/// Titan's slot (`bombards`). Not ported: the comms relay, the deathmatch's
 /// power-ups and beacons, multiplayer map 83 and the Dark Reign's slot in a multiplayer game
 /// (`0x005DB500`), which only the multiplayer arenas have
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)). The wrecks, the gates, the planets
@@ -1092,6 +1096,21 @@ fn typeMade(slot: *Slot, ship_type: gameobj.Type) void {
         },
         else => {},
     }
+}
+
+/// Whether objects of `ship_type` are Titan, whose last part `create_object` gives the routine that
+/// moves Planet Bombard's flashes as the part is drawn (`bombard_hook`), keeping Titan's slot
+/// (`0x0046840D`, `Objects.bombarded`).
+pub fn bombards(ship_type: gameobj.Type) bool {
+    return switch (ship_type.base()) {
+        .titan_hi, .titan_lo => true,
+        else => false,
+    };
+}
+
+test bombards {
+    try std.testing.expect(bombards(.of(.titan_hi)) and bombards(.of(.titan_lo)));
+    try std.testing.expect(!bombards(.of(.saturn_hi)) and !bombards(.of(.predator)));
 }
 
 /// What an asteroid is made as (`typeMade`): fully invulnerable, and attached.
@@ -1349,6 +1368,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
             object.flags.attached = true;
         }
         typeMade(slot, ship_type);
+        if (bombards(ship_type)) all.bombarded = index;
     }
     object.wing_icon = 0;
     pilots.setPilot(object, if (combat.side == .hostile) coalition_pilot else 0);

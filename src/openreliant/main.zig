@@ -632,6 +632,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var shields: game.shield.Shields = try .create(gpa, &textures, explosions.settings.detail, options.shields);
     defer shields.deinit(gpa);
     environment.ice_field = try .create(arena, &textures, explosions.settings.detail, options.ice_field, &rand);
+    environment.flashes = try .create(arena, &textures, options.bombard, &rand, 0);
     var gates: game.wgate.Gates = try .init(gpa, &textures, explosions.settings.detail, options.gates);
     defer gates.deinit();
     var ion_cannons: game.aiioncan.Cannons = try .init(gpa, &textures);

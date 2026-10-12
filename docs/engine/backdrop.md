@@ -254,11 +254,31 @@ refuses.
   radius, turned at random within 0.3 of a half turn about each axis of one of three spots, picked
   at random.
 - One that has shown for 35 ticks goes idle until a random time up to 1000 ticks on.
-- One showing takes its size from the cells of `pbang` in turn, and its grey is 0.1 for the first
+- One showing takes its size from a table of eight cells of a picture sheet (`0x004FF74C`: each
+  cell's left, top, right and bottom in pixels, on a sheet of 256 by 256). A step of 16 over its 35
+  ticks picks the cell (`0x004FF7CC`): each in turn, then the last. Its grey is 0.1 for the first
   half of its time, then from 0.3 down to nothing; an idle one's is nothing.
 
-Nothing adds the flashes to the scene, so the game never shows them, and OpenReliant leaves Planet
-Bombard out.
+The sheet doesn't ship: `pbang` is a single flash, 32 by 32, and each frame a flash shows, its
+texture coordinates are set back to the whole of it, so only the cells' sizes matter. Nothing adds
+the flashes to the scene, so the game never shows them.
+
+**Improvement:** OpenReliant draws each flash as it shows, standing where it burst on Titan, on the
+world's layer ([`environfx/bombard.zig`](../../src/engine/game/environfx/bombard.zig)). `--original`
+leaves them unseen. The game runs the routine as the last part of any Titan is drawn, the flashes
+standing on the last Titan made; OpenReliant runs it once a frame, as that Titan is drawn.
+
+**Fix:** the game keeps each cell's width and height over the first cell's in pairs (`0x0054F0C8`)
+but reads them one value at a time by cell. A flash then takes the widths and heights of the first
+four cells in turn, 1, 1, 1.55, 1.42, 2.09, 1.92 and 2.91 times its size, then 2.75 from tick 15 on.
+OpenReliant takes each cell's width, so that a flash grows steadily through all eight, from its
+size to five times it.
+
+**Fix:** a flash due before the effect came on, as every flash is when a mission turns it on, keeps
+the tick it was due at, so it shows for a single frame at its largest, with a grey below nothing.
+OpenReliant starts it at that frame. And the game sets the flashes waiting only as its renderer
+starts, though each mission counts its ticks from 0 again, so that one can wait minutes into the
+next mission; OpenReliant sets them waiting again as each mission starts.
 
 ### The ice field
 
