@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.11.0](https://github.com/OpenReliant/openreliant/compare/v0.10.1...v0.11.0) (2026-10-12)
+
+
+### Features
+
+* script listings name the order SetAI gives ([#1097](https://github.com/OpenReliant/openreliant/issues/1097)) ([7f916a1](https://github.com/OpenReliant/openreliant/commit/7f916a126d913f5bd90cc5c62806b1a0e8fd2f7c)), closes [#883](https://github.com/OpenReliant/openreliant/issues/883)
+* scripts read and change the planets, and add new ones such as Earth ([#1094](https://github.com/OpenReliant/openreliant/issues/1094)) ([a5d221e](https://github.com/OpenReliant/openreliant/commit/a5d221e1a0301f78639a2f99f43ee7cb86d2a481)), closes [#1092](https://github.com/OpenReliant/openreliant/issues/1092) [#1083](https://github.com/OpenReliant/openreliant/issues/1083)
+* sltool reads Privateer 2's sound banks, and the docs compare it with StarLancer ([#1075](https://github.com/OpenReliant/openreliant/issues/1075)) ([a62899c](https://github.com/OpenReliant/openreliant/commit/a62899c8dc1370d1eb235f5f544ad481d85d8674))
+* surface functions read the sun and their object's frame ([#1093](https://github.com/OpenReliant/openreliant/issues/1093)) ([89798bb](https://github.com/OpenReliant/openreliant/commit/89798bb71cb4629ae9cad250bcbde43033a95361)), closes [#1084](https://github.com/OpenReliant/openreliant/issues/1084)
+* the player hears their own ship jump in after a long jump ([#1101](https://github.com/OpenReliant/openreliant/issues/1101)) ([9cd2096](https://github.com/OpenReliant/openreliant/commit/9cd209609ea0def5ffd20cf2de0a47d8d857ce35)), closes [#974](https://github.com/OpenReliant/openreliant/issues/974)
+* the sun's glare hides the stars near it ([#1095](https://github.com/OpenReliant/openreliant/issues/1095)) ([761bf6d](https://github.com/OpenReliant/openreliant/commit/761bf6d5d416f9e3622fe21f689f6c69089ec9bf)), closes [#390](https://github.com/OpenReliant/openreliant/issues/390)
+* Titan's bombardment in mission 25 shows ([#1096](https://github.com/OpenReliant/openreliant/issues/1096)) ([a348641](https://github.com/OpenReliant/openreliant/commit/a34864160ae7f64ec8545a6bafe41458a5ccb954)), closes [#900](https://github.com/OpenReliant/openreliant/issues/900)
+
+
+### Fixes
+
+* --skip-launch no longer hangs where the script waits for a radio line ([#1100](https://github.com/OpenReliant/openreliant/issues/1100)) ([a31c289](https://github.com/OpenReliant/openreliant/commit/a31c2892b8586d9047b1ce162777d62c2ca288ac)), closes [#1099](https://github.com/OpenReliant/openreliant/issues/1099)
+* a Jack Hammer breaks the Latov's shaft and the Czar's core cover ([#1103](https://github.com/OpenReliant/openreliant/issues/1103)) ([cef3e3f](https://github.com/OpenReliant/openreliant/commit/cef3e3fce5b987d778f3eb49f070accd99d19315)), closes [#1091](https://github.com/OpenReliant/openreliant/issues/1091)
+* a mod's shader that the GPU refuses is left out, rather than blanking the game ([#1080](https://github.com/OpenReliant/openreliant/issues/1080)) ([e9bfbd8](https://github.com/OpenReliant/openreliant/commit/e9bfbd8aa1ec805ba73b41824af14d217859eacb)), closes [#938](https://github.com/OpenReliant/openreliant/issues/938) [#965](https://github.com/OpenReliant/openreliant/issues/965)
+* mission 251's satellites no longer turn everything yellow ([#1086](https://github.com/OpenReliant/openreliant/issues/1086)) ([49ddf0e](https://github.com/OpenReliant/openreliant/commit/49ddf0e82679fc6d32e7e5794165b040cebbcfa4)), closes [#1085](https://github.com/OpenReliant/openreliant/issues/1085)
+* mods' scripts keep to their limits, and can't crash or stall the game ([#1078](https://github.com/OpenReliant/openreliant/issues/1078)) ([205bd32](https://github.com/OpenReliant/openreliant/commit/205bd3252786a4712e514425fde74304142ab752)), closes [#926](https://github.com/OpenReliant/openreliant/issues/926) [#927](https://github.com/OpenReliant/openreliant/issues/927) [#928](https://github.com/OpenReliant/openreliant/issues/928) [#929](https://github.com/OpenReliant/openreliant/issues/929) [#930](https://github.com/OpenReliant/openreliant/issues/930) [#931](https://github.com/OpenReliant/openreliant/issues/931)
+* orders, squads and scripts from missions and mods can't hang or crash the game ([#1073](https://github.com/OpenReliant/openreliant/issues/1073)) ([5262627](https://github.com/OpenReliant/openreliant/commit/526262755b0a1f8ed4a1e509ce27ab05ee8e24f5)), closes [#924](https://github.com/OpenReliant/openreliant/issues/924) [#935](https://github.com/OpenReliant/openreliant/issues/935) [#936](https://github.com/OpenReliant/openreliant/issues/936) [#937](https://github.com/OpenReliant/openreliant/issues/937) [#941](https://github.com/OpenReliant/openreliant/issues/941)
+* the file readers refuse what a hostile file asks for ([#1071](https://github.com/OpenReliant/openreliant/issues/1071)) ([fa4ecff](https://github.com/OpenReliant/openreliant/commit/fa4ecffe27cdaf6d847cdb407151aec986ba69d6)), closes [#923](https://github.com/OpenReliant/openreliant/issues/923) [#932](https://github.com/OpenReliant/openreliant/issues/932) [#933](https://github.com/OpenReliant/openreliant/issues/933) [#934](https://github.com/OpenReliant/openreliant/issues/934)
+* the mods' state kept with a saved game always reads back ([#1081](https://github.com/OpenReliant/openreliant/issues/1081)) ([dd94d62](https://github.com/OpenReliant/openreliant/commit/dd94d624f7e1ce27f4ebc4c2e61f5c9d84cc97e9)), closes [#1076](https://github.com/OpenReliant/openreliant/issues/1076)
+
+
+### Documentation
+
+* name the mission records' last unknown fields ([#1098](https://github.com/OpenReliant/openreliant/issues/1098)) ([1edebfa](https://github.com/OpenReliant/openreliant/commit/1edebfa95a186688b1c71ca621939a22dde78045)), closes [#12](https://github.com/OpenReliant/openreliant/issues/12)
+
 ## [0.10.1](https://github.com/OpenReliant/openreliant/compare/v0.10.0...v0.10.1) (2026-10-11)
 
 
