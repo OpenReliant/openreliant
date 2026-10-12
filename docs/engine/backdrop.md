@@ -200,22 +200,24 @@ the planets' table names one (`atmosphere.Shell`), so that a mod can draw it fro
 each channel falling off with height, lit by the sun and shaded by the planet. The function is
 looked up by name as the mission makes the planet, since the mods register their functions after
 their load scripts set the table; a name that no mod registers leaves the planet its ring, if it has
-one. The function draws on a ring of 96 quads with no texture, and what it leaves is added over what
-lies behind it. Each frame the ring stands at the middle of the planet's sphere, facing the camera,
-and each of its circles stands as far out as the sphere of its radius looks from the camera: the
-inner circle's sphere is the table's inner edge times the radius, and the outer circle's its outer
-edge. The sphere is the middle of the bounds of the planet's first part and half their widest span,
-which for Earth's model stands 1.25 million units off the object's origin; for a flattened planet
-the radius is its equatorial radius. The ring takes the planet's own frame, with the sphere's middle
-as its origin and the sphere's radius as its unit, and its circles turn each frame to face the
-camera in it, so that the function can trace the line of sight through each pixel and find the
-planet's pole ([A planet's atmosphere](../guide/scripting.md#a-planets-atmosphere)). The ring is lit
-by the planets' key light alone, so the function reads the sun's direction. It isn't drawn while the
-camera stands within its outer edge. `--original` draws it too, since a mod asks for it, but lights
-each vertex, which leaves the function no direction toward the sun. The ring is drawn on the
-background layer and the planet on the world layer, so the planet hides the ring within its edge:
-haze in front of the planet's disk is drawn by a surface function on the planet's texture, which
-adds it in linear light (`Surface.scattered`).
+one. The function draws on a ring of 96 quads with no texture, and what it leaves is added to what
+lies behind it in linear light, as light adds, where the game's effects add theirs to the encoded
+colour ([Surface and lighting functions](../port/renderer.md#surface-and-lighting-functions)). Each
+frame the ring stands at the middle of the planet's sphere, facing the camera, and each of its
+circles stands as far out as the sphere of its radius looks from the camera: the inner circle's
+sphere is the table's inner edge times the radius, and the outer circle's its outer edge. The sphere
+is the middle of the bounds of the planet's first part and half their widest span, which for Earth's
+model stands 1.25 million units off the object's origin; for a flattened planet the radius is its
+equatorial radius. The ring takes the planet's own frame, with the sphere's middle as its origin and
+the sphere's radius as its unit, and its circles turn each frame to face the camera in it, so that
+the function can trace the line of sight through each pixel and find the planet's pole ([A planet's
+atmosphere](../guide/scripting.md#a-planets-atmosphere)). The ring is lit by the planets' key light
+alone, so the function reads the sun's direction. It isn't drawn while the camera stands within its
+outer edge. `--original` draws it too, since a mod asks for it, but lights each vertex, which leaves
+the function no direction toward the sun. The ring is drawn on the background layer and the planet
+on the world layer, so the planet hides the ring within its edge: haze in front of the planet's disk
+is drawn by a surface function on the planet's texture, which adds it in linear light
+(`Surface.scattered`).
 
 ## Lights
 

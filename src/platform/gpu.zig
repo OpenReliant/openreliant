@@ -128,7 +128,8 @@ const Vertex = extern struct {
 /// one after that, whether it is drawn as a hologram in the one after that, whether its
 /// texture's emissive map is shaded in the one after that, whether a mod's surface function makes
 /// it see-through in the one after that, how it keeps the light that mustn't bloom in the two
-/// after that, and whether it multiplies its colour by its alpha itself in the one after that.
+/// after that, whether it multiplies its colour by its alpha itself in the one after that, and
+/// whether it adds its light to what lies behind in linear light in the one after that.
 const Shading = packed struct(u32) {
     receives: device.Receives,
     magnify: srtexture.Image.Magnify,
@@ -148,7 +149,9 @@ const Shading = packed struct(u32) {
     /// It multiplies its colour by its alpha itself, and is added at full strength, so that its
     /// alpha can carry the light it holds back (`HeldBloom.added`).
     premultiplies: bool = false,
-    _unused: u12 = 0,
+    /// It adds its light to what lies behind it in linear light (`Run.adds_linearly`).
+    adds_linearly: bool = false,
+    _unused: u11 = 0,
 
     /// A draw's shading, its texture's maps shaded where `materials` (`Gpu.shadesMaterials`).
     fn of(state: device.State, materials: bool) Shading {
@@ -169,8 +172,9 @@ const Shading = packed struct(u32) {
 };
 
 /// The textures the device's fragment shader reads: the texture array, the shadows' maps, the
-/// array's normal maps and material maps, the reflections' cube, and the array's emissive maps.
-const fragment_samplers = 6;
+/// array's normal maps and material maps, the reflections' cube, the array's emissive maps, and
+/// what lies behind the draws that add their light linearly (`Gpu.drawBehind`).
+const fragment_samplers = 7;
 
 /// The uniform buffers the device's fragment shader reads: the frame's settings, its lights, its
 /// shadows, and what the variants with mods' functions read (`variants.Uniforms`).
@@ -270,34 +274,49 @@ const HeldBloom = enum(u2) {
     /// A mod's surface function on a surface added over the scene adds the light it holds back.
     added,
 
+    /// How a draw into `into` keeps it: into what lies behind as into the scene, so that the runs
+    /// drawn there blend as they do in the scene.
     fn of(into: Into, blend: ?srd3d.Factors, variant: u16) HeldBloom {
-        if (into != .scene) return .left;
+        if (into == .finished or into == .reflections) return .left;
         const factors = blend orelse return .replaced;
-        return if (variant != 0 and factors.destination == .one) .added else .left;
+        return if (variant != 0 and factors.adds()) .added else .left;
     }
 };
 
 /// What a pass of the device's shader draws into: the scene, in floats where the device lights in
 /// linear light, several samples a pixel and with a depth buffer; the finished frame, which the
-/// display is drawn over, of one sample and no depth; or a face of the reflections' cube, in the
-/// scene's format, of one sample and no depth.
-const Into = enum { scene, finished, reflections };
+/// display is drawn over, of one sample and no depth; a face of the reflections' cube, in the
+/// scene's format, of one sample and no depth; or what lies behind the draws that add their light
+/// linearly (`Gpu.drawBehind`), the scene before the first of them, in the scene's format, of one
+/// sample and no depth.
+const Into = enum { scene, finished, reflections, behind };
+
+/// The pipeline that draws a run of the scene, of `key`, into what lies behind (`Gpu.drawBehind`):
+/// its states as the scene's, but for the depth buffer, which the target has none of. The runs
+/// before the first that adds linearly are the background layer's, which doesn't use it.
+fn behindKey(key: PipelineKey) PipelineKey {
+    var behind = key;
+    behind.into = .behind;
+    behind.depth = .{ .testing = false, .writing = false };
+    return behind;
+}
 
 /// The pipelines the device makes as it starts (`Gpu.prepare`): the scene's, for each layer and
 /// blend mode in each topology, and those that test no depth again for what is drawn over the
-/// finished frame, which has no depth buffer. Each once, though layers and modes share them.
+/// finished frame and into what lies behind, which have no depth buffer. Each once, though layers
+/// and modes share them.
 const prepared = keys: {
     const layers = std.enums.values(srd3d.Layer);
     const modes = std.enums.values(srapiext.Material.Blend);
     const topologies = std.enums.values(Topology);
-    var found: [layers.len * modes.len * topologies.len * 2]PipelineKey = undefined;
+    var found: [layers.len * modes.len * topologies.len * 3]PipelineKey = undefined;
     var count: usize = 0;
     @setEvalBranchQuota(20_000);
     for (layers) |layer| for (modes) |mode| for (topologies) |drawn| {
         const scene: PipelineKey = .{ .topology = drawn, .depth = srd3d.depth(layer, mode), .blend = srd3d.factors(mode) };
         var over = scene;
         over.into = .finished;
-        for ([_]PipelineKey{ scene, over }) |key| {
+        for ([_]PipelineKey{ scene, over, behindKey(scene) }) |key| {
             if (key.into != .scene and key.depth.testing) continue;
             const known = for (found[0..count]) |seen| {
                 if (std.meta.eql(seen, key)) break true;
@@ -478,6 +497,11 @@ const Run = struct {
     /// Read held at its texture's edges (`edge_sampler`): a point-filtered draw's, which the
     /// original never filtered past its edges.
     held: bool = false,
+    /// It adds its light to what lies behind it in linear light, as light adds, rather than to the
+    /// encoded colour as the game's effects add theirs: a draw of the scene that adds, of an object
+    /// that asks for it (`device.State.adds_linearly`). It reads what lies behind from the scene
+    /// drawn before the frame's first such run (`Gpu.drawBehind`).
+    adds_linearly: bool = false,
     first: u32,
     count: u32,
 };
@@ -568,6 +592,11 @@ pub const Gpu = struct {
     no_reflections: *c.SDL_GPUTexture = undefined,
     /// The reflections' sampler: trilinear, the faces' edges held.
     reflection_sampler: *c.SDL_GPUSampler = undefined,
+    /// What lies behind the draws that add their light linearly, while the frame's scene is drawn,
+    /// where it has any (`drawBehind`).
+    behind: ?*c.SDL_GPUTexture = null,
+    /// A texture bound in place of what lies behind where nothing is, which the shader never reads.
+    no_behind: *c.SDL_GPUTexture = undefined,
     /// The face of the reflections the draws go to, while they are drawn.
     face: ?u3 = null,
     /// Whether the reflections were drawn this frame.
@@ -626,6 +655,9 @@ pub const Gpu = struct {
         /// The frame with its bloom added back, which is what goes to the screen and to a
         /// screenshot; null where nothing blooms and the frame itself is what is shown.
         composed: ?*c.SDL_GPUTexture,
+        /// What lies behind the draws that add their light linearly (`Gpu.drawBehind`), in the
+        /// scene's format, of one sample; made the first time a frame has such a draw.
+        behind: ?*c.SDL_GPUTexture = null,
 
         /// What the frame was drawn into.
         fn frame(targets: Targets) *c.SDL_GPUTexture {
@@ -721,6 +753,7 @@ pub const Gpu = struct {
         gpu.blank = try gpu.place(&blank_levels, .{}, null);
         gpu.no_maps = try gpu.arrayTexture(.{ .width = 1, .height = 1, .levels = 1 }, 1, map_format);
         gpu.no_reflections = try gpu.cubeTexture(1, 1, c.SDL_GPU_TEXTUREUSAGE_SAMPLER);
+        gpu.no_behind = try gpu.target(.{ 1, 1 }, map_format, c.SDL_GPU_TEXTUREUSAGE_SAMPLER, c.SDL_GPU_SAMPLECOUNT_1);
         gpu.reflection_sampler = try reflectionSampler(handle);
         if (settings.bloom or linear) try gpu.startScreen();
         gpu.prepare();
@@ -907,6 +940,7 @@ pub const Gpu = struct {
         c.SDL_ReleaseGPUTexture(gpu.handle, gpu.no_maps);
         if (gpu.reflections) |cube| c.SDL_ReleaseGPUTexture(gpu.handle, cube);
         c.SDL_ReleaseGPUTexture(gpu.handle, gpu.no_reflections);
+        c.SDL_ReleaseGPUTexture(gpu.handle, gpu.no_behind);
         c.SDL_ReleaseGPUSampler(gpu.handle, gpu.reflection_sampler);
         gpu.arrays.deinit(gpu.gpa);
         gpu.uploads.deinit(gpu.gpa);
@@ -1092,6 +1126,7 @@ pub const Gpu = struct {
         gpu.failed = false;
         gpu.face = null;
         gpu.reflected = false;
+        gpu.behind = null;
         gpu.shadows.clear();
     }
 
@@ -1121,6 +1156,8 @@ pub const Gpu = struct {
         var shading: Shading = .of(state, gpu.shadesMaterials());
         shading.held_bloom = key.held_bloom;
         shading.premultiplies = key.held_bloom == .added and state.blend.?.source == .source_alpha;
+        const adds = if (state.blend) |factors| factors.adds() else false;
+        shading.adds_linearly = into == .scene and state.adds_linearly and adds;
         const base: u32 = @intCast(gpu.vertices.items.len);
         try gpu.vertices.ensureUnusedCapacity(gpu.gpa, vertices.len);
         for (vertices) |v| gpu.vertices.appendAssumeCapacity(.{
@@ -1145,6 +1182,7 @@ pub const Gpu = struct {
             .face = gpu.face,
             .array = if (slot) |s| s.array else null,
             .held = state.filter == .point,
+            .adds_linearly = shading.adds_linearly,
             .first = first,
             .count = count,
         };
@@ -1319,12 +1357,9 @@ pub const Gpu = struct {
     fn drawReflections(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer) Error!void {
         const cube = gpu.reflections orelse return;
         for (0..cube_face_count) |face| {
-            var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
-            colour.texture = cube;
+            var colour = colourTarget(cube, c.SDL_GPU_LOADOP_CLEAR);
             colour.layer_or_depth_plane = @intCast(face);
             colour.clear_color = .{ .r = 0, .g = 0, .b = 0, .a = 1 };
-            colour.load_op = c.SDL_GPU_LOADOP_CLEAR;
-            colour.store_op = c.SDL_GPU_STOREOP_STORE;
             const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, null) orelse return fail("SDL_BeginGPURenderPass");
             gpu.drawRuns(commands, pass, .{ reflection_side, reflection_side }, gpu.runs.items, .reflections, @intCast(face));
             c.SDL_EndGPURenderPass(pass);
@@ -1524,17 +1559,15 @@ pub const Gpu = struct {
         // Every pipeline the frame needs, before the passes.
         for (gpu.runs.items) |run| _ = try gpu.pipeline(run.key);
         if (gpu.reflected) try gpu.drawReflections(commands);
+        const scene = gpu.runs.items[0 .. gpu.overlay_from orelse gpu.runs.items.len];
+        gpu.behind = try gpu.drawBehind(commands, size, scene);
 
-        var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
-        colour.texture = targets.colour;
+        var colour = colourTarget(targets.colour, c.SDL_GPU_LOADOP_CLEAR);
         // While the scene holds back bloom, its alpha starts with none held back (`HeldBloom`).
         colour.clear_color = .{ .r = 0, .g = 0, .b = 0, .a = if (gpu.holds_bloom) 0 else 1 };
-        colour.load_op = c.SDL_GPU_LOADOP_CLEAR;
         if (targets.resolved) |resolved| {
             colour.store_op = c.SDL_GPU_STOREOP_RESOLVE;
             colour.resolve_texture = resolved;
-        } else {
-            colour.store_op = c.SDL_GPU_STOREOP_STORE;
         }
         // Depth is reversed, nearer greater, and clears to 0, as the device's `begin` has it.
         var depth = std.mem.zeroes(c.SDL_GPUDepthStencilTargetInfo);
@@ -1546,7 +1579,37 @@ pub const Gpu = struct {
         depth.stencil_store_op = c.SDL_GPU_STOREOP_DONT_CARE;
         const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, &depth) orelse return fail("SDL_BeginGPURenderPass");
         defer c.SDL_EndGPURenderPass(pass);
-        gpu.drawRuns(commands, pass, size, gpu.runs.items[0 .. gpu.overlay_from orelse gpu.runs.items.len], .scene, null);
+        gpu.drawRuns(commands, pass, size, scene, .scene, null);
+    }
+
+    /// Draws what lies behind the draws of the scene that add their light linearly
+    /// (`Run.adds_linearly`), where the frame has any: the scene's runs before the first of them,
+    /// as the scene draws them but of one sample, into `Targets.behind`, made the first time it is
+    /// needed. Those runs are the background layer's, the sky's, which uses no depth. The draws
+    /// that add linearly read it, and add their light to it in linear light, so that the blend
+    /// adds the difference (`shaders/device.glsl`). Returns it, or null where no run adds
+    /// linearly.
+    ///
+    /// **Improvement:** the original adds every effect to the encoded colour. That stays for the
+    /// game's effects, which were made for it, but the light a mod's atmosphere adds, the sunlight
+    /// its haze scatters, would come out several times too bright over the sun's glow.
+    fn drawBehind(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, size: [2]u32, scene: []const Run) Error!?*c.SDL_GPUTexture {
+        const first = for (scene, 0..) |run, at| {
+            if (run.adds_linearly) break at;
+        } else return null;
+        const before = scene[0..first];
+        for (before) |run| _ = try gpu.pipeline(behindKey(run.key));
+        const targets = &gpu.targets.?;
+        const texture = targets.behind orelse made: {
+            const usage = c.SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | c.SDL_GPU_TEXTUREUSAGE_SAMPLER;
+            targets.behind = try gpu.target(size, gpu.colour_format, usage, c.SDL_GPU_SAMPLECOUNT_1);
+            break :made targets.behind.?;
+        };
+        const colour = colourTarget(texture, c.SDL_GPU_LOADOP_CLEAR);
+        const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, null) orelse return fail("SDL_BeginGPURenderPass");
+        defer c.SDL_EndGPURenderPass(pass);
+        gpu.drawRuns(commands, pass, size, before, .behind, null);
+        return texture;
     }
 
     /// The device shader's `Frame` block (`shaders/device.glsl`): `settings`, then `reflection`.
@@ -1579,7 +1642,8 @@ pub const Gpu = struct {
         // are.
         const floats = gpu.linear and into != .finished;
         // The scene's pixels read the reflections drawn this frame: their levels, or 0 for none.
-        const reflecting = into == .scene and gpu.reflected;
+        // What lies behind is drawn as the scene is.
+        const reflecting = (into == .scene or into == .behind) and gpu.reflected;
         const frame_settings: FrameSettings = .{
             .sixteen_bit = @floatFromInt(@intFromBool(!floats and gpu.settings.sixteen_bit)),
             .crisp = @floatFromInt(@intFromBool(gpu.settings.filter == .crisp)),
@@ -1603,13 +1667,17 @@ pub const Gpu = struct {
         // The scene's textures wrap; the images drawn over the finished frame are held at their
         // edges.
         const sampler = switch (into) {
-            .scene, .reflections => gpu.sampler,
+            .scene, .reflections, .behind => gpu.sampler,
             .finished => gpu.edge_sampler,
         };
         const around = if (reflecting) gpu.reflections orelse gpu.no_reflections else gpu.no_reflections;
+        // Only the scene's runs read what lies behind them.
+        const behind = if (into == .scene) gpu.behind orelse gpu.no_behind else gpu.no_behind;
         for (runs) |run| {
             if (run.face != face) continue;
-            c.SDL_BindGPUGraphicsPipeline(pass, gpu.pipelines.get(run.key).?);
+            // What lies behind is drawn with pipelines of its own.
+            const key = if (into == .behind) behindKey(run.key) else run.key;
+            c.SDL_BindGPUGraphicsPipeline(pass, gpu.pipelines.get(key).?);
             if (!std.meta.eql(custom.surface, run.parameters) or !std.meta.eql(custom.object, run.object) or custom.bloom[0] != run.bloom) {
                 custom.surface = run.parameters;
                 custom.object = run.object;
@@ -1625,6 +1693,7 @@ pub const Gpu = struct {
                 .{ .texture = array.maps.get(.orm) orelse gpu.no_maps, .sampler = read },
                 .{ .texture = around, .sampler = gpu.reflection_sampler },
                 .{ .texture = array.maps.get(.emissive) orelse gpu.no_maps, .sampler = read },
+                .{ .texture = behind, .sampler = gpu.screen_sampler },
             };
             c.SDL_BindGPUFragmentSamplers(pass, 0, &bindings, bindings.len);
             c.SDL_DrawGPUIndexedPrimitives(pass, run.count, 1, run.first, 0, 0);
@@ -1633,16 +1702,12 @@ pub const Gpu = struct {
 
     /// Draws what was recorded over the finished frame into `into`, after the bloom has been added
     /// to it, so that the display the game drew over its own frame is not bloomed with the scene.
-    fn drawOverlay(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, targets: Targets, into: *c.SDL_GPUTexture) Error!void {
+    fn drawOverlay(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, targets: Targets, into: *c.SDL_GPUTexture) sdl.Error!void {
         const first = gpu.overlay_from orelse return;
         const runs = gpu.runs.items[@min(first, gpu.runs.items.len)..];
         if (runs.len == 0) return;
-        for (runs) |run| _ = try gpu.pipeline(run.key);
-
-        var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
-        colour.texture = into;
-        colour.load_op = c.SDL_GPU_LOADOP_LOAD;
-        colour.store_op = c.SDL_GPU_STOREOP_STORE;
+        // Their pipelines were made with the scene's (`encode`).
+        const colour = colourTarget(into, c.SDL_GPU_LOADOP_LOAD);
         const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, null) orelse return fail("SDL_BeginGPURenderPass");
         defer c.SDL_EndGPURenderPass(pass);
         gpu.drawRuns(commands, pass, .{ targets.width, targets.height }, runs, .finished, null);
@@ -1817,6 +1882,7 @@ pub const Gpu = struct {
         c.SDL_ReleaseGPUTexture(gpu.handle, targets.depth);
         if (targets.bloom) |bloom| for (bloom) |texture| c.SDL_ReleaseGPUTexture(gpu.handle, texture);
         if (targets.composed) |texture| c.SDL_ReleaseGPUTexture(gpu.handle, texture);
+        if (targets.behind) |texture| c.SDL_ReleaseGPUTexture(gpu.handle, texture);
         gpu.targets = null;
         gpu.shown = null;
     }
@@ -1842,7 +1908,7 @@ pub const Gpu = struct {
         var colour = std.mem.zeroes(c.SDL_GPUColorTargetDescription);
         // What is drawn over the finished frame goes into its format.
         colour.format = switch (key.into) {
-            .scene, .reflections => gpu.colour_format,
+            .scene, .reflections, .behind => gpu.colour_format,
             .finished => gpu.finish_format,
         };
         // The original's back buffer kept no alpha, and blending reads only the source's: alpha
@@ -1988,7 +2054,7 @@ fn hasAlpha(format: c.SDL_GPUTextureFormat) bool {
 /// Runs `next` on from `last` when both draw with the same pipeline and array: a run with no
 /// texture joins any.
 fn join(last: *Run, next: Run) bool {
-    if (!std.meta.eql(last.key, next.key) or last.held != next.held or last.face != next.face) return false;
+    if (!std.meta.eql(last.key, next.key) or last.held != next.held or last.face != next.face or last.adds_linearly != next.adds_linearly) return false;
     if (!std.meta.eql(last.parameters, next.parameters) or !std.meta.eql(last.object, next.object) or last.bloom != next.bloom) return false;
     if (last.array != null and next.array != null and last.array.? != next.array.?) return false;
     if (last.first + last.count != next.first) return false;
@@ -2012,6 +2078,16 @@ fn seconds() f32 {
     return @floatCast(@as(f64, @floatFromInt(c.SDL_GetTicks())) / std.time.ms_per_s);
 }
 
+/// A render pass's colour target of `texture`: cleared to black first, kept as it is, or left for
+/// the pass to draw over whole, as `load` says, and kept once the pass ends.
+fn colourTarget(texture: *c.SDL_GPUTexture, load: c.SDL_GPULoadOp) c.SDL_GPUColorTargetInfo {
+    var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
+    colour.texture = texture;
+    colour.load_op = load;
+    colour.store_op = c.SDL_GPU_STOREOP_STORE;
+    return colour;
+}
+
 /// Draws the screen-wide triangle into `into` with `pipeline`, reading `source` and `frame_image`
 /// with `sampler` and pushing `uniforms` to the fragment stage. Used by the screen's passes and by
 /// the mods' post effects (`gpu/effects.zig`).
@@ -2024,10 +2100,7 @@ pub fn drawScreenPass(
     frame_image: *c.SDL_GPUTexture,
     uniforms: []const u8,
 ) sdl.Error!void {
-    var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
-    colour.texture = into;
-    colour.load_op = c.SDL_GPU_LOADOP_DONT_CARE;
-    colour.store_op = c.SDL_GPU_STOREOP_STORE;
+    const colour = colourTarget(into, c.SDL_GPU_LOADOP_DONT_CARE);
     const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, null) orelse return fail("SDL_BeginGPURenderPass");
     defer c.SDL_EndGPURenderPass(pass);
     c.SDL_BindGPUGraphicsPipeline(pass, pipeline);
@@ -2071,11 +2144,8 @@ pub fn shader(handle: *c.SDL_GPUDevice, spirv: bool, stage: c.SDL_GPUShaderStage
 /// Clears `texture` to black in a pass of its own: a swapchain texture the frame couldn't be put
 /// on, which must still go to the window.
 fn clearTexture(commands: *c.SDL_GPUCommandBuffer, texture: *c.SDL_GPUTexture) void {
-    var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
-    colour.texture = texture;
+    var colour = colourTarget(texture, c.SDL_GPU_LOADOP_CLEAR);
     colour.clear_color = .{ .r = 0, .g = 0, .b = 0, .a = 1 };
-    colour.load_op = c.SDL_GPU_LOADOP_CLEAR;
-    colour.store_op = c.SDL_GPU_STOREOP_STORE;
     const pass = c.SDL_BeginGPURenderPass(commands, &colour, 1, null) orelse return;
     c.SDL_EndGPURenderPass(pass);
 }
@@ -2186,6 +2256,35 @@ test Shading {
     held.held_bloom = .replaced;
     held.premultiplies = false;
     try std.testing.expectEqual(0x20001, @as(u32, @bitCast(held)));
+    // Whether it adds its light to what lies behind in linear light in the bit after.
+    var added: Shading = .of(state, false);
+    added.adds_linearly = true;
+    try std.testing.expectEqual(0x100001, @as(u32, @bitCast(added)));
+}
+
+test "the device's shader reads each field of the shading where Shading puts it" {
+    // Each field but the unused bits is a mask in the shader, named `shade` and the field's words,
+    // as `shadeSoftTerminator` for `soft_terminator`.
+    const source = programs.Name.device.source();
+    const fields = @typeInfo(Shading).@"struct";
+    inline for (fields.field_names, fields.field_types) |field, Field| {
+        if (comptime std.mem.eql(u8, field, "_unused")) continue;
+        const name = comptime name: {
+            var camel: []const u8 = "shade";
+            var words = std.mem.splitScalar(u8, field, '_');
+            while (words.next()) |word| camel = camel ++ .{std.ascii.toUpper(word[0])} ++ word[1..];
+            break :name camel;
+        };
+        const declared = "const uint " ++ name ++ " = 0x";
+        const at = std.mem.find(u8, source, declared) orelse {
+            std.debug.print("device.glsl doesn't name {s}\n", .{name});
+            return error.TestUnexpectedResult;
+        };
+        const digits = source[at + declared.len ..];
+        const mask = try std.fmt.parseInt(u32, digits[0 .. std.mem.findScalar(u8, digits, 'u') orelse digits.len], 16);
+        const bits: u32 = (1 << @bitSizeOf(Field)) - 1;
+        try std.testing.expectEqual(bits << @bitOffsetOf(Shading, field), mask);
+    }
 }
 
 test HeldBloom {
@@ -2198,9 +2297,22 @@ test HeldBloom {
     // OpenReliant's own glows hold nothing back, and what blends by its alpha needs its alpha.
     try std.testing.expectEqual(.left, HeldBloom.of(.scene, srd3d.factors(.add), 0));
     try std.testing.expectEqual(.left, HeldBloom.of(.scene, srd3d.factors(.alpha), 5));
-    // Nothing blooms past the scene.
+    // What lies behind keeps it as the scene does. Nothing blooms past the scene.
+    try std.testing.expectEqual(.replaced, HeldBloom.of(.behind, null, 0));
+    try std.testing.expectEqual(.added, HeldBloom.of(.behind, srd3d.factors(.add_alpha), 5));
     try std.testing.expectEqual(.left, HeldBloom.of(.finished, null, 5));
     try std.testing.expectEqual(.left, HeldBloom.of(.reflections, null, 0));
+}
+
+test behindKey {
+    // A world run's states into what lies behind, which has no depth buffer.
+    const world: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.world, .add_alpha), .blend = srd3d.factors(.add_alpha), .variant = 3, .held_bloom = .added };
+    const behind = behindKey(world);
+    try std.testing.expectEqual(Into.behind, behind.into);
+    try std.testing.expectEqual(srd3d.Depth{ .testing = false, .writing = false }, behind.depth);
+    try std.testing.expectEqual(world.blend, behind.blend);
+    try std.testing.expectEqual(world.variant, behind.variant);
+    try std.testing.expectEqual(world.held_bloom, behind.held_bloom);
 }
 
 test hasAlpha {
@@ -2247,25 +2359,29 @@ test join {
     try std.testing.expectEqual(2, last.array.?);
     try std.testing.expect(join(&last, .{ .key = flat, .array = null, .first = 9, .count = 3 }));
     try std.testing.expect(!join(&last, .{ .key = flat, .array = 1, .first = 12, .count = 3 }));
-    // Other render states do not join, nor another face of the reflections.
+    // Other render states do not join, nor another face of the reflections, nor a run that adds
+    // its light linearly.
     try std.testing.expect(!join(&last, .{ .key = added, .array = 2, .first = 12, .count = 3 }));
     try std.testing.expect(!join(&last, .{ .key = flat, .face = 4, .array = 2, .first = 12, .count = 3 }));
+    try std.testing.expect(!join(&last, .{ .key = flat, .adds_linearly = true, .array = 2, .first = 12, .count = 3 }));
     try std.testing.expectEqual(12, last.count);
 }
 
 test prepared {
     // The scene's ten sets of states in three topologies, and the five that test no depth again
-    // over the finished frame.
-    try std.testing.expectEqual(45, prepared.len);
+    // over the finished frame and into what lies behind.
+    try std.testing.expectEqual(60, prepared.len);
     for (prepared, 0..) |key, index| {
-        // The finished frame has no depth to test.
+        // The finished frame and what lies behind have no depth to test.
         try std.testing.expect(key.into == .scene or !key.depth.testing);
         for (prepared[index + 1 ..]) |other| try std.testing.expect(!std.meta.eql(key, other));
     }
-    // Among them, a blended effect's in the world, and the display's over the finished frame.
+    // Among them, a blended effect's in the world, the display's over the finished frame, and the
+    // sun's glow's into what lies behind.
     const effect: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.world, .premultiplied), .blend = srd3d.factors(.premultiplied) };
     const display: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.overlay, .alpha), .blend = srd3d.factors(.alpha), .into = .finished };
-    for ([_]PipelineKey{ effect, display }) |wanted| {
+    const glow: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.background, .add_alpha), .blend = srd3d.factors(.add_alpha), .into = .behind };
+    for ([_]PipelineKey{ effect, display, glow }) |wanted| {
         const found = for (prepared) |key| {
             if (std.meta.eql(key, wanted)) break true;
         } else false;

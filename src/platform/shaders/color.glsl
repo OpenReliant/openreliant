@@ -11,10 +11,16 @@ vec3 decoded(vec3 c) {
     return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), greaterThan(c, vec3(0.04045)));
 }
 
+// A colour in linear light, encoded in sRGB as a frame of floats keeps it: what stands past white
+// stays past it.
+vec3 encodedPastWhite(vec3 c) {
+    c = max(c, 0.0);
+    return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, greaterThan(c, vec3(0.0031308)));
+}
+
 // A colour in linear light, encoded in sRGB for the screen.
 vec3 encoded(vec3 c) {
-    c = clamp(c, 0.0, 1.0);
-    return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, greaterThan(c, vec3(0.0031308)));
+    return encodedPastWhite(min(c, vec3(1.0)));
 }
 
 // A colour with each channel past `knee` eased toward 1 rather than clipped: what is far past it

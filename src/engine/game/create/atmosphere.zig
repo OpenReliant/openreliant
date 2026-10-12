@@ -223,9 +223,11 @@ pub const SurfaceNames = struct {
 /// own, as the planet's model holds it, with the sphere's middle as the origin and the sphere's
 /// radius as the unit, so that the function can trace the line of sight through each pixel, and
 /// find the planet's pole for a planet that isn't round. It has no texture, and what the function
-/// leaves is added over what lies behind it. It is lit as the planets are, by the second key light
-/// alone (`create.planet_light_mask`), so that the function reads the direction toward the sun.
-/// Both styles draw it, since a mod asks for it.
+/// leaves is added to what lies behind it in linear light, as light adds
+/// (`srapiext.MeshObject.adds_linearly`), where the game's effects add theirs to the encoded colour.
+/// It is lit as the planets are, by the second key light alone (`create.planet_light_mask`), so
+/// that the function reads the direction toward the sun. Both styles draw it, since a mod asks for
+/// it.
 pub const Shell = struct {
     mesh: srapiext.Mesh,
     level: [1]srapiext.Level,
@@ -257,6 +259,7 @@ pub const Shell = struct {
             .light_mask = planet_light_mask,
             .colour = .{ 0, 0, 0, 1 },
             .surface = surface,
+            .adds_linearly = true,
         };
         return shell;
     }
@@ -688,8 +691,9 @@ test "a mod's surface function draws a planet's atmosphere" {
     try std.testing.expectEqual(null, atmospheres.entries[0].ring);
     try std.testing.expectEqual(7, shell.object.surface.?.function);
     try std.testing.expectEqual([4]f32{ 1, 2, 3, 4 }, shell.object.surface.?.parameters);
-    // It is lit as the planets are, its faces facing along its Z, so that the function reads the
-    // direction toward the sun.
+    // It adds its light in linear light, and is lit as the planets are, its faces facing along its
+    // Z, so that the function reads the direction toward the sun.
+    try std.testing.expect(shell.object.adds_linearly);
     try std.testing.expect(shell.object.flags.lit);
     try std.testing.expectEqual(create.planet_light_mask, shell.object.light_mask);
     for (shell.mesh.normals) |normal| try std.testing.expectApproxEqAbs(1, @abs(normal[2]), 1e-5);

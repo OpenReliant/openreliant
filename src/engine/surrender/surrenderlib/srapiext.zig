@@ -466,6 +466,10 @@ pub const MeshObject = struct {
     /// OpenReliant's: the mod's surface function its surfaces are shaded with, in place of their
     /// textures' (`srtexture.ModSurface`), where a script gave it one.
     surface: ?srtexture.ModSurface = null,
+    /// OpenReliant's: its added surfaces add their light to what lies behind them in linear light,
+    /// where the device can, rather than to the encoded colour as the game's effects add theirs: a
+    /// mod's atmosphere (`atmosphere.Shell`), whose light is the sunlight its haze scatters.
+    adds_linearly: bool = false,
 
     /// The mesh of the level drawn, or of the coarsest where the level is past them; it has one
     /// at least.
