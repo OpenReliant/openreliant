@@ -525,7 +525,8 @@ An event value is 12 bytes: a label pointer, a kind mask of the kind the command
 byte that is `0xFF` except `0x09` for ShotAt's weapon, and a byte saying whether a trigger's operand
 is checked against the value. ShotAt carries the attacker, the shield damage, the hull damage, the
 victim and the weapon; Destroyed the killer and the victim. The damage values set kind bit `0x1000`,
-which no command parameter uses.
+a percentage, which no command parameter uses. The shipped scripts push a number compared with one
+of them with `push_byte_alt` ([Statements](../formats/dte.md#statements)).
 
 Events pass ships as the addresses of their records, and the matcher turns a trigger's operands into
 the same form (`trigger_operand_value`, `0x004530A0`): the [mission format](../formats/dte.md#operands)

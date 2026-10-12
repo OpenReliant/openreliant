@@ -361,10 +361,11 @@ test Command {
     try std.testing.expectError(error.Usage, Command.parse(&.{ "disassemble", "M01.DTE" }));
 }
 
-/// Rewrites `mission` three ways and fails if anything changes: with its sections' whole rooms,
+/// Rewrites `mission` four ways and fails if anything changes: with its sections' whole rooms,
 /// byte for byte, if the file is laid out like the template; from its records alone, record for
-/// record; and each routine of its script, reassembled from its disassembly, byte for byte except
-/// the block's padding.
+/// record; each routine of its script, reassembled from its disassembly, byte for byte except the
+/// block's padding; and each routine read as statements and lowered again, byte for byte except
+/// the bytes no instruction reaches (`sameReached`).
 fn check(ctx: Context, mission: dte.Mission) !void {
     const gpa = ctx.arena;
     const out = ctx.stdout;
@@ -407,6 +408,63 @@ fn check(ctx: Context, mission: dte.Mission) !void {
         assembled += 1;
     }
     try out.print("script: reassembled {f} to the same bytes; skipped {f} with unreachable bytes\n", .{ sltool.count(assembled, "routine"), sltool.count(skipped, "routine") });
+
+    const routines = try mission.routines(gpa);
+    for (routines) |routine| {
+        const body = dte.decompile.routine(gpa, mission, routine) catch |err| {
+            try out.print("routine at {d}: can't read it as statements: {s}\n", .{ routine.start, @errorName(err) });
+            return error.Differs;
+        };
+        const again = try dte.statements.bytes(gpa, body, try .of(mission, routine));
+        if (!try sameReached(gpa, code[routine.start..][0..routine.extent], again)) {
+            try out.print("routine at {d}: its statements give back other bytes\n", .{routine.start});
+            return error.Differs;
+        }
+    }
+    try out.print("statements: read {f} as statements and lowered them to the same bytes\n", .{sltool.count(routines.len, "routine")});
+}
+
+/// Whether the routine `again` is `original` where it counts: the same length, the same
+/// instructions at the same places, and the same constants the block pushes. The bytes no
+/// instruction reaches may differ: the block's padding, a random choice's unused arm slots and the
+/// constant table's filler, which hold stale bytes in the shipped missions.
+fn sameReached(gpa: std.mem.Allocator, original: []const u8, again: []const u8) !bool {
+    if (again.len != original.len) return false;
+    const first = (try dte.disassemble(gpa, original, 0)) orelse return false;
+    const second = (try dte.disassemble(gpa, again, 0)) orelse return false;
+    if (first.instructions.len != second.instructions.len) return false;
+    var constants: usize = 0;
+    for (first.instructions, second.instructions) |a, b| {
+        if (a.address != b.address or !std.mem.eql(u8, original[a.address..][0..a.size()], again[b.address..][0..b.size()])) return false;
+        if (a.constant()) |index| constants = @max(constants, @as(usize, index) + 1);
+    }
+    const header = dte.BlockReader.header_len;
+    const table = header + dte.BlockReader.at(original, 0).?.code.len;
+    const used = constants * @sizeOf(u32);
+    if (table + used > original.len) return false;
+    return std.mem.eql(u8, again[0..header], original[0..header]) and
+        std.mem.eql(u8, again[table..][0..used], original[table..][0..used]);
+}
+
+test sameReached {
+    const gpa = std.testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    // push_constant 0, command 0, push_byte 1, return; one byte of padding; the constant 7, and
+    // the filler.
+    const original = [_]u8{ 0x0C, 0x00, 0x28, 0x00, 0x21, 0x00, 0x32, 0x01, 0x43, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    var again = original;
+    // Stale padding and filler don't count.
+    again[9] = 0xAA;
+    again[16] = 0xBB;
+    try std.testing.expect(try sameReached(arena, &original, &again));
+    // Another instruction, or another constant, does.
+    again[7] = 0x02;
+    try std.testing.expect(!try sameReached(arena, &original, &again));
+    again[7] = 0x01;
+    again[12] = 0x08;
+    try std.testing.expect(!try sameReached(arena, &original, &again));
 }
 
 /// A routine reassembled from its disassembly, with its constant table unchanged.

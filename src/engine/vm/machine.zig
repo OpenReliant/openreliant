@@ -1932,7 +1932,7 @@ test "random_branch takes the first arm its roll falls below" {
             const high = try r.label();
             const other = try r.label();
             const done = try r.label();
-            try r.randomBranch(other, &.{ .{ .target = low, .threshold = 50, .extra = 0 }, .{ .target = high, .threshold = 100, .extra = 0 } });
+            try r.randomBranch(other, &.{ .{ .target = low, .threshold = 50, .extra = 0 }, .{ .target = high, .threshold = 100, .extra = 0 } }, 2);
             r.place(low);
             try r.op(.push_byte, &.{1});
             try r.branch(.jump, done);

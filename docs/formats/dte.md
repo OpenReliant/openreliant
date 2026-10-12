@@ -665,11 +665,58 @@ Assembled again from its disassembly, every routine of the 44 missions comes bac
 the padding after its last instruction, which in the shipped missions holds stale bytes, and the
 three routines that hold unused arm slots of a `random_branch`.
 
+### Statements
+
+The developers' compiler wrote each statement of a script as pushes, then the instruction that takes
+them. Its ways are regular, so every routine of the 44 missions reads back as statements and lowers
+to the same bytes ([`dte/statements.zig`](../../src/formats/dte/statements.zig),
+[`dte/decompile.zig`](../../src/formats/dte/decompile.zig),
+[#1127](https://github.com/OpenReliant/openreliant/issues/1127)):
+
+| Statement | Bytecode |
+|---|---|
+| A command | Its arguments, then `command` |
+| A part called, or started on a thread of its own | Its arguments, then `call_part` or `spawn_part` |
+| An assignment | `select_global`, `select_array` or `select_argument`, the value, then `assign`, `add_assign` or another store |
+| `if` | The condition, then `branch_if_zero` past the `then` branch |
+| `if` with an `else` | The condition, then `branch_if_zero_alt` past the `then` branch, which ends with a `jump` past the `else` branch |
+| A random choice | `random_branch` with room for ten arms, then each arm's code, which jumps to the end but for the last arm's, then the default's. In the shipped missions the default goes to the end |
+| `return` | The value, then `return`, once at the end of every routine |
+
+How a number or text is pushed depends on where it goes:
+
+- To a command's parameter, by the parameter's kinds (`Kinds` in
+  [`executor.zig`](../../src/engine/game/executor.zig)): a number (`0x80`) with `push_constant`; a
+  named constant, a condition or a part with `push_byte`; a file's name with `push_string`, and
+  text with `push_string_alt`.
+- Compared with ShotAt's damage values, the only values with kind bit `0x1000`, a percentage, with
+  `push_byte_alt`.
+- As a routine's value, with `push_byte`.
+- Anywhere else, assigned or compared, with `push_constant`.
+
+A ship past index 255 is pushed with `push_ship_wide`, and each constant is in the routine's table
+once, in the order first pushed. So each alias of another opcode's handler marks one place in the
+compiler's output: `0x24` an `if` with an `else`, `0x2B` text and `0x2E` a percentage. No shipped
+script uses the other two, `return_alt` (`0x25`) and `push_component_alt` (`0x55`), nor `add` to
+`div`, `mul_assign`, `div_assign` or any floating-point opcode.
+
+A command keeps the arguments the script pushes. 19 commands in missions 88, 271 and 801 get fewer
+than they take ([Commands](../engine/script-vm.md#commands)): `StartDirectorCam` the first four of
+its five, and `SetPlayerTarget` one of its two.
+
+`sltool dte check` reads each routine as statements, lowers them again and compares the result with
+the original: the same instructions at the same places, and the same constants. Only the bytes no
+instruction reaches may differ: the block's padding, the unused arm slots of a random choice and
+the constant table's filler, which hold stale bytes in the shipped missions.
+
 ## Mission source groundwork
 
-[Mission Source v1](https://github.com/OpenReliant/openreliant/issues/608) defines a YAML tool
-input that compiles to a standard `.DTE`. The first implemented slice is source identity and
-typed symbol resolution ([#609](https://github.com/OpenReliant/openreliant/issues/609)).
+Mission source compiles to a standard `.DTE` ([#1126](https://github.com/OpenReliant/openreliant/issues/1126)).
+Its syntax is a subset of Luau, read only as a mission is built, and its model is the one
+[Mission Source v1](https://github.com/OpenReliant/openreliant/issues/608) defines: explicit IDs,
+typed references, display names apart from IDs, and nothing dropped silently. Its script is the
+statements above. The first implemented slice is source identity and typed symbol resolution
+([#609](https://github.com/OpenReliant/openreliant/issues/609)).
 
 [`dte/source.zig`](../../src/formats/dte/source.zig) provides `Symbols(Record)`, a table for one
 collection of existing format records or source records. Each entry has an explicit source `id`
@@ -691,9 +738,9 @@ The table borrows immutable records and ID bytes. Rebuild it after changing IDs 
 order: a reference then resolves to the record's new index. Display names may repeat or change
 without affecting resolution. The caller selects the script bank explicitly.
 
-**Not implemented:** YAML parsing, source compilation, export and preservation. These follow
-in separate slices under #608. The existing binary reader, writer and assembler remain the
-format implementation.
+**Not implemented:** the Luau syntax, its parser, and building and decompiling missions as text,
+which follow under [#1126](https://github.com/OpenReliant/openreliant/issues/1126). The existing
+binary reader, writer and assembler remain the format implementation.
 
 ## Prior art
 

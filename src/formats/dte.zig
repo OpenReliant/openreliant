@@ -25,6 +25,9 @@ pub const write = @import("dte/write.zig");
 pub const assemble = @import("dte/assemble.zig");
 /// A script's instructions as text.
 pub const listing = @import("dte/listing.zig");
+/// A routine's code as statements, and reading them back from the bytecode (#1127).
+pub const statements = @import("dte/statements.zig");
+pub const decompile = @import("dte/decompile.zig");
 
 /// Identity and typed references for mission source collections (#608).
 pub const source = @import("dte/source.zig");
@@ -1181,6 +1184,22 @@ pub const Instruction = struct {
     /// Bytes the whole instruction occupies.
     pub fn size(instruction: Instruction) usize {
         return 1 + instruction.operands.len;
+    }
+
+    /// Its two-byte operand, such as `push_ship_wide`'s index: big-endian, as the script's two-byte
+    /// operands are.
+    pub fn wide(instruction: Instruction) u16 {
+        return std.mem.readInt(u16, instruction.operands[0..2], .big);
+    }
+
+    /// The index in the block's constant table of the constant it pushes: `push_constant`'s and
+    /// `push_constant_wide`'s.
+    pub fn constant(instruction: Instruction) ?u16 {
+        return switch (instruction.opcode) {
+            .push_constant => instruction.operands[0],
+            .push_constant_wide => instruction.wide(),
+            else => null,
+        };
     }
 
     /// Whether execution can continue at the following instruction.
