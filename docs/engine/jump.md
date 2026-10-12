@@ -97,6 +97,13 @@ left for odd: the first at the target, the second to its left, the third to its 
 In a multiplayer game, as the ship of the first player still flying jumps in, JumpedIn is posted
 for the first player's ship too, before its own.
 
+The game measures `jumpin` from the camera (`0x004167CF`), which for the player's ship still watches
+where the jump began, since the camera moves to the arrival only after (`0x0041683B`). After a jump
+longer than the sound reaches (250,000), such as the jumps between mission 1's nav points, the
+player doesn't hear their own ship arrive. **Improvement:** OpenReliant measures the player's own
+`jumpin` from the ship as it arrives (`jump.ArrivalSound`), and from then on hears it from the camera
+as it watches the arrival; `--original` keeps the original's silence.
+
 ## The motions
 
 Each takes the order's state ([Objects](objects.md#the-orders-motion-functions)):
