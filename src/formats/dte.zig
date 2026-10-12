@@ -250,6 +250,8 @@ pub const Ship = extern struct {
 
     /// The `formation_point` of a ship in no formation.
     pub const no_formation_point: u16 = 0xFFFF;
+    /// The `tier` most records hold, which asks for the campaign's loadout tier.
+    pub const campaign_tier: u8 = 0xFF;
 
     /// The `kind` of a waypoint: a point a flight group's Patrol Route flies through, in the order
     /// the mission lists them.
@@ -1693,6 +1695,10 @@ pub const Mission = struct {
         return mission.records(FlightGroup, .flight_groups);
     }
 
+    pub fn squadMembers(mission: Mission) Error![]align(1) const SquadMember {
+        return mission.records(SquadMember, .squad_members);
+    }
+
     pub fn squads(mission: Mission) Error![]align(1) const Squad {
         return mission.records(Squad, .squads);
     }
@@ -1824,12 +1830,9 @@ pub const testing = struct {
         made.kind = kind;
         made.pilot = Ship.no_pilot;
         made.launch_gate = Ship.no_launch;
-        made.tier = campaign_tier;
+        made.tier = Ship.campaign_tier;
         return made;
     }
-
-    /// The `tier` of a record fitted by the campaign's loadout tier (`Ship.tier`).
-    const campaign_tier = 0xFF;
 
     /// `count` ship records of `kind`, each in no flight group, its object ID its index.
     pub fn ships(comptime count: usize, kind: u16) [count]Ship {

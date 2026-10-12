@@ -9,6 +9,7 @@ const dte = @import("../dte.zig");
 const layout = @import("../layout.zig");
 const commands = @import("../../engine/game/executor/commands.zig");
 const orders = @import("../../engine/game/ai/orders.zig");
+const vocabulary = @import("source/vocabulary.zig");
 
 /// How a listing names the Executor's commands.
 pub const Commands = union(enum) {
@@ -108,7 +109,7 @@ pub fn writeInstructionAt(writer: *Writer, mission: dte.Mission, instructions: [
     try writeInstruction(writer, mission, instruction, constants, options);
     if (options.commands != .starlancer) return;
     const argument = argumentOf(instructions, index) orelse return;
-    if (!std.mem.eql(u8, argument.label, ai_mode)) return;
+    if (vocabulary.of(argument.param) != .order) return;
     const number = pushedValue(instruction, constants) orelse return;
     const order: orders.Order = @fromBackingInt(std.math.cast(i16, number) orelse return);
     const info = orders.info(order) orelse return;
@@ -119,14 +120,11 @@ pub fn writeInstructionAt(writer: *Writer, mission: dte.Mission, instructions: [
     }
 }
 
-/// The label of the parameter that takes an order, `SetAI`'s.
-const ai_mode = "AI Mode";
-
-/// A command's parameter that a push fills: its place among the command's parameters, and its
-/// label in the command catalogue.
+/// A command's parameter that a push fills: its place among the command's parameters, and the
+/// parameter in the command catalogue.
 const Argument = struct {
-    param: usize,
-    label: []const u8,
+    index: usize,
+    param: commands.Param,
 };
 
 /// The parameter instruction `index` of `instructions` pushes the argument for: where the
@@ -145,7 +143,7 @@ fn argumentOf(instructions: []const dte.Instruction, index: usize) ?Argument {
         if (!pushesOne(instructions[at - 1].opcode) or !follows(instructions, at)) return null;
     }
     const param = index - first;
-    return .{ .param = param, .label = command.params[param].label };
+    return .{ .index = param, .param = command.params[param] };
 }
 
 /// Whether instruction `index` starts where the one before it ends, so that nothing reached from

@@ -23,6 +23,8 @@ pub const Command = union(enum) {
     script: struct { mission: []const u8 },
     /// Writes the mission and its script again, and checks they come back the same.
     check: struct { mission: []const u8 },
+    /// Writes the mission as Luau source.
+    decompile: struct { mission: []const u8 },
 
     pub const usage =
         \\  dte info <mission>              summarise a mission
@@ -34,6 +36,7 @@ pub const Command = union(enum) {
         \\  dte script <mission>            disassemble the script bytecode
         \\  dte check <mission>             rewrite the mission and its script, and check that
         \\                                  nothing changes
+        \\  dte decompile <mission>         write the mission as Luau source
         \\
     ;
 
@@ -64,9 +67,17 @@ pub const Command = union(enum) {
             .parts => try parts(ctx, mission),
             .script => try script(ctx, mission, models, .starlancer),
             .check => try check(ctx, mission),
+            .decompile => try decompile(ctx, mission, path),
         }
     }
 };
+
+/// Writes `mission`, read from `path`, as Luau source
+/// ([Mission source](../../../docs/formats/mission-source.md)).
+fn decompile(ctx: Context, mission: dte.Mission, path: []const u8) !void {
+    try ctx.stdout.print("-- {s} as mission source, written by sltool dte decompile.\n", .{std.Io.Dir.path.basename(path)});
+    try dte.source.write.write(ctx.stdout, ctx.arena, mission);
+}
 
 fn info(ctx: Context, mission: dte.Mission) !void {
     const ship_list = try mission.ships();

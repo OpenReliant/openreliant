@@ -66,7 +66,13 @@ the count says how much of the reserved room is filled, so most missions are exa
 
 Sections 17 to 21 and 25 are empty in all 44 missions. The engine reads nothing of sections 9, 20,
 21 and 23: the binder binds 21 into a local variable of its own, and the rest into globals nothing
-reads. Sections 9 and 23 hold records in some missions, likely the original editor's. Of the
+reads. Sections 9 and 23 hold records in some missions, likely the original editor's. Nor does it
+read the operand tables, sections 1, 22 and 26, but for a mission that leaves section 24 unused
+(below): `mission_operand` (`0x004529D0`) is their only reader, and its only caller,
+`mission_build_part_tables` (`0x00452F50`), hands the entry it gives, by the part's `kind`, to
+`mission_fill_part` (`0x00452FD0`), which pops it unread. **Unverified:** that the original reads
+nothing of section 11, which OpenReliant's engine doesn't read. [Mission
+source](mission-source.md#what-the-source-leaves-out) parks these sections. Of the
 directory's 128 slots before the first section, at `0x400`, the binder reads the first 27. Slot 27
 holds the file's size in most missions and is unused in the rest, and slots 28 on are unused in all
 of them. Section 24 holds one word per command of the [catalogue](#commands) (`dte.CommandFlags`):
@@ -716,11 +722,13 @@ the constant table's filler, which hold stale bytes in the shipped missions.
 
 ## Mission source groundwork
 
-Mission source compiles to a standard `.DTE` ([#1126](https://github.com/OpenReliant/openreliant/issues/1126)).
-Its syntax is a subset of Luau, read only as a mission is built, and its model is the one
-[Mission Source v1](https://github.com/OpenReliant/openreliant/issues/608) defines: explicit IDs,
-typed references, display names apart from IDs, and nothing dropped silently. Its script is the
-statements above. The first implemented slice is source identity and typed symbol resolution
+Mission source compiles to a standard `.DTE`
+([#1126](https://github.com/OpenReliant/openreliant/issues/1126)), and [Mission
+source](mission-source.md) specifies it. Its syntax is a subset of Luau, read only as a mission is
+built, and its model is the one [Mission Source
+v1](https://github.com/OpenReliant/openreliant/issues/608) defines: explicit IDs, typed references,
+display names apart from IDs, and nothing dropped silently. Its script is the statements above. The
+first implemented slice is source identity and typed symbol resolution
 ([#609](https://github.com/OpenReliant/openreliant/issues/609)).
 
 [`dte/source.zig`](../../src/formats/dte/source.zig) provides `Symbols(Record)`, a table for one
@@ -743,8 +751,9 @@ The table borrows immutable records and ID bytes. Rebuild it after changing IDs 
 order: a reference then resolves to the record's new index. Display names may repeat or change
 without affecting resolution. The caller selects the script bank explicitly.
 
-**Not implemented:** the Luau syntax, its parser, and building and decompiling missions as text,
-which follow under [#1126](https://github.com/OpenReliant/openreliant/issues/1126). The existing
+**Not implemented:** the parser, and building missions from text, which follow under
+[#1126](https://github.com/OpenReliant/openreliant/issues/1126); `sltool dte decompile` writes
+the text. The existing
 binary reader, writer and assembler remain the format implementation.
 
 ## Prior art
