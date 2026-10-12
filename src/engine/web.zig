@@ -3,7 +3,8 @@
 //!
 //! - Everything is read over HTTPS (`secured`): a plain `http` link is changed to `https` before
 //!   the request, and so is each redirect, which `Answer.open` follows itself. Plain HTTP never
-//!   replaces HTTPS when HTTPS fails.
+//!   replaces HTTPS when HTTPS fails. Each request names OpenReliant as the program asking
+//!   (`user_agent`).
 //! - The player's own machine (`isLoopback`) is read only where a download allows it (`Loopback`):
 //!   for a repository on the player's machine and its links, which are read over plain HTTP too. A
 //!   link anywhere else to the player's machine, or a redirect to it from another host, is refused,
@@ -42,6 +43,21 @@ pub const redirect_size = 8 * 1024;
 const most_redirects = 5;
 /// How often a download's thread looks at its limits and at whether its owner has let go of it.
 const watch_step: Io.Duration = .fromMilliseconds(100);
+/// The room for a host name, which DNS limits to 253 characters.
+const host_size = 256;
+
+/// What every request says it comes from, and the only thing it tells about the player or the
+/// game.
+pub const user_agent = "OpenReliant";
+
+/// What to download.
+pub const Request = struct {
+    url: []const u8,
+    /// Whether the URL may name the player's own machine.
+    loopback: Loopback = .refused,
+    /// The headers sent besides the user agent.
+    headers: []const std.http.Header = &.{},
+};
 
 /// Whether a download may read the player's own machine (`isLoopback`).
 pub const Loopback = enum {
@@ -78,7 +94,7 @@ pub fn secured(uri: std.Uri, loopback: Loopback) error{ UnsupportedUriScheme, Lo
 /// host whose name can't be decoded counts as the player's machine, so that it is refused.
 pub fn isLoopback(uri: std.Uri) bool {
     const host = uri.host orelse return false;
-    var buffer: [256]u8 = undefined;
+    var buffer: [host_size]u8 = undefined;
     const raw = host.toRaw(&buffer) catch return true;
     const name = std.mem.trimEnd(u8, std.mem.trim(u8, raw, "[]"), ".");
     if (std.ascii.eqlIgnoreCase(name, "localhost") or std.ascii.endsWithIgnoreCase(name, ".localhost")) return true;
@@ -158,10 +174,10 @@ pub const Limits = struct {
     quiet: ?Io.Duration = null,
 };
 
-/// A request the server answered with OK, whose body `reader` reads. It is made in place, since
-/// the response points into the request.
+/// A request the server answered with OK, with a client of its own, whose body `stream` reads. It
+/// is made in place, since the request points into the client and the response into the request.
 pub const Answer = struct {
-    gpa: Allocator,
+    client: std.http.Client,
     request: std.http.Client.Request,
     response: std.http.Client.Response,
     transfer_buffer: [chunk_size]u8,
@@ -171,20 +187,25 @@ pub const Answer = struct {
     /// turns.
     locations: [2][redirect_size]u8,
 
-    /// Requests `url` with `client`, following redirects itself (`most_redirects`), each to its
-    /// location made `secured`. The player's own machine is read where `loopback` allows it, and a
-    /// redirect goes there only from the player's own machine. Counts the answer's head in
+    /// Requests `request` on `io`, following redirects itself (`most_redirects`), each to its
+    /// location made `secured`. The player's own machine is read where the request allows it, and
+    /// a redirect goes there only from the player's own machine. Counts the answer's head in
     /// `progress`. Besides the client's and the URL parser's errors, fails with `error.NotFound`
     /// for a 404, `error.ServerRefused` for any other status than OK, `error.TooManyRedirects`,
     /// and `error.RedirectWithoutLocation`, `error.RedirectTooLong` or `error.BadRedirect` for a
     /// redirect that can't be followed.
-    pub fn open(answer: *Answer, gpa: Allocator, client: *std.http.Client, url: []const u8, loopback: Loopback, progress: *Progress) !void {
-        answer.gpa = gpa;
+    pub fn open(answer: *Answer, io: Io, request: Request, progress: *Progress) !void {
+        answer.client = .{ .allocator = allocator, .io = io };
+        errdefer answer.client.deinit();
         answer.decompress_buffer = &.{};
-        var uri = try secured(try std.Uri.parse(url), loopback);
+        var uri = try secured(try std.Uri.parse(request.url), request.loopback);
         var hops: usize = 0;
         while (true) : (hops += 1) {
-            answer.request = try client.request(.GET, uri, .{ .redirect_behavior = .unhandled });
+            answer.request = try answer.client.request(.GET, uri, .{
+                .redirect_behavior = .unhandled,
+                .headers = .{ .user_agent = .{ .override = user_agent } },
+                .extra_headers = request.headers,
+            });
             errdefer answer.request.deinit();
             try answer.request.sendBodiless();
             answer.response = try answer.request.receiveHead(&.{});
@@ -206,7 +227,8 @@ pub const Answer = struct {
                 error.NoSpaceLeft => return error.RedirectTooLong,
                 else => return error.BadRedirect,
             };
-            uri = try secured(resolved, if (from_local) loopback else .refused);
+            uri = try secured(resolved, if (from_local) request.loopback else .refused);
+            log.debug("redirected to {f}", .{uri});
             answer.request.deinit();
         }
     }
@@ -217,14 +239,32 @@ pub const Answer = struct {
         return if (head.content_encoding == .identity) head.content_length else null;
     }
 
-    /// The body, decompressed if the server compressed it. Fails with
+    /// Streams the body into `writer`, decompressed if the server compressed it, counting it in
+    /// `progress`, and returns its length. Fails with `error.StreamTooLong` as soon as more than
+    /// `most_bytes` has arrived, with `error.WriteFailed` where `writer` fails, and with
     /// `error.UnsupportedCompressionMethod` for a compression that can't be read.
-    pub fn reader(answer: *Answer) !*Io.Reader {
+    pub fn stream(answer: *Answer, writer: *Io.Writer, most_bytes: u64, progress: *Progress) !u64 {
+        const body = try answer.reader();
+        var received: u64 = 0;
+        while (true) {
+            const read = body.stream(writer, .limited(chunk_size)) catch |err| switch (err) {
+                error.EndOfStream => return received,
+                error.ReadFailed => return answer.bodyError(),
+                error.WriteFailed => return error.WriteFailed,
+            };
+            received += read;
+            if (received > most_bytes) return error.StreamTooLong;
+            progress.add(read);
+        }
+    }
+
+    /// The body's reader.
+    fn reader(answer: *Answer) !*Io.Reader {
         const head = &answer.response.head;
         answer.decompress_buffer = switch (head.content_encoding) {
             .identity => &.{},
-            .zstd => try answer.gpa.alloc(u8, std.compress.zstd.default_window_len),
-            .deflate, .gzip => try answer.gpa.alloc(u8, std.compress.flate.max_window_len),
+            .zstd => try allocator.alloc(u8, std.compress.zstd.default_window_len),
+            .deflate, .gzip => try allocator.alloc(u8, std.compress.flate.max_window_len),
             .compress => return error.UnsupportedCompressionMethod,
         };
         return answer.response.readerDecompressing(&answer.transfer_buffer, &answer.decompress, answer.decompress_buffer);
@@ -232,48 +272,44 @@ pub const Answer = struct {
 
     /// Why reading the body failed, where the reader said `error.ReadFailed`: the body's error,
     /// else the connection's.
-    pub const BodyError = std.http.Reader.BodyError || std.http.Client.Connection.ReadError || error{ReadFailed};
+    const BodyError = std.http.Reader.BodyError || std.http.Client.Connection.ReadError || error{ReadFailed};
 
     /// The error the body's reading failed with, where the reader said `error.ReadFailed`.
-    pub fn bodyError(answer: *const Answer) BodyError {
+    fn bodyError(answer: *const Answer) BodyError {
         if (answer.response.bodyErr()) |err| return err;
         if (answer.request.connection) |connection| if (connection.getReadError()) |err| return err;
         return error.ReadFailed;
     }
 
     pub fn deinit(answer: *Answer) void {
-        answer.gpa.free(answer.decompress_buffer);
+        allocator.free(answer.decompress_buffer);
         answer.request.deinit();
+        answer.client.deinit();
         answer.* = undefined;
     }
 };
 
-/// Downloads `url` into memory, up to `limit` bytes, with a client of its own on `io`: the bytes,
-/// allocated with `allocator`. Fails with `error.StreamTooLong` for a longer file.
-pub fn fetch(io: Io, url: []const u8, limit: usize, loopback: Loopback, progress: *Progress) ![]u8 {
-    var client: std.http.Client = .{ .allocator = allocator, .io = io };
-    defer client.deinit();
+/// Downloads `request` into memory on `io`, up to `most_bytes`: the bytes, allocated with
+/// `allocator`. Fails with `error.StreamTooLong` for a longer file.
+pub fn fetch(io: Io, request: Request, most_bytes: usize, progress: *Progress) ![]u8 {
     var answer: Answer = undefined;
-    try answer.open(allocator, &client, url, loopback, progress);
+    try answer.open(io, request, progress);
     defer answer.deinit();
     if (answer.length()) |announced| {
-        if (announced > limit) return error.StreamTooLong;
+        if (announced > most_bytes) return error.StreamTooLong;
         progress.total.store(announced, .monotonic);
     }
-    const body = try answer.reader();
     var bytes: Io.Writer.Allocating = .init(allocator);
     defer bytes.deinit();
-    while (true) {
-        const read = body.stream(&bytes.writer, .limited(chunk_size)) catch |err| switch (err) {
-            error.EndOfStream => break,
-            error.ReadFailed => return answer.bodyError(),
-            error.WriteFailed => return error.OutOfMemory,
-        };
-        if (bytes.writer.end > limit) return error.StreamTooLong;
-        progress.add(read);
-    }
+    _ = answer.stream(&bytes.writer, most_bytes, progress) catch |err| return switch (err) {
+        error.WriteFailed => error.OutOfMemory,
+        else => |other| other,
+    };
     return bytes.toOwnedSlice();
 }
+
+/// Why `fetch` fails.
+pub const FetchError = @typeInfo(@typeInfo(@TypeOf(fetch)).@"fn".return_type.?).error_union.error_set;
 
 /// A download on a thread of its own, which the game never waits for: `Job`'s `run`, within its
 /// limits (`Limits`). A new `Download` (`.{}`) is idle until `start`.

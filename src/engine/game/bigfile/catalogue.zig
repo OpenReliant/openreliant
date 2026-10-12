@@ -541,7 +541,7 @@ pub const Fetch = struct {
         loopback: web.Loopback,
 
         pub fn run(job: *Job, io: Io, progress: *web.Progress) ![]u8 {
-            return web.fetch(io, job.url, job.most_bytes, job.loopback, progress);
+            return web.fetch(io, .{ .url = job.url, .loopback = job.loopback }, job.most_bytes, progress);
         }
 
         pub fn deinit(job: *Job) void {
@@ -636,27 +636,18 @@ pub const Install = struct {
             const archive_name = try archiveNameOf(job.id, &name_buffer);
             var folder = try modsFolder(io, job.game);
             defer folder.close(io);
-            var client: std.http.Client = .{ .allocator = web.allocator, .io = io };
-            defer client.deinit();
             var answer: web.Answer = undefined;
-            try answer.open(web.allocator, &client, job.archive_url, job.loopback, progress);
+            try answer.open(io, .{ .url = job.archive_url, .loopback = job.loopback }, progress);
             defer answer.deinit();
             if (answer.length()) |length| if (length != job.size) return error.WrongSize;
             var sink: ArchiveSink = undefined;
             try sink.open(io, folder, archive_name);
             errdefer sink.abandon();
-            const reader = try answer.reader();
-            var received: u64 = 0;
-            while (true) {
-                const read = reader.stream(sink.writer(), .limited(web.chunk_size)) catch |err| switch (err) {
-                    error.EndOfStream => break,
-                    error.ReadFailed => return answer.bodyError(),
-                    error.WriteFailed => return error.CantWrite,
-                };
-                received += read;
-                if (received > job.size) return error.WrongSize;
-                progress.add(read);
-            }
+            const received = answer.stream(sink.writer(), job.size, progress) catch |err| return switch (err) {
+                error.StreamTooLong => error.WrongSize,
+                error.WriteFailed => error.CantWrite,
+                else => |other| other,
+            };
             if (received != job.size) return error.WrongSize;
             try sink.place(job.digest);
         }

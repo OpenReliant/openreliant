@@ -33,8 +33,9 @@ pub const page_url = "https://github.com/OpenReliant/openreliant/releases/tag/v"
 /// The room a release's page takes (`Version.page`).
 const PageBuffer = [page_url.len + main_menu.max_version + 1]u8;
 
-/// What the request says it comes from, which GitHub's API asks of every request.
-const user_agent = "OpenReliant";
+/// The header GitHub's API asks for besides the user agent (`web.user_agent`), which it asks of
+/// every request.
+const accept: std.http.Header = .{ .name = "Accept", .value = "application/vnd.github+json" };
 
 /// How long the check waits for GitHub at most, before it gives up.
 pub const time_limit: Io.Duration = .fromSeconds(5);
@@ -85,26 +86,20 @@ pub const Version = struct {
     }
 };
 
-/// What GitHub answered: the latest release's version, or the status it answered with in its
-/// place, such as 403 once the requests from this address are past GitHub's limit.
-const Answer = union(enum) {
-    latest: Version,
-    status: std.http.Status,
-};
-
-/// Why the latest release can't be told.
-const Error = std.http.Client.FetchError || std.json.ParseError(std.json.Scanner) || error{BadTag};
+/// Why the latest release can't be told. GitHub answers 403 (`error.ServerRefused`) once the
+/// requests from this address are past its limit.
+const Error = web.FetchError || std.json.ParseError(std.json.Scanner) || error{BadTag};
 
 /// What asks for the latest release, on the download's thread: `latest`, or a stand-in in the
 /// tests.
-const Ask = *const fn (io: Io) Error!Answer;
+const Ask = *const fn (io: Io, progress: *web.Progress) Error!Version;
 
 /// The check's download (`web.Download`): asks for the latest release with `ask`.
-const Request = struct {
+const Job = struct {
     ask: Ask,
 
-    pub fn run(request: *Request, io: Io, _: *web.Progress) Error!Answer {
-        return request.ask(io);
+    pub fn run(job: *Job, io: Io, progress: *web.Progress) Error!Version {
+        return job.ask(io, progress);
     }
 };
 
@@ -113,7 +108,7 @@ pub const Check = struct {
     /// `starlancer.ini`, which keeps the newest release the main menu has shown.
     settings_file: *engine.profile.File,
     /// The download, until the check takes its answer, or OpenReliant quits.
-    download: web.Download(Request) = .{},
+    download: web.Download(Job) = .{},
     /// A newer release than the one playing, once the check has found one, and whether the main
     /// menu has shown it, in this run or an earlier one (`seen_key`).
     newer: ?Version = null,
@@ -131,14 +126,11 @@ pub const Check = struct {
     /// Takes the download's answer once it has answered; each frame. It never waits.
     pub fn poll(check: *Check) void {
         const answer = check.download.take() orelse return;
-        const reply = answer catch |err| return switch (err) {
+        const latest_release = answer catch |err| return switch (err) {
             error.Timeout => cantCheck("GitHub didn't answer within {d} seconds", .{time_limit.toSeconds()}),
             else => cantCheck("{s}", .{@errorName(err)}),
         };
-        switch (reply) {
-            .status => |status| cantCheck("GitHub answered {d}", .{@backingInt(status)}),
-            .latest => |latest_release| check.found(latest_release),
-        }
+        check.found(latest_release);
     }
 
     /// Logs the latest release where it is newer than the one playing, and keeps it for the main
@@ -198,22 +190,10 @@ fn cantCheck(comptime reason: []const u8, args: anytype) void {
 }
 
 /// Asks GitHub's API for the latest release, on the download's thread.
-fn latest(io: Io) Error!Answer {
-    const gpa = web.allocator;
-    var client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
-    const answer = try gpa.alloc(u8, max_answer);
-    defer gpa.free(answer);
-    var writer: Io.Writer = .fixed(answer);
-    const result = try client.fetch(.{
-        .location = .{ .url = latest_url },
-        .response_writer = &writer,
-        .keep_alive = false,
-        .headers = .{ .user_agent = .{ .override = user_agent } },
-        .extra_headers = &.{.{ .name = "Accept", .value = "application/vnd.github+json" }},
-    });
-    if (result.status != .ok) return .{ .status = result.status };
-    return .{ .latest = try tagVersion(gpa, writer.buffered()) };
+fn latest(io: Io, progress: *web.Progress) Error!Version {
+    const answer = try web.fetch(io, .{ .url = latest_url, .headers = &.{accept} }, max_answer, progress);
+    defer web.allocator.free(answer);
+    return tagVersion(web.allocator, answer);
 }
 
 /// The version that the tag of a release names, from GitHub's description of it, `answer`.
@@ -285,20 +265,20 @@ test Check {
 /// Stand-ins for `latest`: one that answers at once with a newer release, one that waits past the
 /// time limit, and one that ignores its cancelling for a while, as the system's resolver does.
 const testing = struct {
-    fn newer(_: Io) Error!Answer {
-        return .{ .latest = Version.ofTag("v99.0.0").? };
+    fn newer(_: Io, _: *web.Progress) Error!Version {
+        return Version.ofTag("v99.0.0").?;
     }
 
-    fn slow(io: Io) Error!Answer {
+    fn slow(io: Io, _: *web.Progress) Error!Version {
         try io.sleep(.fromSeconds(10), .awake);
-        return .{ .status = .ok };
+        return Version.ofTag("v99.0.0").?;
     }
 
-    fn stuck(io: Io) Error!Answer {
+    fn stuck(io: Io, _: *web.Progress) Error!Version {
         const was = io.swapCancelProtection(.blocked);
         defer _ = io.swapCancelProtection(was);
         io.sleep(.fromMilliseconds(500), .awake) catch unreachable;
-        return .{ .status = .ok };
+        return Version.ofTag("v99.0.0").?;
     }
 
     /// Polls `check` until its download has answered.
