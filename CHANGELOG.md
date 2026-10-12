@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/OpenReliant/openreliant/compare/v0.11.0...v0.11.1) (2026-10-12)
+
+
+### CI
+
+* note that immutable releases must stay off for the builds to attach ([#1105](https://github.com/OpenReliant/openreliant/issues/1105)) ([2dcfec5](https://github.com/OpenReliant/openreliant/commit/2dcfec593c418037a5747a291994c4f423cd6a57))
+
 ## [0.11.0](https://github.com/OpenReliant/openreliant/compare/v0.10.1...v0.11.0) (2026-10-12)
 
 
