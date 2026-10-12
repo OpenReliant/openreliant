@@ -2368,6 +2368,7 @@ struct Surface {
     float metallic;
     vec3 glow;       // emitted light, added after lighting; starts as the emissive map's
     vec3 sunlight;   // how much of the sun lights it, in each channel; starts as OpenReliant's own
+    vec3 scattered;  // sunlight that haze in front of it scatters toward the eye; starts as none
     vec2 uv;         // read only: the texture coordinates
     vec3 position;   // read only: its position in camera space
     vec3 toEye;      // read only: the direction toward the eye
@@ -2400,6 +2401,11 @@ float lighting(float cosine, vec4 parameters) {
   or to shade it, as a ring shades its planet; the shadows of other objects still fall on it.
   Where the function leaves it as it was, the sun lights the pixel at the normal the function
   leaves.
+- `s.scattered` is sunlight that haze or air in front of the pixel scatters toward the eye, such as
+  a planet's haze over its disk. Each channel is a share of the light that a white surface facing
+  the sun sends back. The sun lights it with its colour and strength, and it is added to the
+  pixel's light in linear light. `s.glow` is added to the encoded colour instead, which over a lit
+  surface gives more light than adding the light itself.
 - `s.local` is where the pixel stands in its object's own frame, in the units and axes of the
   object's model. `objectDirection(v)` turns a direction such as `s.toSun`, `s.normal` or
   `s.toEye` into that frame, and `objectPoint(p)` a point such as `s.position`. With them, a
@@ -2472,14 +2478,14 @@ void surface(inout Surface s, vec4 parameters, float time) {
     // Where the line passes nearest the middle, and how high above the sphere that is.
     vec3 nearest = eye - dot(eye, ray) * ray;
     float height = length(nearest) - 1.0;
-    // A glow that thins with height, on the side toward the sun. It ends a pixel inside the
+    // A haze that thins with height, on the side toward the sun. It ends a pixel inside the
     // planet's edge rather than at it, so that the edge's pixels, which show the planet and the sky
     // around it, get it too.
     float lit = max(dot(normalize(nearest), sun), 0.0);
     float edge = clamp(1.0 + height / fwidth(height), 0.0, 1.0);
     s.color = vec3(0.0);
     s.sunlight = vec3(0.0);
-    s.glow = vec3(0.3, 0.5, 1.0) * exp(-max(height, 0.0) / parameters.x) * lit * edge;
+    s.scattered = vec3(0.3, 0.5, 1.0) * exp(-max(height, 0.0) / parameters.x) * lit * edge;
 }
 ```
 
@@ -2487,9 +2493,12 @@ void surface(inout Surface s, vec4 parameters, float time) {
   in the planet's model, so a function can draw its haze round the flattened shape.
 - A bright haze glares with the bloom like any bright light. Register its function with a lower
   `bloom` to keep more of it as it is.
-- The ring is drawn over the planet, so the function decides where the planet shows through. A
-  sharp cut at the planet's edge leaves the edge's pixels without the glow, as the function runs
-  once for each pixel, at its middle.
+- The ring is drawn behind the planet, which hides it within the planet's edge. A sharp cut at the
+  edge leaves the edge's pixels without the haze, as the function runs once for each pixel, at its
+  middle.
+- Haze in front of the planet's disk belongs in a surface function on the planet's texture, which
+  works out the same line of sight from `s.local` and sets `s.scattered` as the ring's function
+  does. The sun lights both alike, so they meet at the edge.
 - The band's colour isn't used where a function draws the atmosphere. A name no mod registers
   leaves the planet its band, and the log says so.
 - The ring isn't drawn while the camera stands within its outer edge.
