@@ -26,8 +26,9 @@ pub const max_source_bytes = 1024 * 1024;
 /// The message for a source or a name that holds a NUL byte, which the libraries can't take.
 const nul_message = "shader source and filename cannot contain NUL";
 
-/// The most parts a shader is compiled from.
-pub const max_parts = 8;
+/// The most parts a shader is compiled from, such as a variant of the device shader with two mods'
+/// functions and the files they include (`gpu/variants.zig`).
+pub const max_parts = 40;
 
 /// What a shader is compiled as: a mod's post effect, checked against the resources post effects
 /// get, or one of OpenReliant's shaders, a mod's replacement for one (checked by

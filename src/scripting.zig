@@ -42,6 +42,7 @@ pub const async = @import("scripting/async.zig");
 pub const storage = @import("scripting/storage.zig");
 pub const options = @import("scripting/options.zig");
 pub const game_modes = @import("scripting/game_modes.zig");
+pub const glsl = @import("scripting/glsl.zig");
 pub const postprocessing = @import("scripting/postprocessing.zig");
 pub const shaders = @import("scripting/shaders.zig");
 pub const events = @import("scripting/events.zig");

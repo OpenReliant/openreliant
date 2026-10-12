@@ -2282,6 +2282,11 @@ post.set_enabled("crt", false)
   `set_parameters` take the effect's own name or the qualified one.
 - The shader compiles when the script registers it. A shader that doesn't compile is an error in
   the script, with the file and the line.
+- A shader can take in another file of its mod with `#include "name.glsl"` on a line of its own,
+  such as helpers that several shaders share. An included file can include others, and each file
+  is taken in once, so two files can include the same helpers. A mistake in an included file
+  names that file and its line, and so does an `#include` of a file the mod doesn't have. A shader
+  and the files it includes hold at most 7 `#include` lines.
 - An effect is removed when the script that registered it stops. If a script fails to load, the
   effects it registered are removed.
 - The mods can register at most 64 effects at once.
@@ -2355,8 +2360,9 @@ return {
 }
 ```
 
-The file holds the function alone, without `#version`, and can define helpers before it. A
-surface function is called `surface`, and a lighting function `lighting`:
+The file holds the function alone, without `#version`, and can define helpers before it, or take
+them in from another file of its mod with `#include`, as a post effect's shader can. A surface
+function is called `surface`, and a lighting function `lighting`:
 
 ```glsl
 // The pixel, which the function reads and sets.
