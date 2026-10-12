@@ -2450,13 +2450,12 @@ for n = 1, #records.planets do
 end
 ```
 
-A player script registers the function, as it registers any surface function, and each mission
-looks it up by its name as it makes the planet. The function draws on a ring that faces the camera
-through the middle of the planet's sphere, from `atmosphere_inner` to `atmosphere_outer` times the
-sphere's radius as the camera sees them, and its light is added over what lies behind it. The
-function works in the planet's own frame, as the planet's model holds it, with the sphere's middle as
-the origin and the sphere's radius as the unit, so it can trace the line of sight through each
-pixel:
+A player script registers the function, as it registers any surface function, and each mission looks
+it up by its name as it makes the planet. The function draws on a ring that faces the camera through
+the middle of the planet's sphere, from `atmosphere_inner` to `atmosphere_outer` times the sphere's
+radius as the camera sees them, and its light is added over what lies behind it. The function works
+in the planet's own frame, as the planet's model holds it, with the sphere's middle as the origin
+and the sphere's radius as the unit, so it can trace the line of sight through each pixel:
 
 ```glsl
 void surface(inout Surface s, vec4 parameters, float time) {

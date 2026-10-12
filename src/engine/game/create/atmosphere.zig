@@ -123,11 +123,11 @@ pub const Ring = struct {
     /// The radius of the planet it was made for.
     radius: f32,
 
-    /// The ring of a planet of `radius` that looks as `look` says (`create_object`,
-    /// `0x0046795D`): a flat band of `quads` from the look's inner edge to its outer edge
-    /// (`flatBand`), over `image`, added by the alpha of its colours; the first circle in the look's
-    /// colour, the second black, all solid until the frame sets their alpha. It is never culled, and
-    /// is coloured by its own.
+    /// The ring of a planet of `radius` that looks as `look` says (`create_object`, `0x0046795D`):
+    /// a flat band of `quads` from the look's inner edge to its outer edge (`flatBand`), over
+    /// `image`, added by the alpha of its colours; the first circle in the look's colour, the
+    /// second black, all solid until the frame sets their alpha. It is never culled, and is
+    /// coloured by its own.
     pub fn create(gpa: Allocator, image: *srtexture.Image, radius: f32, look: Look, quads: u16) Allocator.Error!*Ring {
         std.debug.assert(quads <= round_segments);
         const ring = try gpa.create(Ring);
@@ -223,9 +223,9 @@ pub const SurfaceNames = struct {
 /// own, as the planet's model holds it, with the sphere's middle as the origin and the sphere's
 /// radius as the unit, so that the function can trace the line of sight through each pixel, and
 /// find the planet's pole for a planet that isn't round. It has no texture, and what the function
-/// leaves is added over what lies behind it. It is lit as the planets are, by the second key light alone
-/// (`create.planet_light_mask`), so that the function reads the direction toward the sun. Both
-/// styles draw it, since a mod asks for it.
+/// leaves is added over what lies behind it. It is lit as the planets are, by the second key light
+/// alone (`create.planet_light_mask`), so that the function reads the direction toward the sun.
+/// Both styles draw it, since a mod asks for it.
 pub const Shell = struct {
     mesh: srapiext.Mesh,
     level: [1]srapiext.Level,
@@ -263,8 +263,8 @@ pub const Shell = struct {
 
     /// Places it for a frame, with the planet's model at `position`, turned by `orientation`, and
     /// the camera at `camera`. It takes the planet's frame, with the sphere's middle as its origin
-    /// and the sphere's radius as its unit, and its circles stand round the middle in the plane that
-    /// faces the camera, each as far out as the edge of the sphere of its radius looks in that
+    /// and the sphere's radius as its unit, and its circles stand round the middle in the plane
+    /// that faces the camera, each as far out as the edge of the sphere of its radius looks in that
     /// plane (`edgeFactor`). Its faces' normals follow the plane. False where the camera stands
     /// within its outer edge, which it can't be drawn round.
     pub fn place(shell: *Shell, position: Vector, orientation: math.Matrix, camera: Vector) bool {
@@ -698,8 +698,8 @@ test "a mod's surface function draws a planet's atmosphere" {
     try std.testing.expect(atmospheres.entries[1].ring != null);
 
     // Earth turned, from five radii off: the shell takes Earth's frame, round the sphere's middle
-    // with a radius to a unit, and its circles stand in the plane that faces the camera, each as far
-    // out as the sphere of its radius looks.
+    // with a radius to a unit, and its circles stand in the plane that faces the camera, each as
+    // far out as the sphere of its radius looks.
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     const turn = math.rotation(.x, 0.5);
