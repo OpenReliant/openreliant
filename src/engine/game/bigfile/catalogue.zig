@@ -16,9 +16,11 @@
 //! catalogue's digest, which it writes next to the archive as the archive's checksum file. The
 //! screen polls both once per frame, so the menus keep running during a download. An index or a
 //! thumbnail gives up after a minute, or 15 seconds without anything arriving, and an archive after
-//! 30 seconds without anything arriving (`fetch_limits`, `install_limits`). A download the screen
-//! lets go of, as OpenReliant quits, stops on its own thread; an archive's part file is deleted then,
-//! unless OpenReliant has ended first, in which case the next install of the mod replaces it.
+//! 30 seconds without anything arriving (`fetch_limits`, `install_limits`). An install the screen
+//! cancels (`Install.cancel`) stops on its own thread and deletes its part file, and the screen
+//! keeps polling it until it says so. A download the screen lets go of, as OpenReliant quits, stops
+//! on its own thread too; an archive's part file is deleted then, unless OpenReliant has ended
+//! first, in which case the next install of the mod replaces it.
 //!
 //! **Improvement:** the original has no mods, and never reads the web.
 
@@ -381,6 +383,9 @@ pub const State = enum {
     done,
     /// The download failed; `failure` says why.
     failed,
+    /// The download was cancelled (`Install.cancel`) and its thread has stopped; `finish` forgets
+    /// it.
+    cancelled,
 };
 
 /// Why a download failed. `words` says it as the screen shows it.
@@ -614,6 +619,8 @@ pub const Install = struct {
     done: bool = false,
     /// Why the download failed, once it has.
     failure: ?Failure = null,
+    /// Whether the download was cancelled and its thread has stopped.
+    cancelled: bool = false,
 
     /// What the download's thread runs (`web.Download`).
     pub const Job = struct {
@@ -686,7 +693,10 @@ pub const Install = struct {
             if (answer) |_| {
                 log.info("installed the mod {s} in the mods folder", .{install.id.?});
                 install.done = true;
-            } else |err| {
+            } else |err| if (err == error.Canceled) {
+                log.info("the download of the mod {s} was cancelled", .{install.id.?});
+                install.cancelled = true;
+            } else {
                 log.warn("can't install the mod {s}: {s}", .{ install.id.?, @errorName(err) });
                 install.failure = .of(err);
             }
@@ -694,6 +704,7 @@ pub const Install = struct {
         if (install.download.busy()) return .running;
         if (install.done) return .done;
         if (install.failure != null) return .failed;
+        if (install.cancelled) return .cancelled;
         return .idle;
     }
 
@@ -703,12 +714,24 @@ pub const Install = struct {
         return progress.fraction();
     }
 
-    /// Forgets the install once the download is done or has failed. Afterwards the install is idle
-    /// and can be started again.
+    /// Asks the download to stop (`web.Download.cancel`), while it runs. The install stays
+    /// `running` until its thread has stopped and deleted the part file, then is `cancelled`. An
+    /// archive that was complete just as it was cancelled is `done` instead.
+    pub fn cancel(install: *Install) void {
+        install.download.cancel();
+    }
+
+    /// Whether the download was cancelled and its thread hasn't stopped yet.
+    pub fn cancelling(install: Install) bool {
+        return install.download.cancelling();
+    }
+
+    /// Forgets the install once the download is done, has failed or was cancelled. Afterwards the
+    /// install is idle and can be started again.
     pub fn finish(install: *Install) void {
         switch (install.state()) {
             .idle, .running => return,
-            .done, .failed => install.release(),
+            .done, .failed, .cancelled => install.release(),
         }
     }
 
@@ -1079,8 +1102,11 @@ pub const testing = struct {
         group: Io.Group = .init,
 
         /// A file the server serves at `path`: its body and status, for a redirect, where to, and
-        /// how long the server waits before it answers, as a server that has stalled does.
-        pub const File = struct { path: []const u8, body: []const u8, status: std.http.Status = .ok, location: ?[]const u8 = null, stall: ?Io.Duration = null };
+        /// how long the server waits before it answers, as a server that has stalled does. A held
+        /// file is sent its head and one byte of its body, and nothing more until the client gives
+        /// up, as a transfer that has stalled midway does: the server serves nothing else until
+        /// then, so a test cancels or lets go of a held download before it asks for another file.
+        pub const File = struct { path: []const u8, body: []const u8, status: std.http.Status = .ok, location: ?[]const u8 = null, stall: ?Io.Duration = null, held: bool = false };
 
         /// Starts serving `served` on a free port.
         pub fn start(server: *Server, io: Io, served: []const File) !void {
@@ -1120,11 +1146,25 @@ pub const testing = struct {
                 if (found) |file| {
                     if (file.stall) |stall| io.sleep(stall, .awake) catch return;
                     const headers: []const std.http.Header = if (file.location) |location| &.{.{ .name = "location", .value = location }} else &.{};
+                    if (file.held) {
+                        hold(&request, &in.interface, file) catch {};
+                        continue;
+                    }
                     request.respond(file.body, .{ .status = file.status, .keep_alive = false, .extra_headers = headers }) catch {};
                 } else {
                     request.respond("not here", .{ .status = .not_found, .keep_alive = false }) catch {};
                 }
             }
+        }
+
+        /// Sends the head of a held `file` and the first byte of its body, then waits for the
+        /// client to close the connection, which `in` reads the end of, and sends nothing more.
+        fn hold(request: *std.http.Server.Request, in: *Io.Reader, file: File) !void {
+            var buffer: [web.chunk_size]u8 = undefined;
+            var body = try request.respondStreaming(&buffer, .{ .content_length = file.body.len, .respond_options = .{ .status = file.status, .keep_alive = false } });
+            try body.writer.writeAll(file.body[0..@min(file.body.len, 1)]);
+            try body.flush();
+            while (true) _ = try in.takeByte();
         }
 
         /// Stops the server and waits for its thread: asks it for `/stop`, or closes its socket if
@@ -1158,6 +1198,26 @@ pub const testing = struct {
         }
         return error.TestTimeout;
     }
+
+    /// Polls until the file `path` exists in `dir`, as a download's part file does once the server
+    /// has answered.
+    pub fn waitForFile(dir: Io.Dir, path: []const u8) !void {
+        for (0..2000) |_| {
+            if (dir.access(std.testing.io, path, .{})) |_| return else |_| {}
+            try std.testing.io.sleep(.fromMilliseconds(5), .awake);
+        }
+        return error.TestTimeout;
+    }
+
+    /// Polls until the file `path` is gone from `dir`, as a download's part file is once its thread
+    /// has stopped.
+    pub fn waitForNoFile(dir: Io.Dir, path: []const u8) !void {
+        for (0..2000) |_| {
+            if (dir.access(std.testing.io, path, .{})) |_| {} else |_| return;
+            try std.testing.io.sleep(.fromMilliseconds(5), .awake);
+        }
+        return error.TestTimeout;
+    }
 };
 
 test "the catalogue and a mod download from the web, and the archive is checked on install" {
@@ -1180,6 +1240,7 @@ test "the catalogue and a mod download from the web, and the archive is checked 
         .{ .path = "/nowhere", .body = "", .status = .found },
         .{ .path = "/elsewhere", .body = "", .status = .found, .location = "ws://127.0.0.1:1/alpha.hog" },
         .{ .path = "/stalled.json", .body = index, .stall = .fromMilliseconds(400) },
+        .{ .path = "/held.hog", .body = archive, .held = true },
     });
     defer server.stop(gpa);
     var buffer: [128]u8 = undefined;
@@ -1300,4 +1361,33 @@ test "the catalogue and a mod download from the web, and the archive is checked 
     try install.start(gpa, tmp.dir, remote);
     try std.testing.expectEqual(.failed, try testing.wait(&install));
     try std.testing.expectEqual(.refused_address, install.failure.?);
+    install.finish();
+    // A download cancelled midway stays running until its thread has stopped, then is cancelled:
+    // nothing is left in the mods folder, and the install can start again at once.
+    var held_url: [128]u8 = undefined;
+    var held = alpha;
+    held.id = "held";
+    held.archive = server.url(&held_url, "/held.hog");
+    try install.start(gpa, tmp.dir, held);
+    try testing.waitForFile(tmp.dir, "mods/held.hog.part");
+    try std.testing.expect(!install.cancelling());
+    install.cancel();
+    try std.testing.expect(install.cancelling());
+    try std.testing.expectEqual(.running, install.state());
+    try std.testing.expectEqual(.cancelled, try testing.wait(&install));
+    try std.testing.expect(!install.cancelling());
+    try std.testing.expectEqual(null, install.failure);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(io, "mods/held.hog.part", .{}));
+    try std.testing.expectError(error.FileNotFound, tmp.dir.access(io, "mods/held.hog", .{}));
+    install.finish();
+    try std.testing.expectEqual(.idle, install.state());
+    try install.start(gpa, tmp.dir, held);
+    try testing.waitForFile(tmp.dir, "mods/held.hog.part");
+    // An install let go of deletes its part file on its own thread, and cancelling an idle
+    // install does nothing.
+    install.deinit();
+    try testing.waitForNoFile(tmp.dir, "mods/held.hog.part");
+    install.cancel();
+    try std.testing.expect(!install.cancelling());
+    try std.testing.expectEqual(.idle, install.state());
 }

@@ -8,7 +8,9 @@
 //! UPDATE does the same for a mod that is installed in an older version. RELOAD reads the
 //! repositories again. The indexes and the downloads run on other threads, so the screen keeps
 //! running while they come in. The repositories are read one after another, and one download
-//! runs at a time: INSTALL and RELOAD wait for it.
+//! runs at a time: INSTALL and RELOAD wait for it. While the chosen mod downloads, the INSTALL
+//! button reads CANCEL and stops the download, which deletes its part file; the panel says
+//! CANCELING until the download's thread has stopped. Leaving the screen lets a download go on.
 //!
 //! The screen uses the mods screen's layout and shapes: the framed list with its arrows, the
 //! panel, and the settings screen's buttons. OK goes back to the mods screen, which rereads the
@@ -16,9 +18,8 @@
 //! listed in red and can't be installed, and a folder mod of the same name, copied in by hand, is
 //! left as it is: the loader would load both it and the archive.
 //!
-//! Not yet: cancelling a download that runs
-//! ([#1040](https://github.com/OpenReliant/openreliant/issues/1040)), and updates shown on the
-//! mods screen itself ([#1041](https://github.com/OpenReliant/openreliant/issues/1041)).
+//! Not yet: updates shown on the mods screen itself
+//! ([#1041](https://github.com/OpenReliant/openreliant/issues/1041)).
 //!
 //! **Improvement:** the original has no mods, and never reads the web.
 
@@ -118,8 +119,8 @@ const bar_inside = 2;
 const bar_at: [2]i32 = .{ details_frame.at[0] + details_inside, details_frame.at[1] + frame_height - details_inside - bar_height };
 const bar_width = details_lines.width;
 
-/// The buttons, in the settings screen's places: INSTALL (or UPDATE) where RESET DEFAULTS is, and
-/// RELOAD where CANCEL CHANGES is.
+/// The buttons, in the settings screen's places: INSTALL (or UPDATE, or CANCEL while the chosen
+/// mod downloads) where RESET DEFAULTS is, and RELOAD where CANCEL CHANGES is.
 pub const Button = enum {
     ok,
     leave,
@@ -141,15 +142,20 @@ pub const Button = enum {
 
     fn shown(button: Button, action: Action) canvas_module.Button {
         return switch (button) {
-            .install => button.settingsButton().labelled(.{ .words = if (action == .update) "UPDATE" else "INSTALL" }),
+            .install => button.settingsButton().labelled(.{ .words = switch (action) {
+                .install, .none => "INSTALL",
+                .update => "UPDATE",
+                .cancel => "CANCEL",
+            } }),
             .reload => button.settingsButton().labelled(.{ .words = "RELOAD" }),
             .ok, .leave => button.settingsButton().shown(.game_options),
         };
     }
 };
 
-/// What INSTALL does for the chosen mod: install it, update an older copy, or nothing.
-const Action = enum { install, update, none };
+/// What the INSTALL button does for the chosen mod: install it, update an older copy, cancel its
+/// download, or nothing.
+const Action = enum { install, update, cancel, none };
 
 /// Whether a mod of the catalogue is in the `mods` folder.
 const Status = union(enum) {
@@ -475,11 +481,12 @@ pub const ModCatalogue = struct {
         return .absent;
     }
 
-    /// What INSTALL does for the mod at `index` in the catalogue. Nothing while a download runs, when
-    /// the mod needs a newer OpenReliant, when a folder mod of its name is installed, or when the
-    /// installed version is the catalogue's or newer.
+    /// What the INSTALL button does for the mod at `index` in the catalogue. While a download runs,
+    /// it cancels the download if it is this mod's and hasn't been cancelled yet, and nothing
+    /// otherwise. Nothing either when the mod needs a newer OpenReliant, when a folder mod of its
+    /// name is installed, or when the installed version is the catalogue's or newer.
     fn actionFor(screen: ModCatalogue, index: u8) Action {
-        if (screen.installing != null) return .none;
+        if (screen.installing) |downloading| return if (downloading == index and !screen.install.cancelling()) .cancel else .none;
         const entry = screen.entries()[index];
         if (entry.needsLater(screen.running) != null) return .none;
         return switch (screen.statusOf(entry)) {
@@ -527,7 +534,7 @@ pub const ModCatalogue = struct {
             .button => |button| switch (button) {
                 .ok => return .{ .mods = .{ .installed = screen.installed_any } },
                 .leave => return .main_menu,
-                .install => screen.startInstall(context),
+                .install => screen.pressInstall(context),
                 .reload => screen.reload(context),
             },
             .scroll => |way| {
@@ -546,7 +553,8 @@ pub const ModCatalogue = struct {
         const index = screen.reading orelse return;
         const gpa = context.source.gpa;
         switch (screen.fetch.state()) {
-            .idle, .running => return,
+            // Only an install is ever cancelled.
+            .idle, .running, .cancelled => return,
             .failed => {
                 const name = if (Repositories.of(context.settings_file.profile).at(index)) |repository| repository.name else "";
                 screen.recordFailure(gpa, name, screen.fetch.failure.?);
@@ -584,10 +592,19 @@ pub const ModCatalogue = struct {
         screen.startReading(context);
     }
 
-    /// INSTALL or UPDATE: starts downloading the selected mod, if there is something to do.
-    fn startInstall(screen: *ModCatalogue, context: Context) void {
+    /// The INSTALL button: starts downloading the selected mod (INSTALL, UPDATE), or stops its
+    /// download (CANCEL), if there is something to do.
+    fn pressInstall(screen: *ModCatalogue, context: Context) void {
         const index = screen.chosen orelse return;
-        if (screen.actionFor(index) == .none) return;
+        switch (screen.actionFor(index)) {
+            .none => {},
+            .cancel => screen.install.cancel(),
+            .install, .update => screen.startInstall(context, index),
+        }
+    }
+
+    /// Starts downloading the mod at `index` in the catalogue.
+    fn startInstall(screen: *ModCatalogue, context: Context, index: u8) void {
         const source = context.source;
         const entry = screen.entries()[index];
         screen.forgetOutcome();
@@ -600,13 +617,18 @@ pub const ModCatalogue = struct {
     }
 
     /// Once the install is done or has failed, rereads the `mods` folder and keeps the result for the
-    /// panel.
+    /// panel. Once a cancelled install has stopped, forgets it: the panel shows the mod as before.
     fn takeInstall(screen: *ModCatalogue, context: Context) void {
         const index = screen.installing orelse return;
         const failure: ?catalogue.Failure = switch (screen.install.state()) {
             .idle, .running => return,
             .done => null,
             .failed => screen.install.failure,
+            .cancelled => {
+                screen.install.finish();
+                screen.installing = null;
+                return;
+            },
         };
         screen.install.finish();
         screen.installing = null;
@@ -651,7 +673,8 @@ pub const ModCatalogue = struct {
     fn takeThumbnail(screen: *ModCatalogue, source: mod_manager.Source) void {
         const gpa = source.gpa;
         switch (screen.thumbnail_fetch.state()) {
-            .running => return,
+            // Only an install is ever cancelled.
+            .running, .cancelled => return,
             .idle => {},
             .done, .failed => screen.keepThumbnail(gpa),
         }
@@ -836,13 +859,15 @@ pub const ModCatalogue = struct {
     }
 
     /// The status line of the mod at `index` in the catalogue, written into `buffer`: the download's
-    /// progress, the result of its install, that it needs a newer OpenReliant, that a folder mod of
-    /// its name was installed by hand, or the installed version, BY HAND where the settings file
-    /// doesn't record the install, and, if the catalogue's is newer, the update. Null when there is nothing to say. The versions are shown as the manifest and
-    /// the catalogue write them.
+    /// progress, or CANCELING once it is cancelled, the result of its install, that it needs a newer
+    /// OpenReliant, that a folder mod of its name was installed by hand, or the installed version,
+    /// BY HAND where the settings file doesn't record the install, and, if the catalogue's is
+    /// newer, the update. Null when there is nothing to say. The versions are shown as the manifest
+    /// and the catalogue write them.
     fn statusLine(screen: ModCatalogue, buffer: *[name_buffer]u8, index: u8) ?Note {
         const entry = screen.entries()[index];
         if (screen.installing == index) {
+            if (screen.install.cancelling()) return .{ .text = "CANCELING", .colour = canvas_module.gold };
             const text = if (screen.install.fraction()) |fraction|
                 std.mem.print(buffer, "DOWNLOADING {d}%", .{@as(u32, @intFromFloat(fraction * 100))}) catch "DOWNLOADING"
             else
@@ -1222,6 +1247,57 @@ test "UPDATE downloads the mod into the mods folder, and the mods screen is told
     try std.testing.expectEqualStrings("test", installed.repository.?);
     try std.testing.expectEqual(.none, screen.actionFor(0));
     try std.testing.expectEqual(Leave{ .mods = .{ .installed = true } }, fixture.click(Button.ok.rect().centre()).?);
+}
+
+test "CANCEL stops the download of the chosen mod, and nothing is left of it" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const archive = try hog.build(gpa, &.{.{ .name = "mod.ini", .data = "[Mod]\nName=Alpha mod\nVersion=1.3\n" }});
+    defer gpa.free(archive);
+    const digest = std.fmt.bytesToHex(checksums.digest(archive), .lower);
+    var fixture: Fixture = undefined;
+    var server: catalogue.testing.Server = undefined;
+    // The server sends one byte of the archive, then holds the rest.
+    try server.start(io, &.{.{ .path = "/alpha.hog", .body = archive, .held = true }});
+    var archive_url: [128]u8 = undefined;
+    var text: [1024]u8 = undefined;
+    try fixture.init(Fixture.index(&text, server.url(&archive_url, "/alpha.hog"), archive.len, &digest));
+    defer fixture.deinit();
+    defer server.stop(gpa);
+    const screen = &fixture.screen;
+    // UPDATE starts the download. The button then reads CANCEL while Alpha is chosen, and does
+    // nothing while another mod is.
+    try std.testing.expectEqual(null, fixture.click(Button.install.rect().centre()));
+    try std.testing.expectEqual(0, screen.installing.?);
+    try std.testing.expectEqual(.cancel, screen.action());
+    try std.testing.expect(screen.usable(.install));
+    try std.testing.expectEqual(null, fixture.click(nameCentre(2)));
+    try std.testing.expectEqual(1, screen.chosen.?);
+    try std.testing.expectEqual(.none, screen.action());
+    try std.testing.expect(!screen.usable(.install));
+    try std.testing.expectEqual(null, fixture.click(nameCentre(1)));
+    try std.testing.expectEqual(0, screen.chosen.?);
+    try catalogue.testing.waitForFile(fixture.tmp.dir, "mods/alpha.hog.part");
+    // CANCEL asks the download to stop. Until its thread has stopped, the panel says CANCELING and
+    // the button does nothing.
+    try std.testing.expectEqual(null, fixture.click(Button.install.rect().centre()));
+    try std.testing.expect(screen.install.cancelling());
+    try std.testing.expectEqual(0, screen.installing.?);
+    try std.testing.expectEqual(.none, screen.action());
+    var buffer: [name_buffer]u8 = undefined;
+    try std.testing.expectEqualStrings("CANCELING", screen.statusLine(&buffer, 0).?.text);
+    try std.testing.expectEqual(.cancelled, try catalogue.testing.wait(&screen.install));
+    // The next pass forgets the download: nothing was installed, the part file is gone, and the
+    // panel shows Alpha as before, with its update to get.
+    try std.testing.expectEqual(null, screen.frame(fixture.context(.{})));
+    try std.testing.expectEqual(null, screen.installing);
+    try std.testing.expect(!screen.installed_any);
+    try std.testing.expect(screen.outcome == null);
+    try std.testing.expect(screen.canReload());
+    try std.testing.expectEqual(.update, screen.action());
+    try std.testing.expectEqualStrings("INSTALLED 1.2 BY HAND, UPDATE TO 1.3", screen.statusLine(&buffer, 0).?.text);
+    try std.testing.expectError(error.FileNotFound, fixture.tmp.dir.access(io, "mods/alpha.hog.part", .{}));
+    try std.testing.expectEqual(Leave{ .mods = .{ .installed = false } }, fixture.click(Button.ok.rect().centre()).?);
 }
 
 test sizeText {

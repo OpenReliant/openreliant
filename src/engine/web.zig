@@ -14,9 +14,10 @@
 //!   there gets the start of a secure connection that it can't complete, never a request.
 //! - Each download runs on a thread of its own, with an `Io` and an HTTP client of its own
 //!   (`Download`). The game never waits for it: each frame it looks at whether the download has
-//!   ended, and as it quits it leaves the thread behind. A slow or missing connection never holds
-//!   the game up, not even a lookup of a host's address, which the system's resolver does in a call
-//!   nothing can interrupt.
+//!   ended, and as it quits it leaves the thread behind. It can ask a download to stop and keep
+//!   polling until the thread says it has (`Download.cancel`), as CANCEL on GET MODS does. A slow
+//!   or missing connection never holds the game up, not even a lookup of a host's address, which
+//!   the system's resolver does in a call nothing can interrupt.
 //! - A download gives up past its limits (`Limits`): a time for the whole download, and a time
 //!   without anything arriving, so that a server that stops answering doesn't leave it waiting for
 //!   good.
@@ -317,7 +318,8 @@ pub const FetchError = @typeInfo(@typeInfo(@TypeOf(fetch)).@"fn".return_type.?).
 /// `Job` has `fn run(job: *Job, io: Io, progress: *Progress) !Output`, called on the
 /// thread with an `Io` of its own, and may have `fn deinit(job: *Job) void`, which frees what the
 /// job holds, and `fn discard(output: Output) void`, which frees an answer nobody took. The game
-/// polls it each frame (`take`), and lets go of it without waiting (`abandon`).
+/// polls it each frame (`take`). It can ask the download to stop and wait for it to say so
+/// (`cancel`), or let go of it without waiting (`abandon`).
 pub fn Download(comptime Job: type) type {
     return struct {
         /// What it shares with its thread, from `start` until it takes the answer or lets go.
@@ -328,7 +330,7 @@ pub fn Download(comptime Job: type) type {
         /// What `Job.run` gives when it succeeds.
         pub const Output = Returned.payload;
         /// Why a download fails: `Job.run`'s errors, no thread to run it on, its limits
-        /// (`error.Timeout`), or being let go of (`error.Canceled`).
+        /// (`error.Timeout`), or being stopped (`error.Canceled`), by `cancel` or `abandon`.
         pub const Error = Returned.error_set || Io.ConcurrentError || error{ Timeout, Canceled };
 
         /// What the download and its thread share. It is on the heap, so that the thread can
@@ -341,8 +343,9 @@ pub fn Download(comptime Job: type) type {
             answered: std.atomic.Value(bool) = .init(false),
             answer: Error!Output = undefined,
             taken: bool = false,
-            /// Whether the download has let go, so that the thread stops at its next step.
-            abandoned: std.atomic.Value(bool) = .init(false),
+            /// Whether the download asked the thread to stop (`cancel`, `abandon`), which it does
+            /// at its next step.
+            stop: std.atomic.Value(bool) = .init(false),
             progress: Progress = .{},
             job: Job,
             limits: Limits,
@@ -410,18 +413,34 @@ pub fn Download(comptime Job: type) type {
             return answer;
         }
 
+        /// Asks the download to stop, and keeps it until it has. Its thread stops at its next step,
+        /// or once a lookup of a host's address ends, then answers `error.Canceled`, which `take`
+        /// returns as usual. The game keeps polling until then, so it knows when the thread is done
+        /// with what it holds, such as an archive's part file. A job that returns just as it is
+        /// asked to stop answers with its own result instead. Does nothing when nothing runs.
+        pub fn cancel(download: *Self) void {
+            const shared = download.shared orelse return;
+            shared.stop.store(true, .release);
+        }
+
+        /// Whether `cancel` asked the download to stop and its answer hasn't been taken yet.
+        pub fn cancelling(download: Self) bool {
+            const shared = download.shared orelse return false;
+            return shared.stop.load(.acquire);
+        }
+
         /// Lets go of the download without waiting for it, as the game quits or forgets it. Its
         /// thread stops at its next step, or once a lookup of a host's address ends, and frees what
         /// it holds. Afterwards the download is idle.
         pub fn abandon(download: *Self) void {
             const shared = download.shared orelse return;
-            shared.abandoned.store(true, .release);
+            shared.stop.store(true, .release);
             shared.letGo();
             download.shared = null;
         }
 
         /// The thread, with an `Io` of its own, which `main`'s doesn't wait for as OpenReliant quits:
-        /// runs the job as a task it cancels once the job is past its limits or abandoned, and
+        /// runs the job as a task it cancels once the job is past its limits or asked to stop, and
         /// leaves the answer in `shared`.
         fn work(shared: *Shared) void {
             defer shared.letGo();
@@ -430,7 +449,7 @@ pub fn Download(comptime Job: type) type {
             const io = threaded.io();
             var returned: Io.Event = .unset;
             var task = io.concurrent(run, .{ shared, io, &returned }) catch |err| return shared.give(err);
-            const ended = watch(io, &returned, &shared.progress, &shared.abandoned, shared.limits);
+            const ended = watch(io, &returned, &shared.progress, &shared.stop, shared.limits);
             // Cancelling can't interrupt a lookup of a host's address, so it waits for the lookup to
             // end; the game doesn't wait for this thread.
             const answer = task.cancel(io);
@@ -448,17 +467,18 @@ pub fn Download(comptime Job: type) type {
 }
 
 /// How a download's job ended (`watch`).
-const Ended = enum { returned, timed_out, abandoned };
+const Ended = enum { returned, timed_out, stopped };
 
 /// Waits for a job to return, looking every `watch_step` at whether it is past `limits`, by the
-/// time since it started and since something last arrived (`Progress.arrivals`), or `abandoned`.
-fn watch(io: Io, returned: *Io.Event, progress: *const Progress, abandoned: *const std.atomic.Value(bool), limits: Limits) Ended {
+/// time since it started and since something last arrived (`Progress.arrivals`), or asked to
+/// `stop`.
+fn watch(io: Io, returned: *Io.Event, progress: *const Progress, stop: *const std.atomic.Value(bool), limits: Limits) Ended {
     const started = Io.Clock.awake.now(io);
     var arrivals = progress.arrivals.load(.monotonic);
     var heard_at = started;
     while (true) {
         if (returned.waitTimeout(io, .{ .duration = .{ .raw = watch_step, .clock = .awake } })) |_| return .returned else |_| {}
-        if (abandoned.load(.acquire)) return .abandoned;
+        if (stop.load(.acquire)) return .stopped;
         const now = Io.Clock.awake.now(io);
         if (limits.whole) |whole| if (started.durationTo(now).nanoseconds >= whole.nanoseconds) return .timed_out;
         const counted = progress.arrivals.load(.monotonic);
@@ -584,6 +604,24 @@ test Download {
     var trickles: Download(testing.Trickles) = .{};
     try trickles.start(.{}, .{ .quiet = .fromMilliseconds(150) });
     try std.testing.expectEqual(8, try (try testing.answer(&trickles)));
+}
+
+test "a cancelled download stays busy until its thread has stopped, then answers so" {
+    var slow: Download(testing.Slow) = .{};
+    // Cancelling nothing does nothing.
+    slow.cancel();
+    try std.testing.expect(!slow.cancelling());
+    try slow.start(.{}, .{});
+    try std.testing.expect(!slow.cancelling());
+    slow.cancel();
+    try std.testing.expect(slow.busy());
+    try std.testing.expect(slow.cancelling());
+    try std.testing.expectError(error.Canceled, try testing.answer(&slow));
+    try std.testing.expect(!slow.busy());
+    try std.testing.expect(!slow.cancelling());
+    // It can start again at once.
+    try slow.start(.{}, .{ .whole = .fromMilliseconds(30) });
+    try std.testing.expectError(error.Timeout, try testing.answer(&slow));
 }
 
 test "the game never waits for a download's thread" {
