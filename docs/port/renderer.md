@@ -126,7 +126,9 @@ ahead of time by `make shaders`, and their outputs are committed.
   several parts, each named in the messages (`compileParts`), after a preamble of definitions such
   as `#define FRAGMENT`. A part cut from the middle of a file keeps the file's line numbers.
 - Includes are rejected: OpenReliant puts `color.glsl` in place of the line that includes it
-  (`gpu/programs.zig`). So are NUL bytes, and a part over 1 MiB.
+  (`gpu/programs.zig`), and a mod's post effect or function in parts cut where its files include
+  each other (`scripting/glsl.zig`), so the compiler never sees an `#include`. So are NUL bytes,
+  and a part over 1 MiB.
 - A C++ wrapper catches the libraries' exceptions. Zig owns copies of the code or of the messages.
   Calls take turns, as glslang starts and stops once for each.
 
@@ -220,8 +222,10 @@ mods' functions in them (`variants.Template`).
 variant of the device's fragment shader, `shaders/device.glsl` or a mod's replacement for it,
 compiled with a mod's lighting function (`MOD_LIGHTING`), its surface function (`MOD_SURFACE`) or
 both, inserted where the line `// mod_functions` stands. `variants.Template` cuts the shader there
-and where it includes `color.glsl`, so the parts need no copying. Without either definition the
-shader is OpenReliant's own, which `make shaders` compiles as before.
+and where it includes `color.glsl`, so the parts need no copying. A function comes as its file and
+the files it includes, cut into parts where it includes them (`scripting/glsl.zig`), at most 16
+(`variants.max_function_parts`). Without either definition the shader is OpenReliant's own, which
+`make shaders` compiles as before.
 
 - Each variant has an id, and each pipeline carries the variant it draws with in its key
   (`PipelineKey.variant`), 0 for OpenReliant's own. A draw takes its object's surface function

@@ -26,9 +26,13 @@ const programs = @import("programs.zig");
 /// The line of the device shader that the mods' functions go in place of.
 const functions_line = "// mod_functions";
 
+/// The most parts a mod's function is cut into: its file and the files it includes, in pieces
+/// (`scripting.glsl`, whose limit the driver checks against this).
+pub const max_function_parts = 16;
+
 /// The most parts a variant is compiled from: the device shader cut where it includes
-/// `color.glsl`, the two functions, and the rest of the shader after them.
-pub const max_parts = programs.max_parts + 2 + 1;
+/// `color.glsl`, the two functions' parts, and the rest of the shader after them.
+pub const max_parts = programs.max_parts + 2 * max_function_parts + 1;
 
 comptime {
     std.debug.assert(max_parts <= shader_compiler.max_parts);
@@ -60,16 +64,19 @@ pub const Template = struct {
     }
 
     /// The parts of the variant with the lighting function `lighting` and the surface function
-    /// `surface`, each a mod's file, in `buffer`.
-    pub fn parts(template: *const Template, lighting: ?Part, surface: ?Part, buffer: *[max_parts]Part) []const Part {
+    /// `surface`, each the parts of a mod's file and the files it includes, in `buffer`.
+    pub fn parts(template: *const Template, lighting: ?[]const Part, surface: ?[]const Part, buffer: *[max_parts]Part) []const Part {
         var count: usize = 0;
         for (template.before[0..template.before_count]) |part| {
             buffer[count] = part;
             count += 1;
         }
-        for ([_]?Part{ lighting, surface }) |function| if (function) |part| {
-            buffer[count] = part;
-            count += 1;
+        for ([_]?[]const Part{ lighting, surface }) |function| if (function) |pieces| {
+            std.debug.assert(pieces.len <= max_function_parts);
+            for (pieces) |part| {
+                buffer[count] = part;
+                count += 1;
+            }
         };
         buffer[count] = template.after;
         count += 1;
@@ -159,7 +166,7 @@ test "a variant with both functions compiles, and with neither draws as OpenReli
     const lighting: Part = .{ .name = "cel/bands.glsl", .source = "float lighting(float cosine, vec4 parameters) { return cosine > parameters.x ? 1.0 : 0.3; }\n" };
     const surface: Part = .{ .name = "cel/ink.glsl", .source = "void surface(inout Surface s, vec4 parameters, float time) { s.glow = vec3(parameters.x * time); }\n" };
     var buffer: [max_parts]Part = undefined;
-    const both = try shader_compiler.compileParts(gpa, .openreliant, .fragment, Template.builtin().parts(lighting, surface, &buffer), preamble(true, true));
+    const both = try shader_compiler.compileParts(gpa, .openreliant, .fragment, Template.builtin().parts(&.{lighting}, &.{surface}, &buffer), preamble(true, true));
     defer both.deinit(gpa);
     if (both == .diagnostic) std.debug.print("{s}\n", .{both.diagnostic});
     try std.testing.expect(both == .compiled);
@@ -168,10 +175,30 @@ test "a variant with both functions compiles, and with neither draws as OpenReli
     try std.testing.expect(plain == .compiled);
     // A mistake in a mod's function names its file and line.
     const broken: Part = .{ .name = "cel/broken.glsl", .source = "\nvoid surface(inout Surface s, vec4 parameters, float time) { broken; }\n" };
-    const failed = try shader_compiler.compileParts(gpa, .openreliant, .fragment, Template.builtin().parts(null, broken, &buffer), preamble(false, true));
+    const failed = try shader_compiler.compileParts(gpa, .openreliant, .fragment, Template.builtin().parts(null, &.{broken}, &buffer), preamble(false, true));
     defer failed.deinit(gpa);
     try std.testing.expect(failed == .diagnostic);
     try std.testing.expect(std.mem.find(u8, failed.diagnostic, "cel/broken.glsl:2") != null);
+}
+
+test "a function cut where it includes a file compiles, and a mistake names the file it is in" {
+    const gpa = std.testing.allocator;
+    // `ink.glsl` includes `edge.glsl` on its second line, as `scripting.glsl` cuts it.
+    var function = [_]Part{
+        .{ .name = "cel/ink.glsl", .source = "// Ink.\n" },
+        .{ .name = "cel/edge.glsl", .source = "float edge(float x) { return x * 0.5; }\n" },
+        .{ .name = "cel/ink.glsl", .source = "void surface(inout Surface s, vec4 parameters, float time) { s.glow = vec3(edge(time)); }\n", .line = 3 },
+    };
+    var buffer: [max_parts]Part = undefined;
+    const compiled = try shader_compiler.compileParts(gpa, .openreliant, .fragment, Template.builtin().parts(null, &function, &buffer), preamble(false, true));
+    defer compiled.deinit(gpa);
+    if (compiled == .diagnostic) std.debug.print("{s}\n", .{compiled.diagnostic});
+    try std.testing.expect(compiled == .compiled);
+    function[1].source = "\nfloat edge(float x) { return broken; }\n";
+    const failed = try shader_compiler.compileParts(gpa, .openreliant, .fragment, Template.builtin().parts(null, &function, &buffer), preamble(false, true));
+    defer failed.deinit(gpa);
+    try std.testing.expect(failed == .diagnostic);
+    try std.testing.expect(std.mem.find(u8, failed.diagnostic, "cel/edge.glsl:2") != null);
 }
 
 test "a surface function reads the sun and its object's frame, and sets the sunlight" {
@@ -194,7 +221,7 @@ test "a surface function reads the sun and its object's frame, and sets the sunl
     var buffer: [max_parts]Part = undefined;
     for ([_]bool{ false, true }) |with_lighting| {
         const lighting: Part = .{ .name = "cel/bands.glsl", .source = "float lighting(float cosine, vec4 parameters) { return cosine; }\n" };
-        const compiled = try shader_compiler.compileParts(gpa, .openreliant, .fragment, Template.builtin().parts(if (with_lighting) lighting else null, surface, &buffer), preamble(with_lighting, true));
+        const compiled = try shader_compiler.compileParts(gpa, .openreliant, .fragment, Template.builtin().parts(if (with_lighting) &.{lighting} else null, &.{surface}, &buffer), preamble(with_lighting, true));
         defer compiled.deinit(gpa);
         if (compiled == .diagnostic) std.debug.print("{s}\n", .{compiled.diagnostic});
         try std.testing.expect(compiled == .compiled);

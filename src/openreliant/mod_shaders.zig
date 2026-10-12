@@ -15,6 +15,7 @@ const shader_compiler = platform.shader_compiler;
 const scripting = @import("scripting");
 const postprocessing = scripting.postprocessing;
 const shaders = scripting.shaders;
+const glsl = scripting.glsl;
 const openreliant = @import("openreliant");
 const srtexture = openreliant.engine.surrender.surrenderlib.srtexture;
 
@@ -51,22 +52,22 @@ pub const ModShaders = struct {
     comptime {
         std.debug.assert(postprocessing.max_effects <= gpu_effects.max_passes);
         std.debug.assert(shaders.max_functions < std.math.maxInt(u16));
+        // A function's parts fit in its variant, and an effect's in a shader.
+        std.debug.assert(glsl.max_parts <= variants.max_function_parts);
+        std.debug.assert(glsl.max_parts <= shader_compiler.max_parts);
     }
 
     /// A surface or lighting function as the host keeps it.
     const Function = struct {
         kind: shaders.Kind,
-        /// The mod's file, such as `cel/ink.glsl`, and its source.
+        /// The mod's file, such as `cel/ink.glsl`, and the parts it is compiled from: the file's and
+        /// those of the files it includes (`glsl.read`), whose names and sources it owns.
         name: []u8,
-        source: []u8,
+        parts: []shader_compiler.Part,
         /// The lighting function its variant is compiled with, 0 for none, while it has one.
         compiled_with: ?u16 = null,
         /// Whether the log said which of its textures aren't there.
         warned: bool = false,
-
-        fn part(function: Function) shader_compiler.Part {
-            return .{ .name = function.name, .source = function.source };
-        }
     };
 
     /// Becomes the scripts' host for their post effects and functions, and the GPU's effect source,
@@ -109,9 +110,13 @@ pub const ModShaders = struct {
         return host.keep(std.mem.print(&buffer, "the GPU can't make the shader: {s}", .{@errorName(err)}) catch "the GPU can't make the shader");
     }
 
-    fn compileEffect(context: *anyopaque, name: []const u8, source: []const u8) postprocessing.EffectHost.Compiled {
+    fn compileEffect(context: *anyopaque, name: []const u8, parts: []const glsl.Part) postprocessing.EffectHost.Compiled {
         const host = from(context);
-        const result = host.cache.compile(host.gpa, name, source) catch return .{ .failed = host.keep("out of memory compiling the shader") };
+        var buffer: [glsl.max_parts]shader_compiler.Part = undefined;
+        for (parts, buffer[0..parts.len]) |part, *into| into.* = .{ .name = part.name, .source = part.source, .line = part.line };
+        // An empty file is compiled as it is, so that the compiler says what it lacks.
+        const given: []const shader_compiler.Part = if (parts.len > 0) buffer[0..parts.len] else &.{.{ .name = name, .source = "" }};
+        const result = host.cache.compileParts(host.gpa, name, .post_effect, .fragment, given, "") catch return .{ .failed = host.keep("out of memory compiling the shader") };
         defer result.deinit(host.gpa);
         const code = switch (result) {
             .diagnostic => |text| return .{ .failed = host.keep(text) },
@@ -147,30 +152,30 @@ pub const ModShaders = struct {
     /// through the cache.
     fn compileVariant(host: *ModShaders, template: *const variants.Template, lighting: ?Function, surface: ?Function) Allocator.Error!shader_compiler.Result {
         var buffer: [variants.max_parts]shader_compiler.Part = undefined;
-        const lit = if (lighting) |function| function.part() else null;
-        const surfaced = if (surface) |function| function.part() else null;
+        const lit = if (lighting) |function| function.parts else null;
+        const surfaced = if (surface) |function| function.parts else null;
         var name_buffer: [512]u8 = undefined;
         const name = std.mem.print(&name_buffer, "variant {s} {s} {s}", .{
             template.after.name,
-            if (lit) |part| part.name else "-",
-            if (surfaced) |part| part.name else "-",
+            if (lighting) |function| function.name else "-",
+            if (surface) |function| function.name else "-",
         }) catch "variant";
         return host.cache.compileParts(host.gpa, name, .openreliant, .fragment, template.parts(lit, surfaced, &buffer), variants.preamble(lit != null, surfaced != null));
     }
 
     /// Compiles the function of `kind` in `source` on its own, to find its mistakes, and keeps it.
     /// Without a template it is kept as it is, and draws nothing.
-    fn addFunction(context: *anyopaque, kind: shaders.Kind, name: []const u8, source: []const u8) shaders.ShaderHost.Compiled {
+    fn addFunction(context: *anyopaque, kind: shaders.Kind, name: []const u8, parts: []const glsl.Part) shaders.ShaderHost.Compiled {
         const host = from(context);
         const out_of_memory: shaders.ShaderHost.Compiled = .{ .failed = host.keep("out of memory compiling the shader") };
         if (host.next_function == std.math.maxInt(u16)) return .{ .failed = host.keep("too many functions registered since OpenReliant started") };
         host.functions.ensureUnusedCapacity(host.gpa, 1) catch return out_of_memory;
         const name_copy = host.gpa.dupe(u8, name) catch return out_of_memory;
-        const source_copy = host.gpa.dupe(u8, source) catch {
+        const parts_copy = ownedParts(host.gpa, parts) catch {
             host.gpa.free(name_copy);
             return out_of_memory;
         };
-        const function: Function = .{ .kind = kind, .name = name_copy, .source = source_copy };
+        const function: Function = .{ .kind = kind, .name = name_copy, .parts = parts_copy };
         if (host.template) |*template| {
             const result = switch (kind) {
                 .surface => host.compileVariant(template, null, function),
@@ -193,7 +198,7 @@ pub const ModShaders = struct {
 
     fn free(host: *ModShaders, function: Function) void {
         host.gpa.free(function.name);
-        host.gpa.free(function.source);
+        freeParts(host.gpa, function.parts);
     }
 
     fn removeFunction(context: *anyopaque, id: u16) void {
@@ -304,12 +309,51 @@ pub const ModShaders = struct {
     }
 };
 
+/// Copies `parts` for a function to keep, each name and source its own.
+fn ownedParts(gpa: Allocator, parts: []const glsl.Part) Allocator.Error![]shader_compiler.Part {
+    const owned = try gpa.alloc(shader_compiler.Part, parts.len);
+    var made: usize = 0;
+    errdefer {
+        for (owned[0..made]) |part| {
+            gpa.free(part.name);
+            gpa.free(part.source);
+        }
+        gpa.free(owned);
+    }
+    for (parts, owned) |part, *into| {
+        const name = try gpa.dupe(u8, part.name);
+        errdefer gpa.free(name);
+        into.* = .{ .name = name, .source = try gpa.dupe(u8, part.source), .line = part.line };
+        made += 1;
+    }
+    return owned;
+}
+
+/// Frees parts that `ownedParts` copied.
+fn freeParts(gpa: Allocator, parts: []const shader_compiler.Part) void {
+    for (parts) |part| {
+        gpa.free(part.name);
+        gpa.free(part.source);
+    }
+    gpa.free(parts);
+}
+
+test ownedParts {
+    const gpa = std.testing.allocator;
+    const parts = try ownedParts(gpa, &.{ .{ .name = "haze/titan.glsl", .source = "void surface() {}\n", .line = 4 }, .{ .name = "haze/haze.glsl", .source = "float haze;\n" } });
+    defer freeParts(gpa, parts);
+    try std.testing.expectEqualStrings("haze/titan.glsl", parts[0].name);
+    try std.testing.expectEqual(4, parts[0].line);
+    try std.testing.expectEqualStrings("float haze;\n", parts[1].source);
+    try std.testing.expectEqual(1, parts[1].line);
+}
+
 test "the cel-shading example's functions compile into a variant of the device shader" {
     const gpa = std.testing.allocator;
     var buffer: [variants.max_parts]shader_compiler.Part = undefined;
     const lighting: shader_compiler.Part = .{ .name = "cel-shading/bands.glsl", .source = shaders.testing.cel_bands };
     const surface: shader_compiler.Part = .{ .name = "cel-shading/ink.glsl", .source = shaders.testing.cel_ink };
-    const result = try shader_compiler.compileParts(gpa, .openreliant, .fragment, variants.Template.builtin().parts(lighting, surface, &buffer), variants.preamble(true, true));
+    const result = try shader_compiler.compileParts(gpa, .openreliant, .fragment, variants.Template.builtin().parts(&.{lighting}, &.{surface}, &buffer), variants.preamble(true, true));
     defer result.deinit(gpa);
     switch (result) {
         .compiled => |code| try std.testing.expect(code.spirv.len > 0 and code.metal.len > 0),

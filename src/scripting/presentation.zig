@@ -1641,7 +1641,9 @@ test "player scripts register surface and lighting functions, which the host dra
         &.{
             .{ "mod.ini", "[Scripts]\nPlayer=cel.luau, failing.luau\n" },
             .{ "bands.glsl", "float lighting(float cosine, vec4 parameters) { return cosine; }" },
-            .{ "ink.glsl", "void surface(inout Surface s, vec4 parameters, float time) {}" },
+            .{ "ink.glsl", "// Ink.\n#include \"edges.glsl\"\nvoid surface(inout Surface s, vec4 parameters, float time) {}" },
+            .{ "edges.glsl", "float edge(float x) { return x; }\n" },
+            .{ "lost.glsl", "#include \"nowhere.glsl\"\n" },
             .{ "broken.glsl", "broken" },
             .{
                 "cel.luau",
@@ -1656,6 +1658,8 @@ test "player scripts register surface and lighting functions, which the host dra
                 \\assert(not ok and string.find(message, "broken.glsl:2", 1, true), message)
                 \\ok, message = pcall(shaders.register_lighting, { name = "gone", shader = "missing.glsl" })
                 \\assert(not ok and string.find(message, "no file missing.glsl", 1, true), message)
+                \\ok, message = pcall(shaders.register_surface, { name = "lost", shader = "lost.glsl" })
+                \\assert(not ok and string.find(message, "cel/lost.glsl:1: the mod cel has no file nowhere.glsl", 1, true), message)
                 \\assert(shaders.set_parameters("ink", { 4 }) and shaders.set_enabled("cel:bands", false))
                 \\assert(not shaders.set_enabled("nothing", true))
                 \\local player = require("openreliant.self")
@@ -1684,6 +1688,8 @@ test "player scripts register surface and lighting functions, which the host dra
     // The failing script's function was taken back as it failed to load.
     try std.testing.expectEqual(3, host.added);
     try std.testing.expectEqualSlices(u16, &.{3}, host.removed.items);
+    // ink.glsl came to the host cut where it includes edges.glsl.
+    try std.testing.expectEqual(3, host.parts);
     // The host draws both, the lighting function turned off, the surface function's parameters
     // changed.
     try std.testing.expectEqual(2, host.drawn.items.len);

@@ -910,7 +910,7 @@ type Audio = {
 
 -- Post effects: GLSL fragment shaders from the mod, drawn over the whole frame, before the flight display or after it.
 type Postprocessing = {
-    -- Registers a post effect: a GLSL fragment shader from the calling mod's file `shader`, drawn over the whole frame. `stage` is `"before_hud"` (the default) or `"after_hud"`, `order` sorts the effects of a stage, lower first, and `parameters` holds up to four numbers its shader reads. Returns the effect's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the shader reads.
+    -- Registers a post effect: a GLSL fragment shader from the calling mod's file `shader`, drawn over the whole frame. `stage` is `"before_hud"` (the default) or `"after_hud"`, `order` sorts the effects of a stage, lower first, and `parameters` holds up to four numbers its shader reads. Returns the effect's name, qualified with the mod's. The file can include other files of the mod with `#include`. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the shader reads.
     register: (definition: Effect) -> string,
     -- Turns the calling mod's effect `name` on or off, by its own name or the qualified one. Returns whether the mod has it.
     set_enabled: (name: string, enabled: boolean) -> boolean,
@@ -920,9 +920,9 @@ type Postprocessing = {
 
 -- Surface and lighting functions: GLSL functions from the mod that change how surfaces are lit.
 type Shaders = {
-    -- Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads, and `bloom`, from 0 to 1, how much of its surfaces' light blooms. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets.
+    -- Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads, and `bloom`, from 0 to 1, how much of its surfaces' light blooms. Returns the function's name, qualified with the mod's. The file can include other files of the mod with `#include`. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets.
     register_surface: (definition: SurfaceFunction) -> string,
-    -- Registers a lighting function: a GLSL function `lighting` from the calling mod's file `shader`, which changes how much of each light reaches a pixel. One draws at a time: the enabled one registered last. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line.
+    -- Registers a lighting function: a GLSL function `lighting` from the calling mod's file `shader`, which changes how much of each light reaches a pixel. One draws at a time: the enabled one registered last. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. The file can include other files of the mod with `#include`. A shader that doesn't compile is an error, with its file and line.
     register_lighting: (definition: LightingFunction) -> string,
     -- Turns the calling mod's function `name` on or off, by its own name or the qualified one. Returns whether the mod has it.
     set_enabled: (name: string, enabled: boolean) -> boolean,

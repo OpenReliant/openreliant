@@ -2,9 +2,10 @@
 //! [#623](https://github.com/OpenReliant/openreliant/issues/623)), for player scripts: post effects
 //! drawn over the whole frame, each a GLSL fragment shader from the calling mod (`package`).
 //!
-//! - `register` reads the shader from the mod's files and has the host compile it
-//!   (`EffectHost`). A shader that doesn't compile is an error in the script, with the file and the
-//!   line. The effect's name is qualified with the mod's: `crt` in the mod `retro` is `retro:crt`.
+//! - `register` reads the shader from the mod's files, with the files it includes (`glsl.read`), and
+//!   has the host compile it (`EffectHost`). A shader that doesn't compile is an error in the
+//!   script, with the file and the line. The effect's name is qualified with the mod's: `crt` in the
+//!   mod `retro` is `retro:crt`.
 //! - Each frame the driver takes the passes of the enabled effects (`Registry.passes`): those drawn
 //!   before the flight display first, then those after it, each group by `order`, then in the
 //!   order they were registered.
@@ -21,6 +22,7 @@ const api = @import("api.zig");
 const Call = api.Call;
 const values = @import("values.zig");
 const runtime_module = @import("runtime.zig");
+const glsl = @import("glsl.zig");
 const Context = runtime_module.Context;
 
 /// When an effect is drawn: over the scene, before the flight display and the menus, or over
@@ -62,9 +64,9 @@ pub const EffectHost = struct {
     vtable: *const VTable,
 
     pub const VTable = struct {
-        /// Compiles the fragment shader `source`, called `name` in its messages, and adds it as an
-        /// effect.
-        compile: *const fn (context: *anyopaque, name: []const u8, source: []const u8) Compiled,
+        /// Compiles the fragment shader made of `parts`, its mod's file and the files it includes
+        /// (`glsl.read`), called `name`, and adds it as an effect.
+        compile: *const fn (context: *anyopaque, name: []const u8, parts: []const glsl.Part) Compiled,
         /// Removes the effect `effect`.
         remove: *const fn (context: *anyopaque, effect: u32) void,
     };
@@ -173,7 +175,7 @@ pub const Registry = struct {
 
 /// What `openreliant.postprocessing` holds.
 pub const package = struct {
-    pub const register = api.Function("Registers a post effect: a GLSL fragment shader from the calling mod's file `shader`, drawn over the whole frame. `stage` is `\"before_hud\"` (the default) or `\"after_hud\"`, `order` sorts the effects of a stage, lower first, and `parameters` holds up to four numbers its shader reads. Returns the effect's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the shader reads.", &.{"definition"}, registerEffect);
+    pub const register = api.Function("Registers a post effect: a GLSL fragment shader from the calling mod's file `shader`, drawn over the whole frame. `stage` is `\"before_hud\"` (the default) or `\"after_hud\"`, `order` sorts the effects of a stage, lower first, and `parameters` holds up to four numbers its shader reads. Returns the effect's name, qualified with the mod's. The file can include other files of the mod with `#include`. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the shader reads.", &.{"definition"}, registerEffect);
     pub const set_enabled = api.Function("Turns the calling mod's effect `name` on or off, by its own name or the qualified one. Returns whether the mod has it.", &.{ "name", "enabled" }, setEnabled);
     pub const set_parameters = api.Function("Sets the numbers the calling mod's effect `name` reads, up to four; those left out are 0. Returns whether the mod has it.", &.{ "name", "parameters" }, setParameters);
 };
@@ -192,12 +194,16 @@ fn registerEffect(call: Call, given: Definition) []const u8 {
     if (registry.entries.items.len == max_effects) call.raise("at most {d} effects can be registered", .{max_effects});
     registry.entries.ensureUnusedCapacity(scripts.gpa, 1) catch call.raise("out of memory", .{});
     const mod = call.context.modOf();
-    const source = mod.readFile(scripts.gpa, given.shader) catch |err| call.raise("{s} can't be read: {s}", .{ given.shader, @errorName(err) }) orelse
-        call.raise("the mod {s} has no file {s}", .{ mod.name, given.shader });
+    var why: glsl.Why = .{};
+    var read = glsl.read(scripts.gpa, mod, given.shader, &why) catch |err| switch (err) {
+        error.OutOfMemory => call.raise("out of memory", .{}),
+        error.Failed => call.raise("{s}", .{why.text()}),
+    };
     var file_buffer: [runtime_module.max_name * 2]u8 = undefined;
     const file = std.mem.print(&file_buffer, "{s}/{s}", .{ mod.name, given.shader }) catch given.shader;
-    const compiled: ?EffectHost.Compiled = if (registry.host) |host| host.vtable.compile(host.context, file, source) else null;
-    scripts.gpa.free(source);
+    const compiled: ?EffectHost.Compiled = if (registry.host) |host| host.vtable.compile(host.context, file, read.parts) else null;
+    // Freed before an error is raised, which skips what would free it.
+    read.deinit();
     const effect: ?u32 = if (compiled) |result| switch (result) {
         .effect => |made| made,
         .failed => |message| call.raise("{s}", .{message}),
@@ -251,10 +257,10 @@ pub const testing = struct {
             return @ptrCast(@alignCast(context));
         }
 
-        fn compile(context: *anyopaque, name: []const u8, source: []const u8) EffectHost.Compiled {
+        fn compile(context: *anyopaque, name: []const u8, parts: []const glsl.Part) EffectHost.Compiled {
             _ = name;
             const held = from(context);
-            if (std.mem.find(u8, source, "broken") != null) return .{ .failed = "crt/broken.frag:2: 'broken' : undeclared identifier" };
+            for (parts) |part| if (std.mem.find(u8, part.source, "broken") != null) return .{ .failed = "crt/broken.frag:2: 'broken' : undeclared identifier" };
             held.added += 1;
             return .{ .effect = held.added - 1 };
         }

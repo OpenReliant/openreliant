@@ -6,9 +6,10 @@
 //!   and on the objects a script gives it (`object:set_surface`).
 //! - A lighting function changes how much of each light reaches a pixel. One draws at a time: the
 //!   enabled one registered last.
-//! - `register_surface` and `register_lighting` read the shader from the mod's files and have the
-//!   host compile it (`ShaderHost`). A shader that doesn't compile is an error in the script, with
-//!   the file and the line. Names are qualified with the mod's, as `cel:ink`.
+//! - `register_surface` and `register_lighting` read the shader from the mod's files, with the files
+//!   it includes (`glsl.read`), and have the host compile it (`ShaderHost`). A shader that doesn't
+//!   compile is an error in the script, with the file and the line. Names are qualified with the
+//!   mod's, as `cel:ink`.
 //! - A function is removed when the script that registered it stops. If a script fails to load,
 //!   the functions it registered are removed (`Registry.removeSince`).
 //! - The host draws them on the GPU. Without a host, as in the tests, scripts can still register
@@ -26,6 +27,7 @@ const Call = api.Call;
 const values = @import("values.zig");
 const runtime_module = @import("runtime.zig");
 const postprocessing = @import("postprocessing.zig");
+const glsl = @import("glsl.zig");
 const Context = runtime_module.Context;
 const Object = openreliant.engine.hooks.Object;
 
@@ -92,9 +94,9 @@ pub const ShaderHost = struct {
     vtable: *const VTable,
 
     pub const VTable = struct {
-        /// Compiles the function of `kind` in `source`, called `name` in its messages, and keeps
-        /// it as a function of the host's.
-        add: *const fn (context: *anyopaque, kind: Kind, name: []const u8, source: []const u8) Compiled,
+        /// Compiles the function of `kind` made of `parts`, its mod's file and the files it
+        /// includes (`glsl.read`), called `name`, and keeps it as a function of the host's.
+        add: *const fn (context: *anyopaque, kind: Kind, name: []const u8, parts: []const glsl.Part) Compiled,
         /// Removes the function `function`.
         remove: *const fn (context: *anyopaque, function: u16) void,
         /// Draws `functions`, in the order they were registered, from now on.
@@ -261,8 +263,8 @@ fn freeTextures(gpa: Allocator, textures: []const []const u8) void {
 
 /// What `openreliant.shaders` holds.
 pub const package = struct {
-    pub const register_surface = api.Function("Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads, and `bloom`, from 0 to 1, how much of its surfaces' light blooms. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets.", &.{"definition"}, registerSurface);
-    pub const register_lighting = api.Function("Registers a lighting function: a GLSL function `lighting` from the calling mod's file `shader`, which changes how much of each light reaches a pixel. One draws at a time: the enabled one registered last. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line.", &.{"definition"}, registerLighting);
+    pub const register_surface = api.Function("Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads, and `bloom`, from 0 to 1, how much of its surfaces' light blooms. Returns the function's name, qualified with the mod's. The file can include other files of the mod with `#include`. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets.", &.{"definition"}, registerSurface);
+    pub const register_lighting = api.Function("Registers a lighting function: a GLSL function `lighting` from the calling mod's file `shader`, which changes how much of each light reaches a pixel. One draws at a time: the enabled one registered last. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. The file can include other files of the mod with `#include`. A shader that doesn't compile is an error, with its file and line.", &.{"definition"}, registerLighting);
     pub const set_enabled = api.Function("Turns the calling mod's function `name` on or off, by its own name or the qualified one. Returns whether the mod has it.", &.{ "name", "enabled" }, setEnabled);
     pub const set_parameters = api.Function("Sets the numbers the calling mod's function `name` reads on its textures and everywhere it draws, up to four; those left out are 0. Returns whether the mod has it.", &.{ "name", "parameters" }, setParameters);
 };
@@ -307,12 +309,16 @@ fn register(call: Call, kind: Kind, local: []const u8, shader: []const u8, param
     if (registry.entries.items.len == max_functions) call.raise("at most {d} functions can be registered", .{max_functions});
     registry.entries.ensureUnusedCapacity(gpa, 1) catch call.raise("out of memory", .{});
     const mod = call.context.modOf();
-    const source = mod.readFile(gpa, shader) catch |err| call.raise("{s} can't be read: {s}", .{ shader, @errorName(err) }) orelse
-        call.raise("the mod {s} has no file {s}", .{ mod.name, shader });
+    var why: glsl.Why = .{};
+    var read = glsl.read(gpa, mod, shader, &why) catch |err| switch (err) {
+        error.OutOfMemory => call.raise("out of memory", .{}),
+        error.Failed => call.raise("{s}", .{why.text()}),
+    };
     var file_buffer: [runtime_module.max_name * 2]u8 = undefined;
     const file = std.mem.print(&file_buffer, "{s}/{s}", .{ mod.name, shader }) catch shader;
-    const compiled: ?ShaderHost.Compiled = if (registry.host) |host| host.vtable.add(host.context, kind, file, source) else null;
-    gpa.free(source);
+    const compiled: ?ShaderHost.Compiled = if (registry.host) |host| host.vtable.add(host.context, kind, file, read.parts) else null;
+    // Freed before an error is raised, which skips what would free it.
+    read.deinit();
     const function: ?u16 = if (compiled) |result| switch (result) {
         .function => |made| made,
         .failed => |message| call.raise("{s}", .{message}),
@@ -404,6 +410,8 @@ pub const testing = struct {
     /// what it is told.
     pub const Host = struct {
         added: u16 = 0,
+        /// How many parts the last function added came in.
+        parts: usize = 0,
         removed: std.ArrayList(u16) = .empty,
         /// What the last update drew: each function, by its number, its kind and whether it is on.
         drawn: std.ArrayList(Function) = .empty,
@@ -421,12 +429,13 @@ pub const testing = struct {
             return @ptrCast(@alignCast(context));
         }
 
-        fn add(context: *anyopaque, kind: Kind, name: []const u8, source: []const u8) ShaderHost.Compiled {
+        fn add(context: *anyopaque, kind: Kind, name: []const u8, parts: []const glsl.Part) ShaderHost.Compiled {
             _ = kind;
             _ = name;
             const held = from(context);
-            if (std.mem.find(u8, source, "broken") != null) return .{ .failed = "cel/broken.glsl:2: 'broken' : undeclared identifier" };
+            for (parts) |part| if (std.mem.find(u8, part.source, "broken") != null) return .{ .failed = "cel/broken.glsl:2: 'broken' : undeclared identifier" };
             held.added += 1;
+            held.parts = parts.len;
             return .{ .function = held.added };
         }
 
