@@ -308,6 +308,17 @@ test unpack {
     try std.testing.expectEqual([4]f32{ 128.0 / 255.0, 64.0 / 255.0, 0, 1 }, unpack(pack(.{ 0.5, 0.25, 0, 1 })));
 }
 
+/// A device that draws nothing, for a frame that runs without being seen. What draws with it still
+/// does its other work, such as the display's windows opening and closing.
+pub const unseen: Device = .{ .ptr = &unseen_place, .vtable = &.{ .begin = nothing, .end = nothing, .draw = drawNothing, .overlay = nothing } };
+
+/// What `unseen` points at, which its functions never read.
+var unseen_place: u8 = 0;
+
+fn nothing(_: *anyopaque) void {}
+
+fn drawNothing(_: *anyopaque, _: State, _: Primitive, _: []const Vertex, _: ?[]const u16) void {}
+
 /// Devices for the tests of what draws with one.
 pub const testing = struct {
     /// A device that keeps what it is asked to draw, and hands the lights it is given room for.
@@ -359,8 +370,6 @@ pub const testing = struct {
             return @ptrCast(@alignCast(ptr));
         }
 
-        fn nothing(_: *anyopaque) void {}
-
         fn draw(ptr: *anyopaque, state: State, primitive: Primitive, vertices: []const Vertex, indices: ?[]const u16) void {
             const recorder = from(ptr);
             if (recorder.textures) |*textures| if (state.texture) |image| textures.make(image);
@@ -382,6 +391,17 @@ pub const testing = struct {
         }
     };
 };
+
+test unseen {
+    // It takes a whole frame, lights none of it and keeps nothing.
+    const state: State = .{ .texture = null, .depth = .{ .testing = false, .writing = false }, .blend = null };
+    const corners = [3]Vertex{ .{ .x = 0, .y = 0, .z = 0, .rhw = 1, .diffuse = white }, .{ .x = 1, .y = 0, .z = 0, .rhw = 1, .diffuse = white }, .{ .x = 0, .y = 1, .z = 0, .rhw = 1, .diffuse = white } };
+    unseen.begin();
+    unseen.draw(state, .fan, &corners, null);
+    unseen.overlay();
+    unseen.end();
+    try std.testing.expectEqual(0, unseen.lights(&.{.{ .mask = 1, .kind = .{ .directional = .{ .toward = .{ 0, 0, 1 }, .colour = .{ 1, 1, 1 } } } }}));
+}
 
 test "testing.Recorder" {
     var recorder: testing.Recorder = .{ .gpa = std.testing.allocator };
