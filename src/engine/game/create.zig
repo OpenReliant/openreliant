@@ -53,6 +53,7 @@ pub const flight_stats = @import("create/flight.zig");
 pub const combat_stats = @import("create/combat.zig");
 pub const library = @import("create/library.zig");
 pub const atmosphere = @import("create/atmosphere.zig");
+pub const planets = @import("create/planets.zig");
 pub const escort = @import("create/escort.zig");
 pub const extra = @import("create/extra.zig");
 
@@ -1153,17 +1154,9 @@ const proto_power_core = "Protogate Power core";
 const rotate_end = "Rotate End";
 const rotate_inner = "Rotate Inner";
 
-/// The planets' types, whose objects `create_object` sets up as planets (`planetMade`): Neptune to
-/// Venus, and their models of less detail.
-const planet_types = [_][2]u32{ .{ 0x5F, 0x69 }, .{ 0xC9, 0xD3 } };
-
-/// Whether `ship_type` is a planet's (`planet_types`).
+/// Whether `ship_type` is a planet's, as the planets' table has it (`planets.of`).
 pub fn isPlanet(ship_type: gameobj.Type) bool {
-    const number = @backingInt(ship_type.base());
-    for (planet_types) |range| {
-        if (number >= range[0] and number <= range[1]) return true;
-    }
-    return false;
+    return planets.of(ship_type) != null;
 }
 
 /// What each part hanging from a planet's root is drawn with (`0x00467BE9`): lit, always drawn,

@@ -2,7 +2,8 @@
 //! own colour round the rim of each of the planets that have one, fading out toward its edge, which
 //! `create_object` makes as it makes the planet (`Atmospheres.made`) and `backdrop_frame` turns to
 //! the camera each frame, as bright as the lens flares, the planet turning slowly as it goes
-//! (`Atmospheres.frame`).
+//! (`Atmospheres.frame`). The planets' table (`planets`) says which planets have one, and how each
+//! planet turns and leans.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -16,13 +17,14 @@ const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const create = @import("../create.zig");
 const gameobj = @import("../gameobj.zig");
 const matmanager = @import("../matmanager.zig");
+const planets = @import("planets.zig");
 const xtrabits = @import("../xtrabits.zig");
 const Vector = math.Vector;
 
 const log = std.log.scoped(.create);
 
-/// How many atmospheres the table holds (`0x00545868` to `0x005458F8`).
-pub const capacity = 4;
+/// How many atmospheres the game's table holds (`0x00545868` to `0x005458F8`).
+pub const original_capacity = 4;
 
 /// The texture an atmosphere is drawn over (`planet_atmosphere_texture`, `0x005458FC`).
 pub const texture_name = "atmos";
@@ -66,17 +68,15 @@ pub fn hazeAt(out: Vector, toward: Vector) f32 {
 /// Where an atmosphere's inner edge stands, as a share of the planet's radius (`0x00467A05`).
 pub const inner_edge: f32 = 0.85;
 
-/// How far a planet with an atmosphere turns about its own Y each tick, in radians
-/// (`0x00467B75`).
-pub const spin: f32 = 0.0007;
-
-/// How an atmosphere looks, by its planet's type: the colour of its inner edge, which fades to
-/// nothing at the outer, and where the outer edge stands, as a share of the planet's radius
-/// (`0x00467A47` to `0x00467B18`). Only the planets it names have one.
+/// How an atmosphere looks: the colour of its inner edge, which fades to nothing at the outer, and
+/// where its edges stand, as shares of the planet's radius.
 pub const Look = struct {
     colour: [3]f32,
+    inner_edge: f32 = inner_edge,
     outer_edge: f32,
 
+    /// The original's, by its planet's type (`0x00467A47` to `0x00467B18`): only the planets it
+    /// names have one, all with the same inner edge.
     pub fn of(planet: gameobj.Type) ?Look {
         return switch (planet.base()) {
             .neptune_hi, .neptune_lo => .{ .colour = .{ 0.1, 0.15, 0.2 }, .outer_edge = 0.95 },
@@ -97,7 +97,7 @@ pub const Ring = struct {
 
     /// The ring of a planet of `radius` that looks as `look` says (`create_object`,
     /// `0x0046795D`): a band of `quads` (`loadout.bandMesh`), flat, its first circle drawn
-    /// in to `inner_edge` of the radius and its second to the look's outer edge, over `image`,
+    /// in to the look's inner edge and its second to its outer edge, over `image`,
     /// added by the alpha of its colours; the first circle in the look's colour, the second black,
     /// all solid until the frame sets their alpha. It is never culled, and is coloured by its own.
     pub fn create(gpa: Allocator, image: *srtexture.Image, radius: f32, look: Look, quads: u16) Allocator.Error!*Ring {
@@ -114,7 +114,7 @@ pub const Ring = struct {
         };
         const colours = ring.colours[0 .. 2 * @as(usize, quads)];
         for (mesh.positions[0..quads], mesh.positions[quads..], colours[0..quads], colours[quads..]) |*inner, *outer, *inner_colour, *outer_colour| {
-            inner.* *= @splat(inner_edge);
+            inner.* *= @splat(look.inner_edge);
             outer.* *= @splat(look.outer_edge);
             inner_colour.* = .{ look.colour[0], look.colour[1], look.colour[2], 1 };
             outer_colour.* = .{ 0, 0, 0, 1 };
@@ -154,23 +154,29 @@ pub const Ring = struct {
     }
 };
 
-/// The atmospheres of the mission's planets, and the texture they are drawn over.
+/// The atmospheres of the mission's planets, how the planets turn and lean, and the texture the
+/// atmospheres are drawn over.
 pub const Atmospheres = struct {
     gpa: Allocator,
     image: *srtexture.Image,
     /// How they are drawn.
     style: Style = .haze,
-    entries: [capacity]Entry = undefined,
+    entries: [planets.most]Entry = undefined,
     count: usize = 0,
     /// The frame the planets last turned at (`0x00595BC0`).
     turned_at: i32 = 0,
 
-    /// An atmosphere: its ring, how fast its planet turns, and the planet's slot (`+0x00`, `+0x04`
-    /// and `+0x20` of the table's entries). The table also keeps where the planet stood as it was
-    /// made (`+0x14`), which nothing reads.
+    /// A planet that turns, leans or has an atmosphere. Like the game's entries, it holds the
+    /// atmosphere's ring (`+0x00`), how far the planet turns about its own Y each tick (`+0x04`,
+    /// `planets.Planet.turnPerTick`) and the planet's slot (`+0x20`). OpenReliant adds how the
+    /// planet's axis leans in its own frame (`planets.Planet.lean`) and how far it has turned. The
+    /// game's entries also keep where the planet stood when it was made (`+0x14`), which nothing
+    /// reads.
     pub const Entry = struct {
-        ring: *Ring,
-        spin: f32,
+        ring: ?*Ring,
+        turn: f32,
+        lean: math.Matrix = math.identity,
+        turned: f32 = 0,
         planet: u16,
     };
 
@@ -182,7 +188,7 @@ pub const Atmospheres = struct {
     /// As a mission ends (`0x004666B0`), and as the next starts (`objects_reset`): every
     /// atmosphere let go.
     pub fn reset(atmospheres: *Atmospheres) void {
-        for (atmospheres.entries[0..atmospheres.count]) |entry| entry.ring.destroy(atmospheres.gpa);
+        for (atmospheres.entries[0..atmospheres.count]) |entry| if (entry.ring) |ring| ring.destroy(atmospheres.gpa);
         atmospheres.count = 0;
     }
 
@@ -190,54 +196,65 @@ pub const Atmospheres = struct {
         atmospheres.reset();
     }
 
-    /// The part of `create_object` for a planet, once the object in slot `index` is made: a
-    /// planet of a type that has an atmosphere (`Look.of`) gets one, as wide as its model's first
-    /// part, turning at `spin`. A haze softens the planet's terminator.
+    /// The part of `create_object` for a planet, run once the object in slot `index` is made. A
+    /// planet that turns, leans or has an atmosphere (`planets.of`) gets an entry, and its
+    /// atmosphere's ring, as wide as its model's first part. With the haze style, the planet's
+    /// terminator is softened.
     ///
-    /// **Fix:** the game counts on at most `capacity` of them, and a fifth would write past its
-    /// table; OpenReliant makes no more, and says so.
+    /// **Fix:** the game assumes at most `original_capacity` atmospheres, and a fifth would write
+    /// past the end of its table. **Improvement:** OpenReliant's table holds up to `planets.most`
+    /// planets, as many as the planets' table can list, so that the planets a mod adds turn and
+    /// keep their atmospheres. Past that it logs a warning and makes no more. A planet whose ring
+    /// can't be made still turns.
     pub fn made(atmospheres: *Atmospheres, all: *create.Objects, index: u16) void {
         const slot = &all.slots[index];
-        const look = Look.of(slot.object.type) orelse return;
+        const planet = planets.of(slot.object.type) orelse return;
+        const look = planet.look();
+        if (look == null and planet.spin == 0 and planet.tilt == 0) return;
         const model = if (slot.model) |*held| held else return;
         if (model.parts.len == 0) return;
-        if (atmospheres.count == capacity) {
-            log.warn("the atmosphere of object {d} is left out: there are {d} already", .{ index, capacity });
+        if (atmospheres.count == atmospheres.entries.len) {
+            log.warn("planet {d} doesn't turn and has no atmosphere: the table already holds {d} planets", .{ index, atmospheres.entries.len });
             return;
         }
-        const part = &model.parts[0].object;
-        const ring = Ring.create(atmospheres.gpa, atmospheres.image, part.radius, look, atmospheres.style.quads()) catch |err| {
-            log.warn("the atmosphere of object {d} is left out: {s}", .{ index, @errorName(err) });
-            return;
-        };
-        atmospheres.entries[atmospheres.count] = .{ .ring = ring, .spin = spin, .planet = index };
+        const ring = if (look) |each| Ring.create(atmospheres.gpa, atmospheres.image, model.parts[0].object.radius, each, atmospheres.style.quads()) catch |err| none: {
+            log.warn("planet {d} has no atmosphere: {s}", .{ index, @errorName(err) });
+            break :none null;
+        } else null;
+        atmospheres.entries[atmospheres.count] = .{ .ring = ring, .turn = planet.turnPerTick(), .lean = planet.lean(), .planet = index };
         atmospheres.count += 1;
-        if (atmospheres.style == .haze) {
+        if (ring != null and atmospheres.style == .haze) {
             for (model.parts) |*each| each.object.soft_terminator = true;
         }
     }
 
-    /// `backdrop_frame`'s (`0x004A5CD0`) last work, at frame `now`: each planet with an atmosphere
-    /// turns about its own Y by its spin for each tick since the last frame, drawn so at once.
-    /// Where the planet is not disabled, its atmosphere stands where the planet does, turned to face
-    /// the camera at `camera`, as solid as the lens flares' `brightness` (`backdrop.flareBrightness`),
-    /// or a haze as `Ring.fade` has it with the sun along `sun`, and goes on the background layer.
-    /// The original's software renderer draws no atmosphere.
-    /// The planet's parts stand at its origin (`create.planetMade`), so it turns in place, and the
-    /// ring stands round it.
+    /// The last step of `backdrop_frame` (`0x004A5CD0`), at frame `now`. Each planet turns about
+    /// its own Y by its turn for every tick since the last frame, and its model is placed to match
+    /// at once. For each planet that isn't disabled, its atmosphere's ring is moved to the planet,
+    /// turned to face the camera at `camera`, faded (`Ring.fade`) by the lens flares' `brightness`
+    /// (`backdrop.flareBrightness`) and the sun along `sun`, and added to the background layer. The
+    /// original's software renderer draws no atmosphere. A planet's parts sit at its origin
+    /// (`create.planetMade`), so it turns in place, and the ring stays round it.
+    ///
+    /// **Improvement:** the game turns the drawn planet a little further each frame. OpenReliant
+    /// keeps the total angle instead, and each frame turns the planet from its orientation in the
+    /// mission, leaned as the planets' table says, by that angle, so that its axis keeps its
+    /// lean.
     pub fn frame(atmospheres: *Atmospheres, gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, camera: Vector, sun: Vector, brightness: f32, now: i32) Allocator.Error!void {
         const ticks: f32 = @floatFromInt(now - atmospheres.turned_at);
         defer atmospheres.turned_at = now;
         const toward = math.normalize(sun);
-        for (atmospheres.entries[0..atmospheres.count]) |entry| {
+        for (atmospheres.entries[0..atmospheres.count]) |*entry| {
             const planet = &all.slots[entry.planet];
-            planet.drawn.orientation = math.turned(planet.drawn.orientation, .y, ticks * entry.spin);
+            entry.turned = @mod(entry.turned + ticks * entry.turn, std.math.tau);
+            planet.drawn.orientation = math.turned(math.product(planet.object.root.orientation, entry.lean), .y, entry.turned);
             if (planet.model) |*model| model.place(planet.drawn.position, planet.drawn.orientation);
             if (planet.object.flags.disabled) continue;
-            const object = &entry.ring.object;
+            const ring = entry.ring orelse continue;
+            const object = &ring.object;
             object.position = planet.drawn.position;
             object.orientation = math.lookAt(camera - object.position);
-            entry.ring.fade(atmospheres.style, brightness, toward);
+            ring.fade(atmospheres.style, brightness, toward);
             try xtrabits.sceneAdd(gpa, scene, .{ .mesh = object }, .background);
         }
     }
@@ -245,15 +262,15 @@ pub const Atmospheres = struct {
     /// Lets go of the atmosphere of the planet in slot `index`, as `DestroyFlightGroup` retires it
     /// (`cmd_DestroyFlightGroup`, `0x00457FD0`).
     ///
-    /// **Fix:** the game counts one atmosphere fewer for any planet of the types from `0x60` to
-    /// `0x69` and from `0xCA` to `0xD3` whether it has one or not, leaving out both Neptunes, looks
-    /// for it among the atmospheres before the last alone, and frees the one it finds while keeping
-    /// it in the table, which goes on drawing it; OpenReliant lets go of the planet's own and takes
-    /// it out.
+    /// **Fix:** for any planet of the types `0x60` to `0x69` and `0xCA` to `0xD3`, the game counts
+    /// one atmosphere fewer whether the planet has one or not, which leaves out both Neptunes. It
+    /// looks for the planet's atmosphere only among the atmospheres before the last, and frees the
+    /// one it finds but keeps it in the table, which goes on drawing it. OpenReliant frees the
+    /// planet's own atmosphere and removes its entry, so the planet also stops turning.
     pub fn release(atmospheres: *Atmospheres, index: u16) void {
         for (atmospheres.entries[0..atmospheres.count], 0..) |entry, at| {
             if (entry.planet != index) continue;
-            entry.ring.destroy(atmospheres.gpa);
+            if (entry.ring) |ring| ring.destroy(atmospheres.gpa);
             @memmove(atmospheres.entries[at .. atmospheres.count - 1], atmospheres.entries[at + 1 .. atmospheres.count]);
             atmospheres.count -= 1;
             return;
@@ -317,47 +334,95 @@ test Atmospheres {
     var atmospheres: Atmospheres = .{ .gpa = gpa, .image = &image, .style = .original };
     defer atmospheres.deinit();
     const all = mission.objects;
-    var planets: [capacity + 1]u16 = undefined;
-    for (&planets, 0..) |*planet, n| {
+    // Five Neptunes, one more than the game's table holds, and Saturn, which neither turns nor has
+    // an atmosphere.
+    var neptunes: [original_capacity + 1]u16 = undefined;
+    for (&neptunes, 0..) |*planet, n| {
         planet.* = try mission.addWith(model.types(), .of(.predator), .{ @floatFromInt(n * 100000), 0, 0 });
         all.slots[planet.*].object.type = .of(.neptune_hi);
     }
+    const saturn = try mission.addWith(model.types(), .of(.predator), .{ 0, 100000, 0 });
+    all.slots[saturn].object.type = .of(.saturn_hi);
     const ship = try mission.addWith(model.types(), .of(.predator), @splat(0));
 
-    // A planet that has one gets its atmosphere; another object none, and a fifth planet none.
+    // Each Neptune gets its atmosphere, the fifth too, and Saturn and the ship get nothing.
     atmospheres.made(all, ship);
-    for (planets) |planet| atmospheres.made(all, planet);
-    try std.testing.expectEqual(capacity, atmospheres.count);
-    try std.testing.expectEqual(planets[0], atmospheres.entries[0].planet);
+    atmospheres.made(all, saturn);
+    for (neptunes) |planet| atmospheres.made(all, planet);
+    try std.testing.expectEqual(neptunes.len, atmospheres.count);
+    try std.testing.expectEqual(neptunes[0], atmospheres.entries[0].planet);
 
-    // A frame 100 ticks on turns each planet by 100 of its spin, and puts its atmosphere where it
+    // A frame 100 ticks on turns each planet by 100 of its turn, and puts its atmosphere where it
     // stands, facing the camera, as solid as the flares.
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    const before = all.slots[planets[0]].drawn.orientation;
+    const before = all.slots[neptunes[0]].drawn.orientation;
     try atmospheres.frame(gpa, &scene, all, .{ 0, 0, -5000 }, .{ 1, 0, 0 }, 0.5, 100);
-    const turned = math.turned(before, .y, 100 * spin);
-    try math.testing.expectMatrixWithin(turned, all.slots[planets[0]].drawn.orientation, 1e-5);
-    try std.testing.expectEqual(capacity, scene.layers.get(.background).items.len);
-    const ring = atmospheres.entries[0].ring;
-    try std.testing.expectEqual(all.slots[planets[0]].drawn.position, ring.object.position);
+    const turned = math.turned(before, .y, 100 * planets.original_turn);
+    try math.testing.expectMatrixWithin(turned, all.slots[neptunes[0]].drawn.orientation, 1e-5);
+    try std.testing.expectEqual(neptunes.len, scene.layers.get(.background).items.len);
+    const ring = atmospheres.entries[0].ring.?;
+    try std.testing.expectEqual(all.slots[neptunes[0]].drawn.position, ring.object.position);
     try std.testing.expect(math.dot(math.forward(ring.object.orientation), math.normalize(@as(Vector, .{ 0, 0, -5000 }) - ring.object.position)) > 0.9999);
     for (ring.colours[0 .. 2 * segments]) |colour| try std.testing.expectEqual(0.5, colour[3]);
     // As the game draws them, the planet's terminator stays hard.
-    for (all.slots[planets[0]].model.?.parts) |part| try std.testing.expect(!part.object.soft_terminator);
+    for (all.slots[neptunes[0]].model.?.parts) |part| try std.testing.expect(!part.object.soft_terminator);
 
     // A disabled planet's isn't drawn; it turns all the same.
     scene.clear();
-    all.slots[planets[1]].object.flags.disabled = true;
+    all.slots[neptunes[1]].object.flags.disabled = true;
     try atmospheres.frame(gpa, &scene, all, @splat(0), .{ 1, 0, 0 }, 0.5, 110);
-    try std.testing.expectEqual(capacity - 1, scene.layers.get(.background).items.len);
+    try std.testing.expectEqual(neptunes.len - 1, scene.layers.get(.background).items.len);
 
     // Destroyed, a planet's own atmosphere goes; the others stay.
-    atmospheres.release(planets[1]);
-    try std.testing.expectEqual(capacity - 1, atmospheres.count);
-    for (atmospheres.entries[0..atmospheres.count]) |entry| try std.testing.expect(entry.planet != planets[1]);
+    atmospheres.release(neptunes[1]);
+    try std.testing.expectEqual(neptunes.len - 1, atmospheres.count);
+    for (atmospheres.entries[0..atmospheres.count]) |entry| try std.testing.expect(entry.planet != neptunes[1]);
     atmospheres.release(ship);
-    try std.testing.expectEqual(capacity - 1, atmospheres.count);
+    try std.testing.expectEqual(neptunes.len - 1, atmospheres.count);
+}
+
+test "a planet from the table turns and leans as it says, with no atmosphere" {
+    defer planets.installOriginal();
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    var image: srtexture.Image = .{ .levels = &.{} };
+    var atmospheres: Atmospheres = .{ .gpa = gpa, .image = &image };
+    defer atmospheres.deinit();
+    const all = mission.objects;
+    // Earth, added to the table: a turn eastward every 100 seconds, its pole leaning toward its
+    // front.
+    const earth_spin = std.math.tau / 100.0;
+    const table = planets.original ++ [_]planets.Planet{.{ .type = .of(.earth), .spin = earth_spin, .tilt = 0.4 }};
+    planets.install(&table);
+    const earth = try mission.addWith(model.types(), .of(.predator), @splat(0));
+    all.slots[earth].object.type = .of(.earth);
+    atmospheres.made(all, earth);
+    try std.testing.expectEqual(1, atmospheres.count);
+    try std.testing.expectEqual(null, atmospheres.entries[0].ring);
+
+    // A quarter of its day later, it has turned a quarter turn eastward about its leaning pole, and
+    // nothing is added to the background layer.
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    try atmospheres.frame(gpa, &scene, all, .{ 0, 0, -5000 }, .{ 1, 0, 0 }, 0.5, 25 * @import("../main.zig").ticks_per_second);
+    try std.testing.expectEqual(0, scene.layers.get(.background).items.len);
+    const orientation = all.slots[earth].drawn.orientation;
+    const pole: [3]f32 = math.transform(orientation, .{ 0, -1, 0 });
+    const leaned: [3]f32 = math.transform(table[table.len - 1].lean(), .{ 0, -1, 0 });
+    for (leaned, pole) |want, got| try std.testing.expectApproxEqAbs(want, got, 1e-5);
+    // Seen from above its north pole, its front has moved a quarter turn to the left, since an
+    // eastward turn is counter-clockwise from there.
+    const front = math.transform(orientation, .{ 0, 0, 1 });
+    const lean = table[table.len - 1].lean();
+    const unleaned = math.transform(math.transpose(lean), front);
+    try std.testing.expectApproxEqAbs(-1, unleaned[0], 1e-4);
+    try std.testing.expectApproxEqAbs(0, unleaned[2], 1e-4);
 }
 
 test "an atmosphere round its planet, turning in place" {
@@ -375,7 +440,7 @@ test "an atmosphere round its planet, turning in place" {
     const planet = try mission.addWith(model.types(), .of(.predator), .{ 1000, 0, 0 });
     all.slots[planet].object.type = .of(.uranus_lo);
     atmospheres.made(all, planet);
-    try std.testing.expectEqual(2 * round_segments, atmospheres.entries[0].ring.mesh.positions.len);
+    try std.testing.expectEqual(2 * round_segments, atmospheres.entries[0].ring.?.mesh.positions.len);
 
     // Turning, the planet stays where it stands, turned about its own Y, and the ring stands round
     // it.
@@ -385,7 +450,7 @@ test "an atmosphere round its planet, turning in place" {
     try atmospheres.frame(gpa, &scene, all, .{ 0, 0, -5000 }, .{ 1, 0, 0 }, 0.5, 1000);
     try std.testing.expectEqual(Vector{ 1000, 0, 0 }, all.slots[planet].drawn.position);
     try std.testing.expect(!std.meta.eql(before, all.slots[planet].drawn.orientation));
-    try std.testing.expectEqual(all.slots[planet].drawn.position, atmospheres.entries[0].ring.object.position);
+    try std.testing.expectEqual(all.slots[planet].drawn.position, atmospheres.entries[0].ring.?.object.position);
 }
 
 test "a haze, brighter toward the sun" {
@@ -413,7 +478,7 @@ test "a haze, brighter toward the sun" {
     defer scene.deinit(gpa);
     const sphere = all.slots[planet].drawn.position;
     try atmospheres.frame(gpa, &scene, all, sphere + Vector{ 0, 0, -5000 }, .{ 3, 0, 0 }, 0, 0);
-    const colours = &atmospheres.entries[0].ring.colours;
+    const colours = &atmospheres.entries[0].ring.?.colours;
     var least: f32 = 1;
     var most: f32 = 0;
     for (colours[0..round_segments], colours[round_segments..]) |inner, outer| {

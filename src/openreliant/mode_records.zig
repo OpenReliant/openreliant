@@ -11,8 +11,8 @@ const game = openreliant.engine.game;
 
 /// Loads the game's tables from `records`: the ships' stats as `stats_load_ships` reads them, the
 /// ship types' words from the executable, the guns', the missiles' and the pilots' stats, and the
-/// pilots' faces; and installs the combat maneuvers. The text needs no loading, since the game
-/// reads it from the records.
+/// pilots' faces; and installs the combat maneuvers and the planets. The text needs no loading,
+/// since the game reads it from the records.
 pub fn loadTables(tables: *game.create.Stats, objects: *game.create.Objects, records: *const scripting.Records) void {
     tables.load(records.ships);
     tables.loadTypes(records.ship_types);
@@ -21,6 +21,7 @@ pub fn loadTables(tables: *game.create.Stats, objects: *game.create.Objects, rec
     objects.pilots.load(records.pilots);
     objects.faces.load(records.faces);
     game.aidefend.install(records.maneuvers);
+    game.create.planets.install(records.planets);
 }
 
 /// What a game mode keeps of its own while its missions run, in place of the campaign's: its
@@ -99,6 +100,7 @@ test ModeState {
     const objects = try game.create.Objects.create(gpa, &random);
     defer objects.destroy();
     defer game.aidefend.installOriginal();
+    defer game.create.planets.installOriginal();
     loadTables(tables, objects, &records);
     try std.testing.expectEqual(10, tables.flight[0].max_speed);
 

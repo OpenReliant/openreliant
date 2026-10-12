@@ -647,6 +647,15 @@ declare class CombatManeuver
     max_ticks: number
     script: { string }
 end
+declare class Planet
+    type: ShipType
+    spin: number
+    tilt: number
+    tilt_toward: number
+    atmosphere_color: vector?
+    atmosphere_inner: number
+    atmosphere_outer: number
+end
 type Records = {
     ships: { [number | string]: Ship },
     ship_types: { [number | string]: ShipTypeRecord },
@@ -664,6 +673,8 @@ type Records = {
     killboard: { [number]: KillboardPilot },
     -- The combat maneuvers the Fight order flies, numbered from 0 as the game numbers them. Load scripts change their fields and add new ones after the last.
     maneuvers: { [number]: CombatManeuver },
+    -- The object types that the game sets up as planets when a mission makes them: lit by the sun alone, always drawn, and colliding with nothing. Each turns about its axis and leans as its entry says, and has its atmosphere. The original's are Neptune to Venus and their far models, in the order of their types. Load scripts can change their fields and add planets after the last one, such as Earth.
+    planets: { [number]: Planet },
 }
 
 -- The packages made from declarations. `openreliant.self` is the script's own Object.
