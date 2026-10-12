@@ -214,9 +214,11 @@ pub const Ship = extern struct {
     /// (`loseComponent`).
     intact_components: u32,
     /// Its place in a formation, by its index in `formation_points`, which the formation orders
-    /// fly it to, or `no_formation_point`.
+    /// fly it to, or `no_formation_point`. With the next two bytes it makes a reference: the tag of
+    /// `formation_points` where it names a point, `none` where it names none, then 0xFF.
     formation_point: u16,
-    _unknown_36: u16,
+    formation_point_tag: Reference.Tag,
+    _unknown_37: u8,
     runtime_pitch: i16,
     pitch: i16,
     _unknown_3c: u8,
@@ -617,10 +619,20 @@ pub const Reference = packed struct(u32) {
     /// **Unknown.** The matcher ignores it.
     _unknown_24: u8,
 
+    /// The table a reference points into, by its entry in `editor_tables` (`0x004EE970`). The
+    /// executable's image holds the ships' and the flight groups' entries, and `editor_tables_fill`
+    /// (`0x00451620`) fills the others as the game starts: the squads' at `0x00451900`, their
+    /// members' at `0x0045192A`, the formations' at `0x0045197B` and their points' at
+    /// `0x004519A7`.
     pub const Tag = enum(u8) {
         ship = 0x00,
         flight_group = 0x01,
         squad = 0x16,
+        squad_member = 0x17,
+        formation = 0x19,
+        formation_point = 0x1A,
+        /// No table: the tag of a reference that is all ones, such as an unset operand.
+        none = 0xFF,
         _,
     };
 
@@ -656,7 +668,7 @@ pub const Operand = union(enum) {
             .ship => .{ .ship = reference.index },
             .flight_group => .{ .flight_group = reference.index },
             .squad => .{ .squad = reference.index },
-            _ => .{ .other = raw },
+            .squad_member, .formation, .formation_point, .none, _ => .{ .other = raw },
         };
     }
 };
@@ -672,6 +684,8 @@ test Operand {
     try std.testing.expectEqual(Operand{ .ship = 7 }, Operand.read(0xFF000007, ship));
     try std.testing.expectEqual(Operand{ .squad = 2 }, Operand.read(0x00160002, ship));
     try std.testing.expectEqual(Operand{ .other = 0x000C0050 }, Operand.read(0x000C0050, @bitCast(@as(u32, 0x1000))));
+    // The matcher doesn't resolve a reference to a squad's member.
+    try std.testing.expectEqual(Operand{ .other = 0xFF170003 }, Operand.read(0xFF170003, ship));
 }
 
 /// One entry of the object table, section `objects`, indexed by object ID.
@@ -684,7 +698,21 @@ pub const Object = extern struct {
     count: u8,
     /// Index of the first trigger in it.
     first: u16,
-    _unknown_04: u32,
+    tool_flags: ToolFlags,
+
+    /// Flags for the original's tools. Nothing in the game reads them. Only a ship's entry has
+    /// any set: a flight group's or a squad's is 0 in every shipped mission.
+    pub const ToolFlags = packed struct(u32) {
+        /// Set on exactly one entry, ship 0's, in most of the shipped missions. In most of those,
+        /// ship 0's name says it is the player's.
+        player: bool = false,
+        _unknown_1: u2 = 0,
+        /// Set only on curve points (kind `0x3E4`), on most of them.
+        curve_point: bool = false,
+        /// **Unknown:** set on some ships and some points, by no rule found.
+        _unknown_4: bool = false,
+        _unknown_5: u27 = 0,
+    };
 
     /// Where its slice starts and ends in a trigger list of `triggers` triggers, as far as the list
     /// reaches.
@@ -728,6 +756,7 @@ pub const Object = extern struct {
     };
 
     comptime {
+        assert(@offsetOf(Object, "tool_flags") == 4);
         assert(@sizeOf(Object) == 8);
     }
 };
@@ -765,6 +794,7 @@ pub const OpenReliantName = extern struct {
 /// of the groups' ships that binding the mission makes.
 pub const FlightGroup = extern struct {
     object_id: u16,
+    /// 0 in every shipped mission, as are `_unknown_06` and `_unknown_0a`.
     _unknown_02: u16,
     /// Byte offset into the string pool, such as `(FG)Reliant`.
     name: u16,
@@ -777,9 +807,14 @@ pub const FlightGroup = extern struct {
     ship_count: u8,
     _unknown_0a: u16,
     first_ship: u32,
-    _unknown_10: u32,
+    /// A formation for the group, as a reference to `formations` (tag `formation`). No shipped
+    /// mission names one: each holds `no_formation`.
+    formation: Reference,
 
     pub const no_ship: u32 = 0xFFFFFFFF;
+
+    /// The `formation` of a group with none, as every shipped mission's has.
+    pub const no_formation: Reference = .{ .index = Reference.unset, .tag = .formation, ._unknown_24 = 0xFF };
 
     /// A flight group's wing, as a byte: the player's, which `mission_ship_create` tests for
     /// (`0x00457D39`), two more, or none.
@@ -805,17 +840,25 @@ pub const FlightGroup = extern struct {
         assert(@offsetOf(FlightGroup, "wing") == 0x08);
         assert(@offsetOf(FlightGroup, "ship_count") == 0x09);
         assert(@offsetOf(FlightGroup, "first_ship") == 0x0C);
+        assert(@offsetOf(FlightGroup, "formation") == 0x10);
         assert(@sizeOf(FlightGroup) == 0x14);
     }
 };
 
-/// A squad. Only its object ID and its first membership record are identified.
+/// A squad: its object ID, its name and its first membership record.
 pub const Squad = extern struct {
     object_id: u16,
-    _unknown_02: [6]u8,
-    /// Index of its first record in `squad_members`, or `no_member`.
+    /// 0 in every shipped mission, as is `_unknown_06`.
+    _unknown_02: u16,
+    /// Byte offset into the string pool, such as `(AI)sabretargets`.
+    name: u16,
+    _unknown_06: u16,
+    /// Index of its first record in `squad_members`, or `no_member`. With the next two bytes it
+    /// makes a reference: the tag of `squad_members` where the squad has members, `none` where it
+    /// has none, then 0xFF.
     first_member: u16,
-    _unknown_0a: u16,
+    first_member_tag: Reference.Tag,
+    _unknown_0b: u8,
 
     /// The `first_member` of a squad with none.
     pub const no_member: u16 = 0xFFFF;
@@ -826,6 +869,8 @@ pub const Squad = extern struct {
     }
 
     comptime {
+        assert(@offsetOf(Squad, "name") == 0x04);
+        assert(@offsetOf(Squad, "first_member") == 0x08);
         assert(@sizeOf(Squad) == 0x0C);
     }
 };
@@ -863,9 +908,11 @@ pub const Formation = extern struct {
     /// Byte offset into the string pool, such as `sabres`.
     name: u16,
     _unknown_02: u16,
-    /// Its first point, by its index in `formation_points`.
+    /// Its first point, by its index in `formation_points`. With the next two bytes it makes a
+    /// reference: the tag of `formation_points`, then 0xFF.
     first_point: u16,
-    _unknown_06: u16,
+    first_point_tag: Reference.Tag,
+    _unknown_07: u8,
 
     comptime {
         assert(@offsetOf(Formation, "first_point") == 0x04);
@@ -876,9 +923,11 @@ pub const Formation = extern struct {
 /// A point of a formation, in section `formation_points`: the place of the ship whose
 /// `Ship.formation_point` names it.
 pub const FormationPoint = extern struct {
-    /// Its formation, by its index in `formations`.
+    /// Its formation, by its index in `formations`. With the next two bytes it makes a reference:
+    /// the tag of `formations`, then 0xFF.
     formation: u16,
-    _unknown_02: u16,
+    formation_tag: Reference.Tag,
+    _unknown_03: u8,
     /// Where it stands from the formation's origin.
     offset: [3]f32,
 
@@ -1822,7 +1871,7 @@ pub const testing = struct {
 
     /// An entry of the object table: a record of `kind`, holding `count` triggers from `first`.
     pub fn object(kind: Object.Kind, first: u16, count: u8) Object {
-        return .{ .kind = kind, .count = count, .first = first, ._unknown_04 = 0 };
+        return .{ .kind = kind, .count = count, .first = first, .tool_flags = .{} };
     }
 
     /// A curve from ship `start` at `from` to ship `end` at `to`, with no tangents.
@@ -2103,6 +2152,24 @@ test "Ship.componentIntact" {
     ship.intact_components = Ship.all_intact;
     ship.loseComponent(35);
     try std.testing.expect(!ship.componentIntact(3));
+}
+
+test "the records' references" {
+    // A squad as the shipped missions hold one: object ID 0x40, named at 0x1234, and from its
+    // first member on, a reference to member record 5.
+    const bytes = [_]u8{ 0x40, 0, 0, 0, 0x34, 0x12, 0, 0, 5, 0, 0x17, 0xFF };
+    const squad = std.mem.bytesToValue(Squad, &bytes);
+    try std.testing.expectEqual(0x1234, squad.name);
+    try std.testing.expectEqual(5, squad.firstMember().?);
+    const member: Reference = @bitCast(std.mem.readInt(u32, bytes[8..12], .little));
+    try std.testing.expectEqual(Reference{ .index = 5, .tag = .squad_member, ._unknown_24 = 0xFF }, member);
+    // Every shipped flight group's last word.
+    try std.testing.expectEqual(0xFF19FFFF, @as(u32, @bitCast(FlightGroup.no_formation)));
+}
+
+test "Object.ToolFlags" {
+    try std.testing.expectEqual(Object.ToolFlags{ .player = true }, @as(Object.ToolFlags, @bitCast(@as(u32, 1))));
+    try std.testing.expectEqual(Object.ToolFlags{ .curve_point = true }, @as(Object.ToolFlags, @bitCast(@as(u32, 8))));
 }
 
 test "FlightGroup.Wing" {
