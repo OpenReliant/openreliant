@@ -12,6 +12,7 @@ const hog = @import("../../formats/hog.zig");
 const layout = @import("../../formats/layout.zig");
 const refpack = @import("../../formats/refpack.zig");
 
+pub const catalogue = @import("bigfile/catalogue.zig");
 pub const mods = @import("bigfile/mods.zig");
 pub const order = @import("bigfile/order.zig");
 pub const Mods = mods.Mods;

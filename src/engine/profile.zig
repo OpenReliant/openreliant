@@ -114,6 +114,18 @@ pub const Profile = struct {
         return location;
     }
 
+    /// Whether the file has a section called `section`, ignoring case, even an empty one.
+    pub fn hasSection(profile: Profile, section: []const u8) bool {
+        var lines = std.mem.splitScalar(u8, profile.text, '\n');
+        while (lines.next()) |raw| {
+            const line = std.mem.trim(u8, raw, " \t\r");
+            if (line.len == 0 or line[0] != '[') continue;
+            const close = std.mem.findScalar(u8, line, ']') orelse continue;
+            if (std.ascii.eqlIgnoreCase(std.mem.trim(u8, line[1..close], " \t"), section)) return true;
+        }
+        return false;
+    }
+
     /// `GetPrivateProfileStringA` with no key name, which lists a section's keys: iterates over the
     /// key names in the first section called `section`, ignoring case.
     pub fn keys(profile: Profile, section: []const u8) Keys {
@@ -206,6 +218,15 @@ pub const File = struct {
             log.warn("the settings can't be saved to {s}: {t}", .{ settings_name, err });
     }
 };
+
+test "hasSection" {
+    const profile: Profile = .{ .text = "[Device]\r\nView=1\r\n[ OpenReliantMods ]\r\n" };
+    try std.testing.expect(profile.hasSection("device"));
+    // An empty section counts, and its name is found whatever the spaces around it.
+    try std.testing.expect(profile.hasSection("OpenReliantMods"));
+    try std.testing.expect(!profile.hasSection("Sound"));
+    try std.testing.expect(!Profile.empty.hasSection("Device"));
+}
 
 test "File.remove" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);

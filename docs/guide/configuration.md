@@ -197,7 +197,15 @@ Samples=8
 | `UpdateCheck` | 1 or 0, which VIDEO's CHECK FOR UPDATES sets: whether OpenReliant checks for a newer release as it starts ([Newer releases](#newer-releases)) | `--no-update-check` |
 | `UpdateSeen` | The newest release the main menu has shown you, such as `0.10.0`, which the main menu writes | |
 
-The mods screen keeps which mods are on, and the order they load in, in a section of its own, `[OpenReliantMods]` ([The mods screen](modding.md#the-mods-screen)).
+The mods screen keeps which mods are on, and the order they load in, in a section of its own, `[OpenReliantMods]` ([The mods screen](modding.md#the-mods-screen)). The GET MODS screen reads the repositories of mods on the web from `[OpenReliantModRepositories]`, one line for each: a name of your choosing, and the URL of its `mods.json` ([Repositories](modding.md#repositories)). Without the section, it reads OpenReliant's own repository; an empty section hides GET MODS. It records the mods it installs in `[OpenReliantInstalledMods]`, one line for each: the archive's name, and the repository it came from. OpenReliant refuses a recorded archive whose checksum file is missing or doesn't match ([Getting mods from the catalogue](modding.md#getting-mods-from-the-catalogue)).
+
+```ini
+[OpenReliantModRepositories]
+openreliant-mods=https://openreliant.github.io/openreliant-mods/mods.json
+
+[OpenReliantInstalledMods]
+viper.hog=openreliant-mods
+```
 
 In the example, the game has the original's look and sound, but with the bloom and eight samples a pixel. A setting you leave out keeps its default, or `Original`'s where it is 1.
 

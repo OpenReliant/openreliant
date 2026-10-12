@@ -1,5 +1,6 @@
-//! The order the mods load in, and which ones are on (`Order`), as the mods screen keeps them in
-//! `starlancer.ini`. Without a list, every mod is on and they load in the order of their names
+//! What `starlancer.ini` says about the mods (`Order`): the order they load in and which ones are
+//! on, as the mods screen keeps them, and which ones the GET MODS screen installed, and from which
+//! repository. Without a list, every mod is on and they load in the order of their names
 //! (`bigfile.mods.Mods.open`).
 //!
 //! **Improvement:** the original can't load mods.
@@ -13,6 +14,13 @@ const profile = @import("../../profile.zig");
 /// the `mods` folder, and 1 if it is on or 0 if it is off. The keys stand in the order the mods
 /// load in, a later mod's files replacing an earlier mod's.
 pub const section = "OpenReliantMods";
+
+/// The section of `starlancer.ini` that lists the mods the GET MODS screen installed, one key for
+/// each: the archive's name in the `mods` folder, such as `viper.hog`, and the name of the
+/// repository it came from (`bigfile.catalogue.Repositories`). A mod copied into the folder by
+/// hand isn't listed. The loader refuses a listed archive whose checksum file is missing or
+/// doesn't match (`bigfile.mods.Mods.openOrdered`), where it loads an unlisted one unchecked.
+pub const installed_section = "OpenReliantInstalledMods";
 
 /// The values of a mod's line in the list: 1 for a mod that is on, and 0 for one that is off.
 const on_value = "1";
@@ -64,6 +72,18 @@ pub const Order = struct {
     pub fn listable(name: []const u8) bool {
         if (name.len == 0 or name[0] == '[' or std.mem.findScalar(u8, name, '=') != null) return false;
         return std.mem.trim(u8, name, " \t").len == name.len;
+    }
+
+    /// The repository the GET MODS screen installed the mod `name` from, as `installed_section`
+    /// records it; null for a mod that was copied into the `mods` folder by hand.
+    pub fn installedFrom(order: Order, name: []const u8) ?[]const u8 {
+        const repository = order.profile.value(installed_section, name) orelse return null;
+        return if (repository.len > 0) repository else null;
+    }
+
+    /// Records in `file` that the GET MODS screen installed the mod `name` from `repository`.
+    pub fn recordInstall(file: *profile.File, name: []const u8, repository: []const u8) Allocator.Error!void {
+        try file.write(installed_section, name, repository);
     }
 
     /// Replaces the list in `file` with `mods`, in their order. A mod that can't be in the list
@@ -129,4 +149,20 @@ test "write replaces the list and leaves the rest of the file" {
     try std.testing.expectEqualStrings("[Device]\r\nView=1\r\n[OpenReliantMods]\r\nmod=0\r\n", file.profile.text);
     const order: Order = .{ .profile = file.profile };
     try std.testing.expect(!order.isOn("mod"));
+}
+
+test "the mods the GET MODS screen installed are recorded with their repository" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var file: profile.File = .{ .arena = arena.allocator(), .profile = .{ .text = "[OpenReliantMods]\r\nviper.hog=1\r\n" } };
+    try Order.recordInstall(&file, "viper.hog", "openreliant-mods");
+    try std.testing.expectEqualStrings("[OpenReliantMods]\r\nviper.hog=1\r\n[OpenReliantInstalledMods]\r\nviper.hog=openreliant-mods\r\n", file.profile.text);
+    const order: Order = .{ .profile = file.profile };
+    // The archive is found whatever the case of its name, as the mods folder spells it.
+    try std.testing.expectEqualStrings("openreliant-mods", order.installedFrom("Viper.HOG").?);
+    try std.testing.expectEqual(null, order.installedFrom("coyote.hog"));
+    try std.testing.expectEqual(null, Order.none.installedFrom("viper.hog"));
+    // A line without a repository doesn't count as a record.
+    const blank: Order = .{ .profile = .{ .text = "[OpenReliantInstalledMods]\nviper.hog=\n" } };
+    try std.testing.expectEqual(null, blank.installedFrom("viper.hog"));
 }
