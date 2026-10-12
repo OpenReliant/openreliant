@@ -409,6 +409,25 @@ test "an event carries at most five values" {
     try std.testing.expectError(error.TooManyValues, payload.catalogue(arena.allocator()));
 }
 
+test "emit writes the committed table again" {
+    const committed = vm.conditions;
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const conditions = try arena.alloc(Condition, committed.table.len);
+    for (conditions, committed.table) |*condition, entry| {
+        const values = try arena.alloc(Value, entry.values.len);
+        for (values, entry.values) |*value, from| value.* = .{ .label = from.label, .kinds = @bitCast(from.kinds), .extra = from.extra, .checked = from.checked };
+        const handlers: ?Handlers = if (entry.handlers) |held| .{ .begin = held.begin, .add_member = held.add_member, .verdict = held.verdict } else null;
+        condition.* = .{ .name = entry.name, .unknown_04 = entry._unknown_04, .subjects = entry.subjects, .values = values, .slot = entry.slot, .veto_exempt = entry.veto_exempt, .handlers = handlers };
+    }
+    // The catalogue's address, which the install stores and the committed table's header names.
+    const catalogue_address: u32 = 0x004F6698;
+    var out: Io.Writer.Allocating = .init(arena);
+    try emit(&out.writer, .{ .address = catalogue_address, .conditions = conditions });
+    try testing.expectCommitted(@embedFile("committed conditions"), out.written());
+}
+
 test "emit writes Zig that parses" {
     const values_listed = [_]Value{.{ .label = "Ship", .kinds = 0x400, .extra = 2, .checked = true }};
     const listed = [_]Condition{

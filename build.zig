@@ -212,6 +212,34 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    // Its tests check that each emitter writes the table committed from it again, byte for byte
+    // once formatted (`testing.expectCommitted`).
+    for ([_][2][]const u8{
+        .{ "committed commands", "src/engine/game/executor/commands.zig" },
+        .{ "committed conditions", "src/engine/vm/conditions.zig" },
+        .{ "committed flight", "src/engine/game/create/flight.zig" },
+        .{ "committed combat", "src/engine/game/create/combat.zig" },
+        .{ "committed guns", "src/engine/game/guns/stats.zig" },
+        .{ "committed views", "src/engine/game/camera/views.zig" },
+        .{ "committed objectives", "src/engine/game/hud/objectives.zig" },
+        .{ "committed sounds", "src/engine/game/sound3d/sounds.zig" },
+        .{ "committed orders", "src/engine/game/ai/orders.zig" },
+        .{ "committed faces", "src/engine/game/pilots/faces.zig" },
+        .{ "committed pool", "src/engine/game/pilots/pool.zig" },
+        .{ "committed rooms", "src/engine/game/interface/rooms/views.zig" },
+        .{ "committed locker", "src/engine/game/interface/locker/tables.zig" },
+        .{ "committed speech", "src/engine/game/voice/tables.zig" },
+        .{ "committed sequences", "src/engine/game/explode/sequences.zig" },
+        .{ "committed controls", "src/engine/input/controls.zig" },
+        .{ "committed models", "src/engine/game/create/models.zig" },
+        .{ "committed maneuvers", "src/engine/game/aidefend/maneuvers.zig" },
+        .{ "committed itac", "src/engine/game/itac/tables.zig" },
+        .{ "committed sources", "src/engine/sources.zig" },
+        .{ "committed opcodes", "src/engine/vm/opcodes.zig" },
+    }) |table| {
+        tablegen.root_module.addAnonymousImport(table[0], .{ .root_source_file = b.path(table[1]) });
+    }
+
     const tablegen_step = b.step("tablegen", "Build the generator of the engine's tables");
     tablegen_step.dependOn(&b.addInstallArtifact(tablegen, .{}).step);
 

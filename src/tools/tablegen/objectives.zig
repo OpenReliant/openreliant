@@ -9,6 +9,8 @@
 const std = @import("std");
 const Io = std.Io;
 
+const openreliant = @import("openreliant");
+
 const image = @import("image.zig");
 const testing = @import("testing.zig");
 
@@ -99,4 +101,11 @@ test read {
     defer out.deinit();
     try emit(&out.writer, read_rows);
     try testing.expectZig(out.written());
+}
+
+test "emit writes the committed table again" {
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, &openreliant.engine.game.hud.objectives_table.rows);
+    try testing.expectCommitted(@embedFile("committed objectives"), out.written());
 }

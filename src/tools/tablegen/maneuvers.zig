@@ -334,3 +334,30 @@ test "emit writes Zig that parses" {
     try std.testing.expect(std.mem.find(u8, out.written(), "            \"\\tGoto loop\",\n") != null);
     try std.testing.expect(std.mem.find(u8, out.written(), "        &.{ .defend_dodge1, .run_to_ship },\n") != null);
 }
+
+test "emit writes the committed table again" {
+    const committed = lancer_maneuvers.maneuvers;
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var maneuvers: [committed.table.len]Maneuver = undefined;
+    for (&maneuvers, committed.table) |*maneuver, entry| {
+        maneuver.* = .{ .name = entry.name, .mirror = @bitCast(entry.mirror), .min_ticks = entry.min_ticks, .max_ticks = entry.max_ticks, .script_address = entry.script_address, .script = entry.script };
+    }
+    var handlers: [opcode_count]Handlers = undefined;
+    for (std.enums.values(Opcode)) |opcode| {
+        const held = committed.handlers.get(opcode);
+        handlers[@backingInt(opcode)] = .{ .start = held.start orelse 0, .run = held.run orelse 0 };
+    }
+    var choices: [bearings][bearings][]const u8 = undefined;
+    for (&choices, committed.choices) |*row, from_row| {
+        for (row, from_row) |*list, from| {
+            const numbers = try arena.alloc(u8, from.len);
+            for (numbers, from) |*number, choice| number.* = @intCast(@backingInt(choice));
+            list.* = numbers;
+        }
+    }
+    var out: Io.Writer.Allocating = .init(arena);
+    try emit(&out.writer, arena, .{ .maneuvers = &maneuvers, .handlers = handlers, .choices = choices });
+    try testing.expectCommitted(@embedFile("committed maneuvers"), out.written());
+}

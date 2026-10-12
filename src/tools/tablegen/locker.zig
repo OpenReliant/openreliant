@@ -8,6 +8,7 @@
 const std = @import("std");
 const Io = std.Io;
 
+const openreliant = @import("openreliant");
 const image = @import("image.zig");
 const testing = @import("testing.zig");
 
@@ -127,4 +128,19 @@ test read {
     defer out.deinit();
     try emit(&out.writer, tables);
     try testing.expectZig(out.written());
+}
+
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.game.interface.locker.tables;
+    var tables: Tables = undefined;
+    for (std.enums.values(Table)) |table| {
+        const displays = switch (table) {
+            inline else => |name| @field(committed, @tagName(name)),
+        };
+        for (tables.getPtr(table), displays) |*award, display| award.* = .{ .at = display.at, .shapes = display.shapes };
+    }
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, tables);
+    try testing.expectCommitted(@embedFile("committed locker"), out.written());
 }

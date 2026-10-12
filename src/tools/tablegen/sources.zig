@@ -542,3 +542,16 @@ test emit {
     try std.testing.expect(std.mem.find(u8, source, ".{ .path = \"C:\\\\lancer\\\\game\\\\Ai.cpp\", .path_string = 0x004E0C50, .code = .{ .start = 0x00401F30, .end = 0x0040266D } },") != null);
     try std.testing.expect(std.mem.find(u8, source, "videoreports.cpp\", .path_string = 0x004EE7B8, .code = null },") != null);
 }
+
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.sources;
+    var files: [committed.files.len]File = undefined;
+    for (&files, committed.files) |*file, entry| {
+        const code: ?Range = if (entry.code) |range| .{ .start = range.start, .end = range.end } else null;
+        file.* = .{ .path = entry.path, .path_string = entry.path_string, .code = code };
+    }
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, committed.first_function, &files);
+    try testing.expectCommitted(@embedFile("committed sources"), out.written());
+}

@@ -393,3 +393,27 @@ test "emit writes Zig that parses" {
     // The enum is open, so it names its values itself.
     try std.testing.expect(std.mem.find(u8, out.written(), "    pub fn format(order: Order, writer: *std.Io.Writer) std.Io.Writer.Error!void {\n") != null);
 }
+
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.game.ai.orders;
+    var groups: [committed.groups.len]Group = undefined;
+    for (&groups, committed.groups) |*group, entry| group.* = .{ .first = entry.first, .address = entry.address, .len = entry.len };
+    var orders: [committed.table.len]Order = undefined;
+    var names: [committed.table.len]?[]const u8 = undefined;
+    for (&orders, &names, committed.table) |*order, *name, entry| {
+        order.* = .{
+            .number = @backingInt(entry.order),
+            .name = entry.name,
+            .init = entry.init orelse 0,
+            .update = entry.update orelse 0,
+            .exit = entry.exit orelse 0,
+            .flags = @bitCast(entry.flags),
+            .priority = entry.priority,
+        };
+        name.* = std.enums.tagName(committed.Order, entry.order);
+    }
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, .{ .groups = &groups, .orders = &orders }, &names);
+    try testing.expectCommitted(@embedFile("committed orders"), out.written());
+}
