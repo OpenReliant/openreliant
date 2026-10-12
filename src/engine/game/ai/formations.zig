@@ -938,7 +938,7 @@ const TestMission = struct {
     const radius: f32 = 50;
 
     /// One formation, its leader's point at its origin and its wingman's 1000 to the right.
-    const formations = [_]dte.Formation{.{ .name = 0, ._unknown_02 = 0, .first_point = 0, ._unknown_06 = 0 }};
+    const formations = [_]dte.Formation{testFormation(0)};
     const points = [_]dte.FormationPoint{ testPoint(0, .{ 0, 0, 0 }), testPoint(0, .{ 1000, 0, 0 }) };
 
     fn init(mission: *TestMission, at: [2][3]f32, formation_points: [2]u16) !void {
@@ -999,8 +999,12 @@ const TestMission = struct {
     }
 };
 
+fn testFormation(first_point: u16) dte.Formation {
+    return .{ .name = 0, ._unknown_02 = 0, .first_point = first_point, .first_point_tag = .formation_point, ._unknown_07 = 0xFF };
+}
+
 fn testPoint(formation: u16, offset: [3]f32) dte.FormationPoint {
-    return .{ .formation = formation, ._unknown_02 = 0, .offset = offset };
+    return .{ .formation = formation, .formation_tag = .formation, ._unknown_03 = 0xFF, .offset = offset };
 }
 
 test "Formation Regroup meets about the group's middle, and moves on once all are ready" {
@@ -1210,8 +1214,8 @@ test "the leader stands at the point nearest its formation's origin, among its o
     // Formation 0 has no point at its origin; formation 1's first lies nearer it than any of
     // formation 0's, which the game would take.
     const formations = [_]dte.Formation{
-        .{ .name = 0, ._unknown_02 = 0, .first_point = 0, ._unknown_06 = 0 },
-        .{ .name = 0, ._unknown_02 = 0, .first_point = 3, ._unknown_06 = 0 },
+        testFormation(0),
+        testFormation(3),
     };
     const points = [_]dte.FormationPoint{
         testPoint(0, .{ 1000, 0, 0 }), testPoint(0, .{ 0, 0, 500 }),   testPoint(0, .{ -1000, 0, 0 }),

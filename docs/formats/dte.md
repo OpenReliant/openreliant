@@ -130,7 +130,7 @@ Stride `0x4C`, one per placed object, nav points included.
 | `0x2B` | u8 | The gate of that ship it launches through, or `0xFF` for a ship that does not launch |
 | `0x2E`, `0x3A`, `0x4A` | i16 | Yaw, pitch, roll, in whole degrees |
 | `0x30` | u32 | The ship's intact components, a bit each |
-| `0x34` | u16 | Its point in a formation, by its index in section 15, or `0xFFFF` for none ([Formations](#formations)) |
+| `0x34` | u32 | Its point in a formation ([Formations](#formations)), as a reference to section 15 ([References in the records](#references-in-the-records)), or `0xFFFFFFFF` for none. The engine reads the index, the low halfword |
 | `0x3D` | u8 | The loadout tier its missile racks are fitted by (`create.settledTier`): 0 or 255, as most records hold, asks for the campaign's |
 | `0x40` | i16 | For a point of kind `0x3E3`, the index of the curve it marks a place on, or -1 for none |
 | `0x44` | f32 | The share of the way along that curve the place lies at |
@@ -150,13 +150,16 @@ Stride `0x14`.
 | Offset | Type | Field |
 |---|---|---|
 | `0x00` | u16 | Object ID |
+| `0x02`, `0x06`, `0x0A` | u16 | 0 in every shipped mission |
 | `0x04` | u16 | Name, as a string pool offset, such as `(FG)Reliant` |
 | `0x08` | u8 | The wing the mission lists the group's ships in (`dte.FlightGroup.Wing`): 0 the player's, 1 and 2 two more, `0xFF` none |
 | `0x09` | u8 | How many of the mission's ships are in the group |
 | `0x0C` | u32 | Where the group's first ship stands in the list of the groups' ships, or -1 |
+| `0x10` | u32 | A formation for the group, as a reference to section 14 ([References in the records](#references-in-the-records)). No shipped mission names one: each holds `0xFF19FFFF` |
 
 Binding the mission works out `0x09` and `0x0C`, whatever the file holds
-([Missions](../engine/missions.md#binding)).
+([Missions](../engine/missions.md#binding)). Nothing in OpenReliant reads `0x10`.
+**Unverified:** that none of the original's commands reads it.
 
 ## Curves
 
@@ -197,8 +200,9 @@ first:
 | `0x00` | u16 | Its formation, by its index in section 14 |
 | `0x04` | f32 x3 | Where it stands from the formation's origin |
 
-A ship takes a place in a formation by naming a point at its `0x34`. The shipped missions hold
-`0xFF1A` at a formation's `0x06` and `0xFF19` at a point's `0x02`. Missions 8, 21 and 28 have
+A ship takes a place in a formation by naming a point at its `0x34`. Each of these indexes is the
+low halfword of a reference ([References in the records](#references-in-the-records)), so a
+formation holds `0xFF1A` at `0x06` and a point holds `0xFF19` at `0x02`. Missions 8, 21 and 28 have
 formations, which no order flies, since no shipped mission gives the formation orders.
 
 ## Objects
@@ -211,18 +215,34 @@ one. Section 7 is indexed by it:
 | 0 | u8 | Kind: 0 ship, 1 flight group, 2 squad |
 | 1 | u8 | Number of triggers in the object's slice |
 | 2 | u16 | Index of the first |
-| 4 | u32 | **Unknown** |
+| 4 | u32 | Flags for the original's tools (`dte.Object.ToolFlags`), 0 for a flight group or a squad |
 
 In all 44 missions every ship's ID is unique within its mission and lands on a kind-0 entry, and the
 kind-1 and kind-2 entries correspond one for one to the flight groups and squads. The squad
 membership walk behind `in_squad` reads the kind: a flight group member is tested with
 `in_flight_group`, and a squad member recursively.
 
-A squad's `+0x08` is the index of its first record in section 13, or `0xFFFF`. A membership record
-holds the member's object ID at `+0`, the owning squad's index at `+4`, and at `+8` one of the
-member's components by index, or `0xFF` for the whole member. A squad's records are consecutive.
-Members may be ships, flight groups, other squads, or single components of a ship, such as a capital
-ship's turrets.
+Nothing in the game reads `+4`. The code reads only `+0` to `+2` of an entry, or uses the entry's
+address, and the script debugger's link copies the whole section
+([The table copies](../engine/editor-link.md#the-table-copies)). A ship's entry holds only bits 0,
+3 and 4:
+
+- Bit 0 is set on exactly one entry, ship 0's, in every mission except 81 to 84, 87 and 99. In most
+  of them, ship 0's name says it is the player's.
+- Bit 3 is set only on curve points (kind `0x3E4`), on most of them.
+- **Unknown:** bit 4, which is set on some ships and some points, by no rule found, and what bits 3
+  and 4 meant to the tools.
+
+A squad holds its name at `+0x04`, as a string pool offset, such as `(AI)sabretargets`. At `+0x08`
+it holds a reference to its first record in section 13
+([References in the records](#references-in-the-records)), or `0xFFFFFFFF` for none. Its `+0x02`
+and `+0x06` are 0 in every shipped mission. A membership record holds the member's object ID at
+`+0`, the owning squad's index at `+4`, and at `+8` one of the member's components by index, or
+`0xFF` for the whole member. Its `+2` and `+6` are 0 in every shipped mission. **Unknown:** its last
+three bytes, which vary by no rule found. A squad's records are consecutive. Members may be ships,
+flight groups, other squads, or single components of a ship, such as a capital ship's turrets.
+Nothing in OpenReliant reads a squad's name. **Unverified:** that none of the original's commands
+reads it.
 
 ## Triggers
 
@@ -287,6 +307,34 @@ the value's kind mask (`trigger_operand_value`, `0x004530A0`):
 Any other tag in a checked operand is a fatal error: the game reports `NULL entity referenced in
 script`, or `oh dear dear`, and exits. `sltool dte triggers` lists each trigger's set operands under
 their values' labels, naming referenced objects by object ID.
+
+### References in the records
+
+Some records hold references in the same form, with the tags of more tables. The tag is the number
+of the table's entry in `editor_tables` (`0x004EE970`), which `record_reference` (`0x004513A0`)
+reads to make a reference from a record's address
+([The tables' counts](../engine/editor-link.md#the-tables-counts)):
+
+| Tag | Table |
+|---|---|
+| `0x00` | Ships, section 3 |
+| `0x01` | Flight groups, section 4 |
+| `0x16` | Squads, section 12 |
+| `0x17` | Squad members, section 13 |
+| `0x19` | Formations, section 14 |
+| `0x1A` | Formation points, section 15 |
+
+| Record | Offset | Refers to |
+|---|---|---|
+| Ship | `0x34` | Its point in a formation |
+| Flight group | `0x10` | A formation, which no shipped mission fills |
+| Squad | `0x08` | Its first member |
+| Formation | `0x04` | Its first point |
+| Formation point | `0x00` | Its formation |
+
+The top byte of each is `0xFF`. Where a ship names no point, or a squad has no members, the whole
+reference is `0xFFFFFFFF`, with the tag `0xFF` (`dte.Reference.Tag.none`). The engine reads only the
+indexes.
 
 ### Conditions
 

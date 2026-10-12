@@ -203,18 +203,19 @@ pub fn write(gpa: Allocator) ![]u8 {
             .ship_count = count,
             ._unknown_0a = 0,
             .first_ship = listed,
-            ._unknown_10 = group_tail,
+            .formation = dte.FlightGroup.no_formation,
         };
         listed += count;
     }
 
-    // The object table: the ships' IDs, then the flight groups', none with triggers.
+    // The object table: the ships' IDs, then the flight groups', none with triggers. The player's
+    // ship, ship 0, is marked as the original's tools mark it in the game's missions.
     const objects = try arena.alloc(dte.Object, placed.len + groups.len);
     for (objects, 0..) |*object, id| object.* = .{
         .kind = if (id < placed.len) .ship else .flight_group,
         .count = 0,
         .first = no_triggers,
-        ._unknown_04 = 0,
+        .tool_flags = .{ .player = id == 0 },
     };
 
     const code = try script(arena);
@@ -243,10 +244,6 @@ pub fn write(gpa: Allocator) ![]u8 {
 /// The object table's `first` for an object with no triggers, as the game's missions give it.
 const no_triggers = 0xFFFF;
 
-/// A flight group's last word, as every flight group of the game's missions has it.
-/// **Unknown:** what it means.
-const group_tail = 0xFF19FFFF;
-
 /// The bytes after a ship's pitch (`_unknown_3c`, `tier`, `_unknown_3e`, the marker's curve and its
 /// place on it), as most of the ships of the game's missions have them: tier 255, which asks for
 /// the campaign's, and no curve.
@@ -271,7 +268,8 @@ fn shipRecord(ship: Placed, id: u32, name_at: u16) dte.Ship {
     record.yaw = ship.yaw;
     record.intact_components = dte.Ship.all_intact;
     record.formation_point = dte.Ship.no_formation_point;
-    record._unknown_36 = 0xFFFF;
+    record.formation_point_tag = .none;
+    record._unknown_37 = 0xFF;
     record.runtime_pitch = ship.pitch;
     record.pitch = ship.pitch;
     const tail = std.mem.asBytes(&record)[@offsetOf(dte.Ship, "_unknown_3c")..][0..ship_tail.len];
@@ -429,6 +427,10 @@ test write {
         try std.testing.expectEqual(Type.of(.reliant).number(), record.launch_from);
     }
     try std.testing.expectEqual(null, records[4].launchGate());
+    // The object table marks the player's ship as the original's tools do.
+    const objects = try mission.file.objects();
+    try std.testing.expect(objects[0].tool_flags.player);
+    try std.testing.expect(!objects[1].tool_flags.player);
 }
 
 test "the wing waits in the Reliant's tubes as the mission starts, its launch started" {
