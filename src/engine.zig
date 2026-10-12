@@ -28,6 +28,7 @@ pub const random = @import("engine/random.zig");
 pub const sources = @import("engine/sources.zig");
 pub const surrender = @import("engine/surrender.zig");
 pub const vm = @import("engine/vm.zig");
+pub const web = @import("engine/web.zig");
 
 /// The 32-bit address of a `T` in the payload's address space.
 pub fn Pointer(comptime T: type) type {

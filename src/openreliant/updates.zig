@@ -1,12 +1,12 @@
 //! OpenReliant's check for a newer release of itself
-//! ([#1062](https://github.com/OpenReliant/openreliant/issues/1062)). As OpenReliant starts, a
-//! thread of its own asks GitHub's API for the latest release, and gives up after `time_limit`.
-//! The game never waits for the thread: each frame it only looks at whether the thread has
-//! answered, and as it quits it leaves the thread behind. A slow or missing connection never holds
-//! up the game, not even a lookup of GitHub's address, which the system's resolver does in a call
-//! nothing can interrupt. A release newer than the one playing is logged, and the main menu shows
-//! it once (`game.interface.main_menu.Release`): YES opens the release's page in the web browser,
-//! and `[OpenReliant] UpdateSeen` keeps the newest release the main menu has shown.
+//! ([#1062](https://github.com/OpenReliant/openreliant/issues/1062)). As OpenReliant starts, it
+//! asks GitHub's API for the latest release, as a download of its own (`engine.web.Download`) that
+//! gives up after `time_limit`. The game never waits for it: each frame it only looks at whether
+//! the download has answered, and as it quits it leaves the download's thread behind, so a slow or
+//! missing connection never holds up the game. A release newer than the one playing is logged, and
+//! the main menu shows it once (`game.interface.main_menu.Release`): YES opens the release's page
+//! in the web browser, and `[OpenReliant] UpdateSeen` keeps the newest release the main menu has
+//! shown.
 //!
 //! **Improvement:** the original never looks for a newer version of itself.
 
@@ -18,6 +18,7 @@ const openreliant = @import("openreliant");
 const platform = @import("platform");
 const engine = openreliant.engine;
 const main_menu = engine.game.interface.main_menu;
+const web = engine.web;
 const settings = @import("settings.zig");
 const version = @import("version");
 
@@ -32,10 +33,11 @@ pub const page_url = "https://github.com/OpenReliant/openreliant/releases/tag/v"
 /// The room a release's page takes (`Version.page`).
 const PageBuffer = [page_url.len + main_menu.max_version + 1]u8;
 
-/// What the request says it comes from, which GitHub's API asks of every request.
-const user_agent = "OpenReliant";
+/// The header GitHub's API asks for besides the user agent (`web.user_agent`), which it asks of
+/// every request.
+const accept: std.http.Header = .{ .name = "Accept", .value = "application/vnd.github+json" };
 
-/// How long the thread waits for GitHub at most, before it gives up.
+/// How long the check waits for GitHub at most, before it gives up.
 pub const time_limit: Io.Duration = .fromSeconds(5);
 
 /// How much of GitHub's answer is read at most. A release's description, with its notes and its
@@ -84,41 +86,20 @@ pub const Version = struct {
     }
 };
 
-/// What GitHub answered: the latest release's version, or the status it answered with in its
-/// place, such as 403 once the requests from this address are past GitHub's limit.
-const Answer = union(enum) {
-    latest: Version,
-    status: std.http.Status,
-};
+/// Why the latest release can't be told. GitHub answers 403 (`error.ServerRefused`) once the
+/// requests from this address are past its limit.
+const Error = web.FetchError || std.json.ParseError(std.json.Scanner) || error{BadTag};
 
-/// Why the thread couldn't tell the latest release.
-const Error = std.http.Client.FetchError || std.json.ParseError(std.json.Scanner) || Io.ConcurrentError || error{ BadTag, Timeout };
+/// What asks for the latest release, on the download's thread: `latest`, or a stand-in in the
+/// tests.
+const Ask = *const fn (io: Io, progress: *web.Progress) Error!Version;
 
-/// What asks for the latest release, which sets `returned` as it returns: `latest`, or a stand-in
-/// in the tests.
-const Fetch = *const fn (io: Io, gpa: Allocator, returned: *Io.Event) Error!Answer;
+/// The check's download (`web.Download`): asks for the latest release with `ask`.
+const Job = struct {
+    ask: Ask,
 
-/// What the check and its thread share. It is on the heap, so that the thread can outlive the
-/// check, and whichever of the two lets go of it last frees it.
-const Shared = struct {
-    /// How many of the two still hold it.
-    holders: std.atomic.Value(u8) = .init(2),
-    /// Whether the thread has answered, and its answer, which is read only once it has.
-    answered: std.atomic.Value(bool) = .init(false),
-    answer: Error!Answer = undefined,
-
-    /// What it and the thread allocate from: a thread-safe allocator that stays usable after
-    /// `main` returns, since the thread can outlive it.
-    const allocator = std.heap.smp_allocator;
-
-    /// Leaves the thread's answer for the check.
-    fn give(shared: *Shared, answer: Error!Answer) void {
-        shared.answer = answer;
-        shared.answered.store(true, .release);
-    }
-
-    fn letGo(shared: *Shared) void {
-        if (shared.holders.fetchSub(1, .acq_rel) == 1) allocator.destroy(shared);
+    pub fn run(job: *Job, io: Io, progress: *web.Progress) Error!Version {
+        return job.ask(io, progress);
     }
 };
 
@@ -126,44 +107,30 @@ const Shared = struct {
 pub const Check = struct {
     /// `starlancer.ini`, which keeps the newest release the main menu has shown.
     settings_file: *engine.profile.File,
-    /// What it shares with its thread, until it takes the answer, or OpenReliant quits.
-    shared: ?*Shared = null,
+    /// The download, until the check takes its answer, or OpenReliant quits.
+    download: web.Download(Job) = .{},
     /// A newer release than the one playing, once the check has found one, and whether the main
     /// menu has shown it, in this run or an earlier one (`seen_key`).
     newer: ?Version = null,
     shown: bool = false,
 
-    /// Starts the thread. A check that can't start is logged, and finds nothing.
+    /// Starts the download. A check that can't start is logged, and finds nothing.
     pub fn start(check: *Check) void {
         check.startAsking(latest, time_limit);
     }
 
-    fn startAsking(check: *Check, fetch: Fetch, limit: Io.Duration) void {
-        const shared = Shared.allocator.create(Shared) catch |err| return cantCheck("{s}", .{@errorName(err)});
-        shared.* = .{};
-        const thread = std.Thread.spawn(.{}, ask, .{ shared, fetch, limit }) catch |err| {
-            Shared.allocator.destroy(shared);
-            return cantCheck("{s}", .{@errorName(err)});
-        };
-        thread.detach();
-        check.shared = shared;
+    fn startAsking(check: *Check, ask: Ask, limit: Io.Duration) void {
+        check.download.start(.{ .ask = ask }, .{ .whole = limit }) catch |err| cantCheck("{s}", .{@errorName(err)});
     }
 
-    /// Takes the thread's answer once it has answered; each frame. It never waits.
+    /// Takes the download's answer once it has answered; each frame. It never waits.
     pub fn poll(check: *Check) void {
-        const shared = check.shared orelse return;
-        if (!shared.answered.load(.acquire)) return;
-        const answer = shared.answer;
-        shared.letGo();
-        check.shared = null;
-        const reply = answer catch |err| return switch (err) {
+        const answer = check.download.take() orelse return;
+        const latest_release = answer catch |err| return switch (err) {
             error.Timeout => cantCheck("GitHub didn't answer within {d} seconds", .{time_limit.toSeconds()}),
             else => cantCheck("{s}", .{@errorName(err)}),
         };
-        switch (reply) {
-            .status => |status| cantCheck("GitHub answered {d}", .{@backingInt(status)}),
-            .latest => |latest_release| check.found(latest_release),
-        }
+        check.found(latest_release);
     }
 
     /// Logs the latest release where it is newer than the one playing, and keeps it for the main
@@ -179,12 +146,10 @@ pub const Check = struct {
         check.shown = seen(check.settings_file.profile, latest_release);
     }
 
-    /// Leaves the thread behind where it hasn't answered, as OpenReliant quits, without waiting for
-    /// it.
+    /// Leaves the download's thread behind where it hasn't answered, as OpenReliant quits, without
+    /// waiting for it.
     pub fn close(check: *Check) void {
-        const shared = check.shared orelse return;
-        shared.letGo();
-        check.shared = null;
+        check.download.abandon();
     }
 
     /// What the main menu shows the player.
@@ -224,46 +189,11 @@ fn cantCheck(comptime reason: []const u8, args: anytype) void {
     log.info("can't check for a newer OpenReliant: " ++ reason, args);
 }
 
-/// The check's thread, with an `Io` of its own, which `main`'s doesn't wait for as OpenReliant
-/// quits: asks for the latest release with `fetch`, as a task it cancels once `limit` is up, and
-/// leaves the answer in `shared`.
-fn ask(shared: *Shared, fetch: Fetch, limit: Io.Duration) void {
-    defer shared.letGo();
-    var threaded: Io.Threaded = .init(Shared.allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-    var returned: Io.Event = .unset;
-    var task = io.concurrent(call, .{ fetch, io, Shared.allocator, &returned }) catch |err| return shared.give(err);
-    const in_time = if (returned.waitTimeout(io, .{ .duration = .{ .raw = limit, .clock = .awake } })) true else |_| false;
-    // Cancelling can't interrupt a lookup of GitHub's address, so it waits for the lookup to end;
-    // the game doesn't wait for this thread.
-    const answer = task.cancel(io);
-    shared.give(if (in_time) answer else error.Timeout);
-}
-
-/// Calls `fetch`, as a task of the check's thread.
-fn call(fetch: Fetch, io: Io, gpa: Allocator, returned: *Io.Event) Error!Answer {
-    return fetch(io, gpa, returned);
-}
-
-/// Asks GitHub's API for the latest release, on a task of the check's thread, which sets
-/// `returned` as it returns.
-fn latest(io: Io, gpa: Allocator, returned: *Io.Event) Error!Answer {
-    defer returned.set(io);
-    var client: std.http.Client = .{ .allocator = gpa, .io = io };
-    defer client.deinit();
-    const answer = try gpa.alloc(u8, max_answer);
-    defer gpa.free(answer);
-    var writer: Io.Writer = .fixed(answer);
-    const result = try client.fetch(.{
-        .location = .{ .url = latest_url },
-        .response_writer = &writer,
-        .keep_alive = false,
-        .headers = .{ .user_agent = .{ .override = user_agent } },
-        .extra_headers = &.{.{ .name = "Accept", .value = "application/vnd.github+json" }},
-    });
-    if (result.status != .ok) return .{ .status = result.status };
-    return .{ .latest = try tagVersion(gpa, writer.buffered()) };
+/// Asks GitHub's API for the latest release, on the download's thread.
+fn latest(io: Io, progress: *web.Progress) Error!Version {
+    const answer = try web.fetch(io, .{ .url = latest_url, .headers = &.{accept} }, max_answer, progress);
+    defer web.allocator.free(answer);
+    return tagVersion(web.allocator, answer);
 }
 
 /// The version that the tag of a release names, from GitHub's description of it, `answer`.
@@ -335,38 +265,35 @@ test Check {
 /// Stand-ins for `latest`: one that answers at once with a newer release, one that waits past the
 /// time limit, and one that ignores its cancelling for a while, as the system's resolver does.
 const testing = struct {
-    fn newer(io: Io, _: Allocator, returned: *Io.Event) Error!Answer {
-        defer returned.set(io);
-        return .{ .latest = Version.ofTag("v99.0.0").? };
+    fn newer(_: Io, _: *web.Progress) Error!Version {
+        return Version.ofTag("v99.0.0").?;
     }
 
-    fn slow(io: Io, _: Allocator, returned: *Io.Event) Error!Answer {
-        defer returned.set(io);
+    fn slow(io: Io, _: *web.Progress) Error!Version {
         try io.sleep(.fromSeconds(10), .awake);
-        return .{ .status = .ok };
+        return Version.ofTag("v99.0.0").?;
     }
 
-    fn stuck(io: Io, _: Allocator, returned: *Io.Event) Error!Answer {
-        defer returned.set(io);
+    fn stuck(io: Io, _: *web.Progress) Error!Version {
         const was = io.swapCancelProtection(.blocked);
         defer _ = io.swapCancelProtection(was);
         io.sleep(.fromMilliseconds(500), .awake) catch unreachable;
-        return .{ .status = .ok };
+        return Version.ofTag("v99.0.0").?;
     }
 
-    /// Polls `check` until its thread has answered.
+    /// Polls `check` until its download has answered.
     fn answer(check: *Check) !void {
         const io = std.testing.io;
         for (0..1000) |_| {
             check.poll();
-            if (check.shared == null) return;
+            if (!check.download.busy()) return;
             try io.sleep(.fromMilliseconds(5), .awake);
         }
         return error.TestTimeout;
     }
 };
 
-test "the check's thread answers" {
+test "the check's download answers" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     var file: engine.profile.File = .{ .arena = arena.allocator(), .profile = .empty };
@@ -381,7 +308,7 @@ test "the check's thread answers" {
     try std.testing.expectEqual(null, check.newer);
 }
 
-test "the game never waits for the check's thread" {
+test "the game never waits for the check's download" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     var file: engine.profile.File = .{ .arena = arena.allocator(), .profile = .empty };
@@ -393,5 +320,5 @@ test "the game never waits for the check's thread" {
     check.poll();
     check.close();
     try std.testing.expect(before.durationTo(Io.Clock.awake.now(io)).toMilliseconds() < 100);
-    try std.testing.expectEqual(null, check.shared);
+    try std.testing.expect(!check.download.busy());
 }
