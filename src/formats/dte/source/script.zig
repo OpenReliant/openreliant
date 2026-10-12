@@ -8,9 +8,11 @@ const statements = @import("../statements.zig");
 const Statement = statements.Statement;
 const Expression = statements.Expression;
 const Operator = statements.Operator;
+const Update = statements.Update;
 const commands = @import("../../../engine/game/executor/commands.zig");
 const conditions = @import("../../../engine/vm/conditions.zig");
 const names = @import("names.zig");
+const Word = names.Word;
 const vocabulary = @import("vocabulary.zig");
 const vm = @import("../../../engine/vm.zig");
 
@@ -29,7 +31,7 @@ pub const Names = struct {
     pub fn object(record_names: Names, id: u32) Indexed {
         const list = record_names.objects;
         if (id < list.len and list[id] != null) return .{ .name = list[id].? };
-        return .{ .fallback = .{ "object_index", id } };
+        return .{ .fallback = .{ .object_index, id } };
     }
 };
 
@@ -38,18 +40,18 @@ pub const Names = struct {
 /// records](../../../../docs/formats/mission-source.md#references-past-the-records)).
 pub const Indexed = union(enum) {
     name: []const u8,
-    fallback: struct { []const u8, u32 },
+    fallback: struct { Word, u32 },
 
     pub fn format(record: Indexed, w: *Writer) Writer.Error!void {
         switch (record) {
             .name => |name| try w.writeAll(name),
-            .fallback => |fallback| try w.print("{s}({d})", .{ fallback[0], fallback[1] }),
+            .fallback => |fallback| try w.print("{t}({d})", .{ fallback[0], fallback[1] }),
         }
     }
 };
 
 /// Record `index` of `list`, whose index form is `fallback`.
-pub fn indexed(list: []const []const u8, index: u32, fallback: []const u8) Indexed {
+pub fn indexed(list: []const []const u8, index: u32, fallback: Word) Indexed {
     return if (index < list.len) .{ .name = list[index] } else .{ .fallback = .{ fallback, index } };
 }
 
@@ -61,8 +63,8 @@ pub const Scope = struct {
 };
 
 /// The names a trigger's function gives its event's values: their labels in the condition
-/// catalogue, as names. A file holds no record of these names (`names.Namer.reserve`), so that
-/// none is hidden in a trigger's function.
+/// catalogue, as names. No record takes them (`names.Namer.reserve`), so that the function's
+/// parameters never hide one.
 pub fn eventNames(arena: std.mem.Allocator, values: []const conditions.Value) std.mem.Allocator.Error![]const []const u8 {
     const list = try arena.alloc([]const u8, values.len);
     var namer: names.Namer = .init(arena);
@@ -99,70 +101,56 @@ const Printer = struct {
     }
 
     fn statement(p: Printer, line: Statement, depth: usize) Writer.Error!void {
+        const w = p.writer;
         try p.indent(depth);
         switch (line) {
             .command => |command| {
                 const entry = commands.find(command.index);
-                if (entry) |known| {
-                    try p.writer.print("{s}(", .{known.name});
-                } else {
-                    try p.writer.print("command({d}", .{command.index});
-                }
+                if (entry) |known| try w.print("{s}(", .{known.name}) else try w.print("{t}({d}", .{ Word.command, command.index });
                 for (command.arguments, 0..) |argument, index| {
-                    if (index > 0 or entry == null) try p.writer.writeAll(", ");
-                    const kind = if (entry) |known| if (index < known.params.len) vocabulary.of(known.params[index]) else null else null;
-                    try p.expression(argument, kind, .lowest);
+                    if (index > 0 or entry == null) try w.writeAll(", ");
+                    try p.expression(argument, kindOf(entry, index), .lowest);
                 }
-                try p.writer.writeAll(")\n");
+                try w.writeAll(")\n");
             },
             .call => |call| {
-                try p.writer.print("{f}", .{indexed(p.names.parts, call.part, "part_index")});
-                try p.arguments(call.arguments, false);
+                try w.print("{f}(", .{indexed(p.names.parts, call.part, .part_index)});
+                try p.values(call.arguments, false);
+                try w.writeAll(")\n");
             },
             .spawn => |call| {
-                try p.writer.print("spawn({f}", .{indexed(p.names.parts, call.part, "part_index")});
-                try p.arguments(call.arguments, true);
+                try w.print("{t}({f}", .{ Word.spawn, indexed(p.names.parts, call.part, .part_index) });
+                try p.values(call.arguments, true);
+                try w.writeAll(")\n");
             },
-            .assign => |assign| {
-                const operator_text: ?[]const u8 = switch (assign.update) {
-                    .assign => "=",
-                    .add_assign => "+=",
-                    .sub_assign => "-=",
-                    .mul_assign => "*=",
-                    .div_assign => "/=",
-                    .add_assign_f, .sub_assign_f, .mul_assign_f, .div_assign_f => null,
-                };
-                if (operator_text) |text| {
-                    try p.target(assign.target);
-                    try p.writer.print(" {s} ", .{text});
-                    try p.expression(assign.value, null, .lowest);
-                    try p.writer.writeByte('\n');
-                } else {
-                    try p.writer.print("{t}(", .{assign.update});
-                    try p.target(assign.target);
-                    try p.writer.writeAll(", ");
-                    try p.expression(assign.value, null, .lowest);
-                    try p.writer.writeAll(")\n");
-                }
+            .assign => |assign| if (assignSymbol(assign.update)) |symbol_text| {
+                try p.target(assign.target);
+                try w.print(" {s} ", .{symbol_text});
+                try p.expression(assign.value, null, .lowest);
+                try w.writeByte('\n');
+            } else {
+                try w.print("{t}(", .{assign.update});
+                try p.target(assign.target);
+                try w.writeAll(", ");
+                try p.expression(assign.value, null, .lowest);
+                try w.writeAll(")\n");
             },
             .@"if" => |branch| try p.ifStatement(branch, depth),
             .random => |random| try p.randomStatement(random, depth),
             .@"return" => |value| {
-                try p.writer.writeAll("return ");
+                try w.writeAll("return ");
                 try p.expression(value, null, .lowest);
-                try p.writer.writeByte('\n');
+                try w.writeByte('\n');
             },
         }
     }
 
-    /// A call's arguments and its closing bracket, after a first argument where `after` says so.
-    fn arguments(p: Printer, list: []const Expression, after: bool) Writer.Error!void {
-        if (!after) try p.writer.writeByte('(');
-        for (list, 0..) |argument, index| {
-            if (index > 0 or after) try p.writer.writeAll(", ");
-            try p.expression(argument, null, .lowest);
+    /// Writes `list`, its values separated by commas, with one before the first where `leading`.
+    fn values(p: Printer, list: []const Expression, leading: bool) Writer.Error!void {
+        for (list, 0..) |value, index| {
+            if (index > 0 or leading) try p.writer.writeAll(", ");
+            try p.expression(value, null, .lowest);
         }
-        try p.writer.writeAll(")\n");
     }
 
     /// `if`, `elseif` for an `else` that holds one `if` alone, and `else`.
@@ -191,7 +179,7 @@ const Printer = struct {
 
     /// A random choice: one roll, then an `if` over its arms' thresholds, and the default as `else`.
     fn randomStatement(p: Printer, random: statements.Random, depth: usize) Writer.Error!void {
-        try p.writer.writeAll("local roll = random()\n");
+        try p.writer.print("local roll = {t}()\n", .{Word.random});
         for (random.arms, 0..) |arm, index| {
             try p.indent(depth);
             try p.writer.print("{s} roll < {d} then\n", .{ if (index == 0) "if" else "elseif", arm.threshold });
@@ -208,49 +196,16 @@ const Printer = struct {
 
     fn target(p: Printer, to: statements.Target) Writer.Error!void {
         switch (to) {
-            .global => |index| try p.writer.print("{f}", .{indexed(p.names.globals, index, "global_index")}),
+            .global => |index| try p.writer.print("{f}", .{indexed(p.names.globals, index, .global_index)}),
             .variable => |number| try p.variable(number),
             .argument => |number| try p.writer.print("arg{d}", .{number}),
         }
     }
 
+    /// One of the game's variables, by its name where it has one.
     fn variable(p: Printer, number: u8) Writer.Error!void {
-        if (vocabulary.variable(number)) |known| return p.writer.print("game.{s}", .{known});
-        try p.writer.print("game[{d}]", .{number});
-    }
-
-    /// How tightly an operator binds in Luau, the loosest first.
-    const Precedence = enum(u8) { lowest, @"or", @"and", comparison, sum, product, atom };
-
-    fn precedence(operator: Operator) ?Precedence {
-        return switch (operator) {
-            .logical_or => .@"or",
-            .logical_and => .@"and",
-            .equal, .not_equal, .greater, .greater_equal, .less, .less_equal => .comparison,
-            .add, .sub => .sum,
-            .mul, .div => .product,
-            // The rest are written as calls.
-            .greater_f, .greater_equal_f, .less_f, .less_equal_f, .add_f, .sub_f, .mul_f, .div_f => null,
-            .in_flight_group, .not_in_flight_group, .in_squad, .not_in_squad => null,
-        };
-    }
-
-    fn symbol(operator: Operator) []const u8 {
-        return switch (operator) {
-            .logical_or => "or",
-            .logical_and => "and",
-            .equal => "==",
-            .not_equal => "~=",
-            .greater => ">",
-            .greater_equal => ">=",
-            .less => "<",
-            .less_equal => "<=",
-            .add => "+",
-            .sub => "-",
-            .mul => "*",
-            .div => "/",
-            else => @tagName(operator),
-        };
+        if (vocabulary.variable(number)) |known| return p.writer.print("{t}.{s}", .{ Word.game, known });
+        try p.writer.print("{t}[{d}]", .{ Word.game, number });
     }
 
     /// Writes `value`, where `kind` names the value a command's parameter takes, inside an
@@ -260,82 +215,128 @@ const Printer = struct {
         switch (value) {
             .number => |number| {
                 if (kind) |named| {
-                    if (named == .part) return w.print("{f}", .{indexed(p.names.parts, number, "part_index")});
+                    if (named == .part) return w.print("{f}", .{indexed(p.names.parts, number, .part_index)});
                     if (vocabulary.name(named, number)) |text| return w.print("\"{s}\"", .{text});
                 }
                 try w.print("{d}", .{number});
             },
             .text => |text| try writeString(w, text),
-            .ship => |index| try w.print("{f}", .{indexed(p.names.ships, index, "ship_index")}),
-            .component => |component| try w.print("component({f}, {d})", .{ indexed(p.names.ships, component.ship, "ship_index"), component.component }),
-            .flight_group => |index| try w.print("{f}", .{indexed(p.names.flight_groups, index, "flight_group_index")}),
-            .squad => |index| try w.print("{f}", .{indexed(p.names.squads, index, "squad_index")}),
-            .curve => |index| try w.print("{f}", .{indexed(p.names.curves, index, "curve_index")}),
+            .ship => |index| try w.print("{f}", .{indexed(p.names.ships, index, .ship_index)}),
+            .component => |component| try w.print("{t}({f}, {d})", .{ Word.component, indexed(p.names.ships, component.ship, .ship_index), component.component }),
+            .flight_group => |index| try w.print("{f}", .{indexed(p.names.flight_groups, index, .flight_group_index)}),
+            .squad => |index| try w.print("{f}", .{indexed(p.names.squads, index, .squad_index)}),
+            .curve => |index| try w.print("{f}", .{indexed(p.names.curves, index, .curve_index)}),
             .null => try w.writeAll("nil"),
-            .global => |index| try w.print("{f}", .{indexed(p.names.globals, index, "global_index")}),
+            .global => |index| try w.print("{f}", .{indexed(p.names.globals, index, .global_index)}),
             .variable => |number| try p.variable(number),
             .argument => |number| try w.print("arg{d}", .{number}),
             .local => |number| {
                 if (number < p.scope.event.len) return w.writeAll(p.scope.event[number]);
-                try w.print("thread_value({d})", .{number});
+                try w.print("{t}({d})", .{ Word.thread_value, number });
             },
-            .event_value => |event| {
-                try w.print("last_event({f}", .{p.names.object(event.object)});
-                const condition = conditions.find(event.condition);
-                if (vocabulary.name(.condition, event.condition)) |text| {
-                    try w.print(", \"{s}\", ", .{text});
-                } else {
-                    try w.print(", {d}, ", .{event.condition});
-                }
-                if (condition != null and event.value < condition.?.values.len) {
-                    try writeString(w, condition.?.values[event.value].label);
-                } else {
-                    try w.print("{d}", .{event.value});
-                }
-                try w.writeByte(')');
-            },
-            .result => try w.writeAll("result()"),
+            .event_value => |event| try p.lastEvent(event),
+            .result => try w.print("{t}()", .{Word.result}),
             .binary => |binary| {
-                const own = precedence(binary.operator) orelse {
-                    try w.print("{s}(", .{symbol(binary.operator)});
+                const operator = infix(binary.operator) orelse {
+                    try w.print("{t}(", .{binary.operator});
                     try p.expression(binary.left, null, .lowest);
                     try w.writeAll(", ");
                     try p.expression(binary.right, null, .lowest);
                     return w.writeByte(')');
                 };
-                const bracket = @backingInt(own) <= @backingInt(outer) and outer != .lowest;
+                // An operand that binds more loosely than the operator takes brackets, and on the
+                // right one that binds as loosely too, since Luau groups its operators to the left.
+                const own = operator.precedence;
+                const bracket = @backingInt(own) <= @backingInt(outer);
                 if (bracket) try w.writeByte('(');
                 try p.expression(binary.left, null, @fromBackingInt(@backingInt(own) - 1));
-                try w.print(" {s} ", .{symbol(binary.operator)});
+                try w.print(" {s} ", .{operator.symbol});
                 try p.expression(binary.right, null, own);
                 if (bracket) try w.writeByte(')');
             },
         }
     }
+
+    /// `last_event(object, condition, label)`: a value an object keeps of its last event, by its
+    /// condition's name and the value's label where the catalogue has them.
+    fn lastEvent(p: Printer, event: statements.EventValue) Writer.Error!void {
+        const w = p.writer;
+        try w.print("{t}({f}, ", .{ Word.last_event, p.names.object(event.object) });
+        if (vocabulary.name(.condition, event.condition)) |name| try w.print("\"{s}\"", .{name}) else try w.print("{d}", .{event.condition});
+        try w.writeAll(", ");
+        const condition = conditions.find(event.condition);
+        if (condition != null and event.value < condition.?.values.len) {
+            try writeString(w, condition.?.values[event.value].label);
+        } else {
+            try w.print("{d}", .{event.value});
+        }
+        try w.writeByte(')');
+    }
 };
+
+/// The kind of named value argument `index` of the command `entry` takes, where it takes one.
+fn kindOf(entry: ?commands.Command, index: usize) ?vocabulary.Kind {
+    const known = entry orelse return null;
+    return if (index < known.params.len) vocabulary.of(known.params[index]) else null;
+}
+
+/// How tightly an operator binds in Luau, the loosest first.
+const Precedence = enum(u8) { lowest, @"or", @"and", comparison, sum, product };
+
+/// How Luau writes an operator between its operands: its symbol, and how tightly it binds.
+const Infix = struct { symbol: []const u8, precedence: Precedence };
+
+/// How Luau writes `operator` between its operands, or null for one written as a call.
+fn infix(operator: Operator) ?Infix {
+    return switch (operator) {
+        .logical_or => .{ .symbol = "or", .precedence = .@"or" },
+        .logical_and => .{ .symbol = "and", .precedence = .@"and" },
+        .equal => .{ .symbol = "==", .precedence = .comparison },
+        .not_equal => .{ .symbol = "~=", .precedence = .comparison },
+        .greater => .{ .symbol = ">", .precedence = .comparison },
+        .greater_equal => .{ .symbol = ">=", .precedence = .comparison },
+        .less => .{ .symbol = "<", .precedence = .comparison },
+        .less_equal => .{ .symbol = "<=", .precedence = .comparison },
+        .add => .{ .symbol = "+", .precedence = .sum },
+        .sub => .{ .symbol = "-", .precedence = .sum },
+        .mul => .{ .symbol = "*", .precedence = .product },
+        .div => .{ .symbol = "/", .precedence = .product },
+        .greater_f, .greater_equal_f, .less_f, .less_equal_f, .add_f, .sub_f, .mul_f, .div_f => null,
+        .in_flight_group, .not_in_flight_group, .in_squad, .not_in_squad => null,
+    };
+}
+
+/// The symbol Luau writes `update` with, or null for one written as a call.
+fn assignSymbol(update: Update) ?[]const u8 {
+    return switch (update) {
+        .assign => "=",
+        .add_assign => "+=",
+        .sub_assign => "-=",
+        .mul_assign => "*=",
+        .div_assign => "/=",
+        .add_assign_f, .sub_assign_f, .mul_assign_f, .div_assign_f => null,
+    };
+}
 
 /// `text` as a Luau string: printable characters as they are, and the rest escaped.
 pub fn writeString(writer: *Writer, text: []const u8) Writer.Error!void {
     try writer.writeByte('"');
     for (text) |byte| switch (byte) {
-        '"' => try writer.writeAll("\\\""),
-        '\\' => try writer.writeAll("\\\\"),
+        '"', '\\' => try writer.print("\\{c}", .{byte}),
         '\n' => try writer.writeAll("\\n"),
         '\t' => try writer.writeAll("\\t"),
-        ' '...'!', '#'...'[', ']'...'~' => try writer.writeByte(byte),
-        else => try writer.print("\\x{x:0>2}", .{byte}),
+        else => if (std.ascii.isPrint(byte)) try writer.writeByte(byte) else try writer.print("\\x{x:0>2}", .{byte}),
     };
     try writer.writeByte('"');
 }
 
 comptime {
-    // What the script writes as calls is reserved, so that no record takes its name.
-    @setEvalBranchQuota(100_000);
+    // What the script writes as calls are words of the source's own, which no record takes.
     for (std.enums.values(Operator)) |operator| {
-        if (Printer.precedence(operator) == null) std.debug.assert(names.isReserved(@tagName(operator)));
+        if (infix(operator) == null) std.debug.assert(@hasField(Word, @tagName(operator)));
     }
-    for ([_]statements.Update{ .add_assign_f, .sub_assign_f, .mul_assign_f, .div_assign_f }) |update| {
-        std.debug.assert(names.isReserved(@tagName(update)));
+    for (std.enums.values(Update)) |update| {
+        if (assignSymbol(update) == null) std.debug.assert(@hasField(Word, @tagName(update)));
     }
 }
 
@@ -389,4 +390,11 @@ test write {
         \\return 1
         \\
     , out.written());
+}
+
+test writeString {
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try writeString(&out.writer, "a\\b\"c\x01\xe9");
+    try std.testing.expectEqualStrings("\"a\\\\b\\\"c\\x01\\xe9\"", out.written());
 }

@@ -12,27 +12,71 @@ const keywords = [_][]const u8{
     "or",    "repeat", "return",   "then", "true", "type",   "until", "while",
 };
 
-/// The names mission source gives itself, which no record's name can be either: its constructors,
-/// its functions, and the forms the script writes some opcodes in.
-pub const reserved = [_][]const u8{
-    "mission",            "global",          "flight_group",          "ship",            "nav_point",
-    "waypoint",           "point",           "curve_point",           "squad",           "component",
-    "formation",          "curve",           "part",                  "handler",         "on",
-    "any_ship",           "command",         "spawn",                 "random",          "result",
-    "game",               "thread_value",    "last_event",            "in_flight_group", "not_in_flight_group",
-    "in_squad",           "not_in_squad",    "greater_f",             "greater_equal_f", "less_f",
-    "less_equal_f",       "add_f",           "sub_f",                 "mul_f",           "div_f",
-    "add_assign_f",       "sub_assign_f",    "mul_assign_f",          "div_assign_f",    "ship_index",
-    "flight_group_index", "squad_index",     "curve_index",           "global_index",    "part_index",
-    "object_index",       "formation_index", "formation_point_index",
+/// The words mission source gives itself, which no record's name can be either: its
+/// constructors, its functions and values, the forms of a reference past the records, and the
+/// forms the script writes some opcodes in.
+pub const Word = enum {
+    // Constructors.
+    mission,
+    global,
+    flight_group,
+    ship,
+    nav_point,
+    waypoint,
+    point,
+    curve_point,
+    squad,
+    formation,
+    curve,
+    part,
+    handler,
+    on,
+    // Functions and values.
+    component,
+    any_ship,
+    command,
+    spawn,
+    random,
+    result,
+    game,
+    thread_value,
+    last_event,
+    // References past the records.
+    ship_index,
+    flight_group_index,
+    squad_index,
+    curve_index,
+    global_index,
+    part_index,
+    object_index,
+    formation_index,
+    formation_point_index,
+    // Opcodes the script writes as calls.
+    in_flight_group,
+    not_in_flight_group,
+    in_squad,
+    not_in_squad,
+    greater_f,
+    greater_equal_f,
+    less_f,
+    less_equal_f,
+    add_f,
+    sub_f,
+    mul_f,
+    div_f,
+    add_assign_f,
+    sub_assign_f,
+    mul_assign_f,
+    div_assign_f,
 };
 
 /// Whether `name` is taken by Luau or by mission source itself, a part's argument such as `arg0`
 /// among them.
 pub fn isReserved(name: []const u8) bool {
-    for (keywords ++ reserved) |word| {
-        if (std.mem.eql(u8, word, name)) return true;
+    for (keywords) |keyword| {
+        if (std.mem.eql(u8, keyword, name)) return true;
     }
+    if (std.meta.stringToEnum(Word, name) != null) return true;
     const number = std.mem.cutPrefix(u8, name, "arg") orelse return false;
     return number.len > 0 and for (number) |byte| {
         if (!std.ascii.isDigit(byte)) break false;

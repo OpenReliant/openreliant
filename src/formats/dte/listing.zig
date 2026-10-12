@@ -101,15 +101,15 @@ pub fn writeInstruction(writer: *Writer, mission: dte.Mission, instruction: dte.
 }
 
 /// Writes instruction `index` of `instructions` as `writeInstruction` does, and where it pushes a
-/// command's argument (`argumentOf`) that the listing can name, the argument's name: the order of
+/// command's argument (`parameterOf`) that the listing can name, the argument's name: the order of
 /// `SetAI`'s AI mode, by the developers' name for it, such as `push_byte   13  Object Attach`. Only
 /// StarLancer's commands are known.
 pub fn writeInstructionAt(writer: *Writer, mission: dte.Mission, instructions: []const dte.Instruction, index: usize, constants: []align(1) const u32, options: Options) Writer.Error!void {
     const instruction = instructions[index];
     try writeInstruction(writer, mission, instruction, constants, options);
     if (options.commands != .starlancer) return;
-    const argument = argumentOf(instructions, index) orelse return;
-    if (vocabulary.of(argument.param) != .order) return;
+    const param = parameterOf(instructions, index) orelse return;
+    if (vocabulary.of(param) != .order) return;
     const number = pushedValue(instruction, constants) orelse return;
     const order: orders.Order = @fromBackingInt(std.math.cast(i16, number) orelse return);
     const info = orders.info(order) orelse return;
@@ -120,18 +120,11 @@ pub fn writeInstructionAt(writer: *Writer, mission: dte.Mission, instructions: [
     }
 }
 
-/// A command's parameter that a push fills: its place among the command's parameters, and the
-/// parameter in the command catalogue.
-const Argument = struct {
-    index: usize,
-    param: commands.Param,
-};
-
 /// The parameter instruction `index` of `instructions` pushes the argument for: where the
 /// instructions just before a `command`, one after another with nothing reaching in between, are
 /// pushes, one for each of its parameters, the first push fills the first parameter. Null where it
 /// isn't such a push, or the command isn't one of StarLancer's.
-fn argumentOf(instructions: []const dte.Instruction, index: usize) ?Argument {
+fn parameterOf(instructions: []const dte.Instruction, index: usize) ?commands.Param {
     if (!pushesOne(instructions[index].opcode)) return null;
     var end = index + 1;
     while (end < instructions.len and pushesOne(instructions[end].opcode) and follows(instructions, end)) end += 1;
@@ -142,8 +135,7 @@ fn argumentOf(instructions: []const dte.Instruction, index: usize) ?Argument {
     for (first + 1..index + 1) |at| {
         if (!pushesOne(instructions[at - 1].opcode) or !follows(instructions, at)) return null;
     }
-    const param = index - first;
-    return .{ .index = param, .param = command.params[param] };
+    return command.params[index - first];
 }
 
 /// Whether instruction `index` starts where the one before it ends, so that nothing reached from
@@ -289,5 +281,5 @@ test writeInstructionAt {
     var cut = instructions;
     cut[3] = dte.decodeAt(&[_]u8{@backingInt(dte.Opcode.add)}, 0).?;
     cut[3].address = instructions[3].address;
-    try std.testing.expectEqual(null, argumentOf(&cut, 1));
+    try std.testing.expectEqual(null, parameterOf(&cut, 1));
 }

@@ -12,6 +12,7 @@ const conditions = @import("../../../engine/vm/conditions.zig");
 const names = @import("names.zig");
 const script = @import("script.zig");
 const vocabulary = @import("vocabulary.zig");
+const Word = names.Word;
 const indexed = script.indexed;
 
 pub const Error = Writer.Error || Allocator.Error || dte.Error || decompile.Error;
@@ -76,30 +77,30 @@ const Source = struct {
             for (event.*) |value| try source.namer.reserve(value);
         }
         source.record_names = .{
-            .ships = try source.nameAll(dte.Ship, source.ships, "ship"),
-            .flight_groups = try source.nameAll(dte.FlightGroup, source.flight_groups, "flight_group"),
-            .squads = try source.nameAll(dte.Squad, source.squads, "squad"),
+            .ships = try source.nameAll(dte.Ship, source.ships, .ship),
+            .flight_groups = try source.nameAll(dte.FlightGroup, source.flight_groups, .flight_group),
+            .squads = try source.nameAll(dte.Squad, source.squads, .squad),
             .curves = try source.nameCurves(),
-            .globals = try source.nameAll(dte.Global, source.globals, "global"),
-            .parts = try source.nameAll(dte.Part, source.parts, "part"),
+            .globals = try source.nameAll(dte.Global, source.globals, .global),
+            .parts = try source.nameAll(dte.Part, source.parts, .part),
             .objects = try source.objectNames(),
         };
-        source.formation_names = try source.nameAll(dte.Formation, source.formations, "formation");
+        source.formation_names = try source.nameAll(dte.Formation, source.formations, .formation);
         try source.nameHandlers();
         return source;
     }
 
-    /// Names each of `records` after its display name.
-    fn nameAll(source: *Source, comptime Record: type, records: []align(1) const Record, kind: []const u8) Allocator.Error![]const []const u8 {
+    /// Names each of `records`, declared with `constructor`, after its display name.
+    fn nameAll(source: *Source, comptime Record: type, records: []align(1) const Record, constructor: Word) Allocator.Error![]const []const u8 {
         const list = try source.arena.alloc([]const u8, records.len);
-        for (list, records, 0..) |*item, record, index| item.* = try source.namer.name(source.mission.name(record.name), kind, index);
+        for (list, records, 0..) |*item, record, index| item.* = try source.namer.name(source.mission.name(record.name), @tagName(constructor), index);
         return list;
     }
 
     /// Names the curves, which have no display names, by their index.
     fn nameCurves(source: *Source) Allocator.Error![]const []const u8 {
         const list = try source.arena.alloc([]const u8, source.curves.len);
-        for (list, 0..) |*item, index| item.* = try source.namer.name("", "curve", index);
+        for (list, 0..) |*item, index| item.* = try source.namer.name("", @tagName(Word.curve), index);
         return list;
     }
 
@@ -133,7 +134,7 @@ const Source = struct {
             const subject = if (owner) |object| source.record_names.objects[object] orelse "" else "";
             const condition = vocabulary.name(.condition, @backingInt(trigger.condition)) orelse "";
             const display = try std.fmt.allocPrint(source.arena, "{s} {s}", .{ subject, condition });
-            try source.handlers.put(source.arena, start, try source.namer.name(display, "handler", index));
+            try source.handlers.put(source.arena, start, try source.namer.name(display, @tagName(Word.handler), index));
         }
     }
 
@@ -147,7 +148,7 @@ const Source = struct {
 
     fn write(source: *Source, w: *Writer) Error!void {
         if (source.mission.openReliantName()) |name| {
-            try w.writeAll("mission({ name = ");
+            try w.print("{t}({{ name = ", .{Word.mission});
             try script.writeString(w, name);
             try w.writeAll(" })\n");
         }
@@ -167,11 +168,26 @@ const Source = struct {
         if (count > 0) try w.print("\n-- {s}\n\n", .{title});
     }
 
+    /// `name = constructor("display"`, the start of a declaration.
+    fn open(source: *Source, w: *Writer, name: []const u8, constructor: Word, display: u16) Writer.Error!void {
+        try w.print("{s} = {t}(", .{ name, constructor });
+        try script.writeString(w, source.mission.name(display));
+    }
+
+    /// `name = constructor("display", { fields })`, or without fields where it has none.
+    fn declare(source: *Source, w: *Writer, name: []const u8, constructor: Word, display: u16, fields: *const Fields) Error!void {
+        try source.open(w, name, constructor, display);
+        if (fields.list.items.len > 0) {
+            try w.writeAll(", ");
+            try fields.write(w, name.len + @tagName(constructor).len + source.mission.name(display).len + " = (\"\", ".len);
+        }
+        try w.writeAll(")\n");
+    }
+
     fn writeGlobals(source: *Source, w: *Writer) Error!void {
         try heading(w, "Globals", source.globals.len);
         for (source.globals, source.record_names.globals) |global, name| {
-            try w.print("{s} = global(", .{name});
-            try script.writeString(w, source.mission.name(global.name));
+            try source.open(w, name, .global, global.name);
             try w.print(", {d})\n", .{global.value});
         }
     }
@@ -187,8 +203,8 @@ const Source = struct {
                     try fields.add("wing", "{d}", .{@backingInt(group.wing)});
                 }
             }
-            if (group.formation.index != dte.Reference.unset) try fields.add("formation", "{f}", .{indexed(source.formation_names, group.formation.index, "formation_index")});
-            try source.declare(w, name, "flight_group", group.name, &fields);
+            if (group.formation.index != dte.Reference.unset) try fields.add("formation", "{f}", .{indexed(source.formation_names, group.formation.index, .formation_index)});
+            try source.declare(w, name, .flight_group, group.name, &fields);
         }
     }
 
@@ -196,17 +212,17 @@ const Source = struct {
         try heading(w, "Ships", source.ships.len);
         for (source.ships, source.record_names.ships) |ship, name| {
             var fields: Fields = .init(source.arena);
-            const constructor: []const u8 = switch (ship.kind) {
-                dte.Ship.nav_point_kind => "nav_point",
-                dte.Ship.waypoint_kind => "waypoint",
-                dte.Ship.point_kind => "point",
-                dte.Ship.curve_point_kind => "curve_point",
+            const constructor: Word = switch (ship.kind) {
+                dte.Ship.nav_point_kind => .nav_point,
+                dte.Ship.waypoint_kind => .waypoint,
+                dte.Ship.point_kind => .point,
+                dte.Ship.curve_point_kind => .curve_point,
                 else => constructor: {
                     try fields.add("type", "{f}", .{named(.ship_type, ship.kind)});
-                    break :constructor "ship";
+                    break :constructor .ship;
                 },
             };
-            if (ship.flightGroup()) |group| try fields.add("group", "{f}", .{indexed(source.record_names.flight_groups, group, "flight_group_index")});
+            if (ship.flightGroup()) |group| try fields.add("group", "{f}", .{indexed(source.record_names.flight_groups, group, .flight_group_index)});
             if (ship.pilotRecord()) |pilot| try fields.add("pilot", "{f}", .{named(.pilot, pilot)});
             if (!std.mem.allEqual(f32, &ship.position, 0)) try fields.add("position", "{f}", .{vector(ship.position)});
             if (ship.yaw != 0) try fields.add("yaw", "{d}", .{ship.yaw});
@@ -215,7 +231,7 @@ const Source = struct {
             if (ship.launchGate()) |gate| try fields.add("launch", "{{ from = {f}, gate = {d} }}", .{ named(.ship_type, ship.launch_from), gate });
             if (ship.formationPoint()) |point| try fields.add("formation_point", "{s}", .{try source.pointName(point)});
             if (ship.tier != dte.Ship.campaign_tier) try fields.add("tier", "{d}", .{ship.tier});
-            if (ship.markedCurve()) |curve| try fields.add("marker", "{{ curve = {f}, at = {f} }}", .{ indexed(source.record_names.curves, curve, "curve_index"), number(ship.marker_at) });
+            if (ship.markedCurve()) |curve| try fields.add("marker", "{{ curve = {f}, at = {f} }}", .{ indexed(source.record_names.curves, curve, .curve_index), number(ship.marker_at) });
             try source.declare(w, name, constructor, ship.name, &fields);
         }
     }
@@ -223,54 +239,46 @@ const Source = struct {
     fn writeSquads(source: *Source, w: *Writer) Error!void {
         try heading(w, "Squads", source.squads.len);
         for (source.squads, source.record_names.squads, 0..) |squad, name, index| {
-            try w.print("{s} = squad(", .{name});
-            try script.writeString(w, source.mission.name(squad.name));
-            try w.writeAll(", {");
-            var first = true;
+            var members: std.ArrayList([]const u8) = .empty;
             for (source.members) |member| {
                 if (member.squad != index) continue;
-                try w.writeAll(if (first) " " else ", ");
-                first = false;
                 const object = source.record_names.object(member.object_id);
-                if (member.part()) |component| {
-                    try w.print("component({f}, {d})", .{ object, component });
-                } else {
-                    try w.print("{f}", .{object});
-                }
+                try members.append(source.arena, if (member.part()) |component|
+                    try std.fmt.allocPrint(source.arena, "{t}({f}, {d})", .{ Word.component, object, component })
+                else
+                    try std.fmt.allocPrint(source.arena, "{f}", .{object}));
             }
-            try w.writeAll(if (first) "})\n" else " })\n");
+            try source.open(w, name, .squad, squad.name);
+            try writeList(w, members.items);
         }
     }
 
     fn writeFormations(source: *Source, w: *Writer) Error!void {
         try heading(w, "Formations", source.formations.len);
         for (source.formations, source.formation_names, 0..) |formation, name, index| {
-            try w.print("{s} = formation(", .{name});
-            try script.writeString(w, source.mission.name(formation.name));
-            try w.writeAll(", {");
-            var first = true;
+            var points: std.ArrayList([]const u8) = .empty;
             for (source.points) |point| {
-                if (point.formation != index) continue;
-                try w.print("{s}{f}", .{ if (first) " " else ", ", vector(point.offset) });
-                first = false;
+                if (point.formation == index) try points.append(source.arena, try std.fmt.allocPrint(source.arena, "{f}", .{vector(point.offset)}));
             }
-            try w.writeAll(if (first) "})\n" else " })\n");
+            try source.open(w, name, .formation, formation.name);
+            try writeList(w, points.items);
         }
     }
 
     fn writeCurves(source: *Source, w: *Writer) Error!void {
         try heading(w, "Curves", source.curves.len);
         for (source.curves, source.record_names.curves) |curve, name| {
+            const ships = source.record_names.ships;
             var fields: Fields = .init(source.arena);
-            if (curve.startShip()) |ship| try fields.add("start", "{f}", .{indexed(source.record_names.ships, ship, "ship_index")});
-            if (curve.endShip()) |ship| try fields.add("finish", "{f}", .{indexed(source.record_names.ships, ship, "ship_index")});
+            if (curve.startShip()) |ship| try fields.add("start", "{f}", .{indexed(ships, ship, .ship_index)});
+            if (curve.endShip()) |ship| try fields.add("finish", "{f}", .{indexed(ships, ship, .ship_index)});
             try fields.add("from", "{f}", .{vector(curve.from)});
             try fields.add("to", "{f}", .{vector(curve.to)});
-            if (curve.leaving_handle.index != dte.Reference.unset) try fields.add("leaving_handle", "{f}", .{indexed(source.record_names.ships, curve.leaving_handle.index, "ship_index")});
-            if (curve.arriving_handle.index != dte.Reference.unset) try fields.add("arriving_handle", "{f}", .{indexed(source.record_names.ships, curve.arriving_handle.index, "ship_index")});
+            if (curve.leaving_handle.index != dte.Reference.unset) try fields.add("leaving_handle", "{f}", .{indexed(ships, curve.leaving_handle.index, .ship_index)});
+            if (curve.arriving_handle.index != dte.Reference.unset) try fields.add("arriving_handle", "{f}", .{indexed(ships, curve.arriving_handle.index, .ship_index)});
             try fields.add("leaving", "{f}", .{vector(curve.leaving)});
             try fields.add("arriving", "{f}", .{vector(curve.arriving)});
-            try w.print("{s} = curve(", .{name});
+            try w.print("{s} = {t}(", .{ name, Word.curve });
             try fields.write(w, name.len + " = curve(".len);
             try w.writeAll(")\n");
         }
@@ -280,8 +288,9 @@ const Source = struct {
         try heading(w, "Code more than one trigger runs", source.handlers.count());
         for (source.handlers.keys(), source.handlers.values()) |start, name| {
             const routine = source.routineAt(start).?;
-            try w.print("{s} = handler(", .{name});
-            try source.function(w, routine, source.eventsOf(source.triggers[routine.owner.triggers[0]].condition), null);
+            const condition = source.triggers[routine.owner.triggers[0]].condition;
+            try w.print("{s} = {t}(", .{ name, Word.handler });
+            try source.function(w, routine, .{ .event = source.eventsOf(condition) });
             try w.writeAll(")\n");
         }
     }
@@ -294,7 +303,7 @@ const Source = struct {
     fn writeTriggers(source: *Source, w: *Writer) Error!void {
         try heading(w, "Triggers", source.triggers.len);
         for (source.triggers, source.owners) |trigger, owner| {
-            try w.writeAll("on(");
+            try w.print("{t}(", .{Word.on});
             if (owner) |object| try w.print("{f}", .{source.record_names.object(object)}) else try w.writeAll("nil");
             try w.print(", {f}", .{named(.condition, @backingInt(trigger.condition))});
             var fields: Fields = .init(source.arena);
@@ -314,17 +323,20 @@ const Source = struct {
                 try w.writeAll(", ");
                 try fields.write(w, "on(".len);
             }
-            const start = trigger.block();
-            if (start != null and source.handlers.get(start.?) != null) {
-                try w.print(", {s})\n", .{source.handlers.get(start.?).?});
-            } else if (owner != null and start != null and source.routineAt(start.?) != null) {
-                try w.writeAll(", ");
-                try source.function(w, source.routineAt(start.?).?, source.eventsOf(trigger.condition), null);
-                try w.writeAll(")\n");
-            } else {
-                try w.writeAll(")\n");
-            }
+            try source.triggerCode(w, trigger, owner);
+            try w.writeAll(")\n");
         }
+    }
+
+    /// The code a trigger runs: the name of the block it shares with other triggers, or its own,
+    /// where it can fire and has one.
+    fn triggerCode(source: *Source, w: *Writer, trigger: dte.Trigger, owner: ?u16) Error!void {
+        const start = trigger.block() orelse return;
+        if (source.handlers.get(start)) |handler| return w.print(", {s}", .{handler});
+        if (owner == null) return;
+        const routine = source.routineAt(start) orelse return;
+        try w.writeAll(", ");
+        try source.function(w, routine, .{ .event = source.eventsOf(trigger.condition) });
     }
 
     /// The values a trigger's event must have, by their names, for the values its condition
@@ -337,10 +349,10 @@ const Source = struct {
             switch (dte.Operand.read(trigger.operands[slot], value.kinds)) {
                 .unset => {},
                 .number => |known| try fields.add(name, "{d}", .{known}),
-                .any_ship => try fields.add(name, "any_ship", .{}),
-                .ship => |index| try fields.add(name, "{f}", .{indexed(source.record_names.ships, index, "ship_index")}),
-                .flight_group => |index| try fields.add(name, "{f}", .{indexed(source.record_names.flight_groups, index, "flight_group_index")}),
-                .squad => |index| try fields.add(name, "{f}", .{indexed(source.record_names.squads, index, "squad_index")}),
+                .any_ship => try fields.add(name, "{t}", .{Word.any_ship}),
+                .ship => |index| try fields.add(name, "{f}", .{indexed(source.record_names.ships, index, .ship_index)}),
+                .flight_group => |index| try fields.add(name, "{f}", .{indexed(source.record_names.flight_groups, index, .flight_group_index)}),
+                .squad => |index| try fields.add(name, "{f}", .{indexed(source.record_names.squads, index, .squad_index)}),
                 .other => |known| try fields.add(name, "{d}", .{known}),
             }
         }
@@ -349,14 +361,13 @@ const Source = struct {
     fn writeParts(source: *Source, w: *Writer) Error!void {
         try heading(w, "Parts", source.parts.len);
         for (source.parts, source.record_names.parts, 0..) |part, name, index| {
-            try w.print("{s} = part(", .{name});
-            try script.writeString(w, source.mission.name(part.name));
+            try source.open(w, name, .part, part.name);
             const routine = for (source.routines) |routine| {
                 if (routine.owner == .part and routine.owner.part == index) break routine;
             } else null;
             if (routine) |found| {
                 try w.writeAll(", ");
-                try source.function(w, found, &.{}, part.arguments);
+                try source.function(w, found, .{ .arguments = part.arguments });
             } else if (part.flags.start) {
                 try w.writeAll(", nil");
             }
@@ -365,41 +376,46 @@ const Source = struct {
         }
     }
 
-    /// A function of `routine`'s statements, whose parameters are the event's values `event`, or
-    /// `arguments` arguments for a part.
-    fn function(source: *Source, w: *Writer, routine: dte.Routine, event: []const []const u8, arguments: ?u8) Error!void {
+    /// What a function's parameters are: the values of a trigger's event, or a part's arguments.
+    const Parameters = union(enum) {
+        event: []const []const u8,
+        arguments: u8,
+    };
+
+    /// A function of `routine`'s statements, with `parameters`.
+    fn function(source: *Source, w: *Writer, routine: dte.Routine, parameters: Parameters) Error!void {
         try w.writeAll("function(");
-        if (arguments) |count| {
-            try script.writeParameters(w, count);
-        } else {
-            for (event, 0..) |name, index| try w.print("{s}{s}", .{ if (index > 0) ", " else "", name });
+        switch (parameters) {
+            .event => |event| for (event, 0..) |name, index| try w.print("{s}{s}", .{ if (index > 0) ", " else "", name }),
+            .arguments => |count| try script.writeParameters(w, count),
         }
         try w.writeAll(")\n");
         const body = try decompile.routine(source.arena, source.mission, routine);
+        const event = switch (parameters) {
+            .event => |names_of_values| names_of_values,
+            .arguments => &.{},
+        };
         try script.write(w, body, &source.record_names, .{ .event = event }, 1);
         try w.writeAll("end");
-    }
-
-    /// `name = constructor("display", { fields })`, or without fields where it has none.
-    fn declare(source: *Source, w: *Writer, name: []const u8, constructor: []const u8, display: u16, fields: *const Fields) Error!void {
-        try w.print("{s} = {s}(", .{ name, constructor });
-        try script.writeString(w, source.mission.name(display));
-        if (fields.list.items.len > 0) {
-            try w.writeAll(", ");
-            try fields.write(w, name.len + constructor.len + source.mission.name(display).len + 8);
-        }
-        try w.writeAll(")\n");
     }
 
     /// Point `point` of `formation_points` as its formation's name indexed by its place among the
     /// formation's points, from 1.
     fn pointName(source: Source, point: u16) Allocator.Error![]const u8 {
-        if (point >= source.points.len) return std.fmt.allocPrint(source.arena, "formation_point_index({d})", .{point});
+        if (point >= source.points.len) return std.fmt.allocPrint(source.arena, "{t}({d})", .{ Word.formation_point_index, point });
         const formation = source.points[point].formation;
         const first = if (formation < source.formations.len) source.formations[formation].first_point else point;
-        return std.fmt.allocPrint(source.arena, "{f}[{d}]", .{ indexed(source.formation_names, formation, "formation_index"), point -| first + 1 });
+        return std.fmt.allocPrint(source.arena, "{f}[{d}]", .{ indexed(source.formation_names, formation, .formation_index), point -| first + 1 });
     }
 };
+
+/// `, { a, b })` and a new line: a declaration's list and its end, or `, {})` for an empty one.
+fn writeList(w: *Writer, items: []const []const u8) Writer.Error!void {
+    if (items.len == 0) return w.writeAll(", {})\n");
+    try w.writeAll(", { ");
+    for (items, 0..) |item, index| try w.print("{s}{s}", .{ if (index > 0) ", " else "", item });
+    try w.writeAll(" })\n");
+}
 
 /// A value the game names, by its name as a string, or its number where it has none.
 const Named = struct {
