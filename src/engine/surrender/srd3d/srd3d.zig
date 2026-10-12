@@ -56,6 +56,11 @@ pub const BlendFactor = enum(u32) {
 pub const Factors = struct {
     source: BlendFactor,
     destination: BlendFactor,
+
+    /// OpenReliant's: whether the blend adds to what is drawn, keeping it whole.
+    pub fn adds(pair: Factors) bool {
+        return pair.destination == .one;
+    }
 };
 
 /// The factors a blend mode sets (`SR_driver_init`, `0x100056B0`), or null where blending is off.
@@ -411,10 +416,12 @@ pub const Driver = struct {
         return if (function.see_through) function else null;
     }
 
-    /// What a draw of `object`'s polygons takes from it: its mod's surface function, and its frame
-    /// in the camera's for the function (`device.Frame`).
+    /// What a draw of `object`'s polygons takes from it: its mod's surface function, its frame in
+    /// the camera's for the function (`device.Frame`), and whether it adds its light in linear
+    /// light.
     fn takeObject(driver: *const Driver, st: *device.State, object: *const srapiext.MeshObject) void {
         st.surface = object.surface;
+        st.adds_linearly = object.adds_linearly;
         st.frame = .{
             .axes = driver.context.objectMatrix(object.orientation, object.scale),
             .origin = driver.context.view(object.position),
@@ -924,6 +931,41 @@ test "a surface function makes a solid surface see-through" {
     try std.testing.expectEqual(null, recorder.draws.items[recorder.draws.items.len - 1].state.blend);
 }
 
+test "an object's draws say whether it adds its light linearly" {
+    const gpa = std.testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    var driver: Driver = try .init(gpa, recorder.interface());
+    defer driver.deinit();
+
+    const mesh = try srmesh.testing.square(gpa);
+    defer mesh.deinit(gpa);
+    const levels = [_]srapiext.Level{.{ .mesh = &mesh, .until = 50000 }};
+    var object: srapiext.MeshObject = .{ .flags = .{ .lit = true }, .position = .{ 0, 0, 1000 }, .radius = mesh.radius, .levels = &levels };
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    try scene.layers.getPtr(.background).append(gpa, .{ .mesh = &object });
+    var context: srapi.Context = .{ .projection = .init(64, 48, srapi.full_screen, .{ 0.6, 0.8 }) };
+
+    // Neither drawn solid nor added, unless the object asks.
+    try srcore.render(arena, &context, &scene, driver.interface(), null);
+    try std.testing.expect(!recorder.draws.items[recorder.draws.items.len - 1].state.adds_linearly);
+    object.adds_linearly = true;
+    recorder.clear();
+    try srcore.render(arena, &context, &scene, driver.interface(), null);
+    try std.testing.expect(recorder.draws.items[recorder.draws.items.len - 1].state.adds_linearly);
+    // Added, it is put aside with the blended draws, and still says so.
+    mesh.surfaces[0].material.blend[0] = .add_alpha;
+    recorder.clear();
+    try srcore.render(arena, &context, &scene, driver.interface(), null);
+    const added = recorder.draws.items[recorder.draws.items.len - 1].state;
+    try std.testing.expectEqual(factors(.add_alpha), added.blend);
+    try std.testing.expect(added.adds_linearly);
+}
+
 test "a pass keeps what it gathers while it clips a polygon" {
     const gpa = std.testing.allocator;
     var arena_state: std.heap.ArenaAllocator = .init(gpa);
@@ -1088,6 +1130,12 @@ test factors {
         factors(.alpha).?,
     );
     try std.testing.expectEqual(null, factors(@fromBackingInt(9)));
+}
+
+test "Factors.adds" {
+    // The modes that add keep what is drawn whole; the ones that mix or scale it don't.
+    try std.testing.expect(factors(.add).?.adds() and factors(.add_alpha).?.adds());
+    try std.testing.expect(!factors(.alpha).?.adds() and !factors(.premultiplied).?.adds());
 }
 
 test shade {

@@ -143,6 +143,9 @@ pub const State = struct {
     /// OpenReliant's: the frame of the object it draws, which a mod's surface function reads its
     /// pixels' places in (`Frame`). The camera's own for what no object draws.
     frame: Frame = .camera,
+    /// OpenReliant's: where it adds its light, it adds it to what lies behind in linear light
+    /// (`srapiext.MeshObject.adds_linearly`), where the device can.
+    adds_linearly: bool = false,
     /// How its texture is filtered (`D3DTSS_MAGFILTER`, `D3DTSS_MINFILTER`, `D3DTSS_MIPFILTER`).
     filter: Filter = .linear,
 };

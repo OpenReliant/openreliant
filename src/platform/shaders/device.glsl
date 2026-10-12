@@ -24,15 +24,19 @@ layout(location = 3) in int layer;
 layout(location = 4) in vec3 view;
 layout(location = 5) in vec3 normal;
 layout(location = 6) in uint lightMask;
-// What its pixels take besides their lights (gpu.zig's Shading): in the low byte the shadows, 0
-// none, 1 the world's cascades, 2 the cockpit's map (device.zig's Receives); in the next two bits,
-// how its texture is magnified, 0 by the settings' filter, 1 smoothly, 2 by FSR 1's edge-adaptive
-// upscale, 3 as a glyph's coverage (srtexture.zig's Magnify); in the one after, 1 for the key
-// lights to reach past its terminator, as a planet's atmosphere carries them; in the two after
-// that, 1 where its texture's normal map and its material map are shaded; in the one after, 1
-// where the normal map holds two channels (BC5); in the one after, 1 for a hologram; in the one
-// after, 1 where its texture's emissive map is shaded; and in the one after, 1 for a surface a
-// mod's function makes see-through, whose alpha is then the texture's as the function leaves it.
+// What its pixels take besides their lights (gpu.zig's Shading, whose fields the fragment stage
+// names, as shadeReceives and the rest): in the low byte the shadows, 0 none, 1 the world's
+// cascades, 2 the cockpit's map (device.zig's Receives); in the next two bits, how its texture is
+// magnified, 0 by the settings' filter, 1 smoothly, 2 by FSR 1's edge-adaptive upscale, 3 as a
+// glyph's coverage (srtexture.zig's Magnify); in the one after, 1 for the key lights to reach past
+// its terminator, as a planet's atmosphere carries them; in the two after that, 1 where its
+// texture's normal map and its material map are shaded; in the one after, 1 where the normal map
+// holds two channels (BC5 or RG16); in the one after, 1 for a hologram; in the one after, 1 where
+// its texture's emissive map is shaded; in the one after, 1 for a surface a mod's function makes
+// see-through, whose alpha is then the texture's as the function leaves it; in the two after that,
+// how it keeps the light that mustn't bloom; in the one after, 1 where it multiplies its colour by
+// its alpha itself; and in the one after, 1 where it adds its light to what lies behind it in
+// linear light.
 layout(location = 7) in uint shading;
 
 layout(set = 1, binding = 0) uniform Target {
@@ -83,6 +87,10 @@ layout(set = 2, binding = 4) uniform samplerCube reflections;
 // The array's emissive maps, each at its texture's layer, its colours read as the images' are:
 // read only where the shading says the texture has one.
 layout(set = 2, binding = 5) uniform sampler2DArray emissiveMaps;
+// What lies behind the draws that add their light linearly, the scene drawn before the first of
+// them, encoded as the frame is (gpu.zig's Gpu.drawBehind): read only where the shading says the
+// draw adds linearly.
+layout(set = 2, binding = 6) uniform sampler2D behind;
 
 layout(set = 3, binding = 0) uniform Frame {
     // x: 1 to draw in 16-bit colour, dithered. y: 1 to magnify textures with a Catmull-Rom filter
@@ -197,6 +205,21 @@ layout(location = 5) flat in uint mask;
 layout(location = 6) flat in uint shade;
 layout(location = 0) out vec4 result;
 
+// The shading's fields, each a mask of its bits, named as gpu.zig's Shading names them, which a test
+// there checks them against.
+const uint shadeReceives = 0xFFu;
+const uint shadeMagnify = 0x300u;
+const uint shadeSoftTerminator = 0x400u;
+const uint shadeNormalMap = 0x800u;
+const uint shadeMaterialMap = 0x1000u;
+const uint shadeTwoChannelNormals = 0x2000u;
+const uint shadeHologram = 0x4000u;
+const uint shadeEmissiveMap = 0x8000u;
+const uint shadeSeeThrough = 0x10000u;
+const uint shadeHeldBloom = 0x60000u;
+const uint shadePremultiplies = 0x80000u;
+const uint shadeAddsLinearly = 0x100000u;
+
 // A map's box along the sun (srshadow.zig): where a point of the camera's frame falls in the map,
 // each row dotted with the point and 1, across and up from -1 to 1 and its depth from the sun's
 // side from 0 to 1.
@@ -252,7 +275,7 @@ float lookUp(int map, vec3 n) {
 
 // The shadows the pixel takes, the low byte of its shading.
 uint receives() {
-    return shade & 0xFFu;
+    return shade & shadeReceives;
 }
 
 // How much of the sun reaches the pixel: the cockpit's in its own map, where there is one; the
@@ -333,7 +356,7 @@ float directionalShare(vec3 n, Light light, float strength) {
     float share = dot(n, light.vector.xyz) / strength;
     // A planet's atmosphere carries the sun a little way past its terminator: the key light's
     // cosine is taken from -terminatorWrap rather than from 0.
-    if ((shade & 0x400u) != 0u && light.shadowed != 0u) share = (share + terminatorWrap) / (1.0 + terminatorWrap);
+    if ((shade & shadeSoftTerminator) != 0u && light.shadowed != 0u) share = (share + terminatorWrap) / (1.0 + terminatorWrap);
     if (share <= 0.0) return 0.0;
 #ifdef MOD_LIGHTING
     share = lighting(min(share, 1.0), custom.lighting);
@@ -499,15 +522,15 @@ Lit litOf(vec4 texel, mat3 onTexture) {
     // How long the mean of the normals that the normal map's texel stands for is, which its alpha
     // keeps (srtexture.zig): 1 at its finest level, and where there is none.
     float mean = 1.0;
-    if ((shade & 0x800u) != 0u && dot(onTexture[0], onTexture[0]) > 0.0) {
+    if ((shade & shadeNormalMap) != 0u && dot(onTexture[0], onTexture[0]) > 0.0) {
         vec4 map = texture(normalMaps, vec3(uv, image));
         vec3 bent = map.xyz * 2.0 - 1.0;
         mean = map.a;
-        if ((shade & 0x2000u) != 0u) {
+        if ((shade & shadeTwoChannelNormals) != 0u) {
             // A normal map in two channels (BC5, or 16 bits uncompressed): its z, out of the
             // surface, from x and y; the length of the normals' mean in the material map's alpha.
             bent.z = sqrt(max(1.0 - dot(bent.xy, bent.xy), 0.0));
-            mean = (shade & 0x1000u) != 0u ? texture(materialMaps, vec3(uv, image)).a : 1.0;
+            mean = (shade & shadeMaterialMap) != 0u ? texture(materialMaps, vec3(uv, image)).a : 1.0;
         }
         // OpenGL's normal maps point their y toward the texture's top, where its v grows down.
         bent.y = -bent.y;
@@ -517,7 +540,7 @@ Lit litOf(vec4 texel, mat3 onTexture) {
         // the grooves and edges show in it as they do in the lights.
         s.ambient = max(dot(s.normal, onTexture[2]), 0.0);
     }
-    if ((shade & 0x1000u) != 0u) {
+    if ((shade & shadeMaterialMap) != 0u) {
         vec3 orm = texture(materialMaps, vec3(uv, image)).rgb;
         s.material = true;
         s.occlusion = orm.r;
@@ -747,7 +770,7 @@ vec4 glyph(vec2 at, float layer, float texels) {
 vec4 sampled(float texels) {
     float layer = float(image);
     if (frame.settings.y > 0.0 && textureQueryLod(images, uv).y < 0.0) {
-        uint magnify = (shade >> 8) & 3u;
+        uint magnify = (shade & shadeMagnify) >> findLSB(shadeMagnify);
         if (magnify == 3u) return glyph(uv, layer, texels);
         if (magnify == 2u) return easu(uv, layer);
         return magnify == 1u ? bSpline(uv, layer) : catmullRom(uv, layer);
@@ -789,6 +812,14 @@ vec4 hologram(vec4 c, float alpha) {
     float band = slipping ? 1.0 - smoothstep(0.0, hologramBand, abs(y - hologramHash(slot + 0.5))) : 0.0;
     vec3 rgb = c.rgb * (1.0 - hologramScan * (1.0 + band) * (1.0 - line)) * (1.0 + hologramFlare * band);
     return vec4(min(rgb, vec3(1.0)), alpha * hologramOpacity * (1.0 - hologramFade * band));
+}
+
+// The colour that a draw adding the light of `c`, encoded as the frame is, at `alpha` of its
+// strength, adds to what lies behind the pixel, so that the two add in linear light, as light adds,
+// rather than encoded, as the game's effects add: the light's sum, less what lies behind.
+vec3 addedLinearly(vec3 c, float alpha) {
+    vec3 back = texelFetch(behind, ivec2(gl_FragCoord.xy), 0).rgb;
+    return max(encodedPastWhite(decoded(back) + decoded(c) * alpha) - back, vec3(0.0));
 }
 
 // mod_functions
@@ -838,7 +869,7 @@ void main() {
     // for it.
     vec2 span = fwidth(uv) * vec2(textureSize(images, 0).xy);
     mat3 onTexture = mat3(0.0);
-    if ((shade & 0x800u) != 0u) {
+    if ((shade & shadeNormalMap) != 0u) {
         vec3 unbent = dot(facing, facing) < 1e-12 ? vec3(0.0, 0.0, 1.0) : normalize(facing);
         onTexture = textureFrame(unbent, place, uv);
     }
@@ -847,7 +878,7 @@ void main() {
     // The light the texture's emissive map gives off, encoded as the frame is, added unchanged once
     // the pixel is lit.
     vec3 glow = vec3(0.0);
-    if ((shade & 0x8000u) != 0u && image >= 0) {
+    if ((shade & shadeEmissiveMap) != 0u && image >= 0) {
         vec3 emitted = texture(emissiveMaps, vec3(uv, image)).rgb;
         glow = frame.settings.w > 0.0 ? encoded(emitted) : emitted;
     }
@@ -879,8 +910,10 @@ void main() {
     if (any(greaterThan(modScattered, vec3(0.0)))) c.rgb = encoded(decoded(c.rgb) + modScattered);
 #endif
     c.rgb = min(c.rgb + glow, vec3(1.0));
-    if ((shade & 0x4000u) != 0u) c = hologram(c, texel.a);
-    if ((shade & 0x10000u) != 0u) c.a = texel.a;
+    if ((shade & shadeHologram) != 0u) c = hologram(c, texel.a);
+    if ((shade & shadeSeeThrough) != 0u) c.a = texel.a;
+    // A draw that adds its light linearly adds the difference at full strength.
+    if ((shade & shadeAddsLinearly) != 0u) c = vec4(addedLinearly(c.rgb, c.a), 1.0);
     if (frame.settings.x > 0.0 || frame.settings.z > 0.0) {
         // To the levels the frame is kept in: five bits of red and blue and six of green in 16-bit
         // colour, eight bits a channel otherwise.
@@ -891,8 +924,8 @@ void main() {
     // gpu.zig, two bits): a solid draw replaces it with what its pixel holds back, and a mod's
     // surface function on a surface added over the scene adds it, its colour multiplied by its
     // alpha here rather than by the blend where the next bit says.
-    if ((shade & 0x60000u) != 0u) {
-        if ((shade & 0x80000u) != 0u) c.rgb *= c.a;
+    if ((shade & shadeHeldBloom) != 0u) {
+        if ((shade & shadePremultiplies) != 0u) c.rgb *= c.a;
         c.a = (1.0 - modBloom) * luminance(c.rgb);
     }
     result = c;
