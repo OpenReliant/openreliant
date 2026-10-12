@@ -20,6 +20,7 @@ const log = std.log.scoped(.scripts);
 
 const openreliant = @import("openreliant");
 const ModSurface = openreliant.engine.surrender.surrenderlib.srtexture.ModSurface;
+const atmosphere = openreliant.engine.game.create.atmosphere;
 const api = @import("api.zig");
 const Call = api.Call;
 const values = @import("values.zig");
@@ -185,6 +186,26 @@ pub const Registry = struct {
     fn find(registry: *Registry, name: []const u8) ?*Entry {
         for (registry.entries.items) |*entry| if (std.mem.eql(u8, entry.name.slice(), name)) return entry;
         return null;
+    }
+
+    /// The surface function registered as `name`, qualified, as the host compiled it; null for any
+    /// other name, a lighting function's, or a function the host refused.
+    pub fn surfaceNamed(registry: *Registry, name: []const u8) ?ModSurface {
+        const entry = registry.find(name) orelse return null;
+        if (entry.kind != .surface) return null;
+        const function = entry.function orelse return null;
+        return .{ .function = function, .see_through = entry.see_through, .writes_depth = entry.writes_depth };
+    }
+
+    /// What finds the surface functions the planets name for their atmospheres
+    /// (`game.create.atmosphere.SurfaceNames`).
+    pub fn surfaceNames(registry: *Registry) atmosphere.SurfaceNames {
+        return .{ .context = registry, .find = findSurface };
+    }
+
+    fn findSurface(context: *anyopaque, name: []const u8) ?ModSurface {
+        const registry: *Registry = @ptrCast(@alignCast(context));
+        return registry.surfaceNamed(name);
     }
 
     /// Tells the host what to draw from now on.

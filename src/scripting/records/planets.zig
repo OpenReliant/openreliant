@@ -15,6 +15,8 @@ const State = luau.State;
 const values = @import("../values.zig");
 const runtime = @import("../runtime.zig");
 const records = @import("../records.zig");
+const api = @import("../api.zig");
+const Parameters = @import("../shaders.zig").Parameters;
 const Records = records.Records;
 const table = @import("table.zig");
 
@@ -61,6 +63,8 @@ pub const Field = enum {
     atmosphere_color,
     atmosphere_inner,
     atmosphere_outer,
+    atmosphere_surface,
+    atmosphere_parameters,
 };
 
 /// The type of `field`'s value as scripts read it, which the definitions and the reference show.
@@ -69,6 +73,8 @@ pub fn TypeOf(comptime field: Field) type {
         .type => gameobj.Type,
         .spin, .tilt, .tilt_toward, .atmosphere_inner, .atmosphere_outer => f32,
         .atmosphere_color => ?@Vector(3, f32),
+        .atmosphere_surface => ?[]const u8,
+        .atmosphere_parameters => Parameters,
     };
 }
 
@@ -80,8 +86,10 @@ pub fn about(field: Field) []const u8 {
         .tilt => "How far its north pole leans away from north, in radians. North is the up direction of the planet as the mission places it, which is the world's up if the mission doesn't turn the planet.",
         .tilt_toward => "Which way its north pole leans, as an angle in radians around north: 0 leans it toward +Z, and `math.pi / 2` toward +X, both of the planet as the mission places it.",
         .atmosphere_color => "The colour of its atmosphere, or nil for none. The atmosphere is a band that faces the camera and fades from this colour at its inner edge to nothing at its outer edge. It is added over the planet, and is brighter toward the sun. In the original, Neptune, Uranus, Jupiter and Venus have one.",
-        .atmosphere_inner => "Where its atmosphere's band starts, as a share of the planet's radius as the camera sees it: 0.85 in the original.",
-        .atmosphere_outer => "Where its atmosphere's band ends, as a share of the planet's radius as the camera sees it: 0.95 for Neptune and Uranus, and 1.005 for Jupiter and Venus, in the original. The planet hides the band within its edge.",
+        .atmosphere_inner => "Where its atmosphere's band starts, as a share of the planet's radius as the camera sees it: 0.85 in the original. With a surface function, its ring starts here, in the radii of the planet's sphere.",
+        .atmosphere_outer => "Where its atmosphere's band ends, as a share of the planet's radius as the camera sees it: 0.95 for Neptune and Uranus, and 1.005 for Jupiter and Venus, in the original. The planet hides the band within its edge. With a surface function, its ring ends here, in the radii of the planet's sphere.",
+        .atmosphere_surface => "The surface function that draws its atmosphere in place of the band, by the calling mod's own name or the qualified one, or nil. It draws on a ring that faces the camera through the middle of the planet's sphere, from `atmosphere_inner` to `atmosphere_outer` times the sphere's radius as the camera sees it, and its light is added over what lies behind it. In the ring's own frame, the sphere's middle is the origin and its radius is the unit, so the function can trace the line of sight through each pixel. Where no mod registers a function of that name, the planet keeps its band. The scripting guide shows one.",
+        .atmosphere_parameters => "The numbers its atmosphere's surface function reads, up to four; those left out are 0.",
     };
 }
 
@@ -96,6 +104,7 @@ pub fn getField(state: *State, item: table.Item, field: Field) void {
     const planet = planetOf(item);
     switch (field) {
         .atmosphere_color => values.push(state, TypeOf(.atmosphere_color), if (planet.atmosphere_colour) |colour| colour else null),
+        .atmosphere_parameters => values.push(state, Parameters, .{ .items = planet.atmosphere_parameters, .len = planet.atmosphere_parameters.len }),
         inline else => |name| values.push(state, TypeOf(name), @field(planet, @tagName(name))),
     }
 }
@@ -108,6 +117,18 @@ pub fn setField(state: *State, item: table.Item, field: Field, given: i32) void 
             const colour = values.read(state, TypeOf(.atmosphere_color), given, script_name ++ ".atmosphere_color");
             planet.atmosphere_colour = if (colour) |set| set else null;
         },
+        .atmosphere_surface => {
+            const label = script_name ++ ".atmosphere_surface";
+            const name = values.read(state, TypeOf(.atmosphere_surface), given, label) orelse {
+                planet.atmosphere_surface = null;
+                return;
+            };
+            // A mod's own name is qualified with the mod's, which needs a mod's script to ask.
+            var buffer: [runtime.max_name]u8 = undefined;
+            const qualified = if (std.mem.findScalar(u8, name, ':') != null) name else api.Call.of(state, label).named(name, &buffer) orelse state.raise("{s}: '{s}' can't be a function's name", .{ label, name });
+            planet.atmosphere_surface = item.records.arena.dupe(u8, qualified) catch state.raise("records." ++ list_name ++ ": out of memory", .{});
+        },
+        .atmosphere_parameters => planet.atmosphere_parameters = values.read(state, Parameters, given, script_name ++ ".atmosphere_parameters").padded(0),
         inline else => |name| @field(planet, @tagName(name)) = values.read(state, TypeOf(name), given, script_name ++ "." ++ @tagName(name)),
     }
 }
@@ -139,6 +160,11 @@ test "the planets" {
         \\all[#all + 1] = { type = "earth", spin = 0.3, atmosphere_color = vector.create(0.3, 0.5, 1), atmosphere_outer = 1.02 }
         \\assert(#all == 23 and all[23].type == "earth" and math.abs(all[23].atmosphere_inner - 0.85) < 1e-6)
         \\all[1].atmosphere_color = nil
+        \\-- A mod's surface function draws Earth's atmosphere, by its qualified name, reading two numbers.
+        \\assert(all[23].atmosphere_surface == nil)
+        \\all[23].atmosphere_surface = "air:limb"
+        \\all[23].atmosphere_parameters = { 0.5, 2 }
+        \\assert(all[23].atmosphere_surface == "air:limb" and all[23].atmosphere_parameters[2] == 2 and all[23].atmosphere_parameters[4] == 0)
     );
     try std.testing.expectEqual(0.6, held.planets[3].spin);
     try std.testing.expectApproxEqAbs(std.math.pi / 2.0, held.planets[3].tilt_toward, 1e-6);
@@ -147,6 +173,10 @@ test "the planets" {
     try std.testing.expectEqual([3]f32{ 0.3, 0.5, 1 }, earth.atmosphere_colour.?);
     try std.testing.expectApproxEqAbs(1.02, earth.atmosphere_outer, 1e-6);
     try std.testing.expectEqual(null, held.planets[0].atmosphere_colour);
+    try std.testing.expectEqualStrings("air:limb", earth.atmosphere_surface.?);
+    try std.testing.expectEqual([4]f32{ 0.5, 2, 0, 0 }, earth.atmosphere_parameters);
+    // A name of its own is the calling mod's, which needs a mod's script to ask.
+    try bind.testing.expectSourceError(thread, "records.planets[23].atmosphere_surface = 'limb'", "Planet.atmosphere_surface can only be used by mod scripts");
     try bind.testing.expectSourceError(thread, "records.planets[30] = {}", "records.planets[30] does not exist: the planets are 1 to 23; assign to records.planets[24] to add one, up to 64 in all");
     try bind.testing.expectSourceError(thread, "records.planets[1].moons = 3", "Planet has no field 'moons'");
 }

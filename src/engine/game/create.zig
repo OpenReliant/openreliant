@@ -1184,7 +1184,7 @@ const planet_part_flags: @import("../surrender/surrenderlib/srapiext.zig").Objec
 
 /// The lights that do not reach a planet's parts (`0x00467BF0`): all but the second key light,
 /// mask `0x08`, which alone lights them.
-const planet_light_mask: u32 = 0x37;
+pub const planet_light_mask: u32 = 0x37;
 
 /// The part of `create_object` for a planet (`0x00467BAB`), once its atmosphere is made, for those
 /// that have one (`atmosphere.Atmospheres.made`): the object lists components, collides with

@@ -615,6 +615,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var atmospheres: game.create.atmosphere.Atmospheres = try .init(gpa, &textures);
     defer atmospheres.deinit();
     atmospheres.style = options.atmospheres;
+    if (presentation) |shown| atmospheres.surfaces = shown.surfaceNames();
     const extra_images: game.create.extra.Images = try .load(&textures);
     var flash: game.main.flash.Flash = .{};
     // The countermeasures' model, read once for the whole run, as `decoys_init` reads it.
