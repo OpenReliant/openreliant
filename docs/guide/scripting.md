@@ -2324,10 +2324,13 @@ struct Surface {
     float roughness; // 1 and 0 where the texture has no material maps
     float metallic;
     vec3 glow;       // emitted light, added after lighting; starts as the emissive map's
+    vec3 sunlight;   // how much of the sun lights it, in each channel; starts as OpenReliant's own
     vec2 uv;         // read only: the texture coordinates
     vec3 position;   // read only: its position in camera space
     vec3 toEye;      // read only: the direction toward the eye
     vec2 frameSize;  // read only: the frame's width and height in pixels
+    vec3 toSun;      // read only: the direction toward the sun, unit length; zero where it doesn't reach
+    vec3 local;      // read only: its position in its object's own frame, as the model holds it
 };
 
 void surface(inout Surface s, vec4 parameters, float time) {
@@ -2345,6 +2348,17 @@ float lighting(float cosine, vec4 parameters) {
 - `s.frameSize` is the size of the frame the pixel is drawn into, which `gl_FragCoord` counts in.
   An effect in screen space, such as scan lines, divides by it to look the same at any resolution:
   `gl_FragCoord.y / s.frameSize.y` runs from 0 to 1 up the frame.
+- `s.toSun` points toward the sun: the light that casts shadows, which is the only light that
+  reaches a planet. `s.sunlight` starts as how much of it OpenReliant lets through, the cosine
+  between the normal and `toSun`, which a planet's atmosphere carries a little way past the
+  terminator. Set it to light the pixel by a law of your own, such as one measured for a planet,
+  or to shade it, as a ring shades its planet; the shadows of other objects still fall on it.
+  Where the function leaves it as it was, the sun lights the pixel at the normal the function
+  leaves.
+- `s.local` is where the pixel stands in its object's own frame, in the units and axes of the
+  object's model. `objectDirection(v)` turns a direction such as `s.toSun`, `s.normal` or
+  `s.toEye` into that frame, and `objectPoint(p)` a point such as `s.position`. With them, a
+  function can work out shapes the model holds, such as where a planet's ring shades the planet.
 - The functions can call the shader's own helpers, such as `encoded` and `decoded`, which turn a
   colour into and out of linear light.
 - If the function sets roughness or metalness on a surface without material maps, the surface is lit

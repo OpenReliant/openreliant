@@ -17,6 +17,7 @@ const Allocator = std.mem.Allocator;
 const c = @import("sdl");
 
 const openreliant = @import("openreliant");
+const device = openreliant.engine.surrender.srd3d.device;
 const ModSurface = openreliant.engine.surrender.surrenderlib.srtexture.ModSurface;
 const shader_compiler = @import("../shader_compiler.zig");
 const Part = shader_compiler.Part;
@@ -90,17 +91,23 @@ pub fn preamble(lighting: bool, surface: bool) []const u8 {
 }
 
 /// What the variants read besides OpenReliant's own uniforms (`Custom`, set 3, binding 3), in
-/// std140's layout: the surface function's parameters, the lighting function's, and the time.
+/// std140's layout: the surface function's parameters, the lighting function's, the time, and what
+/// turns a point of the camera's frame into the frame of the object drawn (`device.Frame.toObject`).
 pub const Uniforms = extern struct {
     surface: [4]f32,
     lighting: [4]f32,
     /// x: the seconds passed.
     time: [4]f32,
+    object: [3][4]f32 = no_object,
 
     comptime {
-        std.debug.assert(@sizeOf(Uniforms) == 48);
+        std.debug.assert(@sizeOf(Uniforms) == 96);
+        std.debug.assert(@offsetOf(Uniforms, "object") == 48);
     }
 };
+
+/// The object frame of a draw that runs no surface function: the camera's own.
+pub const no_object = device.Frame.camera.toObject();
 
 /// The uniform buffer the variants read `Uniforms` from.
 pub const uniform_slot = 3;
@@ -109,6 +116,8 @@ pub const uniform_slot = 3;
 pub const Picked = struct {
     variant: u16 = 0,
     parameters: [4]f32 = @splat(0),
+    /// Whether the variant runs a surface function, which reads the frame of the object drawn.
+    surface: bool = false,
 };
 
 pub const Variants = struct {
@@ -133,7 +142,7 @@ pub const Variants = struct {
     pub fn pick(variants: Variants, object: ?ModSurface, texture: ?ModSurface, lit: bool) Picked {
         const surface = object orelse texture orelse (if (lit) variants.every else null);
         if (surface) |function| {
-            if (variants.shaders.contains(function.function)) return .{ .variant = function.function, .parameters = function.parameters };
+            if (variants.shaders.contains(function.function)) return .{ .variant = function.function, .parameters = function.parameters, .surface = true };
         }
         return .{ .variant = if (variants.shaders.contains(variants.base)) variants.base else 0 };
     }
@@ -159,6 +168,30 @@ test "a variant with both functions compiles, and with neither draws as OpenReli
     try std.testing.expect(std.mem.find(u8, failed.diagnostic, "cel/broken.glsl:2") != null);
 }
 
+test "a surface function reads the sun and its object's frame, and sets the sunlight" {
+    const gpa = std.testing.allocator;
+    // A ring's shadow on its planet, as a planet's function works it out: the sun's ray from the
+    // pixel, in the object's frame, meets the ring's plane within the ring.
+    const surface: Part = .{ .name = "planet/shadow.glsl", .source =
+        \\void surface(inout Surface s, vec4 parameters, float time) {
+        \\    vec3 sun = objectDirection(s.toSun);
+        \\    float t = -s.local.y / sun.y;
+        \\    float across = length((s.local + t * sun).xz);
+        \\    if (t > 0.0 && across > parameters.x && across < parameters.y) s.sunlight *= 0.5;
+        \\    s.glow = objectPoint(s.position) * 0.0;
+        \\}
+        \\
+    };
+    var buffer: [max_parts]Part = undefined;
+    for ([_]bool{ false, true }) |with_lighting| {
+        const lighting: Part = .{ .name = "cel/bands.glsl", .source = "float lighting(float cosine, vec4 parameters) { return cosine; }\n" };
+        const compiled = try shader_compiler.compileParts(gpa, .openreliant, .fragment, Template.builtin().parts(if (with_lighting) lighting else null, surface, &buffer), preamble(with_lighting, true));
+        defer compiled.deinit(gpa);
+        if (compiled == .diagnostic) std.debug.print("{s}\n", .{compiled.diagnostic});
+        try std.testing.expect(compiled == .compiled);
+    }
+}
+
 test "a draw takes its object's function, its texture's, every lit draw's, or the base" {
     var variants: Variants = .{};
     defer variants.shaders.deinit(std.testing.allocator);
@@ -171,8 +204,8 @@ test "a draw takes its object's function, its texture's, every lit draw's, or th
     try std.testing.expectEqual(Picked{}, variants.pick(null, null, true));
     variants.base = 5;
     try std.testing.expectEqual(Picked{ .variant = 5 }, variants.pick(null, null, true));
-    try std.testing.expectEqual(Picked{ .variant = 3, .parameters = .{ 1, 2, 3, 4 } }, variants.pick(hologram, missing, false));
-    try std.testing.expectEqual(Picked{ .variant = 3, .parameters = .{ 1, 2, 3, 4 } }, variants.pick(null, hologram, false));
+    try std.testing.expectEqual(Picked{ .variant = 3, .parameters = .{ 1, 2, 3, 4 }, .surface = true }, variants.pick(hologram, missing, false));
+    try std.testing.expectEqual(Picked{ .variant = 3, .parameters = .{ 1, 2, 3, 4 }, .surface = true }, variants.pick(null, hologram, false));
     // A function without a variant draws as the base.
     try std.testing.expectEqual(Picked{ .variant = 5 }, variants.pick(missing, hologram, false));
     // Every lit draw, and only lit ones.
