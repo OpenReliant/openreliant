@@ -547,7 +547,9 @@ sltool dte script <mission>    # every routine, with its constants
 
 `sltool dte script` follows control flow from each block's entry rather than sweeping, because
 `jump`, `return` and `random_branch` never fall through, and shows the value behind each
-`push_constant`, the name of each command, and the part, ship or global an index names. **Every
+`push_constant`, the name of each command, and the part, ship or global an index names. Where the
+pushes just before a command fill its parameters, it also names the order `SetAI` takes, by the
+developers' name, such as `push_byte   13  Object Attach`. **Every
 routine disassembles completely**, but for the unused arm slots of the four `random_branch`es. The
 first block of `mission1`, which its first trigger runs, calls one of two parts depending on a
 global:
