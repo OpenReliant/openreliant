@@ -91,18 +91,22 @@ pub fn preamble(lighting: bool, surface: bool) []const u8 {
 }
 
 /// What the variants read besides OpenReliant's own uniforms (`Custom`, set 3, binding 3), in
-/// std140's layout: the surface function's parameters, the lighting function's, the time, and what
-/// turns a point of the camera's frame into the frame of the object drawn (`device.Frame.toObject`).
+/// std140's layout: the surface function's parameters, the lighting function's, the time, what
+/// turns a point of the camera's frame into the frame of the object drawn (`device.Frame.toObject`),
+/// and the share of the surface function's light that blooms.
 pub const Uniforms = extern struct {
     surface: [4]f32,
     lighting: [4]f32,
     /// x: the seconds passed.
     time: [4]f32,
     object: [3][4]f32 = no_object,
+    /// x: the share of the surface function's light that blooms (`ModSurface.bloom`).
+    bloom: [4]f32 = .{ 1, 0, 0, 0 },
 
     comptime {
-        std.debug.assert(@sizeOf(Uniforms) == 96);
+        std.debug.assert(@sizeOf(Uniforms) == 112);
         std.debug.assert(@offsetOf(Uniforms, "object") == 48);
+        std.debug.assert(@offsetOf(Uniforms, "bloom") == 96);
     }
 };
 
@@ -116,6 +120,8 @@ pub const uniform_slot = 3;
 pub const Picked = struct {
     variant: u16 = 0,
     parameters: [4]f32 = @splat(0),
+    /// The share of its surface function's light that blooms (`ModSurface.bloom`).
+    bloom: f32 = 1,
     /// Whether the variant runs a surface function, which reads the frame of the object drawn.
     surface: bool = false,
 };
@@ -142,7 +148,7 @@ pub const Variants = struct {
     pub fn pick(variants: Variants, object: ?ModSurface, texture: ?ModSurface, lit: bool) Picked {
         const surface = object orelse texture orelse (if (lit) variants.every else null);
         if (surface) |function| {
-            if (variants.shaders.contains(function.function)) return .{ .variant = function.function, .parameters = function.parameters, .surface = true };
+            if (variants.shaders.contains(function.function)) return .{ .variant = function.function, .parameters = function.parameters, .bloom = function.bloom, .surface = true };
         }
         return .{ .variant = if (variants.shaders.contains(variants.base)) variants.base else 0 };
     }
@@ -171,7 +177,8 @@ test "a variant with both functions compiles, and with neither draws as OpenReli
 test "a surface function reads the sun and its object's frame, and sets the sunlight" {
     const gpa = std.testing.allocator;
     // A ring's shadow on its planet, as a planet's function works it out: the sun's ray from the
-    // pixel, in the object's frame, meets the ring's plane within the ring.
+    // pixel, in the object's frame, meets the ring's plane within the ring. It halves how much of
+    // its light blooms.
     const surface: Part = .{ .name = "planet/shadow.glsl", .source =
         \\void surface(inout Surface s, vec4 parameters, float time) {
         \\    vec3 sun = objectDirection(s.toSun);
@@ -179,6 +186,7 @@ test "a surface function reads the sun and its object's frame, and sets the sunl
         \\    float across = length((s.local + t * sun).xz);
         \\    if (t > 0.0 && across > parameters.x && across < parameters.y) s.sunlight *= 0.5;
         \\    s.glow = objectPoint(s.position) * 0.0;
+        \\    s.bloom = 0.5 * s.bloom;
         \\}
         \\
     };

@@ -40,7 +40,8 @@ layout(set = 3, binding = 0) uniform Frame {
     vec4 settings;
     // x: 1 for a frame kept in floats, whose highlights, past 1 where glows are stacked, are eased
     // rather than clipped, before they bloom and as the last pass finishes the frame. y: 1 for the
-    // last pass to dither it to eight bits a channel.
+    // last pass to dither it to eight bits a channel. z: 1 where the frame's alpha keeps the light
+    // that mustn't bloom.
     vec4 finish;
 } frame;
 
@@ -51,8 +52,13 @@ void main() {
     int pass = int(frame.settings.x);
     vec2 texel = frame.settings.yz;
     if (pass == 0) {
-        // Only what stands above the threshold blooms, so that an ordinary lit hull does not.
-        vec3 color = texture(source, uv).rgb;
+        // Only what stands above the threshold blooms, so that an ordinary lit hull does not; and
+        // where the frame's alpha keeps light that mustn't bloom (`HeldBloom` in gpu.zig), not that
+        // share of the pixel's light.
+        vec4 pixel = texture(source, uv);
+        vec3 color = pixel.rgb;
+        float light = luminance(color);
+        if (frame.finish.z > 0.0 && light > 0.0) color *= clamp(1.0 - pixel.a / light, 0.0, 1.0);
         // A fireball's heart, many times past white, blooms as white does.
         if (frame.finish.x > 0.0) color = shouldered(color);
         result = vec4(max(color - vec3(frame.settings.w), vec3(0.0)), 1.0);
