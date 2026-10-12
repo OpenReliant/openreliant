@@ -2510,6 +2510,9 @@ void surface(inout Surface s, vec4 parameters, float time) {
 
 - For a flattened planet, the unit is its equatorial radius. Its north pole is the frame's -Y, as
   in the planet's model, so a function can draw its haze round the flattened shape.
+- The sphere is half the widest span of the model's first part, so for a model that holds rings,
+  such as Saturn's, the unit is the rings' outer edge, and `atmosphere_inner` and
+  `atmosphere_outer` are shares of that.
 - A bright haze glares with the bloom like any bright light. Register its function with a lower
   `bloom` to keep more of it as it is.
 - The ring is drawn behind the planet, which hides it within the planet's edge. A sharp cut at the
