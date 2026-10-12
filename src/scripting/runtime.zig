@@ -66,6 +66,9 @@ pub const Tag = enum(luau.Tag) {
     /// The combat maneuvers (`records.maneuvers`), and one of them.
     maneuvers = 14,
     maneuver = 15,
+    /// The planets (`records.planets`), and one of them.
+    planets = 16,
+    planet = 17,
 };
 
 /// What an object script's context runs on: an object of the mission, a missile in flight, or a

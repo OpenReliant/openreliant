@@ -331,14 +331,14 @@ fn createFlightGroup(call: Call, game: aigeneric.Context) void {
 ///
 /// A nav point or a marker (`dte.Ship.isMarker`) is a `gameobj.Type.marker` at its place.
 ///
-/// Any other ship is an object of its kind (`shipType`), fitted by its loadout tier, at its place,
-/// with its atmosphere where it is a planet that has one (`atmosphere.Atmospheres.made`), set up as
-/// a planet where it is one (`create.planetMade`), as a gate where it is one (`create.gateMade`),
-/// and with its hat where it is the Dark Reign (`create.extra.hatMade`). It gets its first order: Player Control for the player's ship, whose view
-/// the camera takes (view 0), Multiplayer Control for another player's, and Do Nothing for the
-/// rest. A ship that launches gets a Launch order through the gate it names of the first of the
-/// mission's ships of the kind it launches from, which starts at once (`aigeneric.objectOrders`),
-/// and a ship flown by a pilot of `pilotstats.bin` gets the pilot.
+/// Any other ship is made as an object of its kind (`shipType`), fitted by its loadout tier, at its
+/// place. A planet gets its atmosphere and its turn (`atmosphere.Atmospheres.made`) and is set up as
+/// a planet (`create.planetMade`), a gate is set up as a gate (`create.gateMade`), and the Dark
+/// Reign gets its hat (`create.extra.hatMade`). Each ship gets its first order: Player Control for
+/// the player's ship, whose view the camera takes (view 0), Multiplayer Control for another
+/// player's, and Do Nothing for the rest. A ship that launches gets a Launch order, which starts at
+/// once, through the gate it names on the first of the mission's ships of the kind it launches from
+/// (`aigeneric.objectOrders`). A ship flown by a pilot of `pilotstats.bin` gets the pilot.
 ///
 /// The game also counts the nav points it makes (`nav_point_count`, `0x00565698`), which nothing
 /// reads, and logs lines; OpenReliant leaves both out.

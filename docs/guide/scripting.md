@@ -1117,8 +1117,9 @@ scripts can only read them.
 The package also holds the campaign's order of missions, `campaign`
 ([The campaign's missions](#the-campaigns-missions)), each mission's settings, `missions`
 ([Each mission of the campaign](#each-mission-of-the-campaign)), the KILLBOARD's pilots,
-`killboard` ([The KILLBOARD's pilots](#the-killboards-pilots)), and the combat maneuvers,
-`maneuvers` ([Combat maneuvers](#combat-maneuvers)).
+`killboard` ([The KILLBOARD's pilots](#the-killboards-pilots)), the combat maneuvers,
+`maneuvers` ([Combat maneuvers](#combat-maneuvers)), and the planets, `planets`
+([Planets](#planets)).
 
 Records are looked up by number or by name, with the field names of the [stat
 tables](../formats/stats.md). The definitions file for editors ([Editors](#editors)) lists every
@@ -1408,6 +1409,46 @@ end, { side = "hostile", class = "fighter" })
   the choice without setting `e.result`.
 - A handler of `maneuver_run` that stops it flies the ship itself, by setting its `yaw_input`,
   `pitch_input`, `roll_input` and `throttle`.
+
+### Planets
+
+`records.planets` holds the object types that the game sets up as planets when a mission makes
+them: lit by the sun alone, always drawn, and colliding with nothing
+([Planets](../engine/backdrop.md#planets)). The original's are Neptune to Venus and their far
+models, numbered from 1 in the order of their types. Each entry has a `type`, how fast the planet
+turns about its north pole (`spin`, in radians a second, positive eastward), how far and in which
+direction its pole leans (`tilt` and `tilt_toward`, in radians), and its atmosphere: the colour of
+the band round its rim (`atmosphere_color`, nil for none) and where the band starts and ends
+(`atmosphere_inner` and `atmosphere_outer`, as shares of its radius as the camera sees it; the
+planet hides the band within its edge). A load script can change a
+planet, or add one by assigning to the number after the last:
+
+```lua
+local records = require("openreliant.records")
+
+-- Saturn, number 4, turns eastward once every ten minutes, its pole leaning 26.7 degrees toward +X.
+records.planets[4].spin = 2 * math.pi / 600
+records.planets[4].tilt = math.rad(26.7)
+records.planets[4].tilt_toward = math.pi / 2
+
+-- Earth, which the original leaves out, with a thin blue atmosphere.
+records.planets[#records.planets + 1] = {
+    type = "earth",
+    spin = 2 * math.pi / 1440,
+    tilt = math.rad(23.4),
+    atmosphere_color = vector.create(0.3, 0.5, 1),
+    atmosphere_inner = 0.97,
+    atmosphere_outer = 1.02,
+}
+```
+
+- A planet's north pole is its model's -Y, which is up on the screen when the planet isn't turned.
+  The pole leans from the up direction of the planet as the mission places it, and the planet spins
+  about the leaning pole.
+- If a type has several entries, the first one counts. A type that a mod adds uses its base type's
+  entry, unless the table has an entry for it.
+- The table holds up to 64 planets. A game mode's records script can change and add planets for
+  that mode's missions only ([Game modes](#game-modes)).
 
 ## Saved games
 

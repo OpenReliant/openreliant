@@ -111,6 +111,28 @@ Drawn back at the game's size, each redrawn texture keeps the original's light t
 
 `--original` draws the game's textures and keeps its visibility.
 
+## Planets
+
+`create_object` sets up eleven object types as planets, Neptune to Venus (`0x5F` to `0x69`), and
+their models of less detail (`0xC9` to `0xD3`) ([Creating an object](objects.md#creating-an-object)).
+The four with an atmosphere, Neptune, Uranus, Jupiter and Venus, turn westward about their own Y,
+and none of them leans. Earth (`0x6A`) isn't among them, although the combat table lists it as a
+planet, so the game lights and places it as a ship.
+
+**Improvement:** OpenReliant keeps the planets in a table (`create.planets`). It starts as the
+original's, and mods' load scripts can change it and add to it (`records.planets`,
+[Planets](../guide/scripting.md#planets)). Each entry gives:
+
+- the object type;
+- how fast the planet turns about its north pole, which is its model's -Y. Positive values turn it
+  eastward. The original's planets turn westward at 0.07 radians a second;
+- how far and in which direction the pole leans from the up direction of the planet as the mission
+  places it;
+- its atmosphere's colour and edges.
+
+A type that a mod adds uses its base type's entry unless the table has an entry for it. Every planet
+that turns, leans or has an atmosphere gets an entry in the atmospheres' table, which holds 64.
+
 ## Planet atmospheres
 
 Four of the planets have an atmosphere: a ring round the rim that glows in the planet's colour and
@@ -136,7 +158,10 @@ It is drawn over `atmos`, added by the alpha of its own colours, and never culle
 the types that get one.
 
 At the end of `backdrop_frame`, each planet with an atmosphere turns about its own Y by 0.0007 of a
-radian for each tick since the last frame (`planets_turned_at`, `0x00595BC0`). With the hardware
+radian for each tick since the last frame (`planets_turned_at`, `0x00595BC0`). OpenReliant turns
+each planet as the planets' table says. It keeps the total angle each planet has turned, and each
+frame turns the planet from its orientation in the mission, leaned as the table says, by that
+angle, so that the planet turns about its leaning pole. With the hardware
 renderer, and the planet not disabled, its ring stands where the planet does, turned to face the
 camera, as solid as the lens flares are bright (`backdrop.flareBrightness`), on the background
 layer, which the world is drawn over. The ring's radius is the part's, its farthest vertex from the
@@ -147,17 +172,25 @@ the ring stands round it.
 **Improvement:** the atmosphere is a haze (`atmosphere.Style.haze`). The ring is made of 96 quads,
 round at any size, and is there at all times: each of its vertices is as solid as the flares are
 bright, or as `atmosphere.hazeAt` has it where that is more, 0.15 on the side away from the sun and
-0.6 on the side toward it, and between them as the cosine goes. The planet's terminator is softer,
-the sun reaching a little way round into its night side, where each pixel is lit
-([Renderer](../port/renderer.md#improvements)). `--original` makes the ring of 20 quads, only as
-solid as the flares are bright, and keeps the terminator hard.
+0.6 on the side toward it, and between them as the cosine goes. The ring is drawn larger as the
+camera comes near, by 1 / sqrt(1 - (r / d)^2) for a planet of radius r seen from d away, so that its
+edges stand as shares of the planet's visible edge: in the ring's plane, which passes through the
+planet's middle, that edge stands farther out than the radius, and at the game's size the ring
+slips inside it, behind the planet. The planet's terminator is softer, the sun reaching a little way
+round into its night side, where each pixel is lit ([Renderer](../port/renderer.md#improvements)).
+`--original` makes the ring of 20 quads, as large as built, only as solid as the flares are bright,
+and keeps the terminator hard.
 
-**Fix:** a fifth atmosphere would write past the table; OpenReliant makes none. With the sun square
-to the view, the game leaves the flares' brightness unset for the rings; OpenReliant keeps the last.
-`DestroyFlightGroup` counts one atmosphere fewer for any planet of the types from `0x60` to `0x69`
-and `0xCA` to `0xD3`, whether it has one or not, leaving out both Neptunes, looks for its ring
-among the atmospheres before the last alone, and frees the one it finds while keeping it in the
-table, which goes on drawing it; OpenReliant lets go of the planet's own and takes it out.
+**Fix:** a fifth atmosphere would write past the end of the table. **Improvement:** OpenReliant's
+table holds 64 planets, counting every planet that turns, leans or has an atmosphere. Past that it
+makes no more. With the sun square to the view, the game leaves the flares' brightness unset for
+the rings; OpenReliant keeps the last.
+
+**Fix:** for any planet of the types `0x60` to `0x69` and `0xCA` to `0xD3`, `DestroyFlightGroup`
+counts one atmosphere fewer whether the planet has one or not, which leaves out both Neptunes. It
+looks for the planet's ring only among the atmospheres before the last, and frees the one it finds
+but keeps it in the table, which goes on drawing it. OpenReliant frees the planet's own ring and
+removes its entry, so the planet also stops turning.
 
 ## Lights
 

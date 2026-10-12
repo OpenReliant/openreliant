@@ -64,7 +64,7 @@ OpenReliant's version, events for the global scripts, and game modes. For load, 
 
 ### `openreliant.records`
 
-The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), and what the campaign makes of each of them (`missions`). Only load scripts can change them. For load, global, object, player and menu scripts.
+The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), what the campaign makes of each of them (`missions`), the KILLBOARD's pilots (`killboard`), the combat maneuvers (`maneuvers`) and the planets (`planets`). Only load scripts can change them. For load, global, object, player and menu scripts.
 
 Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with these fields:
 
@@ -130,6 +130,18 @@ Each of the combat maneuvers, `maneuvers[n]`, is a `CombatManeuver` with these f
 | `min_ticks` | number | The fewest ticks it runs, unless the Fight order gives a length of its own. |
 | `max_ticks` | number | The most ticks it runs: Fight draws its length from `min_ticks` up to this. |
 | `script` | list of string | Its script: a command of the maneuvers' language on each line. Setting it compiles it, and a line that doesn't compile is an error. |
+
+Each of the planets, `planets[n]`, is a `Planet` with these fields:
+
+| Field | Type | What it is |
+|---|---|---|
+| `type` | [ShipType](#shiptype) | Its object type, such as `neptune_hi` or `earth`: OpenReliant's name or the type's number, or the qualified name of a type a mod adds. A type a mod adds uses its base type's entry unless the table has an entry for it. If a type has several entries, the first one counts. A planet added without a type has the marker's type, which is never made, until its type is set. |
+| `spin` | number | How fast it turns about its north pole, in radians a second. Positive turns it eastward, as most planets turn, which is counter-clockwise seen from above its north pole. Negative turns it westward. Its north pole is its model's -Y, which is up on the screen when the planet isn't turned. The original turns the planets that have an atmosphere westward at -0.07, one turn every 90 seconds, and doesn't turn the others. |
+| `tilt` | number | How far its north pole leans away from north, in radians. North is the up direction of the planet as the mission places it, which is the world's up if the mission doesn't turn the planet. |
+| `tilt_toward` | number | Which way its north pole leans, as an angle in radians around north: 0 leans it toward +Z, and `math.pi / 2` toward +X, both of the planet as the mission places it. |
+| `atmosphere_color` | vector, or nil | The colour of its atmosphere, or nil for none. The atmosphere is a band that faces the camera and fades from this colour at its inner edge to nothing at its outer edge. It is added over the planet, and is brighter toward the sun. In the original, Neptune, Uranus, Jupiter and Venus have one. |
+| `atmosphere_inner` | number | Where its atmosphere's band starts, as a share of the planet's radius as the camera sees it: 0.85 in the original. |
+| `atmosphere_outer` | number | Where its atmosphere's band ends, as a share of the planet's radius as the camera sees it: 0.95 for Neptune and Uranus, and 1.005 for Jupiter and Venus, in the original. The planet hides the band within its edge. |
 
 ### `openreliant.hooks`
 
