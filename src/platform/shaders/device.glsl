@@ -105,15 +105,15 @@ layout(set = 3, binding = 0) uniform Frame {
 
 // The frame's directional and point lights, for lighting each pixel. A light's colour is its red,
 // green and blue; its vector, toward a directional light and as long as its intensity, or a point
-// light's place and its reach; its mask; its kind, 0 directional or 1 point; and whether a caster
-// shades what it lights.
+// light's place and its reach; its mask; its kind, 0 directional or 1 point; whether a caster
+// shades what it lights; and whether it reaches only the pixels whose masks ask for it.
 struct Light {
     vec4 color;
     vec4 vector;
     uint mask;
     uint kind;
     uint shadowed;
-    uint unused;
+    uint inclusive;
 };
 
 layout(set = 3, binding = 1) uniform Lighting {
@@ -364,13 +364,19 @@ float directionalShare(vec3 n, Light light, float strength) {
     return share;
 }
 
+// Whether `light` reaches the pixel, by their masks (srlight.zig's `Light.reaches`): where they
+// share no bit, or for an inclusive light, where they share one.
+bool reaches(Light light) {
+    return ((light.mask & mask) != 0u) == (light.inclusive != 0u);
+}
+
 // The sun, for the pixel of surface `s`: the first directional light that casts shadows and
 // reaches it, as OpenReliant's key lights do; -1 where none does.
 int sunIndex(Lit s) {
     if (mask == 0xFFFFFFFFu || dot(s.normal, s.normal) < 0.5) return -1;
     for (uint i = 0u; i < frameLights.count.x; i++) {
         Light light = frameLights.lights[i];
-        if ((light.mask & mask) == 0u && light.kind == 0u && light.shadowed != 0u) return int(i);
+        if (reaches(light) && light.kind == 0u && light.shadowed != 0u) return int(i);
     }
     return -1;
 }
@@ -403,7 +409,7 @@ vec3 lights(Lit s, out vec3 highlights) {
     float sun = -1.0;
     for (uint i = 0u; i < frameLights.count.x; i++) {
         Light light = frameLights.lights[i];
-        if ((light.mask & mask) != 0u) continue;
+        if (!reaches(light)) continue;
         if (light.kind == 0u) {
             float strength = length(light.vector.xyz);
             float share = directionalShare(n, light, strength);

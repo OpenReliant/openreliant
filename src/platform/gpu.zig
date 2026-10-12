@@ -199,7 +199,8 @@ const Lighting = extern struct {
         kind: Kind = .directional,
         /// 1 where a caster shades what it lights.
         shadowed: u32 = 0,
-        unused: u32 = 0,
+        /// 1 where it reaches only the pixels whose light masks ask for it.
+        inclusive: u32 = 0,
 
         const Kind = enum(u32) { directional = 0, point = 1 };
     };
@@ -216,12 +217,14 @@ const Lighting = extern struct {
                     .mask = light.mask,
                     .kind = .directional,
                     .shadowed = @intFromBool(light.shadowed),
+                    .inclusive = @intFromBool(light.inclusive),
                 },
                 .point => |point| .{
                     .colour = colourOf(point.colour, point.intensity, linear),
                     .vector = .{ point.position[0], point.position[1], point.position[2], point.reach },
                     .mask = light.mask,
                     .kind = .point,
+                    .inclusive = @intFromBool(light.inclusive),
                 },
             };
         }

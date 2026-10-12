@@ -1452,6 +1452,18 @@ records.planets[#records.planets + 1] = {
 - The table holds up to 64 planets. A game mode's records script can change and add planets for
   that mode's missions only ([Game modes](#game-modes)).
 
+The planets have a light of their own, which shines from the sun and reaches nothing else
+([Lights](../engine/backdrop.md#lights)). It has the colour of the game's key lights, (1, 1, 0.8),
+which the original lights everything with, unless a load script gives it another in
+`records.planet_light`, such as white for planets whose textures hold their true colours. Nil gives
+it the key lights' colour again. Ships and every other model keep their light.
+
+```lua
+local records = require("openreliant.records")
+
+records.planet_light = vector.create(1, 1, 1)
+```
+
 ## Saved games
 
 The game is saved between missions: in the Reliant's rooms, and by the autosave as the campaign

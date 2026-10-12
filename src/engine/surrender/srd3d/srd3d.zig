@@ -313,7 +313,7 @@ pub const Driver = struct {
                     .intensity = l.intensity,
                 } },
             };
-            try taken.append(driver.gpa, .{ .mask = l.mask, .kind = kind, .shadowed = l.shadowed });
+            try taken.append(driver.gpa, .{ .mask = l.mask, .kind = kind, .shadowed = l.shadowed, .inclusive = l.inclusive });
         }
         const count = @min(driver.target.lights(taken.items), wanted.items.len);
         for (wanted.items[0..count]) |w| list[w.index].per_pixel = true;

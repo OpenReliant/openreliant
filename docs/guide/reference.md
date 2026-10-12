@@ -64,7 +64,7 @@ OpenReliant's version, events for the global scripts, and game modes. For load, 
 
 ### `openreliant.records`
 
-The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), what the campaign makes of each of them (`missions`), the KILLBOARD's pilots (`killboard`), the combat maneuvers (`maneuvers`) and the planets (`planets`). Only load scripts can change them. For load, global, object, player and menu scripts.
+The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), what the campaign makes of each of them (`missions`), the KILLBOARD's pilots (`killboard`), the combat maneuvers (`maneuvers`), the planets (`planets`) and the colour of the planets' light (`planet_light`). Only load scripts can change them. For load, global, object, player and menu scripts.
 
 Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with these fields:
 

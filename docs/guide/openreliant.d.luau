@@ -670,6 +670,8 @@ type Records = {
     itac_text: { [number | string]: string },
     -- The campaign's missions, by their numbers, in the order it flies them. Load scripts change it by assigning a new list.
     campaign: { number },
+    -- The colour of the light the planets get, nil for the key lights' colour, (1, 1, 0.8), as the original lights them. Only the planets and their atmospheres take this light, so a mod can light them without lighting any other model. Load scripts set it.
+    planet_light: vector?,
     -- The settings of each of the campaign's missions, by its number. Load scripts change their fields.
     missions: { [number]: CampaignMission },
     -- The KILLBOARD's pilots, numbered from 1. Load scripts change their fields.

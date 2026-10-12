@@ -1182,14 +1182,18 @@ pub fn isPlanet(ship_type: gameobj.Type) bool {
 /// and bit 20, in place of whatever its model gave it.
 const planet_part_flags: @import("../surrender/surrenderlib/srapiext.zig").ObjectFlags = .{ .lit = true, .always_drawn = true, ._unknown_20 = true };
 
-/// The lights that do not reach a planet's parts (`0x00467BF0`): all but the second key light,
-/// mask `0x08`, which alone lights them.
-pub const planet_light_mask: u32 = 0x37;
+/// The lights that do not reach a planet's parts: the original keeps out all but the second key
+/// light, mask `0x08`, which alone lights them (`0x00467BF0`, `0x37`). **Improvement:** they keep out
+/// all six of the backdrop's lights and take the planets' own, mask `0x40`, which reaches only the
+/// objects that ask for it (`backdrop.LightRole.planets_40`). It has the key lights' colour unless a
+/// mod gives the planets another, so that a mod can light the planets without lighting every
+/// other model with them.
+pub const planet_light_mask: u32 = 0x7F;
 
 /// The part of `create_object` for a planet (`0x00467BAB`), once its atmosphere is made, for those
 /// that have one (`atmosphere.Atmospheres.made`): the object lists components, collides with
 /// nothing and is frozen. Each part hanging from its root is drawn with `planet_part_flags`, lit
-/// by the second key light alone (`planet_light_mask`), and stands at the root's origin; each of
+/// by the planets' light alone (`planet_light_mask`), and stands at the root's origin; each of
 /// its levels is moved to stand on the middle of its vertices (`recentreMesh`), and the part
 /// takes the radius of its last.
 ///
@@ -2012,9 +2016,11 @@ test planetMade {
     try std.testing.expectEqual(Vector{ -100, -100, 0 }, hull.mesh.bounds[0]);
     try std.testing.expectEqual(hull.mesh.radius, part.object.radius);
     try std.testing.expectApproxEqAbs(@sqrt(2.0) * 100, part.object.radius, 1e-3);
-    // Lit by the second key light alone.
-    try std.testing.expect(!@import("backdrop.zig").initialLights().get(.key_01).reaches(part.object.light_mask));
-    try std.testing.expect(@import("backdrop.zig").initialLights().get(.key_08).reaches(part.object.light_mask));
+    // Lit by the planets' light alone.
+    const lights = @import("backdrop.zig").initialLights();
+    for (std.enums.values(@import("backdrop.zig").LightRole)) |role| {
+        try std.testing.expectEqual(role == .planets_40, lights.get(role).reaches(part.object.light_mask));
+    }
 }
 
 test gateMade {

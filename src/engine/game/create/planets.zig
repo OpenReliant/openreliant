@@ -107,6 +107,7 @@ pub const original = planets: {
 pub const most = 64;
 
 var installed: []const Planet = &original;
+var installed_light: ?[3]f32 = null;
 
 /// Installs `all`, the planets as the records have them, up to `most`. They must stay in memory
 /// until the next install.
@@ -114,9 +115,21 @@ pub fn install(all: []const Planet) void {
     installed = all[0..@min(all.len, most)];
 }
 
-/// Puts the original's planets back.
+/// Installs the colour of the planets' own light (`backdrop.LightRole.planets_40`), as the records
+/// have it, or null for the key lights' colour, as the original lights the planets.
+pub fn installLight(colour: ?[3]f32) void {
+    installed_light = colour;
+}
+
+/// The installed colour of the planets' light, or null for the key lights' colour.
+pub fn light() ?[3]f32 {
+    return installed_light;
+}
+
+/// Puts the original's planets back, lit by the key lights' colour.
 pub fn installOriginal() void {
     installed = &original;
+    installed_light = null;
 }
 
 /// The installed entry for `planet_type`: the first entry with that type, or else, for a type a mod

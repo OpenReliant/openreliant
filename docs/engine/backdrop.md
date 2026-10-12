@@ -232,13 +232,15 @@ is drawn by a surface function on the planet's texture, which adds it in linear 
 | `0x10` | Fill, directional | 0.7 | The nebula's; 0, 0.5, 1 at first |
 | `0x20` | Ambient | 1 | 0.09, 0.09, 0.09 |
 
-A light reaches an object unless their masks share a bit. A part's object has mask `0x18` when its model lists components and `0x03` otherwise (`node_add_part`), so models that list components take the full fill light and the rest take it at 0.7; both take the key light and both ambients.
+A light reaches an object unless their masks share a bit. A part's object has mask `0x18` when its model lists components and `0x03` otherwise (`node_add_part`), so models that list components take the full fill light and the rest take it at 0.7; both take the key light and both ambients. The planets take the second key light alone ([Objects](objects.md)).
+
+**Improvement:** OpenReliant adds a seventh light, the planets' own, mask `0x40`. It shines from the sun as the key lights do, casts shadows as they do, and has their colour, (1, 1, 0.8), unless a mod gives it another (`records.planet_light`). It reaches only the objects that ask for it, those whose masks share a bit with its own, where every other light reaches those whose masks share none. The planets ask for it, and keep out the six others, as do the rings that mods draw their atmospheres on, so a mod can light the planets in a colour of its own without lighting any other model with it. Without a mod's colour, the planets look as the original lights them.
 
 ## Placement
 
 `backdrop_place` (`0x004A5A00`) aims the backdrop from a mission's markers, as the script asks with `UpdateEnvironmentFXState`. It sets the sun's direction back to `(1, -0.5, 0.2)`, normalized, then reads the objects in the first slots, as many as the more of the mission's ships and the objects in use, each by the orientation of its renderer's frame. The last marker of each kind wins.
 
-- **A sun marker** (type `0x3DC`) puts the sun along its backward axis: the orientation negated, whose forward axis is the sun's direction. Both key lights shine from there, and `sunlayer1`, `sunlayer2` and `sunlayer3` stand 1000 away along it. The sky dome takes the negated orientation times the transpose of the look at the default sun (`mat3_look_at`, `0x004C1940`), a reflection, which mirrors its colours.
+- **A sun marker** (type `0x3DC`) puts the sun along its backward axis: the orientation negated, whose forward axis is the sun's direction. Both key lights shine from there, as does OpenReliant's planets' light, and `sunlayer1`, `sunlayer2` and `sunlayer3` stand 1000 away along it. The sky dome takes the negated orientation times the transpose of the look at the default sun (`mat3_look_at`, `0x004C1940`), a reflection, which mirrors its colours.
 - **A nebula marker** (type `0x3DD`) aims both fill lights along its forward axis, and the nebula's patch shown then takes its orientation. The other patch keeps its own.
 
 Without a sun marker the sun's direction stays a unit long, and the sun's sprites, the key lights and the dome keep what the last sun marker gave them; without a nebula marker the fill lights and the patches keep theirs. The lens flares follow the sun's direction.

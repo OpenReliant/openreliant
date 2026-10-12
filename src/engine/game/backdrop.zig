@@ -25,6 +25,7 @@ const srstars = @import("../surrender/surrenderlib/srstars.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const camera = @import("camera.zig");
 const Objects = @import("create.zig").Objects;
+const planets = @import("create/planets.zig");
 const matmanager = @import("matmanager.zig");
 const nebula = @import("nebula.zig");
 const xtrabits = @import("xtrabits.zig");
@@ -76,23 +77,39 @@ pub const sun_distance: f32 = 1000;
 
 /// The six lights (`light_key_01` and the rest), each named after its mask. Models whose objects
 /// list components take the first three and the last; the rest take the last four
-/// (`objects.lightMask`).
-pub const LightRole = enum { key_01, fill_02, ambient_04, key_08, fill_10, ambient_20 };
+/// (`objects.lightMask`). The original lights the planets with the second key light alone.
+///
+/// **Improvement:** the planets take a light of their own, `planets_40`, which shines from the sun
+/// as the key lights do and reaches only the objects that ask for it (`srlight.Light.inclusive`),
+/// the planets and their atmospheres (`create.planet_light_mask`). It has the key lights' colour,
+/// unless a mod gives the planets another (`create.planets.light`), which changes the light of no
+/// other model.
+pub const LightRole = enum { key_01, fill_02, ambient_04, key_08, fill_10, ambient_20, planets_40 };
 pub const Lights = std.EnumArray(LightRole, srlight.Light);
+
+/// The key lights' colour (`backdrop_create`).
+pub const key_colour: [3]f32 = .{ 1, 1, 0.8 };
 
 /// The fill lights' colour until `nebula_select` gives them the nebula's.
 pub const default_fill: [3]f32 = .{ 0, 0.5, 1 };
 
-/// The lights as `backdrop_create` makes them.
+/// The lights as `backdrop_create` makes them, and the planets' own.
 pub fn initialLights() Lights {
-    const key: [3]f32 = .{ 1, 1, 0.8 };
     return .init(.{
-        .key_01 = .{ .mask = 0x01, .intensity = 1, .colour = key, .kind = .{ .directional = sun_direction }, .shadowed = true },
+        .key_01 = .{ .mask = 0x01, .intensity = 1, .colour = key_colour, .kind = .{ .directional = sun_direction }, .shadowed = true },
         .fill_02 = .{ .mask = 0x02, .intensity = 1, .colour = default_fill, .kind = .{ .directional = fill_direction } },
         .ambient_04 = .{ .mask = 0x04, .intensity = 1, .colour = @splat(0.04), .kind = .ambient },
-        .key_08 = .{ .mask = 0x08, .intensity = 1, .colour = key, .kind = .{ .directional = sun_direction }, .shadowed = true },
+        .key_08 = .{ .mask = 0x08, .intensity = 1, .colour = key_colour, .kind = .{ .directional = sun_direction }, .shadowed = true },
         .fill_10 = .{ .mask = 0x10, .intensity = 0.7, .colour = default_fill, .kind = .{ .directional = fill_direction } },
         .ambient_20 = .{ .mask = 0x20, .intensity = 1, .colour = @splat(0.09), .kind = .ambient },
+        .planets_40 = .{
+            .mask = 0x40,
+            .intensity = 1,
+            .colour = planets.light() orelse key_colour,
+            .kind = .{ .directional = sun_direction },
+            .shadowed = true,
+            .inclusive = true,
+        },
     });
 }
 
@@ -424,14 +441,13 @@ pub const Backdrop = struct {
     }
 
     /// A sun marker turned by `orientation` aims the sun (`backdrop_place`): the sun lies along
-    /// the marker's backward axis, the key lights shine from there, and the sun's sprites stand
-    /// `sun_distance` off along it. The sky's dome takes the marker's orientation reversed, turned
-    /// back by the way `sun_direction` looks (`mat3_look_at`).
+    /// the marker's backward axis, the key lights and the planets' own shine from there, and the
+    /// sun's sprites stand `sun_distance` off along it. The sky's dome takes the marker's
+    /// orientation reversed, turned back by the way `sun_direction` looks (`mat3_look_at`).
     fn aimSun(backdrop: *Backdrop, sky: *nebula.Sky, orientation: math.Matrix) void {
         const reversed = math.product(math.scaling(@splat(-1)), orientation);
         const toward = math.forward(reversed);
-        backdrop.lights.getPtr(.key_01).kind = .{ .directional = toward };
-        backdrop.lights.getPtr(.key_08).kind = .{ .directional = toward };
+        for ([_]LightRole{ .key_01, .key_08, .planets_40 }) |role| backdrop.lights.getPtr(role).kind = .{ .directional = toward };
         sky.dome.orientation = math.product(reversed, math.transpose(math.lookAt(sun_direction)));
         backdrop.sun_direction = math.transform(reversed, .{ 0, 0, sun_distance });
         for ([_]SunLayer{ .sunlayer1, .sunlayer3, .sunlayer2 }) |layer| {
@@ -589,7 +605,7 @@ test flaresShown {
 }
 
 test initialLights {
-    // Each class of model takes four of the six.
+    // Each class of model takes four of the six, and the planets' own light reaches neither.
     const lights = initialLights();
     const with_components: u32 = 0x18;
     const without: u32 = 0x03;
@@ -602,6 +618,11 @@ test initialLights {
     try std.testing.expectEqual(4, reaching_with);
     try std.testing.expectEqual(4, reaching_without);
     try std.testing.expectEqual(0.7, lights.get(.fill_10).intensity);
+    // The planets' light has the key lights' colour, unless a mod gives the planets another.
+    try std.testing.expectEqual(key_colour, lights.get(.planets_40).colour);
+    planets.installLight(.{ 1, 1, 1 });
+    defer planets.installOriginal();
+    try std.testing.expectEqual([3]f32{ 1, 1, 1 }, initialLights().get(.planets_40).colour);
 }
 
 /// A texture table holding the sun's textures and the nebulae's, each 8 by 4.
@@ -664,7 +685,7 @@ test "Backdrop.frame" {
         .sun_visibility = max_visibility,
     };
     try backdrop.frame(gpa, &scene, &context, .chase, .open);
-    try std.testing.expectEqual(6, scene.lights.items.len);
+    try std.testing.expectEqual(7, scene.lights.items.len);
     // The fields, the dust, `sunlayer3`, `sunlayer2` and `sunlayer1`; the flares on the overlay.
     try std.testing.expectEqual(field_count + 4, scene.layers.get(.background).items.len);
     try std.testing.expectEqual(flares.len, scene.layers.get(.overlay).items.len);
@@ -736,7 +757,7 @@ test "Backdrop.place" {
     for ([_]SunLayer{ .sunlayer1, .sunlayer2, .sunlayer3 }) |layer| {
         try std.testing.expectEqual(backdrop.sun_direction, backdrop.sun[layer.sprite()].sprites[0].offset);
     }
-    for ([_]LightRole{ .key_01, .key_08 }) |role| {
+    for ([_]LightRole{ .key_01, .key_08, .planets_40 }) |role| {
         const toward = backdrop.lights.get(role).kind.directional;
         try std.testing.expectApproxEqAbs(-1, toward[0], 1e-6);
     }
