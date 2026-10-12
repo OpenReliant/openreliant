@@ -268,7 +268,12 @@ pub const Part = extern struct {
         /// With `Lmaps` set, the loader also binds a texture named `l<material>`, which a
         /// hardware renderer adds over the part's `lit` faces.
         lightmap: bool,
-        _unknown8: u4,
+        _unknown8: u1,
+        /// A part with armour to spare (`component_armor` above 2499) that any heavy hit hurts,
+        /// such as the Latov's shaft and the Czar's core cover, which a Jack Hammer breaks. Without
+        /// it, only a torpedo's does (`component_damage`, `0x00464798`).
+        heavy_hits: bool,
+        _unknown10: u2,
         /// A component the player can target: `object_collect_components` marks its node
         /// `targetable`, which cycling subtargets requires and `SetTargetable` changes.
         targetable: bool,

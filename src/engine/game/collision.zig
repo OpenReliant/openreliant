@@ -595,10 +595,11 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     // The assembly's first part that has armour takes the hit.
     const struck = model.hitPart(component);
     if (struck.component_armor == 0) return;
-    // A part with armour to spare takes only a heavy hit, and only from what can hurt it.
+    // A part with armour to spare takes only a heavy hit, and only a torpedo's unless its flags
+    // let any kind's through (`0x00464798`).
     if (struck.component_armor > heavy_component) {
         if (share < heavy_hit) return;
-        if (!struck.flags.lightmap and !heavyKind(kind)) return;
+        if (!struck.flags.heavy_hits and !heavyKind(kind)) return;
     }
 
     if (object.invulnerable != ._unknown_5 and object.flags.shield_generator and share < shielded_hit) share *= shielded_damage;
@@ -1269,13 +1270,23 @@ test componentDamage {
     try std.testing.expect(part.armor < 0);
     try std.testing.expect(all.slots[index].model.?.destroyed);
 
-    // A part with armour to spare takes only a heavy hit of a kind that can hurt it.
+    // A part with armour to spare takes only a heavy hit, and only a torpedo's, unless its flags
+    // let any kind's through, as a Jack Hammer's breaks the Latov's shaft. The flag for light maps
+    // has nothing to do with it.
     part.component_armor = 20000;
     part.armor = 20000;
     componentDamage(world, index, struck, 100, 1, .bullet);
     try std.testing.expectEqual(20000, part.armor);
     componentDamage(world, index, struck, 600, 1, .crash);
     try std.testing.expectEqual(19400, part.armor);
+    part.flags.lightmap = true;
+    componentDamage(world, index, struck, 600, 1, .missile);
+    try std.testing.expectEqual(19400, part.armor);
+    part.flags.heavy_hits = true;
+    componentDamage(world, index, struck, 100, 1, .missile);
+    try std.testing.expectEqual(19400, part.armor);
+    componentDamage(world, index, struck, 600, 1, .missile);
+    try std.testing.expectEqual(18800, part.armor);
 
     // Listed component protection prevents a lethal hit, but still permits nonlethal wear.
     all.slots[index].components[0] = part;
