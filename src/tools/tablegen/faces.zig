@@ -152,3 +152,10 @@ test read {
     defer testing.freeReader(allocator, broken);
     try std.testing.expectError(error.NoFilm, read(arena, broken));
 }
+
+test "emit writes the committed table again" {
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, &pilots.faces);
+    try testing.expectCommitted(@embedFile("committed faces"), out.written());
+}

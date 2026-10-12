@@ -310,3 +310,19 @@ test "emit writes Zig that parses" {
     try std.testing.expect(std.mem.find(u8, source, ".{ .code = 0x2B, .name = \"\\\\\" },\n") != null);
     try std.testing.expect(std.mem.find(u8, source, "    .afterburners,\n    null,\n    .reverse_thrust,\n") != null);
 }
+
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.input.controls;
+    var bindings: [committed.defaults.len]Binding = undefined;
+    for (&bindings, committed.defaults) |*binding, entry| {
+        binding.* = .{ .name = entry.name, .string = entry.string, .key = entry.key, .modifier = entry.modifier, .button = if (entry.button) |button| button else -1 };
+    }
+    var keys: [committed.keys.len]Key = undefined;
+    for (&keys, committed.keys) |*key, entry| key.* = .{ .code = entry.code, .name = entry.name };
+    var rows: [committed.list.len]Row = undefined;
+    for (&rows, committed.list) |*row, entry| row.* = if (entry == null) .divider else .action;
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, &bindings, &keys, &rows);
+    try testing.expectCommitted(@embedFile("committed controls"), out.written());
+}

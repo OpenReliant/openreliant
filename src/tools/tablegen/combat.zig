@@ -160,3 +160,15 @@ test read {
     try testing.expectZig(out.written());
     try std.testing.expect(std.mem.find(u8, out.written(), ".class = @fromBackingInt(99)") != null);
 }
+
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.game.create.combat_stats.ship_types;
+    var types: [committed.len]Static = undefined;
+    for (&types, committed) |*ship_type, entry| {
+        ship_type.* = .{ .targetable = entry.targetable, .name = entry.name, .class = entry.class, .side = @fromBackingInt(@intCast(@backingInt(entry.side))), .display = entry.display };
+    }
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, &types);
+    try testing.expectCommitted(@embedFile("committed combat"), out.written());
+}

@@ -8,6 +8,8 @@
 const std = @import("std");
 const Io = std.Io;
 
+const openreliant = @import("openreliant");
+
 const image = @import("image.zig");
 const testing = @import("testing.zig");
 
@@ -122,4 +124,14 @@ test read {
     defer out.deinit();
     try emit(&out.writer, records);
     try testing.expectZig(out.written());
+}
+
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.game.camera.views.records;
+    var records: [committed.len]Record = undefined;
+    for (&records, committed) |*record, entry| record.* = .{ .name = entry.name, .bars = entry.bars, .cockpit = entry.cockpit };
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, &records);
+    try testing.expectCommitted(@embedFile("committed views"), out.written());
 }

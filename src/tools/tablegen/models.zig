@@ -376,3 +376,17 @@ test "emit writes Zig that parses" {
     try testing.expectZig(out.written());
     try std.testing.expect(std.mem.find(u8, out.written(), ".{ .model = \"GUN.SHP\", .sprite = \"gun.spr\", .count = 2 },") != null);
 }
+
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.game.create.models;
+    var types: [committed.ship_types.len]ShipType = undefined;
+    for (&types, committed.ship_types) |*ship_type, entry| ship_type.* = .{ .model = entry.model, .schematic = entry.schematic };
+    var attachments: [attachment_kinds][ids_per_kind]Attachment = undefined;
+    for (&attachments, committed.attachments) |*kind, entries| {
+        for (kind, entries) |*attachment, entry| attachment.* = .{ .model = entry.model, .second_model = entry.second_model, .count = entry.count, .sprite = entry.sprite };
+    }
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, .{ .ship_types = &types, .attachments = attachments });
+    try testing.expectCommitted(@embedFile("committed models"), out.written());
+}

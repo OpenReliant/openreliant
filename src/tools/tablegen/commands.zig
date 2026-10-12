@@ -325,6 +325,22 @@ test "an implementation hands for_each_ship one callback" {
     try std.testing.expectError(error.TwoCallbacks, payload.commands(arena.allocator()));
 }
 
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.game.executor.commands;
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const commands = try arena.alloc(Command, committed.table.len);
+    for (commands, committed.table) |*command, entry| {
+        const params = try arena.alloc(Param, entry.params.len);
+        for (params, entry.params) |*param, from| param.* = .{ .kinds = @bitCast(from.kinds), .extra = @bitCast(from.extra), .label = from.label };
+        command.* = .{ .implementation = entry.implementation, .name = entry.name, .params = params, .description = entry.description, .flag = entry.flag, .per_ship = entry.per_ship };
+    }
+    var out: Io.Writer.Allocating = .init(arena);
+    try emit(&out.writer, commands);
+    try testing.expectCommitted(@embedFile("committed commands"), out.written());
+}
+
 test "emit writes Zig that parses" {
     const params = [_]Param{.{ .kinds = 0x400, .extra = 0, .label = "Ship to \"kill\"" }};
     const listed = [_]Command{

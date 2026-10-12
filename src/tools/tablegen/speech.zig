@@ -10,6 +10,8 @@ const std = @import("std");
 const Io = std.Io;
 const assert = std.debug.assert;
 
+const openreliant = @import("openreliant");
+
 const image = @import("image.zig");
 const testing = @import("testing.zig");
 
@@ -143,4 +145,14 @@ test read {
     defer out.deinit();
     try emit(&out.writer, tables);
     try testing.expectZig(out.written());
+}
+
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.game.voice.tables;
+    var records: [committed.records.len]Record = undefined;
+    for (&records, committed.records) |*record, symbol| record.* = .{ .next = symbol.next, .bits = symbol.bits, .value = symbol.value };
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, .{ .levels = committed.levels, .symbols = committed.symbols, .records = &records });
+    try testing.expectCommitted(@embedFile("committed speech"), out.written());
 }

@@ -271,3 +271,15 @@ test read {
     try emit(&out.writer, types);
     try testing.expectZig(out.written());
 }
+
+test "emit writes the committed table again" {
+    const committed = openreliant.engine.game.guns.gun_stats;
+    var types: [committed.gun_types.len]Static = undefined;
+    for (&types, committed.gun_types, committed.sound_periods, committed.atlas, committed.flash_ticks) |*gun_type, entry, period, atlas, flash| {
+        gun_type.* = .{ .kind = entry.kind, .bolt = entry.bolt, .sound = entry.sound, .sound_period = period, .atlas = atlas, .flash_ticks = flash };
+    }
+    var out: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try emit(&out.writer, &types);
+    try testing.expectCommitted(@embedFile("committed guns"), out.written());
+}
