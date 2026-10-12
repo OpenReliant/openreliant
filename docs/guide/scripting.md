@@ -2374,6 +2374,7 @@ struct Surface {
     vec2 frameSize;  // read only: the frame's width and height in pixels
     vec3 toSun;      // read only: the direction toward the sun, unit length; zero where it doesn't reach
     vec3 local;      // read only: its position in its object's own frame, as the model holds it
+    float bloom;     // how much of its light blooms, from 0 to 1; starts as the registration's `bloom`
 };
 
 void surface(inout Surface s, vec4 parameters, float time) {
@@ -2403,6 +2404,11 @@ float lighting(float cosine, vec4 parameters) {
   object's model. `objectDirection(v)` turns a direction such as `s.toSun`, `s.normal` or
   `s.toEye` into that frame, and `objectPoint(p)` a point such as `s.position`. With them, a
   function can work out shapes the model holds, such as where a planet's ring shades the planet.
+- `s.bloom` is how much of the pixel's light blooms, from 0 to 1. It starts as the function's
+  `bloom`, 1 unless the registration gives one. Lower it for a glow or a haze that shouldn't glare
+  like a light. It counts where the surface is drawn solid or added over what lies behind it, not
+  where it blends by its alpha, and only while BLOOM is on. A bright thing behind the surface still
+  blooms in full.
 - The functions can call the shader's own helpers, such as `encoded` and `decoded`, which turn a
   colour into and out of linear light.
 - If the function sets roughness or metalness on a surface without material maps, the surface is lit
@@ -2479,6 +2485,8 @@ void surface(inout Surface s, vec4 parameters, float time) {
 
 - For a flattened planet, the unit is its equatorial radius. Its north pole is the frame's -Y, as
   in the planet's model, so a function can draw its haze round the flattened shape.
+- A bright haze glares with the bloom like any bright light. Register its function with a lower
+  `bloom` to keep more of it as it is.
 - The ring is drawn over the planet, so the function decides where the planet shows through. A
   sharp cut at the planet's edge leaves the edge's pixels without the glow, as the function runs
   once for each pixel, at its middle.

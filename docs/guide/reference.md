@@ -320,7 +320,7 @@ Surface and lighting functions: GLSL functions from the mod that change how surf
 
 | Name | Type | What it is |
 |---|---|---|
-| `register_surface(definition: SurfaceFunction)` | string | Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets. |
+| `register_surface(definition: SurfaceFunction)` | string | Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads, and `bloom`, from 0 to 1, how much of its surfaces' light blooms. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets. |
 | `register_lighting(definition: LightingFunction)` | string | Registers a lighting function: a GLSL function `lighting` from the calling mod's file `shader`, which changes how much of each light reaches a pixel. One draws at a time: the enabled one registered last. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. |
 | `set_enabled(name: string, enabled: boolean)` | boolean | Turns the calling mod's function `name` on or off, by its own name or the qualified one. Returns whether the mod has it. |
 | `set_parameters(name: string, parameters: { number })` | boolean | Sets the numbers the calling mod's function `name` reads on its textures and everywhere it draws, up to four; those left out are 0. Returns whether the mod has it. |
@@ -1667,6 +1667,7 @@ A table a script gives, which may leave out a field with a default.
 | `everywhere` | boolean | false |
 | `see_through` | boolean | false |
 | `writes_depth` | boolean | true |
+| `bloom` | number | 1 |
 | `parameters` | list of number | none |
 | `enabled` | boolean | true |
 

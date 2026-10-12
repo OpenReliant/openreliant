@@ -116,13 +116,15 @@ layout(set = 3, binding = 1) uniform Lighting {
 // OpenReliant's shaders from mods (gpu/variants.zig): a variant of this shader compiled with a mod's
 // lighting function, MOD_LIGHTING, and a mod's surface function, MOD_SURFACE, inserted where
 // `mod_functions` stands below. What they read: the surface function's parameters, the lighting
-// function's, in time's x the seconds passed, and what turns a point of the camera's frame into the
-// frame of the object drawn, as three rows with the move in their last column.
+// function's, in time's x the seconds passed, what turns a point of the camera's frame into the
+// frame of the object drawn, as three rows with the move in their last column, and in bloom's x the
+// share of the surface function's light that blooms.
 layout(set = 3, binding = 3) uniform Custom {
     vec4 surface;
     vec4 lighting;
     vec4 time;
     vec4 object[3];
+    vec4 bloom;
 } custom;
 
 // The pixel as a mod's surface function reads and sets it. Its colours are encoded, as a picture
@@ -154,6 +156,10 @@ struct Surface {
     // its object's own frame, as the object's model holds it.
     vec3 toSun;
     vec3 local;
+    // How much of the pixel's light blooms, from 0 to 1: at first the share the function was
+    // registered with (`bloom`, 1 if it gave none). It counts where the surface is drawn solid or
+    // added over what lies behind it, not where it blends by its alpha.
+    float bloom;
 };
 
 // Where a point of the camera's frame, such as `position`, stands in the frame of the object drawn,
@@ -348,6 +354,10 @@ int modSun = -1;
 bool modSunChanged = false;
 vec3 modSunlight = vec3(0.0);
 #endif
+
+// How much of the pixel's light blooms, as a mod's surface function leaves it (`Surface.bloom`):
+// all of it where none runs.
+float modBloom = 1.0;
 
 // What the directional and point lights add to this pixel, as the pipeline adds them for each
 // vertex (srmesh.zig): nothing for a vertex that comes lit already, as every one does in the
@@ -792,8 +802,9 @@ void modSurface(inout vec4 texel, inout Lit s, inout vec3 glow) {
         toSun = strength > 0.0 ? light.vector.xyz / strength : vec3(0.0);
         share = directionalShare(s.normal, light, strength);
     }
-    Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, glow, vec3(share), uv, place, s.toEye, frame.reflection.zy, toSun, objectPoint(place));
+    Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, glow, vec3(share), uv, place, s.toEye, frame.reflection.zy, toSun, objectPoint(place), custom.bloom.x);
     surface(m, custom.surface, custom.time.x);
+    modBloom = clamp(m.bloom, 0.0, 1.0);
     // Where the function leaves the sunlight as it was, the sun lights the pixel as OpenReliant's
     // own law has it, at the normal the function leaves.
     modSunChanged = any(notEqual(m.sunlight, vec3(share)));
@@ -861,6 +872,14 @@ void main() {
         // colour, eight bits a channel otherwise.
         vec3 levels = frame.settings.x > 0.0 ? vec3(31.0, 63.0, 31.0) : vec3(255.0);
         c.rgb = dithered(c.rgb, ivec2(gl_FragCoord.xy), levels);
+    }
+    // The light that mustn't bloom, which the scene's alpha keeps for the bloom (`HeldBloom` in
+    // gpu.zig, two bits): a solid draw replaces it with what its pixel holds back, and a mod's
+    // surface function on a surface added over the scene adds it, its colour multiplied by its
+    // alpha here rather than by the blend where the next bit says.
+    if ((shade & 0x60000u) != 0u) {
+        if ((shade & 0x80000u) != 0u) c.rgb *= c.a;
+        c.a = (1.0 - modBloom) * luminance(c.rgb);
     }
     result = c;
 }

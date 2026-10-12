@@ -126,8 +126,9 @@ const Vertex = extern struct {
 /// past its terminator in the one after, whether its texture's normal map and material map are
 /// shaded in the two after that, whether the normal map holds two channels (BC5 or RG16) in the
 /// one after that, whether it is drawn as a hologram in the one after that, whether its
-/// texture's emissive map is shaded in the one after that, and whether a mod's surface function
-/// makes it see-through in the one after that.
+/// texture's emissive map is shaded in the one after that, whether a mod's surface function makes
+/// it see-through in the one after that, how it keeps the light that mustn't bloom in the two
+/// after that, and whether it multiplies its colour by its alpha itself in the one after that.
 const Shading = packed struct(u32) {
     receives: device.Receives,
     magnify: srtexture.Image.Magnify,
@@ -142,7 +143,12 @@ const Shading = packed struct(u32) {
     emissive_map: bool = false,
     /// A mod's surface function makes it see-through (`device.State.see_through`).
     see_through: bool = false,
-    _unused: u15 = 0,
+    /// How it keeps the light that mustn't bloom in the scene's alpha (`HeldBloom`).
+    held_bloom: HeldBloom = .left,
+    /// It multiplies its colour by its alpha itself, and is added at full strength, so that its
+    /// alpha can carry the light it holds back (`HeldBloom.added`).
+    premultiplies: bool = false,
+    _unused: u12 = 0,
 
     /// A draw's shading, its texture's maps shaded where `materials` (`Gpu.shadesMaterials`).
     fn of(state: device.State, materials: bool) Shading {
@@ -237,14 +243,38 @@ const Lighting = extern struct {
 /// The primitives the shader draws; strips and fans go as lists.
 const Topology = enum { points, lines, triangles };
 
-/// What picks a pipeline: the topology, the render states and the variant of the fragment shader
-/// (`gpu/variants.zig`), 0 for OpenReliant's own.
+/// What picks a pipeline: the topology, the render states, the variant of the fragment shader
+/// (`gpu/variants.zig`), 0 for OpenReliant's own, and how the draw keeps the light that mustn't
+/// bloom.
 const PipelineKey = struct {
     topology: Topology,
     depth: srd3d.Depth,
     blend: ?srd3d.Factors,
     into: Into = .scene,
     variant: u16 = 0,
+    held_bloom: HeldBloom = .left,
+};
+
+/// How a draw keeps the light that mustn't bloom in the scene's alpha, which the bloom takes off
+/// before it blooms (`shaders/bloom.glsl`), while the bloom is on and the scene has an alpha
+/// (`Gpu.holds_bloom`). Only a mod's surface function holds light back, by its registration's
+/// `bloom` and the pixel's (`Surface.bloom` in `shaders/device.glsl`).
+const HeldBloom = enum(u2) {
+    /// It leaves the alpha as it is: drawn over the finished frame or into the reflections, blended
+    /// by its alpha, which the blend needs, or added with OpenReliant's own shader, which holds
+    /// nothing back.
+    left,
+    /// A solid draw replaces it with the light it holds back, none unless a mod's surface function
+    /// holds some, so that a solid model drawn over a glow that holds light back blooms in full.
+    replaced,
+    /// A mod's surface function on a surface added over the scene adds the light it holds back.
+    added,
+
+    fn of(into: Into, blend: ?srd3d.Factors, variant: u16) HeldBloom {
+        if (into != .scene) return .left;
+        const factors = blend orelse return .replaced;
+        return if (variant != 0 and factors.destination == .one) .added else .left;
+    }
 };
 
 /// What a pass of the device's shader draws into: the scene, in floats where the device lights in
@@ -436,6 +466,8 @@ const Run = struct {
     key: PipelineKey,
     /// Its surface function's parameters, where its variant has one.
     parameters: [4]f32 = @splat(0),
+    /// The share of its surface function's light that blooms (`variants.Picked.bloom`).
+    bloom: f32 = 1,
     /// What turns a point of the camera's frame into its object's, where its variant has a surface
     /// function (`device.Frame.toObject`).
     object: [3][4]f32 = variants.no_object,
@@ -471,6 +503,9 @@ pub const Gpu = struct {
     /// What the scene is drawn into: floats where it lights in linear light, the display's own
     /// format otherwise.
     colour_format: c.SDL_GPUTextureFormat,
+    /// Whether the scene's alpha keeps the light that mustn't bloom (`HeldBloom`): while the bloom is
+    /// on, in a format with an alpha (`floatFormat`).
+    holds_bloom: bool,
     /// What the finished frame is kept in, encoded for the display, which the display is drawn over.
     finish_format: c.SDL_GPUTextureFormat,
     depth_format: c.SDL_GPUTextureFormat,
@@ -641,7 +676,7 @@ pub const Gpu = struct {
         );
         const finish_format: c.SDL_GPUTextureFormat = if (sixteen) c.SDL_GPU_TEXTUREFORMAT_B5G6R5_UNORM else c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
         const linear = settings.linear_light and !settings.sixteen_bit;
-        const colour_format = if (linear) floatFormat(handle) else finish_format;
+        const colour_format = if (linear) floatFormat(handle, settings.bloom) else finish_format;
         const depth_format: c.SDL_GPUTextureFormat = if (settings.sixteen_bit)
             c.SDL_GPU_TEXTUREFORMAT_D16_UNORM
         else if (c.SDL_GPUTextureSupportsFormat(handle, c.SDL_GPU_TEXTUREFORMAT_D32_FLOAT, c.SDL_GPU_TEXTURETYPE_2D, c.SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET))
@@ -671,6 +706,7 @@ pub const Gpu = struct {
             .samples = samples,
             .linear = linear,
             .colour_format = colour_format,
+            .holds_bloom = settings.bloom and hasAlpha(colour_format),
             .finish_format = finish_format,
             .depth_format = depth_format,
             .vertex_shader = vertex_shader,
@@ -744,9 +780,7 @@ pub const Gpu = struct {
         if (count == gpu.samples) return;
         _ = c.SDL_WaitForGPUIdle(gpu.handle);
         gpu.releaseTargets();
-        var pipelines = gpu.pipelines.valueIterator();
-        while (pipelines.next()) |made| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, made.*);
-        gpu.pipelines.clearRetainingCapacity();
+        gpu.releasePipelines();
         gpu.samples = count;
         gpu.prepare();
     }
@@ -801,9 +835,26 @@ pub const Gpu = struct {
         _ = c.SDL_WaitForGPUIdle(gpu.handle);
         gpu.releaseTargets();
         gpu.settings.bloom = on;
-        if (on) return gpu.startScreen();
         if (gpu.bloom_pipeline) |made| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, made);
         gpu.bloom_pipeline = null;
+        // A frame of floats keeps an alpha while it blooms (`floatFormat`), and the pipelines go
+        // with its format.
+        const format = if (gpu.linear) floatFormat(gpu.handle, on) else gpu.colour_format;
+        if (format != gpu.colour_format) {
+            gpu.releasePipelines();
+            gpu.colour_format = format;
+            gpu.samples = sampleCount(gpu.handle, format, gpu.depth_format, gpu.settings.samples);
+        }
+        gpu.holds_bloom = on and hasAlpha(gpu.colour_format);
+        if (on) try gpu.startScreen();
+        gpu.prepare();
+    }
+
+    /// Lets go of every pipeline the device made for its passes.
+    fn releasePipelines(gpu: *Gpu) void {
+        var made = gpu.pipelines.valueIterator();
+        while (made.next()) |pipeline_| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, pipeline_.*);
+        gpu.pipelines.clearRetainingCapacity();
     }
 
     /// Each pixel lit, or each vertex, and the shadows of `quality`, which take each pixel lit: their
@@ -828,21 +879,25 @@ pub const Gpu = struct {
     /// quarter of a second the first time, and would hold up the frame in which an effect first
     /// shows. One the system refuses is tried again, and the failure logged, as it is drawn.
     fn prepare(gpu: *Gpu) void {
-        for (prepared) |key| _ = gpu.pipeline(key) catch continue;
+        for (prepared) |key| {
+            var drawn = key;
+            if (gpu.holds_bloom) drawn.held_bloom = .of(key.into, key.blend, key.variant);
+            _ = gpu.pipeline(drawn) catch continue;
+        }
     }
 
     /// Floats for a frame that keeps what is stacked past white: 32 bits a pixel where the GPU
-    /// draws into them, 64 otherwise.
-    fn floatFormat(handle: *c.SDL_GPUDevice) c.SDL_GPUTextureFormat {
+    /// draws into them and nothing blooms, 64 otherwise, whose alpha keeps the light that mustn't
+    /// bloom (`HeldBloom`).
+    fn floatFormat(handle: *c.SDL_GPUDevice, bloom: bool) c.SDL_GPUTextureFormat {
         const usage = c.SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | c.SDL_GPU_TEXTUREUSAGE_SAMPLER;
-        const packed_floats = c.SDL_GPUTextureSupportsFormat(handle, c.SDL_GPU_TEXTUREFORMAT_R11G11B10_UFLOAT, c.SDL_GPU_TEXTURETYPE_2D, usage);
+        const packed_floats = !bloom and c.SDL_GPUTextureSupportsFormat(handle, c.SDL_GPU_TEXTUREFORMAT_R11G11B10_UFLOAT, c.SDL_GPU_TEXTURETYPE_2D, usage);
         return if (packed_floats) c.SDL_GPU_TEXTUREFORMAT_R11G11B10_UFLOAT else c.SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
     }
 
     pub fn deinit(gpu: *Gpu) void {
         _ = c.SDL_WaitForGPUIdle(gpu.handle);
-        var pipelines = gpu.pipelines.valueIterator();
-        while (pipelines.next()) |made| c.SDL_ReleaseGPUGraphicsPipeline(gpu.handle, made.*);
+        gpu.releasePipelines();
         gpu.pipelines.deinit(gpu.gpa);
         for (gpu.arrays.items) |*array| {
             c.SDL_ReleaseGPUTexture(gpu.handle, array.texture);
@@ -931,7 +986,8 @@ pub const Gpu = struct {
         /// Which pass, a texel along a blur's axis, and the threshold or the bloom's strength.
         settings: [4]f32,
         /// 1 for a frame of floats, whose highlights are eased before they bloom and as the last
-        /// pass finishes it; and 1 for the last pass to dither.
+        /// pass finishes it; 1 for the last pass to dither; and 1 where the frame's alpha keeps the
+        /// light that mustn't bloom (`HeldBloom`).
         finish: [4]f32 = @splat(0),
 
         /// The uniforms of `pass`, stepping `texel` along a blur's axis, with the threshold or the
@@ -1051,10 +1107,20 @@ pub const Gpu = struct {
     /// list, run on from the last draw where the pipeline and the array allow.
     fn record(gpu: *Gpu, state: device.State, primitive: device.Primitive, vertices: []const device.Vertex, indices: ?[]const u16) Error!void {
         const slot: ?Slot = if (state.texture) |image| try gpu.slotOf(image) else null;
-        const shading: Shading = .of(state, gpu.shadesMaterials());
         const into: Into = if (gpu.face != null) .reflections else if (gpu.overlay_from == null) .scene else .finished;
         const lit = into != .finished and vertices.len > 0 and vertices[0].light_mask != device.no_lights;
         const picked: variants.Picked = if (gpu.mod_effects) gpu.mod_shaders.pick(state.surface, if (state.texture) |image| image.surface else null, lit) else .{};
+        const key: PipelineKey = .{
+            .topology = topology(primitive),
+            .depth = state.depth,
+            .blend = state.blend,
+            .into = into,
+            .variant = picked.variant,
+            .held_bloom = if (gpu.holds_bloom) .of(into, state.blend, picked.variant) else .left,
+        };
+        var shading: Shading = .of(state, gpu.shadesMaterials());
+        shading.held_bloom = key.held_bloom;
+        shading.premultiplies = key.held_bloom == .added and state.blend.?.source == .source_alpha;
         const base: u32 = @intCast(gpu.vertices.items.len);
         try gpu.vertices.ensureUnusedCapacity(gpu.gpa, vertices.len);
         for (vertices) |v| gpu.vertices.appendAssumeCapacity(.{
@@ -1072,14 +1138,9 @@ pub const Gpu = struct {
         const count: u32 = @as(u32, @intCast(gpu.indices.items.len)) - first;
         if (count == 0) return;
         const run: Run = .{
-            .key = .{
-                .topology = topology(primitive),
-                .depth = state.depth,
-                .blend = state.blend,
-                .into = into,
-                .variant = picked.variant,
-            },
+            .key = key,
             .parameters = picked.parameters,
+            .bloom = picked.bloom,
             .object = if (picked.surface) state.frame.toObject() else variants.no_object,
             .face = gpu.face,
             .array = if (slot) |s| s.array else null,
@@ -1439,7 +1500,7 @@ pub const Gpu = struct {
         const composed = targets.composed orelse return;
         const last = gpu.finish_pipeline orelse return;
         const frame_image = targets.frame();
-        const finishing = [4]f32{ @floatFromInt(@intFromBool(gpu.linear)), @floatFromInt(@intFromBool(gpu.linear and gpu.settings.dither)), 0, 0 };
+        const finishing = [4]f32{ @floatFromInt(@intFromBool(gpu.linear)), @floatFromInt(@intFromBool(gpu.linear and gpu.settings.dither)), @floatFromInt(@intFromBool(gpu.holds_bloom)), 0 };
         const bloom = targets.bloom orelse
             return gpu.screenPass(commands, composed, last, frame_image, frame_image, .of(.finish, .{ 0, 0 }, 0, finishing));
         const blur = gpu.bloom_pipeline.?;
@@ -1466,7 +1527,8 @@ pub const Gpu = struct {
 
         var colour = std.mem.zeroes(c.SDL_GPUColorTargetInfo);
         colour.texture = targets.colour;
-        colour.clear_color = .{ .r = 0, .g = 0, .b = 0, .a = 1 };
+        // While the scene holds back bloom, its alpha starts with none held back (`HeldBloom`).
+        colour.clear_color = .{ .r = 0, .g = 0, .b = 0, .a = if (gpu.holds_bloom) 0 else 1 };
         colour.load_op = c.SDL_GPU_LOADOP_CLEAR;
         if (targets.resolved) |resolved| {
             colour.store_op = c.SDL_GPU_STOREOP_RESOLVE;
@@ -1548,9 +1610,10 @@ pub const Gpu = struct {
         for (runs) |run| {
             if (run.face != face) continue;
             c.SDL_BindGPUGraphicsPipeline(pass, gpu.pipelines.get(run.key).?);
-            if (!std.meta.eql(custom.surface, run.parameters) or !std.meta.eql(custom.object, run.object)) {
+            if (!std.meta.eql(custom.surface, run.parameters) or !std.meta.eql(custom.object, run.object) or custom.bloom[0] != run.bloom) {
                 custom.surface = run.parameters;
                 custom.object = run.object;
+                custom.bloom[0] = run.bloom;
                 c.SDL_PushGPUFragmentUniformData(commands, variants.uniform_slot, &custom, @sizeOf(variants.Uniforms));
             }
             const array = gpu.arrays.items[run.array orelse gpu.blank.array];
@@ -1783,15 +1846,18 @@ pub const Gpu = struct {
             .finished => gpu.finish_format,
         };
         // The original's back buffer kept no alpha, and blending reads only the source's: alpha
-        // stays as cleared, opaque.
+        // stays as cleared, but where the draw keeps the light that mustn't bloom there
+        // (`HeldBloom`). One that adds it has multiplied its colour by its alpha itself.
         colour.blend_state.enable_color_write_mask = true;
         colour.blend_state.color_write_mask = c.SDL_GPU_COLORCOMPONENT_R | c.SDL_GPU_COLORCOMPONENT_G | c.SDL_GPU_COLORCOMPONENT_B;
+        if (key.held_bloom != .left) colour.blend_state.color_write_mask |= c.SDL_GPU_COLORCOMPONENT_A;
         if (key.blend) |factors| {
+            const added = key.held_bloom == .added;
             colour.blend_state.enable_blend = true;
-            colour.blend_state.src_color_blendfactor = blendFactor(factors.source);
+            colour.blend_state.src_color_blendfactor = if (added) c.SDL_GPU_BLENDFACTOR_ONE else blendFactor(factors.source);
             colour.blend_state.dst_color_blendfactor = blendFactor(factors.destination);
             colour.blend_state.color_blend_op = c.SDL_GPU_BLENDOP_ADD;
-            colour.blend_state.src_alpha_blendfactor = blendFactor(factors.source);
+            colour.blend_state.src_alpha_blendfactor = if (added) c.SDL_GPU_BLENDFACTOR_ONE else blendFactor(factors.source);
             colour.blend_state.dst_alpha_blendfactor = blendFactor(factors.destination);
             colour.blend_state.alpha_blend_op = c.SDL_GPU_BLENDOP_ADD;
         }
@@ -1914,11 +1980,16 @@ fn appendList(gpa: Allocator, list: *std.ArrayList(u32), primitive: device.Primi
     }
 }
 
+/// Whether a frame of `format` has an alpha, which can keep the light that mustn't bloom.
+fn hasAlpha(format: c.SDL_GPUTextureFormat) bool {
+    return format == c.SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT or format == c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+}
+
 /// Runs `next` on from `last` when both draw with the same pipeline and array: a run with no
 /// texture joins any.
 fn join(last: *Run, next: Run) bool {
     if (!std.meta.eql(last.key, next.key) or last.held != next.held or last.face != next.face) return false;
-    if (!std.meta.eql(last.parameters, next.parameters) or !std.meta.eql(last.object, next.object)) return false;
+    if (!std.meta.eql(last.parameters, next.parameters) or !std.meta.eql(last.object, next.object) or last.bloom != next.bloom) return false;
     if (last.array != null and next.array != null and last.array.? != next.array.?) return false;
     if (last.first + last.count != next.first) return false;
     last.count += next.count;
@@ -2106,6 +2177,37 @@ test Shading {
     shown.hologram = false;
     shown.see_through = true;
     try std.testing.expectEqual(0x10001, @as(u32, @bitCast(Shading.of(shown, false))));
+    // How it keeps the light that mustn't bloom in the two bits after, and whether it multiplies
+    // its colour by its alpha itself in the one after those.
+    var held: Shading = .of(state, false);
+    held.held_bloom = .added;
+    held.premultiplies = true;
+    try std.testing.expectEqual(0xC0001, @as(u32, @bitCast(held)));
+    held.held_bloom = .replaced;
+    held.premultiplies = false;
+    try std.testing.expectEqual(0x20001, @as(u32, @bitCast(held)));
+}
+
+test HeldBloom {
+    // A solid draw into the scene replaces the light held back, and a mod's surface function added
+    // over it adds to it.
+    try std.testing.expectEqual(.replaced, HeldBloom.of(.scene, null, 0));
+    try std.testing.expectEqual(.replaced, HeldBloom.of(.scene, null, 5));
+    try std.testing.expectEqual(.added, HeldBloom.of(.scene, srd3d.factors(.add_alpha), 5));
+    try std.testing.expectEqual(.added, HeldBloom.of(.scene, srd3d.factors(.add), 5));
+    // OpenReliant's own glows hold nothing back, and what blends by its alpha needs its alpha.
+    try std.testing.expectEqual(.left, HeldBloom.of(.scene, srd3d.factors(.add), 0));
+    try std.testing.expectEqual(.left, HeldBloom.of(.scene, srd3d.factors(.alpha), 5));
+    // Nothing blooms past the scene.
+    try std.testing.expectEqual(.left, HeldBloom.of(.finished, null, 5));
+    try std.testing.expectEqual(.left, HeldBloom.of(.reflections, null, 0));
+}
+
+test hasAlpha {
+    try std.testing.expect(hasAlpha(c.SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT));
+    try std.testing.expect(hasAlpha(c.SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM));
+    try std.testing.expect(!hasAlpha(c.SDL_GPU_TEXTUREFORMAT_R11G11B10_UFLOAT));
+    try std.testing.expect(!hasAlpha(c.SDL_GPU_TEXTUREFORMAT_B5G6R5_UNORM));
 }
 
 test appendList {

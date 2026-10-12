@@ -1647,9 +1647,11 @@ test "player scripts register surface and lighting functions, which the host dra
                 "cel.luau",
                 \\local shaders = require("openreliant.shaders")
                 \\assert(shaders.register_lighting({ name = "bands", shader = "bands.glsl", parameters = { 3 } }) == "cel:bands")
-                \\shaders.register_surface({ name = "ink", shader = "ink.glsl", textures = { "hull.tga" }, everywhere = true, parameters = { 2, 8 } })
+                \\shaders.register_surface({ name = "ink", shader = "ink.glsl", textures = { "hull.tga" }, everywhere = true, parameters = { 2, 8 }, bloom = 0.25 })
                 \\local ok, message = pcall(shaders.register_surface, { name = "ink", shader = "ink.glsl" })
                 \\assert(not ok and string.find(message, "registered already", 1, true), message)
+                \\ok, message = pcall(shaders.register_surface, { name = "glare", shader = "ink.glsl", bloom = 2 })
+                \\assert(not ok and string.find(message, "bloom must be from 0 to 1", 1, true), message)
                 \\ok, message = pcall(shaders.register_surface, { name = "bad", shader = "broken.glsl" })
                 \\assert(not ok and string.find(message, "broken.glsl:2", 1, true), message)
                 \\ok, message = pcall(shaders.register_lighting, { name = "gone", shader = "missing.glsl" })
@@ -1690,14 +1692,16 @@ test "player scripts register surface and lighting functions, which the host dra
     const ink = host.drawn.items[1];
     try std.testing.expect(ink.kind == .surface and ink.enabled and ink.everywhere);
     try std.testing.expectEqual([4]f32{ 4, 0, 0, 0 }, ink.parameters);
+    try std.testing.expectEqual(0.25, ink.bloom);
     try std.testing.expectEqualStrings("hull.tga", ink.textures[0]);
+    // The objects take its share of bloom too.
     for (fixture.mission.slot(0).model.?.parts) |part| {
-        try std.testing.expectEqual(srtexture.ModSurface{ .function = 2, .parameters = .{ 1, 2, 0, 0 } }, part.object.surface.?);
+        try std.testing.expectEqual(srtexture.ModSurface{ .function = 2, .parameters = .{ 1, 2, 0, 0 }, .bloom = 0.25 }, part.object.surface.?);
     }
     // A planet's atmosphere finds a surface function by its qualified name, but no lighting
     // function and no name no mod registered.
     const names = fixture.shown.surfaceNames();
-    try std.testing.expectEqual(srtexture.ModSurface{ .function = 2 }, names.find(names.context, "cel:ink").?);
+    try std.testing.expectEqual(srtexture.ModSurface{ .function = 2, .bloom = 0.25 }, names.find(names.context, "cel:ink").?);
     try std.testing.expectEqual(null, names.find(names.context, "cel:bands"));
     try std.testing.expectEqual(null, names.find(names.context, "cel:nothing"));
     // The game's end stops the player scripts, and their functions go.

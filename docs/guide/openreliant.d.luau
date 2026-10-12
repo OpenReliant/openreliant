@@ -305,6 +305,7 @@ type SurfaceFunction = {
     everywhere: boolean?,
     see_through: boolean?,
     writes_depth: boolean?,
+    bloom: number?,
     parameters: { number }?,
     enabled: boolean?,
 }
@@ -919,7 +920,7 @@ type Postprocessing = {
 
 -- Surface and lighting functions: GLSL functions from the mod that change how surfaces are lit.
 type Shaders = {
-    -- Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets.
+    -- Registers a surface function: a GLSL function `surface` from the calling mod's file `shader`, which changes a pixel before it is lit. It draws on the `textures` it names, on every lit surface without a function of its own where `everywhere` is true, and on the objects given it with `object:set_surface`. `parameters` holds up to four numbers it reads, and `bloom`, from 0 to 1, how much of its surfaces' light blooms. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line. See the scripting guide for what the function reads and sets.
     register_surface: (definition: SurfaceFunction) -> string,
     -- Registers a lighting function: a GLSL function `lighting` from the calling mod's file `shader`, which changes how much of each light reaches a pixel. One draws at a time: the enabled one registered last. `parameters` holds up to four numbers it reads. Returns the function's name, qualified with the mod's. A shader that doesn't compile is an error, with its file and line.
     register_lighting: (definition: LightingFunction) -> string,
