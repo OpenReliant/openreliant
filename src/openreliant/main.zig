@@ -1234,7 +1234,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         display.state.fosters_last_stand = false;
                     }
                     switch (player_launch.step(slot, clock.mission_ticks)) {
-                        .under_way => if (options.skip_launch) continue,
+                        // The skipped frame isn't drawn, but the display's frame still runs,
+                        // unseen: the radio's lines start and end in it (`hud_draw`), and a
+                        // mission's script may wait for a line to end before the player launches.
+                        .under_way => if (options.skip_launch) {
+                            display.device = srd3d.device.unseen;
+                            display.screen = size;
+                            try display.drawDisplay();
+                            continue;
+                        },
                         .ended => {
                             if (play.loaded) |loaded| for (asked_parts) |part| loaded.runPart(orders, part);
                             watch.frame(&view, objects, clock.viewTime());
@@ -1465,10 +1473,11 @@ fn endsInPauseMenu(options: Options, frames_left: ?usize) bool {
 }
 
 /// The player's launch at the start of a `--mission`, which `--skip-launch` plays through without
-/// drawing it, each frame running `skip_ticks` ticks as at 60 frames a second, and after which the
-/// parts `--part` names run (`partsNamed`). It is under way from the mission's start until the
-/// player's ship has been under its Launch order and no longer is; or, for a mission whose player
-/// doesn't launch, until `give_up_ticks` pass without the launch starting.
+/// drawing it, each frame running `skip_ticks` ticks as at 60 frames a second and the display's
+/// frame unseen (`device.unseen`), and after which the parts `--part` names run (`partsNamed`). It
+/// is under way from the mission's start until the player's ship has been under its Launch order
+/// and no longer is; or, for a mission whose player doesn't launch, until `give_up_ticks` pass
+/// without the launch starting.
 const PlayerLaunch = struct {
     under_way: bool,
     launched: bool = false,
