@@ -123,14 +123,21 @@ pub const Routine = struct {
 
     /// `push_string` of `text`, NUL-terminated.
     pub fn pushString(routine: *Routine, text: []const u8) Error!void {
+        try routine.pushText(.push_string, text);
+    }
+
+    /// `text`, NUL-terminated, as the inline data of `opcode`: `push_string`, or `push_string_alt`,
+    /// which runs the same handler.
+    pub fn pushText(routine: *Routine, opcode: Opcode, text: []const u8) Error!void {
         const data = try std.mem.concat(routine.gpa, u8, &.{ text, "\x00" });
         defer routine.gpa.free(data);
-        try routine.inlineData(.push_string, data);
+        try routine.inlineData(opcode, data);
     }
 
     /// `random_branch`: a count, the big-endian default target, then an arm each, whose targets
-    /// count from the opcode.
-    pub fn randomBranch(routine: *Routine, default: Label, arms: []const Arm) Error!void {
+    /// count from the opcode. The table has room for `room` arms, or for all of them where there
+    /// are more; the unused slots are zero.
+    pub fn randomBranch(routine: *Routine, default: Label, arms: []const Arm, room: usize) Error!void {
         const count = std.math.cast(u8, arms.len) orelse return error.WrongOperands;
         const from = routine.code.items.len;
         try routine.code.appendSlice(routine.gpa, &.{ @backingInt(Opcode.random_branch), count });
@@ -140,6 +147,7 @@ pub const Routine = struct {
             try routine.fixups.append(routine.gpa, .{ .at = routine.code.items.len, .label = arm.target, .from = from });
             try routine.code.appendSlice(routine.gpa, &.{ 0, 0, arm.threshold, arm.extra });
         }
+        try routine.code.appendNTimes(routine.gpa, 0, @sizeOf(dte.ArmIterator.Arm) * (@max(room, arms.len) - arms.len));
     }
 
     /// Pushes constant `value`: the index of it in the routine's table, which it joins the first
@@ -195,7 +203,7 @@ pub fn emit(routine: *Routine, instruction: dte.Instruction, at: *const std.Auto
                 const arm = instruction.operands[header_size + index * 4 ..][0..4];
                 try list.append(routine.gpa, .{ .target = at.get(target) orelse return error.UnplacedLabel, .threshold = arm[2], .extra = arm[3] });
             }
-            try routine.randomBranch(default, list.items);
+            try routine.randomBranch(default, list.items, list.items.len);
         },
         .next, .call, .@"return" => try routine.op(instruction.opcode, instruction.operands),
     }
@@ -263,7 +271,7 @@ test emit {
     defer routine.deinit();
     const second = try routine.label();
     const third = try routine.label();
-    try routine.randomBranch(second, &.{.{ .target = third, .threshold = 50, .extra = 0x45 }});
+    try routine.randomBranch(second, &.{.{ .target = third, .threshold = 50, .extra = 0x45 }}, 1);
     routine.place(second);
     try routine.pushString("new_sim02.wav");
     try routine.opWide(.push_ship_wide, 0x0102);

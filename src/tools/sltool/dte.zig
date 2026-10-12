@@ -361,10 +361,11 @@ test Command {
     try std.testing.expectError(error.Usage, Command.parse(&.{ "disassemble", "M01.DTE" }));
 }
 
-/// Rewrites `mission` three ways and fails if anything changes: with its sections' whole rooms,
+/// Rewrites `mission` four ways and fails if anything changes: with its sections' whole rooms,
 /// byte for byte, if the file is laid out like the template; from its records alone, record for
-/// record; and each routine of its script, reassembled from its disassembly, byte for byte except
-/// the block's padding.
+/// record; each routine of its script, reassembled from its disassembly, byte for byte except the
+/// block's padding; and each routine read as statements and lowered again, byte for byte except
+/// the bytes no instruction reaches (`sameReached`).
 fn check(ctx: Context, mission: dte.Mission) !void {
     const gpa = ctx.arena;
     const out = ctx.stdout;
@@ -382,9 +383,10 @@ fn check(ctx: Context, mission: dte.Mission) !void {
     try out.writeAll("records: rewritten unchanged\n");
 
     const code = try mission.script();
+    const routines = try mission.routines(gpa);
     var assembled: usize = 0;
     var skipped: usize = 0;
-    for (try mission.routines(gpa)) |routine| {
+    for (routines) |routine| {
         const disassembly = (try dte.disassemble(gpa, code, routine.start)) orelse continue;
         // Unreachable bytes aren't in the disassembly, so the routine can't be rebuilt from it.
         if (disassembly.incomplete or disassembly.unreached > 0) {
@@ -407,6 +409,72 @@ fn check(ctx: Context, mission: dte.Mission) !void {
         assembled += 1;
     }
     try out.print("script: reassembled {f} to the same bytes; skipped {f} with unreachable bytes\n", .{ sltool.count(assembled, "routine"), sltool.count(skipped, "routine") });
+
+    for (routines) |routine| {
+        const body = dte.decompile.routine(gpa, mission, routine) catch |err| {
+            try out.print("routine at {d}: can't read it as statements: {s}\n", .{ routine.start, @errorName(err) });
+            return error.Differs;
+        };
+        const again = try dte.statements.bytes(gpa, body, try .of(mission, routine));
+        if (!try sameReached(gpa, code[routine.start..][0..routine.extent], again)) {
+            try out.print("routine at {d}: its statements give back other bytes\n", .{routine.start});
+            return error.Differs;
+        }
+    }
+    try out.print("statements: read {f} as statements and lowered them to the same bytes\n", .{sltool.count(routines.len, "routine")});
+}
+
+/// Whether the routine `again` is `original` where it counts: the same length, the same
+/// instructions at the same places, and the same constants the block pushes. The bytes no
+/// instruction reaches may differ: the block's padding, a random choice's unused arm slots and the
+/// constant table's filler, which hold stale bytes in the shipped missions.
+fn sameReached(gpa: std.mem.Allocator, original: []const u8, again: []const u8) !bool {
+    if (again.len != original.len) return false;
+    const first = (try dte.disassemble(gpa, original, 0)) orelse return false;
+    const second = (try dte.disassemble(gpa, again, 0)) orelse return false;
+    if (first.instructions.len != second.instructions.len) return false;
+    var constants: usize = 0;
+    for (first.instructions, second.instructions) |a, b| {
+        if (a.address != b.address or !std.mem.eql(u8, original[a.address..][0..a.size()], again[b.address..][0..b.size()])) return false;
+        if (a.constant()) |index| constants = @max(constants, @as(usize, index) + 1);
+    }
+    const header = dte.BlockReader.header_len;
+    const table = header + dte.BlockReader.at(original, 0).?.code.len;
+    const used = constants * @sizeOf(u32);
+    if (table + used > original.len) return false;
+    return std.mem.eql(u8, again[0..header], original[0..header]) and
+        std.mem.eql(u8, again[table..][0..used], original[table..][0..used]);
+}
+
+test sameReached {
+    const gpa = std.testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var routine: dte.assemble.Routine = .init(gpa);
+    defer routine.deinit();
+    try routine.pushConstant(7);
+    try routine.command("Wait");
+    try routine.op(.push_byte, &.{1});
+    try routine.op(.@"return", &.{});
+    const original = try routine.finish();
+    defer gpa.free(original);
+    const again = try arena.dupe(u8, original);
+    // The block's padding and the constant table's filler may hold stale bytes.
+    const table = dte.BlockReader.header_len + dte.BlockReader.at(original, 0).?.code.len;
+    again[table - 1] = 0xAA;
+    again[table + @sizeOf(u32)] = 0xBB;
+    try std.testing.expect(try sameReached(arena, original, again));
+    // Another constant, or another operand, counts.
+    again[table] = 8;
+    try std.testing.expect(!try sameReached(arena, original, again));
+    again[table] = 7;
+    const instructions = (try dte.disassemble(arena, original, 0)).?.instructions;
+    const value = for (instructions) |instruction| {
+        if (instruction.opcode == .push_byte) break instruction;
+    } else unreachable;
+    again[value.address + 1] = 2;
+    try std.testing.expect(!try sameReached(arena, original, again));
 }
 
 /// A routine reassembled from its disassembly, with its constant table unchanged.

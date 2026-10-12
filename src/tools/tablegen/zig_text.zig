@@ -3,17 +3,18 @@
 const std = @import("std");
 const Io = std.Io;
 
-/// A value of a non-exhaustive enum as Zig: its name, or the number where it has none.
+/// A value of a non-exhaustive enum as Zig: its name, quoted where it is a keyword such as
+/// `return`, or the number where it has none.
 pub fn enumValue(w: *Io.Writer, value: anytype) Io.Writer.Error!void {
     if (std.enums.tagName(@TypeOf(value), value)) |name| {
-        try w.print(".{s}", .{name});
+        try w.print(".{f}", .{std.zig.fmtIdP(name)});
     } else {
         try w.print("@fromBackingInt({d})", .{@backingInt(value)});
     }
 }
 
 /// `value`, a packed struct of flags, as Zig: a literal naming the fields it sets, such as
-/// `.{ .ship = true, ._unknown_12 = 2 }`, or `.{}` where none is set. Every field needs a default
+/// `.{ .ship = true, ._unknown_15 = 2 }`, or `.{}` where none is set. Every field needs a default
 /// of zero, so that the literal can leave the others out.
 pub fn flags(value: anytype) Flags(@TypeOf(value)) {
     return .{ .value = value };

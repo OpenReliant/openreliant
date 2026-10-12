@@ -924,7 +924,7 @@ pub const Machine = struct {
             return null;
         }
         const opcode = machine.mission.byte(at) catch return null;
-        const info = vm.opcodes.find(opcode) orelse return null;
+        const info = vm.opcodes.find(@fromBackingInt(opcode)) orelse return null;
         if (!info.starts_statement) return null;
         if (editor.step == .over and thread.block_end != thread.step_block_end and !editor.step_returned) return null;
         return offset;
@@ -1418,7 +1418,7 @@ pub const testing = struct {
 
     /// The size of the instruction `opcode` starts, as the tests lay out their scripts.
     pub fn instructionSize(comptime opcode: dte.Opcode) u32 {
-        const info = comptime (vm.opcodes.find(@backingInt(opcode)) orelse @compileError("no instruction " ++ @tagName(opcode)));
+        const info = comptime (vm.opcodes.find(opcode) orelse @compileError("no instruction " ++ @tagName(opcode)));
         return 1 + @as(u32, info.operands);
     }
 
@@ -1932,7 +1932,7 @@ test "random_branch takes the first arm its roll falls below" {
             const high = try r.label();
             const other = try r.label();
             const done = try r.label();
-            try r.randomBranch(other, &.{ .{ .target = low, .threshold = 50, .extra = 0 }, .{ .target = high, .threshold = 100, .extra = 0 } });
+            try r.randomBranch(other, &.{ .{ .target = low, .threshold = 50, .extra = 0 }, .{ .target = high, .threshold = 100, .extra = 0 } }, 2);
             r.place(low);
             try r.op(.push_byte, &.{1});
             try r.branch(.jump, done);

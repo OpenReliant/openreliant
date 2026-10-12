@@ -72,8 +72,8 @@ pub fn writeInstruction(writer: *Writer, mission: dte.Mission, instruction: dte.
     switch (instruction.flow) {
         .call => try writeIndex(writer, mission, instruction, options),
         .next => switch (instruction.opcode) {
-            .push_constant => {
-                const index = instruction.operands[0];
+            .push_constant, .push_constant_wide => {
+                const index = instruction.constant().?;
                 if (index < constants.len) {
                     try writer.print("   = {d}", .{constants[index]});
                 } else {
@@ -167,9 +167,9 @@ fn pushesOne(opcode: dte.Opcode) bool {
 
 /// The number `instruction` pushes, where it pushes one the listing knows: a byte, or a constant.
 fn pushedValue(instruction: dte.Instruction, constants: []align(1) const u32) ?u32 {
+    if (instruction.constant()) |index| return if (index < constants.len) constants[index] else null;
     return switch (instruction.opcode) {
         .push_byte, .push_byte_alt => if (instruction.operands.len == 1) instruction.operands[0] else null,
-        .push_constant => if (instruction.operands.len == 1 and instruction.operands[0] < constants.len) constants[instruction.operands[0]] else null,
         else => null,
     };
 }
@@ -202,15 +202,17 @@ fn writeIndex(writer: *Writer, mission: dte.Mission, instruction: dte.Instructio
         },
         else => {},
     }
-    if (instruction.operands.len != 1) return;
-    const index = instruction.operands[0];
+    const index: u16 = switch (instruction.opcode) {
+        .push_ship_wide => instruction.wide(),
+        else => if (instruction.operands.len == 1) instruction.operands[0] else return,
+    };
     try writer.print("   {d}", .{index});
     const name: []const u8 = switch (instruction.opcode) {
         .call_part, .spawn_part => blk: {
             const all = mission.parts() catch break :blk "";
             break :blk if (index < all.len) mission.name(all[index].name) else "";
         },
-        .push_ship => blk: {
+        .push_ship, .push_ship_wide => blk: {
             const all = mission.ships() catch break :blk "";
             break :blk if (index < all.len) mission.name(all[index].name) else "";
         },
@@ -246,6 +248,13 @@ test writeInstruction {
     try writer.writeByte('|');
     try writeInstruction(&writer, empty, dte.decodeAt(&script, 2).?, &.{}, .{});
     try std.testing.expectEqualStrings("     0  32 07       push_byte   7|     2  23 00 05    branch_if_zero   -> 8 if zero", writer.buffered());
+    // A wide index is a halfword, big-endian.
+    writer = .fixed(&out);
+    const wide = [_]u8{ @backingInt(dte.Opcode.push_ship_wide), 1, 22, @backingInt(dte.Opcode.push_constant_wide), 0, 1 };
+    try writeInstruction(&writer, empty, dte.decodeAt(&wide, 0).?, &.{}, .{});
+    try writer.writeByte('|');
+    try writeInstruction(&writer, empty, dte.decodeAt(&wide, 3).?, &.{ 4, 5 }, .{});
+    try std.testing.expectEqualStrings("     0  52 01 16    push_ship_wide   278|     3  29 00 01    push_constant_wide   = 5", writer.buffered());
 }
 
 test writeInstructionAt {
