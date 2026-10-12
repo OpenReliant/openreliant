@@ -2247,6 +2247,9 @@ address	kind	name	type	comment
 00552520	data	bombard_flashes_framed_at	int	frame_start at the flashes' last frame, which nothing reads
 0046a312	function	bombard_flashes_frame	void (void)	The body of bombard_hook, which jumps into it: each of the ten flashes idle past its time starts (bombard_flash_start), one shown 35 ticks goes idle up to 1000 ticks at random, and one showing takes its size from the pbang sheet's cells and a grey of 0.1, then 0.3 down to nothing; nothing draws them
 0046a6f0	function	environment_effect_2	uint (void)	Whether effect 2 is on, which nothing calls; bombard_hook reads the bit itself
+004ff74c	data	bombard_cells	float[32]	The Planet Bombard flashes' picture sheet's eight cells, each its left, top, right and bottom in pixels on a 256 by 256 sheet, growing from the first to the last; bombard_flashes_create turns them into texture coordinates in place
+004ff7cc	data	bombard_cell_steps	short[16]	The cell a showing Planet Bombard flash takes at each of the 16 steps of its 35 ticks: 0 to 7 in turn, then 7
+0054f0c8	data	bombard_cell_scales	float[16]	Each bombard_cells cell's width and height over the first cell's, in pairs, which bombard_flashes_frame reads one float at a time by cell
 0051d1a4	data	wgate_records	void *[32]	The gates' records (wgate_create, 0x88 bytes each)
 0051d224	data	wgate_mask	uint	A bit for each record in use
 0051d198	data	wgate_segments	int	The tunnels' segments round, by the detail
