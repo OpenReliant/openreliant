@@ -219,10 +219,11 @@ pub const SurfaceNames = struct {
 /// (`planets.Planet.atmosphere_surface`), in place of the band. It is a flat ring of
 /// `round_segments` quads that faces the camera through the middle of the planet's sphere, from the
 /// planet's `atmosphere_inner` to its `atmosphere_outer` times the sphere's radius, each circle as
-/// far out as the sphere of its radius looks from the camera (`place`). In its own frame, the
-/// sphere's middle is the origin and the sphere's radius is the unit, so that the function can
-/// trace the line of sight through each pixel. It has no texture, and what the function leaves is
-/// added over what lies behind it. It is lit as the planets are, by the second key light alone
+/// far out as the sphere of its radius looks from the camera (`place`). Its frame is the planet's
+/// own, as the planet's model holds it, with the sphere's middle as the origin and the sphere's
+/// radius as the unit, so that the function can trace the line of sight through each pixel, and
+/// find the planet's pole for a planet that isn't round. It has no texture, and what the function
+/// leaves is added over what lies behind it. It is lit as the planets are, by the second key light alone
 /// (`create.planet_light_mask`), so that the function reads the direction toward the sun. Both
 /// styles draw it, since a mod asks for it.
 pub const Shell = struct {
@@ -235,13 +236,15 @@ pub const Shell = struct {
     /// Its inner and outer edges, in the sphere's radii.
     inner: f32,
     outer: f32,
+    /// Its circles' directions from the middle, a unit long, in the plane that faces along Z,
+    /// which `place` turns to face the camera.
+    around: [round_segments]Vector,
 
     pub fn create(gpa: Allocator, planet: *const srapiext.Mesh, inner: f32, outer: f32, surface: srtexture.ModSurface) Allocator.Error!*Shell {
         const shell = try gpa.create(Shell);
         errdefer gpa.destroy(shell);
-        // `place` sizes its circles each frame, in the same plane, so its faces keep the normals
-        // that light it.
         shell.mesh = try flatBand(gpa, round_segments, 1, inner, outer);
+        for (&shell.around, shell.mesh.positions[round_segments..]) |*each, far| each.* = math.normalize(far);
         shell.planet = planet;
         shell.inner = inner;
         shell.outer = outer;
@@ -259,24 +262,27 @@ pub const Shell = struct {
     }
 
     /// Places it for a frame, with the planet's model at `position`, turned by `orientation`, and
-    /// the camera at `camera`: round the sphere's middle, facing the camera, scaled by the sphere's
-    /// radius, each circle as far out as the edge of the sphere of its radius looks in the plane
-    /// through the middle (`edgeFactor`). False where the camera stands within its outer edge,
-    /// which it can't be drawn round.
+    /// the camera at `camera`. It takes the planet's frame, with the sphere's middle as its origin
+    /// and the sphere's radius as its unit, and its circles stand round the middle in the plane that
+    /// faces the camera, each as far out as the edge of the sphere of its radius looks in that
+    /// plane (`edgeFactor`). Its faces' normals follow the plane. False where the camera stands
+    /// within its outer edge, which it can't be drawn round.
     pub fn place(shell: *Shell, position: Vector, orientation: math.Matrix, camera: Vector) bool {
         const sphere: Sphere = .of(shell.planet);
         const middle = position + math.transform(orientation, sphere.middle);
         const distance = math.length(camera - middle) / sphere.radius;
         const inner = shell.inner * (edgeFactor(shell.inner, distance) orelse return false);
         const outer = shell.outer * (edgeFactor(shell.outer, distance) orelse return false);
-        const quads = shell.mesh.positions.len / 2;
-        for (shell.mesh.positions[0..quads], shell.mesh.positions[quads..]) |*near, *far| {
-            const around = math.normalize(far.*);
-            near.* = around * @as(Vector, @splat(inner));
-            far.* = around * @as(Vector, @splat(outer));
+        const facing = math.lookAt(math.transform(math.transpose(orientation), camera - middle));
+        for (shell.around, shell.mesh.positions[0..round_segments], shell.mesh.positions[round_segments..]) |each, *near, *far| {
+            const turned = math.transform(facing, each);
+            near.* = turned * @as(Vector, @splat(inner));
+            far.* = turned * @as(Vector, @splat(outer));
         }
+        srapi.calcPolyNormals(&shell.mesh);
+        srapi.calcVertexNormals(&shell.mesh);
         shell.object.position = middle;
-        shell.object.orientation = math.lookAt(camera - middle);
+        shell.object.orientation = orientation;
         shell.object.scale = sphere.radius;
         shell.object.radius = outer;
         return true;
@@ -691,16 +697,22 @@ test "a mod's surface function draws a planet's atmosphere" {
     try std.testing.expectEqual(null, atmospheres.entries[1].shell);
     try std.testing.expect(atmospheres.entries[1].ring != null);
 
-    // From five radii off, the shell stands round the sphere's middle, facing the camera, a radius
-    // to a unit, each circle as far out as the sphere of its radius looks.
+    // Earth turned, from five radii off: the shell takes Earth's frame, round the sphere's middle
+    // with a radius to a unit, and its circles stand in the plane that faces the camera, each as far
+    // out as the sphere of its radius looks.
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    const middle: Vector = .{ 700, 0, -1000 };
-    try atmospheres.frame(gpa, &scene, all, middle + Vector{ 0, 0, -5000 }, .{ 1, 0, 0 }, 0, 0);
+    const turn = math.rotation(.x, 0.5);
+    all.slots[earth].object.root.orientation = turn;
+    const middle = math.transform(turn, Vector{ 700, 0, -1000 });
+    const toward: Vector = .{ 0, 0, -1 };
+    try atmospheres.frame(gpa, &scene, all, middle + toward * @as(Vector, @splat(5000)), .{ 1, 0, 0 }, 0, 0);
     try std.testing.expectEqual(2, scene.layers.get(.background).items.len);
-    try std.testing.expectEqual(middle, shell.object.position);
+    try math.testing.expectVectorWithin(middle, shell.object.position, 1e-3);
     try std.testing.expectEqual(1000, shell.object.scale);
-    try std.testing.expect(math.dot(math.forward(shell.object.orientation), Vector{ 0, 0, -1 }) > 0.9999);
+    try math.testing.expectMatrixWithin(turn, shell.object.orientation, 1e-6);
+    for (shell.mesh.positions) |at| try std.testing.expectApproxEqAbs(0, math.dot(math.transform(turn, at), toward), 1e-5);
+    for (shell.mesh.normals) |normal| try std.testing.expectApproxEqAbs(1, @abs(math.dot(math.transform(turn, normal), toward)), 1e-5);
     const seen = struct {
         fn edge(radius: f32, distance: f32) f32 {
             return radius / @sqrt(1 - (radius / distance) * (radius / distance));

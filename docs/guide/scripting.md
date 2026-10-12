@@ -2453,9 +2453,10 @@ end
 A player script registers the function, as it registers any surface function, and each mission
 looks it up by its name as it makes the planet. The function draws on a ring that faces the camera
 through the middle of the planet's sphere, from `atmosphere_inner` to `atmosphere_outer` times the
-sphere's radius as the camera sees them, and its light is added over what lies behind it. In the
-ring's own frame, the sphere's middle is the origin and the sphere's radius is the unit, so the
-function can trace the line of sight through each pixel:
+sphere's radius as the camera sees them, and its light is added over what lies behind it. The
+function works in the planet's own frame, as the planet's model holds it, with the sphere's middle as
+the origin and the sphere's radius as the unit, so it can trace the line of sight through each
+pixel:
 
 ```glsl
 void surface(inout Surface s, vec4 parameters, float time) {
@@ -2477,6 +2478,8 @@ void surface(inout Surface s, vec4 parameters, float time) {
 }
 ```
 
+- For a flattened planet, the unit is its equatorial radius. Its north pole is the frame's -Y, as
+  in the planet's model, so a function can draw its haze round the flattened shape.
 - The ring is drawn over the planet, so the function decides where the planet shows through. A
   sharp cut at the planet's edge leaves the edge's pixels without the glow, as the function runs
   once for each pixel, at its middle.
