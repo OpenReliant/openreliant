@@ -1419,7 +1419,8 @@ models, numbered from 1 in the order of their types. Each entry has a `type`, ho
 turns about its north pole (`spin`, in radians a second, positive eastward), how far and in which
 direction its pole leans (`tilt` and `tilt_toward`, in radians), and its atmosphere: the colour of
 the band round its rim (`atmosphere_color`, nil for none) and where the band starts and ends
-(`atmosphere_inner` and `atmosphere_outer`, as shares of its radius). A load script can change a
+(`atmosphere_inner` and `atmosphere_outer`, as shares of its radius as the camera sees it; the
+planet hides the band within its edge). A load script can change a
 planet, or add one by assigning to the number after the last:
 
 ```lua

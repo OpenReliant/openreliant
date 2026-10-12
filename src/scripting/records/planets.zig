@@ -80,8 +80,8 @@ pub fn about(field: Field) []const u8 {
         .tilt => "How far its north pole leans away from north, in radians. North is the up direction of the planet as the mission places it, which is the world's up if the mission doesn't turn the planet.",
         .tilt_toward => "Which way its north pole leans, as an angle in radians around north: 0 leans it toward +Z, and `math.pi / 2` toward +X, both of the planet as the mission places it.",
         .atmosphere_color => "The colour of its atmosphere, or nil for none. The atmosphere is a band that faces the camera and fades from this colour at its inner edge to nothing at its outer edge. It is added over the planet, and is brighter toward the sun. In the original, Neptune, Uranus, Jupiter and Venus have one.",
-        .atmosphere_inner => "Where its atmosphere's band starts, as a share of the planet's radius: 0.85 in the original.",
-        .atmosphere_outer => "Where its atmosphere's band ends, as a share of the planet's radius: 0.95 for Neptune and Uranus, and 1.005 for Jupiter and Venus, in the original.",
+        .atmosphere_inner => "Where its atmosphere's band starts, as a share of the planet's radius as the camera sees it: 0.85 in the original.",
+        .atmosphere_outer => "Where its atmosphere's band ends, as a share of the planet's radius as the camera sees it: 0.95 for Neptune and Uranus, and 1.005 for Jupiter and Venus, in the original. The planet hides the band within its edge.",
     };
 }
 

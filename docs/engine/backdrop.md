@@ -162,10 +162,14 @@ the ring stands round it.
 **Improvement:** the atmosphere is a haze (`atmosphere.Style.haze`). The ring is made of 96 quads,
 round at any size, and is there at all times: each of its vertices is as solid as the flares are
 bright, or as `atmosphere.hazeAt` has it where that is more, 0.15 on the side away from the sun and
-0.6 on the side toward it, and between them as the cosine goes. The planet's terminator is softer,
-the sun reaching a little way round into its night side, where each pixel is lit
-([Renderer](../port/renderer.md#improvements)). `--original` makes the ring of 20 quads, only as
-solid as the flares are bright, and keeps the terminator hard.
+0.6 on the side toward it, and between them as the cosine goes. The ring is drawn larger as the
+camera comes near, by 1 / sqrt(1 - (r / d)^2) for a planet of radius r seen from d away, so that its
+edges stand as shares of the planet's visible edge: in the ring's plane, which passes through the
+planet's middle, that edge stands farther out than the radius, and at the game's size the ring
+slips inside it, behind the planet. The planet's terminator is softer, the sun reaching a little way
+round into its night side, where each pixel is lit ([Renderer](../port/renderer.md#improvements)).
+`--original` makes the ring of 20 quads, as large as built, only as solid as the flares are bright,
+and keeps the terminator hard.
 
 **Fix:** a fifth atmosphere would write past the end of the table. **Improvement:** OpenReliant's
 table holds 64 planets, counting every planet that turns, leans or has an atmosphere. Past that it

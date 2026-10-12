@@ -39,16 +39,31 @@ pub const Style = enum {
     /// **Improvement:** as a haze. Each ring is made of `round_segments` quads, where the game's
     /// show their sides at high resolutions. It is there at all times, faint on the planet's night
     /// side and brighter toward its sunlit side (`hazeAt`), and as solid as the game's where the
-    /// lens flares are brighter. The planet's terminator is softened, the sun reaching a little way
-    /// round into its night side (`srapiext.MeshObject.soft_terminator`).
+    /// lens flares are brighter. Its edges stand as shares of the edge of the planet the camera
+    /// sees, at any distance (`scaleFor`). The planet's terminator is softened, the sun reaching a
+    /// little way round into its night side (`srapiext.MeshObject.soft_terminator`).
     haze,
-    /// As the game draws them: of `segments` quads, there only as the lens flares are.
+    /// As the game draws them: of `segments` quads, there only as the lens flares are, and as
+    /// large as built.
     original,
 
     fn quads(style: Style) u16 {
         return switch (style) {
             .haze => round_segments,
             .original => segments,
+        };
+    }
+
+    /// How large a ring is drawn against its build, for a planet of `radius` with the camera
+    /// `distance` from its middle. A haze's is as much larger as the planet's visible edge stands
+    /// out in the ring's plane, which passes through the planet's middle facing the camera:
+    /// `1 / sqrt(1 - (radius / distance)^2)`, so that the ring keeps to the edge as the camera
+    /// comes near, where at the game's size it slips inside it, behind the planet. Null where the
+    /// camera is inside the planet. The game draws it as built.
+    pub fn scaleFor(style: Style, radius: f32, distance: f32) ?f32 {
+        return switch (style) {
+            .haze => if (distance > radius) 1 / @sqrt(1 - (radius / distance) * (radius / distance)) else null,
+            .original => 1,
         };
     }
 };
@@ -94,6 +109,8 @@ pub const Ring = struct {
     level: [1]srapiext.Level,
     object: srapiext.MeshObject,
     colours: [2 * round_segments][4]f32,
+    /// The radius of the planet it was made for.
+    radius: f32,
 
     /// The ring of a planet of `radius` that looks as `look` says (`create_object`,
     /// `0x0046795D`): a band of `quads` (`loadout.bandMesh`), flat, its first circle drawn
@@ -104,6 +121,7 @@ pub const Ring = struct {
         std.debug.assert(quads <= round_segments);
         const ring = try gpa.create(Ring);
         errdefer gpa.destroy(ring);
+        ring.radius = radius;
         ring.mesh = try loadout.bandMesh(gpa, quads, radius, 0);
         errdefer ring.mesh.deinit(gpa);
         const mesh = &ring.mesh;
@@ -231,8 +249,9 @@ pub const Atmospheres = struct {
     /// The last step of `backdrop_frame` (`0x004A5CD0`), at frame `now`. Each planet turns about
     /// its own Y by its turn for every tick since the last frame, and its model is placed to match
     /// at once. For each planet that isn't disabled, its atmosphere's ring is moved to the planet,
-    /// turned to face the camera at `camera`, faded (`Ring.fade`) by the lens flares' `brightness`
-    /// (`backdrop.flareBrightness`) and the sun along `sun`, and added to the background layer. The
+    /// turned to face the camera at `camera`, sized for the camera's distance (`Style.scaleFor`),
+    /// faded (`Ring.fade`) by the lens flares' `brightness` (`backdrop.flareBrightness`) and the sun
+    /// along `sun`, and added to the background layer. The
     /// original's software renderer draws no atmosphere. A planet's parts sit at its origin
     /// (`create.planetMade`), so it turns in place, and the ring stays round it.
     ///
@@ -254,6 +273,7 @@ pub const Atmospheres = struct {
             const object = &ring.object;
             object.position = planet.drawn.position;
             object.orientation = math.lookAt(camera - object.position);
+            object.scale = atmospheres.style.scaleFor(ring.radius, math.length(camera - object.position)) orelse continue;
             ring.fade(atmospheres.style, brightness, toward);
             try xtrabits.sceneAdd(gpa, scene, .{ .mesh = object }, .background);
         }
@@ -451,6 +471,16 @@ test "an atmosphere round its planet, turning in place" {
     try std.testing.expectEqual(Vector{ 1000, 0, 0 }, all.slots[planet].drawn.position);
     try std.testing.expect(!std.meta.eql(before, all.slots[planet].drawn.orientation));
     try std.testing.expectEqual(all.slots[planet].drawn.position, atmospheres.entries[0].ring.?.object.position);
+}
+
+test "Style.scaleFor" {
+    // A haze's ring keeps to the planet's visible edge: from twice the radius away, the edge stands
+    // 1 / sqrt(3/4) of the radius out in the ring's plane; far off, at the radius.
+    try std.testing.expectApproxEqAbs(1 / @sqrt(@as(f32, 0.75)), Style.haze.scaleFor(1000, 2000).?, 1e-6);
+    try std.testing.expectApproxEqAbs(1, Style.haze.scaleFor(1000, 1e7).?, 1e-6);
+    try std.testing.expectEqual(null, Style.haze.scaleFor(1000, 900));
+    // As the game draws them, as built.
+    try std.testing.expectEqual(1, Style.original.scaleFor(1000, 2000).?);
 }
 
 test "a haze, brighter toward the sun" {
