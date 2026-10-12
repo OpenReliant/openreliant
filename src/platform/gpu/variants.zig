@@ -177,8 +177,8 @@ test "a variant with both functions compiles, and with neither draws as OpenReli
 test "a surface function reads the sun and its object's frame, and sets the sunlight" {
     const gpa = std.testing.allocator;
     // A ring's shadow on its planet, as a planet's function works it out: the sun's ray from the
-    // pixel, in the object's frame, meets the ring's plane within the ring. It halves how much of
-    // its light blooms.
+    // pixel, in the object's frame, meets the ring's plane within the ring. The planet's haze
+    // scatters a little of the sun toward the eye, and half of the pixel's light blooms.
     const surface: Part = .{ .name = "planet/shadow.glsl", .source =
         \\void surface(inout Surface s, vec4 parameters, float time) {
         \\    vec3 sun = objectDirection(s.toSun);
@@ -186,6 +186,7 @@ test "a surface function reads the sun and its object's frame, and sets the sunl
         \\    float across = length((s.local + t * sun).xz);
         \\    if (t > 0.0 && across > parameters.x && across < parameters.y) s.sunlight *= 0.5;
         \\    s.glow = objectPoint(s.position) * 0.0;
+        \\    s.scattered = vec3(0.1) * (1.0 - dot(s.normal, s.toEye));
         \\    s.bloom = 0.5 * s.bloom;
         \\}
         \\

@@ -212,7 +212,10 @@ camera in it, so that the function can trace the line of sight through each pixe
 planet's pole ([A planet's atmosphere](../guide/scripting.md#a-planets-atmosphere)). The ring is lit
 by the planets' key light alone, so the function reads the sun's direction. It isn't drawn while the
 camera stands within its outer edge. `--original` draws it too, since a mod asks for it, but lights
-each vertex, which leaves the function no direction toward the sun.
+each vertex, which leaves the function no direction toward the sun. The ring is drawn on the
+background layer and the planet on the world layer, so the planet hides the ring within its edge:
+haze in front of the planet's disk is drawn by a surface function on the planet's texture, which
+adds it in linear light (`Surface.scattered`).
 
 ## Lights
 

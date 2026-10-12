@@ -254,6 +254,12 @@ shader is OpenReliant's own, which `make shaders` compiles as before.
   lights the pixel by the function's share, before the shadows of other objects, and a material's
   highlight from the sun dims as far as it does. `objectPoint` and `objectDirection` turn a point
   and a direction of the camera's frame into the object's.
+- A surface function can add sunlight that haze in front of the pixel scatters toward the eye
+  (`Surface.scattered`), such as a planet's haze over its disk. The shader multiplies it by the
+  sun's colour and strength and adds it to the lit pixel in linear light: it decodes the pixel's
+  colour, adds the light and encodes it again, before the glow, which adds to the encoded colour as
+  the game's effects do. Over a lit surface, adding the encoded light instead would give it much
+  more than its share.
 - A surface function registered as see-through (`srtexture.ModSurface.see_through`) makes a
   surface the game draws solid blend by the alpha the function sets: the driver puts it aside with
   the blended draws, which are sorted farthest first (`seeThrough`, `drawDeferred`), and the device

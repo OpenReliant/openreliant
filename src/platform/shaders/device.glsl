@@ -144,6 +144,11 @@ struct Surface {
     // `toSun`, which a planet's atmosphere carries a little past the terminator. Set it to light the
     // pixel by a law of your own, or to shade it.
     vec3 sunlight;
+    // Sunlight that haze or air in front of the pixel scatters toward the eye, in each channel as a
+    // share of the light a white surface facing the sun sends back, or none. The sun's colour and
+    // strength light it, and it is added to the pixel's light in linear light. `glow` is added to the
+    // encoded colour instead, which brightens a lit surface more than light would.
+    vec3 scattered;
     // Read only: the texture coordinates, where the pixel stands in the camera's frame, the
     // direction toward the eye, and the width and height in pixels of the frame it is drawn into,
     // which `gl_FragCoord` counts in.
@@ -349,10 +354,12 @@ int sunIndex(Lit s) {
 
 #ifdef MOD_SURFACE
 // The sun as the mod's surface function leaves it (`modSurface`): its light, whether the function
-// changed how much of it reaches the pixel, and in each channel how much does.
+// changed how much of it reaches the pixel, and in each channel how much does; and the sunlight the
+// function scatters toward the eye, lit by the sun, in linear light.
 int modSun = -1;
 bool modSunChanged = false;
 vec3 modSunlight = vec3(0.0);
+vec3 modScattered = vec3(0.0);
 #endif
 
 // How much of the pixel's light blooms, as a mod's surface function leaves it (`Surface.bloom`):
@@ -795,16 +802,19 @@ void modSurface(inout vec4 texel, inout Lit s, inout vec3 glow) {
     // The sun, and how much of it OpenReliant lets through, which the function starts from.
     modSun = sunIndex(s);
     vec3 toSun = vec3(0.0);
+    vec3 sun = vec3(0.0);
     float share = 0.0;
     if (modSun >= 0) {
         Light light = frameLights.lights[modSun];
         float strength = length(light.vector.xyz);
         toSun = strength > 0.0 ? light.vector.xyz / strength : vec3(0.0);
+        sun = light.color.rgb * strength;
         share = directionalShare(s.normal, light, strength);
     }
-    Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, glow, vec3(share), uv, place, s.toEye, frame.reflection.zy, toSun, objectPoint(place), custom.bloom.x);
+    Surface m = Surface(linear ? encoded(texel.rgb) : texel.rgb, texel.a, s.normal, s.roughness, s.metallic, glow, vec3(share), vec3(0.0), uv, place, s.toEye, frame.reflection.zy, toSun, objectPoint(place), custom.bloom.x);
     surface(m, custom.surface, custom.time.x);
     modBloom = clamp(m.bloom, 0.0, 1.0);
+    modScattered = max(m.scattered, vec3(0.0)) * sun;
     // Where the function leaves the sunlight as it was, the sun lights the pixel as OpenReliant's
     // own law has it, at the normal the function leaves.
     modSunChanged = any(notEqual(m.sunlight, vec3(share)));
@@ -864,6 +874,10 @@ void main() {
     } else {
         c.rgb = min(texel.rgb * color.rgb * s.ambient + diffuse * added + highlights, vec3(1.0));
     }
+#ifdef MOD_SURFACE
+    // The sunlight the surface function scatters toward the eye, added as light adds.
+    if (any(greaterThan(modScattered, vec3(0.0)))) c.rgb = encoded(decoded(c.rgb) + modScattered);
+#endif
     c.rgb = min(c.rgb + glow, vec3(1.0));
     if ((shade & 0x4000u) != 0u) c = hologram(c, texel.a);
     if ((shade & 0x10000u) != 0u) c.a = texel.a;
