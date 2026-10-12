@@ -22,6 +22,7 @@ pub fn loadTables(tables: *game.create.Stats, objects: *game.create.Objects, rec
     objects.faces.load(records.faces);
     game.aidefend.install(records.maneuvers);
     game.create.planets.install(records.planets);
+    game.create.planets.installLight(if (records.planet_light) |colour| colour else null);
 }
 
 /// What a game mode keeps of its own while its missions run, in place of the campaign's: its

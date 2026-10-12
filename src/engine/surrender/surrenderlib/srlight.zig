@@ -9,7 +9,8 @@ const std = @import("std");
 pub const no_lights: u32 = std.math.maxInt(u32);
 
 pub const Light = struct {
-    /// Reaches an object whose light mask shares no bit with it.
+    /// Reaches an object whose light mask shares no bit with it, or for an `inclusive` light, one
+    /// whose mask shares a bit with it.
     mask: u32,
     intensity: f32,
     colour: [3]f32,
@@ -22,6 +23,10 @@ pub const Light = struct {
     /// OpenReliant's: kept off what a caster shades from it, where the device draws shadows
     /// (`srshadow`). Only a directional light added to each pixel is.
     shadowed: bool = false,
+    /// OpenReliant's: reaches only the objects that ask for it, by a bit of their light masks, so
+    /// that it lights them alone without changing what lights every other object
+    /// (`backdrop.LightRole.planets_40`).
+    inclusive: bool = false,
 
     pub const Kind = union(enum) {
         /// Adds its colour everywhere.
@@ -38,7 +43,7 @@ pub const Light = struct {
     /// Whether the light reaches an object with `object_mask`. An object whose mask is
     /// `no_lights` takes no lights.
     pub fn reaches(light: Light, object_mask: u32) bool {
-        return object_mask != no_lights and light.mask & object_mask == 0;
+        return object_mask != no_lights and (light.mask & object_mask != 0) == light.inclusive;
     }
 
     /// How far a point light reaches: its intensity times its range.
@@ -61,6 +66,12 @@ test "Light.reaches" {
     try std.testing.expect(light.reaches(0x03));
     try std.testing.expect(!light.reaches(0x04));
     try std.testing.expect(!light.reaches(no_lights));
+    // An inclusive light reaches only the objects whose masks ask for it.
+    const asked: Light = .{ .mask = 0x40, .intensity = 1, .colour = .{ 1, 1, 1 }, .kind = .{ .directional = .{ 0, 0, 1 } }, .inclusive = true };
+    try std.testing.expect(asked.reaches(0x7F));
+    try std.testing.expect(!asked.reaches(0x3F));
+    try std.testing.expect(!asked.reaches(0));
+    try std.testing.expect(!asked.reaches(no_lights));
 }
 
 test "Light.reach" {

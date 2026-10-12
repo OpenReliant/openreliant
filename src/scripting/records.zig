@@ -88,6 +88,10 @@ pub const Records = struct {
     /// The object types set up as planets, which the game takes with the stats
     /// (`create.planets.install`). Load scripts can add to them.
     planets: []game.create.planets.Planet,
+    /// The colour of the planets' own light, or null for the key lights' colour, as the original
+    /// lights them, which the game takes with the planets (`create.planets.installLight`). Load
+    /// scripts can set it.
+    planet_light: ?@Vector(3, f32) = null,
     /// Where text from scripts is allocated. It must live as long as the game's original strings.
     arena: Allocator,
 
@@ -163,6 +167,7 @@ pub const Records = struct {
         saved.planets = try gpa.dupe(game.create.planets.Planet, records.planets);
         errdefer gpa.free(saved.planets);
         saved.planets_held = records.planets;
+        saved.planet_light = records.planet_light;
         inline for (comptime std.enums.values(Set), 0..) |set, made| {
             errdefer inline for (comptime std.enums.values(Set)[0..made]) |done| gpa.free(@field(saved, @tagName(done)));
             @field(saved, @tagName(set)) = try gpa.dupe(set.Element(), @field(records, @tagName(set)));
@@ -190,6 +195,7 @@ pub const Records = struct {
         /// The planets' table itself, which adding a planet replaces with a longer one, like the
         /// maneuvers' table.
         planets_held: []game.create.planets.Planet,
+        planet_light: ?@Vector(3, f32),
 
         pub fn restore(saved: Snapshot, records: *Records) void {
             inline for (comptime std.enums.values(Set)) |set| @memcpy(@field(records, @tagName(set)), @field(saved, @tagName(set)));
@@ -200,6 +206,7 @@ pub const Records = struct {
             @memcpy(records.maneuvers, saved.maneuvers);
             records.planets = saved.planets_held;
             @memcpy(records.planets, saved.planets);
+            records.planet_light = saved.planet_light;
         }
 
         pub fn deinit(saved: Snapshot, gpa: Allocator) void {
@@ -322,8 +329,8 @@ pub fn register(state: *State) void {
 
 /// Pushes the `openreliant.records` package: a read-only table holding the record tables, the
 /// campaign's missions (`campaign`), the settings of each (`missions`), the KILLBOARD's pilots
-/// (`killboard`), the combat maneuvers (`maneuvers`) and the planets (`planets`), which scripts can
-/// change only if `writable`. Call `register` first.
+/// (`killboard`), the combat maneuvers (`maneuvers`), the planets (`planets`) and the colour of their
+/// light (`planet_light`), which scripts can change only if `writable`. Call `register` first.
 pub fn push(state: *State, records: *Records, writable: bool) void {
     state.newTable(0, std.enums.values(Set).len + field_tables.len);
     inline for (comptime std.enums.values(Set)) |set| {
@@ -335,12 +342,12 @@ pub fn push(state: *State, records: *Records, writable: bool) void {
         Table.push(state, records, writable);
         state.rawSetField(-2, Table.list_name);
     }
-    // `campaign` isn't held in the table, so that reading it gives a new list each time, and Luau
-    // calls `__newindex` to assign it, read-only as the table is.
+    // `campaign` and `planet_light` aren't held in the table, so that reading `campaign` gives a new
+    // list each time, and Luau calls `__newindex` to assign them, read-only as the table is.
     state.newTable(0, 3);
-    state.pushClosure(luau.wrap(getCampaign), "__index", records);
+    state.pushClosure(luau.wrap(getUnheld), "__index", records);
     state.rawSetField(-2, "__index");
-    state.pushClosure(if (writable) luau.wrap(setCampaign) else luau.wrap(refuseChange), "__newindex", records);
+    state.pushClosure(if (writable) luau.wrap(setUnheld) else luau.wrap(refuseChange), "__newindex", records);
     state.rawSetField(-2, "__newindex");
     state.lockMetatable();
     state.setReadonly(-1, true);
@@ -351,44 +358,64 @@ pub fn push(state: *State, records: *Records, writable: bool) void {
 /// The campaign's missions as scripts get and give them: a list of their numbers.
 const CampaignList = values.List(u16, game.gameflow.last_mission);
 
-/// The name scripts give the campaign's missions in the package.
-const campaign_name = "campaign";
+/// What the package holds outside its tables, by the names scripts give it: the campaign's
+/// missions and the colour of the planets' light.
+const Unheld = enum { campaign, planet_light };
 
-fn isCampaign(state: *State, key: i32) bool {
-    return state.typeOf(key) == .string and std.mem.eql(u8, state.toString(key).?, campaign_name);
+/// What the key at `key` names outside the package's tables, if anything.
+fn unheldAt(state: *State, key: i32) ?Unheld {
+    if (state.typeOf(key) != .string) return null;
+    return std.meta.stringToEnum(Unheld, state.toString(key).?);
 }
 
 /// The package's `__index`: `campaign` is a new list of the campaign's missions, in order, which a
-/// script can change and then assign. Any other name the package doesn't hold is nil.
-fn getCampaign(state: *State) i32 {
-    if (!isCampaign(state, 2)) {
+/// script can change and then assign, and `planet_light` the colour of the planets' light, or nil
+/// for the key lights' colour. Any other name the package doesn't hold is nil.
+fn getUnheld(state: *State) i32 {
+    const records = state.upvalue(Records);
+    switch (unheldAt(state, 2) orelse {
         state.pushNil();
         return 1;
+    }) {
+        .campaign => {
+            var list: CampaignList = .{};
+            for (records.campaign.missions()) |mission| list.append(mission);
+            values.push(state, CampaignList, list);
+        },
+        .planet_light => values.push(state, ?@Vector(3, f32), records.planet_light),
     }
-    const records = state.upvalue(Records);
-    var list: CampaignList = .{};
-    for (records.campaign.missions()) |mission| list.append(mission);
-    values.push(state, CampaignList, list);
     return 1;
 }
 
 /// The package's `__newindex` for load scripts: `records.campaign = list` makes the list the
-/// campaign's missions, in order (`game.gameflow.Order.of`).
-fn setCampaign(state: *State) i32 {
-    if (!isCampaign(state, 2)) return refuseChange(state);
+/// campaign's missions, in order (`game.gameflow.Order.of`), and `records.planet_light = colour` gives
+/// the planets' light that colour, or nil the key lights'.
+fn setUnheld(state: *State) i32 {
     const records = state.upvalue(Records);
-    const list = values.read(state, CampaignList, 3, "records.campaign");
-    records.campaign = game.gameflow.Order.of(list.slice()) catch |err| state.raise("records.campaign: {s}", .{switch (err) {
-        error.Empty => "the campaign needs at least one mission",
-        error.OutOfRange => std.fmt.comptimePrint("a mission's number must be from {d} to {d}", .{ game.gameflow.first_mission, game.gameflow.last_mission }),
-        error.NotRising => "the missions' numbers must rise, each listed once",
-    }});
+    switch (unheldAt(state, 2) orelse return refuseChange(state)) {
+        .campaign => {
+            const list = values.read(state, CampaignList, 3, "records.campaign");
+            records.campaign = game.gameflow.Order.of(list.slice()) catch |err| state.raise("records.campaign: {s}", .{switch (err) {
+                error.Empty => "the campaign needs at least one mission",
+                error.OutOfRange => std.fmt.comptimePrint("a mission's number must be from {d} to {d}", .{ game.gameflow.first_mission, game.gameflow.last_mission }),
+                error.NotRising => "the missions' numbers must rise, each listed once",
+            }});
+        },
+        .planet_light => {
+            const colour = values.read(state, ?@Vector(3, f32), 3, "records.planet_light");
+            if (colour) |given| {
+                if (!(@reduce(.Min, given) >= 0) or !std.math.isFinite(@reduce(.Add, given))) state.raise("records.planet_light: a light's red, green and blue can't be below 0", .{});
+            }
+            records.planet_light = colour;
+        },
+    }
     return 0;
 }
 
-/// The package's `__newindex` for the other scripts, and for anything but `campaign`.
+/// The package's `__newindex` for the other scripts, and for any name but those it holds outside
+/// its tables.
 fn refuseChange(state: *State) i32 {
-    if (isCampaign(state, 2)) state.raise("records can only be changed by load scripts", .{});
+    if (unheldAt(state, 2) != null) state.raise("records can only be changed by load scripts", .{});
     state.raise("attempt to modify a readonly table", .{});
 }
 
@@ -667,6 +694,43 @@ test "the campaign's missions" {
     try std.testing.expectEqual(28, records.campaign.missions().len);
 }
 
+test "the planets' light" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var records: Records = try .init(arena.allocator(), .{ .ships = &.{}, .ship_types = &.{}, .guns = &.{}, .missiles = &.{}, .pilots = &.{}, .faces = &.{}, .text = &.{}, .itac_text = &.{} });
+    const state = State.create(luau.testing.allocate, null).?;
+    defer state.close();
+    state.openLibraries();
+    register(state);
+    push(state, &records, true);
+    state.setGlobal("records");
+    state.sandbox();
+    const thread = state.newSandboxedThread();
+
+    try bind.testing.runSource(thread,
+        \\local records = records
+        \\-- Nil until a load script sets it: the key lights' colour, as the original lights the planets.
+        \\assert(records.planet_light == nil)
+        \\records.planet_light = vector.create(1, 1, 1)
+        \\assert(records.planet_light == vector.create(1, 1, 1))
+    );
+    try std.testing.expectEqual(@Vector(3, f32){ 1, 1, 1 }, records.planet_light.?);
+    try bind.testing.expectSourceError(thread, "records.planet_light = vector.create(1, -1, 1)", "records.planet_light: a light's red, green and blue can't be below 0");
+    try bind.testing.expectSourceError(thread, "records.planet_light = 5", "records.planet_light");
+    // A colour that fails leaves the light as it was, and nil gives it the key lights' colour again.
+    try std.testing.expectEqual(@Vector(3, f32){ 1, 1, 1 }, records.planet_light.?);
+    try bind.testing.runSource(thread, "records.planet_light = nil");
+    try std.testing.expectEqual(null, records.planet_light);
+
+    // A snapshot keeps it.
+    records.planet_light = .{ 0.5, 0.5, 0.5 };
+    const saved = try records.snapshot(std.testing.allocator);
+    defer saved.deinit(std.testing.allocator);
+    records.planet_light = null;
+    saved.restore(&records);
+    try std.testing.expectEqual(@Vector(3, f32){ 0.5, 0.5, 0.5 }, records.planet_light.?);
+}
+
 test "read-only records" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
@@ -684,6 +748,7 @@ test "read-only records" {
     try bind.testing.expectSourceError(thread, "records.guns[1].range = 1", "this record is read-only");
     try bind.testing.expectSourceError(thread, "records.text[1] = 'y'", "records can only be changed by load scripts");
     try bind.testing.expectSourceError(thread, "records.campaign = { 1 }", "records can only be changed by load scripts");
+    try bind.testing.expectSourceError(thread, "records.planet_light = vector.create(1, 1, 1)", "records can only be changed by load scripts");
 }
 
 test "the ship types' words the executable holds" {

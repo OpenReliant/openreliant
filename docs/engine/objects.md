@@ -119,7 +119,9 @@ if it has one ([Backdrop](backdrop.md#planet-atmospheres)), and then every plane
 way (`0x00467BAB`). The object's flags gain `components`, `no_collisions` and `frozen`. Each node hanging
 from the root has its scene object's flags set to `0x101100`, lit, always drawn and bit 20, and
 its light mask to `0x37`, so that only the second key light, mask `0x08`, reaches it, and its
-offset from the root (`+0x3C`) cleared, so that it stands at the object's origin. Each of its
+offset from the root (`+0x3C`) cleared, so that it stands at the object's origin.
+**Improvement:** OpenReliant sets the mask to `0x7F`, which keeps out all six of the backdrop's
+lights and takes the planets' own light ([Lights](backdrop.md#lights)). Each of its
 levels is moved to stand on the middle of its vertices, their sum over their count, and its
 polygons' planes, its vertices' normals and its bounds are worked out again; the node takes the
 radius of its last level. A planet's part stands off its model's origin, Neptune's some 218000 back

@@ -77,13 +77,16 @@ pub const Diffuse = packed struct(u32) {
 };
 
 /// A directional or point light as a device that lights each pixel takes it (`Device.lights`), in
-/// the camera's frame. It reaches a vertex whose light mask shares no bit with `mask`, and adds to
-/// the vertex's colour what `srmesh` would add to it, for each pixel instead of each vertex.
+/// the camera's frame. It reaches a vertex whose light mask shares no bit with `mask`, or for an
+/// `inclusive` light, one whose mask shares a bit with it (`srlight.Light.reaches`), and adds to the
+/// vertex's colour what `srmesh` would add to it, for each pixel instead of each vertex.
 pub const Light = struct {
     mask: u32,
     kind: Kind,
     /// Kept off what a caster shades from it, for a device that draws shadows.
     shadowed: bool = false,
+    /// Reaches only the vertices whose light masks ask for it.
+    inclusive: bool = false,
 
     pub const Kind = union(enum) {
         /// `colour` times the dot product of the pixel's normal with `toward`, where that is

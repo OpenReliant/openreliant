@@ -225,7 +225,7 @@ pub const SurfaceNames = struct {
 /// find the planet's pole for a planet that isn't round. It has no texture, and what the function
 /// leaves is added to what lies behind it in linear light, as light adds
 /// (`srapiext.MeshObject.adds_linearly`), where the game's effects add theirs to the encoded colour.
-/// It is lit as the planets are, by the second key light alone (`create.planet_light_mask`), so
+/// It is lit as the planets are, by their own light alone (`create.planet_light_mask`), so
 /// that the function reads the direction toward the sun. Both styles draw it, since a mod asks for
 /// it.
 pub const Shell = struct {

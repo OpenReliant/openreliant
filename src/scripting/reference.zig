@@ -360,6 +360,8 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     }
     try w.writeAll("    -- The campaign's missions, by their numbers, in the order it flies them. Load scripts change it by assigning a new list.\n");
     try w.writeAll("    campaign: { number },\n");
+    try w.writeAll("    -- The colour of the light the planets get, nil for the key lights' colour, (1, 1, 0.8), as the original lights them. Only the planets and their atmospheres take this light, so a mod can light them without lighting any other model. Load scripts set it.\n");
+    try w.writeAll("    planet_light: vector?,\n");
     inline for (field_tables) |Table| {
         try w.print("    -- {s}\n    {s}: {{ [number]: {s} }},\n", .{ Table.entries_about, Table.list_name, Table.script_name });
     }
