@@ -28,6 +28,7 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`formats/bink.md`](formats/bink.md) | `.bik` movies: the Bink container. |
 | [`formats/frc.md`](formats/frc.md) | `.frc` force-feedback effects. |
 | [`formats/dte.md`](formats/dte.md) | `.DTE` missions: directory, ships, triggers, and the script VM. |
+| [`formats/mission-source.md`](formats/mission-source.md) | Mission source: a mission as Luau text, which `sltool dte decompile` writes. |
 | [`formats/stats.md`](formats/stats.md) | Ship, gun, missile and pilot stat tables. |
 | [`formats/save.md`](formats/save.md) | Saved games: the IFF files of the campaign, the autosave and the restart point. |
 | [`formats/profile.md`](formats/profile.md) | `profile.bin`: the pilot's profile, the call sign and the pilot's record. |

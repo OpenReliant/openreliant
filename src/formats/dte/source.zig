@@ -1,7 +1,18 @@
-//! Mission source identity and references (#608). Symbol tables work with the existing format
-//! records without copying their fields or keeping a separate list of record kinds.
+//! Mission source: a mission as text ([Mission source](../../../docs/formats/mission-source.md)).
+//! Its children write it, and this file holds the identity and references its records have
+//! (#608): symbol tables that work with the existing format records without copying their fields
+//! or keeping a separate list of record kinds.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+
+/// The names records are declared under.
+pub const names = @import("source/names.zig");
+/// The names of the game's values.
+pub const vocabulary = @import("source/vocabulary.zig");
+/// The script as text.
+pub const script = @import("source/script.zig");
+/// A mission as text.
+pub const write = @import("source/write.zig");
 
 /// Whether `id` matches the source grammar `[A-Za-z_][A-Za-z0-9_-]*`.
 pub fn validId(id: []const u8) bool {
@@ -162,4 +173,8 @@ test "new record types and independent script banks use the same symbol table" {
     defer bank_b.deinit(gpa);
     try std.testing.expectEqual(11, (try bank_a.resolve(.{ .id = "start" })).payload);
     try std.testing.expectEqual(22, (try bank_b.resolve(.{ .id = "start" })).payload);
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

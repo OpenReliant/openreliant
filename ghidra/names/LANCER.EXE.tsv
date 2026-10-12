@@ -69,8 +69,8 @@ address	kind	name	type	comment
 00452a20	function	mission_bind_section		Binds the next directory entry to a section's count and pointer, noting its format flags
 0045cb40	function	mission_alloc_part_tables	void __fastcall (void)	Allocates the part tables, 256 entries each
 0045cb80	function	mission_alloc_table		Frees and reallocates a table of count x size bytes
-00452f50	function	mission_build_part_tables	void __fastcall (void)	Fills the runtime part tables from sections 8 and 17
-00452fd0	function	mission_fill_part	void __fastcall (MissionPart *part, VmFunction *entry)	block = script + start * 2, arguments from the descriptor
+00452f50	function	mission_build_part_tables	void __fastcall (void)	Fills the runtime part tables from sections 8 and 17. For each part of section 8 it hands mission_fill_part the operand mission_operand gives at index 0 of the bank the part's kind names, and 0 for those of section 17
+00452fd0	function	mission_fill_part	void __fastcall (MissionPart *part, VmFunction *entry, void *operand)	block = script + start * 2, arguments from the descriptor. The operand, a third argument on the stack, it pops unread (RET 4), so the game reads nothing of the operand tables
 00453020	function	part_in_table_b	uint __fastcall (MissionPart *part)	Whether a part descriptor lies outside section 8, in section 17
 00525f3c	data	mission_operands_a		Section 1
 005294f8	data	mission_globals	MissionGlobal *	Section 2
@@ -99,7 +99,7 @@ address	kind	name	type	comment
 00525fb4	data	mission_script_b	byte *	Section 18
 00529510	data	mission_script_b_halfwords	ushort	
 00525f9c	data	mission_command_flags	ushort *	Section 24, one per command
-004529d0	function	mission_operand	void * __fastcall (ushort index, char bank)	Operand index of the table bank names: 0 section 1, 1 section 22, 2 section 26
+004529d0	function	mission_operand	void * __fastcall (ushort index, char bank)	Operand index of the table bank names: 0 section 1, 1 section 22, 2 section 26. Its one caller, mission_build_part_tables, hands the operand to mission_fill_part, which pops it unread
 00525278	data	mission_operands_b		Section 22, the second operand table
 0052570c	data	mission_operands_c		Section 26, the third operand table
 00525f18	data	mission_formations	Formation *	Section 14, the formations
