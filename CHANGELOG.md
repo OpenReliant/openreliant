@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.12.0](https://github.com/OpenReliant/openreliant/compare/v0.11.1...v0.12.0) (2026-10-12)
+
+
+### Features
+
+* a mod can give the planets a light colour of its own ([#1121](https://github.com/OpenReliant/openreliant/issues/1121)) ([f37e21b](https://github.com/OpenReliant/openreliant/commit/f37e21b9a10adef8af407b034de5039b3715f495))
+* a mod's shader can include other GLSL files of its mod ([#1116](https://github.com/OpenReliant/openreliant/issues/1116)) ([6150376](https://github.com/OpenReliant/openreliant/commit/615037675e2abea0f05b071af9b5445320b63670)), closes [#1115](https://github.com/OpenReliant/openreliant/issues/1115)
+* a mod's surface function can add sunlight that haze scatters toward the eye ([#1113](https://github.com/OpenReliant/openreliant/issues/1113)) ([7322f73](https://github.com/OpenReliant/openreliant/commit/7322f7312fd986512d172761309d99f48fb6f0bb)), closes [#1112](https://github.com/OpenReliant/openreliant/issues/1112)
+* a mod's surface function can draw a planet's atmosphere ([#1108](https://github.com/OpenReliant/openreliant/issues/1108)) ([5e2d070](https://github.com/OpenReliant/openreliant/commit/5e2d070f552bc179ab5c01b39412c7070c627f98)), closes [#1107](https://github.com/OpenReliant/openreliant/issues/1107)
+* a mod's surface function can hold its light back from the bloom ([#1111](https://github.com/OpenReliant/openreliant/issues/1111)) ([9bba3cb](https://github.com/OpenReliant/openreliant/commit/9bba3cb2864eb37044890eb5372d19f118d481b1)), closes [#1110](https://github.com/OpenReliant/openreliant/issues/1110)
+* the mods screen installs mods from the catalogue on the web ([#1042](https://github.com/OpenReliant/openreliant/issues/1042)) ([2035a1f](https://github.com/OpenReliant/openreliant/commit/2035a1f4b78ccd9081cbb6508b2d8ce08659f08b))
+
+
+### Fixes
+
+* a mod's atmosphere adds its light to the sky in linear light ([#1118](https://github.com/OpenReliant/openreliant/issues/1118)) ([76310a7](https://github.com/OpenReliant/openreliant/commit/76310a7d0d83b6a0921c0633c80e5050eaff9130)), closes [#1117](https://github.com/OpenReliant/openreliant/issues/1117)
+* the planets take the light colour a mod gives them ([#1122](https://github.com/OpenReliant/openreliant/issues/1122)) ([1711f0b](https://github.com/OpenReliant/openreliant/commit/1711f0bdcf7764a36a583b2cee8b47d19720e662))
+
+
+### Documentation
+
+* a mod's atmosphere ring is lit by the planets' own light, and rings set its unit ([#1123](https://github.com/OpenReliant/openreliant/issues/1123)) ([a05c89d](https://github.com/OpenReliant/openreliant/commit/a05c89d2270771da76f33b503de8e827da18e5a1))
+
 ## [0.11.1](https://github.com/OpenReliant/openreliant/compare/v0.11.0...v0.11.1) (2026-10-12)
 
 
