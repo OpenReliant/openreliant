@@ -218,13 +218,15 @@ const first_flare = 2;
 
 /// How the sun and the lens flares are drawn.
 pub const Sun = enum {
-    /// **Improvement:** their textures each drawn again, eight times finer, from the rings it is
-    /// made of (`rings.redraw`), so that they stay round and crisp however large they are drawn;
-    /// and the sun's glow and the flares dimming as the sun's disc goes behind what hides it, over
-    /// as far as `sunlayer1` reaches on the screen (`Backdrop.reach`, `glow`).
+    /// **Improvement:** each texture is drawn again, eight times finer, from the rings it is made
+    /// of (`rings.redraw`), so that the sprites stay round and crisp however large they are drawn.
+    /// The sun's glow and the flares dim as the sun's disc goes behind what hides it, over as far
+    /// as `sunlayer1` reaches on the screen (`Backdrop.reach`, `glow`). The sun's glare washes out
+    /// the stars near it (`Backdrop.glareOf`).
     smooth,
     /// From their small 16-bit textures, as the game draws them, dimming over `max_visibility`
-    /// pixels of the screen and the glow going out at once.
+    /// pixels of the screen, with the glow going out at once and the stars shining right up to the
+    /// sun.
     original,
 
     /// How much of `sunlayer3`'s grey shows at `visibility`, in the game's measure: all of it
@@ -373,9 +375,29 @@ pub const Backdrop = struct {
     /// sun dims as its disc goes behind what hides it, at any size of screen.
     fn reach(backdrop: *const Backdrop, projection: srapi.Projection) f32 {
         return switch (backdrop.style) {
-            .smooth => backdrop.texels[SunLayer.sunlayer1.sprite()][0] * SunLayer.sunlayer1.size() * sprite_scale * projection.scale[0],
+            .smooth => backdrop.halfWidth(.sunlayer1) * projection.scale[0],
             .original => max_visibility,
         };
+    }
+
+    /// The sun's glare on the stars and the dust this frame (`srstars.Glare`), with the sun along
+    /// `toward` in the camera's frame and `visibility` of it showing, in the game's measure. Stars
+    /// are hidden within the angle `sunlayer1` reaches from the sun, and come back by the angle
+    /// `sunlayer3`, the glow, reaches. There is no glare with `Sun.original`.
+    fn glareOf(backdrop: *const Backdrop, toward: Vector, visibility: f32) srstars.Glare {
+        if (backdrop.style == .original or math.length(toward) == 0) return .{};
+        return .{
+            .toward = math.normalize(toward),
+            .strength = std.math.clamp(visibility / max_visibility, 0, 1),
+            .inner = std.math.atan(backdrop.halfWidth(.sunlayer1)),
+            .outer = std.math.atan(backdrop.halfWidth(.sunlayer3)),
+        };
+    }
+
+    /// How far `layer`'s sprite reaches to each side of its centre, in view units: its texture's
+    /// width times its size over 768.
+    fn halfWidth(backdrop: *const Backdrop, layer: SunLayer) f32 {
+        return backdrop.texels[layer.sprite()][0] * layer.size() * sprite_scale;
     }
 
     /// Has the dust's streaks cut shorter, or not (`srstars.Field.shortened`), as the player's
@@ -442,13 +464,18 @@ pub const Backdrop = struct {
         for (&backdrop.lights.values) |*light| try xtrabits.sceneAdd(gpa, scene, .{ .light = light }, .background);
         // Toward the sun, in the camera's frame.
         const toward = context.turn(backdrop.sun_direction);
-        for (&backdrop.fields) |*field| try xtrabits.sceneAdd(gpa, scene, .{ .stars = field }, .background);
-        try xtrabits.sceneAdd(gpa, scene, .{ .stars = &backdrop.dust }, .background);
-
         const projection = context.projection;
         const most = backdrop.reach(projection);
         // How much of the sun showed last frame, in the game's measure.
         const visibility = context.sun_visibility / most * max_visibility;
+        const glare = backdrop.glareOf(toward, visibility);
+        for (&backdrop.fields) |*field| {
+            field.glare = glare;
+            try xtrabits.sceneAdd(gpa, scene, .{ .stars = field }, .background);
+        }
+        backdrop.dust.glare = glare;
+        try xtrabits.sceneAdd(gpa, scene, .{ .stars = &backdrop.dust }, .background);
+
         const sun1 = &backdrop.sun[SunLayer.sunlayer1.sprite()];
         const sun2 = &backdrop.sun[SunLayer.sunlayer2.sprite()];
         const sun3 = &backdrop.sun[SunLayer.sunlayer3.sprite()];
@@ -653,6 +680,23 @@ test "Backdrop.frame" {
     scene.clear();
     try backdrop.frame(gpa, &scene, &context, .cockpit, .open);
     try std.testing.expectEqual(0, scene.layers.get(.overlay).items.len);
+    // As the game draws the sun, its glare leaves the stars alone.
+    for (backdrop.fields) |field| try std.testing.expectEqual(0, field.glare.strength);
+    try std.testing.expectEqual(0, backdrop.dust.glare.strength);
+
+    // OpenReliant's sun: its glare reaches the stars and the dust, as strong as the share of the
+    // sun that showed last frame. It hides them within the angle `sunlayer1` reaches, and dims
+    // them out to the angle `sunlayer3` reaches.
+    backdrop.style = .smooth;
+    context.sun_visibility = backdrop.reach(context.projection) / 2;
+    scene.clear();
+    try backdrop.frame(gpa, &scene, &context, .chase, .open);
+    const glare = backdrop.dust.glare;
+    try std.testing.expectApproxEqAbs(0.5, glare.strength, 1e-6);
+    try std.testing.expectApproxEqAbs(std.math.atan(@as(f32, 8.0 * 0.5 / 768.0)), glare.inner, 1e-6);
+    try std.testing.expectApproxEqAbs(std.math.atan(@as(f32, 8.0 * 2.0 / 768.0)), glare.outer, 1e-6);
+    try std.testing.expectApproxEqAbs(1, glare.toward[2], 1e-5);
+    for (backdrop.fields) |field| try std.testing.expectEqual(glare, field.glare);
 }
 
 test "Backdrop.place" {
