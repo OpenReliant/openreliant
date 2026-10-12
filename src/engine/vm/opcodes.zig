@@ -5,6 +5,8 @@
 
 const assert = @import("std").debug.assert;
 
+const dte = @import("../../formats/dte.zig");
+
 /// What an instruction does to the instruction pointer.
 pub const Form = enum {
     /// Execution continues at the instruction after the operands.
@@ -20,7 +22,8 @@ pub const Form = enum {
 };
 
 pub const Info = struct {
-    opcode: u8,
+    /// The opcode, by its name (`dte.Opcode`).
+    opcode: dte.Opcode,
     /// Operand bytes between the opcode and the next instruction. For `inline_data` this
     /// counts only the length byte.
     operands: u8,
@@ -38,90 +41,90 @@ pub const Info = struct {
 
 /// Every opcode the VM implements, in order.
 pub const table = [_]Info{
-    .{ .opcode = 0x02, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BAD0 },
-    .{ .opcode = 0x03, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BB00 },
-    .{ .opcode = 0x04, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BB30 },
-    .{ .opcode = 0x05, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BB60 },
-    .{ .opcode = 0x06, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BB90 },
-    .{ .opcode = 0x07, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BBC0 },
-    .{ .opcode = 0x14, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BBF0 },
-    .{ .opcode = 0x15, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BC30 },
-    .{ .opcode = 0x16, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BC70 },
-    .{ .opcode = 0x17, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BCA0 },
-    .{ .opcode = 0x18, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BCD0 },
-    .{ .opcode = 0x19, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BD00 },
-    .{ .opcode = 0x1A, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BD30 },
-    .{ .opcode = 0x1B, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BD60 },
-    .{ .opcode = 0x1C, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BD90 },
-    .{ .opcode = 0x1D, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BDC0 },
-    .{ .opcode = 0x1E, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BDF0 },
-    .{ .opcode = 0x1F, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BE20 },
-    .{ .opcode = 0x20, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BE60 },
-    .{ .opcode = 0x21, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BEA0 },
-    .{ .opcode = 0x22, .operands = 1, .form = .transfer, .falls_through = true, .starts_statement = true, .handler = 0x0045BFA0 },
-    .{ .opcode = 0x23, .operands = 2, .form = .branch, .falls_through = true, .starts_statement = true, .handler = 0x0045C270 },
-    .{ .opcode = 0x24, .operands = 2, .form = .branch, .falls_through = true, .starts_statement = true, .handler = 0x0045C270 },
-    .{ .opcode = 0x25, .operands = 0, .form = .transfer, .falls_through = true, .starts_statement = true, .handler = 0x0045C6E0 },
-    .{ .opcode = 0x26, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C2D0 },
-    .{ .opcode = 0x27, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C300 },
-    .{ .opcode = 0x28, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C340 },
-    .{ .opcode = 0x29, .operands = 2, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C370 },
-    .{ .opcode = 0x2A, .operands = 1, .form = .inline_data, .falls_through = true, .starts_statement = false, .handler = 0x0045C3B0 },
-    .{ .opcode = 0x2B, .operands = 1, .form = .inline_data, .falls_through = true, .starts_statement = false, .handler = 0x0045C3B0 },
-    .{ .opcode = 0x2C, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C3E0 },
-    .{ .opcode = 0x2D, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C560 },
-    .{ .opcode = 0x2E, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C6B0 },
-    .{ .opcode = 0x2F, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DA50 },
-    .{ .opcode = 0x30, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C5A0 },
-    .{ .opcode = 0x31, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C680 },
-    .{ .opcode = 0x32, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C6B0 },
-    .{ .opcode = 0x33, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DAB0 },
-    .{ .opcode = 0x34, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DB10 },
-    .{ .opcode = 0x35, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DB70 },
-    .{ .opcode = 0x36, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DBD0 },
-    .{ .opcode = 0x37, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045DC30 },
-    .{ .opcode = 0x38, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045DC70 },
-    .{ .opcode = 0x39, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045DCB0 },
-    .{ .opcode = 0x3A, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045DCF0 },
-    .{ .opcode = 0x3B, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DD30 },
-    .{ .opcode = 0x3C, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DD80 },
-    .{ .opcode = 0x3D, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DDD0 },
-    .{ .opcode = 0x3E, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DE20 },
-    .{ .opcode = 0x3F, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C790 },
-    .{ .opcode = 0x40, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C7D0 },
-    .{ .opcode = 0x41, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C810 },
-    .{ .opcode = 0x42, .operands = 2, .form = .branch, .falls_through = false, .starts_statement = false, .handler = 0x0045C2B0 },
-    .{ .opcode = 0x43, .operands = 0, .form = .transfer, .falls_through = true, .starts_statement = false, .handler = 0x0045C6E0 },
-    .{ .opcode = 0x44, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C850 },
-    .{ .opcode = 0x45, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C890 },
-    .{ .opcode = 0x46, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C8D0 },
-    .{ .opcode = 0x47, .operands = 2, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C460 },
-    .{ .opcode = 0x48, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C4B0 },
-    .{ .opcode = 0x49, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C4D0 },
-    .{ .opcode = 0x4A, .operands = 1, .form = .transfer, .falls_through = false, .starts_statement = true, .handler = 0x0045C110 },
-    .{ .opcode = 0x4B, .operands = 3, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C5E0 },
-    .{ .opcode = 0x4C, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C650 },
-    .{ .opcode = 0x4D, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045C070 },
-    .{ .opcode = 0x4E, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045C1E0 },
-    .{ .opcode = 0x4F, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BF20 },
-    .{ .opcode = 0x51, .operands = 0, .form = .transfer, .falls_through = false, .starts_statement = false, .handler = 0x0045C910 },
-    .{ .opcode = 0x52, .operands = 2, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C420 },
-    .{ .opcode = 0x53, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C510 },
-    .{ .opcode = 0x54, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C520 },
-    .{ .opcode = 0x55, .operands = 2, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C460 },
+    .{ .opcode = .equal, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BAD0 },
+    .{ .opcode = .not_equal, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BB00 },
+    .{ .opcode = .greater, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BB30 },
+    .{ .opcode = .greater_equal, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BB60 },
+    .{ .opcode = .less, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BB90 },
+    .{ .opcode = .less_equal, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BBC0 },
+    .{ .opcode = .in_flight_group, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BBF0 },
+    .{ .opcode = .not_in_flight_group, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BC30 },
+    .{ .opcode = .assign, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BC70 },
+    .{ .opcode = .add_assign, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BCA0 },
+    .{ .opcode = .sub_assign, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BCD0 },
+    .{ .opcode = .mul_assign, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BD00 },
+    .{ .opcode = .div_assign, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BD30 },
+    .{ .opcode = .add, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BD60 },
+    .{ .opcode = .sub, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BD90 },
+    .{ .opcode = .mul, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BDC0 },
+    .{ .opcode = .div, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BDF0 },
+    .{ .opcode = .logical_and, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BE20 },
+    .{ .opcode = .logical_or, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BE60 },
+    .{ .opcode = .command, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045BEA0 },
+    .{ .opcode = .call_part, .operands = 1, .form = .transfer, .falls_through = true, .starts_statement = true, .handler = 0x0045BFA0 },
+    .{ .opcode = .branch_if_zero, .operands = 2, .form = .branch, .falls_through = true, .starts_statement = true, .handler = 0x0045C270 },
+    .{ .opcode = .branch_if_zero_alt, .operands = 2, .form = .branch, .falls_through = true, .starts_statement = true, .handler = 0x0045C270 },
+    .{ .opcode = .return_alt, .operands = 0, .form = .transfer, .falls_through = true, .starts_statement = true, .handler = 0x0045C6E0 },
+    .{ .opcode = .push_array, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C2D0 },
+    .{ .opcode = .push_global, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C300 },
+    .{ .opcode = .push_constant, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C340 },
+    .{ .opcode = .push_constant_wide, .operands = 2, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C370 },
+    .{ .opcode = .push_string, .operands = 1, .form = .inline_data, .falls_through = true, .starts_statement = false, .handler = 0x0045C3B0 },
+    .{ .opcode = .push_string_alt, .operands = 1, .form = .inline_data, .falls_through = true, .starts_statement = false, .handler = 0x0045C3B0 },
+    .{ .opcode = .push_ship, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C3E0 },
+    .{ .opcode = .push_flight_group, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C560 },
+    .{ .opcode = .push_byte_alt, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C6B0 },
+    .{ .opcode = .push_percent, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DA50 },
+    .{ .opcode = .push_local, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C5A0 },
+    .{ .opcode = .push_argument, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C680 },
+    .{ .opcode = .push_byte, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C6B0 },
+    .{ .opcode = .greater_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DAB0 },
+    .{ .opcode = .greater_equal_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DB10 },
+    .{ .opcode = .less_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DB70 },
+    .{ .opcode = .less_equal_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DBD0 },
+    .{ .opcode = .add_assign_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045DC30 },
+    .{ .opcode = .sub_assign_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045DC70 },
+    .{ .opcode = .mul_assign_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045DCB0 },
+    .{ .opcode = .div_assign_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045DCF0 },
+    .{ .opcode = .add_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DD30 },
+    .{ .opcode = .sub_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DD80 },
+    .{ .opcode = .mul_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DDD0 },
+    .{ .opcode = .div_f, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045DE20 },
+    .{ .opcode = .select_array, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C790 },
+    .{ .opcode = .select_global, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C7D0 },
+    .{ .opcode = .select_argument, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C810 },
+    .{ .opcode = .jump, .operands = 2, .form = .branch, .falls_through = false, .starts_statement = false, .handler = 0x0045C2B0 },
+    .{ .opcode = .@"return", .operands = 0, .form = .transfer, .falls_through = true, .starts_statement = false, .handler = 0x0045C6E0 },
+    .{ .opcode = .push_squad, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C850 },
+    .{ .opcode = .in_squad, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C890 },
+    .{ .opcode = .not_in_squad, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C8D0 },
+    .{ .opcode = .push_component, .operands = 2, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C460 },
+    .{ .opcode = .push_null, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C4B0 },
+    .{ .opcode = .push_curve, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C4D0 },
+    .{ .opcode = .call_part_b, .operands = 1, .form = .transfer, .falls_through = false, .starts_statement = true, .handler = 0x0045C110 },
+    .{ .opcode = .push_event_value, .operands = 3, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C5E0 },
+    .{ .opcode = .push_result, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C650 },
+    .{ .opcode = .spawn_part, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045C070 },
+    .{ .opcode = .spawn_part_b, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = true, .handler = 0x0045C1E0 },
+    .{ .opcode = .command_b, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045BF20 },
+    .{ .opcode = .random_branch, .operands = 0, .form = .transfer, .falls_through = false, .starts_statement = false, .handler = 0x0045C910 },
+    .{ .opcode = .push_ship_wide, .operands = 2, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C420 },
+    .{ .opcode = .nop, .operands = 0, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C510 },
+    .{ .opcode = .push_section_19, .operands = 1, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C520 },
+    .{ .opcode = .push_component_alt, .operands = 2, .form = .sequential, .falls_through = true, .starts_statement = false, .handler = 0x0045C460 },
 };
 
 comptime {
     // `find` relies on the order.
-    for (table[1..], table[0 .. table.len - 1]) |next, previous| assert(next.opcode > previous.opcode);
+    for (table[1..], table[0 .. table.len - 1]) |next, previous| assert(@backingInt(next.opcode) > @backingInt(previous.opcode));
 }
 
 /// Looks up `opcode`, or null when the VM has no handler for it.
-pub fn find(opcode: u8) ?Info {
+pub fn find(opcode: dte.Opcode) ?Info {
     // The table is sorted, and short enough that a scan beats anything cleverer.
     for (table) |info| {
         if (info.opcode == opcode) return info;
-        if (info.opcode > opcode) break;
+        if (@backingInt(info.opcode) > @backingInt(opcode)) break;
     }
     return null;
 }
@@ -129,5 +132,5 @@ pub fn find(opcode: u8) ?Info {
 test find {
     const std = @import("std");
     try std.testing.expect(find(table[0].opcode) != null);
-    try std.testing.expect(find(0x00) == null);
+    try std.testing.expect(find(@fromBackingInt(0x00)) == null);
 }

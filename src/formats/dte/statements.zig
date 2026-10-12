@@ -2,7 +2,8 @@
 //! ([#1127](https://github.com/OpenReliant/openreliant/issues/1127)): commands, calls, assignments,
 //! `if`, random choices and `return`, over expressions. `lower` writes statements as bytecode the
 //! way the developers' compiler did, and `decompile` reads them back from it.
-//! [`docs/formats/dte.md`](../../../docs/formats/dte.md#statements) describes the compiler's ways.
+//! [`docs/formats/dte.md`](../../../docs/formats/dte.md#statements) describes how that compiler
+//! wrote them.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -13,6 +14,7 @@ const assemble = @import("assemble.zig");
 const commands = @import("../../engine/game/executor/commands.zig");
 const conditions = @import("../../engine/vm/conditions.zig");
 const executor = @import("../../engine/game/executor.zig");
+const orders = @import("../../engine/game/ai/orders.zig");
 const Kinds = commands.Kinds;
 
 /// A statement of a routine. Statements and expressions borrow their slices.
@@ -45,6 +47,7 @@ pub const Call = struct {
     arguments: []const Expression,
 };
 
+/// An assignment: where the value goes, how it is stored, and the value.
 pub const Assign = struct {
     target: Target,
     update: Update,
@@ -89,14 +92,12 @@ pub const Update = enum {
     div_assign_f,
 
     pub fn opcode(update: Update) Opcode {
-        return switch (update) {
-            inline else => |tag| @field(Opcode, @tagName(tag)),
-        };
+        return opcodeNamed(update);
     }
 
     /// The update the opcode `op` stores with, if it is a store.
     pub fn of(op: Opcode) ?Update {
-        return std.meta.stringToEnum(Update, std.enums.tagName(Opcode, op) orelse return null);
+        return named(Update, op);
     }
 };
 
@@ -133,7 +134,7 @@ pub const Expression = union(enum) {
     flight_group: u8,
     squad: u8,
     curve: u8,
-    /// The value of a parameter's none, `-1` (`push_null`).
+    /// None, for a parameter that can be null: `-1` (`push_null`).
     null,
     global: u8,
     /// One of the game's variables, the array `push_array` reads.
@@ -165,6 +166,7 @@ pub const EventValue = struct {
     object: u8,
 };
 
+/// Two values and the operator that combines them: `left` is pushed first.
 pub const Binary = struct {
     operator: Operator,
     left: Expression,
@@ -199,16 +201,26 @@ pub const Operator = enum {
     not_in_squad,
 
     pub fn opcode(operator: Operator) Opcode {
-        return switch (operator) {
-            inline else => |tag| @field(Opcode, @tagName(tag)),
-        };
+        return opcodeNamed(operator);
     }
 
     /// The operator the opcode `op` applies, if it combines two values.
     pub fn of(op: Opcode) ?Operator {
-        return std.meta.stringToEnum(Operator, std.enums.tagName(Opcode, op) orelse return null);
+        return named(Operator, op);
     }
 };
+
+/// The opcode `tag` is named after, for `Update` and `Operator`.
+fn opcodeNamed(tag: anytype) Opcode {
+    return switch (tag) {
+        inline else => |each| @field(Opcode, @tagName(each)),
+    };
+}
+
+/// The tag of `Tags` named after the opcode `op`, if it has one.
+fn named(comptime Tags: type, op: Opcode) ?Tags {
+    return std.meta.stringToEnum(Tags, std.enums.tagName(Opcode, op) orelse return null);
+}
 
 /// What a routine's statements are lowered with.
 pub const Context = struct {
@@ -232,15 +244,17 @@ pub const Context = struct {
     /// The kinds of the value `expression` gives, where the context knows them.
     fn kindsOf(context: Context, expression: Expression) Kinds {
         return switch (expression) {
-            .local => |index| if (index < context.event.len) context.event[index].kinds else .{},
-            .event_value => |value| kinds: {
-                const condition = conditions.find(value.condition) orelse break :kinds .{};
-                break :kinds if (value.value < condition.values.len) condition.values[value.value].kinds else .{};
-            },
+            .local => |index| kindsAt(context.event, index),
+            .event_value => |value| kindsAt(if (conditions.find(value.condition)) |condition| condition.values else &.{}, value.value),
             else => .{},
         };
     }
 };
+
+/// The kinds of value `index` of an event's `values`, or none past them.
+fn kindsAt(values: []const conditions.Value, index: u8) Kinds {
+    return if (index < values.len) values[index].kinds else .{};
+}
 
 /// Where an expression's value goes, which decides how the developers' compiler pushed a number or
 /// text: by the kinds of the command's parameter it is passed to, or of the value it is compared
@@ -252,10 +266,10 @@ const Use = struct {
     /// A number for a named constant, a condition or a part is a byte (`push_byte`), and so is a
     /// routine's value; one compared with a percentage is a byte too, through `push_byte_alt`. The
     /// rest are constants (`push_constant`).
-    fn number(use: Use) ?Opcode {
+    fn number(use: Use) Opcode {
         if (use.returned or use.kinds.constant or use.kinds.condition or use.kinds.part) return .push_byte;
         if (use.kinds.percentage) return .push_byte_alt;
-        return null;
+        return .push_constant;
     }
 
     /// Text for a parameter of text is `push_string_alt`; a file's name is `push_string`.
@@ -268,6 +282,8 @@ const Use = struct {
 /// The arms' code starts after it.
 pub const arm_room = 10;
 
+/// Why statements can't be lowered: the assembler's errors, such as a branch further than 16 bits
+/// count.
 pub const Error = assemble.Error;
 
 /// Writes `body` into `routine` as the developers' compiler did.
@@ -326,8 +342,8 @@ fn lowerStatement(routine: *assemble.Routine, statement: Statement, context: Con
     }
 }
 
-/// A random choice: `random_branch` with room for `arm_room` arms, then each arm's code, which
-/// jumps to the end but where nothing follows it, then the default's.
+/// A random choice: `random_branch` with room for `arm_room` arms, then each arm's code, ending
+/// with a jump to the end unless nothing follows it, then the default's code.
 fn lowerRandom(routine: *assemble.Routine, random: Random, context: Context) Error!void {
     const end = try routine.label();
     const default = if (random.default.len == 0) end else try routine.label();
@@ -351,7 +367,9 @@ fn lowerRandom(routine: *assemble.Routine, random: Random, context: Context) Err
 fn push(routine: *assemble.Routine, expression: Expression, use: Use, context: Context) Error!void {
     switch (expression) {
         .number => |value| {
-            if (use.number()) |opcode| if (std.math.cast(u8, value)) |byte| return routine.op(opcode, &.{byte});
+            // A number too large for a byte is a constant wherever it goes.
+            const opcode = use.number();
+            if (opcode != .push_constant) if (std.math.cast(u8, value)) |byte| return routine.op(opcode, &.{byte});
             try routine.pushConstant(value);
         },
         .text => |text| try routine.pushText(use.text(), text),
@@ -375,6 +393,22 @@ fn push(routine: *assemble.Routine, expression: Expression, use: Use, context: C
     }
 }
 
+/// Expressions for the tests, by name: an order, as `SetAI` takes it, and a value of an event, by
+/// its label in the condition catalogue.
+pub const testing = struct {
+    pub fn order(which: orders.Order) Expression {
+        return .{ .number = @intCast(@backingInt(which)) };
+    }
+
+    pub fn local(comptime condition: dte.Condition, comptime label: []const u8) Expression {
+        const values = comptime condition.descriptor().?.values;
+        inline for (values, 0..) |value, index| {
+            if (comptime std.mem.eql(u8, value.label, label)) return .{ .local = index };
+        }
+        @compileError(label ++ " is not a value of " ++ @tagName(condition));
+    }
+};
+
 comptime {
     // Each update and each operator is named after its opcode.
     @setEvalBranchQuota(10_000);
@@ -392,9 +426,9 @@ test lower {
         .{ .threshold = 100, .extra = 0, .body = &.{.{ .call = .{ .part = 2, .arguments = &.{} } }} },
     };
     const body = [_]Statement{
-        // A number for a constant is a byte, one for a number a constant; text is pushed as a file
-        // name's or as text's.
-        .{ .command = .{ .index = executor.commandIndex("SetAI"), .arguments = &.{ .{ .squad = 9 }, .{ .number = 10 }, .{ .number = 1 }, .null } } },
+        // SetAI's mode is a named constant, pushed as a byte, and its priority a number, pushed as a
+        // constant. PlayMusic takes a file's name, and PrintDebugMessage text.
+        .{ .command = .{ .index = executor.commandIndex("SetAI"), .arguments = &.{ .{ .squad = 9 }, testing.order(.find_new_target), .{ .number = 1 }, .null } } },
         .{ .command = .{ .index = executor.commandIndex("PlayMusic"), .arguments = &.{ .{ .text = "new_sim02.wav" }, .{ .number = 0 } } } },
         .{ .command = .{ .index = executor.commandIndex("PrintDebugMessage"), .arguments = &.{.{ .text = "hello" }} } },
         .{ .assign = .{ .target = .{ .global = 0 }, .update = .add_assign, .value = .{ .number = 1 } } },
@@ -405,35 +439,30 @@ test lower {
     };
     const routine = try bytes(gpa, &body, .{});
     defer gpa.free(routine);
-
-    const block = dte.BlockReader.at(routine, 0).?;
-    const disassembly = (try dte.disassemble(gpa, routine[0 .. dte.BlockReader.header_len + block.code.len], 0)).?;
-    defer gpa.free(disassembly.instructions);
-    var opcodes: std.ArrayList(Opcode) = .empty;
-    defer opcodes.deinit(gpa);
-    for (disassembly.instructions) |instruction| try opcodes.append(gpa, instruction.opcode);
-    try std.testing.expectEqualSlices(Opcode, &.{
+    try expectOpcodes(routine, &.{
         .push_squad,    .push_byte,          .push_constant, .push_null,       .command,
         .push_string,   .push_constant,      .command,       .push_string_alt, .command,
         .select_global, .push_constant,      .add_assign,    .push_global,     .push_constant,
         .equal,         .branch_if_zero_alt, .call_part,     .jump,            .spawn_part,
         .push_result,   .branch_if_zero,     .call_part,     .random_branch,   .call_part,
         .jump,          .call_part,          .push_byte,     .@"return",
-    }, opcodes.items);
+    });
     // The random choice keeps room for ten arms, and the first arm's code follows it.
+    const disassembly = (try dte.disassemble(gpa, routine, 0)).?;
+    defer gpa.free(disassembly.instructions);
     const random = disassembly.instructions[23];
     const first = disassembly.instructions[24];
-    try std.testing.expectEqual(random.address + 4 + 4 * arm_room, first.address);
+    try std.testing.expectEqual(random.address + 1 + @sizeOf(dte.ArmIterator.Header) + @sizeOf(dte.ArmIterator.Arm) * arm_room, first.address);
     // Each constant once, in the order first pushed: 1, then 0.
-    const table = routine[dte.BlockReader.header_len + block.code.len ..];
+    const table = routine[dte.BlockReader.header_len + dte.BlockReader.at(routine, 0).?.code.len ..];
     try std.testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0, 0, 0, 0, 0 }, table);
 }
 
 test "a number compared with a percentage is a byte" {
     const gpa = std.testing.allocator;
     const shot_at = conditions.find(@backingInt(dte.Condition.shot_at)).?;
-    const hull: Binary = .{ .operator = .greater_equal, .left = .{ .local = 2 }, .right = .{ .number = 50 } };
-    const attacker: Binary = .{ .operator = .equal, .left = .{ .local = 0 }, .right = .{ .number = 50 } };
+    const hull: Binary = .{ .operator = .greater_equal, .left = testing.local(.shot_at, "Hull Damage"), .right = .{ .number = 50 } };
+    const attacker: Binary = .{ .operator = .equal, .left = testing.local(.shot_at, "Attacker"), .right = .{ .number = 50 } };
     const body = [_]Statement{
         .{ .@"if" = .{ .condition = .{ .binary = &hull }, .then = &.{}, .otherwise = null } },
         .{ .@"if" = .{ .condition = .{ .binary = &attacker }, .then = &.{}, .otherwise = null } },
@@ -442,6 +471,20 @@ test "a number compared with a percentage is a byte" {
     const routine = try bytes(gpa, &body, .{ .event = shot_at.values });
     defer gpa.free(routine);
     // The hull's damage is a percentage, the attacker a ship.
-    try std.testing.expectEqualSlices(u8, &.{ 0x30, 2, 0x2E, 50, 0x05 }, routine[2..][0..5]);
-    try std.testing.expectEqualSlices(u8, &.{ 0x30, 0, 0x28, 0, 0x02 }, routine[2 + 8 ..][0..5]);
+    try expectOpcodes(routine, &.{
+        .push_local, .push_byte_alt, .greater_equal, .branch_if_zero,
+        .push_local, .push_constant, .equal,         .branch_if_zero,
+        .push_byte,  .@"return",
+    });
+}
+
+/// Checks that the block `routine` starts with has the opcodes `expected`, in order.
+fn expectOpcodes(routine: []const u8, expected: []const Opcode) !void {
+    const gpa = std.testing.allocator;
+    const disassembly = (try dte.disassemble(gpa, routine, 0)).?;
+    defer gpa.free(disassembly.instructions);
+    const opcodes = try gpa.alloc(Opcode, disassembly.instructions.len);
+    defer gpa.free(opcodes);
+    for (opcodes, disassembly.instructions) |*opcode, instruction| opcode.* = instruction.opcode;
+    try std.testing.expectEqualSlices(Opcode, expected, opcodes);
 }

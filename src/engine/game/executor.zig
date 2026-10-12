@@ -49,10 +49,9 @@ pub const Kinds = packed struct(u32) {
     ship: bool = false,
     /// `0x800`: a flight group, or a patrol route.
     flight_group: bool = false,
-    /// `0x1000`: a percentage. Only ShotAt's damage values set it, which hold the share of its
-    /// armour a ship has lost, in hundredths, and no parameter does. The shipped scripts push a
-    /// number compared with one of them with `push_byte_alt`
-    /// ([Statements](../../../docs/formats/dte.md#statements)).
+    /// `0x1000`: a percentage. Only ShotAt's damage values have it: the share of its armour a ship
+    /// has lost, in hundredths. No parameter has it. The shipped scripts push a number compared
+    /// with one of them with `push_byte_alt` ([Statements](../../../docs/formats/dte.md#statements)).
     percentage: bool = false,
     _unknown_13: u1 = 0,
     /// `0x4000`: a function, meaning a part.

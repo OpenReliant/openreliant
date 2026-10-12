@@ -668,8 +668,8 @@ three routines that hold unused arm slots of a `random_branch`.
 ### Statements
 
 The developers' compiler wrote each statement of a script as pushes, then the instruction that takes
-them. Its ways are regular, so every routine of the 44 missions reads back as statements and lowers
-to the same bytes ([`dte/statements.zig`](../../src/formats/dte/statements.zig),
+them. Its output is regular enough that every routine of the 44 missions reads back as statements
+and lowers to the same bytes ([`dte/statements.zig`](../../src/formats/dte/statements.zig),
 [`dte/decompile.zig`](../../src/formats/dte/decompile.zig),
 [#1127](https://github.com/OpenReliant/openreliant/issues/1127)):
 
@@ -680,7 +680,7 @@ to the same bytes ([`dte/statements.zig`](../../src/formats/dte/statements.zig),
 | An assignment | `select_global`, `select_array` or `select_argument`, the value, then `assign`, `add_assign` or another store |
 | `if` | The condition, then `branch_if_zero` past the `then` branch |
 | `if` with an `else` | The condition, then `branch_if_zero_alt` past the `then` branch, which ends with a `jump` past the `else` branch |
-| A random choice | `random_branch` with room for ten arms, then each arm's code, which jumps to the end but for the last arm's, then the default's. In the shipped missions the default goes to the end |
+| A random choice | `random_branch` with room for ten arms, then each arm's code, ending with a jump to the end except the last arm's, then the default's code. In the shipped missions the default has none, and goes to the end |
 | `return` | The value, then `return`, once at the end of every routine |
 
 How a number or text is pushed depends on where it goes:
@@ -703,6 +703,11 @@ script uses the other two, `return_alt` (`0x25`) and `push_component_alt` (`0x55
 A command keeps the arguments the script pushes. 19 commands in missions 88, 271 and 801 get fewer
 than they take ([Commands](../engine/script-vm.md#commands)): `StartDirectorCam` the first four of
 its five, and `SetPlayerTarget` one of its two.
+
+Statements check nothing against the game's own lists. A number or a file's name stays as the script
+has it, so a mission made for mods, with orders and files of their own, reads back and lowers the
+same way. The catalogue only decides how a number or text is pushed, where it
+knows the parameter.
 
 `sltool dte check` reads each routine as statements, lowers them again and compares the result with
 the original: the same instructions at the same places, and the same constants. Only the bytes no

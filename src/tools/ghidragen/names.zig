@@ -30,19 +30,19 @@ pub fn write(w: *Io.Writer) Io.Writer.Error!void {
 fn handlers(w: *Io.Writer) Io.Writer.Error!void {
     for (opcodes.table, 0..) |info, index| {
         // Each handler once, under the first opcode that is not an alias.
-        const name = dte.opcodeName(info.opcode) orelse continue;
+        const name = std.enums.tagName(dte.Opcode, info.opcode) orelse continue;
         if (std.mem.endsWith(u8, name, "_alt")) continue;
         const first = for (opcodes.table[0..index]) |earlier| {
             if (earlier.handler != info.handler) continue;
-            const earlier_name = dte.opcodeName(earlier.opcode) orelse continue;
+            const earlier_name = std.enums.tagName(dte.Opcode, earlier.opcode) orelse continue;
             if (!std.mem.endsWith(u8, earlier_name, "_alt")) break false;
         } else true;
         if (!first) continue;
 
-        try w.print("{x:0>8}\tfunction\tvm_{s}\tVmHandler\topcode 0x{X:0>2}", .{ info.handler, name, info.opcode });
+        try w.print("{x:0>8}\tfunction\tvm_{s}\tVmHandler\topcode 0x{X:0>2}", .{ info.handler, name, @backingInt(info.opcode) });
         for (opcodes.table) |other| {
             if (other.handler == info.handler and other.opcode != info.opcode) {
-                try w.print(", also 0x{X:0>2}", .{other.opcode});
+                try w.print(", also 0x{X:0>2}", .{@backingInt(other.opcode)});
             }
         }
         try w.writeByte('\n');

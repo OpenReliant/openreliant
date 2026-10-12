@@ -10,7 +10,9 @@ const Allocator = std.mem.Allocator;
 const dte = @import("../dte.zig");
 const layout = @import("../layout.zig");
 const statements = @import("statements.zig");
+const assemble = @import("assemble.zig");
 const executor = @import("../../engine/game/executor.zig");
+const vm = @import("../../engine/vm.zig");
 const Statement = statements.Statement;
 const Expression = statements.Expression;
 
@@ -166,10 +168,7 @@ const Decompiler = struct {
     /// The stack's values, as a statement's arguments.
     fn values(d: Decompiler, entries: []const Entry) Error![]const Expression {
         const list = try d.arena.alloc(Expression, entries.len);
-        for (list, entries) |*item, entry| item.* = switch (entry) {
-            .value => |each| each,
-            .target => return error.Unrepresentable,
-        };
+        for (list, entries) |*item, entry| item.* = try valueOf(entry);
         return list;
     }
 
@@ -248,21 +247,23 @@ fn jumpPast(instruction: ?dte.Instruction, address: usize) ?usize {
     return jump.flow.branch.target;
 }
 
-/// The top of the stack, which must be a value.
-fn pop(stack: *std.ArrayList(Entry)) Error!Expression {
-    return switch (stack.pop() orelse return error.Unrepresentable) {
+/// The value `entry` holds, which must be one.
+fn valueOf(entry: Entry) Error!Expression {
+    return switch (entry) {
         .value => |value| value,
         .target => error.Unrepresentable,
     };
 }
 
+/// The top of the stack, which must be a value.
+fn pop(stack: *std.ArrayList(Entry)) Error!Expression {
+    return valueOf(stack.pop() orelse return error.Unrepresentable);
+}
+
 /// The one value a statement takes.
 fn only(entries: []const Entry) Error!Expression {
     if (entries.len != 1) return error.Unrepresentable;
-    return switch (entries[0]) {
-        .value => |value| value,
-        .target => error.Unrepresentable,
-    };
+    return valueOf(entries[0]);
 }
 
 /// Inline text without its NUL, which a statement's text always ends with.
@@ -288,8 +289,9 @@ fn expectRoundTrip(body: []const Statement, context: statements.Context) !void {
 }
 
 test block {
+    const backup_available = vm.Variables.number("backup_available");
     const killed: statements.Binary = .{ .operator = .equal, .left = .{ .global = 0 }, .right = .{ .number = 1 } };
-    const ready: statements.Binary = .{ .operator = .logical_and, .left = .{ .variable = 3 }, .right = .{ .binary = &killed } };
+    const ready: statements.Binary = .{ .operator = .logical_and, .left = .{ .variable = backup_available }, .right = .{ .binary = &killed } };
     const inner = [_]Statement{.{ .@"if" = .{ .condition = .result, .then = &.{.{ .call = .{ .part = 2, .arguments = &.{} } }}, .otherwise = &.{} } }};
     const arms = [_]statements.Random.Arm{
         .{ .threshold = 30, .extra = 0, .body = &.{.{ .call = .{ .part = 1, .arguments = &.{} } }} },
@@ -299,9 +301,10 @@ test block {
     // One arm, whose `if` ends where the choice does: its jump isn't the arm's.
     const alone = [_]statements.Random.Arm{.{ .threshold = 50, .extra = 0, .body = &inner }};
     const body = [_]Statement{
-        .{ .command = .{ .index = executor.commandIndex("SetAI"), .arguments = &.{ .{ .ship = 300 }, .{ .number = 10 }, .{ .number = 1 }, .{ .component = .{ .ship = 4, .component = 2 } } } } },
+        // A ship past index 255, pushed wide, and a turret as the target.
+        .{ .command = .{ .index = executor.commandIndex("SetAI"), .arguments = &.{ .{ .ship = 300 }, statements.testing.order(.find_new_target), .{ .number = 1 }, .{ .component = .{ .ship = 4, .component = 2 } } } } },
         .{ .command = .{ .index = executor.commandIndex("CommsFromShip"), .arguments = &.{ .{ .flight_group = 1 }, .{ .number = 1 }, .{ .text = "ms1_gull_005.ut" } } } },
-        .{ .assign = .{ .target = .{ .variable = 3 }, .update = .assign, .value = .{ .number = 0x12345678 } } },
+        .{ .assign = .{ .target = .{ .variable = backup_available }, .update = .assign, .value = .{ .number = 0x12345678 } } },
         .{ .@"if" = .{ .condition = .{ .binary = &ready }, .then = &.{.{ .spawn = .{ .part = 5, .arguments = &.{.{ .argument = 0 }} } }}, .otherwise = &inner } },
         .{ .random = .{ .arms = &arms, .default = &.{} } },
         .{ .random = .{ .arms = arms[0..1], .default = &.{.{ .call = .{ .part = 3, .arguments = &.{} } }} } },
@@ -320,25 +323,48 @@ test "a command keeps the arguments the script pushes" {
     try expectRoundTrip(&body, .{});
 }
 
+test "a mission made for mods keeps its values" {
+    // Nothing is checked against the game's lists: an order the game doesn't have, one too large
+    // for a byte, which goes as a constant, and a command past the catalogue, with a mod's file.
+    const set_ai = executor.commandIndex("SetAI");
+    const body = [_]Statement{
+        .{ .command = .{ .index = set_ai, .arguments = &.{ .{ .ship = 1 }, .{ .number = 200 }, .{ .number = 1 }, .null } } },
+        .{ .command = .{ .index = set_ai, .arguments = &.{ .{ .ship = 1 }, .{ .number = 1000 }, .{ .number = 1 }, .null } } },
+        .{ .command = .{ .index = 250, .arguments = &.{ .{ .number = 5 }, .{ .text = "my_mod_line.wav" } } } },
+        .{ .@"return" = .{ .number = 1 } },
+    };
+    try expectRoundTrip(&body, .{});
+}
+
 test "code of another shape is refused" {
+    const gpa = std.testing.allocator;
+    // A jump outside an `if`.
+    var jumps: assemble.Routine = .init(gpa);
+    defer jumps.deinit();
+    const end = try jumps.label();
+    try jumps.branch(.jump, end);
+    jumps.place(end);
+    try expectRefused(error.Unstructured, &jumps);
+    // A value left over before `return`.
+    var left: assemble.Routine = .init(gpa);
+    defer left.deinit();
+    try left.op(.push_byte, &.{1});
+    try expectRefused(error.Unrepresentable, &left);
+    // A `nop`, which no statement holds.
+    var nop: assemble.Routine = .init(gpa);
+    defer nop.deinit();
+    try nop.op(.nop, &.{});
+    try expectRefused(error.Unrepresentable, &nop);
+}
+
+/// Checks that `code`, ended with `return 1`, can't be read as statements, for `reason`.
+fn expectRefused(reason: Error, code: *assemble.Routine) !void {
     const gpa = std.testing.allocator;
     var arena_state: std.heap.ArenaAllocator = .init(gpa);
     defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    // A jump outside an `if`.
-    var routine_state: @import("assemble.zig").Routine = .init(gpa);
-    defer routine_state.deinit();
-    const end = try routine_state.label();
-    try routine_state.branch(.jump, end);
-    routine_state.place(end);
-    try routine_state.op(.push_byte, &.{1});
-    try routine_state.op(.@"return", &.{});
-    const jumps = try routine_state.finish();
-    defer gpa.free(jumps);
-    try std.testing.expectError(error.Unstructured, block(arena, jumps, 0));
-    // A value left over before `return`, and a `nop`.
-    const left = [_]u8{ 8, 0, 0x32, 1, 0x32, 1, 0x43, 0 };
-    try std.testing.expectError(error.Unrepresentable, block(arena, &left, 0));
-    const nop = [_]u8{ 8, 0, 0x53, 0x32, 1, 0x43, 0, 0 };
-    try std.testing.expectError(error.Unrepresentable, block(arena, &nop, 0));
+    try code.op(.push_byte, &.{1});
+    try code.op(.@"return", &.{});
+    const bytes = try code.finish();
+    defer gpa.free(bytes);
+    try std.testing.expectError(reason, block(arena_state.allocator(), bytes, 0));
 }

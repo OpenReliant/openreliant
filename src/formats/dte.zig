@@ -25,8 +25,9 @@ pub const write = @import("dte/write.zig");
 pub const assemble = @import("dte/assemble.zig");
 /// A script's instructions as text.
 pub const listing = @import("dte/listing.zig");
-/// A routine's code as statements, and reading them back from the bytecode (#1127).
+/// A routine's code as statements (#1127).
 pub const statements = @import("dte/statements.zig");
+/// Reading a routine's bytecode as statements.
 pub const decompile = @import("dte/decompile.zig");
 
 /// Identity and typed references for mission source collections (#608).
@@ -1158,7 +1159,7 @@ pub const Opcode = enum(u8) {
     /// Its entry in the VM's opcode table (`opcodes.find`): null for an opcode the payload's
     /// handler table does not implement.
     pub fn info(opcode: Opcode) ?opcodes.Info {
-        return opcodes.find(@backingInt(opcode));
+        return opcodes.find(opcode);
     }
 
     /// Opcodes the payload's handler table implements.
@@ -1277,8 +1278,8 @@ pub const ArmIterator = struct {
 /// Decodes the instruction at `pos` in `code`, whose addresses it reports as offsets into `code`.
 pub fn decodeAt(code: []const u8, pos: usize) ?Instruction {
     const length = instructionSize(code, pos) orelse return null;
-    const info = opcodes.find(code[pos]) orelse return null;
     const opcode: Opcode = @fromBackingInt(code[pos]);
+    const info = opcodes.find(opcode) orelse return null;
     const operands = code[pos + 1 ..][0 .. length - 1];
 
     const flow: Flow = switch (info.form) {
@@ -1300,22 +1301,17 @@ pub fn decodeAt(code: []const u8, pos: usize) ?Instruction {
     return .{ .address = pos, .opcode = opcode, .operands = operands, .flow = flow };
 }
 
-/// The name of opcode `byte`, or null when the VM does not implement it.
-pub fn opcodeName(byte: u8) ?[]const u8 {
-    return std.enums.tagName(Opcode, @fromBackingInt(byte));
-}
-
 // Every opcode the handler table implements has a name, and every name is one it implements.
 comptime {
     @setEvalBranchQuota(20_000);
     for (opcodes.table) |info| {
-        if (std.enums.tagName(Opcode, @fromBackingInt(info.opcode)) == null) {
-            @compileError(std.fmt.comptimePrint("opcode 0x{X:0>2} has no name", .{info.opcode}));
+        if (std.enums.tagName(Opcode, info.opcode) == null) {
+            @compileError(std.fmt.comptimePrint("opcode 0x{X:0>2} has no name", .{@backingInt(info.opcode)}));
         }
     }
     const tags = @typeInfo(Opcode).@"enum";
     for (tags.field_names, tags.field_values) |name, value| {
-        if (opcodes.find(value) == null) {
+        if (opcodes.find(@fromBackingInt(value)) == null) {
             @compileError("no handler for opcode " ++ name);
         }
     }
@@ -1341,8 +1337,8 @@ fn transferKind(opcode: Opcode) ?TransferKind {
 
 comptime {
     for (opcodes.table) |info| {
-        if (info.form == .transfer and transferKind(@fromBackingInt(info.opcode)) == null) {
-            @compileError(std.fmt.comptimePrint("transfer opcode 0x{X:0>2} has no kind", .{info.opcode}));
+        if (info.form == .transfer and transferKind(info.opcode) == null) {
+            @compileError(std.fmt.comptimePrint("transfer opcode 0x{X:0>2} has no kind", .{@backingInt(info.opcode)}));
         }
     }
 }
@@ -1359,7 +1355,7 @@ comptime {
 /// - `branch` and `transfer` are fixed sizes; only where execution resumes differs.
 pub fn instructionSize(code: []const u8, pos: usize) ?usize {
     if (pos >= code.len) return null;
-    const info = opcodes.find(code[pos]) orelse return null;
+    const info = opcodes.find(@fromBackingInt(code[pos])) orelse return null;
     const operands = code[pos + 1 ..];
     const length: usize = switch (info.form) {
         .inline_data => blk: {
@@ -1367,7 +1363,7 @@ pub fn instructionSize(code: []const u8, pos: usize) ?usize {
             // The byte counts itself, so a run of 1 is the byte alone.
             break :blk @max(operands[0], 1);
         },
-        else => if (@as(Opcode, @fromBackingInt(info.opcode)) == .random_branch) blk: {
+        else => if (info.opcode == .random_branch) blk: {
             const header = layout.view(ArmIterator.Header, operands) catch return null;
             break :blk @sizeOf(ArmIterator.Header) + @sizeOf(ArmIterator.Arm) * @as(usize, header.count);
         } else info.operands,
@@ -1530,7 +1526,7 @@ pub const BlockReader = struct {
     pub fn stop(reader: BlockReader) Stop {
         const left = reader.rest();
         if (left.len == 0 or reader.padding().len != 0) return .complete;
-        return if (opcodes.find(left[0]) == null) .unimplemented else .truncated;
+        return if (opcodes.find(@fromBackingInt(left[0])) == null) .unimplemented else .truncated;
     }
 };
 

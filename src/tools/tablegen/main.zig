@@ -454,6 +454,8 @@ fn emit(w: *Io.Writer, handlers: []const Handler, length: usize) !void {
         \\
         \\const assert = @import("std").debug.assert;
         \\
+        \\const dte = @import("../../formats/dte.zig");
+        \\
         \\/// What an instruction does to the instruction pointer.
         \\pub const Form = enum {{
         \\    /// Execution continues at the instruction after the operands.
@@ -469,7 +471,8 @@ fn emit(w: *Io.Writer, handlers: []const Handler, length: usize) !void {
         \\}};
         \\
         \\pub const Info = struct {{
-        \\    opcode: u8,
+        \\    /// The opcode, by its name (`dte.Opcode`).
+        \\    opcode: dte.Opcode,
         \\    /// Operand bytes between the opcode and the next instruction. For `inline_data` this
         \\    /// counts only the length byte.
         \\    operands: u8,
@@ -491,12 +494,11 @@ fn emit(w: *Io.Writer, handlers: []const Handler, length: usize) !void {
     , .{ .table = dispatch_table, .length = length, .statements = statements.function });
 
     for (handlers) |handler| {
+        try w.writeAll("    .{ .opcode = ");
+        try zig_text.enumValue(w, @as(openreliant.dte.Opcode, @fromBackingInt(handler.opcode)));
         try w.print(
-            "    .{{ .opcode = 0x{X:0>2}, .operands = {d}, .form = .{t}, .falls_through = {}, .starts_statement = {}, .handler = 0x{X:0>8} }},\n",
-            .{
-                handler.opcode,              handler.shape.operands,   handler.shape.form,
-                handler.shape.falls_through, handler.starts_statement, handler.address,
-            },
+            ", .operands = {d}, .form = .{t}, .falls_through = {}, .starts_statement = {}, .handler = 0x{X:0>8} }},\n",
+            .{ handler.shape.operands, handler.shape.form, handler.shape.falls_through, handler.starts_statement, handler.address },
         );
     }
 
@@ -505,15 +507,15 @@ fn emit(w: *Io.Writer, handlers: []const Handler, length: usize) !void {
         \\
         \\comptime {
         \\    // `find` relies on the order.
-        \\    for (table[1..], table[0 .. table.len - 1]) |next, previous| assert(next.opcode > previous.opcode);
+        \\    for (table[1..], table[0 .. table.len - 1]) |next, previous| assert(@backingInt(next.opcode) > @backingInt(previous.opcode));
         \\}
         \\
         \\/// Looks up `opcode`, or null when the VM has no handler for it.
-        \\pub fn find(opcode: u8) ?Info {
+        \\pub fn find(opcode: dte.Opcode) ?Info {
         \\    // The table is sorted, and short enough that a scan beats anything cleverer.
         \\    for (table) |info| {
         \\        if (info.opcode == opcode) return info;
-        \\        if (info.opcode > opcode) break;
+        \\        if (@backingInt(info.opcode) > @backingInt(opcode)) break;
         \\    }
         \\    return null;
         \\}
@@ -521,7 +523,7 @@ fn emit(w: *Io.Writer, handlers: []const Handler, length: usize) !void {
         \\test find {
         \\    const std = @import("std");
         \\    try std.testing.expect(find(table[0].opcode) != null);
-        \\    try std.testing.expect(find(0x00) == null);
+        \\    try std.testing.expect(find(@fromBackingInt(0x00)) == null);
         \\}
         \\
     );
@@ -569,7 +571,7 @@ test "emit writes the committed table again" {
     var handlers: [committed.len]Handler = undefined;
     for (&handlers, committed) |*handler, entry| {
         handler.* = .{
-            .opcode = entry.opcode,
+            .opcode = @backingInt(entry.opcode),
             .address = entry.handler,
             .shape = .{ .operands = entry.operands, .form = std.meta.stringToEnum(eval.Form, @tagName(entry.form)).?, .falls_through = entry.falls_through },
             .starts_statement = entry.starts_statement,
@@ -578,6 +580,6 @@ test "emit writes the committed table again" {
     var out: Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
     // The table runs to the last opcode a handler implements.
-    try emit(&out.writer, &handlers, @as(usize, committed[committed.len - 1].opcode) + 1);
+    try emit(&out.writer, &handlers, @as(usize, @backingInt(committed[committed.len - 1].opcode)) + 1);
     try testing.expectCommitted(@embedFile("committed opcodes"), out.written());
 }

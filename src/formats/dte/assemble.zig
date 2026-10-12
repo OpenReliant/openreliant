@@ -135,8 +135,8 @@ pub const Routine = struct {
     }
 
     /// `random_branch`: a count, the big-endian default target, then an arm each, whose targets
-    /// count from the opcode. The table keeps room for `room` arms, or as many as there are, the
-    /// slots past the arms zero.
+    /// count from the opcode. The table has room for `room` arms, or for all of them where there
+    /// are more; the unused slots are zero.
     pub fn randomBranch(routine: *Routine, default: Label, arms: []const Arm, room: usize) Error!void {
         const count = std.math.cast(u8, arms.len) orelse return error.WrongOperands;
         const from = routine.code.items.len;
