@@ -736,8 +736,10 @@ hit that leaves armour to spare still wears it, and its ShotAt events still come
 
 A component's armour comes from its part's record (`0x104`), and `component_damage`
 (`0x004645C0`) wears it down: the damage goes to the first part of the component's assembly whose
-record gives it armour, a part with more than 2499 takes only a hit of 500 or more, an object with a
-shield generator keeps three quarters of a hit below 1000, and a component whose armour runs out
+record gives it armour, a part with more than 2499 takes only a hit of 500 or more, and only a
+torpedo's unless its record's flags have bit `0x200` (`0x00464798`), as the Latov's shaft and the
+Czar's core cover do, which a Jack Hammer breaks; an object with a shield generator keeps three
+quarters of a hit below 1000, and a component whose armour runs out
 marks its root as destroyed (node flag `0x40`). A collision does none of this. Every part node
 stays in its root's child list, whatever part `object_link_part` links it to, so the node holding
 a component (`node_holder`, `0x00499EE0`) is always its model's root: the object's, or that of a
