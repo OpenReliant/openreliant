@@ -16,12 +16,11 @@ const hud = @import("../hud.zig");
 const input = @import("../../input.zig");
 const language = @import("../language.zig");
 const device = @import("../../surrender/srd3d/device.zig");
-const spr = @import("../../../formats/spr.zig");
 
 pub const round = hud.round;
 
-/// What drawing a menu can fail with: a shape the set can't give, or memory.
-pub const Error = spr.Error || Allocator.Error;
+/// What drawing a menu can fail with: the same as drawing the display (`hud.Error`).
+pub const Error = hud.Error;
 
 /// The display's shapes (`HUDHARD.SPR`) the menus draw, by their index in the set; 0 for none.
 pub const Shape = enum(u32) {

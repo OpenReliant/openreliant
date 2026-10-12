@@ -84,8 +84,8 @@ A folder mod is read just as the archive packed from it would be:
 
 - Its files must be directly in the folder. Files in subfolders are skipped, as `sltool hog pack`
   skips them, and the log says so.
-- File names must be printable ASCII, like an archive's member names. Hidden files, such as
-  `.DS_Store`, are ignored.
+- File names must be plain names in printable ASCII, with no colon, like an archive's member
+  names. Hidden files, such as `.DS_Store`, are ignored.
 - A file that holds RefPack-compressed data, such as a file extracted with `sltool hog extract
   --raw`, is decompressed as it's read, like a compressed archive member. Movies and pilots' faces,
   which the game reads uncompressed, are read as they are.
@@ -340,7 +340,7 @@ and a few modern ones beside them:
 | What | Formats | Made with |
 |---|---|---|
 | Models | `.shp` | `sltool shp from-obj` or `sltool shp from-gltf` ([Models](#models)) |
-| Textures | PNG at any size, or DDS and KTX2 files compressed already | An image editor ([Textures](#textures)) |
+| Textures | PNG up to 16384 pixels a side, or DDS and KTX2 files compressed already | An image editor ([Textures](#textures)) |
 | Interface shapes and pictures | PNG at any size | An image editor ([The interface](#the-interface)) |
 | Interface fonts | `.fnt`, TrueType or OpenType | A font editor ([Fonts](#fonts)) |
 | Music | WAV, 16-bit PCM or IMA ADPCM, at any rate | An audio editor ([Music](#music)) |
@@ -404,7 +404,8 @@ the computer lets go of its own copy once the GPU holds it.
 
 A picture or a map can also come compressed already, in a DDS (`.dds`) or KTX2 (`.ktx2`) file with
 the same name, which OpenReliant looks for before the PNG file: `yank_2.dds`, `yank_2_normal.dds`.
-It reads a single 2D picture with its mipmaps, in BC1, BC3, BC5 or BC7, or uncompressed 8-bit RGBA.
+It reads a single 2D picture with its mipmaps, in BC1, BC3, BC5 or BC7, or uncompressed 8-bit RGBA,
+up to 16384 pixels a side, as a PNG file can be.
 A KTX2 file can be supercompressed with Zstandard (`toktx --zcmp`), but not hold Basis Universal
 data ([#637](https://github.com/OpenReliant/openreliant/issues/637)). Its colours are taken as
 sRGB-encoded, as a PNG's are.
@@ -1300,7 +1301,7 @@ A script's messages and errors follow its mod's name, as above;
 | `skipping <name>: <error>` | A link in `mods` or in a mod whose target is missing, or an entry that can't be read: fix or remove it |
 | `skipping <name>: a mod must be a .hog archive or a folder` | Only folders and `.hog` archives go directly in `mods` |
 | `skipping <mod>/<file>: a mod's files must be directly in its folder` | Move the file out of its subfolder |
-| `skipping <mod>/<file>: file names must be printable ASCII, like archive member names` | Rename the file |
+| `skipping <mod>/<file>: file names must be plain names in printable ASCII, like archive member names` | Rename the file |
 | `skipping the mod <mod>: it needs OpenReliant <version>, and this is <version>` | Update OpenReliant, or check the mod's `OpenReliant=` ([The manifest](#the-manifest)) |
 | `skipping the mod <mod>: it needs the mod <name>, which doesn't load before it` | Add that mod, turn it on, or move it above this one on the mods screen ([The manifest](#the-manifest)) |
 | `skipping the mod <archive>: checking <file> failed: ...` | The archive doesn't match its checksum: download it again, or pack it again with `--checksum` ([Checksums](#checksums)) |

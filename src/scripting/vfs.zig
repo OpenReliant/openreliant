@@ -24,19 +24,16 @@ pub const package = struct {
     pub const exists = api.Native("Whether `vfs.read` would find the file `name`.", "name: string", "boolean", fileExists);
 };
 
-/// `vfs.read(name)`.
+/// `vfs.read(name)`. A file can be at most what the mod's scripts have left of their memory, as it's
+/// copied into the script's string.
 fn readGame(call: Call) i32 {
-    const state = call.state;
     const name = nameOf(call);
-    const gpa = call.runtime().gpa;
-    // Refuses a loose file bigger than half the mod's memory, since it is copied into the script's
-    // string.
-    const most = call.runtime().options.limits.memory / 2;
+    const most = call.runtime().memoryLeft(call.context);
     const bytes = find(call, name, most) catch |err| switch (err) {
-        error.StreamTooLong => call.raise("{s} is bigger than the {d} bytes a script can read", .{ name, most }),
+        error.StreamTooLong => tooBig(call, name, most),
         else => call.raise("{s} can't be read: {s}", .{ name, @errorName(err) }),
     };
-    return pushBytes(state, gpa, bytes orelse return pushNone(state));
+    return pushBytes(call, name, bytes orelse return pushNone(call.state), most);
 }
 
 /// Reads the file `name` into memory from the runtime's allocator, or returns null if there is none:
@@ -69,13 +66,11 @@ fn looseFile(folder: Storage.Folder, name: []const u8, spelled: *[files.max_path
     return path;
 }
 
-/// `vfs.read_mod(name)`.
+/// `vfs.read_mod(name)`, of at most what the mod's scripts have left of their memory (`readGame`).
 fn readMod(call: Call) i32 {
-    const state = call.state;
     const name = nameOf(call);
-    const gpa = call.runtime().gpa;
-    const bytes = call.context.modOf().readFile(gpa, name) catch |err| call.raise("{s} can't be read: {s}", .{ name, @errorName(err) });
-    return pushBytes(state, gpa, bytes orelse return pushNone(state));
+    const bytes = call.context.modOf().readFile(call.runtime().gpa, name) catch |err| call.raise("{s} can't be read: {s}", .{ name, @errorName(err) });
+    return pushBytes(call, name, bytes orelse return pushNone(call.state), call.runtime().memoryLeft(call.context));
 }
 
 /// `vfs.exists(name)`.
@@ -98,16 +93,42 @@ fn pushNone(state: *State) i32 {
     return 1;
 }
 
-/// Pushes `bytes` as a string (the state copies it) and frees them. Luau's errors skip Zig's defers,
-/// so if the copy runs out of memory, the bytes are not freed until OpenReliant quits.
-fn pushBytes(state: *State, gpa: std.mem.Allocator, bytes: []u8) i32 {
-    if (!state.checkStack(1)) {
+/// Pushes `bytes`, the file `name` read, as a string, and frees them. A file bigger than `most` is
+/// refused. Luau's errors skip Zig's defers, so the string is made in protected mode, and the bytes
+/// are freed before an error is raised again.
+fn pushBytes(call: Call, name: []const u8, bytes: []u8, most: usize) i32 {
+    const gpa = call.runtime().gpa;
+    if (bytes.len > most) {
         gpa.free(bytes);
-        state.raise("out of memory", .{});
+        tooBig(call, name, most);
     }
-    state.pushString(bytes);
+    var request: PushRequest = .{ .bytes = bytes };
+    const status = call.state.protectedCallC(luau.wrap(PushRequest.make), &request);
     gpa.free(bytes);
+    if (status != .ok) call.state.raiseTop();
+    _ = call.state.pushRef(request.string.?);
+    call.runtime().release(request.string.?);
     return 1;
+}
+
+/// A file's bytes, to be made a string (`pushBytes`).
+const PushRequest = struct {
+    bytes: []const u8,
+    string: ?luau.Ref = null,
+
+    /// Makes the string, kept by a reference. Runs in protected mode.
+    fn make(state: *State) i32 {
+        const request = state.toLightUserdata(PushRequest, 1).?;
+        state.pushString(request.bytes);
+        request.string = state.ref(-1);
+        return 0;
+    }
+};
+
+/// Raises the error for the file `name`, which is bigger than the `most` bytes the mod's scripts have
+/// left of their memory.
+fn tooBig(call: Call, name: []const u8, most: usize) noreturn {
+    call.raise("{s} is bigger than the {d} bytes the mod's scripts have left", .{ name, most });
 }
 
 test "scripts read a mod's file, else the game folder's loose file, else the archive's" {
@@ -158,4 +179,41 @@ test "scripts read a mod's file, else the game folder's loose file, else the arc
     defer arena.deinit();
     var held = try load.testing.records3(arena.allocator());
     try load.run(gpa, io, mods.list, &held, "0.7.0", .{ .files = archive, .game = .{ .io = io, .dir = tmp.dir } });
+}
+
+test "a file bigger than the mod's scripts have left of their memory is refused, and freed" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const load = @import("load.zig");
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const big = try gpa.alloc(u8, 2 << 20);
+    defer gpa.free(big);
+    @memset(big, 'x');
+    try load.testing.makeMods(io, tmp.dir, &.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nLoad=files.luau\n" },
+            .{ "small.bin", "small" },
+            .{ "big.bin", big },
+            .{
+                "files.luau",
+                \\local vfs = require("openreliant.vfs")
+                \\for _ = 1, 3 do
+                \\    local ok, message = pcall(vfs.read_mod, "big.bin")
+                \\    assert(not ok and string.find(message, "bigger than", 1, true))
+                \\end
+                \\assert(vfs.read_mod("small.bin") == "small")
+                \\require("openreliant.records").guns[1].range = 7
+            },
+        },
+    }});
+    var mods: bigfile.Mods = try .open(gpa, io, tmp.dir, null);
+    defer mods.close(gpa);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    var held = try load.testing.records3(arena.allocator());
+    try load.testing.runLimited(gpa, io, mods.list, &held, "0.7.0", .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .{});
+    // The script ran to its end.
+    try std.testing.expectEqual(7, held.guns[0].range);
 }

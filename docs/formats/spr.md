@@ -13,6 +13,9 @@ sltool spr extract <sprite> <out-dir>   # every shape as an indexed PNG, with th
 make sprites                            # every shape into game/sprites
 ```
 
+Privateer 2, StarLancer's predecessor, keeps its pictures in the same format, as `.SHP` files
+([Privateer 2](../games/privateer-2.md#sprites)), and `sltool spr` reads them as they are.
+
 ## Layout
 
 | Offset | Size | Field |
@@ -40,6 +43,10 @@ palette test is what resolves it, since every such shape contains `0xFF`.
 
 The placeholders hold bounds near `maxInt(i32)` and no pixel data. They occur in `LAUNCH.SPR`,
 `ifhard.spr` and `ifsoft.spr`.
+
+A block with a shape's header but rows that run past the block, as a broken set from a mod can
+have, isn't a shape either, so OpenReliant draws nothing for it. The log doesn't say so yet
+([#1079](https://github.com/OpenReliant/openreliant/issues/1079)).
 
 A remap table maps each palette index to another. The HUD sets open with a run of them, the first
 being the identity, `00 01 02 ... FF`.

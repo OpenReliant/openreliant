@@ -12,6 +12,7 @@
 
 const std = @import("std");
 const zlib = @import("zlib");
+const texels = @import("texels.zig");
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 
@@ -222,7 +223,10 @@ pub const Picture = PictureOf(u8);
 pub const WidePicture = PictureOf(u16);
 
 /// The longest side `read` takes: a picture larger is refused rather than made.
-pub const max_side = 16384;
+pub const max_side = texels.max_side;
+
+/// The most a deflate stream expands, by zlib's documentation: 1032 to 1.
+const max_inflate_ratio = 1032;
 
 pub const ReadError = Allocator.Error || error{
     /// The file lacks the signature.
@@ -410,6 +414,9 @@ fn readAs(comptime Sample: type, gpa: Allocator, bytes: []const u8, max_rgba_byt
         const across, const rows = pass.size(.{ head.width, head.height });
         if (across > 0) filtered_size += rows * (1 + head.stride(across));
     }
+    // The scanlines come from the data alone: data that can't inflate to them is refused before
+    // they are made.
+    if (filtered_size / max_inflate_ratio > data.items.len) return error.Corrupt;
     const filtered = try gpa.alloc(u8, filtered_size);
     defer gpa.free(filtered);
     try inflate(data.items, filtered);
@@ -886,6 +893,11 @@ test "read refuses what it cannot take" {
     const odd = try handMade(gpa, .{ .width = 1, .height = 1, .depth = 4, .colour = .rgb, .interlaced = false }, &.{}, &.{ 0, 0 });
     defer gpa.free(odd);
     try std.testing.expectError(error.Unsupported, read(gpa, odd));
+    // A header that asks for gigabytes of scanlines over a few bytes of data, which can't inflate
+    // to them, is refused before they are made.
+    const huge = try handMade(gpa, .{ .width = max_side, .height = max_side, .depth = 16, .colour = .rgba, .interlaced = false }, &.{}, &.{ 0, 7 });
+    defer gpa.free(huge);
+    try std.testing.expectError(error.Corrupt, read(gpa, huge));
 }
 
 test "read lets go of what it made when memory runs out" {

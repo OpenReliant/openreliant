@@ -42,6 +42,34 @@ The loader reads only the terminator's tag: `model_take_chunk` (`0x004A2EB0`) st
 whatever the two hold, even where they count more bytes than follow, and where the file ends after
 the tag. The reader stops at the tag too.
 
+### A file that ends early
+
+The loader never checks a chunk against the end of the file. `model_load` (`0x004A44D0`) reads the
+file with `SR_FILE_alloc` (`0x004CB420`) into a block exactly the file's size, and Surrender's
+allocator keeps each block's name right after its bytes (`SR_MEM_allocate_named`, `srmemory.dll`
+`0x100011B0`). A chunk whose records run past the end of the file is read on into that name, the
+model's file name, and past it into whatever memory follows.
+
+The French release's `krasny.shp` ends 4 bytes before the end of its last chunk, the firing arcs,
+and has no terminator. The firing arcs are the last chunk the loader asks for, so it never looks
+for the terminator, and it reads the last arc's last two rows from the first four characters of the
+name, `krasny.shp`: `kr` and `as`.
+
+**Fix:** OpenReliant reads what the file holds and stops at its end. The end of the file ends the
+stream as the terminator does, and the bytes of a chunk's records past the end read as zero.
+
+### What a file can ask for
+
+The loader allocates as many records as each chunk counts, even when they take no bytes of the
+file, and finds a chunk by scanning every chunk left. So a few bytes of file can ask for gigabytes
+of records, and a file of many chunks that lacks a tag the loader asks for makes every search pass
+over all of them.
+
+**Fix:** OpenReliant gives a model's records a budget of 16 times its file's size plus 1 MiB, and
+refuses a model that asks for more (`TooManyRecords`). A shipped model's records take less than
+twice its file's bytes. It finds each chunk through an index of where each tag's chunks start,
+built in one pass, which finds the same chunks as the scan.
+
 ### Tags
 
 | Tag | Record | Record sizes seen | Belongs to |
@@ -75,7 +103,8 @@ header, parts, then for each part:
 firing arcs
 ```
 
-Every model follows this order and ends with the terminator at the last byte of the file.
+Every model follows this order and ends with the terminator at the last byte of the file, except
+the French release's `krasny.shp`, which ends without one ([A file that ends early](#a-file-that-ends-early)).
 
 ### Writing
 

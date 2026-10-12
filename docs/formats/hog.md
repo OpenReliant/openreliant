@@ -6,6 +6,10 @@ alignment.
 
 Every integer in the container is **big-endian**.
 
+Privateer 2, StarLancer's predecessor, uses the same container for its `.BIG` files and for some of
+its `.IFF` files, with no member compressed ([Privateer 2](../games/privateer-2.md#archives)). `sltool hog` reads
+them as they are.
+
 ```bash
 sltool hog info <archive>              # size, member count, how much is compressed
 sltool hog ls <archive>                # offset, stored size, real size, name
@@ -24,6 +28,10 @@ make assets                            # extract resource.hog and pilots.hog int
 | 8 | 4 | Entry count |
 | 12 | 4 | Offset where the directory ends and the first member begins |
 
+The reader refuses an archive whose header puts the directory outside the file: the data offset
+must lie between the header's end and the end of the file, and the whole directory must be in the
+file (`hog.Archive.open`).
+
 ## Directory
 
 Entries follow the header at offset 16, packed with no alignment:
@@ -36,7 +44,10 @@ Entries follow the header at offset 16, packed with no alignment:
 
 Entries are variable-length, so the directory can only be read by walking it; there is no index.
 
-Names form a flat namespace with no directories and no path separators, and are not normalised:
+Names form a flat namespace with no directories and no path separators. The reader checks this:
+a record whose name has a `/`, `\` or `:`, or is `.` or `..`, would name a file in another
+folder, so the archive counts as corrupt (`hog.validName`), and `sltool hog extract` never writes
+outside the folder it's given. Names are not normalised:
 
 - **Case is inconsistent.** `interpal.TGA` and `interpal.tga` are different members of
   `resource.hog`.
@@ -107,8 +118,8 @@ OpenReliant opens an archive whose name differs in case, as Windows does (`hog_o
 
 `hog.build` lays an archive out as the shipped ones are: the header, a record and a name for each
 member in the order given, then the members back to back from the header's data offset to the end
-of the file, with no trailing filler. A name is one or more bytes of printable ASCII, as the
-directory's reader takes it (`hog.validName`). Names are not made unique.
+of the file, with no trailing filler. A name is one or more bytes of printable ASCII and a plain
+file name, as the directory's reader takes it (`hog.validName`). Names are not made unique.
 
 `sltool hog pack` makes an archive of every file of a folder, each a member of its own name, in
 name order. It stores each member as `hog.packMember` finds best:

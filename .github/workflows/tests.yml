@@ -1,5 +1,5 @@
 # Builds the executables and runs the tests on Linux, macOS and Windows for every pull request and
-# every push to main.
+# every push to main, and checks the Zig code's formatting.
 name: Tests
 
 on:
@@ -26,12 +26,19 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
+      # The formatting is the same on every system, so it's checked once.
+      - if: runner.os == 'Linux'
+        run: zig fmt --check src build.zig
       # A cache saved before this step existed can name binaries it no longer holds.
       - name: Forget the cached builds of our own code
         shell: bash
         run: ${{ env.forget_our_code }}
       - run: zig build --summary all
       - run: zig build test --summary all
+      # Releases are built ReleaseFast, without the safety checks, so the tests run in that mode
+      # too: Debug catches an overflow or a bad index with its checks on, and ReleaseFast what only
+      # goes wrong in the build players run, such as a read of undefined memory.
+      - run: zig build test --release=fast --summary all
       # setup-zig saves .zig-cache after the job, but clears it when it is over 2 GB. Our own
       # programs and test binaries change with every commit and would fill it, so they are left
       # out: the C libraries, the fetched packages and translate-c then stay cached between runs.

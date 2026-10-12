@@ -1729,7 +1729,7 @@ pub const Mission = struct {
     pub fn name(mission: Mission, offset: u16) []const u8 {
         const pool = mission.entry(.strings);
         if (!pool.isUsed()) return "";
-        const start = pool.offset + offset;
+        const start = std.math.add(usize, pool.offset, offset) catch return "";
         if (start >= mission.image.len) return "";
         const rest = mission.image[start..];
         const end = std.mem.findScalar(u8, rest, 0) orelse return "";
@@ -1794,6 +1794,30 @@ pub const testing = struct {
     /// `component`, or whole for `Trigger.whole_object`.
     pub fn squadMember(object_id: u16, squad_index: u16, component: u8) SquadMember {
         return .{ .object_id = object_id, ._unknown_02 = 0, .squad = squad_index, ._unknown_06 = 0, .component = component, ._unknown_09 = @splat(0) };
+    }
+
+    /// The records of a chain of `count` squads after `leading` ships, which take objects 0 to
+    /// `leading - 1`: each squad names the next one twice, and the last names ship 0 twice, so a
+    /// walk down every member would reach ship 0 2^`count` times.
+    pub fn DoubledChain(comptime leading: usize, comptime count: usize) type {
+        return struct {
+            objects: [leading + count]Object,
+            squads: [count]Squad,
+            members: [2 * count]SquadMember,
+
+            pub fn init() @This() {
+                var made: @This() = undefined;
+                for (made.objects[0..leading]) |*entry| entry.* = object(.ship, 0, 0);
+                for (0..count) |index| {
+                    made.objects[leading + index] = object(.squad, 0, 0);
+                    made.squads[index] = squad(@intCast(leading + index), @intCast(2 * index));
+                    const named: u16 = if (index + 1 < count) @intCast(leading + index + 1) else 0;
+                    made.members[2 * index] = squadMember(named, @intCast(index), Trigger.whole_object);
+                    made.members[2 * index + 1] = made.members[2 * index];
+                }
+                return made;
+            }
+        };
     }
 
     /// An entry of the object table: a record of `kind`, holding `count` triggers from `first`.
@@ -1880,6 +1904,10 @@ test "directory and records line up" {
     try std.testing.expectEqual(0, mission.room(.triggers));
     directory[@backingInt(Section.ships)].offset = image.len + 1;
     try std.testing.expectError(error.Truncated, (try Mission.parse(&image)).span(.ships));
+    // A string pool placed so that its offset and a name's add up past the image names nothing,
+    // even past what 32 bits hold.
+    directory[@backingInt(Section.strings)].offset = std.math.maxInt(u32) - 4;
+    try std.testing.expectEqualStrings("", (try Mission.parse(&image)).name(0x20));
 }
 
 test "Mission.findPart and findShip" {

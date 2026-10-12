@@ -77,10 +77,12 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 Other games on StarLancer's engine share its mission format. Comparing them with StarLancer shows
 what a shared engine would have to keep apart
 ([#181](https://github.com/OpenReliant/openreliant/issues/181),
-[#1017](https://github.com/OpenReliant/openreliant/issues/1017)). OpenReliant doesn't play them.
+[#1017](https://github.com/OpenReliant/openreliant/issues/1017)). Privateer 2, StarLancer's
+predecessor, shows what StarLancer carried over and what is new. OpenReliant doesn't play them.
 
 | Path | Contents |
 |---|---|
+| [`games/privateer-2.md`](games/privateer-2.md) | Privateer 2: The Darkening (1996), StarLancer's predecessor: the archives, sprites and sound banks StarLancer carried over, which `sltool` reads, and what is new in StarLancer. |
 | [`games/star-trek-invasion.md`](games/star-trek-invasion.md) | Star Trek: Invasion: its disc, archive, missions and models, which `sltool trek` reads. |
 | [`games/battlestar-galactica.md`](games/battlestar-galactica.md) | Battlestar Galactica (2003): its disc, missions, command catalogue, stats, comms films, archives, models and textures, which carry StarLancer's game logic forward, and `sltool bsg`, which reads them and converts the models to glTF. |
 

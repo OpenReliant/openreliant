@@ -43,9 +43,12 @@ pub const Format = enum {
     }
 
     /// The bytes a level `width` by `height` takes: its rows of blocks, the last ones partly
-    /// filled, for a compressed format.
+    /// filled, for a compressed format. Sides that make more bytes than a `usize` can count give
+    /// the largest `usize`, which no level holds and no allocation can get.
     pub fn size(format: Format, width: u32, height: u32) usize {
-        return if (format.compressed()) blocks(width) * blocks(height) * format.blockBytes() else @as(usize, width) * height * format.blockBytes();
+        const across: u128 = if (format.compressed()) blocks(width) else width;
+        const down: u128 = if (format.compressed()) blocks(height) else height;
+        return std.math.cast(usize, across * down * format.blockBytes()) orelse std.math.maxInt(usize);
     }
 
     /// The bytes of a block of 4 by 4 pixels; for an uncompressed format, of a pixel.
@@ -73,6 +76,10 @@ pub const Rgba = enum {
 
 /// The side of a compressed format's block, in pixels.
 pub const block_side = 4;
+
+/// The longest side the picture readers take. Most GPUs draw no larger, and a mod's picture is cut
+/// down to the texture detail's side anyway.
+pub const max_side = 16384;
 
 /// The blocks across `pixels`, the last partly filled.
 pub fn blocks(pixels: u32) usize {
@@ -137,6 +144,10 @@ test Format {
     try std.testing.expectEqual(3 * 8, Format.rgba16.size(3, 1));
     try std.testing.expectEqual(3 * 4, Format.rg16.size(1, 3));
     try std.testing.expect(!Format.rg16.compressed());
+    // Sides from a file that make more bytes than a `usize` counts give the largest, rather than a
+    // size that wrapped round to a small one.
+    try std.testing.expectEqual(std.math.maxInt(usize), Format.rgba8.size(0x80000000, 0x80000000));
+    try std.testing.expectEqual(std.math.maxInt(usize), Format.rgba16.size(std.math.maxInt(u32), std.math.maxInt(u32)));
     // The RGBA formats, and back.
     try std.testing.expectEqual(.rgba16, Format.rgba16.rgba().?);
     for ([_]Format{ .bc1, .bc7, .rg16 }) |other| try std.testing.expectEqual(null, other.rgba());

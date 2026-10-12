@@ -15,7 +15,6 @@ const game = engine.game;
 const input = engine.input;
 const canvas = game.interface.canvas;
 const device = engine.surrender.srd3d.device;
-const drawn = @import("presenter.zig").drawn;
 const console_module = scripting.console;
 const screen = console_module.screen;
 const Mod = game.bigfile.mods.Mod;
@@ -112,13 +111,13 @@ pub const Driver = struct {
     pub fn draw(driver: *Driver, target: device.Device, window: [2]u32, strings: *const game.language.Language, backdrop: screen.Backdrop) Allocator.Error!void {
         if (!driver.console.open) return;
         const resources = if (driver.resources) |*open| open else return;
-        try drawn(screen.draw(&driver.console, .{
+        try screen.draw(&driver.console, .{
             .gpa = resources.gpa,
             .target = target,
             .window = window,
             .fonts = resources.fonts(),
             .strings = strings,
             .version = version.string,
-        }, &resources.shapes.art, driver.pointer, backdrop));
+        }, &resources.shapes.art, driver.pointer, backdrop);
     }
 };

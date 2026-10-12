@@ -171,12 +171,28 @@ memory category.
 A call can run inside another: a hook's handler can run the game's function (`e:original()`), whose
 own hooks call other handlers. Each call starts its own time limit and counts its allocations
 against its own mod, and the call it interrupted gets its limit and its mod back when it returns
-(`Runtime.begin`).
+(`Runtime.begin`). Its clock moves on by the time the inner call took, so that time spent in the
+handlers it ran, other mods' included, doesn't count against it (`Runtime.end`).
+
+A call can be slow once for reasons that aren't its own, such as the system or a collection. So a
+function the scripts register goes at once where a call raises an error, but where a call runs out
+of time, only once three of its calls in a row have (`runtime.Timeouts`). That holds for a hook's
+handler and its filter, an engine handler, a custom order, and a registered camera view, HUD
+display or screen; event handlers and timers only log their errors. Many handlers that each keep to
+the limit can still hold up a frame; a budget for each frame across all of them isn't kept yet
+([#1077](https://github.com/OpenReliant/openreliant/issues/1077)).
 
 `Runtime.call` only pushes arguments that take no memory: references, numbers and booleans. What
 does take memory, such as `e` or the table `on_mission_start` gets, is made beforehand in protected
 mode (`Runtime.make`), where running out of memory is an error the engine handles, rather than one
-Luau can't recover from. These count against no mod.
+Luau can't recover from. These count against no mod. Every call runs with the same error handler,
+which adds the traceback: a reference made as the state starts (`Runtime.traceback`), so that
+nothing takes memory between the mod's limit taking hold and the protected call
+(`State.protectedCallWith`). A value a call returns is kept once the call has ended
+(`Runtime.callResult`). Opening a mod's context makes its thread and its tables in protected mode
+as the engine's work (`Runtime.protect`), since a script can open one (`object:add_script`). An
+error that no protected call catches is a bug of OpenReliant's: it's logged before Luau aborts
+(`State.setPanic`).
 
 ## Binding
 
@@ -317,9 +333,18 @@ menu comes back, or the game quits. Each game gets a new Luau state.
   among the object's guns (`create.Slot.guns`), and stays valid while the object does, a turret
   destroyed with its base (`guns.Turret.gone`) included.
 - As a script stops, its handlers, hooks and interfaces go, and so does its context once none of
-  the mod's scripts on it runs. While engine handlers are being called, a stopped script only gets
-  marked, and leaves its list once they're done (`Game.sweep`), so no list changes under a call.
-- An engine handler that fails is logged and not called again.
+  the mod's scripts on it runs (`Runner.closeUnused`), as does a context none of whose scripts
+  started. While engine handlers are being called, a stopped script only gets marked, and leaves
+  its list once they're done (`Game.sweep`), so no list changes under a call.
+- A script can stop its own scripts while it runs, such as a missile's script that sets off its
+  missile. A context closed while calls run keeps its thread and its tables until no call runs
+  (`Runtime.close`), so that Luau doesn't collect a thread in the middle of a call.
+- An engine handler that fails, or runs out of time three times in a row, is logged and not called
+  again.
+
+The orders the scripts give run against the world the mission's start hands them (`Scripts.begin`),
+then against the world as each frame has it (`Scripts.frame`), since some of the world's pointers,
+such as the cockpit's model, change between frames.
 
 The engine handlers get their arguments as `Handler.Arguments` declares them: numbers as they are,
 and handles and tables made beforehand in protected mode (`Runtime.make`). They're called in the
@@ -442,7 +467,8 @@ run of a hook (`Dispatch`):
 and written through each hook's `Access`, which is generated at compile time, and values are
 checked as they're written (`values.zig`). Once the run is over, `e` no longer points anywhere, so a
 script that kept it gets an error. Before each handler, the fields and the result are saved; if it
-fails, they're put back, unless the function ran inside it, and the handler is removed.
+fails, they're put back, unless the function ran inside it, and the handler is removed, or, where it
+ran out of time, once it has three times in a row ([Limits](#limits)).
 
 While any hook runs, handlers that are added wait, and removed ones are only marked, so that no
 list changes under a run. Once the outermost run ends, the lists are brought up to date, and so is
@@ -525,6 +551,11 @@ as one that isn't valid, since the game is saved between missions.
   front end starts the scripts as the game goes into the rooms; a load in the rooms starts them again
   at once. A saved game without the file starts them as a new game.
 - A file of another version, or a damaged one, is logged, and what's left of it goes unread.
+- Loading reads a file of up to `snapshot.max_size`, 256 MiB, and `snapshot.take` keeps within it.
+  It gathers the state first (`Gathered.gather`), then measures each mod's share of the file: its
+  game sections (`Storage.measureGame`), what its scripts saved and its timers. Where the file
+  would pass the limit, the mod with the largest share is left out, then the next, until the rest
+  fits (`Gathered.fit`), and each is logged. Their scripts get `on_init` when the game is loaded.
 - The restart point keeps the same state in memory (`Saving.restartPoint`), and a replay or the
   pause menu's RESTART starts the scripts again from it. RESTART ends the mission first, so that the
   scripts don't hear the end of a mission they never saw start.
@@ -549,6 +580,23 @@ sections.
   the mod's global sections as the scripts' state file holds game sections. They're read as
   OpenReliant starts (`Storage.readGlobal`), and the files of the mods whose sections changed are
   written at most every 2 seconds and as OpenReliant quits (`Storage.flush`).
+
+A mod's scripts may keep up to `storage.max_storage`, just under 15 MiB, in each place, counted as
+the memory the mod's sections take: each section, each field, and what the values hold
+(`stored.Value.footprint`), which their binary form never passes. A change that would take a mod
+past it is refused, unless it makes the sections smaller. What the engine keeps for a mod, its
+options and its game modes' progress, and what a file holds as it's read back, aren't counted. So a
+file of global sections always fits in the 16 MiB that reading takes, and one that wouldn't is left
+unwritten (`Storage.writeGlobal`).
+
+A value is checked before it's copied out of Luau (`stored.capture`), counting what the copy would
+take. A value that holds the same table twice is copied twice, so a few tables can stand for
+millions: the check stops past 16 MiB (`stored.max_kept`), which bounds its time as well as the
+copy, since it runs in Zig, where the time limit doesn't reach.
+
+Together, the mods' game sections and what their scripts save can take far more than one mod may
+keep, so the file kept with a saved game has a limit of its own, past which the mods that keep the
+most are left out ([Saved games](#saved-games)).
 
 ## Options
 
@@ -623,7 +671,9 @@ places (`vfs.find`):
    folder in `runtime.Shared.game`). A folder is not a file.
 3. The member of `resource.hog` (`runtime.Shared.files`).
 
-A loose file is read up to half the mod's memory limit, since a copy goes into the script's string.
+A file is read up to what the mod's scripts have left of their memory (`Runtime.memoryLeft`), since
+a copy goes into the script's string. The string is made in protected mode, so that the bytes read
+are freed where it can't be made (`vfs.pushBytes`).
 
 ## The console
 
