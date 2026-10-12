@@ -1,8 +1,8 @@
 # Example mods
 
-These mods are scripting examples for mod makers. Each one shows how a part of OpenReliant's
-scripting API works ([Scripting](../../docs/guide/scripting.md)), with comments in its scripts and
-shaders. They are not supported mods: they aren't balanced or tested for play, and they can change
+These mods are examples for mod makers. Each one shows how a part of modding works
+([Modding](../../docs/guide/modding.md), [Scripting](../../docs/guide/scripting.md)), with comments
+in its files. They are not supported mods: they aren't balanced or tested for play, and they can change
 or go away in any release. Copy one as a starting point for your own mod.
 
 | Mod | What it shows |
@@ -19,6 +19,7 @@ or go away in any release. Copy one as a starting point for your own mod.
 | [`dvd`](dvd) | A menu script that draws over the menus |
 | [`interceptor`](interceptor) | A new ship type, based on the Predator, flown in a game mode |
 | [`main-menu`](main-menu) | A main menu of the mod's own in place of the game's |
+| [`music`](music) | A piece of music in place of the main menu's, which loops back where the game's does |
 | [`rules`](rules) | Hooks on the game's functions |
 | [`strafe-run`](strafe-run) | A custom order with a HUD display, a chase camera and rebindable actions |
 | [`tally`](tally) | Storage kept with each saved game and across every game |
