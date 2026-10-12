@@ -93,9 +93,11 @@ pub fn build(b: *std.Build) void {
     }
     // Mod scripts: OpenReliant's scripting module (`src/scripting.zig`) on Luau, which deps/luau
     // builds from source for the target. Like FreeType, Luau is always built optimized so that
-    // scripts run fast in debug builds too. Only the game links it; the library the tools share
-    // doesn't.
-    const luau_library = b.dependency("luau", .{ .target = target, .optimize = .fast }).artifact("luau");
+    // scripts run fast in debug builds too. The game links all of it and sltool only its parser;
+    // the library the tools share doesn't link it.
+    const luau_dependency = b.dependency("luau", .{ .target = target, .optimize = .fast });
+    const luau_library = luau_dependency.artifact("luau");
+    const luau_ast_library = luau_dependency.artifact("luau-ast");
     const scripting = b.createModule(.{
         .root_source_file = b.path("src/scripting.zig"),
         .target = target,
@@ -120,6 +122,21 @@ pub fn build(b: *std.Build) void {
     for (examples) |file| if (std.mem.endsWith(u8, file, ".luau")) scripts.append(b.allocator, file) catch @panic("out of memory");
     example_scripts.addOption([]const []const u8, "scripts", scripts.items);
     scripting.addOptions("example_scripts", example_scripts);
+    // Mission source (`src/source_parser.zig`) is read with Luau's own parser, through a C++ shim,
+    // since the parser has no C API.
+    const source_parser = b.createModule(.{
+        .root_source_file = b.path("src/source_parser.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libcpp = true,
+        .imports = &.{
+            .{ .name = "openreliant", .module = lib },
+            .{ .name = "luau_syntax", .module = translateHeader(translate_c, b.path("src/source_parser/luau.h"), luau_ast_library, target, optimize) },
+        },
+    });
+    source_parser.linkLibrary(luau_ast_library);
+    source_parser.addIncludePath(luau_ast_library.getEmittedIncludeTree());
+    source_parser.addCSourceFile(.{ .file = b.path("src/source_parser/luau.cpp"), .flags = &.{ "-std=c++17", "-fno-sanitize=undefined" } });
     // The installer unpacks the game's cabinet with libarchive, which deps/libarchive builds from
     // source for the target.
     const archive_dependency = b.dependency("libarchive", .{ .target = target, .optimize = optimize });
@@ -187,6 +204,7 @@ pub fn build(b: *std.Build) void {
             .strip = strip,
             .imports = &.{
                 .{ .name = "openreliant", .module = lib },
+                .{ .name = "source_parser", .module = source_parser },
                 .{ .name = "version", .module = version },
             },
         }),
@@ -274,7 +292,7 @@ pub fn build(b: *std.Build) void {
     // `zig build check -fincremental --watch` reports compile errors within moments of a save.
     const test_step = b.step("test", "Run tests");
     const check_step = b.step("check", "Check that the programs and the tests compile, without writing binaries");
-    for ([_]*std.Build.Module{ lib, platform, scripting, version, openreliant.root_module, sltool.root_module, tablegen.root_module, ghidragen.root_module }) |module| {
+    for ([_]*std.Build.Module{ lib, platform, scripting, source_parser, version, openreliant.root_module, sltool.root_module, tablegen.root_module, ghidragen.root_module }) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
         check_step.dependOn(&b.addTest(.{ .root_module = module }).step);

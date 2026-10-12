@@ -87,18 +87,20 @@ effects' is.
 
 ## Luau implementation
 
-`deps/luau` builds Luau 0.740 from source as a static library. It includes the VM and the
-compiler, using the source files listed in Luau's `Sources.cmake` for `Luau.Common`, `Luau.Ast`,
-`Luau.Bytecode`, `Luau.Compiler` and `Luau.VM`. The build matches Luau's `LUAU_EXTERN_C` option: the
-C API is `extern "C"`, and Luau errors use `longjmp` instead of C++ exceptions, because exceptions
-can't unwind through Zig code. Luau is always built optimized, like FreeType.
+`deps/luau` builds Luau 0.740 from source as two static libraries, split as Luau's `Sources.cmake`
+splits it: `luau-ast`, the parser (`Luau.Common` and `Luau.Ast`), and `luau` on top of it, the
+bytecode builder, the compiler and the VM (`Luau.Bytecode`, `Luau.Compiler` and `Luau.VM`). The
+build matches Luau's `LUAU_EXTERN_C` option: the C API is `extern "C"`, and Luau errors use
+`longjmp` instead of C++ exceptions, because exceptions can't unwind through Zig code. Luau is
+always built optimized, like FreeType.
 
 Because errors use `longjmp`, a Zig function called from Luau must free anything it allocated before
 it calls something that can raise an error. Zig `defer`s don't run when a `longjmp` skips the frame.
 
 The scripting code is a separate module, [`src/scripting.zig`](../../src/scripting.zig), linked into
-the game only. sltool and the other tools don't link Luau.
-[`luau.zig`](../../src/scripting/luau.zig) wraps the C API.
+the game only. [`luau.zig`](../../src/scripting/luau.zig) wraps the C API. sltool links the parser
+alone, to read mission source ([Reading the text](../formats/mission-source.md#reading-the-text)).
+The other tools don't link Luau.
 
 ## The Luau state
 

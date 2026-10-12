@@ -4,7 +4,7 @@
 qualified names and allocates internal IDs after the original catalogue. `aigeneric.infoOf`
 combines original and registered metadata for stack priorities, player eligibility, retaliation,
 avoidance and disruption. The original catalogue remains generated and immutable. Custom
-callbacks use the scripting bridge in `hooks.Scripts`; the engine and tools do not link Luau.
+callbacks use the scripting bridge in `hooks.Scripts`, since the engine doesn't link Luau.
 
 What each object is doing: flying in formation, escorting, docking, exploding, or following the player's controls. An object keeps a stack of orders, the current one on top, which the AI, the mission scripts and the player's controls push and pop, and `object_orders` runs the current one.
 

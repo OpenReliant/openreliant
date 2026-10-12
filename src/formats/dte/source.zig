@@ -13,6 +13,8 @@ pub const vocabulary = @import("source/vocabulary.zig");
 pub const script = @import("source/script.zig");
 /// A mission as text.
 pub const write = @import("source/write.zig");
+/// The text as Luau's parser reads it.
+pub const syntax = @import("source/syntax.zig");
 
 /// Whether `id` matches the source grammar `[A-Za-z_][A-Za-z0-9_-]*`.
 pub fn validId(id: []const u8) bool {
