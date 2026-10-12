@@ -151,6 +151,40 @@ pub const Field = struct {
     /// Dust: its streaks cut to a quarter of the usual length (`jump_stretch`), as they are while
     /// the player's ship jumps in (`0x005E82F0`).
     shortened: bool = false,
+    /// OpenReliant's: how the sun's glare dims its stars this frame, which the backdrop sets.
+    glare: Glare = .{},
+};
+
+/// OpenReliant's: the sun's glare, which washes out the stars near the sun as it would in an eye or
+/// a camera ([#390](https://github.com/OpenReliant/openreliant/issues/390)). A star is hidden
+/// within `inner` of the sun and shows whole from `outer` on. In between, the share of it that shows
+/// grows with the square of its angle from the sun, as a star's contrast against an eye's glare
+/// does: the glare's light falls off with the square of the angle. `strength`, how much of the sun
+/// shows, scales how much the glare takes away, so a ship or a planet in front of the sun brings
+/// the stars back.
+///
+/// **Improvement:** the original draws the stars at their own brightness right up to the sun.
+pub const Glare = struct {
+    /// Toward the sun, in the camera's frame, a unit long.
+    toward: Vector = .{ 0, 0, 1 },
+    /// How much of the glare there is, from 0 for none to 1.
+    strength: f32 = 0,
+    /// The angles from the sun, in radians, within which a star is hidden, and from which it
+    /// shows whole.
+    inner: f32 = 0,
+    outer: f32 = 0,
+
+    /// The share of a star's brightness that shows when it lies along `direction` in the camera's
+    /// frame, at any length.
+    pub fn shown(glare: Glare, direction: Vector) f32 {
+        if (glare.strength <= 0) return 1;
+        const length = math.length(direction);
+        if (length == 0) return 1;
+        const angle = std.math.acos(std.math.clamp(math.dot(direction, glare.toward) / length, -1, 1));
+        if (angle >= glare.outer) return 1;
+        const clear = if (angle <= glare.inner) 0 else (angle * angle - glare.inner * glare.inner) / (glare.outer * glare.outer - glare.inner * glare.inner);
+        return 1 - glare.strength * (1 - clear);
+    }
 };
 
 /// How many times shorter the dust's streaks are cut while the player's ship jumps in
@@ -201,7 +235,8 @@ pub fn project(arena: Allocator, context: *const srapi.Context, field: *Field) A
                 const motion = shorten(now, &before, 1);
                 var cut_now = now;
                 if (!streakClip(context.projection.bounds, &cut_now, &before)) continue;
-                try visible.append(arena, .{ .index = @intCast(index), .now = cut_now, .before = before, .brightness = skyBrightness(motion) });
+                const brightness = skyBrightness(motion) * field.glare.shown(.{ now[0], now[1], 1 });
+                try visible.append(arena, .{ .index = @intCast(index), .now = cut_now, .before = before, .brightness = brightness });
             }
         },
         .dust => {
@@ -223,6 +258,7 @@ pub fn project(arena: Allocator, context: *const srapi.Context, field: *Field) A
                 if (!(jump[0] <= half and jump[1] <= half and jump[2] <= half)) continue;
                 var now3: Vector = .{ row(rotation, 0, here), row(rotation, 1, here), z };
                 var before3: Vector = .{ row(previous, 0, there), row(previous, 1, there), z_before };
+                const glared = field.glare.shown(now3);
                 var now: [2]f32 = undefined;
                 var before: [2]f32 = undefined;
                 if (!dustStreak(context.projection, &now3, &before3, &now, &before)) continue;
@@ -231,7 +267,7 @@ pub fn project(arena: Allocator, context: *const srapi.Context, field: *Field) A
                     .index = @intCast(index),
                     .now = now,
                     .before = before,
-                    .brightness = dustBrightness(math.dot(now3, now3), field.cube_mask, motion),
+                    .brightness = dustBrightness(math.dot(now3, now3), field.cube_mask, motion) * glared,
                 });
             }
         },
@@ -381,4 +417,39 @@ test dustBrightness {
     // Full out to where 16 * (0.25 - d^2 / side^2) falls to 1.
     try std.testing.expectEqual(1, dustBrightness(3500 * 3500, cube, 0));
     try std.testing.expect(dustBrightness(3800 * 3800, cube, 0) < 1);
+}
+
+test Glare {
+    const glare: Glare = .{ .toward = .{ 0, 0, 1 }, .strength = 0.8, .inner = 0.05, .outer = 0.3 };
+    // Within `inner` of the sun a star loses the glare's strength; from `outer` on it shows whole.
+    try std.testing.expectApproxEqAbs(0.2, glare.shown(.{ 0, 0, 5 }), 1e-6);
+    try std.testing.expectEqual(1, glare.shown(.{ 1, 0, 1 }));
+    try std.testing.expectEqual(1, glare.shown(.{ 0, 0, -1 }));
+    // In between, the share that shows grows with the square of the angle.
+    const angle: f32 = 0.2;
+    const clear = (angle * angle - 0.05 * 0.05) / (0.3 * 0.3 - 0.05 * 0.05);
+    try std.testing.expectApproxEqAbs(1 - 0.8 * (1 - clear), glare.shown(.{ @sin(angle), 0, @cos(angle) }), 1e-5);
+    // With none of the sun showing, or no direction, nothing is dimmed.
+    const hidden: Glare = .{ .toward = .{ 0, 0, 1 }, .inner = 0.05, .outer = 0.3 };
+    try std.testing.expectEqual(1, hidden.shown(.{ 0, 0, 1 }));
+    try std.testing.expectEqual(1, glare.shown(@splat(0)));
+}
+
+test "the sun's glare hides the stars near it" {
+    const gpa = std.testing.allocator;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var context: srapi.Context = .{ .projection = .init(1024, 768, srapi.full_screen, .{ 0.6, 0.8 }) };
+    // The sun dead ahead: the star in front of it is hidden, and one 0.3 view units off it, past
+    // the glare's reach, shows whole.
+    const stars = [_]Star{
+        .{ .position = .{ 0, 0, 1 }, .colour = .{ 1, 1, 1 } },
+        .{ .position = .{ 0.3, 0, 1 }, .colour = .{ 1, 1, 1 } },
+    };
+    var field: Field = .{ .kind = .sky, .stars = &stars, .glare = .{ .toward = .{ 0, 0, 1 }, .strength = 1, .inner = 0.05, .outer = 0.2 } };
+    const drawn = (try project(arena, &context, &field)).?;
+    try std.testing.expectEqual(2, drawn.visible.len);
+    try std.testing.expectEqual(0, drawn.visible[0].brightness);
+    try std.testing.expectEqual(1, drawn.visible[1].brightness);
 }

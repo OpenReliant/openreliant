@@ -64,6 +64,16 @@ Each frame (`stars_project`, `0x004C5380`):
 
 After a camera cut, `backdrop_reset_streaks` (`0x004A5C80`) stops the next frame drawing streaks: `camera_set_view` calls it on every switch, and `mission_frame` once the view differs from the last frame's (`camera_view_last`, `0x00539A64`).
 
+**Improvement:** the sun's glare washes out the stars near the sun, as it would in an eye or a
+camera ([#390](https://github.com/OpenReliant/openreliant/issues/390), `srstars.Glare`). A star
+is hidden within the angle from the sun that `sunlayer1` reaches: its texture's width times its
+size over 768, in view units, which is about 2.4 degrees with the game's textures. It shows whole
+from the angle that `sunlayer3`, the glow, reaches, about 18.4 degrees. In between, the share of
+the star that shows grows with the square of its angle from the sun, as a star's contrast against
+an eye's glare does. The glare is as strong as the share of the sun that shows
+([OpenReliant's sun](#openreliants-sun)), so a ship or a planet in front of the sun brings the
+stars back. The dust fades the same way. `--original` draws every star at its own brightness.
+
 ## Dust
 
 200 motes in a cube of side 8191, placed by the C runtime's `rand`, grey at half brightness. They are fixed in the world, repeating every 8192 units: each frame a mote is placed within 4096 of the camera on each axis. Its brightness is `16 * (0.25 - d² / 8191²) / (100m + 1)`, clamped to 0 to 1, with `d` its distance, so motes fade out by 4096 away. They streak like stars,
