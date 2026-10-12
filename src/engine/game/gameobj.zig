@@ -1932,6 +1932,8 @@ pub const World = struct {
     launch_steam: @import("launch/yamato.zig").Steam = .soft,
     /// How the Reliant's landing brings the ship down.
     touchdown: @import("ailand.zig").Touchdown = .level,
+    /// When the player hears their own ship jump in.
+    arrival_sound: @import("jump.zig").ArrivalSound = .heard,
     /// `light_maps` (`0x005D5618`): whether the parts flagged `lightmap` are drawn with their light
     /// maps (`winmain.Details.light_maps`), which the orders that turn a ship's lights on and off
     /// go by.
