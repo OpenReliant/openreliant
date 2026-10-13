@@ -37,12 +37,15 @@ pub fn write(arena: Allocator, w: *Writer) Error!void {
     inline for (comptime std.enums.values(vocabulary.Kind)) |kind| {
         if (comptime vocabulary.Names(kind)) |Enum| {
             const article = if (std.mem.findScalar(u8, "aeiou", kind.noun()[0]) != null) "An" else "A";
-            try w.print("--- {s} {s}, by its name, or by its number where the game doesn't name it.\n", .{ article, kind.noun() });
-            try writeNames(w, kind.typeName(), @typeInfo(Enum).@"enum".field_names);
+            const mod_names = comptime kind.hasModNames();
+            try w.print("--- {s} {s}, by its name, or by its number where the game doesn't name it.", .{ article, kind.noun() });
+            if (mod_names) try w.writeAll(" It also accepts any text, as the scripting API's type does, but `sltool dte build` only accepts the game's names.");
+            try w.writeAll("\n");
+            try writeNames(w, kind.typeName(), @typeInfo(Enum).@"enum".field_names, mod_names);
         }
     }
     try w.writeAll("--- The wing a flight group's ships are listed in.\n");
-    try writeNames(w, "Wing", @typeInfo(dte.FlightGroup.Wing).@"enum".field_names);
+    try writeNames(w, "Wing", @typeInfo(dte.FlightGroup.Wing).@"enum".field_names, false);
     try writeEventValues(arena, w);
 
     try w.writeAll("\n-- The records a mission declares, and the other types its words take and give.\n\n");
@@ -85,13 +88,14 @@ pub fn write(arena: Allocator, w: *Writer) Error!void {
 }
 
 /// Writes the type `name`: the names `tags` give, but placeholders (`vocabulary.isPlaceholder`),
-/// or a number for a value without a name.
-fn writeNames(w: *Writer, name: []const u8, tags: []const [:0]const u8) Writer.Error!void {
+/// or a number for a value without a name, and any text where `text` is set
+/// (`vocabulary.Kind.hasModNames`).
+fn writeNames(w: *Writer, name: []const u8, tags: []const [:0]const u8, text: bool) Writer.Error!void {
     try w.print("export type {s} = ", .{name});
     for (tags) |tag| {
         if (!vocabulary.isPlaceholder(tag)) try w.print("\"{s}\" | ", .{tag});
     }
-    try w.writeAll("number\n");
+    try w.writeAll(if (text) "number | string\n" else "number\n");
 }
 
 /// Writes `EventValue`, which `last_event` takes: the value of a condition's event by its label in
@@ -156,6 +160,44 @@ fn writeCommand(arena: Allocator, w: *Writer, command: commands.Command) Error!v
     try w.writeAll("): ()\n");
 }
 
+/// Helpers for the tests that read a definitions file, here and where both files are read.
+pub const testing = struct {
+    /// A name a definitions file declares, with the first line of its declaration.
+    pub const Declaration = struct {
+        name: []const u8,
+        line: []const u8,
+        /// Whether it declares a type (`export type`, `declare extern type`), rather than a value or
+        /// a function (`declare`).
+        type: bool,
+    };
+
+    /// The declarations of a definitions file, in order (`declarations`).
+    pub const Declarations = struct {
+        lines: std.mem.SplitIterator(u8, .scalar),
+
+        pub fn next(each: *Declarations) ?Declaration {
+            const forms = [_]struct { []const u8, bool }{
+                .{ "export type ", true },
+                .{ "declare extern type ", true },
+                .{ "declare function ", false },
+                .{ "declare ", false },
+            };
+            while (each.lines.next()) |line| {
+                for (forms) |form| {
+                    const rest = std.mem.cutPrefix(u8, line, form[0]) orelse continue;
+                    return .{ .name = rest[0 .. std.mem.findAny(u8, rest, " <=:(") orelse rest.len], .line = line, .type = form[1] };
+                }
+            }
+            return null;
+        }
+    };
+
+    /// The declarations of the definitions file `text`.
+    pub fn declarations(text: []const u8) Declarations {
+        return .{ .lines = std.mem.splitScalar(u8, text, '\n') };
+    }
+};
+
 test "the definitions don't change unless the game's tables or the source do" {
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();
@@ -192,18 +234,16 @@ test write {
     // capitalised name outside the comments and the strings is a type, but for the commands' names
     // and the type parameters, such as `A`.
     var declared: std.StringHashMapUnmanaged(void) = .empty;
-    var lines = std.mem.splitScalar(u8, text, '\n');
-    while (lines.next()) |line| {
-        for ([_][]const u8{ "export type ", "declare extern type " }) |prefix| {
-            const rest = std.mem.cutPrefix(u8, line, prefix) orelse continue;
-            const slot = try declared.getOrPut(arena, rest[0 .. std.mem.findAny(u8, rest, " =") orelse rest.len]);
-            if (slot.found_existing) {
-                std.debug.print("the definitions declare {s} twice\n", .{slot.key_ptr.*});
-                return error.TestUnexpectedResult;
-            }
+    var each = testing.declarations(text);
+    while (each.next()) |declaration| {
+        if (!declaration.type) continue;
+        const slot = try declared.getOrPut(arena, declaration.name);
+        if (slot.found_existing) {
+            std.debug.print("the definitions declare {s} twice\n", .{declaration.name});
+            return error.TestUnexpectedResult;
         }
     }
-    lines = std.mem.splitScalar(u8, text, '\n');
+    var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |line| {
         if (std.mem.startsWith(u8, std.mem.trimStart(u8, line, " "), "--")) continue;
         const code = if (std.mem.cutPrefix(u8, line, "declare function ")) |rest| rest[std.mem.findAny(u8, rest, "(<").?..] else line;

@@ -253,7 +253,7 @@ test write {
         \\| `entity_to_target` | `Entity?` | Entity to target (can be NULL) |
     ) != null);
     // A condition's values, and whether a trigger checks them; a `|` in a type is escaped.
-    try std.testing.expect(std.mem.find(u8, text, "| `attacker` | Attacker | `Ship` | Yes |\n") != null);
+    try std.testing.expect(std.mem.find(u8, text, "| `attacker` | Attacker | `MissionShip` | Yes |\n") != null);
     try std.testing.expect(std.mem.find(u8, text, "| `(Entity \\| number)?` or `number?` |") != null);
 }
 

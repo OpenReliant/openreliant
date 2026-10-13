@@ -780,3 +780,13 @@ are extern types (`declare extern type`), the other types are exported so that s
 with them, and the descriptions are `---` comments, which luau-lsp shows on hover. A test parses the
 file with Luau's own parser, as luau-lsp reads a definitions file
 ([`source_parser.zig`](../../src/source_parser.zig)).
+
+`hooks.add`, `hooks.after` and an object's `hook` take the hook's name from a union of the names
+they accept (`HookName`, `FunctionHookName` and `ObjectHookName`, from `hooks.Names`), and give the
+handler an `e` of type `any`, which scripts annotate with the hook's type. Luau types a handler's
+parameters only from a single signature without generics: one overload per hook, or a type
+function from a hook's name to its type, leaves `e` untyped in both of Luau's type solvers. The new
+solver also refuses an intersection of more than eight such overloads, and then ignores the whole
+file. So the file loads in both solvers, and beside mission source's definitions in one folder
+([Editors](../guide/missions.md#editors)): a test checks that the names both files declare are
+declared the same way in each.

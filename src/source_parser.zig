@@ -3,8 +3,9 @@
 //! text and writes the syntax tree into flat arrays, and `parse` copies them into the library's
 //! tree (`dte.source.syntax`). `build` compiles the text into a mission file. It is a module of its
 //! own because it links Luau's parser, which the library the tools share doesn't, and so it holds
-//! the tests that compile source, the test that the definitions files OpenReliant writes for
-//! luau-lsp parse, and the tests that build and play the missions of the guide to writing missions.
+//! the tests that compile source, the tests that the definitions files OpenReliant writes for
+//! luau-lsp parse and can be loaded together, and the tests that build and play the missions of the
+//! guide to writing missions.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -132,7 +133,7 @@ test "records" {
 
 test "triggers and parts" {
     try expectTree(
-        \\on(convoy, "shot_at", { attacker = any_ship }, function(attacker: Ship, hull_damage) end)
+        \\on(convoy, "shot_at", { attacker = any_ship }, function(attacker: MissionShip, hull_damage) end)
         \\go_home = part("(F)GO HOME", function(arg0) return 1 end, { start = true })
     ,
         \\(call_statement (call (global_name "on") (global_name "convoy") (string "shot_at") (table (item record (string "attacker") (global_name "any_ship"))) (function (name "attacker") (name "hull_damage") (block))))
@@ -232,6 +233,33 @@ test definitionErrors {
     try std.testing.expectEqual(0, (try definitionErrors(arena, declaration)).len);
     try std.testing.expect((try parse(arena, declaration)).errors.len > 0);
     try std.testing.expect((try definitionErrors(arena, "declare class Ship\nend\n")).len > 0);
+}
+
+test "both definitions files can be loaded together" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    // luau-lsp loads every definitions file into one scope, where a name declared twice gets the
+    // later declaration. So a mod's folder can hold both scripts and missions only while a name
+    // that both files declare is the same one-line type in each, as the names of values are.
+    const definitions = dte.source.definitions.testing;
+    var scripting: std.StringHashMapUnmanaged([]const u8) = .empty;
+    var each = definitions.declarations(@embedFile("openreliant.d.luau"));
+    while (each.next()) |declaration| try scripting.put(arena, declaration.name, declaration.line);
+    var shared: usize = 0;
+    each = definitions.declarations(@embedFile("mission.d.luau"));
+    while (each.next()) |declaration| {
+        const other = scripting.get(declaration.name) orelse continue;
+        const line = declaration.line;
+        const one_line = std.mem.startsWith(u8, line, "export type ") and !std.mem.endsWith(u8, line, "{") and !std.mem.endsWith(u8, line, "= ");
+        if (!one_line or !std.mem.eql(u8, line, other)) {
+            std.debug.print("both definitions files declare {s}, but not the same way: rename one of them\n", .{declaration.name});
+            return error.TestUnexpectedResult;
+        }
+        shared += 1;
+    }
+    // The names of values, such as `ShipType`, are the ones they share.
+    try std.testing.expect(shared > 0);
 }
 
 test buildFile {

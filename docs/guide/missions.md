@@ -157,7 +157,8 @@ StarLancer/mods/first-mission/mission90.mission.luau:52:4: `enemy` is not declar
 ```
 
 The mission starts at once, with the player's ship in space. `--mission` flies the mission's ship
-type, the Predator here, unless `--ship` names another ([The mission](configuration.md#the-mission)).
+type, the Predator here, unless `--ship` names another
+([The mission](configuration.md#the-mission)).
 Fly to the nav point the display points to, and destroy the two Sabres. Five seconds after the
 second Sabre is destroyed, the mission ends and the pause menu opens: RESTART flies it again, and
 LEAVE MISSION quits.
@@ -286,8 +287,9 @@ optional but `type` ([ShipFields](mission-reference.md#shipfields)):
 - `group`, its flight group.
 - `position`, and `yaw`, `pitch` and `roll` in whole degrees. The game turns a ship by its yaw about
   Y, then its pitch about X, then its roll about Z.
-- `pilot`, the pilot who flies it, by name ([Pilot](mission-reference.md#pilot)), which sets how
-  well it flies and fights. Mission 0's Sabres fly with `"jackel"`, one of the weakest.
+- `pilot`, the pilot who flies it, by name ([PilotNumber](mission-reference.md#pilotnumber)),
+  which sets how well it flies and fights. Mission 0's Sabres fly with `"jackel"`, one of the
+  weakest.
 - `launch`, for a ship that launches from a carrier: `{ from = "reliant", gate = 0 }` launches it
   through the first launch tube of the mission's first Reliant. Make the carrier's flight group
   before the ship's, so that the carrier is there, then start the launch with `StartLaunch` and wait
@@ -307,7 +309,8 @@ needs a flight group. The start part usually makes them, and a part can make one
 its ships in during the mission.
 
 `wing = "player"` lists a group's ships in the player's wing: they show in the wing status window,
-and take the player's commands over the radio ([FlightGroupFields](mission-reference.md#flightgroupfields)).
+and take the player's commands over the radio
+([FlightGroupFields](mission-reference.md#flightgroupfields)).
 
 Where a command takes an `Entity` ([Types](mission-reference.md#types)), it takes a ship, a flight
 group or a squad. `SetAI(enemies, "fight", 1, player)` orders both Sabres to fight the player.
@@ -354,10 +357,11 @@ flight group or a squad ([Conditions](mission-reference.md#conditions)). The fie
 out.
 
 ```luau
-on(convoy, "shot_at", { repeats = "always" }, function(attacker, shield_damage, hull_damage, victim, weapon_fired)
-    convoy_hits += 1
-    return 1
-end)
+on(convoy, "shot_at", { repeats = "always" },
+    function(attacker, shield_damage, hull_damage, victim, weapon_fired)
+        convoy_hits += 1
+        return 1
+    end)
 ```
 
 - The code's parameters are the values that the condition's events carry, in the order the
@@ -453,9 +457,13 @@ and the names of the game's values.
 
 Mission source needs the new type solver, since a declaration can use a name that the file declares
 after it, which the old solver takes for a mistake. The new solver doesn't report mistakes in the
-types, though, so `sltool dte build` is still what finds them. The scripting API's definitions
-don't load in the new solver yet ([#1139](https://github.com/OpenReliant/openreliant/issues/1139)),
-so keep mods' scripts in a folder of their own.
+types, though, so `sltool dte build` is still what finds them.
+
+A mod with both missions and scripts can add the scripting API's definitions too
+([Editors](scripting.md#editors)), as `"@openreliant": "path/to/openreliant.d.luau"` beside
+`"@mission"`. Both files use the same names for the game's values, such as `ShipType`, and
+different names for everything else: a mission's ship is a `MissionShip`, while a script's `Ship` is
+a ship type's record.
 
 ## Learning from other missions
 
