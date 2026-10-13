@@ -14,6 +14,8 @@ const Allocator = std.mem.Allocator;
 const c = @import("av");
 const openreliant = @import("openreliant");
 const bink = openreliant.engine.bink;
+const math = openreliant.engine.surrender.math;
+const wave = openreliant.wave;
 
 /// The decoders, which hold nothing between the streams they open. FFmpeg's own warnings and
 /// errors go to the log (`logs.route`).
@@ -208,10 +210,8 @@ fn top16(level: i32) i16 {
 /// A float sample from -1 to 1 as a 16-bit one, rounded to the nearest and a half to the even one,
 /// as FFmpeg's conversion rounds (`lrintf`).
 fn sample16(level: f32) i16 {
-    const scaled = level * 32768;
-    var rounded = @round(scaled);
-    if (@abs(scaled - @trunc(scaled)) == 0.5 and @mod(rounded, 2) != 0) rounded -= std.math.sign(scaled);
-    return @intFromFloat(std.math.clamp(rounded, -32768, 32767));
+    const rounded = math.roundEven(level * wave.full_scale);
+    return @intFromFloat(std.math.clamp(rounded, std.math.minInt(i16), std.math.maxInt(i16)));
 }
 
 fn close(_: *anyopaque, handle: bink.Stream) void {
@@ -229,9 +229,11 @@ test sample16 {
     try std.testing.expectEqual(0, sample16(0));
     try std.testing.expectEqual(16384, sample16(0.5));
     // A half goes to the even one.
-    try std.testing.expectEqual(2, sample16(2.5 / 32768.0));
-    try std.testing.expectEqual(-2, sample16(-2.5 / 32768.0));
-    try std.testing.expectEqual(4, sample16(3.5 / 32768.0));
+    // A step of the 16-bit scale as a float.
+    const step: f32 = 1.0 / @as(f32, wave.full_scale);
+    try std.testing.expectEqual(2, sample16(2.5 * step));
+    try std.testing.expectEqual(-2, sample16(-2.5 * step));
+    try std.testing.expectEqual(4, sample16(3.5 * step));
     try std.testing.expectEqual(32767, sample16(1.5));
     try std.testing.expectEqual(-32768, sample16(-1));
 }
@@ -274,14 +276,14 @@ test "a FLAC file decodes to a WAVE file of its samples" {
     var whole: bink.AudioDecoding = try .beginFlac(codec, file);
     const decoded = try whole.complete(gpa);
     defer gpa.free(decoded);
-    const wave = try openreliant.wave.Wave.parse(decoded);
-    try std.testing.expectEqual(openreliant.wave.Wave.Format.pcm, wave.format);
-    try std.testing.expectEqual(44100, wave.rate);
-    try std.testing.expectEqual(2, wave.channels);
-    try std.testing.expectEqual(192 * 2 * 2, wave.data.len);
+    const parsed = try wave.Wave.parse(decoded);
+    try std.testing.expectEqual(wave.Wave.Format.pcm, parsed.format);
+    try std.testing.expectEqual(44100, parsed.rate);
+    try std.testing.expectEqual(2, parsed.channels);
+    try std.testing.expectEqual(192 * 2 * 2, parsed.data.len);
     for (0..192) |at| {
-        try std.testing.expectEqual(1000, std.mem.readInt(i16, wave.data[at * 4 ..][0..2], .little));
-        try std.testing.expectEqual(-2000, std.mem.readInt(i16, wave.data[at * 4 + 2 ..][0..2], .little));
+        try std.testing.expectEqual(1000, std.mem.readInt(i16, parsed.data[at * 4 ..][0..2], .little));
+        try std.testing.expectEqual(-2000, std.mem.readInt(i16, parsed.data[at * 4 + 2 ..][0..2], .little));
     }
     // A frame at a time, as a mod's music decodes over several of the game's frames: the file's
     // one frame, then the end.
@@ -306,7 +308,7 @@ test "an Ogg file decodes to a WAVE file of its samples, up to where its last pa
     var opus_decoding: bink.AudioDecoding = try .beginOgg(codec, gpa, opus);
     const from_opus = try opus_decoding.complete(gpa);
     defer gpa.free(from_opus);
-    const opus_wave = try openreliant.wave.Wave.parse(from_opus);
+    const opus_wave = try wave.Wave.parse(from_opus);
     try std.testing.expectEqual(48000, opus_wave.rate);
     try std.testing.expectEqual(2, opus_wave.channels);
     try std.testing.expectEqual((3 * frame - 400 - 312) * 2 * @sizeOf(i16), opus_wave.data.len);
@@ -321,7 +323,7 @@ test "an Ogg file decodes to a WAVE file of its samples, up to where its last pa
     try std.testing.expectEqual(4 * 128, vorbis_decoding.pcm.items.len);
     const from_vorbis = try vorbis_decoding.complete(gpa);
     defer gpa.free(from_vorbis);
-    const vorbis_wave = try openreliant.wave.Wave.parse(from_vorbis);
+    const vorbis_wave = try wave.Wave.parse(from_vorbis);
     try std.testing.expectEqual(22050, vorbis_wave.rate);
     try std.testing.expectEqual(1, vorbis_wave.channels);
     try std.testing.expectEqual(400 * @sizeOf(i16), vorbis_wave.data.len);

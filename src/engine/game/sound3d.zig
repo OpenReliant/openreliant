@@ -341,14 +341,14 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     const v = chooseVoice(sound, class) orelse return null;
     const voice = &sound.voices_3d[v];
     if (!voice.isFree()) sound.end3D(v);
-    if (definition.follows == .point_facing) {
+    if (definition.follows == .point_facing) if (direction) |facing_along| {
         voice.position = .of(position);
-        voice.direction = .of(direction.?);
-    }
+        voice.direction = .of(facing_along);
+    };
     const sample = file orelse bank.sound(definition.entry) orelse return null;
     sound.effects.rate_scales[v] = rateScale(sample, file != null or sound.effects.isModded(definition.entry));
     voice.follows = definition.follows;
-    voice.owner = if (owner) |held| held else -1;
+    voice.owner = if (owner) |held| held else hog_snd.Voice3D.no_owner;
     voice.priority = @intCast(bank.entries[definition.entry].priority);
     voice.sound = @backingInt(which);
     voice.started = scene.clock.frame_start;
@@ -362,7 +362,7 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     driver.set3DSampleLoopCount(voice.sample, definition.loop_count);
     driver.set3DSampleVolume(voice.sample, std.math.lossyCast(i32, level));
     driver.set3DPosition(voice.sample, hog_snd.miles(turned));
-    driver.set3DOrientation(voice.sample, hog_snd.miles(heading), .{ 0, 1, 0 });
+    driver.set3DOrientation(voice.sample, hog_snd.miles(heading), mss.positional.up);
     driver.set3DVelocity(voice.sample, hog_snd.miles(moving));
     driver.set3DSampleCone(voice.sample, definition.cone_inner, definition.cone_outer, std.math.lossyCast(i32, definition.cone_outer_volume));
     driver.set3DSampleDistances(voice.sample, range, min_distance * hog_snd.distance_scale);

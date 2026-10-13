@@ -833,12 +833,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The Reliant's rooms and the briefing, which run in loops of their own, with what they read,
     // play and draw with: made as the front end's resources open.
     var rooms: ?Rooms = null;
-    // A piece of music asked for, as a mission's script plays one (`cmd_PlayMusic`): from `music\`,
-    // for ever, at 80.
-    if (options.music) |name| {
-        const path = try arena.print("music\\{s}", .{name});
-        sound.playMusic(path, 0, 80, .now);
-    }
+    // A piece of music asked for, played as a mission's script plays one (`cmd_PlayMusic`).
+    if (options.music) |name| game.executor.playPiece(sound, name, .now);
     // A screenshot waits for the chase view to settle, then runs its ticks, one a frame, at least
     // until the second frame, which draws the sun by how much of it the first found showing.
     var frames_left: ?usize = null;

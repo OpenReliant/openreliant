@@ -87,19 +87,20 @@ pub const Speech = struct {
 
     /// How many of the game's ticks it plays for at `rate`, rounded up.
     pub fn ticks(speech: Speech) u32 {
-        const played: u64 = speech.samples();
-        return @intCast(@divCeil(played * ticks_per_second, rate));
-    }
-
-    comptime {
-        // The longest speech a header can give fits `ticks`.
-        assert(@divCeil((std.math.maxInt(u32) >> 1) * ticks_per_second, rate) <= std.math.maxInt(u32));
+        return ticksOf(speech.samples(), rate);
     }
 };
 
+/// How many of the game's ticks `samples` of each channel play for at `at_rate`, rounded up; none
+/// at no rate.
+fn ticksOf(samples: u64, at_rate: u32) u32 {
+    if (at_rate == 0) return 0;
+    return @intCast(@min(@divCeil(samples * ticks_per_second, at_rate), std.math.maxInt(u32)));
+}
+
 /// A line the speech player plays: one in the game's codec (`Speech`), or a mod's recording, a
-/// WAVE file that `wave.Decoder` reads, mono or stereo, at its own rate. A FLAC or an MP3
-/// recording is decoded to a WAVE file as it's read (`recordings.Source.read`).
+/// WAVE file that `wave.Decoder` reads, mono or stereo, at its own rate. A recording in another
+/// format is decoded to a WAVE file as it's read (`recordings.Source.read`).
 ///
 /// **Improvement:** the original plays its own codec alone.
 pub const Line = union(enum) {
@@ -129,7 +130,7 @@ pub const Line = union(enum) {
     pub fn ticks(line: Line) u32 {
         return switch (line) {
             .coded => |speech| speech.ticks(),
-            .recorded => |recorded| @intCast(@min(@divCeil(@as(u64, recorded.frameCount()) * ticks_per_second, recorded.rate), std.math.maxInt(u32))),
+            .recorded => |recorded| ticksOf(recorded.frameCount(), recorded.rate),
         };
     }
 };
@@ -197,7 +198,7 @@ pub const Style = struct {
 pub fn bringDown(gpa: Allocator, samples: []i16, channels: u16, at_rate: u32, target: f32) Allocator.Error!void {
     const measured = try loudness.integrated(gpa, samples, channels, at_rate) orelse return;
     if (measured <= target) return;
-    const gain = std.math.pow(f32, 10, (target - measured) / 20);
+    const gain = mss.decibelGain(f32, target - measured);
     for (samples) |*value| value.* = @intFromFloat(@round(@as(f32, @floatFromInt(value.*)) * gain));
 }
 
@@ -266,11 +267,7 @@ fn prepared(gpa: Allocator, line: Line, style: Style, follows: ?f32) (Allocator.
 /// interleaved in its channels.
 fn decodeRecording(gpa: Allocator, recorded: wave.Wave) (Allocator.Error || wave.Decoder.Error)![]i16 {
     var decoder: wave.Decoder = try .init(recorded);
-    const channels = recorded.channels;
-    const out = try gpa.alloc(i16, @as(usize, decoder.frames) * channels);
-    var at: usize = 0;
-    while (decoder.next()) |frame| : (at += channels) @memcpy(out[at..][0..channels], frame[0..channels]);
-    return out;
+    return decoder.rest(gpa);
 }
 
 /// The speech as it plays through the speech sample (`speech_start`, `0x00461EB0`; `speech_stop`,
@@ -310,7 +307,7 @@ pub const Player = struct {
         const driver = sound.driver orelse return player.time(sound, line);
         const handle = sound.speech orelse return player.time(sound, line);
         player.file = prepared(gpa, line, style, follows) catch |err| {
-            log.warn("a line of speech cannot be decoded: {s}", .{@errorName(err)});
+            log.warn("a line of speech cannot be decoded: {t}", .{err});
             return false;
         };
         driver.initSample(handle);
@@ -554,6 +551,10 @@ test Line {
     const recorded = Line.parse(recording).?;
     try std.testing.expectEqual(8000, recorded.rate());
     try std.testing.expectEqual(ticks_per_second, recorded.ticks());
+    // One whose header gives no rate plays for no ticks.
+    var rateless = recorded;
+    rateless.recorded.rate = 0;
+    try std.testing.expectEqual(0, rateless.ticks());
     // A WAVE file the decoder can't read, such as one of 24-bit samples, is neither.
     const wide = try gpa.dupe(u8, comptime wave.testing.file(.{ .format = .pcm, .channels = 1, .rate = 8000, .byte_rate = 24000, .block_align = 3, .bits = 24 }, "", "", "\x00\x00\x00"));
     defer gpa.free(wide);

@@ -117,7 +117,7 @@ pub const Voice = struct {
             return .{ 0, 0 };
         };
         const heard: [2]i16 = if (voice.mono) @splat(wave.Decoder.downmix(frame)) else frame;
-        return .{ @as(f32, @floatFromInt(heard[0])) / 32768, @as(f32, @floatFromInt(heard[1])) / 32768 };
+        return .{ @as(f32, @floatFromInt(heard[0])) / wave.full_scale, @as(f32, @floatFromInt(heard[1])) / wave.full_scale };
     }
 
     /// The frame at a byte offset into the sound's data, for a stream's loop block and position:

@@ -967,7 +967,7 @@ pub const Radio = struct {
     /// in `dir`.
     pub fn openAt(gpa: Allocator, io: Io, dir: Io.Dir, lines: []const u8, films: []const u8) Radio {
         const archive = bigfile.openArchive(gpa, io, dir, lines) catch |err| none: {
-            log.warn("the radio has no lines: can't open {s}: {s}", .{ lines, @errorName(err) });
+            log.warn("the radio has no lines: can't open {s}: {t}", .{ lines, err });
             break :none null;
         };
         return .{ .gpa = gpa, .archive = archive, .movie = .openAt(gpa, io, dir, films) };

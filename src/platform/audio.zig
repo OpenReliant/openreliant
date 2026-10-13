@@ -27,6 +27,14 @@ const log = std.log.scoped(.sdl);
 /// The frames the callback renders at a time.
 const chunk = 512;
 
+/// The rate the output runs at where the system says nothing of the device's, and the lowest it
+/// runs at whatever the device says.
+const fallback_rate = 44100;
+const lowest_rate = 8000;
+
+/// How often `Output.update` looks at what the output is, in milliseconds.
+const look_interval = 1000;
+
 /// What plays Miles's calls.
 pub const Player = union(enum) {
     /// OpenAL Soft, with these settings.
@@ -61,10 +69,10 @@ pub const Output = struct {
     pub fn create(gpa: Allocator, options: Options) Error!*Output {
         if (!c.SDL_InitSubSystem(c.SDL_INIT_AUDIO)) return fail("SDL_InitSubSystem");
         errdefer c.SDL_QuitSubSystem(c.SDL_INIT_AUDIO);
-        var device: c.SDL_AudioSpec = .{ .format = c.SDL_AUDIO_F32, .channels = 2, .freq = 44100 };
+        var device: c.SDL_AudioSpec = .{ .format = c.SDL_AUDIO_F32, .channels = 2, .freq = fallback_rate };
         var device_frames: c_int = 0;
         _ = c.SDL_GetAudioDeviceFormat(c.SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &device, &device_frames);
-        const rate: u32 = @intCast(@max(device.freq, 8000));
+        const rate: u32 = @intCast(@max(device.freq, lowest_rate));
 
         const output = try gpa.create(Output);
         errdefer gpa.destroy(output);
@@ -73,7 +81,7 @@ pub const Output = struct {
             .openal => |settings| if (openal.Renderer.create(gpa, rate, @intCast(std.math.clamp(device.channels, 1, mss.master.max_channels)), settings, headphones())) |renderer| {
                 output.source = .{ .openal = renderer };
                 output.channels = renderer.channels;
-            } else |err| log.warn("OpenAL Soft cannot start ({s}); the software mixer plays instead", .{@errorName(err)}),
+            } else |err| log.warn("OpenAL Soft cannot start ({t}); the software mixer plays instead", .{err}),
             .software => {},
         }
         errdefer if (output.source == .openal) output.source.openal.destroy();
@@ -103,48 +111,51 @@ pub const Output = struct {
     /// Once a frame: now and then, whether the output has changed between headphones and anything
     /// else, for OpenAL's HRTF.
     pub fn update(output: *Output) void {
-        const renderer = switch (output.source) {
-            .openal => |renderer| renderer,
-            .software => return,
-        };
+        const renderer = output.openAl() orelse return;
         if (renderer.settings.hrtf != .auto or renderer.channels != 2) return;
         const now = c.SDL_GetTicks();
-        if (now -% output.looked_at < 1000) return;
+        if (now -% output.looked_at < look_interval) return;
         output.looked_at = now;
         const on = headphones();
         if (on == renderer.hrtf) return;
-        _ = c.SDL_LockAudioStream(output.stream);
-        defer _ = c.SDL_UnlockAudioStream(output.stream);
+        const lock = lockOf(output.stream);
+        lock.acquire();
+        defer lock.release();
         renderer.followOutput(on);
     }
 
     /// Sets when OpenAL Soft renders for headphones, where it plays.
     pub fn setHrtf(output: *Output, hrtf: openal.Hrtf) void {
-        const renderer = switch (output.source) {
-            .openal => |renderer| renderer,
-            .software => return,
-        };
-        _ = c.SDL_LockAudioStream(output.stream);
-        defer _ = c.SDL_UnlockAudioStream(output.stream);
+        const renderer = output.openAl() orelse return;
+        const lock = lockOf(output.stream);
+        lock.acquire();
+        defer lock.release();
         renderer.setHrtf(hrtf, headphones());
     }
 
     /// Turns OpenAL Soft's reverbs on or off, where it plays.
     pub fn setReverb(output: *Output, on: bool) void {
-        const renderer = switch (output.source) {
-            .openal => |renderer| renderer,
-            .software => return,
-        };
-        _ = c.SDL_LockAudioStream(output.stream);
-        defer _ = c.SDL_UnlockAudioStream(output.stream);
+        const renderer = output.openAl() orelse return;
+        const lock = lockOf(output.stream);
+        lock.acquire();
+        defer lock.release();
         renderer.setReverb(on);
     }
 
     /// Sets the master bus to `settings`, or leaves it out.
     pub fn setMaster(output: *Output, settings: ?mss.master.Settings) void {
-        _ = c.SDL_LockAudioStream(output.stream);
-        defer _ = c.SDL_UnlockAudioStream(output.stream);
+        const lock = lockOf(output.stream);
+        lock.acquire();
+        defer lock.release();
         output.master = if (settings) |chosen| .init(output.rate, output.channels, chosen) else null;
+    }
+
+    /// OpenAL Soft's renderer, where it plays.
+    fn openAl(output: *Output) ?*openal.Renderer {
+        return switch (output.source) {
+            .openal => |renderer| renderer,
+            .software => null,
+        };
     }
 
     /// What the game calls.
@@ -236,7 +247,7 @@ fn testOutput(source: Output.Source, channels: u8, master: ?mss.master.Settings)
     };
 }
 
-const test_file = @import("openreliant").wave.testing.pcm(&std.mem.toBytes(@as([4096]i16, @splat(16384))));
+const test_file = @import("openreliant").wave.testing.steady(4096, 16384);
 
 test "feed from the software mixer" {
     var output = try testOutput(.{ .software = .init(22050) }, 2, null);
@@ -273,5 +284,5 @@ test "feed from OpenAL Soft through the master bus" {
     var highest: f32 = 0;
     for (got) |frame| highest = @max(highest, @abs(frame[0]), @abs(frame[1]));
     try std.testing.expect(highest > 0.1);
-    try std.testing.expect(highest <= std.math.pow(f32, 10, -0.3 / 20.0) + 1e-6);
+    try std.testing.expect(highest <= mss.decibelGain(f32, (mss.master.Settings{}).ceiling) + 1e-6);
 }

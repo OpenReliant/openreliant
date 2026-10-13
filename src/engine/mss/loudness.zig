@@ -6,6 +6,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const mss = @import("../mss.zig");
+const wave = @import("../../formats/wave.zig");
+
 /// The blocks' length and the step between them, in seconds.
 const block_seconds = 0.4;
 const step_seconds = 0.1;
@@ -17,9 +20,6 @@ const relative_gate = -10.0;
 
 /// The offset that makes a full-scale sine of 997 Hz in one channel read -3.01 LUFS.
 const offset = -0.691;
-
-/// The level of a 16-bit sample at full scale.
-const full_scale = 32768.0;
 
 /// The analogue filters BS.1770's K-weighting stands for, as libebur128 fits them: a shelf that
 /// lifts the frequencies over about 1.5 kHz by 4 dB, as the head does, and a high-pass that leaves
@@ -40,7 +40,7 @@ const Biquad = struct {
 
     fn shelf(rate: f64) Biquad {
         const k = @tan(std.math.pi * shelf_frequency / rate);
-        const vh = std.math.pow(f64, 10, shelf_gain / 20);
+        const vh = mss.decibelGain(f64, shelf_gain);
         const vb = std.math.pow(f64, vh, shelf_band);
         const a0 = 1 + k / shelf_q + k * k;
         return .{
@@ -87,7 +87,7 @@ pub fn integrated(gpa: Allocator, samples: []align(1) const i16, channels: usize
     for (filters[0..channels]) |*pair| pair.* = .{ .shelf(@floatFromInt(rate)), .highPass(@floatFromInt(rate)) };
     for (0..frames) |frame| {
         for (filters[0..channels], 0..) |*pair, channel| {
-            const x = @as(f64, @floatFromInt(samples[frame * channels + channel])) / full_scale;
+            const x = @as(f64, @floatFromInt(samples[frame * channels + channel])) / wave.full_scale;
             const y = pair[1].step(pair[0].step(x));
             powers[frame / step] += y * y;
         }
@@ -149,7 +149,7 @@ fn testSine(gpa: Allocator, frequency: f64, amplitude: f64, seconds: f64, rate: 
     const samples = try gpa.alloc(i16, count);
     for (samples, 0..) |*sample, n| {
         const t = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(rate));
-        sample.* = @intFromFloat(@round(amplitude * 32767 * @sin(2 * std.math.pi * frequency * t)));
+        sample.* = @intFromFloat(@round(amplitude * std.math.maxInt(i16) * @sin(2 * std.math.pi * frequency * t)));
     }
     return samples;
 }

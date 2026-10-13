@@ -254,7 +254,7 @@ fn readLine(context: rooms.Context, name: []const u8) ?[]u8 {
     const bytes = context.read(name) orelse return null;
     defer context.gpa.free(bytes);
     return context.codec.decodeMp3(context.gpa, bytes) catch |err| {
-        log.warn("{s} is left out: {s}", .{ name, @errorName(err) });
+        log.warn("{s} is left out: {t}", .{ name, err });
         return null;
     };
 }

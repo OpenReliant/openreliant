@@ -5,6 +5,8 @@
 
 const std = @import("std");
 
+const mss = @import("../mss.zig");
+
 /// The most channels and the longest look-ahead it keeps room for.
 pub const max_channels = 8;
 const max_lookahead = 512;
@@ -68,8 +70,8 @@ pub const Master = struct {
             // The limiter comes down over a third of its look-ahead, so it is down before the peak.
             .limiter_attack = coefficient(settings.lookahead / 3, frames_per_second),
             .limiter_release = coefficient(settings.limiter_release, frames_per_second),
-            .makeup = decibels(settings.makeup),
-            .ceiling = decibels(settings.ceiling),
+            .makeup = mss.decibelGain(f32, settings.makeup),
+            .ceiling = mss.decibelGain(f32, settings.ceiling),
             .lookahead = lookahead,
         };
     }
@@ -122,16 +124,12 @@ pub const Master = struct {
             slope * over
         else
             slope * (over + s.knee / 2) * (over + s.knee / 2) / (2 * s.knee);
-        return decibels(-cut);
+        return mss.decibelGain(f32, -cut);
     }
 };
 
 fn coefficient(seconds: f32, rate: f32) f32 {
     return 1 - @exp(-1 / @max(seconds * rate, 1));
-}
-
-fn decibels(db: f32) f32 {
-    return std.math.pow(f32, 10, db / 20);
 }
 
 test Master {
@@ -147,7 +145,7 @@ test Master {
     master.process(&quiet);
     const late = 4000;
     const delayed = input[2 * (late - master.lookahead)];
-    try std.testing.expectApproxEqAbs(delayed * decibels(2), quiet[2 * late], 1e-4);
+    try std.testing.expectApproxEqAbs(delayed * mss.decibelGain(f32, 2), quiet[2 * late], 1e-4);
 
     // A loud one is brought down, and a sudden peak past full scale never gets through.
     var loud: [2 * 4800]f32 = undefined;
@@ -160,6 +158,6 @@ test Master {
     master.process(&loud);
     var highest: f32 = 0;
     for (loud) |sample| highest = @max(highest, @abs(sample));
-    try std.testing.expect(highest <= decibels(-0.3) + 1e-6);
+    try std.testing.expect(highest <= mss.decibelGain(f32, -0.3) + 1e-6);
     try std.testing.expect(master.gain < 1);
 }
