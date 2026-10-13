@@ -125,7 +125,12 @@ For the player's ship, the Reliant becomes the ship the player launched from (`0
 that ship explodes, the first Yamato among the objects takes its place (`mission_frame`,
 `0x004932D4`). The bridge's lines (`bridge_line`, `0x00453620`), PERMISSION TO LAND and REQUEST
 BACKUP ([The radio](radio.md)) and the friendly fire's sending home ([Friendly
-fire](orders.md#friendly-fire)) go by it. The hangar (`reliant_hang.shp`, type `0xD6`) is made in
+fire](orders.md#friendly-fire)) go by it.
+
+**Improvement:** the game records the player's carrier in the Reliant's and the Yamato's launches
+alone, the only ones the player makes in it. OpenReliant records it as any launch of the player's
+ship starts (`launch.init`), so that PERMISSION TO LAND and the bridge's lines work from any
+carrier a mission launches the player from, such as a mod's. The hangar (`reliant_hang.shp`, type `0xD6`) is made in
 the cutaway slot, colliding with nothing, its hull and its two doors reached by no light of the
 backdrop's but the first ambient (light mask `0x3B`), so that their baked colours and their own
 lights light them. The hangar has two launch points on its retainer, turned half a turn from each

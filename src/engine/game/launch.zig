@@ -299,6 +299,11 @@ pub fn launchesAsBase(carrier: gameobj.Type) bool {
 /// **Fix:** the original asserts for a carrier with no style of its own, and dereferences a missing
 /// launch node. OpenReliant launches from such a carrier as from a hangar bay (`Style.of`), and a
 /// ship without a launch node stays where it was placed.
+///
+/// **Improvement:** the game records the ship the player launched from (`player_carrier`) in the
+/// Reliant's and the Yamato's launches alone, the only ones the player makes in it. OpenReliant
+/// records it for every style, so that PERMISSION TO LAND and the bridge's lines work from any
+/// carrier a mission launches the player from.
 pub fn init(ctx: aigeneric.Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
@@ -314,6 +319,7 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
         entry.target.component = @truncate(state.gate);
     }
     const carrier = entry.target.slotIn(all) orelse return;
+    if (index == all.player) ctx.world.player.carrier = carrier;
     const carrier_type = all.slots[carrier].object.type;
     state.style = Style.of(slot.object.type, carrier_type, entry.target.component);
     state.step = .waiting;
@@ -751,6 +757,28 @@ test "a launch stands its ship at its gate's point, riding it, until it starts" 
     aigeneric.objectOrders(ctx, torpedo_slot);
     try std.testing.expectEqual(Step.delaying, state.step);
     try std.testing.expect(state.due >= 10 and state.due < 10 + most_delay);
+}
+
+test "the player's launch records the carrier, whatever its style" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var carrier_model: testing.Carrier = undefined;
+    carrier_model.init();
+    const player = try mission.add(.of(.wolverine), @splat(0));
+    const carrier = try mission.add(.of(.kamov), .{ 1000, 0, 0 });
+    try carrier_model.parts.fit(gpa, mission.slot(carrier));
+    mission.objects.player = player;
+    const ctx = mission.orders();
+
+    // The Kamov has no style of its own, so the launch is a bay's, and the Kamov is the ship the
+    // player launched from, which PERMISSION TO LAND asks.
+    try std.testing.expectEqual(null, mission.player.carrier);
+    _ = try aigeneric.pushShip(ctx, player, .launch, carrier, 0);
+    aigeneric.objectOrders(ctx, player);
+    try std.testing.expectEqual(Style.bay, mission.slot(player).state.launch.style);
+    try std.testing.expectEqual(carrier, mission.player.carrier.?);
 }
 
 test "a launch's search for a gate counts the launch points on" {
