@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.13.0](https://github.com/OpenReliant/openreliant/compare/v0.12.0...v0.13.0) (2026-10-13)
+
+
+### Features
+
+* CANCEL stops a download on the GET MODS screen ([#1133](https://github.com/OpenReliant/openreliant/issues/1133)) ([0f7ef45](https://github.com/OpenReliant/openreliant/commit/0f7ef45362909ca40d198ae255a8a00c9e7dbe87)), closes [#1040](https://github.com/OpenReliant/openreliant/issues/1040)
+* definitions of mission source for luau-lsp ([#1143](https://github.com/OpenReliant/openreliant/issues/1143)) ([3232a4b](https://github.com/OpenReliant/openreliant/commit/3232a4b7ea6131d58ae12f7bed012db8a2cfd3d9)), closes [#1142](https://github.com/OpenReliant/openreliant/issues/1142)
+* Luau's own parser reads mission source ([#1134](https://github.com/OpenReliant/openreliant/issues/1134)) ([466f5cd](https://github.com/OpenReliant/openreliant/commit/466f5cd913288359d3d126fd12c8886529491b13)), closes [#1132](https://github.com/OpenReliant/openreliant/issues/1132)
+* mission scripts read as statements and lower back to the same bytes ([#1128](https://github.com/OpenReliant/openreliant/issues/1128)) ([3e0b0e8](https://github.com/OpenReliant/openreliant/commit/3e0b0e8a0095b6609fedfa6466f583c3da98428f)), closes [#1127](https://github.com/OpenReliant/openreliant/issues/1127)
+* OpenReliant has an icon ([#1161](https://github.com/OpenReliant/openreliant/issues/1161)) ([cb84620](https://github.com/OpenReliant/openreliant/commit/cb846205b93c00e05a734f431ad6f7767a90d33e)), closes [#670](https://github.com/OpenReliant/openreliant/issues/670)
+* releases list checksums and attest their builds ([#1158](https://github.com/OpenReliant/openreliant/issues/1158)) ([a861aaa](https://github.com/OpenReliant/openreliant/commit/a861aaab9df4bf846112b899b54c87eca8fe2b24)), closes [#1157](https://github.com/OpenReliant/openreliant/issues/1157)
+* scripts can have a missile home, as the AI's Screamers do ([#1154](https://github.com/OpenReliant/openreliant/issues/1154)) ([f8eec1e](https://github.com/OpenReliant/openreliant/commit/f8eec1e15b13c6db56885f110d48a5c03e3ac065)), closes [#1119](https://github.com/OpenReliant/openreliant/issues/1119)
+* sltool dte build compiles mission source into a mission file ([#1137](https://github.com/OpenReliant/openreliant/issues/1137)) ([6830dd2](https://github.com/OpenReliant/openreliant/commit/6830dd2b3d41fc4be13a5807b13fa1cee8687427)), closes [#1136](https://github.com/OpenReliant/openreliant/issues/1136)
+* sltool dte decompile writes a mission as Luau source ([#1131](https://github.com/OpenReliant/openreliant/issues/1131)) ([38e85b5](https://github.com/OpenReliant/openreliant/commit/38e85b544fc685344e53f68ebc67bef1f0f59fb4)), closes [#1130](https://github.com/OpenReliant/openreliant/issues/1130)
+* the mods screen says which installed mods have an update ([#1135](https://github.com/OpenReliant/openreliant/issues/1135)) ([a5542d6](https://github.com/OpenReliant/openreliant/commit/a5542d6bb7bab6fcf6bf563139a4d4d986aac794)), closes [#1041](https://github.com/OpenReliant/openreliant/issues/1041)
+* the music example replaces the main menu's piece and keeps its loop point ([#1129](https://github.com/OpenReliant/openreliant/issues/1129)) ([98a5f9a](https://github.com/OpenReliant/openreliant/commit/98a5f9ad2e4863997a17ea73ea7965b9a8912fdc))
+* the reference of mission source, generated from the game's tables ([#1147](https://github.com/OpenReliant/openreliant/issues/1147)) ([e061179](https://github.com/OpenReliant/openreliant/commit/e06117926d23002f084177870ee8560748da1696)), closes [#1146](https://github.com/OpenReliant/openreliant/issues/1146)
+* the Windows executables carry version information and a manifest ([#1156](https://github.com/OpenReliant/openreliant/issues/1156)) ([022abc2](https://github.com/OpenReliant/openreliant/commit/022abc2678088e72d1ae59092ee579e0eadce4b9)), closes [#1138](https://github.com/OpenReliant/openreliant/issues/1138)
+
+
+### Fixes
+
+* GET MODS gives up on stalled servers, never holds up quitting, and keeps remote links off the player's machine ([#1124](https://github.com/OpenReliant/openreliant/issues/1124)) ([0d05d1e](https://github.com/OpenReliant/openreliant/commit/0d05d1e84e668e69471caa763edef05a5de0556d)), closes [#1114](https://github.com/OpenReliant/openreliant/issues/1114) [#1069](https://github.com/OpenReliant/openreliant/issues/1069) [#1070](https://github.com/OpenReliant/openreliant/issues/1070)
+* the scripting API's definitions load in current luau-lsp ([#1141](https://github.com/OpenReliant/openreliant/issues/1141)) ([87fa067](https://github.com/OpenReliant/openreliant/commit/87fa0675990d0caf2d9dd87217e778384e02dbfc)), closes [#1140](https://github.com/OpenReliant/openreliant/issues/1140)
+* the scripting definitions load in luau-lsp's new type solver ([#1152](https://github.com/OpenReliant/openreliant/issues/1152)) ([b049449](https://github.com/OpenReliant/openreliant/commit/b0494497c9fdd25d41f3f9f2605bf36f52a1df0d)), closes [#1139](https://github.com/OpenReliant/openreliant/issues/1139)
+
+
+### Documentation
+
+* a guide to writing missions, for beginners ([#1149](https://github.com/OpenReliant/openreliant/issues/1149)) ([04289ef](https://github.com/OpenReliant/openreliant/commit/04289eff30f24e9a5fd3e910da1a0fd4848df72f)), closes [#1148](https://github.com/OpenReliant/openreliant/issues/1148)
+* the mission guide shows how to change one of the game's missions ([#1151](https://github.com/OpenReliant/openreliant/issues/1151)) ([fb7d9e7](https://github.com/OpenReliant/openreliant/commit/fb7d9e72f861056be49e73490dded019c84afb2e)), closes [#1150](https://github.com/OpenReliant/openreliant/issues/1150)
+* why a trigger's code and fields aren't typed by its condition ([#1153](https://github.com/OpenReliant/openreliant/issues/1153)) ([3a08501](https://github.com/OpenReliant/openreliant/commit/3a0850157d14eaa0a7000a154a6e8a15edc05cd5)), closes [#1144](https://github.com/OpenReliant/openreliant/issues/1144)
+
 ## [0.12.0](https://github.com/OpenReliant/openreliant/compare/v0.11.1...v0.12.0) (2026-10-12)
 
 
