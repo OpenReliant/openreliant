@@ -643,6 +643,11 @@ test CdPlayer {
     try std.testing.expect(passAt(&player, &keyboard, nowhere, false));
     try std.testing.expectEqual(2, player.selected.?);
     try std.testing.expect(sound.musicPlaying());
+    // While the window is away, the piece paused for it hasn't ended, and nothing follows it.
+    sound.holdMusic(true);
+    try std.testing.expect(passAt(&player, &keyboard, nowhere, false));
+    try std.testing.expectEqual(2, player.selected.?);
+    sound.holdMusic(false);
 
     // The previous track; and in RANDOM TRACK MODE, another piece follows one's end.
     try click(&player, &keyboard, buttonAt(.previous));

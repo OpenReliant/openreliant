@@ -67,10 +67,10 @@ pub const App = struct {
 pub fn followActivation(app: *App, pausing: main.Pausing, loaded: bool) !void {
     const active = app.active or app.editor_linked;
     if (active and app.paused) {
-        pausing.sound.pauseMusic(false);
+        pausing.sound.holdMusic(false);
         app.paused = false;
     } else if (!active and !app.paused) {
-        pausing.sound.pauseMusic(true);
+        pausing.sound.holdMusic(true);
         if (loaded) try main.pause(pausing, true);
         app.paused = true;
     }
@@ -108,14 +108,14 @@ test followActivation {
     try followActivation(&app, pausing, true);
     try std.testing.expectEqual(mss.Status.playing, driver.sampleStatus(sound.voices[v].sample));
 
-    // Inactive with no mission loaded, as in the front end, the clock runs on and the menu stays
-    // shut, for a mission started later to find.
+    // Inactive with no mission loaded, as in the front end, the music is held, the clock runs on
+    // and the menu stays shut, for a mission started later to find.
     app.active = false;
     try followActivation(&app, pausing, false);
-    try std.testing.expect(!clock.paused and app.paused and !menu.isOpen());
+    try std.testing.expect(sound.music.held and !clock.paused and app.paused and !menu.isOpen());
     app.active = true;
     try followActivation(&app, pausing, false);
-    try std.testing.expect(!app.paused);
+    try std.testing.expect(!sound.music.held and !app.paused);
 
     // Inactive with a mission loaded, the sound and the clock stop, once, and the menu opens.
     app.active = false;

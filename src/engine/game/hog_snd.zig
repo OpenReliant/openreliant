@@ -348,6 +348,9 @@ pub const Music = struct {
     /// of music each pass (`Sound.decodeMusic`) and plays once it's decoded. The music counts as
     /// playing meanwhile.
     decoding: ?Decoding = null,
+    /// Added by OpenReliant: whether the music is paused because the game's window is away
+    /// (`Sound.holdMusic`).
+    held: bool = false,
 
     /// A piece of music to play: its path, loop count and level.
     pub const Piece = struct {
@@ -1069,6 +1072,7 @@ pub const Sound = struct {
         sound.music.level = piece.level;
         sound.applyVolumes();
         driver.startStream(stream);
+        if (sound.music.held) driver.pauseStream(stream, true);
     }
 
     /// Decodes `seconds_decoded_a_pass` more seconds of a mod's piece on its way, and plays it once
@@ -1133,12 +1137,17 @@ pub const Sound = struct {
         sound.faded_at = game_ticks;
     }
 
-    /// `music_playing` (`0x00482940`). A mod's piece on its way counts as playing.
+    /// `music_playing` (`0x00482940`). A mod's piece on its way counts as playing, and so does a
+    /// piece paused while the window is away (`holdMusic`).
     pub fn musicPlaying(sound: *Sound) bool {
         const driver = sound.driver orelse return false;
         if (sound.music.decoding != null) return true;
         const stream = sound.music.stream orelse return false;
-        return driver.streamStatus(stream) == .playing;
+        return switch (driver.streamStatus(stream)) {
+            .playing => true,
+            .stopped => sound.music.held,
+            else => false,
+        };
     }
 
     /// `music_pause` (`0x00482C70`) and `music_resume` (`0x00482C90`).
@@ -1146,6 +1155,17 @@ pub const Sound = struct {
         const driver = sound.driver orelse return;
         if (sound.music.stream) |stream| driver.pauseStream(stream, paused);
         if (sound.music.decoding) |*on_way| on_way.paused = paused;
+    }
+
+    /// `music_pause` and `music_resume` as the message pump calls them while the game's window is
+    /// away (`winmain.followActivation`). The game's pump waits for the window to come back, so
+    /// nothing else runs meanwhile. OpenReliant's loops keep running, so the paused piece counts
+    /// as playing (`musicPlaying`), and a piece that starts meanwhile starts paused. That way
+    /// nothing takes the paused piece for one that has ended, such as the CD player, which would
+    /// play its next track.
+    pub fn holdMusic(sound: *Sound, held: bool) void {
+        sound.music.held = held;
+        sound.pauseMusic(held);
     }
 
     /// `music_close` (`0x00482CF0`). It also drops a mod's piece on its way.
@@ -1719,6 +1739,41 @@ test "Sound.playMusic queues a piece until the music has stopped" {
     try std.testing.expectEqual(null, sound.music.queued);
     try std.testing.expect(sound.musicPlaying() and !sound.music.fading);
     try std.testing.expectEqual(100, sound.music.level);
+}
+
+test "Sound.holdMusic pauses the music while the window is away, and it counts as playing" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "music");
+    try tmp.dir.writeFile(io, .{ .sub_path = "music/one.wav", .data = testing.sound_file });
+    try tmp.dir.writeFile(io, .{ .sub_path = "music/two.wav", .data = testing.sound_file });
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
+    sound.files = .{ .gpa = gpa, .io = io, .dir = tmp.dir };
+    defer sound.closeMusic();
+
+    // Paused for the window, the music counts as playing, so a queued piece waits for it.
+    sound.playMusic("music\\one.wav", once, loudest, .now);
+    sound.holdMusic(true);
+    try std.testing.expectEqual(mss.Status.stopped, driver.streamStatus(sound.music.stream.?));
+    try std.testing.expect(sound.musicPlaying());
+    sound.music.queued = .of("music\\two.wav", once, 100);
+    sound.updateMusic();
+    try std.testing.expect(sound.music.queued != null);
+    // A piece that starts meanwhile starts paused.
+    sound.playMusic("music\\two.wav", once, loudest, .now);
+    try std.testing.expectEqual(mss.Status.stopped, driver.streamStatus(sound.music.stream.?));
+    try std.testing.expect(sound.musicPlaying());
+    // With the window back, the music goes on.
+    sound.holdMusic(false);
+    try std.testing.expectEqual(mss.Status.playing, driver.streamStatus(sound.music.stream.?));
+    // A pause of the game's own still counts as stopped, as in the game.
+    sound.pauseMusic(true);
+    try std.testing.expect(!sound.musicPlaying());
 }
 
 test "Sound.runTimer runs the clock on and steps the fades" {

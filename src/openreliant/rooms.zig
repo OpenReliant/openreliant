@@ -911,11 +911,12 @@ pub const Driver = struct {
 
     /// The window going inactive or active again, as the message pump follows it
     /// (`winmain.followActivation`): while it is away, the music and the voices pause. The game's
-    /// pump also waits for the window to come back; the rooms go on meanwhile.
+    /// pump also waits for the window to come back, but the rooms keep running, with the paused
+    /// music counting as playing (`Sound.holdMusic`).
     fn activate(driver: *Driver, active: bool) void {
         if (active == driver.active) return;
         driver.active = active;
-        driver.sound.pauseMusic(!active);
+        driver.sound.holdMusic(!active);
         if (active) driver.sound.resumeAll() else driver.sound.pauseAll();
     }
 
