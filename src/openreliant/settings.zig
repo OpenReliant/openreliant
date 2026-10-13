@@ -257,7 +257,8 @@ pub const Own = struct {
     field_of_view: ?*f32 = null,
     ui_scale: ?*engine.game.hud.UiScale = null,
     /// Whether OpenReliant checks for a newer release as it starts, as chosen, which takes effect
-    /// at the next start (`updates.zig`).
+    /// at the next start (`updates.zig`), and whether the mods screen reads the catalogue of mods
+    /// for updates to the installed mods, which takes effect at once (`mod_manager`).
     update_check: bool = true,
 
     pub const Display = struct {
