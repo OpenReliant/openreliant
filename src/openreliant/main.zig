@@ -4,10 +4,11 @@
 //! the game's files from its discs; see `install.zig`.
 //!
 //! It plays a mission, which pauses into the game's menu as each attempt ends, to be flown again:
-//! by default mission 0, OpenReliant's own sandbox (`mission0.zig`), which it carries, or the
-//! game's mission `--mission` names. It draws through Surrender's pipeline and its Direct3D driver
-//! with the GPU, from the camera's views, which the game's camera keys pick and steer. Added for OpenReliant: the test keys (`test_keys.zig`), and Alt and Enter, which
-//! switch to the full screen and back. Escape opens the game's pause menu, whose LEAVE MISSION
+//! by default mission 0, OpenReliant's own sandbox (`mission0.mission.luau`), which it carries, or
+//! the game's mission `--mission` names. It draws through Surrender's pipeline and its Direct3D
+//! driver with the GPU, from the camera's views, which the game's camera keys pick and steer. Added
+//! for OpenReliant: the test keys (`test_keys.zig`), and Alt and Enter, which switch to the full
+//! screen and back. Escape opens the game's pause menu, whose LEAVE MISSION
 //! quits.
 
 const std = @import("std");

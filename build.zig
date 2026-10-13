@@ -97,9 +97,7 @@ pub fn build(b: *std.Build) void {
     // builds from source for the target. Like FreeType, Luau is always built optimized so that
     // scripts run fast in debug builds too. The game links all of it and sltool only its parser;
     // the library the tools share doesn't link it.
-    const luau_dependency = b.dependency("luau", .{ .target = target, .optimize = .fast });
-    const luau_library = luau_dependency.artifact("luau");
-    const luau_ast_library = luau_dependency.artifact("luau-ast");
+    const luau_library = b.dependency("luau", .{ .target = target, .optimize = .fast }).artifact("luau");
     const scripting = b.createModule(.{
         .root_source_file = b.path("src/scripting.zig"),
         .target = target,
@@ -124,21 +122,7 @@ pub fn build(b: *std.Build) void {
     for (examples) |file| if (std.mem.endsWith(u8, file, ".luau")) scripts.append(b.allocator, file) catch @panic("out of memory");
     example_scripts.addOption([]const []const u8, "scripts", scripts.items);
     scripting.addOptions("example_scripts", example_scripts);
-    // Mission source (`src/source_parser.zig`) is read with Luau's own parser, through a C++ shim,
-    // since the parser has no C API.
-    const source_parser = b.createModule(.{
-        .root_source_file = b.path("src/source_parser.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libcpp = true,
-        .imports = &.{
-            .{ .name = "openreliant", .module = lib },
-            .{ .name = "luau_syntax", .module = translateHeader(translate_c, b.path("src/source_parser/luau.h"), luau_ast_library, target, optimize) },
-        },
-    });
-    source_parser.linkLibrary(luau_ast_library);
-    source_parser.addIncludePath(luau_ast_library.getEmittedIncludeTree());
-    source_parser.addCSourceFile(.{ .file = b.path("src/source_parser/luau.cpp"), .flags = &.{ "-std=c++17", "-fno-sanitize=undefined" } });
+    const source_parser = sourceParser(b, translate_c, lib, target, optimize);
     // The definitions files, which its tests parse as luau-lsp reads them.
     source_parser.addAnonymousImport("openreliant.d.luau", .{ .root_source_file = b.path("docs/guide/openreliant.d.luau") });
     source_parser.addAnonymousImport("mission.d.luau", .{ .root_source_file = b.path("docs/guide/mission.d.luau") });
@@ -178,23 +162,29 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(openreliant);
 
-    // Mission 0, OpenReliant's own: the sandbox as a standard mission file, which a tool built for
-    // the host writes (`src/openreliant/mission0.zig`). The game plays it as its default mission,
+    // Mission 0, OpenReliant's own: the sandbox as a standard mission file, which the build compiles
+    // from its source (`src/openreliant/mission0.mission.luau`) with the mission source compiler,
+    // built for the host (`src/tools/build_mission.zig`). The game plays it as its default mission,
     // from the copy it carries, and the build installs it too, for `sltool` and the original.
     const host_lib = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = b.graph.host,
     });
     addZlib(b, translate_c, host_lib, b.graph.host);
-    const mission0 = b.addExecutable(.{
-        .name = "mission0",
+    const build_mission = b.addExecutable(.{
+        .name = "build-mission",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/openreliant/mission0.zig"),
+            .root_source_file = b.path("src/tools/build_mission.zig"),
             .target = b.graph.host,
-            .imports = &.{.{ .name = "openreliant", .module = host_lib }},
+            .imports = &.{
+                .{ .name = "openreliant", .module = host_lib },
+                .{ .name = "source_parser", .module = sourceParser(b, translate_c, host_lib, b.graph.host, .Debug) },
+            },
         }),
     });
-    const mission0_file = b.addRunArtifact(mission0).addOutputFileArg2("mission0.dte", .{});
+    const compile_mission0 = b.addRunArtifact(build_mission);
+    compile_mission0.addFileArg(b.path("src/openreliant/mission0.mission.luau"));
+    const mission0_file = compile_mission0.addOutputFileArg2("mission0.dte", .{});
     openreliant.root_module.addAnonymousImport("mission0.dte", .{ .root_source_file = mission0_file });
     b.getInstallStep().dependOn(&b.addInstallFile(mission0_file, "missions/mission0.dte").step);
 
@@ -293,7 +283,7 @@ pub fn build(b: *std.Build) void {
     runStep(b, "run", "Run sltool", sltool);
 
     // Every module's tests, and `zig build check`, which compiles the programs and the tests
-    // without linking them (the C libraries, translate-c and mission0 build once first):
+    // without linking them (the C libraries, translate-c and mission 0 build once first):
     // `zig build check -fincremental --watch` reports compile errors within moments of a save.
     const test_step = b.step("test", "Run tests");
     const check_step = b.step("check", "Check that the programs and the tests compile, without writing binaries");
@@ -314,6 +304,27 @@ fn runStep(b: *std.Build, name: []const u8, description: []const u8, program: *s
     run.step.dependOn(b.getInstallStep());
     run.addPassthruArgs();
     b.step(name, description).dependOn(&run.step);
+}
+
+/// The module that reads mission source with Luau's own parser (`src/source_parser.zig`), for
+/// `target`, on `lib`, the library built for it. It links the parser through a C++ shim, since the
+/// parser has no C API.
+fn sourceParser(b: *std.Build, translate_c: *std.Build.Dependency, lib: *std.Build.Module, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize) *std.Build.Module {
+    const luau_ast_library = b.dependency("luau", .{ .target = target, .optimize = .fast }).artifact("luau-ast");
+    const module = b.createModule(.{
+        .root_source_file = b.path("src/source_parser.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libcpp = true,
+        .imports = &.{
+            .{ .name = "openreliant", .module = lib },
+            .{ .name = "luau_syntax", .module = translateHeader(translate_c, b.path("src/source_parser/luau.h"), luau_ast_library, target, optimize) },
+        },
+    });
+    module.linkLibrary(luau_ast_library);
+    module.addIncludePath(luau_ast_library.getEmittedIncludeTree());
+    module.addCSourceFile(.{ .file = b.path("src/source_parser/luau.cpp"), .flags = &.{ "-std=c++17", "-fno-sanitize=undefined" } });
+    return module;
 }
 
 /// The Zig module translate-c makes of `header`, which includes `library`'s headers. The module

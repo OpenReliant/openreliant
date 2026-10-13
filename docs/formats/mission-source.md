@@ -306,6 +306,10 @@ kind's records are written in the order of their declarations. The script holds 
 triggers run, in the order the triggers first run them, then the parts' blocks in order, each
 written as the developers' compiler wrote its statements ([Statements](dte.md#statements)).
 
+OpenReliant's own Mission 0, the sandbox, is mission source too:
+[`mission0.mission.luau`](../../src/openreliant/mission0.mission.luau), which the build compiles
+with the same compiler, built for the host ([`build_mission.zig`](../../src/tools/build_mission.zig)).
+
 ## Editors
 
 [luau-lsp](https://github.com/JohnnyMorganz/luau-lsp), the Luau language server, gives editors such
