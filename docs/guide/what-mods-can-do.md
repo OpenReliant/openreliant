@@ -49,7 +49,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | A mod can | Read | Example |
 |---|---|---|
 | Replace missions, or add new ones, in the standard `.DTE` format | [Missions](modding.md#missions) | |
-| Write a mission as text, and build it into a `.DTE` file with `sltool dte build` | [Writing missions](missions.md) | |
+| Write a mission as text, or change one of the game's, and build it into a `.DTE` file with `sltool dte build` | [Writing missions](missions.md) | |
 | Start a mission partway, or watch any of its ships, to check it | [Checking a mission](modding.md#checking-a-mission) | |
 | Stop a mission's script at breakpoints and step through it while the mission plays | [Debugging mission scripts](debugging.md) | |
 | Run scripts with one mission | [Kinds of scripts](scripting.md#kinds-of-scripts) | |

@@ -6,7 +6,8 @@ source, which `sltool dte build` turns into a mission file. The file plays in Op
 original.
 
 This guide writes a first mission step by step, builds it, plays it, and steps through its script
-with the debugger while it plays. Then it explains what a mission holds. The
+with the debugger while it plays. Then it changes one of the game's own missions, and explains what
+a mission holds. The
 [reference](mission-reference.md) lists every declaration, command and condition, and
 [Mission source](../formats/mission-source.md) gives the exact rules of the text.
 
@@ -211,6 +212,70 @@ Stopped at 68, statement 2 of part 0, (F)Start:
 While the script is stopped, the ships fly on as they were, but their orders, the controls and the
 script wait. Stopped in the start part, the game shows its loading screen until the script runs on.
 
+## Changing one of the game's missions
+
+Any of the game's missions can be changed the same way: decompile it into source, change the source,
+and build it into a mod under the mission's own name. The mod's mission replaces the game's, in the
+campaign too, and the game's files stay as they are. Built without a change, the source makes the
+same mission as the game's ([The round trip](../formats/mission-source.md#the-round-trip)), so the
+mod changes only what you change. Here, Viper, one of the player's wingmen in mission 1, flies a
+Phoenix in place of the Coyote.
+
+In the `mods` folder, make a folder for the mod, `viper-phoenix`, with its manifest, `mod.ini`:
+
+```ini
+[Mod]
+Name=Viper's Phoenix
+Version=1.0
+```
+
+Extract mission 1 from the game's `resource.hog`, and decompile it into the mod's folder.
+`sltool hog extract` unpacks every file of the archive into `game-files`, which you can delete once
+you have the mission's source:
+
+```bash
+./sltool hog extract StarLancer/resource.hog game-files
+./sltool dte decompile game-files/mission1.dte > StarLancer/mods/viper-phoenix/mission1.mission.luau
+```
+
+Open `mission1.mission.luau` in a text editor, find Viper's ship, `viper_s_coyote`, and change its
+type. The mission comes from your own copy of the game, so this guide shows only the change, as a
+diff: the line that starts with `-` comes out, the line that starts with `+` goes in its place, and
+the lines that start with a space show where, and stay as they are.
+
+```diff
+ viper_s_coyote = ship("(WL)Viper's Coyote", {
+-    type = "coyote",
++    type = "phoenix",
+     group = flight_group_45th,
+     pilot = "viper",
+```
+
+The ship keeps its names: the script finds it by `viper_s_coyote`, and `--watch` by
+`(WL)Viper's Coyote`. Build the source into the mod, under the game's name for mission 1,
+`mission1.dte`:
+
+```bash
+./sltool dte build StarLancer/mods/viper-phoenix/mission1.mission.luau StarLancer/mods/viper-phoenix/mission1.dte
+```
+
+Then play it:
+
+```bash
+./openreliant StarLancer --mission 1
+```
+
+Viper launches in a Phoenix with the rest of the wing, and the campaign's first mission has the
+change too. To check it without flying, `--skip-launch` passes over the launch, and
+`--watch "viper's"` shows Viper's ship:
+
+```bash
+./openreliant StarLancer --mission 1 --skip-launch --watch "viper's" --screenshot viper.png --screenshot-ticks 300
+```
+
+To play the game's own mission 1 again, start OpenReliant with `--no-mods`, or take the mod's folder
+out of `mods`.
+
 ## Ships and markers
 
 `ship(name, fields)` places a ship: a fighter, a capital ship or a station. Its fields are all
@@ -394,17 +459,10 @@ so keep mods' scripts in a folder of their own.
 
 ## Learning from other missions
 
-`sltool dte decompile` writes any mission as source. The game keeps its missions in `resource.hog`,
-which `sltool hog extract` unpacks:
-
-```bash
-./sltool hog extract StarLancer/resource.hog game-files
-./sltool dte decompile game-files/mission1.dte > mission1.mission.luau
-```
-
-The source of the game's missions has no comments, and its names are made from the records' names,
-such as `jumping_to_convoy` from `(F)Jumping to CONVOY`. Built into a mod under its own number, such
-as `mission1.dte`, a changed mission replaces the game's.
+Reading the game's missions as source shows how they work: `sltool dte decompile` writes any of
+them, as in [Changing one of the game's missions](#changing-one-of-the-games-missions). Their source
+has no comments, and its names are made from the records' names, such as `jumping_to_convoy` from
+`(F)Jumping to CONVOY`.
 
 OpenReliant's Mission 0, the sandbox, is written as source with comments:
 [`mission0.mission.luau`](../../src/openreliant/mission0.mission.luau). It launches the player's

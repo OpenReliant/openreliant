@@ -139,7 +139,8 @@ files stay the standard format:
   OpenReliant never depends on it, and the game ignores it.
 
 `openreliant missions` binds every mission a game's folder holds; run `make check-missions` after a
-change to how missions load or run.
+change to how missions load or run, or to how they are written as source. It also checks that the
+change to mission 1 in the [guide to writing missions](docs/guide/missions.md) still works.
 
 ## Writing Zig
 

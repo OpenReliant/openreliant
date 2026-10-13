@@ -60,6 +60,12 @@ main { padding: 28px 0 64px; min-width: 0; }
   box-shadow: inset 0 0 0 1px var(--card-edge); padding: 14px 16px; overflow-x: auto; line-height: 1.5;
 }
 .page pre code { background: none; border: 0; padding: 0; color: #e3e6ee; font-size: 14px; }
+/* Diffs: Pygments marks removed lines (gd) and added lines (gi), which are tinted red and green
+   across the block. Header and hunk lines (gh, gu) are dimmed. */
+.page pre .gd, .page pre .gi { display: inline-block; min-width: 100%; }
+.page pre .gd { background: #3a1419; color: #ffb3b8; }
+.page pre .gi { background: #12301d; color: #b3f0c2; }
+.page pre .gh, .page pre .gu { color: var(--muted); }
 .page table { border-collapse: collapse; display: block; overflow-x: auto; margin: 16px 0; font-size: 14px; }
 .page th, .page td { border: 1px solid var(--card-edge); padding: 6px 10px; text-align: left; vertical-align: top; }
 .page th { background: #141824; font-family: var(--display); letter-spacing: 0.05em; text-transform: uppercase; color: var(--text); }
