@@ -459,6 +459,11 @@ Mission source needs the new type solver, since a declaration can use a name tha
 after it, which the old solver takes for a mistake. The new solver doesn't report mistakes in the
 types, though, so `sltool dte build` is still what finds them.
 
+The editor doesn't know which condition a trigger watches, so it offers every field that any
+trigger can check, and leaves the code's parameters untyped. The reference lists each condition's
+values ([Conditions](mission-reference.md#conditions), and
+[Editors](../formats/mission-source.md#editors) for why).
+
 A mod with both missions and scripts can add the scripting API's definitions too
 ([Editors](scripting.md#editors)), as `"@openreliant": "path/to/openreliant.d.luau"` beside
 `"@mission"`. Both files use the same names for the game's values, such as `ShipType`, and

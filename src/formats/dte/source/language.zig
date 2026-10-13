@@ -112,7 +112,9 @@ pub const part_fields: Table = .{ .name = "PartFields", .fields = &.{
 } };
 
 /// A trigger's table, besides the values of its condition's events that it checks
-/// ([Triggers](../../../../docs/formats/mission-source.md#triggers)).
+/// ([Triggers](../../../../docs/formats/mission-source.md#triggers)). The definitions add the
+/// values of every condition, since Luau can't type the table by the trigger's condition
+/// ([Editors](../../../../docs/formats/mission-source.md#editors)).
 pub const trigger_fields: Table = .{ .name = "TriggerFields", .events = true, .fields = &.{
     .{ .name = "repeats", .type = "Repeats?", .about = "\"once\", the default, which disarms the trigger as it fires; \"always\"; or `{ counted = 3 }`, which fires that many times each time the script arms it." },
     .{ .name = "component", .type = "number?", .about = "The subject's component it watches, by its index; by default the subject itself." },
@@ -193,6 +195,8 @@ pub fn declaration(word: Word) Declaration {
         .curve => .{ .about = "Declares a curve, which has no display name.", .parameters = "fields: CurveFields", .result = "Curve" },
         .part => .{ .about = "Declares a part: its display name and its code, a function whose parameters are the part's arguments. A part without a function has no block.", .generics = "<A...>", .parameters = "name: string, code: ((A...) -> number)?, fields: PartFields?", .result = "(A...) -> number" },
         .handler => .{ .about = "Declares code that more than one trigger runs.", .generics = "<A...>", .parameters = "code: (A...) -> number", .result = "(A...) -> number" },
+        // One signature for every condition: Luau can't type the code or the fields by the
+        // trigger's condition (docs/formats/mission-source.md#editors).
         .on => .{ .about = "Declares a trigger: its subject, the ship, flight group or squad whose events it watches, or nil for none; its condition; its fields, which can be left out; and the code its events run, whose parameters are the values the condition's events carry.", .parameters = "subject: Entity?, condition: Condition, fields: (TriggerFields | Code)?, code: Code?", .result = "()" },
         .component => .{ .about = "A ship's component, by its index.", .generics = "<T>", .parameters = "object: T, index: number", .result = "T" },
         .any_ship => .{ .about = "Any of the players' ships, as a value a trigger checks.", .result = mission_ship },
