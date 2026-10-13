@@ -200,8 +200,10 @@ list, with the panel saying which version is installed and which one the update 
 needs a newer OpenReliant is red and can't be installed. A mod you copied into the `mods` folder as
 a folder is left alone, and the panel says so, since OpenReliant would load both the folder and the
 archive. RELOAD reads the repositories again. One download runs at a time: INSTALL and RELOAD wait
-for it. OK goes back to the mods screen, which now lists the installed mods. Like every change on
-the mods screen, they take effect at the next start.
+for it. While the mod you chose downloads, INSTALL reads CANCEL instead: it stops the download and
+leaves nothing in the `mods` folder, and the panel says CANCELING for a moment while the download
+stops. Leaving the screen lets a download go on. OK goes back to the mods screen, which now lists
+the installed mods. Like every change on the mods screen, they take effect at the next start.
 
 The catalogue and the downloads run in the background, so the menus keep working, and the panel
 shows the download's progress. Besides the check for a newer release ([Newer
@@ -217,9 +219,7 @@ CATALOG POINTS AT THIS COMPUTER. A server that stops answering fails with THE SE
 an index or a thumbnail gives up after a minute, or after 15 seconds with nothing arriving, and an
 archive after 30 seconds with nothing arriving. RELOAD then reads the repositories again, and tries
 again the thumbnails that failed. Quitting OpenReliant never waits for a download. The screen lists
-at most 127 mods. A download can't be cancelled yet
-([#1040](https://github.com/OpenReliant/openreliant/issues/1040)), and the mods screen doesn't say
-yet which of its mods have an update
+at most 127 mods. The mods screen doesn't say yet which of its mods have an update
 ([#1041](https://github.com/OpenReliant/openreliant/issues/1041)).
 
 OpenReliant records the mods GET MODS installs in `starlancer.ini`, in the section
