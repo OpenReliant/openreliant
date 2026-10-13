@@ -69,12 +69,8 @@ pub fn write(arena: Allocator, w: *Writer) Error!void {
     try w.writeAll("\n-- The source's own words: its declarations, and the functions and values of its script.\n\n");
     for (std.enums.values(names.Word)) |word| {
         const declared = language.declaration(word);
-        try w.print("--- {s}\n", .{declared.about});
-        if (declared.parameters) |parameters| {
-            try w.print("declare function {t}{s}({s}): {s}\n", .{ word, declared.generics, parameters, declared.result });
-        } else {
-            try w.print("declare {t}: {s}\n", .{ word, declared.result });
-        }
+        const function = if (declared.parameters != null) "function " else "";
+        try w.print("--- {s}\ndeclare {s}{f}\n", .{ declared.about, function, language.Signature{ .word = word } });
     }
 
     try w.writeAll(
@@ -125,8 +121,7 @@ fn writeGameVariables(w: *Writer) Writer.Error!void {
 fn writeEventFields(arena: Allocator, w: *Writer) Error!void {
     const Checked = struct {
         label: []const u8,
-        /// Whether it's a number rather than a ship, a flight group or a squad.
-        number: bool,
+        kinds: commands.Kinds,
         conditions: std.ArrayList([]const u8) = .empty,
     };
     var found: std.StringArrayHashMapUnmanaged(Checked) = .empty;
@@ -136,72 +131,30 @@ fn writeEventFields(arena: Allocator, w: *Writer) Error!void {
         for (condition.values, event) |value, name| {
             if (!value.checked) continue;
             const slot = try found.getOrPut(arena, name);
-            if (!slot.found_existing) slot.value_ptr.* = .{ .label = value.label, .number = value.kinds.number or value.kinds.constant };
+            if (!slot.found_existing) slot.value_ptr.* = .{ .label = value.label, .kinds = value.kinds };
             try slot.value_ptr.conditions.append(arena, condition_name);
         }
     }
     for (found.keys(), found.values()) |name, checked| {
-        const what = if (checked.number) "a number" else "a ship, a flight group, a squad or `any_ship`";
+        const what = if (checked.kinds.ship) "a ship, a flight group, a squad or `any_ship`" else "a number";
         try w.print("    --- What the event's \"{s}\" must be for the trigger to fire: {s}. In triggers of {f}.\n", .{
             checked.label, what, names.Listed{ .items = checked.conditions.items },
         });
-        try w.print("    {s}: {s},\n", .{ name, if (checked.number) "number?" else "(Entity | number)?" });
+        try w.print("    {s}: {s},\n", .{ name, language.checkType(checked.kinds) });
     }
 }
 
 /// Writes `command`'s declaration, with its description and its parameters' labels.
 fn writeCommand(arena: Allocator, w: *Writer, command: commands.Command) Error!void {
-    var namer: names.Namer = .init(arena);
-    const parameters = try arena.alloc([]const u8, command.params.len);
-    for (parameters, command.params, 0..) |*name, param, index| name.* = try namer.name(labelHead(param.label), "param", index);
+    const parameters = try language.parameters(arena, command);
     if (command.description.len > 0) try w.print("--- {s}\n", .{command.description});
-    for (parameters, command.params) |name, param| try w.print("--- @param {s} -- {s}\n", .{ name, param.label });
+    for (parameters) |parameter| try w.print("--- @param {s} -- {s}\n", .{ parameter.name, parameter.label });
     try w.print("declare function {s}(", .{command.name});
-    for (parameters, command.params, 0..) |name, param, index| {
-        try w.print("{s}{s}: {f}", .{ if (index == 0) "" else ", ", name, ParameterType{ .param = param } });
+    for (parameters, 0..) |parameter, index| {
+        try w.print("{s}{s}: {f}", .{ if (index == 0) "" else ", ", parameter.name, parameter.type });
     }
     try w.writeAll("): ()\n");
 }
-
-/// What a parameter's name is made from: its label up to the first bracket, comma or semicolon,
-/// which start a note, such as "(can be NULL)".
-fn labelHead(label: []const u8) []const u8 {
-    const end = std.mem.findAny(u8, label, "(,;") orelse label.len;
-    return std.mem.trim(u8, label[0..end], " ");
-}
-
-/// The type of a command's parameter: each kind of value it takes, or a value of a kind the game
-/// names, such as an order. A parameter that can be null is optional.
-const ParameterType = struct {
-    param: commands.Param,
-
-    pub fn format(shown: ParameterType, w: *Writer) Writer.Error!void {
-        const kinds = shown.param.kinds;
-        const records = kinds.ship and kinds.flight_group and kinds.squad;
-        // Each kind of value it may take, in the order the type lists them.
-        const options = [_]?[]const u8{
-            if (records) "Entity" else null,
-            if (kinds.ship and !records) "Ship" else null,
-            if (kinds.flight_group and !records) "FlightGroup" else null,
-            if (kinds.squad and !records) "Squad" else null,
-            if (kinds.curve) "Curve" else null,
-            if (vocabulary.of(shown.param)) |kind| kind.typeName() else if (kinds.number or kinds.constant or kinds.percentage) "number" else null,
-            if (kinds.file_name or kinds.text) "string" else null,
-        };
-        var count: usize = 0;
-        for (options) |option| count += @intFromBool(option != null);
-        if (count == 0) return w.writeAll("any");
-        const nullable = shown.param.extra.nullable;
-        if (nullable and count > 1) try w.writeByte('(');
-        var written: usize = 0;
-        for (options) |option| if (option) |type_name| {
-            try w.print("{s}{s}", .{ if (written == 0) "" else " | ", type_name });
-            written += 1;
-        };
-        if (nullable and count > 1) try w.writeByte(')');
-        if (nullable) try w.writeByte('?');
-    }
-};
 
 test "the definitions don't change unless the game's tables or the source do" {
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
@@ -212,14 +165,6 @@ test "the definitions don't change unless the game's tables or the source do" {
         std.debug.print("the definitions of mission source have changed: if that's meant, run `make definitions` to update docs/guide/mission.d.luau\n", .{});
         return error.TestUnexpectedResult;
     }
-}
-
-test labelHead {
-    try std.testing.expectEqualStrings("Entity to target", labelHead("Entity to target (can be NULL)"));
-    try std.testing.expectEqualStrings("TRUE for enable", labelHead("TRUE for enable; FALSE for disable"));
-    try std.testing.expectEqualStrings("true - object targetable", labelHead("true - object targetable, false - not targetable"));
-    try std.testing.expectEqualStrings("Probability of Nanny Rescue", labelHead("Probability of Nanny Rescue    ( 1-100% )"));
-    try std.testing.expectEqualStrings("AI Mode", labelHead("AI Mode"));
 }
 
 test write {

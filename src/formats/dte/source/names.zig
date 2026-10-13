@@ -159,14 +159,19 @@ fn withoutTag(display: []const u8) []const u8 {
     return display[end + 1 ..];
 }
 
-/// Names as a message or a description lists them, each in backticks: `a`, `b` and `c`.
+/// Names as a message or a description lists them: `a`, `b` and `c`.
 pub const Listed = struct {
     items: []const []const u8,
+    /// Whether each name goes in backticks.
+    quoted: bool = true,
+    /// What goes before the last name.
+    last: []const u8 = " and ",
 
     pub fn format(listed: Listed, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const tick = if (listed.quoted) "`" else "";
         for (listed.items, 0..) |name, index| {
-            const separator = if (index == 0) "" else if (index + 1 == listed.items.len) " and " else ", ";
-            try writer.print("{s}`{s}`", .{ separator, name });
+            const separator = if (index == 0) "" else if (index + 1 == listed.items.len) listed.last else ", ";
+            try writer.print("{s}{s}{s}{s}", .{ separator, tick, name, tick });
         }
     }
 };
@@ -205,6 +210,10 @@ test Listed {
     var w: std.Io.Writer = .fixed(&buffer);
     try w.print("{f}; {f}; {f}", .{ Listed{ .items = &.{"a"} }, Listed{ .items = &.{ "a", "b" } }, Listed{ .items = &.{ "a", "b", "c" } } });
     try std.testing.expectEqualStrings("`a`; `a` and `b`; `a`, `b` and `c`", w.buffered());
+    // Plain words, the last after "or".
+    w = .fixed(&buffer);
+    try w.print("{f}", .{Listed{ .items = &.{ "a ship", "a flight group", "a squad" }, .quoted = false, .last = " or " }});
+    try std.testing.expectEqualStrings("a ship, a flight group or a squad", w.buffered());
 }
 
 test argument {

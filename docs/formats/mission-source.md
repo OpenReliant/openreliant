@@ -4,7 +4,9 @@ Mission source is a mission written as text. `sltool dte decompile` writes a mis
 its `.DTE` file, and `sltool dte build` compiles source into a standard `.DTE` that plays in the
 original too ([#1126](https://github.com/OpenReliant/openreliant/issues/1126)). The syntax is a
 subset of Luau, which Luau's own parser reads as the mission is built: nothing in the file runs, in
-OpenReliant or anywhere else.
+OpenReliant or anywhere else. The [reference](../guide/mission-reference.md) lists everything it
+holds: the declarations and their fields, the script's functions, and the game's commands and
+conditions.
 
 ```luau
 -- mission1.dte as source.
@@ -91,10 +93,7 @@ The display name and the value the global starts with.
 reliant_group = flight_group("(FG)Reliant", { wing = "player" })
 ```
 
-| Field | Value | Default |
-|---|---|---|
-| `wing` | The wing the group's ships are listed in: `"player"`, `"second"`, `"third"` or `"none"` | `"none"` |
-| `formation` | The formation the group flies in | None |
+Its fields are in the reference ([FlightGroupFields](../guide/mission-reference.md#flightgroupfields)).
 
 ### Ships
 
@@ -109,19 +108,11 @@ naginata = ship("(A1)Naginata", {
 ```
 
 `ship` places a ship, a capital ship or a station. `nav_point`, `waypoint`, `point` and `curve_point`
-place the mission's markers ([Ships](dte.md#ships)), which take the same fields but `type`.
-
-| Field | Value | Default |
-|---|---|---|
-| `type` | The ship's type | Required for `ship` |
-| `group` | Its flight group | None |
-| `pilot` | Its pilot, by its record of `pilotstats.bin` | None |
-| `position` | `{ x, y, z }`, in the game's coordinates, Y down | `{ 0, 0, 0 }` |
-| `yaw`, `pitch`, `roll` | Whole degrees; -1 where the mission leaves the angle unset | 0 |
-| `launch` | `{ from = "reliant", gate = 2 }`: the type of ship it launches from, the first of that type in the mission, and the gate it launches through | It doesn't launch |
-| `formation_point` | Its place in a formation: `sabres[2]` is the second point of the formation `sabres` | None |
-| `tier` | The loadout tier its missile racks are fitted by; 255 asks for the campaign's | 255 |
-| `marker` | For a `point` that marks a place on a curve: `{ curve = camera_curve, at = 0.5 }`, the share of the way along it | None |
+place the mission's markers ([Ships](dte.md#ships)), which take the same fields but `type`, and a
+point the place on a curve it marks. Their fields are in the reference
+([ShipFields](../guide/mission-reference.md#shipfields),
+[MarkerFields](../guide/mission-reference.md#markerfields) and
+[PointFields](../guide/mission-reference.md#pointfields)).
 
 ### Squads
 
@@ -191,14 +182,9 @@ on(black_guard, "shot_at", { repeats = "always", attacker = any_ship },
 `on` takes the trigger's subject, the ship, flight group or squad whose events it watches, its
 condition, its fields, which can be left out, and the code its events run. The function's
 parameters are the values the condition's events carry, named after their labels in the condition
-catalogue ([Conditions](dte.md#conditions)).
-
-| Field | Value | Default |
-|---|---|---|
-| `repeats` | `"once"`, which disarms the trigger as it fires; `"always"`; or `{ counted = 3 }`, which fires that many times each time the script arms it, with `left = 1` where fewer firings are left as the mission starts | `"once"` |
-| `component` | The subject's component it watches, by its index | The subject itself |
-| `deferred` | `true` leaves the thread to the scheduler rather than running it inside the event | `false` |
-| A value's name | What the event's value must be, for the values the condition checks: a number, a ship, flight group or squad, or `any_ship` for any of the players' ships | Not checked |
+catalogue ([Conditions](dte.md#conditions)). The fields are in the reference
+([TriggerFields](../guide/mission-reference.md#triggerfields)), and each condition with the values
+its events carry ([Conditions](../guide/mission-reference.md#conditions)).
 
 The triggers are in the order of their declarations, and a subject's triggers must follow one
 another. A trigger whose subject is `nil` belongs to no object, so it never fires. A trigger without

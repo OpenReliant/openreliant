@@ -19,6 +19,8 @@ pub const compile = @import("source/compile.zig");
 pub const language = @import("source/language.zig");
 /// The definitions file for luau-lsp.
 pub const definitions = @import("source/definitions.zig");
+/// The reference page.
+pub const reference = @import("source/reference.zig");
 
 /// Whether `id` is made of letters, digits, `_` and `-`, and starts with a letter or `_`:
 /// `[A-Za-z_][A-Za-z0-9_-]*`. Mods' scripts name what they register this way.
