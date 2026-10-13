@@ -39,12 +39,8 @@ pub fn count(held: *const Records) usize {
 
 /// Adds a maneuver after the last, named after its number, with an empty script.
 pub fn append(state: *State, held: *Records) void {
-    const out_of_memory = "records." ++ list_name ++ ": out of memory";
-    const grown = held.arena.alloc(aidefend.Compiled, held.maneuvers.len + 1) catch state.raise(out_of_memory, .{});
-    @memcpy(grown[0..held.maneuvers.len], held.maneuvers);
-    const name = std.fmt.allocPrint(held.arena, "maneuver {d}", .{held.maneuvers.len}) catch state.raise(out_of_memory, .{});
-    grown[held.maneuvers.len] = .{ .definition = .{ .name = name } };
-    held.maneuvers = grown;
+    const name = std.fmt.allocPrint(held.arena, "maneuver {d}", .{held.maneuvers.len}) catch state.raise("records." ++ list_name ++ ": out of memory", .{});
+    held.maneuvers = table.appended(aidefend.Compiled, state, held, held.maneuvers, .{ .definition = .{ .name = name } }, list_name);
 }
 
 /// The proxies of the maneuvers (`table.Table`).

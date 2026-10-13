@@ -11,8 +11,9 @@
 //! that follows one's end, so that on the Yamato these play the Reliant's piece in the row.
 //!
 //! **Improvement:** mods change the lists through the records' `cd_player`, which OpenReliant
-//! installs (`install`); the original's are fixed. The lists are pages of the records' tracks,
-//! the Reliant's then the Yamato's, and scripts can turn the page (`CdPlayer.turnTo`).
+//! installs (`install`), and add tracks after them; the original's are fixed. The lists are pages
+//! of the records' tracks, twelve to a page: the Reliant's, the Yamato's, then the tracks mods add.
+//! Scripts can turn the page (`CdPlayer.turnTo`).
 //!
 //! **Fix:** the CD player's volume is the level its music plays at, which the music volume and the
 //! master volume scale as they scale any music. The game plays each piece at full level and sets
@@ -63,9 +64,11 @@ pub const Track = struct {
     piece: []const u8,
     name: language.Words,
 
-    /// The file it plays, written into `buffer`; null for a piece whose name is longer than
+    /// The file it plays, written into `buffer`; null for a track without a piece, such as one a
+    /// script adds before it sets its piece, and for a piece whose name is longer than
     /// `longest_piece`.
     pub fn path(listed: Track, buffer: *[files.max_path]u8) ?[]const u8 {
+        if (listed.piece.len == 0) return null;
         return std.fmt.bufPrint(buffer, music_path, .{listed.piece}) catch null;
     }
 };
@@ -77,11 +80,9 @@ fn track(piece: []const u8, name: u16) Track {
 /// The pieces of each list, which the player shows a page at a time.
 pub const track_count = 12;
 
-/// The pages: each carrier's list, the Reliant's first.
-pub const page_count = std.enums.values(rooms.Carrier).len;
-
-/// The pieces of every page, in the order the records number them (`records.cd_player`).
-pub const Tracks = [page_count * track_count]Track;
+/// The most tracks there can be: eight pages, so that every track's number has the two digits the
+/// game writes (`%02d`).
+pub const most = 8 * track_count;
 
 /// The page of `carrier`'s list.
 fn pageOf(carrier: rooms.Carrier) usize {
@@ -96,7 +97,7 @@ comptime {
 /// The original's lists: the files (`0x00438261` on, `0x004382E1` on), and their names, Spirit of
 /// War to The Catalyst on the Reliant (`0x319` on, `0x004389CD` on) and Final Word to The Rise on
 /// the Yamato (`0x531` on, `0x00438A51` on). The Yamato's last plays the Reliant's first piece.
-pub const original: Tracks = .{
+pub const original = [std.enums.values(rooms.Carrier).len * track_count]Track{
     // The Reliant's.
     track("new_mission01", 0x319),
     track("new_mission02", 0x31A),
@@ -127,17 +128,29 @@ pub const original: Tracks = .{
 
 /// The pieces the CD player shows: the original's until OpenReliant installs the records'
 /// (`install`).
-var installed: *const Tracks = &original;
+var installed: []const Track = &original;
 
-/// Uses `tracks` as the CD player's pieces. OpenReliant installs the records' once the load
-/// scripts have run.
-pub fn install(tracks: *const Tracks) void {
+/// Uses `tracks` as the CD player's pieces: the original's lists, changed or not, and then the
+/// tracks mods add, up to `most`. OpenReliant installs the records' once the load scripts have run.
+pub fn install(tracks: []const Track) void {
+    assert(tracks.len >= original.len and tracks.len <= most);
     installed = tracks;
 }
 
-/// Whether nothing follows the piece at `place` on its page: the list's last.
+/// How many pages the pieces fill, twelve to a page. The last page may hold fewer.
+pub fn pageCount() usize {
+    return (installed.len + track_count - 1) / track_count;
+}
+
+/// The pieces on page `index`: twelve, or fewer on the last page.
+fn piecesOn(index: usize) []const Track {
+    const first = index * track_count;
+    return installed[first..@min(first + track_count, installed.len)];
+}
+
+/// Whether nothing follows the piece at `place` on its page: the page's last.
 fn lastOnPage(place: usize) bool {
-    return place % track_count == track_count - 1;
+    return place % track_count + 1 == piecesOn(place / track_count).len;
 }
 
 /// The buttons, in the order of the rectangles `interface_hit` reads.
@@ -227,10 +240,11 @@ const number_x = 0x75;
 const name_x = 0x89;
 const first_line = 0xAB;
 
-/// The rows' numbers, `%02d` of each from 1 (`0x004E8CF0`), on to the last page's.
+/// The rows' numbers, `%02d` of each from 1 (`0x004E8CF0`), on to the last page's: two digits each.
 const numbers = blk: {
-    var all: [original.len][]const u8 = undefined;
-    for (&all, 1..) |*number, n| number.* = std.fmt.comptimePrint("{d:0>2}", .{n});
+    assert(most < 100);
+    var all: [most][2]u8 = undefined;
+    for (&all, 1..) |*number, n| number.* = .{ '0' + n / 10, '0' + n % 10 };
     break :blk all;
 };
 
@@ -312,15 +326,17 @@ pub const CdPlayer = struct {
         player.* = undefined;
     }
 
-    /// The pieces of the page it shows.
-    pub fn list(player: CdPlayer) *const [track_count]Track {
-        return installed[player.placeOf(0)..][0..track_count];
+    /// The pieces of the page it shows: twelve, or fewer on the last page.
+    pub fn list(player: CdPlayer) []const Track {
+        return piecesOn(player.page);
     }
 
-    /// Turns to page `page`, its rows numbered as the records number the pieces: 01 to 12 on the
-    /// Reliant's list, 13 to 24 on the Yamato's. The piece chosen stays chosen, and the pieces that
-    /// follow it come from its own page.
+    /// Turns to page `page`, one of `pageCount`, its rows numbered as the records number the
+    /// pieces: 01 to 12 on the Reliant's list, 13 to 24 on the Yamato's, and on from 25 on the
+    /// pages of the tracks mods add. The piece chosen stays chosen, and the pieces that follow it
+    /// come from its own page.
     pub fn turnTo(player: *CdPlayer, page: usize) void {
+        assert(page < pageCount());
         player.page = page;
         player.numbered = true;
     }
@@ -332,7 +348,7 @@ pub const CdPlayer = struct {
 
     /// The number row `row` shows.
     fn number(player: CdPlayer, row: usize) []const u8 {
-        return numbers[if (player.numbered) player.placeOf(row) else row];
+        return &numbers[if (player.numbered) player.placeOf(row) else row];
     }
 
     /// A pass of its loop (`0x00438407` on): whether it stays open. Escape closes it, and so does
@@ -342,7 +358,7 @@ pub const CdPlayer = struct {
     pub fn pass(player: *CdPlayer, in: Input) bool {
         player.pointer = in.pointer;
         if (in.keyboard.pressed(input.scan.escape, .none, true) or player.leaving) return false;
-        player.under = hotspotAt(in.pointer.at);
+        player.under = player.hotspotOn(in.pointer.at);
         const pressed = in.pointer.down and !player.held;
         player.held = in.pointer.down;
         if (pressed and player.under != null) player.playPress();
@@ -411,7 +427,7 @@ pub const CdPlayer = struct {
         const chosen = player.selected orelse return;
         if (player.shuffle) {
             const row = chosen % track_count;
-            player.selected = chosen - row + other(player.random.random(), row);
+            player.selected = chosen - row + other(player.random.random(), row, piecesOn(chosen / track_count).len);
         } else {
             if (lastOnPage(chosen)) return;
             player.selected = chosen + 1;
@@ -466,6 +482,16 @@ pub const CdPlayer = struct {
         if (player.shapes) |*shapes| try canvas.onScreen().shape(&shapes.art, pointer_shape, player.pointer.at);
     }
 
+    /// What lies under the point `at` (`hotspotAt`), leaving out the rows the page shown has no
+    /// piece for.
+    fn hotspotOn(player: CdPlayer, at: [2]i32) ?Hotspot {
+        const under = hotspotAt(at) orelse return null;
+        return switch (under) {
+            .button => under,
+            .row => |row| if (row < player.list().len) under else null,
+        };
+    }
+
     /// The button under the pointer; null over a row, or over nothing.
     fn buttonUnder(player: CdPlayer) ?Button {
         const under = player.under orelse return null;
@@ -482,13 +508,15 @@ fn light(canvas: Canvas, shapes: *canvas_module.Shapes, button: Button) canvas_m
     try canvas.shape(&shapes.art, item.lit, item.lit_at);
 }
 
-/// A piece of the list other than `row`, at random.
+/// A piece of a page of `count` other than `row`, at random; `row` again where it's the page's
+/// only piece.
 ///
-/// **Improvement:** it is drawn from `std.Random` among the other eleven. The game draws
+/// **Improvement:** it is drawn from `std.Random` among the page's other pieces. The game draws
 /// `rand() % 12` up to 20 times for one other than `row` (`0x004387AE` on), and plays `row` again
 /// where none is.
-fn other(random: std.Random, row: usize) usize {
-    const drawn = random.uintLessThan(usize, track_count - 1);
+fn other(random: std.Random, row: usize, count: usize) usize {
+    if (count < 2) return row;
+    const drawn = random.uintLessThan(usize, count - 1);
     return if (drawn >= row) drawn + 1 else drawn;
 }
 
@@ -507,9 +535,12 @@ test other {
     var prng: std.Random.DefaultPrng = .init(0);
     for (0..200) |n| {
         const row = n % track_count;
-        const drawn = other(prng.random(), row);
+        const drawn = other(prng.random(), row, track_count);
         try std.testing.expect(drawn != row and drawn < track_count);
     }
+    // On a page of three, among its three; on a page of one, the same piece again.
+    for (0..20) |_| try std.testing.expect(other(prng.random(), 1, 3) < 3);
+    try std.testing.expectEqual(0, other(prng.random(), 0, 1));
 }
 
 test original {
@@ -517,11 +548,13 @@ test original {
     try std.testing.expectEqualStrings("music\\new_mission01.wav", original[0].path(&buffer).?);
     try std.testing.expectEqualStrings("music\\New_Takeoff - Music.wav", original[20].path(&buffer).?);
     try std.testing.expectEqual(0x53C, original[23].name.string);
-    try std.testing.expectEqualStrings("12", numbers[11]);
-    // A piece whose path wouldn't fit has none.
+    try std.testing.expectEqualStrings("12", &numbers[11]);
+    // A piece whose path wouldn't fit has none, and so does a track without a piece.
     const long_piece: [files.max_path]u8 = @splat('x');
     const long: Track = .{ .piece = &long_piece, .name = .{ .string = 0x319 } };
     try std.testing.expectEqual(null, long.path(&buffer));
+    const empty: Track = .{ .piece = "", .name = .{ .text = "" } };
+    try std.testing.expectEqual(null, empty.path(&buffer));
 }
 
 /// Its files in the tests: there, but unreadable, and left out.
@@ -656,6 +689,41 @@ test "the CD player plays the lists the records install" {
     try click(&player, &keyboard, rowAt(11));
     try click(&player, &keyboard, rowAt(11));
     try std.testing.expect(tested.sound.musicPlaying());
+}
+
+test "the pages of the tracks mods add" {
+    // A mod adds three tracks after the Yamato's list, on a page of their own.
+    var tracks = original ++ [_]Track{
+        .{ .piece = "Theme_A", .name = .{ .text = "Theme A" } },
+        .{ .piece = "Theme_B", .name = .{ .text = "Theme B" } },
+        .{ .piece = "Theme_C", .name = .{ .text = "Theme C" } },
+    };
+    install(&tracks);
+    defer install(&original);
+    try std.testing.expectEqual(3, pageCount());
+    var tested: rooms.testing.Tested = undefined;
+    try testedWith(&tested, .reliant);
+    defer tested.deinit();
+    try tested.giveMusic(&.{ "music\\Theme_A.wav", "music\\Theme_B.wav", "music\\Theme_C.wav" });
+    var keyboard: input.Keyboard = .{};
+    var volume: Volume = full_volume;
+    var player: CdPlayer = .open(.{ .rooms = tested.context(), .volume = &volume }, 18, 0);
+    defer player.deinit();
+    // Its three rows, numbered on from the Yamato's.
+    player.turnTo(2);
+    try std.testing.expectEqual(3, player.list().len);
+    try std.testing.expectEqualStrings("25", player.number(0));
+    // The rows past its last piece hold nothing to choose.
+    try click(&player, &keyboard, rowAt(5));
+    try std.testing.expectEqual(null, player.selected);
+    // Its second piece plays, the next track is its third, and nothing follows the third.
+    try click(&player, &keyboard, rowAt(1));
+    try click(&player, &keyboard, rowAt(1));
+    try std.testing.expect(tested.sound.musicPlaying());
+    try click(&player, &keyboard, buttonAt(.next));
+    try std.testing.expectEqual(26, player.selected.?);
+    try click(&player, &keyboard, buttonAt(.next));
+    try std.testing.expectEqual(26, player.selected.?);
 }
 
 test "the Yamato's CD player plays its own list" {

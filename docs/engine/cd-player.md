@@ -23,14 +23,17 @@ player, and the driver runs its loop (`Driver.listen` in
 
 **Improvements:**
 
-- RANDOM TRACK MODE draws the next piece from `std.Random`, among the eleven others. The game draws
-  `rand() % 12` up to 20 times for one other than the piece that ended, and plays that piece again
-  where none is.
-- Mods can change the lists: a load script sets which piece each row plays and its name
+- RANDOM TRACK MODE draws the next piece from `std.Random`, among the page's other pieces. The game
+  draws `rand() % 12` up to 20 times for one other than the piece that ended, and plays that piece
+  again where none is.
+- Mods can change the lists: a load script sets which piece each row plays and its name, and adds
+  tracks after the last, up to 96 in all
   ([The CD player's tracks](../guide/scripting.md#the-cd-players-tracks)). The game's are fixed.
-- The lists are pages of the records' tracks, the Reliant's then the Yamato's, and a menu script
-  can turn the page ([The rooms](../guide/scripting.md#the-rooms)). The rows are then numbered as
-  the records number the tracks, 13 to 24 on the Yamato's page. The player keeps the piece chosen
+- The lists are pages of the records' tracks, twelve to a page: the Reliant's, the Yamato's, then
+  the tracks mods add, the last page holding what's left. A menu script can turn the page
+  ([The rooms](../guide/scripting.md#the-rooms)). The rows are then numbered as the records number
+  the tracks, 13 to 24 on the Yamato's page and on from 25 after it, and a page's rows without a
+  piece hold nothing to choose. The player keeps the piece chosen
   by its place among all the tracks rather than by its row, so the pieces that follow it come from
   its own page, and it shows lit only there. The game keeps the row alone, and numbers each list
   01 to 12.

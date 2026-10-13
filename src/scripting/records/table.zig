@@ -246,6 +246,15 @@ pub fn kept(comptime T: type, state: *State, held: *Records, given: anytype, com
     };
 }
 
+/// `list`, a table that can grow (`Table`'s `append`), with `entry` after its last, made in the
+/// records' arena. Raises an error naming the table `list_name` if there's no memory for it.
+pub fn appended(comptime T: type, state: *State, held: *Records, list: []const T, entry: T, comptime list_name: []const u8) []T {
+    const grown = held.arena.alloc(T, list.len + 1) catch state.raise("records." ++ list_name ++ ": out of memory", .{});
+    @memcpy(grown[0..list.len], list);
+    grown[list.len] = entry;
+    return grown;
+}
+
 /// The items a script gave, `given`, as the records keep them: report parts, news items and the
 /// like, of type `Kept`, whose fields have the same names as the script's (`kept`).
 pub fn keptItems(comptime Kept: type, state: *State, held: *Records, given: anytype, comptime label: []const u8) []const Kept {

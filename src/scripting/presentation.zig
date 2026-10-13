@@ -1269,7 +1269,7 @@ test "menu scripts follow the rooms, and ask the CD player for a list" {
                 \\            assert(rooms.carrier == "reliant" and rooms.view == 5 and rooms.cd_player_page == 1)
                 \\            -- The page asked for is the page until the CD player turns to it.
                 \\            assert(rooms.set_cd_player_page(2) and rooms.cd_player_page == 2)
-                \\            assert(not pcall(rooms.set_cd_player_page, 3))
+                \\            assert(rooms.cd_player_pages == 2 and not pcall(rooms.set_cd_player_page, 3))
                 \\        else
                 \\            assert(not rooms.set_cd_player_page(2) and rooms.cd_player_page == nil)
                 \\        end

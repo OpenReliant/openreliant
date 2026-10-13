@@ -422,8 +422,9 @@ Where the player is in the carrier's rooms, and the list the CD player shows. Fo
 | `carrier` | [Carrier](#carrier), or nil | The carrier whose rooms are on screen; nil while they aren't, as in flight, in the front end, the in-game options and the briefing. |
 | `view` | number, or nil | The view the player stands in, or walks into, by its number in `records.room_views`; nil while the rooms aren't on screen. |
 | `place` | [RoomPlace](#roomplace), or nil | The place whose screen shows: `itac`, `simulator`, `locker` or `cd_player`, or `news` while the television's report plays. Nil while the player walks the rooms, and while they aren't on screen. |
-| `cd_player_page` | number, or nil | The page the CD player shows, while it's open: `records.cd_player`'s tracks twelve to a page, the Reliant's list on page 1 and the Yamato's on page 2. Nil while it isn't open. It opens on its carrier's page, numbered 1 to 12 as the game numbers each list. |
-| `set_cd_player_page(page: number)` | boolean | Turns the CD player to page `page`, while it's open, its rows numbered as `records.cd_player` numbers its tracks, from 13 on page 2. The piece chosen plays on, and the pieces that follow it come from its own page. Returns whether the CD player is open. |
+| `cd_player_pages` | number | How many pages the CD player has: `records.cd_player`'s tracks twelve to a page, the Reliant's list on page 1, the Yamato's on page 2, and the tracks mods add on the pages after them. |
+| `cd_player_page` | number, or nil | The page the CD player shows while it's open, from 1 to `cd_player_pages`; nil while it isn't open. It opens on its carrier's page, numbered 1 to 12 as the game numbers each list. |
+| `set_cd_player_page(page: number)` | boolean | Turns the CD player to page `page`, from 1 to `cd_player_pages`, while it's open, its rows numbered as `records.cd_player` numbers its tracks, from 13 on page 2. The piece chosen plays on, and the pieces that follow it come from its own page. Returns whether the CD player is open. |
 
 ## Objects
 
