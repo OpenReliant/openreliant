@@ -34,6 +34,18 @@ jobs:
         shell: bash
         run: ${{ env.forget_our_code }}
       - run: zig build --summary all
+      # On Windows, the executables carry a manifest, which Windows reads as they start, and version
+      # information, which has to give the version they report.
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($program in 'openreliant', 'sltool') {
+            $reported = & "zig-out/bin/$program.exe" --version
+            $carried = (Get-Item "zig-out/bin/$program.exe").VersionInfo.ProductVersion
+            if ($LASTEXITCODE -ne 0 -or $reported -ne "$program $carried") {
+              throw "$program.exe reports '$reported' but carries '$carried'"
+            }
+          }
       - run: zig build test --summary all
       # Releases are built ReleaseFast, without the safety checks, so the tests run in that mode
       # too: Debug catches an overflow or a bad index with its checks on, and ReleaseFast what only
@@ -51,4 +63,5 @@ jobs:
           -name test -o -name 'test.*' -o -name '*_zcu.o' -o -name '*_zcu.obj'
           -o -name 'openreliant' -o -name 'openreliant.*' -o -name 'sltool' -o -name 'sltool.*'
           -o -name 'tablegen*' -o -name 'ghidragen*' -o -name 'build-mission' -o -name 'build-mission.*'
+          -o -name 'build-resources' -o -name 'build-resources.*'
           \) -delete && ${{ env.forget_our_code }}

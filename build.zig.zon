@@ -33,6 +33,10 @@
             .url = "git+https://codeberg.org/ziglang/translate-c?ref=2.0.0#0da7a16c3235b935b82421646076e0657cda21f6",
             .hash = "translate_c-2.0.0-Q_BUWltOBwA0229IE8wwSxxGzOxyRso3hvcb1nN8oJX_",
         },
+        .rc = .{
+            .url = "git+https://codeberg.org/ziglang/rc?ref=zig-0.17.x#a8a3b3cebbe6e414fa12d6ad028c56a3a349c75e",
+            .hash = "rc-0.0.0-rMftL71EAAAxhe4swpM5rrfcmC9k_j7ApwJJPRssBiDL",
+        },
     },
     .paths = .{
         "build.zig",

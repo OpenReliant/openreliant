@@ -1,5 +1,6 @@
 const std = @import("std");
 const Translator = @import("translate_c").Translator;
+const rc = @import("rc");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -182,7 +183,7 @@ pub fn build(b: *std.Build) void {
             .target = b.graph.host,
             .imports = &.{
                 .{ .name = "openreliant", .module = host_lib },
-                .{ .name = "source_parser", .module = sourceParser(b, translate_c, host_lib, b.graph.host, .Debug) },
+                .{ .name = "source_parser", .module = sourceParser(b, translate_c, host_lib, b.graph.host, .debug) },
             },
         }),
     });
@@ -213,6 +214,28 @@ pub fn build(b: *std.Build) void {
     // as the mods' release pipeline does to pack mods.
     const sltool_step = b.step("sltool", "Build and install sltool alone");
     sltool_step.dependOn(&b.addInstallArtifact(sltool, .{}).step);
+
+    // On Windows, both programs carry version information and a manifest (`src/windows.manifest`).
+    // `build-resources`, built for the host, writes the version information with the version
+    // (`src/tools/build_resources.zig`).
+    const host_version = b.createModule(.{
+        .root_source_file = b.path("src/version.zig"),
+        .target = b.graph.host,
+    });
+    host_version.addOptions("build_options", build_options);
+    const build_resources = b.addExecutable(.{
+        .name = "build-resources",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tools/build_resources.zig"),
+            .target = b.graph.host,
+            .imports = &.{
+                .{ .name = "version", .module = host_version },
+            },
+        }),
+    });
+    if (target.result.os.tag == .windows) {
+        for ([_]*std.Build.Step.Compile{ openreliant, sltool }) |program| addWindowsResources(b, program, build_resources, target, optimize);
+    }
 
     // Derives the engine's static tables from the game binary: the script VM's opcodes, commands
     // and conditions, and the models it loads. Not installed: it is a development tool, run by the
@@ -291,12 +314,12 @@ pub fn build(b: *std.Build) void {
     // `zig build check -fincremental --watch` reports compile errors within moments of a save.
     const test_step = b.step("test", "Run tests");
     const check_step = b.step("check", "Check that the programs and the tests compile, without writing binaries");
-    for ([_]*std.Build.Module{ lib, platform, scripting, source_parser, version, openreliant.root_module, sltool.root_module, tablegen.root_module, ghidragen.root_module }) |module| {
+    for ([_]*std.Build.Module{ lib, platform, scripting, source_parser, version, openreliant.root_module, sltool.root_module, tablegen.root_module, ghidragen.root_module, build_resources.root_module }) |module| {
         const tests = b.addTest(.{ .root_module = module });
         test_step.dependOn(&b.addRunArtifact(tests).step);
         check_step.dependOn(&b.addTest(.{ .root_module = module }).step);
     }
-    for ([_]*std.Build.Step.Compile{ openreliant, sltool, tablegen, ghidragen }) |program| {
+    for ([_]*std.Build.Step.Compile{ openreliant, sltool, tablegen, ghidragen, build_resources }) |program| {
         check_step.dependOn(&b.addExecutable(.{ .name = program.name, .root_module = program.root_module }).step);
     }
 }
@@ -308,6 +331,24 @@ fn runStep(b: *std.Build, name: []const u8, description: []const u8, program: *s
     run.step.dependOn(b.getInstallStep());
     run.addPassthruArgs();
     b.step(name, description).dependOn(&run.step);
+}
+
+/// Gives `program`, built for Windows, the version information `build_resources` writes for it and
+/// the manifest, `src/windows.manifest`. The rc package compiles them, without the system's
+/// headers, so every system builds the same bytes. Its resource compiler only reads these short
+/// files, so it is built in Debug, which compiles fastest, whatever mode the rest is built in.
+fn addWindowsResources(b: *std.Build, program: *std.Build.Step.Compile, build_resources: *std.Build.Step.Compile, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize) void {
+    const run = b.addRunArtifact(build_resources);
+    run.addArg(program.name);
+    const script = run.addOutputFileArg2(b.fmt("{s}-version.rc", .{program.name}), .{});
+    const resources: rc.Compiler = .init(b.dependency("rc", .{ .optimize = .debug }), .{
+        .rc_files = &.{script},
+        .manifest = .{ .file = b.path("src/windows.manifest"), .for_dll = false },
+        .target = target,
+        .optimize = optimize,
+        .rc_options = .{ .auto_includes = .none },
+    });
+    program.root_module.addObjectFile(resources.getObjectFile());
 }
 
 /// The module that reads mission source with Luau's own parser (`src/source_parser.zig`), for
