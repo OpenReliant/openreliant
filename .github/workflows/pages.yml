@@ -26,12 +26,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # The Predator's wire frame from the docs, drawn in the page's orange.
       - run: sed 's/#7d8590/#f08a2c/g' docs/images/predator-wireframe.svg > website/predator.svg
       # The documentation, rendered by MkDocs in the website's style into website/docs. Pygments marks
       # the lines of a diff, which the docs' style colours.
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - run: pip install "mkdocs>=1.6,<2" pymdown-extensions pygments
@@ -39,9 +39,9 @@ jobs:
       - run: pip install fonttools
       - run: mkdir -p website/fonts && python3 .github/scripts/web_font.py deps/newtown/Newtown.ttf website/fonts/Newtown.ttf
       - run: mkdocs build --strict --config-file website/mkdocs.yml
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: website
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

@@ -2,11 +2,12 @@
 # release-please from the Conventional Commits pushed to main, or to a release branch that patches
 # an earlier version, such as release/0.5 for 0.5.1. Merging that pull request tags the version and
 # publishes a GitHub release with its changelog; the builds for each system are then attached to
-# it, and the changes contributors made are credited to them in its notes. The builds hold no game
-# files: the game needs your own copy.
+# it, with a file of their SHA-256 checksums, and the changes contributors made are credited to them
+# in its notes. Each archive, and each executable in it, gets a build provenance attestation, which
+# `gh attestation verify` checks. The builds hold no game files: the game needs your own copy.
 #
 # Run by hand from the Actions tab, it builds everything and keeps the archives as the run's
-# artifacts, but publishes nothing.
+# artifacts, but publishes nothing and makes no attestations.
 #
 # The builds are attached after release-please has published the release, so the repository's
 # immutable releases must stay off: GitHub refuses files for an immutable release once it is
@@ -31,7 +32,7 @@ jobs:
       created: ${{ steps.release.outputs.release_created }}
       tag: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           config-file: release-please-config.json
@@ -52,10 +53,18 @@ jobs:
           - { name: macos-x86_64, os: macos-latest, target: x86_64-macos }
           - { name: macos-aarch64, os: macos-latest, target: aarch64-macos }
     runs-on: ${{ matrix.os }}
+    # The build only reads the repository. The attestations need a token from GitHub's OIDC provider,
+    # to get a signing certificate from Sigstore, and the rights `actions/attest` asks for to store
+    # them.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       # The whole history with its tags, so that the build can name the commit a build by hand is
       # past the last release.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: mlugg/setup-zig@v2
@@ -90,7 +99,15 @@ jobs:
               tar -czf "dist/$name.tar.gz" "$name"
               ;;
           esac
-      - uses: actions/upload-artifact@v4
+      # For a release, the archive and the executables in it get a build provenance attestation,
+      # signed through Sigstore, which names the workflow run that built them and its commit.
+      - if: needs.release-please.outputs.created == 'true'
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/*
+            zig-out/bin/*
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
           path: dist/*
@@ -101,11 +118,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # For the script that credits the contributors.
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
+      # The SHA-256 of each archive, in the format `sha256sum --check` reads.
+      - name: Write the checksums of the archives
+        working-directory: dist
+        env:
+          TAG: ${{ needs.release-please.outputs.tag }}
+        run: sha256sum -- *.tar.gz *.zip > "openreliant-$TAG-sha256sums.txt"
       # Each change a contributor made gets their handle in the notes (`release-credits.sh`).
       - name: Attach the builds to the release, and credit the contributors
         shell: bash
@@ -115,7 +138,7 @@ jobs:
         run: |
           gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
           changelog="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body | scripts/release-credits.sh)"
-          note="OpenReliant needs your own copy of StarLancer: see the README for where to point it. The macOS builds are not signed, so macOS blocks them at first; run \`xattr -d com.apple.quarantine openreliant sltool\` once to allow them."
+          note="OpenReliant needs your own copy of StarLancer: see the README for where to point it. The macOS builds are not signed, so macOS blocks them at first; run \`xattr -d com.apple.quarantine openreliant sltool\` once to allow them. To check a download, compare it with \`openreliant-$TAG-sha256sums.txt\`, or run \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\`."
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$note
 
           $changelog"
