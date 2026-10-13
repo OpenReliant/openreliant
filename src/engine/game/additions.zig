@@ -20,9 +20,10 @@
 //! - Each acts as its base wherever the code singles one out (`gameobj.Type.base`,
 //!   `guns.GunType.base`, `missiles.Type.base`), and starts with its base's records.
 //! - The number after its name in the list is the number the mod's own files use for it: its
-//!   missions for ship types and pilots, its models' muzzles for guns and their hardpoints for
-//!   missiles. As OpenReliant loads one of the mod's files, it changes that number to the one the
-//!   record got (`remapMission`, `remapModel`), so the files stay in the game's formats.
+//!   missions for ship types, the carriers ships launch from and pilots, its models' muzzles for
+//!   guns and their hardpoints for missiles. As OpenReliant loads one of the mod's files, it
+//!   changes that number to the one the record got (`remapMission`, `remapModel`), so the files
+//!   stay in the game's formats.
 //!
 //! The lists are fixed once OpenReliant has started (`read`), and read from anywhere.
 //!
@@ -641,9 +642,10 @@ pub fn addNames(arena: Allocator, text: []const []const u8) Allocator.Error![]co
     return made.items;
 }
 
-/// Changes the numbers the mod called `mod` gives the ship types and pilots it adds in a mission's
-/// ship records, in the mission's `image`, to the numbers they got. A mission that can't be read is
-/// left as it is, to fail as it loads.
+/// Replaces the numbers that the mod called `mod` gives the ship types and pilots it adds, in the
+/// ship records of the mission `image`, with the numbers they got: each ship's type, the type of
+/// the carrier it launches from, and its pilot. A mission that can't be read is left as it is, to
+/// fail as it loads.
 pub fn remapMission(image: []u8, mod: []const u8) void {
     const mission = dte.Mission.parse(image) catch return;
     const records = mission.ships() catch return;
@@ -652,6 +654,11 @@ pub fn remapMission(image: []u8, mod: []const u8) void {
         const place = start + at * @sizeOf(dte.Ship);
         if (ships.remapped(mod, record.kind)) |number| {
             std.mem.writeInt(u16, image[place + @offsetOf(dte.Ship, "kind") ..][0..2], @intCast(number), .little);
+        }
+        // The launch looks for the first ship of this type, so a mod's carrier type needs the
+        // same number here as in the carrier's own record.
+        if (ships.remapped(mod, record.launch_from)) |number| {
+            std.mem.writeInt(u16, image[place + @offsetOf(dte.Ship, "launch_from") ..][0..2], @intCast(number), .little);
         }
         if (pilots.remapped(mod, record.pilot)) |number| image[place + @offsetOf(dte.Ship, "pilot")] = @intCast(number);
     }
@@ -915,7 +922,9 @@ test remapMission {
     var pilot_list = [_]pilots.Added{.{ .name = "a:p", .mod = "a", .base = 0, .own_number = 200, .extra = .{ .face = pilots_module.faces[0] } }};
     pilots.install(&pilot_list);
     defer reset();
-    // A mission of mod `a` naming its types 300 and 301, its pilot 200, and one of the game's.
+    // A mission of mod `a` naming its types 300 and 301, its pilot 200, and one of the game's. The
+    // game's ship launches from the mod's type 300, and the ship of type 301 from the game's
+    // Reliant.
     var records = [_]dte.Ship{
         dte.testing.ship(0, dte.Ship.no_flight_group, 300),
         dte.testing.ship(1, dte.Ship.no_flight_group, @backingInt(gameobj.GameType.phoenix)),
@@ -923,7 +932,12 @@ test remapMission {
         dte.testing.ship(3, dte.Ship.no_flight_group, 302),
     };
     records[0].pilot = 200;
+    records[0].launch_from = dte.Ship.no_launch_from;
     records[1].pilot = 12;
+    records[1].launch_from = 300;
+    records[1].launch_gate = 0;
+    records[2].launch_from = @backingInt(gameobj.GameType.reliant);
+    records[2].launch_gate = 1;
     var sections: dte.write.Sections = @splat(.{});
     dte.write.set(&sections, .ships, records.len, std.mem.sliceAsBytes(&records));
     const image = try dte.write.write(gpa, &sections, .{});
@@ -932,9 +946,12 @@ test remapMission {
     const remapped_ships = try (try dte.Mission.parse(image)).ships();
     try std.testing.expectEqual(ships.first, remapped_ships[0].kind);
     try std.testing.expectEqual(pilots.first, remapped_ships[0].pilot);
+    try std.testing.expectEqual(dte.Ship.no_launch_from, remapped_ships[0].launch_from);
     try std.testing.expectEqual(@backingInt(gameobj.GameType.phoenix), remapped_ships[1].kind);
     try std.testing.expectEqual(12, remapped_ships[1].pilot);
+    try std.testing.expectEqual(ships.first, remapped_ships[1].launch_from);
     try std.testing.expectEqual(ships.first + 2, remapped_ships[2].kind);
+    try std.testing.expectEqual(@backingInt(gameobj.GameType.reliant), remapped_ships[2].launch_from);
     try std.testing.expectEqual(302, remapped_ships[3].kind);
     // The other mod's type of the same number is its own.
     try std.testing.expectEqual(ships.first + 1, ships.remapped("z", 300).?);
