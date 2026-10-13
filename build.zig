@@ -95,8 +95,8 @@ pub fn build(b: *std.Build) void {
     }
     // Mod scripts: OpenReliant's scripting module (`src/scripting.zig`) on Luau, which deps/luau
     // builds from source for the target. Like FreeType, Luau is always built optimized so that
-    // scripts run fast in debug builds too. The game links all of it and sltool only its parser;
-    // the library the tools share doesn't link it.
+    // scripts run fast in debug builds too. The game links all of it, and sltool and the build's
+    // `build-mission` only its parser (`sourceParser`); the library the tools share doesn't link it.
     const luau_library = b.dependency("luau", .{ .target = target, .optimize = .fast }).artifact("luau");
     const scripting = b.createModule(.{
         .root_source_file = b.path("src/scripting.zig"),

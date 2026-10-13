@@ -15,24 +15,16 @@ const Order = game.ai.orders.Order;
 /// The mission's number, which `openreliant` plays by default.
 pub const number = 0;
 
-/// The mission file the build compiled from the source.
-const file = @embedFile("mission0.dte");
+/// The mission file the build compiled from the source, which `openreliant` carries.
+pub const file = @embedFile("mission0.dte");
 
 /// The place among the mission's ships of the one the source names `name`.
 fn shipNamed(name: []const u8) !u16 {
     const mission: dte.Mission = try .parse(file);
-    for (try mission.ships(), 0..) |ship, index| {
-        if (std.mem.eql(u8, mission.name(ship.name), name)) return @intCast(index);
-    }
-    return error.TestUnexpectedResult;
-}
-
-/// The flight group the source names `name`.
-fn groupNamed(mission: *const game.mission.Mission, name: []const u8) !dte.FlightGroup {
-    for (try mission.flightGroups()) |group| {
-        if (std.mem.eql(u8, mission.file.name(group.name), name)) return group;
-    }
-    return error.TestUnexpectedResult;
+    return switch (try mission.findShip(name)) {
+        .one => |index| @intCast(index),
+        .none, .several => error.TestUnexpectedResult,
+    };
 }
 
 test "mission 0 is a standard mission, which binds" {
@@ -48,7 +40,8 @@ test "mission 0 is a standard mission, which binds" {
     // player's wing.
     const records = try mission.ships();
     try std.testing.expectEqualStrings("Player", mission.file.name((try mission.file.player()).?.name));
-    const alpha = try groupNamed(&mission, "(FG)Alpha");
+    const alpha = (try mission.flightGroups())[records[0].flight_group];
+    try std.testing.expectEqualStrings("(FG)Alpha", mission.file.name(alpha.name));
     try std.testing.expectEqualSlices(u16, &.{ 0, 1, 2, 3 }, mission.groupShips(alpha));
     try std.testing.expectEqual(.player, alpha.wing);
     // The wing launches through the Reliant's first four tubes; the rest launch from nothing.
@@ -127,13 +120,15 @@ test "the rocks lie beyond the action's sphere, apart" {
     var mission: game.mission.Mission = try .bind(gpa, try gpa.dupe(u8, file));
     defer mission.deinit();
     const records = try mission.ships();
-    const rocks = mission.groupShips(try groupNamed(&mission, "(FG)Rocks"));
+    const rocks = mission.groupShips((try mission.flightGroups())[records[try shipNamed("Rock 1")].flight_group]);
     try std.testing.expectEqual(12, rocks.len);
     // The rows are 26000 apart, and a rock is moved up to 7000 along and across from its place, so
     // no two stand closer than 12000, across and along.
     const least_apart = 12000;
     const sphere = game.aigeneric.ActionSphere.default.radius;
-    var seen = std.bit_set.Static(7).empty;
+    const first_asteroid = @backingInt(game.gameobj.GameType.asteroid_1);
+    const asteroids = @backingInt(game.gameobj.GameType.asteroid_7) - first_asteroid + 1;
+    var seen = std.bit_set.Static(asteroids).empty;
     for (rocks, 0..) |rock, n| {
         const at: @Vector(3, f32) = records[rock].position;
         try std.testing.expect(@sqrt(@reduce(.Add, at * at)) > sphere);
@@ -141,8 +136,8 @@ test "the rocks lie beyond the action's sphere, apart" {
             const off = at - @as(@Vector(3, f32), records[other].position);
             try std.testing.expect(@max(@abs(off[0]), @abs(off[2])) >= least_apart);
         }
-        seen.set(records[rock].kind - Type.asteroid(0).number());
+        seen.set(records[rock].kind - first_asteroid);
     }
-    // Every one of the seven asteroids is among them.
-    try std.testing.expectEqual(7, seen.count());
+    // Every one of the asteroids is among them.
+    try std.testing.expectEqual(asteroids, seen.count());
 }

@@ -10,7 +10,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-const dte = @import("openreliant").dte;
+const openreliant = @import("openreliant");
+const dte = openreliant.dte;
 const syntax = dte.source.syntax;
 const compile = dte.source.compile;
 const luau = @import("luau_syntax");
@@ -51,6 +52,14 @@ fn read(arena: Allocator, text: []const u8, declarations: bool) Allocator.Error!
 /// the source has an error, the parser's or the compiler's, `failure` says what and where.
 pub fn build(arena: Allocator, text: []const u8, failure: *compile.Failure) compile.Error![]u8 {
     return compile.compile(arena, try parse(arena, text), failure);
+}
+
+/// Compiles the mission source file `source` into the mission file `mission`, both in `dir`, as
+/// `sltool dte build` and the build's `build-mission` do. Where the source has an error, `failure`
+/// says what and where, the error is `Invalid`, and no file is written.
+pub fn buildFile(io: std.Io, arena: Allocator, dir: std.Io.Dir, source: []const u8, mission: []const u8, failure: *compile.Failure) !void {
+    const text = try dir.readFileAlloc(io, source, arena, .limited(openreliant.engine.files.max_file_size));
+    try dir.writeFile(io, .{ .sub_path = mission, .data = try build(arena, text, failure) });
 }
 
 // The bridge's nodes have the library's layout, and the header gives every kind of node, operator
@@ -222,6 +231,25 @@ test definitionErrors {
     try std.testing.expectEqual(0, (try definitionErrors(arena, declaration)).len);
     try std.testing.expect((try parse(arena, declaration)).errors.len > 0);
     try std.testing.expect((try definitionErrors(arena, "declare class Ship\nend\n")).len > 0);
+}
+
+test buildFile {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(io, .{ .sub_path = "patrol.mission.luau", .data = "player = ship(\"Player\", { type = \"grendel\" })\n" });
+    var failure: compile.Failure = undefined;
+    try buildFile(io, arena, tmp.dir, "patrol.mission.luau", "patrol.dte", &failure);
+    const mission: dte.Mission = try .parse(try tmp.dir.readFileAlloc(io, "patrol.dte", arena, .unlimited));
+    try std.testing.expectEqualStrings("Player", mission.name((try mission.player()).?.name));
+    // A source with an error says where, and writes no mission.
+    try tmp.dir.writeFile(io, .{ .sub_path = "broken.mission.luau", .data = "player = nobody\n" });
+    try std.testing.expectError(error.Invalid, buildFile(io, arena, tmp.dir, "broken.mission.luau", "broken.dte", &failure));
+    try std.testing.expectEqual(syntax.Position{ .line = 0, .column = 9 }, failure.at);
+    try std.testing.expectError(error.FileNotFound, tmp.dir.readFileAlloc(io, "broken.dte", arena, .unlimited));
 }
 
 /// A mission with every kind of record, every form of the script and each way a line that doesn't

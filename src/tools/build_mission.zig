@@ -16,15 +16,13 @@ pub fn main(init: std.process.Init) !u8 {
         std.debug.print("usage: build-mission <source> <mission>\n", .{});
         return 2;
     }
-    const text = try Io.Dir.cwd().readFileAlloc(init.io, args[1], arena, .limited(openreliant.engine.files.max_file_size));
     var failure: openreliant.dte.source.compile.Failure = undefined;
-    const bytes = source_parser.build(arena, text, &failure) catch |err| switch (err) {
+    source_parser.buildFile(init.io, arena, Io.Dir.cwd(), args[1], args[2], &failure) catch |err| switch (err) {
         error.Invalid => {
             std.debug.print("{s}:{f}\n", .{ args[1], failure });
             return 1;
         },
         else => return err,
     };
-    try Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[2], .data = bytes });
     return 0;
 }

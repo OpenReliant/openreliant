@@ -86,7 +86,7 @@ pub fn main(io: Io, gpa: Allocator, args: []const [:0]const u8) !u8 {
     const built_in = std.mem.findScalar(u16, numbers, mission0.number) == null;
     if (built_in) {
         try out.print("{d:>7}  ", .{mission0.number});
-        if (show(gpa, try gpa.dupe(u8, @embedFile("mission0.dte")), "built-in", out)) |_| {} else |err| {
+        if (show(gpa, try gpa.dupe(u8, mission0.file), "built-in", out)) |_| {} else |err| {
             try out.print("fails to bind: {s}\n", .{@errorName(err)});
             failed += 1;
         }

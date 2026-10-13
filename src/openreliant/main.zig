@@ -2274,7 +2274,7 @@ fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const ga
         if (file.source == .mod) if (resources.mods.holder(engine.files.leaf(path))) |mod| game.additions.remapMission(file.image, mod.name);
         return file.image;
     }
-    if (number == mission0.number) return @embedFile("mission0.dte");
+    if (number == mission0.number) return mission0.file;
     std.debug.print("openreliant: the game has no mission {d}: {s} isn't in a mod, the missions folder or {s}\n", .{ number, engine.files.leaf(path), game.bigfile.resource_name });
     return error.MissingMission;
 }

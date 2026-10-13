@@ -52,9 +52,9 @@ badanov = ship("The Badanov", {
     yaw = 63,
 })
 
--- The Sabres, 150000 ahead of the Reliant and 3000 apart, facing it. Their pilot is record 42 of
--- pilotstats.bin, one of its weakest, where the game gives a Sabre the sharp pilot of record 66,
--- so that the player's missiles mostly get past their countermeasures.
+-- The Sabres, 150000 ahead of the Reliant and 3000 apart, facing it. Their pilot, "jackel", record
+-- 42 of pilotstats.bin, is one of its weakest, where the game gives a Sabre the sharp pilot of
+-- record 66, "sabre", so that the player's missiles mostly get past their countermeasures.
 
 sabre_1 = ship("Sabre 1", {
     type = "sabre",
