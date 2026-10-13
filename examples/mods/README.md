@@ -19,7 +19,7 @@ or go away in any release. Copy one as a starting point for your own mod.
 | [`dvd`](dvd) | A menu script that draws over the menus |
 | [`interceptor`](interceptor) | A new ship type, based on the Predator, flown in a game mode |
 | [`main-menu`](main-menu) | A main menu of the mod's own in place of the game's |
-| [`music`](music) | A piece of music in place of the main menu's, which loops back where the game's does |
+| [`music`](music) | A piece of music in place of the main menu's, which loops back where the game's does, and a track of the CD player that plays it |
 | [`rules`](rules) | Hooks on the game's functions |
 | [`strafe-run`](strafe-run) | A custom order with a HUD display, a chase camera and rebindable actions |
 | [`tally`](tally) | Storage kept with each saved game and across every game |

@@ -668,6 +668,10 @@ declare extern type Planet with
     atmosphere_surface: string?
     atmosphere_parameters: { number }
 end
+declare extern type CdPlayerTrack with
+    piece: string
+    name: string
+end
 export type Records = {
     ships: { [number | string]: Ship },
     ship_types: { [number | string]: ShipTypeRecord },
@@ -689,6 +693,8 @@ export type Records = {
     maneuvers: { [number]: CombatManeuver },
     --- The object types that the game sets up as planets when a mission makes them: lit by the sun alone, always drawn, and colliding with nothing. Each turns about its axis and leans as its entry says, and has its atmosphere. The original's are Neptune to Venus and their far models, in the order of their types. Load scripts can change their fields and add planets after the last one, such as Earth.
     planets: { [number]: Planet },
+    --- The CD player's tracks: the Reliant's, 1 to 12, then the Yamato's, 13 to 24. Load scripts change their fields.
+    cd_player: { [number]: CdPlayerTrack },
 }
 
 -- The packages made from declarations. `openreliant.self` is the script's own Object.

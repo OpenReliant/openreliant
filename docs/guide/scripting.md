@@ -96,7 +96,7 @@ Each example mod shows one part of the scripting, with comments in its files:
 | [`dvd`](../../examples/mods/dvd) | A menu script that [draws](#drawing) over the menus |
 | [`interceptor`](../../examples/mods/interceptor) | A mod's ship type, flown in a [game mode](#game-modes) |
 | [`main-menu`](../../examples/mods/main-menu) | [Replacing a screen](#replacing-a-screen) of the front end |
-| [`music`](../../examples/mods/music) | No scripts: a piece of music in place of the game's, which keeps its [loop point](modding.md#music) |
+| [`music`](../../examples/mods/music) | A piece of music in place of the game's, which keeps its [loop point](modding.md#music), and a track of [the CD player](#the-cd-players-tracks) that plays it, from a load script |
 | [`rules`](../../examples/mods/rules) | [Hooks](#hooks) on the game's functions |
 | [`strafe-run`](../../examples/mods/strafe-run) | A custom order, a [HUD display](#hud-displays), a [camera view](#camera-views), a [screen](#screens) and [actions](#keys-and-actions), through the [built-in interfaces](#built-in-interfaces) |
 | [`tally`](../../examples/mods/tally) | [Saved games](#saved-games), [storage](#storage) and [timers](#timers) |
@@ -1136,8 +1136,8 @@ The package also holds the campaign's order of missions, `campaign`
 ([The campaign's missions](#the-campaigns-missions)), each mission's settings, `missions`
 ([Each mission of the campaign](#each-mission-of-the-campaign)), the KILLBOARD's pilots,
 `killboard` ([The KILLBOARD's pilots](#the-killboards-pilots)), the combat maneuvers,
-`maneuvers` ([Combat maneuvers](#combat-maneuvers)), and the planets, `planets`
-([Planets](#planets)).
+`maneuvers` ([Combat maneuvers](#combat-maneuvers)), the planets, `planets` ([Planets](#planets)),
+and the CD player's tracks, `cd_player` ([The CD player's tracks](#the-cd-players-tracks)).
 
 Records are looked up by number or by name, with the field names of the [stat
 tables](../formats/stats.md). The definitions file for editors ([Editors](#editors)) lists every
@@ -1481,6 +1481,27 @@ local records = require("openreliant.records")
 
 records.planet_light = vector.create(1, 1, 1)
 ```
+
+### The CD player's tracks
+
+`records.cd_player` holds the tracks of the CD player in the rooms, 24 in all: the Reliant's
+twelve, Spirit of War to The Catalyst, numbered 1 to 12, then the Yamato's, Final Word to The Rise,
+numbered 13 to 24 ([The CD player](../engine/cd-player.md#the-lists)). Each has its `piece`, the
+music it plays, as the name of its file in the `music` folder without the `.wav`, and its `name` in
+the list. A load script changes them, so that a mod's music can have a row of the player:
+
+```lua
+local records = require("openreliant.records")
+
+-- The Rise, the Yamato's last track, plays Spirit of War's piece again in the game. Here it plays
+-- the main menu's piece, which the mod replaces, under the mod's own name.
+records.cd_player[24] = { piece = "New_Pensive", name = "OpenReliant Theme" }
+```
+
+- The player always has its 24 rows: a script changes tracks but can't add or remove them.
+- A piece is found by the name of its file, like the game's music: a file with the same name in a
+  mod plays in place of the game's, and a mod can also add a piece with a new name.
+- Names are read from the game's text and can be changed to any text, in the game's code page.
 
 ## Saved games
 

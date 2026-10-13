@@ -60,6 +60,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Add campaigns, with briefing screens and movies | [Campaigns](scripting.md#campaigns) | [`campaign`](../../examples/mods/campaign) |
 | Put missions into the game's own campaign, or replace its missions, with each one's briefing, carrier, objectives, date, awards, Enriquez's report and debriefing, the ITAC's news, the landing and the chapter's news, the wing's pilots, and the rules the game applies to particular missions, through the game's rooms and saved games | [The campaign's missions](scripting.md#the-campaigns-missions), [Each mission of the campaign](scripting.md#each-mission-of-the-campaign) | |
 | Change the pilots of the ITAC's KILLBOARD, and the missions they join, leave and sit out | [The KILLBOARD's pilots](scripting.md#the-killboards-pilots) | |
+| Change which piece of music each track of the rooms' CD player plays, and its name | [The CD player's tracks](scripting.md#the-cd-players-tracks) | [`music`](../../examples/mods/music) |
 | Change the stats and the text for a game mode's missions alone, leaving the game's campaign as it is | [Game modes](scripting.md#game-modes) | |
 
 ## Change how the game plays

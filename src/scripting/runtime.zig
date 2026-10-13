@@ -69,6 +69,9 @@ pub const Tag = enum(luau.Tag) {
     /// The planets (`records.planets`), and one of them.
     planets = 16,
     planet = 17,
+    /// The CD player's tracks (`records.cd_player`), and one of them.
+    cd_player = 18,
+    cd_player_track = 19,
 };
 
 /// What an object script's context runs on: an object of the mission, a missile in flight, or a
