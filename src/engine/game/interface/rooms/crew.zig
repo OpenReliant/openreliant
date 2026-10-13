@@ -310,8 +310,7 @@ test Crew {
     defer gpa.free(set);
     // Every set and line of the Reliant's crew after a won mission: a picture, and two frames of
     // MP3.
-    const frame = [_]u8{ 0xFF, 0xF3, 0x80, 0x7C } ++ @as([204]u8, @splat(0));
-    const line = frame ++ frame;
+    const line = @import("../../../../formats/mp3.zig").testing.silence(2);
     const won = comptime crews.get(.reliant).get(.won);
     var files: [2 * won.len]hog.Member = undefined;
     for (won, 0..) |chosen, n| {

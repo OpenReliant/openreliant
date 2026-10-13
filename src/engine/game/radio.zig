@@ -25,6 +25,7 @@ const gameobj = @import("gameobj.zig");
 const hog_snd = @import("hog_snd.zig");
 const hudmovie = @import("hudmovie.zig");
 const pilots = @import("pilots.zig");
+const recordings = @import("recordings.zig");
 const additions = @import("additions.zig");
 const hooks = @import("../hooks.zig");
 const Windows = @import("hud/windows.zig").Windows;
@@ -874,7 +875,7 @@ pub const Queued = struct {
 
 /// Reads the speech file that `speech` names into `gpa`, from a mod or from the speech archive
 /// `archive` (`speech_hog`), as `hog_read_file` (`0x004C7F60`) does (`bigfile.memberName` and
-/// `bigfile.readNamed`). A mod's recording of the line takes priority (`readRecording`), then a
+/// `bigfile.readNamed`). A mod's recording of the line takes priority (`recordings.read`), then a
 /// mod's file in the game's format (`modLine`). Returns null if there's no archive and no mod has
 /// the line, and also, with a warning, if the archive doesn't have it or it can't be read.
 ///
@@ -883,7 +884,7 @@ pub const Queued = struct {
 pub fn readLine(gpa: Allocator, codec: ?bink.Codec, mods: *const bigfile.Mods, archive: ?hog.Archive, speech: []const u8) ?[]u8 {
     var buffer: [bigfile.member_name_room]u8 = undefined;
     const name = bigfile.memberName(&buffer, speech);
-    if (readRecording(gpa, codec, mods, name)) |recording| return recording;
+    if (recordings.read(gpa, codec, mods, name)) |recording| return recording;
     const modded = modLine(gpa, mods, name) catch |err| {
         log.warn("can't read the line {s}: {t}", .{ name, err });
         return null;
@@ -898,41 +899,6 @@ pub fn readLine(gpa: Allocator, codec: ?bink.Codec, mods: *const bigfile.Mods, a
         log.warn("the line {s} is not in {s}", .{ name, speech_archive });
         return null;
     };
-}
-
-/// The extensions of a mod's recording of a line, in the order they're looked for: a WAVE file
-/// (`wave.Decoder`), then an MP3 file.
-pub const recording_extensions = [_][]const u8{ ".wav", ".mp3" };
-
-/// A mod's recording of the line `name`, its name without the extension, as a WAVE file in `gpa`:
-/// `name.wav` as it is, or `name.mp3` decoded by `codec` (`bink.Codec.decodeMp3`). Null where no
-/// mod has either, and, with a warning, where one can't be read or there's no codec for an MP3
-/// file.
-///
-/// **Improvement:** the original plays lines in its own codec alone, which badly distorts long,
-/// clean speech such as a spoken briefing.
-pub fn readRecording(gpa: Allocator, codec: ?bink.Codec, mods: *const bigfile.Mods, name: []const u8) ?[]u8 {
-    var buffer: [bigfile.member_name_room + ".wav".len]u8 = undefined;
-    inline for (recording_extensions) |extension| {
-        const named = std.mem.print(&buffer, "{s}" ++ extension, .{name}) catch return null;
-        const read = mods.readFile(gpa, named) catch |err| {
-            log.warn("can't read the recording {s}: {t}", .{ named, err });
-            return null;
-        };
-        if (read) |bytes| {
-            if (comptime std.mem.eql(u8, extension, ".wav")) return bytes;
-            defer gpa.free(bytes);
-            const decoder = codec orelse {
-                log.warn("the recording {s} is left out: there's no MP3 decoder", .{named});
-                return null;
-            };
-            return decoder.decodeMp3(gpa, bytes) catch |err| {
-                log.warn("the recording {s} is left out: {t}", .{ named, err });
-                return null;
-            };
-        }
-    }
-    return null;
 }
 
 /// The line `name` (`bigfile.memberName`) from the last mod that has it: a file of that name, as
@@ -965,8 +931,8 @@ pub const Radio = struct {
     /// Added by OpenReliant: the mods, whose lines take priority over the archive's
     /// (`bigfile.Mods`).
     mods: *const bigfile.Mods = &bigfile.Mods.none,
-    /// Added by OpenReliant: what decodes a mod's recording of a line in MP3 (`readRecording`);
-    /// none leaves such recordings out.
+    /// Added by OpenReliant: what decodes a mod's recording of a line in FLAC or MP3
+    /// (`recordings.read`); none leaves such recordings out.
     codec: ?bink.Codec = null,
     player: cbox.Player = .{},
     /// How the lines sound.

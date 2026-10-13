@@ -9,9 +9,11 @@ file the discs hold is MPEG-2 audio, Layer III, at 22,050 Hz in joint stereo, 64
 ## In OpenReliant
 
 [`formats/mp3.zig`](../../src/formats/mp3.zig) reads a file's frames, and FFmpeg's MP3 decoder
-decodes each ([Platform](../port/platform.md#movies)) into the WAVE file a voice plays
-(`bink.Codec.decodeMp3`). A mod's recording of a line of speech in MP3 is decoded the same way
-([Lines](../guide/modding.md#lines)).
+([Platform](../port/platform.md#movies)) decodes them one at a time into a WAVE file of 16-bit PCM
+at the first frame's rate and channels, which a voice or the music plays (`bink.AudioDecoding`). A
+crew's line decodes all at once (`bink.Codec.decodeMp3`), and so does a mod's line of speech in MP3
+([Lines](../guide/modding.md#lines)). A mod's piece of music in MP3 decodes a few seconds of music
+each frame of the game, and starts once it's decoded ([Music](../guide/modding.md#music)).
 
 ## Frames
 

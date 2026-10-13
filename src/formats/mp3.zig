@@ -9,6 +9,8 @@
 
 const std = @import("std");
 
+pub const extension = ".mp3";
+
 /// The versions of MPEG audio, which set the sample rates and the frames' lengths.
 pub const Version = enum { mpeg1, mpeg2, mpeg2_5 };
 
@@ -123,6 +125,20 @@ fn id3v2Length(bytes: []const u8) usize {
     return @min(bytes.len, header + size + footer);
 }
 
+/// MP3 data for the tests.
+pub const testing = struct {
+    /// A frame of MPEG-2 Layer III at 64 kbit/s and 22,050 Hz in joint stereo, with nothing but its
+    /// header set: 576 samples of silence in each channel.
+    pub const silent_frame = [_]u8{ 0xFF, 0xF3, 0x80, 0x7C } ++ @as([204]u8, @splat(0));
+
+    /// A file of `count` silent frames in a row.
+    pub fn silence(comptime count: usize) [count * silent_frame.len]u8 {
+        var file: [count * silent_frame.len]u8 = undefined;
+        for (0..count) |n| file[n * silent_frame.len ..][0..silent_frame.len].* = silent_frame;
+        return file;
+    }
+};
+
 test "Header.parse" {
     // A crew's line: MPEG-2, Layer III without a checksum, 64 kilobits a second at 22,050 Hz,
     // in joint stereo, whose frames run 208 bytes, or 209 with the padding.
@@ -148,7 +164,7 @@ test "Header.parse" {
 test Frames {
     // An ID3v2 tag of 6 bytes, a frame, two bytes that start none, a second frame, and an ID3v1
     // tag.
-    const frame = [_]u8{ 0xFF, 0xF3, 0x80, 0x7C } ++ @as([204]u8, @splat(0));
+    const frame = testing.silent_frame;
     const tag = "ID3" ++ [_]u8{ 4, 0, 0, 0, 0, 0, 6 } ++ @as([6]u8, @splat(0));
     const file = tag ++ frame ++ [_]u8{ 1, 2 } ++ frame ++ "TAG" ++ @as([125]u8, @splat(0));
     var frames: Frames = .init(file);
