@@ -13,9 +13,9 @@ const luau = @import("luau_syntax");
 
 /// Parses `text` as Luau, into a tree in `arena` with the errors Luau's parser found.
 pub fn parse(arena: Allocator, text: []const u8) Allocator.Error!syntax.Tree {
-    const parsed: ?*luau.OrTree = luau.or_parse(text.ptr, text.len);
+    const parsed: ?*luau.OrTree = luau.openreliant_parse_luau(text.ptr, text.len);
     const tree = parsed orelse return error.OutOfMemory;
-    defer luau.or_free(tree);
+    defer luau.openreliant_luau_tree_free(tree);
     const nodes: [*]const syntax.Node = @ptrCast(tree.nodes);
     const own_text = try arena.dupe(u8, tree.text[0..tree.text_length]);
     const errors = try arena.alloc(syntax.Error, tree.error_count);
@@ -32,8 +32,8 @@ pub fn parse(arena: Allocator, text: []const u8) Allocator.Error!syntax.Tree {
     };
 }
 
-// The bridge writes its nodes as the library's, and numbers the kinds, the operators and the
-// forms of a table's item as the library does, every one of them.
+// The bridge's nodes have the library's layout, and the header gives every kind of node, operator
+// and form of a table's item the library's number.
 comptime {
     assert(@sizeOf(syntax.Node) == @sizeOf(luau.OrNode));
     for ([_][]const u8{ "kind", "op", "first", "count", "text_start", "text_length", "number" }) |field| {
@@ -53,10 +53,7 @@ fn sameNumbers(comptime Enum: type, comptime prefix: []const u8, comptime others
     @setEvalBranchQuota(100_000);
     var count = 0;
     for (std.meta.declarations(luau)) |name| {
-        if (!std.mem.startsWith(u8, name, prefix)) continue;
-        if (for (others) |other| {
-            if (std.mem.startsWith(u8, name, other)) break true;
-        } else false) continue;
+        if (!std.mem.startsWith(u8, name, prefix) or startsWithAny(name, others)) continue;
         var lower: [name.len - prefix.len]u8 = undefined;
         _ = std.ascii.lowerString(&lower, name[prefix.len..]);
         const tag = std.meta.stringToEnum(Enum, &lower) orelse @compileError(name ++ " has no tag in " ++ @typeName(Enum));
@@ -64,6 +61,11 @@ fn sameNumbers(comptime Enum: type, comptime prefix: []const u8, comptime others
         count += 1;
     }
     if (count != std.enums.values(Enum).len) @compileError("luau.h lacks tags of " ++ @typeName(Enum));
+}
+
+fn startsWithAny(name: []const u8, prefixes: []const []const u8) bool {
+    for (prefixes) |prefix| if (std.mem.startsWith(u8, name, prefix)) return true;
+    return false;
 }
 
 /// Checks that `text` parses without an error into the statements `expected`, one per line as
@@ -99,7 +101,7 @@ test "records" {
 
 test "triggers and parts" {
     try expectTree(
-        \\on(convoy, "shot_at", { attacker = any_ship }, function(attacker, hull_damage) end)
+        \\on(convoy, "shot_at", { attacker = any_ship }, function(attacker: Ship, hull_damage) end)
         \\go_home = part("(F)GO HOME", function(arg0) return 1 end, { start = true })
     ,
         \\(call_statement (call (global_name "on") (global_name "convoy") (string "shot_at") (table (item record (string "attacker") (global_name "any_ship"))) (function (name "attacker") (name "hull_damage") (block))))
@@ -110,7 +112,7 @@ test "triggers and parts" {
 test "the script" {
     try expectTree(
         \\if hits >= 50 then hits += 1 elseif lost then go_home() else end
-        \\local roll = random()
+        \\local roll: number = random()
         \\SetAI(attacker, "find_new_target", 1, nil)
         \\spawn(go_home, roll)
         \\over = game.mission_over == 0 and result() ~= game[37] or not done
@@ -138,7 +140,7 @@ test "constructs mission source doesn't use" {
         \\(unsupported "a loop")
         \\(unsupported "a function declared by name")
         \\(call_statement (unsupported "a method call"))
-        \\(assign (global_name "x") (unsupported "a function of any number of arguments"))
+        \\(assign (global_name "x") (unsupported "a function that takes `...`"))
         \\(assign (global_name "y") (unsupported "a string with values put into it"))
         \\(assign (global_name "z") (unsupported "an if expression"))
         \\(assign (global_name "plain") (string "plain"))

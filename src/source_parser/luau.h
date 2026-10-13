@@ -83,7 +83,7 @@ typedef struct {
     double number;
 } OrNode;
 
-/* An error the parser found, its message in `OrTree.text`. */
+/* An error the parser found. Its message is in `OrTree.text`. */
 typedef struct {
     uint32_t line;
     uint32_t column;
@@ -91,7 +91,7 @@ typedef struct {
     uint32_t message_length;
 } OrError;
 
-/* A parsed file. `or_free` frees it with its arrays. */
+/* A parsed file. `openreliant_luau_tree_free` frees it with its arrays. */
 typedef struct {
     OrNode *nodes;
     size_t node_count;
@@ -101,7 +101,7 @@ typedef struct {
     size_t text_length;
     OrError *errors;
     size_t error_count;
-    /* The chunk's block, by its index in `nodes`. */
+    /* The index in `nodes` of the file's chunk, a block. */
     uint32_t root;
 } OrTree;
 
@@ -109,11 +109,11 @@ typedef struct {
 extern "C" {
 #endif
 
-/* Parses `length` bytes of `source` as Luau. Null where memory runs out. */
-OrTree *or_parse(const char *source, size_t length);
+/* Parses `length` bytes of `source` as Luau. Null when memory runs out. */
+OrTree *openreliant_parse_luau(const char *source, size_t length);
 
-/* Frees what `or_parse` gave. */
-void or_free(OrTree *tree);
+/* Frees a tree that `openreliant_parse_luau` gave. */
+void openreliant_luau_tree_free(OrTree *tree);
 
 #ifdef __cplusplus
 }

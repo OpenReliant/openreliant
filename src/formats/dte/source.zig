@@ -1,7 +1,7 @@
 //! Mission source: a mission as text ([Mission source](../../../docs/formats/mission-source.md)).
-//! Its children write it, and this file holds the identity and references its records have
-//! (#608): symbol tables that work with the existing format records without copying their fields
-//! or keeping a separate list of record kinds.
+//! Its children write the text and hold it as Luau's parser reads it. This file has the tables
+//! that find a record by its name (#608): one table for each kind of record, over the format's own
+//! records, so that a new kind of record or a new field needs no change here.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
@@ -16,7 +16,8 @@ pub const write = @import("source/write.zig");
 /// The text as Luau's parser reads it.
 pub const syntax = @import("source/syntax.zig");
 
-/// Whether `id` matches the source grammar `[A-Za-z_][A-Za-z0-9_-]*`.
+/// Whether `id` is made of letters, digits, `_` and `-`, and starts with a letter or `_`:
+/// `[A-Za-z_][A-Za-z0-9_-]*`. Mods' scripts name what they register this way too.
 pub fn validId(id: []const u8) bool {
     if (id.len == 0 or !(std.ascii.isAlphabetic(id[0]) or id[0] == '_')) return false;
     for (id[1..]) |char| {
@@ -25,8 +26,8 @@ pub fn validId(id: []const u8) bool {
     return true;
 }
 
-/// A source reference to a collection of `Record`. Different record types have different
-/// reference types. The caller selects the table, including the script bank where applicable.
+/// A reference by name to a record of type `Record`. Each type of record has its own type of
+/// reference, and the caller picks the table to look it up in, such as a script bank's.
 pub fn Reference(comptime Record: type) type {
     return struct {
         pub const RecordType = Record;
@@ -34,9 +35,10 @@ pub fn Reference(comptime Record: type) type {
     };
 }
 
-/// One source collection. Its record type defines its reference type; its order defines indices.
-/// Build one table per collection or script bank. Binary limits belong to the lowering code,
-/// not this table: an index here is a `usize`, never a truncated binary field.
+/// A table of one kind of record, each under its name. A record's index is its place in the
+/// table. Build one table for each kind of record or script bank. The table doesn't check an
+/// index against the file's fields: an index here is a `usize`, and the compiler checks that it
+/// fits.
 pub fn Symbols(comptime Record: type) type {
     return struct {
         const Self = @This();
@@ -51,8 +53,9 @@ pub fn Symbols(comptime Record: type) type {
         entries: []const Entry,
         indices: std.StringHashMapUnmanaged(usize) = .empty,
 
-        /// Borrows immutable entries and ID bytes until `deinit`. Rebuild the table after changing
-        /// IDs or collection order. Display names and original object IDs are never inspected.
+        /// Makes a table of `entries`, which it borrows with their names until `deinit`. After a
+        /// name or the order changes, make a new table. Only the names count, never the display
+        /// names or the object ids.
         pub fn init(gpa: Allocator, entries: []const Entry) InitError!Self {
             var table: Self = .{ .entries = entries };
             errdefer table.deinit(gpa);
@@ -70,8 +73,9 @@ pub fn Symbols(comptime Record: type) type {
             table.* = undefined;
         }
 
-        /// Resolves only in this collection. An invalid reference is distinguished from a valid
-        /// ID that is absent, so a source reader can report the appropriate diagnostic.
+        /// The index of the record that `reference` names, in this table only. A name that isn't
+        /// valid gives `InvalidId`, and a valid name the table lacks `MissingId`, so that the
+        /// compiler can say which.
         pub fn indexOf(table: Self, reference: Ref) ResolveError!usize {
             if (!validId(reference.id)) return error.InvalidId;
             return table.indices.get(reference.id) orelse error.MissingId;
@@ -86,7 +90,7 @@ pub fn Symbols(comptime Record: type) type {
 test validId {
     for ([_][]const u8{ "player", "_start", "Alpha_2-escort" }) |id| try std.testing.expect(validId(id));
     for ([_][]const u8{ "", "2player", "-player", "A B", "A.B", "A\x00B", "é" }) |id| try std.testing.expect(!validId(id));
-    // Check every byte at both positions, including non-ASCII bytes and control characters.
+    // Every byte, control characters and bytes past ASCII too, first and later in a name.
     for (0..256) |value| {
         const char: u8 = @intCast(value);
         const letter = (char >= 'A' and char <= 'Z') or (char >= 'a' and char <= 'z');
@@ -111,16 +115,18 @@ test "source IDs resolve format records independently of display names and binar
     var groups = try Groups.init(gpa, &group_entries);
     defer groups.deinit(gpa);
 
-    // Both ships have the same name offset. The same source ID can exist in another collection.
+    // Both ships have the same display name, and the same name can stand for a record of another
+    // kind.
     try std.testing.expectEqual(entries[0].record.name, entries[1].record.name);
     try std.testing.expectEqual(42, (try ships.resolve(.{ .id = "player" })).object_id);
     try std.testing.expectEqual(91, (try groups.resolve(.{ .id = "player" })).object_id);
-    // Mod content need not have a named base-game type. Identity keeps its numeric type intact.
+    // A mod's ship type needs no name in the base game, and keeps its number.
     try std.testing.expectEqual(60000, (try ships.resolve(.{ .id = "escort" })).kind);
     try std.testing.expect(Ships.Ref != Groups.Ref);
     try std.testing.expectError(error.MissingId, groups.indexOf(.{ .id = "escort" }));
 
-    // Reordering and renaming display names changes neither identity nor the original object ID.
+    // Reordering the records and changing a display name change neither a record's name nor its
+    // object id.
     var reordered = [_]Ships.Entry{ entries[1], entries[0] };
     reordered[1].record.name = 123;
     var rebuilt = try Ships.init(gpa, &reordered);
@@ -143,7 +149,8 @@ test "symbol errors and allocation failures release the index" {
     try std.testing.expectError(error.DuplicateId, Table.init(gpa, &duplicate));
     const invalid = [_]Table.Entry{ entries[0], .{ .id = "bad.id", .record = 0 } };
     try std.testing.expectError(error.InvalidId, Table.init(gpa, &invalid));
-    // Grow through several map allocations so failures also exercise cleanup of an existing map.
+    // Enough records for the map to grow several times, so that a failed allocation also frees a
+    // map that exists.
     var many: [300]Table.Entry = undefined;
     var ids: [many.len][16]u8 = undefined;
     for (&many, &ids, 0..) |*entry, *id, index| entry.* = .{

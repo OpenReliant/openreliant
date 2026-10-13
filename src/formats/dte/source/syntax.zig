@@ -7,10 +7,10 @@
 
 const std = @import("std");
 
-/// A node, by its place in `Tree.nodes`.
+/// A node's index in `Tree.nodes`.
 pub const Index = u32;
 
-/// The kinds of node, numbered as the bridge numbers them (`source_parser/luau.h`).
+/// The kinds of node, with the numbers `src/source_parser/luau.h` gives them.
 pub const Kind = enum(u8) {
     // Statements.
     /// A list of statements: the file's chunk, a function's body, or a branch of an `if`.
@@ -105,7 +105,7 @@ pub const Error = struct {
     message: []const u8,
 };
 
-/// A node and its parts, by its kind.
+/// A node and its parts, in a form that depends on its kind.
 pub const Syntax = union(Kind) {
     block: []const Index,
     @"if": If,
@@ -142,6 +142,11 @@ pub const Syntax = union(Kind) {
     pub const Binding = struct {
         targets: []const Index,
         values: []const Index,
+
+        /// The first `count` of `parts` are the targets, and the rest the values.
+        fn split(parts: []const Index, count: u8) Binding {
+            return .{ .targets = parts[0..count], .values = parts[count..] };
+        }
     };
 
     pub const CompoundAssign = struct {
@@ -198,7 +203,7 @@ pub const Tree = struct {
     /// The file's chunk, a block.
     root: Index,
 
-    /// Node `index` and its parts.
+    /// The node at `index`, with its parts.
     pub fn get(tree: Tree, index: Index) Syntax {
         const node = tree.nodes[index];
         const parts = tree.childrenOf(index);
@@ -208,8 +213,8 @@ pub const Tree = struct {
             .@"if" => .{ .@"if" = .{ .condition = parts[0], .then = parts[1], .@"else" = if (parts.len > 2) parts[2] else null } },
             .@"return" => .{ .@"return" = parts },
             .call_statement => .{ .call_statement = parts[0] },
-            .local => .{ .local = .{ .targets = parts[0..node.op], .values = parts[node.op..] } },
-            .assign => .{ .assign = .{ .targets = parts[0..node.op], .values = parts[node.op..] } },
+            .local => .{ .local = .split(parts, node.op) },
+            .assign => .{ .assign = .split(parts, node.op) },
             .compound_assign => .{ .compound_assign = .{ .operator = @fromBackingInt(node.op), .target = parts[0], .value = parts[1] } },
             .nil => .nil,
             .boolean => .{ .boolean = node.op != 0 },

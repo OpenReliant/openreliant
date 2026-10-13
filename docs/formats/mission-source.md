@@ -294,9 +294,10 @@ line and column it starts at, and each error the parser finds with its place. On
 read source link the parser. sltool does; the library the tools share doesn't.
 
 Mission source uses a subset of Luau. The parser gives back the rest, such as a loop, a function
-declared by name, a method call, `...` or a string with values put into it, as an unsupported
-node with its place, for the compiler to refuse. Brackets that only group an expression and type
-assertions change nothing, and a string in backquotes without values is text like any other.
+declared by name, a method call, an `if` expression or a string with values put into it, as an
+unsupported node with its place, for the compiler to refuse. An expression in brackets, or with a
+type assertion such as `x :: number`, is the expression itself, type annotations on locals and
+parameters change nothing, and a string in backquotes without values is text like any other.
 
 `sltool dte check` writes each mission it checks as source and parses it, and fails on an error or
 a construct mission source doesn't use.
