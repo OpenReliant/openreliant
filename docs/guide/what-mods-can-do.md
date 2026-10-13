@@ -16,6 +16,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Replace any of the game's files by its name: a model, a sound bank, a piece of music, a line of speech, a face, a movie, a mission or a stats table | [How files are replaced](modding.md#how-files-are-replaced) | [`trent`](../../examples/mods/trent) |
 | Add files under new names, for its own models, missions and scripts to use | [How files are replaced](modding.md#how-files-are-replaced) | [`teapot`](../../examples/mods/teapot) |
 | Replace a piece of music, in WAV, FLAC or MP3, which loops back where the game's does | [Music](modding.md#music) | [`music`](../../examples/mods/music) |
+| Replace the game's sounds one at a time, in WAV, FLAC or MP3, such as the guns, the explosions, the engines, the menus' sounds and Betty's warnings | [Sounds](modding.md#sounds) | |
 | Replace the pilots' faces, with sharper films than the game's if they like, and the lines they say | [Faces and voices](modding.md#faces-and-voices) | [`trent`](../../examples/mods/trent) |
 | Give lines of speech, briefings and Enriquez's scenes as WAV, FLAC or MP3 recordings, which play as recorded | [Lines](modding.md#lines) | |
 
@@ -116,8 +117,6 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 
 These are planned, each in an issue:
 
-- Single sounds in place of a sound bank's
-  ([#1175](https://github.com/OpenReliant/openreliant/issues/1175))
 - Music, lines of speech and sounds in Ogg Vorbis or Opus
   ([#1176](https://github.com/OpenReliant/openreliant/issues/1176))
 - More tracks on the CD player than the game's 24

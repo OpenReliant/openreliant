@@ -194,7 +194,7 @@ pub const Movies = struct {
                 defer if (opened) |*player| player.close();
                 // The bank's sound starts once the landing's movie is open, and the voices stop as
                 // the landing ends (`sound_pause_all`).
-                const bank: ?Bank = if (touchdown.bank) |name| .start(movies.gpa, resources, sound, name, hog_snd.loudest, hog_snd.once) else null;
+                const bank: ?Bank = if (touchdown.bank) |name| .start(movies.gpa, resources, movies.codec, sound, name, hog_snd.loudest, hog_snd.once) else null;
                 defer {
                     sound.pauseAll();
                     if (bank) |started| started.stop(movies.gpa, sound);
@@ -207,7 +207,7 @@ pub const Movies = struct {
             .chapter => |chapter| {
                 movies.disc.open(chapter.disc);
                 _ = try movies.play(chapter.zoom, .cleared_from_disc) orelse return false;
-                const news: ?Bank = .start(movies.gpa, resources, sound, landing.news_loop, landing.news_loop_volume, hog_snd.forever);
+                const news: ?Bank = .start(movies.gpa, resources, movies.codec, sound, landing.news_loop, landing.news_loop_volume, hog_snd.forever);
                 defer if (news) |started| started.stop(movies.gpa, sound);
                 _ = try movies.play(chapter.movie, .over_screen_from_disc) orelse return false;
                 return movies.newsReports(chapter.reports.slice());
@@ -245,11 +245,12 @@ const Bank = struct {
     file: hog_snd.BankFile,
     voice: ?u8,
 
-    /// The bank `name` names, read from `resources` (`hog_load`), and its first sound played
-    /// through `sound` at `volume`, `loops` times, from the middle at its own pitch (`sound_play`);
-    /// null where the bank is left out.
-    fn start(gpa: Allocator, resources: *const game.bigfile.Hog, sound: *hog_snd.Sound, name: []const u8, volume: i32, loops: u32) ?Bank {
-        const file = hog_snd.BankFile.read(gpa, resources, name) orelse return null;
+    /// The bank `name` names, read from `resources` (`hog_load`) with the sounds mods give in place
+    /// of its own, which `codec` decodes, and its first sound played through `sound` at `volume`,
+    /// `loops` times, from the middle at its own pitch (`sound_play`); null where the bank is left
+    /// out.
+    fn start(gpa: Allocator, resources: *const game.bigfile.Hog, codec: engine.bink.Codec, sound: *hog_snd.Sound, name: []const u8, volume: i32, loops: u32) ?Bank {
+        const file = hog_snd.BankFile.read(gpa, resources, name, codec) orelse return null;
         return .{ .file = file, .voice = sound.play(file.bank, 0, volume, loops, hog_snd.centre, hog_snd.own_pitch) };
     }
 

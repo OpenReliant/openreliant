@@ -15,6 +15,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const layout = @import("layout.zig");
+const numbered = @import("numbered.zig");
 const png = @import("png.zig");
 
 /// Every shipped file carries this version, stored as four raw bytes rather than a number.
@@ -297,11 +298,9 @@ pub fn expandLevel(level: u8) u8 {
 }
 
 /// The picture name for shape `index` of the set `set_name`, used by `sltool spr extract` and by
-/// the mod pictures that replace shapes: the set's name without its folder or extension, `_`, the
-/// index with at least three digits, and the PNG extension.
+/// the mod pictures that replace shapes: the part's name (`numbered.name`) with the PNG extension.
 pub fn pictureName(buffer: []u8, set_name: []const u8, index: usize) error{NoSpaceLeft}![]u8 {
-    const stem = std.Io.Dir.path.stem(std.Io.Dir.path.basenameWindows(set_name));
-    return std.mem.print(buffer, "{s}_{d:0>3}" ++ png.extension, .{ stem, index });
+    return numbered.name(buffer, set_name, index, png.extension);
 }
 
 test pictureName {

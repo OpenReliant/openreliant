@@ -5,8 +5,9 @@ A sound bank packs RIFF/WAVE files into one file. `resource.hog` holds most of t
 `resource.hog`'s.
 
 ```bash
-sltool fat ls <bank>                  # every sound: offset, size, priority, format, length
-sltool fat extract <bank> <out-dir>   # every sound as a WAV file
+sltool fat ls <bank>                  # every sound: offset, size, priority, format, length, and the
+                                      # 3D sounds that play it, for smp3d.fat
+sltool fat extract <bank> <out-dir>   # every sound as a WAV file, such as stdsmp_012.wav
 make sounds                           # every sound in resource.hog into game/sounds
 ```
 
@@ -57,8 +58,30 @@ playing: the player finds the busy voice of lowest priority and stops it only fo
 priority is higher, then records the new sound's priority on the voice ([Sound](../engine/sound.md)).
 
 The shipped banks use priorities 1, 5, 50 and 10000. Most hold a single sound: those named for the
-flyable fighters, such as `PREDATOR.FAT`, each hold one at priority 10000. `betty.fat` holds the
-cockpit warnings.
+flyable fighters, such as `PREDATOR.FAT`, each hold one at priority 10000.
 
-The payload loads `stdsmp.fat`, `ldsmp.fat`, `smp3d.fat`, `betty.fat`, `newsloop.fat`,
-`waitloop.fat`, `wlksmp.fat`, `vrsfx.fat`, `vrsnd.fat` and `inter\itac\itacsnd.fat` by name.
+## The banks
+
+The payload loads these banks by name:
+
+| Bank | What it holds |
+|---|---|
+| `stdsmp.fat` | The menus' and the flight display's sounds, which scripts play by number too, and the sounds of a frame placed around the camera ([Sound](../engine/sound.md#positional-sounds-of-a-frame)) |
+| `smp3d.fat` | The 3D sounds: guns, missiles, explosions, engines, jumps and more, which `sltool fat ls` names ([3D sounds](../engine/sound.md#3d-sounds)) |
+| `betty.fat` | Betty's warnings in the cockpit |
+| `ldsmp.fat` | The loadout's |
+| `inter\itac\itacsnd.fat` | The ITAC's |
+| `vrsnd.fat`, `wlksmp.fat` | A carrier's rooms': the ship's hum and the ways into some views; the player's steps and the doors |
+| `vrsfx.fat`, `waitloop.fat` | The briefing's: the way in's doors and the room's chatter; the sound that plays while it loads |
+| `newsloop.fat`, `rlanda.fat` to `rlande.fat`, `ylanda.fat` to `ylande.fat` | The landings': the news reports' loop, and a sound for each outcome of a landing on the Reliant or the Yamato |
+
+## Mods' sounds
+
+A mod's sound replaces one of a bank's sounds. It's named after the bank and the sound's number, as
+`sltool fat extract` saves it (`fat.soundName`), and is a WAVE, FLAC or MP3 file
+([Sounds](../guide/modding.md#sounds)). As OpenReliant reads a bank, it makes a new one in memory
+with the mods' sounds in place of the bank's own, each entry keeping its priority (`fat.rebuild`,
+`hog_snd.BankFile.of`), so the game plays them as it plays its own. A sound the drivers can't play
+stays the bank's own, and the log says so.
+
+**Improvement:** the original plays only its banks' own sounds.

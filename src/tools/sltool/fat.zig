@@ -1,11 +1,13 @@
-//! `sltool fat ...`: read `.fat` sound banks and save their sounds as WAV files. It reads the banks
-//! of the format's first version too, which Privateer 2 ships, and saves their sounds as stored.
+//! `sltool fat ...`: read `.fat` sound banks and save their sounds as WAV files, named as a mod's
+//! sounds in their place are (`fat.soundName`). It reads the banks of the format's first version
+//! too, which Privateer 2 ships, and saves their sounds as stored.
 
 const std = @import("std");
 
 const openreliant = @import("openreliant");
 const fat = openreliant.fat;
 const Wave = openreliant.wave.Wave;
+const sound3d = openreliant.engine.game.sound3d;
 
 const sltool = @import("main.zig");
 const Context = sltool.Context;
@@ -45,15 +47,18 @@ pub const Command = union(enum) {
             else => return err,
         };
         switch (command) {
-            .ls => try ls(ctx, bank),
+            .ls => try ls(ctx, bank, path),
             .extract => |operands| try extract(ctx, bank, path, operands.out_dir),
         }
     }
 };
 
-fn ls(ctx: Context, bank: fat.Bank) !void {
+/// Lists the sounds of `bank`, read from `path`. For the 3D sounds' bank, each sound's line ends
+/// with the names of the 3D sounds that play it, such as `GUN01`.
+fn ls(ctx: Context, bank: fat.Bank, path: []const u8) !void {
+    const names_3d = std.ascii.eqlIgnoreCase(std.Io.Dir.path.basenameWindows(path), sound3d.bank_name);
     try ctx.stdout.print("{f}\n\n", .{sltool.count(bank.entries.len, "sound")});
-    try ctx.stdout.writeAll("   #    offset     bytes  priority  format      ch   rate  seconds\n");
+    try ctx.stdout.print("   #    offset     bytes  priority  format      ch   rate  seconds{s}\n", .{if (names_3d) "  3D sounds" else ""});
     for (bank.entries, 0..) |entry, i| {
         try ctx.stdout.print("{d:>4}  {d:>8}  {d:>8}  {d:>8}  ", .{ i, entry.offset, entry.size, entry.priority });
         const wave = Wave.parse(bank.sound(i).?) catch {
@@ -67,8 +72,20 @@ fn ls(ctx: Context, bank: fat.Bank) !void {
             wave.channels,
             wave.rate,
         });
-        if (wave.seconds()) |length| try ctx.stdout.print("  {d:>7.2}", .{length});
+        if (wave.seconds()) |length| try ctx.stdout.print("  {d:>7.2}", .{length}) else try ctx.stdout.writeAll("         ");
+        if (names_3d) try write3DNames(ctx, i);
         try ctx.stdout.writeByte('\n');
+    }
+}
+
+/// Writes the names of the 3D sounds that play sound `index` of the 3D sounds' bank
+/// (`sound3d.sounds.definitions`).
+fn write3DNames(ctx: Context, index: usize) !void {
+    var separator: []const u8 = "  ";
+    for (&sound3d.sounds.definitions) |*definition| {
+        if (definition.entry != index) continue;
+        try ctx.stdout.print("{s}{s}", .{ separator, definition.nameText() });
+        separator = ", ";
     }
 }
 
@@ -91,16 +108,17 @@ fn extract(ctx: Context, bank: fat.Bank, source: []const u8, out_path: []const u
     try writeEach(ctx, bank, source, out_path, "wav");
 }
 
-/// Writes each sound of `bank`, of either version, as `<bank>_<n>.<extension>` in `out_path`.
+/// Writes each sound of `bank`, of either version, in `out_path`, named after the bank and its
+/// number (`fat.soundName`) with `extension`.
 fn writeEach(ctx: Context, bank: anytype, source: []const u8, out_path: []const u8, comptime extension: []const u8) !void {
     const count = bank.entries.len;
     const io = ctx.io;
     var out_dir = try ctx.outputDir(out_path);
     defer out_dir.close(io);
 
-    const stem = std.Io.Dir.path.stem(std.Io.Dir.path.basename(source));
     for (0..count) |i| {
-        const name = try ctx.arena.print("{s}_{d:0>3}." ++ extension, .{ stem, i });
+        var buffer: [std.Io.Dir.max_name_bytes]u8 = undefined;
+        const name = try ctx.arena.print("{s}." ++ extension, .{try fat.soundName(&buffer, source, i)});
         try out_dir.writeFile(io, .{ .sub_path = name, .data = bank.sound(i).? });
     }
     try ctx.stdout.print("wrote {f} to {s}\n", .{ sltool.count(count, "sound"), out_path });

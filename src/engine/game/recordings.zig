@@ -1,7 +1,7 @@
-//! A mod's recordings, which replace the game's lines of speech and its music: a WAVE file used as
-//! it is, or a FLAC or MP3 file that FFmpeg's decoders turn into a WAVE file (`bink.Codec`)
-//! ([#1173](https://github.com/OpenReliant/openreliant/issues/1173)). The radio's lines, Enriquez's
-//! scenes and the music read them.
+//! A mod's recordings, which replace the game's lines of speech, its music and its sounds: a WAVE
+//! file used as it is, or a FLAC or MP3 file that FFmpeg's decoders turn into a WAVE file
+//! (`bink.Codec`) ([#1173](https://github.com/OpenReliant/openreliant/issues/1173)). The radio's
+//! lines, Enriquez's scenes, the music and the sound banks read them from a `Source`.
 //!
 //! **Improvement:** the original plays only its own files: its lines in its own speech codec, which
 //! badly distorts long, clean speech such as a spoken briefing, and its music as WAVE files.
@@ -51,23 +51,6 @@ pub const Recording = struct {
     kind: Kind,
 };
 
-/// Reads a mod's recording `name`, a name without an extension, into `gpa` as it is: the first of
-/// `name.wav`, `name.flac` and `name.mp3` that a mod has. Returns null if no mod has any of them,
-/// and also, with a warning, if that file can't be read.
-pub fn find(gpa: Allocator, mods: *const bigfile.Mods, name: []const u8) ?Recording {
-    var buffer: [bigfile.member_name_room + Kind.longest]u8 = undefined;
-    for (std.enums.values(Kind)) |kind| {
-        // A name too long for a mod's file is in no mod.
-        const named = std.mem.print(&buffer, "{s}{s}", .{ name, kind.extension() }) catch return null;
-        const found = mods.readFile(gpa, named) catch |err| {
-            log.warn("can't read the recording {s}: {t}", .{ named, err });
-            return null;
-        };
-        if (found) |bytes| return .{ .bytes = bytes, .kind = kind };
-    }
-    return null;
-}
-
 /// A recording in FLAC or MP3 decoded into a WAVE file a few frames at a time, so that a long piece
 /// of music can decode over several of the game's frames (`bink.AudioDecoding`).
 pub const Decoding = struct {
@@ -107,59 +90,80 @@ pub const Opened = union(enum) {
     decoding: Decoding,
 };
 
-/// Opens `recording`, taking its bytes: a WAVE file is ready as it is, and a FLAC or MP3 file
-/// starts decoding with `codec`. Returns null, with a warning naming `name`, if the file doesn't
-/// decode or there's no codec.
-pub fn open(gpa: Allocator, codec: ?bink.Codec, recording: Recording, name: []const u8) ?Opened {
-    switch (recording.kind) {
-        .wave => return .{ .wave = recording.bytes },
-        inline .flac, .mp3 => |kind| {
-            const decoder = codec orelse {
-                log.warn("the recording {s}{s} is left out: there's no decoder for it", .{ name, kind.extension() });
-                gpa.free(recording.bytes);
-                return null;
-            };
-            const begun = if (kind == .flac) bink.AudioDecoding.beginFlac(decoder, recording.bytes) else bink.AudioDecoding.beginMp3(decoder, recording.bytes);
-            const audio = begun catch |err| {
-                log.warn("the recording {s}{s} is left out: {t}", .{ name, kind.extension(), err });
-                gpa.free(recording.bytes);
-                return null;
-            };
-            return .{ .decoding = .{ .audio = audio, .source = recording.bytes } };
-        },
-    }
-}
+/// Where a mod's recordings come from: the mods that hold them, and what decodes those in FLAC or
+/// MP3, if anything.
+pub const Source = struct {
+    mods: *const bigfile.Mods,
+    codec: ?bink.Codec,
 
-/// Turns `recording` into a WAVE file in `gpa`, taking its bytes: a WAVE file stays as it is, and a
-/// FLAC or MP3 file is decoded all at once (`open`). Returns null, with a warning naming `name`, if
-/// the file doesn't decode or there's no codec.
-pub fn decode(gpa: Allocator, codec: ?bink.Codec, recording: Recording, name: []const u8) ?[]u8 {
-    var decoding = switch (open(gpa, codec, recording, name) orelse return null) {
-        .wave => |bytes| return bytes,
-        .decoding => |on_way| on_way,
-    };
-    return decoding.complete(gpa) catch |err| {
-        log.warn("the recording {s}{s} is left out: {t}", .{ name, recording.kind.extension(), err });
+    /// No mods, and nothing to decode with.
+    pub const none: Source = .{ .mods = &bigfile.Mods.none, .codec = null };
+
+    /// Reads a mod's recording `name`, a name without an extension, into `gpa` as it is: the first
+    /// of `name.wav`, `name.flac` and `name.mp3` that a mod has. Returns null if no mod has any of
+    /// them, and also, with a warning, if that file can't be read.
+    pub fn find(source: Source, gpa: Allocator, name: []const u8) ?Recording {
+        var buffer: [bigfile.member_name_room + Kind.longest]u8 = undefined;
+        for (std.enums.values(Kind)) |kind| {
+            // A name too long for a mod's file is in no mod.
+            const named = std.mem.print(&buffer, "{s}{s}", .{ name, kind.extension() }) catch return null;
+            const found = source.mods.readFile(gpa, named) catch |err| {
+                log.warn("can't read the recording {s}: {t}", .{ named, err });
+                return null;
+            };
+            if (found) |bytes| return .{ .bytes = bytes, .kind = kind };
+        }
         return null;
-    };
-}
+    }
 
-/// Reads a mod's recording `name`, a name without an extension, as a WAVE file in `gpa` (`find`,
-/// then `decode`). Returns null if no mod has it or it can't be used.
-pub fn read(gpa: Allocator, codec: ?bink.Codec, mods: *const bigfile.Mods, name: []const u8) ?[]u8 {
-    return decode(gpa, codec, find(gpa, mods, name) orelse return null, name);
-}
+    /// Opens `recording`, the recording `name` (`find`), taking its bytes: a WAVE file is ready as
+    /// it is, and a FLAC or MP3 file starts decoding. Returns null, with a warning, if the file
+    /// doesn't decode or there's nothing to decode it with.
+    pub fn open(source: Source, gpa: Allocator, recording: Recording, name: []const u8) ?Opened {
+        switch (recording.kind) {
+            .wave => return .{ .wave = recording.bytes },
+            inline .flac, .mp3 => |kind| {
+                const decoder = source.codec orelse {
+                    log.warn("the recording {s}{s} is left out: there's no decoder for it", .{ name, kind.extension() });
+                    gpa.free(recording.bytes);
+                    return null;
+                };
+                const begun = if (kind == .flac) bink.AudioDecoding.beginFlac(decoder, recording.bytes) else bink.AudioDecoding.beginMp3(decoder, recording.bytes);
+                const audio = begun catch |err| {
+                    log.warn("the recording {s}{s} is left out: {t}", .{ name, kind.extension(), err });
+                    gpa.free(recording.bytes);
+                    return null;
+                };
+                return .{ .decoding = .{ .audio = audio, .source = recording.bytes } };
+            },
+        }
+    }
 
-test open {
+    /// Reads a mod's recording `name`, a name without an extension, as a WAVE file in `gpa`,
+    /// decoded all at once (`find`, `open`). Returns null if no mod has it or it can't be used.
+    pub fn read(source: Source, gpa: Allocator, name: []const u8) ?[]u8 {
+        const recording = source.find(gpa, name) orelse return null;
+        var decoding = switch (source.open(gpa, recording, name) orelse return null) {
+            .wave => |bytes| return bytes,
+            .decoding => |on_way| on_way,
+        };
+        return decoding.complete(gpa) catch |err| {
+            log.warn("the recording {s}{s} is left out: {t}", .{ name, recording.kind.extension(), err });
+            return null;
+        };
+    }
+};
+
+test "Source.open" {
     const gpa = std.testing.allocator;
     var decoders: bink.testing.Decoders = .{};
-    const codec = decoders.codec();
+    const source: Source = .{ .mods = &bigfile.Mods.none, .codec = decoders.codec() };
     // A WAVE file is ready as it is.
-    const ready = open(gpa, codec, .{ .bytes = try gpa.dupe(u8, "a WAVE file"), .kind = .wave }, "line").?;
+    const ready = source.open(gpa, .{ .bytes = try gpa.dupe(u8, "a WAVE file"), .kind = .wave }, "line").?;
     defer gpa.free(ready.wave);
     // An MP3 file of two frames decodes a frame at a time.
     const frames = mp3.testing.silence(2);
-    var opened = open(gpa, codec, .{ .bytes = try gpa.dupe(u8, &frames), .kind = .mp3 }, "piece").?;
+    var opened = source.open(gpa, .{ .bytes = try gpa.dupe(u8, &frames), .kind = .mp3 }, "piece").?;
     try std.testing.expect(!try opened.decoding.step(gpa, 1));
     try std.testing.expect(!try opened.decoding.step(gpa, 1));
     try std.testing.expect(try opened.decoding.step(gpa, 1));
@@ -167,12 +171,13 @@ test open {
     defer gpa.free(piece);
     try std.testing.expectEqual(22050, (try wave.Wave.parse(piece)).rate);
     try std.testing.expectEqual(0, decoders.streams);
-    // A file that doesn't start decoding, and one without a codec, are left out, their bytes freed.
-    try std.testing.expectEqual(null, open(gpa, codec, .{ .bytes = try gpa.dupe(u8, "not MP3"), .kind = .mp3 }, "broken"));
-    try std.testing.expectEqual(null, open(gpa, null, .{ .bytes = try gpa.dupe(u8, &frames), .kind = .mp3 }, "piece"));
+    // A file that doesn't start decoding, and one without a decoder, are left out, their bytes
+    // freed.
+    try std.testing.expectEqual(null, source.open(gpa, .{ .bytes = try gpa.dupe(u8, "not MP3"), .kind = .mp3 }, "broken"));
+    try std.testing.expectEqual(null, Source.none.open(gpa, .{ .bytes = try gpa.dupe(u8, &frames), .kind = .mp3 }, "piece"));
 }
 
-test read {
+test "Source.read" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
@@ -190,25 +195,26 @@ test read {
     var mods: bigfile.Mods = try .open(gpa, io, tmp.dir, null);
     defer mods.close(gpa);
     var decoders: bink.testing.Decoders = .{};
-    const codec = decoders.codec();
+    const source: Source = .{ .mods = &mods, .codec = decoders.codec() };
 
     // A WAVE file comes first, as it is.
-    const first = read(gpa, codec, &mods, "both").?;
+    const first = source.read(gpa, "both").?;
     defer gpa.free(first);
     try std.testing.expectEqualStrings("a WAVE file", first);
     // Then a FLAC file, decoded into a WAVE file at its rate and channels.
-    const decoded = read(gpa, codec, &mods, "LOSSLESS").?;
+    const decoded = source.read(gpa, "LOSSLESS").?;
     defer gpa.free(decoded);
     const parsed = try wave.Wave.parse(decoded);
     try std.testing.expectEqual(22050, parsed.rate);
     try std.testing.expectEqual(1, parsed.channels);
     // Then an MP3 file, decoded the same way.
-    const speech = read(gpa, codec, &mods, "speech").?;
+    const speech = source.read(gpa, "speech").?;
     defer gpa.free(speech);
     try std.testing.expectEqual(2, (try wave.Wave.parse(speech)).channels);
     try std.testing.expectEqual(0, decoders.streams);
-    // A file that doesn't decode, a FLAC file without a codec, and a name no mod has give null.
-    try std.testing.expectEqual(null, read(gpa, codec, &mods, "broken"));
-    try std.testing.expectEqual(null, read(gpa, null, &mods, "lossless"));
-    try std.testing.expectEqual(null, read(gpa, codec, &mods, "missing"));
+    // A file that doesn't decode, a FLAC file without a decoder, and a name no mod has give null.
+    try std.testing.expectEqual(null, source.read(gpa, "broken"));
+    const undecoded: Source = .{ .mods = &mods, .codec = null };
+    try std.testing.expectEqual(null, undecoded.read(gpa, "lossless"));
+    try std.testing.expectEqual(null, source.read(gpa, "missing"));
 }

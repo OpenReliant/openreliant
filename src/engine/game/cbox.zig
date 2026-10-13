@@ -99,7 +99,7 @@ pub const Speech = struct {
 
 /// A line the speech player plays: one in the game's codec (`Speech`), or a mod's recording, a
 /// WAVE file that `wave.Decoder` reads, mono or stereo, at its own rate. A FLAC or an MP3
-/// recording is decoded to a WAVE file as it's read (`recordings.read`).
+/// recording is decoded to a WAVE file as it's read (`recordings.Source.read`).
 ///
 /// **Improvement:** the original plays its own codec alone.
 pub const Line = union(enum) {

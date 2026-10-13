@@ -851,7 +851,7 @@ test "the player hears their own ship jump in, however long the jump" {
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(4, null);
     const bank = comptime hog_snd.testing.bank(80);
-    speaker.sound.open3D(try @import("../../formats/fat.zig").Bank.parse(&bank));
+    speaker.sound.open3D(try @import("../../formats/fat.zig").Bank.parse(&bank), &.{});
     for ([_]ArrivalSound{ .heard, .original }) |arrival_sound| {
         var mission: gameobj.testing.Mission = undefined;
         try mission.init(std.testing.allocator);

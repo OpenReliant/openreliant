@@ -358,18 +358,18 @@ and a few modern ones beside them:
 | Interface shapes and pictures | PNG at any size | An image editor ([The interface](#the-interface)) |
 | Interface fonts | `.fnt`, TrueType or OpenType | A font editor ([Fonts](#fonts)) |
 | Music | WAV (16-bit PCM or IMA ADPCM), FLAC or MP3, at any rate | An audio editor ([Music](#music)) |
-| A mod's engine and gun sounds | WAV, PCM or IMA ADPCM | An audio editor ([Ship types](#ship-types), [Guns](#guns)) |
+| Sounds | WAV (16-bit or 8-bit PCM, or IMA ADPCM), FLAC or MP3, at any rate, mono or stereo, one at a time | An audio editor, from the sounds `sltool fat extract` saves ([Sounds](#sounds)) |
+| A mod's engine and gun sounds | WAV (16-bit or 8-bit PCM, or IMA ADPCM), at any rate | An audio editor ([Ship types](#ship-types), [Guns](#guns)) |
 | Lines of speech | WAV (16-bit or 8-bit PCM, or IMA ADPCM), FLAC or MP3, at any rate, mono or stereo; or the game's speech files | An audio editor, or `sltool speech encode` from WAV ([Lines](#lines)) |
 | Pilots' faces | `.fm8` face films | `sltool fm8 encode`, from PNG frames ([Faces](#faces)) |
 | Missions | `.dte` | A mission editor ([Missions](#missions)) |
 | Stats tables | `.bin` | Better changed from a load script ([The records](scripting.md#the-records)) |
-| Sound banks | `.fat` | No tool yet: `sltool fat extract` saves a bank's sounds, but can't build a bank |
+| Whole sound banks | `.fat` | No tool builds one: replace a bank's sounds one at a time instead ([Sounds](#sounds)) |
 | Movies | Bink (`.bik`) | RAD Game Tools' Bink tools |
 
-Single sounds in place of a bank's are planned
-([#1175](https://github.com/OpenReliant/openreliant/issues/1175)), as are music, lines and sounds
-in Ogg Vorbis or Opus ([#1176](https://github.com/OpenReliant/openreliant/issues/1176)) and movies
-in modern formats ([#1179](https://github.com/OpenReliant/openreliant/issues/1179)).
+Music, lines and sounds in Ogg Vorbis or Opus are planned
+([#1176](https://github.com/OpenReliant/openreliant/issues/1176)), as are movies in modern formats
+([#1179](https://github.com/OpenReliant/openreliant/issues/1179)).
 
 ### Music
 
@@ -388,6 +388,27 @@ which may be the wrong moment, and the log says so.
 for it, whose body starts where the game's piece loops back. The CD player in the rooms plays only
 the pieces on its lists, which a load script can change ([The CD player's
 tracks](scripting.md#the-cd-players-tracks)), so the example gives its track a row there too.
+
+### Sounds
+
+The game keeps its sounds in sound banks, `.fat` files that each hold a few WAVE files by number
+([Sound banks](../formats/fat.md#the-banks) lists what each bank holds). A mod replaces one of them
+with a file named after the bank and the sound's number, with at least three digits:
+`stdsmp_012.wav` replaces sound 12 of `stdsmp.fat`, and `smp3d_067.flac` replaces sound 67 of
+`smp3d.fat`, GUN01, the Laser Cannon's shot. `sltool fat extract <bank> <folder>` saves a bank's
+sounds under these names, so you can find the one to replace and start from it. `sltool fat ls
+smp3d.fat` names the 3D sounds that play each of that bank's sounds. If a mod has no file for a
+sound, the bank's own sound plays, so a mod can replace just a few.
+
+A sound is a WAV file (16-bit or 8-bit PCM, or IMA ADPCM), a FLAC file or an MP3 file, at any rate,
+mono or stereo. If a mod has more than one for a sound, the WAV file comes first, then the FLAC
+file. MP3 adds a little silence at the start and the end, which you hear when a sound loops, such as
+an engine's, so WAV or FLAC suits sounds better. A sound plays wherever the game plays the bank's,
+with the bank's priority, and at the volume, pitch and place the game gives it. A 3D sound plays at
+its own pitch whatever its rate. In stereo, it keeps its width as far as what it comes from has a
+size: a big ship's engine close by sounds wide, and narrows to a point as the ship moves away, while
+a shot, a missile or an explosion is a point. With `--original`, which mixes the sound plainly, a 3D
+sound in stereo plays in mono so that it can still be placed.
 
 ## Textures
 
@@ -848,9 +869,9 @@ When the player flies it, it can also give:
   picture at two or four times that keeps it sharp. A picture left out keeps the base's shape.
 - `WingIcon`, the name of the picture the wing's window shows the ship as, `teapoticon_000.png`,
   drawn over the base's icon's rectangle.
-- `EngineSound`, a WAV file, PCM or IMA ADPCM, that loops as the engine's sound, pitched and
-  loudened by the throttle as the base's is. Give it whole cycles of each tone, so that its loop
-  doesn't click.
+- `EngineSound`, a WAV file, PCM or IMA ADPCM at any rate, that loops as the engine's sound,
+  pitched and loudened by the throttle as the base's is. Give it whole cycles of each tone, so that
+  its loop doesn't click.
 - `BlindFire` and `SpectralShields`, `yes` or `no`, whether it carries blind fire and spectral
   shields. Without them, it carries what its base carries. The loadout lists them with its specials.
 
@@ -899,8 +920,8 @@ A gun uses its base's shots, flashes and sounds, except for the ones it gives it
   extension, so a PNG, DDS or KTX2 file works. Give it a transparent background.
 - `ShotSize` is how far the picture reaches from the shot's middle in each direction. The default
   is 60, the size of the Pulse Cannon's flare.
-- `Sound` is a WAV file in the mod, PCM or IMA ADPCM, that each shot makes in place of its base's.
-  It is heard as its base's sound is: as far, as loud, and following the shot.
+- `Sound` is a WAV file in the mod, PCM or IMA ADPCM at any rate, that each shot makes in place of
+  its base's. It is heard as its base's sound is: as far, as loud, and following the shot.
 - `Flash` is a picture in the mod, which the muzzle flash is drawn with as each shot leaves the
   gun, in place of its base's flares: across the muzzle and in three blades along the flash, added
   to what's behind it, shrinking away as its base's does. It is found as `Shot` is. Black is
@@ -1243,7 +1264,7 @@ most:
 | Build a model | `sltool shp from-obj <in.obj> <out.shp>`, `sltool shp from-gltf <in.gltf> <out.shp>` |
 | Save a face film's frames, or make a film | `sltool fm8 extract <film> <out-dir>`, `sltool fm8 encode <frames-dir> <film>` |
 | Save lines as WAV files, or make a line | `sltool speech extract <archive> <out-dir>`, `sltool speech encode <in.wav> <out.ut>` |
-| Save a sound bank's sounds as WAV files | `sltool fat extract <bank> <out-dir>` |
+| List a sound bank's sounds, or save them as WAV files named as a mod's sounds are | `sltool fat ls <bank>`, `sltool fat extract <bank> <out-dir>` |
 | List a mission's ships, triggers and script parts | `sltool dte ships <mission>`, `sltool dte triggers <mission>`, `sltool dte parts <mission>` |
 | List a stats table | `sltool stats list <stats.bin>` |
 
@@ -1295,16 +1316,14 @@ pack <folder> <archive> --checksum` writes a checksum file next to the archive i
 ## Log messages
 
 OpenReliant writes its log to the terminal it runs in, and to `openreliant.log` in the game folder
-([The log file](installation.md#the-log-file)). Attach it to a
-[mod or scripting problem](https://github.com/OpenReliant/openreliant/issues/new?template=mod_problem.yml)
-when you report one. As it
-starts, it lists each mod it loads, in order, by its manifest's name if it has one, and then what
-each of the mod's files does: which game file, texture, shape, picture, font or line it replaces,
-which earlier mod's file it replaces, or which file it adds. A recording in another format than the
-game file it replaces, such as `New_Pensive.flac`, is listed as replacing that file,
-`New_Pensive.wav`. A mod that the mods screen has turned off is listed as off, and none of it is
-used. When a font is loaded, the log says which outline
-font draws it.
+([The log file](installation.md#the-log-file)). Attach it to a [mod or scripting
+problem](https://github.com/OpenReliant/openreliant/issues/new?template=mod_problem.yml) when you
+report one. As it starts, it lists each mod it loads, in order, by its manifest's name if it has
+one, and then what each of the mod's files does: which game file, texture, shape, picture, font,
+line or sound it replaces, which earlier mod's file it replaces, or which file it adds. A recording
+in another format than the game file it replaces, such as `New_Pensive.flac`, is listed as replacing
+that file, `New_Pensive.wav`. A mod that the mods screen has turned off is listed as off, and none
+of it is used. When a font is loaded, the log says which outline font draws it.
 
 ```text
 info(mods): music.hog matches music.hog.sha256
@@ -1326,7 +1345,7 @@ A script's messages and errors follow its mod's name, as above;
 
 | In the log | What to check |
 |---|---|
-| A file `adds` where it should replace one of the game's | Its name: the game file's name, without folders, in any case. Textures, pictures, shapes, lines, music and faces are named as their sections say. If the log also says `can't list the game's ...`, the name may be right |
+| A file `adds` where it should replace one of the game's | Its name: the game file's name, without folders, in any case. Textures, pictures, shapes, lines, music, sounds and faces are named as their sections say. If the log also says `can't list the game's ...`, the name may be right |
 | `can't list the game's archive <name>, so the log may say a mod adds a file it replaces` | The game's archive is damaged. The mod still works if its files are named right |
 | `skipping <name>: <error>` | A link in `mods` or in a mod whose target is missing, or an entry that can't be read: fix or remove it |
 | `skipping <name>: a mod must be a .hog archive or a folder` | Only folders and `.hog` archives go directly in `mods` |

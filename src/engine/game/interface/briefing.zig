@@ -473,7 +473,7 @@ pub const Briefing = struct {
     fn load(briefing: *Briefing, ticks: u32) ?Step {
         const context = briefing.context;
         const sound = context.sound;
-        briefing.wait = .read(context.gpa, context.resources, wait_bank);
+        briefing.wait = .read(context.gpa, context.resources, wait_bank, context.codec);
         if (briefing.wait) |wait| _ = sound.playInScene(wait.bank, 0, wait_volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
         // The loadout loads, but for the campaign's end (`0x0043719F`).
         if (briefing.mission != end_mission) if (briefing.hologram_context) |hologram| {

@@ -83,15 +83,6 @@ const buffered_loudness: f32 = 20;
 const max_quarter_tones = 96;
 const quarter_tones_per_octave = 24;
 
-/// The bytes of 16-bit sound at the 3D sounds' rate that a tick plays, as `sound_3d_update` counts
-/// a sound's length in ticks. **Improvement:** OpenReliant divides by them, where the game
-/// multiplies by their rounded reciprocal (`0x004DC8B8`).
-const bytes_per_tick = sound3d.sample_rate * @sizeOf(i16) / main.ticks_per_second;
-
-comptime {
-    assert(bytes_per_tick == 441);
-}
-
 /// The count past which `tick_timer` rolls the mission's seconds and minutes over, a tick after
 /// they reach it, so each counts 0 to 59 (an immediate in `tick_timer`).
 const rollover_after = 58;
@@ -250,29 +241,83 @@ pub const Volumes = struct {
 pub const BankFile = struct {
     bytes: []u8,
     bank: fat.Bank,
+    /// Added by OpenReliant: which of its sounds mods give (`of`); empty where none does.
+    modded: []const bool = &.{},
 
-    /// `bytes`, the file of the bank `name`, which it keeps; null where it is not a bank, which the
-    /// log says, the bytes then freed.
-    pub fn of(gpa: Allocator, bytes: []u8, name: []const u8) ?BankFile {
+    /// `bytes`, the file of the bank `name`, which it keeps, with the sounds mods give in place of
+    /// its own from `source`; null where it is not a bank, which the log says, the bytes then
+    /// freed. Each of a mod's sounds is named after the bank and the sound's number
+    /// (`fat.soundName`).
+    ///
+    /// **Improvement:** the original plays only its banks' own sounds.
+    pub fn of(gpa: Allocator, bytes: []u8, name: []const u8, source: recordings.Source) ?BankFile {
         const bank = fat.Bank.parse(bytes) catch |err| {
             log.warn("the bank {s} is left out: {s}", .{ name, @errorName(err) });
             gpa.free(bytes);
             return null;
         };
-        return .{ .bytes = bytes, .bank = bank };
+        return withModSounds(.{ .bytes = bytes, .bank = bank }, gpa, name, source);
     }
 
-    /// The bank `name` of `archive` (`hog_load`); null where it is left out, which the log says.
-    pub fn read(gpa: Allocator, archive: *const bigfile.Hog, name: []const u8) ?BankFile {
+    /// The bank `name` of `archive` (`hog_load`), with the sounds its mods give in place of its
+    /// own, which `codec` decodes (`of`); null where it is left out, which the log says.
+    pub fn read(gpa: Allocator, archive: *const bigfile.Hog, name: []const u8, codec: ?bink.Codec) ?BankFile {
         const bytes = archive.readFile(gpa, name) catch |err| {
             log.warn("the bank {s} is left out: {s}", .{ name, @errorName(err) });
             return null;
         };
-        return of(gpa, bytes, name);
+        return of(gpa, bytes, name, .{ .mods = archive.mods, .codec = codec });
     }
 
     pub fn deinit(file: BankFile, gpa: Allocator) void {
+        gpa.free(file.modded);
         gpa.free(file.bytes);
+    }
+
+    /// `file`, the bank `name`, which it takes, with the sounds mods give in place of its own
+    /// (`fat.rebuild`), made in `gpa`. A sound that can't be played stays the bank's own, and so
+    /// does every sound where the bank can't be made, which the log says.
+    fn withModSounds(file: BankFile, gpa: Allocator, name: []const u8, source: recordings.Source) BankFile {
+        if (source.mods.list.len == 0) return file;
+        const count = file.bank.entries.len;
+        const replacements = gpa.alloc(?[]const u8, count) catch return file;
+        defer gpa.free(replacements);
+        @memset(replacements, null);
+        defer for (replacements) |replacement| if (replacement) |own| gpa.free(own);
+        var found = false;
+        for (replacements, 0..) |*replacement, index| {
+            var buffer: [bigfile.member_name_room]u8 = undefined;
+            replacement.* = playable(gpa, source, fat.soundName(&buffer, name, index) catch continue);
+            found = found or replacement.* != null;
+        }
+        if (!found) return file;
+        const modded = gpa.alloc(bool, count) catch return file;
+        for (modded, replacements) |*by_mod, replacement| by_mod.* = replacement != null;
+        const bytes = fat.rebuild(gpa, file.bank, replacements) catch |err| {
+            log.warn("the mods' sounds of the bank {s} are left out: {t}", .{ name, err });
+            gpa.free(modded);
+            return file;
+        };
+        const bank = fat.Bank.parse(bytes) catch |err| {
+            log.warn("the mods' sounds of the bank {s} are left out: {t}", .{ name, err });
+            gpa.free(bytes);
+            gpa.free(modded);
+            return file;
+        };
+        file.deinit(gpa);
+        return .{ .bytes = bytes, .bank = bank, .modded = modded };
+    }
+
+    /// A mod's sound `name` from `source` as a WAVE file in `gpa` that a voice can play; null
+    /// where no mod gives one, and, with a warning, where it can't be played.
+    fn playable(gpa: Allocator, source: recordings.Source, name: []const u8) ?[]u8 {
+        const bytes = source.read(gpa, name) orelse return null;
+        _ = mss.voice.Voice.init(bytes) catch |err| {
+            log.warn("the sound {s} is left out: {t}", .{ name, err });
+            gpa.free(bytes);
+            return null;
+        };
+        return bytes;
     }
 };
 
@@ -282,10 +327,8 @@ pub const Files = struct {
     gpa: Allocator,
     io: Io,
     dir: Io.Dir,
-    mods: *const bigfile.Mods = &bigfile.Mods.none,
-    /// What decodes a mod's piece in FLAC or MP3 (`recordings.open`). Without it, such pieces are
-    /// left out.
-    codec: ?bink.Codec = null,
+    /// Added by OpenReliant: the mods' pieces, which take priority over the game folder's.
+    recordings: recordings.Source = .none,
 };
 
 /// The music (`0x00565300` on): a stream of one file, which fades out before another starts.
@@ -799,8 +842,9 @@ pub const Sound = struct {
     // --- The 3D voices ---------------------------------------------------------------------------
 
     /// `sound_3d_open` (`0x00481900`) on OpenReliant's one provider: as many 3D voices as it has,
-    /// up to 64, each free, then the effects set up on them (`sound3d.init`).
-    pub fn open3D(sound: *Sound, smp3d: fat.Bank) void {
+    /// up to 64, each free, then the effects set up on them (`sound3d.init`) with the bank `smp3d`,
+    /// of which mods give the sounds `modded` says (`BankFile.modded`).
+    pub fn open3D(sound: *Sound, smp3d: fat.Bank, modded: []const bool) void {
         const driver = sound.driver orelse return;
         sound.close3D();
         for (&sound.voices_3d) |*voice| {
@@ -808,7 +852,7 @@ pub const Sound = struct {
             voice.sample = driver.allocate3DSample() orelse break;
             sound.voice_3d_count += 1;
         }
-        sound3d.init(sound, smp3d);
+        sound3d.init(sound, smp3d, modded);
     }
 
     /// `sound_3d_close` (`0x004818A0`).
@@ -882,7 +926,14 @@ pub const Sound = struct {
             const v: u8 = @intCast(index);
             const set_aside = sound.reserved(v);
             if (!set_aside) {
-                const ticks = math.round(@as(f32, @floatFromInt(driver.sample3DLength(voice.sample))) / bytes_per_tick);
+                // How long its sound plays, in ticks. The game takes the sound's bytes of 16-bit
+                // PCM over the 441 a tick plays at 22,050 Hz, multiplying by their rounded
+                // reciprocal (`0x004DC8B8`). **Improvement:** OpenReliant divides its frames by the
+                // rate it plays at, `sound3d.sample_rate` scaled for a mod's sound
+                // (`sound3d.rateScale`), so that a mod's sound at another rate or in stereo isn't
+                // stopped early or held on. The game's own sounds come out the same.
+                const frames: f32 = @floatFromInt(driver.sample3DFrames(voice.sample));
+                const ticks = math.round(frames / (sound3d.sample_rate * sound.effects.rate_scales[index]) * main.ticks_per_second);
                 if (ticks < frame_start - voice.started) {
                     sound.end3D(v);
                     continue;
@@ -1133,14 +1184,14 @@ const MusicRead = union(enum) {
 };
 
 /// Reads the music file at `path`, a game path with backslashes: a mod's recording with the same
-/// name, a WAVE, FLAC or MP3 file (`recordings.open`), or else the game folder's file, ignoring
-/// case as Windows does (`files.find`).
+/// name, a WAVE, FLAC or MP3 file (`recordings.Source.open`), or else the game folder's file,
+/// ignoring case as Windows does (`files.find`).
 ///
 /// **Improvement:** the original plays only its own WAVE files.
 fn readMusic(files: Files, path: []const u8) !MusicRead {
     const name = Io.Dir.path.stem(paths.leaf(path));
-    if (recordings.find(files.gpa, files.mods, name)) |found| {
-        if (recordings.open(files.gpa, files.codec, found, name)) |opened| return switch (opened) {
+    if (files.recordings.find(files.gpa, name)) |found| {
+        if (files.recordings.open(files.gpa, found, name)) |opened| return switch (opened) {
             .wave => |bytes| .{ .whole = .{ .bytes = bytes, .from_mod = true } },
             .decoding => |recording| .{ .decoding = recording },
         };
@@ -1303,14 +1354,53 @@ test "Sound.speakOn holds its voice" {
     try std.testing.expectEqual(0, sound.voices[2].held);
 }
 
+test "BankFile.of puts mods' sounds in place of the bank's own" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    // A mod gives the second sound of a bank of three in WAV at 44,100 Hz, the third in FLAC in
+    // stereo, and the first in a file that can't be played.
+    const bytes = comptime testing.bank(3);
+    const own = comptime wave.testing.pcmAt(44100, "\x01\x00\x02\x00");
+    const lossless = try @import("../../formats/flac.zig").testing.constant(gpa, 11025, &.{ 3, 4 }, 8);
+    defer gpa.free(lossless);
+    try tmp.dir.createDirPath(io, "mods/a");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/a/three_000.wav", .data = "not a WAVE file" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/a/THREE_001.wav", .data = own });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/a/three_002.flac", .data = lossless });
+    var mods: bigfile.Mods = try .open(gpa, io, tmp.dir, null);
+    defer mods.close(gpa);
+    var decoders: bink.testing.Decoders = .{};
+    const source: recordings.Source = .{ .mods = &mods, .codec = decoders.codec() };
+    const original = try fat.Bank.parse(&bytes);
+
+    const file = BankFile.of(gpa, try gpa.dupe(u8, &bytes), "sounds\\three.fat", source).?;
+    defer file.deinit(gpa);
+    try std.testing.expectEqualSlices(bool, &.{ false, true, true }, file.modded);
+    try std.testing.expectEqualSlices(u8, original.sound(0).?, file.bank.sound(0).?);
+    try std.testing.expectEqualSlices(u8, own, file.bank.sound(1).?);
+    const decoded = try wave.Wave.parse(file.bank.sound(2).?);
+    try std.testing.expectEqual(11025, decoded.rate);
+    try std.testing.expectEqual(2, decoded.channels);
+    // Each sound keeps its entry's priority.
+    for (original.entries, file.bank.entries) |before, after| try std.testing.expectEqual(before.priority, after.priority);
+    try std.testing.expectEqual(0, decoders.streams);
+    // A bank that no mod gives a sound for stays as it is.
+    const other = BankFile.of(gpa, try gpa.dupe(u8, &bytes), "other.fat", source).?;
+    defer other.deinit(gpa);
+    try std.testing.expectEqual(0, other.modded.len);
+    try std.testing.expectEqualSlices(u8, &bytes, other.bytes);
+}
+
 test BankFile {
     const gpa = std.testing.allocator;
     const bytes = comptime testing.bank(2);
-    const file = BankFile.of(gpa, try gpa.dupe(u8, &bytes), "two.fat").?;
+    const file = BankFile.of(gpa, try gpa.dupe(u8, &bytes), "two.fat", .none).?;
     defer file.deinit(gpa);
     try std.testing.expectEqual(2, file.bank.entries.len);
     // Not a bank, it is left out, and its bytes let go.
-    try std.testing.expectEqual(null, BankFile.of(gpa, try gpa.dupe(u8, "x"), "x.fat"));
+    try std.testing.expectEqual(null, BankFile.of(gpa, try gpa.dupe(u8, "x"), "x.fat", .none));
 }
 
 test "Volumes.read" {
@@ -1561,7 +1651,7 @@ test "a mod's piece in FLAC or MP3 decodes over the passes, then plays in place 
     var speaker: testing.Speaker = undefined;
     try speaker.init(2, null);
     const sound = &speaker.sound;
-    sound.files = .{ .gpa = gpa, .io = io, .dir = tmp.dir, .mods = &mods, .codec = decoders.codec() };
+    sound.files = .{ .gpa = gpa, .io = io, .dir = tmp.dir, .recordings = .{ .mods = &mods, .codec = decoders.codec() } };
     defer sound.closeMusic();
     var clock: Clock = .{};
 
@@ -1593,7 +1683,7 @@ test "a mod's piece in FLAC or MP3 decodes over the passes, then plays in place 
     try std.testing.expectEqual(22050, (try wave.Wave.parse(sound.music.file)).rate);
     try std.testing.expectEqual(0, decoders.streams);
     // Without a codec, the game's piece plays at once.
-    sound.files.?.codec = null;
+    sound.files.?.recordings.codec = null;
     sound.playMusic("music\\one.wav", forever, loudest, .now);
     try std.testing.expect(sound.music.decoding == null and sound.musicPlaying());
     try std.testing.expectEqual(testing.Speaker.rate, (try wave.Wave.parse(sound.music.file)).rate);

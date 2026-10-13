@@ -247,6 +247,12 @@ pub const Decoder = struct {
     /// The sample formats it decodes.
     pub const Codec = enum { pcm8, pcm16, ima_adpcm };
 
+    /// A frame of `next` with its two channels mixed to one: their average. A mono frame, which
+    /// `next` gives in both channels, stays as it is.
+    pub fn downmix(frame: [2]i16) i16 {
+        return @intCast(@divTrunc(@as(i32, frame[0]) + frame[1], 2));
+    }
+
     pub fn init(wave: Wave) Error!Decoder {
         if (wave.channels != 1 and wave.channels != 2) return error.Unsupported;
         if (wave.block_align == 0) return error.Unsupported;
@@ -382,7 +388,12 @@ pub const testing = struct {
 
     /// Mono 16-bit PCM at 22,050 Hz.
     pub fn pcm(comptime data: []const u8) []const u8 {
-        return file(.{ .format = .pcm, .channels = 1, .rate = 22050, .byte_rate = 44100, .block_align = 2, .bits = 16 }, "", "", data);
+        return pcmAt(22050, data);
+    }
+
+    /// Mono 16-bit PCM at `rate`.
+    pub fn pcmAt(comptime rate: u32, comptime data: []const u8) []const u8 {
+        return file(.{ .format = .pcm, .channels = 1, .rate = rate, .byte_rate = rate * 2, .block_align = 2, .bits = 16 }, "", "", data);
     }
 };
 
@@ -423,6 +434,13 @@ test "offsetOf takes a frame back to its byte" {
     try std.testing.expectEqual(10, pcm.frameAt(pcm.offsetOf(10)));
     // Past the end, the last frame's.
     try std.testing.expectEqual(data.len, pcm.offsetOf(1 << 20));
+}
+
+test "Decoder.downmix" {
+    try std.testing.expectEqual(200, Decoder.downmix(.{ 100, 300 }));
+    try std.testing.expectEqual(-7, Decoder.downmix(.{ -7, -7 }));
+    try std.testing.expectEqual(std.math.minInt(i16), Decoder.downmix(.{ std.math.minInt(i16), std.math.minInt(i16) }));
+    try std.testing.expectEqual(0, Decoder.downmix(.{ std.math.maxInt(i16), std.math.minInt(i16) }));
 }
 
 test "Decoder reads PCM" {

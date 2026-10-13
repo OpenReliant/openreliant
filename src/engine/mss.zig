@@ -10,7 +10,8 @@
 //! own, so the mixer holds the platform's `Lock` through each call; `Mixer.mix` expects its caller
 //! to hold it. Three calls are not Miles's, the listener's velocity, a 3D sample's radius and a
 //! sample's room: they serve OpenAL's improvements, and the software mixer, the reference, leaves
-//! them out.
+//! them out. A fourth, a 3D sample's length in frames, stands in for its length in bytes
+//! (`AIL_3D_sample_length`) for both.
 //!
 //! Volumes and pans run from 0 to 127 (`max_level`), a pan of 64 in the middle (`centre_pan`), as
 //! Miles's do. How Miles turned them into gains is not known here: OpenReliant takes a volume's
@@ -105,12 +106,6 @@ pub fn gain(volume: i32) f32 {
     return @as(f32, @floatFromInt(volume)) / max_level;
 }
 
-/// The bytes a sound of `frames` frames of `channels` channels takes as 16-bit PCM, which is what
-/// `AIL_3D_sample_length` counts.
-pub fn pcmLength(frames: u32, channels: u32) u32 {
-    return frames * channels * @sizeOf(i16);
-}
-
 test clampLevel {
     try std.testing.expectEqual(0, clampLevel(-5));
     try std.testing.expectEqual(80, clampLevel(80));
@@ -121,11 +116,6 @@ test gain {
     try std.testing.expectEqual(1, gain(max_level));
     try std.testing.expectEqual(0, gain(0));
     try std.testing.expectApproxEqAbs(0.5, gain(centre_pan), 0.01);
-}
-
-test pcmLength {
-    try std.testing.expectEqual(4096, pcmLength(1024, 2));
-    try std.testing.expectEqual(8, pcmLength(4, 1));
 }
 
 /// A digital driver (`HDIGDRIVER`, `AIL_waveOutOpen`) and its 3D provider: the calls the game makes
@@ -168,7 +158,7 @@ pub const Driver = struct {
         resume3DSample: *const fn (*anyopaque, Sample3D) void,
         end3DSample: *const fn (*anyopaque, Sample3D) void,
         sample3DStatus: *const fn (*anyopaque, Sample3D) Status,
-        sample3DLength: *const fn (*anyopaque, Sample3D) u32,
+        sample3DFrames: *const fn (*anyopaque, Sample3D) u32,
         openStream: *const fn (*anyopaque, []const u8) ?Stream,
         closeStream: *const fn (*anyopaque, Stream) void,
         startStream: *const fn (*anyopaque, Stream) void,
@@ -335,8 +325,8 @@ pub const Driver = struct {
     pub fn sample3DStatus(driver: Driver, handle: Sample3D) Status {
         return driver.vtable.sample3DStatus(driver.context, handle);
     }
-    pub fn sample3DLength(driver: Driver, handle: Sample3D) u32 {
-        return driver.vtable.sample3DLength(driver.context, handle);
+    pub fn sample3DFrames(driver: Driver, handle: Sample3D) u32 {
+        return driver.vtable.sample3DFrames(driver.context, handle);
     }
     pub fn openStream(driver: Driver, file: []const u8) ?Stream {
         return driver.vtable.openStream(driver.context, file);
@@ -574,11 +564,15 @@ pub const Mixer = struct {
     /// `AIL_set_3D_sample_file`: its sound, which must outlive it. Miles's 3D samples play PCM
     /// only, which is why the game decompresses its ADPCM first (`AIL_decompress_ADPCM`);
     /// OpenReliant's play either.
+    ///
+    /// **Improvement:** a sound in stereo plays mixed to mono, so that it keeps its place, as a
+    /// mod's sound may be. Every 3D sound the game plays is mono.
     pub fn set3DSampleFile(mixer: *Mixer, handle: Sample3D, file: []const u8) bool {
         mixer.lock.acquire();
         defer mixer.lock.release();
         const state = mixer.sample3D(handle);
         state.playing = voice.Voice.init(file) catch return false;
+        state.playing.?.mono = true;
         return true;
     }
 
@@ -686,13 +680,13 @@ pub const Mixer = struct {
         return statusOf(mixer.sample3D(handle).playing);
     }
 
-    /// `AIL_3D_sample_length`: the bytes its sound would take as 16-bit PCM, which is what Miles
-    /// held once the game had decompressed it.
-    pub fn sample3DLength(mixer: *Mixer, handle: Sample3D) u32 {
+    /// Not Miles's: the frames its sound holds, in place of `AIL_3D_sample_length`'s bytes of
+    /// 16-bit PCM, which count each channel (`hog_snd.Sound.update3D`).
+    pub fn sample3DFrames(mixer: *Mixer, handle: Sample3D) u32 {
         mixer.lock.acquire();
         defer mixer.lock.release();
         const held = mixer.sample3D(handle).playing orelse return 0;
-        return pcmLength(held.decoder.frames, held.decoder.wave.channels);
+        return held.decoder.frames;
     }
 
     // --- Streams ---------------------------------------------------------------------------------
@@ -858,7 +852,7 @@ test "Mixer places 3D samples and plays streams" {
     try std.testing.expect(driver.set3DSampleFile(placed, file));
     driver.set3DPosition(placed, .{ 1, 0, 0 });
     driver.start3DSample(placed);
-    try std.testing.expectEqual(8, driver.sample3DLength(placed));
+    try std.testing.expectEqual(4, driver.sample3DFrames(placed));
     var out: [1][2]f32 = undefined;
     mixer.mix(&out);
     try std.testing.expectApproxEqAbs(@as(f32, 0), out[0][0], 1e-6);

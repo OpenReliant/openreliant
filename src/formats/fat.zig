@@ -8,8 +8,12 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 const layout = @import("layout.zig");
+const numbered = @import("numbered.zig");
+
+pub const extension = ".fat";
 
 pub const magic = "2.00";
 
@@ -65,6 +69,35 @@ pub const Bank = struct {
         return bank.bytes[entry.offset..][0..entry.size];
     }
 };
+
+/// The name of sound `index` of the bank `bank_name`, without an extension (`numbered.name`), such
+/// as `STDSMP_012`. `sltool fat extract` saves each sound under it, and a mod's sound that replaces
+/// one is named after it.
+pub fn soundName(buffer: []u8, bank_name: []const u8, index: usize) error{NoSpaceLeft}![]u8 {
+    return numbered.name(buffer, bank_name, index, "");
+}
+
+/// The file of `bank` with `replacements` in place of its sounds, made in `gpa`. Each replacement
+/// is a complete WAVE file, or null to keep the bank's own sound. Each entry keeps its priority.
+pub fn rebuild(gpa: Allocator, bank: Bank, replacements: []const ?[]const u8) (Allocator.Error || error{TooLarge})![]u8 {
+    assert(replacements.len == bank.entries.len);
+    const sounds_at = header_size + bank.entries.len * @sizeOf(Entry);
+    var size = sounds_at;
+    for (replacements, 0..) |replacement, index| size += (replacement orelse bank.sound(index).?).len;
+    // The entries' offsets and sizes are 32-bit.
+    if (size > std.math.maxInt(u32)) return error.TooLarge;
+    const file = try gpa.alloc(u8, size);
+    std.mem.bytesAsValue(Header, file[0..header_size]).* = .{ .magic = magic.*, .count = @intCast(bank.entries.len) };
+    const entries = std.mem.bytesAsSlice(Entry, file[header_size..sounds_at]);
+    var at = sounds_at;
+    for (entries, bank.entries, replacements, 0..) |*placed, entry, replacement, index| {
+        const sound = replacement orelse bank.sound(index).?;
+        placed.* = .{ .offset = @intCast(at), .size = @intCast(sound.len), .priority = entry.priority };
+        @memcpy(file[at..][0..sound.len], sound);
+        at += sound.len;
+    }
+    return file;
+}
 
 /// The format's first version, `1.00`, in which Privateer 2: The Darkening (Origin, 1996) keeps its
 /// sounds ([Privateer 2](../../docs/games/privateer-2.md#sound-banks)). It has the same header. Its
@@ -162,4 +195,32 @@ test Bank {
 
     try std.testing.expectError(error.NotABank, Bank.parse("1.40\x00\x00\x00\x00"));
     try std.testing.expectError(error.Truncated, Bank.parse(magic ++ "\x09\x00\x00\x00"));
+}
+
+test soundName {
+    var buffer: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("STDSMP_012", try soundName(&buffer, "STDSMP.FAT", 12));
+}
+
+test rebuild {
+    const gpa = std.testing.allocator;
+    const wave = @import("wave.zig");
+    const first = comptime wave.testing.pcm("\x00\x00");
+    const second = comptime wave.testing.pcm("\x01\x00\x02\x00");
+    const entries = [2]Entry{
+        .{ .offset = header_size + 2 * @sizeOf(Entry), .size = first.len, .priority = 5 },
+        .{ .offset = header_size + 2 * @sizeOf(Entry) + first.len, .size = second.len, .priority = 10000 },
+    };
+    const file = std.mem.toBytes(Header{ .magic = magic.*, .count = 2 }) ++ std.mem.toBytes(entries) ++ first ++ second;
+    const bank = try Bank.parse(file);
+
+    // The first sound replaced by a longer one, the second kept, each with its priority.
+    const longer = comptime wave.testing.pcm("\x03\x00\x04\x00\x05\x00");
+    const rebuilt = try rebuild(gpa, bank, &.{ longer, null });
+    defer gpa.free(rebuilt);
+    const replaced = try Bank.parse(rebuilt);
+    try std.testing.expectEqualSlices(u8, longer, replaced.sound(0).?);
+    try std.testing.expectEqualSlices(u8, second, replaced.sound(1).?);
+    try std.testing.expectEqual(5, replaced.entries[0].priority);
+    try std.testing.expectEqual(10000, replaced.entries[1].priority);
 }
