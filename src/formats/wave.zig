@@ -11,6 +11,8 @@ const assert = std.debug.assert;
 const layout = @import("layout.zig");
 const riff = @import("riff.zig");
 
+pub const extension = ".wav";
+
 /// What a sound's WAVE header says.
 pub const Wave = struct {
     format: Format,
@@ -113,8 +115,8 @@ pub const Wave = struct {
                     wave.rate = fmt.rate;
                     wave.block_align = fmt.block_align;
                     wave.bits = fmt.bits;
-                    if (layout.view(AdpcmExtension, body[@sizeOf(FormatChunk)..])) |extension| {
-                        wave.frames_per_block = extension.frames_per_block;
+                    if (layout.view(AdpcmExtension, body[@sizeOf(FormatChunk)..])) |adpcm| {
+                        wave.frames_per_block = adpcm.frames_per_block;
                     } else |_| {}
                     seen_format = true;
                 },
@@ -371,10 +373,10 @@ pub const testing = struct {
     /// A chunk of `body`, with its header and its padding.
     pub const chunk = riff.testing.chunk;
 
-    /// A WAVE file of `format`, its format chunk `fmt` (and `extension`), then `extra` chunks
-    /// before the data.
-    pub fn file(comptime fmt: Wave.FormatChunk, comptime extension: []const u8, comptime extra: []const u8, comptime data: []const u8) []const u8 {
-        const body = Wave.form ++ chunk("fmt ", &std.mem.toBytes(fmt) ++ extension) ++ extra ++ chunk("data", data);
+    /// A WAVE file of `format`, its format chunk `fmt` (and the chunk's `fmt_extension`), then
+    /// `extra` chunks before the data.
+    pub fn file(comptime fmt: Wave.FormatChunk, comptime fmt_extension: []const u8, comptime extra: []const u8, comptime data: []const u8) []const u8 {
+        const body = Wave.form ++ chunk("fmt ", &std.mem.toBytes(fmt) ++ fmt_extension) ++ extra ++ chunk("data", data);
         return chunk(riff.Header.riff_id, body);
     }
 

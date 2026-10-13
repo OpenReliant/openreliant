@@ -39,8 +39,9 @@ pub const Codec = struct {
     pub const VTable = struct {
         openVideo: *const fn (*anyopaque, Video) Error!Stream,
         openAudio: *const fn (*anyopaque, Audio) Error!Stream,
-        /// An MP3 file's audio, its frames (`formats/mp3.zig`) handed to `samples` in turn: the
-        /// lines of the rooms' crew, which Miles's MP3 decoder (`MP3DEC.ASI`) plays in the game.
+        /// An MP3 file's audio, with its frames (`formats/mp3.zig`) sent one at a time: the rooms'
+        /// crew's lines, which Miles's MP3 decoder (`MP3DEC.ASI`) plays in the game, and mods'
+        /// recordings.
         openMp3: *const fn (*anyopaque) Error!Stream,
         /// A FLAC file's audio, with the whole file sent as one packet (`formats/flac.zig`): mods'
         /// recordings.
@@ -77,7 +78,8 @@ pub const Codec = struct {
         return codec.vtable.receive(codec.context, stream, gpa, pcm);
     }
 
-    /// Appends the samples of the audio's next packet to `pcm`, 16-bit and interleaved.
+    /// Sends the audio's next packet and appends all the samples it decodes to `pcm`, 16-bit and
+    /// interleaved.
     pub fn samples(codec: Codec, stream: Stream, packet: []const u8, gpa: Allocator, pcm: *std.ArrayList(i16)) Error!void {
         try codec.send(stream, packet);
         while (try codec.receive(stream, gpa, pcm)) {}
@@ -101,8 +103,10 @@ pub const Codec = struct {
 pub const AudioDecoding = struct {
     codec: Codec,
     stream: Stream,
+    /// The file's rate and channels, which the WAVE file takes.
     rate: u32,
     channels: u8,
+    /// The samples decoded so far, interleaved.
     pcm: std.ArrayList(i16) = .empty,
     /// Where the decoder gets its frames: an MP3 file's frames are sent to it one at a time, and a
     /// FLAC file is sent whole, as one packet, which the decoder reads a frame at a time.
@@ -110,9 +114,11 @@ pub const AudioDecoding = struct {
 
     /// Starts decoding the MP3 file `bytes`, at its first frame's rate and channels.
     pub fn beginMp3(codec: Codec, bytes: []const u8) (Error || error{NoFrames})!AudioDecoding {
-        var frames: mp3.Frames = .init(bytes);
-        const first = frames.next() orelse return error.NoFrames;
-        return .{ .codec = codec, .stream = try codec.openMp3(), .rate = first.header.rate, .channels = first.header.channels, .frames = .{ .mp3 = .init(bytes) } };
+        const frames: mp3.Frames = .init(bytes);
+        // A copy finds the first frame, which the decoder still gets first.
+        var ahead = frames;
+        const first = ahead.next() orelse return error.NoFrames;
+        return .{ .codec = codec, .stream = try codec.openMp3(), .rate = first.header.rate, .channels = first.header.channels, .frames = .{ .mp3 = frames } };
     }
 
     /// Starts decoding the FLAC file `bytes`, at its STREAMINFO's rate and channels.

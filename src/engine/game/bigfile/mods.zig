@@ -36,6 +36,7 @@ const profile = @import("../../profile.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const bigfile = @import("../bigfile.zig");
 const cbox = @import("../cbox.zig");
+const recordings = @import("../recordings.zig");
 const order_module = @import("order.zig");
 
 /// The order the mods load in and which are on (`Mods.openOrdered`).
@@ -695,6 +696,7 @@ pub const Mods = struct {
                 .picture => |picture| log.info("{s} replaces the picture {s}", .{ mod.name, picture }),
                 .font => |font| log.info("{s} replaces the font {s}", .{ mod.name, font }),
                 .line => |line| log.info("{s} replaces the line {s}", .{ mod.name, line }),
+                .recording => |replaced| log.info("{s} replaces {s}{s}", .{ mod.name, replaced.stem, replaced.extension }),
                 .added => log.info("{s} adds {s}", .{ mod.name, name }),
             };
         }
@@ -766,9 +768,13 @@ const Effect = union(enum) {
     /// It's an outline font that replaces one of the game's fonts (`fnt.outlineName`), given
     /// without the extension.
     font: []const u8,
-    /// It's a line of speech with the extension (`cbox.extension`) that replaces the game's line,
-    /// given without it (`radio.readLine`).
+    /// It's a line of speech that replaces the game's line, given without the extension: a speech
+    /// file with the extension (`cbox.extension`) or a recording (`recordings.find`), as
+    /// `radio.readLine` reads them.
     line: []const u8,
+    /// It's a recording (`recordings.find`) that replaces a game file of another format: a piece of
+    /// music or one of Enriquez's scenes.
+    recording: GameFiles.Replaced,
     /// It adds a new file.
     added,
 };
@@ -786,6 +792,7 @@ fn effectOf(list: []const Mod, at: usize, own: GameFiles, name: []const u8) Effe
     if (own.pictureOf(name)) |picture| return .{ .picture = picture };
     if (own.fontOf(name)) |font| return .{ .font = font };
     if (own.lineOf(name)) |line| return .{ .line = line };
+    if (own.recordingOf(name)) |replaced| return .{ .recording = replaced };
     return .added;
 }
 
@@ -954,11 +961,36 @@ const GameFiles = struct {
         return null;
     }
 
-    /// The name of the game's line that the mod's line `name`, `<line>.ut` (`cbox.extension`),
-    /// replaces; null if it doesn't replace one.
+    /// The name of the game's line that the mod's line `name` replaces: `<line>.ut`
+    /// (`cbox.extension`), or a recording of it (`recordingStem`); null if it doesn't replace one.
     fn lineOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
-        const line = withoutSuffix(name, cbox.extension) orelse return null;
+        const line = withoutSuffix(name, cbox.extension) orelse recordingStem(name) orelse return null;
         return if (gathered.kindOf(line) == .file) line else null;
+    }
+
+    /// A game file that a recording replaces: its name without the extension, and its extension.
+    const Replaced = struct { stem: []const u8, extension: []const u8 };
+
+    /// The game file of another format that the mod's recording `name` replaces: a piece of music
+    /// or one of Enriquez's scenes (`recordings.replaced_extensions`); null if it doesn't replace
+    /// one.
+    fn recordingOf(gathered: GameFiles, name: []const u8) ?Replaced {
+        const stem = recordingStem(name) orelse return null;
+        for (recordings.replaced_extensions) |extension| {
+            var buffer: [files.max_path]u8 = undefined;
+            const replaced = std.mem.print(&buffer, "{s}{s}", .{ stem, extension }) catch continue;
+            if (gathered.kindOf(replaced) == .file) return .{ .stem = stem, .extension = extension };
+        }
+        return null;
+    }
+
+    /// The file `name` without the extension of a mod's recording (`recordings.Kind`); null if it
+    /// has another.
+    fn recordingStem(name: []const u8) ?[]const u8 {
+        for (std.enums.values(recordings.Kind)) |kind| {
+            if (withoutSuffix(name, kind.extension())) |stem| return stem;
+        }
+        return null;
     }
 
     /// The file `name` without the picture extension; null if it has a different extension.
@@ -1449,7 +1481,7 @@ test effectOf {
     // Two mods: `a`, and `b`, which loads after it.
     try tmp.dir.createDirPath(io, "mods/a");
     try tmp.dir.createDirPath(io, "mods/b");
-    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga", "mods/b/OPTFNT.ttf", "mods/b/abrt_001.ut", "mods/b/abrt_009.ut" }) |path| {
+    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga", "mods/b/OPTFNT.ttf", "mods/b/abrt_001.ut", "mods/b/abrt_009.ut", "mods/b/abrt_001.flac", "mods/b/theme.flac", "mods/b/theme.wav", "mods/b/0015.mp3", "mods/b/new.flac" }) |path| {
         try tmp.dir.writeFile(io, .{ .sub_path = path, .data = path });
     }
     var mods: Mods = try .open(gpa, io, tmp.dir, null);
@@ -1462,6 +1494,8 @@ test effectOf {
     try own.add(gpa, "back.tga", .file);
     try own.add(gpa, "optfnt.fnt", .file);
     try own.add(gpa, "ABRT_001", .file);
+    try own.add(gpa, "theme.wav", .file);
+    try own.add(gpa, "0015.box", .file);
 
     // An earlier mod's file, a game file, a texture and one of its maps, a sprite set shape, a
     // picture, an outline font, a line with the extension, and new files.
@@ -1476,6 +1510,15 @@ test effectOf {
     try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "abrt_009.ut"));
     try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "optfnt.woff"));
     try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "logo.tga"));
+    // Recordings: of a line, of a piece of music in another format and in its own, of one of
+    // Enriquez's scenes, and a new one.
+    try std.testing.expectEqualStrings("abrt_001", effectOf(mods.list, 1, own, "abrt_001.flac").line);
+    const music = effectOf(mods.list, 1, own, "theme.flac").recording;
+    try std.testing.expectEqualStrings("theme", music.stem);
+    try std.testing.expectEqualStrings(".wav", music.extension);
+    try std.testing.expectEqual(.file, effectOf(mods.list, 1, own, "theme.wav"));
+    try std.testing.expectEqualStrings(".box", effectOf(mods.list, 1, own, "0015.mp3").recording.extension);
+    try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "new.flac"));
     // The first mod has no earlier mod's files to replace.
     try std.testing.expectEqual(.added, effectOf(mods.list, 0, own, "hull.tga"));
 }

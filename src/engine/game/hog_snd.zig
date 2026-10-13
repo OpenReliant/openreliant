@@ -299,30 +299,32 @@ pub const Music = struct {
     /// (`0x00563F58`, `0x00563A18`).
     fading: bool = false,
     fade_step: i32 = 0,
-    /// A piece to play once this one has faded (`0x0056533A` on): its path, loop count and level.
-    queued: ?Queued = null,
+    /// A piece to play once this one has faded (`0x0056533A` on).
+    queued: ?Piece = null,
     /// Added by OpenReliant: a mod's piece in FLAC or MP3 on its way, which decodes a few seconds
     /// of music each pass (`Sound.decodeMusic`) and plays once it's decoded. The music counts as
     /// playing meanwhile.
     decoding: ?Decoding = null,
 
-    pub const Queued = struct {
+    /// A piece of music to play: its path, loop count and level.
+    pub const Piece = struct {
         path: [128]u8 = @splat(0),
         path_len: usize = 0,
         loops: u32,
         level: i32,
 
-        /// The piece at `path`, as much of it as the path's room holds, to play `loops` times at
-        /// `level`.
-        pub fn of(path: []const u8, loops: u32, level: i32) Queued {
-            var queued: Queued = .{ .loops = loops, .level = level };
-            queued.path_len = @min(path.len, queued.path.len);
-            @memcpy(queued.path[0..queued.path_len], path[0..queued.path_len]);
-            return queued;
+        /// The piece at `path`, to play `loops` times at `level`. A path longer than `path` holds
+        /// is cut short.
+        pub fn of(path: []const u8, loops: u32, level: i32) Piece {
+            var piece: Piece = .{ .loops = loops, .level = level };
+            piece.path_len = @min(path.len, piece.path.len);
+            @memcpy(piece.path[0..piece.path_len], path[0..piece.path_len]);
+            return piece;
         }
 
-        pub fn pathOf(queued: *const Queued) []const u8 {
-            return queued.path[0..queued.path_len];
+        /// The piece's path.
+        pub fn pathOf(piece: *const Piece) []const u8 {
+            return piece.path[0..piece.path_len];
         }
     };
 
@@ -330,7 +332,7 @@ pub const Music = struct {
     /// the music was paused meanwhile.
     pub const Decoding = struct {
         recording: recordings.Decoding,
-        piece: Queued,
+        piece: Piece,
         paused: bool = false,
     };
 };
@@ -719,9 +721,9 @@ pub const Sound = struct {
     /// the clocks (`tickTimer`), then the sound's fades (`timerTick`). The original runs
     /// `tick_timer` (`0x004827C0`) 100 times a second on its own multimedia timer (`timer_start`,
     /// `0x004A70F0`, started by `sound_init`), so its fades continue while a movie plays.
-    /// OpenReliant calls this once a frame from the loops of the rooms and the movies, and then
-    /// decodes more of a mod's FLAC piece on its way (`decodeMusic`), as `updateMusic` does in the
-    /// front end's and the missions'.
+    /// OpenReliant calls this once a frame from the rooms' loop, the movies' loop and the wait
+    /// before the launch. It then decodes more of a mod's piece on its way (`decodeMusic`), which
+    /// `updateMusic` does in the front end and in missions.
     pub fn runTimer(sound: *Sound, clock: *Clock, now: u64) void {
         clock.advanceTo(now);
         sound.timerTick(clock.game_ticks);
@@ -984,21 +986,21 @@ pub const Sound = struct {
         sound.music.fading = false;
         sound.music.queued = null;
         const files = sound.files orelse return;
-        sound.music.level = level;
         const read = readMusic(files, path) catch |err| {
             log.warn("the music {s} is left out: {s}", .{ path, @errorName(err) });
             return;
         };
         switch (read) {
-            .whole => |whole| sound.startMusic(driver, files, path, whole.bytes, whole.from_mod, loops),
+            .whole => |whole| sound.startMusic(driver, files, .of(path, loops, level), whole.bytes, whole.from_mod),
             .decoding => |recording| sound.music.decoding = .{ .recording = recording, .piece = .of(path, loops, level) },
         }
     }
 
-    /// The rest of `music_play`: the piece at `path`, its file `bytes`, read from a mod where
-    /// `from_mod` says, opened as the music's stream and started, `loops` times, at the music's
-    /// level.
-    fn startMusic(sound: *Sound, driver: mss.Driver, files: Files, path: []const u8, bytes: []u8, from_mod: bool, loops: u32) void {
+    /// The rest of `music_play`: opens `bytes`, the file of `piece`, as the music's stream, and
+    /// starts it. `from_mod` says whether the file is a mod's, whose loop point is carried over
+    /// from the game's piece (`modLoopStart`).
+    fn startMusic(sound: *Sound, driver: mss.Driver, files: Files, piece: Music.Piece, bytes: []u8, from_mod: bool) void {
+        const path = piece.pathOf();
         sound.music.file = bytes;
         const stream = driver.openStream(sound.music.file) orelse {
             log.warn("the music {s} cannot be played", .{path});
@@ -1007,12 +1009,13 @@ pub const Sound = struct {
             return;
         };
         sound.music.stream = stream;
-        driver.setStreamLoopCount(stream, loops);
+        driver.setStreamLoopCount(stream, piece.loops);
         driver.setStreamPosition(stream, 0);
         const loop_start = if (from_mod) modLoopStart(files, path, bytes, musicLoopStart(path)) else musicLoopStart(path);
         driver.setStreamLoopBlock(stream, loop_start, -1);
         // The game sets the position to the loop's start, negated, which Miles takes as nothing.
         driver.setStreamPosition(stream, -loop_start);
+        sound.music.level = piece.level;
         sound.applyVolumes();
         driver.startStream(stream);
     }
@@ -1037,7 +1040,7 @@ pub const Sound = struct {
             log.warn("the music {s} is left out: {t}", .{ decoded.piece.pathOf(), err });
             return;
         };
-        sound.startMusic(driver, files, decoded.piece.pathOf(), bytes, true, decoded.piece.loops);
+        sound.startMusic(driver, files, decoded.piece, bytes, true);
         if (decoded.paused) sound.pauseMusic(true);
     }
 
@@ -1059,7 +1062,7 @@ pub const Sound = struct {
     }
 
     /// `music_update` (`0x00482C30`), once a frame: the queued piece starts once the music has
-    /// stopped. OpenReliant first decodes more of a mod's FLAC piece on its way (`decodeMusic`).
+    /// stopped. OpenReliant first decodes more of a mod's piece on its way (`decodeMusic`).
     pub fn updateMusic(sound: *Sound) void {
         sound.decodeMusic();
         const queued = sound.music.queued orelse return;
@@ -1094,7 +1097,7 @@ pub const Sound = struct {
         if (sound.music.decoding) |*on_way| on_way.paused = paused;
     }
 
-    /// `music_close` (`0x00482CF0`), and a mod's piece on its way with it.
+    /// `music_close` (`0x00482CF0`). It also drops a mod's piece on its way.
     pub fn closeMusic(sound: *Sound) void {
         sound.cancelDecoding();
         if (sound.music.stream) |stream| if (sound.driver) |driver| driver.closeStream(stream);
@@ -1135,12 +1138,13 @@ const MusicRead = union(enum) {
 ///
 /// **Improvement:** the original plays only its own WAVE files.
 fn readMusic(files: Files, path: []const u8) !MusicRead {
-    const name = paths.leaf(path);
-    const stem = name[0 .. std.mem.findScalarLast(u8, name, '.') orelse name.len];
-    if (recordings.find(files.gpa, files.mods, stem)) |found| if (recordings.open(files.gpa, files.codec, found, stem)) |opened| return switch (opened) {
-        .wave => |bytes| .{ .whole = .{ .bytes = bytes, .from_mod = true } },
-        .decoding => |recording| .{ .decoding = recording },
-    };
+    const name = Io.Dir.path.stem(paths.leaf(path));
+    if (recordings.find(files.gpa, files.mods, name)) |found| {
+        if (recordings.open(files.gpa, files.codec, found, name)) |opened| return switch (opened) {
+            .wave => |bytes| .{ .whole = .{ .bytes = bytes, .from_mod = true } },
+            .decoding => |recording| .{ .decoding = recording },
+        };
+    }
     const bytes = try paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse return error.FileNotFound;
     return .{ .whole = .{ .bytes = bytes, .from_mod = false } };
 }
@@ -1561,12 +1565,12 @@ test "a mod's piece in FLAC or MP3 decodes over the passes, then plays in place 
     defer sound.closeMusic();
     var clock: Clock = .{};
 
-    // The game's piece by its name, the mod's FLAC file in its place: on its way, it counts as
-    // playing, and a pause holds for it.
+    // Asked for the game's piece, the mod's FLAC file plays in its place. While it decodes, it
+    // counts as playing, and a pause applies to it.
     sound.playMusic("music\\one.wav", forever, loudest, .now);
     try std.testing.expect(sound.music.decoding != null and sound.music.stream == null and sound.musicPlaying());
     sound.pauseMusic(true);
-    // Decoded on the front end's or a mission's next frame, it plays paused, at the FLAC file's
+    // Decoded on the next frame of the front end or a mission, it plays paused, at the FLAC file's
     // rate.
     sound.updateMusic();
     try std.testing.expect(sound.music.decoding == null and sound.music.stream != null and !sound.musicPlaying());
@@ -1577,7 +1581,7 @@ test "a mod's piece in FLAC or MP3 decodes over the passes, then plays in place 
     sound.playMusic("music\\one.wav", forever, loudest, .now);
     sound.fadeMusic(10, 0);
     try std.testing.expect(sound.music.decoding == null and !sound.musicPlaying());
-    // The timer of the rooms and the movies decodes it too.
+    // The timer that the rooms and the movies run decodes it too.
     sound.playMusic("music\\one.wav", forever, loudest, .now);
     sound.runTimer(&clock, 1);
     try std.testing.expect(sound.music.decoding == null and sound.music.stream != null and sound.musicPlaying());

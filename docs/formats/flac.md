@@ -26,9 +26,9 @@ The first block is always the STREAMINFO, 34 bytes long:
 ([Platform](../port/platform.md#movies)) then decodes the file into a WAVE file of 16-bit PCM at the
 file's rate and channels, which a voice or the music plays (`bink.AudioDecoding`). The whole file
 goes to the decoder as one packet: the decoder reads the marker and the metadata, then decodes one
-frame at a time. Samples of more than 16 bits are rounded to 16. A line of speech decodes all at
-once, and a piece of music a few seconds of music each frame of the game, starting once it's decoded
-([The driver](../port/sound.md#the-driver)).
+frame at a time. Samples of more than 16 bits keep their top 16 bits, as FFmpeg's own conversion
+does. A line of speech decodes all at once, and a piece of music a few seconds of music each frame
+of the game, starting once it's decoded ([The driver](../port/sound.md#the-driver)).
 
 For a mod's recording, OpenReliant looks for a WAVE file first, then a FLAC file, then an MP3 file
 (`recordings.find`).

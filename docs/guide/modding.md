@@ -379,11 +379,11 @@ the game's `music\New_Pensive.wav`. If a mod has more than one, the WAV file com
 FLAC file, then the MP3 file. FLAC keeps the music exactly as recorded in about two thirds of the
 space of 16-bit WAV; MP3 takes less space still, but loses some of the sound. A FLAC or MP3 piece
 decodes over the next few frames, so that the game doesn't stall, and starts once it's decoded, a
-fraction of a second later. Where the game's piece loops back to a point partway through, so does
-the mod's, at the same moment of the music whatever its format: make it the same length as the
-game's, or at least as long as its loop point, to keep the loop where the game has it. If the
-game's piece can't be read, the mod's loops back to the game file's byte offset, which may be the
-wrong moment, and the log says so.
+fraction of a second later. If the game's piece loops back to a point partway through, the mod's
+piece loops back to the same moment in the music, whatever its format. Make it the same length as
+the game's piece, or at least as long as its loop point, to keep the loop where the game has it. If
+the game's piece can't be read, the mod's piece loops back to the game file's byte offset instead,
+which may be the wrong moment, and the log says so.
 [`examples/mods/music`](../../examples/mods/music) replaces the main menu's music with a track made
 for it, whose body starts where the game's piece loops back. The CD player in the rooms plays only
 the pieces on its lists, which a load script can change ([The CD player's
@@ -1300,8 +1300,10 @@ OpenReliant writes its log to the terminal it runs in, and to `openreliant.log` 
 when you report one. As it
 starts, it lists each mod it loads, in order, by its manifest's name if it has one, and then what
 each of the mod's files does: which game file, texture, shape, picture, font or line it replaces,
-which earlier mod's file it replaces, or which file it adds. A mod that the mods screen has turned
-off is listed as off, and none of it is used. When a font is loaded, the log says which outline
+which earlier mod's file it replaces, or which file it adds. A recording in another format than the
+game file it replaces, such as `New_Pensive.flac`, is listed as replacing that file,
+`New_Pensive.wav`. A mod that the mods screen has turned off is listed as off, and none of it is
+used. When a font is loaded, the log says which outline
 font draws it.
 
 ```text
@@ -1324,7 +1326,7 @@ A script's messages and errors follow its mod's name, as above;
 
 | In the log | What to check |
 |---|---|
-| A file `adds` where it should replace one of the game's | Its name: the game file's name, without folders, in any case. Textures, pictures, shapes, lines and faces are named as their sections say. If the log also says `can't list the game's ...`, the name may be right |
+| A file `adds` where it should replace one of the game's | Its name: the game file's name, without folders, in any case. Textures, pictures, shapes, lines, music and faces are named as their sections say. If the log also says `can't list the game's ...`, the name may be right |
 | `can't list the game's archive <name>, so the log may say a mod adds a file it replaces` | The game's archive is damaged. The mod still works if its files are named right |
 | `skipping <name>: <error>` | A link in `mods` or in a mod whose target is missing, or an entry that can't be read: fix or remove it |
 | `skipping <name>: a mod must be a .hog archive or a folder` | Only folders and `.hog` archives go directly in `mods` |

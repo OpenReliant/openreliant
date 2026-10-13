@@ -350,9 +350,9 @@ the cockpit's cabin unless `--original`.
 
 **Improvement:** a mod's recording of a line, a WAV, FLAC or MP3 file named after it, plays in its
 place as recorded, at its own rate and in its own channels, in the same room and matched to the
-same loudness ([Lines](../guide/modding.md#lines)). The radio reads it before the line in the
-game's codec (`recordings.read`), and decodes a FLAC or an MP3 file with FFmpeg's decoders, as the
-crew's lines are.
+same loudness ([Lines](../guide/modding.md#lines)). The radio looks for a recording before a line
+in the game's codec (`recordings.read`), and FFmpeg's decoders decode a FLAC or MP3 file, as they
+do the crew's lines.
 
 Without a speech sample, as with `--no-sound`, a line still lasts as long as it would play, so its
 face shows and a mission's script that waits for it waits as long ([Speech](sound.md#speech)).

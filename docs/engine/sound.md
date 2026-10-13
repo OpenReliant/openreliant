@@ -57,8 +57,9 @@ start them again.
 
 The timer is a multimedia timer of its own (`timer_start`, `0x004A70F0`), so the fades continue
 while a movie plays: the menu music, which starts fading out when a campaign starts, is gone half a
-second into the new pilot's intro. OpenReliant runs the timer once a frame from each of its loops,
-including the movie loop (`hog_snd.Sound.runTimer`).
+second into the new pilot's intro. OpenReliant runs the timer once a frame from the rooms' loop,
+the movies' loop and the wait before a launch (`hog_snd.Sound.runTimer`), and a mission runs it with
+its own clock (`hog_snd.tickTimer`, `hog_snd.Sound.timerTick`).
 
 ### Positional sounds of a frame
 

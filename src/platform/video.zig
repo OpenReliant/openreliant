@@ -192,9 +192,9 @@ fn receive(_: *anyopaque, handle: bink.Stream, gpa: Allocator, pcm: *std.ArrayLi
     return true;
 }
 
-/// A 32-bit sample as a 16-bit one, rounded to the nearest.
+/// A 32-bit sample as a 16-bit one: its top 16 bits, as FFmpeg's conversion takes them.
 fn top16(level: i32) i16 {
-    return @intCast(@min((@as(i64, level) + 0x8000) >> 16, std.math.maxInt(i16)));
+    return @intCast(level >> 16);
 }
 
 /// A float sample from -1 to 1 as a 16-bit one, rounded to the nearest and a half to the even one,
@@ -286,8 +286,9 @@ test "a FLAC file decodes to a WAVE file of its samples" {
 }
 
 test top16 {
-    try std.testing.expectEqual(0, top16(0));
-    try std.testing.expectEqual(1, top16(0x8000));
+    try std.testing.expectEqual(0, top16(0xFFFF));
+    try std.testing.expectEqual(1, top16(0x10000));
+    try std.testing.expectEqual(-1, top16(-1));
     try std.testing.expectEqual(std.math.maxInt(i16), top16(std.math.maxInt(i32)));
     try std.testing.expectEqual(std.math.minInt(i16), top16(std.math.minInt(i32)));
 }

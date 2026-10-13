@@ -1,78 +1,119 @@
-//! FLAC files, which a mod's music and recordings can be
-//! ([#1173](https://github.com/OpenReliant/openreliant/issues/1173)): the marker `fLaC`, then the
-//! metadata blocks, the first of them the stream's STREAMINFO, then the audio's frames (RFC 9639).
-//! OpenReliant reads the STREAMINFO here, and hands the whole file to FFmpeg's FLAC decoder, which
-//! reads the rest.
+//! FLAC files, which mods can use for music and recordings
+//! ([#1173](https://github.com/OpenReliant/openreliant/issues/1173)). A file holds the marker
+//! `fLaC`, then the metadata blocks, starting with the stream's STREAMINFO, then the audio frames
+//! (RFC 9639). OpenReliant reads the STREAMINFO here and hands the whole file to FFmpeg's FLAC
+//! decoder, which reads the rest.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+pub const extension = ".flac";
+
 /// The four bytes a FLAC file starts with.
 pub const marker = "fLaC";
 
-/// What a stream's STREAMINFO block says of it.
+/// The header of a metadata block, read as a big-endian word.
+pub const BlockHeader = packed struct(u32) {
+    /// The length of the block after its header, in bytes.
+    length: u24,
+    type: BlockType,
+    /// Set on the last metadata block, which the audio frames follow.
+    last: bool,
+
+    pub const size = @sizeOf(u32);
+
+    pub fn read(bytes: *const [size]u8) BlockHeader {
+        return @bitCast(std.mem.readInt(u32, bytes, .big));
+    }
+
+    pub fn write(header: BlockHeader) [size]u8 {
+        var bytes: [size]u8 = undefined;
+        std.mem.writeInt(u32, &bytes, @bitCast(header), .big);
+        return bytes;
+    }
+};
+
+/// The type of a metadata block. OpenReliant reads only the STREAMINFO.
+pub const BlockType = enum(u7) {
+    stream_info = 0,
+    _,
+};
+
+/// What a stream's STREAMINFO block says about it.
 pub const StreamInfo = struct {
-    /// Samples a second.
+    /// Samples per second.
     rate: u32,
     channels: u8,
-    /// Bits a sample, from 4 to 32.
+    /// Bits per sample, from 4 to 32.
     bits: u8,
-    /// Samples in each channel; 0 where the encoder didn't know.
+    /// Samples in each channel; 0 if the encoder didn't know.
     samples: u64,
 
     pub const Error = error{ NotFlac, NoStreamInfo };
 
-    /// The block's type, STREAMINFO, and its length.
-    const block_type = 0;
-    const block_length = 34;
+    /// The block's length, after its header.
+    pub const length = 34;
+    /// Where `Fields` starts in the block: after the smallest and largest block sizes, two bytes
+    /// each, and the smallest and largest frame sizes, three bytes each.
+    const fields_at = 10;
+
+    /// The block's word after the block and frame sizes, read as a big-endian word. Each count is
+    /// stored less one.
+    const Fields = packed struct(u64) {
+        samples: u36,
+        bits_less_one: u5,
+        channels_less_one: u3,
+        rate: u20,
+    };
 
     /// The STREAMINFO of the FLAC file `bytes`, the metadata block that comes first.
     pub fn read(bytes: []const u8) Error!StreamInfo {
         if (!std.mem.startsWith(u8, bytes, marker)) return error.NotFlac;
-        if (bytes.len < marker.len + 4 + block_length) return error.NoStreamInfo;
-        // A block's header: its type in the low seven bits of the first byte, then its length.
-        const header = bytes[marker.len..][0..4];
-        if (header[0] & 0x7F != block_type or std.mem.readInt(u24, header[1..4], .big) != block_length) return error.NoStreamInfo;
-        // After the block sizes and the frame sizes: 20 bits of rate, 3 of channels less one, 5 of
-        // bits less one and 36 of samples.
-        const fields = std.mem.readInt(u64, bytes[marker.len + 4 + 10 ..][0..8], .big);
+        if (bytes.len < marker.len + BlockHeader.size + length) return error.NoStreamInfo;
+        const header: BlockHeader = .read(bytes[marker.len..][0..BlockHeader.size]);
+        if (header.type != .stream_info or header.length != length) return error.NoStreamInfo;
+        const block = bytes[marker.len + BlockHeader.size ..][0..length];
+        const fields: Fields = @bitCast(std.mem.readInt(u64, block[fields_at..][0..@sizeOf(u64)], .big));
         return .{
-            .rate = @intCast(fields >> 44),
-            .channels = @intCast((fields >> 41 & 0x7) + 1),
-            .bits = @intCast((fields >> 36 & 0x1F) + 1),
-            .samples = fields & 0xF_FFFF_FFFF,
+            .rate = fields.rate,
+            .channels = @as(u8, fields.channels_less_one) + 1,
+            .bits = @as(u8, fields.bits_less_one) + 1,
+            .samples = fields.samples,
         };
     }
 };
 
 /// FLAC files for the tests, built by hand.
 pub const testing = struct {
-    /// A 16-bit FLAC file at `rate` of one frame, `count` samples long, in which each channel
-    /// holds its value of `levels` throughout: a constant subframe for each.
+    /// A FLAC file of 16-bit samples at `rate` with one frame of `count` samples in each channel,
+    /// where each channel holds its value of `levels` throughout: a constant subframe for each.
     pub fn constant(gpa: Allocator, rate: u20, levels: []const i16, count: u8) Allocator.Error![]u8 {
         var file: std.ArrayList(u8) = .empty;
         errdefer file.deinit(gpa);
         try file.appendSlice(gpa, marker);
-        // STREAMINFO, the last metadata block: block and frame sizes, then the fields `read` reads,
-        // then the MD5 of the audio, left out.
-        try file.appendSlice(gpa, &.{ 0x80, 0, 0, StreamInfo.block_length });
-        var block: [StreamInfo.block_length]u8 = @splat(0);
+        // The STREAMINFO, the only metadata block: the block and frame sizes, the fields `read`
+        // reads, and the audio's MD5 left as zeros.
+        try file.appendSlice(gpa, &BlockHeader.write(.{ .length = StreamInfo.length, .type = .stream_info, .last = true }));
+        var block: [StreamInfo.length]u8 = @splat(0);
         std.mem.writeInt(u16, block[0..2], count, .big);
         std.mem.writeInt(u16, block[2..4], count, .big);
-        const channels: u64 = levels.len - 1;
-        std.mem.writeInt(u64, block[10..18], @as(u64, rate) << 44 | channels << 41 | 15 << 36 | count, .big);
+        const channels_less_one: u3 = @intCast(levels.len - 1);
+        const fields: StreamInfo.Fields = .{ .samples = count, .bits_less_one = 16 - 1, .channels_less_one = channels_less_one, .rate = rate };
+        std.mem.writeInt(u64, block[StreamInfo.fields_at..][0..@sizeOf(u64)], @bitCast(fields), .big);
         try file.appendSlice(gpa, &block);
-        // The frame's header: the sync code, fixed blocks; the block size in 8 bits at the end
-        // (`0110`), the rate from the STREAMINFO; independent channels, the bits from the
-        // STREAMINFO; frame 0; the block size less one; its CRC-8.
+        // The frame's header: the sync code, for blocks of a fixed size; the block size given in
+        // 8 bits at the end of the header (`0110`), and the rate taken from the STREAMINFO; the
+        // channels coded apart, and the bits per sample taken from the STREAMINFO; frame number 0;
+        // the block size less one; and the header's CRC-8.
         const frame_at = file.items.len;
-        try file.appendSlice(gpa, &.{ 0xFF, 0xF8, 0x60, @intCast(channels << 4), 0, count - 1 });
+        try file.appendSlice(gpa, &.{ 0xFF, 0xF8, 0x60, @as(u8, channels_less_one) << 4, 0, count - 1 });
         try file.append(gpa, std.hash.crc.@"CRC-8/SMBUS".hash(file.items[frame_at..]));
-        // Each subframe: a constant (type 0, no wasted bits), its value in 16 bits.
+        // Each subframe: a constant (type 0, no wasted bits), then its value in 16 bits.
         for (levels) |level| {
             try file.append(gpa, 0);
             try file.appendSlice(gpa, &std.mem.toBytes(std.mem.nativeToBig(i16, level)));
         }
+        // The frame's CRC-16.
         const crc = std.hash.crc.@"CRC-16/UMTS".hash(file.items[frame_at..]);
         try file.appendSlice(gpa, &std.mem.toBytes(std.mem.nativeToBig(u16, crc)));
         return file.toOwnedSlice(gpa);
@@ -86,9 +127,16 @@ test StreamInfo {
     try std.testing.expectEqual(StreamInfo{ .rate = 44100, .channels = 2, .bits = 16, .samples = 192 }, try StreamInfo.read(file));
     try std.testing.expectError(error.NotFlac, StreamInfo.read("RIFF"));
     try std.testing.expectError(error.NoStreamInfo, StreamInfo.read(file[0..20]));
-    // A file whose first block isn't a STREAMINFO.
+    // A file whose first block is another type, such as a VORBIS_COMMENT (4).
     var wrong = try gpa.dupe(u8, file);
     defer gpa.free(wrong);
-    wrong[4] = 0x84;
+    wrong[marker.len..][0..BlockHeader.size].* = BlockHeader.write(.{ .length = StreamInfo.length, .type = @fromBackingInt(4), .last = true });
     try std.testing.expectError(error.NoStreamInfo, StreamInfo.read(wrong));
+}
+
+test BlockHeader {
+    // The last block, a STREAMINFO of 34 bytes.
+    const header: BlockHeader = .read(&.{ 0x80, 0, 0, 34 });
+    try std.testing.expectEqual(BlockHeader{ .length = 34, .type = .stream_info, .last = true }, header);
+    try std.testing.expectEqual([_]u8{ 0x80, 0, 0, 34 }, header.write());
 }

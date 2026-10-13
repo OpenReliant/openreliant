@@ -9,6 +9,8 @@
 
 const std = @import("std");
 
+pub const extension = ".mp3";
+
 /// The versions of MPEG audio, which set the sample rates and the frames' lengths.
 pub const Version = enum { mpeg1, mpeg2, mpeg2_5 };
 

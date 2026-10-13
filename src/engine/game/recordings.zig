@@ -11,6 +11,7 @@ const Allocator = std.mem.Allocator;
 
 const bigfile = @import("bigfile.zig");
 const bink = @import("../bink.zig");
+const flac = @import("../../formats/flac.zig");
 const mp3 = @import("../../formats/mp3.zig");
 const wave = @import("../../formats/wave.zig");
 
@@ -25,12 +26,24 @@ pub const Kind = enum {
     /// The file extension of the format.
     pub fn extension(kind: Kind) []const u8 {
         return switch (kind) {
-            .wave => ".wav",
-            .flac => ".flac",
-            .mp3 => ".mp3",
+            .wave => wave.extension,
+            .flac => flac.extension,
+            .mp3 => mp3.extension,
         };
     }
+
+    /// The length of the longest extension.
+    const longest = longest: {
+        var most: usize = 0;
+        for (std.enums.values(Kind)) |kind| most = @max(most, kind.extension().len);
+        break :longest most;
+    };
 };
+
+/// The extensions of the game's files that a mod's recording replaces, besides the lines of speech,
+/// which have none: the music's WAVE files (`hog_snd.Sound.playMusic`) and Enriquez's scenes
+/// (`interface.rooms.speak`).
+pub const replaced_extensions = [_][]const u8{ wave.extension, ".box" };
 
 /// A mod's recording, as the mod's file holds it.
 pub const Recording = struct {
@@ -42,8 +55,9 @@ pub const Recording = struct {
 /// `name.wav`, `name.flac` and `name.mp3` that a mod has. Returns null if no mod has any of them,
 /// and also, with a warning, if that file can't be read.
 pub fn find(gpa: Allocator, mods: *const bigfile.Mods, name: []const u8) ?Recording {
-    var buffer: [bigfile.member_name_room + ".flac".len]u8 = undefined;
+    var buffer: [bigfile.member_name_room + Kind.longest]u8 = undefined;
     for (std.enums.values(Kind)) |kind| {
+        // A name too long for a mod's file is in no mod.
         const named = std.mem.print(&buffer, "{s}{s}", .{ name, kind.extension() }) catch return null;
         const found = mods.readFile(gpa, named) catch |err| {
             log.warn("can't read the recording {s}: {t}", .{ named, err });
@@ -116,9 +130,9 @@ pub fn open(gpa: Allocator, codec: ?bink.Codec, recording: Recording, name: []co
     }
 }
 
-/// `recording` as a WAVE file in `gpa`, taking its bytes: a WAVE file as it is, and a FLAC or MP3
-/// file decoded all at once (`open`). Returns null, with a warning naming `name`, if the file
-/// doesn't decode or there's no codec.
+/// Turns `recording` into a WAVE file in `gpa`, taking its bytes: a WAVE file stays as it is, and a
+/// FLAC or MP3 file is decoded all at once (`open`). Returns null, with a warning naming `name`, if
+/// the file doesn't decode or there's no codec.
 pub fn decode(gpa: Allocator, codec: ?bink.Codec, recording: Recording, name: []const u8) ?[]u8 {
     var decoding = switch (open(gpa, codec, recording, name) orelse return null) {
         .wave => |bytes| return bytes,
@@ -163,12 +177,12 @@ test read {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const flac = try @import("../../formats/flac.zig").testing.constant(gpa, 22050, &.{7}, 16);
-    defer gpa.free(flac);
+    const lossless = try flac.testing.constant(gpa, 22050, &.{7}, 16);
+    defer gpa.free(lossless);
     try tmp.dir.createDirPath(io, "mods/a");
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/a/both.wav", .data = "a WAVE file" });
-    try tmp.dir.writeFile(io, .{ .sub_path = "mods/a/both.flac", .data = flac });
-    try tmp.dir.writeFile(io, .{ .sub_path = "mods/a/lossless.flac", .data = flac });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/a/both.flac", .data = lossless });
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/a/lossless.flac", .data = lossless });
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/a/lossless.mp3", .data = "an MP3 file" });
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/a/broken.flac", .data = "not a FLAC file" });
     const speech_file = mp3.testing.silence(2);
