@@ -79,6 +79,19 @@ pub const Window = struct {
         return .{ .handle = handle, .gpu = gpu, .pointer_moved_at = nanoseconds() };
     }
 
+    /// Shows `pictures`, PNG files of one picture, as the window's icon, and on macOS as the
+    /// application's in the Dock: the first at the size for a display at 100%, the others larger,
+    /// for denser displays. On Windows, SDL gives the window the executable's own icon in all its
+    /// sizes, which this would replace with a single one, so the window keeps that. A system that
+    /// can't take a window's icon, such as a Wayland compositor without the protocol for it, shows
+    /// its own.
+    pub fn setIcon(window: Window, pictures: []const []const u8) void {
+        if (builtin.target.os.tag == .windows) return;
+        const icon = iconOf(pictures) catch return;
+        defer c.SDL_DestroySurface(icon);
+        _ = c.SDL_SetWindowIcon(window.handle, icon);
+    }
+
     pub fn close(window: *Window) void {
         c.SDL_ReleaseWindowFromGPUDevice(window.gpu, window.handle);
         c.SDL_DestroyGPUDevice(window.gpu);
@@ -282,6 +295,47 @@ test pointerShows {
     // Never where the game draws its own, nor in full screen.
     try std.testing.expect(!pointerShows(true, false, 0));
     try std.testing.expect(!pointerShows(false, true, 0));
+}
+
+/// The PNG files `pictures` as one icon, which SDL decodes: the first, with the others as its larger
+/// versions (`Window.setIcon`).
+fn iconOf(pictures: []const []const u8) Error!*c.SDL_Surface {
+    const icon = try pngSurface(pictures[0]);
+    errdefer c.SDL_DestroySurface(icon);
+    for (pictures[1..]) |picture| {
+        const larger = try pngSurface(picture);
+        defer c.SDL_DestroySurface(larger);
+        if (!c.SDL_AddSurfaceAlternateImage(icon, larger)) return fail("SDL_AddSurfaceAlternateImage");
+    }
+    return icon;
+}
+
+/// The PNG file `bytes` as a surface.
+fn pngSurface(bytes: []const u8) Error!*c.SDL_Surface {
+    const stream = c.SDL_IOFromConstMem(bytes.ptr, bytes.len) orelse return fail("SDL_IOFromConstMem");
+    return c.SDL_LoadPNG_IO(stream, true) orelse fail("SDL_LoadPNG_IO");
+}
+
+test iconOf {
+    const gpa = std.testing.allocator;
+    const png = @import("openreliant").png;
+    const orange = [4]u8{ 240, 138, 44, 255 };
+    var small: std.Io.Writer.Allocating = .init(gpa);
+    defer small.deinit();
+    try png.writeRgba(gpa, &small.writer, 1, 1, &orange);
+    var large: std.Io.Writer.Allocating = .init(gpa);
+    defer large.deinit();
+    const pixels: [4][4]u8 = @splat(orange);
+    try png.writeRgba(gpa, &large.writer, 2, 2, std.mem.asBytes(&pixels));
+    // The first picture is the icon, and the larger one comes with it.
+    const icon = try iconOf(&.{ small.written(), large.written() });
+    defer c.SDL_DestroySurface(icon);
+    try std.testing.expectEqual(1, icon.w);
+    var count: c_int = 0;
+    const images = c.SDL_GetSurfaceImages(icon, &count) orelse return error.TestUnexpectedResult;
+    defer c.SDL_free(@ptrCast(images));
+    try std.testing.expectEqual(2, count);
+    try std.testing.expectEqual(2, images[1].*.w);
 }
 
 /// Nanoseconds since SDL started, which the game's ticks are counted from (`ticks`).

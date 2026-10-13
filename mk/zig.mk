@@ -54,6 +54,13 @@ $(SHADER_DIR)/%.msl: $(SHADER_DIR)/%.spv | $(SPIRV_CROSS)
 $(SHADER_DIR)/%.sha256: $(SHADER_DIR)/%.glsl $(SHADER_COMMON)
 	cat $< $(SHADER_COMMON) | shasum -a 256 | cut -c1-64 > $@
 
+# OpenReliant's icon (assets/icon): its PNGs, the Windows .ico and the macOS .icns, which
+# scripts/icon.sh makes from its SVG. They are committed, so building needs none of the tools that
+# make them: rsvg-convert (librsvg), icotool (icoutils) and macOS's iconutil.
+.PHONY: icon
+icon: ## Make the icon's PNG, ICO and ICNS files from its SVG (needs librsvg, icoutils and macOS)
+	$(ROOT)/scripts/icon.sh
+
 .PHONY: test
 test: ## Run the unit tests
 	$(ZIG) build test --summary all
