@@ -38,11 +38,17 @@ pub fn nextShipType(from: usize, step: isize) usize {
     return from;
 }
 
-/// A wing of Sabres in front of the player, as mission 0's own: `mission0.wing_size` of them,
-/// `mission0.wing_ahead` ahead of the player's ship and `mission0.wing_spacing` apart, facing it,
-/// flown by `mission0.wing_pilot` and each under a Fight order against the player. They take the
-/// next slots, as the objects the game makes past the mission's ships do; those past the last slot
-/// are left out.
+/// The wing F4 brings, laid out as mission 0's own Sabres: `wing_size` of them, `wing_ahead` ahead
+/// of the player's ship and `wing_spacing` apart, flown by `wing_pilot`, one of the weakest pilots
+/// of `pilotstats.bin`.
+const wing_size = 4;
+const wing_ahead: f32 = 150000;
+const wing_spacing: f32 = 3000;
+const wing_pilot: game.pilots.GamePilot = .jackel;
+
+/// A wing of Sabres in front of the player (`wing_size`), facing it, each under a Fight order
+/// against the player. They take the next slots, as the objects the game makes past the mission's
+/// ships do; those past the last slot are left out.
 pub fn bringWing(orders: game.aigeneric.Context) void {
     const world = orders.world;
     const all = world.objects;
@@ -50,16 +56,16 @@ pub fn bringWing(orders: game.aigeneric.Context) void {
     const ship = &all.slots[all.player].object;
     const from = ship.nextPosition();
     const facing = math.product(ship.root.next_orientation, math.rotation(.y, std.math.pi));
-    for (0..mission0.wing_size) |place| {
-        const across = (@as(f32, @floatFromInt(place)) - @as(f32, mission0.wing_size - 1) / 2) * mission0.wing_spacing;
-        const at = from + math.transform(ship.root.next_orientation, .{ across, 0, mission0.wing_ahead });
+    for (0..wing_size) |place| {
+        const across = (@as(f32, @floatFromInt(place)) - @as(f32, wing_size - 1) / 2) * wing_spacing;
+        const at = from + math.transform(ship.root.next_orientation, .{ across, 0, wing_ahead });
         const index = game.create.createObject(all, spawn.tables, spawn.types, null, .of(.sabre), 0, at, world.random) catch |err| {
             log.warn("the wing is left out: {s}", .{@errorName(err)});
             return;
         };
         const slot = &all.slots[index];
         game.objects.setOrientation(&slot.object, &slot.drawn, facing);
-        game.pilots.setPilot(&slot.object, mission0.wing_pilot);
+        game.pilots.setPilot(&slot.object, wing_pilot.number());
         _ = game.aigeneric.giveShip(orders, index, .fight, all.player, null);
     }
 }
@@ -82,10 +88,10 @@ test bringWing {
     bringWing(orders);
     // Four Sabres ahead, facing the player, fighting it.
     const all = world.objects;
-    try std.testing.expectEqual(1 + mission0.wing_size, all.count);
+    try std.testing.expectEqual(1 + wing_size, all.count);
     for (all.slots[1..all.count]) |slot| {
         try std.testing.expectEqual(game.gameobj.Type.of(.sabre), slot.object.type);
-        try std.testing.expectEqual(mission0.wing_pilot, slot.object.pilot);
+        try std.testing.expectEqual(wing_pilot.number(), slot.object.pilot);
         try std.testing.expectEqual(player, slot.orders[0].target.ship());
         try std.testing.expectApproxEqAbs(-1, math.forward(slot.object.root.orientation)[2], 1e-6);
     }

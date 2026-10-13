@@ -657,8 +657,9 @@ alone.
 
 A mission of OpenReliant's making holds what the template's missions hold: its section 24 is theirs
 (`write.template.command_flags`), and its records carry the values most of theirs carry where their
-fields are not known (`Ship.blank` and the other records'). Mission 0, the sandbox, is written so by the build
-([`mission0.zig`](../../src/openreliant/mission0.zig)).
+fields are not known (`Ship.blank` and the other records'). The mission source compiler writes
+missions so ([Mission source](mission-source.md)), and the build compiles Mission 0, the sandbox,
+with it from [`mission0.mission.luau`](../../src/openreliant/mission0.mission.luau).
 
 ### Writing the script
 
