@@ -1499,8 +1499,8 @@ records.cd_player[24] = { piece = "New_Pensive", name = "OpenReliant Theme" }
 ```
 
 - The player always has its 24 rows: a script changes tracks but can't add or remove them.
-- A piece is found by its file's name, as the game's music is: a mod's file of the name plays in
-  place of the game's, and a mod can add a piece under a name of its own.
+- A piece is found by the name of its file, like the game's music: a file with the same name in a
+  mod plays in place of the game's, and a mod can also add a piece with a new name.
 - Names are read from the game's text and can be changed to any text, in the game's code page.
 
 ## Saved games

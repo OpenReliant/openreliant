@@ -257,11 +257,16 @@ pub fn keptItems(comptime Kept: type, state: *State, held: *Records, given: anyt
     return items;
 }
 
+/// Pushes `words` as a UTF-8 string, with a string number read from the text table `set`.
+pub fn pushWords(state: *State, held: *const Records, words: language.Words, comptime set: records.Set) void {
+    records.pushText(state, words.in(held.language(set)));
+}
+
 /// Pushes `value`, which the records keep as a `T`, as scripts read it: text as UTF-8 strings, with
 /// a string number read from the ITAC's text, and a slice as a list.
 pub fn pushValue(state: *State, held: *const Records, comptime T: type, value: T) void {
     switch (T) {
-        language.Words => records.pushText(state, value.in(held.language(.itac_text))),
+        language.Words => pushWords(state, held, value, .itac_text),
         ?language.Words => if (value) |words| pushValue(state, held, language.Words, words) else state.pushNil(),
         []const u8, ?[]const u8 => values.push(state, T, value),
         else => switch (@typeInfo(T)) {

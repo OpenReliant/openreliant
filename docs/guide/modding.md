@@ -378,9 +378,9 @@ format: make it the same length as the game's, or at least as long as its loop p
 loop where the game has it. If the game's piece can't be read, the mod's loops back to the game
 file's byte offset, which may be the wrong moment, and the log says so.
 [`examples/mods/music`](../../examples/mods/music) replaces the main menu's music with a track made
-for it, whose body starts where the game's piece loops back. The CD player in the rooms plays the
-pieces of its own lists, which a load script changes ([The CD player's
-tracks](scripting.md#the-cd-players-tracks)): the example gives its track a row there too.
+for it, whose body starts where the game's piece loops back. The CD player in the rooms plays only
+the pieces on its lists, which a load script can change ([The CD player's
+tracks](scripting.md#the-cd-players-tracks)), so the example gives its track a row there too.
 
 ## Textures
 

@@ -149,7 +149,7 @@ Each of the CD player's tracks, `cd_player[n]`, is a `CdPlayerTrack` with these 
 
 | Field | Type | What it is |
 |---|---|---|
-| `piece` | string | The music the track plays: the name of its file in the `music` folder, without the `.wav`, such as `New_Mission01`. A mod's own piece plays as the game's do. |
+| `piece` | string | The music the track plays: the name of its file in the `music` folder without the `.wav`, such as `New_Mission01`, at most 250 characters. A file of that name in a mod plays in place of the game's. |
 | `name` | string | The track's name in the list. |
 
 ### `openreliant.hooks`

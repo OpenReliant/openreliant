@@ -48,12 +48,11 @@ const title_font_name = itac.large_font_name;
 pub const Volume = u7;
 pub const full_volume: Volume = hog_snd.loudest;
 
-/// Where a piece's file is (`music\%s.wav`, `0x004E8B18`): in `music`, with `.wav` after its name.
-const music_folder = "music\\";
-const music_extension = ".wav";
+/// The path of a piece's file, with the piece's name in it (`0x004E8B18`).
+const music_path = "music\\{s}.wav";
 
-/// The longest name of a piece whose path the game's files can have.
-pub const longest_piece = files.max_path - music_folder.len - music_extension.len;
+/// The longest name a piece can have, for its path to fit in `files.max_path`.
+pub const longest_piece = files.max_path - (music_path.len - "{s}".len);
 
 /// A piece of the list: the music it plays, by the name of its file in `music` without the `.wav`,
 /// and the words that name it. Load scripts change them through the records
@@ -65,7 +64,7 @@ pub const Track = struct {
     /// The file it plays, written into `buffer`; null for a piece whose name is longer than
     /// `longest_piece`.
     pub fn path(listed: Track, buffer: *[files.max_path]u8) ?[]const u8 {
-        return std.fmt.bufPrint(buffer, music_folder ++ "{s}" ++ music_extension, .{listed.piece}) catch null;
+        return std.fmt.bufPrint(buffer, music_path, .{listed.piece}) catch null;
     }
 };
 

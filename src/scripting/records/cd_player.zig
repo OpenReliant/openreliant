@@ -8,6 +8,7 @@ const std = @import("std");
 
 const openreliant = @import("openreliant");
 const game = openreliant.engine.game;
+const language = game.language;
 const cd_player = game.interface.cd_player;
 const Carrier = game.interface.rooms.Carrier;
 const luau = @import("../luau.zig");
@@ -54,9 +55,14 @@ pub fn TypeOf(comptime field: Field) type {
 /// What the reference says of `field`.
 pub fn about(field: Field) []const u8 {
     return switch (field) {
-        .piece => "The music the track plays: the name of its file in the `music` folder, without the `.wav`, such as `New_Mission01`. A mod's own piece plays as the game's do.",
+        .piece => std.fmt.comptimePrint("The music the track plays: the name of its file in the `music` folder without the `.wav`, such as `New_Mission01`, at most {d} characters. A file of that name in a mod plays in place of the game's.", .{cd_player.longest_piece}),
         .name => "The track's name in the list.",
     };
+}
+
+// The Reliant's tracks come first, as the reference says.
+comptime {
+    std.debug.assert(std.mem.eql(Carrier, std.enums.values(Carrier), &.{ .reliant, .yamato }));
 }
 
 /// The track `item`: the Reliant's list, then the Yamato's.
@@ -70,20 +76,24 @@ pub fn getField(state: *State, item: table.Item, field: Field) void {
     const track = trackOf(item);
     switch (field) {
         .piece => values.push(state, []const u8, track.piece),
-        // The names are the game's text, not the ITAC's, which `table.pushValue` reads.
-        .name => records.pushText(state, track.name.in(item.records.language(.text))),
+        // The names are the game's text, where `table.pushValue` reads the ITAC's.
+        .name => table.pushWords(state, item.records, track.name, .text),
     }
 }
 
 /// Sets `field` of the track `item` from the value at `given`.
 pub fn setField(state: *State, item: table.Item, field: Field, given: i32) void {
+    const track = trackOf(item);
     switch (field) {
-        inline else => |name| {
-            const label = script_name ++ "." ++ @tagName(name);
-            const Kept = @FieldType(cd_player.Track, @tagName(name));
-            const read = values.read(state, TypeOf(name), given, label);
-            if (name == .piece and read.len > cd_player.longest_piece) state.raise(label ++ ": expected at most {d} characters, got {d}", .{ cd_player.longest_piece, read.len });
-            @field(trackOf(item), @tagName(name)) = table.kept(Kept, state, item.records, read, label);
+        .piece => {
+            const label = script_name ++ ".piece";
+            const piece = values.read(state, []const u8, given, label);
+            if (piece.len > cd_player.longest_piece) state.raise(label ++ ": expected at most {d} characters, got {d}", .{ cd_player.longest_piece, piece.len });
+            track.piece = table.kept([]const u8, state, item.records, piece, label);
+        },
+        .name => {
+            const label = script_name ++ ".name";
+            track.name = table.kept(language.Words, state, item.records, values.read(state, []const u8, given, label), label);
         },
     }
 }
