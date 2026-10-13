@@ -37,6 +37,20 @@ pub const Kind = enum {
             else => @tagName(kind),
         };
     }
+
+    /// The name of the type of the kind's values in the definitions of mission source
+    /// (`definitions.zig`).
+    pub fn typeName(kind: Kind) []const u8 {
+        return switch (kind) {
+            .ship_type => "ShipType",
+            .pilot => "Pilot",
+            .order => "Order",
+            .condition => "Condition",
+            .head => "HeadMovement",
+            .environment_effect => "EnvironmentEffect",
+            .part => "Part",
+        };
+    }
 };
 
 /// The game's table of the values of `kind`, an enum of their names; none for a part, which the
@@ -53,18 +67,26 @@ pub fn Names(comptime kind: Kind) ?type {
     };
 }
 
+/// Whether `tag` is a placeholder for a value not understood yet, such as `_unused_2`. Mission
+/// source writes such a value as a number, never by the placeholder's name.
+pub fn isPlaceholder(tag: []const u8) bool {
+    return tag.len > 0 and tag[0] == '_';
+}
+
 /// The name of value `number` of `kind`, where the game names it.
 pub fn name(kind: Kind, number: u32) ?[]const u8 {
     return switch (kind) {
         inline else => |known| if (comptime Names(known)) |Enum| {
             const Backing = @typeInfo(Enum).@"enum".tag_type;
-            return std.enums.tagName(Enum, @fromBackingInt(std.math.cast(Backing, number) orelse return null));
+            const found = std.enums.tagName(Enum, @fromBackingInt(std.math.cast(Backing, number) orelse return null)) orelse return null;
+            return if (isPlaceholder(found)) null else found;
         } else null,
     };
 }
 
 /// The value of `kind` that the game names `text`, the inverse of `name`.
 pub fn value(kind: Kind, text: []const u8) ?u32 {
+    if (isPlaceholder(text)) return null;
     return switch (kind) {
         inline else => |known| if (comptime Names(known)) |Enum| {
             return std.math.cast(u32, @backingInt(std.meta.stringToEnum(Enum, text) orelse return null));
@@ -73,15 +95,15 @@ pub fn value(kind: Kind, text: []const u8) ?u32 {
 }
 
 /// The name of one of the game's variables (`vm.GameVariable`), where it has one that isn't a
-/// placeholder such as `_unused_2`.
+/// placeholder (`isPlaceholder`).
 pub fn variable(number: u8) ?[]const u8 {
     const found = std.enums.tagName(vm.GameVariable, @fromBackingInt(number)) orelse return null;
-    return if (found[0] == '_') null else found;
+    return if (isPlaceholder(found)) null else found;
 }
 
 /// The number of the game's variable named `text`, the inverse of `variable`.
 pub fn variableNumber(text: []const u8) ?u8 {
-    if (text.len == 0 or text[0] == '_') return null;
+    if (isPlaceholder(text)) return null;
     return @backingInt(std.meta.stringToEnum(vm.GameVariable, text) orelse return null);
 }
 
@@ -131,6 +153,12 @@ test value {
     }) |pair| try std.testing.expectEqual(pair[1], value(pair[0], name(pair[0], pair[1]).?).?);
     try std.testing.expectEqual(null, value(.ship_type, "rubber_duck"));
     try std.testing.expectEqual(null, value(.part, "start"));
+}
+
+test isPlaceholder {
+    try std.testing.expect(isPlaceholder("_unused_2"));
+    try std.testing.expect(!isPlaceholder("grendel"));
+    try std.testing.expect(!isPlaceholder(""));
 }
 
 test variable {

@@ -38,7 +38,7 @@ pub fn write(arena: Allocator, w: *Writer) Error!void {
         if (comptime vocabulary.Names(kind)) |Enum| {
             const article = if (std.mem.findScalar(u8, "aeiou", kind.noun()[0]) != null) "An" else "A";
             try w.print("--- {s} {s}, by its name, or by its number where the game doesn't name it.\n", .{ article, kind.noun() });
-            try writeNames(w, comptime typeName(kind), @typeInfo(Enum).@"enum".field_names);
+            try writeNames(w, kind.typeName(), @typeInfo(Enum).@"enum".field_names);
         }
     }
     try w.writeAll("--- The wing a flight group's ships are listed in.\n");
@@ -88,30 +88,12 @@ pub fn write(arena: Allocator, w: *Writer) Error!void {
     for (commands.table) |command| try writeCommand(arena, w, command);
 }
 
-/// The name the definitions give the type of `kind`'s values: its noun in Pascal case, such as
-/// `ShipType` for a ship type.
-fn typeName(comptime kind: vocabulary.Kind) []const u8 {
-    comptime {
-        var text: []const u8 = "";
-        var upper = true;
-        for (kind.noun()) |char| {
-            if (char == ' ') {
-                upper = true;
-                continue;
-            }
-            text = text ++ .{if (upper) std.ascii.toUpper(char) else char};
-            upper = false;
-        }
-        return text;
-    }
-}
-
-/// Writes the type `name`: the names `tags` give, but placeholders such as `_unused_2`, or a number
-/// for a value without a name.
+/// Writes the type `name`: the names `tags` give, but placeholders (`vocabulary.isPlaceholder`),
+/// or a number for a value without a name.
 fn writeNames(w: *Writer, name: []const u8, tags: []const [:0]const u8) Writer.Error!void {
     try w.print("export type {s} = ", .{name});
     for (tags) |tag| {
-        if (tag[0] != '_') try w.print("\"{s}\" | ", .{tag});
+        if (!vocabulary.isPlaceholder(tag)) try w.print("\"{s}\" | ", .{tag});
     }
     try w.writeAll("number\n");
 }
@@ -160,12 +142,10 @@ fn writeEventFields(arena: Allocator, w: *Writer) Error!void {
     }
     for (found.keys(), found.values()) |name, checked| {
         const what = if (checked.number) "a number" else "a ship, a flight group, a squad or `any_ship`";
-        try w.print("    --- What the event's \"{s}\" must be for the trigger to fire: {s}. In triggers of ", .{ checked.label, what });
-        for (checked.conditions.items, 0..) |condition, index| {
-            const separator = if (index == 0) "" else if (index + 1 == checked.conditions.items.len) " and " else ", ";
-            try w.print("{s}`{s}`", .{ separator, condition });
-        }
-        try w.print(".\n    {s}: {s},\n", .{ name, if (checked.number) "number?" else "(Entity | number)?" });
+        try w.print("    --- What the event's \"{s}\" must be for the trigger to fire: {s}. In triggers of {f}.\n", .{
+            checked.label, what, names.Listed{ .items = checked.conditions.items },
+        });
+        try w.print("    {s}: {s},\n", .{ name, if (checked.number) "number?" else "(Entity | number)?" });
     }
 }
 
@@ -197,30 +177,29 @@ const ParameterType = struct {
 
     pub fn format(shown: ParameterType, w: *Writer) Writer.Error!void {
         const kinds = shown.param.kinds;
-        // The three kinds of record, a curve, a value and text.
-        var buffer: [6][]const u8 = undefined;
-        var list: std.ArrayList([]const u8) = .initBuffer(&buffer);
-        if (kinds.ship and kinds.flight_group and kinds.squad) {
-            list.appendAssumeCapacity("Entity");
-        } else inline for (.{ .{ "ship", "Ship" }, .{ "flight_group", "FlightGroup" }, .{ "squad", "Squad" } }) |pair| {
-            if (@field(kinds, pair[0])) list.appendAssumeCapacity(pair[1]);
-        }
-        if (kinds.curve) list.appendAssumeCapacity("Curve");
-        if (vocabulary.of(shown.param)) |kind| {
-            list.appendAssumeCapacity(switch (kind) {
-                .part => "Part",
-                inline else => |known| comptime typeName(known),
-            });
-        } else if (kinds.number or kinds.constant or kinds.percentage) {
-            list.appendAssumeCapacity("number");
-        }
-        if (kinds.file_name or kinds.text) list.appendAssumeCapacity("string");
-        if (list.items.len == 0) return w.writeAll("any");
-        const several = list.items.len > 1 and shown.param.extra.nullable;
-        if (several) try w.writeByte('(');
-        for (list.items, 0..) |name, index| try w.print("{s}{s}", .{ if (index == 0) "" else " | ", name });
-        if (several) try w.writeByte(')');
-        if (shown.param.extra.nullable) try w.writeByte('?');
+        const records = kinds.ship and kinds.flight_group and kinds.squad;
+        // Each kind of value it may take, in the order the type lists them.
+        const options = [_]?[]const u8{
+            if (records) "Entity" else null,
+            if (kinds.ship and !records) "Ship" else null,
+            if (kinds.flight_group and !records) "FlightGroup" else null,
+            if (kinds.squad and !records) "Squad" else null,
+            if (kinds.curve) "Curve" else null,
+            if (vocabulary.of(shown.param)) |kind| kind.typeName() else if (kinds.number or kinds.constant or kinds.percentage) "number" else null,
+            if (kinds.file_name or kinds.text) "string" else null,
+        };
+        var count: usize = 0;
+        for (options) |option| count += @intFromBool(option != null);
+        if (count == 0) return w.writeAll("any");
+        const nullable = shown.param.extra.nullable;
+        if (nullable and count > 1) try w.writeByte('(');
+        var written: usize = 0;
+        for (options) |option| if (option) |type_name| {
+            try w.print("{s}{s}", .{ if (written == 0) "" else " | ", type_name });
+            written += 1;
+        };
+        if (nullable and count > 1) try w.writeByte(')');
+        if (nullable) try w.writeByte('?');
     }
 };
 
@@ -264,14 +243,19 @@ test write {
     // The values a trigger checks are fields of its table.
     try std.testing.expect(std.mem.find(u8, text, "    attacker: (Entity | number)?,\n") != null);
 
-    // Every type the file uses, it declares. A capitalised name outside the comments and the
-    // strings is a type, but for the commands' names and the type parameters, such as `A`.
+    // Each type the file declares, it declares once, and every type it uses, it declares. A
+    // capitalised name outside the comments and the strings is a type, but for the commands' names
+    // and the type parameters, such as `A`.
     var declared: std.StringHashMapUnmanaged(void) = .empty;
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |line| {
         for ([_][]const u8{ "export type ", "declare extern type " }) |prefix| {
             const rest = std.mem.cutPrefix(u8, line, prefix) orelse continue;
-            try declared.put(arena, rest[0 .. std.mem.findAny(u8, rest, " =") orelse rest.len], {});
+            const slot = try declared.getOrPut(arena, rest[0 .. std.mem.findAny(u8, rest, " =") orelse rest.len]);
+            if (slot.found_existing) {
+                std.debug.print("the definitions declare {s} twice\n", .{slot.key_ptr.*});
+                return error.TestUnexpectedResult;
+            }
         }
     }
     lines = std.mem.splitScalar(u8, text, '\n');

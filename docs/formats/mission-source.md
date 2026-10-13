@@ -94,6 +94,7 @@ reliant_group = flight_group("(FG)Reliant", { wing = "player" })
 | Field | Value | Default |
 |---|---|---|
 | `wing` | The wing the group's ships are listed in: `"player"`, `"second"`, `"third"` or `"none"` | `"none"` |
+| `formation` | The formation the group flies in | None |
 
 ### Ships
 
@@ -309,8 +310,8 @@ written as the developers' compiler wrote its statements ([Statements](dte.md#st
 
 [luau-lsp](https://github.com/JohnnyMorganz/luau-lsp), the Luau language server, gives editors such
 as VS Code completion and descriptions for mission source, from the definitions file
-[`mission.d.luau`](../guide/mission.d.luau). It declares the declarations and their fields, the
-functions of the script, every command of the catalogue with its parameters and the developers'
+[`mission.d.luau`](../guide/mission.d.luau). It holds the declarations and their fields, the
+script's functions, every command of the catalogue with its parameters and the developers'
 descriptions, and the names of the game's values. It comes with each release, and
 `sltool dte definitions` writes it.
 
@@ -333,9 +334,9 @@ definitions don't load in the new solver yet
 ([#1139](https://github.com/OpenReliant/openreliant/issues/1139)), so mods' scripts are best kept in
 a folder of their own.
 
-The definitions take the declarations, the functions of the script and the tables of fields from
-[`language.zig`](../../src/formats/dte/source/language.zig), whose tables the compiler checks fields
-against, and the commands, the conditions and the names of values from the game's tables.
+The definitions take the declarations, the script's functions and the tables of fields from
+[`language.zig`](../../src/formats/dte/source/language.zig), which the compiler checks fields
+against too. The commands, the conditions and the names of values come from the game's tables.
 
 ## Reading the text
 

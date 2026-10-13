@@ -88,7 +88,7 @@ pub fn write(writer: *Writer, body: []const Statement, record_names: *const Name
     try printer.block(body, depth);
 }
 
-/// The name of the roll of a body's `number`th random choice: `roll`, then `roll_2` and on.
+/// The name of the roll of a body's `number`th random choice: `roll`, then `roll_2` and so on.
 const Roll = struct {
     number: usize,
 

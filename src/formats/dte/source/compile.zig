@@ -333,7 +333,7 @@ pub const Compiler = struct {
                 .record => |record| record,
                 else => return c.fail(item, "a field is written `name = value`", .{}),
             };
-            if (!contains(allowed, record.key)) return c.fail(item, "`{s}` isn't a field here, which takes {f}", .{ record.key, Listed{ .names = allowed } });
+            if (!contains(allowed, record.key)) return c.fail(item, "`{s}` isn't a field here, which takes {f}", .{ record.key, names.Listed{ .items = allowed } });
             if (contains(keys[0..place], record.key)) return c.fail(item, "`{s}` is given twice", .{record.key});
             key.* = record.key;
             value.* = record.value;
@@ -895,18 +895,6 @@ const Fields = struct {
     fn get(given: Fields, key: []const u8) ?Index {
         for (given.keys, given.values) |name, value| if (std.mem.eql(u8, name, key)) return value;
         return null;
-    }
-};
-
-/// Names as a message lists them: `a`, `b` and `c`.
-const Listed = struct {
-    names: []const []const u8,
-
-    pub fn format(listed: Listed, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        for (listed.names, 0..) |name, index| {
-            const separator = if (index == 0) "" else if (index + 1 == listed.names.len) " and " else ", ";
-            try writer.print("{s}`{s}`", .{ separator, name });
-        }
     }
 };
 

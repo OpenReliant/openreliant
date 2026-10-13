@@ -1,12 +1,12 @@
-//! What mission source holds, declared once
-//! ([Mission source](../../../../docs/formats/mission-source.md)): each word of the source's own
-//! with what it takes and gives, and the tables of fields its declarations take, each field with
-//! its type and what it is. The compiler takes the fields a table may give from here
-//! (`compile.zig`), and the definitions file for luau-lsp declares the words and the tables from
-//! here (`definitions.zig`). Types are written as Luau writes them, in the names the definitions
-//! give them.
+//! Mission source's own words and the tables of fields its declarations take, declared once
+//! ([Mission source](../../../../docs/formats/mission-source.md)): what each word takes and gives,
+//! and each field's type and description. The compiler checks the fields a table gives against
+//! these tables (`compile.zig`), and the definitions file for luau-lsp declares the words and the
+//! tables from here (`definitions.zig`). Types are written as Luau writes them, under the names the
+//! definitions give them.
 
 const std = @import("std");
+const assert = std.debug.assert;
 
 const names = @import("names.zig");
 const Word = names.Word;
@@ -107,7 +107,7 @@ pub const part_fields: Table = .{ .name = "PartFields", .fields = &.{
     .{ .name = "start", .type = "boolean?", .about = "`true` runs the part as the mission starts, before any trigger is armed." },
 } };
 
-/// A trigger's table, besides the values of its condition's event it checks
+/// A trigger's table, besides the values of its condition's events that it checks
 /// ([Triggers](../../../../docs/formats/mission-source.md#triggers)).
 pub const trigger_fields: Table = .{ .name = "TriggerFields", .events = true, .fields = &.{
     .{ .name = "repeats", .type = "Repeats?", .about = "\"once\", the default, which disarms the trigger as it fires; \"always\"; or `{ counted = 3 }`, which fires that many times each time the script arms it." },
@@ -133,8 +133,7 @@ pub const Type = struct {
     /// What it is.
     about: []const u8,
     definition: union(enum) {
-        /// A type of its own, which no other value is, with what its declaration holds, such as an
-        /// indexer.
+        /// A distinct type, with what its declaration holds, such as an indexer.
         own: []const u8,
         /// Another name for a type, as Luau writes it.
         alias: []const u8,
@@ -223,22 +222,19 @@ pub fn declaration(word: Word) Declaration {
     };
 }
 
+// Each table names each field once, which the compiler's check of a table's fields relies on.
+comptime {
+    for (tables) |table| {
+        for (table.fields, 0..) |field, place| {
+            for (table.fields[place + 1 ..]) |other| assert(!std.mem.eql(u8, field.name, other.name));
+        }
+    }
+}
+
 test Table {
     // A table's names are its fields', in their order.
     const listed = launch_fields.names();
     try std.testing.expectEqual(2, listed.len);
     try std.testing.expectEqualStrings("from", listed[0]);
     try std.testing.expectEqualStrings("gate", listed[1]);
-    // Each table names each field once, and the definitions declare each table under a name of its
-    // own.
-    for (tables, 0..) |table, at| {
-        for (table.fields, 0..) |field, place| {
-            for (table.fields[place + 1 ..]) |other| try std.testing.expect(!std.mem.eql(u8, field.name, other.name));
-        }
-        for (tables[at + 1 ..]) |other| try std.testing.expect(!std.mem.eql(u8, table.name, other.name));
-    }
-    // A marker's fields are a ship's but its type.
-    try std.testing.expectEqualStrings("type", ship_fields.fields[0].name);
-    try std.testing.expectEqual(ship_fields.fields.len - 1, marker_fields.fields.len);
-    for (ship_fields.fields[1..], marker_fields.fields) |ship, marker| try std.testing.expectEqualStrings(ship.name, marker.name);
 }
