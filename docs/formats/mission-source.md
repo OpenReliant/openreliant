@@ -307,6 +307,11 @@ it up.
 The definitions take the declarations, the script's functions and the tables of fields from
 [`language.zig`](../../src/formats/dte/source/language.zig), which the compiler checks fields
 against too. The commands, the conditions and the names of values come from the game's tables.
+A type of names of values takes the name scripts know it by, such as `ShipType` or `FaceFilm`
+([`vocabulary.zig`](../../src/formats/dte/source/vocabulary.zig)), and accepts text where mods add
+values under names of their own, as the scripting API's type does. The definitions name a mission's
+ship `MissionShip`, apart from the scripting API's `Ship`, a ship type's record. So both files can
+be loaded together, and a test checks that the names they share are declared the same way.
 
 ## Reading the text
 

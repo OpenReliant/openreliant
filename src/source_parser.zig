@@ -235,20 +235,6 @@ test definitionErrors {
     try std.testing.expect((try definitionErrors(arena, "declare class Ship\nend\n")).len > 0);
 }
 
-/// The names a definitions file declares, each with the first line of its declaration.
-fn declaredNames(arena: Allocator, text: []const u8) Allocator.Error!std.StringArrayHashMapUnmanaged([]const u8) {
-    var found: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
-    var lines = std.mem.splitScalar(u8, text, '\n');
-    while (lines.next()) |line| {
-        const rest = std.mem.cutPrefix(u8, line, "export type ") orelse
-            std.mem.cutPrefix(u8, line, "declare extern type ") orelse
-            std.mem.cutPrefix(u8, line, "declare function ") orelse
-            std.mem.cutPrefix(u8, line, "declare ") orelse continue;
-        try found.put(arena, rest[0 .. std.mem.findAny(u8, rest, " <=:(") orelse rest.len], line);
-    }
-    return found;
-}
-
 test "both definitions files can be loaded together" {
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();
@@ -256,17 +242,24 @@ test "both definitions files can be loaded together" {
     // luau-lsp loads every definitions file into one scope, where a name declared twice gets the
     // later declaration. So a mod's folder can hold both scripts and missions only while a name
     // that both files declare is the same one-line type in each, as the names of values are.
-    const scripting = try declaredNames(arena, @embedFile("openreliant.d.luau"));
-    const mission = try declaredNames(arena, @embedFile("mission.d.luau"));
-    for (mission.keys(), mission.values()) |name, line| {
-        const other = scripting.get(name) orelse continue;
-        const alias = std.mem.startsWith(u8, line, "export type ") and !std.mem.endsWith(u8, line, "{") and !std.mem.endsWith(u8, line, "= ");
-        if (!alias or !std.mem.eql(u8, line, other)) {
-            std.debug.print("both definitions files declare {s}, differently: rename one\n", .{name});
+    const definitions = dte.source.definitions.testing;
+    var scripting: std.StringHashMapUnmanaged([]const u8) = .empty;
+    var each = definitions.declarations(@embedFile("openreliant.d.luau"));
+    while (each.next()) |declaration| try scripting.put(arena, declaration.name, declaration.line);
+    var shared: usize = 0;
+    each = definitions.declarations(@embedFile("mission.d.luau"));
+    while (each.next()) |declaration| {
+        const other = scripting.get(declaration.name) orelse continue;
+        const line = declaration.line;
+        const one_line = std.mem.startsWith(u8, line, "export type ") and !std.mem.endsWith(u8, line, "{") and !std.mem.endsWith(u8, line, "= ");
+        if (!one_line or !std.mem.eql(u8, line, other)) {
+            std.debug.print("both definitions files declare {s}, but not the same way: rename one of them\n", .{declaration.name});
             return error.TestUnexpectedResult;
         }
+        shared += 1;
     }
-    try std.testing.expect(scripting.contains("ShipType") and mission.contains("ShipType"));
+    // The names of values, such as `ShipType`, are the ones they share.
+    try std.testing.expect(shared > 0);
 }
 
 test buildFile {

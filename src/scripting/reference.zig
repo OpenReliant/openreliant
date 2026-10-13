@@ -509,21 +509,16 @@ fn writeHookNames(w: *Writer, names: hooks.Names) Writer.Error!void {
     try w.print("\n--- {s}\nexport type {s} = ", .{ names.about(), names.typeName() });
     var first = true;
     for (std.enums.values(Hook)) |hook| {
-        if (!names.holds(hook)) continue;
+        if (!names.contains(hook)) continue;
         try w.print("{s}\"{s}\"", .{ if (first) "" else " | ", @tagName(hook) });
         first = false;
     }
     try w.writeAll("\n");
 }
 
-/// Writes `name`, the type of a function that adds a handler to a hook of `names`.
-///
-/// The handler's `e` is `any`, and scripts annotate it with the hook's type. Luau only types a
-/// handler's parameters from a single signature without generics: an overload for each hook, or a
-/// type function from a hook's name to its type, leaves `e` untyped in both of its type solvers.
-/// The new solver also refuses an intersection of more than eight such overloads, and then
-/// ignores the whole definitions file
-/// ([#1139](https://github.com/OpenReliant/openreliant/issues/1139)).
+/// Writes `name`, the type of a function that adds a handler to a hook of `names`. The handler's `e`
+/// is `any`, which scripts annotate with the hook's type, since Luau can't work it out from the
+/// hook's name ([The reference](../../docs/port/scripting.md#the-reference)).
 fn writeAdd(w: *Writer, name: []const u8, names: hooks.Names) Writer.Error!void {
     try w.print("export type {s} = (name: {s}, {s}) -> HookHandle\n", .{ name, names.typeName(), hooks.handler_parameters });
 }

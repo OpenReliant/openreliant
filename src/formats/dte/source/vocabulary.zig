@@ -38,31 +38,48 @@ pub const Kind = enum {
         };
     }
 
-    /// Whether mods add values of the kind under names of their own, which scripts write as text,
-    /// as they do ship types and pilots. A mission writes those values as numbers, but the type in
-    /// the definitions takes text too, as the scripting API's type of the same name does, so that
-    /// both definitions files can be loaded together.
+    /// Whether mods add values of the kind under names of their own, which scripts write as text
+    /// (`fromScriptName`), as they add ship types and pilots. A mission writes those values as
+    /// numbers, but the kind's type in the definitions accepts text too, as the scripting API's
+    /// does.
     pub fn hasModNames(kind: Kind) bool {
         return switch (kind) {
-            .ship_type, .pilot => true,
-            else => false,
+            inline else => |known| comptime if (Scripted(known)) |T| @hasDecl(T, "fromScriptName") else false,
         };
     }
 
     /// The name of the type of the kind's values in the definitions of mission source
-    /// (`definitions.zig`), the scripting API's name where it has the type too.
+    /// (`definitions.zig`): the name scripts know the values by (`script_name`), where they have
+    /// one.
     pub fn typeName(kind: Kind) []const u8 {
         return switch (kind) {
-            .ship_type => "ShipType",
-            .pilot => "PilotNumber",
-            .order => "Order",
-            .condition => "Condition",
-            .head => "HeadMovement",
-            .environment_effect => "EnvironmentEffect",
-            .part => "Part",
+            inline else => |known| comptime name: {
+                if (Scripted(known)) |T| if (@hasDecl(T, "script_name")) break :name T.script_name;
+                break :name switch (known) {
+                    .order => "Order",
+                    .condition => "Condition",
+                    .environment_effect => "EnvironmentEffect",
+                    .part => "Part",
+                    .ship_type, .pilot, .head => @compileError("the type scripts know " ++ @tagName(known) ++ " values by has no script_name"),
+                };
+            },
         };
     }
 };
+
+/// The type scripts know the values of `kind` by, where they know them. The definitions of mission
+/// source name the kind's type after it, and accept text where mods add values under names of
+/// their own, so that both definitions files declare the type the same way.
+pub fn Scripted(comptime kind: Kind) ?type {
+    return switch (kind) {
+        .ship_type => gameobj.Type,
+        .pilot => pilots.Number,
+        .order => orders.Order,
+        .condition => dte.Condition,
+        .head => pilots.Head,
+        .environment_effect, .part => null,
+    };
+}
 
 /// The game's table of the values of `kind`, an enum of their names; none for a part, which the
 /// source names by the part's own name.

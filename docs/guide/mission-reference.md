@@ -756,7 +756,7 @@ Play a movie in the comms window. Command 24 of the catalogue.
 | Parameter | Type | Label |
 |---|---|---|
 | `ship_sending_comm` | `MissionShip` | Ship sending comm |
-| `head_movement` | `HeadMovement` | Head movement |
+| `head_movement` | `FaceFilm` | Head movement |
 | `name_of_speech_file` | `string` | Name of speech file |
 
 ### CommsFromPilot
@@ -766,7 +766,7 @@ Play a movie in the comms window. Command 25 of the catalogue.
 | Parameter | Type | Label |
 |---|---|---|
 | `ship_sending_comm` | `PilotNumber` | Ship sending comm |
-| `head_movement` | `HeadMovement` | Head movement |
+| `head_movement` | `FaceFilm` | Head movement |
 | `name_of_speech_file` | `string` | Name of speech file |
 
 ### SetInvulnerability
@@ -906,7 +906,7 @@ Play a movie in the comms window (without looping). Command 41 of the catalogue.
 | Parameter | Type | Label |
 |---|---|---|
 | `ship_sending_comm` | `MissionShip` | Ship sending comm |
-| `head_movement` | `HeadMovement` | Head movement |
+| `head_movement` | `FaceFilm` | Head movement |
 | `name_of_speech_file` | `string` | Name of speech file |
 
 ### CommsFromPilotOnce
@@ -916,7 +916,7 @@ Play a movie in the comms window (without looping). Command 42 of the catalogue.
 | Parameter | Type | Label |
 |---|---|---|
 | `ship_sending_comm` | `PilotNumber` | Ship sending comm |
-| `head_movement` | `HeadMovement` | Head movement |
+| `head_movement` | `FaceFilm` | Head movement |
 | `name_of_speech_file` | `string` | Name of speech file |
 
 ### DisableLights
@@ -1639,7 +1639,7 @@ mod's ship type, is written as a number.
 
 `shot_at`, `destroyed`, `launched`, `camera_reached`, `ship_reached`, `proximity_close`, `proximity_general`, `object_scooped`, `player_ready_to_jump`, `jumped_in`, `fixed_gate_jumped_in`, `player_ready_to_warp`, `jumped_through_hoop`, `player_wants_backup`, `ripper_grabbed_object`, `ripper_dropped_object`, `cloaked`, `decloaked`, `targetted`, `player_l1_doubletap`, `player_l2_doubletap`, `player_r1_doubletap`, `player_r2_doubletap`, `player_l1_l2_r1_r2_pressed`, `player_l1_r1_pressed`, `game_timer_expired`, `tractor_beam_locked`, `tractor_beam_broken`, `inside_object`, `outside_object`, `docked`, `undocked`, `being_chased`, `call_reinforcements`, `explosion_ship`, or a number.
 
-### HeadMovement
+### FaceFilm
 
 `talking`, `laughing`, `squadron`, `dying`, or a number.
 

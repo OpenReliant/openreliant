@@ -81,7 +81,7 @@ pub const Names = enum {
     }
 
     /// Whether `hook` is one of the set, as `hooks.after` and an object's `hook` check it.
-    pub fn holds(names: Names, hook: Hook) bool {
+    pub fn contains(names: Names, hook: Hook) bool {
         const access = accesses.getPtrConst(hook);
         return switch (names) {
             .all => true,
@@ -589,11 +589,11 @@ fn addFrom(hooks: *Hooks, state: *State, comptime when: When, comptime verb: []c
     const name = state.toString(first) orelse state.raise("{s}: expected a hook's name, got {s}", .{ verb, state.typeName(first) });
     const hook = std.meta.stringToEnum(Hook, name) orelse state.raise("{s}: there's no hook named '{s}' ('openreliant hooks' lists them)", .{ verb, name });
     const access = accesses.getPtrConst(hook);
-    if (when == .after and !Names.functions.holds(hook)) state.raise("hooks.after: {s} is an event; hooks.add adds its handlers", .{name});
+    if (when == .after and !Names.functions.contains(hook)) state.raise("hooks.after: {s} is an event; hooks.add adds its handlers", .{name});
     if (state.typeOf(first + 1) != .function) state.raise("{s}: expected a function for the handler, got {s}", .{ verb, state.typeName(first + 1) });
     var filter = readFilter(state, verb, access, first + 2);
     if (only) |handle| {
-        if (!Names.objects.holds(hook)) state.raise("{s}: {s} concerns no object to hook", .{ verb, name });
+        if (!Names.objects.contains(hook)) state.raise("{s}: {s} concerns no object to hook", .{ verb, name });
         filter.object = handle;
     }
 
@@ -756,6 +756,16 @@ fn testHandler(runtime: *Runtime, context: *Context, id: u32) Handler {
     state.pushBoolean(true);
     defer state.pop(1);
     return .{ .id = id, .context = context, .function = state.ref(-1), .when = .before, .filter = .{} };
+}
+
+test Names {
+    // A hook on a function that concerns an object, such as the damage it takes, is in every set.
+    // The radio's function concerns no object, and an event, such as a trigger firing, has no
+    // function for `hooks.after` to run after.
+    for (std.enums.values(Names)) |names| try std.testing.expect(names.contains(.object_damage));
+    try std.testing.expect(Names.functions.contains(.radio_say) and !Names.objects.contains(.radio_say));
+    try std.testing.expect(Names.objects.contains(.trigger_fired) and !Names.functions.contains(.trigger_fired));
+    for (std.enums.values(Hook)) |hook| try std.testing.expect(Names.all.contains(hook));
 }
 
 /// The ids of `hook`'s handlers, in the order they run, in `buffer`.
