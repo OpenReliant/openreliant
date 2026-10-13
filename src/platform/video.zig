@@ -26,8 +26,10 @@ pub const Decoders = struct {
             .openVideo = openVideo,
             .openAudio = openAudio,
             .openMp3 = openMp3,
+            .openFlac = openFlac,
             .picture = picture,
-            .samples = samples,
+            .send = sendPacket,
+            .receive = receive,
             .close = close,
         } };
     }
@@ -56,11 +58,17 @@ fn openMp3(_: *anyopaque) bink.Error!bink.Stream {
     return open(.mp3);
 }
 
+fn openFlac(_: *anyopaque) bink.Error!bink.Stream {
+    return open(.flac);
+}
+
 /// What a stream's decoder is set up for.
 const Setup = union(enum) {
     video: bink.Video,
     audio: bink.Audio,
     mp3,
+    /// A whole FLAC file, sent as one packet; the decoder reads its header first.
+    flac,
 };
 
 /// A decoder set up for `setup`. A Bink decoder's 4 bytes of extra data hold the video's flags, or
@@ -70,6 +78,7 @@ fn open(setup: Setup) bink.Error!bink.Stream {
         .video => c.AV_CODEC_ID_BINKVIDEO,
         .audio => |audio| if (audio.dct) c.AV_CODEC_ID_BINKAUDIO_DCT else c.AV_CODEC_ID_BINKAUDIO_RDFT,
         .mp3 => c.AV_CODEC_ID_MP3,
+        .flac => c.AV_CODEC_ID_FLAC,
     };
     const decoder = c.avcodec_find_decoder(id) orelse return error.Decoding;
     var context: ?*c.AVCodecContext = c.avcodec_alloc_context3(decoder) orelse return error.OutOfMemory;
@@ -89,7 +98,7 @@ fn open(setup: Setup) bink.Error!bink.Stream {
             c.av_channel_layout_default(&set_up.ch_layout, audio.channels);
             std.mem.writeInt(u32, extradata[0..4], signature(audio.revision), .little);
         },
-        .mp3 => {},
+        .mp3, .flac => {},
     }
     if (c.avcodec_open2(context, decoder, null) < 0) return error.Decoding;
     var packet: ?*c.AVPacket = c.av_packet_alloc() orelse return error.OutOfMemory;
@@ -144,28 +153,48 @@ fn picture(_: *anyopaque, handle: bink.Stream, packet: []const u8) bink.Error!bi
     };
 }
 
-fn samples(_: *anyopaque, handle: bink.Stream, packet: []const u8, gpa: Allocator, pcm: *std.ArrayList(i16)) bink.Error!void {
+fn sendPacket(_: *anyopaque, handle: bink.Stream, packet: []const u8) bink.Error!void {
+    try send(.of(handle), packet);
+}
+
+/// Decodes the next frame of what was sent and appends its samples to `pcm` as 16-bit. Returns
+/// false once the decoder needs another packet.
+fn receive(_: *anyopaque, handle: bink.Stream, gpa: Allocator, pcm: *std.ArrayList(i16)) bink.Error!bool {
     const stream: *Stream = .of(handle);
-    try send(stream, packet);
     const frame = stream.frame;
-    while (true) {
-        const received = c.avcodec_receive_frame(stream.context, frame);
-        if (received == -c.EAGAIN or received == c.AVERROR_EOF) return;
-        if (received < 0) return error.Decoding;
-        defer c.av_frame_unref(frame);
-        const count: usize = @intCast(frame.nb_samples);
-        const channels: usize = @intCast(frame.ch_layout.nb_channels);
-        const out = try pcm.addManyAsSlice(gpa, count * channels);
-        if (frame.format == c.AV_SAMPLE_FMT_FLTP) {
-            for (0..channels) |channel| {
-                const plane: [*]const f32 = @ptrCast(@alignCast(frame.extended_data[channel]));
-                for (0..count) |at| out[at * channels + channel] = sample16(plane[at]);
-            }
-        } else {
+    const received = c.avcodec_receive_frame(stream.context, frame);
+    if (received == -c.EAGAIN or received == c.AVERROR_EOF) return false;
+    if (received < 0) return error.Decoding;
+    defer c.av_frame_unref(frame);
+    const count: usize = @intCast(frame.nb_samples);
+    const channels: usize = @intCast(frame.ch_layout.nb_channels);
+    const out = try pcm.addManyAsSlice(gpa, count * channels);
+    switch (frame.format) {
+        c.AV_SAMPLE_FMT_FLTP => for (0..channels) |channel| {
+            const plane: [*]const f32 = @ptrCast(@alignCast(frame.extended_data[channel]));
+            for (0..count) |at| out[at * channels + channel] = sample16(plane[at]);
+        },
+        c.AV_SAMPLE_FMT_FLT => {
             const interleaved: [*]const f32 = @ptrCast(@alignCast(frame.data[0]));
             for (out, interleaved[0..out.len]) |*to, from| to.* = sample16(from);
-        }
+        },
+        // FLAC's formats: 16-bit samples as they are, and deeper ones in the top bits of 32.
+        c.AV_SAMPLE_FMT_S16 => {
+            const interleaved: [*]const i16 = @ptrCast(@alignCast(frame.data[0]));
+            @memcpy(out, interleaved[0..out.len]);
+        },
+        c.AV_SAMPLE_FMT_S32 => {
+            const interleaved: [*]const i32 = @ptrCast(@alignCast(frame.data[0]));
+            for (out, interleaved[0..out.len]) |*to, from| to.* = top16(from);
+        },
+        else => return error.Decoding,
     }
+    return true;
+}
+
+/// A 32-bit sample as a 16-bit one, rounded to the nearest.
+fn top16(level: i32) i16 {
+    return @intCast(@min((@as(i64, level) + 0x8000) >> 16, std.math.maxInt(i16)));
 }
 
 /// A float sample from -1 to 1 as a 16-bit one, rounded to the nearest and a half to the even one,
@@ -218,11 +247,47 @@ test "MP3 frames decode to their samples" {
     const stream = try codec.openMp3();
     defer codec.close(stream);
     // Two frames of MPEG-2 Layer III at 22,050 Hz in joint stereo, nothing but their headers set:
-    // silence, 576 samples a channel each.
-    const frame = [_]u8{ 0xFF, 0xF3, 0x80, 0x7C } ++ @as([204]u8, @splat(0));
+    // silence, 576 samples of each channel each.
+    const frame = openreliant.mp3.testing.silent_frame;
     var pcm: std.ArrayList(i16) = .empty;
     defer pcm.deinit(std.testing.allocator);
     for (0..2) |_| try codec.samples(stream, &frame, std.testing.allocator, &pcm);
     try std.testing.expectEqual(2 * 576 * 2, pcm.items.len);
     for (pcm.items) |sample| try std.testing.expectEqual(0, sample);
+}
+
+test "a FLAC file decodes to a WAVE file of its samples" {
+    const gpa = std.testing.allocator;
+    var decoders: Decoders = .init();
+    const codec = decoders.codec();
+    // One frame of 192 samples of each channel at 44,100 Hz, each channel at a constant level.
+    const file = try openreliant.flac.testing.constant(gpa, 44100, &.{ 1000, -2000 }, 192);
+    defer gpa.free(file);
+    var whole: bink.AudioDecoding = try .beginFlac(codec, file);
+    const decoded = try whole.complete(gpa);
+    defer gpa.free(decoded);
+    const wave = try openreliant.wave.Wave.parse(decoded);
+    try std.testing.expectEqual(openreliant.wave.Wave.Format.pcm, wave.format);
+    try std.testing.expectEqual(44100, wave.rate);
+    try std.testing.expectEqual(2, wave.channels);
+    try std.testing.expectEqual(192 * 2 * 2, wave.data.len);
+    for (0..192) |at| {
+        try std.testing.expectEqual(1000, std.mem.readInt(i16, wave.data[at * 4 ..][0..2], .little));
+        try std.testing.expectEqual(-2000, std.mem.readInt(i16, wave.data[at * 4 + 2 ..][0..2], .little));
+    }
+    // A frame at a time, as a mod's music decodes over several of the game's frames: the file's
+    // one frame, then the end.
+    var decoding: bink.AudioDecoding = try .beginFlac(codec, file);
+    try std.testing.expect(!try decoding.step(gpa, 1));
+    try std.testing.expect(try decoding.step(gpa, 1));
+    const stepped = try decoding.finish(gpa);
+    defer gpa.free(stepped);
+    try std.testing.expectEqualSlices(u8, decoded, stepped);
+}
+
+test top16 {
+    try std.testing.expectEqual(0, top16(0));
+    try std.testing.expectEqual(1, top16(0x8000));
+    try std.testing.expectEqual(std.math.maxInt(i16), top16(std.math.maxInt(i32)));
+    try std.testing.expectEqual(std.math.minInt(i16), top16(std.math.minInt(i32)));
 }

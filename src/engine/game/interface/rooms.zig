@@ -36,6 +36,7 @@ const hog_snd = @import("../hog_snd.zig");
 const hud = @import("../hud.zig");
 const language = @import("../language.zig");
 const radio = @import("../radio.zig");
+const recordings = @import("../recordings.zig");
 const movie = @import("../xtrabits/movie.zig");
 const canvas = @import("canvas.zig");
 const disc_module = @import("disc.zig");
@@ -566,11 +567,11 @@ pub const Film = struct {
 
 /// One of Enriquez's scenes, the file `box` from the disc, spoken through `speech` from a screen,
 /// the scene before ended (`say`). A mod's recording of it, named as `box` without its extension,
-/// takes priority (`radio.readRecording`). A scene left out is not spoken.
+/// takes priority (`recordings.read`). A scene left out is not spoken.
 pub fn speak(context: Context, speech: *cbox.Player, box: []const u8) void {
     speech.stop(context.gpa, context.sound);
     const stem = box[0 .. std.mem.findScalar(u8, box, '.') orelse box.len];
-    const bytes = radio.readRecording(context.gpa, context.codec, context.resources.mods, stem) orelse context.read(box) orelse return;
+    const bytes = recordings.read(context.gpa, context.codec, context.resources.mods, stem) orelse context.read(box) orelse return;
     defer context.gpa.free(bytes);
     say(context, speech, bytes, box, .screen, null);
 }

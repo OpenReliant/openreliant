@@ -357,26 +357,32 @@ and a few modern ones beside them:
 | Textures | PNG up to 16384 pixels a side, or DDS and KTX2 files compressed already | An image editor ([Textures](#textures)) |
 | Interface shapes and pictures | PNG at any size | An image editor ([The interface](#the-interface)) |
 | Interface fonts | `.fnt`, TrueType or OpenType | A font editor ([Fonts](#fonts)) |
-| Music | WAV, 16-bit PCM or IMA ADPCM, at any rate | An audio editor ([Music](#music)) |
+| Music | WAV (16-bit PCM or IMA ADPCM), FLAC or MP3, at any rate | An audio editor ([Music](#music)) |
 | A mod's engine and gun sounds | WAV, PCM or IMA ADPCM | An audio editor ([Ship types](#ship-types), [Guns](#guns)) |
-| Lines of speech | WAV (16-bit or 8-bit PCM, or IMA ADPCM) or MP3, at any rate, mono or stereo; or the game's speech files | An audio editor, or `sltool speech encode` from WAV ([Lines](#lines)) |
+| Lines of speech | WAV (16-bit or 8-bit PCM, or IMA ADPCM), FLAC or MP3, at any rate, mono or stereo; or the game's speech files | An audio editor, or `sltool speech encode` from WAV ([Lines](#lines)) |
 | Pilots' faces | `.fm8` face films | `sltool fm8 encode`, from PNG frames ([Faces](#faces)) |
 | Missions | `.dte` | A mission editor ([Missions](#missions)) |
 | Stats tables | `.bin` | Better changed from a load script ([The records](scripting.md#the-records)) |
 | Sound banks | `.fat` | No tool yet: `sltool fat extract` saves a bank's sounds, but can't build a bank |
 | Movies | Bink (`.bik`) | RAD Game Tools' Bink tools |
 
-Sounds, music and movies in today's formats are planned
-([#496](https://github.com/OpenReliant/openreliant/issues/496)), as are lines in FLAC, Ogg Vorbis
-or Opus.
+Sounds and movies in today's formats are planned
+([#496](https://github.com/OpenReliant/openreliant/issues/496)), as are music and lines in Ogg
+Vorbis or Opus.
 
 ### Music
 
-A piece of music is a WAV file, 16-bit PCM or IMA ADPCM, at any rate. Where the game's piece loops
-back to a point partway through, so does the mod's, at the same moment of the music whatever its
-format: make it the same length as the game's, or at least as long as its loop point, to keep the
-loop where the game has it. If the game's piece can't be read, the mod's loops back to the game
-file's byte offset, which may be the wrong moment, and the log says so.
+A piece of music is a WAV file (16-bit PCM or IMA ADPCM), a FLAC file or an MP3 file, at any rate,
+named after the game's piece: `New_Pensive.wav`, `New_Pensive.flac` or `New_Pensive.mp3` replaces
+the game's `music\New_Pensive.wav`. If a mod has more than one, the WAV file comes first, then the
+FLAC file, then the MP3 file. FLAC keeps the music exactly as recorded in about two thirds of the
+space of 16-bit WAV; MP3 takes less space still, but loses some of the sound. A FLAC or MP3 piece
+decodes over the next few frames, so that the game doesn't stall, and starts once it's decoded, a
+fraction of a second later. Where the game's piece loops back to a point partway through, so does
+the mod's, at the same moment of the music whatever its format: make it the same length as the
+game's, or at least as long as its loop point, to keep the loop where the game has it. If the
+game's piece can't be read, the mod's loops back to the game file's byte offset, which may be the
+wrong moment, and the log says so.
 [`examples/mods/music`](../../examples/mods/music) replaces the main menu's music with a track made
 for it, whose body starts where the game's piece loops back. The CD player in the rooms plays only
 the pieces on its lists, which a load script can change ([The CD player's
@@ -675,13 +681,14 @@ The game keeps its lines in `ms_speech\msspeech.hog`, under names without an ext
 `ABRT_001`. A mod's line replaces the game's line with the same name. `sltool speech extract
 ms_speech/msspeech.hog lines` saves every line as a WAV file, to find the one to replace.
 
-A mod's line is best a recording, a WAV or MP3 file named after the line: `abrt_001.wav` or
-`abrt_001.mp3` replaces `ABRT_001`. It plays as recorded, at its own rate, mono or stereo, with
+A mod's line is best a recording, a WAV, FLAC or MP3 file named after the line: `abrt_001.wav`,
+`abrt_001.flac` or `abrt_001.mp3` replaces `ABRT_001`. If a mod has more than one, the WAV file
+comes first, then the FLAC file. The line plays as recorded, at its own rate, mono or stereo, with
 the same effects as the game's lines: the radio's sound for a radio line, and a briefing's last word
 at the narration's loudness. WAV files can hold 16-bit or 8-bit PCM or IMA ADPCM, which audio
-editors write by default. MP3 is about a fifth the size of WAV: 64 kbit/s suits speech. Enriquez's scenes in the
-induction and the news reports take recordings too, named after the scene without `.box`, such as
-`0015.mp3` for `0015.box`.
+editors write by default. FLAC is about half the size of WAV, and MP3 about a fifth: 64 kbit/s suits
+speech. Enriquez's scenes in the induction and the news reports take recordings too, named after the
+scene without `.box`, such as `0015.mp3` for `0015.box`.
 
 A line can also be a speech file in the game's own codec ([Speech files](../formats/speech.md)),
 named `abrt_001.ut` or `abrt_001`, which works in older versions of OpenReliant too. Where a mod has

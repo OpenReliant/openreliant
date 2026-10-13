@@ -1,19 +1,21 @@
-//! Builds the part of FFmpeg that plays the game's movies and its MP3 lines as a static library:
-//! its Bink video and audio decoders (`libavcodec/bink.c`, `libavcodec/binkaudio.c`), its MP3
-//! decoder (`libavcodec/mpegaudiodec_float.c`), and what of `libavcodec` and `libavutil` they need,
-//! in plain C, without FFmpeg's assembly or threads. OpenReliant reads the Bink container and the
-//! MP3 frames itself (`src/formats/bink.zig`, `src/formats/mp3.zig`), so none of `libavformat` is
-//! built. FFmpeg is LGPL-2.1 or later (the upstream's `LICENSE.md`), and none of its GPL parts is
-//! built.
+//! Builds the part of FFmpeg that OpenReliant uses as a static library: the Bink video and audio
+//! decoders for the game's movies (`libavcodec/bink.c`, `libavcodec/binkaudio.c`), the MP3 decoder
+//! for the crew's lines and mods' recordings (`libavcodec/mpegaudiodec_float.c`), the FLAC decoder
+//! for mods' recordings (`libavcodec/flacdec.c`), and the parts of `libavcodec` and `libavutil`
+//! they need. It is plain C, without FFmpeg's assembly or threads. OpenReliant reads the Bink
+//! container and the MP3 frames itself (`src/formats/bink.zig`, `src/formats/mp3.zig`) and hands
+//! the FLAC decoder whole files, so none of `libavformat` is built. FFmpeg is LGPL-2.1 or later
+//! (the upstream's `LICENSE.md`), and none of its GPL parts are built.
 //!
-//! The files and the configuration are those FFmpeg's `configure` gives for `--disable-everything
-//! --disable-asm --disable-pthreads --enable-decoder=bink,binkaudio_rdft,binkaudio_dct,mp3float`,
-//! less what nothing reaches from the decoding calls: the objects a program using them links, and
-//! the settings those files read. The one addition is `libavutil/sha.c`, which the random seed falls
-//! back on where no system source of random numbers is set up, as none is here. The version is
-//! the manifest's, which names the upstream's release.
+//! The files and the configuration are the ones FFmpeg's `configure` gives for
+//! `--disable-everything --disable-asm --disable-pthreads
+//! --enable-decoder=bink,binkaudio_rdft,binkaudio_dct,mp3float,flac`, minus what the decoding
+//! calls never reach: the objects that a program using those calls links, and the settings those
+//! files read. The one addition is `libavutil/sha.c`, which the random seed falls back on when no
+//! system source of random numbers is set up, as here. The version is the upstream release that
+//! the manifest names.
 //!
-//! Without threads, FFmpeg's one-time set-up is not guarded: the library is used from one thread.
+//! Without threads, FFmpeg's one-time setup isn't guarded, so the library is used from one thread.
 
 const std = @import("std");
 
@@ -50,6 +52,7 @@ pub fn build(b: *std.Build) void {
         .CONFIG_BINKAUDIO_DCT_DECODER = true,
         .CONFIG_BINKAUDIO_RDFT_DECODER = true,
         .CONFIG_MP3FLOAT_DECODER = true,
+        .CONFIG_FLAC_DECODER = true,
     });
     const avconfig = b.addConfigHeader(.{ .style = .blank, .include_path = "libavutil/avconfig.h" }, .{
         .AV_HAVE_BIGENDIAN = false,
@@ -68,6 +71,7 @@ pub fn build(b: *std.Build) void {
         \\    &ff_binkaudio_dct_decoder,
         \\    &ff_binkaudio_rdft_decoder,
         \\    &ff_mp3float_decoder,
+        \\    &ff_flac_decoder,
         \\    NULL };
         \\
     );
@@ -143,6 +147,10 @@ const sources = [_][]const u8{
     "libavcodec/decode.c",
     "libavcodec/encode.c",
     "libavcodec/exif.c",
+    "libavcodec/flac.c",
+    "libavcodec/flacdata.c",
+    "libavcodec/flacdec.c",
+    "libavcodec/flacdsp.c",
     "libavcodec/get_buffer.c",
     "libavcodec/hpeldsp.c",
     "libavcodec/mpegaudio.c",

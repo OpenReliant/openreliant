@@ -422,8 +422,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         break :none null;
     } else null;
     defer if (output) |open| open.destroy();
+    // FFmpeg's decoders, for the movies and for mods' music and lines in FLAC and MP3.
+    var decoders: platform.video.Decoders = .init();
     const sound = try arena.create(game.hog_snd.Sound);
-    sound.init(if (output) |open| open.driver() else null, sound_voices, .{ .gpa = gpa, .io = io, .dir = directory, .mods = &mods });
+    sound.init(if (output) |open| open.driver() else null, sound_voices, .{ .gpa = gpa, .io = io, .dir = directory, .mods = &mods, .codec = decoders.codec() });
     defer sound.shutdown();
     sound.volumes = .read(settings_file.profile);
     context.brightness = device_settings.brightness;
@@ -450,15 +452,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The screenshots the 0 key saves in flight and O in the briefing, in the game's folder.
     var screenshots: game.xtrabits.screenshot.Screenshots = .{ .io = io, .directory = directory };
     defer screenshots.finish();
-    // The movies: FFmpeg's decoders behind the stand-in for Bink, and what plays them in a loop of
-    // their own. As the renderer first starts, before its loading screens, `renderer_load` plays the
-    // intro; a mission `--mission` names, or a screenshot, starts without it.
-    var decoders: platform.video.Decoders = .init();
     // The discs' archives, which a full install keeps in the game's folder (`cd_hog_open`), and
     // the hangar's movie played last (`hangar_movie_last`, `0x005D6C8C`).
     var disc: game.interface.disc.Disc = .{ .gpa = gpa, .io = io, .directory = directory, .mods = &mods };
     defer disc.close();
     var hangar: game.xtrabits.movie.Hangar = .{};
+    // The movies play in a loop of their own, decoded by FFmpeg behind the stand-in for Bink. When
+    // the renderer first starts, before its loading screens, `renderer_load` plays the intro; a
+    // mission named with `--mission`, or a screenshot run, starts without it.
     var movies: Movies = .{
         .gpa = gpa,
         .codec = decoders.codec(),

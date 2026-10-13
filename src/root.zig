@@ -14,6 +14,7 @@ pub const iso9660 = @import("formats/iso9660.zig");
 pub const bink = @import("formats/bink.zig");
 pub const dte = @import("formats/dte.zig");
 pub const fat = @import("formats/fat.zig");
+pub const flac = @import("formats/flac.zig");
 pub const fnt = @import("formats/fnt.zig");
 pub const frc = @import("formats/frc.zig");
 pub const hog = @import("formats/hog.zig");

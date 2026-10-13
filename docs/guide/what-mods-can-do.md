@@ -15,9 +15,9 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 |---|---|---|
 | Replace any of the game's files by its name: a model, a sound bank, a piece of music, a line of speech, a face, a movie, a mission or a stats table | [How files are replaced](modding.md#how-files-are-replaced) | [`trent`](../../examples/mods/trent) |
 | Add files under new names, for its own models, missions and scripts to use | [How files are replaced](modding.md#how-files-are-replaced) | [`teapot`](../../examples/mods/teapot) |
-| Replace a piece of music, which loops back where the game's does | [Music](modding.md#music) | [`music`](../../examples/mods/music) |
+| Replace a piece of music, in WAV, FLAC or MP3, which loops back where the game's does | [Music](modding.md#music) | [`music`](../../examples/mods/music) |
 | Replace the pilots' faces, with sharper films than the game's if they like, and the lines they say | [Faces and voices](modding.md#faces-and-voices) | [`trent`](../../examples/mods/trent) |
-| Give lines of speech, briefings and Enriquez's scenes as WAV or MP3 recordings, which play as recorded | [Lines](modding.md#lines) | |
+| Give lines of speech, briefings and Enriquez's scenes as WAV, FLAC or MP3 recordings, which play as recorded | [Lines](modding.md#lines) | |
 
 ## Change the look
 
@@ -116,7 +116,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 
 These are planned, each in an issue:
 
-- Sounds, music and movies in today's formats, and lines of speech in FLAC, Ogg Vorbis or Opus
+- Sounds and movies in today's formats, and music and lines of speech in Ogg Vorbis or Opus
   ([#496](https://github.com/OpenReliant/openreliant/issues/496))
 - Campaigns of more than 28 missions ([#987](https://github.com/OpenReliant/openreliant/issues/987))
 - Post effects that read the scene's depth ([#633](https://github.com/OpenReliant/openreliant/issues/633))
