@@ -393,6 +393,66 @@ fn push(routine: *assemble.Routine, expression: Expression, use: Use, context: C
     }
 }
 
+/// Whether `a` and `b` are the same code: equal statements, but for the last bytes of a random
+/// choice's arms, which the engine never reads. `objects.same(x, y)` says whether the objects that
+/// `push_event_value` reads, `x` in `a` and `y` in `b`, are the same, which `Numbers` takes for
+/// equal numbers.
+pub fn same(a: []const Statement, b: []const Statement, objects: anytype) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |left, right| if (!sameStatement(left, right, objects)) return false;
+    return true;
+}
+
+/// Objects compared by their numbers, for `same`.
+pub const Numbers = struct {
+    pub fn same(_: Numbers, a: u8, b: u8) bool {
+        return a == b;
+    }
+};
+
+fn sameStatement(a: Statement, b: Statement, objects: anytype) bool {
+    if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
+    return switch (a) {
+        .command => |command| command.index == b.command.index and sameValues(command.arguments, b.command.arguments, objects),
+        .call, .spawn => |call| {
+            const other = if (b == .call) b.call else b.spawn;
+            return call.part == other.part and sameValues(call.arguments, other.arguments, objects);
+        },
+        .assign => |assign| std.meta.eql(assign.target, b.assign.target) and assign.update == b.assign.update and sameValue(assign.value, b.assign.value, objects),
+        .@"if" => |branch| {
+            const other = b.@"if";
+            if (!sameValue(branch.condition, other.condition, objects) or !same(branch.then, other.then, objects)) return false;
+            const otherwise = branch.otherwise orelse return other.otherwise == null;
+            return other.otherwise != null and same(otherwise, other.otherwise.?, objects);
+        },
+        .random => |random| {
+            const other = b.random;
+            if (random.arms.len != other.arms.len or !same(random.default, other.default, objects)) return false;
+            for (random.arms, other.arms) |arm, other_arm| {
+                if (arm.threshold != other_arm.threshold or !same(arm.body, other_arm.body, objects)) return false;
+            }
+            return true;
+        },
+        .@"return" => |value| sameValue(value, b.@"return", objects),
+    };
+}
+
+fn sameValues(a: []const Expression, b: []const Expression, objects: anytype) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |left, right| if (!sameValue(left, right, objects)) return false;
+    return true;
+}
+
+fn sameValue(a: Expression, b: Expression, objects: anytype) bool {
+    if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
+    return switch (a) {
+        .text => |text| std.mem.eql(u8, text, b.text),
+        .event_value => |value| value.condition == b.event_value.condition and value.value == b.event_value.value and objects.same(value.object, b.event_value.object),
+        .binary => |pair| pair.operator == b.binary.operator and sameValue(pair.left, b.binary.left, objects) and sameValue(pair.right, b.binary.right, objects),
+        else => std.meta.eql(a, b),
+    };
+}
+
 /// Expressions for the tests, by name: an order, as `SetAI` takes it, and a value of an event, by
 /// its label in the condition catalogue.
 pub const testing = struct {
@@ -456,6 +516,37 @@ test lower {
     // Each constant once, in the order first pushed: 1, then 0.
     const table = routine[dte.BlockReader.header_len + dte.BlockReader.at(routine, 0).?.code.len ..];
     try std.testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0, 0, 0, 0, 0 }, table);
+}
+
+test same {
+    const left: Binary = .{ .operator = .equal, .left = .{ .global = 0 }, .right = .{ .text = "a" } };
+    const right: Binary = .{ .operator = .equal, .left = .{ .global = 0 }, .right = .{ .text = "a" } };
+    const arm: Random.Arm = .{ .threshold = 50, .extra = 0, .body = &.{} };
+    var other_arm = arm;
+    other_arm.extra = 7;
+    const a = [_]Statement{
+        .{ .@"if" = .{ .condition = .{ .binary = &left }, .then = &.{}, .otherwise = &.{} } },
+        .{ .random = .{ .arms = &.{arm}, .default = &.{} } },
+    };
+    const b = [_]Statement{
+        .{ .@"if" = .{ .condition = .{ .binary = &right }, .then = &.{}, .otherwise = &.{} } },
+        .{ .random = .{ .arms = &.{other_arm}, .default = &.{} } },
+    };
+    // Equal values behind other pointers, and arms that differ in their unread byte alone.
+    try std.testing.expect(same(&a, &b, Numbers{}));
+    // An empty `else` is not none.
+    const c = [_]Statement{.{ .@"if" = .{ .condition = .{ .binary = &left }, .then = &.{}, .otherwise = null } }};
+    try std.testing.expect(!same(a[0..1], &c, Numbers{}));
+    // The objects an event's value is read from, as the caller compares them.
+    const first = [_]Statement{.{ .@"return" = .{ .event_value = .{ .condition = 0, .value = 2, .object = 47 } } }};
+    const second = [_]Statement{.{ .@"return" = .{ .event_value = .{ .condition = 0, .value = 2, .object = 0 } } }};
+    try std.testing.expect(!same(&first, &second, Numbers{}));
+    const Renumbered = struct {
+        pub fn same(_: @This(), x: u8, y: u8) bool {
+            return x == 47 and y == 0;
+        }
+    };
+    try std.testing.expect(same(&first, &second, Renumbered{}));
 }
 
 test "a number compared with a percentage is a byte" {

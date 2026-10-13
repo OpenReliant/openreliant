@@ -188,25 +188,14 @@ pub fn write(gpa: Allocator) ![]u8 {
 
     const groups = std.enums.values(Group);
     const group_records = try arena.alloc(dte.FlightGroup, groups.len);
-    var listed: u32 = 0;
     for (group_records, groups) |*record, group| {
-        var count: u8 = 0;
-        for (placed) |ship| {
-            if (ship.group == group) count += 1;
-        }
-        record.* = .{
-            .object_id = @intCast(placed.len + @backingInt(group)),
-            ._unknown_02 = 0,
-            .name = try addString(arena, &strings, group.label()),
-            ._unknown_06 = 0,
-            .wing = group.wing(),
-            .ship_count = count,
-            ._unknown_0a = 0,
-            .first_ship = listed,
-            .formation = dte.FlightGroup.no_formation,
-        };
-        listed += count;
+        record.* = .blank;
+        record.object_id = @intCast(placed.len + @backingInt(group));
+        record.name = try addString(arena, &strings, group.label());
+        record.wing = group.wing();
     }
+    // Each group's count of ships and the first one's place, as binding the mission works them out.
+    _ = try game.mission.bind.listGroupShips(arena, group_records, records);
 
     // The object table: the ships' IDs, then the flight groups', none with triggers. The player's
     // ship, ship 0, is marked as the original's tools mark it in the game's missions.
@@ -214,12 +203,12 @@ pub fn write(gpa: Allocator) ![]u8 {
     for (objects, 0..) |*object, id| object.* = .{
         .kind = if (id < placed.len) .ship else .flight_group,
         .count = 0,
-        .first = no_triggers,
+        .first = dte.Object.no_triggers,
         .tool_flags = .{ .player = id == 0 },
     };
 
     const code = try script(arena);
-    var part = std.mem.zeroes(dte.Part);
+    var part: dte.Part = .blank;
     part.name = part_name;
     part.offset = 0;
     part.flags.start = true;
@@ -241,19 +230,10 @@ pub fn write(gpa: Allocator) ![]u8 {
     return dte.write.write(gpa, &sections, .{ .name = name });
 }
 
-/// The object table's `first` for an object with no triggers, as the game's missions give it.
-const no_triggers = 0xFFFF;
-
-/// The bytes after a ship's pitch (`_unknown_3c`, `tier`, `_unknown_3e`, the marker's curve and its
-/// place on it), as most of the ships of the game's missions have them: tier 255, which asks for
-/// the campaign's, and no curve.
-const ship_tail = [_]u8{ 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00 };
-
-/// Ship `ship`'s record, as the game's missions have their ships': object ID `id`, named at
-/// `name_at`, launching through its tube of the first Reliant, or from none, in no formation, every
-/// component intact, standing where it is placed.
+/// Ship `ship`'s record: object ID `id`, named at `name_at`, launching through its tube of the
+/// first Reliant, or from none, standing where it is placed (`dte.Ship.blank` for the rest).
 fn shipRecord(ship: Placed, id: u32, name_at: u16) dte.Ship {
-    var record = std.mem.zeroes(dte.Ship);
+    var record: dte.Ship = .blank;
     record.object_id = id;
     record.name = name_at;
     record.runtime_position = ship.at;
@@ -261,19 +241,14 @@ fn shipRecord(ship: Placed, id: u32, name_at: u16) dte.Ship {
     record.flight_group = @backingInt(ship.group);
     record.pilot = ship.pilot;
     record.kind = @intCast(ship.kind.number());
-    record.launch_from = if (ship.gate != null) @intCast(Type.of(.reliant).number()) else std.math.maxInt(u16);
-    record._unknown_2a = 0xFF;
-    record.launch_gate = ship.gate orelse dte.Ship.no_launch;
+    if (ship.gate) |gate| {
+        record.launch_from = @intCast(Type.of(.reliant).number());
+        record.launch_gate = gate;
+    }
     record.runtime_yaw = ship.yaw;
     record.yaw = ship.yaw;
-    record.intact_components = dte.Ship.all_intact;
-    record.formation_point = dte.Ship.no_formation_point;
-    record.formation_point_tag = .none;
-    record._unknown_37 = 0xFF;
     record.runtime_pitch = ship.pitch;
     record.pitch = ship.pitch;
-    const tail = std.mem.asBytes(&record)[@offsetOf(dte.Ship, "_unknown_3c")..][0..ship_tail.len];
-    tail.* = ship_tail;
     record.runtime_roll = ship.roll;
     record.roll = ship.roll;
     return record;

@@ -8,6 +8,7 @@ const Writer = std.Io.Writer;
 
 const dte = @import("../../dte.zig");
 const decompile = @import("../decompile.zig");
+const bind = @import("../../../engine/game/mission/bind.zig");
 const conditions = @import("../../../engine/vm/conditions.zig");
 const names = @import("names.zig");
 const script = @import("script.zig");
@@ -32,7 +33,6 @@ const Source = struct {
     ships: []align(1) const dte.Ship,
     flight_groups: []align(1) const dte.FlightGroup,
     squads: []align(1) const dte.Squad,
-    members: []align(1) const dte.SquadMember,
     formations: []align(1) const dte.Formation,
     points: []align(1) const dte.FormationPoint,
     curves: []align(1) const dte.Curve,
@@ -44,6 +44,8 @@ const Source = struct {
     routines: []const dte.Routine,
     record_names: script.Names,
     formation_names: []const []const u8,
+    /// Each formation's points, by their indices, as the game finds them (`dte.Mission.pointsOf`).
+    formation_points: []const []const u16,
     /// The names of each condition's event values, by condition.
     events: [conditions.table.len][]const []const u8,
     /// The name of each block that more than one trigger runs, by the block's place in the script.
@@ -57,7 +59,6 @@ const Source = struct {
             .ships = try mission.ships(),
             .flight_groups = try mission.flightGroups(),
             .squads = try mission.squads(),
-            .members = try mission.squadMembers(),
             .formations = try mission.formations(),
             .points = try mission.formationPoints(),
             .curves = try mission.curves(),
@@ -68,6 +69,7 @@ const Source = struct {
             .routines = try mission.routines(arena),
             .record_names = .{},
             .formation_names = &.{},
+            .formation_points = &.{},
             .events = undefined,
             .namer = .init(arena),
         };
@@ -86,6 +88,9 @@ const Source = struct {
             .objects = try source.objectNames(),
         };
         source.formation_names = try source.nameAll(dte.Formation, source.formations, .formation);
+        const points = try arena.alloc([]const u16, source.formations.len);
+        for (points, 0..) |*list, index| list.* = try mission.pointsOf(arena, index);
+        source.formation_points = points;
         try source.nameHandlers();
         return source;
     }
@@ -104,18 +109,17 @@ const Source = struct {
         return list;
     }
 
-    /// The name of each object's record, by its object ID: a ship's, a flight group's or a squad's.
+    /// The name of each object's record, by its object ID: the ship's, the flight group's or the
+    /// squad's the game takes it for (`mission.bind.resolveObjects`).
     fn objectNames(source: *Source) Error![]const ?[]const u8 {
-        const list = try source.arena.alloc(?[]const u8, (try source.mission.objects()).len);
-        @memset(list, null);
-        for (source.ships, source.record_names.ships) |ship, name| place(list, ship.object_id, name);
-        for (source.flight_groups, source.record_names.flight_groups) |group, name| place(list, group.object_id, name);
-        for (source.squads, source.record_names.squads) |squad, name| place(list, squad.object_id, name);
+        const records = try bind.resolveObjects(source.arena, source.mission);
+        const list = try source.arena.alloc(?[]const u8, records.len);
+        for (list, records) |*name, record| name.* = if (record) |found| switch (found) {
+            .ship => |index| source.record_names.ships[index],
+            .flight_group => |index| source.record_names.flight_groups[index],
+            .squad => |index| source.record_names.squads[index],
+        } else null;
         return list;
-    }
-
-    fn place(list: []?[]const u8, object: u32, name: []const u8) void {
-        if (object < list.len) list[object] = name;
     }
 
     /// Names each block more than one trigger runs, after its first trigger's subject and
@@ -168,18 +172,21 @@ const Source = struct {
         if (count > 0) try w.print("\n-- {s}\n\n", .{title});
     }
 
-    /// `name = constructor("display"`, the start of a declaration.
-    fn open(source: *Source, w: *Writer, name: []const u8, constructor: Word, display: u16) Writer.Error!void {
-        try w.print("{s} = {t}(", .{ name, constructor });
-        try script.writeString(w, source.mission.name(display));
+    /// `name = constructor("display"`, the start of a declaration, and the characters it takes.
+    fn open(source: *Source, w: *Writer, name: []const u8, constructor: Word, display: u16) Writer.Error!usize {
+        var line: Writer.Allocating = .init(source.arena);
+        try line.writer.print("{s} = {t}(", .{ name, constructor });
+        try script.writeString(&line.writer, source.mission.name(display));
+        try w.writeAll(line.written());
+        return line.written().len;
     }
 
     /// `name = constructor("display", { fields })`, or without fields where it has none.
     fn declare(source: *Source, w: *Writer, name: []const u8, constructor: Word, display: u16, fields: *const Fields) Error!void {
-        try source.open(w, name, constructor, display);
+        const column = try source.open(w, name, constructor, display);
         if (fields.list.items.len > 0) {
             try w.writeAll(", ");
-            try fields.write(w, name.len + @tagName(constructor).len + source.mission.name(display).len + " = (\"\", ".len);
+            try fields.write(w, column + ", ".len, ")".len);
         }
         try w.writeAll(")\n");
     }
@@ -187,7 +194,7 @@ const Source = struct {
     fn writeGlobals(source: *Source, w: *Writer) Error!void {
         try heading(w, "Globals", source.globals.len);
         for (source.globals, source.record_names.globals) |global, name| {
-            try source.open(w, name, .global, global.name);
+            _ = try source.open(w, name, .global, global.name);
             try w.print(", {d})\n", .{global.value});
         }
     }
@@ -240,28 +247,23 @@ const Source = struct {
         try heading(w, "Squads", source.squads.len);
         for (source.squads, source.record_names.squads, 0..) |squad, name, index| {
             var members: std.ArrayList([]const u8) = .empty;
-            for (source.members) |member| {
-                if (member.squad != index) continue;
+            for (try source.mission.membersOf(index)) |member| {
                 const object = source.record_names.object(member.object_id);
                 try members.append(source.arena, if (member.part()) |component|
                     try std.fmt.allocPrint(source.arena, "{t}({f}, {d})", .{ Word.component, object, component })
                 else
                     try std.fmt.allocPrint(source.arena, "{f}", .{object}));
             }
-            try source.open(w, name, .squad, squad.name);
-            try writeList(w, members.items);
+            try writeList(w, members.items, try source.open(w, name, .squad, squad.name));
         }
     }
 
     fn writeFormations(source: *Source, w: *Writer) Error!void {
         try heading(w, "Formations", source.formations.len);
-        for (source.formations, source.formation_names, 0..) |formation, name, index| {
+        for (source.formations, source.formation_names, source.formation_points) |formation, name, list| {
             var points: std.ArrayList([]const u8) = .empty;
-            for (source.points) |point| {
-                if (point.formation == index) try points.append(source.arena, try std.fmt.allocPrint(source.arena, "{f}", .{vector(point.offset)}));
-            }
-            try source.open(w, name, .formation, formation.name);
-            try writeList(w, points.items);
+            for (list) |point| try points.append(source.arena, try std.fmt.allocPrint(source.arena, "{f}", .{vector(source.points[point].offset)}));
+            try writeList(w, points.items, try source.open(w, name, .formation, formation.name));
         }
     }
 
@@ -279,7 +281,7 @@ const Source = struct {
             try fields.add("leaving", "{f}", .{vector(curve.leaving)});
             try fields.add("arriving", "{f}", .{vector(curve.arriving)});
             try w.print("{s} = {t}(", .{ name, Word.curve });
-            try fields.write(w, name.len + " = curve(".len);
+            try fields.write(w, name.len + " = curve(".len, ")".len);
             try w.writeAll(")\n");
         }
     }
@@ -290,7 +292,7 @@ const Source = struct {
             const routine = source.routineAt(start).?;
             const condition = source.triggers[routine.owner.triggers[0]].condition;
             try w.print("{s} = {t}(", .{ name, Word.handler });
-            try source.function(w, routine, .{ .event = source.eventsOf(condition) });
+            try source.function(w, routine, .{ .event = source.eventsOf(condition) }, 0);
             try w.writeAll(")\n");
         }
     }
@@ -303,9 +305,8 @@ const Source = struct {
     fn writeTriggers(source: *Source, w: *Writer) Error!void {
         try heading(w, "Triggers", source.triggers.len);
         for (source.triggers, source.owners) |trigger, owner| {
-            try w.print("{t}(", .{Word.on});
-            if (owner) |object| try w.print("{f}", .{source.record_names.object(object)}) else try w.writeAll("nil");
-            try w.print(", {f}", .{named(.condition, @backingInt(trigger.condition))});
+            const subject: script.Indexed = if (owner) |object| source.record_names.object(object) else .{ .name = "nil" };
+            const head = try std.fmt.allocPrint(source.arena, "{t}({f}, {f}", .{ Word.on, subject, named(.condition, @backingInt(trigger.condition)) });
             var fields: Fields = .init(source.arena);
             switch (trigger.repeat) {
                 .once => {},
@@ -319,24 +320,54 @@ const Source = struct {
             if (trigger.component()) |component| try fields.add("component", "{d}", .{component});
             if (trigger.deferred != 0) try fields.add("deferred", "true", .{});
             try source.filters(&fields, trigger);
+            const code = source.triggerCode(trigger, owner);
+            const event = source.eventsOf(trigger.condition);
+            try w.writeAll(head);
             if (fields.list.items.len > 0) {
+                // What follows the fields on their line: the code's first line, or the bracket.
+                const after = switch (code) {
+                    .none => ")".len,
+                    .handler => |name| ", ".len + name.len + ")".len,
+                    .function => ", function()".len + parametersLength(event),
+                };
                 try w.writeAll(", ");
-                try fields.write(w, "on(".len);
+                try fields.write(w, head.len + ", ".len, after);
             }
-            try source.triggerCode(w, trigger, owner);
+            switch (code) {
+                .none => {},
+                .handler => |name| try w.print(", {s}", .{name}),
+                .function => |routine| {
+                    // A function that doesn't fit after the subject and the condition starts a line
+                    // of its own.
+                    const own_line = fields.list.items.len == 0 and head.len + ", function()".len + parametersLength(event) > line_length;
+                    try w.writeAll(if (own_line) ",\n    " else ", ");
+                    try source.function(w, routine, .{ .event = event }, @intFromBool(own_line));
+                },
+            }
             try w.writeAll(")\n");
         }
     }
 
-    /// The code a trigger runs: the name of the block it shares with other triggers, or its own,
-    /// where it can fire and has one.
-    fn triggerCode(source: *Source, w: *Writer, trigger: dte.Trigger, owner: ?u16) Error!void {
-        const start = trigger.block() orelse return;
-        if (source.handlers.get(start)) |handler| return w.print(", {s}", .{handler});
-        if (owner == null) return;
-        const routine = source.routineAt(start) orelse return;
-        try w.writeAll(", ");
-        try source.function(w, routine, .{ .event = source.eventsOf(trigger.condition) });
+    /// The code a trigger runs: the block it shares with other triggers, by its handler's name,
+    /// or its own, where it can fire and has one.
+    const Code = union(enum) {
+        none,
+        handler: []const u8,
+        function: dte.Routine,
+    };
+
+    fn triggerCode(source: *Source, trigger: dte.Trigger, owner: ?u16) Code {
+        const start = trigger.block() orelse return .none;
+        if (source.handlers.get(start)) |handler| return .{ .handler = handler };
+        if (owner == null) return .none;
+        return .{ .function = source.routineAt(start) orelse return .none };
+    }
+
+    /// The characters a function's parameters `names` take, with the commas between them.
+    fn parametersLength(parameter_names: []const []const u8) usize {
+        var length: usize = 0;
+        for (parameter_names, 0..) |name, index| length += name.len + @as(usize, if (index > 0) ", ".len else 0);
+        return length;
     }
 
     /// The values a trigger's event must have, by their names, for the values its condition
@@ -361,13 +392,13 @@ const Source = struct {
     fn writeParts(source: *Source, w: *Writer) Error!void {
         try heading(w, "Parts", source.parts.len);
         for (source.parts, source.record_names.parts, 0..) |part, name, index| {
-            try source.open(w, name, .part, part.name);
+            _ = try source.open(w, name, .part, part.name);
             const routine = for (source.routines) |routine| {
                 if (routine.owner == .part and routine.owner.part == index) break routine;
             } else null;
             if (routine) |found| {
                 try w.writeAll(", ");
-                try source.function(w, found, .{ .arguments = part.arguments });
+                try source.function(w, found, .{ .arguments = part.arguments }, 0);
             } else if (part.flags.start) {
                 try w.writeAll(", nil");
             }
@@ -382,8 +413,9 @@ const Source = struct {
         arguments: u8,
     };
 
-    /// A function of `routine`'s statements, with `parameters`.
-    fn function(source: *Source, w: *Writer, routine: dte.Routine, parameters: Parameters) Error!void {
+    /// A function of `routine`'s statements, with `parameters`, whose `end` is indented `depth`
+    /// levels.
+    fn function(source: *Source, w: *Writer, routine: dte.Routine, parameters: Parameters, depth: usize) Error!void {
         try w.writeAll("function(");
         switch (parameters) {
             .event => |event| for (event, 0..) |name, index| try w.print("{s}{s}", .{ if (index > 0) ", " else "", name }),
@@ -395,23 +427,37 @@ const Source = struct {
             .event => |names_of_values| names_of_values,
             .arguments => &.{},
         };
-        try script.write(w, body, &source.record_names, .{ .event = event }, 1);
+        try script.write(w, body, &source.record_names, .{ .event = event }, depth + 1);
+        try w.splatByteAll(' ', 4 * depth);
         try w.writeAll("end");
     }
 
     /// Point `point` of `formation_points` as its formation's name indexed by its place among the
-    /// formation's points, from 1.
+    /// formation's points, from 1, or by its index where it is none of its formation's.
     fn pointName(source: Source, point: u16) Allocator.Error![]const u8 {
-        if (point >= source.points.len) return std.fmt.allocPrint(source.arena, "{t}({d})", .{ Word.formation_point_index, point });
-        const formation = source.points[point].formation;
-        const first = if (formation < source.formations.len) source.formations[formation].first_point else point;
-        return std.fmt.allocPrint(source.arena, "{f}[{d}]", .{ indexed(source.formation_names, formation, .formation_index), point -| first + 1 });
+        if (point < source.points.len) {
+            const formation = source.points[point].formation;
+            if (formation < source.formations.len) {
+                if (std.mem.findScalar(u16, source.formation_points[formation], point)) |place| {
+                    return std.fmt.allocPrint(source.arena, "{s}[{d}]", .{ source.formation_names[formation], place + 1 });
+                }
+            }
+        }
+        return std.fmt.allocPrint(source.arena, "{t}({d})", .{ Word.formation_point_index, point });
     }
 };
 
-/// `, { a, b })` and a new line: a declaration's list and its end, or `, {})` for an empty one.
-fn writeList(w: *Writer, items: []const []const u8) Writer.Error!void {
+/// `, { a, b })` and a new line: a declaration's list and its end, after `column` characters of
+/// its line, or with an item to a line where it doesn't fit there. `, {})` for an empty one.
+fn writeList(w: *Writer, items: []const []const u8, column: usize) Writer.Error!void {
     if (items.len == 0) return w.writeAll(", {})\n");
+    var length = column + ", {  })".len;
+    for (items, 0..) |item, index| length += item.len + @as(usize, if (index > 0) ", ".len else 0);
+    if (length > line_length) {
+        try w.writeAll(", {\n");
+        for (items) |item| try w.print("    {s},\n", .{item});
+        return w.writeAll("})\n");
+    }
     try w.writeAll(", { ");
     for (items, 0..) |item, index| try w.print("{s}{s}", .{ if (index > 0) ", " else "", item });
     try w.writeAll(" })\n");
@@ -475,11 +521,11 @@ const Fields = struct {
         try fields.list.append(fields.arena, .{ key, try std.fmt.allocPrint(fields.arena, format, args) });
     }
 
-    /// Writes the fields as a table, starting `column` characters into its line, which the
-    /// declaration's bracket ends.
-    fn write(fields: Fields, w: *Writer, column: usize) Writer.Error!void {
+    /// Writes the fields as a table, starting `column` characters into its line, with `after`
+    /// characters after it on the line.
+    fn write(fields: Fields, w: *Writer, column: usize, after: usize) Writer.Error!void {
         if (fields.list.items.len == 0) return w.writeAll("{}");
-        var length = column + "{  })".len;
+        var length = column + "{  }".len + after;
         for (fields.list.items, 0..) |field, index| {
             length += field[0].len + " = ".len + field[1].len + @as(usize, if (index > 0) ", ".len else 0);
         }

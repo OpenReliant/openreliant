@@ -4,8 +4,7 @@ Mission source is a mission written as text. `sltool dte decompile` writes a mis
 its `.DTE` file, and `sltool dte build` compiles source into a standard `.DTE` that plays in the
 original too ([#1126](https://github.com/OpenReliant/openreliant/issues/1126)). The syntax is a
 subset of Luau, which Luau's own parser reads as the mission is built: nothing in the file runs, in
-OpenReliant or anywhere else. **Not implemented yet:** `sltool dte build`, the compiler on top of
-the parser ([Reading the text](#reading-the-text)).
+OpenReliant or anywhere else.
 
 ```luau
 -- mission1.dte as source.
@@ -50,8 +49,9 @@ At its top level it holds declarations and nothing else:
 - `mission(...)` gives the mission's own details.
 
 Comments go anywhere, and blank lines don't count. Every name is the file's: a declaration can use
-any name the file declares, before or after it. A name is a Luau identifier, `[A-Za-z_][A-Za-z0-9_]*`,
-that isn't a Luau keyword or one of the names this page gives the source itself.
+any name the file declares, before or after it. A name is a Luau identifier,
+`[A-Za-z_][A-Za-z0-9_]*`, that isn't a Luau keyword, a command's name or one of the names this page
+gives the source itself.
 
 The order of the declarations of a kind is the order of the mission's records of that kind, since
 the script and the records refer to records by their place: the first ship declared is ship 0, the
@@ -257,11 +257,17 @@ The source holds what the game reads of a mission. It leaves out:
   places and angles, which equal the authored ones in every shipped mission, the objects' trigger
   slices, a flight group's ships, the parts' and triggers' places in the script, the string pool,
   and the directory;
+- the objects' numbers. The shipped missions number their ships, flight groups and squads in the
+  order their authors made them, with gaps. The compiler numbers them itself: first the objects
+  that `last_event` names, in the order the source names them, since the script names those by a
+  byte, then the ships, the flight groups and the squads, each in order;
 - the script's flags, which the editor link sets ([The editor link](../engine/editor-link.md)).
 
 The rest is parked as unknown and unused: fields and sections that nothing in the game reads. The
-compiler writes them as the shipped missions most often hold them. OpenReliant could keep data of
-its own there, as it keeps the mission's name in section 21, since the original ignores them.
+compiler writes the fields as most of the shipped missions' records hold them (`dte.Ship.blank` and
+the other records'), or 0 where they hold no value most, and leaves the sections empty, as mission 0
+does. OpenReliant could keep data
+of its own there, as it keeps the mission's name in section 21, since the original ignores them.
 **Unverified:** that the original reads none of them; OpenReliant's engine, which follows the
 original's disassembly, reads none.
 
@@ -282,7 +288,22 @@ original's disassembly, reads none.
 A reference to a record that the mission doesn't have, such as a curve's ship in some of the
 leftover missions, is written by its index: `ship_index(59031)`, and likewise `flight_group_index`,
 `squad_index`, `curve_index`, `global_index`, `part_index`, `object_index`, `formation_index` and
-`formation_point_index`.
+`formation_point_index`. `object_index` names an object by its number in the built mission, and a
+number past its records gets an entry of no record in the object table.
+
+## Building a mission
+
+```bash
+sltool dte decompile mission1.dte > mission1.mission.luau
+sltool dte build mission1.mission.luau mission1.dte
+```
+
+`sltool dte build` compiles the source with
+[`compile.zig`](../../src/formats/dte/source/compile.zig). It stops at the first error, which it
+gives with its line and column, such as ``patrol.mission.luau:12:5: `nobody` is not declared``. Each
+kind's records are written in the order of their declarations. The script holds the blocks the
+triggers run, in the order the triggers first run them, then the parts' blocks in order, each
+written as the developers' compiler wrote its statements ([Statements](dte.md#statements)).
 
 ## Reading the text
 
@@ -299,17 +320,22 @@ unsupported node with its place, for the compiler to refuse. An expression in br
 type assertion such as `x :: number`, is the expression itself, type annotations on locals and
 parameters change nothing, and a string in backquotes without values is text like any other.
 
-`sltool dte check` writes each mission it checks as source and parses it, and fails on an error or
-a construct mission source doesn't use.
-
 ## The round trip
 
 `sltool dte decompile` names each record after its display name: the name in lower case, a leading
 tag such as `(F)` or `(GV)` left out, each run of other characters an underscore, and an underscore
-where a small letter meets a capital, with a number after it where two would clash. The name is the record's from then on, and renaming the display
-name doesn't change it.
+where a small letter meets a capital, with a number after it where two would clash. The name is the
+record's from then on, and renaming the display name doesn't change it. A squad's members and a
+formation's points are written as the game finds them, from the squad's first member and the
+formation's first point.
 
-Built again, a decompiled mission is the same mission: the same records and routines, decoded, with
-names compared as text and references by what they name. The string pool's layout, its stale
-strings, the sections' layout and the parked bytes may differ. To keep a shipped mission byte for
-byte, edit its `.DTE` in place instead.
+Built again, a decompiled mission is the same mission
+([`same.zig`](../../src/formats/dte/same.zig)): the same records and code, decoded, with names
+compared as text, an object by the record the game takes it for, and a formation's point by its
+place among the formation's. The string pool's layout, its stale strings, the objects' numbers, the
+sections' layout and the parked bytes may differ. Every shipped mission comes back as the same
+mission. To keep a shipped mission byte for byte, edit its `.DTE` in place instead.
+
+`sltool dte check` runs the round trip: it writes the mission as source, parses it, fails on an
+error or a construct mission source doesn't use, builds the source again, compares the two missions
+and binds the new one as starting a mission does.

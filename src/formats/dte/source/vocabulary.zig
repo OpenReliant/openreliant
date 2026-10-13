@@ -23,6 +23,15 @@ pub const Kind = enum {
     head,
     /// A part, which mission source names by the part's own name.
     part,
+
+    /// What a value of the kind is called in a message.
+    pub fn noun(kind: Kind) []const u8 {
+        return switch (kind) {
+            .ship_type => "ship type",
+            .head => "head movement",
+            else => @tagName(kind),
+        };
+    }
 };
 
 /// The name of value `number` of `kind`, where the game names it.
@@ -37,11 +46,34 @@ pub fn name(kind: Kind, number: u32) ?[]const u8 {
     };
 }
 
+/// The value of `kind` that the game names `text`, the inverse of `name`.
+pub fn value(kind: Kind, text: []const u8) ?u32 {
+    return switch (kind) {
+        .ship_type => numberOf(gameobj.GameType, text),
+        .pilot => numberOf(pilots.GamePilot, text),
+        .order => numberOf(orders.Order, text),
+        .condition => numberOf(dte.Condition, text),
+        .head => numberOf(pilots.Head, text),
+        .part => null,
+    };
+}
+
+/// The number of the tag of `Enum` named `text`, where it has one that a value can take.
+fn numberOf(comptime Enum: type, text: []const u8) ?u32 {
+    return std.math.cast(u32, @backingInt(std.meta.stringToEnum(Enum, text) orelse return null));
+}
+
 /// The name of one of the game's variables (`vm.GameVariable`), where it has one that isn't a
 /// placeholder such as `_unknown_6`.
 pub fn variable(number: u8) ?[]const u8 {
     const found = std.enums.tagName(vm.GameVariable, @fromBackingInt(number)) orelse return null;
     return if (found[0] == '_') null else found;
+}
+
+/// The number of the game's variable named `text`, the inverse of `variable`.
+pub fn variableNumber(text: []const u8) ?u8 {
+    if (text.len == 0 or text[0] == '_') return null;
+    return @backingInt(std.meta.stringToEnum(vm.GameVariable, text) orelse return null);
 }
 
 /// The kind of value a command's parameter takes, where it takes a named one: a part, a condition,
@@ -75,9 +107,29 @@ test name {
     try std.testing.expectEqual(null, name(.order, 70_000));
 }
 
+test value {
+    // Each name reads back as the value it names.
+    for ([_]struct { Kind, u32 }{
+        .{ .ship_type, @backingInt(gameobj.GameType.grendel) },
+        .{ .order, @intCast(@backingInt(orders.Order.find_new_target)) },
+        .{ .condition, @backingInt(dte.Condition.shot_at) },
+        .{ .head, @backingInt(pilots.Head.laughing) },
+        .{ .pilot, @backingInt(pilots.GamePilot.bandit_tigers_leader) },
+    }) |pair| try std.testing.expectEqual(pair[1], value(pair[0], name(pair[0], pair[1]).?).?);
+    try std.testing.expectEqual(null, value(.ship_type, "rubber_duck"));
+    try std.testing.expectEqual(null, value(.part, "start"));
+}
+
 test variable {
     try std.testing.expectEqualStrings("backup_available", variable(vm.Variables.number("backup_available")).?);
     try std.testing.expectEqual(null, variable(vm.Variables.number("_unknown_6")));
+}
+
+test variableNumber {
+    try std.testing.expectEqual(vm.Variables.number("backup_available"), variableNumber("backup_available").?);
+    // A placeholder's number is written as one, never by its name.
+    try std.testing.expectEqual(null, variableNumber("_unknown_6"));
+    try std.testing.expectEqual(null, variableNumber("no_such_variable"));
 }
 
 test of {

@@ -29,6 +29,8 @@ pub const listing = @import("dte/listing.zig");
 pub const statements = @import("dte/statements.zig");
 /// Reading a routine's bytecode as statements.
 pub const decompile = @import("dte/decompile.zig");
+/// Whether two missions are the same mission.
+pub const same = @import("dte/same.zig");
 
 /// Identity and typed references for mission source collections (#608).
 pub const source = @import("dte/source.zig");
@@ -253,6 +255,33 @@ pub const Ship = extern struct {
     /// The `tier` most records hold, which asks for the campaign's loadout tier.
     pub const campaign_tier: u8 = 0xFF;
 
+    /// The `launch_from` of a ship that doesn't launch, as every shipped record holds.
+    pub const no_launch_from: u16 = 0xFFFF;
+
+    /// The `marker_curve` of a record that marks no curve.
+    pub const no_marked_curve: i16 = -1;
+
+    /// A ship with nothing set: in no flight group, flown by no pilot, launching from nothing, in
+    /// no formation and marking no curve, with every component intact. The bytes the engine
+    /// doesn't read hold what most of the shipped missions' ships hold.
+    pub const blank: Ship = blank: {
+        var ship = std.mem.zeroes(Ship);
+        ship.flight_group = no_flight_group;
+        ship.pilot = no_pilot;
+        ship.launch_from = no_launch_from;
+        ship._unknown_2a = 0xFF;
+        ship.launch_gate = no_launch;
+        ship.intact_components = all_intact;
+        ship.formation_point = no_formation_point;
+        ship.formation_point_tag = .none;
+        ship._unknown_37 = 0xFF;
+        ship._unknown_3c = 0xFF;
+        ship.tier = campaign_tier;
+        ship.marker_curve = no_marked_curve;
+        ship._unknown_42 = .{ 0xFF, 0xFF };
+        break :blank ship;
+    };
+
     /// The `kind` of a waypoint: a point a flight group's Patrol Route flies through, in the order
     /// the mission lists them.
     pub const waypoint_kind: u16 = 0x3E5;
@@ -374,6 +403,19 @@ pub const Curve = extern struct {
     arriving: [3]f32,
     _unknown_40: u32,
 
+    /// A curve between no ships, at the origin, its last word as most shipped curves hold it.
+    pub const blank: Curve = .{
+        .start = .none,
+        .end = .none,
+        .from = @splat(0),
+        .to = @splat(0),
+        .leaving_handle = .none,
+        .arriving_handle = .none,
+        .leaving = @splat(0),
+        .arriving = @splat(0),
+        ._unknown_40 = 0xFFFFFFFF,
+    };
+
     /// The ship it starts at, where it starts at one.
     pub fn startShip(curve: Curve) ?u16 {
         return if (curve.start.index == Reference.unset) null else curve.start.index;
@@ -427,6 +469,22 @@ pub const Part = extern struct {
 
     /// An `offset` meaning the part has no block.
     pub const no_block: u16 = 0xFFFF;
+
+    /// A part with no block, which takes no arguments and doesn't run at the start. The bytes the
+    /// engine doesn't read hold what most of the shipped missions' parts hold.
+    pub const blank: Part = .{
+        .name = 0,
+        ._unknown_02 = 0,
+        ._unknown_04 = @splat(0),
+        .offset = no_block,
+        .flags = .{ .start = false, ._unknown = 0 },
+        .arguments = 0,
+        ._unknown_0e = 0,
+        .length = 0,
+        ._unknown_12 = .{ 0, 0, 0, 0, 0xFF, 0xFF, 0xFF },
+        .kind = 0,
+        ._unknown_1a = 2,
+    };
 
     pub const Flags = packed struct(u8) {
         /// Run when the mission starts, before any trigger is armed. Every mission has one such
@@ -508,7 +566,11 @@ pub const Global = extern struct {
     name: u16,
     _unknown_02: u16,
     value: u32,
+    /// 7 in every shipped mission.
     _unknown_08: u32,
+
+    /// A global that starts at 0, its last word as every shipped global holds it.
+    pub const blank: Global = .{ .name = 0, ._unknown_02 = 0, .value = 0, ._unknown_08 = 7 };
 
     comptime {
         assert(@sizeOf(Global) == 0x0C);
@@ -563,6 +625,24 @@ pub const Trigger = extern struct {
 
     /// The qualifier of an event on the subject itself rather than one of its components.
     pub const whole_object: u8 = 0xFF;
+
+    /// A trigger on Shot At that runs nothing, fires once, watches the whole subject and checks no
+    /// value of its event. The bytes the engine doesn't read hold what most of the shipped
+    /// missions' triggers hold.
+    pub const blank: Trigger = .{
+        .condition = .shot_at,
+        .repeat = .once,
+        .link = Part.no_block,
+        ._unknown_04 = @splat(0),
+        .armed = 1,
+        .qualifier = whole_object,
+        .deferred = 0,
+        ._unknown_17 = .{ 0xFF, 0 },
+        .repeat_counter = 0,
+        .repeat_count = 0,
+        ._unknown_1b = 0x88,
+        .operands = @splat(Operand.write(.unset)),
+    };
 
     pub const Repeat = enum(u8) {
         /// Disarms when it fires.
@@ -645,6 +725,15 @@ pub const Reference = packed struct(u32) {
     /// An operand whose low halfword is this is not set, and is not checked.
     pub const unset: u16 = 0xFFFF;
 
+    /// A reference to nothing, every bit set, as an unset trigger operand holds.
+    pub const none: Reference = .{ .index = unset, .tag = .none, ._unknown_24 = 0xFF };
+
+    /// A reference to record `index` of the table `tag` names, as the shipped missions write one:
+    /// its last byte 0xFF.
+    pub fn of(tag: Tag, index: u16) Reference {
+        return .{ .index = index, .tag = tag, ._unknown_24 = 0xFF };
+    }
+
     /// Set in the index of an operand for a ship value, it matches any of the players' ships: in a
     /// game of one, the player's.
     pub const any_ship: u16 = 0x2000;
@@ -664,6 +753,19 @@ pub const Operand = union(enum) {
     squad: u16,
     /// A tag the matcher cannot resolve.
     other: u32,
+
+    /// The raw operand that reads back as `operand`, as the shipped missions write one
+    /// (`Reference.of`), and every bit set for none.
+    pub fn write(operand: Operand) u32 {
+        return switch (operand) {
+            .unset => @bitCast(Reference.none),
+            .number, .other => |raw| raw,
+            .any_ship => @bitCast(Reference.of(.ship, Reference.any_ship)),
+            .ship => |index| @bitCast(Reference.of(.ship, index)),
+            .flight_group => |index| @bitCast(Reference.of(.flight_group, index)),
+            .squad => |index| @bitCast(Reference.of(.squad, index)),
+        };
+    }
 
     pub fn read(raw: u32, kinds: commands.Kinds) Operand {
         const reference: Reference = @bitCast(raw);
@@ -692,6 +794,12 @@ test Operand {
     try std.testing.expectEqual(Operand{ .other = 0x000C0050 }, Operand.read(0x000C0050, @bitCast(@as(u32, 0x1000))));
     // The matcher doesn't resolve a reference to a squad's member.
     try std.testing.expectEqual(Operand{ .other = 0xFF170003 }, Operand.read(0xFF170003, ship));
+    // Written as the shipped missions write them, operands read back as they were.
+    for ([_]Operand{ .unset, .any_ship, .{ .ship = 7 }, .{ .flight_group = 4 }, .{ .squad = 2 }, .{ .other = 0xFF170003 } }) |operand| {
+        try std.testing.expectEqual(operand, Operand.read(Operand.write(operand), ship));
+    }
+    try std.testing.expectEqual(Operand{ .number = 50 }, Operand.read(Operand.write(.{ .number = 50 }), number));
+    try std.testing.expectEqual(0xFF002000, Operand.write(.any_ship));
 }
 
 /// One entry of the object table, section `objects`, indexed by object ID.
@@ -719,6 +827,9 @@ pub const Object = extern struct {
         _unknown_4: bool = false,
         _unknown_5: u27 = 0,
     };
+
+    /// The `first` of an object with no triggers, as every shipped mission's holds.
+    pub const no_triggers: u16 = 0xFFFF;
 
     /// Where its slice starts and ends in a trigger list of `triggers` triggers, as far as the list
     /// reaches.
@@ -822,6 +933,20 @@ pub const FlightGroup = extern struct {
     /// The `formation` of a group with none, as every shipped mission's has.
     pub const no_formation: Reference = .{ .index = Reference.unset, .tag = .formation, ._unknown_24 = 0xFF };
 
+    /// A group of no wing and no formation, whose ships binding the mission lists
+    /// (`mission.bind.listGroupShips`), its unread bytes 0, as in every shipped mission.
+    pub const blank: FlightGroup = .{
+        .object_id = 0,
+        ._unknown_02 = 0,
+        .name = 0,
+        ._unknown_06 = 0,
+        .wing = .none,
+        .ship_count = 0,
+        ._unknown_0a = 0,
+        .first_ship = no_ship,
+        .formation = no_formation,
+    };
+
     /// A flight group's wing, as a byte: the player's, which `mission_ship_create` tests for
     /// (`0x00457D39`), two more, or none.
     pub const Wing = enum(u8) {
@@ -869,6 +994,17 @@ pub const Squad = extern struct {
     /// The `first_member` of a squad with none.
     pub const no_member: u16 = 0xFFFF;
 
+    /// A squad with no members, its unread bytes as every shipped squad holds them.
+    pub const blank: Squad = .{
+        .object_id = 0,
+        ._unknown_02 = 0,
+        .name = 0,
+        ._unknown_06 = 0,
+        .first_member = no_member,
+        .first_member_tag = .none,
+        ._unknown_0b = 0xFF,
+    };
+
     /// Its first record in `squad_members`, where it has one.
     pub fn firstMember(squad: Squad) ?u16 {
         return if (squad.first_member == no_member) null else squad.first_member;
@@ -896,6 +1032,16 @@ pub const SquadMember = extern struct {
     component: u8,
     _unknown_09: [3]u8,
 
+    /// A member that is a whole object, its unread bytes as most shipped members hold them.
+    pub const blank: SquadMember = .{
+        .object_id = 0,
+        ._unknown_02 = 0,
+        .squad = 0,
+        ._unknown_06 = 0,
+        .component = Trigger.whole_object,
+        ._unknown_09 = .{ 0x87, 0x1E, 0x0D },
+    };
+
     /// The component it names, or null for the whole object (`Trigger.whole_object`).
     pub fn part(member: SquadMember) ?u8 {
         return if (member.component == Trigger.whole_object) null else member.component;
@@ -920,6 +1066,10 @@ pub const Formation = extern struct {
     first_point_tag: Reference.Tag,
     _unknown_07: u8,
 
+    /// A formation whose points start at the first, its unread byte as every shipped formation
+    /// holds it.
+    pub const blank: Formation = .{ .name = 0, ._unknown_02 = 0, .first_point = 0, .first_point_tag = .formation_point, ._unknown_07 = 0xFF };
+
     comptime {
         assert(@offsetOf(Formation, "first_point") == 0x04);
         assert(@sizeOf(Formation) == 8);
@@ -936,6 +1086,10 @@ pub const FormationPoint = extern struct {
     _unknown_03: u8,
     /// Where it stands from the formation's origin.
     offset: [3]f32,
+
+    /// A point of the first formation at its origin, its unread byte as every shipped point holds
+    /// it.
+    pub const blank: FormationPoint = .{ .formation = 0, .formation_tag = .formation, ._unknown_03 = 0xFF, .offset = @splat(0) };
 
     comptime {
         assert(@offsetOf(FormationPoint, "offset") == 0x04);
@@ -1713,6 +1867,32 @@ pub const Mission = struct {
 
     pub fn formationPoints(mission: Mission) Error![]align(1) const FormationPoint {
         return mission.records(FormationPoint, .formation_points);
+    }
+
+    /// The members of squad `squad`, as the game walks them (`squad_walk`, `0x00401D80`): from the
+    /// squad's first on, while they are its own. None for a squad the mission lacks.
+    pub fn membersOf(mission: Mission, squad: usize) Error![]align(1) const SquadMember {
+        const all = try mission.squadMembers();
+        const list = try mission.squads();
+        if (squad >= list.len) return &.{};
+        const first = @min(list[squad].first_member, all.len);
+        var end = first;
+        while (end < all.len and all[end].squad == squad) end += 1;
+        return all[first..end];
+    }
+
+    /// The points of formation `formation`, by their indices, as the game finds them
+    /// (`formation_leader`, `0x00404230`): from the formation's first point on, those that are its
+    /// own. None for a formation the mission lacks.
+    pub fn pointsOf(mission: Mission, allocator: Allocator, formation: usize) (Error || Allocator.Error)![]u16 {
+        const all = try mission.formationPoints();
+        const list = try mission.formations();
+        if (formation >= list.len) return &.{};
+        var found: std.ArrayList(u16) = .empty;
+        for (all[@min(list[formation].first_point, all.len)..], list[formation].first_point..) |point, index| {
+            if (point.formation == formation) try found.append(allocator, @intCast(index));
+        }
+        return found.toOwnedSlice(allocator);
     }
 
     /// For each trigger, the ID of the object whose slice holds it, or null when none does and

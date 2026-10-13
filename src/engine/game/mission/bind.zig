@@ -549,7 +549,7 @@ fn listWaypoints(gpa: Allocator, ships: []align(1) dte.Ship) Allocator.Error![]M
 
 /// `mission_list_group_ships` (`0x00452EC0`): each flight group's ships, in the order the mission
 /// lists them, and the group's count of them and the first one's place.
-fn listGroupShips(gpa: Allocator, groups: []align(1) dte.FlightGroup, ships: []align(1) const dte.Ship) Allocator.Error![]u16 {
+pub fn listGroupShips(gpa: Allocator, groups: []align(1) dte.FlightGroup, ships: []align(1) const dte.Ship) Allocator.Error![]u16 {
     var listed: std.ArrayList(u16) = .empty;
     errdefer listed.deinit(gpa);
     for (groups, 0..) |*group, index| {
@@ -568,7 +568,7 @@ fn listGroupShips(gpa: Allocator, groups: []align(1) dte.FlightGroup, ships: []a
 /// `mission_resolve_objects` (`0x00452DB0`): for each entry of the object table, the record it
 /// stands for (`mission_object_record`, `0x00452DF0`): of its kind, the first whose object ID is
 /// the entry's.
-fn resolveObjects(gpa: Allocator, file: dte.Mission) !([]?Mission.Record) {
+pub fn resolveObjects(gpa: Allocator, file: dte.Mission) !([]?Mission.Record) {
     const objects = try file.objects();
     const records = try gpa.alloc(?Mission.Record, objects.len);
     errdefer gpa.free(records);

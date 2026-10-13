@@ -1,14 +1,17 @@
 //! Reads mission source with Luau's own parser
 //! ([Mission source](../docs/formats/mission-source.md)): `source_parser/luau.cpp` parses the
 //! text and writes the syntax tree into flat arrays, and `parse` copies them into the library's
-//! tree (`dte.source.syntax`). It is a module of its own because it links Luau's parser, which the
-//! library the tools share doesn't.
+//! tree (`dte.source.syntax`). `build` compiles the text into a mission file. It is a module of its
+//! own because it links Luau's parser, which the library the tools share doesn't, and so it holds
+//! the tests that compile source.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-const syntax = @import("openreliant").dte.source.syntax;
+const dte = @import("openreliant").dte;
+const syntax = dte.source.syntax;
+const compile = dte.source.compile;
 const luau = @import("luau_syntax");
 
 /// Parses `text` as Luau, into a tree in `arena` with the errors Luau's parser found.
@@ -30,6 +33,12 @@ pub fn parse(arena: Allocator, text: []const u8) Allocator.Error!syntax.Tree {
         .errors = errors,
         .root = tree.root,
     };
+}
+
+/// Compiles the mission source `text` into a mission file in `arena` (`dte.source.compile`). Where
+/// the source has an error, the parser's or the compiler's, `failure` says what and where.
+pub fn build(arena: Allocator, text: []const u8, failure: *compile.Failure) compile.Error![]u8 {
+    return compile.compile(arena, try parse(arena, text), failure);
 }
 
 // The bridge's nodes have the library's layout, and the header gives every kind of node, operator
@@ -147,7 +156,28 @@ test "constructs mission source doesn't use" {
     );
 }
 
-test "errors and their places" {
+test "a local that hides a parameter is told apart from it" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const tree = try parse(arena_state.allocator(),
+        \\f = function(roll)
+        \\    local roll = roll
+        \\    return roll
+        \\end
+    );
+    try std.testing.expectEqual(0, tree.errors.len);
+    const function = tree.get(tree.get(tree.get(tree.root).block[0]).assign.values[0]).function;
+    const parameter = tree.get(function.parameters[0]).name;
+    const lines = tree.get(function.body).block;
+    const local = tree.get(lines[0]).local;
+    const hiding = tree.get(local.targets[0]).name;
+    // The local's value is the parameter, and what it returns is the local.
+    try std.testing.expect(parameter.number != hiding.number);
+    try std.testing.expectEqual(parameter.number, tree.get(local.values[0]).local_name.number);
+    try std.testing.expectEqual(hiding.number, tree.get(tree.get(lines[1]).@"return"[0]).local_name.number);
+}
+
+test "the parser's errors and their places" {
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -162,4 +192,203 @@ test "errors and their places" {
     const empty = try parse(arena, "");
     try std.testing.expectEqual(0, empty.errors.len);
     try std.testing.expectEqual(0, empty.get(empty.root).block.len);
+}
+
+/// A mission with every kind of record and every form of the script, as `sltool dte decompile`
+/// writes it.
+const patrol =
+    \\mission({ name = "Patrol" })
+    \\
+    \\-- Globals
+    \\
+    \\convoy_hits = global("(GV)convoy hits", 0)
+    \\lost = global("(GV)lost", 4294967295)
+    \\
+    \\-- Flight groups
+    \\
+    \\alpha = flight_group("(FG)Alpha", { wing = "player" })
+    \\sabres = flight_group("(FG)Sabres", { formation = vee })
+    \\
+    \\-- Ships
+    \\
+    \\player = ship("Player", {
+    \\    type = "grendel",
+    \\    group = alpha,
+    \\    position = { 100, -200, 300.5 },
+    \\    yaw = 90,
+    \\})
+    \\wingman = ship("Wingman", {
+    \\    type = "wolverine",
+    \\    group = alpha,
+    \\    pilot = "bandit_tigers_leader",
+    \\    launch = { from = "reliant", gate = 2 },
+    \\    tier = 3,
+    \\})
+    \\sabre_1 = ship("Sabre 1", { type = "sabre", group = sabres, yaw = 180, formation_point = vee[1] })
+    \\sabre_2 = ship("Sabre 2", {
+    \\    type = "sabre",
+    \\    group = sabres,
+    \\    yaw = 180,
+    \\    roll = -45,
+    \\    formation_point = vee[2],
+    \\})
+    \\home = nav_point("Home", { position = { 0, 0, 50000 } })
+    \\halfway = point("Halfway", { marker = { curve = curve_0, at = 0.5 } })
+    \\start = curve_point("Start")
+    \\end_ship = curve_point("End", { position = { 1000, 0, 0 } })
+    \\
+    \\-- Squads
+    \\
+    \\targets = squad("(AI)targets", { sabre_1, component(sabre_2, 2), sabres })
+    \\everyone = squad("(AI)everyone", { targets, player })
+    \\
+    \\-- Formations
+    \\
+    \\vee = formation("vee", { { 0, 0, 0 }, { -400, 0, 300 } })
+    \\
+    \\-- Curves
+    \\
+    \\curve_0 = curve({
+    \\    start = start,
+    \\    finish = end_ship,
+    \\    from = { 0, 0, 0 },
+    \\    to = { 1000, 0, 0 },
+    \\    leaving_handle = start,
+    \\    arriving_handle = end_ship,
+    \\    leaving = { 10, 0, 0 },
+    \\    arriving = { 0, 0, -10 },
+    \\})
+    \\
+    \\-- Code more than one trigger runs
+    \\
+    \\sabre_1_shot_at = handler(function(attacker, shield_damage, hull_damage, victim, weapon_fired)
+    \\    convoy_hits += 1
+    \\    if hull_damage >= 50 then
+    \\        SetAI(targets, "find_new_target", 1, nil)
+    \\    end
+    \\    return 1
+    \\end)
+    \\
+    \\-- Triggers
+    \\
+    \\on(sabre_1, "shot_at", { repeats = "always", attacker = any_ship }, sabre_1_shot_at)
+    \\on(sabre_2, "shot_at", {
+    \\    repeats = { counted = 3, left = 1 },
+    \\    component = 2,
+    \\    deferred = true,
+    \\}, sabre_1_shot_at)
+    \\on(sabres, "destroyed", function(killer, victim)
+    \\    if last_event(targets, "shot_at", "Hull Damage") > 20 and result() ~= 0 then
+    \\        go_home(5)
+    \\    elseif game.mission_over == 0 then
+    \\        spawn(go_home, killer)
+    \\    else
+    \\    end
+    \\    local roll = random()
+    \\    if roll < 50 then
+    \\        lost = 1
+    \\    elseif roll < 100 then
+    \\        game.ion_cannons_hold_lock = thread_value(3)
+    \\    else
+    \\        add_assign_f(lost, 1065353216)
+    \\    end
+    \\    return 1
+    \\end)
+    \\on(nil, "destroyed")
+    \\
+    \\-- Parts
+    \\
+    \\go_home = part("(F)go home", function(arg0)
+    \\    PlayMusic("new_launch.wav", 0)
+    \\    CreateTimer(3, go_home, 30, arg0 + 1)
+    \\    command(250, "a mod's command")
+    \\    if in_flight_group(player, alpha) or greater_f(arg0, 0) then
+    \\        arg0 = component(sabre_2, 1)
+    \\    end
+    \\    return 1
+    \\end)
+    \\launch = part("(F)launch", function()
+    \\    StartLaunch(alpha)
+    \\    return 1
+    \\end, { start = true })
+    \\not_written_yet = part("(F)not written yet")
+    \\
+;
+
+test "a mission built from its source decompiles to that source" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var failure: compile.Failure = undefined;
+    const built = build(arena, patrol, &failure) catch |err| {
+        std.debug.print("{f}\n", .{failure});
+        return err;
+    };
+    var out: std.Io.Writer.Allocating = .init(arena);
+    try dte.source.write.write(&out.writer, arena, try .parse(built));
+    try std.testing.expectEqualStrings(patrol, out.written());
+}
+
+test "the objects that last_event names are numbered first" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    var failure: compile.Failure = undefined;
+    const mission: dte.Mission = try .parse(try build(arena_state.allocator(),
+        \\a = ship("A", { type = "grendel" })
+        \\b = ship("B", { type = "grendel" })
+        \\g = flight_group("G")
+        \\s = squad("S", { a })
+        \\on(a, "destroyed", function()
+        \\    return last_event(s, "destroyed", "Killer")
+        \\end)
+    , &failure));
+    // The script names the object `last_event` reads by a byte, so it comes first; then the ships,
+    // the flight groups and the squads.
+    try std.testing.expectEqual(0, (try mission.squads())[0].object_id);
+    try std.testing.expectEqual(1, (try mission.ships())[0].object_id);
+    try std.testing.expectEqual(2, (try mission.ships())[1].object_id);
+    try std.testing.expectEqual(3, (try mission.flightGroups())[0].object_id);
+    const objects = try mission.objects();
+    try std.testing.expectEqual(.squad, objects[0].kind);
+    try std.testing.expectEqual(.flight_group, objects[3].kind);
+    // `a`'s entry holds its trigger, and marks it as the original's tools mark ship 0.
+    try std.testing.expectEqual(1, objects[1].count);
+    try std.testing.expect(objects[1].tool_flags.player);
+    try std.testing.expectEqual(dte.Object.no_triggers, objects[2].first);
+}
+
+test "the compiler's errors and their places" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    for ([_]struct { []const u8, []const u8 }{
+        .{ "on(nobody, \"destroyed\")", "1:4: `nobody` is not declared" },
+        .{ "a = global(\"a\", 0)\na = global(\"b\", 0)", "2:1: `a` is declared already, at 1:5" },
+        .{ "ship = global(\"x\", 0)", "1:1: `ship` is a name mission source keeps for itself" },
+        .{ "Wait = global(\"x\", 0)", "1:1: `Wait` is a name mission source keeps for itself" },
+        .{ "x = 1", "1:5: `x` is declared by a constructor, such as `ship(...)`" },
+        .{ "p = ship(\"P\")", "1:5: a ship needs its `type`" },
+        .{ "p = ship(\"P\", { type = \"rubber_duck\" })", "1:24: the game has no ship type named \"rubber_duck\"" },
+        .{ "p = ship(\"P\", { type = \"grendel\", colour = 1 })", "1:35: `colour` isn't a field here, which takes `type`, `group`, `pilot`, `position`, `yaw`, `pitch`, `roll`, `launch`, `formation_point` and `tier`" },
+        .{ "p = ship(\"P\", { type = \"grendel\", yaw = 40000 })", "1:41: a whole number from -32768 to 32767 goes here" },
+        .{ "g = global(\"g\", 0)\np = ship(\"P\", { type = \"grendel\", group = g })", "2:43: `g` is a global, not a flight group" },
+        .{ "a = ship(\"A\", { type = \"grendel\" })\nb = ship(\"B\", { type = \"grendel\" })\non(a, \"destroyed\")\non(b, \"destroyed\")\non(a, \"destroyed\")", "5:1: an object's triggers follow one another" },
+        .{ "on(nil, \"destroyed\", { attacker = any_ship })", "1:24: `attacker` isn't a field here, which takes `repeats`, `component`, `deferred`, `killer` and `victim`" },
+        .{ "p = part(\"p\", function()\n    while true do end\nend)", "2:5: a loop, which mission source doesn't use" },
+        .{ "p = part(\"p\", function()\n    local roll = random()\n    return 1\nend)", "3:5: a random choice's roll is followed by the `if` over its arms" },
+        .{ "on(nil, \"destroyed\", function(killer)\n    killer = 1\nend)", "2:5: `killer` is a value of the event, which can't be assigned" },
+        .{ "p = part(\"p\", function()\n    return not result()\nend)", "2:12: the script has no `not`" },
+        .{ "p = part(\"p\", function()\n    Wait(\"long\" .. \"er\")\nend)", "2:10: the script has no `..`" },
+        .{ "p = part(\"p\", function()\n    SetAI(nil, \"dance\", 1, nil)\nend)", "2:16: the game has no order named \"dance\"" },
+    }) |case| {
+        var failure: compile.Failure = undefined;
+        try std.testing.expectError(error.Invalid, build(arena, case[0], &failure));
+        var out: std.Io.Writer.Allocating = .init(arena);
+        try out.writer.print("{f}", .{failure});
+        try std.testing.expectEqualStrings(case[1], out.written());
+    }
+    // The parser's errors come first, with their places.
+    var failure: compile.Failure = undefined;
+    try std.testing.expectError(error.Invalid, build(arena, "x = ship(\"A\",\ny = 2", &failure));
+    try std.testing.expectEqual(1, failure.at.line);
 }
