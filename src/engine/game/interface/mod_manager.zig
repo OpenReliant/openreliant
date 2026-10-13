@@ -13,7 +13,15 @@
 //! settings screen, reads the `mods` folder again, to find the mods added or removed since OpenReliant
 //! started. CANCEL CHANGES puts the mods back as they were when the screen opened. OPTIONS, in the
 //! panel, opens the page of options the chosen mod's scripts offer, where it has one
-//! (`mod_options`).
+//! (`mod_options`). GET MODS, above the list, opens the catalogue of mods on the web
+//! (`mod_catalogue`) on the chosen mod.
+//!
+//! The screen says which of its mods have an update in the catalogue
+//! ([#1041](https://github.com/OpenReliant/openreliant/issues/1041)): with CHECK FOR UPDATES on, it
+//! has the GET MODS screen read the repositories in the background as it opens, once per run,
+//! and a mod the catalogue lists in a newer version is gold in the list, with UPDATE AVAILABLE in
+//! its panel. With CHECK FOR UPDATES off, nothing is read, but a catalogue GET MODS has read serves
+//! all the same.
 //!
 //! **Improvement:** the original can't load mods.
 
@@ -36,6 +44,7 @@ const Arrow = canvas_module.Arrow;
 const settings = @import("settings.zig");
 const widgets = settings.widgets;
 const mod_options = @import("mod_options.zig");
+const mod_catalogue = @import("mod_catalogue.zig");
 
 const Mod = bigfile.mods.Mod;
 const Order = bigfile.mods.Order;
@@ -310,6 +319,10 @@ pub const Context = struct {
     ticks: u32,
     /// The mods, and where to read them again.
     source: Source,
+    /// The GET MODS screen, whose catalogue says which mods have an update; none says nothing.
+    catalogue: ?*mod_catalogue.ModCatalogue = null,
+    /// CHECK FOR UPDATES: whether the screen may have the catalogue read from the web.
+    update_check: bool = false,
 };
 
 /// How the screen ends.
@@ -318,8 +331,9 @@ pub const Leave = union(enum) {
     end: settings.End,
     /// OPTIONS: on to the options of the mod of this name.
     options: []const u8,
-    /// GET MODS: on to the GET MODS screen.
-    catalogue,
+    /// GET MODS: on to the GET MODS screen, on the mod of this id (`Mod.qualifier`) where one is
+    /// chosen.
+    catalogue: ?[]const u8,
 };
 
 /// The mods, and where to find them again.
@@ -367,8 +381,12 @@ pub const ModManager = struct {
     thumbnail: ?*srtexture.Image = null,
     /// The rows whose mods hold files of the chosen mod's names; kept up to date after each pass.
     conflicts: Conflicts = .{},
+    /// The GET MODS screen, whose catalogue the list and the panel show the updates from; kept up
+    /// to date as the screen opens and each pass begins.
+    catalogue: ?*const mod_catalogue.ModCatalogue = null,
 
-    /// Opens the screen: the mods OpenReliant found, in the order the settings file gives them.
+    /// Opens the screen: the mods OpenReliant found, in the order the settings file gives them, and
+    /// has the catalogue read where CHECK FOR UPDATES allows it.
     pub fn enter(screen: *ModManager, context: Context) void {
         screen.release();
         screen.* = .{ .loaded = context.source.loaded.list, .thumbnails = screen.thumbnails };
@@ -379,6 +397,38 @@ pub const ModManager = struct {
         screen.has_options = screen.optionsOf(context.source) != null;
         screen.has_catalogue = bigfile.catalogue.Repositories.of(context.settings_file.profile).any();
         screen.showThumbnail(context.source);
+        screen.readCatalogue(context, .start);
+    }
+
+    /// Keeps the GET MODS screen for the updates, and has it read the catalogue in the background
+    /// (`mod_catalogue.readInBackground`), where the screen opens (`.start`) with CHECK FOR UPDATES
+    /// on and a repository to read. Each pass then takes in what has arrived
+    /// (`mod_catalogue.continueReading`), so a reading GET MODS left behind goes on too.
+    fn readCatalogue(screen: *ModManager, context: Context, step: enum { start, go_on }) void {
+        const catalogue = context.catalogue orelse return;
+        screen.catalogue = catalogue;
+        const catalogue_context = catalogueContext(context);
+        if (step == .start and context.update_check and screen.has_catalogue) catalogue.readInBackground(catalogue_context);
+        catalogue.continueReading(catalogue_context);
+    }
+
+    /// What the GET MODS screen reads of a pass of this screen: the same.
+    fn catalogueContext(context: Context) mod_catalogue.Context {
+        return .{ .pointer = context.pointer, .keyboard = context.keyboard, .settings_file = context.settings_file, .ticks = context.ticks, .source = context.source };
+    }
+
+    /// The version the catalogue offers for the mod of `row`, where it is newer than the mod's
+    /// (`mod_catalogue.updateFor`); null without a catalogue.
+    fn updateFor(screen: ModManager, row: Row) ?[]const u8 {
+        const catalogue = screen.catalogue orelse return null;
+        return catalogue.updateFor(row.mod);
+    }
+
+    /// The id of the chosen mod (`Mod.qualifier`), which GET MODS opens on; null when none is
+    /// chosen.
+    fn chosenQualifier(screen: ModManager) ?[]const u8 {
+        const row = screen.chosen orelse return null;
+        return screen.rows[row].mod.qualifier();
     }
 
     /// Lets go of the thumbnails, and what REFRESH opened, as the front end closes.
@@ -475,6 +525,7 @@ pub const ModManager = struct {
         screen.list.scrollBy(pointer.wheel, context.keyboard, context.ticks);
         screen.has_options = screen.optionsOf(context.source) != null;
         screen.has_catalogue = bigfile.catalogue.Repositories.of(context.settings_file.profile).any();
+        screen.readCatalogue(context, .go_on);
         const under = screen.itemAt(pointer.at) orelse return null;
         if (!pointer.down) {
             screen.lit = under;
@@ -489,7 +540,7 @@ pub const ModManager = struct {
                 .cancel_changes => try screen.cancel(context),
             },
             .options => if (screen.optionsOf(context.source)) |mod| return .{ .options = mod },
-            .catalogue => return .catalogue,
+            .catalogue => return .{ .catalogue = screen.chosenQualifier() },
             .move => |way| try screen.move(way, context),
             .scroll => |way| {
                 screen.list.scrollHeld(way, context.ticks);
@@ -611,7 +662,8 @@ pub const ModManager = struct {
     }
 
     /// The rows shown, each a check box and the mod's name, the chosen one white, one that is on but
-    /// doesn't load red, a mod that is off dim, and the arrows, the one under the pointer lit.
+    /// doesn't load red, one with an update in the catalogue gold, a mod that is off dim, and the
+    /// arrows, the one under the pointer lit.
     fn drawList(screen: ModManager, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         if (screen.count == 0) for (empty_notes) |note| try note.write(canvas, canvas.fonts.small, canvas_module.blue);
         const loading = screen.loads();
@@ -622,7 +674,8 @@ pub const ModManager = struct {
             var named: [name_buffer]u8 = undefined;
             const is_chosen = if (screen.chosen) |chosen| chosen == at else false;
             const fails = row.damaged() or (row.on and !loading.isSet(at));
-            const colour = if (fails) canvas_module.red else if (is_chosen) canvas_module.white else canvas_module.blue;
+            const updatable = screen.updateFor(row) != null;
+            const colour = if (fails) canvas_module.red else if (is_chosen) canvas_module.white else if (updatable) canvas_module.gold else canvas_module.blue;
             try canvas.dimmedUnless(row.on).wrapped(canvas.fonts.small, box.label(.{ .words = "" }).at, nameOf(&named, row), colour, .left, .{ .width = name_width, .height = row_spacing, .most = 1 });
         }
         try arrows.draw(canvas, art, screen.litArrow(.scroll));
@@ -662,6 +715,12 @@ pub const ModManager = struct {
             try canvas.wrapped(font, .{ x, y }, line, canvas_module.blue, .left, details_lines);
             y += details_lines.height;
         };
+        // The update the catalogue offers, in gold like RESTART TO APPLY, so that it stands out.
+        if (screen.updateFor(row)) |version| {
+            const line = std.mem.print(&buffer, "UPDATE {s} AVAILABLE IN GET MODS", .{version}) catch "UPDATE AVAILABLE IN GET MODS";
+            try canvas.wrapped(font, .{ x, y }, line, canvas_module.gold, .left, note_lines);
+            y += note_lines.height * @as(i32, @intCast(note_lines.count(font, line)));
+        }
         // What goes below the description: its page, its conflicts and why it doesn't load.
         var texts: [4][name_buffer]u8 = undefined;
         var notes: [4]Note = undefined;
@@ -824,6 +883,10 @@ const Fixture = struct {
     screen: ModManager = .{},
     /// The options of the mod `beta`.
     options: mod_options.Recorder,
+    /// The GET MODS screen, and whether CHECK FOR UPDATES is on, which is off unless a test turns
+    /// it on, so that nothing is read from the web.
+    catalogue: mod_catalogue.ModCatalogue = .{},
+    update_check: bool = false,
 
     fn init(fixture: *Fixture, text: []const u8) !void {
         const gpa = std.testing.allocator;
@@ -847,12 +910,15 @@ const Fixture = struct {
         fixture.mods = try .openOrdered(gpa, io, fixture.tmp.dir, null, .{ .profile = fixture.file.profile });
         fixture.keyboard = .{};
         fixture.options = .{ .mod = "beta", .page = .{ .title = "BETA", .options = &mod_options.test_options } };
+        fixture.catalogue = .{};
+        fixture.update_check = false;
         fixture.screen = .{};
         fixture.screen.enter(fixture.context(.{}));
     }
 
     fn deinit(fixture: *Fixture) void {
         fixture.screen.deinit();
+        fixture.catalogue.deinit();
         fixture.mods.close(std.testing.allocator);
         fixture.arena.deinit();
         fixture.tmp.cleanup();
@@ -866,7 +932,7 @@ const Fixture = struct {
             .game = fixture.tmp.dir,
             .version = null,
             .pages = fixture.options.pages(),
-        } };
+        }, .catalogue = &fixture.catalogue, .update_check = fixture.update_check };
     }
 
     /// A click at `at`: the pointer there with its button up, then down.
@@ -1127,7 +1193,58 @@ test "GET MODS opens the catalogue screen when the settings file names a reposit
     fixture.file.profile = .{ .text = "" };
     fixture.screen.enter(fixture.context(.{}));
     try std.testing.expectEqual(Item.catalogue, fixture.screen.itemAt(catalogue_rect.centre()).?);
-    try std.testing.expectEqual(Leave.catalogue, fixture.click(catalogue_rect.centre()).?);
+    // It opens on the chosen mod.
+    try std.testing.expectEqualStrings("alpha", fixture.click(catalogue_rect.centre()).?.catalogue.?);
+    // Entered with CHECK FOR UPDATES off, the screen reads nothing from the web.
+    try std.testing.expectEqual(null, fixture.catalogue.reading);
+    try std.testing.expectEqual(null, fixture.catalogue.loaded);
+}
+
+test "the mods screen says which mods the catalogue offers an update for" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    // The catalogue offers delta, an archive, in a newer version, and alpha, a folder, too.
+    const digest = "abababababababababababababababababababababababababababababababab";
+    const index = "{\"mods\": [{\"id\": \"delta\", \"version\": \"2.0\", \"size\": 1, \"archive\": \"/delta.hog\", \"sha256\": \"" ++ digest ++ "\"}, {\"id\": \"alpha\", \"version\": \"2.0\", \"size\": 1, \"archive\": \"/alpha.hog\", \"sha256\": \"" ++ digest ++ "\"}]}";
+    var server: bigfile.catalogue.testing.Server = undefined;
+    try server.start(io, &.{.{ .path = "/mods.json", .body = index }});
+    defer server.stop(gpa);
+    var url: [128]u8 = undefined;
+    var text: [256]u8 = undefined;
+    var fixture: Fixture = undefined;
+    try fixture.init(try std.mem.print(&text, "[OpenReliantModRepositories]\ntest={s}\n", .{server.url(&url, "/mods.json")}));
+    defer fixture.deinit();
+    const screen = &fixture.screen;
+    try hog.testing.write(gpa, io, fixture.tmp.dir, "mods/delta.hog", &.{.{ .name = "mod.ini", .data = "[Mod]\nName=Delta mod\nVersion=1.0\n" }});
+    // REFRESH lists the archive, after alpha and beta by name.
+    try screen.refresh(fixture.context(.{}));
+    try std.testing.expectEqualStrings("delta.hog", screen.rows[2].mod.name);
+    // With CHECK FOR UPDATES off, nothing is read, and no update is known.
+    try std.testing.expectEqual(null, fixture.catalogue.reading);
+    try std.testing.expectEqual(null, screen.updateFor(screen.rows[2]));
+    // With it on, entering the screen reads the repositories in the background, and the passes
+    // take the catalogue in once it has arrived.
+    fixture.update_check = true;
+    screen.enter(fixture.context(.{}));
+    try screen.refresh(fixture.context(.{}));
+    try std.testing.expectEqual(0, fixture.catalogue.reading.?);
+    try std.testing.expectEqual(null, screen.updateFor(screen.rows[2]));
+    _ = try bigfile.catalogue.testing.wait(&fixture.catalogue.fetch);
+    try std.testing.expectEqual(null, screen.frame(fixture.context(.{})));
+    try std.testing.expectEqual(null, fixture.catalogue.reading);
+    try std.testing.expect(fixture.catalogue.loaded != null);
+    // Delta has an update; alpha, a folder, doesn't, nor the mods the catalogue doesn't list.
+    try std.testing.expectEqualStrings("2.0", screen.updateFor(screen.rows[2]).?);
+    try std.testing.expectEqual(null, screen.updateFor(screen.rows[0]));
+    try std.testing.expectEqual(null, screen.updateFor(screen.rows[1]));
+    // Entered again, the screen doesn't read the catalogue again, and the update still shows.
+    screen.enter(fixture.context(.{}));
+    try screen.refresh(fixture.context(.{}));
+    try std.testing.expectEqual(null, fixture.catalogue.reading);
+    try std.testing.expectEqualStrings("2.0", screen.updateFor(screen.rows[2]).?);
+    // GET MODS opens on the chosen mod.
+    try std.testing.expectEqual(null, fixture.click(nameRect(2).centre()));
+    try std.testing.expectEqualStrings("delta", fixture.click(catalogue_rect.centre()).?.catalogue.?);
 }
 
 test "a mod the settings file can't keep stays on and in place" {

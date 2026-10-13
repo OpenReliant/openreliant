@@ -160,6 +160,12 @@ again, to find mods you've added or removed while the screen is open.
   replaces (REPLACES FILES OF), and the mods below it that replace its own (FILES REPLACED BY).
 - A mod that won't load is listed in red, and the panel says why: a damaged archive
   ([Checksums](#checksums)), or a mod it needs (`Requires`) that is missing, off, or below it.
+- A mod the catalogue on the web offers in a newer version is listed in gold, and the panel says
+  UPDATE AVAILABLE IN GET MODS with the version. With CHECK FOR UPDATES ticked on the VIDEO tab
+  ([Newer releases](configuration.md#newer-releases)), the screen reads the catalogue in the
+  background as it opens, once per run; unticked, it reads nothing, and shows what GET MODS has
+  read. GET MODS opens the catalogue on the chosen mod ([Getting mods from the
+  catalogue](#getting-mods-from-the-catalogue)).
 
 The screen keeps the order and which mods are off in `starlancer.ini` in the game's folder, in its
 own section, one line for each mod: the mod's name in the `mods` folder, and 1 if it's on or 0 if
@@ -219,8 +225,7 @@ CATALOG POINTS AT THIS COMPUTER. A server that stops answering fails with THE SE
 an index or a thumbnail gives up after a minute, or after 15 seconds with nothing arriving, and an
 archive after 30 seconds with nothing arriving. RELOAD then reads the repositories again, and tries
 again the thumbnails that failed. Quitting OpenReliant never waits for a download. The screen lists
-at most 127 mods. The mods screen doesn't say yet which of its mods have an update
-([#1041](https://github.com/OpenReliant/openreliant/issues/1041)).
+at most 127 mods.
 
 OpenReliant records the mods GET MODS installs in `starlancer.ini`, in the section
 `[OpenReliantInstalledMods]`, one line for each: the archive's name, and the repository it came

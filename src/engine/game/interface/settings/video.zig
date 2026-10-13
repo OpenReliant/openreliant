@@ -11,7 +11,9 @@
 //! **Improvement:** RESOLUTION chooses the size OpenReliant draws its frames at, a share of the
 //! window's own, where the game's chooses the display's mode. FULL SCREEN, VSYNC, FRAME RATE LIMIT,
 //! FIELD OF VIEW and CHECK FOR UPDATES are OpenReliant's own. They change at once, as the driver
-//! applies them (`settings.Own`), but for CHECK FOR UPDATES, which takes effect at the next start.
+//! applies them (`settings.Own`), but for CHECK FOR UPDATES, whose check for a newer release takes
+//! effect at the next start; its reading of the catalogue for updates to the mods, on the mods
+//! screen, takes effect at once.
 //!
 //! Not ported: 3D RENDER MODE, which chooses the game's Direct3D device; and TEXTURE DETAIL, GRAPHIC
 //! DETAIL and LIGHT MAPS, at whose highest OpenReliant draws

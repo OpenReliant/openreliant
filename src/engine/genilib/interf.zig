@@ -325,6 +325,9 @@ pub const Interface = struct {
     scripted_shown: ?Screen = null,
     /// The mod the mods screen has opened the options of, while they are shown.
     options_of: []const u8 = "",
+    /// The id of the mod the mods screen had chosen as it opened GET MODS, which GET MODS chooses
+    /// as it is entered; none once it has.
+    catalogue_of: ?[]const u8 = null,
     pilot_roster: pilot_roster.Roster = .{},
     saved_games: saved_games.SavedGames = .{},
     /// The pilot the roster sets, which every mission the front end starts is flown by.
@@ -442,7 +445,10 @@ pub const Interface = struct {
                         front.options_of = mod;
                         front.screen = .mod_options;
                     },
-                    .catalogue => front.screen = .mod_catalog,
+                    .catalogue => |chosen| {
+                        front.catalogue_of = chosen;
+                        front.screen = .mod_catalog;
+                    },
                 }
                 return null;
             },
@@ -655,7 +661,12 @@ pub const Interface = struct {
                 if (front.mods_installed) front.mod_manager.refresh(mods_context) catch |err| log.warn("the mods folder can't be read again: {s}", .{@errorName(err)});
                 front.mods_installed = false;
             },
-            .mod_catalog => if (context.settings) |settings_file| if (context.mods) |mods| front.mod_catalogue.enter(catalogueContext(front, context, settings_file, mods, front.pointer)),
+            .mod_catalog => if (context.settings) |settings_file| if (context.mods) |mods| {
+                front.mod_catalogue.enter(catalogueContext(front, context, settings_file, mods, front.pointer));
+                // On the mod the mods screen had chosen, where the catalogue lists it.
+                if (front.catalogue_of) |chosen| front.mod_catalogue.chooseMod(chosen);
+                front.catalogue_of = null;
+            },
             .mod_options => if (context.mods) |mods| {
                 const shown = front.mod_options.enter(front.options_of, optionsContext(front, context, mods, front.pointer));
                 if (!shown) front.screen = .mods;
@@ -779,8 +790,11 @@ fn settingsContext(front: *const Interface, context: Context, settings_file: *pr
 }
 
 /// What a pass of the mods screen reads, with the pointer at `pointer`.
-fn modsContext(front: *const Interface, context: Context, settings_file: *profile.File, source: mod_manager.Source, pointer: canvas.Pointer) mod_manager.Context {
-    return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .settings_file = settings_file, .ticks = front.ticks, .source = source };
+fn modsContext(front: *Interface, context: Context, settings_file: *profile.File, source: mod_manager.Source, pointer: canvas.Pointer) mod_manager.Context {
+    // The mods screen reads the catalogue through the GET MODS screen, where CHECK FOR UPDATES is
+    // on; without OpenReliant's options, as in the tests, it reads nothing from the web.
+    const update_check = if (context.own) |own| own.display().chosen.update_check else false;
+    return .{ .pointer = pointer, .keyboard = &context.devices.keyboard, .settings_file = settings_file, .ticks = front.ticks, .source = source, .catalogue = &front.mod_catalogue, .update_check = update_check };
 }
 
 /// What a pass of the GET MODS screen reads, with the pointer at `pointer`.

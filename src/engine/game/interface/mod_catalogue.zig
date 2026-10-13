@@ -18,8 +18,10 @@
 //! listed in red and can't be installed, and a folder mod of the same name, copied in by hand, is
 //! left as it is: the loader would load both it and the archive.
 //!
-//! Not yet: updates shown on the mods screen itself
-//! ([#1041](https://github.com/OpenReliant/openreliant/issues/1041)).
+//! The mods screen uses the catalogue too, to say which of its mods have an update: as it opens,
+//! with CHECK FOR UPDATES on, it has this screen read the repositories in the background
+//! (`readInBackground`, `continueReading`), and asks it which version the catalogue offers for
+//! each mod (`updateFor`). The catalogue read once serves both screens until RELOAD.
 //!
 //! **Improvement:** the original has no mods, and never reads the web.
 
@@ -397,6 +399,14 @@ pub const ModCatalogue = struct {
         return writer.buffered();
     }
 
+    /// Starts reading the repositories for the mods screen, while this screen isn't shown, unless
+    /// the catalogue is read already or being read. The mods screen then calls `continueReading`
+    /// each pass, as this screen's own passes do.
+    pub fn readInBackground(screen: *ModCatalogue, context: Context) void {
+        screen.running = context.source.version;
+        if (screen.loaded == null and screen.reading == null) screen.startReading(context);
+    }
+
     /// Starts reading the repositories the settings file names, the first one first (`readNext`),
     /// into a new catalogue. Without a repository, nothing is read: GET MODS is hidden then.
     fn startReading(screen: *ModCatalogue, context: Context) void {
@@ -491,13 +501,51 @@ pub const ModCatalogue = struct {
         if (entry.needsLater(screen.running) != null) return .none;
         return switch (screen.statusOf(entry)) {
             .absent => .install,
-            .installed => |installed| {
-                if (installed.folder) return .none;
-                const have = bigfile.mods.parseVersion(installed.version orelse return .install) orelse return .install;
-                const offered = entry.semantic() orelse return .install;
-                return if (offered.order(have) == .gt) .update else .none;
-            },
+            .installed => |installed| if (installed.folder) .none else offeredFor(entry, installed.version),
         };
+    }
+
+    /// What INSTALL does for the catalogue's `entry` where the mod is installed as an archive in the
+    /// version `installed`: update it where the catalogue's version is newer, install it again where
+    /// either version can't be read, and nothing otherwise.
+    fn offeredFor(entry: Entry, installed: ?[]const u8) Action {
+        const have = bigfile.mods.parseVersion(installed orelse return .install) orelse return .install;
+        const offered = entry.semantic() orelse return .install;
+        return if (offered.order(have) == .gt) .update else .none;
+    }
+
+    /// The version the catalogue offers for `mod`, a mod in the `mods` folder, where UPDATE would
+    /// install it: the catalogue lists the mod's id in a newer version that this OpenReliant can
+    /// run, and the mod is an archive, not a folder copied in by hand. Null otherwise, and until
+    /// the catalogue is read. The mods screen shows it.
+    pub fn updateFor(screen: ModCatalogue, mod: *const Mod) ?[]const u8 {
+        if (mod.source == .folder) return null;
+        for (screen.entries()) |entry| {
+            if (!std.ascii.eqlIgnoreCase(entry.id, mod.qualifier())) continue;
+            if (entry.needsLater(screen.running) != null) return null;
+            return if (offeredFor(entry, mod.about(.version)) == .update) entry.version else null;
+        }
+        return null;
+    }
+
+    /// Chooses the mod whose id is `qualifier`, unfolding its group and scrolling the list to it,
+    /// where the catalogue lists it; otherwise the choice stays. The mods screen asks for the mod
+    /// it had chosen as GET MODS opens.
+    pub fn chooseMod(screen: *ModCatalogue, qualifier: []const u8) void {
+        const index: u8 = for (screen.entries(), 0..) |entry, index| {
+            if (std.ascii.eqlIgnoreCase(entry.id, qualifier)) break @intCast(index);
+        } else return;
+        screen.chosen = index;
+        const group = groupOf(screen.entries()[index]);
+        for (screen.groups[0..screen.group_count], 0..) |name, at| {
+            if (std.ascii.eqlIgnoreCase(name, group)) screen.folded.unset(at);
+        }
+        screen.makeRows();
+        screen.list.rows.count = screen.row_count;
+        const row: u8 = for (screen.rows[0..screen.row_count], 0..) |row, at| {
+            if (row == .mod and row.mod == index) break @intCast(at);
+        } else return;
+        while (screen.list.place(row) == null) screen.list.rows.scroll(if (row < screen.list.rows.first) .up else .down);
     }
 
     /// What INSTALL does for the selected mod; nothing when no mod is selected.
@@ -516,7 +564,7 @@ pub const ModCatalogue = struct {
     /// downloads finish, then handles the input. Returns how the screen ends, once it does.
     pub fn frame(screen: *ModCatalogue, context: Context) ?Leave {
         screen.running = context.source.version;
-        screen.takeCatalogue(context);
+        screen.continueReading(context);
         screen.takeInstall(context);
         screen.takeThumbnail(context.source);
         if (context.keyboard.pressed(input.scan.escape, .none, true)) return .{ .mods = .{ .installed = screen.installed_any } };
@@ -548,8 +596,10 @@ pub const ModCatalogue = struct {
     }
 
     /// Once the index of the repository being read has downloaded, or has failed to, adds its mods
-    /// to the catalogue being gathered, and goes on to the next repository.
-    fn takeCatalogue(screen: *ModCatalogue, context: Context) void {
+    /// to the catalogue being gathered, and goes on to the next repository. Nothing happens while
+    /// no repository is being read. The mods screen calls it too, each pass, while it reads the
+    /// catalogue in the background.
+    pub fn continueReading(screen: *ModCatalogue, context: Context) void {
         const index = screen.reading orelse return;
         const gpa = context.source.gpa;
         switch (screen.fetch.state()) {
@@ -1298,6 +1348,33 @@ test "CANCEL stops the download of the chosen mod, and nothing is left of it" {
     try std.testing.expectEqualStrings("INSTALLED 1.2 BY HAND, UPDATE TO 1.3", screen.statusLine(&buffer, 0).?.text);
     try std.testing.expectError(error.FileNotFound, fixture.tmp.dir.access(io, "mods/alpha.hog.part", .{}));
     try std.testing.expectEqual(Leave{ .mods = .{ .installed = false } }, fixture.click(Button.ok.rect().centre()).?);
+}
+
+test "the mods screen asks which version the catalogue offers for a mod, and GET MODS opens on it" {
+    var fixture: Fixture = undefined;
+    try fixture.initOffline();
+    defer fixture.deinit();
+    const screen = &fixture.screen;
+    // Alpha, an archive in 1.2, has 1.3 in the catalogue. Gamma is a folder copied in by hand, so
+    // it has none, though the catalogue offers 2.0.
+    var alpha: ?*const Mod = null;
+    var gamma: ?*const Mod = null;
+    for ([_][]const Mod{ fixture.mods.list, fixture.mods.off, fixture.mods.damaged, fixture.mods.unmet }) |each| for (each) |*mod| {
+        if (std.mem.eql(u8, mod.name, "alpha.hog")) alpha = mod;
+        if (std.mem.eql(u8, mod.name, "gamma")) gamma = mod;
+    };
+    try std.testing.expectEqualStrings("1.3", screen.updateFor(alpha.?).?);
+    try std.testing.expectEqual(null, screen.updateFor(gamma.?));
+    // Opened on Beta, in the folded SHIPS group, the screen chooses it and unfolds the group.
+    screen.fold(0);
+    try std.testing.expectEqual(3, screen.row_count);
+    screen.chooseMod("BETA");
+    try std.testing.expectEqual(1, screen.chosen.?);
+    try std.testing.expectEqual(5, screen.row_count);
+    try std.testing.expect(!screen.folded.isSet(0));
+    // An id the catalogue doesn't list changes nothing.
+    screen.chooseMod("nothing");
+    try std.testing.expectEqual(1, screen.chosen.?);
 }
 
 test sizeText {

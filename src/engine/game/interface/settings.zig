@@ -146,7 +146,8 @@ pub const Own = struct {
             /// (`camera.factorsFor`).
             field_of_view: f32 = camera.original_field_of_view,
             /// Whether OpenReliant checks for a newer release of itself as it starts, which the
-            /// main menu shows the player (`main_menu.Release`).
+            /// main menu shows the player (`main_menu.Release`), and whether the mods screen reads
+            /// the catalogue of mods for updates to the installed mods (`mod_manager`).
             update_check: bool = true,
         };
 
