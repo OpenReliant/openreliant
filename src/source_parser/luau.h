@@ -1,5 +1,6 @@
-/* The bridge between Luau's parser and mission source (`source_parser.zig`). Luau's syntax tree is
- * C++, so `luau.cpp` writes it into these flat arrays, which Zig reads as the library's tree
+/* The bridge between Luau's parser and mission source (`source_parser.zig`), which also checks the
+ * definitions files OpenReliant writes for luau-lsp. Luau's syntax tree is C++, so `luau.cpp`
+ * writes it into these flat arrays, which Zig reads as the library's tree
  * (`formats/dte/source/syntax.zig`). Lines and columns count from 0, as Luau counts them. */
 #ifndef OPENRELIANT_SOURCE_PARSER_LUAU_H
 #define OPENRELIANT_SOURCE_PARSER_LUAU_H
@@ -110,8 +111,10 @@ typedef struct {
 extern "C" {
 #endif
 
-/* Parses `length` bytes of `source` as Luau. Null when memory runs out. */
-OrTree *openreliant_parse_luau(const char *source, size_t length);
+/* Parses `length` bytes of `source` as Luau. With `declarations` set, it also reads the
+ * declarations of a definitions file, such as `declare function`, as luau-lsp reads one; their
+ * nodes are unsupported ones. Null when memory runs out. */
+OrTree *openreliant_parse_luau(const char *source, size_t length, int declarations);
 
 /* Frees a tree that `openreliant_parse_luau` gave. */
 void openreliant_luau_tree_free(OrTree *tree);

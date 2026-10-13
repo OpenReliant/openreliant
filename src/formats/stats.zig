@@ -241,6 +241,10 @@ pub const Gun = extern struct {
 /// The loadout screen shows four values, labelled from `LANGUAGE.DLL`: Locking Time, Speed, Range
 /// and Damage.
 pub const Missile = extern struct {
+    /// The name scripts know these records by, which tells them apart from the missiles in flight
+    /// that scripts hold as `Missile`.
+    pub const script_name = "MissileRecord";
+
     name: [name_size]u8,
     /// Shown as **Speed**.
     speed: f32,

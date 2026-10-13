@@ -137,6 +137,8 @@ pub fn build(b: *std.Build) void {
     source_parser.linkLibrary(luau_ast_library);
     source_parser.addIncludePath(luau_ast_library.getEmittedIncludeTree());
     source_parser.addCSourceFile(.{ .file = b.path("src/source_parser/luau.cpp"), .flags = &.{ "-std=c++17", "-fno-sanitize=undefined" } });
+    // The scripting API's definitions, which its tests parse as luau-lsp reads them.
+    source_parser.addAnonymousImport("openreliant.d.luau", .{ .root_source_file = b.path("docs/guide/openreliant.d.luau") });
     // The installer unpacks the game's cabinet with libarchive, which deps/libarchive builds from
     // source for the target.
     const archive_dependency = b.dependency("libarchive", .{ .target = target, .optimize = optimize });

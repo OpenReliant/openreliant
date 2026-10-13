@@ -3,7 +3,8 @@
 //! text and writes the syntax tree into flat arrays, and `parse` copies them into the library's
 //! tree (`dte.source.syntax`). `build` compiles the text into a mission file. It is a module of its
 //! own because it links Luau's parser, which the library the tools share doesn't, and so it holds
-//! the tests that compile source.
+//! the tests that compile source, and the test that the definitions files OpenReliant writes for
+//! luau-lsp parse.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -16,7 +17,18 @@ const luau = @import("luau_syntax");
 
 /// Parses `text` as Luau, into a tree in `arena` with the errors Luau's parser found.
 pub fn parse(arena: Allocator, text: []const u8) Allocator.Error!syntax.Tree {
-    const parsed: ?*luau.OrTree = luau.openreliant_parse_luau(text.ptr, text.len);
+    return read(arena, text, false);
+}
+
+/// The errors Luau's parser finds in `text`, a definitions file read as luau-lsp reads one, with
+/// declarations such as `declare function`.
+pub fn definitionErrors(arena: Allocator, text: []const u8) Allocator.Error![]const syntax.Error {
+    return (try read(arena, text, true)).errors;
+}
+
+/// Parses `text` as Luau, with the declarations of a definitions file where `declarations` is set.
+fn read(arena: Allocator, text: []const u8, declarations: bool) Allocator.Error!syntax.Tree {
+    const parsed: ?*luau.OrTree = luau.openreliant_parse_luau(text.ptr, text.len, @intFromBool(declarations));
     const tree = parsed orelse return error.OutOfMemory;
     defer luau.openreliant_luau_tree_free(tree);
     const nodes: [*]const syntax.Node = @ptrCast(tree.nodes);
@@ -192,6 +204,22 @@ test "the parser's errors and their places" {
     const empty = try parse(arena, "");
     try std.testing.expectEqual(0, empty.errors.len);
     try std.testing.expectEqual(0, empty.get(empty.root).block.len);
+}
+
+test definitionErrors {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    // The scripting API's definitions, as `make definitions` writes them, parse as luau-lsp reads
+    // them, so a Luau update that changes the syntax fails here rather than in modders' editors.
+    const errors = try definitionErrors(arena, @embedFile("openreliant.d.luau"));
+    for (errors) |found| std.debug.print("openreliant.d.luau:{f}: {s}\n", .{ found.at, found.message });
+    try std.testing.expectEqual(0, errors.len);
+    // Declarations parse only in a definitions file, and the syntax Luau has dropped doesn't.
+    const declaration = "declare function launch(gate: number): ()\n";
+    try std.testing.expectEqual(0, (try definitionErrors(arena, declaration)).len);
+    try std.testing.expect((try parse(arena, declaration)).errors.len > 0);
+    try std.testing.expect((try definitionErrors(arena, "declare class Ship\nend\n")).len > 0);
 }
 
 /// A mission with every kind of record, every form of the script and each way a line that doesn't

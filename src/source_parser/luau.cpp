@@ -219,13 +219,15 @@ template <typename T> T *copy(const T *items, size_t count) {
 
 } // namespace
 
-extern "C" OrTree *openreliant_parse_luau(const char *source, size_t length) {
+extern "C" OrTree *openreliant_parse_luau(const char *source, size_t length, int declarations) {
     OrTree *tree = static_cast<OrTree *>(calloc(1, sizeof(OrTree)));
     if (!tree) return nullptr;
     try {
         Luau::Allocator allocator;
         Luau::AstNameTable names(allocator);
-        Luau::ParseResult result = Luau::Parser::parse(source, length, names, allocator);
+        Luau::ParseOptions options;
+        options.allowDeclarationSyntax = declarations != 0;
+        Luau::ParseResult result = Luau::Parser::parse(source, length, names, allocator, options);
         Builder builder;
         // An error that stops the parser, such as code nested too deep, leaves no chunk: the tree
         // is an empty block, with the error.

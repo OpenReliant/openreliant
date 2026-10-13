@@ -36,10 +36,18 @@ fn held(comptime T: type) bool {
     return T == Object or T == objects.Handle or T == engine_hooks.Missile or T == missiles.Handle or T == engine_hooks.Turret or T == turrets.Handle or T == data.Data or T == values.Table or T == []const u8;
 }
 
-/// Whether `T` is one of the records' structs, which the definitions declare as classes.
+/// Whether `T` is one of the records' structs, which the definitions declare as extern types.
 fn isRecord(comptime T: type) bool {
     return std.mem.findScalar(type, records.Values.kinds, T) != null;
 }
+
+/// The kinds of handle scripts hold, which the definitions declare as extern types: each one's
+/// name, fields and methods.
+const handle_kinds = .{
+    .{ "Object", objects.fields, objects.methods },
+    .{ "Missile", missiles.fields, missiles.methods },
+    .{ "Turret", turrets.fields, turrets.methods },
+};
 
 /// The types of what a declared function takes and gives; nothing for a native one.
 fn functionTypes(comptime F: type) []const type {
@@ -127,11 +135,16 @@ const gathered: Gathered = found: {
     @setEvalBranchQuota(10_000_000);
     var seen: Gathered = .{};
     for (roots) |T| seen = gather(T, seen);
-    // Each takes a name of its own.
-    const all = seen.enums ++ seen.tables;
-    for (all, 0..) |T, at| {
-        for (all[at + 1 ..]) |other| {
-            if (std.mem.eql(u8, bind.noun(T), bind.noun(other))) @compileError("two types scripts see are named " ++ bind.noun(T) ++ ": give one a script_name");
+    // Each type takes a name of its own, and so do the records and the handles.
+    var names: []const []const u8 = &.{};
+    for (seen.enums ++ seen.tables) |T| names = names ++ .{bind.noun(T)};
+    for (records.Values.kinds) |T| {
+        if (@typeInfo(T) == .@"struct") names = names ++ .{bind.noun(T)};
+    }
+    for (handle_kinds) |kind| names = names ++ .{kind[0]};
+    for (names, 0..) |name, at| {
+        for (names[at + 1 ..]) |other| {
+            if (std.mem.eql(u8, name, other)) @compileError("two types scripts see are named " ++ name ++ ": give one a script_name");
         }
     }
     break :found seen;
@@ -151,22 +164,33 @@ fn gather(comptime T: type, comptime seen: Gathered) Gathered {
             for (values.shownFields(T)) |field| next = gather(field.type, next);
             break :fields next;
         },
+        .@"union" => |info| variants: {
+            var next = seen;
+            for (info.field_types) |Variant| next = gather(Variant, next);
+            break :variants next;
+        },
         else => seen,
     };
 }
 
-/// Declares the class `name` of the handles whose fields are `Fields` and whose methods are
+/// Whether the definitions declare a type for the enum or struct `T`: one `roots` reaches, or a
+/// record.
+fn isDeclared(comptime T: type) bool {
+    return isRecord(T) or std.mem.findScalar(type, gathered.enums, T) != null or std.mem.findScalar(type, gathered.tables, T) != null;
+}
+
+/// Declares the extern type `name` of the handles whose fields are `Fields` and whose methods are
 /// `Methods`, for the definitions file.
 fn writeHandleClass(w: *Writer, comptime name: []const u8, comptime Fields: type, comptime Methods: type) Writer.Error!void {
-    try w.writeAll("declare class " ++ name ++ "\n");
+    try w.writeAll("declare extern type " ++ name ++ " with\n");
     inline for (comptime api.declared(Fields, .field)) |field_name| {
         const field = @field(Fields, field_name);
-        try w.print("    -- {s}\n    {s}: {s}\n", .{ field.description, field_name, comptime luauType(field.Type) });
+        try w.print("    --- {s}\n    {s}: {s}\n", .{ field.description, field_name, comptime luauType(field.Type) });
     }
     inline for (comptime api.declared(Methods, .function)) |method_name| {
         const method = @field(Methods, method_name);
         const parameters = comptime parameterList(method, 1);
-        try w.print("    -- {s}\n    function {s}(self{s}{s}): {s}\n", .{ method.description, method_name, if (parameters.len > 0) ", " else "", parameters, comptime resultType(method) });
+        try w.print("    --- {s}\n    function {s}(self{s}{s}): {s}\n", .{ method.description, method_name, if (parameters.len > 0) ", " else "", parameters, comptime resultType(method) });
     }
     try w.writeAll("end\n");
 }
@@ -200,7 +224,7 @@ fn luauType(comptime T: type) []const u8 {
             .void => api.nothing,
             .float, .int => "number",
             .bool => "boolean",
-            .@"enum", .@"struct" => bind.noun(T),
+            .@"enum", .@"struct" => if (isDeclared(T)) bind.noun(T) else @compileError("the definitions don't declare " ++ @typeName(T)),
             .optional => |optional| if (@typeInfo(optional.child) == .@"union") "(" ++ luauType(optional.child) ++ ")?" else luauType(optional.child) ++ "?",
             .vector => "vector",
             .array => |array| if (array.child == u8) "string" else "{ " ++ luauType(array.child) ++ " }",
@@ -311,18 +335,18 @@ fn handlerParameters(comptime handler: script.Handler) []const u8 {
 pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     @setEvalBranchQuota(10_000_000);
     try w.writeAll(
-        \\-- The types of OpenReliant's scripting API, for Luau's language server (luau-lsp). Point its
-        \\-- luau-lsp.types.definitionFiles setting at this file, and give each package's local its type,
-        \\-- such as `local hooks: Hooks = require("openreliant.hooks")`, for completion and type checks.
-        \\-- Generated by `openreliant hooks --definitions` from OpenReliant's bindings; don't change it
-        \\-- by hand.
+        \\-- The types of OpenReliant's scripting API, for Luau's language server (luau-lsp). Add this
+        \\-- file to its luau-lsp.types.definitionFiles setting under a name, such as "@openreliant", and
+        \\-- give each package's local its type, such as `local hooks: Hooks = require("openreliant.hooks")`,
+        \\-- for completion, descriptions and type checks. Generated by `openreliant hooks --definitions`
+        \\-- from OpenReliant's bindings; don't change it by hand.
         \\
         \\
     );
 
     try w.writeAll("-- Names of values. A value without a name is a number.\n\n");
     inline for (gathered.enums) |T| {
-        try w.print("type {s} = ", .{comptime bind.noun(T)});
+        try w.print("export type {s} = ", .{comptime bind.noun(T)});
         inline for (comptime values.names(T), 0..) |name, at| {
             if (at > 0) try w.writeAll(" | ");
             try w.print("\"{s}\"", .{name});
@@ -336,53 +360,51 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     inline for (gathered.tables) |T| try writeTable(w, comptime bind.noun(T), T);
 
     try w.writeAll("\n-- Objects, missiles and turrets, which scripts hold by handles.\n\n");
-    try writeHandleClass(w, "Object", objects.fields, objects.methods);
-    try writeHandleClass(w, "Missile", missiles.fields, missiles.methods);
-    try writeHandleClass(w, "Turret", turrets.fields, turrets.methods);
+    inline for (handle_kinds) |kind| try writeHandleClass(w, kind[0], kind[1], kind[2]);
 
     try w.writeAll("\n-- The records (`openreliant.records`).\n\n");
     inline for (comptime records.Values.kinds) |T| {
         if (@typeInfo(T) != .@"struct") continue;
-        try w.print("declare class {s}\n", .{comptime bind.noun(T)});
+        try w.print("declare extern type {s} with\n", .{comptime bind.noun(T)});
         inline for (comptime values.shownFields(T)) |field| try w.print("    {s}: {s}\n", .{ field.name, comptime luauType(field.type) });
         try w.writeAll("end\n");
     }
     inline for (field_tables) |Table| {
-        try w.print("declare class {s}\n", .{Table.script_name});
+        try w.print("declare extern type {s} with\n", .{Table.script_name});
         inline for (comptime std.enums.values(Table.Field)) |field| try w.print("    {t}: {s}\n", .{ field, comptime luauType(Table.TypeOf(field)) });
         try w.writeAll("end\n");
     }
-    try w.writeAll("type Records = {\n");
+    try w.writeAll("export type Records = {\n");
     inline for (comptime std.enums.values(records.Set)) |set| {
         const Element = set.Element();
         const element = comptime if (Element == []const u8) "string" else bind.noun(Element);
         try w.print("    {s}: {{ [number | string]: {s} }},\n", .{ @tagName(set), element });
     }
-    try w.writeAll("    -- The campaign's missions, by their numbers, in the order it flies them. Load scripts change it by assigning a new list.\n");
+    try w.writeAll("    --- The campaign's missions, by their numbers, in the order it flies them. Load scripts change it by assigning a new list.\n");
     try w.writeAll("    campaign: { number },\n");
-    try w.writeAll("    -- The colour of the light the planets get, nil for the key lights' colour, (1, 1, 0.8), as the original lights them. Only the planets and their atmospheres take this light, so a mod can light them without lighting any other model. Load scripts set it.\n");
+    try w.writeAll("    --- The colour of the light the planets get, nil for the key lights' colour, (1, 1, 0.8), as the original lights them. Only the planets and their atmospheres take this light, so a mod can light them without lighting any other model. Load scripts set it.\n");
     try w.writeAll("    planet_light: vector?,\n");
     inline for (field_tables) |Table| {
-        try w.print("    -- {s}\n    {s}: {{ [number]: {s} }},\n", .{ Table.entries_about, Table.list_name, Table.script_name });
+        try w.print("    --- {s}\n    {s}: {{ [number]: {s} }},\n", .{ Table.entries_about, Table.list_name, Table.script_name });
     }
     try w.writeAll("}\n");
 
     try w.writeAll("\n-- The packages made from declarations. `openreliant.self` is the script's own Object.\n");
     inline for (comptime std.enums.values(script.Package)) |package| {
         if (comptime packages.namespace(package)) |Namespace| {
-            try w.print("\n-- {s}\ntype {s} = {{\n", .{ package.about(), comptime pascal(@tagName(package)) });
+            try w.print("\n--- {s}\nexport type {s} = {{\n", .{ package.about(), comptime pascal(@tagName(package)) });
             inline for (comptime api.declared(Namespace, .field)) |name| {
                 const field = @field(Namespace, name);
-                try w.print("    -- {s}\n    {s}: {s},\n", .{ field.description, name, comptime luauType(field.Type) });
+                try w.print("    --- {s}\n    {s}: {s},\n", .{ field.description, name, comptime luauType(field.Type) });
             }
             inline for (comptime api.declared(Namespace, .function)) |name| {
                 const function = @field(Namespace, name);
-                try w.print("    -- {s}\n    {s}: {s},\n", .{ function.description, name, comptime functionType(function) });
+                try w.print("    --- {s}\n    {s}: {s},\n", .{ function.description, name, comptime functionType(function) });
             }
             try w.writeAll("}\n");
         }
     }
-    try w.print("\n-- {s}\ntype Interfaces = {{\n", .{script.Package.interfaces.about()});
+    try w.print("\n--- {s}\nexport type Interfaces = {{\n", .{script.Package.interfaces.about()});
     inline for (comptime std.enums.values(@import("builtin_interfaces.zig").Group)) |tag| {
         const Namespace = comptime tag.namespace();
         try w.print("    {s}: {{\n", .{@tagName(tag)});
@@ -397,19 +419,19 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         try w.writeAll("    },\n");
     }
     try w.writeAll("    [string]: any,\n}\n");
-    try w.writeAll("\n-- A section of a mod's storage: its fields by name, each plain data. Reading one gives a copy.\ntype Section = { [string]: any }\n");
+    try w.writeAll("\n--- A section of a mod's storage: its fields by name, each plain data. Reading one gives a copy.\nexport type Section = { [string]: any }\n");
 
     try w.writeAll(
         \\
-        \\-- The hooks (`openreliant.hooks`). Each handler gets `e`, whose class is named after the hook.
+        \\-- The hooks (`openreliant.hooks`). Each handler gets `e`, whose type is named after the hook.
         \\
-        \\declare class HookHandle
-        \\    -- Removes the handler. Returns whether it was there.
+        \\declare extern type HookHandle with
+        \\    --- Removes the handler. Returns whether it was there.
         \\    function remove(self): boolean
         \\end
         \\
-        \\-- The objects a handler is for: each test that's given must hold.
-        \\type Filter = {
+        \\--- The objects a handler is for: each test that's given must hold.
+        \\export type Filter = {
         \\    object: Object?,
         \\    type: (ShipType | { ShipType })?,
         \\    class: (ShipClass | { ShipClass })?,
@@ -431,10 +453,10 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     try writeAdd(w, false);
     try writeAdd(w, true);
     try w.print(
-        \\type Hooks = {{
-        \\    -- Adds a handler that runs before the hook's function, or when its event happens.
+        \\export type Hooks = {{
+        \\    --- Adds a handler that runs before the hook's function, or when its event happens.
         \\    add: {s},
-        \\    -- Adds a handler that runs after the hook's function, which sees its result in e.result.
+        \\    --- Adds a handler that runs after the hook's function, which sees its result in e.result.
         \\    after: {s},
         \\}}
         \\
@@ -442,7 +464,7 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
         \\
     , .{ hooks.add_type, hooks.after_type });
     inline for (running_families) |family| {
-        try w.print("\ntype {s}Script = {{\n    engine_handlers: {{\n", .{comptime pascal(@tagName(family))});
+        try w.print("\nexport type {s}Script = {{\n    engine_handlers: {{\n", .{comptime pascal(@tagName(family))});
         inline for (comptime std.enums.values(script.Handler)) |handler| {
             if (comptime called(handler) and handler.givenBy(family)) {
                 try w.print("        {t}: (({s}) -> {s})?,\n", .{ handler, comptime handlerParameters(handler), comptime luauType(handler.Result()) });
@@ -461,26 +483,26 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     }
 }
 
-/// Writes the class of `hook`'s `e`.
+/// Writes the extern type of `hook`'s `e`.
 fn writeEventClass(w: *Writer, comptime hook: Hook, comptime class: []const u8) Writer.Error!void {
     const declared = comptime engine_hooks.declaration(hook);
     if (comptime engine_hooks.Fields(hook) == engine_hooks.RoutineFields) {
-        try w.print("\n-- What a hook on one of the order table's routines sees.\ndeclare class {s}\n", .{class});
+        try w.print("\n--- What a hook on one of the order table's routines sees.\ndeclare extern type {s} with\n", .{class});
     } else {
-        try w.print("\n-- {s}\ndeclare class {s}\n", .{ declared.about, class });
+        try w.print("\n--- {s}\ndeclare extern type {s} with\n", .{ declared.about, class });
     }
     inline for (comptime values.shownFields(declared.Fields)) |field| try w.print("    {s}: {s}\n", .{ field.name, comptime luauType(field.type) });
     if (declared.Result != void) try w.print("    result: {s}\n", .{comptime luauType(declared.Result)});
     if (declared.on.isFunction()) {
         const returned = comptime if (declared.Result == void) api.nothing else luauType(declared.Result) ++ "?";
-        try w.print("    -- Runs the rest of the call now: the handlers after this one, then the function.\n    function original(self): {s}\n", .{returned});
+        try w.print("    --- Runs the rest of the call now: the handlers after this one, then the function.\n    function original(self): {s}\n", .{returned});
     }
     try w.writeAll("end\n");
 }
 
 /// Writes the type of `hooks.add`, or of `hooks.after`, whose hooks are only the functions'.
 fn writeAdd(w: *Writer, comptime functions_only: bool) Writer.Error!void {
-    try w.print("\ntype {s} = ", .{if (functions_only) hooks.after_type else hooks.add_type});
+    try w.print("\nexport type {s} = ", .{if (functions_only) hooks.after_type else hooks.add_type});
     var first = true;
     inline for (comptime std.enums.values(Hook)) |hook| {
         const declared = comptime engine_hooks.declaration(hook);
@@ -497,7 +519,7 @@ fn writeAdd(w: *Writer, comptime functions_only: bool) Writer.Error!void {
 
 /// Writes a table type of `T`'s fields, as `values.pushTable` gives them.
 fn writeTable(w: *Writer, comptime name: []const u8, comptime T: type) Writer.Error!void {
-    try w.print("type {s} = {{\n", .{name});
+    try w.print("export type {s} = {{\n", .{name});
     inline for (comptime values.shownFields(T)) |field| {
         // A field with a default can be left out of a table a script gives.
         const optional = if (comptime given(T) and field.defaultValue() != null and @typeInfo(field.type) != .optional) "?" else "";

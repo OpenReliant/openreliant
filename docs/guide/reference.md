@@ -1364,6 +1364,18 @@ A table a script gives, which may leave out a field with a default.
 | `ending` | string, or nil | nil |
 | `records` | string, or nil | nil |
 
+### GameModeMissionTable
+
+A table a script gives, which may leave out a field with a default.
+
+| Field | Type | Default |
+|---|---|---|
+| `number` | number | needed |
+| `as` | number, or nil | nil |
+| `objectives` | list of string, or nil | nil |
+| `hologram` | string, or nil | nil |
+| `last_word` | string, or nil | nil |
+
 ### Mission
 
 | Field | Type |
