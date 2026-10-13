@@ -65,7 +65,11 @@ pub const Bank = struct {
     /// Sound `index`, a complete RIFF/WAVE file.
     pub fn sound(bank: Bank, index: usize) ?[]const u8 {
         if (index >= bank.entries.len) return null;
-        const entry = bank.entries[index];
+        return bank.soundOf(bank.entries[index]);
+    }
+
+    /// The sound of `entry`, one of the bank's entries.
+    fn soundOf(bank: Bank, entry: Entry) []const u8 {
         return bank.bytes[entry.offset..][0..entry.size];
     }
 };
@@ -83,15 +87,15 @@ pub fn rebuild(gpa: Allocator, bank: Bank, replacements: []const ?[]const u8) (A
     assert(replacements.len == bank.entries.len);
     const sounds_at = header_size + bank.entries.len * @sizeOf(Entry);
     var size = sounds_at;
-    for (replacements, 0..) |replacement, index| size += (replacement orelse bank.sound(index).?).len;
+    for (bank.entries, replacements) |entry, replacement| size += (replacement orelse bank.soundOf(entry)).len;
     // The entries' offsets and sizes are 32-bit.
     if (size > std.math.maxInt(u32)) return error.TooLarge;
     const file = try gpa.alloc(u8, size);
     std.mem.bytesAsValue(Header, file[0..header_size]).* = .{ .magic = magic.*, .count = @intCast(bank.entries.len) };
     const entries = std.mem.bytesAsSlice(Entry, file[header_size..sounds_at]);
     var at = sounds_at;
-    for (entries, bank.entries, replacements, 0..) |*placed, entry, replacement, index| {
-        const sound = replacement orelse bank.sound(index).?;
+    for (entries, bank.entries, replacements) |*placed, entry, replacement| {
+        const sound = replacement orelse bank.soundOf(entry);
         placed.* = .{ .offset = @intCast(at), .size = @intCast(sound.len), .priority = entry.priority };
         @memcpy(file[at..][0..sound.len], sound);
         at += sound.len;

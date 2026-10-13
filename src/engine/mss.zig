@@ -565,14 +565,14 @@ pub const Mixer = struct {
     /// only, which is why the game decompresses its ADPCM first (`AIL_decompress_ADPCM`);
     /// OpenReliant's play either.
     ///
-    /// **Improvement:** a sound in stereo plays mixed to mono, so that it keeps its place, as a
-    /// mod's sound may be. Every 3D sound the game plays is mono.
+    /// **Improvement:** a sound in stereo, as a mod's may be, plays mixed to mono so that it keeps
+    /// its place. Every 3D sound the game plays is mono.
     pub fn set3DSampleFile(mixer: *Mixer, handle: Sample3D, file: []const u8) bool {
         mixer.lock.acquire();
         defer mixer.lock.release();
-        const state = mixer.sample3D(handle);
-        state.playing = voice.Voice.init(file) catch return false;
-        state.playing.?.mono = true;
+        var playing = voice.Voice.init(file) catch return false;
+        playing.mono = true;
+        mixer.sample3D(handle).playing = playing;
         return true;
     }
 

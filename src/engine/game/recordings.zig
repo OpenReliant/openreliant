@@ -56,7 +56,7 @@ pub const Recording = struct {
 pub const Decoding = struct {
     audio: bink.AudioDecoding,
     /// The recording's file, which the decoder reads until it's done.
-    source: []u8,
+    file: []u8,
 
     /// Decodes at least `samples` more samples of each channel, or the rest of the recording.
     /// Returns whether the whole recording is decoded.
@@ -67,19 +67,19 @@ pub const Decoding = struct {
     /// The WAVE file of what was decoded, made in `gpa`. It frees the decoder and the recording's
     /// file, whether or not it succeeds.
     pub fn finish(decoding: *Decoding, gpa: Allocator) Allocator.Error![]u8 {
-        defer gpa.free(decoding.source);
+        defer gpa.free(decoding.file);
         return decoding.audio.finish(gpa);
     }
 
     /// Decodes the rest of the recording and makes its WAVE file (`finish`).
     pub fn complete(decoding: *Decoding, gpa: Allocator) bink.Error![]u8 {
-        defer gpa.free(decoding.source);
+        defer gpa.free(decoding.file);
         return decoding.audio.complete(gpa);
     }
 
     pub fn deinit(decoding: *Decoding, gpa: Allocator) void {
         decoding.audio.deinit(gpa);
-        gpa.free(decoding.source);
+        gpa.free(decoding.file);
     }
 };
 
@@ -134,7 +134,7 @@ pub const Source = struct {
                     gpa.free(recording.bytes);
                     return null;
                 };
-                return .{ .decoding = .{ .audio = audio, .source = recording.bytes } };
+                return .{ .decoding = .{ .audio = audio, .file = recording.bytes } };
             },
         }
     }

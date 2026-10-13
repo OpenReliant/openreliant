@@ -921,11 +921,16 @@ const GameFiles = struct {
     /// The sprite set shape that the file `name` replaces, using the name the interface looks up
     /// (`spr.pictureName`); null if it doesn't replace one.
     fn shapeOf(gathered: GameFiles, name: []const u8) ?numbered.Part {
-        const part = numbered.parse(pictureStem(name) orelse return null) orelse return null;
+        return gathered.partOf(pictureStem(name) orelse return null, spr.extension);
+    }
+
+    /// The numbered part of a game file with `extension` that `stem` names (`numbered.parse`);
+    /// null if the game has no such file, or `stem` names no part.
+    fn partOf(gathered: GameFiles, stem: []const u8, comptime extension: []const u8) ?numbered.Part {
+        const part = numbered.parse(stem) orelse return null;
         var buffer: [files.max_path]u8 = undefined;
-        const set_file = std.mem.print(&buffer, "{s}" ++ spr.extension, .{part.file}) catch return null;
-        if (gathered.kindOf(set_file) != .file) return null;
-        return part;
+        const file = std.mem.print(&buffer, "{s}" ++ extension, .{part.file}) catch return null;
+        return if (gathered.kindOf(file) == .file) part else null;
     }
 
     /// The name, without the extension, of the game's TGA picture that the file `name`,
@@ -970,11 +975,7 @@ const GameFiles = struct {
     /// The bank sound that the mod's recording `name` replaces, named after the bank and the
     /// sound's number (`fat.soundName`); null if it doesn't replace one.
     fn soundOf(gathered: GameFiles, name: []const u8) ?numbered.Part {
-        const part = numbered.parse(recordingStem(name) orelse return null) orelse return null;
-        var buffer: [files.max_path]u8 = undefined;
-        const bank_file = std.mem.print(&buffer, "{s}" ++ fat.extension, .{part.file}) catch return null;
-        if (gathered.kindOf(bank_file) != .file) return null;
-        return part;
+        return gathered.partOf(recordingStem(name) orelse return null, fat.extension);
     }
 
     /// A game file that a recording replaces: its name without the extension, and its extension.
