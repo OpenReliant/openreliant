@@ -372,6 +372,24 @@ pub const GamePilot = enum(u8) {
     }
 };
 
+test GamePilot {
+    // Every pilot whose face no pilot before it has gets a name, which scripts and mission source
+    // show in place of its number. The archive finds a film whatever the case of its name, so
+    // `Mammoth_Plt_01` and `mammoth_plt_01` are the same face.
+    const talking = @backingInt(Head.talking);
+    for (faces, 0..) |face, number| {
+        const repeated = for (faces[0..number]) |earlier| {
+            if (std.ascii.eqlIgnoreCase(earlier.films[talking], face.films[talking])) break true;
+        } else false;
+        if (!repeated and std.enums.tagName(GamePilot, @fromBackingInt(@intCast(number))) == null) {
+            std.debug.print("pilot {d} has a face of its own, {s}, and no name\n", .{ number, face.films[talking] });
+            return error.TestUnexpectedResult;
+        }
+    }
+    // Every name is a pilot with a face.
+    for (std.enums.values(GamePilot)) |pilot| try std.testing.expect(@backingInt(pilot) < faces.len);
+}
+
 /// A pilot by its number, as scripts know it: none, one of the game's pilots by its name
 /// (`GamePilot`) or its number, and a pilot a mod adds by its qualified name.
 pub const Number = enum(u8) {
