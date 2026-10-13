@@ -178,34 +178,192 @@ test Table {
 }
 
 /// The game's pilots, by their numbers in `pilotstats.bin` and in the faces' table (`faces`). The
-/// names are OpenReliant's, for the pilots the game's code singles out: the player's wing and its
+/// names are OpenReliant's: for the pilots the game's code singles out, the player's wing and its
 /// stretches (`new_wing`, `stretches`), the first replacements of its pool (`pool`), Moose, who makes
 /// the squadron's remarks (`radio.moose`), and the Ronin wing, which flies with the StarLancer
-/// trial's player.
+/// trial's player; for the rest, their records' names in `pilotstats.bin`, spelled out. A
+/// squadron's pilot takes the squadron's name, such as `sabre` for `Sabre Plt`, and its wing
+/// leader `_leader` after it, such as `sabre_leader` for `Sabrewl Plt`.
 pub const GamePilot = enum(u8) {
     /// Bandit and Diceman, the 45th Tigers' wing leaders (`45TigersWL_*`).
     bandit_tigers_leader = 0,
     diceman_tigers_leader = 1,
-    /// Moose, of the 45th Tigers and of the 45th Volunteers.
+    /// Moose, of the 45th Tigers and of the 45th Volunteers, and each squadron's pilots.
     moose_tigers = 2,
+    tigers = 3,
     moose_volunteers = 4,
+    volunteers = 5,
     /// Bandit and Viper, the 45th Volunteers' wing leaders (`45VolntrWL_*`).
     bandit_volunteers_leader = 6,
     viper = 7,
+    /// The 51st's pilots (`51st Plt`).
+    fifty_first = 8,
+    black_guard = 9,
+    /// Black Sun, the wing leader whom the radio knows as an ace, and his squadron's pilots.
+    black_sun_leader = 10,
+    black_sun = 11,
+    blades = 12,
+    black_eagle_leader = 13,
+    black_eagle = 14,
+    /// Ivan and Nicolai Petrov, of the Black Guard (`Blckgrdip Plt`, `Blckgrdnp Plt`), whom the
+    /// radio knows as aces.
+    ivan_petrov = 15,
+    nicolai_petrov = 16,
+    /// A Black Aces pilot (`Blkace`, whose film is `BlkAces_Plt_d` as it dies).
+    black_aces = 17,
+    bremen_bridge_officer = 18,
+    /// The Buccaneers' ace (`Bucc`), who says mission 21's lines `ms21_buc_*` and has a death film
+    /// of his own (`BUCCDETH`), as their wing leader (`buccaneer_leader`) does.
+    buccaneer = 19,
+    cat_foster = 20,
+    /// A Cobra pilot (`Cob`, whose film is `Cobra_Plt_D` as it dies).
+    cobra = 21,
+    couger = 22,
+    /// The Coalition's (`C Comms Off1`, `C Fhtr 01`, `C Scientist`): most of its fighters are
+    /// flown by its fighter pilot.
+    coalition_comms_officer = 23,
+    coalition_fighter = 24,
+    coalition_scientist = 25,
+    endeavour_bridge_officer = 26,
+    /// Enriquez on the Reliant's and the Yamato's bridges, and in a cockpit.
+    enriquez_reliant_bridge = 27,
+    enriquez_yamato_bridge = 28,
+    enriquez_cockpit = 29,
+    /// `Fostded`, which no shipped mission flies or speaks by. **Unverified:** that it is Foster
+    /// dead.
+    foster_dead = 30,
+    /// The comms officers of Fort Bear, Fort Baxter, Fort Carter and Fort Sherman
+    /// (`Frtbear Comms`).
+    fort_bear_comms = 31,
+    fort_baxter_comms = 32,
+    fort_carter_comms = 33,
+    fort_sherman_comms = 34,
+    /// `Gammadea`, which no shipped mission flies or speaks by. **Unverified:** that it is Gamma
+    /// dead.
+    gamma_dead = 35,
+    gamma_leader = 36,
+    golden_warrior = 37,
+    hellcat_leader = 38,
+    hellcat = 39,
+    hornet = 40,
+    jackel_leader = 41,
+    jackel = 42,
+    jaguar = 43,
+    kestrel_command = 44,
+    koenig_bridge_officer = 45,
+    kestrel_bridge_officer = 46,
+    kurgen = 47,
+    lonestar = 48,
+    mauler = 49,
+    /// Colonel McGann (`Mcgannno`), whom the radio knows as an ace.
+    mcgann = 50,
+    mitchell_bridge_officer = 51,
+    nanny_leader = 52,
+    pirate_leader = 53,
+    pirate = 54,
+    prowler = 55,
+    pukov_captain = 56,
+    puma_leader = 57,
+    puma = 58,
+    raven = 59,
+    reliant_bridge_officer = 60,
+    ripper = 61,
     /// The Ronin wing's leader, Tanaka in the trial, and its pilots (`RoninWL_Plt`, `Ronin_Plt`).
     ronin_leader = 62,
     ronin = 63,
-    /// The new wing's pilots, Hawkeye and Diceman of the stretches, and the pool's first
-    /// replacements, Ego, Mayday and Trigger.
+    russian_bomber = 64,
+    sabre_leader = 65,
+    sabre = 66,
+    saracen = 67,
+    scorpion_leader = 68,
+    scorpion = 69,
+    saladin_captain = 70,
+    /// Stahl, who says mission 9's lines `ms9_stal_*` (`Stahl Brdship`), and his marines.
+    /// **Unverified:** that `Brdship` is a ship's bridge.
+    stahl_bridge = 71,
+    stahl_marines = 72,
+    steiner_ejected = 73,
+    stinger = 74,
+    stork = 75,
+    ulysses_captain = 76,
+    ulysses_captain_panicking = 77,
+    /// Steiner, the Vampires' wing leader (`Vampirewl Stiener`), and the Vampires' pilots.
+    steiner_vampires_leader = 78,
+    vampire = 79,
+    varyag_captain = 80,
+    victorious_bridge_officer = 81,
+    /// The simulator's instructor (`Virtflt Ins`).
+    virtual_flight_instructor = 82,
+    washington_bridge_officer = 83,
+    yamato_bridge_officer = 84,
+    /// The new wing's pilots, Hawkeye and Diceman of the stretches, the pool's first replacements,
+    /// Ego, Mayday and Trigger, and the 45th's other pilots, by their callsigns.
     frenchy = 85,
     silky = 86,
     mayday = 87,
     trigger = 88,
+    vixen = 89,
+    cutter = 90,
+    claymore = 91,
+    skippy = 92,
+    juice = 93,
+    face = 94,
     hawkeye = 95,
+    arrow = 96,
+    nero = 97,
+    rhino = 98,
+    stalker = 99,
+    flash = 100,
+    stretch = 101,
+    talon = 102,
+    butcher = 103,
+    snapper = 104,
+    banshee = 105,
+    wolf = 106,
+    reaper = 107,
     worm = 108,
+    wildcat = 109,
+    siron = 110,
+    ferret = 111,
+    poker = 112,
+    blade = 113,
+    scarlet = 114,
+    rico = 115,
+    slick = 116,
+    irish = 117,
+    spider = 118,
     ego = 119,
     diceman = 120,
+    captain_mukai = 121,
+    cat_foster_prowler = 122,
+    coalition_torpedo_leader = 123,
+    /// The pilots past the records of `pilotstats.bin`, which take its defaults, after their faces'
+    /// films (`faces`): those with faces of their own. Those whose faces repeat another's, such as
+    /// the 45th's spares and further Mammoth pilots, are known by their numbers alone.
+    general_reese_pod = 124,
+    kulov_borodin = 125,
+    kulov_pod = 126,
+    mammoth_1 = 127,
+    mammoth_2 = 128,
+    mammoth_3 = 129,
+    mammoth_4 = 130,
+    /// The Saracens' and the Golden Warriors' leaders, whom the radio knows as aces; the Golden
+    /// Warriors' is the Red Dragon of mission 26.
+    saracen_leader = 131,
+    /// Stahl on the Ripper's ship (`Stahl_RippShip`).
+    stahl_ripper = 132,
+    golden_warrior_leader = 133,
+    hornet_leader = 134,
+    mammoth_5 = 135,
+    mammoth_6 = 136,
+    mammoth_7 = 137,
     bandit = 172,
+    marauder_leader = 186,
+    marauder = 187,
+    marine_leader = 188,
+    marine = 189,
+    jaguar_leader = 190,
+    buccaneer_leader = 191,
     _,
 
     /// Its number, as the wing keeps it (`Wing`).

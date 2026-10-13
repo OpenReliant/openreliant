@@ -197,12 +197,12 @@ const news = [_]struct { mission: u16, reports: []const Report }{
     .{ .mission = 11, .reports = &.{
         .{ .movie = "new_chapter2_thread1.bik", .unless = &.{.czar_alive} },
         .{ .movie = "new_chapter2_thread2.bik", .unless = &.{.krasnaya_alive} },
-        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{._unknown_6}, .sets = .chapter2_thread3_shown },
+        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{.nicolai_petrov_alive}, .sets = .chapter2_thread3_shown },
     } },
     .{ .mission = 16, .reports = &.{
         .{ .movie = "new_chapter3_thread1.bik", .unless = &.{.mcgann_alive} },
         .{ .movie = "new_chapter3_thread2.bik", .unless = &.{.warp_gate_alive} },
-        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{ ._unknown_6, .chapter2_thread3_shown } },
+        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{ .nicolai_petrov_alive, .chapter2_thread3_shown } },
     } },
 };
 

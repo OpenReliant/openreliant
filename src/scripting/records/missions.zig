@@ -542,7 +542,7 @@ test "a campaign mission's landing, chapter news and wing pilots" {
         \\assert(missions[18].landing_carrier == "yamato" and missions[17].landing_carrier == "reliant")
         \\assert(missions[7].yamato_visit == "always" and missions[8].yamato_visit == "when_reliant_lost")
         \\local report = missions[11].chapter_reports[3]
-        \\assert(report.movie == "new_chapter2_thread3.bik" and report.unless[1] == 6 and report.sets == "chapter2_thread3_shown")
+        \\assert(report.movie == "new_chapter2_thread3.bik" and report.unless[1] == "nicolai_petrov_alive" and report.sets == "chapter2_thread3_shown")
         \\assert(missions[7].chapter_reports[1].unless[1] == "rameses_alive")
         \\assert(missions[6].alpha_5_pilot == "diceman" and missions[25].fort_bear_ending)
         \\-- A restoration's own.

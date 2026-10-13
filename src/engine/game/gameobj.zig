@@ -634,6 +634,15 @@ pub const GameType = enum(u32) {
     /// The markers `backdrop_place` reads a mission's sun and nebula from.
     sun_marker = 0x3DC,
     nebula_marker = 0x3DD,
+    /// The deathmatch maps' markers, named after the objects their designers placed: the arena's
+    /// centre (`dm_sphere_centre`), the objects named `beacon1` to `beacon6`, beside the beacons
+    /// themselves (`dm_beacon`), the players' spawn points and the power-ups'. The game singles out
+    /// the players' spawn points alone, which `multiplayer_list_spawns` (`0x004AF5C0`) lists as a
+    /// multiplayer game starts; it sizes the arena round every object (`arena_frame`).
+    dm_sphere_centre = 0x3DF,
+    beacon_marker = 0x3E0,
+    spawn_player = 0x3E1,
+    spawn_powerup = 0x3E2,
     /// What `mission_ship_create` makes of a mission's nav points and markers, and the mission's
     /// start of the camera's marker.
     marker = 1000,

@@ -1109,7 +1109,7 @@ scripts can only read them.
 | `ship_types` | What the executable holds for each ship type, then for the types the mods add | 0 | As `ships` |
 | `guns` | Gun stats, `gunstats.bin`, then the guns the mods add | 1 | `laser_cannon`, `pulse_cannon` and the rest, and the qualified names of the mods' guns |
 | `missiles` | Missile stats, `missilestats.bin`, then the missiles the mods add | 0 | `screamer`, `raptor` and the rest, and the qualified names of the mods' missiles |
-| `pilots` | Pilot stats, `pilotstats.bin`, then the pilots the mods add | 0 | `frenchy`, `viper`, `ronin_leader` and the other pilots the game's code singles out, and the qualified names of the mods' pilots |
+| `pilots` | Pilot stats, `pilotstats.bin`, then the pilots the mods add | 0 | `frenchy`, `viper`, `ronin_leader` and the game's other pilots, and the qualified names of the mods' pilots |
 | `faces` | The pilots' faces, which the game keeps in its executable, then those of the pilots the mods add | 0 | As `pilots` |
 | `text` | The game's text, `language.dll`, by string id | 1 | |
 | `itac_text` | The ITAC's text, `itaclang.dll`, by string id | 1 | |

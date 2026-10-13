@@ -236,11 +236,14 @@ pub const Variables = extern struct {
     /// destroyed, and mission 9's reads it. The news report after mission 16 reads it too, but
     /// never plays, as mission 16 ends no chapter.
     mcgann_alive: u32 = 0,
-    /// Variable 6: mission 27's script clears it as it starts. The third news report after mission
-    /// 11 (`new_chapter2_thread3.bik`) plays once it's clear, which it never is then.
-    /// `mission191.dte`, which the campaign never flies, reads it as its Petrov wing's leader
-    /// alive. **Unknown:** what mission 27 clears it for.
-    _unknown_6: u32 = 0,
+    /// `nicolai_petrov_alive` (6): whether Nicolai Petrov lives. The Dreamcast's mission 12, which
+    /// the PC game lacks, clears it as its Petrov's Basilisk is destroyed, and `mission191.dte`,
+    /// which the campaign never flies, reads it as its Petrov wing's leader alive, apart from Ivan
+    /// Petrov's (`ivan_petrov_alive`). Mission 27's script clears it as it starts. The third news
+    /// report after mission 11 (`new_chapter2_thread3.bik`) plays once it's clear, which it never
+    /// is then. **Unverified:** that this Petrov is Nicolai: the missions don't name him, but the
+    /// game's radio knows two Petrovs, Ivan and Nicolai, and Ivan's flag is 7.
+    nicolai_petrov_alive: u32 = 0,
     /// `ivan_petrov_alive` (7): whether Ivan Petrov lives. Mission 28's script clears it as his
     /// Basilisk is destroyed, and the story's end plays his news report once it's clear.
     ivan_petrov_alive: u32 = 0,
@@ -333,9 +336,11 @@ pub const Variables = extern struct {
     /// cleared before each attempt at a mission (`gameflow.resetVariables`). Only the news report
     /// after mission 16 reads it, which never plays.
     chapter2_thread3_shown: u32 = 0,
-    /// Variable 35: 1 in a new campaign, not kept with the pilot's game, and nothing clears it.
-    /// Mission 26's script reads it, always set. **Unknown:** what it was meant to hold.
-    _unknown_35: u32 = 0,
+    /// `red_dragon_alive` (35): whether the Red Dragon, the Golden Warriors' leader (pilot 133),
+    /// lives. 1 in a new campaign and not kept with the pilot's game. Mission 26's script brings
+    /// him in while it is set, and where he dies, sets a global of its own (`red_dragon_dead`).
+    /// **Unverified:** that it says whether he lives, since no script clears it.
+    red_dragon_alive: u32 = 0,
     /// `yamato_alive` (36): whether the Yamato lives. Mission 25's second part and mission 27
     /// clear it as she's destroyed. Once it's clear, those missions end without the landing
     /// (`xtrabits.landing.lastWithoutLanding`), and a total failure in them ends the career in the
@@ -423,7 +428,7 @@ pub const Variables = extern struct {
 comptime {
     // Each named variable at the number the scripts give it, and every number a byte names.
     const numbered = .{
-        .{ "_unused_2", 2 },         .{ "mcgann_alive", 5 },   .{ "_unknown_6", 6 },
+        .{ "_unused_2", 2 },         .{ "mcgann_alive", 5 },   .{ "nicolai_petrov_alive", 6 },
         .{ "ivan_petrov_alive", 7 }, .{ "kulov_alive", 8 },    .{ "al_rahan_alive", 11 },
         .{ "sharif_alive", 12 },     .{ "steiner_alive", 13 }, .{ "_unused_16", 16 },
         .{ "krasnaya_alive", 17 },   .{ "rameses_alive", 18 }, .{ "kozah_alive", 19 },
@@ -431,7 +436,7 @@ comptime {
         .{ "warp_gate_alive", 23 },  .{ "_unused_24", 24 },    .{ "_unused_25", 25 },
         .{ "_unused_26", 26 },       .{ "czar_alive", 29 },    .{ "ghost_alive", 30 },
         .{ "_unused_31", 31 },       .{ "reliant_alive", 32 }, .{ "chapter2_thread3_shown", 34 },
-        .{ "_unknown_35", 35 },      .{ "yamato_alive", 36 },
+        .{ "red_dragon_alive", 35 }, .{ "yamato_alive", 36 },
     };
     for (numbered) |named| assert(Variables.number(named[0]) == named[1]);
     assert(@sizeOf(Variables) == Variables.count * @sizeOf(u32));

@@ -231,7 +231,7 @@ Luau's syntax:
 
 | Expression | Source |
 |---|---|
-| A number | `50`. Where the parameter takes a named value, it is written by its name: `"find_new_target"` for an order, `"shot_at"` for a condition, and a part's name for a part. A value the game doesn't name stays a number |
+| A number | `50`. Where the parameter takes a named value, it is written by its name: `"find_new_target"` for an order, `"shot_at"` for a condition, `"coalition_fighter"` for a pilot, `"talking"` for a head movement, `"ice_field"` for an environment effect, and a part's name for a part. A value the game doesn't name stays a number |
 | Text | `"new_sim02.wav"`, as a Luau string |
 | A ship, flight group, squad, curve or global | Its name |
 | A ship's component | `component(ship, 3)` |
@@ -325,9 +325,10 @@ parameters change nothing, and a string in backquotes without values is text lik
 `sltool dte decompile` names each record after its display name: the name in lower case, a leading
 tag such as `(F)` or `(GV)` left out, each run of other characters an underscore, and an underscore
 where a small letter meets a capital, with a number after it where two would clash. The name is the
-record's from then on, and renaming the display name doesn't change it. A squad's members and a
-formation's points are written as the game finds them, from the squad's first member and the
-formation's first point.
+record's from then on, and renaming the display name doesn't change it. A squad's members are
+written as the game walks them, from the squad's first member while they are its own, and a
+formation's points as OpenReliant finds them, from the formation's first point on, those that name
+it (`dte.FormationPoint.Walk`).
 
 Built again, a decompiled mission is the same mission
 ([`same.zig`](../../src/formats/dte/same.zig)): the same records and code, decoded, with names
