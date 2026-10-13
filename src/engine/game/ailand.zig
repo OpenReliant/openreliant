@@ -260,8 +260,18 @@ pub const YamatoStep = enum(u32) {
 };
 
 /// OpenReliant's own, for a landing in a bay: how far out from the mouth of the bay the cutaway
-/// sets the ship, along the way it launches.
-const bay_approach: f32 = 15000;
+/// sets the ship, along the way it launches: this share of the bay's depth, from the launch point
+/// to the mouth, and at least this many of the ship's own radii, so that a shallow bay still gives
+/// the ship a way to fly in on. They go by the bay and the ship rather than by a fixed distance,
+/// so that the landing fits any carrier.
+const bay_approach_share: f32 = 0.6;
+const bay_approach_least_radii: f32 = 20;
+
+/// How far out from the mouth of a bay `depth` deep the cutaway sets a ship of radius `radius`
+/// (`bay_approach_share`, `bay_approach_least_radii`).
+fn bayApproach(depth: f32, radius: f32) f32 {
+    return @max(bay_approach_share * depth, bay_approach_least_radii * radius);
+}
 
 /// The steps of a landing in a bay (`bayUpdate`), OpenReliant's own.
 pub const BayStep = enum(u32) {
@@ -685,7 +695,8 @@ fn bayCutaway(ctx: Context, index: u16, carrier: u16) void {
     const mouth = bayMouth(&holder.object, gate);
     state.mouth = mouth;
     const object = &slot.object;
-    objects.setPosition(object, &slot.drawn, mouth + math.forward(gate.orientation) * @as(Vector, @splat(bay_approach)));
+    const approach = bayApproach(math.distance(gate.position, mouth), object.radius);
+    objects.setPosition(object, &slot.drawn, mouth + math.forward(gate.orientation) * @as(Vector, @splat(approach)));
     objects.setOrientation(object, &slot.drawn, math.lookAt(gate.position - object.nextPosition()));
     ai.stop(object);
     object.gun_factor = 1;
@@ -694,11 +705,11 @@ fn bayCutaway(ctx: Context, index: u16, carrier: u16) void {
     aigeneric.popAll(ctx, carrier);
     ai.stop(&holder.object);
     const set = object.nextPosition();
-    log.debug("object {d} lands at gate {d} of object {d}: the launch point at ({d:.0}, {d:.0}, {d:.0}), the bay's mouth at ({d:.0}, {d:.0}, {d:.0}), the ship set at ({d:.0}, {d:.0}, {d:.0})", .{
-        index,            bayGate(slot.orders[0].target), carrier,
-        gate.position[0], gate.position[1],               gate.position[2],
-        mouth[0],         mouth[1],                       mouth[2],
-        set[0],           set[1],                         set[2],
+    log.debug("object {d} of radius {d:.0} lands at gate {d} of object {d}: the launch point at ({d:.0}, {d:.0}, {d:.0}), the bay's mouth at ({d:.0}, {d:.0}, {d:.0}), the ship set at ({d:.0}, {d:.0}, {d:.0})", .{
+        index,            object.radius,    bayGate(slot.orders[0].target), carrier,
+        gate.position[0], gate.position[1], gate.position[2],               mouth[0],
+        mouth[1],         mouth[2],         set[0],                         set[1],
+        set[2],
     });
 }
 
@@ -1080,7 +1091,12 @@ test "the player's ship lands in a hangar bay of its carrier, and the mission is
     const gate = carrier_away + Vector{ 0, 0, 100 };
     try std.testing.expectEqual(gate, @as(Vector, state.gate_place));
     try std.testing.expectEqual(carrier_away + Vector{ 0, 0, 400 }, @as(Vector, state.mouth));
-    try std.testing.expectEqual(carrier_away + Vector{ 0, 0, 400 + bay_approach }, slot.object.nextPosition());
+    // The bay is 300 deep, so the ship starts six tenths of that out from the mouth, or twenty of
+    // its radii where that is more.
+    const approach = bayApproach(300, slot.object.radius);
+    try std.testing.expectEqual(carrier_away + Vector{ 0, 0, 400 + approach }, slot.object.nextPosition());
+    try std.testing.expectEqual(180, bayApproach(300, 0));
+    try std.testing.expectEqual(16000, bayApproach(300, 800));
     const facing = math.forward(slot.object.root.next_orientation);
     try std.testing.expectApproxEqAbs(0, facing[0], 1e-5);
     try std.testing.expectApproxEqAbs(0, facing[1], 1e-5);
@@ -1092,9 +1108,14 @@ test "the player's ship lands in a hangar bay of its carrier, and the mission is
     try std.testing.expectEqual(bay_launch.door_speed, doors[7].animation.speed);
 
     // Far from the point, it flies in at the throttle that flies it at `bay_speed` by its cruise
-    // speed; within `near`, it stops, sounding its landing, and the doors close behind it.
+    // speed; nearer, at `approach_throttle` for each unit it has to go; and within `near`, it
+    // stops, sounding its landing, and the doors close behind it.
+    objects.setPosition(&slot.object, &slot.drawn, gate + Vector{ 0, 0, 50000 });
     aigeneric.objectOrders(ctx, player);
     try std.testing.expectApproxEqAbs(bay_speed / gameobj.testing.flight.max_speed, slot.object.throttle, 1e-6);
+    objects.setPosition(&slot.object, &slot.drawn, gate + Vector{ 0, 0, 1000 });
+    aigeneric.objectOrders(ctx, player);
+    try std.testing.expectApproxEqAbs(1000 * approach_throttle, slot.object.throttle, 1e-6);
     objects.setPosition(&slot.object, &slot.drawn, gate + Vector{ 0, 0, 150 });
     aigeneric.objectOrders(ctx, player);
     try std.testing.expectEqual(BayStep.landed, state.step.as(BayStep));

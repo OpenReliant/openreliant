@@ -178,12 +178,15 @@ The display names view `0x23`, but not `0x26`. **Improvement:** from within the 
 heard as in a hangar ([Sound](../port/sound.md)).
 
 **Improvement:** a landing in a hangar bay ([Landing](orders.md#landing)) picks one of the same
-two views, which stand by the bay instead. View `0x23` stands in the bay, 900 to the right of the
-launch point of the gate the ship lands at, 300 above it and 1500 out from it towards the bay's
-mouth, in the point's frame, and watches the player's ship come in and stop beside it. View `0x26`
-stands outside, off the bay's mouth, where the way out from the launch point leaves the carrier's
-bounds: 8000 to the side, 3000 above and 8000 out along the way the ship launches, looking at the
-view's object, which passes it on its way in.
+two views, which stand by the bay instead, in the frame of the launch point of the gate the ship
+lands at. They go by the ship and the bay rather than by fixed distances, so that they frame a
+landing on any carrier. View `0x23` stands in the bay off the launch point, by the landing ship's
+radius: one radius to the right, a third of one above and one and three quarters out towards the
+bay's mouth, and watches the player's ship come in and stop beside it. View `0x26` stands outside
+off the bay's mouth, where the way out from the launch point leaves the carrier's bounds, by the
+bay's reach, its depth from the point to the mouth or twelve of the ship's radii where the bay is
+shallower: a third of the reach to the side and out along the way the ship launches, and an eighth
+above, looking at the view's object, which passes it on its way in.
 
 The Yamato's landing picks one of two views at random in the same way:
 
