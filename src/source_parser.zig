@@ -3,8 +3,8 @@
 //! text and writes the syntax tree into flat arrays, and `parse` copies them into the library's
 //! tree (`dte.source.syntax`). `build` compiles the text into a mission file. It is a module of its
 //! own because it links Luau's parser, which the library the tools share doesn't, and so it holds
-//! the tests that compile source, and the test that the definitions files OpenReliant writes for
-//! luau-lsp parse.
+//! the tests that compile source, the test that the definitions files OpenReliant writes for
+//! luau-lsp parse, and the tests that build and play the missions of the guide to writing missions.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -12,6 +12,7 @@ const assert = std.debug.assert;
 
 const openreliant = @import("openreliant");
 const dte = openreliant.dte;
+const game = openreliant.engine.game;
 const syntax = dte.source.syntax;
 const compile = dte.source.compile;
 const luau = @import("luau_syntax");
@@ -451,6 +452,9 @@ test "the compiler's errors and their places" {
         .{ "p = part(\"p\", function()\n    return not result()\nend)", "2:12: the script has no `not`" },
         .{ "p = part(\"p\", function()\n    Wait(\"long\" .. \"er\")\nend)", "2:10: the script has no `..`" },
         .{ "p = part(\"p\", function()\n    SetAI(nil, \"dance\", 1, nil)\nend)", "2:16: the game has no order named \"dance\"" },
+        .{ "p = part(\"p\", function()\n    Wait(5)\nend)", "1:15: the code must end with a `return`, such as `return 1`" },
+        .{ "on(nil, \"destroyed\", function() end)", "1:22: the code must end with a `return`, such as `return 1`" },
+        .{ "p = part(\"p\", function()\n    if result() == 0 then\n        return 1\n    end\nend)", "1:15: the code must end with a `return`, such as `return 1`" },
     }) |case| {
         var failure: compile.Failure = undefined;
         try std.testing.expectError(error.Invalid, build(arena, case[0], &failure));
@@ -462,4 +466,131 @@ test "the compiler's errors and their places" {
     var failure: compile.Failure = undefined;
     try std.testing.expectError(error.Invalid, build(arena, "x = ship(\"A\",\ny = 2", &failure));
     try std.testing.expectEqual(1, failure.at.line);
+}
+
+/// The guide to writing missions, whose missions the tests below build and play, so that its
+/// examples keep working.
+const guide = @embedFile("missions.md");
+
+/// A complete mission that the guide shows: a `luau` block whose first line names its file, as
+/// `-- mission90.mission.luau: ...` does.
+const GuideMission = struct {
+    file: []const u8,
+    source: []const u8,
+};
+
+/// The guide's complete missions, in its order.
+fn guideMissions(arena: Allocator) Allocator.Error![]const GuideMission {
+    var found: std.ArrayList(GuideMission) = .empty;
+    var rest: []const u8 = guide;
+    while (std.mem.cut(u8, rest, "\n```luau\n")) |opened| {
+        const end = std.mem.find(u8, opened[1], "\n```\n") orelse break;
+        const source = opened[1][0 .. end + 1];
+        rest = opened[1][end + 1 ..];
+        const first_line = source[0 .. std.mem.findScalar(u8, source, '\n') orelse source.len];
+        const named = std.mem.cutPrefix(u8, first_line, "-- ") orelse continue;
+        const file = (std.mem.cut(u8, named, ":") orelse continue)[0];
+        if (!std.mem.endsWith(u8, file, ".mission.luau")) continue;
+        try found.append(arena, .{ .file = file, .source = source });
+    }
+    return found.items;
+}
+
+test "the guide's missions build" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const missions = try guideMissions(arena);
+    // The first mission at least, so that a change to the guide's blocks can't leave this test
+    // with nothing to build.
+    try std.testing.expect(missions.len > 0);
+    try std.testing.expectEqualStrings("mission90.mission.luau", missions[0].file);
+    for (missions) |mission| {
+        var failure: compile.Failure = undefined;
+        _ = build(arena, mission.source, &failure) catch |err| {
+            std.debug.print("{s}:{f}\n", .{ mission.file, failure });
+            return err;
+        };
+    }
+}
+
+test "the guide's mistake is reported as the guide shows it" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const first = (try guideMissions(arena))[0];
+    // `enemy` in place of `enemies`, on line 52.
+    const right = "on(enemies, \"destroyed\"";
+    try std.testing.expectEqual(1, std.mem.count(u8, first.source, right));
+    const wrong = try std.mem.replaceOwned(u8, arena, first.source, right, "on(enemy, \"destroyed\"");
+    var failure: compile.Failure = undefined;
+    try std.testing.expectError(error.Invalid, build(arena, wrong, &failure));
+    const said = try arena.print("{s}:{f}\n", .{ first.file, failure });
+    try std.testing.expect(std.mem.find(u8, guide, said) != null);
+}
+
+test "the guide's first mission plays as the guide says" {
+    const gpa = std.testing.allocator;
+    const Order = game.ai.orders.Order;
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var failure: compile.Failure = undefined;
+    const built = try build(arena, (try guideMissions(arena))[0].source, &failure);
+
+    var world: game.gameobj.testing.Mission = undefined;
+    try world.init(gpa);
+    defer world.deinit();
+    var orders = world.orders();
+    orders.world.spawn = world.spawn(game.create.testing.no_models);
+    const loaded = try game.mission.Loaded.create(gpa, try gpa.dupe(u8, built), &world.random);
+    defer loaded.destroy();
+    orders.world.mission = &loaded.bound;
+    orders.world.events = &loaded.events;
+    try loaded.start(orders);
+    const variables = &loaded.script.variables;
+
+    // The ships stand in the slots of their records. The display points the player to the nav
+    // point, and the Sabres wait.
+    const player = 0;
+    const nav = 1;
+    const sabres = [_]u16{ 2, 3 };
+    const slots = &world.objects.slots;
+    for ([_]u16{ player, nav } ++ sabres) |ship| try std.testing.expect(slots[ship].object.created);
+    try std.testing.expectEqual(1, world.player.flyback.count);
+    try std.testing.expectEqual(nav, world.player.flyback.markers[0].slot);
+    for (sabres) |sabre| try std.testing.expectEqual(Order.do_nothing, slots[sabre].current().?.order);
+    // The Sabres stand within 4000 of the nav point too, but only the player's ship sets off its
+    // trigger.
+    playTo(loaded, orders, 1);
+    for (sabres) |sabre| try std.testing.expectEqual(Order.do_nothing, slots[sabre].current().?.order);
+    // Once the player's ship comes within 4000 of the nav point, the Sabres attack it.
+    game.objects.setPosition(&slots[player].object, &slots[player].drawn, .{ 0, 0, 38000 });
+    playTo(loaded, orders, 2);
+    for (sabres) |sabre| {
+        const entry = slots[sabre].current().?;
+        try std.testing.expectEqual(Order.fight, entry.order);
+        try std.testing.expectEqual(player, entry.target.slot().?);
+    }
+    // Once both are destroyed, the mission is a success, and five seconds later, it is over.
+    game.mission.events.destroyed(orders.world, sabres[0], null);
+    playTo(loaded, orders, 3);
+    try std.testing.expectEqual(.failure, variables.mission_success);
+    game.mission.events.destroyed(orders.world, sabres[1], null);
+    playTo(loaded, orders, 4);
+    try std.testing.expectEqual(.success, variables.mission_success);
+    playTo(loaded, orders, 8);
+    try std.testing.expectEqual(0, variables.mission_over);
+    playTo(loaded, orders, 10);
+    try std.testing.expectEqual(1, variables.mission_over);
+}
+
+/// Plays the mission `loaded` on to `seconds` in, as two of the game's frames do: the script's
+/// clock ticks and the watches look for ships close by, then the events go off on the triggers,
+/// and the threads run.
+fn playTo(loaded: *game.mission.Loaded, orders: game.aigeneric.Context, seconds: u32) void {
+    loaded.tickClock(seconds * game.main.ticks_per_second);
+    loaded.process(orders);
+    loaded.flush(orders);
+    loaded.process(orders);
 }

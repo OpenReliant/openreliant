@@ -31,6 +31,9 @@ OpenReliant improves on the original's look and sound. `--original` turns the im
 | `--watch <name\|number>` | With `--mission`, watch this ship of the mission once the player's launch is over and the ship is there, from a place beside it that moves with it. Name it by its number, or by its name or a piece of it in any case, as `sltool dte ships` lists them. It is the game's own watch view, with the bars of a cutscene and no head-up display, but it doesn't end the mission after six seconds as the game's does. The mission's script can still take the camera, and then keeps it |
 | `--watch-from <x,y,z>` | Where `--watch` watches from, in the ship's own axes, in multiples of its size: `x` to its right, `y` down and `z` ahead. `1,-0.5,2.5` by default: ahead of it, to its right and above |
 
+`--skip-launch`, `--part` and `--watch` wait for the player's launch to end. In a mission whose
+player doesn't launch, the launch counts as over 600 ticks, six seconds, into the mission.
+
 ## Display
 
 | Option | Description |

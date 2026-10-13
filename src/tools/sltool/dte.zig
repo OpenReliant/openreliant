@@ -91,13 +91,14 @@ pub const Command = union(enum) {
 };
 
 /// Compiles the mission source at `source` into the mission file `mission`
-/// ([Mission source](../../../docs/formats/mission-source.md)).
+/// ([Mission source](../../../docs/formats/mission-source.md)). An error in the source is printed
+/// with its place, and the command fails with `error.Reported`.
 fn build(ctx: Context, source: []const u8, mission: []const u8) !void {
     var failure: dte.source.compile.Failure = undefined;
     source_parser.buildFile(ctx.io, ctx.arena, Io.Dir.cwd(), source, mission, &failure) catch |err| switch (err) {
         error.Invalid => {
             try ctx.stdout.print("{s}:{f}\n", .{ source, failure });
-            return err;
+            return error.Reported;
         },
         else => return err,
     };

@@ -49,7 +49,9 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | A mod can | Read | Example |
 |---|---|---|
 | Replace missions, or add new ones, in the standard `.DTE` format | [Missions](modding.md#missions) | |
+| Write a mission as text, and build it into a `.DTE` file with `sltool dte build` | [Writing missions](missions.md) | |
 | Start a mission partway, or watch any of its ships, to check it | [Checking a mission](modding.md#checking-a-mission) | |
+| Stop a mission's script at breakpoints and step through it while the mission plays | [Debugging mission scripts](debugging.md) | |
 | Run scripts with one mission | [Kinds of scripts](scripting.md#kinds-of-scripts) | |
 | Say lines on the radio, to add chatter or voice a mission that has none | [The radio](scripting.md#the-radio) | |
 | Set the state of a mission's objectives, for a mission whose script doesn't | [A mission's objectives](scripting.md#a-missions-objectives) | |
@@ -121,8 +123,8 @@ These are planned, each in an issue:
   ([#520](https://github.com/OpenReliant/openreliant/issues/520))
 - The game's models exported with all their detail levels and parts
   ([#697](https://github.com/OpenReliant/openreliant/issues/697))
-- A mission source format, and a visual mission and script builder
-  ([#608](https://github.com/OpenReliant/openreliant/issues/608),
+- A mission editor, with a visual mission and script builder
+  ([#1126](https://github.com/OpenReliant/openreliant/issues/1126),
   [#360](https://github.com/OpenReliant/openreliant/issues/360))
 - Starting a mission partway with the state its earlier parts set
   ([#577](https://github.com/OpenReliant/openreliant/issues/577))

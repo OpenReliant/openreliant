@@ -6,7 +6,7 @@ original too ([#1126](https://github.com/OpenReliant/openreliant/issues/1126)). 
 subset of Luau, which Luau's own parser reads as the mission is built: nothing in the file runs, in
 OpenReliant or anywhere else. The [reference](../guide/mission-reference.md) lists everything it
 holds: the declarations and their fields, the script's functions, and the game's commands and
-conditions.
+conditions. [Writing missions](../guide/missions.md) is a guide for beginners.
 
 ```luau
 -- mission1.dte as source.
@@ -214,7 +214,7 @@ Luau's syntax:
 | An assignment | `convoykilled = 1`, `convoykilled += 1`, and `-=`, `*=` and `/=`. Floating-point stores are `add_assign_f(target, value)` and the like |
 | `if` | `if ... then ... elseif ... else ... end`. An `else` with nothing in it is kept |
 | A random choice | `local roll = random()`, then `if roll < 50 then ... elseif roll < 100 then ... else ... end`: one roll below 100, and the first arm whose threshold is above it, the `else` being the default. The roll can have any name; `sltool dte decompile` names a function's later rolls `roll_2`, `roll_3` and so on |
-| `return` | `return 1` |
+| `return` | `return 1`. The code of each part, trigger and handler must end with one, as every routine of the shipped missions does: a thread would run on past the end of its block ([Blocks](dte.md#blocks)) |
 
 | Expression | Source |
 |---|---|
@@ -300,29 +300,9 @@ with the same compiler, built for the host ([`build_mission.zig`](../../src/tool
 
 [luau-lsp](https://github.com/JohnnyMorganz/luau-lsp), the Luau language server, gives editors such
 as VS Code completion and descriptions for mission source, from the definitions file
-[`mission.d.luau`](../guide/mission.d.luau). It holds the declarations and their fields, the
-script's functions, every command of the catalogue with its parameters and the developers'
-descriptions, and the names of the game's values. It comes with each release, and
-`sltool dte definitions` writes it.
-
-1. Install luau-lsp's extension, version 1.56 or later.
-2. In the settings of the folder that holds the missions, such as its `.vscode/settings.json` in VS
-   Code, add the file under a name, and turn on Luau's new type solver:
-
-   ```json
-   {
-       "luau-lsp.platform.type": "standard",
-       "luau-lsp.types.definitionFiles": { "@mission": "path/to/mission.d.luau" },
-       "luau-lsp.fflags.enableNewSolver": true
-   }
-   ```
-
-Mission source needs Luau's new type solver: a declaration can use a name the file declares after
-it, and the old solver takes that for an unknown global. In nonstrict mode, the default, the new
-solver reports no type errors, so `sltool dte build` is still what finds them. The scripting API's
-definitions don't load in the new solver yet
-([#1139](https://github.com/OpenReliant/openreliant/issues/1139)), so mods' scripts are best kept in
-a folder of their own.
+[`mission.d.luau`](../guide/mission.d.luau), which comes with each release and which
+`sltool dte definitions` writes. [Writing missions](../guide/missions.md#editors) says how to set
+it up.
 
 The definitions take the declarations, the script's functions and the tables of fields from
 [`language.zig`](../../src/formats/dte/source/language.zig), which the compiler checks fields

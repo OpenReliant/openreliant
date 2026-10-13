@@ -26,11 +26,16 @@ pub const Parameters = enum {
     arguments,
 };
 
-/// The statements of the function `node`, whose parameters are `parameters`.
+/// The statements of the function `node`, whose parameters are `parameters`. The code must end with
+/// a `return`, as every routine of the shipped missions does: without one, a thread would run on
+/// past the end of its block, into the constant table after it
+/// ([Blocks](../../../../../docs/formats/dte.md#blocks)).
 pub fn function(c: *Compiler, node: Index, parameters: Parameters) Error![]const Statement {
     const found = c.tree.get(node).function;
     const reader: Reader = .{ .c = c, .parameters = found.parameters, .kind = parameters };
-    return reader.body(found.body);
+    const body = try reader.body(found.body);
+    if (body.len == 0 or body[body.len - 1] != .@"return") return c.fail(node, "the code must end with a `return`, such as `return 1`", .{});
+    return body;
 }
 
 const Reader = struct {
