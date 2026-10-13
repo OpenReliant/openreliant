@@ -7,10 +7,10 @@
 -- The names of the game's values, as the scripting API names them. A value without a name,
 -- such as a mod's ship type, is a number.
 
---- A ship type, by its name, or by its number where the game doesn't name it.
-export type ShipType = "predator" | "naginata" | "grendel" | "crusader" | "coyote" | "mirage" | "tempest" | "patriot" | "wolverine" | "reaper" | "shroud" | "phoenix" | "reliant" | "yamato" | "alsace" | "kestrel" | "falco" | "victorious" | "endeavour" | "mitchell" | "bremen" | "arc_ship" | "ulysses" | "sai" | "nanny" | "galahad" | "hades" | "mule" | "lonestar" | "limpet_car" | "prowler" | "ripper" | "lueneburg" | "mammoth" | "intruder" | "sentry" | "goodwill" | "stork" | "sky_hawk" | "haidar" | "karak" | "salin" | "azan" | "sabre" | "lagg" | "kamov" | "saracen" | "salamander" | "scimitar" | "basilisk" | "kossac" | "yao" | "ramases" | "kozlov" | "morzov" | "badanov" | "pukov" | "xia" | "riza" | "cyclops" | "kurgan" | "sharov" | "gurevich" | "berijev" | "kirov" | "loki" | "kalan_shuttle" | "saladin" | "darkreign" | "stalag" | "antanov" | "kronstadt" | "boridin" | "troop_car" | "torpedo" | "ulysses_back" | "ulysses_fin" | "escape_pod" | "debris" | "debris_1" | "debris_2" | "debris_3" | "debris_4" | "debris_5" | "debris_6" | "debris_7" | "debris_8" | "debris_9" | "crewman" | "crewman_1" | "crewman_2" | "crewman_3" | "russian_torpedo" | "mammoth_back" | "baxter" | "neptune_hi" | "triton_hi" | "uranus_hi" | "saturn_hi" | "titan_hi" | "jupiter_hi" | "europa_hi" | "ganymede_hi" | "io_hi" | "calisto_hi" | "venus_hi" | "earth" | "kronstadt_wreck" | "planet_placeholder_4" | "proto_gate" | "advanced_gate" | "proximity_mine" | "black_box" | "satellite" | "mammoth_wreck_front" | "mammoth_wreck_back" | "proto_gate_panel" | "badanov_wreck_back" | "badanov_wreck_front" | "kurgan_wreck" | "krasnaya" | "asteroid_1" | "asteroid_2" | "asteroid_3" | "asteroid_4" | "asteroid_5" | "asteroid_6" | "asteroid_7" | "research_station" | "latov" | "gurevich_wreck_back" | "training_hoop" | "czar_docked" | "turret_asteroid_1" | "turret_asteroid_2" | "turret_asteroid_3" | "turret_asteroid_4" | "turret_asteroid_5" | "turret_asteroid_6" | "turret_asteroid_7" | "powerup_random" | "dm_beacon_gate" | "dm_beacon" | "pukov_wreck_back" | "other_escape_pod" | "cargo_pod" | "other_cargo_pod" | "grazer_gun_sat" | "archer_missile_sat" | "kafelnikof" | "reliant_wreck_back" | "stalag_doors" | "stalag_duct_cover" | "yakob_shuttle" | "krasny" | "varyag" | "other_ramases" | "fort_carter" | "koenig" | "washington" | "other_mitchell" | "ufelsky" | "kresta" | "krasnaya_left_arm" | "krasnaya_right_arm" | "rogue_base" | "kronstadt_arm" | "boridin_gun_dome" | "boridin_breakaway" | "darkreign_wreck_hat" | "yamato_wreck_back" | "maintenance_droid" | "maintenance_astronaut" | "rogue_base_wreck_top" | "tank" | "training_target" | "zakov" | "shell" | "rock_chunk" | "rock_chunk_tiny_1" | "rock_chunk_tiny_2" | "rock_chunk_tiny_3" | "rock_chunk_tiny_4" | "latov_wreck_1" | "latov_wreck_2" | "czar" | "zakov_wreck_back" | "sharov_wreck_back" | "limpet_pod" | "stalag_wreck_1" | "stalag_wreck_2" | "saladin_wreck" | "gegarin" | "krelov" | "kiev" | "kiev_wreck_back" | "baxter_wreck_top" | "victorious_wreck_front" | "mitchell_wreck_back" | "fort_bear" | "fort_sherman" | "neptune_lo" | "triton_lo" | "uranus_lo" | "saturn_lo" | "titan_lo" | "jupiter_lo" | "europa_lo" | "ganymede_lo" | "io_lo" | "calisto_lo" | "venus_lo" | "yamato_hangar" | "yamato_landing_bay" | "reliant_hangar" | "comms_relay" | "saladin_link" | "varyag_wreck_front" | "churchill" | "bokov" | "bulatov" | "shinnik" | "kovtun" | "late_escape_pod" | "other_late_escape_pod" | "fuel_pod" | "yevstafiy" | "mammoth_gulliver" | "mammoth_santa_maria" | "mammoth_rosario" | "mammoth_larsons_pride" | "mammoth_brittania" | "mammoth_sierra_madre" | "mammoth_mayan_gold" | "mammoth_dawn_chorus" | "mammoth_calysto" | "mammoth_sundown" | "mammoth_krenna" | "mammoth_seabound" | "mammoth_crimson_sky" | "asteroid_with_hole_1" | "asteroid_with_hole_2" | "asteroid_with_hole_3" | "asteroid_with_hole_4" | "t_predator" | "t_naginata" | "t_grendel" | "t_crusader" | "t_coyote" | "t_mirage" | "t_tempest" | "t_patriot" | "t_wolverine" | "t_reaper" | "t_shroud" | "t_phoenix" | "sun_marker" | "nebula_marker" | "dm_sphere_centre" | "beacon_marker" | "spawn_player" | "spawn_powerup" | "marker" | "stand_in" | number
---- A pilot, by its name, or by its number where the game doesn't name it.
-export type Pilot = "bandit_tigers_leader" | "diceman_tigers_leader" | "moose_tigers" | "tigers" | "moose_volunteers" | "volunteers" | "bandit_volunteers_leader" | "viper" | "fifty_first" | "black_guard" | "black_sun_leader" | "black_sun" | "blades" | "black_eagle_leader" | "black_eagle" | "ivan_petrov" | "nicolai_petrov" | "black_aces" | "bremen_bridge_officer" | "buccaneer" | "cat_foster" | "cobra" | "couger" | "coalition_comms_officer" | "coalition_fighter" | "coalition_scientist" | "endeavour_bridge_officer" | "enriquez_reliant_bridge" | "enriquez_yamato_bridge" | "enriquez_cockpit" | "foster_dead" | "fort_bear_comms" | "fort_baxter_comms" | "fort_carter_comms" | "fort_sherman_comms" | "gamma_dead" | "gamma_leader" | "golden_warrior" | "hellcat_leader" | "hellcat" | "hornet" | "jackel_leader" | "jackel" | "jaguar" | "kestrel_command" | "koenig_bridge_officer" | "kestrel_bridge_officer" | "kurgen" | "lonestar" | "mauler" | "mcgann" | "mitchell_bridge_officer" | "nanny_leader" | "pirate_leader" | "pirate" | "prowler" | "pukov_captain" | "puma_leader" | "puma" | "raven" | "reliant_bridge_officer" | "ripper" | "ronin_leader" | "ronin" | "russian_bomber" | "sabre_leader" | "sabre" | "saracen" | "scorpion_leader" | "scorpion" | "saladin_captain" | "stahl_bridge" | "stahl_marines" | "steiner_ejected" | "stinger" | "stork" | "ulysses_captain" | "ulysses_captain_panicking" | "steiner_vampires_leader" | "vampire" | "varyag_captain" | "victorious_bridge_officer" | "virtual_flight_instructor" | "washington_bridge_officer" | "yamato_bridge_officer" | "frenchy" | "silky" | "mayday" | "trigger" | "vixen" | "cutter" | "claymore" | "skippy" | "juice" | "face" | "hawkeye" | "arrow" | "nero" | "rhino" | "stalker" | "flash" | "stretch" | "talon" | "butcher" | "snapper" | "banshee" | "wolf" | "reaper" | "worm" | "wildcat" | "siron" | "ferret" | "poker" | "blade" | "scarlet" | "rico" | "slick" | "irish" | "spider" | "ego" | "diceman" | "captain_mukai" | "cat_foster_prowler" | "coalition_torpedo_leader" | "general_reese_pod" | "kulov_borodin" | "kulov_pod" | "mammoth_1" | "mammoth_2" | "mammoth_3" | "mammoth_4" | "saracen_leader" | "stahl_ripper" | "golden_warrior_leader" | "hornet_leader" | "mammoth_5" | "mammoth_6" | "mammoth_7" | "bandit" | "marauder_leader" | "marauder" | "marine_leader" | "marine" | "jaguar_leader" | "buccaneer_leader" | number
+--- A ship type, by its name, or by its number where the game doesn't name it. The type takes any text, as the scripting API's does, but `sltool dte build` accepts only the game's names.
+export type ShipType = "predator" | "naginata" | "grendel" | "crusader" | "coyote" | "mirage" | "tempest" | "patriot" | "wolverine" | "reaper" | "shroud" | "phoenix" | "reliant" | "yamato" | "alsace" | "kestrel" | "falco" | "victorious" | "endeavour" | "mitchell" | "bremen" | "arc_ship" | "ulysses" | "sai" | "nanny" | "galahad" | "hades" | "mule" | "lonestar" | "limpet_car" | "prowler" | "ripper" | "lueneburg" | "mammoth" | "intruder" | "sentry" | "goodwill" | "stork" | "sky_hawk" | "haidar" | "karak" | "salin" | "azan" | "sabre" | "lagg" | "kamov" | "saracen" | "salamander" | "scimitar" | "basilisk" | "kossac" | "yao" | "ramases" | "kozlov" | "morzov" | "badanov" | "pukov" | "xia" | "riza" | "cyclops" | "kurgan" | "sharov" | "gurevich" | "berijev" | "kirov" | "loki" | "kalan_shuttle" | "saladin" | "darkreign" | "stalag" | "antanov" | "kronstadt" | "boridin" | "troop_car" | "torpedo" | "ulysses_back" | "ulysses_fin" | "escape_pod" | "debris" | "debris_1" | "debris_2" | "debris_3" | "debris_4" | "debris_5" | "debris_6" | "debris_7" | "debris_8" | "debris_9" | "crewman" | "crewman_1" | "crewman_2" | "crewman_3" | "russian_torpedo" | "mammoth_back" | "baxter" | "neptune_hi" | "triton_hi" | "uranus_hi" | "saturn_hi" | "titan_hi" | "jupiter_hi" | "europa_hi" | "ganymede_hi" | "io_hi" | "calisto_hi" | "venus_hi" | "earth" | "kronstadt_wreck" | "planet_placeholder_4" | "proto_gate" | "advanced_gate" | "proximity_mine" | "black_box" | "satellite" | "mammoth_wreck_front" | "mammoth_wreck_back" | "proto_gate_panel" | "badanov_wreck_back" | "badanov_wreck_front" | "kurgan_wreck" | "krasnaya" | "asteroid_1" | "asteroid_2" | "asteroid_3" | "asteroid_4" | "asteroid_5" | "asteroid_6" | "asteroid_7" | "research_station" | "latov" | "gurevich_wreck_back" | "training_hoop" | "czar_docked" | "turret_asteroid_1" | "turret_asteroid_2" | "turret_asteroid_3" | "turret_asteroid_4" | "turret_asteroid_5" | "turret_asteroid_6" | "turret_asteroid_7" | "powerup_random" | "dm_beacon_gate" | "dm_beacon" | "pukov_wreck_back" | "other_escape_pod" | "cargo_pod" | "other_cargo_pod" | "grazer_gun_sat" | "archer_missile_sat" | "kafelnikof" | "reliant_wreck_back" | "stalag_doors" | "stalag_duct_cover" | "yakob_shuttle" | "krasny" | "varyag" | "other_ramases" | "fort_carter" | "koenig" | "washington" | "other_mitchell" | "ufelsky" | "kresta" | "krasnaya_left_arm" | "krasnaya_right_arm" | "rogue_base" | "kronstadt_arm" | "boridin_gun_dome" | "boridin_breakaway" | "darkreign_wreck_hat" | "yamato_wreck_back" | "maintenance_droid" | "maintenance_astronaut" | "rogue_base_wreck_top" | "tank" | "training_target" | "zakov" | "shell" | "rock_chunk" | "rock_chunk_tiny_1" | "rock_chunk_tiny_2" | "rock_chunk_tiny_3" | "rock_chunk_tiny_4" | "latov_wreck_1" | "latov_wreck_2" | "czar" | "zakov_wreck_back" | "sharov_wreck_back" | "limpet_pod" | "stalag_wreck_1" | "stalag_wreck_2" | "saladin_wreck" | "gegarin" | "krelov" | "kiev" | "kiev_wreck_back" | "baxter_wreck_top" | "victorious_wreck_front" | "mitchell_wreck_back" | "fort_bear" | "fort_sherman" | "neptune_lo" | "triton_lo" | "uranus_lo" | "saturn_lo" | "titan_lo" | "jupiter_lo" | "europa_lo" | "ganymede_lo" | "io_lo" | "calisto_lo" | "venus_lo" | "yamato_hangar" | "yamato_landing_bay" | "reliant_hangar" | "comms_relay" | "saladin_link" | "varyag_wreck_front" | "churchill" | "bokov" | "bulatov" | "shinnik" | "kovtun" | "late_escape_pod" | "other_late_escape_pod" | "fuel_pod" | "yevstafiy" | "mammoth_gulliver" | "mammoth_santa_maria" | "mammoth_rosario" | "mammoth_larsons_pride" | "mammoth_brittania" | "mammoth_sierra_madre" | "mammoth_mayan_gold" | "mammoth_dawn_chorus" | "mammoth_calysto" | "mammoth_sundown" | "mammoth_krenna" | "mammoth_seabound" | "mammoth_crimson_sky" | "asteroid_with_hole_1" | "asteroid_with_hole_2" | "asteroid_with_hole_3" | "asteroid_with_hole_4" | "t_predator" | "t_naginata" | "t_grendel" | "t_crusader" | "t_coyote" | "t_mirage" | "t_tempest" | "t_patriot" | "t_wolverine" | "t_reaper" | "t_shroud" | "t_phoenix" | "sun_marker" | "nebula_marker" | "dm_sphere_centre" | "beacon_marker" | "spawn_player" | "spawn_powerup" | "marker" | "stand_in" | number | string
+--- A pilot, by its name, or by its number where the game doesn't name it. The type takes any text, as the scripting API's does, but `sltool dte build` accepts only the game's names.
+export type PilotNumber = "bandit_tigers_leader" | "diceman_tigers_leader" | "moose_tigers" | "tigers" | "moose_volunteers" | "volunteers" | "bandit_volunteers_leader" | "viper" | "fifty_first" | "black_guard" | "black_sun_leader" | "black_sun" | "blades" | "black_eagle_leader" | "black_eagle" | "ivan_petrov" | "nicolai_petrov" | "black_aces" | "bremen_bridge_officer" | "buccaneer" | "cat_foster" | "cobra" | "couger" | "coalition_comms_officer" | "coalition_fighter" | "coalition_scientist" | "endeavour_bridge_officer" | "enriquez_reliant_bridge" | "enriquez_yamato_bridge" | "enriquez_cockpit" | "foster_dead" | "fort_bear_comms" | "fort_baxter_comms" | "fort_carter_comms" | "fort_sherman_comms" | "gamma_dead" | "gamma_leader" | "golden_warrior" | "hellcat_leader" | "hellcat" | "hornet" | "jackel_leader" | "jackel" | "jaguar" | "kestrel_command" | "koenig_bridge_officer" | "kestrel_bridge_officer" | "kurgen" | "lonestar" | "mauler" | "mcgann" | "mitchell_bridge_officer" | "nanny_leader" | "pirate_leader" | "pirate" | "prowler" | "pukov_captain" | "puma_leader" | "puma" | "raven" | "reliant_bridge_officer" | "ripper" | "ronin_leader" | "ronin" | "russian_bomber" | "sabre_leader" | "sabre" | "saracen" | "scorpion_leader" | "scorpion" | "saladin_captain" | "stahl_bridge" | "stahl_marines" | "steiner_ejected" | "stinger" | "stork" | "ulysses_captain" | "ulysses_captain_panicking" | "steiner_vampires_leader" | "vampire" | "varyag_captain" | "victorious_bridge_officer" | "virtual_flight_instructor" | "washington_bridge_officer" | "yamato_bridge_officer" | "frenchy" | "silky" | "mayday" | "trigger" | "vixen" | "cutter" | "claymore" | "skippy" | "juice" | "face" | "hawkeye" | "arrow" | "nero" | "rhino" | "stalker" | "flash" | "stretch" | "talon" | "butcher" | "snapper" | "banshee" | "wolf" | "reaper" | "worm" | "wildcat" | "siron" | "ferret" | "poker" | "blade" | "scarlet" | "rico" | "slick" | "irish" | "spider" | "ego" | "diceman" | "captain_mukai" | "cat_foster_prowler" | "coalition_torpedo_leader" | "general_reese_pod" | "kulov_borodin" | "kulov_pod" | "mammoth_1" | "mammoth_2" | "mammoth_3" | "mammoth_4" | "saracen_leader" | "stahl_ripper" | "golden_warrior_leader" | "hornet_leader" | "mammoth_5" | "mammoth_6" | "mammoth_7" | "bandit" | "marauder_leader" | "marauder" | "marine_leader" | "marine" | "jaguar_leader" | "buccaneer_leader" | number | string
 --- An order, by its name, or by its number where the game doesn't name it.
 export type Order = "do_nothing" | "fly_aimlessly" | "launch_missile" | "launch_jack_hammer" | "warp_in" | "warp_out" | "fly" | "run_away" | "land" | "escort" | "find_new_target" | "explode" | "ripper_grabs_target_object" | "object_attach" | "formation_regroup" | "patrol_route" | "toggle_cloak" | "ship_follow_curve" | "slow_rotate" | "jump_in" | "jump_out" | "find_scoop_up" | "random_spin_slow" | "random_spin_medium" | "random_spin_fast" | "fixed_gate_jump_in" | "fixed_gate_jump_out" | "formation" | "fixed_gate_open" | "fixed_gate_close" | "eject" | "fixed_gate_collapse" | "match_speed" | "dark_reign_shoot" | "move_to_spawn_pos" | "turns_object_lights_on" | "make_boridin_section_break_away" | "rotate_boridin_breakaway_warp_projector" | "start_warp_projection_from_boridin" | "make_ripper_drop_what_its_carrying" | "jump_in_spread" | "jump_out_spread" | "turns_object_lights_off" | "huuuuuuuge_explosion" | "immediately_set_ship_to_zero_velocity_and_rotation" | "fly_ship_backwards" | "player_control" | "multiplayer_control" | "avoid_target" | "torpedo" | "launch" | "fight" | "abandoned" | "scoop_up" | "eject_spin" | "dock" | "fire_ion_cannon" | "ripper_end_drop_object" | "ripper_attach_cargo_pod_to_mammoth" | "eject_fighter_attack" | "disrupted" | "make_capship_list_left" | "make_capship_list_right" | "friendly_fire" | "eject_player" | "ship_follow_curve_backwards" | "mill" | "deathmatch_respawn_effect" | "deathmatch_dark_reign_target" | number
 --- A condition, by its name, or by its number where the game doesn't name it.
@@ -27,7 +27,7 @@ export type EventValue = "Attacker" | "Shield Damage" | "Hull Damage" | "Victim"
 -- The records a mission declares, and the other types its words take and give.
 
 --- A ship, a capital ship, a station or a marker, such as a nav point.
-declare extern type Ship with end
+declare extern type MissionShip with end
 --- A flight group.
 declare extern type FlightGroup with end
 --- A squad.
@@ -41,7 +41,7 @@ declare extern type Formation with
     [number]: FormationPoint
 end
 --- A ship, a flight group or a squad: what a trigger watches, and what most commands act on.
-export type Entity = Ship | FlightGroup | Squad
+export type Entity = MissionShip | FlightGroup | Squad
 --- A place or a direction: `{ x, y, z }`.
 export type Vector = { number }
 --- The code a trigger runs: a function whose parameters are the values its condition's events carry.
@@ -103,7 +103,7 @@ export type ShipFields = {
     --- Its flight group.
     group: FlightGroup?,
     --- Its pilot, by its record of pilotstats.bin.
-    pilot: Pilot?,
+    pilot: PilotNumber?,
     --- Where it is, `{ x, y, z }`, in the game's coordinates, Y down; `{ 0, 0, 0 }` by default.
     position: Vector?,
     --- Its yaw, in whole degrees; -1 where the mission leaves the angle unset. 0 by default.
@@ -123,7 +123,7 @@ export type MarkerFields = {
     --- Its flight group.
     group: FlightGroup?,
     --- Its pilot, by its record of pilotstats.bin.
-    pilot: Pilot?,
+    pilot: PilotNumber?,
     --- Where it is, `{ x, y, z }`, in the game's coordinates, Y down; `{ 0, 0, 0 }` by default.
     position: Vector?,
     --- Its yaw, in whole degrees; -1 where the mission leaves the angle unset. 0 by default.
@@ -143,7 +143,7 @@ export type PointFields = {
     --- Its flight group.
     group: FlightGroup?,
     --- Its pilot, by its record of pilotstats.bin.
-    pilot: Pilot?,
+    pilot: PilotNumber?,
     --- Where it is, `{ x, y, z }`, in the game's coordinates, Y down; `{ 0, 0, 0 }` by default.
     position: Vector?,
     --- Its yaw, in whole degrees; -1 where the mission leaves the angle unset. 0 by default.
@@ -175,17 +175,17 @@ export type Marker = {
 }
 export type CurveFields = {
     --- The ship the curve starts at; none by default.
-    start: Ship?,
+    start: MissionShip?,
     --- The ship the curve ends at; none by default.
-    finish: Ship?,
+    finish: MissionShip?,
     --- Where the curve starts.
     from: Vector?,
     --- Where the curve ends.
     to: Vector?,
     --- The ship the curve's leaving tangent is drawn to.
-    leaving_handle: Ship?,
+    leaving_handle: MissionShip?,
     --- The ship the curve's arriving tangent is drawn to.
-    arriving_handle: Ship?,
+    arriving_handle: MissionShip?,
     --- The curve's leaving tangent.
     leaving: Vector?,
     --- The curve's arriving tangent.
@@ -259,15 +259,15 @@ declare function global(name: string, value: number): number
 --- Declares a flight group, by its display name.
 declare function flight_group(name: string, fields: FlightGroupFields?): FlightGroup
 --- Places a ship, a capital ship or a station, by its display name.
-declare function ship(name: string, fields: ShipFields): Ship
+declare function ship(name: string, fields: ShipFields): MissionShip
 --- Places a nav point, by its display name.
-declare function nav_point(name: string, fields: MarkerFields?): Ship
+declare function nav_point(name: string, fields: MarkerFields?): MissionShip
 --- Places a waypoint, by its display name.
-declare function waypoint(name: string, fields: MarkerFields?): Ship
+declare function waypoint(name: string, fields: MarkerFields?): MissionShip
 --- Places a point, by its display name, such as one a camera curve runs to.
-declare function point(name: string, fields: PointFields?): Ship
+declare function point(name: string, fields: PointFields?): MissionShip
 --- Places a curve point, by its display name.
-declare function curve_point(name: string, fields: MarkerFields?): Ship
+declare function curve_point(name: string, fields: MarkerFields?): MissionShip
 --- Declares a squad: its display name and its members in their order, ships, ships' components, flight groups and other squads.
 declare function squad(name: string, members: { Entity }): Squad
 --- Declares a formation: its display name and its points, each where it stands from the formation's origin. A ship names a point as `sabres[1]` for the first.
@@ -283,7 +283,7 @@ declare function on(subject: Entity?, condition: Condition, fields: (TriggerFiel
 --- A ship's component, by its index.
 declare function component<T>(object: T, index: number): T
 --- Any of the players' ships, as a value a trigger checks.
-declare any_ship: Ship
+declare any_ship: MissionShip
 --- Runs a command the catalogue doesn't have, by its number.
 declare function command(number: number, ...: any): ()
 --- Starts a part on a thread of its own, with its arguments after the part.
@@ -299,7 +299,7 @@ declare function thread_value(place: number): any
 --- A value an object keeps of its last event of a condition, by its label in the condition catalogue: `last_event(ship, "shot_at", "Hull Damage")`.
 declare function last_event(object: Entity, condition: Condition, value: EventValue): any
 --- A ship past the mission's records, by its index.
-declare function ship_index(index: number): Ship
+declare function ship_index(index: number): MissionShip
 --- A flight group past the mission's records, by its index.
 declare function flight_group_index(index: number): FlightGroup
 --- A squad past the mission's records, by its index.
@@ -356,7 +356,7 @@ declare function div_assign_f(target: number, value: number): ()
 --- Test Function
 --- @param test_param_1 -- Test Param 1
 --- @param test_param_2 -- Test Param 2
-declare function PrintShipName(test_param_1: Ship | FlightGroup | string, test_param_2: number): ()
+declare function PrintShipName(test_param_1: MissionShip | FlightGroup | string, test_param_2: number): ()
 --- Creates a timer to invoke a function
 --- @param unique_id_to_identify_timer -- Unique ID to identify timer
 --- @param function_to_execute_when_timer_activates -- Function to execute when timer activates
@@ -402,11 +402,11 @@ declare function ClearAI(entity_to_be_cleared: Entity): ()
 --- Sends a Ship to follow a patrol route
 --- @param entity_to_send_to_patrol_route -- Entity to send to patrol route
 --- @param patrol_route_to_follow -- Patrol route to follow
-declare function SetPatrolRoute(entity_to_send_to_patrol_route: Ship | FlightGroup, patrol_route_to_follow: FlightGroup): ()
+declare function SetPatrolRoute(entity_to_send_to_patrol_route: MissionShip | FlightGroup, patrol_route_to_follow: FlightGroup): ()
 --- Assigns a pilot to fly a ship
 --- @param ship_to_host_pilot -- Ship to host pilot
 --- @param pilot_to_fly_ship -- Pilot to fly ship
-declare function SetPilot(ship_to_host_pilot: Ship, pilot_to_fly_ship: Pilot): ()
+declare function SetPilot(ship_to_host_pilot: MissionShip, pilot_to_fly_ship: PilotNumber): ()
 --- Enables or disables the state of a trigger
 --- @param entity_owning_trigger -- Entity owning trigger
 --- @param trigger_type_to_enable_disable -- Trigger type to enable/disable
@@ -418,16 +418,16 @@ declare function SetTriggerState(entity_owning_trigger: Entity, trigger_type_to_
 --- @param duration_of_camera -- Duration of camera (seconds)
 --- @param tracks_curve_to_this_ship_s_speed -- Tracks curve to this ship's speed (can be NULL)
 --- @param ships_to_disable_for_duration -- Ships to disable for duration
-declare function StartDirectorCam(curve_for_camera_to_follow: Ship | Curve, ship_for_camera_to_track: Ship?, duration_of_camera: number, tracks_curve_to_this_ship_s_speed: Ship?, ships_to_disable_for_duration: Entity?): ()
+declare function StartDirectorCam(curve_for_camera_to_follow: MissionShip | Curve, ship_for_camera_to_track: MissionShip?, duration_of_camera: number, tracks_curve_to_this_ship_s_speed: MissionShip?, ships_to_disable_for_duration: Entity?): ()
 --- Starts a specific animation for a ship
 --- @param ship_to_animate -- Ship to animate
 --- @param animation_name -- Animation Name
-declare function StartShipAnimation(ship_to_animate: Ship, animation_name: string): ()
+declare function StartShipAnimation(ship_to_animate: MissionShip, animation_name: string): ()
 --- Sets an ship/flight group to follow a predefined path
 --- @param entity_to_follow_curve -- Entity to follow curve
 --- @param the_curve_for_the_entity_to_follow -- The curve for the entity to follow
 --- @param duration_of_movement -- Duration of movement (seconds)
-declare function ShipFollowCurve(entity_to_follow_curve: Ship | FlightGroup, the_curve_for_the_entity_to_follow: Curve, duration_of_movement: number): ()
+declare function ShipFollowCurve(entity_to_follow_curve: MissionShip | FlightGroup, the_curve_for_the_entity_to_follow: Curve, duration_of_movement: number): ()
 --- Sets up a ship ready to launch
 --- @param entity_to_be_launched -- Entity to be launched
 --- @param ship_to_launch_from -- Ship to launch from
@@ -448,12 +448,12 @@ declare function InterruptTriggerCode(): ()
 --- @param ship_sending_comm -- Ship sending comm
 --- @param head_movement -- Head movement
 --- @param name_of_speech_file -- Name of speech file
-declare function CommsFromShip(ship_sending_comm: Ship, head_movement: HeadMovement, name_of_speech_file: string): ()
+declare function CommsFromShip(ship_sending_comm: MissionShip, head_movement: HeadMovement, name_of_speech_file: string): ()
 --- Play a movie in the comms window
 --- @param ship_sending_comm -- Ship sending comm
 --- @param head_movement -- Head movement
 --- @param name_of_speech_file -- Name of speech file
-declare function CommsFromPilot(ship_sending_comm: Pilot, head_movement: HeadMovement, name_of_speech_file: string): ()
+declare function CommsFromPilot(ship_sending_comm: PilotNumber, head_movement: HeadMovement, name_of_speech_file: string): ()
 --- Makes or stops a ship being invulnerable
 --- @param ship_concerned -- Ship concerned
 --- @param invulnerability -- Invulnerability (0 - non, 1 - player can hit, 2 - fully invulnerable, 3 - Eject before exploding)
@@ -463,7 +463,7 @@ declare function SetInvulnerability(ship_concerned: Entity, invulnerability: num
 --- @param the_curve_for_the_entity_to_follow -- The curve for the entity to follow
 --- @param duration_of_movement -- Duration of movement (seconds)
 --- @param entity_for_curve_to_use_as_its_start_offset -- Entity for curve to use as its start offset
-declare function MovingShipFollowCurve(entity_to_follow_curve: Ship | FlightGroup, the_curve_for_the_entity_to_follow: Curve, duration_of_movement: number, entity_for_curve_to_use_as_its_start_offset: Ship): ()
+declare function MovingShipFollowCurve(entity_to_follow_curve: MissionShip | FlightGroup, the_curve_for_the_entity_to_follow: Curve, duration_of_movement: number, entity_for_curve_to_use_as_its_start_offset: MissionShip): ()
 --- Stops entities from being processed
 --- @param entity_concerned -- Entity concerned
 --- @param true_false -- True/False
@@ -471,19 +471,19 @@ declare function DisableObject(entity_concerned: Entity, true_false: number): ()
 --- Positions an entity relative to a ship/point's movement
 --- @param entity_to_position -- Entity to position
 --- @param ship_point_to_use_as_relative_marker -- Ship/Point to use as relative marker
-declare function PositionRelative(entity_to_position: Entity, ship_point_to_use_as_relative_marker: Ship): ()
+declare function PositionRelative(entity_to_position: Entity, ship_point_to_use_as_relative_marker: MissionShip): ()
 --- Returns the number of seconds ago when the player jumped
 declare function WhenPlayerLastJumped(): ()
 --- Starts director cam for a missile
 --- @param ship_that_fired_missile -- Ship that fired missile
-declare function StartMissileCam(ship_that_fired_missile: Ship): ()
+declare function StartMissileCam(ship_that_fired_missile: MissionShip): ()
 --- Starts chase cam
 --- @param ship_to_follow -- Ship to follow
-declare function StartChaseCam(ship_to_follow: Ship?): ()
+declare function StartChaseCam(ship_to_follow: MissionShip?): ()
 --- Sets player's target
 --- @param player_ship -- Player Ship
 --- @param ship_to_target -- Ship to target
-declare function SetPlayerTarget(player_ship: Ship, ship_to_target: Ship): ()
+declare function SetPlayerTarget(player_ship: MissionShip, ship_to_target: MissionShip): ()
 --- Sets an entity to be targetable or not
 --- @param entity -- Entity
 --- @param true_object_targetable -- true - object targetable, false - not targetable
@@ -497,12 +497,12 @@ declare function StopDirectorCam(): ()
 --- Sets the sphere for the action to be contained in.
 --- @param object_to_action_around -- Object to action around
 --- @param radius_of_sphere_0_for_default -- Radius of sphere - 0 for default
-declare function SetActionCentre(object_to_action_around: Ship, radius_of_sphere_0_for_default: number): ()
+declare function SetActionCentre(object_to_action_around: MissionShip, radius_of_sphere_0_for_default: number): ()
 --- Dock Ship.
 --- @param ship_to_dock -- Ship to dock
 --- @param object_ship_is_to_dock_to -- Object ship is to dock to
 --- @param docking_port -- Docking port
-declare function Dock(ship_to_dock: Ship, object_ship_is_to_dock_to: Ship, docking_port: number): ()
+declare function Dock(ship_to_dock: MissionShip, object_ship_is_to_dock_to: MissionShip, docking_port: number): ()
 --- Stops bad guys from taunting the player
 --- @param true_disable_bad_guy_taunts -- true - Disable bad guy taunts
 declare function DisableTaunts(true_disable_bad_guy_taunts: number): ()
@@ -510,17 +510,17 @@ declare function DisableTaunts(true_disable_bad_guy_taunts: number): ()
 --- @param ship_param -- Ship
 --- @param point_to_fly_to -- Point to fly to
 --- @param speed -- Speed (0 - Default)
-declare function Fly(ship_param: Entity, point_to_fly_to: Ship?, speed: number): ()
+declare function Fly(ship_param: Entity, point_to_fly_to: MissionShip?, speed: number): ()
 --- Play a movie in the comms window (without looping)
 --- @param ship_sending_comm -- Ship sending comm
 --- @param head_movement -- Head movement
 --- @param name_of_speech_file -- Name of speech file
-declare function CommsFromShipOnce(ship_sending_comm: Ship, head_movement: HeadMovement, name_of_speech_file: string): ()
+declare function CommsFromShipOnce(ship_sending_comm: MissionShip, head_movement: HeadMovement, name_of_speech_file: string): ()
 --- Play a movie in the comms window (without looping)
 --- @param ship_sending_comm -- Ship sending comm
 --- @param head_movement -- Head movement
 --- @param name_of_speech_file -- Name of speech file
-declare function CommsFromPilotOnce(ship_sending_comm: Pilot, head_movement: HeadMovement, name_of_speech_file: string): ()
+declare function CommsFromPilotOnce(ship_sending_comm: PilotNumber, head_movement: HeadMovement, name_of_speech_file: string): ()
 --- Disable Object lights
 --- @param entity -- Entity
 --- @param true_or_false -- True or False
@@ -541,11 +541,11 @@ declare function DisableGuns(entity: Entity, true_disable_guns: number): ()
 --- Set Nav Point
 --- @param entity -- Entity
 --- @param nav_point_param -- Nav Point
-declare function SetNavPoint(entity: Entity, nav_point_param: Ship?): ()
+declare function SetNavPoint(entity: Entity, nav_point_param: MissionShip?): ()
 --- Set Escort Point
 --- @param entity -- Entity
 --- @param escort_point -- Escort Point
-declare function SetEscortPoint(entity: Entity, escort_point: Ship?): ()
+declare function SetEscortPoint(entity: Entity, escort_point: MissionShip?): ()
 --- Reset the player's afterburner fuel
 declare function ResetAfterBurners(): ()
 --- Disables missiles
@@ -570,7 +570,7 @@ declare function ResetToSpawnPositions(): ()
 declare function UpdateEnvironmentFXState(): ()
 --- Set Primary Target
 --- @param entity -- Entity
-declare function SetPrimaryTarget(entity: Ship?): ()
+declare function SetPrimaryTarget(entity: MissionShip?): ()
 --- Wait for ships to finish jumping or launching
 --- @param entity -- Entity
 declare function WaitForJumpOrLaunch(entity: Entity): ()
@@ -584,11 +584,11 @@ declare function SetEnvironmentFXNebula(index_of_nebula_material: number): ()
 --- Starts a specific animation for a ship in reverse
 --- @param ship_to_animate -- Ship to animate
 --- @param animation_name -- Animation Name
-declare function StartShipAnimationReverse(ship_to_animate: Ship, animation_name: string): ()
+declare function StartShipAnimationReverse(ship_to_animate: MissionShip, animation_name: string): ()
 --- Snaps a ship to a specific point
 --- @param ship_to_move -- Ship to move
 --- @param point_to_move_to -- Point to move to
-declare function SnapToPoint(ship_to_move: Ship, point_to_move_to: Ship): ()
+declare function SnapToPoint(ship_to_move: MissionShip, point_to_move_to: MissionShip): ()
 --- Plays the Foster's Last Stand movie!
 declare function PlayFostersLastStand(): ()
 --- Opens up a window on the HUD
@@ -600,7 +600,7 @@ declare function CloseInstrument(instrument_number_to_close: number): ()
 --- Destroys Subobject
 --- @param sub_object_to_destroy -- SubObject to destroy
 --- @param true_keep_damaged_model -- true - keep damaged model, false - no damaged model
-declare function DestroySubObject(sub_object_to_destroy: Ship, true_keep_damaged_model: number): ()
+declare function DestroySubObject(sub_object_to_destroy: MissionShip, true_keep_damaged_model: number): ()
 --- Sets a Mission Objective's status
 --- @param objective_number -- Objective number
 --- @param state -- State(0=Inactive, 1=Active, 2=Current)
@@ -612,7 +612,7 @@ declare function SetObjective(objective_number: number, state: number): ()
 declare function SetRescueProbabilities(probability_of_nanny_rescue: number, probability_of_antanov_capture: number, probability_of_being_destroyed: number): ()
 --- Returns TRUE if ship is the players ship
 --- @param ship_to_test -- Ship to test
-declare function IsShipThisPlayer(ship_to_test: Ship): ()
+declare function IsShipThisPlayer(ship_to_test: MissionShip): ()
 --- Sets a Flyback marker on a ship or a group of ships after a set range
 --- @param entity_concerned -- Entity concerned
 --- @param range -- Range
@@ -622,7 +622,7 @@ declare function ResetFlybackMarker(): ()
 --- Stops a specific animation for a ship
 --- @param ship_to_stop_animation_for -- Ship to stop animation for
 --- @param animation_name -- Animation Name
-declare function StopShipAnimation(ship_to_stop_animation_for: Ship, animation_name: string): ()
+declare function StopShipAnimation(ship_to_stop_animation_for: MissionShip, animation_name: string): ()
 --- Enables/Disables ship avoidance for the ship(s)
 --- @param entity_concerned -- Entity concerned
 --- @param true_disable_avoidance_code -- TRUE - Disable Avoidance code, FALSE - Enable avoidance code
@@ -630,13 +630,13 @@ declare function SetShipAvoidance(entity_concerned: Entity, true_disable_avoidan
 --- Enables/Disables Match Speed with target
 --- @param entity_concerned -- Entity concerned
 --- @param true_enable_match_speed -- TRUE - Enable Match Speed, FALSE - Disable Match Speed
-declare function MatchSpeed(entity_concerned: Ship, true_enable_match_speed: number): ()
+declare function MatchSpeed(entity_concerned: MissionShip, true_enable_match_speed: number): ()
 --- Sets an ship/flight group to follow a predefined path
 --- @param entity_to_follow_curve -- Entity to follow curve
 --- @param the_curve_for_the_entity_to_follow -- The curve for the entity to follow
 --- @param duration_of_movement -- Duration of movement (seconds)
 --- @param entity_for_curve_to_use_as_its_start_offset -- Entity for curve to use as its start offset
-declare function MovingShipBackupCurve(entity_to_follow_curve: Ship | FlightGroup, the_curve_for_the_entity_to_follow: Curve, duration_of_movement: number, entity_for_curve_to_use_as_its_start_offset: Ship?): ()
+declare function MovingShipBackupCurve(entity_to_follow_curve: MissionShip | FlightGroup, the_curve_for_the_entity_to_follow: Curve, duration_of_movement: number, entity_for_curve_to_use_as_its_start_offset: MissionShip?): ()
 --- Stops script until key pressed
 --- @param key_number_to_wait_for -- Key number to wait for
 declare function WaitForKey(key_number_to_wait_for: number): ()
@@ -645,7 +645,7 @@ declare function TerminateMission(): ()
 --- Sets the target for a ships turret
 --- @param turret -- Turret
 --- @param entity_to_target -- Entity to target
-declare function TurretSetTarget(turret: Ship | Squad, entity_to_target: Ship): ()
+declare function TurretSetTarget(turret: MissionShip | Squad, entity_to_target: MissionShip): ()
 --- Enables or disables the state of a trigger
 --- @param entity_owning_trigger -- Entity owning trigger
 --- @param trigger_type_to_enable_disable -- Trigger type to enable/disable
@@ -662,18 +662,18 @@ declare function KillAllScriptExecutionExecptMe(): ()
 --- @param duration_of_camera -- Duration of camera (seconds)
 --- @param tracks_curve_to_this_ship_s_speed -- Tracks curve to this ship's speed (can be NULL)
 --- @param ships_to_disable_for_duration -- Ships to disable for duration
-declare function StackDirectorCam(curve_for_camera_to_follow: Ship | Curve, ship_for_camera_to_track: Ship?, duration_of_camera: number, tracks_curve_to_this_ship_s_speed: Ship?, ships_to_disable_for_duration: Entity?): ()
+declare function StackDirectorCam(curve_for_camera_to_follow: MissionShip | Curve, ship_for_camera_to_track: MissionShip?, duration_of_camera: number, tracks_curve_to_this_ship_s_speed: MissionShip?, ships_to_disable_for_duration: Entity?): ()
 --- Sets the scanner off
 --- @param object_to_scan_for_null_to_disable -- Object to scan for - NULL to disable
-declare function Scanner(object_to_scan_for_null_to_disable: Ship?): ()
+declare function Scanner(object_to_scan_for_null_to_disable: MissionShip?): ()
 --- Replaces subobject with another object
 --- @param sub_object_to_replace -- SubObject to replace
 --- @param object_to_replace_it_with -- Object to replace it with
-declare function ReplaceSubObject(sub_object_to_replace: Ship, object_to_replace_it_with: Ship): ()
+declare function ReplaceSubObject(sub_object_to_replace: MissionShip, object_to_replace_it_with: MissionShip): ()
 --- Fires ships guns
 --- @param ship_to_fire -- Ship to fire
 --- @param duration -- Duration
-declare function Fire(ship_to_fire: Ship, duration: number): ()
+declare function Fire(ship_to_fire: MissionShip, duration: number): ()
 --- Syncs scripts
 --- @param sync_number -- Sync number
 declare function MultiplayerScriptSync(sync_number: number): ()
@@ -685,10 +685,10 @@ declare function FriendlyFire(): ()
 declare function Cloak(entity_to_cloak: Entity, true_cloak_on: number): ()
 --- Replenish Weapons
 --- @param entity_to_cloak -- Entity to cloak
-declare function ReplenishWeapons(entity_to_cloak: Ship): ()
+declare function ReplenishWeapons(entity_to_cloak: MissionShip): ()
 --- Blag blag blag blag blag
 --- @param entity_to_cloak -- Entity to cloak
-declare function WillsBlag(entity_to_cloak: Ship): ()
+declare function WillsBlag(entity_to_cloak: MissionShip): ()
 --- Show Hud Icon
 --- @param icon -- Icon
 --- @param param_0_off -- 0 - off, 1 - on, 2 - flash
@@ -696,12 +696,12 @@ declare function ShowHudIcon(icon: number, param_0_off: number): ()
 --- Disable Listing
 --- @param ship_param -- Ship
 --- @param true_stop_listing -- true - stop listing, false - enable listing
-declare function DisableListing(ship_param: Ship, true_stop_listing: number): ()
+declare function DisableListing(ship_param: MissionShip, true_stop_listing: number): ()
 --- Disables/enables object (e.g. planet) when the next jump/warp is made
 --- @param ship_param -- Ship
 --- @param true_disable -- true - disable, false - enable
-declare function DisableObjectAtNextJump(ship_param: Ship, true_disable: number): ()
+declare function DisableObjectAtNextJump(ship_param: MissionShip, true_disable: number): ()
 --- Darrens Naughty Blag
 --- @param ship_param -- Ship
 --- @param ship_param_2 -- Ship
-declare function DarrensNaughtyBlag(ship_param: Ship, ship_param_2: Ship): ()
+declare function DarrensNaughtyBlag(ship_param: MissionShip, ship_param_2: MissionShip): ()

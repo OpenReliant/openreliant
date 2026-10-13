@@ -38,12 +38,23 @@ pub const Kind = enum {
         };
     }
 
+    /// Whether mods add values of the kind under names of their own, which scripts write as text,
+    /// as they do ship types and pilots. A mission writes those values as numbers, but the type in
+    /// the definitions takes text too, as the scripting API's type of the same name does, so that
+    /// both definitions files can be loaded together.
+    pub fn hasModNames(kind: Kind) bool {
+        return switch (kind) {
+            .ship_type, .pilot => true,
+            else => false,
+        };
+    }
+
     /// The name of the type of the kind's values in the definitions of mission source
-    /// (`definitions.zig`).
+    /// (`definitions.zig`), the scripting API's name where it has the type too.
     pub fn typeName(kind: Kind) []const u8 {
         return switch (kind) {
             .ship_type => "ShipType",
-            .pilot => "Pilot",
+            .pilot => "PilotNumber",
             .order => "Order",
             .condition => "Condition",
             .head => "HeadMovement",

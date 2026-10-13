@@ -44,9 +44,52 @@ const objects = @import("objects.zig");
 const values = @import("values.zig");
 const api = @import("api.zig");
 
-/// The Luau types the definitions give `hooks.add` and `hooks.after`: each hook's own overload.
+/// The Luau types the definitions give `hooks.add` and `hooks.after`: a function that takes the
+/// name of a hook of `Names.all` or of `Names.functions`.
 pub const add_type = "HooksAdd";
 pub const after_type = "HooksAfter";
+
+/// The parameters after the hook's name of the functions that add a handler, as Luau writes them:
+/// the handler, whose `e` scripts annotate with the hook's type, and an optional filter.
+pub const handler_parameters = "handler: (e: any) -> boolean?, filter: (Filter | (e: any) -> boolean)?";
+
+/// The sets of hooks whose names the definitions give a type of their own.
+pub const Names = enum {
+    /// Every hook, which `hooks.add` takes.
+    all,
+    /// The hooks on the game's functions, which `hooks.after` takes.
+    functions,
+    /// The hooks that concern an object, which an object's `hook` takes.
+    objects,
+
+    /// The Luau type of the set's names.
+    pub fn typeName(names: Names) []const u8 {
+        return switch (names) {
+            .all => "HookName",
+            .functions => "FunctionHookName",
+            .objects => "ObjectHookName",
+        };
+    }
+
+    /// What the definitions say about the set.
+    pub fn about(names: Names) []const u8 {
+        return switch (names) {
+            .all => "The hooks, which `hooks.add` takes.",
+            .functions => "The hooks on the game's functions, which `hooks.after` takes.",
+            .objects => "The hooks that concern an object, which an object's `hook` takes.",
+        };
+    }
+
+    /// Whether `hook` is one of the set, as `hooks.after` and an object's `hook` check it.
+    pub fn holds(names: Names, hook: Hook) bool {
+        const access = accesses.getPtrConst(hook);
+        return switch (names) {
+            .all => true,
+            .functions => access.on.isFunction(),
+            .objects => access.subject != null,
+        };
+    }
+};
 
 /// The handlers mods have added, by hook.
 pub const Hooks = struct {
@@ -546,11 +589,11 @@ fn addFrom(hooks: *Hooks, state: *State, comptime when: When, comptime verb: []c
     const name = state.toString(first) orelse state.raise("{s}: expected a hook's name, got {s}", .{ verb, state.typeName(first) });
     const hook = std.meta.stringToEnum(Hook, name) orelse state.raise("{s}: there's no hook named '{s}' ('openreliant hooks' lists them)", .{ verb, name });
     const access = accesses.getPtrConst(hook);
-    if (when == .after and !access.on.isFunction()) state.raise("hooks.after: {s} is an event; hooks.add adds its handlers", .{name});
+    if (when == .after and !Names.functions.holds(hook)) state.raise("hooks.after: {s} is an event; hooks.add adds its handlers", .{name});
     if (state.typeOf(first + 1) != .function) state.raise("{s}: expected a function for the handler, got {s}", .{ verb, state.typeName(first + 1) });
     var filter = readFilter(state, verb, access, first + 2);
     if (only) |handle| {
-        if (access.subject == null) state.raise("{s}: {s} concerns no object to hook", .{ verb, name });
+        if (!Names.objects.holds(hook)) state.raise("{s}: {s} concerns no object to hook", .{ verb, name });
         filter.object = handle;
     }
 

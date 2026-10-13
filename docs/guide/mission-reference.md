@@ -38,7 +38,7 @@ Declares a flight group, by its display name.
 ### `ship`
 
 ```luau
-ship(name: string, fields: ShipFields): Ship
+ship(name: string, fields: ShipFields): MissionShip
 ```
 
 Places a ship, a capital ship or a station, by its display name.
@@ -46,7 +46,7 @@ Places a ship, a capital ship or a station, by its display name.
 ### `nav_point`
 
 ```luau
-nav_point(name: string, fields: MarkerFields?): Ship
+nav_point(name: string, fields: MarkerFields?): MissionShip
 ```
 
 Places a nav point, by its display name.
@@ -54,7 +54,7 @@ Places a nav point, by its display name.
 ### `waypoint`
 
 ```luau
-waypoint(name: string, fields: MarkerFields?): Ship
+waypoint(name: string, fields: MarkerFields?): MissionShip
 ```
 
 Places a waypoint, by its display name.
@@ -62,7 +62,7 @@ Places a waypoint, by its display name.
 ### `point`
 
 ```luau
-point(name: string, fields: PointFields?): Ship
+point(name: string, fields: PointFields?): MissionShip
 ```
 
 Places a point, by its display name, such as one a camera curve runs to.
@@ -70,7 +70,7 @@ Places a point, by its display name, such as one a camera curve runs to.
 ### `curve_point`
 
 ```luau
-curve_point(name: string, fields: MarkerFields?): Ship
+curve_point(name: string, fields: MarkerFields?): MissionShip
 ```
 
 Places a curve point, by its display name.
@@ -147,7 +147,7 @@ be left out.
 |---|---|---|
 | `type` | `ShipType` | The ship's type. |
 | `group` | `FlightGroup?` | Its flight group. |
-| `pilot` | `Pilot?` | Its pilot, by its record of pilotstats.bin. |
+| `pilot` | `PilotNumber?` | Its pilot, by its record of pilotstats.bin. |
 | `position` | `Vector?` | Where it is, `{ x, y, z }`, in the game's coordinates, Y down; `{ 0, 0, 0 }` by default. |
 | `yaw` | `number?` | Its yaw, in whole degrees; -1 where the mission leaves the angle unset. 0 by default. |
 | `pitch` | `number?` | Its pitch, in whole degrees; -1 where the mission leaves the angle unset. 0 by default. |
@@ -161,7 +161,7 @@ be left out.
 | Field | Type | What it is |
 |---|---|---|
 | `group` | `FlightGroup?` | Its flight group. |
-| `pilot` | `Pilot?` | Its pilot, by its record of pilotstats.bin. |
+| `pilot` | `PilotNumber?` | Its pilot, by its record of pilotstats.bin. |
 | `position` | `Vector?` | Where it is, `{ x, y, z }`, in the game's coordinates, Y down; `{ 0, 0, 0 }` by default. |
 | `yaw` | `number?` | Its yaw, in whole degrees; -1 where the mission leaves the angle unset. 0 by default. |
 | `pitch` | `number?` | Its pitch, in whole degrees; -1 where the mission leaves the angle unset. 0 by default. |
@@ -175,7 +175,7 @@ be left out.
 | Field | Type | What it is |
 |---|---|---|
 | `group` | `FlightGroup?` | Its flight group. |
-| `pilot` | `Pilot?` | Its pilot, by its record of pilotstats.bin. |
+| `pilot` | `PilotNumber?` | Its pilot, by its record of pilotstats.bin. |
 | `position` | `Vector?` | Where it is, `{ x, y, z }`, in the game's coordinates, Y down; `{ 0, 0, 0 }` by default. |
 | `yaw` | `number?` | Its yaw, in whole degrees; -1 where the mission leaves the angle unset. 0 by default. |
 | `pitch` | `number?` | Its pitch, in whole degrees; -1 where the mission leaves the angle unset. 0 by default. |
@@ -203,12 +203,12 @@ be left out.
 
 | Field | Type | What it is |
 |---|---|---|
-| `start` | `Ship?` | The ship the curve starts at; none by default. |
-| `finish` | `Ship?` | The ship the curve ends at; none by default. |
+| `start` | `MissionShip?` | The ship the curve starts at; none by default. |
+| `finish` | `MissionShip?` | The ship the curve ends at; none by default. |
 | `from` | `Vector?` | Where the curve starts. |
 | `to` | `Vector?` | Where the curve ends. |
-| `leaving_handle` | `Ship?` | The ship the curve's leaving tangent is drawn to. |
-| `arriving_handle` | `Ship?` | The ship the curve's arriving tangent is drawn to. |
+| `leaving_handle` | `MissionShip?` | The ship the curve's leaving tangent is drawn to. |
+| `arriving_handle` | `MissionShip?` | The ship the curve's arriving tangent is drawn to. |
 | `leaving` | `Vector?` | The curve's leaving tangent. |
 | `arriving` | `Vector?` | The curve's arriving tangent. |
 
@@ -250,7 +250,7 @@ A ship's component, by its index.
 ### `any_ship`
 
 ```luau
-any_ship: Ship
+any_ship: MissionShip
 ```
 
 Any of the players' ships, as a value a trigger checks.
@@ -447,7 +447,7 @@ leftover missions, is written by its index.
 ### `ship_index`
 
 ```luau
-ship_index(index: number): Ship
+ship_index(index: number): MissionShip
 ```
 
 A ship past the mission's records, by its index.
@@ -523,13 +523,13 @@ of fields and the names of values.
 
 | Type | Is | What it is |
 |---|---|---|
-| `Ship` | A type of its own | A ship, a capital ship, a station or a marker, such as a nav point. |
+| `MissionShip` | A type of its own | A ship, a capital ship, a station or a marker, such as a nav point. |
 | `FlightGroup` | A type of its own | A flight group. |
 | `Squad` | A type of its own | A squad. |
 | `Curve` | A type of its own | A camera or flight curve. |
 | `FormationPoint` | A type of its own | A point of a formation. |
 | `Formation` | A type of its own, `[number]: FormationPoint` | A formation, whose points a ship names as `sabres[1]` for the first. |
-| `Entity` | `Ship \| FlightGroup \| Squad` | A ship, a flight group or a squad: what a trigger watches, and what most commands act on. |
+| `Entity` | `MissionShip \| FlightGroup \| Squad` | A ship, a flight group or a squad: what a trigger watches, and what most commands act on. |
 | `Vector` | `{ number }` | A place or a direction: `{ x, y, z }`. |
 | `Code` | `(...any) -> number` | The code a trigger runs: a function whose parameters are the values its condition's events carry. |
 | `Part` | `(...any) -> number` | A part, which runs as `go_home()`, and which commands such as `CreateTimer` take. |
@@ -547,7 +547,7 @@ Test Function. Command 0 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `test_param_1` | `Ship \| FlightGroup \| string` | Test Param 1 |
+| `test_param_1` | `MissionShip \| FlightGroup \| string` | Test Param 1 |
 | `test_param_2` | `number` | Test Param 2 |
 
 ### CreateTimer
@@ -656,7 +656,7 @@ Sends a Ship to follow a patrol route. Command 13 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `entity_to_send_to_patrol_route` | `Ship \| FlightGroup` | Entity to send to patrol route |
+| `entity_to_send_to_patrol_route` | `MissionShip \| FlightGroup` | Entity to send to patrol route |
 | `patrol_route_to_follow` | `FlightGroup` | Patrol route to follow |
 
 ### SetPilot
@@ -665,8 +665,8 @@ Assigns a pilot to fly a ship. Command 14 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_to_host_pilot` | `Ship` | Ship to host pilot |
-| `pilot_to_fly_ship` | `Pilot` | Pilot to fly ship |
+| `ship_to_host_pilot` | `MissionShip` | Ship to host pilot |
+| `pilot_to_fly_ship` | `PilotNumber` | Pilot to fly ship |
 
 ### SetTriggerState
 
@@ -684,10 +684,10 @@ Sets the camera to start following a predefined path. Command 16 of the catalogu
 
 | Parameter | Type | Label |
 |---|---|---|
-| `curve_for_camera_to_follow` | `Ship \| Curve` | Curve for camera to follow (or Ship for static cam) |
-| `ship_for_camera_to_track` | `Ship?` | Ship for camera to track (can be NULL) |
+| `curve_for_camera_to_follow` | `MissionShip \| Curve` | Curve for camera to follow (or Ship for static cam) |
+| `ship_for_camera_to_track` | `MissionShip?` | Ship for camera to track (can be NULL) |
 | `duration_of_camera` | `number` | Duration of camera (seconds) |
-| `tracks_curve_to_this_ship_s_speed` | `Ship?` | Tracks curve to this ship's speed (can be NULL) |
+| `tracks_curve_to_this_ship_s_speed` | `MissionShip?` | Tracks curve to this ship's speed (can be NULL) |
 | `ships_to_disable_for_duration` | `Entity?` | Ships to disable for duration |
 
 ### StartShipAnimation
@@ -696,7 +696,7 @@ Starts a specific animation for a ship. Command 17 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_to_animate` | `Ship` | Ship to animate |
+| `ship_to_animate` | `MissionShip` | Ship to animate |
 | `animation_name` | `string` | Animation Name |
 
 ### ShipFollowCurve
@@ -705,7 +705,7 @@ Sets an ship/flight group to follow a predefined path. Command 18 of the catalog
 
 | Parameter | Type | Label |
 |---|---|---|
-| `entity_to_follow_curve` | `Ship \| FlightGroup` | Entity to follow curve |
+| `entity_to_follow_curve` | `MissionShip \| FlightGroup` | Entity to follow curve |
 | `the_curve_for_the_entity_to_follow` | `Curve` | The curve for the entity to follow |
 | `duration_of_movement` | `number` | Duration of movement (seconds) |
 
@@ -755,7 +755,7 @@ Play a movie in the comms window. Command 24 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_sending_comm` | `Ship` | Ship sending comm |
+| `ship_sending_comm` | `MissionShip` | Ship sending comm |
 | `head_movement` | `HeadMovement` | Head movement |
 | `name_of_speech_file` | `string` | Name of speech file |
 
@@ -765,7 +765,7 @@ Play a movie in the comms window. Command 25 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_sending_comm` | `Pilot` | Ship sending comm |
+| `ship_sending_comm` | `PilotNumber` | Ship sending comm |
 | `head_movement` | `HeadMovement` | Head movement |
 | `name_of_speech_file` | `string` | Name of speech file |
 
@@ -784,10 +784,10 @@ Sets an ship/flight group to follow a predefined path. Command 27 of the catalog
 
 | Parameter | Type | Label |
 |---|---|---|
-| `entity_to_follow_curve` | `Ship \| FlightGroup` | Entity to follow curve |
+| `entity_to_follow_curve` | `MissionShip \| FlightGroup` | Entity to follow curve |
 | `the_curve_for_the_entity_to_follow` | `Curve` | The curve for the entity to follow |
 | `duration_of_movement` | `number` | Duration of movement (seconds) |
-| `entity_for_curve_to_use_as_its_start_offset` | `Ship` | Entity for curve to use as its start offset |
+| `entity_for_curve_to_use_as_its_start_offset` | `MissionShip` | Entity for curve to use as its start offset |
 
 ### DisableObject
 
@@ -805,7 +805,7 @@ Positions an entity relative to a ship/point's movement. Command 29 of the catal
 | Parameter | Type | Label |
 |---|---|---|
 | `entity_to_position` | `Entity` | Entity to position |
-| `ship_point_to_use_as_relative_marker` | `Ship` | Ship/Point to use as relative marker |
+| `ship_point_to_use_as_relative_marker` | `MissionShip` | Ship/Point to use as relative marker |
 
 ### WhenPlayerLastJumped
 
@@ -819,7 +819,7 @@ Starts director cam for a missile. Command 31 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_that_fired_missile` | `Ship` | Ship that fired missile |
+| `ship_that_fired_missile` | `MissionShip` | Ship that fired missile |
 
 ### StartChaseCam
 
@@ -827,7 +827,7 @@ Starts chase cam. Command 32 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_to_follow` | `Ship?` | Ship to follow |
+| `ship_to_follow` | `MissionShip?` | Ship to follow |
 
 ### SetPlayerTarget
 
@@ -835,8 +835,8 @@ Sets player's target. Command 33 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `player_ship` | `Ship` | Player Ship |
-| `ship_to_target` | `Ship` | Ship to target |
+| `player_ship` | `MissionShip` | Player Ship |
+| `ship_to_target` | `MissionShip` | Ship to target |
 
 ### SetTargetable
 
@@ -868,7 +868,7 @@ Sets the sphere for the action to be contained in. Command 37 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `object_to_action_around` | `Ship` | Object to action around |
+| `object_to_action_around` | `MissionShip` | Object to action around |
 | `radius_of_sphere_0_for_default` | `number` | Radius of sphere - 0 for default |
 
 ### Dock
@@ -877,8 +877,8 @@ Dock Ship. Command 38 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_to_dock` | `Ship` | Ship to dock |
-| `object_ship_is_to_dock_to` | `Ship` | Object ship is to dock to |
+| `ship_to_dock` | `MissionShip` | Ship to dock |
+| `object_ship_is_to_dock_to` | `MissionShip` | Object ship is to dock to |
 | `docking_port` | `number` | Docking port |
 
 ### DisableTaunts
@@ -896,7 +896,7 @@ Fly. Command 40 of the catalogue.
 | Parameter | Type | Label |
 |---|---|---|
 | `ship_param` | `Entity` | Ship |
-| `point_to_fly_to` | `Ship?` | Point to fly to |
+| `point_to_fly_to` | `MissionShip?` | Point to fly to |
 | `speed` | `number` | Speed (0 - Default) |
 
 ### CommsFromShipOnce
@@ -905,7 +905,7 @@ Play a movie in the comms window (without looping). Command 41 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_sending_comm` | `Ship` | Ship sending comm |
+| `ship_sending_comm` | `MissionShip` | Ship sending comm |
 | `head_movement` | `HeadMovement` | Head movement |
 | `name_of_speech_file` | `string` | Name of speech file |
 
@@ -915,7 +915,7 @@ Play a movie in the comms window (without looping). Command 42 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_sending_comm` | `Pilot` | Ship sending comm |
+| `ship_sending_comm` | `PilotNumber` | Ship sending comm |
 | `head_movement` | `HeadMovement` | Head movement |
 | `name_of_speech_file` | `string` | Name of speech file |
 
@@ -967,7 +967,7 @@ Set Nav Point. Command 48 of the catalogue.
 | Parameter | Type | Label |
 |---|---|---|
 | `entity` | `Entity` | Entity |
-| `nav_point_param` | `Ship?` | Nav Point |
+| `nav_point_param` | `MissionShip?` | Nav Point |
 
 ### SetEscortPoint
 
@@ -976,7 +976,7 @@ Set Escort Point. Command 49 of the catalogue.
 | Parameter | Type | Label |
 |---|---|---|
 | `entity` | `Entity` | Entity |
-| `escort_point` | `Ship?` | Escort Point |
+| `escort_point` | `MissionShip?` | Escort Point |
 
 ### ResetAfterBurners
 
@@ -1038,7 +1038,7 @@ Set Primary Target. Command 57 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `entity` | `Ship?` | Entity |
+| `entity` | `MissionShip?` | Entity |
 
 ### WaitForJumpOrLaunch
 
@@ -1071,7 +1071,7 @@ Starts a specific animation for a ship in reverse. Command 61 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_to_animate` | `Ship` | Ship to animate |
+| `ship_to_animate` | `MissionShip` | Ship to animate |
 | `animation_name` | `string` | Animation Name |
 
 ### SnapToPoint
@@ -1080,8 +1080,8 @@ Snaps a ship to a specific point. Command 62 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_to_move` | `Ship` | Ship to move |
-| `point_to_move_to` | `Ship` | Point to move to |
+| `ship_to_move` | `MissionShip` | Ship to move |
+| `point_to_move_to` | `MissionShip` | Point to move to |
 
 ### PlayFostersLastStand
 
@@ -1111,7 +1111,7 @@ Destroys Subobject. Command 66 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `sub_object_to_destroy` | `Ship` | SubObject to destroy |
+| `sub_object_to_destroy` | `MissionShip` | SubObject to destroy |
 | `true_keep_damaged_model` | `number` | true - keep damaged model, false - no damaged model |
 
 ### SetObjective
@@ -1139,7 +1139,7 @@ Returns TRUE if ship is the players ship. Command 69 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_to_test` | `Ship` | Ship to test |
+| `ship_to_test` | `MissionShip` | Ship to test |
 
 ### SetFlybackMarker
 
@@ -1162,7 +1162,7 @@ Stops a specific animation for a ship. Command 72 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_to_stop_animation_for` | `Ship` | Ship to stop animation for |
+| `ship_to_stop_animation_for` | `MissionShip` | Ship to stop animation for |
 | `animation_name` | `string` | Animation Name |
 
 ### SetShipAvoidance
@@ -1180,7 +1180,7 @@ Enables/Disables Match Speed with target. Command 74 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `entity_concerned` | `Ship` | Entity concerned |
+| `entity_concerned` | `MissionShip` | Entity concerned |
 | `true_enable_match_speed` | `number` | TRUE - Enable Match Speed, FALSE - Disable Match Speed |
 
 ### MovingShipBackupCurve
@@ -1189,10 +1189,10 @@ Sets an ship/flight group to follow a predefined path. Command 75 of the catalog
 
 | Parameter | Type | Label |
 |---|---|---|
-| `entity_to_follow_curve` | `Ship \| FlightGroup` | Entity to follow curve |
+| `entity_to_follow_curve` | `MissionShip \| FlightGroup` | Entity to follow curve |
 | `the_curve_for_the_entity_to_follow` | `Curve` | The curve for the entity to follow |
 | `duration_of_movement` | `number` | Duration of movement (seconds) |
-| `entity_for_curve_to_use_as_its_start_offset` | `Ship?` | Entity for curve to use as its start offset |
+| `entity_for_curve_to_use_as_its_start_offset` | `MissionShip?` | Entity for curve to use as its start offset |
 
 ### WaitForKey
 
@@ -1214,8 +1214,8 @@ Sets the target for a ships turret. Command 78 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `turret` | `Ship \| Squad` | Turret |
-| `entity_to_target` | `Ship` | Entity to target |
+| `turret` | `MissionShip \| Squad` | Turret |
+| `entity_to_target` | `MissionShip` | Entity to target |
 
 ### SetAnyTriggerState
 
@@ -1246,10 +1246,10 @@ Sets the camera to start following a predefined path. Command 82 of the catalogu
 
 | Parameter | Type | Label |
 |---|---|---|
-| `curve_for_camera_to_follow` | `Ship \| Curve` | Curve for camera to follow (or Ship for static cam) |
-| `ship_for_camera_to_track` | `Ship?` | Ship for camera to track (can be NULL) |
+| `curve_for_camera_to_follow` | `MissionShip \| Curve` | Curve for camera to follow (or Ship for static cam) |
+| `ship_for_camera_to_track` | `MissionShip?` | Ship for camera to track (can be NULL) |
 | `duration_of_camera` | `number` | Duration of camera (seconds) |
-| `tracks_curve_to_this_ship_s_speed` | `Ship?` | Tracks curve to this ship's speed (can be NULL) |
+| `tracks_curve_to_this_ship_s_speed` | `MissionShip?` | Tracks curve to this ship's speed (can be NULL) |
 | `ships_to_disable_for_duration` | `Entity?` | Ships to disable for duration |
 
 ### Scanner
@@ -1258,7 +1258,7 @@ Sets the scanner off. Command 83 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `object_to_scan_for_null_to_disable` | `Ship?` | Object to scan for - NULL to disable |
+| `object_to_scan_for_null_to_disable` | `MissionShip?` | Object to scan for - NULL to disable |
 
 ### ReplaceSubObject
 
@@ -1266,8 +1266,8 @@ Replaces subobject with another object. Command 84 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `sub_object_to_replace` | `Ship` | SubObject to replace |
-| `object_to_replace_it_with` | `Ship` | Object to replace it with |
+| `sub_object_to_replace` | `MissionShip` | SubObject to replace |
+| `object_to_replace_it_with` | `MissionShip` | Object to replace it with |
 
 ### Fire
 
@@ -1275,7 +1275,7 @@ Fires ships guns. Command 85 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_to_fire` | `Ship` | Ship to fire |
+| `ship_to_fire` | `MissionShip` | Ship to fire |
 | `duration` | `number` | Duration |
 
 ### MultiplayerScriptSync
@@ -1307,7 +1307,7 @@ Replenish Weapons. Command 89 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `entity_to_cloak` | `Ship` | Entity to cloak |
+| `entity_to_cloak` | `MissionShip` | Entity to cloak |
 
 ### WillsBlag
 
@@ -1315,7 +1315,7 @@ Blag blag blag blag blag. Command 90 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `entity_to_cloak` | `Ship` | Entity to cloak |
+| `entity_to_cloak` | `MissionShip` | Entity to cloak |
 
 ### ShowHudIcon
 
@@ -1332,7 +1332,7 @@ Disable Listing. Command 92 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_param` | `Ship` | Ship |
+| `ship_param` | `MissionShip` | Ship |
 | `true_stop_listing` | `number` | true - stop listing, false - enable listing |
 
 ### DisableObjectAtNextJump
@@ -1341,7 +1341,7 @@ Disables/enables object (e.g. planet) when the next jump/warp is made. Command 9
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_param` | `Ship` | Ship |
+| `ship_param` | `MissionShip` | Ship |
 | `true_disable` | `number` | true - disable, false - enable |
 
 ### DarrensNaughtyBlag
@@ -1350,8 +1350,8 @@ Darrens Naughty Blag. Command 94 of the catalogue.
 
 | Parameter | Type | Label |
 |---|---|---|
-| `ship_param` | `Ship` | Ship |
-| `ship_param_2` | `Ship` | Ship |
+| `ship_param` | `MissionShip` | Ship |
+| `ship_param_2` | `MissionShip` | Ship |
 
 ## Conditions
 
@@ -1366,10 +1366,10 @@ The catalogue's `ShotAt`, condition 0. A trigger of it watches a ship, a flight 
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `attacker` | Attacker | `Ship` | Yes |
+| `attacker` | Attacker | `MissionShip` | Yes |
 | `shield_damage` | Shield Damage | `number` | No |
 | `hull_damage` | Hull Damage | `number` | No |
-| `victim` | Victim | `Ship` | Yes |
+| `victim` | Victim | `MissionShip` | Yes |
 | `weapon_fired` | Weapon Fired | `number` | Yes |
 
 ### `destroyed`
@@ -1378,8 +1378,8 @@ The catalogue's `Destroyed`, condition 1. A trigger of it watches a ship, a flig
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `killer` | Killer | `Ship` | Yes |
-| `victim` | Victim | `Ship` | Yes |
+| `killer` | Killer | `MissionShip` | Yes |
+| `victim` | Victim | `MissionShip` | Yes |
 
 ### `launched`
 
@@ -1387,7 +1387,7 @@ The catalogue's `Launched`, condition 2. A trigger of it watches a ship, a fligh
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `launched_ship` | LaunchedShip | `Ship` | Yes |
+| `launched_ship` | LaunchedShip | `MissionShip` | Yes |
 
 ### `camera_reached`
 
@@ -1401,7 +1401,7 @@ The catalogue's `ShipReached`, condition 4. A trigger of it watches a ship.
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `reached_ship` | ReachedShip | `Ship` | Yes |
+| `reached_ship` | ReachedShip | `MissionShip` | Yes |
 
 ### `proximity_close`
 
@@ -1409,7 +1409,7 @@ The catalogue's `CloseProximity`, condition 5. A trigger of it watches a ship.
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `approaching_ship` | ApproachingShip | `Ship` | Yes |
+| `approaching_ship` | ApproachingShip | `MissionShip` | Yes |
 | `proximity` | Proximity | `number` | No |
 
 ### `proximity_general`
@@ -1418,7 +1418,7 @@ The catalogue's `Proximity`, condition 6. A trigger of it watches a ship.
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `approaching_ship` | ApproachingShip | `Ship` | Yes |
+| `approaching_ship` | ApproachingShip | `MissionShip` | Yes |
 | `proximity` | Proximity | `number` | No |
 
 ### `object_scooped`
@@ -1427,7 +1427,7 @@ The catalogue's `ObjectScooped`, condition 7. A trigger of it watches a ship.
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `object_scooped` | ObjectScooped | `Ship` | Yes |
+| `object_scooped` | ObjectScooped | `MissionShip` | Yes |
 
 ### `player_ready_to_jump`
 
@@ -1441,7 +1441,7 @@ The catalogue's `JumpedIn`, condition 9. A trigger of it watches a ship, a fligh
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `jumped_in_ship` | JumpedInShip | `Ship` | Yes |
+| `jumped_in_ship` | JumpedInShip | `MissionShip` | Yes |
 
 ### `fixed_gate_jumped_in`
 
@@ -1449,7 +1449,7 @@ The catalogue's `FixedGateJumpedIn`, condition 10. A trigger of it watches a shi
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `ship_jumped_in` | ShipJumpedIn | `Ship` | Yes |
+| `ship_jumped_in` | ShipJumpedIn | `MissionShip` | Yes |
 
 ### `player_ready_to_warp`
 
@@ -1475,7 +1475,7 @@ The catalogue's `RipperGrabbedObject`, condition 14. A trigger of it watches a s
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `object_grabbed` | ObjectGrabbed | `Ship` | Yes |
+| `object_grabbed` | ObjectGrabbed | `MissionShip` | Yes |
 
 ### `ripper_dropped_object`
 
@@ -1483,7 +1483,7 @@ The catalogue's `RipperDroppedObject`, condition 15. A trigger of it watches a s
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `object_dropped` | ObjectDropped | `Ship` | Yes |
+| `object_dropped` | ObjectDropped | `MissionShip` | Yes |
 
 ### `cloaked`
 
@@ -1491,7 +1491,7 @@ The catalogue's `Cloaked`, condition 16. A trigger of it watches a ship, a fligh
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `cloaking_ship` | CloakingShip | `Ship` | Yes |
+| `cloaking_ship` | CloakingShip | `MissionShip` | Yes |
 
 ### `decloaked`
 
@@ -1499,7 +1499,7 @@ The catalogue's `Decloaked`, condition 17. A trigger of it watches a ship, a fli
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `cloaking_ship` | CloakingShip | `Ship` | Yes |
+| `cloaking_ship` | CloakingShip | `MissionShip` | Yes |
 
 ### `targetted`
 
@@ -1507,7 +1507,7 @@ The catalogue's `Targetted`, condition 18. A trigger of it watches a ship.
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `aggressor` | Aggressor | `Ship` | Yes |
+| `aggressor` | Aggressor | `MissionShip` | Yes |
 
 ### `player_l1_doubletap`
 
@@ -1557,8 +1557,8 @@ The catalogue's `Tractor Beam Locked`, condition 26. A trigger of it watches a s
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `tractored_ship` | TractoredShip | `Ship` | Yes |
-| `tractoring_ship` | TractoringShip | `Ship` | Yes |
+| `tractored_ship` | TractoredShip | `MissionShip` | Yes |
+| `tractoring_ship` | TractoringShip | `MissionShip` | Yes |
 
 ### `tractor_beam_broken`
 
@@ -1566,8 +1566,8 @@ The catalogue's `Tractor Beam Broken`, condition 27. A trigger of it watches a s
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `tractored_ship` | TractoredShip | `Ship` | Yes |
-| `tractoring_ship` | TractoringShip | `Ship` | Yes |
+| `tractored_ship` | TractoredShip | `MissionShip` | Yes |
+| `tractoring_ship` | TractoringShip | `MissionShip` | Yes |
 
 ### `inside_object`
 
@@ -1599,8 +1599,8 @@ The catalogue's `I'm Being Chased`, condition 32. A trigger of it watches a ship
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `chased_ship` | ChasedShip | `Ship` | Yes |
-| `chaser` | Chaser | `Ship` | Yes |
+| `chased_ship` | ChasedShip | `MissionShip` | Yes |
+| `chaser` | Chaser | `MissionShip` | Yes |
 
 ### `call_reinforcements`
 
@@ -1608,7 +1608,7 @@ The catalogue's `Player_CallReinforcements`, condition 33. A trigger of it watch
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `player_targetted` | PlayerTargetted | `Ship` | Yes |
+| `player_targetted` | PlayerTargetted | `MissionShip` | Yes |
 
 ### `explosion_ship`
 
@@ -1616,7 +1616,7 @@ The catalogue's `ExplosionShip`, condition 34.
 
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
-| `explosion_ship` | ExplosionShip | `Ship` | Yes |
+| `explosion_ship` | ExplosionShip | `MissionShip` | Yes |
 
 ## Names of values
 
@@ -1627,7 +1627,7 @@ mod's ship type, is written as a number.
 
 `predator`, `naginata`, `grendel`, `crusader`, `coyote`, `mirage`, `tempest`, `patriot`, `wolverine`, `reaper`, `shroud`, `phoenix`, `reliant`, `yamato`, `alsace`, `kestrel`, `falco`, `victorious`, `endeavour`, `mitchell`, `bremen`, `arc_ship`, `ulysses`, `sai`, `nanny`, `galahad`, `hades`, `mule`, `lonestar`, `limpet_car`, `prowler`, `ripper`, `lueneburg`, `mammoth`, `intruder`, `sentry`, `goodwill`, `stork`, `sky_hawk`, `haidar`, `karak`, `salin`, `azan`, `sabre`, `lagg`, `kamov`, `saracen`, `salamander`, `scimitar`, `basilisk`, `kossac`, `yao`, `ramases`, `kozlov`, `morzov`, `badanov`, `pukov`, `xia`, `riza`, `cyclops`, `kurgan`, `sharov`, `gurevich`, `berijev`, `kirov`, `loki`, `kalan_shuttle`, `saladin`, `darkreign`, `stalag`, `antanov`, `kronstadt`, `boridin`, `troop_car`, `torpedo`, `ulysses_back`, `ulysses_fin`, `escape_pod`, `debris`, `debris_1`, `debris_2`, `debris_3`, `debris_4`, `debris_5`, `debris_6`, `debris_7`, `debris_8`, `debris_9`, `crewman`, `crewman_1`, `crewman_2`, `crewman_3`, `russian_torpedo`, `mammoth_back`, `baxter`, `neptune_hi`, `triton_hi`, `uranus_hi`, `saturn_hi`, `titan_hi`, `jupiter_hi`, `europa_hi`, `ganymede_hi`, `io_hi`, `calisto_hi`, `venus_hi`, `earth`, `kronstadt_wreck`, `planet_placeholder_4`, `proto_gate`, `advanced_gate`, `proximity_mine`, `black_box`, `satellite`, `mammoth_wreck_front`, `mammoth_wreck_back`, `proto_gate_panel`, `badanov_wreck_back`, `badanov_wreck_front`, `kurgan_wreck`, `krasnaya`, `asteroid_1`, `asteroid_2`, `asteroid_3`, `asteroid_4`, `asteroid_5`, `asteroid_6`, `asteroid_7`, `research_station`, `latov`, `gurevich_wreck_back`, `training_hoop`, `czar_docked`, `turret_asteroid_1`, `turret_asteroid_2`, `turret_asteroid_3`, `turret_asteroid_4`, `turret_asteroid_5`, `turret_asteroid_6`, `turret_asteroid_7`, `powerup_random`, `dm_beacon_gate`, `dm_beacon`, `pukov_wreck_back`, `other_escape_pod`, `cargo_pod`, `other_cargo_pod`, `grazer_gun_sat`, `archer_missile_sat`, `kafelnikof`, `reliant_wreck_back`, `stalag_doors`, `stalag_duct_cover`, `yakob_shuttle`, `krasny`, `varyag`, `other_ramases`, `fort_carter`, `koenig`, `washington`, `other_mitchell`, `ufelsky`, `kresta`, `krasnaya_left_arm`, `krasnaya_right_arm`, `rogue_base`, `kronstadt_arm`, `boridin_gun_dome`, `boridin_breakaway`, `darkreign_wreck_hat`, `yamato_wreck_back`, `maintenance_droid`, `maintenance_astronaut`, `rogue_base_wreck_top`, `tank`, `training_target`, `zakov`, `shell`, `rock_chunk`, `rock_chunk_tiny_1`, `rock_chunk_tiny_2`, `rock_chunk_tiny_3`, `rock_chunk_tiny_4`, `latov_wreck_1`, `latov_wreck_2`, `czar`, `zakov_wreck_back`, `sharov_wreck_back`, `limpet_pod`, `stalag_wreck_1`, `stalag_wreck_2`, `saladin_wreck`, `gegarin`, `krelov`, `kiev`, `kiev_wreck_back`, `baxter_wreck_top`, `victorious_wreck_front`, `mitchell_wreck_back`, `fort_bear`, `fort_sherman`, `neptune_lo`, `triton_lo`, `uranus_lo`, `saturn_lo`, `titan_lo`, `jupiter_lo`, `europa_lo`, `ganymede_lo`, `io_lo`, `calisto_lo`, `venus_lo`, `yamato_hangar`, `yamato_landing_bay`, `reliant_hangar`, `comms_relay`, `saladin_link`, `varyag_wreck_front`, `churchill`, `bokov`, `bulatov`, `shinnik`, `kovtun`, `late_escape_pod`, `other_late_escape_pod`, `fuel_pod`, `yevstafiy`, `mammoth_gulliver`, `mammoth_santa_maria`, `mammoth_rosario`, `mammoth_larsons_pride`, `mammoth_brittania`, `mammoth_sierra_madre`, `mammoth_mayan_gold`, `mammoth_dawn_chorus`, `mammoth_calysto`, `mammoth_sundown`, `mammoth_krenna`, `mammoth_seabound`, `mammoth_crimson_sky`, `asteroid_with_hole_1`, `asteroid_with_hole_2`, `asteroid_with_hole_3`, `asteroid_with_hole_4`, `t_predator`, `t_naginata`, `t_grendel`, `t_crusader`, `t_coyote`, `t_mirage`, `t_tempest`, `t_patriot`, `t_wolverine`, `t_reaper`, `t_shroud`, `t_phoenix`, `sun_marker`, `nebula_marker`, `dm_sphere_centre`, `beacon_marker`, `spawn_player`, `spawn_powerup`, `marker`, `stand_in`, or a number.
 
-### Pilot
+### PilotNumber
 
 `bandit_tigers_leader`, `diceman_tigers_leader`, `moose_tigers`, `tigers`, `moose_volunteers`, `volunteers`, `bandit_volunteers_leader`, `viper`, `fifty_first`, `black_guard`, `black_sun_leader`, `black_sun`, `blades`, `black_eagle_leader`, `black_eagle`, `ivan_petrov`, `nicolai_petrov`, `black_aces`, `bremen_bridge_officer`, `buccaneer`, `cat_foster`, `cobra`, `couger`, `coalition_comms_officer`, `coalition_fighter`, `coalition_scientist`, `endeavour_bridge_officer`, `enriquez_reliant_bridge`, `enriquez_yamato_bridge`, `enriquez_cockpit`, `foster_dead`, `fort_bear_comms`, `fort_baxter_comms`, `fort_carter_comms`, `fort_sherman_comms`, `gamma_dead`, `gamma_leader`, `golden_warrior`, `hellcat_leader`, `hellcat`, `hornet`, `jackel_leader`, `jackel`, `jaguar`, `kestrel_command`, `koenig_bridge_officer`, `kestrel_bridge_officer`, `kurgen`, `lonestar`, `mauler`, `mcgann`, `mitchell_bridge_officer`, `nanny_leader`, `pirate_leader`, `pirate`, `prowler`, `pukov_captain`, `puma_leader`, `puma`, `raven`, `reliant_bridge_officer`, `ripper`, `ronin_leader`, `ronin`, `russian_bomber`, `sabre_leader`, `sabre`, `saracen`, `scorpion_leader`, `scorpion`, `saladin_captain`, `stahl_bridge`, `stahl_marines`, `steiner_ejected`, `stinger`, `stork`, `ulysses_captain`, `ulysses_captain_panicking`, `steiner_vampires_leader`, `vampire`, `varyag_captain`, `victorious_bridge_officer`, `virtual_flight_instructor`, `washington_bridge_officer`, `yamato_bridge_officer`, `frenchy`, `silky`, `mayday`, `trigger`, `vixen`, `cutter`, `claymore`, `skippy`, `juice`, `face`, `hawkeye`, `arrow`, `nero`, `rhino`, `stalker`, `flash`, `stretch`, `talon`, `butcher`, `snapper`, `banshee`, `wolf`, `reaper`, `worm`, `wildcat`, `siron`, `ferret`, `poker`, `blade`, `scarlet`, `rico`, `slick`, `irish`, `spider`, `ego`, `diceman`, `captain_mukai`, `cat_foster_prowler`, `coalition_torpedo_leader`, `general_reese_pod`, `kulov_borodin`, `kulov_pod`, `mammoth_1`, `mammoth_2`, `mammoth_3`, `mammoth_4`, `saracen_leader`, `stahl_ripper`, `golden_warrior_leader`, `hornet_leader`, `mammoth_5`, `mammoth_6`, `mammoth_7`, `bandit`, `marauder_leader`, `marauder`, `marine_leader`, `marine`, `jaguar_leader`, `buccaneer_leader`, or a number.
 

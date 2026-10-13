@@ -37,12 +37,14 @@ pub fn write(arena: Allocator, w: *Writer) Error!void {
     inline for (comptime std.enums.values(vocabulary.Kind)) |kind| {
         if (comptime vocabulary.Names(kind)) |Enum| {
             const article = if (std.mem.findScalar(u8, "aeiou", kind.noun()[0]) != null) "An" else "A";
-            try w.print("--- {s} {s}, by its name, or by its number where the game doesn't name it.\n", .{ article, kind.noun() });
-            try writeNames(w, kind.typeName(), @typeInfo(Enum).@"enum".field_names);
+            try w.print("--- {s} {s}, by its name, or by its number where the game doesn't name it.", .{ article, kind.noun() });
+            if (kind.hasModNames()) try w.writeAll(" The type takes any text, as the scripting API's does, but `sltool dte build` accepts only the game's names.");
+            try w.writeAll("\n");
+            try writeNames(w, kind.typeName(), @typeInfo(Enum).@"enum".field_names, kind.hasModNames());
         }
     }
     try w.writeAll("--- The wing a flight group's ships are listed in.\n");
-    try writeNames(w, "Wing", @typeInfo(dte.FlightGroup.Wing).@"enum".field_names);
+    try writeNames(w, "Wing", @typeInfo(dte.FlightGroup.Wing).@"enum".field_names, false);
     try writeEventValues(arena, w);
 
     try w.writeAll("\n-- The records a mission declares, and the other types its words take and give.\n\n");
@@ -85,13 +87,14 @@ pub fn write(arena: Allocator, w: *Writer) Error!void {
 }
 
 /// Writes the type `name`: the names `tags` give, but placeholders (`vocabulary.isPlaceholder`),
-/// or a number for a value without a name.
-fn writeNames(w: *Writer, name: []const u8, tags: []const [:0]const u8) Writer.Error!void {
+/// or a number for a value without a name, and any text where `text` is set
+/// (`vocabulary.Kind.hasModNames`).
+fn writeNames(w: *Writer, name: []const u8, tags: []const [:0]const u8, text: bool) Writer.Error!void {
     try w.print("export type {s} = ", .{name});
     for (tags) |tag| {
         if (!vocabulary.isPlaceholder(tag)) try w.print("\"{s}\" | ", .{tag});
     }
-    try w.writeAll("number\n");
+    try w.writeAll(if (text) "number | string\n" else "number\n");
 }
 
 /// Writes `EventValue`, which `last_event` takes: the value of a condition's event by its label in

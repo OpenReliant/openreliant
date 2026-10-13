@@ -59,7 +59,7 @@ pub const flight_group_fields: Table = .{ .name = "FlightGroupFields", .fields =
 /// The fields of a ship and of a marker, a ship's but its `type`.
 const marker_list = [_]Field{
     .{ .name = "group", .type = "FlightGroup?", .about = "Its flight group." },
-    .{ .name = "pilot", .type = "Pilot?", .about = "Its pilot, by its record of pilotstats.bin." },
+    .{ .name = "pilot", .type = vocabulary.Kind.pilot.typeName() ++ "?", .about = "Its pilot, by its record of pilotstats.bin." },
     .{ .name = "position", .type = "Vector?", .about = "Where it is, `{ x, y, z }`, in the game's coordinates, Y down; `{ 0, 0, 0 }` by default." },
     .{ .name = "yaw", .type = "number?", .about = "Its yaw, in whole degrees; -1 where the mission leaves the angle unset. 0 by default." },
     .{ .name = "pitch", .type = "number?", .about = "Its pitch, in whole degrees; -1 where the mission leaves the angle unset. 0 by default." },
@@ -71,7 +71,7 @@ const marker_list = [_]Field{
 
 /// A ship's table.
 pub const ship_fields: Table = .{ .name = "ShipFields", .fields = &([_]Field{
-    .{ .name = "type", .type = "ShipType", .about = "The ship's type." },
+    .{ .name = "type", .type = vocabulary.Kind.ship_type.typeName(), .about = "The ship's type." },
 } ++ marker_list) };
 
 /// The table of a nav point, a waypoint and a curve point.
@@ -84,7 +84,7 @@ pub const point_fields: Table = .{ .name = "PointFields", .fields = &(marker_lis
 
 /// A ship's `launch`.
 pub const launch_fields: Table = .{ .name = "Launch", .fields = &.{
-    .{ .name = "from", .type = "ShipType", .about = "The type of ship it launches from, the first of that type in the mission." },
+    .{ .name = "from", .type = vocabulary.Kind.ship_type.typeName(), .about = "The type of ship it launches from, the first of that type in the mission." },
     .{ .name = "gate", .type = "number", .about = "The gate it launches through." },
 } };
 
@@ -96,12 +96,12 @@ pub const marker_place_fields: Table = .{ .name = "Marker", .fields = &.{
 
 /// A curve's table.
 pub const curve_fields: Table = .{ .name = "CurveFields", .fields = &.{
-    .{ .name = "start", .type = "Ship?", .about = "The ship the curve starts at; none by default." },
-    .{ .name = "finish", .type = "Ship?", .about = "The ship the curve ends at; none by default." },
+    .{ .name = "start", .type = mission_ship ++ "?", .about = "The ship the curve starts at; none by default." },
+    .{ .name = "finish", .type = mission_ship ++ "?", .about = "The ship the curve ends at; none by default." },
     .{ .name = "from", .type = "Vector?", .about = "Where the curve starts." },
     .{ .name = "to", .type = "Vector?", .about = "Where the curve ends." },
-    .{ .name = "leaving_handle", .type = "Ship?", .about = "The ship the curve's leaving tangent is drawn to." },
-    .{ .name = "arriving_handle", .type = "Ship?", .about = "The ship the curve's arriving tangent is drawn to." },
+    .{ .name = "leaving_handle", .type = mission_ship ++ "?", .about = "The ship the curve's leaving tangent is drawn to." },
+    .{ .name = "arriving_handle", .type = mission_ship ++ "?", .about = "The ship the curve's arriving tangent is drawn to." },
     .{ .name = "leaving", .type = "Vector?", .about = "The curve's leaving tangent." },
     .{ .name = "arriving", .type = "Vector?", .about = "The curve's arriving tangent." },
 } };
@@ -144,15 +144,20 @@ pub const Type = struct {
     },
 };
 
+/// The type of a mission's ships, markers included. It isn't called `Ship`, the name the scripting
+/// API's definitions give a ship type's record, so that both definitions files can be loaded
+/// together.
+pub const mission_ship = "MissionShip";
+
 /// The records a mission declares, and the other types its words take and give.
 pub const types = [_]Type{
-    .{ .name = "Ship", .about = "A ship, a capital ship, a station or a marker, such as a nav point.", .definition = .{ .own = "" } },
+    .{ .name = mission_ship, .about = "A ship, a capital ship, a station or a marker, such as a nav point.", .definition = .{ .own = "" } },
     .{ .name = "FlightGroup", .about = "A flight group.", .definition = .{ .own = "" } },
     .{ .name = "Squad", .about = "A squad.", .definition = .{ .own = "" } },
     .{ .name = "Curve", .about = "A camera or flight curve.", .definition = .{ .own = "" } },
     .{ .name = "FormationPoint", .about = "A point of a formation.", .definition = .{ .own = "" } },
     .{ .name = "Formation", .about = "A formation, whose points a ship names as `sabres[1]` for the first.", .definition = .{ .own = "[number]: FormationPoint" } },
-    .{ .name = "Entity", .about = "A ship, a flight group or a squad: what a trigger watches, and what most commands act on.", .definition = .{ .alias = "Ship | FlightGroup | Squad" } },
+    .{ .name = "Entity", .about = "A ship, a flight group or a squad: what a trigger watches, and what most commands act on.", .definition = .{ .alias = mission_ship ++ " | FlightGroup | Squad" } },
     .{ .name = "Vector", .about = "A place or a direction: `{ x, y, z }`.", .definition = .{ .alias = "{ number }" } },
     .{ .name = "Code", .about = "The code a trigger runs: a function whose parameters are the values its condition's events carry.", .definition = .{ .alias = "(...any) -> number" } },
     .{ .name = "Part", .about = "A part, which runs as `go_home()`, and which commands such as `CreateTimer` take.", .definition = .{ .alias = "(...any) -> number" } },
@@ -178,11 +183,11 @@ pub fn declaration(word: Word) Declaration {
         .mission => .{ .about = "Gives the mission's own details.", .parameters = "fields: MissionFields", .result = "()" },
         .global => .{ .about = "Declares a global: its display name and the value it starts with.", .parameters = "name: string, value: number", .result = "number" },
         .flight_group => .{ .about = "Declares a flight group, by its display name.", .parameters = "name: string, fields: FlightGroupFields?", .result = "FlightGroup" },
-        .ship => .{ .about = "Places a ship, a capital ship or a station, by its display name.", .parameters = "name: string, fields: ShipFields", .result = "Ship" },
-        .nav_point => .{ .about = "Places a nav point, by its display name.", .parameters = "name: string, fields: MarkerFields?", .result = "Ship" },
-        .waypoint => .{ .about = "Places a waypoint, by its display name.", .parameters = "name: string, fields: MarkerFields?", .result = "Ship" },
-        .point => .{ .about = "Places a point, by its display name, such as one a camera curve runs to.", .parameters = "name: string, fields: PointFields?", .result = "Ship" },
-        .curve_point => .{ .about = "Places a curve point, by its display name.", .parameters = "name: string, fields: MarkerFields?", .result = "Ship" },
+        .ship => .{ .about = "Places a ship, a capital ship or a station, by its display name.", .parameters = "name: string, fields: ShipFields", .result = mission_ship },
+        .nav_point => .{ .about = "Places a nav point, by its display name.", .parameters = "name: string, fields: MarkerFields?", .result = mission_ship },
+        .waypoint => .{ .about = "Places a waypoint, by its display name.", .parameters = "name: string, fields: MarkerFields?", .result = mission_ship },
+        .point => .{ .about = "Places a point, by its display name, such as one a camera curve runs to.", .parameters = "name: string, fields: PointFields?", .result = mission_ship },
+        .curve_point => .{ .about = "Places a curve point, by its display name.", .parameters = "name: string, fields: MarkerFields?", .result = mission_ship },
         .squad => .{ .about = "Declares a squad: its display name and its members in their order, ships, ships' components, flight groups and other squads.", .parameters = "name: string, members: { Entity }", .result = "Squad" },
         .formation => .{ .about = "Declares a formation: its display name and its points, each where it stands from the formation's origin. A ship names a point as `sabres[1]` for the first.", .parameters = "name: string, points: { Vector }", .result = "Formation" },
         .curve => .{ .about = "Declares a curve, which has no display name.", .parameters = "fields: CurveFields", .result = "Curve" },
@@ -190,7 +195,7 @@ pub fn declaration(word: Word) Declaration {
         .handler => .{ .about = "Declares code that more than one trigger runs.", .generics = "<A...>", .parameters = "code: (A...) -> number", .result = "(A...) -> number" },
         .on => .{ .about = "Declares a trigger: its subject, the ship, flight group or squad whose events it watches, or nil for none; its condition; its fields, which can be left out; and the code its events run, whose parameters are the values the condition's events carry.", .parameters = "subject: Entity?, condition: Condition, fields: (TriggerFields | Code)?, code: Code?", .result = "()" },
         .component => .{ .about = "A ship's component, by its index.", .generics = "<T>", .parameters = "object: T, index: number", .result = "T" },
-        .any_ship => .{ .about = "Any of the players' ships, as a value a trigger checks.", .result = "Ship" },
+        .any_ship => .{ .about = "Any of the players' ships, as a value a trigger checks.", .result = mission_ship },
         .command => .{ .about = "Runs a command the catalogue doesn't have, by its number.", .parameters = "number: number, ...: any", .result = "()" },
         .spawn => .{ .about = "Starts a part on a thread of its own, with its arguments after the part.", .generics = "<A...>", .parameters = "part: (A...) -> number, ...: A...", .result = "()" },
         .random => .{ .about = "Rolls a random choice: `local roll = random()`, then an `if` over the arms' thresholds, `if roll < 50 then`, with the default as `else`.", .parameters = "", .result = "number" },
@@ -198,7 +203,7 @@ pub fn declaration(word: Word) Declaration {
         .game => .{ .about = "The game's variables, by their names, or by their numbers, as in `game[37]`, for those without.", .result = "GameVariables" },
         .thread_value => .{ .about = "A value of the event that started the thread, by its place, in a part.", .parameters = "place: number", .result = "any" },
         .last_event => .{ .about = "A value an object keeps of its last event of a condition, by its label in the condition catalogue: `last_event(ship, \"shot_at\", \"Hull Damage\")`.", .parameters = "object: Entity, condition: Condition, value: EventValue", .result = "any" },
-        .ship_index => .{ .about = "A ship past the mission's records, by its index.", .parameters = "index: number", .result = "Ship" },
+        .ship_index => .{ .about = "A ship past the mission's records, by its index.", .parameters = "index: number", .result = mission_ship },
         .flight_group_index => .{ .about = "A flight group past the mission's records, by its index.", .parameters = "index: number", .result = "FlightGroup" },
         .squad_index => .{ .about = "A squad past the mission's records, by its index.", .parameters = "index: number", .result = "Squad" },
         .curve_index => .{ .about = "A curve past the mission's records, by its index.", .parameters = "index: number", .result = "Curve" },
@@ -226,8 +231,8 @@ pub fn declaration(word: Word) Declaration {
     };
 }
 
-/// `word`'s signature, as Luau writes it: `ship(name: string, fields: ShipFields): Ship`, or
-/// `any_ship: Ship` for a value.
+/// `word`'s signature, as Luau writes it: `ship(name: string, fields: ShipFields): MissionShip`,
+/// or `any_ship: MissionShip` for a value.
 pub const Signature = struct {
     word: Word,
 
@@ -302,7 +307,7 @@ pub const ParameterType = struct {
         // Each kind of value it may take, in the order the type lists them.
         const options = [_]?[]const u8{
             if (records) "Entity" else null,
-            if (kinds.ship and !records) "Ship" else null,
+            if (kinds.ship and !records) mission_ship else null,
             if (kinds.flight_group and !records) "FlightGroup" else null,
             if (kinds.squad and !records) "Squad" else null,
             if (kinds.curve) "Curve" else null,
@@ -327,7 +332,7 @@ pub const ParameterType = struct {
 /// The type of a value a condition's events carry, as a trigger's function gets it: a ship, or a
 /// number.
 pub fn eventValueType(kinds: commands.Kinds) []const u8 {
-    return if (kinds.ship) "Ship" else "number";
+    return if (kinds.ship) mission_ship else "number";
 }
 
 /// The type of the trigger's field that checks a value of its condition's events, which says what
@@ -370,7 +375,7 @@ test Signature {
     var buffer: [256]u8 = undefined;
     var w: Writer = .fixed(&buffer);
     try w.print("{f}; {f}; {f}", .{ Signature{ .word = .ship }, Signature{ .word = .part }, Signature{ .word = .any_ship } });
-    try std.testing.expectEqualStrings("ship(name: string, fields: ShipFields): Ship; part<A...>(name: string, code: ((A...) -> number)?, fields: PartFields?): (A...) -> number; any_ship: Ship", w.buffered());
+    try std.testing.expectEqualStrings("ship(name: string, fields: ShipFields): MissionShip; part<A...>(name: string, code: ((A...) -> number)?, fields: PartFields?): (A...) -> number; any_ship: MissionShip", w.buffered());
 }
 
 test Table {

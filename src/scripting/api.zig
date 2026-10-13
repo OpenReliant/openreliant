@@ -151,7 +151,7 @@ fn nativeCalled(comptime function: fn (Call) i32, comptime label: []const u8) fn
 }
 
 /// A function like `Native`, whose Luau type is `luau_type`, a type the definitions name, such as
-/// an overloaded function's.
+/// `HooksAdd`, the type of `hooks.add`.
 pub fn NativeTyped(comptime about: []const u8, comptime luau_type: []const u8, comptime function: fn (Call) i32) type {
     return struct {
         pub const declaration: Declaration = .function;

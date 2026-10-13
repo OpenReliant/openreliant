@@ -424,6 +424,7 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     try w.writeAll(
         \\
         \\-- The hooks (`openreliant.hooks`). Each handler gets `e`, whose type is named after the hook.
+        \\-- Annotate it, as in `function(e: ObjectDamage)`: Luau doesn't work it out from the hook's name.
         \\
         \\declare extern type HookHandle with
         \\    --- Removes the handler. Returns whether it was there.
@@ -450,9 +451,12 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
             try writeEventClass(w, hook, class);
         }
     }
-    try writeAdd(w, false);
-    try writeAdd(w, true);
+    for (std.enums.values(hooks.Names)) |names| try writeHookNames(w, names);
+    try w.writeAll("\n");
+    try writeAdd(w, hooks.add_type, .all);
+    try writeAdd(w, hooks.after_type, .functions);
     try w.print(
+        \\
         \\export type Hooks = {{
         \\    --- Adds a handler that runs before the hook's function, or when its event happens.
         \\    add: {s},
@@ -500,21 +504,28 @@ fn writeEventClass(w: *Writer, comptime hook: Hook, comptime class: []const u8) 
     try w.writeAll("end\n");
 }
 
-/// Writes the type of `hooks.add`, or of `hooks.after`, whose hooks are only the functions'.
-fn writeAdd(w: *Writer, comptime functions_only: bool) Writer.Error!void {
-    try w.print("\nexport type {s} = ", .{if (functions_only) hooks.after_type else hooks.add_type});
+/// Writes the type of the names of the hooks of `names`.
+fn writeHookNames(w: *Writer, names: hooks.Names) Writer.Error!void {
+    try w.print("\n--- {s}\nexport type {s} = ", .{ names.about(), names.typeName() });
     var first = true;
-    inline for (comptime std.enums.values(Hook)) |hook| {
-        const declared = comptime engine_hooks.declaration(hook);
-        if (functions_only and comptime !declared.on.isFunction()) continue;
-        const class = comptime eventClass(hook);
-        const filter = if (declared.subject != null) "Filter | " else "";
-        try w.print("{s}\n    ((name: \"{s}\", handler: (e: {s}) -> boolean?, filter: ({s}(e: {s}) -> boolean)?) -> HookHandle)", .{
-            if (first) "" else " &", @tagName(hook), class, filter, class,
-        });
+    for (std.enums.values(Hook)) |hook| {
+        if (!names.holds(hook)) continue;
+        try w.print("{s}\"{s}\"", .{ if (first) "" else " | ", @tagName(hook) });
         first = false;
     }
     try w.writeAll("\n");
+}
+
+/// Writes `name`, the type of a function that adds a handler to a hook of `names`.
+///
+/// The handler's `e` is `any`, and scripts annotate it with the hook's type. Luau only types a
+/// handler's parameters from a single signature without generics: an overload for each hook, or a
+/// type function from a hook's name to its type, leaves `e` untyped in both of its type solvers.
+/// The new solver also refuses an intersection of more than eight such overloads, and then
+/// ignores the whole definitions file
+/// ([#1139](https://github.com/OpenReliant/openreliant/issues/1139)).
+fn writeAdd(w: *Writer, name: []const u8, names: hooks.Names) Writer.Error!void {
+    try w.print("export type {s} = (name: {s}, {s}) -> HookHandle\n", .{ name, names.typeName(), hooks.handler_parameters });
 }
 
 /// Writes a table type of `T`'s fields, as `values.pushTable` gives them.

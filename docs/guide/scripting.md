@@ -2647,7 +2647,9 @@ as VS Code completion, descriptions and type checks:
    ```
 
 3. Give each package's variable its type, and each handler's `e` the type named after its hook,
-   such as `ObjectDamage`. The hooks on the order table's routines share `OrderRoutine`.
+   such as `ObjectDamage`. The hooks on the order table's routines share `OrderRoutine`. Luau
+   doesn't work out `e`'s type from the hook's name, so without the annotation `e` has no fields to
+   complete.
 
    ```lua
    local hooks: Hooks = require("openreliant.hooks")
@@ -2659,11 +2661,11 @@ as VS Code completion, descriptions and type checks:
    end)
    ```
 
-The editor then knows the fields of `e`, of objects and of records, and shows their descriptions.
-It may report that it can't find the packages themselves, which OpenReliant provides. The file needs
-luau-lsp's default type solver: Luau's new solver doesn't load it yet
-([#1139](https://github.com/OpenReliant/openreliant/issues/1139)). Mission source has definitions
-of its own ([Editors](missions.md#editors)).
+The editor then completes the hooks' names, knows the fields of `e`, of objects and of records,
+and shows their descriptions. It may report that it can't find the packages themselves, which
+OpenReliant provides. The file works with either of Luau's type solvers. Mission source has
+definitions of its own, which need the new solver, and a mod with both missions and scripts can
+add both files ([Editors](missions.md#editors)).
 
 ## Limits
 
