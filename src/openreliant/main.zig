@@ -338,12 +338,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
     // The campaign flies its missions in the order the load scripts leave (`records.campaign`), with
     // the settings they leave for each (`records.missions`), the KILLBOARD holds the pilots they
-    // leave (`records.killboard`), and the CD player plays the tracks they leave
-    // (`records.cd_player`).
+    // leave (`records.killboard`), the CD player plays the tracks they leave
+    // (`records.cd_player`), and the rooms lead through the views they leave
+    // (`records.room_views`).
     game.gameflow.install(records.campaign);
     game.gameflow.installMissions(records.missions);
     game.itac.killboard.install(records.killboard);
     game.interface.cd_player.install(&records.cd_player);
+    game.interface.rooms.install(&records.room_views);
     // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
     // scripts while a game runs (`GameScripts`).
     const presentation = try scripting.Presentation.start(gpa, io, mods.list, &records, version.string, shared);
@@ -2075,7 +2077,7 @@ const Loading = struct {
         loading.presenter.window.pump();
         loading.resources.show(loading.archive.*, frame);
         const pixels = loading.size();
-        if (loading.scripts) |scripts| scripts.screenFrame(pixels);
+        if (loading.scripts) |scripts| scripts.screenFrame(pixels, null);
         var shown: Shown = .{ .loading = loading, .window = pixels, .line = if (frame.line) |id| loading.strings.string(@backingInt(id)) else null };
         try loading.presenter.present(shown.overlay());
     }

@@ -115,7 +115,7 @@ pub const Movies = struct {
             };
             if (end) |how| return how;
             const pixels = movies.presenter.size();
-            if (movies.scripts) |scripts| scripts.screenFrame(pixels);
+            if (movies.scripts) |scripts| scripts.screenFrame(pixels, null);
             var shown: Shown = .{ .movies = movies, .player = player, .window = pixels };
             try movies.presenter.present(shown.overlay());
             movies.pace();

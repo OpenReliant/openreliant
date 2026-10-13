@@ -28,6 +28,13 @@ player, and the driver runs its loop (`Driver.listen` in
   where none is.
 - Mods can change the lists: a load script sets which piece each row plays and its name
   ([The CD player's tracks](../guide/scripting.md#the-cd-players-tracks)). The game's are fixed.
+- The lists are pages of the records' tracks, the Reliant's then the Yamato's, and a menu script
+  can turn the page ([The rooms](../guide/scripting.md#the-rooms)). The rows are then numbered as
+  the records number the tracks, 13 to 24 on the Yamato's page. The player keeps the piece chosen
+  by its place among all the tracks rather than by its row, so the pieces that follow it come from
+  its own page, and it shows lit only there. The game keeps the row alone, and numbers each list
+  01 to 12.
+- The pointer is drawn after what scripts draw over the player, so that it stays on top.
 
 ## The screen
 

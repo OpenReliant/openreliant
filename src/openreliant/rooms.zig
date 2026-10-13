@@ -16,6 +16,7 @@ const Allocator = std.mem.Allocator;
 
 const openreliant = @import("openreliant");
 const platform = @import("platform");
+const scripting = @import("scripting");
 const engine = openreliant.engine;
 const srcore = engine.surrender.surrenderlib.srcore;
 const tcache = openreliant.tcache;
@@ -134,6 +135,8 @@ pub const Driver = struct {
     /// Whether F11 has asked for the console in this pass, which brings it up once the screen is
     /// drawn (`present`).
     console_asked: bool = false,
+    /// What the last pass showed of the rooms, which the console's loop shows on.
+    shows: Shows = .other,
     /// Whether the window was closed while the console was up, which quits the game at the next
     /// pass.
     closed: bool = false,
@@ -233,7 +236,7 @@ pub const Driver = struct {
         driver.startTimer();
         var last = driver.clock.game_ticks;
         while (true) {
-            if (!try driver.pump()) return null;
+            if (!try driver.pump(.other)) return null;
             const ticks = driver.clock.game_ticks;
             const elapsed = ticks -% last;
             last = ticks;
@@ -262,13 +265,13 @@ pub const Driver = struct {
         defer driver.sound.closeMusic();
         screen.state = .begin(driver.clock.game_ticks);
         while (true) {
-            if (!try driver.pump()) return false;
+            if (!try driver.pump(.other)) return false;
             if (!screen.state.frame(&driver.movies.devices.keyboard, driver.clock.game_ticks)) break;
             try driver.present(.{ .credits = &screen });
         }
         driver.sound.fadeMusic(ending.music_fade_step, driver.clock.game_ticks);
         while (driver.sound.musicPlaying()) {
-            if (!try driver.pump()) return false;
+            if (!try driver.pump(.other)) return false;
             try driver.present(.{ .credits = &screen });
         }
         return true;
@@ -317,8 +320,12 @@ pub const Driver = struct {
         terminal.sections = sections;
         defer terminal.deinit();
         defer driver.sound.endAll();
+        const shows: Shows = switch (run) {
+            .rooms => .{ .place = .itac },
+            .after_mission => .other,
+        };
         while (true) {
-            if (!try driver.pump()) return null;
+            if (!try driver.pump(shows)) return null;
             const step = terminal.pass(.{
                 .keyboard = &driver.movies.devices.keyboard,
                 .pointer = driver.pointer,
@@ -410,7 +417,7 @@ pub const Driver = struct {
         var tour: induction.Induction = .open(driver.context(), platform.window.nanoseconds());
         defer tour.close();
         while (true) {
-            if (!try driver.pump()) return null;
+            if (!try driver.pump(.other)) return null;
             const now = platform.window.nanoseconds();
             if (tour.pass(.{ .keyboard = &driver.movies.devices.keyboard, .right = driver.pointer.right_down, .now = now })) |step| switch (step) {
                 .way => |way| {
@@ -526,7 +533,7 @@ pub const Driver = struct {
         const inside = &driver.inside.?;
         const mission = driver.rooms_mission;
         while (true) {
-            if (!try driver.pump()) return null;
+            if (!try driver.pump(.rooms)) return null;
             const now = platform.window.nanoseconds();
             const pointer = driver.pointer;
             if (inside.pass(.{
@@ -585,7 +592,7 @@ pub const Driver = struct {
     fn simulate(driver: *Driver) !?Simulated {
         const pod = &driver.pod.?;
         while (true) {
-            if (!try driver.pump()) return null;
+            if (!try driver.pump(.{ .place = .simulator })) return null;
             const step = pod.pass(.{
                 .keyboard = &driver.movies.devices.keyboard,
                 .pointer = driver.pointer,
@@ -618,7 +625,7 @@ pub const Driver = struct {
         var case: locker.Locker = .open(.{ .rooms = driver.context(), .steps = steps }, mission, held);
         defer case.deinit();
         while (true) {
-            if (!try driver.pump()) return false;
+            if (!try driver.pump(.{ .place = .locker })) return false;
             if (!case.pass(.{ .keyboard = &driver.movies.devices.keyboard, .pointer = driver.pointer, .now = platform.window.nanoseconds() })) return true;
             if (case.screenshot) driver.saveScreenshot();
             try driver.present(.{ .locker = &case });
@@ -627,12 +634,16 @@ pub const Driver = struct {
 
     /// The CD player (`cd_player`) before mission `mission`, with the rooms' steps, in its loop,
     /// until it closes; false where the game quits meanwhile. The music it plays goes on in the
-    /// rooms.
+    /// rooms. After the scripts' frame, it turns to the page a script asked for
+    /// (`rooms.set_cd_player_page`).
     fn listen(driver: *Driver, mission: u16, steps: rooms.Steps) !bool {
         var player: cd_player.CdPlayer = .open(.{ .rooms = driver.context(), .steps = steps, .volume = &driver.cd_volume }, mission, platform.window.nanoseconds());
         defer player.deinit();
+        // A page asked for as the last CD player closed isn't for this one.
+        _ = driver.takeCdPlayerPage();
         while (true) {
-            if (!try driver.pump()) return false;
+            if (!try driver.pump(.{ .cd_player = player.page })) return false;
+            if (driver.takeCdPlayerPage()) |page| player.turnTo(page);
             if (!player.pass(.{ .keyboard = &driver.movies.devices.keyboard, .pointer = driver.pointer })) return true;
             try driver.present(.{ .cd_player = &player });
         }
@@ -658,7 +669,7 @@ pub const Driver = struct {
         try driver.present(.{ .briefing = &meeting });
         while (true) {
             const active = driver.active;
-            if (!try driver.pump()) return null;
+            if (!try driver.pump(.other)) return null;
             if (driver.active != active) meeting.pause(!driver.active, platform.window.nanoseconds());
             const pointer = driver.pointer;
             const step = meeting.pass(.{
@@ -709,7 +720,7 @@ pub const Driver = struct {
         defer menu.close(gpa);
         var press: engine.input.FreshPress = .{ .held = false };
         while (true) {
-            if (!try driver.pump()) return null;
+            if (!try driver.pump(.other)) return null;
             var pointer = driver.pointer;
             pointer.down = press.pressed(pointer.down);
             if (menu.state.frame(pointer, &driver.movies.devices.keyboard)) |choice| switch (choice) {
@@ -758,7 +769,7 @@ pub const Driver = struct {
         const window = driver.movies.presenter.window;
         defer window.takeText(false);
         while (true) {
-            if (!try driver.pump()) return null;
+            if (!try driver.pump(.other)) return null;
             var pointer = driver.pointer;
             pointer.down = press.pressed(pointer.down);
             window.takeText(screen.state.takesText());
@@ -778,7 +789,7 @@ pub const Driver = struct {
         var press: engine.input.FreshPress = .{};
         screen.state.enter(.in_game_options, tab, driver.settingsContext(driver.pointer));
         while (true) {
-            if (!try driver.pump()) return null;
+            if (!try driver.pump(.other)) return null;
             var pointer = driver.pointer;
             pointer.down = press.pressed(pointer.down);
             if (screen.state.frame(driver.settingsContext(pointer))) |end| return end;
@@ -801,9 +812,9 @@ pub const Driver = struct {
     /// frame for the outline fonts (`Outlines.startFrame`), reads the window's messages since the
     /// last pass, as the message pump does, reads the keyboard, moves the pointer on and runs the
     /// timer, which steps the fades, and runs the console's pass and the scripts' frame
-    /// (`ScriptFrames.screenFrame`). Returns false if the window was closed, which quits the game
-    /// (`game_exit`).
-    fn pump(driver: *Driver) !bool {
+    /// (`ScriptFrames.screenFrame`), which tells the scripts what the loop `shows` of the rooms.
+    /// Returns false if the window was closed, which quits the game (`game_exit`).
+    fn pump(driver: *Driver, shows: Shows) !bool {
         if (driver.closed) return false;
         // `starlancer.ini` is in the game's folder, where the saved games are too.
         driver.settings_file.save(driver.saves.io, driver.saves.dir);
@@ -820,8 +831,48 @@ pub const Driver = struct {
         driver.pointer.update(&devices.mouse, window, canvas.fitted, elapsed);
         driver.sound.runTimer(driver.clock, ticks);
         if (driver.console) |console| try driver.consolePass(console, window);
-        if (movies.scripts) |scripts| scripts.screenFrame(window);
+        driver.shows = shows;
+        if (movies.scripts) |scripts| scripts.screenFrame(window, driver.where(shows));
         return true;
+    }
+
+    /// What a loop shows of the rooms, which the scripts' frame tells the scripts
+    /// (`openreliant.rooms`).
+    const Shows = union(enum) {
+        /// A screen other than the rooms', such as the in-game options or the briefing.
+        other,
+        /// The rooms themselves, as the player walks them or the news report plays.
+        rooms,
+        /// The screen of one of the rooms' places other than the CD player.
+        place: rooms.Place,
+        /// The CD player, with the page it shows.
+        cd_player: usize,
+    };
+
+    /// Where `shows` has the player in the rooms, as the scripts see it; null where the rooms
+    /// aren't on screen.
+    fn where(driver: *const Driver, shows: Shows) ?scripting.presentation.Host.Rooms {
+        const inside = if (driver.inside) |*open| open else return null;
+        var seen: scripting.presentation.Host.Rooms = .{ .carrier = inside.carrier, .view = inside.view };
+        switch (shows) {
+            .other => return null,
+            .rooms => if (inside.news != null) {
+                seen.place = .news;
+            },
+            .place => |place| seen.place = place,
+            .cd_player => |page| {
+                seen.place = .cd_player;
+                seen.cd_player_page = page;
+            },
+        }
+        return seen;
+    }
+
+    /// The page a script asked the CD player to turn to since it last took one
+    /// (`rooms.set_cd_player_page`); null for none.
+    fn takeCdPlayerPage(driver: *Driver) ?usize {
+        const scripts = driver.movies.scripts orelse return null;
+        return scripts.presentation.takeCdPlayerPage();
     }
 
     /// The scripting console's part of a pass, in a window `window` pixels across and down, as
@@ -850,7 +901,7 @@ pub const Driver = struct {
         window.takeText(true);
         defer window.takeText(false);
         while (shown.isUp()) {
-            if (!try driver.pump()) {
+            if (!try driver.pump(driver.shows)) {
                 driver.closed = true;
                 return;
             }
@@ -1084,6 +1135,16 @@ const Shown = struct {
             .cd_player => |player| try player.draw(target),
         }
         if (driver.movies.scripts) |scripts| try scripts.drawUi(target.target);
+        // The pointer of the rooms and their places goes over what scripts draw, as the front
+        // end's does over a mod's screen. The menus draw theirs as the front end's own screens do.
+        switch (shown.screen) {
+            .rooms => |inside| try inside.drawPointer(target),
+            .itac => |terminal| try terminal.drawPointer(target),
+            .pod => |pod| try pod.drawPointer(target),
+            .locker => |case| try case.drawPointer(target),
+            .cd_player => |player| try player.drawPointer(target),
+            .induction, .options, .saved_games, .settings, .briefing, .restart, .credits => {},
+        }
         if (driver.console) |console| try console.shown.draw(target.target, shown.window, driver.strings, .menus);
     }
 };

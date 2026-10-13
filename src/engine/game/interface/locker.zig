@@ -314,8 +314,8 @@ pub const Locker = struct {
     }
 
     /// The frame (`0x00436B20`): the lid's movie; the awards the pilot has, each at its shape for
-    /// the frame; with the lid up and arrived, the name of the award under the pointer, or Close
-    /// Locker; and the pointer, the front end's.
+    /// the frame; and with the lid up and arrived, the name of the award under the pointer, or Close
+    /// Locker. The pointer comes last, after what scripts draw (`drawPointer`).
     pub fn draw(locker: *Locker, canvas: Canvas) canvas_module.Error!void {
         locker.film.draw(canvas);
         if (locker.tableFrame()) |frame| {
@@ -325,6 +325,10 @@ pub const Locker = struct {
             }
         }
         if (locker.lid == .up and locker.arrived) try canvas.label(locker.label());
+    }
+
+    /// The pointer, the front end's.
+    pub fn drawPointer(locker: *Locker, canvas: Canvas) canvas_module.Error!void {
         if (locker.pointer_shapes) |*shapes| try canvas.onScreen().shape(&shapes.art, locker.pointer.shape(), locker.pointer.at);
     }
 

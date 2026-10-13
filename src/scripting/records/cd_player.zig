@@ -10,7 +10,6 @@ const openreliant = @import("openreliant");
 const game = openreliant.engine.game;
 const language = game.language;
 const cd_player = game.interface.cd_player;
-const Carrier = game.interface.rooms.Carrier;
 const luau = @import("../luau.zig");
 const State = luau.State;
 const values = @import("../values.zig");
@@ -35,8 +34,7 @@ pub const item_tag = @backingInt(runtime.Tag.cd_player_track);
 
 /// How many tracks the records hold: each carrier's list, the Reliant's first.
 pub fn count(held: *const Records) usize {
-    _ = held;
-    return std.enums.values(Carrier).len * cd_player.track_count;
+    return held.cd_player.len;
 }
 
 /// The proxies of the tracks (`table.Table`).
@@ -60,15 +58,9 @@ pub fn about(field: Field) []const u8 {
     };
 }
 
-// The Reliant's tracks come first, as the reference says.
-comptime {
-    std.debug.assert(std.mem.eql(Carrier, std.enums.values(Carrier), &.{ .reliant, .yamato }));
-}
-
 /// The track `item`: the Reliant's list, then the Yamato's.
 fn trackOf(item: table.Item) *cd_player.Track {
-    const carrier = std.enums.values(Carrier)[item.place / cd_player.track_count];
-    return &item.records.cd_player.getPtr(carrier)[item.place % cd_player.track_count];
+    return &item.records.cd_player[item.place];
 }
 
 /// Pushes the value of `field` of the track `item`.
@@ -126,10 +118,10 @@ test "the CD player's tracks" {
         \\tracks[24] = { piece = "New_Pensive", name = "OpenReliant Theme" }
         \\assert(tracks[24].piece == "New_Pensive" and tracks[24].name == "OpenReliant Theme")
     );
-    const rise = held.cd_player.get(.yamato)[11];
+    const rise = held.cd_player[23];
     try std.testing.expectEqualStrings("New_Pensive", rise.piece);
     try std.testing.expectEqualStrings("OpenReliant Theme", rise.name.text);
-    try std.testing.expectEqualStrings("new_mission01", held.cd_player.get(.reliant)[0].piece);
+    try std.testing.expectEqualStrings("new_mission01", held.cd_player[0].piece);
     try bind.testing.expectSourceError(thread, "records.cd_player[25] = {}", "records.cd_player[25] does not exist: the CD player's tracks are 1 to 24");
     try bind.testing.expectSourceError(thread, "records.cd_player[1].piece = 3", "CdPlayerTrack.piece");
     try bind.testing.expectSourceError(thread, "records.cd_player[1].piece = string.rep('x', 251)", "CdPlayerTrack.piece: expected at most 250 characters, got 251");

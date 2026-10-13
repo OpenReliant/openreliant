@@ -1125,8 +1125,9 @@ pub const Itac = struct {
     }
 
     /// The frame: the movie playing, with the title and text of the section it fades over, or the
-    /// section's picture with its title, text and lit shapes; and the pointer, unless a section's
-    /// movie in plays (`itac_movie_draw`, `0x004401F0`; `itac_draw`, `0x004403F0`).
+    /// section's picture with its title, text and lit shapes (`itac_movie_draw`, `0x004401F0`;
+    /// `itac_draw`, `0x004403F0`). The pointer comes last, after what scripts draw
+    /// (`drawPointer`).
     pub fn draw(itac: *Itac, canvas: Canvas) canvas_module.Error!void {
         const playing = itac.film.player != null;
         if (playing) {
@@ -1138,7 +1139,6 @@ pub const Itac = struct {
             if (!itac.frozen) try itac.drawLit(canvas);
             if (!itac.frozen and itac.panesShow()) if (itac.tooltip_shown) |index| try itac.drawTooltip(canvas, button_tooltips[index]);
         }
-        if (!itac.frozen) try itac.drawPointer(canvas);
     }
 
     /// `itac_section_draw` (`0x0043FE90`): the section's title, and what its fifth handler draws, at
@@ -1297,7 +1297,9 @@ pub const Itac = struct {
     /// How far below a box "(more)" stands (`0x004409A7`).
     const more_below = 5;
 
-    fn drawPointer(itac: *Itac, canvas: Canvas) canvas_module.Error!void {
+    /// The pointer, unless a section's movie in plays.
+    pub fn drawPointer(itac: *Itac, canvas: Canvas) canvas_module.Error!void {
+        if (itac.frozen) return;
         const shapes = &(itac.shapes orelse return);
         shapes.usePalette(pointer_palette);
         try canvas.onScreen().shape(&shapes.art, itac.pointerShape(), itac.pointer.at);

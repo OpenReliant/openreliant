@@ -72,6 +72,9 @@ pub const Tag = enum(luau.Tag) {
     /// The CD player's tracks (`records.cd_player`), and one of them.
     cd_player = 18,
     cd_player_track = 19,
+    /// The rooms' views (`records.room_views`), and one of them.
+    room_views = 20,
+    room_view = 21,
 };
 
 /// What an object script's context runs on: an object of the mission, a missile in flight, or a

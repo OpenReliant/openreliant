@@ -47,7 +47,7 @@ pub fn read(arena: std.mem.Allocator, reader: image.Reader, entries: []const u32
             .hotspot = record.hotspot,
             .movie = try optionalString(reader, record.movie),
             .loop = try optionalString(reader, record.loop),
-            .label = @bitCast(record.label),
+            .label = .{ .string = @bitCast(record.label) },
             .exits = exits.items,
             .action = record.action,
             .sound = if (record.sound < 0) null else @intCast(record.sound),
@@ -87,7 +87,7 @@ pub fn emit(w: *Io.Writer, views: []const View) Io.Writer.Error!void {
         try optionalText(w, view.movie);
         try w.writeAll(", .loop = ");
         try optionalText(w, view.loop);
-        try w.print(", .label = 0x{X}, .exits = &.{{", .{view.label});
+        try w.print(", .label = .{{ .string = 0x{X} }}, .exits = &.{{", .{view.label.string});
         for (view.exits, 0..) |exit, place| try w.print("{s}{d}", .{ if (place == 0) " " else ", ", exit });
         try w.writeAll(if (view.exits.len == 0) "}, .action = " else " }, .action = ");
         try zig_text.enumValue(w, view.action);
@@ -172,7 +172,7 @@ test read {
     try std.testing.expectEqualStrings("b_loop.bik", views[2].loop.?);
     try std.testing.expectEqual(.news, views[2].action);
     try std.testing.expectEqual(3, views[2].sound.?);
-    try std.testing.expectEqual(0x298, views[2].label);
+    try std.testing.expectEqual(0x298, views[2].label.string);
 
     var out: Io.Writer.Allocating = .init(allocator);
     defer out.deinit();

@@ -31,8 +31,10 @@
 //! maneuvers and planets.
 //!
 //! `cd_player` holds the CD player's tracks, the Reliant's list and then the Yamato's
-//! (`game.interface.cd_player.Track`), proxies whose fields load scripts change in place too
-//! ([#1167](https://github.com/OpenReliant/openreliant/issues/1167)).
+//! (`game.interface.cd_player.Track`), and `room_views` the rooms' views
+//! (`game.interface.rooms.View`): proxies whose fields load scripts change in place too
+//! ([#1167](https://github.com/OpenReliant/openreliant/issues/1167),
+//! [#1169](https://github.com/OpenReliant/openreliant/issues/1169)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -53,10 +55,11 @@ pub const killboard = @import("records/killboard.zig");
 pub const maneuvers = @import("records/maneuvers.zig");
 pub const planets = @import("records/planets.zig");
 pub const cd_player = @import("records/cd_player.zig");
+pub const room_views = @import("records/room_views.zig");
 
 /// The tables whose entries have named fields (`records/table.zig`), each a module that declares
 /// `script_name`, `list_name`, `Field`, `TypeOf`, `about`, `each` and `entries_about`.
-pub const field_tables = .{ missions, killboard, maneuvers, planets, cd_player };
+pub const field_tables = .{ missions, killboard, maneuvers, planets, cd_player, room_views };
 
 /// The proxies for records.
 pub const Values = bind.Binding(&.{ stats.Ship, game.create.combat_stats.Static, stats.Gun, stats.Missile, stats.Pilot, game.pilots.FaceRecord }, @backingInt(runtime.Tag.record_value), "record");
@@ -97,9 +100,13 @@ pub const Records = struct {
     /// lights them, which the game takes with the planets (`create.planets.installLight`). Load
     /// scripts can set it.
     planet_light: ?@Vector(3, f32) = null,
-    /// The CD player's lists, which the game takes once the load scripts have run
-    /// (`interface.cd_player.install`). The pieces and names scripts give are in `arena`.
-    cd_player: game.interface.cd_player.Lists,
+    /// The CD player's tracks, the Reliant's list then the Yamato's, which the game takes once the
+    /// load scripts have run (`interface.cd_player.install`). The pieces and names scripts give are
+    /// in `arena`.
+    cd_player: game.interface.cd_player.Tracks,
+    /// The rooms' views, which the game takes once the load scripts have run
+    /// (`interface.rooms.install`). The names, words and exits scripts give are in `arena`.
+    room_views: game.interface.rooms.Views,
     /// Where text from scripts is allocated. It must live as long as the game's original strings.
     arena: Allocator,
 
@@ -118,7 +125,8 @@ pub const Records = struct {
         killboard: []const game.itac.killboard.Pilot = &game.itac.killboard.Pilot.original,
         maneuvers: []const game.aidefend.Compiled = &game.aidefend.Compiled.original,
         planets: []const game.create.planets.Planet = &game.create.planets.original,
-        cd_player: game.interface.cd_player.Lists = game.interface.cd_player.original,
+        cd_player: game.interface.cd_player.Tracks = game.interface.cd_player.original,
+        room_views: game.interface.rooms.Views = game.interface.rooms.views.views,
     };
 
     /// Copies `tables` into `arena`.
@@ -138,6 +146,7 @@ pub const Records = struct {
             .maneuvers = try arena.dupe(game.aidefend.Compiled, tables.maneuvers),
             .planets = try arena.dupe(game.create.planets.Planet, tables.planets),
             .cd_player = tables.cd_player,
+            .room_views = tables.room_views,
             .arena = arena,
         };
     }
@@ -179,6 +188,7 @@ pub const Records = struct {
         saved.planets_held = records.planets;
         saved.planet_light = records.planet_light;
         saved.cd_player = records.cd_player;
+        saved.room_views = records.room_views;
         inline for (comptime std.enums.values(Set), 0..) |set, made| {
             errdefer inline for (comptime std.enums.values(Set)[0..made]) |done| gpa.free(@field(saved, @tagName(done)));
             @field(saved, @tagName(set)) = try gpa.dupe(set.Element(), @field(records, @tagName(set)));
@@ -207,7 +217,8 @@ pub const Records = struct {
         /// maneuvers' table.
         planets_held: []game.create.planets.Planet,
         planet_light: ?@Vector(3, f32),
-        cd_player: game.interface.cd_player.Lists,
+        cd_player: game.interface.cd_player.Tracks,
+        room_views: game.interface.rooms.Views,
 
         pub fn restore(saved: Snapshot, records: *Records) void {
             inline for (comptime std.enums.values(Set)) |set| @memcpy(@field(records, @tagName(set)), @field(saved, @tagName(set)));
@@ -220,6 +231,7 @@ pub const Records = struct {
             @memcpy(records.planets, saved.planets);
             records.planet_light = saved.planet_light;
             records.cd_player = saved.cd_player;
+            records.room_views = saved.room_views;
         }
 
         pub fn deinit(saved: Snapshot, gpa: Allocator) void {
@@ -343,8 +355,8 @@ pub fn register(state: *State) void {
 /// Pushes the `openreliant.records` package: a read-only table holding the record tables, the
 /// campaign's missions (`campaign`), the settings of each (`missions`), the KILLBOARD's pilots
 /// (`killboard`), the combat maneuvers (`maneuvers`), the planets (`planets`), the colour of their
-/// light (`planet_light`) and the CD player's tracks (`cd_player`), which scripts can change only
-/// if `writable`. Call `register` first.
+/// light (`planet_light`), the CD player's tracks (`cd_player`) and the rooms' views
+/// (`room_views`), which scripts can change only if `writable`. Call `register` first.
 pub fn push(state: *State, records: *Records, writable: bool) void {
     state.newTable(0, std.enums.values(Set).len + field_tables.len);
     inline for (comptime std.enums.values(Set)) |set| {

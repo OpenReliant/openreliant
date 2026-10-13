@@ -278,8 +278,8 @@ pub const Pod = struct {
         };
     }
 
-    /// The frame (`0x0044F840`): the picture, the choice under the pointer lit and its name, the
-    /// screen's title, and the pointer.
+    /// The frame (`0x0044F840`): the picture, the choice under the pointer lit and its name, and
+    /// the screen's title. The pointer comes last, after what scripts draw (`drawPointer`).
     pub fn draw(pod: *Pod, canvas: Canvas) canvas_module.Error!void {
         if (pod.picture.image) |*image| canvas.fill(image);
         if (pod.under) |index| {
@@ -291,6 +291,10 @@ pub const Pod = struct {
             .simulator => try canvas.string(&file.font, title_at, simulator_title, simulator_title_colour, .left),
             .training => try canvas.string(&file.font, title_at, training_title, training_title_colour, .left),
         };
+    }
+
+    /// The pointer.
+    pub fn drawPointer(pod: *Pod, canvas: Canvas) canvas_module.Error!void {
         if (pod.pointer_shapes) |*shapes| try canvas.onScreen().shape(&shapes.art, pod.pointerShape(), pod.pointer.at);
     }
 
