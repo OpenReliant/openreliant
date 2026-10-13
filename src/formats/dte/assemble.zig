@@ -126,6 +126,10 @@ pub const Routine = struct {
         try routine.pushText(.push_string, text);
     }
 
+    /// The longest text `pushText` carries: the length byte before it counts itself, the text and
+    /// the NUL after it.
+    pub const longest_text = std.math.maxInt(u8) - 2;
+
     /// `text`, NUL-terminated, as the inline data of `opcode`: `push_string`, or `push_string_alt`,
     /// which runs the same handler.
     pub fn pushText(routine: *Routine, opcode: Opcode, text: []const u8) Error!void {
@@ -262,6 +266,14 @@ test Routine {
     try back.op(.nop, &.{});
     try back.branch(.jump, start);
     try std.testing.expectError(error.BackwardBranch, back.finish());
+}
+
+test "Routine.longest_text" {
+    var routine: Routine = .init(std.testing.allocator);
+    defer routine.deinit();
+    const text: [Routine.longest_text + 1]u8 = @splat('a');
+    try routine.pushText(.push_string, text[0..Routine.longest_text]);
+    try std.testing.expectError(error.InlineTooLong, routine.pushText(.push_string, &text));
 }
 
 test emit {

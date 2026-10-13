@@ -1042,6 +1042,15 @@ pub const SquadMember = extern struct {
         ._unknown_09 = .{ 0x87, 0x1E, 0x0D },
     };
 
+    /// The members of squad `squad` among `members`, from member `first` on while they are its
+    /// own, as the game walks them (`squad_walk`, `0x00401D80`): none from past the members.
+    pub fn run(members: []align(1) const SquadMember, squad: usize, first: usize) []align(1) const SquadMember {
+        const start = @min(first, members.len);
+        var end = start;
+        while (end < members.len and members[end].squad == squad) end += 1;
+        return members[start..end];
+    }
+
     /// The component it names, or null for the whole object (`Trigger.whole_object`).
     pub fn part(member: SquadMember) ?u8 {
         return if (member.component == Trigger.whole_object) null else member.component;
@@ -1090,6 +1099,23 @@ pub const FormationPoint = extern struct {
     /// A point of the first formation at its origin, its unread byte as every shipped point holds
     /// it.
     pub const blank: FormationPoint = .{ .formation = 0, .formation_tag = .formation, ._unknown_03 = 0xFF, .offset = @splat(0) };
+
+    /// A formation's points, by their indices: from the formation's first point on, those that
+    /// name it, as OpenReliant's formation orders take them (`ai.formations`).
+    pub const Walk = struct {
+        points: []align(1) const FormationPoint,
+        formation: usize,
+        at: usize,
+
+        pub fn next(walk: *Walk) ?u16 {
+            while (walk.at < walk.points.len) {
+                const at = walk.at;
+                walk.at += 1;
+                if (walk.points[at].formation == walk.formation) return @intCast(at);
+            }
+            return null;
+        }
+    };
 
     comptime {
         assert(@offsetOf(FormationPoint, "offset") == 0x04);
@@ -1869,29 +1895,28 @@ pub const Mission = struct {
         return mission.records(FormationPoint, .formation_points);
     }
 
-    /// The members of squad `squad`, as the game walks them (`squad_walk`, `0x00401D80`): from the
-    /// squad's first on, while they are its own. None for a squad the mission lacks.
+    /// The members of squad `squad` from its first (`SquadMember.run`). None for a squad the
+    /// mission lacks.
     pub fn membersOf(mission: Mission, squad: usize) Error![]align(1) const SquadMember {
-        const all = try mission.squadMembers();
         const list = try mission.squads();
         if (squad >= list.len) return &.{};
-        const first = @min(list[squad].first_member, all.len);
-        var end = first;
-        while (end < all.len and all[end].squad == squad) end += 1;
-        return all[first..end];
+        return SquadMember.run(try mission.squadMembers(), squad, list[squad].first_member);
     }
 
-    /// The points of formation `formation`, by their indices, as the game finds them
-    /// (`formation_leader`, `0x00404230`): from the formation's first point on, those that are its
-    /// own. None for a formation the mission lacks.
-    pub fn pointsOf(mission: Mission, allocator: Allocator, formation: usize) (Error || Allocator.Error)![]u16 {
-        const all = try mission.formationPoints();
+    /// The points of formation `formation` (`FormationPoint.Walk`), where the mission has the
+    /// formation.
+    pub fn formationWalk(mission: Mission, formation: usize) Error!?FormationPoint.Walk {
         const list = try mission.formations();
-        if (formation >= list.len) return &.{};
+        if (formation >= list.len) return null;
+        return .{ .points = try mission.formationPoints(), .formation = formation, .at = list[formation].first_point };
+    }
+
+    /// The points of formation `formation`, by their indices (`FormationPoint.Walk`). None for a
+    /// formation the mission lacks.
+    pub fn pointsOf(mission: Mission, allocator: Allocator, formation: usize) (Error || Allocator.Error)![]u16 {
+        var walk = try mission.formationWalk(formation) orelse return &.{};
         var found: std.ArrayList(u16) = .empty;
-        for (all[@min(list[formation].first_point, all.len)..], list[formation].first_point..) |point, index| {
-            if (point.formation == formation) try found.append(allocator, @intCast(index));
-        }
+        while (walk.next()) |point| try found.append(allocator, point);
         return found.toOwnedSlice(allocator);
     }
 
@@ -2368,6 +2393,33 @@ test "the records' references" {
 test "Object.ToolFlags" {
     try std.testing.expectEqual(Object.ToolFlags{ .player = true }, @as(Object.ToolFlags, @bitCast(@as(u32, 1))));
     try std.testing.expectEqual(Object.ToolFlags{ .curve_point = true }, @as(Object.ToolFlags, @bitCast(@as(u32, 8))));
+}
+
+test "SquadMember.run" {
+    const whole = Trigger.whole_object;
+    const members = [_]SquadMember{
+        testing.squadMember(1, 0, whole),
+        testing.squadMember(2, 0, whole),
+        testing.squadMember(3, 1, whole),
+        testing.squadMember(4, 0, whole),
+    };
+    // From the first, while they are the squad's own: squad 0's last member, past squad 1's, is
+    // none of the walk's.
+    try std.testing.expectEqual(2, SquadMember.run(&members, 0, 0).len);
+    try std.testing.expectEqual(1, SquadMember.run(&members, 1, 2).len);
+    try std.testing.expectEqual(0, SquadMember.run(&members, 0, 2).len);
+    try std.testing.expectEqual(0, SquadMember.run(&members, 0, Squad.no_member).len);
+}
+
+test "FormationPoint.Walk" {
+    var points: [4]FormationPoint = @splat(.blank);
+    points[0].formation = 1;
+    points[2].formation = 1;
+    // From the formation's first point on, those that name it, past another's between them.
+    var walk: FormationPoint.Walk = .{ .points = &points, .formation = 1, .at = 0 };
+    try std.testing.expectEqual(0, walk.next().?);
+    try std.testing.expectEqual(2, walk.next().?);
+    try std.testing.expectEqual(null, walk.next());
 }
 
 test "FlightGroup.Wing" {

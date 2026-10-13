@@ -180,18 +180,18 @@ pub fn write(gpa: Allocator) ![]u8 {
     const arena = arena_state.allocator();
     const placed = ships ++ rocks();
 
-    var strings: std.ArrayList(u8) = .empty;
-    const part_name = try addString(arena, &strings, "(F)Start");
+    var strings: dte.write.Strings = .{};
+    const part_name = try strings.add(arena, "(F)Start");
 
     const records = try arena.alloc(dte.Ship, placed.len);
-    for (records, placed, 0..) |*record, ship, index| record.* = shipRecord(ship, @intCast(index), try addString(arena, &strings, ship.name));
+    for (records, placed, 0..) |*record, ship, index| record.* = shipRecord(ship, @intCast(index), try strings.add(arena, ship.name));
 
     const groups = std.enums.values(Group);
     const group_records = try arena.alloc(dte.FlightGroup, groups.len);
     for (group_records, groups) |*record, group| {
         record.* = .blank;
         record.object_id = @intCast(placed.len + @backingInt(group));
-        record.name = try addString(arena, &strings, group.label());
+        record.name = try strings.add(arena, group.label());
         record.wing = group.wing();
     }
     // Each group's count of ships and the first one's place, as binding the mission works them out.
@@ -216,7 +216,7 @@ pub fn write(gpa: Allocator) ![]u8 {
 
     var sections: dte.write.Sections = @splat(.{});
     const section = dte.write.set;
-    section(&sections, .strings, strings.items.len, strings.items);
+    section(&sections, .strings, strings.bytes.items.len, strings.bytes.items);
     section(&sections, .ships, records.len, std.mem.sliceAsBytes(records));
     section(&sections, .flight_groups, group_records.len, std.mem.sliceAsBytes(group_records));
     section(&sections, .script, code.len / @sizeOf(u16), code);
@@ -252,14 +252,6 @@ fn shipRecord(ship: Placed, id: u32, name_at: u16) dte.Ship {
     record.runtime_roll = ship.roll;
     record.roll = ship.roll;
     return record;
-}
-
-/// Adds `text` to the string pool, NUL-terminated, and gives the byte offset it starts at.
-fn addString(gpa: Allocator, strings: *std.ArrayList(u8), text: []const u8) !u16 {
-    const at: u16 = @intCast(strings.items.len);
-    try strings.appendSlice(gpa, text);
-    try strings.append(gpa, 0);
-    return at;
 }
 
 /// The order the start part makes the flight groups in: the Reliant's first, which the wing

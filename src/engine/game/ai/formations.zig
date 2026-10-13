@@ -723,33 +723,13 @@ fn pointOffset(bound: *const bind.Mission, point: u16) ?Vector {
     return if (point < all.len) all[point].offset else null;
 }
 
-/// The points of the formation of point `point`: those of the mission's from the formation's first
-/// that name it, its points following one another from there.
-const FormationPoints = struct {
-    all: []align(1) const dte.FormationPoint,
-    formation: u16,
-    at: usize,
-
-    /// Those of point `point`'s formation, where the mission has the point and the formation.
-    fn of(bound: *const bind.Mission, point: u16) ?FormationPoints {
-        const all = bound.file.formationPoints() catch return null;
-        const formations = bound.file.formations() catch return null;
-        if (point >= all.len) return null;
-        const formation = all[point].formation;
-        if (formation >= formations.len) return null;
-        return .{ .all = all, .formation = formation, .at = formations[formation].first_point };
-    }
-
-    /// The next point, by its index.
-    fn next(points: *FormationPoints) ?u16 {
-        while (points.at < points.all.len) {
-            const at = points.at;
-            points.at += 1;
-            if (points.all[at].formation == points.formation) return @intCast(at);
-        }
-        return null;
-    }
-};
+/// The points of the formation of point `point` (`dte.FormationPoint.Walk`), where the mission has
+/// the point and the formation.
+fn pointsOfFormationOf(bound: *const bind.Mission, point: u16) ?dte.FormationPoint.Walk {
+    const all = bound.file.formationPoints() catch return null;
+    if (point >= all.len) return null;
+    return bound.file.formationWalk(all[point].formation) catch null;
+}
 
 /// `formation_leader` (`0x00404230`): the ship that leads the formation of point `point` for a ship
 /// of flight group `group`: the first of the mission's ships of that group, or of none for
@@ -760,11 +740,11 @@ const FormationPoints = struct {
 /// a later formation's point nearer its origin takes the lead, which no ship of the group stands
 /// at; OpenReliant looks at the formation's own points.
 fn leaderOf(bound: *const bind.Mission, group: u8, point: u16) ?u16 {
-    var points = FormationPoints.of(bound, point) orelse return null;
+    var points = pointsOfFormationOf(bound, point) orelse return null;
     var lead: ?u16 = null;
     var nearest: f32 = 0;
     while (points.next()) |at| {
-        const from_origin = math.length(points.all[at].offset);
+        const from_origin = math.length(points.points[at].offset);
         if (lead == null or from_origin < nearest) {
             lead = at;
             nearest = from_origin;
@@ -784,12 +764,12 @@ fn leaderOf(bound: *const bind.Mission, group: u8, point: u16) ?u16 {
 /// **Fix:** the game takes in the points from the formation's first to the mission's last, as
 /// `leaderOf` looks at them; OpenReliant takes in the formation's own.
 fn formationSize(bound: *const bind.Mission, point: u16) f32 {
-    var points = FormationPoints.of(bound, point) orelse return 0;
+    var points = pointsOfFormationOf(bound, point) orelse return 0;
     const first = points.next() orelse return 0;
-    var least: Vector = points.all[first].offset;
+    var least: Vector = points.points[first].offset;
     var most = least;
     while (points.next()) |at| {
-        const offset: Vector = points.all[at].offset;
+        const offset: Vector = points.points[at].offset;
         least = @min(least, offset);
         most = @max(most, offset);
     }

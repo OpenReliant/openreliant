@@ -194,8 +194,8 @@ test "the parser's errors and their places" {
     try std.testing.expectEqual(0, empty.get(empty.root).block.len);
 }
 
-/// A mission with every kind of record and every form of the script, as `sltool dte decompile`
-/// writes it.
+/// A mission with every kind of record, every form of the script and each way a line that doesn't
+/// fit is broken, as `sltool dte decompile` writes it.
 const patrol =
     \\mission({ name = "Patrol" })
     \\
@@ -236,11 +236,20 @@ const patrol =
     \\halfway = point("Halfway", { marker = { curve = curve_0, at = 0.5 } })
     \\start = curve_point("Start")
     \\end_ship = curve_point("End", { position = { 1000, 0, 0 } })
+    \\escort_carrier_of_the_convoy = ship("Escort carrier of the convoy", { type = "reliant" })
     \\
     \\-- Squads
     \\
     \\targets = squad("(AI)targets", { sabre_1, component(sabre_2, 2), sabres })
     \\everyone = squad("(AI)everyone", { targets, player })
+    \\convoy_and_escorts = squad("(AI)convoy and escorts", {
+    \\    player,
+    \\    wingman,
+    \\    sabre_1,
+    \\    sabre_2,
+    \\    escort_carrier_of_the_convoy,
+    \\    targets,
+    \\})
     \\
     \\-- Formations
     \\
@@ -295,6 +304,10 @@ const patrol =
     \\    return 1
     \\end)
     \\on(nil, "destroyed")
+    \\on(escort_carrier_of_the_convoy, "shot_at",
+    \\    function(attacker, shield_damage, hull_damage, victim, weapon_fired)
+    \\        return 1
+    \\    end)
     \\
     \\-- Parts
     \\

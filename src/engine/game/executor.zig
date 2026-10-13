@@ -101,6 +101,19 @@ pub fn commandIndex(comptime name: []const u8) u8 {
     } else @compileError("the Executor has no command " ++ name);
 }
 
+/// The catalogue's number of the command `name`, where it has one, for a name read at run time,
+/// such as one in mission source.
+pub fn commandNamed(name: []const u8) ?u8 {
+    return command_numbers.get(name);
+}
+
+const command_numbers: std.StaticStringMap(u8) = .initComptime(pairs: {
+    @setEvalBranchQuota(100_000);
+    var list: [commands.table.len]struct { []const u8, u8 } = undefined;
+    for (&list, commands.table, 0..) |*pair, command, index| pair.* = .{ command.name, index };
+    break :pairs list;
+});
+
 /// A command of the catalogue, by its number, under the name scripts know it by: its name in snake
 /// case, so that `SetAI` is `set_ai` (`snakeCase`).
 pub const MissionCommand = @Enum(u8, .exhaustive, &command_names, &std.simd.iota(u8, command_names.len));
@@ -1546,6 +1559,11 @@ fn waitForDirectorCam(call: Call) u32 {
 test commandIndex {
     try std.testing.expectEqual(0x05, commandIndex("Wait"));
     try std.testing.expectEqualStrings("Wait", commands.table[commandIndex("Wait")].name);
+}
+
+test commandNamed {
+    try std.testing.expectEqual(commandIndex("SetAI"), commandNamed("SetAI").?);
+    try std.testing.expectEqual(null, commandNamed("set_ai"));
 }
 
 test MissionCommand {

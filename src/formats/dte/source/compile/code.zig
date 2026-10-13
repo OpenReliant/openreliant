@@ -10,6 +10,7 @@ const statements = @import("../../statements.zig");
 const Statement = statements.Statement;
 const Expression = statements.Expression;
 const commands = @import("../../../../engine/game/executor/commands.zig");
+const executor = @import("../../../../engine/game/executor.zig");
 const conditions = @import("../../../../engine/vm/conditions.zig");
 const names = @import("../names.zig");
 const Word = names.Word;
@@ -31,19 +32,6 @@ pub fn function(c: *Compiler, node: Index, parameters: Parameters) Error![]const
     const reader: Reader = .{ .c = c, .parameters = found.parameters, .kind = parameters };
     return reader.body(found.body);
 }
-
-/// Whether `name` is a command's, which no record can take.
-pub fn isCommand(name: []const u8) bool {
-    return command_numbers.has(name);
-}
-
-/// The commands of the catalogue, by their names.
-const command_numbers: std.StaticStringMap(u8) = .initComptime(pairs: {
-    @setEvalBranchQuota(100_000);
-    var list: [commands.table.len]struct { []const u8, u8 } = undefined;
-    for (&list, commands.table, 0..) |*pair, command, index| pair.* = .{ command.name, index };
-    break :pairs list;
-});
 
 const Reader = struct {
     c: *Compiler,
@@ -155,7 +143,7 @@ const Reader = struct {
         const call = r.get(node).call;
         switch (r.get(call.function)) {
             .global_name => |name| {
-                if (command_numbers.get(name)) |index| return .{ .command = .{ .index = index, .arguments = try r.commandArguments(index, call.arguments) } };
+                if (executor.commandNamed(name)) |index| return .{ .command = .{ .index = index, .arguments = try r.commandArguments(index, call.arguments) } };
                 if (std.meta.stringToEnum(Word, name)) |word| switch (word) {
                     .command => {
                         if (call.arguments.len == 0) return r.fail(node, "`command(...)` takes the command's number, then its arguments", .{});

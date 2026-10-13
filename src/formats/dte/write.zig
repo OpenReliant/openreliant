@@ -60,6 +60,36 @@ pub const template = struct {
     }
 };
 
+/// A string pool as a mission file holds one (`Section.strings`): each text once, with a NUL after
+/// it, named by the byte it starts at.
+pub const Strings = struct {
+    bytes: std.ArrayList(u8) = .empty,
+    offsets: std.StringHashMapUnmanaged(u16) = .empty,
+
+    pub const AddError = Allocator.Error || error{
+        /// The text holds a NUL, which would end it early.
+        HoldsNul,
+        /// The pool is past what a name's offset counts.
+        Full,
+    };
+
+    /// Where `text` starts in the pool, added where it isn't there yet.
+    pub fn add(strings: *Strings, gpa: Allocator, text: []const u8) AddError!u16 {
+        if (std.mem.findScalar(u8, text, 0) != null) return error.HoldsNul;
+        if (strings.offsets.get(text)) |offset| return offset;
+        const offset = std.math.cast(u16, strings.bytes.items.len) orelse return error.Full;
+        try strings.bytes.appendSlice(gpa, text);
+        try strings.bytes.append(gpa, 0);
+        try strings.offsets.put(gpa, text, offset);
+        return offset;
+    }
+
+    pub fn deinit(strings: *Strings, gpa: Allocator) void {
+        strings.bytes.deinit(gpa);
+        strings.offsets.deinit(gpa);
+    }
+};
+
 /// What a section holds: its directory count and its bytes.
 pub const Contents = struct {
     count: u16 = 0,
@@ -197,6 +227,18 @@ test write {
     @memset(large, 0);
     sections[@backingInt(Section.globals)] = .{ .count = 1, .bytes = large };
     try std.testing.expectError(error.SectionTooLarge, write(gpa, &sections, .{}));
+}
+
+test Strings {
+    const gpa = std.testing.allocator;
+    var strings: Strings = .{};
+    defer strings.deinit(gpa);
+    try std.testing.expectEqual(0, try strings.add(gpa, "Player"));
+    try std.testing.expectEqual(7, try strings.add(gpa, "(FG)Alpha"));
+    // A text already in the pool is named where it is.
+    try std.testing.expectEqual(0, try strings.add(gpa, "Player"));
+    try std.testing.expectEqualStrings("Player\x00(FG)Alpha\x00", strings.bytes.items);
+    try std.testing.expectError(error.HoldsNul, strings.add(gpa, "a\x00b"));
 }
 
 test rooms {

@@ -44,7 +44,7 @@ const Source = struct {
     routines: []const dte.Routine,
     record_names: script.Names,
     formation_names: []const []const u8,
-    /// Each formation's points, by their indices, as the game finds them (`dte.Mission.pointsOf`).
+    /// Each formation's points, by their indices (`dte.Mission.pointsOf`).
     formation_points: []const []const u16,
     /// The names of each condition's event values, by condition.
     events: [conditions.table.len][]const []const u8,
@@ -450,17 +450,25 @@ const Source = struct {
 /// `, { a, b })` and a new line: a declaration's list and its end, after `column` characters of
 /// its line, or with an item to a line where it doesn't fit there. `, {})` for an empty one.
 fn writeList(w: *Writer, items: []const []const u8, column: usize) Writer.Error!void {
-    if (items.len == 0) return w.writeAll(", {})\n");
-    var length = column + ", {  })".len;
+    try w.writeAll(", ");
+    try writeTable(w, items, column + ", ".len, ")".len);
+    try w.writeAll(")\n");
+}
+
+/// `items` as a table, `{ a, b }`, starting `column` characters into its line, with `after`
+/// characters after it on the line: on that line where it fits, or with an item to a line.
+fn writeTable(w: *Writer, items: []const []const u8, column: usize, after: usize) Writer.Error!void {
+    if (items.len == 0) return w.writeAll("{}");
+    var length = column + "{  }".len + after;
     for (items, 0..) |item, index| length += item.len + @as(usize, if (index > 0) ", ".len else 0);
     if (length > line_length) {
-        try w.writeAll(", {\n");
+        try w.writeAll("{\n");
         for (items) |item| try w.print("    {s},\n", .{item});
-        return w.writeAll("})\n");
+        return w.writeAll("}");
     }
-    try w.writeAll(", { ");
+    try w.writeAll("{ ");
     for (items, 0..) |item, index| try w.print("{s}{s}", .{ if (index > 0) ", " else "", item });
-    try w.writeAll(" })\n");
+    try w.writeAll(" }");
 }
 
 /// A value the game names, by its name as a string, or its number where it has none.
@@ -511,32 +519,20 @@ fn vector(value: [3]f32) Vector {
 /// they don't.
 const Fields = struct {
     arena: Allocator,
-    list: std.ArrayList([2][]const u8) = .empty,
+    /// Each field as it is written: `name = value`.
+    list: std.ArrayList([]const u8) = .empty,
 
     fn init(arena: Allocator) Fields {
         return .{ .arena = arena };
     }
 
     fn add(fields: *Fields, key: []const u8, comptime format: []const u8, args: anytype) Allocator.Error!void {
-        try fields.list.append(fields.arena, .{ key, try std.fmt.allocPrint(fields.arena, format, args) });
+        try fields.list.append(fields.arena, try std.fmt.allocPrint(fields.arena, "{s} = " ++ format, .{key} ++ args));
     }
 
-    /// Writes the fields as a table, starting `column` characters into its line, with `after`
-    /// characters after it on the line.
+    /// Writes the fields as a table (`writeTable`).
     fn write(fields: Fields, w: *Writer, column: usize, after: usize) Writer.Error!void {
-        if (fields.list.items.len == 0) return w.writeAll("{}");
-        var length = column + "{  }".len + after;
-        for (fields.list.items, 0..) |field, index| {
-            length += field[0].len + " = ".len + field[1].len + @as(usize, if (index > 0) ", ".len else 0);
-        }
-        if (length <= line_length) {
-            try w.writeAll("{ ");
-            for (fields.list.items, 0..) |field, index| try w.print("{s}{s} = {s}", .{ if (index > 0) ", " else "", field[0], field[1] });
-            return w.writeAll(" }");
-        }
-        try w.writeAll("{\n");
-        for (fields.list.items) |field| try w.print("    {s} = {s},\n", .{ field[0], field[1] });
-        try w.writeAll("}");
+        try writeTable(w, fields.list.items, column, after);
     }
 };
 

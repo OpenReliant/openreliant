@@ -9,9 +9,11 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const dte = @import("../../dte.zig");
+const assemble = @import("../assemble.zig");
 const statements = @import("../statements.zig");
 const bind = @import("../../../engine/game/mission/bind.zig");
 const commands = @import("../../../engine/game/executor/commands.zig");
+const executor = @import("../../../engine/game/executor.zig");
 const conditions = @import("../../../engine/vm/conditions.zig");
 const names = @import("names.zig");
 const script = @import("script.zig");
@@ -235,7 +237,7 @@ pub const Compiler = struct {
             .handler => .handler,
             else => |other| return c.fail(value, "`{t}(...)` declares no record", .{other}),
         };
-        if (names.isReserved(name) or code.isCommand(name)) return c.fail(target, "`{s}` is a name mission source keeps for itself", .{name});
+        if (names.isReserved(name) or executor.commandNamed(name) != null) return c.fail(target, "`{s}` is a name mission source keeps for itself", .{name});
         const records = c.declarations.getPtr(kind);
         const slot = try c.names.getOrPut(c.arena, name);
         if (slot.found_existing) return c.fail(target, "`{s}` is declared already, at {f}", .{ name, c.tree.at(slot.value_ptr.call) });
@@ -285,7 +287,7 @@ pub const Compiler = struct {
     pub fn word(c: *Compiler, node: Index) Error!u32 {
         const value = try c.number(node);
         if (@trunc(value) != value or value < std.math.minInt(i32) or value > std.math.maxInt(u32)) {
-            return c.fail(node, "a whole number from -2147483648 to 4294967295 goes here", .{});
+            return c.fail(node, "a whole number from {d} to {d} goes here", .{ std.math.minInt(i32), std.math.maxInt(u32) });
         }
         return if (value < 0) @bitCast(@as(i32, @intFromFloat(value))) else @intFromFloat(value);
     }
@@ -416,7 +418,7 @@ pub const Compiler = struct {
         const objects = try c.buildObjects(ships, try c.slices(triggers));
 
         var sections: dte.write.Sections = @splat(.{});
-        try c.section(&sections, .strings, pool.bytes.items.len, pool.bytes.items, "names");
+        try c.section(&sections, .strings, pool.strings.bytes.items.len, pool.strings.bytes.items, "bytes of names");
         try c.section(&sections, .globals, globals.len, std.mem.sliceAsBytes(globals), "globals");
         try c.section(&sections, .ships, ships.len, std.mem.sliceAsBytes(ships), "ships");
         try c.section(&sections, .flight_groups, groups.len, std.mem.sliceAsBytes(groups), "flight groups");
@@ -561,12 +563,12 @@ pub const Compiler = struct {
             };
             if (details.get("group")) |node| {
                 const group = try c.reference(node, .flight_group);
-                if (group >= dte.Ship.no_flight_group) return c.fail(node, "a ship's flight group is one of the first 255", .{});
+                if (group >= dte.Ship.no_flight_group) return c.fail(node, "a ship's flight group is one of the first {d}", .{dte.Ship.no_flight_group});
                 record.flight_group = @intCast(group);
             }
             if (details.get("pilot")) |node| {
                 const pilot = try c.named(node, .pilot);
-                if (pilot >= dte.Ship.no_pilot) return c.fail(node, "a pilot is one of the first 255 records of pilotstats.bin", .{});
+                if (pilot >= dte.Ship.no_pilot) return c.fail(node, "a pilot is one of the first {d} records of pilotstats.bin", .{dte.Ship.no_pilot});
                 record.pilot = @intCast(pilot);
             }
             if (details.get("position")) |node| {
@@ -585,7 +587,7 @@ pub const Compiler = struct {
                 const gate = launch.get("gate") orelse return c.fail(node, "a launch gives the `gate` the ship launches through", .{});
                 record.launch_from = try c.narrow(u16, from, try c.named(from, .ship_type), "ship type");
                 record.launch_gate = try c.whole(u8, gate);
-                if (record.launch_gate == dte.Ship.no_launch) return c.fail(gate, "a gate is from 0 to 254", .{});
+                if (record.launch_gate == dte.Ship.no_launch) return c.fail(gate, "a gate is from 0 to {d}", .{dte.Ship.no_launch - 1});
             }
             if (details.get("formation_point")) |node| {
                 record.formation_point = try c.formationPoint(node, formations);
@@ -617,7 +619,7 @@ pub const Compiler = struct {
             .call => |call| if (c.wordOf(node) == .formation_point_index) {
                 if (call.arguments.len != 1) return c.fail(node, "`formation_point_index(...)` takes the point's index", .{});
                 const point = try c.whole(u16, call.arguments[0]);
-                if (point == dte.Ship.no_formation_point) return c.fail(node, "a formation point's index is from 0 to 65534", .{});
+                if (point == dte.Ship.no_formation_point) return c.fail(node, "a formation point's index is from 0 to {d}", .{dte.Ship.no_formation_point - 1});
                 return point;
             },
             else => {},
@@ -653,7 +655,7 @@ pub const Compiler = struct {
                     if (parts.len != 2) return c.fail(item, "`component(...)` takes the object and the component's index", .{});
                     object = parts[0];
                     member.component = try c.whole(u8, parts[1]);
-                    if (member.component == dte.Trigger.whole_object) return c.fail(parts[1], "a component's index is from 0 to 254", .{});
+                    if (member.component == dte.Trigger.whole_object) return c.fail(parts[1], "a component's index is from 0 to {d}", .{dte.Trigger.whole_object - 1});
                 }
                 member.object_id = try c.narrow(u16, item, try c.objectOf(object), "object");
                 try members.append(c.arena, member);
@@ -757,7 +759,7 @@ pub const Compiler = struct {
         };
         if (details.get("component")) |component| {
             record.qualifier = try c.whole(u8, component);
-            if (record.qualifier == dte.Trigger.whole_object) return c.fail(component, "a component's index is from 0 to 254", .{});
+            if (record.qualifier == dte.Trigger.whole_object) return c.fail(component, "a component's index is from 0 to {d}", .{dte.Trigger.whole_object - 1});
         }
         if (details.get("deferred")) |deferred| record.deferred = @intFromBool(try c.boolean(deferred));
         for (event, 0..) |name, slot| {
@@ -809,7 +811,7 @@ pub const Compiler = struct {
             const slot = &found[object];
             if (slot.*) |*slice| {
                 if (@as(usize, slice.first) + slice.count != index) return c.fail(call, "an object's triggers follow one another", .{});
-                if (slice.count == std.math.maxInt(u8)) return c.fail(call, "an object has 255 triggers at most", .{});
+                if (slice.count == std.math.maxInt(u8)) return c.fail(call, "an object has {d} triggers at most", .{std.math.maxInt(u8)});
                 slice.count += 1;
             } else {
                 slot.* = .{ .first = try c.narrow(u16, call, @intCast(index), "trigger"), .count = 1 };
@@ -856,14 +858,14 @@ pub const Compiler = struct {
         const made = statements.bytes(c.arena, body, context) catch |err| return switch (err) {
             error.OutOfMemory => error.OutOfMemory,
             error.BranchTooFar => c.fail(node, "an `if` or a random choice here holds more code than a branch reaches", .{}),
-            error.InlineTooLong => c.fail(node, "a text here is longer than 254 bytes", .{}),
+            error.InlineTooLong => c.fail(node, "a text here is longer than {d} bytes", .{assemble.Routine.longest_text}),
             error.TooManyConstants => c.fail(node, "this code pushes more numbers than a routine holds", .{}),
             error.BlockTooLong => c.fail(node, "this code is longer than a routine holds", .{}),
-            error.WrongOperands => c.fail(node, "a random choice here has more than 255 arms", .{}),
+            error.WrongOperands => c.fail(node, "a random choice here has more than {d} arms", .{std.math.maxInt(u8)}),
             error.BackwardBranch, error.UnplacedLabel => unreachable,
         };
         const start = bytes.items.len / 2;
-        if (start + made.len / 2 >= dte.Part.no_block) return c.fail(node, "the script is longer than a mission's 65534 halfwords", .{});
+        if (start + made.len / 2 >= dte.Part.no_block) return c.fail(node, "the script is longer than a mission's {d} halfwords", .{dte.Part.no_block - 1});
         try bytes.appendSlice(c.arena, made);
         return @intCast(start);
     }
@@ -919,19 +921,15 @@ fn contains(list: []const []const u8, name: []const u8) bool {
     return false;
 }
 
-/// The string pool: each name once, with a NUL after it, by the byte it starts at.
+/// The string pool (`dte.write.Strings`), which the source's display names go in.
 const Pool = struct {
-    bytes: std.ArrayList(u8) = .empty,
-    offsets: std.StringHashMapUnmanaged(u16) = .empty,
+    strings: dte.write.Strings = .{},
 
     fn add(pool: *Pool, c: *Compiler, node: Index) Error!u16 {
-        const text = try c.string(node);
-        if (std.mem.findScalar(u8, text, 0) != null) return c.fail(node, "a name can't hold a NUL", .{});
-        if (pool.offsets.get(text)) |offset| return offset;
-        const offset = std.math.cast(u16, pool.bytes.items.len) orelse return c.fail(node, "the names fill the string pool, which counts 65535 bytes", .{});
-        try pool.bytes.appendSlice(c.arena, text);
-        try pool.bytes.append(c.arena, 0);
-        try pool.offsets.put(c.arena, text, offset);
-        return offset;
+        return pool.strings.add(c.arena, try c.string(node)) catch |err| switch (err) {
+            error.OutOfMemory => error.OutOfMemory,
+            error.HoldsNul => c.fail(node, "a name can't hold a NUL", .{}),
+            error.Full => c.fail(node, "the names fill the string pool, which counts {d} bytes", .{std.math.maxInt(u16)}),
+        };
     }
 };

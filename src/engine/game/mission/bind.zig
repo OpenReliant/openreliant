@@ -394,7 +394,7 @@ pub const Mission = struct {
     /// members, or where the file's members cannot be read.
     pub fn squadMembersFrom(mission: *const Mission, squad: u16, first: usize) SquadMembers {
         const members = mission.file.records(dte.SquadMember, .squad_members) catch &.{};
-        return .{ .mission = mission, .squad = squad, .members = members[@min(first, members.len)..] };
+        return .{ .mission = mission, .squad = squad, .members = dte.SquadMember.run(members, squad, first) };
     }
 
     /// A squad's members in turn, from its first while they are its own, each as the record it
@@ -403,7 +403,7 @@ pub const Mission = struct {
     pub const SquadMembers = struct {
         mission: *const Mission,
         squad: u16,
-        /// The squads' members from the next one on.
+        /// The squad's members still to walk.
         members: []align(1) const dte.SquadMember,
 
         pub const Member = union(enum) {
@@ -419,10 +419,6 @@ pub const Mission = struct {
             while (each.members.len > 0) {
                 const member = each.members[0];
                 each.members = each.members[1..];
-                if (member.squad != each.squad) {
-                    each.members = &.{};
-                    return null;
-                }
                 const record = each.mission.recordOf(member.object_id) orelse continue;
                 return switch (record) {
                     .ship => |index| .{ .ship = .{ .index = index, .component = member.part() } },
