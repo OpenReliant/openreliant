@@ -786,7 +786,8 @@ they accept (`HookName`, `FunctionHookName` and `ObjectHookName`, from `hooks.Na
 handler an `e` of type `any`, which scripts annotate with the hook's type. Luau types a handler's
 parameters only from a single signature without generics: one overload per hook, or a type
 function from a hook's name to its type, leaves `e` untyped in both of Luau's type solvers
-([luau#2373](https://github.com/luau-lang/luau/issues/2373)). The new solver also refuses an
+([luau#3045](https://github.com/luau-lang/luau/issues/3045),
+[luau#2373](https://github.com/luau-lang/luau/issues/2373)). The new solver also refuses an
 intersection of more than eight such overloads, and then ignores the whole file
 ([luau#1853](https://github.com/luau-lang/luau/issues/1853)). So the file loads in both solvers, and beside mission source's definitions in one folder
 ([Editors](../guide/missions.md#editors)): a test checks that the names both files declare are

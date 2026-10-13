@@ -320,6 +320,7 @@ trigger's condition:
 
 - It only types a function's parameters from a single signature without generics, as with the
   hooks' `e` in scripts ([The reference](../port/scripting.md#the-reference),
+  [luau#3045](https://github.com/luau-lang/luau/issues/3045),
   [luau#2373](https://github.com/luau-lang/luau/issues/2373)). One overload of `on` per condition
   would also be far past the eight overloads that the new type solver accepts
   ([luau#1853](https://github.com/luau-lang/luau/issues/1853)).
