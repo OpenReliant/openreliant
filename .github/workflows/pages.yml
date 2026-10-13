@@ -7,7 +7,7 @@ name: Pages
 on:
   push:
     branches: [main]
-    paths: [website/**, docs/**, .github/workflows/pages.yml]
+    paths: [website/**, docs/**, assets/icon/**, .github/workflows/pages.yml]
   workflow_dispatch:
 
 permissions:
@@ -29,6 +29,8 @@ jobs:
       - uses: actions/checkout@v7
       # The Predator's wire frame from the docs, drawn in the page's orange.
       - run: sed 's/#7d8590/#f08a2c/g' docs/images/predator-wireframe.svg > website/predator.svg
+      # OpenReliant's icon (assets/icon) as the favicon of the site, its docs and the mods' site.
+      - run: mkdir -p website/icon && cp assets/icon/openreliant.svg assets/icon/openreliant-32.png assets/icon/openreliant-256.png website/icon/
       # The documentation, rendered by MkDocs in the website's style into website/docs. Pygments marks
       # the lines of a diff, which the docs' style colours.
       - uses: actions/setup-python@v7
