@@ -214,6 +214,26 @@ out by 15 before the hangar's movie of a mission it flies ([Movies](movies.md#th
 wing launches, and `new_searching mission 09.wav` once it is out. The CD player in the rooms plays
 the pieces of its lists, and turns their level ([The CD player](cd-player.md)).
 
+## Scripts' sounds
+
+Not the game's: mods' player and menu scripts play sounds on the same voices
+([Sound](../guide/scripting.md#sound)). Each sound a script starts gets a number, which its voice
+keeps (`hog_snd.Starter`) and finds it again by; a sound of the game's on the voice clears it.
+
+- On the banks' voices (`hog_snd.Sound.playFile`), a mod's file takes a voice as `sound_play` takes
+  one, at priority 1, the lowest a bank gives: it takes no voice that a sound of the game's plays
+  on, and where none is free, a sound of the game's of a higher priority takes its voice. One of
+  the game's standard sounds keeps its bank's priority.
+- In 3D (`sound3d.playOwn`), a script's sound takes a voice of class 0, else borrows a free one of
+  another class, as `sound3d_play` takes one, with a whole cone, at its own rate times its pitch.
+  At a point, it keeps its voice while it plays (`Voice3D.script_owner`), where the game's sounds at
+  a point leave theirs free, and it's placed again each frame. It isn't started beyond its maximum
+  distance. Once it plays, `sound_3d_update` frees its voice once it has ended rather than after its
+  length, so a looping one plays until it's ended, and beyond the maximum distance it plays on
+  silent rather than ending, heard again as it comes back within it.
+- `hog_snd.Sound.stopMusic` stops the music and drops the piece waiting, as `music_play` does
+  before a piece it plays at once, and `hog_snd.Sound.pieceOn` gives the piece playing.
+
 ## Speech
 
 `sound_init` allocates a sample for the radio's speech (`speech_sample`, `0x00563F18`) with two

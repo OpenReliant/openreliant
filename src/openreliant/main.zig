@@ -834,7 +834,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // play and draw with: made as the front end's resources open.
     var rooms: ?Rooms = null;
     // A piece of music asked for, played as a mission's script plays one (`cmd_PlayMusic`).
-    if (options.music) |name| game.executor.playPiece(sound, name, .now);
+    if (options.music) |name| game.executor.playPiece(sound, name, game.executor.music_forever, .now);
     // A screenshot waits for the chase view to settle, then runs its ticks, one a frame, at least
     // until the second frame, which draws the sun by how much of it the first found showing.
     var frames_left: ?usize = null;
@@ -1275,6 +1275,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
                 if (script_font) |*file| frames.show(&host, layer, &file.font, display.ui_scale.of(size), &display.resources.art, display.resources.scripts_ball);
                 host.camera = .{ .camera = &view, .now = clock.viewTime(), .player = objects.player };
+                host.scene = hearing.scene(world);
                 host.flight = .{
                     .hud = &display.state,
                     .player = display.player,

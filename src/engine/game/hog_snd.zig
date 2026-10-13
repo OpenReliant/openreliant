@@ -70,6 +70,11 @@ const queued_fade_step = 5;
 /// immediate in `sound_play`).
 const priority_ceiling = 9999;
 
+/// Not the game's: the priority of a script's sound, the lowest a bank gives, so that it takes no
+/// voice from a sound of the game's, and a sound of the game's of a higher priority may take its
+/// voice where none is free.
+pub const script_priority = 1;
+
 /// What `sound_start` divides the effects volume times a sound's by, where the rest of the file
 /// divides by `loudest` (an immediate in `sound_start`).
 const start_divisor = 128;
@@ -83,6 +88,11 @@ const buffered_loudness: f32 = 20;
 const max_quarter_tones = 96;
 const quarter_tones_per_octave = 24;
 
+/// What `sound_pitch_factor` multiplies a rate by at most, four octaves up, and at least, four
+/// down.
+pub const highest_pitch: f32 = 1 << (max_quarter_tones / quarter_tones_per_octave);
+pub const lowest_pitch: f32 = 1 / highest_pitch;
+
 /// The count past which `tick_timer` rolls the mission's seconds and minutes over, a tick after
 /// they reach it, so each counts 0 to 59 (an immediate in `tick_timer`).
 const rollover_after = 58;
@@ -91,6 +101,13 @@ const rollover_after = 58;
 /// (`0x004DC9B4`) and the step's movement into a millisecond's.
 pub const distance_scale: f32 = 0.0004;
 pub const velocity_scale: f32 = 1e-5;
+
+/// Not the game's: who started the sound on a voice or a 3D voice: the game, or a script, by the
+/// number OpenReliant gives each sound a script plays (`openreliant.audio`).
+pub const Starter = enum(u32) {
+    game = 0,
+    _,
+};
 
 /// One voice of `sound_voices`: a Miles sample and what is playing on it.
 pub const Voice = extern struct {
@@ -162,6 +179,13 @@ pub const Voice3D = extern struct {
     /// `owner` while the voice is free. A sound at a point started with this for its owner
     /// leaves the voice free while it plays, for any other sound to take.
     pub const no_owner: i32 = -1;
+
+    /// Not the game's: `owner` for a script's sound at a point, which holds its voice while it
+    /// plays (`sound3d.playOwn`), where the game's sounds at a point leave theirs free.
+    pub const script_owner: i32 = -2;
+
+    /// Not the game's: `sound` for a script's sound, which is none of the game's.
+    pub const script_sound: i32 = -1;
 
     /// Whether the voice is free: its `owner` is `no_owner`.
     pub fn isFree(voice: Voice3D) bool {
@@ -351,6 +375,8 @@ pub const Music = struct {
     /// Added by OpenReliant: whether the music is paused because the game's window is away
     /// (`Sound.holdMusic`).
     held: bool = false,
+    /// Added by OpenReliant: the piece the stream plays (`Sound.pieceOn`).
+    piece: ?Piece = null,
 
     /// A piece of music to play: its path, loop count and level.
     pub const Piece = struct {
@@ -459,6 +485,9 @@ pub const Sound = struct {
     voice_count: u8 = 0,
     /// The voices `pauseAll` stopped, for `resumeAll` (`0x00563A20`).
     paused: [max_voices]bool = @splat(false),
+    /// Not the game's: who started the sound on each voice, and on each 3D voice.
+    starters: [max_voices]Starter = @splat(.game),
+    starters_3d: [max_voices_3d]Starter = @splat(.game),
     /// Each positional sound's level in the left ear and the right, gathered over a frame.
     buffered: [buffer_slots][2]f32 = @splat(.{ 0, 0 }),
     volumes: Volumes = .{},
@@ -540,25 +569,39 @@ pub const Sound = struct {
     pub fn play(sound: *Sound, bank: fat.Bank, index: usize, volume: i32, loops: u32, pan: i32, pitch: i32) ?u8 {
         const driver = sound.driver orelse return null;
         const entry_priority: i32 = if (index < bank.entries.len) @intCast(bank.entries[index].priority) else return null;
+        const chosen = sound.takeVoice(driver, entry_priority) orelse return null;
+        sound.start(bank, index, volume, pitch, loops, pan, chosen);
+        return chosen;
+    }
+
+    /// Not the game's: plays `file`, a WAVE file, on a voice as `play` plays a bank's sound, as
+    /// `how` says, for a script's sound (`openreliant.audio`). `file` must stay valid while it
+    /// plays. Returns the voice it plays on, or null.
+    pub fn playFile(sound: *Sound, file: []const u8, how: Starting) ?u8 {
+        const driver = sound.driver orelse return null;
+        const chosen = sound.takeVoice(driver, how.priority) orelse return null;
+        return if (sound.startFile(chosen, file, how)) chosen else null;
+    }
+
+    /// The voice `sound_play` takes for a sound of `priority`: one that has finished, past the
+    /// first; else one that was stopped; else the busy voice of lowest priority, its sound ended,
+    /// unless it's held or its priority is no lower than `priority`. Null where there's none.
+    fn takeVoice(sound: *Sound, driver: mss.Driver, priority: i32) ?u8 {
         const count = sound.voice_count;
-        const chosen = chosen: {
-            for (1..count) |v| if (driver.sampleStatus(sound.voices[v].sample) == .done) break :chosen v;
-            for (0..count) |v| if (driver.sampleStatus(sound.voices[v].sample) == .stopped) break :chosen v;
-            var lowest: i32 = priority_ceiling;
-            var found: ?usize = null;
-            for (sound.voices[0..count], 0..) |voice, v| {
-                if (voice.priority < lowest and voice.held == 0) {
-                    lowest = voice.priority;
-                    found = v;
-                }
+        for (1..count) |v| if (driver.sampleStatus(sound.voices[v].sample) == .done) return @intCast(v);
+        for (0..count) |v| if (driver.sampleStatus(sound.voices[v].sample) == .stopped) return @intCast(v);
+        var lowest: i32 = priority_ceiling;
+        var found: ?u8 = null;
+        for (sound.voices[0..count], 0..) |voice, v| {
+            if (voice.priority < lowest and voice.held == 0) {
+                lowest = voice.priority;
+                found = @intCast(v);
             }
-            const taken = found orelse return null;
-            if (lowest >= entry_priority) return null;
-            sound.endVoice(@intCast(taken));
-            break :chosen taken;
-        };
-        sound.start(bank, index, volume, pitch, loops, pan, @intCast(chosen));
-        return @intCast(chosen);
+        }
+        const taken = found orelse return null;
+        if (lowest >= priority) return null;
+        sound.endVoice(taken);
+        return taken;
     }
 
     /// `play` of sound `index` of `bank_stdsmp` (`0x005D6CA0`), as the game hands that global to
@@ -577,10 +620,10 @@ pub const Sound = struct {
         sound.start(bank, index, volume, pitch, loops, pan, v);
     }
 
-    /// A line of speech, the WAVE file `file`, on voice `v`, which it holds so that no other sound
-    /// takes it over: what the voice played ended, once, in the middle, as the rooms play their
-    /// crew's lines (`0x0043B598` on). `file` outlives it. Not the game's: it rings in what
-    /// surrounds the camera, as the rooms' other sounds do (`inScene`).
+    /// Plays a line of speech, the WAVE file `file`, once on voice `v`, in the middle, ending what
+    /// the voice played, and holds the voice so that no other sound takes it over, as the rooms
+    /// play their crew's lines (`0x0043B598` on). `file` must stay valid while it plays. Not the
+    /// game's: it rings in what surrounds the camera, as the rooms' other sounds do (`inScene`).
     ///
     /// **Fix:** it plays at the speech volume, scaled by the master volume. The game sets the
     /// sample to full volume itself, whatever the settings.
@@ -590,6 +633,7 @@ pub const Sound = struct {
         if (driver.sampleStatus(sound.voices[v].sample) != .done) sound.endVoice(v);
         const voice = &sound.voices[v];
         voice.held = 1;
+        sound.starters[v] = .game;
         driver.initSample(voice.sample);
         if (!driver.setSampleFile(voice.sample, file)) {
             log.warn("a line of speech cannot be played", .{});
@@ -608,29 +652,59 @@ pub const Sound = struct {
     /// at its rate moved by `pitch`, and at `volume` scaled by the effects volume and the master
     /// volume.
     fn start(sound: *Sound, bank: fat.Bank, index: usize, volume: i32, pitch: i32, loops: u32, pan: i32, v: u8) void {
-        const driver = sound.driver orelse return;
-        const voice = &sound.voices[v];
         const file = bank.sound(index) orelse return;
+        const started = sound.startFile(v, file, .{
+            .priority = @intCast(bank.entries[index].priority),
+            // Not the game's: the cockpit's warnings play in the cockpit's cabin.
+            .room = if (sound.fromCockpit(bank)) .cockpit else .none,
+            .volume = volume,
+            .rate_factor = if (pitch != 0) pitchFactor(pitch) else null,
+            .loops = loops,
+            .pan = pan,
+        });
+        if (!started) log.warn("sound {d} of a bank cannot be played", .{index});
+    }
+
+    /// How a sound starts on a voice (`startFile`).
+    pub const Starting = struct {
+        /// The sound's priority: a sound of higher priority may take its voice.
+        priority: i32,
+        room: mss.Room = .none,
+        /// From 0 to 127, which the effects volume and the master volume scale.
+        volume: i32 = loudest,
+        /// What the sound's own rate is multiplied by; null to keep it.
+        rate_factor: ?f32 = null,
+        /// The times it plays, 0 for ever.
+        loops: u32 = once,
+        pan: i32 = centre,
+        /// Who starts it.
+        starter: Starter = .game,
+    };
+
+    /// The rest of `sound_start` (`0x004826A0`): hands Miles `file` on voice `v`, at its rate moved
+    /// by `how.rate_factor`, and at `how.volume` scaled by the effects volume and the master volume.
+    /// False where the driver can't play it.
+    fn startFile(sound: *Sound, v: u8, file: []const u8, how: Starting) bool {
+        const driver = sound.driver orelse return false;
+        const voice = &sound.voices[v];
         driver.initSample(voice.sample);
-        if (!driver.setSampleFile(voice.sample, file)) {
-            log.warn("sound {d} of a bank cannot be played", .{index});
-            return;
-        }
-        // Not the game's: the cockpit's warnings play in the cockpit's cabin.
-        driver.setSampleRoom(voice.sample, if (sound.fromCockpit(bank)) .cockpit else .none);
+        if (!driver.setSampleFile(voice.sample, file)) return false;
+        driver.setSampleRoom(voice.sample, how.room);
         const rate = if (wave.Wave.parse(file)) |info| info.rate else |_| 0;
-        if (pitch != 0) {
-            const moved = @as(f32, @floatFromInt(rate)) * pitchFactor(pitch);
-            driver.setSamplePlaybackRate(voice.sample, @intCast(std.math.lossyCast(i32, moved)));
+        if (how.rate_factor) |factor| {
+            const moved = @as(f32, @floatFromInt(rate)) * factor;
+            driver.setSamplePlaybackRate(voice.sample, std.math.lossyCast(u32, moved));
         }
-        driver.setSampleVolume(voice.sample, sound.volumes.mastered(sound.volumes.effects, volume, start_divisor));
-        driver.setSampleLoopCount(voice.sample, loops);
-        driver.setSamplePan(voice.sample, pan);
-        voice.priority = @intCast(bank.entries[index].priority);
+        driver.setSampleVolume(voice.sample, sound.volumes.mastered(sound.volumes.effects, how.volume, start_divisor));
+        driver.setSampleLoopCount(voice.sample, how.loops);
+        driver.setSamplePan(voice.sample, how.pan);
+        voice.priority = how.priority;
         voice.fading = 0;
         voice.rate = rate;
-        voice.volume = volume;
+        voice.volume = how.volume;
+        sound.starters[v] = how.starter;
         driver.startSample(voice.sample);
+        return true;
     }
 
     /// Not the game's: the sample on voice `v` rings in what surrounds the camera, as the 3D
@@ -671,6 +745,7 @@ pub const Sound = struct {
         voice.priority = 0;
         voice.fading = 0;
         voice.held = 0;
+        sound.starters[v] = .game;
         driver.endSample(voice.sample);
     }
 
@@ -893,6 +968,7 @@ pub const Sound = struct {
         voice.owner = Voice3D.no_owner;
         voice.borrowed = false;
         voice.follows = .none;
+        sound.starters_3d[v] = .game;
         driver.end3DSample(voice.sample);
     }
 
@@ -915,6 +991,10 @@ pub const Sound = struct {
     /// (`sound3d.engineUpdate`), then each 3D voice. One that has played its length, past the
     /// engine's and the afterburner's, is freed; the rest are placed again from the camera, by
     /// what they follow, and freed once out of range.
+    ///
+    /// Not the game's: a script's sound (`sound3d.playOwn`) is freed once it ends, so a looping one
+    /// plays until it's ended. Out of range, it plays on unheard, and is heard again as it comes
+    /// back within it.
     pub fn update3D(sound: *Sound, scene: Scene) void {
         const driver = sound.driver orelse return;
         if (sound.voice_3d_count == 0) return;
@@ -928,7 +1008,13 @@ pub const Sound = struct {
             if (voice.isFree()) continue;
             const v: u8 = @intCast(index);
             const set_aside = sound.reserved(v);
-            if (!set_aside) {
+            const scripted = sound.starters_3d[index] != .game;
+            if (scripted) {
+                if (driver.sample3DStatus(voice.sample) == .done) {
+                    sound.end3D(v);
+                    continue;
+                }
+            } else if (!set_aside) {
                 // How long its sound plays, in ticks. The game takes the sound's bytes of 16-bit
                 // PCM over the 441 a tick plays at 22,050 Hz, multiplying by their rounded
                 // reciprocal (`0x004DC8B8`). **Improvement:** OpenReliant divides its frames by the
@@ -995,7 +1081,9 @@ pub const Sound = struct {
             }
             const relative = (position - scene.camera.position) * @as(Vector, @splat(distance_scale));
             const in_range = set_aside or !place or math.dot(relative, relative) <= voice.range * voice.range;
-            if (!in_range) {
+            if (scripted) {
+                driver.set3DSampleVolume(voice.sample, if (in_range) sound.effects.levels[index] else 0);
+            } else if (!in_range) {
                 sound.end3D(v);
                 continue;
             }
@@ -1040,9 +1128,7 @@ pub const Sound = struct {
                 return;
             },
         }
-        sound.closeMusic();
-        sound.music.fading = false;
-        sound.music.queued = null;
+        sound.stopMusic();
         const files = sound.files orelse return;
         const read = readMusic(files, path) catch |err| {
             log.warn("the music {s} is left out: {t}", .{ path, err });
@@ -1067,6 +1153,7 @@ pub const Sound = struct {
             return;
         };
         sound.music.stream = stream;
+        sound.music.piece = piece;
         driver.setStreamLoopCount(stream, piece.loops);
         driver.setStreamPosition(stream, 0);
         const loop_start = if (from_mod) modLoopStart(files, path, bytes, musicLoopStart(path)) else musicLoopStart(path);
@@ -1177,8 +1264,61 @@ pub const Sound = struct {
         sound.cancelDecoding();
         if (sound.music.stream) |stream| if (sound.driver) |driver| driver.closeStream(stream);
         sound.music.stream = null;
+        sound.music.piece = null;
         if (sound.music.file.len > 0) if (sound.files) |files| files.gpa.free(sound.music.file);
         sound.music.file = &.{};
+    }
+
+    /// The music stopped at once, and a piece queued to follow it dropped, as `music_play` stops it
+    /// before a piece it plays at once.
+    pub fn stopMusic(sound: *Sound) void {
+        sound.closeMusic();
+        sound.music.fading = false;
+        sound.music.queued = null;
+    }
+
+    /// Not the game's: the path of the piece of music playing, or of a mod's piece on its way; null
+    /// while none plays (`musicPlaying`).
+    pub fn pieceOn(sound: *Sound) ?[]const u8 {
+        if (!sound.musicPlaying()) return null;
+        if (sound.music.decoding) |*on_way| return on_way.piece.pathOf();
+        return if (sound.music.piece) |*playing| playing.pathOf() else null;
+    }
+
+    /// The timer's count now, which the fades count from: the game's clock's, or 0 before the game
+    /// sets it.
+    pub fn gameTicks(sound: *const Sound) u32 {
+        return if (sound.clock) |clock| clock.game_ticks else 0;
+    }
+
+    // --- Scripts' sounds -------------------------------------------------------------------------
+
+    /// Where a script's sound plays: on a voice, or on a 3D voice.
+    pub const Playing = union(enum) {
+        voice: u8,
+        voice_3d: u8,
+    };
+
+    /// Not the game's: where the sound a script started as `starter` plays, while it plays or is
+    /// paused; null once it has ended, or a sound of the game's has taken its voice.
+    pub fn playingOf(sound: *Sound, starter: Starter) ?Playing {
+        const driver = sound.driver orelse return null;
+        if (starter == .game) return null;
+        for (sound.voices[0..sound.voice_count], sound.starters[0..sound.voice_count], 0..) |voice, started, v| {
+            if (started == starter and driver.sampleStatus(voice.sample) != .done) return .{ .voice = @intCast(v) };
+        }
+        for (sound.voices_3d[0..sound.voice_3d_count], sound.starters_3d[0..sound.voice_3d_count], 0..) |voice, started, v| {
+            if (started == starter and !voice.isFree() and driver.sample3DStatus(voice.sample) != .done) return .{ .voice_3d = @intCast(v) };
+        }
+        return null;
+    }
+
+    /// Not the game's: ends the sound a script started as `starter`, if it plays still.
+    pub fn endStarted(sound: *Sound, starter: Starter) void {
+        switch (sound.playingOf(starter) orelse return) {
+            .voice => |v| sound.endVoice(v),
+            .voice_3d => |v| sound.end3D(v),
+        }
     }
 };
 
@@ -1190,10 +1330,16 @@ pub fn pitchFactor(n: i32) f32 {
     return std.math.pow(f32, 2, @as(f32, @floatFromInt(clamped)) / quarter_tones_per_octave);
 }
 
-/// The byte a piece of music loops back to (`music_play`): the loop table's, for the piece whose
-/// name starts what follows the path's first `\`, ignoring case, or 0.
+/// A piece of music's name, as the mission scripts' `cmd_PlayMusic` gives it: what follows its
+/// path's first `\`, the music folder.
+pub fn pieceName(path: []const u8) []const u8 {
+    return if (std.mem.findScalar(u8, path, '\\')) |at| path[at + 1 ..] else path;
+}
+
+/// The byte a piece of music loops back to (`music_play`): the loop table's, for the first of its
+/// names that the piece's name (`pieceName`) starts with, ignoring case; else 0.
 pub fn musicLoopStart(path: []const u8) i32 {
-    const name = if (std.mem.findScalar(u8, path, '\\')) |at| path[at + 1 ..] else path;
+    const name = pieceName(path);
     for (music_loops) |piece| {
         if (name.len >= piece.name.len and std.ascii.eqlIgnoreCase(name[0..piece.name.len], piece.name)) return piece.loop_start;
     }
@@ -1362,6 +1508,39 @@ test "Sound.playStandard plays from the standard samples" {
     sound.stdsmp = try fat.Bank.parse(&bytes);
     try std.testing.expectEqual(1, sound.playStandard(0, loudest, once, centre, own_pitch));
     try std.testing.expect(sound.voicePlaying(1));
+}
+
+test "a script's sound plays on a voice under its number until it ends or a sound of the game's takes it" {
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
+    const bytes = comptime testing.bank(3);
+    const bank = try fat.Bank.parse(&bytes);
+    const starter: Starter = @fromBackingInt(7);
+    // It plays at its rate times the factor, and is found by its number, not by the game's.
+    const v = sound.playFile(testing.sound_file, .{ .priority = script_priority, .rate_factor = 2, .loops = forever, .starter = starter }).?;
+    try std.testing.expectEqual(Sound.Playing{ .voice = v }, sound.playingOf(starter).?);
+    try std.testing.expectEqual(null, sound.playingOf(.game));
+    try std.testing.expectEqual(2 * testing.Speaker.rate, speaker.mixer.samples[@backingInt(sound.voices[v].sample)].state.playing.?.rate);
+    // Ended by its number, it's found no more.
+    sound.endStarted(starter);
+    try std.testing.expectEqual(mss.Status.done, driver.sampleStatus(sound.voices[v].sample));
+    try std.testing.expectEqual(null, sound.playingOf(starter));
+    // With every voice busy, a sound of the game's of a higher priority takes the script's voice,
+    // and a script's sound takes none.
+    const again = sound.playFile(testing.sound_file, .{ .priority = script_priority, .loops = forever, .starter = starter }).?;
+    sound.playOn(1 - again, bank, 2, loudest, forever, centre, own_pitch);
+    try std.testing.expectEqual(null, sound.playFile(testing.sound_file, .{ .priority = script_priority, .starter = @fromBackingInt(8) }));
+    try std.testing.expectEqual(again, sound.play(bank, 1, loudest, once, centre, own_pitch));
+    try std.testing.expectEqual(null, sound.playingOf(starter));
+    // A line spoken on the voice of a script's sound that has finished is the game's.
+    sound.endAll();
+    const spoken = sound.playFile(testing.sound_file, .{ .priority = script_priority, .starter = starter }).?;
+    var out: [64][2]f32 = undefined;
+    speaker.mixer.mix(&out);
+    sound.speakOn(spoken, testing.sound_file);
+    try std.testing.expectEqual(null, sound.playingOf(starter));
 }
 
 test "Sound.speakOn holds its voice" {
@@ -1784,6 +1963,36 @@ test "Sound.holdMusic pauses the music while the window is away, and it counts a
     try std.testing.expect(!sound.musicPlaying());
 }
 
+test "Sound.pieceOn and Sound.stopMusic" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "music");
+    try tmp.dir.writeFile(io, .{ .sub_path = "music/one.wav", .data = testing.sound_file });
+    try tmp.dir.writeFile(io, .{ .sub_path = "music/two.wav", .data = testing.sound_file });
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(2, null);
+    const sound = &speaker.sound;
+    sound.files = .{ .gpa = gpa, .io = io, .dir = tmp.dir };
+    defer sound.closeMusic();
+
+    try std.testing.expectEqual(null, sound.pieceOn());
+    sound.playMusic("music\\one.wav", forever, loudest, .now);
+    try std.testing.expectEqualStrings("music\\one.wav", sound.pieceOn().?);
+    try std.testing.expectEqualStrings("one.wav", pieceName(sound.pieceOn().?));
+    // Stopped, the music is gone, and so is the piece queued after it.
+    sound.playMusic("music\\two.wav", forever, loudest, .{ .after_fade = 0 });
+    sound.stopMusic();
+    try std.testing.expectEqual(null, sound.pieceOn());
+    sound.updateMusic();
+    try std.testing.expectEqual(null, sound.pieceOn());
+    // Paused by the game, no piece plays.
+    sound.playMusic("music\\two.wav", forever, loudest, .now);
+    sound.pauseMusic(true);
+    try std.testing.expectEqual(null, sound.pieceOn());
+}
+
 test "Sound.runTimer runs the clock on and steps the fades" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
@@ -1857,6 +2066,17 @@ test pitchFactor {
     try std.testing.expectApproxEqAbs(@as(f32, 2), pitchFactor(24), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 16), pitchFactor(200), 1e-4);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 16.0), pitchFactor(-200), 1e-6);
+}
+
+test pieceName {
+    try std.testing.expectEqualStrings("New_Pensive.wav", pieceName("music\\New_Pensive.wav"));
+    try std.testing.expectEqualStrings("mine\\one.wav", pieceName("music\\mine\\one.wav"));
+    try std.testing.expectEqualStrings("loose.wav", pieceName("loose.wav"));
+}
+
+test "lowest_pitch and highest_pitch are as far as pitchFactor goes" {
+    try std.testing.expectEqual(pitchFactor(-max_quarter_tones), lowest_pitch);
+    try std.testing.expectEqual(pitchFactor(max_quarter_tones), highest_pitch);
 }
 
 test musicLoopStart {

@@ -248,6 +248,7 @@ return {
 | `on_console_command(text)` | Player, menu | A line typed in [the console](#the-console) that isn't one of its commands |
 | `on_window_resized(width, height)` | Player, menu | The window changes size |
 | `on_room_changed(view, place)` | Player, menu | The player moves through [the rooms](#the-rooms) |
+| `on_music_changed(piece)` | Player, menu | A piece of [music](#sound) starts, or the music stops |
 | `on_interface_override(base)` | Global, object, player, menu | [Interfaces](#interfaces) |
 | `on_option_changed(key, value)` | Menu | The player sets one of the mod's [options](#options) |
 
@@ -2039,16 +2040,49 @@ return {
 ```lua
 local audio = require("openreliant.audio")
 
-audio.play_sound(3, 0.5)              -- the game's standard sound 3, at half volume
-audio.play_music("New_Pensive.wav")   -- from the music folder, or a mod's file of that name
-audio.say("countermeasures_low")      -- Betty's line
+audio.play_sound(3, 0.5)                          -- the game's standard sound 3, at half volume
+local hum = audio.play_sound("hum.ogg", { loop = true })   -- a file of the mod, over and over
+audio.stop_sound(hum)
+audio.play_sound("ping.wav", { at = vector.create(0, 0, 5000) })     -- in 3D, at a point
+audio.play_sound("ping.wav", { object = target, pitch = 1.5 })      -- in 3D, at an object
+audio.play_music("New_Pensive.wav", { after_fade = true })          -- once the music fades out
+audio.say("countermeasures_low")                  -- Betty's line
 ```
 
 - `play_sound` takes the number of one of the game's standard sounds, the menus' and the
-  display's. A mod replaces a sound by replacing its file ([Modding](modding.md)).
-- `play_music` plays a piece from the game's `music` folder, looping, in place of the music that
-  plays.
+  display's, or the name of a sound file in the script's own mod: a WAV, FLAC, MP3, Ogg Vorbis or
+  Opus file, as a mod's sounds can be ([Sounds](modding.md#sounds)). A file is read and decoded the
+  first time it plays, and kept for the next times. The files the scripts play take at most 64 MiB
+  together once decoded, and the ones played longest ago make room for new ones.
+- Its options are all optional ([SoundOptions](reference.md#soundoptions)): `volume` from 0 to 1,
+  of the effects volume; `pitch`, what the sound's rate is multiplied by, from a sixteenth to 16;
+  `loop`, to play it over and over until it's stopped; and `pan`, from -1 on the left to 1 on the
+  right. A number in place of the table is the volume.
+- With `object` or `at`, the sound plays in 3D while a mission is shown: at an object, moving with
+  it, or at a point of the world, where it stays. It's heard at its full volume within `near`, more
+  quietly farther off, and not at all past `far`, in the game's units. By default they're 10,000
+  and 200,000, as for the guns' shots. A Predator at full throttle covers 320 units a step, 8,000
+  a second, so a sound that should carry as the player flies off needs a lot more. It doesn't
+  start past `far`. Once it plays, it goes on unheard out there, and is heard again as it comes
+  back within `far`. It ends with its mission.
+- `play_sound` returns a number for the sound, which `stop_sound` and `sound_playing` take, or nil
+  where it doesn't play, such as when every voice is busy. A script's sound never cuts off a sound
+  of the game's, but one of the game's may cut off a script's where every voice is busy.
+- A sound plays on after the call that started it. The sounds the player scripts started stop as
+  the game ends, and those of the menu scripts as they're reloaded.
+- `play_music` plays a piece from the game's `music` folder, or a mod's piece of that name
+  ([Music](modding.md#music)), in place of the music playing: for ever, or once with
+  `loop = false`. With `after_fade = true`, it waits for the music playing to fade out, as a
+  mission's music changes. `fade_music` fades the music out, as the game does before a launch, and
+  `stop_music` stops it at once, with the piece that waits.
+- `music` is the name of the piece playing, as `play_music` takes it, or nil.
+  `on_music_changed(piece)` runs as a piece starts, with its name, and as the music stops, with
+  nil.
 - `say` takes one of Betty's lines by name ([BettyLine](reference.md#bettyline)).
+
+[`examples/mods/audio`](../../examples/mods/audio) shows the name of each piece as it starts, with a
+chime of its own, and plays its sounds in 3D: a beacon that pings from a point, and a ping from the
+player's target.
 
 ### The rooms
 

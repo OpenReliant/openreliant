@@ -386,7 +386,9 @@ game file's byte offset instead, which may be the wrong moment, and the log says
 [`examples/mods/music`](../../examples/mods/music) replaces the main menu's music with a track made
 for it, whose body starts where the game's piece loops back. The CD player in the rooms plays only
 the pieces on its lists, which a load script can change and add tracks to ([The CD player's
-tracks](scripting.md#the-cd-players-tracks)), so the example gives its track a row there too.
+tracks](scripting.md#the-cd-players-tracks)), so the example gives its track a row there too. A
+script can play a piece, fade the music out or stop it, and hear it change
+([Sound](scripting.md#sound)).
 
 ### Sounds
 
@@ -408,7 +410,8 @@ and place the game gives it. A 3D sound plays at its own pitch whatever its rate
 keeps its width as far as what it comes from has a size: a big ship's engine close by sounds wide,
 and narrows to a point as the ship moves away, while a shot, a missile or an explosion is a point.
 With `--original`, which mixes the sound plainly, a 3D sound in stereo plays in mono so that it can
-still be placed.
+still be placed. A script can also play a sound file of its own mod by its name, in any of these
+formats, on its own or in 3D ([Sound](scripting.md#sound)).
 
 ## Textures
 
@@ -1223,7 +1226,8 @@ script, and the [scripting reference](reference.md) lists everything they can us
 - **Object scripts** run on each ship of a class or a type, such as every fighter, while it's in
   the mission, **missile scripts** on each missile in flight, and **turret scripts** on each
   turret.
-- **Player and menu scripts** draw over the flight display and the menus, and react to the keys.
+- **Player and menu scripts** draw over the flight display and the menus, play sounds and music,
+  and react to the keys.
   Menu scripts can also replace the front end's screens, and add game modes and campaigns to the
   main menu's GAME MODES ([Menus, game modes and campaigns](scripting.md#menus-game-modes-and-campaigns)).
 

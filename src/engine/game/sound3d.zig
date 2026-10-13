@@ -160,6 +160,9 @@ pub const Effects = struct {
     classes: [hog_snd.max_voices_3d]Class = @splat(.not_reserved),
     /// Added by OpenReliant: what each 3D voice's rates are scaled by (`rateScale`).
     rate_scales: [hog_snd.max_voices_3d]f32 = @splat(1),
+    /// Added by OpenReliant: the volume each 3D voice's sound started at, which a script's sound
+    /// plays at again as it comes back within its range (`hog_snd.Sound.update3D`).
+    levels: [hog_snd.max_voices_3d]i32 = @splat(0),
     /// The player's engine sound (`0x0058CB04`), and when its afterburner last came on or went off
     /// (`0x0050713C`).
     engine: EngineState = .idle,
@@ -284,10 +287,70 @@ pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u
 /// `play` of `which`, its sample the WAV file `file` in place of its bank's where it is given: a
 /// mod's sound of its own, heard as `which` is. **Improvement:** the game plays its banks' alone.
 pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, file: ?[]const u8, volume: f32, class: Class) ?u8 {
+    return begin(sound, scene, &sounds.definitions[@backingInt(which)], .{ .game = which }, at, facing, owner, file, volume, class);
+}
+
+/// Not the game's: how a script's sound plays in 3D (`playOwn`).
+pub const Own = struct {
+    /// What it plays at: an object, by its slot, which it moves with, or a point, where it stays.
+    at: union(enum) { object: u16, point: Vector },
+    /// Its share of the effects volume, from 0 to 1.
+    volume: f32 = 1,
+    /// What its own rate is multiplied by.
+    pitch: f32 = 1,
+    /// The times it plays, 0 for ever.
+    loops: u32 = hog_snd.once,
+    /// Within `near` it is heard at its full volume, and past `far` not at all, in the game's
+    /// units.
+    near: f32 = default_near,
+    far: f32 = default_far,
+    starter: hog_snd.Starter,
+};
+
+/// The distances a script's sound is heard within where it gives none: those of the guns' shots
+/// (GUN01's).
+pub const default_near = sounds.definitions[@backingInt(sounds.Sound.gun01)].min_distance;
+pub const default_far = sounds.definitions[@backingInt(sounds.Sound.gun01)].max_distance;
+
+/// The way a script's sound at a point faces: anywhere, since its cone is whole.
+const facing_anywhere: Vector = .{ 0, 0, 1 };
+
+/// Not the game's: plays `file`, a WAVE file, as a script's sound (`openreliant.audio`), as `own`
+/// says, on a voice no sound of the game's plays on, with a whole cone. `file` must stay valid
+/// while it plays. It isn't started past `own.far`; once started, it plays until it ends, or for
+/// ever where it loops (`hog_snd.Sound.update3D`). Returns the voice, or null.
+pub fn playOwn(sound: *Sound, scene: Scene, file: []const u8, own: Own) ?u8 {
+    const follows: Follows, const at: ?Vector, const owner: ?u16 = switch (own.at) {
+        .object => |slot| .{ .object, null, slot },
+        .point => |point| .{ .point_facing, point, null },
+    };
+    const definition: Definition = .{
+        .entry = 0,
+        .volume = 1,
+        .loop_count = own.loops,
+        .follows = follows,
+        .min_distance = own.near,
+        .max_distance = own.far,
+        .cone_inner = mss.positional.full_cone,
+        .cone_outer = mss.positional.full_cone,
+        .cone_outer_volume = mss.max_level,
+        .name = @splat(0),
+    };
+    return begin(sound, scene, &definition, .{ .script = .{ .starter = own.starter, .pitch = own.pitch } }, at, facing_anywhere, owner, file, own.volume, .not_reserved);
+}
+
+/// What a 3D sound is: one of the game's, or a script's (`playOwn`), which plays at `pitch` times
+/// its own rate.
+const Played = union(enum) {
+    game: sounds.Sound,
+    script: struct { starter: hog_snd.Starter, pitch: f32 },
+};
+
+/// The rest of `sound3d_play`, for a sound `definition` defines.
+fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Played, at: ?Vector, facing: ?Vector, owner: ?u16, file: ?[]const u8, volume: f32, class: Class) ?u8 {
     const driver = sound.driver orelse return null;
     if (!sound.effects.ready) return null;
     const bank = sound.effects.bank orelse return null;
-    const definition = &sounds.definitions[@backingInt(which)];
     const level = sound.volumes.masterShare() * @as(f32, @floatFromInt(sound.volumes.effects)) * definition.volume * volume;
 
     var position: Vector = @splat(0);
@@ -336,7 +399,11 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     const relative = (position - scene.camera.position) * @as(Vector, @splat(hog_snd.distance_scale));
     velocity *= @as(Vector, @splat(hog_snd.velocity_scale));
     const range = definition.max_distance * hog_snd.distance_scale;
-    if (!heardAnywhere(which) and range * range < math.dot(relative, relative)) return null;
+    const anywhere = switch (played) {
+        .game => |which| heardAnywhere(which),
+        .script => false,
+    };
+    if (!anywhere and range * range < math.dot(relative, relative)) return null;
 
     const v = chooseVoice(sound, class) orelse return null;
     const voice = &sound.voices_3d[v];
@@ -346,13 +413,30 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
         voice.direction = .of(facing_along);
     };
     const sample = file orelse bank.sound(definition.entry) orelse return null;
-    sound.effects.rate_scales[v] = rateScale(sample, file != null or sound.effects.isModded(definition.entry));
+    sound.effects.rate_scales[v] = switch (played) {
+        .game => rateScale(sample, file != null or sound.effects.isModded(definition.entry)),
+        .script => |own| rateScale(sample, true) * own.pitch,
+    };
     voice.follows = definition.follows;
-    voice.owner = if (owner) |held| held else hog_snd.Voice3D.no_owner;
-    voice.priority = @intCast(bank.entries[definition.entry].priority);
-    voice.sound = @backingInt(which);
+    voice.owner = if (owner) |held| held else switch (played) {
+        .game => hog_snd.Voice3D.no_owner,
+        .script => hog_snd.Voice3D.script_owner,
+    };
+    voice.priority = switch (played) {
+        .game => @intCast(bank.entries[definition.entry].priority),
+        .script => hog_snd.script_priority,
+    };
+    voice.sound = switch (played) {
+        .game => |which| @backingInt(which),
+        .script => hog_snd.Voice3D.script_sound,
+    };
     voice.started = scene.clock.frame_start;
     voice.range = range;
+    sound.starters_3d[v] = switch (played) {
+        .game => .game,
+        .script => |own| own.starter,
+    };
+    sound.effects.levels[v] = std.math.lossyCast(i32, level);
 
     const turned = math.transformTransposed(scene.camera.orientation, relative);
     // A sound that faces nowhere faces away from the listener; its cone is whole anyway.
@@ -360,7 +444,7 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     const moving = math.transformTransposed(scene.camera.orientation, velocity);
     if (!driver.set3DSampleFile(voice.sample, sample)) return null;
     driver.set3DSampleLoopCount(voice.sample, definition.loop_count);
-    driver.set3DSampleVolume(voice.sample, std.math.lossyCast(i32, level));
+    driver.set3DSampleVolume(voice.sample, sound.effects.levels[v]);
     driver.set3DPosition(voice.sample, hog_snd.miles(turned));
     driver.set3DOrientation(voice.sample, hog_snd.miles(heading), mss.positional.up);
     driver.set3DVelocity(voice.sample, hog_snd.miles(moving));
@@ -369,9 +453,12 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
     // Not the game's: how far the sound of what it follows spreads, its model's radius, which the
     // software mixer leaves out.
     driver.set3DSampleRadius(voice.sample, radius * hog_snd.distance_scale);
-    const rate: u32 = switch (which) {
-        .explosion01, .explosion02 => @intCast(explosion_rate - std.math.lossyCast(i32, scene.random.fraction() * explosion_spread)),
-        else => sample_rate,
+    const rate: u32 = switch (played) {
+        .game => |which| switch (which) {
+            .explosion01, .explosion02 => @intCast(explosion_rate - std.math.lossyCast(i32, scene.random.fraction() * explosion_spread)),
+            else => sample_rate,
+        },
+        .script => sample_rate,
     };
     driver.set3DSamplePlaybackRate(voice.sample, scaledRate(rate, sound.effects.rate_scales[v]));
     driver.start3DSample(voice.sample);
@@ -828,6 +915,61 @@ test "a mod's sound plays at its own rate, and its voice lasts as long as it pla
     sound.update3D(testing.scene(&mission));
     try std.testing.expect(sound.voices_3d[mod].isFree());
     try std.testing.expect(!sound.voices_3d[own].isFree());
+}
+
+test playOwn {
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try testing.open(&speaker);
+    const sound = &speaker.sound;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ship = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+    var scene = testing.scene(&mission);
+    // A tenth of a second at 44,100 Hz.
+    const file = comptime wave.testing.pcmAt(44100, &@as([4410 * @sizeOf(i16)]u8, @splat(0)));
+    const starter: hog_snd.Starter = @fromBackingInt(5);
+    const volumeOf = struct {
+        fn at(on: *mss.Mixer, voice: hog_snd.Voice3D) i32 {
+            return on.samples_3d[@backingInt(voice.sample)].state.volume;
+        }
+    }.at;
+
+    // At a point within reach, it takes a voice no class keeps, holds it, and plays at its own rate
+    // times its pitch.
+    const v = playOwn(sound, scene, file, .{ .at = .{ .point = .{ 0, 0, 1000 } }, .pitch = 0.5, .starter = starter }).?;
+    try std.testing.expectEqual(Class.not_reserved, sound.effects.classes[v]);
+    try std.testing.expect(!sound.voices_3d[v].isFree());
+    try std.testing.expectEqual(sample_rate, testing.playingRate(&speaker, v));
+    try std.testing.expectEqual(hog_snd.Sound.Playing{ .voice_3d = v }, sound.playingOf(starter).?);
+    // Past its far distance, it doesn't start.
+    try std.testing.expectEqual(null, playOwn(sound, scene, file, .{ .at = .{ .point = .{ 0, 0, 1e7 } }, .starter = @fromBackingInt(6) }));
+    // Once it has played, its voice is freed.
+    var out: [8192][2]f32 = undefined;
+    speaker.mixer.mix(&out);
+    sound.update3D(scene);
+    try std.testing.expect(sound.voices_3d[v].isFree());
+    try std.testing.expectEqual(null, sound.playingOf(starter));
+
+    // Looping at an object, it plays on past its length. With the camera far off it plays on
+    // unheard, and it's heard again as the camera comes back.
+    const looping = playOwn(sound, scene, file, .{ .at = .{ .object = ship }, .loops = hog_snd.forever, .starter = starter }).?;
+    const level = sound.effects.levels[looping];
+    try std.testing.expect(level > 0);
+    for (0..4) |_| speaker.mixer.mix(&out);
+    mission.clock.frame_start += 100;
+    sound.update3D(scene);
+    try std.testing.expect(sound.playingOf(starter) != null);
+    scene.camera.position = .{ 0, 0, 1e7 };
+    sound.update3D(scene);
+    try std.testing.expectEqual(0, volumeOf(&speaker.mixer, sound.voices_3d[looping]));
+    try std.testing.expect(sound.playingOf(starter) != null);
+    scene.camera.position = @splat(0);
+    sound.update3D(scene);
+    try std.testing.expectEqual(level, volumeOf(&speaker.mixer, sound.voices_3d[looping]));
+    // Ended by its number, its voice is free for the game's sounds.
+    sound.endStarted(starter);
+    try std.testing.expect(sound.voices_3d[looping].isFree());
 }
 
 test engineSound {

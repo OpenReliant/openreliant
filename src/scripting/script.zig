@@ -201,6 +201,7 @@ pub const Handler = enum {
     on_console_command,
     on_window_resized,
     on_room_changed,
+    on_music_changed,
     on_interface_override,
     on_option_changed,
 
@@ -213,7 +214,7 @@ pub const Handler = enum {
             .on_save, .on_load => family == .global or family == .player,
             .on_records_loaded => family == .load,
             .on_update, .on_step => family == .global or family == .object,
-            .on_frame, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_window_resized, .on_room_changed => family == .player or family == .menu,
+            .on_frame, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_window_resized, .on_room_changed, .on_music_changed => family == .player or family == .menu,
             .on_mission_start, .on_mission_end => family == .global or family == .player or family == .menu,
             .on_object_added, .on_object_removed => family == .global,
             .on_added, .on_removed => family == .object,
@@ -244,6 +245,7 @@ pub const Handler = enum {
             .on_console_command => "When a line typed in the console isn't one of its commands, with the line.",
             .on_window_resized => "When the window changes size, with its new size in pixels.",
             .on_room_changed => "When the player sets off for another view of the carrier's rooms, opens or leaves one of their places, or the rooms come on screen or leave it: with the view, by its number in `records.room_views`, and the place whose screen shows (`rooms.place`). Both are nil while the rooms aren't on screen.",
+            .on_music_changed => "When a piece of music starts, with its name as `audio.play_music` takes it, or the music stops, with nil.",
             .on_interface_override => "When the script's interface takes the place of one an earlier script offered under the same name, with that one.",
             .on_option_changed => "When the player sets one of the mod's options on the mods screen, with its key and the new value. Options are set in the front end, so scripts that run in a game read them with `options.get` as they start.",
         };
@@ -266,6 +268,7 @@ pub const Handler = enum {
             .on_action => struct { action: []const u8 },
             .on_window_resized => struct { width: u32, height: u32 },
             .on_room_changed => struct { view: ?u32, place: ?interface.rooms.Place },
+            .on_music_changed => struct { piece: ?[]const u8 },
             .on_console_command => struct { text: []const u8 },
             .on_option_changed => struct { key: []const u8, value: mod_options.Value },
         };
@@ -276,7 +279,7 @@ pub const Handler = enum {
     pub fn Result(comptime handler: Handler) type {
         return switch (handler) {
             .on_save => ?data.Data,
-            .on_init, .on_load, .on_records_loaded, .on_update, .on_step, .on_frame, .on_mission_start, .on_mission_end, .on_object_added, .on_object_removed, .on_added, .on_removed, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_window_resized, .on_room_changed, .on_interface_override, .on_option_changed => void,
+            .on_init, .on_load, .on_records_loaded, .on_update, .on_step, .on_frame, .on_mission_start, .on_mission_end, .on_object_added, .on_object_removed, .on_added, .on_removed, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_window_resized, .on_room_changed, .on_music_changed, .on_interface_override, .on_option_changed => void,
         };
     }
 };
@@ -347,7 +350,7 @@ pub const Package = enum {
             .ui => "Drawing over the menus, the front end's screens and the pause menu, while they're shown: text, lines and rectangles, in the window's pixels.",
             .input => "Whether keys are held, and the controls bound to actions.",
             .camera => "The camera's view: which it is, switching it, and registering views of the mod's own.",
-            .audio => "Interface sounds, music and Betty's lines.",
+            .audio => "The game's sounds and the mods' own, on their own or in 3D, the music, and Betty's lines.",
             .postprocessing => "Post effects: GLSL fragment shaders from the mod, drawn over the whole frame, before the flight display or after it.",
             .shaders => "Surface and lighting functions: GLSL functions from the mod that change how surfaces are lit.",
             .storage => "Sections of plain data for each mod: kept with the saved game, or in the game folder across every game.",

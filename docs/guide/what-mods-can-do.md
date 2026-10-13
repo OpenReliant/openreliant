@@ -98,7 +98,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Add screens, and replace the front end's | [Screens](scripting.md#screens), [Replacing a screen](scripting.md#replacing-a-screen) | [`main-menu`](../../examples/mods/main-menu), [`strafe-run`](../../examples/mods/strafe-run) |
 | Add camera views | [Camera views](scripting.md#camera-views) | [`strafe-run`](../../examples/mods/strafe-run) |
 | Hear the keys and the game's controls, and add controls the player binds on the controls screen | [Keys and actions](scripting.md#keys-and-actions) | [`custom-order`](../../examples/mods/custom-order), [`strafe-run`](../../examples/mods/strafe-run) |
-| Play the game's sounds and music, and Betty's lines | [Sound](scripting.md#sound) | |
+| Play the game's sounds and the mod's own sound files, on their own or in 3D at an object or a point, play, fade and stop the music, hear it change, and play Betty's lines | [Sound](scripting.md#sound) | [`audio`](../../examples/mods/audio) |
 | Offer a page of options on the mods screen | [Options](scripting.md#options) | [`wingmen`](../../examples/mods/wingmen) |
 
 ## Tools for mod makers
@@ -117,8 +117,6 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 
 These are planned, each in an issue:
 
-- Scripts that play a mod's own sounds and control the music
-  ([#1178](https://github.com/OpenReliant/openreliant/issues/1178))
 - Movies in modern formats ([#1179](https://github.com/OpenReliant/openreliant/issues/1179))
 - Campaigns of more than 28 missions ([#987](https://github.com/OpenReliant/openreliant/issues/987))
 - Post effects that read the scene's depth ([#633](https://github.com/OpenReliant/openreliant/issues/633))
