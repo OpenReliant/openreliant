@@ -377,6 +377,8 @@ back to a point partway through, so does the mod's, at the same moment of the mu
 format: make it the same length as the game's, or at least as long as its loop point, to keep the
 loop where the game has it. If the game's piece can't be read, the mod's loops back to the game
 file's byte offset, which may be the wrong moment, and the log says so.
+[`examples/mods/music`](../../examples/mods/music) replaces the main menu's music with a track made
+for it, whose body starts where the game's piece loops back.
 
 ## Textures
 

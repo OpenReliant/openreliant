@@ -96,6 +96,7 @@ Each example mod shows one part of the scripting, with comments in its files:
 | [`dvd`](../../examples/mods/dvd) | A menu script that [draws](#drawing) over the menus |
 | [`interceptor`](../../examples/mods/interceptor) | A mod's ship type, flown in a [game mode](#game-modes) |
 | [`main-menu`](../../examples/mods/main-menu) | [Replacing a screen](#replacing-a-screen) of the front end |
+| [`music`](../../examples/mods/music) | No scripts: a piece of music in place of the game's, which keeps its [loop point](modding.md#music) |
 | [`rules`](../../examples/mods/rules) | [Hooks](#hooks) on the game's functions |
 | [`strafe-run`](../../examples/mods/strafe-run) | A custom order, a [HUD display](#hud-displays), a [camera view](#camera-views), a [screen](#screens) and [actions](#keys-and-actions), through the [built-in interfaces](#built-in-interfaces) |
 | [`tally`](../../examples/mods/tally) | [Saved games](#saved-games), [storage](#storage) and [timers](#timers) |
