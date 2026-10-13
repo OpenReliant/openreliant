@@ -47,7 +47,20 @@ pub const Kind = enum(u8) {
     unsupported = 40,
 };
 
-pub const UnaryOperator = enum(u8) { not, minus, length };
+pub const UnaryOperator = enum(u8) {
+    not,
+    minus,
+    length,
+
+    /// The operator as Luau writes it.
+    pub fn symbol(operator: UnaryOperator) []const u8 {
+        return switch (operator) {
+            .not => "not",
+            .minus => "-",
+            .length => "#",
+        };
+    }
+};
 
 pub const BinaryOperator = enum(u8) {
     add,
@@ -66,6 +79,28 @@ pub const BinaryOperator = enum(u8) {
     greater_equal,
     @"and",
     @"or",
+
+    /// The operator as Luau writes it.
+    pub fn symbol(operator: BinaryOperator) []const u8 {
+        return switch (operator) {
+            .add => "+",
+            .sub => "-",
+            .mul => "*",
+            .div => "/",
+            .floor_div => "//",
+            .mod => "%",
+            .pow => "^",
+            .concat => "..",
+            .not_equal => "~=",
+            .equal => "==",
+            .less => "<",
+            .less_equal => "<=",
+            .greater => ">",
+            .greater_equal => ">=",
+            .@"and" => "and",
+            .@"or" => "or",
+        };
+    }
 };
 
 /// The forms of a table's item: `value`, `key = value` and `[key] = value`.
@@ -96,6 +131,7 @@ pub const Node = extern struct {
     /// The node's text, `text_length` bytes from `text_start` in `Tree.text`.
     text_start: u32,
     text_length: u32,
+    /// A number's value, and for a name and a local's use, the local's number (`Syntax.Local`).
     number: f64,
 };
 
@@ -118,7 +154,7 @@ pub const Syntax = union(Kind) {
     boolean: bool,
     number: f64,
     string: []const u8,
-    local_name: []const u8,
+    local_name: Local,
     global_name: []const u8,
     field: Field,
     index: Indexed,
@@ -128,8 +164,16 @@ pub const Syntax = union(Kind) {
     item: Item,
     unary: Unary,
     binary: Binary,
-    name: []const u8,
+    name: Local,
     unsupported: []const u8,
+
+    /// A local, by its name and its number: each local the file declares, a parameter or a
+    /// `local`, has a number of its own, which tells apart two of the same name where one hides
+    /// the other.
+    pub const Local = struct {
+        name: []const u8,
+        number: u32,
+    };
 
     pub const If = struct {
         condition: Index,
@@ -220,7 +264,7 @@ pub const Tree = struct {
             .boolean => .{ .boolean = node.op != 0 },
             .number => .{ .number = node.number },
             .string => .{ .string = text },
-            .local_name => .{ .local_name = text },
+            .local_name => .{ .local_name = .{ .name = text, .number = @intFromFloat(node.number) } },
             .global_name => .{ .global_name = text },
             .field => .{ .field = .{ .object = parts[0], .name = text } },
             .index => .{ .index = .{ .object = parts[0], .key = parts[1] } },
@@ -237,7 +281,7 @@ pub const Tree = struct {
             },
             .unary => .{ .unary = .{ .operator = @fromBackingInt(node.op), .operand = parts[0] } },
             .binary => .{ .binary = .{ .operator = @fromBackingInt(node.op), .left = parts[0], .right = parts[1] } },
-            .name => .{ .name = text },
+            .name => .{ .name = .{ .name = text, .number = @intFromFloat(node.number) } },
             .unsupported => .{ .unsupported = text },
         };
     }
@@ -264,7 +308,8 @@ pub const Tree = struct {
         switch (tree.get(index)) {
             .boolean => |value| try writer.print(" {}", .{value}),
             .number => |value| try writer.print(" {d}", .{value}),
-            .string, .local_name, .global_name, .name, .unsupported => |text| try writer.print(" \"{f}\"", .{std.zig.fmtString(text)}),
+            .string, .global_name, .unsupported => |text| try writer.print(" \"{f}\"", .{std.zig.fmtString(text)}),
+            .local_name, .name => |local| try writer.print(" \"{f}\"", .{std.zig.fmtString(local.name)}),
             .field => |field| try writer.print(" \"{f}\"", .{std.zig.fmtString(field.name)}),
             .compound_assign => |assign| try writer.print(" {t}", .{assign.operator}),
             .unary => |unary| try writer.print(" {t}", .{unary.operator}),

@@ -8,6 +8,7 @@ const std = @import("std");
 
 const dte = @import("../../dte.zig");
 const commands = @import("../../../engine/game/executor/commands.zig");
+const environfx = @import("../../../engine/game/environfx.zig");
 const gameobj = @import("../../../engine/game/gameobj.zig");
 const orders = @import("../../../engine/game/ai/orders.zig");
 const pilots = @import("../../../engine/game/pilots.zig");
@@ -23,6 +24,19 @@ pub const Kind = enum {
     head,
     /// A part, which mission source names by the part's own name.
     part,
+    /// An effect of a mission's space, which `SetEnvironmentFX` turns on and off
+    /// (`environfx.Effect`).
+    environment_effect,
+
+    /// What a value of the kind is called in a message.
+    pub fn noun(kind: Kind) []const u8 {
+        return switch (kind) {
+            .ship_type => "ship type",
+            .head => "head movement",
+            .environment_effect => "environment effect",
+            else => @tagName(kind),
+        };
+    }
 };
 
 /// The name of value `number` of `kind`, where the game names it.
@@ -33,15 +47,40 @@ pub fn name(kind: Kind, number: u32) ?[]const u8 {
         .order => std.enums.tagName(orders.Order, @fromBackingInt(std.math.cast(i16, number) orelse return null)),
         .condition => std.enums.tagName(dte.Condition, @fromBackingInt(std.math.cast(u8, number) orelse return null)),
         .head => std.enums.tagName(pilots.Head, @fromBackingInt(number)),
+        .environment_effect => std.enums.tagName(environfx.Effect, @fromBackingInt(std.math.cast(u5, number) orelse return null)),
         .part => null,
     };
 }
 
+/// The value of `kind` that the game names `text`, the inverse of `name`.
+pub fn value(kind: Kind, text: []const u8) ?u32 {
+    return switch (kind) {
+        .ship_type => numberOf(gameobj.GameType, text),
+        .pilot => numberOf(pilots.GamePilot, text),
+        .order => numberOf(orders.Order, text),
+        .condition => numberOf(dte.Condition, text),
+        .head => numberOf(pilots.Head, text),
+        .environment_effect => numberOf(environfx.Effect, text),
+        .part => null,
+    };
+}
+
+/// The number of the tag of `Enum` named `text`, where it has one that a value can take.
+fn numberOf(comptime Enum: type, text: []const u8) ?u32 {
+    return std.math.cast(u32, @backingInt(std.meta.stringToEnum(Enum, text) orelse return null));
+}
+
 /// The name of one of the game's variables (`vm.GameVariable`), where it has one that isn't a
-/// placeholder such as `_unknown_6`.
+/// placeholder such as `_unused_2`.
 pub fn variable(number: u8) ?[]const u8 {
     const found = std.enums.tagName(vm.GameVariable, @fromBackingInt(number)) orelse return null;
     return if (found[0] == '_') null else found;
+}
+
+/// The number of the game's variable named `text`, the inverse of `variable`.
+pub fn variableNumber(text: []const u8) ?u8 {
+    if (text.len == 0 or text[0] == '_') return null;
+    return @backingInt(std.meta.stringToEnum(vm.GameVariable, text) orelse return null);
 }
 
 /// The kind of value a command's parameter takes, where it takes a named one: a part, a condition,
@@ -53,6 +92,7 @@ pub fn of(param: commands.Param) ?Kind {
     if (!param.kinds.constant) return null;
     if (std.mem.eql(u8, param.label, ai_mode)) return .order;
     return switch (param.extra.refers_to) {
+        refers_to_environment_effect => .environment_effect,
         refers_to_pilot => .pilot,
         refers_to_head => .head,
         else => null,
@@ -61,7 +101,9 @@ pub fn of(param: commands.Param) ?Kind {
 
 /// The label of the parameter that takes an order, `SetAI`'s.
 const ai_mode = "AI Mode";
-/// What `commands.Extra.refers_to` says a named constant is: a pilot, and a head movement.
+/// What `commands.Extra.refers_to` says a named constant is: an environment effect, a pilot, and a
+/// head movement.
+const refers_to_environment_effect = 1;
 const refers_to_pilot = 3;
 const refers_to_head = 4;
 
@@ -75,9 +117,30 @@ test name {
     try std.testing.expectEqual(null, name(.order, 70_000));
 }
 
+test value {
+    // Each name reads back as the value it names.
+    for ([_]struct { Kind, u32 }{
+        .{ .ship_type, @backingInt(gameobj.GameType.grendel) },
+        .{ .order, @intCast(@backingInt(orders.Order.find_new_target)) },
+        .{ .condition, @backingInt(dte.Condition.shot_at) },
+        .{ .head, @backingInt(pilots.Head.laughing) },
+        .{ .pilot, @backingInt(pilots.GamePilot.bandit_tigers_leader) },
+        .{ .environment_effect, @backingInt(environfx.Effect.ice_field) },
+    }) |pair| try std.testing.expectEqual(pair[1], value(pair[0], name(pair[0], pair[1]).?).?);
+    try std.testing.expectEqual(null, value(.ship_type, "rubber_duck"));
+    try std.testing.expectEqual(null, value(.part, "start"));
+}
+
 test variable {
     try std.testing.expectEqualStrings("backup_available", variable(vm.Variables.number("backup_available")).?);
-    try std.testing.expectEqual(null, variable(vm.Variables.number("_unknown_6")));
+    try std.testing.expectEqual(null, variable(vm.Variables.number("_unused_2")));
+}
+
+test variableNumber {
+    try std.testing.expectEqual(vm.Variables.number("backup_available"), variableNumber("backup_available").?);
+    // A placeholder's number is written as one, never by its name.
+    try std.testing.expectEqual(null, variableNumber("_unused_2"));
+    try std.testing.expectEqual(null, variableNumber("no_such_variable"));
 }
 
 test of {
@@ -87,4 +150,6 @@ test of {
     try std.testing.expectEqual(null, of(set_ai.params[2]));
     const timer = commands.find(executor.commandIndex("CreateTimer")).?;
     try std.testing.expectEqual(.part, of(timer.params[1]).?);
+    const effect = commands.find(executor.commandIndex("SetEnvironmentFX")).?;
+    try std.testing.expectEqual(.environment_effect, of(effect.params[0]).?);
 }

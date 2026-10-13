@@ -340,32 +340,22 @@ const taunt_lines = [_][]const u8{ "hud_007.ut", "hud_008.ut", "hud_009.ut", "hu
 /// The ends of a hostile pilot's answers to a taunt, in its voice (`0x004EF5EC`).
 const taunt_answers = numbered("_res_", 1, 24);
 
-/// The enemy's aces, by their pilots' numbers, who answer a taunt in lines of their own
-/// (`0x00454AFC`).
-const Ace = enum(i32) {
-    black_sun = 10,
-    ivan_petrov = 15,
-    nicolai_petrov = 16,
-    mcgann = 50,
-    saracen_leader = 131,
-    golden_warrior_leader = 133,
-    _,
-
-    /// Black Sun's lines (`0x004EF678`), Ivan Petrov's (`0x004EF694`), Nicolai Petrov's
-    /// (`0x004EF6CC`), Colonel McGann's (`0x004EF70C`), the Saracens' leader's (`0x004EF64C`) and
-    /// the Golden Warriors' leader's (`0x004EF6F4`).
-    fn answers(ace: Ace) ?[]const []const u8 {
-        return switch (ace) {
-            .black_sun => &ace_answers.black_sun,
-            .ivan_petrov => &ace_answers.ivan_petrov,
-            .nicolai_petrov => &ace_answers.nicolai_petrov,
-            .mcgann => &ace_answers.mcgann,
-            .saracen_leader => &ace_answers.saracen_leader,
-            .golden_warrior_leader => &ace_answers.golden_warrior_leader,
-            _ => null,
-        };
-    }
-};
+/// The lines an enemy ace answers a taunt in, by its pilot (`0x00454AFC`): Black Sun's
+/// (`0x004EF678`), Ivan Petrov's (`0x004EF694`), Nicolai Petrov's (`0x004EF6CC`), Colonel
+/// McGann's (`0x004EF70C`), the Saracens' leader's (`0x004EF64C`) and the Golden Warriors'
+/// leader's (`0x004EF6F4`). None for another pilot.
+fn aceAnswers(pilot: i32) ?[]const []const u8 {
+    const named: pilots.GamePilot = @fromBackingInt(std.math.cast(u8, pilot) orelse return null);
+    return switch (named) {
+        .black_sun_leader => &ace_answers.black_sun,
+        .ivan_petrov => &ace_answers.ivan_petrov,
+        .nicolai_petrov => &ace_answers.nicolai_petrov,
+        .mcgann => &ace_answers.mcgann,
+        .saracen_leader => &ace_answers.saracen_leader,
+        .golden_warrior_leader => &ace_answers.golden_warrior_leader,
+        else => null,
+    };
+}
 
 const ace_answers = struct {
     const black_sun = numbered("hs_res_", 1, 7);
@@ -380,8 +370,8 @@ const ace_answers = struct {
 /// (`radio.playerSays`). Unless the ship is not to be disturbed, is not a fighter by its
 /// type's class, or its current order has a priority or aims at the player's ship already, it turns
 /// on the player's ship (Fight), and answers in `radio.report_delay` ticks: one of an ace's
-/// own lines (`Ace`), or one of `taunt_answers` in its pilot's voice. Before it turns, the game
-/// draws a random number it doesn't use if the pilot's `pilots.Pilot._unknown_20` is 0 or 1.
+/// own lines (`aceAnswers`), or one of `taunt_answers` in its pilot's voice. Before it turns, the
+/// game draws a random number it doesn't use if the pilot's `pilots.Pilot._unknown_20` is 0 or 1.
 fn taunt(ctx: aigeneric.Context, which: usize, addressed: i16) void {
     const world = ctx.world;
     radio.playerSays(world, taunt_lines[which]);
@@ -400,7 +390,7 @@ fn taunt(ctx: aigeneric.Context, which: usize, addressed: i16) void {
         else => {},
     }
     _ = aigeneric.giveShip(ctx, index, .fight, all.player, null);
-    const own = (@as(Ace, @fromBackingInt(object.pilot))).answers();
+    const own = aceAnswers(object.pilot);
     const lines: radio.Lines = if (own) |named| .{ .named = named } else .{ .voiced = &taunt_answers };
     radio.reportShipIn(world, index, lines, radio.report_delay);
 }
@@ -663,8 +653,8 @@ test "a taunt turns the enemy on the player" {
     try std.testing.expectEqual(null, heard.radio.reports[0]);
 
     // An ace answers in its own lines.
-    try std.testing.expectEqualStrings("hs_res_007.ut", Ace.black_sun.answers().?[6]);
-    try std.testing.expectEqual(null, @as(Ace, @fromBackingInt(0)).answers());
+    try std.testing.expectEqualStrings("hs_res_007.ut", aceAnswers(@backingInt(pilots.GamePilot.black_sun_leader)).?[6]);
+    try std.testing.expectEqual(null, aceAnswers(0));
 }
 
 test "the wingman's status" {

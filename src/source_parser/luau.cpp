@@ -10,6 +10,7 @@
 #include <string.h>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 // The header numbers the operators and the forms of a table's item as Luau does.
@@ -45,6 +46,8 @@ struct Builder {
     std::vector<OrNode> nodes;
     std::vector<uint32_t> children;
     std::string text;
+    // The number of each local the file declares, in the order Luau's parser meets them.
+    std::unordered_map<const Luau::AstLocal *, uint32_t> locals;
 
     // Adds a node of `kind` at `location` with the children `kids`, and gives its index.
     uint32_t node(uint8_t kind, const Luau::Location &location, const std::vector<uint32_t> &kids,
@@ -76,9 +79,14 @@ struct Builder {
         return unsupported(location, "more than " + std::to_string(most_names) + " " + std::string(what));
     }
 
+    // The number of `local`, which tells it apart from another local of the same name.
+    uint32_t localNumber(const Luau::AstLocal *local) {
+        return locals.emplace(local, static_cast<uint32_t>(locals.size())).first->second;
+    }
+
     // Adds the name that a local or a parameter declares.
     uint32_t name(const Luau::AstLocal *local) {
-        return node(OR_NAME, local->location, {}, 0, 0, local->name.value);
+        return node(OR_NAME, local->location, {}, 0, localNumber(local), local->name.value);
     }
 
     uint32_t string(const Luau::Location &location, const Luau::AstArray<char> &value) {
@@ -157,7 +165,8 @@ struct Builder {
             if (found->expressions.size > 0) return unsupported(at, "a string with values put into it");
             return string(at, found->strings.data[0]);
         }
-        if (auto found = expr->as<Luau::AstExprLocal>()) return node(OR_LOCAL_NAME, at, {}, 0, 0, found->local->name.value);
+        if (auto found = expr->as<Luau::AstExprLocal>())
+            return node(OR_LOCAL_NAME, at, {}, 0, localNumber(found->local), found->local->name.value);
         if (auto found = expr->as<Luau::AstExprGlobal>()) return node(OR_GLOBAL_NAME, at, {}, 0, 0, found->name.value);
         if (auto found = expr->as<Luau::AstExprIndexName>())
             return node(OR_FIELD, at, {expression(found->expr)}, 0, 0, found->index.value);

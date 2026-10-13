@@ -124,7 +124,7 @@ and plays:
 | 7 | `new_chapter1_thread1.bik` | `rameses_alive` (18) is other than 1 |
 | 11 | `new_chapter2_thread1.bik` | `czar_alive` (29) is other than 1 |
 | 11 | `new_chapter2_thread2.bik` | `krasnaya_alive` (17) is other than 1 |
-| 11 | `new_chapter2_thread3.bik` | Variable 6 is other than 1; it then sets `chapter2_thread3_shown` (34) |
+| 11 | `new_chapter2_thread3.bik` | `nicolai_petrov_alive` (6) is other than 1; it then sets `chapter2_thread3_shown` (34) |
 
 Each attempt at a mission clears variable 34. The function has reports for mission 16 too,
 `new_chapter3_thread1.bik`, `new_chapter3_thread2.bik` and `new_chapter2_thread3.bik`, which are

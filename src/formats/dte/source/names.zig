@@ -77,10 +77,20 @@ pub fn isReserved(name: []const u8) bool {
         if (std.mem.eql(u8, keyword, name)) return true;
     }
     if (std.meta.stringToEnum(Word, name) != null) return true;
-    const number = std.mem.cutPrefix(u8, name, "arg") orelse return false;
-    return number.len > 0 and for (number) |byte| {
-        if (!std.ascii.isDigit(byte)) break false;
-    } else true;
+    return argumentDigits(name) != null;
+}
+
+/// The argument of the running part that a name such as `arg2` stands for, by its number.
+pub fn argument(name: []const u8) ?u8 {
+    return std.fmt.parseInt(u8, argumentDigits(name) orelse return null, 10) catch null;
+}
+
+/// The digits after `arg` in a name such as `arg2`, where it is one.
+fn argumentDigits(name: []const u8) ?[]const u8 {
+    const digits = std.mem.cutPrefix(u8, name, "arg") orelse return null;
+    if (digits.len == 0) return null;
+    for (digits) |byte| if (!std.ascii.isDigit(byte)) return null;
+    return digits;
 }
 
 /// Makes the names of a file's records, each unique among those it has made.
@@ -176,6 +186,16 @@ test Namer {
     try std.testing.expectEqualStrings("ship_1st_wing", try namer.name("1st wing", "ship", 4));
     try std.testing.expectEqualStrings("end_part", try namer.name("(F)end", "part", 7));
     try std.testing.expectEqualStrings("game_global", try namer.name("game", "global", 2));
+}
+
+test argument {
+    try std.testing.expectEqual(0, argument("arg0").?);
+    try std.testing.expectEqual(17, argument("arg17").?);
+    try std.testing.expectEqual(null, argument("arg"));
+    try std.testing.expectEqual(null, argument("argument"));
+    // Past the arguments a part can take, but still a name of the source's own.
+    try std.testing.expectEqual(null, argument("arg999"));
+    try std.testing.expect(isReserved("arg999"));
 }
 
 test isName {

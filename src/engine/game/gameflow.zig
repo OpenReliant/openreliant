@@ -40,10 +40,10 @@ const cleared_variables = 32;
 /// flags, such as `ghost_alive`, and `mission_success`, which each attempt clears again. The rest
 /// of the campaign's start at 0.
 const campaign_flags = vm.Variables.numbers(.{
-    "mission_success", "_unused_16",  "krasnaya_alive",    "rameses_alive",    "kozah_alive",
-    "_unused_20",      "_unused_21",  "mcgann_alive",      "fixed_gate_alive", "warp_gate_alive",
-    "czar_alive",      "ghost_alive", "_unused_31",        "reliant_alive",    "_unknown_35",
-    "steiner_alive",   "kulov_alive", "ivan_petrov_alive", "_unknown_6",       "yamato_alive",
+    "mission_success", "_unused_16",  "krasnaya_alive",    "rameses_alive",        "kozah_alive",
+    "_unused_20",      "_unused_21",  "mcgann_alive",      "fixed_gate_alive",     "warp_gate_alive",
+    "czar_alive",      "ghost_alive", "_unused_31",        "reliant_alive",        "red_dragon_alive",
+    "steiner_alive",   "kulov_alive", "ivan_petrov_alive", "nicolai_petrov_alive", "yamato_alive",
 });
 
 /// `campaign_new` (`0x004751B0`) as a new campaign begins, which `WinMain` also runs as the game

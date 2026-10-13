@@ -118,7 +118,7 @@ own: what the engine does with each is in the last column.
 | Number | Name | In the shipped campaign | What the engine does with it |
 |---|---|---|---|
 | 5 | `mcgann_alive` | Whether McGann lives. Mission 15 clears it as his Phoenix is destroyed; mission 9 reads it | The news report after mission 16 plays once it's clear, but mission 16 ends no chapter, so it never plays |
-| 6 | | Mission 27 clears it as it starts. `mission191.dte`, which the campaign never flies, reads it as its Petrov wing's leader alive. **Unknown:** what mission 27 clears it for | The third news report after mission 11 (`new_chapter2_thread3.bik`) plays once it's clear, which it never is then |
+| 6 | `nicolai_petrov_alive` | Whether Nicolai Petrov lives. The Dreamcast's mission 12, which the PC game lacks, clears it as its Petrov's Basilisk is destroyed, `mission191.dte`, which the campaign never flies, reads it as its Petrov wing's leader alive, and mission 27 clears it as it starts. **Unverified:** that this Petrov is Nicolai: the missions don't name him, but the game knows two Petrovs, and Ivan's flag is 7 | The third news report after mission 11 (`new_chapter2_thread3.bik`) plays once it's clear, which it never is then |
 | 7 | `ivan_petrov_alive` | Whether Ivan Petrov lives. Mission 28 clears it as his Basilisk is destroyed | The story's end plays his news report once it's clear |
 | 8 | `kulov_alive` | Whether Kulov lives. Mission 28 clears it as the Boridin breakaway is destroyed | The story's end plays his news report once it's clear |
 | 11 | `al_rahan_alive` | Whether Al-Rahan lives, 0 in a new campaign. Mission 7 clears it as he dies, and mission 24 sets it as it starts, before it reads it | |
@@ -133,7 +133,7 @@ own: what the engine does with each is in the last column.
 | 30 | `ghost_alive` | Whether Ghost lives. Mission 1 clears it as Ghost dies; mission 4 has Petrov say a line by it | |
 | 32 | `reliant_alive` | Whether the Reliant flies. Missions 7, 8 and 18 clear it as she's lost | While it's set, mission 8 ends in a landing on the Reliant rather than the Yamato, and a total failure on the Reliant ends the pilot's career in the transfer off the Reliant |
 | 34 | `chapter2_thread3_shown` | Never set in the shipped campaign, as the report that sets it never plays | Set as the third news report after mission 11 plays; cleared before each attempt at a mission |
-| 35 | | 1 in a new campaign and never cleared; mission 26 reads it. Not kept with the saved game. **Unknown:** what it was meant to hold | |
+| 35 | `red_dragon_alive` | Whether the Red Dragon, the Golden Warriors' leader, lives. 1 in a new campaign and not kept with the saved game; mission 26 brings him in while it is set. **Unverified:** that it says whether he lives, since no script clears it, not even mission 26's as he dies | |
 | 36 | `yamato_alive` | Whether the Yamato lives. Mission 25's second part and mission 27 clear it as she's destroyed | Once it's clear, those missions end without the landing, and a total failure in them ends the pilot's career in the shuttle at Fort Bear |
 
 No script names variables 2, 16, 20, 21, 24, 25, 26 and 31: a new campaign sets 16, 20, 21 and 31 to

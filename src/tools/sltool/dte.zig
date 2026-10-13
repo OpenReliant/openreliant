@@ -26,6 +26,8 @@ pub const Command = union(enum) {
     check: struct { mission: []const u8 },
     /// Writes the mission as Luau source.
     decompile: struct { mission: []const u8 },
+    /// Compiles mission source into a mission file.
+    build: struct { source: []const u8, mission: []const u8 },
 
     pub const usage =
         \\  dte info <mission>              summarise a mission
@@ -38,6 +40,7 @@ pub const Command = union(enum) {
         \\  dte check <mission>             rewrite the mission and its script, and check that
         \\                                  nothing changes
         \\  dte decompile <mission>         write the mission as Luau source
+        \\  dte build <source> <mission>    compile mission source into a mission file
         \\
     ;
 
@@ -49,6 +52,7 @@ pub const Command = union(enum) {
     }
 
     pub fn run(command: Command, ctx: Context) !void {
+        if (command == .build) return build(ctx, command.build.source, command.build.mission);
         const path = switch (command) {
             inline else => |operands| operands.mission,
         };
@@ -69,9 +73,24 @@ pub const Command = union(enum) {
             .script => try script(ctx, mission, models, .starlancer),
             .check => try check(ctx, mission),
             .decompile => try decompile(ctx, mission, path),
+            .build => unreachable,
         }
     }
 };
+
+/// Compiles the mission source at `source` into the mission file `mission`
+/// ([Mission source](../../../docs/formats/mission-source.md)).
+fn build(ctx: Context, source: []const u8, mission: []const u8) !void {
+    var failure: dte.source.compile.Failure = undefined;
+    const bytes = source_parser.build(ctx.arena, try ctx.readInput(source), &failure) catch |err| switch (err) {
+        error.Invalid => {
+            try ctx.stdout.print("{s}:{f}\n", .{ source, failure });
+            return err;
+        },
+        else => return err,
+    };
+    try Io.Dir.cwd().writeFile(ctx.io, .{ .sub_path = mission, .data = bytes });
+}
 
 /// Writes `mission`, read from `path`, as Luau source
 /// ([Mission source](../../../docs/formats/mission-source.md)).
@@ -371,14 +390,18 @@ test Command {
     try std.testing.expectError(error.Usage, Command.parse(&.{"script"}));
     try std.testing.expectError(error.Usage, Command.parse(&.{ "script", "M01.DTE", "extra" }));
     try std.testing.expectError(error.Usage, Command.parse(&.{ "disassemble", "M01.DTE" }));
+    const build_command = (try Command.parse(&.{ "build", "patrol.mission.luau", "patrol.dte" })).build;
+    try std.testing.expectEqualStrings("patrol.mission.luau", build_command.source);
+    try std.testing.expectEqualStrings("patrol.dte", build_command.mission);
 }
 
 /// Rewrites `mission` four ways and fails if anything changes: with its sections' whole rooms,
 /// byte for byte, if the file is laid out like the template; from its records alone, record for
 /// record; each routine of its script, reassembled from its disassembly, byte for byte except the
 /// block's padding; and each routine read as statements and lowered again, byte for byte except
-/// the bytes no instruction reaches (`sameReached`). Then it writes the mission as source, and
-/// fails if Luau's parser finds an error in it or a construct mission source doesn't use.
+/// the bytes no instruction reaches (`sameReached`). Then it writes the mission as source, fails if
+/// Luau's parser finds an error in it or a construct mission source doesn't use, and builds it
+/// again, which must give the same mission (`dte.same`), one the engine binds.
 fn check(ctx: Context, mission: dte.Mission) !void {
     const gpa = ctx.arena;
     const out = ctx.stdout;
@@ -449,6 +472,19 @@ fn check(ctx: Context, mission: dte.Mission) !void {
         else => {},
     };
     try out.writeAll("source: written, and Luau's parser reads it without an error\n");
+
+    var failure: dte.source.compile.Failure = undefined;
+    const built = dte.source.compile.compile(gpa, tree, &failure) catch |err| switch (err) {
+        error.Invalid => return fail(out, try std.fmt.allocPrint(gpa, "source, at {f}", .{failure})),
+        else => return err,
+    };
+    if (try dte.same.difference(gpa, mission, try .parse(built))) |difference| {
+        return fail(out, try std.fmt.allocPrint(gpa, "built again from its source: {s}", .{difference}));
+    }
+    // And the engine binds it, as starting the mission does.
+    var bound: openreliant.engine.game.mission.Mission = try .bind(gpa, built);
+    bound.deinit();
+    try out.writeAll("round trip: built again from its source, it is the same mission, and it binds\n");
 }
 
 /// Whether the routine `again` is `original` where it counts: the same length, the same

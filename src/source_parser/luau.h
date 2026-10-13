@@ -70,7 +70,8 @@ enum {
 
 /* A node. Its kind decides what `op` holds (`syntax.Node.op`). `first` and `count` give its
  * children's indices in `OrTree.children`, and `text_start` and `text_length` its text in
- * `OrTree.text`. */
+ * `OrTree.text`. `number` holds a number's value, and for a name and a local's use the local's
+ * number, which each local the file declares has of its own. */
 typedef struct {
     uint8_t kind;
     uint8_t op;

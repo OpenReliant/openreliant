@@ -654,7 +654,7 @@ alone.
 
 A mission of OpenReliant's making holds what the template's missions hold: its section 24 is theirs
 (`write.template.command_flags`), and its records carry the values most of theirs carry where their
-fields are not known. Mission 0, the sandbox, is written so by the build
+fields are not known (`Ship.blank` and the other records'). Mission 0, the sandbox, is written so by the build
 ([`mission0.zig`](../../src/openreliant/mission0.zig)).
 
 ### Writing the script
@@ -720,7 +720,7 @@ the original: the same instructions at the same places, and the same constants. 
 instruction reaches may differ: the block's padding, the unused arm slots of a random choice and
 the constant table's filler, which hold stale bytes in the shipped missions.
 
-## Mission source groundwork
+## Mission source
 
 Mission source compiles to a standard `.DTE`
 ([#1126](https://github.com/OpenReliant/openreliant/issues/1126)), and [Mission
@@ -729,24 +729,11 @@ model is the one [#608](https://github.com/OpenReliant/openreliant/issues/608) s
 declared under names of their own, apart from their display names, references that say what kind
 of record they name, and nothing dropped without a word. Its script is the statements above.
 
-[`dte/source.zig`](../../src/formats/dte/source.zig) has `Symbols(Record)`, a table of one kind of
-record, each under its name ([#609](https://github.com/OpenReliant/openreliant/issues/609)). Each
-kind of record, and each script bank, has a table of its own, so the same name can stand for
-records in two of them. A name has nothing to do with the record's display name, its object id or
-its place in the file. The table gives a record's index by its name, and the compiler checks that
-the index fits the file's field.
-
-Names don't depend on the base game's content either. A record can use a ship type a mod adds, by
-its number, and the compiler is to look up named content in the game's records with its mods, in
-their load order.
-
-The table borrows the records and their names. After a name or the order changes, a new table
-gives each record its new index.
-
-Luau's parser reads the text ([Reading the text](mission-source.md#reading-the-text)). **Not
-implemented yet:** building missions from text, which follows under
-[#1126](https://github.com/OpenReliant/openreliant/issues/1126). The binary reader, writer and
-assembler stay the format's implementation.
+[`dte/source.zig`](../../src/formats/dte/source.zig) and its children write a mission as source,
+hold the text as Luau's parser reads it, and compile it into a mission file through the writer and
+the assembler above ([Building a mission](mission-source.md#building-a-mission)).
+[`dte/same.zig`](../../src/formats/dte/same.zig) checks that a mission built again is the same
+mission ([The round trip](mission-source.md#the-round-trip)).
 
 ## Prior art
 

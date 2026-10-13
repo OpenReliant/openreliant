@@ -394,7 +394,7 @@ pub const Mission = struct {
     /// members, or where the file's members cannot be read.
     pub fn squadMembersFrom(mission: *const Mission, squad: u16, first: usize) SquadMembers {
         const members = mission.file.records(dte.SquadMember, .squad_members) catch &.{};
-        return .{ .mission = mission, .squad = squad, .members = members[@min(first, members.len)..] };
+        return .{ .mission = mission, .squad = squad, .members = dte.SquadMember.run(members, squad, first) };
     }
 
     /// A squad's members in turn, from its first while they are its own, each as the record it
@@ -403,7 +403,7 @@ pub const Mission = struct {
     pub const SquadMembers = struct {
         mission: *const Mission,
         squad: u16,
-        /// The squads' members from the next one on.
+        /// The squad's members still to walk.
         members: []align(1) const dte.SquadMember,
 
         pub const Member = union(enum) {
@@ -419,10 +419,6 @@ pub const Mission = struct {
             while (each.members.len > 0) {
                 const member = each.members[0];
                 each.members = each.members[1..];
-                if (member.squad != each.squad) {
-                    each.members = &.{};
-                    return null;
-                }
                 const record = each.mission.recordOf(member.object_id) orelse continue;
                 return switch (record) {
                     .ship => |index| .{ .ship = .{ .index = index, .component = member.part() } },
@@ -549,7 +545,7 @@ fn listWaypoints(gpa: Allocator, ships: []align(1) dte.Ship) Allocator.Error![]M
 
 /// `mission_list_group_ships` (`0x00452EC0`): each flight group's ships, in the order the mission
 /// lists them, and the group's count of them and the first one's place.
-fn listGroupShips(gpa: Allocator, groups: []align(1) dte.FlightGroup, ships: []align(1) const dte.Ship) Allocator.Error![]u16 {
+pub fn listGroupShips(gpa: Allocator, groups: []align(1) dte.FlightGroup, ships: []align(1) const dte.Ship) Allocator.Error![]u16 {
     var listed: std.ArrayList(u16) = .empty;
     errdefer listed.deinit(gpa);
     for (groups, 0..) |*group, index| {
@@ -568,7 +564,7 @@ fn listGroupShips(gpa: Allocator, groups: []align(1) dte.FlightGroup, ships: []a
 /// `mission_resolve_objects` (`0x00452DB0`): for each entry of the object table, the record it
 /// stands for (`mission_object_record`, `0x00452DF0`): of its kind, the first whose object ID is
 /// the entry's.
-fn resolveObjects(gpa: Allocator, file: dte.Mission) !([]?Mission.Record) {
+pub fn resolveObjects(gpa: Allocator, file: dte.Mission) !([]?Mission.Record) {
     const objects = try file.objects();
     const records = try gpa.alloc(?Mission.Record, objects.len);
     errdefer gpa.free(records);
