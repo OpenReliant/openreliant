@@ -192,6 +192,8 @@ pub fn main(init: std.process.Init) !u8 {
             const cause = stdout.err orelse return err;
             return if (cause == error.BrokenPipe) 0 else err;
         },
+        // The command has printed what went wrong, such as an error in a mission's source.
+        error.Reported => return 1,
         else => return err,
     };
     return 0;
@@ -234,6 +236,26 @@ test "a failing check flushes its buffered explanation" {
     try std.testing.expect(failed_stdout.err != null);
     var successful_stdout: Io.File.Writer = .initStreaming(read_only, io, &buffer);
     try std.testing.expectError(error.WriteFailed, run(.@"--version", io, arena, &successful_stdout));
+}
+
+test "an error in a mission's source is reported with its place" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(io, .{ .sub_path = "broken.mission.luau", .data = "on(nobody, \"destroyed\")\n" });
+    const source = try arena.print(".zig-cache/tmp/{s}/broken.mission.luau", .{tmp.sub_path});
+    const mission = try arena.print(".zig-cache/tmp/{s}/broken.dte", .{tmp.sub_path});
+    const output = try tmp.dir.createFile(io, "output.txt", .{});
+    defer output.close(io);
+    var buffer: [4096]u8 = undefined;
+    var stdout: Io.File.Writer = .initStreaming(output, io, &buffer);
+    // `main` exits with 1 for `Reported`, without a trace: the message says what is wrong.
+    try std.testing.expectError(error.Reported, run(.{ .dte = .{ .build = .{ .source = source, .mission = mission } } }, io, arena, &stdout));
+    const text = try tmp.dir.readFileAlloc(io, "output.txt", arena, .limited(buffer.len));
+    try std.testing.expectEqualStrings(try arena.print("{s}:1:4: `nobody` is not declared\n", .{source}), text);
 }
 
 test Command {

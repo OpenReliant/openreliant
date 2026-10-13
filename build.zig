@@ -125,9 +125,11 @@ pub fn build(b: *std.Build) void {
     example_scripts.addOption([]const []const u8, "scripts", scripts.items);
     scripting.addOptions("example_scripts", example_scripts);
     const source_parser = sourceParser(b, translate_c, lib, target, optimize);
-    // The definitions files, which its tests parse as luau-lsp reads them.
+    // The definitions files, which its tests parse as luau-lsp reads them, and the guide to writing
+    // missions, whose missions its tests build and play.
     source_parser.addAnonymousImport("openreliant.d.luau", .{ .root_source_file = b.path("docs/guide/openreliant.d.luau") });
     source_parser.addAnonymousImport("mission.d.luau", .{ .root_source_file = b.path("docs/guide/mission.d.luau") });
+    source_parser.addAnonymousImport("missions.md", .{ .root_source_file = b.path("docs/guide/missions.md") });
     // The installer unpacks the game's cabinet with libarchive, which deps/libarchive builds from
     // source for the target.
     const archive_dependency = b.dependency("libarchive", .{ .target = target, .optimize = optimize });
