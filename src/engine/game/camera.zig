@@ -398,6 +398,10 @@ pub const Landing = union(enum) {
     /// The Yamato's: where its landing bay stands, the bounds of the bay's hangar as it was drawn
     /// last, and the tick the view from the bay slides from (`ailand.State.due`).
     yamato: struct { bay: Place, hangar: [2]Vector, due: i32 },
+    /// OpenReliant's own, a hangar bay's: where the launch point of the gate the ship lands at
+    /// stands and how it is turned, its Z axis the way the ship launches out, and the mouth of the
+    /// bay, where that way leaves the carrier's bounds (`ailand.State.gate_place`).
+    bay: struct { gate: Place, mouth: Vector },
 };
 
 /// The camera: the state `camera_set_view` and `camera_frame` keep in globals, and Surrender's
@@ -750,14 +754,17 @@ pub const Camera = struct {
             .yamato_ahead => {},
             .yamato_aside => camera.place = lookingAt(camera.place.position, world.player.position),
             // The Reliant's landing's views stand off the tube's middle each frame, turned as the
-            // carrier is, looking at the player's ship and at the view's object.
-            .landing_tube => if (world.landing) |landing| if (landing == .reliant) {
-                const tube = landing.reliant;
-                camera.place = lookingAt(tube.tube + math.transform(tube.carrier, landing_tube_offset), world.player.position);
+            // carrier is, looking at the player's ship and at the view's object. A landing in a
+            // hangar bay uses the same two, standing off the gate's launch point and its doors.
+            .landing_tube => if (world.landing) |landing| switch (landing) {
+                .reliant => |tube| camera.place = lookingAt(tube.tube + math.transform(tube.carrier, landing_tube_offset), world.player.position),
+                .bay => |bay| camera.place = lookingAt(bay.gate.point(bay_tube_offset), world.player.position),
+                .yamato => {},
             },
-            .landing_aside => if (world.landing) |landing| if (landing == .reliant) {
-                const tube = landing.reliant;
-                camera.place = lookingAt(tube.tube + math.transform(tube.carrier, landing_aside_offset), world.object.position);
+            .landing_aside => if (world.landing) |landing| switch (landing) {
+                .reliant => |tube| camera.place = lookingAt(tube.tube + math.transform(tube.carrier, landing_aside_offset), world.object.position),
+                .bay => |bay| camera.place = lookingAt(bay.mouth + math.transform(bay.gate.orientation, bay_aside_offset), world.object.position),
+                .yamato => {},
             },
             .landing_bay => if (world.landing) |landing| if (landing == .yamato) {
                 const bay = landing.yamato;
@@ -1384,6 +1391,14 @@ const bay_tilt: f32 = 0.0007;
 const landing_tube_offset: Vector = .{ 500, 0, -500 };
 const landing_aside_offset: Vector = .{ -3500, -1000, -3000 };
 
+/// OpenReliant's own: where the views of a landing in a hangar bay stand (`Landing.bay`). The tube
+/// view stands in the bay, 900 to the right of the gate's launch point, 300 above it and 1500
+/// out from it towards the mouth, in the point's frame, and watches the ship come in and stop
+/// beside it. The view aside stands outside, off the bay's mouth: 8000 to the side, 3000 above
+/// and 8000 out along the way the ship launches, which the ship passes on its way in.
+const bay_tube_offset: Vector = .{ 900, -300, 1500 };
+const bay_aside_offset: Vector = .{ 8000, -3000, 8000 };
+
 /// How the view from the Yamato's landing bay slides along it (`camera_frame`, view `0x0E`): over
 /// `bay_slide_ticks` from the landing's due tick (`0x004DC774` holds its reciprocal), eased by a
 /// cosine, its share `f` going from `bay_slide_from` up by `bay_slide` (`0x004DC408` and
@@ -1652,6 +1667,26 @@ test "the landing's views stand off the carrier's tube, watching the ship" {
     try std.testing.expect(camera.setView(.landing_aside, 0, true, true, 20));
     _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 20, .landing = landing });
     try expectVector(.{ 3500, -1000, 4000 }, camera.place.position);
+    try expectVector(math.normalize(ship.position - camera.place.position), math.forward(camera.place.orientation));
+}
+
+test "a landing in a hangar bay's views stand off the gate's launch point and its doors" {
+    var camera: Camera = .{};
+    const ship: Subject = .{ .position = .{ 0, -3000, -20000 }, .orientation = math.identity };
+    // A gate launching ships astern, half a turn round, its bay's mouth 10000 astern of its point.
+    const landing: Landing = .{ .bay = .{
+        .gate = .{ .position = .{ 0, 0, 1000 }, .orientation = math.rotation(.y, std.math.pi) },
+        .mouth = .{ 0, 0, -9000 },
+    } };
+    try std.testing.expect(camera.setView(.landing_tube, 0, true, true, 10));
+    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 10, .landing = landing });
+    // Turned with the gate: 900 to the left of its point, 300 above and 1500 astern of it.
+    try expectVector(.{ -900, -300, -500 }, camera.place.position);
+    try expectVector(math.normalize(ship.position - camera.place.position), math.forward(camera.place.orientation));
+    try std.testing.expect(camera.setView(.landing_aside, 0, true, true, 20));
+    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 20, .landing = landing });
+    // Off the mouth: 8000 to the gate's left, 3000 above and 8000 out astern.
+    try expectVector(.{ -8000, -3000, -17000 }, camera.place.position);
     try expectVector(math.normalize(ship.position - camera.place.position), math.forward(camera.place.orientation));
 }
 

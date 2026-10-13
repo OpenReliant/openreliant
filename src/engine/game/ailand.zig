@@ -4,7 +4,9 @@
 //! of two styles by the carrier; each has its own init and update (`land_styles`, `0x004E1FE8`,
 //! `0x18` bytes each: init, update, exit, 0, name and 0): the Reliant's, down into its first
 //! launch tube (`reliantInit`, `reliantUpdate`), and the Yamato's, down onto a pad of its landing
-//! bay (`yamatoInit`, `yamatoUpdate`).
+//! bay (`yamatoInit`, `yamatoUpdate`). OpenReliant adds a third, for every other carrier it
+//! launches from as a hangar bay: in at the doors of a gate and down to its launch point
+//! (`bayInit`, `bayUpdate`).
 //!
 //! **Unverified:** that `order_land` and the styles' routines (`0x0040EB40` to `0x0040FC77`) are
 //! this file's. They lie after its known code, before `airipper.cpp`'s, and the style table
@@ -26,6 +28,8 @@ const camera = @import("camera.zig");
 const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
 const input = @import("../input.zig");
+const launch = @import("launch.zig");
+const bay_launch = @import("launch/bay.zig");
 const objects = @import("objects.zig");
 const reliant_launch = @import("launch/reliant.zig");
 const sound3d = @import("sound3d.zig");
@@ -37,17 +41,23 @@ pub const Style = enum(u32) {
     /// On the Reliant, down into its first launch tube through the tube's upper door
     /// (`reliantInit`, `reliantUpdate`).
     reliant = 1,
+    /// **Improvement:** OpenReliant's own, in a hangar bay of any other carrier that ships launch
+    /// from as one: in at the doors of a gate and down to its launch point (`bayInit`,
+    /// `bayUpdate`).
+    bay = 2,
     /// OpenReliant's own: the order aims at nothing that can be landed on, and ends.
     none = std.math.maxInt(u32),
     _,
 
-    /// The style of a landing on a ship of type `carrier`, or null for a ship that nothing lands
-    /// on.
+    /// The style of a landing on a ship of type `carrier`, or null for a ship with a launch style
+    /// of its own that nothing lands on, such as the Badanov. Any other ship is landed on as a
+    /// hangar bay, as ships launch from it (`launch.Style.ofCarrier`), where its model has a launch
+    /// point for the gate (`bayInit`).
     pub fn of(carrier: gameobj.Type) ?Style {
         return switch (carrier.base()) {
             .reliant => .reliant,
             .yamato => .yamato,
-            else => null,
+            else => if ((launch.Style.ofCarrier(carrier, 0) orelse .bay) == .bay) .bay else null,
         };
     }
 };
@@ -81,6 +91,12 @@ pub const State = extern struct {
     /// each frame's pass places it at (`hold`). The game hangs the ship's frame from the pad's.
     on_pad: [3]f32,
     pad_orientation: math.Matrix,
+    /// OpenReliant's own, a bay's: where the launch point of the gate the ship lands at stands and
+    /// how it is turned, where the cutaway has moved the carrier (`bayCutaway`), and the mouth of
+    /// the bay, where the way out from the point leaves the carrier's bounds (`bayMouth`).
+    gate_place: [3]f32,
+    gate_orientation: math.Matrix,
+    mouth: [3]f32,
 
     comptime {
         assert(@offsetOf(State, "due") == 0x04);
@@ -243,6 +259,23 @@ pub const YamatoStep = enum(u32) {
     _,
 };
 
+/// OpenReliant's own, for a landing in a bay: how far out from the mouth of the bay the cutaway
+/// sets the ship, along the way it launches.
+const bay_approach: f32 = 15000;
+
+/// The steps of a landing in a bay (`bayUpdate`), OpenReliant's own.
+pub const BayStep = enum(u32) {
+    /// The player flies on until the landing is due; then the cutaway begins (`bayCutaway`), and
+    /// the gate's doors open.
+    waiting = 0,
+    /// The ship flies in at the doors to the launch point, slowing as it nears, and stops within
+    /// `near` of it; the doors close behind it.
+    approaching = 1,
+    /// It waits `landed_wait` ticks at the launch point, and the mission is over.
+    landed = 2,
+    _,
+};
+
 /// `order_land_init` (`0x0040EAC0`): the style, by the type of the carrier the order aims at, and
 /// the style's init.
 ///
@@ -257,6 +290,7 @@ pub fn init(ctx: Context, index: u16) void {
     switch (state.style) {
         .reliant => reliantInit(ctx, index),
         .yamato => yamatoInit(ctx, index),
+        .bay => bayInit(ctx, index),
         .none => log.warn("object {d} cannot land on what its order aims at", .{index}),
         _ => {},
     }
@@ -269,6 +303,7 @@ pub fn update(ctx: Context, index: u16) void {
     switch (slot.state.land.style) {
         .reliant => reliantUpdate(ctx, index),
         .yamato => yamatoUpdate(ctx, index),
+        .bay => bayUpdate(ctx, index),
         .none, _ => aigeneric.end(ctx, index),
     }
 }
@@ -537,6 +572,155 @@ fn yamatoCutaway(ctx: Context, index: u16) void {
     object.shield_factor = 1;
 }
 
+/// OpenReliant's own: the first step of a landing in a bay. Aimed at the carrier as a whole, as
+/// the player's request aims it, the landing is due `wait` ticks on, as the Reliant's is; aimed at
+/// a gate, as a mission's `SetAI` aims it at one of the carrier's components, it begins at once,
+/// so that the mission lands the ship at its own moment. A ship sent home for its friendly fire
+/// lands at once too. A carrier whose model has no launch point for the gate is one that nothing
+/// lands on.
+fn bayInit(ctx: Context, index: u16) void {
+    const all = ctx.world.objects;
+    const slot = &all.slots[index];
+    const state = &slot.state.land;
+    const target = slot.orders[0].target;
+    const carrier = target.slotIn(all) orelse return;
+    if (launch.gateOf(all, carrier, bayGate(target)) == null) {
+        state.style = .none;
+        log.warn("object {d} cannot land on what its order aims at: it has no launch point {d}", .{ index, bayGate(target) });
+        return;
+    }
+    state.step = .of(BayStep.waiting);
+    const at_once = ctx.world.player.ending.sentHome() or !target.isWhole();
+    state.due = ctx.world.clock.frame_start + if (at_once) 0 else wait;
+}
+
+/// The gate a landing aims at: the component of its order's target, or gate 0 for the carrier as a
+/// whole.
+fn bayGate(target: aigeneric.Target) i16 {
+    return if (target.isWhole()) 0 else target.component;
+}
+
+/// The doors of the gate the landing of the ship in `slot` aims at (`bay_launch.Doors`).
+fn bayDoors(all: *const create.Objects, slot: *const create.Slot) bay_launch.Doors {
+    const target = slot.orders[0].target;
+    const carrier = target.slotIn(all) orelse return .{};
+    return .of(all.slots[carrier].object.type, bayGate(target));
+}
+
+/// OpenReliant's own: a step of a landing in a bay (`BayStep`). A ship other than the player's
+/// lets its landing go at once, as the Yamato's does.
+///
+/// While the landing is not yet due, the player's ship flies by the player's controls. Then the
+/// cutaway begins (`bayCutaway`): the mission's scene becomes the landing's, every object but the
+/// ship and the carrier is disabled, the ship flies by its nose (`motion.Motion.plain`), passing
+/// through everything, and the gate's doors open as the launch opens them
+/// (`bay_launch.playDoors`). The ship steers at the gate's launch point, upright, its throttle
+/// `approach_throttle` for each unit it has to go, at most the one that flies it at `bay_speed`,
+/// and stops within `near` of the point, sounding its landing; the doors close behind it, and
+/// `landed_wait` ticks later the mission is over.
+fn bayUpdate(ctx: Context, index: u16) void {
+    const world = ctx.world;
+    const all = world.objects;
+    if (index != all.player) return aigeneric.end(ctx, index);
+    const slot = &all.slots[index];
+    const object = &slot.object;
+    const state = &slot.state.land;
+    const carrier = slot.orders[0].target.slotIn(all) orelse return aigeneric.end(ctx, index);
+    const now = world.clock.frame_start;
+    switch (state.step.as(BayStep)) {
+        .waiting => {
+            if (now < state.due) return input.playerControlOrder(ctx, index);
+            bayCutaway(ctx, index, carrier);
+            world.player.showing = .landing;
+            for (all.slots[0..all.count], 0..) |*each, at| each.object.flags.disabled = at != index and at != carrier;
+            state.step = .of(BayStep.approaching);
+            slot.motion = .plain;
+            object.flags.no_collisions = true;
+            bay_launch.playDoors(world, &all.slots[carrier], bayDoors(all, slot), .open);
+        },
+        .approaching => {
+            const point: Vector = state.gate_place;
+            _ = ai.steer(world, index, point, ai.full_limit, ai.no_ease, .{ .roll_upright = true });
+            const distance = math.distance(point, object.nextPosition());
+            const most = if (ai.slotCruise(slot, world.view)) |cruise| bay_speed / cruise else approach_most;
+            object.throttle = @min(distance * approach_throttle, most);
+            if (distance >= near) return;
+            object.letGo();
+            ai.stop(object);
+            sound3d.playIn(world, null, null, index, .shipland, 1, .not_reserved);
+            bay_launch.playDoors(world, &all.slots[carrier], bayDoors(all, slot), .close);
+            state.step = .of(BayStep.landed);
+            state.due = now + landed_wait;
+            log.debug("object {d} is down at its gate's launch point at tick {d}", .{ index, now });
+        },
+        .landed => {
+            if (state.due >= now) return;
+            if (world.variables) |variables| variables.mission_over = 1;
+        },
+        _ => {},
+    }
+}
+
+/// OpenReliant's own: the cutaway of a landing in a bay, as the Reliant's (`cutaway`). One of the
+/// Reliant's two views, picked at random, watches the ship, locked, standing by the bay
+/// (`camera.Landing.bay`). The carrier moves to `carrier_away`, turned as the world is, and the
+/// launch point of the gate is worked out there (`launch.gateOf`), with the mouth of the bay
+/// (`bayMouth`). The ship stands `bay_approach` out from the mouth along the way it launches,
+/// looking in at the launch point, stopped, its power shared evenly. The carrier's orders are all
+/// popped, and it stops.
+fn bayCutaway(ctx: Context, index: u16, carrier: u16) void {
+    const world = ctx.world;
+    const all = world.objects;
+    const slot = &all.slots[index];
+    const state = &slot.state.land;
+    if (world.camera) |view| {
+        const pick: camera.View = if (world.random.oneIn(2)) .landing_aside else .landing_tube;
+        _ = view.setView(pick, index, true, true, world.clock.viewTime());
+    }
+    const holder = &all.slots[carrier];
+    objects.setPlace(&holder.object, &holder.drawn, .{ .position = carrier_away, .orientation = math.identity });
+    const gate = (launch.gateOf(all, carrier, bayGate(slot.orders[0].target)) orelse return).place;
+    state.gate_place = gate.position;
+    state.gate_orientation = gate.orientation;
+    const mouth = bayMouth(&holder.object, gate);
+    state.mouth = mouth;
+    const object = &slot.object;
+    objects.setPosition(object, &slot.drawn, mouth + math.forward(gate.orientation) * @as(Vector, @splat(bay_approach)));
+    objects.setOrientation(object, &slot.drawn, math.lookAt(gate.position - object.nextPosition()));
+    ai.stop(object);
+    object.gun_factor = 1;
+    object.speed_factor = 1;
+    object.shield_factor = 1;
+    aigeneric.popAll(ctx, carrier);
+    ai.stop(&holder.object);
+    const set = object.nextPosition();
+    log.debug("object {d} lands at gate {d} of object {d}: the launch point at ({d:.0}, {d:.0}, {d:.0}), the bay's mouth at ({d:.0}, {d:.0}, {d:.0}), the ship set at ({d:.0}, {d:.0}, {d:.0})", .{
+        index,            bayGate(slot.orders[0].target), carrier,
+        gate.position[0], gate.position[1],               gate.position[2],
+        mouth[0],         mouth[1],                       mouth[2],
+        set[0],           set[1],                         set[2],
+    });
+}
+
+/// The mouth of the bay a ship launches from the launch point at `gate` of `carrier`: where the
+/// way out from the point, along the Z axis of its place, leaves the carrier's bounds
+/// (`GameObject.bounds_min`, `bounds_max`), in the world. The point itself where the way out is
+/// already outside them, or runs along none of their axes.
+fn bayMouth(carrier: *const gameobj.GameObject, gate: math.Place) Vector {
+    const frame: math.Place = .{ .position = carrier.nextPosition(), .orientation = carrier.root.next_orientation };
+    const from = frame.inverse(gate.position);
+    const way = math.transformTransposed(frame.orientation, math.forward(gate.orientation));
+    const min = carrier.bounds_min.vector();
+    const max = carrier.bounds_max.vector();
+    var reach = std.math.inf(f32);
+    inline for (0..3) |axis| if (@abs(way[axis]) > std.math.floatEps(f32)) {
+        const edge = if (way[axis] > 0) max[axis] else min[axis];
+        reach = @min(reach, (edge - from[axis]) / way[axis]);
+    };
+    if (!std.math.isFinite(reach) or reach < 0) reach = 0;
+    return frame.point(from + way * @as(Vector, @splat(reach)));
+}
+
 /// Where part `part` of the object in `slot` stands, as its model places it, and the middle of the
 /// bounds of the level it drew last, in its own frame; null where the model lacks the part.
 fn partMiddle(slot: *create.Slot, part: usize) ?struct { frame: math.Place, middle: Vector } {
@@ -622,7 +806,9 @@ fn playDoor(world: gameobj.World, reliant: *create.Slot, which: sound3d.sounds.S
 /// What the landing's views stand by where the object in slot `index` is landing: on the Reliant
 /// (`camera.View.landing_tube`, `landing_aside`), the middle of the tube its state keeps and how
 /// its carrier is turned as it is drawn; on the Yamato (`camera.View.landing_bay`), where its
-/// landing bay stands, the bounds of the bay's hangar, and the tick its view slides from.
+/// landing bay stands, the bounds of the bay's hangar, and the tick its view slides from; in a
+/// bay (the Reliant's two views again), the launch point's place and the doors' middle its state
+/// keeps.
 pub fn seen(all: *const create.Objects, index: u16) ?camera.Landing {
     if (index >= all.slots.len) return null;
     const slot = &all.slots[index];
@@ -633,6 +819,10 @@ pub fn seen(all: *const create.Objects, index: u16) ?camera.Landing {
             const carrier = entry.target.slotIn(all) orelse return null;
             return .{ .reliant = .{ .tube = state.tube, .carrier = all.slots[carrier].drawn.orientation } };
         },
+        .bay => return .{ .bay = .{
+            .gate = .{ .position = state.gate_place, .orientation = state.gate_orientation },
+            .mouth = state.mouth,
+        } },
         .yamato => {
             const bay = &all.slots[create.cutaway_slot];
             const model = if (bay.model) |*held| held else return null;
@@ -653,7 +843,12 @@ test "Step.reached" {
 test Style {
     try std.testing.expectEqual(Style.reliant, Style.of(.of(.reliant)).?);
     try std.testing.expectEqual(Style.yamato, Style.of(.of(.yamato)).?);
-    try std.testing.expectEqual(null, Style.of(.of(.predator)));
+    // A ship that ships launch from as a hangar bay is landed on as one, as is any ship without a
+    // launch style of its own, whose init then looks for a launch point; one with its own style
+    // is not landed on.
+    try std.testing.expectEqual(Style.bay, Style.of(.of(.victorious)).?);
+    try std.testing.expectEqual(Style.bay, Style.of(.of(.predator)).?);
+    try std.testing.expectEqual(null, Style.of(.of(.badanov)));
 }
 
 test "the player's ship lands on the Reliant, and the mission is over" {
@@ -829,12 +1024,109 @@ test "a landing on what nothing lands on, or a ship's but the player's on the Ya
     _ = try mission.add(.of(.predator), @splat(0));
     const ship = try mission.add(.of(.predator), @splat(0));
     try std.testing.expect(try aigeneric.push(ctx, ship, .fly_aimlessly, .none));
-    for ([_]gameobj.Type{ .of(.yamato), .of(.predator) }) |carrier_type| {
+    // The Yamato lands the player's ship alone, the Badanov has a launch style of its own, and
+    // the Predator, landed on as a bay, has no model with a launch point.
+    for ([_]gameobj.Type{ .of(.yamato), .of(.badanov), .of(.predator) }) |carrier_type| {
         const carrier = try mission.add(carrier_type, .{ 0, 0, 1000 });
         try std.testing.expect(try aigeneric.pushShip(ctx, ship, .land, carrier, null));
         aigeneric.objectOrders(ctx, ship);
         try std.testing.expectEqual(.fly_aimlessly, mission.slot(ship).current().?.order);
     }
+}
+
+test "the player's ship lands in a hangar bay of its carrier, and the mission is over" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var bremen_model: bay_launch.testing.Bremen = undefined;
+    bremen_model.init();
+    var variables: @import("../vm.zig").Variables = .{};
+    var world = mission.world();
+    world.variables = &variables;
+    const ctx: Context = .of(world);
+    const player = try mission.add(.of(.predator), .{ 100, 0, 0 });
+    const bremen = try mission.add(.of(.bremen), .{ 0, 0, 50000 });
+    try bremen_model.parts.fit(gpa, mission.slot(bremen));
+    const other = try mission.add(.of(.predator), .{ 5, 5, 5 });
+    try std.testing.expect(try aigeneric.pushShip(ctx, player, .land, bremen, null));
+    const slot = mission.slot(player);
+    const state = &slot.state.land;
+
+    // The bay's style. Aimed at the carrier as a whole, as the player's request aims it, the
+    // landing is due `wait` ticks on, until which the player flies on.
+    mission.clock.frame_start = 1000;
+    aigeneric.objectOrders(ctx, player);
+    try std.testing.expectEqual(Style.bay, state.style);
+    try std.testing.expectEqual(BayStep.waiting, state.step.as(BayStep));
+    try std.testing.expectEqual(1000 + wait, state.due);
+    aigeneric.objectOrders(ctx, player);
+    try std.testing.expectEqual(BayStep.waiting, state.step.as(BayStep));
+
+    // Then the cutaway: the carrier stopped far away, gate 0's doors opening, the ship out from
+    // the bay's mouth looking in at the gate's launch point, flying by its nose and passing
+    // through everything, and every other object disabled. The point lies 100 along the carrier's
+    // Z axis, and the carrier's bounds reach 400 along it, where the bay's mouth is.
+    mission.slot(bremen).object.bounds_min = .of(.{ -300, -300, -300 });
+    mission.slot(bremen).object.bounds_max = .of(.{ 300, 300, 400 });
+    mission.clock.frame_start = 1000 + wait;
+    aigeneric.objectOrders(ctx, player);
+    try std.testing.expectEqual(BayStep.approaching, state.step.as(BayStep));
+    try std.testing.expectEqual(@import("main.zig").Showing.landing, mission.player.showing);
+    try std.testing.expect(mission.slot(other).object.flags.disabled);
+    try std.testing.expect(!mission.slot(bremen).object.flags.disabled and !slot.object.flags.disabled);
+    try std.testing.expectEqual(carrier_away, mission.slot(bremen).object.nextPosition());
+    try std.testing.expectEqual(0, mission.slot(bremen).object.order_count);
+    const gate = carrier_away + Vector{ 0, 0, 100 };
+    try std.testing.expectEqual(gate, @as(Vector, state.gate_place));
+    try std.testing.expectEqual(carrier_away + Vector{ 0, 0, 400 }, @as(Vector, state.mouth));
+    try std.testing.expectEqual(carrier_away + Vector{ 0, 0, 400 + bay_approach }, slot.object.nextPosition());
+    const facing = math.forward(slot.object.root.next_orientation);
+    try std.testing.expectApproxEqAbs(0, facing[0], 1e-5);
+    try std.testing.expectApproxEqAbs(0, facing[1], 1e-5);
+    try std.testing.expectApproxEqAbs(-1, facing[2], 1e-5);
+    try std.testing.expectEqual(@import("motion.zig").Motion.plain, slot.motion.?);
+    try std.testing.expect(slot.object.flags.no_collisions);
+    const doors = mission.slot(bremen).model.?.parts;
+    try std.testing.expectEqual(bay_launch.door_speed, doors[6].animation.speed);
+    try std.testing.expectEqual(bay_launch.door_speed, doors[7].animation.speed);
+
+    // Far from the point, it flies in at the throttle that flies it at `bay_speed` by its cruise
+    // speed; within `near`, it stops, sounding its landing, and the doors close behind it.
+    aigeneric.objectOrders(ctx, player);
+    try std.testing.expectApproxEqAbs(bay_speed / gameobj.testing.flight.max_speed, slot.object.throttle, 1e-6);
+    objects.setPosition(&slot.object, &slot.drawn, gate + Vector{ 0, 0, 150 });
+    aigeneric.objectOrders(ctx, player);
+    try std.testing.expectEqual(BayStep.landed, state.step.as(BayStep));
+    try std.testing.expectEqual(0, slot.object.throttle);
+    try std.testing.expectEqual(-bay_launch.door_speed, doors[6].animation.speed);
+
+    // `landed_wait` ticks on, the mission is over.
+    mission.ordersAfter(ctx, player, landed_wait);
+    try std.testing.expectEqual(0, variables.mission_over);
+    mission.ordersAfter(ctx, player, 1);
+    try std.testing.expectEqual(1, variables.mission_over);
+}
+
+test "a landing a mission aims at a gate begins at once, at that gate" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var bremen_model: bay_launch.testing.Bremen = undefined;
+    bremen_model.init();
+    const ctx = mission.orders();
+    const player = try mission.add(.of(.predator), @splat(0));
+    const bremen = try mission.add(.of(.bremen), .{ 0, 0, 50000 });
+    try bremen_model.parts.fit(gpa, mission.slot(bremen));
+    try std.testing.expect(try aigeneric.pushShip(ctx, player, .land, bremen, 1));
+    mission.clock.frame_start = 1000;
+    aigeneric.objectOrders(ctx, player);
+    const state = &mission.slot(player).state.land;
+    try std.testing.expectEqual(1000, state.due);
+    try std.testing.expectEqual(BayStep.approaching, state.step.as(BayStep));
+    // Gate 1's launch point lies 200 along the carrier's Z axis.
+    try std.testing.expectEqual(carrier_away + Vector{ 0, 0, 200 }, @as(Vector, state.gate_place));
 }
 
 test "the player's ship lands on a pad of the Yamato's landing bay, and the mission is over" {
@@ -935,4 +1227,12 @@ test seen {
     const landing = seen(mission.objects, player).?.reliant;
     try std.testing.expectEqual(Vector{ 1, 2, 3 }, landing.tube);
     try std.testing.expectEqual(mission.slot(reliant).drawn.orientation, landing.carrier);
+    // In a bay, the launch point's place and the bay's mouth the landing keeps.
+    mission.slot(player).state.land.style = .bay;
+    mission.slot(player).state.land.gate_place = .{ 4, 5, 6 };
+    mission.slot(player).state.land.gate_orientation = math.identity;
+    mission.slot(player).state.land.mouth = .{ 7, 8, 9 };
+    const in_bay = seen(mission.objects, player).?.bay;
+    try std.testing.expectEqual(Vector{ 4, 5, 6 }, in_bay.gate.position);
+    try std.testing.expectEqual(Vector{ 7, 8, 9 }, in_bay.mouth);
 }

@@ -34,7 +34,7 @@ pub const Step = enum(i32) {
 };
 
 /// How long the doors take to open before the ship flies out, in ticks (`0x0041A9FE`).
-const open_ticks = 200;
+pub const open_ticks = 200;
 
 /// How long the ship flies out before the doors close, in ticks (`0x0041AACB`), and from the
 /// Pukov and the Varyag (`0x0041AADB`).
@@ -42,7 +42,7 @@ const out_ticks = 200;
 const long_out_ticks = 400;
 
 /// How long after the doors close the ship flies itself, in ticks (`0x0041AC4A`).
-const close_ticks = 300;
+pub const close_ticks = 300;
 
 /// The throttle the ship flies out at (`0x0041AAF2`).
 const out_throttle: f32 = 2;
@@ -197,11 +197,12 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
 }
 
 /// Which way the doors go.
-const Way = enum { open, close };
+pub const Way = enum { open, close };
 
 /// Plays the track of the doors `doors` of the carrier in `carrier`: forward from where it stands
-/// to open them, backwards to close them. The sound plays at the first door.
-fn playDoors(world: gameobj.World, carrier: *create.Slot, doors: Doors, way: Way) void {
+/// to open them, backwards to close them. The sound plays at the first door. A landing in a bay
+/// opens and closes the doors the same way (`ailand`).
+pub fn playDoors(world: gameobj.World, carrier: *create.Slot, doors: Doors, way: Way) void {
     const model = if (carrier.model) |*live| live else return;
     const speed: f32 = switch (way) {
         .open => door_speed,
@@ -235,18 +236,19 @@ fn doorsInUse(all: *const create.Objects, index: u16, doors: Doors) bool {
     return false;
 }
 
-/// A Bremen's model for the tests: its gates' doors, parts 4 to 7 of its root's child list, each
-/// with the doors' track, and its two launch points on part 1, which are gates 0 and 1.
-const testing = struct {
+/// A Bremen's model for the tests, here and of the landings (`ailand`): its gates' doors, parts 4
+/// to 7 of its root's child list, each with the doors' track, and its two launch points on part 1,
+/// which are gates 0 and 1.
+pub const testing = struct {
     /// A bank as large as `smp3d.fat`'s entries reach, for the 3D sounds.
     const bank_bytes = hog_snd.testing.bank(80);
 
-    const Bremen = struct {
+    pub const Bremen = struct {
         attachments: [2]shp.Attachment,
         tracks: [1]shp.Track,
         parts: objects.testing.Parts(8),
 
-        fn init(bremen: *Bremen) void {
+        pub fn init(bremen: *Bremen) void {
             for (&bremen.attachments, 0..) |*attachment, n| {
                 attachment.* = std.mem.zeroes(shp.Attachment);
                 attachment.kind = .launch_point;

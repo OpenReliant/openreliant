@@ -177,6 +177,14 @@ launch tube the ship lands in, which the landing keeps, turned as the carrier is
 The display names view `0x23`, but not `0x26`. **Improvement:** from within the tube, the sound is
 heard as in a hangar ([Sound](../port/sound.md)).
 
+**Improvement:** a landing in a hangar bay ([Landing](orders.md#landing)) picks one of the same
+two views, which stand by the bay instead. View `0x23` stands in the bay, 900 to the right of the
+launch point of the gate the ship lands at, 300 above it and 1500 out from it towards the bay's
+mouth, in the point's frame, and watches the player's ship come in and stop beside it. View `0x26`
+stands outside, off the bay's mouth, where the way out from the launch point leaves the carrier's
+bounds: 8000 to the side, 3000 above and 8000 out along the way the ship launches, looking at the
+view's object, which passes it on its way in.
+
 The Yamato's landing picks one of two views at random in the same way:
 
 - View `0x0E` (`landing_bay`): halfway across the bay's hangar and 0.95 of the way down it, and
