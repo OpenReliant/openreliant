@@ -38,7 +38,13 @@ pub const package = struct {
         }
     });
 
-    pub const cd_player_page = api.Field(?u32, "The page the CD player shows, while it's open: `records.cd_player`'s tracks twelve to a page, the Reliant's list on page 1 and the Yamato's on page 2. Nil while it isn't open. It opens on its carrier's page, numbered 1 to 12 as the game numbers each list.", struct {
+    pub const cd_player_pages = api.Field(u32, "How many pages the CD player has: `records.cd_player`'s tracks twelve to a page, the Reliant's list on page 1, the Yamato's on page 2, and the tracks mods add on the pages after them.", struct {
+        pub fn get(_: Call) u32 {
+            return @intCast(cd_player.pageCount());
+        }
+    });
+
+    pub const cd_player_page = api.Field(?u32, "The page the CD player shows while it's open, from 1 to `cd_player_pages`; nil while it isn't open. It opens on its carrier's page, numbered 1 to 12 as the game numbers each list.", struct {
         pub fn get(call: Call) ?u32 {
             const where = whereOf(call) orelse return null;
             const shown = where.cd_player_page orelse return null;
@@ -46,7 +52,7 @@ pub const package = struct {
         }
     });
 
-    pub const set_cd_player_page = api.Function("Turns the CD player to page `page`, while it's open, its rows numbered as `records.cd_player` numbers its tracks, from 13 on page 2. The piece chosen plays on, and the pieces that follow it come from its own page. Returns whether the CD player is open.", &.{"page"}, setCdPlayerPage);
+    pub const set_cd_player_page = api.Function("Turns the CD player to page `page`, from 1 to `cd_player_pages`, while it's open, its rows numbered as `records.cd_player` numbers its tracks, from 13 on page 2. The piece chosen plays on, and the pieces that follow it come from its own page. Returns whether the CD player is open.", &.{"page"}, setCdPlayerPage);
 };
 
 /// Where the last frame had the player in the rooms; null while they weren't on screen, and before
@@ -58,7 +64,8 @@ fn whereOf(call: Call) ?presentation.Host.Rooms {
 
 /// `rooms.set_cd_player_page(page)`.
 fn setCdPlayerPage(call: Call, page: u32) bool {
-    if (page < 1 or page > cd_player.page_count) call.raise("no page {d}: the CD player's pages are 1 to {d}", .{ page, cd_player.page_count });
+    const pages = cd_player.pageCount();
+    if (page < 1 or page > pages) call.raise("no page {d}: the CD player's pages are 1 to {d}", .{ page, pages });
     const where = whereOf(call) orelse return false;
     if (where.cd_player_page == null) return false;
     Presentation.of(call).cd_player_request = page - 1;

@@ -344,7 +344,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     game.gameflow.install(records.campaign);
     game.gameflow.installMissions(records.missions);
     game.itac.killboard.install(records.killboard);
-    game.interface.cd_player.install(&records.cd_player);
+    game.interface.cd_player.install(records.cd_player);
     game.interface.rooms.install(&records.room_views);
     // The mods' player and menu scripts: menu scripts from here until OpenReliant quits, player
     // scripts while a game runs (`GameScripts`).

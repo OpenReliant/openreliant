@@ -1,16 +1,13 @@
 -- Pages for the CD player in the rooms, on both carriers: records.cd_player's tracks, twelve to a
--- page, the Reliant's list on page 1 and the Yamato's on page 2. This is a menu script: it runs
--- from the start, and draws only while the CD player is open (rooms.place). The front end's arrows,
--- drawn from its sprite set on the plate under the player's screen, turn the page, and so do Page
--- Up and Page Down. The CD player opens on its carrier's page, and a piece chosen plays on along
--- its own page, whichever page shows.
+-- page, the Reliant's list on page 1, the Yamato's on page 2, and the tracks mods add on the pages
+-- after them (rooms.cd_player_pages). This is a menu script: it runs from the start, and draws only
+-- while the CD player is open (rooms.place). The front end's arrows, drawn from its sprite set on
+-- the plate under the player's screen, turn the page, and so do Page Up and Page Down. The CD
+-- player opens on its carrier's page, and a piece chosen plays on along its own page, whichever
+-- page shows.
 
-local records = require("openreliant.records")
 local rooms = require("openreliant.rooms")
 local ui = require("openreliant.ui")
-
--- How many pages the tracks fill.
-local pages = #records.cd_player // 12
 
 -- The front end's arrows' box, shape 0x2E of its sprite set, on the game's 640 by 480 screen, its
 -- right edge level with the right edge of the CD player's screen. As on the settings screen, the
@@ -34,7 +31,7 @@ local was_down = false
 
 -- Turns the page by `step`, round from the last to the first.
 local function turn(step)
-    rooms.set_cd_player_page((rooms.cd_player_page - 1 + step) % pages + 1)
+    rooms.set_cd_player_page((rooms.cd_player_page - 1 + step) % rooms.cd_player_pages + 1)
 end
 
 -- The half of the arrows at the window's pixel `at`, if any, its edges left out as the game's
@@ -56,7 +53,7 @@ local function draw(over)
     if over then
         ui.shape(ui.from_game_screen(vector.create(over.x, over.y, 0)), over.shape, sprites)
     end
-    local marker = string.format("%d/%d", rooms.cd_player_page, pages)
+    local marker = string.format("%d/%d", rooms.cd_player_page, rooms.cd_player_pages)
     local size = ui.measure(marker, marker_style)
     local at = ui.from_game_screen(vector.create(marker_right, marker_middle, 0))
     ui.text(vector.create(at.x, at.y - size.height / 2, 0), marker, marker_style)

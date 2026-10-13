@@ -43,10 +43,7 @@ pub fn count(held: *const Records) usize {
 /// Adds a planet after the last one. Until its type is set, it has the marker's type, which is
 /// never made.
 pub fn append(state: *State, held: *Records) void {
-    const grown = held.arena.alloc(planets.Planet, held.planets.len + 1) catch state.raise("records." ++ list_name ++ ": out of memory", .{});
-    @memcpy(grown[0..held.planets.len], held.planets);
-    grown[held.planets.len] = .{ .type = .of(.marker) };
-    held.planets = grown;
+    held.planets = table.appended(planets.Planet, state, held, held.planets, .{ .type = .of(.marker) }, list_name);
 }
 
 /// The proxies of the planets (`table.Table`).

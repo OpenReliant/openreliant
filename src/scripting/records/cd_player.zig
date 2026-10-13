@@ -1,8 +1,10 @@
 //! The CD player's tracks as scripts see them in `openreliant.records.cd_player`
 //! ([#1167](https://github.com/OpenReliant/openreliant/issues/1167)): the Reliant's twelve, Spirit of
 //! War to The Catalyst, numbered 1 to 12, then the Yamato's, Final Word to The Rise, numbered 13 to
-//! 24. Each is a proxy for its `interface.cd_player.Track`, whose fields load scripts change in
-//! place, as they do a record's, so that a mod's music can have a row of the player.
+//! 24, then the tracks load scripts add after them
+//! ([#1177](https://github.com/OpenReliant/openreliant/issues/1177)). Each is a proxy for its
+//! `interface.cd_player.Track`, whose fields load scripts change in place, as they do a record's,
+//! so that a mod's music can have a row of the player.
 
 const std = @import("std");
 
@@ -23,7 +25,7 @@ pub const script_name = "CdPlayerTrack";
 
 /// How the reference and the definitions introduce the tracks.
 pub const each = "Each of the CD player's tracks";
-pub const entries_about = "The CD player's tracks: the Reliant's, 1 to 12, then the Yamato's, 13 to 24. Load scripts change their fields.";
+pub const entries_about = std.fmt.comptimePrint("The CD player's tracks, twelve to a page: the Reliant's, 1 to 12, then the Yamato's, 13 to 24. Load scripts change their fields, and add tracks after the last, up to {d} in all, on pages of their own.", .{most});
 
 /// What the proxies need of the tracks (`table.Table`).
 pub const list_name = "cd_player";
@@ -31,10 +33,17 @@ pub const described = "the CD player's tracks";
 pub const item_noun = "a track";
 pub const list_tag = @backingInt(runtime.Tag.cd_player);
 pub const item_tag = @backingInt(runtime.Tag.cd_player_track);
+pub const most = cd_player.most;
 
-/// How many tracks the records hold: each carrier's list, the Reliant's first.
+/// How many tracks the records hold: each carrier's list, the Reliant's first, then those load
+/// scripts add.
 pub fn count(held: *const Records) usize {
     return held.cd_player.len;
+}
+
+/// Adds a track after the last one, which plays nothing and has no name until its fields are set.
+pub fn append(state: *State, held: *Records) void {
+    held.cd_player = table.appended(cd_player.Track, state, held, held.cd_player, .{ .piece = "", .name = .{ .text = "" } }, list_name);
 }
 
 /// The proxies of the tracks (`table.Table`).
@@ -122,7 +131,13 @@ test "the CD player's tracks" {
     try std.testing.expectEqualStrings("New_Pensive", rise.piece);
     try std.testing.expectEqualStrings("OpenReliant Theme", rise.name.text);
     try std.testing.expectEqualStrings("new_mission01", held.cd_player[0].piece);
-    try bind.testing.expectSourceError(thread, "records.cd_player[25] = {}", "records.cd_player[25] does not exist: the CD player's tracks are 1 to 24");
+    // A mod adds a track after the last, on a page of its own.
+    try bind.testing.runSource(thread,
+        \\records.cd_player[25] = { piece = "Character_Foster", name = "Foster's Theme" }
+        \\assert(#records.cd_player == 25 and records.cd_player[25].name == "Foster's Theme")
+    );
+    try std.testing.expectEqualStrings("Character_Foster", held.cd_player[24].piece);
+    try bind.testing.expectSourceError(thread, "records.cd_player[27] = {}", std.fmt.comptimePrint("records.cd_player[27] does not exist: the CD player's tracks are 1 to 25; assign to records.cd_player[26] to add one, up to {d} in all", .{most}));
     try bind.testing.expectSourceError(thread, "records.cd_player[1].piece = 3", "CdPlayerTrack.piece");
     try bind.testing.expectSourceError(thread, "records.cd_player[1].piece = string.rep('x', 251)", "CdPlayerTrack.piece: expected at most 250 characters, got 251");
     try bind.testing.expectSourceError(thread, "records.cd_player[1].length = 3", "CdPlayerTrack has no field 'length'");

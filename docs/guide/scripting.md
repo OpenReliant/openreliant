@@ -1487,11 +1487,12 @@ records.planet_light = vector.create(1, 1, 1)
 
 ### The CD player's tracks
 
-`records.cd_player` holds the tracks of the CD player in the rooms, 24 in all: the Reliant's
-twelve, Spirit of War to The Catalyst, numbered 1 to 12, then the Yamato's, Final Word to The Rise,
-numbered 13 to 24 ([The CD player](../engine/cd-player.md#the-lists)). Each has its `piece`, the
-music it plays, as the name of its file in the `music` folder without the `.wav`, and its `name` in
-the list. A load script changes them, so that a mod's music can have a row of the player:
+`records.cd_player` holds the tracks of the CD player in the rooms: the Reliant's twelve, Spirit of
+War to The Catalyst, numbered 1 to 12, then the Yamato's, Final Word to The Rise, numbered 13 to 24
+([The CD player](../engine/cd-player.md#the-lists)). Each has its `piece`, the music it plays, as
+the name of its file in the `music` folder without the `.wav`, and its `name` in the list. A load
+script changes them, so that a mod's music can have a row of the player, and adds tracks after the
+last one, which the player shows on pages of their own:
 
 ```lua
 local records = require("openreliant.records")
@@ -1499,14 +1500,19 @@ local records = require("openreliant.records")
 -- The Rise, the Yamato's last track, plays Spirit of War's piece again in the game. Here it plays
 -- the main menu's piece, which the mod replaces, under the mod's own name.
 records.cd_player[24] = { piece = "New_Pensive", name = "OpenReliant Theme" }
+
+-- A track of the mod's own, the first of a third page.
+records.cd_player[#records.cd_player + 1] = { piece = "Foster_Theme", name = "Foster's Theme" }
 ```
 
-- The player always has its 24 rows: a script changes tracks but can't add or remove them.
+- The player shows twelve tracks to a page: the Reliant's list, the Yamato's, then the tracks mods
+  add, up to 96 tracks in all. A script adds a track by assigning to the number after the last, and
+  can't remove one.
 - A piece is found by the name of its file, like the game's music: a file with the same name in a
   mod plays in place of the game's, and a mod can also add a piece with a new name.
 - Names are read from the game's text and can be changed to any text, in the game's code page.
 - The CD player opens on the list of the carrier the player is on. A menu script can turn to the
-  other's ([The rooms](#the-rooms)).
+  other pages ([The rooms](#the-rooms)).
 
 ### The rooms' views
 
@@ -2059,7 +2065,8 @@ options, the briefing and the movies. `on_room_changed(view, place)` runs as eit
 player sets off for another view, opens or leaves a place, or the rooms come on screen or leave it.
 
 The CD player shows [`records.cd_player`](#the-cd-players-tracks)'s tracks a page at a time,
-twelve to a page: the Reliant's list on page 1 and the Yamato's on page 2. While it's open,
+twelve to a page: the Reliant's list on page 1, the Yamato's on page 2, and the tracks mods add on
+the pages after them. `rooms.cd_player_pages` is how many pages there are. While it's open,
 `rooms.cd_player_page` is the page it shows, and `rooms.set_cd_player_page(page)` turns to another.
 It opens on its carrier's page, numbered 1 to 12 as the game numbers each list. Once a script turns
 a page, the rows are numbered as the records number the tracks, from 13 on page 2. A piece chosen
@@ -2077,7 +2084,7 @@ return {
         end,
         on_key_press = function(key)
             if rooms.place == "cd_player" and key == "tab" then
-                rooms.set_cd_player_page(rooms.cd_player_page % 2 + 1)
+                rooms.set_cd_player_page(rooms.cd_player_page % rooms.cd_player_pages + 1)
             end
         end,
     },
@@ -2085,7 +2092,7 @@ return {
 ```
 
 The rooms draw their pointer over what scripts draw, as the front end does over a mod's screen.
-[`examples/mods/cd-player-pages`](../../examples/mods/cd-player-pages) gives the CD player two
+[`examples/mods/cd-player-pages`](../../examples/mods/cd-player-pages) gives the CD player its
 pages, with the front end's arrows under its screen.
 
 ### Debug drawing

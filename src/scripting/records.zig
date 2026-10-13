@@ -28,9 +28,9 @@
 //! [#1008](https://github.com/OpenReliant/openreliant/issues/1008),
 //! [#1024](https://github.com/OpenReliant/openreliant/issues/1024),
 //! [#1092](https://github.com/OpenReliant/openreliant/issues/1092)). Load scripts can also add
-//! maneuvers and planets.
+//! maneuvers, planets and the CD player's tracks.
 //!
-//! `cd_player` holds the CD player's tracks, the Reliant's list and then the Yamato's
+//! `cd_player` holds the CD player's tracks, the Reliant's list, the Yamato's, then those mods add
 //! (`game.interface.cd_player.Track`), and `room_views` the rooms' views
 //! (`game.interface.rooms.View`): proxies whose fields load scripts change in place too
 //! ([#1167](https://github.com/OpenReliant/openreliant/issues/1167),
@@ -100,10 +100,11 @@ pub const Records = struct {
     /// lights them, which the game takes with the planets (`create.planets.installLight`). Load
     /// scripts can set it.
     planet_light: ?@Vector(3, f32) = null,
-    /// The CD player's tracks, the Reliant's list then the Yamato's, which the game takes once the
-    /// load scripts have run (`interface.cd_player.install`). The pieces and names scripts give are
-    /// in `arena`.
-    cd_player: game.interface.cd_player.Tracks,
+    /// The CD player's tracks: the Reliant's list, the Yamato's, then those load scripts add, which
+    /// the game takes once the load scripts have run (`interface.cd_player.install`). Adding a
+    /// track replaces the table with a longer one. The pieces and names scripts give are in
+    /// `arena`.
+    cd_player: []game.interface.cd_player.Track,
     /// The rooms' views, which the game takes once the load scripts have run
     /// (`interface.rooms.install`). The names, words and exits scripts give are in `arena`.
     room_views: game.interface.rooms.Views,
@@ -125,7 +126,7 @@ pub const Records = struct {
         killboard: []const game.itac.killboard.Pilot = &game.itac.killboard.Pilot.original,
         maneuvers: []const game.aidefend.Compiled = &game.aidefend.Compiled.original,
         planets: []const game.create.planets.Planet = &game.create.planets.original,
-        cd_player: game.interface.cd_player.Tracks = game.interface.cd_player.original,
+        cd_player: []const game.interface.cd_player.Track = &game.interface.cd_player.original,
         room_views: game.interface.rooms.Views = game.interface.rooms.views.views,
     };
 
@@ -145,7 +146,7 @@ pub const Records = struct {
             .killboard = try arena.dupe(game.itac.killboard.Pilot, tables.killboard),
             .maneuvers = try arena.dupe(game.aidefend.Compiled, tables.maneuvers),
             .planets = try arena.dupe(game.create.planets.Planet, tables.planets),
-            .cd_player = tables.cd_player,
+            .cd_player = try arena.dupe(game.interface.cd_player.Track, tables.cd_player),
             .room_views = tables.room_views,
             .arena = arena,
         };
@@ -187,7 +188,9 @@ pub const Records = struct {
         errdefer gpa.free(saved.planets);
         saved.planets_held = records.planets;
         saved.planet_light = records.planet_light;
-        saved.cd_player = records.cd_player;
+        saved.cd_player = try gpa.dupe(game.interface.cd_player.Track, records.cd_player);
+        errdefer gpa.free(saved.cd_player);
+        saved.cd_player_held = records.cd_player;
         saved.room_views = records.room_views;
         inline for (comptime std.enums.values(Set), 0..) |set, made| {
             errdefer inline for (comptime std.enums.values(Set)[0..made]) |done| gpa.free(@field(saved, @tagName(done)));
@@ -217,7 +220,10 @@ pub const Records = struct {
         /// maneuvers' table.
         planets_held: []game.create.planets.Planet,
         planet_light: ?@Vector(3, f32),
-        cd_player: game.interface.cd_player.Tracks,
+        cd_player: []game.interface.cd_player.Track,
+        /// The tracks' table itself, which adding a track replaces with a longer one, like the
+        /// planets' table.
+        cd_player_held: []game.interface.cd_player.Track,
         room_views: game.interface.rooms.Views,
 
         pub fn restore(saved: Snapshot, records: *Records) void {
@@ -230,7 +236,8 @@ pub const Records = struct {
             records.planets = saved.planets_held;
             @memcpy(records.planets, saved.planets);
             records.planet_light = saved.planet_light;
-            records.cd_player = saved.cd_player;
+            records.cd_player = saved.cd_player_held;
+            @memcpy(records.cd_player, saved.cd_player);
             records.room_views = saved.room_views;
         }
 
@@ -240,6 +247,7 @@ pub const Records = struct {
             gpa.free(saved.killboard);
             gpa.free(saved.maneuvers);
             gpa.free(saved.planets);
+            gpa.free(saved.cd_player);
         }
     };
 };

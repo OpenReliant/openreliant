@@ -386,7 +386,7 @@ the game's piece can't be read, the mod's piece loops back to the game file's by
 which may be the wrong moment, and the log says so.
 [`examples/mods/music`](../../examples/mods/music) replaces the main menu's music with a track made
 for it, whose body starts where the game's piece loops back. The CD player in the rooms plays only
-the pieces on its lists, which a load script can change ([The CD player's
+the pieces on its lists, which a load script can change and add tracks to ([The CD player's
 tracks](scripting.md#the-cd-players-tracks)), so the example gives its track a row there too.
 
 ### Sounds

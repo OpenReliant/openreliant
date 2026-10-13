@@ -711,7 +711,7 @@ export type Records = {
     maneuvers: { [number]: CombatManeuver },
     --- The object types that the game sets up as planets when a mission makes them: lit by the sun alone, always drawn, and colliding with nothing. Each turns about its axis and leans as its entry says, and has its atmosphere. The original's are Neptune to Venus and their far models, in the order of their types. Load scripts can change their fields and add planets after the last one, such as Earth.
     planets: { [number]: Planet },
-    --- The CD player's tracks: the Reliant's, 1 to 12, then the Yamato's, 13 to 24. Load scripts change their fields.
+    --- The CD player's tracks, twelve to a page: the Reliant's, 1 to 12, then the Yamato's, 13 to 24. Load scripts change their fields, and add tracks after the last, up to 96 in all, on pages of their own.
     cd_player: { [number]: CdPlayerTrack },
     --- The rooms' views, the Reliant's and the Yamato's, 1 to 125 in the order they lie in the executable. Load scripts change their fields.
     room_views: { [number]: RoomView },
@@ -1043,9 +1043,11 @@ export type Rooms = {
     view: number?,
     --- The place whose screen shows: `itac`, `simulator`, `locker` or `cd_player`, or `news` while the television's report plays. Nil while the player walks the rooms, and while they aren't on screen.
     place: RoomPlace?,
-    --- The page the CD player shows, while it's open: `records.cd_player`'s tracks twelve to a page, the Reliant's list on page 1 and the Yamato's on page 2. Nil while it isn't open. It opens on its carrier's page, numbered 1 to 12 as the game numbers each list.
+    --- How many pages the CD player has: `records.cd_player`'s tracks twelve to a page, the Reliant's list on page 1, the Yamato's on page 2, and the tracks mods add on the pages after them.
+    cd_player_pages: number,
+    --- The page the CD player shows while it's open, from 1 to `cd_player_pages`; nil while it isn't open. It opens on its carrier's page, numbered 1 to 12 as the game numbers each list.
     cd_player_page: number?,
-    --- Turns the CD player to page `page`, while it's open, its rows numbered as `records.cd_player` numbers its tracks, from 13 on page 2. The piece chosen plays on, and the pieces that follow it come from its own page. Returns whether the CD player is open.
+    --- Turns the CD player to page `page`, from 1 to `cd_player_pages`, while it's open, its rows numbered as `records.cd_player` numbers its tracks, from 13 on page 2. The piece chosen plays on, and the pieces that follow it come from its own page. Returns whether the CD player is open.
     set_cd_player_page: (page: number) -> boolean,
 }
 
