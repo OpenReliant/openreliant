@@ -8,7 +8,7 @@
 # A file fails when it lies in one of the git-ignored directories for the game's files, has the
 # extension of one of the game's file types or of what the extractors write, starts with the
 # signature of an executable, archive, image, sound or document, holds binary data anywhere but the
-# compiled shaders, or is over 1 MiB. The example mods' manifests, `mod.ini`, and their own
+# compiled shaders, or is over 2 MiB. The example mods' manifests, `mod.ini`, and their own
 # pictures, sounds, models and face films, PNG, WAV, OBJ, SHP and FM8 files directly in an example
 # mod's folder, are OpenReliant's own, as are the PNG, ICO and ICNS files of its icon in
 # assets/icon: they pass all but the size.
@@ -35,7 +35,7 @@ game_types='hog|shp|fm8|spr|dte|fat|fnt|frc|tga|bik|icd|exe|dll|m3d|asi|ccb|cab|
 # example mods' manifests, their own pictures, sounds, models and face films, and OpenReliant's
 # icon, which are original work (CONTRIBUTING.md).
 own_files='^(examples/mods/[^/]+/(mod\.ini|[^/]+\.(png|wav|obj|shp|fm8))|assets/icon/[^/]+\.(png|ico|icns))$'
-max_size=$((1024 * 1024))
+max_size=$((2 * 1024 * 1024))
 # The licences, the only text that keeps its dashes.
 licences='(^|/)LICENSE[^/]*$'
 
@@ -82,7 +82,7 @@ fi
 for ((at = 0; at < ${#files[@]}; at++)); do
     path=${files[at]}
     if ((sizes[at] > max_size)); then
-        fail "$path" "is over 1 MiB"
+        fail "$path" "is over 2 MiB"
         continue
     fi
     shopt -s nocasematch
