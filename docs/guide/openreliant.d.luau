@@ -503,6 +503,8 @@ declare extern type Missile with
     launcher: Object?
     --- What it flies at. Its guidance turns to a new target from the next frame.
     target: Target
+    --- Whether it homes on its target and lights the target's missile warning, as the AI's missiles do; one that doesn't flies straight. As in the original, every missile homes but a player's Screamer outside a multiplayer game, unless a script sets it.
+    homes: boolean
     --- The side it's on: its launcher's, as it was launched.
     side: Side
     --- Where it is. Setting it moves it there at once.

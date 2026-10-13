@@ -70,7 +70,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | React to the mission's events, such as a ship destroyed or docked | [Mission and engine events](scripting.md#mission-and-engine-events) | [`rules`](../../examples/mods/rules), [`tally`](../../examples/mods/tally) |
 | Change what the radio says | [Changing what the radio says](scripting.md#changing-what-the-radio-says) | [`arena`](../../examples/mods/arena), [`teapot`](../../examples/mods/teapot) |
 | Run a script on each ship of a class or a type | [Object scripts](scripting.md#object-scripts) | [`wingmen`](../../examples/mods/wingmen) |
-| Run a script on each missile in flight, to retarget it or set it off | [Missile scripts](scripting.md#missile-scripts) | |
+| Run a script on each missile in flight, to retarget it, make it home or fly straight, or set it off | [Missile scripts](scripting.md#missile-scripts) | |
 | Run a script on each turret, to choose what it aims at | [Turret scripts](scripting.md#turret-scripts) | |
 | Give ships orders, and add AI orders of their own | [Orders](scripting.md#orders), [Custom AI orders](scripting.md#custom-ai-orders) | [`custom-order`](../../examples/mods/custom-order), [`wingmen`](../../examples/mods/wingmen) |
 | Change the AI's combat maneuvers, add new ones, and choose which one a fighting ship flies | [Combat maneuvers](scripting.md#combat-maneuvers) | |

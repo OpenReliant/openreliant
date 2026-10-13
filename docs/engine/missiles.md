@@ -155,6 +155,13 @@ force-feedback effect ([Controls](controls.md#force-feedback)).
 
 The launches' `init` (`0x00496B10`) and the jettison's keep the tick they began at.
 
+**Improvement:** OpenReliant keeps whether a missile homes in its record (`Missile.homes`), which
+the launch sets as the game decides it: every missile homes but a player's Screamer outside a
+multiplayer game. The orders that home, and the missile warning, read it, and scripts can set it
+([Missile scripts](../guide/scripting.md#missile-scripts)): a player's Screamer can home as the AI's
+do, and a missile that doesn't home flies straight, its throttle at 1, though a Havoc or an Imp
+still goes off near its target.
+
 ### Homing
 
 `missile_home` (`0x00496C90`) steers at the target while it is one to aim at

@@ -466,6 +466,7 @@ marked *changes* on any missile, and a missile's own scripts on their missile.
 | `type` | [MissileType](#missiletype) | Its type, such as `raptor`, or the qualified name of one a mod adds. |
 | `launcher` | [object](#objects), or nil | The object that launched it, or let it fall; nil once that one has left the mission. |
 | `target` | [Target](#target) | *Changes.* What it flies at. Its guidance turns to a new target from the next frame. |
+| `homes` | boolean | *Changes.* Whether it homes on its target and lights the target's missile warning, as the AI's missiles do; one that doesn't flies straight. As in the original, every missile homes but a player's Screamer outside a multiplayer game, unless a script sets it. |
 | `side` | [Side](#side) | The side it's on: its launcher's, as it was launched. |
 | `position` | vector | *Changes.* Where it is. Setting it moves it there at once. |
 | `orientation` | [Orientation](#orientation) | *Changes.* Where its axes point: to its right, down and forward, out of its nose (`openreliant.util`). Setting it turns it at once, its axes made unit length and at right angles first, and its guidance turns on from there. |

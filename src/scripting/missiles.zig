@@ -90,6 +90,16 @@ pub const fields = struct {
         }
     });
 
+    pub const homes = api.Field(bool, "Whether it homes on its target and lights the target's missile warning, as the AI's missiles do; one that doesn't flies straight. As in the original, every missile homes but a player's Screamer outside a multiplayer game, unless a script sets it.", struct {
+        pub fn get(all: *const create.Objects, record: u8) bool {
+            return missileIn(all, record).homes;
+        }
+
+        pub fn set(_: Call, all: *create.Objects, record: u8, value: bool) void {
+            all.missiles.records[record].?.homes = value;
+        }
+    });
+
     pub const side = api.Field(gameobj.Side(i32), "The side it's on: its launcher's, as it was launched.", struct {
         pub fn get(all: *const create.Objects, record: u8) gameobj.Side(i32) {
             return missileIn(all, record).slot.object.side;
@@ -303,23 +313,26 @@ test "handles name missiles until their flight ends" {
     try bind.testing.runSource(thread,
         \\assert(raptor == again and raptor:is_valid())
         \\assert(raptor.type == "raptor" and raptor.launcher.slot == 0 and raptor.target.object == raptor.launcher)
-        \\assert(raptor.position == vector.create(0, 0, 500) and raptor.speed == 5)
+        \\assert(raptor.position == vector.create(0, 0, 500) and raptor.speed == 5 and raptor.homes)
         \\assert(typeof(raptor) == "missile" and tostring(raptor) == "missile 0 (raptor)")
     );
     try bind.testing.expectSourceError(thread, "raptor.speed = 1", "can only be read");
     try bind.testing.expectSourceError(thread, "local x = raptor.fuel", "no field 'fuel'");
     try bind.testing.expectSourceError(thread, "raptor:detonate()", "missile:detonate: object scripts can't set this missile off");
     try bind.testing.expectSourceError(thread, "raptor.target = {}", "can't change this missile's target");
-    // Its own scripts retarget, move and push it.
+    try bind.testing.expectSourceError(thread, "raptor.homes = false", "can't change this missile's homes");
+    // Its own scripts retarget, move and push it, and stop its homing.
     context.runs_on = .{ .missile = .of(all, record) };
     try bind.testing.runSource(thread,
         \\local missile = raptor
         \\missile.target = {}
+        \\missile.homes = false
         \\missile.position = vector.create(1, 2, 3)
         \\missile.velocity = vector.create(0, 0, 9)
         \\assert(missile.position == vector.create(1, 2, 3) and missile.speed == 9)
     );
     try std.testing.expectEqual(engine.game.aigeneric.Target.none, all.missiles.records[record].?.target);
+    try std.testing.expect(!all.missiles.records[record].?.homes);
 
     // Once its launcher leaves, the missile has none; once its record is freed, the handle is no
     // longer valid.
