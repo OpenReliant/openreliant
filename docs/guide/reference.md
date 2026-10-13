@@ -64,7 +64,7 @@ OpenReliant's version, events for the global scripts, and game modes. For load, 
 
 ### `openreliant.records`
 
-The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), what the campaign makes of each of them (`missions`), the KILLBOARD's pilots (`killboard`), the combat maneuvers (`maneuvers`), the planets (`planets`) and the colour of the planets' light (`planet_light`). Only load scripts can change them. For load, global, object, player and menu scripts.
+The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), what the campaign makes of each of them (`missions`), the KILLBOARD's pilots (`killboard`), the combat maneuvers (`maneuvers`), the planets (`planets`), the colour of the planets' light (`planet_light`) and the CD player's tracks (`cd_player`). Only load scripts can change them. For load, global, object, player and menu scripts.
 
 Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with these fields:
 
@@ -144,6 +144,13 @@ Each of the planets, `planets[n]`, is a `Planet` with these fields:
 | `atmosphere_outer` | number | Where its atmosphere's band ends, as a share of the planet's radius as the camera sees it: 0.95 for Neptune and Uranus, and 1.005 for Jupiter and Venus, in the original. The planet hides the band within its edge. With a surface function, its ring ends here, in the radii of the planet's sphere. |
 | `atmosphere_surface` | string, or nil | The surface function that draws its atmosphere in place of the band, by the calling mod's own name or the qualified one, or nil. It draws on a ring that faces the camera through the middle of the planet's sphere, from `atmosphere_inner` to `atmosphere_outer` times the sphere's radius as the camera sees it, and its light is added over what lies behind it. The planet hides the ring within its edge. The function works in the planet's own frame, with the sphere's middle as the origin and its radius as the unit, so it can trace the line of sight through each pixel. Where no mod registers a function of that name, the planet keeps its band. The scripting guide shows one. |
 | `atmosphere_parameters` | list of number | The numbers its atmosphere's surface function reads, up to four; those left out are 0. |
+
+Each of the CD player's tracks, `cd_player[n]`, is a `CdPlayerTrack` with these fields:
+
+| Field | Type | What it is |
+|---|---|---|
+| `piece` | string | The music the track plays: the name of its file in the `music` folder, without the `.wav`, such as `New_Mission01`. A mod's own piece plays as the game's do. |
+| `name` | string | The track's name in the list. |
 
 ### `openreliant.hooks`
 

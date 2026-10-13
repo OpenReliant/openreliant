@@ -10,6 +10,9 @@
 //! SELECTED TRACK alone, and the Reliant's for the rows, the next and previous tracks and the piece
 //! that follows one's end, so that on the Yamato these play the Reliant's piece in the row.
 //!
+//! **Improvement:** mods change the lists through the records' `cd_player`, which OpenReliant
+//! installs (`install`); the original's are fixed.
+//!
 //! **Fix:** the CD player's volume is the level its music plays at, which the music volume and the
 //! master volume scale as they scale any music. The game plays each piece at full level and sets
 //! the stream to the CD player's volume itself, past the two volumes, so that a press of either
@@ -17,11 +20,13 @@
 
 const std = @import("std");
 
+const files = @import("../../files.zig");
 const hog = @import("../../../formats/hog.zig");
 const hog_snd = @import("../hog_snd.zig");
 const hud = @import("../hud.zig");
 const input = @import("../../input.zig");
 const itac = @import("../itac.zig");
+const language = @import("../language.zig");
 const matmanager = @import("../matmanager.zig");
 const canvas_module = @import("canvas.zig");
 const rooms = @import("rooms.zig");
@@ -43,24 +48,41 @@ const title_font_name = itac.large_font_name;
 pub const Volume = u7;
 pub const full_volume: Volume = hog_snd.loudest;
 
-/// A piece of the list: the file it plays (`music\%s.wav`, `0x004E8B18`) and the string that
-/// names it.
+/// Where a piece's file is (`music\%s.wav`, `0x004E8B18`): in `music`, with `.wav` after its name.
+const music_folder = "music\\";
+const music_extension = ".wav";
+
+/// The longest name of a piece whose path the game's files can have.
+pub const longest_piece = files.max_path - music_folder.len - music_extension.len;
+
+/// A piece of the list: the music it plays, by the name of its file in `music` without the `.wav`,
+/// and the words that name it. Load scripts change them through the records
+/// (`records.cd_player`).
 pub const Track = struct {
-    path: []const u8,
-    name: u16,
+    piece: []const u8,
+    name: language.Words,
+
+    /// The file it plays, written into `buffer`; null for a piece whose name is longer than
+    /// `longest_piece`.
+    pub fn path(listed: Track, buffer: *[files.max_path]u8) ?[]const u8 {
+        return std.fmt.bufPrint(buffer, music_folder ++ "{s}" ++ music_extension, .{listed.piece}) catch null;
+    }
 };
 
-fn track(comptime file: []const u8, name: u16) Track {
-    return .{ .path = std.fmt.comptimePrint("music\\{s}.wav", .{file}), .name = name };
+fn track(piece: []const u8, name: u16) Track {
+    return .{ .piece = piece, .name = .{ .string = name } };
 }
 
 /// The pieces of each list.
 pub const track_count = 12;
 
-/// Each carrier's list: the files (`0x00438261` on, `0x004382E1` on), and their names, Spirit of
+/// Each carrier's list of pieces.
+pub const Lists = std.EnumArray(rooms.Carrier, [track_count]Track);
+
+/// The original's lists: the files (`0x00438261` on, `0x004382E1` on), and their names, Spirit of
 /// War to The Catalyst on the Reliant (`0x319` on, `0x004389CD` on) and Final Word to The Rise on
 /// the Yamato (`0x531` on, `0x00438A51` on). The Yamato's last plays the Reliant's first piece.
-pub const tracks = std.EnumArray(rooms.Carrier, [track_count]Track).init(.{
+pub const original: Lists = .init(.{
     .reliant = .{
         track("new_mission01", 0x319),
         track("new_mission02", 0x31A),
@@ -90,6 +112,16 @@ pub const tracks = std.EnumArray(rooms.Carrier, [track_count]Track).init(.{
         track("new_mission01", 0x53C),
     },
 });
+
+/// The lists the CD player shows: the original's until OpenReliant installs the records'
+/// (`install`).
+var installed: *const Lists = &original;
+
+/// Uses `lists` as the CD player's lists. OpenReliant installs the records' once the load scripts
+/// have run.
+pub fn install(lists: *const Lists) void {
+    installed = lists;
+}
 
 /// The buttons, in the order of the rectangles `interface_hit` reads.
 pub const Button = enum {
@@ -258,7 +290,7 @@ pub const CdPlayer = struct {
 
     /// The list it shows.
     pub fn list(player: CdPlayer) *const [track_count]Track {
-        return tracks.getPtrConst(player.carrier);
+        return installed.getPtrConst(player.carrier);
     }
 
     /// A pass of its loop (`0x00438407` on): whether it stays open. Escape closes it, and so does
@@ -346,7 +378,9 @@ pub const CdPlayer = struct {
     fn start(player: *CdPlayer) void {
         const row = player.selected orelse return;
         const loops: u32 = if (player.repeat) hog_snd.forever else hog_snd.once;
-        player.context.rooms.sound.playMusic(player.list()[row].path, loops, player.context.volume.*, .now);
+        var buffer: [files.max_path]u8 = undefined;
+        const path = player.list()[row].path(&buffer) orelse return;
+        player.context.rooms.sound.playMusic(path, loops, player.context.volume.*, .now);
     }
 
     /// The volume turned to `volume`, and the music with it (`0x0043866D` on, `0x004386AA` on).
@@ -377,7 +411,7 @@ pub const CdPlayer = struct {
             defer y += row_spacing;
             const colour = if (player.selected == row) canvas_module.white else list_colour;
             try canvas.text(canvas.fonts.small, .{ number_x, y }, number, colour, .left);
-            try canvas.string(canvas.fonts.small, .{ name_x, y }, piece.name, colour, .left);
+            try canvas.text(canvas.fonts.small, .{ name_x, y }, piece.name.in(canvas.strings.*), colour, .left);
         }
         if (button) |over| try canvas.label(buttons.get(over).name);
         if (player.shapes) |*shapes| try canvas.onScreen().shape(&shapes.art, pointer_shape, player.pointer.at);
@@ -429,10 +463,16 @@ test other {
     }
 }
 
-test tracks {
-    try std.testing.expectEqualStrings("music\\new_mission01.wav", tracks.get(.reliant)[0].path);
-    try std.testing.expectEqualStrings("music\\New_Takeoff - Music.wav", tracks.get(.yamato)[8].path);
+test original {
+    var buffer: [files.max_path]u8 = undefined;
+    try std.testing.expectEqualStrings("music\\new_mission01.wav", original.get(.reliant)[0].path(&buffer).?);
+    try std.testing.expectEqualStrings("music\\New_Takeoff - Music.wav", original.get(.yamato)[8].path(&buffer).?);
+    try std.testing.expectEqual(0x53C, original.get(.yamato)[11].name.string);
     try std.testing.expectEqualStrings("12", numbers[11]);
+    // A piece whose path wouldn't fit has none.
+    const long_piece: [files.max_path]u8 = @splat('x');
+    const long: Track = .{ .piece = &long_piece, .name = .{ .string = 0x319 } };
+    try std.testing.expectEqual(null, long.path(&buffer));
 }
 
 /// Its files in the tests: there, but unreadable, and left out.
@@ -443,12 +483,13 @@ const stand_ins = [_]hog.Member{
     .{ .name = "itacbig.fnt", .data = "x" },
 };
 
-/// The rooms in the tests, with the music of `carrier`'s list.
+/// The rooms in the tests, with the music of `carrier`'s list as installed.
 fn testedWith(tested: *rooms.testing.Tested, carrier: rooms.Carrier) !void {
     try tested.init(&.{}, &.{}, &stand_ins);
     errdefer tested.deinit();
+    var buffers: [track_count][files.max_path]u8 = undefined;
     var paths: [track_count][]const u8 = undefined;
-    for (&paths, tracks.get(carrier)) |*path, piece| path.* = piece.path;
+    for (&paths, &buffers, installed.get(carrier)) |*path, *buffer, piece| path.* = piece.path(buffer).?;
     try tested.giveMusic(&paths);
 }
 
@@ -545,6 +586,26 @@ test CdPlayer {
     try std.testing.expect(passAt(&player, &keyboard, buttonAt(.leave), true));
     try std.testing.expect(!passAt(&player, &keyboard, buttonAt(.leave), false));
     try std.testing.expect(sound.musicPlaying());
+}
+
+test "the CD player plays the lists the records install" {
+    // A mod puts a piece of its own in The Rise's row, the Yamato's last, with a name of its own.
+    var lists = original;
+    lists.getPtr(.yamato)[11] = .{ .piece = "New_Pensive", .name = .{ .text = "OpenReliant Theme" } };
+    install(&lists);
+    defer install(&original);
+    var tested: rooms.testing.Tested = undefined;
+    try testedWith(&tested, .yamato);
+    defer tested.deinit();
+    var keyboard: input.Keyboard = .{};
+    var volume: Volume = full_volume;
+    var player: CdPlayer = .open(.{ .rooms = tested.context(), .volume = &volume }, 19, 0);
+    defer player.deinit();
+    try std.testing.expectEqualStrings("OpenReliant Theme", player.list()[11].name.text);
+    // The rooms hold the installed list's music alone, so the row plays the mod's piece.
+    try click(&player, &keyboard, rowAt(11));
+    try click(&player, &keyboard, rowAt(11));
+    try std.testing.expect(tested.sound.musicPlaying());
 }
 
 test "the Yamato's CD player plays its own list" {

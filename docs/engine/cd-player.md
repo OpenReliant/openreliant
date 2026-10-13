@@ -21,9 +21,13 @@ player, and the driver runs its loop (`Driver.listen` in
   full level and sets the stream to the CD player's volume itself, past the two volumes, so that at
   the music volume's default a press of either button makes the music louder.
 
-**Improvement:** RANDOM TRACK MODE draws the next piece from `std.Random`, among the eleven others.
-The game draws `rand() % 12` up to 20 times for one other than the piece that ended, and plays that
-piece again where none is.
+**Improvements:**
+
+- RANDOM TRACK MODE draws the next piece from `std.Random`, among the eleven others. The game draws
+  `rand() % 12` up to 20 times for one other than the piece that ended, and plays that piece again
+  where none is.
+- Mods can change the lists: a load script sets which piece each row plays and its name
+  ([The CD player's tracks](../guide/scripting.md#the-cd-players-tracks)). The game's are fixed.
 
 ## The screen
 
