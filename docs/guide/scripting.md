@@ -2631,19 +2631,38 @@ is saved, as `reload` reloads them:
 ## Editors
 
 [luau-lsp](https://github.com/JohnnyMorganz/luau-lsp), the Luau language server, gives editors such
-as VS Code completion and type checks:
+as VS Code completion, descriptions and type checks:
 
-1. Install its extension, and set its platform to Standard (`luau-lsp.platform.type`).
-2. Add `openreliant.d.luau` to its definition files (`luau-lsp.types.definitionFiles`). It comes
-   with each release, and is in [`docs/guide`](openreliant.d.luau).
-3. Give each package's variable its type:
+1. Install its extension, version 1.56 or later, and set its platform to Standard
+   (`luau-lsp.platform.type`).
+2. Add `openreliant.d.luau` to its definition files under a name (`luau-lsp.types.definitionFiles`).
+   It comes with each release, and is in [`docs/guide`](openreliant.d.luau). In VS Code's
+   `settings.json`:
+
+   ```json
+   {
+       "luau-lsp.platform.type": "standard",
+       "luau-lsp.types.definitionFiles": { "@openreliant": "path/to/openreliant.d.luau" }
+   }
+   ```
+
+3. Give each package's variable its type, and each handler's `e` the type named after its hook,
+   such as `ObjectDamage`. The hooks on the order table's routines share `OrderRoutine`.
 
    ```lua
    local hooks: Hooks = require("openreliant.hooks")
+
+   hooks.add("object_damage", function(e: ObjectDamage)
+       if e.kind == "bullet" and e.attacker.is_player then
+           e.value *= 1.1
+       end
+   end)
    ```
 
-The editor then knows every hook with the fields of its `e`, and the fields of objects and records.
-It may report that it can't find the packages themselves, which OpenReliant provides.
+The editor then knows the fields of `e`, of objects and of records, and shows their descriptions.
+It may report that it can't find the packages themselves, which OpenReliant provides. The file needs
+luau-lsp's default type solver: Luau's new solver doesn't load it yet
+([#1139](https://github.com/OpenReliant/openreliant/issues/1139)).
 
 ## Limits
 

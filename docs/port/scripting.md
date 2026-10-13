@@ -769,6 +769,14 @@ fails the tests, and the API only changes on purpose; `make definitions` then wr
 again.
 
 The enums and the tables the reference lists are found by following every type scripts can reach
-from the declarations. Each takes its type's own name, or the name its `script_name` gives where
-that isn't clear enough on its own (`gameobj.Type` is `ShipType`); the build fails if two types
-would take the same name.
+from the declarations, through fields, lists, optionals and the variants of a union. Each takes its
+type's own name, or the name its `script_name` gives where that isn't clear enough on its own
+(`gameobj.Type` is `ShipType`, and a missile type's record is `MissileRecord`, so that it isn't
+taken for the `Missile` handle). The build fails if two of these types, records and handles
+included, would take the same name, or if the definitions name a type they don't declare.
+
+The definitions file is written for current luau-lsp: the handles, the records and the hooks' `e`
+are extern types (`declare extern type`), the other types are exported so that scripts can annotate
+with them, and the descriptions are `---` comments, which luau-lsp shows on hover. A test parses the
+file with Luau's own parser, as luau-lsp reads a definitions file
+([`source_parser.zig`](../../src/source_parser.zig)).
