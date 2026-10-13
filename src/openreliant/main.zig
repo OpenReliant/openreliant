@@ -422,7 +422,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         break :none null;
     } else null;
     defer if (output) |open| open.destroy();
-    // FFmpeg's decoders, for the movies and for mods' music and lines in FLAC and MP3.
+    // FFmpeg's decoders, for the movies, the crew's lines, and mods' recordings that aren't WAVE
+    // files.
     var decoders: platform.video.Decoders = .init();
     const sound = try arena.create(game.hog_snd.Sound);
     sound.init(if (output) |open| open.driver() else null, sound_voices, .{ .gpa = gpa, .io = io, .dir = directory, .recordings = .{ .mods = &mods, .codec = decoders.codec() } });

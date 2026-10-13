@@ -344,8 +344,8 @@ pub const Music = struct {
     fade_step: i32 = 0,
     /// A piece to play once this one has faded (`0x0056533A` on).
     queued: ?Piece = null,
-    /// Added by OpenReliant: a mod's piece in FLAC or MP3 on its way, which decodes a few seconds
-    /// of music each pass (`Sound.decodeMusic`) and plays once it's decoded. The music counts as
+    /// Added by OpenReliant: a mod's piece in a format other than WAV on its way, which decodes a
+    /// few seconds of music each pass (`Sound.decodeMusic`) and plays once it's decoded. The music counts as
     /// playing meanwhile.
     decoding: ?Decoding = null,
     /// Added by OpenReliant: whether the music is paused because the game's window is away
@@ -374,8 +374,8 @@ pub const Music = struct {
         }
     };
 
-    /// A mod's piece in FLAC or MP3 on its way: the recording being decoded, the piece, and whether
-    /// the music was paused meanwhile.
+    /// A mod's piece in a format other than WAV on its way: the recording being decoded, the
+    /// piece, and whether the music was paused meanwhile.
     pub const Decoding = struct {
         recording: recordings.Decoding,
         piece: Piece,
@@ -383,8 +383,8 @@ pub const Music = struct {
     };
 };
 
-/// How many seconds of a mod's piece in FLAC or MP3 decode each pass (`Sound.decodeMusic`): a few
-/// milliseconds of work, so that the game doesn't stall.
+/// How many seconds of a mod's piece in a format other than WAV decode each pass
+/// (`Sound.decodeMusic`): a few milliseconds of work, so that the game doesn't stall.
 const seconds_decoded_a_pass = 3;
 
 /// Where a piece of music loops back to once it has played through: a byte offset into its data
@@ -1196,16 +1196,16 @@ pub fn musicLoopStart(path: []const u8) i32 {
     return 0;
 }
 
-/// A music file read: a WAVE file, and whether it's a mod's; or a mod's FLAC or MP3 file on its way
-/// to one.
+/// A music file read: a WAVE file, and whether it's a mod's; or a mod's file of another format on
+/// its way to one.
 const MusicRead = union(enum) {
     whole: struct { bytes: []u8, from_mod: bool },
     decoding: recordings.Decoding,
 };
 
 /// Reads the music file at `path`, a game path with backslashes: a mod's recording with the same
-/// name, a WAVE, FLAC or MP3 file (`recordings.Source.open`), or else the game folder's file,
-/// ignoring case as Windows does (`files.find`).
+/// name, in any of the formats a recording can be in (`recordings.Kind`), or else the game folder's
+/// file, ignoring case as Windows does (`files.find`).
 ///
 /// **Improvement:** the original plays only its own WAVE files.
 fn readMusic(files: Files, path: []const u8) !MusicRead {
