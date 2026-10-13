@@ -166,7 +166,9 @@ Merging the release pull request updates [`CHANGELOG.md`](../../CHANGELOG.md) an
 
 As it attaches them, the workflow credits the contributors in the release's notes: each change's line gets the handle of whoever opened the pull request that brought it in, unless that is the repository's owner or a bot ([`release-credits.sh`](../../scripts/release-credits.sh)). `CHANGELOG.md` keeps the lines as release-please writes them.
 
-Run by hand from the Actions tab, the workflow builds all six and keeps the archives as the run's artifacts, but publishes nothing.
+With the archives, the workflow attaches `openreliant-v0.6.1-sha256sums.txt`, which lists the SHA-256 of each archive in the format `sha256sum --check` reads. Each archive, and each executable in it, also gets a build provenance attestation ([`actions/attest`](https://github.com/actions/attest)), signed through Sigstore, which names the workflow run that built the file and its commit. `gh attestation verify openreliant-v0.6.1-linux-x86_64.tar.gz --repo OpenReliant/openreliant` checks an archive, and works the same for an executable taken out of one, such as a `sltool.exe` that an antivirus flags.
+
+Run by hand from the Actions tab, the workflow builds all six and keeps the archives as the run's artifacts, but publishes nothing and makes no attestations.
 
 The build gives `openreliant` and `sltool` their version ([`version.zig`](../../src/version.zig)), which `--version` and the top of `openreliant --help` and of `sltool help` show. It is the version in `build.zig.zon`, followed by what `git describe` says of the checkout as SemVer build metadata when it is not exactly a release:
 
