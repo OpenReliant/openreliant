@@ -10,7 +10,8 @@
 # signature of an executable, archive, image, sound or document, holds binary data anywhere but the
 # compiled shaders, or is over 1 MiB. The example mods' manifests, `mod.ini`, and their own
 # pictures, sounds, models and face films, PNG, WAV, OBJ, SHP and FM8 files directly in an example
-# mod's folder, are OpenReliant's own: they pass all but the size.
+# mod's folder, are OpenReliant's own, as are the PNG, ICO and ICNS files of its icon in
+# assets/icon: they pass all but the size.
 #
 # It also fails on a line of text with an em or en dash (U+2014, U+2013), which the project's text
 # does without (CONTRIBUTING.md), in any text file but a licence, which is copied as it is.
@@ -30,9 +31,10 @@ cd "$(git rev-parse --show-toplevel)"
 allowed_binary='^(src/platform/shaders/[^/]+\.spv|deps/newtown/Newtown\.ttf)$'
 game_dirs='^(game|references|tools|ghidra/projects|ghidra/export)/'
 game_types='hog|shp|fm8|spr|dte|fat|fnt|frc|tga|bik|icd|exe|dll|m3d|asi|ccb|cab|bin|dat|iso|cue|mdf|mds|nrg|img|wav|mp3|ogg|png|jpg|jpeg|gif|bmp|pcx|ppm|obj|pdf|rtf|doc|ini|sav|zip'
-# Files of OpenReliant's own that share an extension with the game's: the example mods' manifests,
-# and their own pictures, sounds, models and face films, which are original work (CONTRIBUTING.md).
-own_files='^examples/mods/[^/]+/(mod\.ini|[^/]+\.(png|wav|obj|shp|fm8))$'
+# Files of OpenReliant's own that share an extension with the game's or hold binary data: the
+# example mods' manifests, their own pictures, sounds, models and face films, and OpenReliant's
+# icon, which are original work (CONTRIBUTING.md).
+own_files='^(examples/mods/[^/]+/(mod\.ini|[^/]+\.(png|wav|obj|shp|fm8))|assets/icon/[^/]+\.(png|ico|icns))$'
 max_size=$((1024 * 1024))
 # The licences, the only text that keeps its dashes.
 licences='(^|/)LICENSE[^/]*$'

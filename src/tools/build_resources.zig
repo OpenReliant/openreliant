@@ -1,8 +1,9 @@
 //! `build-resources <program> <script>`: writes the resource script of `openreliant.exe` or
-//! `sltool.exe`, which holds the version information Windows shows in the file's properties and in
-//! the Task Manager, with the version `src/version.zig` gives. The build compiles the script with
-//! the rc package, together with the manifest, `src/windows.manifest`, and links both into the
-//! program (`build.zig`). The script holds no build time, so the builds stay reproducible
+//! `sltool.exe`, which holds OpenReliant's icon (`assets/icon`) and the version information Windows
+//! shows in the file's properties and in the Task Manager, with the version `src/version.zig`
+//! gives. The build compiles the script with the rc package, together with the manifest,
+//! `src/windows.manifest`, and links both into the program (`build.zig`). The script holds no build
+//! time, so the builds stay reproducible
 //! ([Builds and releases](../../docs/port/platform.md#builds-and-releases)).
 
 const std = @import("std");
@@ -49,6 +50,10 @@ const copyright = "Copyright 2026 the OpenReliant contributors";
 /// one fails the build.
 const numbers: [3]u16 = .{ version.semantic.major, version.semantic.minor, version.semantic.patch };
 
+/// The ID of the icon: the lowest, which Windows shows for the file and SDL gives the window.
+const icon_id = 1;
+/// The icon's file, which the build lets the resource compiler find in `assets/icon`.
+const icon_file = "openreliant.ico";
 /// The ID of the version information (`VS_VERSION_INFO`).
 const version_information_id = 1;
 /// The flags the version information can set (`VS_FFI_FILEFLAGSMASK`). It sets none.
@@ -64,12 +69,14 @@ const utf16 = 1200;
 /// The code page of the script, UTF-8.
 const utf8 = 65001;
 
-/// The resource script of `program`: its version information, `VERSIONINFO`. Its file version is
-/// the release's numbers and a 0, and its strings give the whole version.
+/// The resource script of `program`: its icon, and its version information, `VERSIONINFO`. Its
+/// file version is the release's numbers and a 0, and its strings give the whole version.
 fn script(comptime program: Program) []const u8 {
     return comptime std.fmt.comptimePrint(
-        \\// The version information of {[name]s}.exe, written by build-resources.
+        \\// The icon and the version information of {[name]s}.exe, written by build-resources.
         \\#pragma code_page({[utf8]d})
+        \\
+        \\{[icon_id]d} ICON "{[icon_file]s}"
         \\
         \\{[id]d} VERSIONINFO
         \\FILEVERSION {[major]d},{[minor]d},{[patch]d},0
@@ -102,6 +109,8 @@ fn script(comptime program: Program) []const u8 {
         \\
     , .{
         .utf8 = utf8,
+        .icon_id = icon_id,
+        .icon_file = icon_file,
         .id = version_information_id,
         .major = numbers[0],
         .minor = numbers[1],
@@ -123,13 +132,14 @@ fn script(comptime program: Program) []const u8 {
 // The strings go into the script as they are, so none can hold a quote or a backslash, which
 // would end the string or start an escape.
 comptime {
-    for ([_][]const u8{ product, company, copyright, version.string }) |text| assert(std.mem.indexOfAny(u8, text, "\"\\") == null);
+    for ([_][]const u8{ product, company, copyright, version.string, icon_file }) |text| assert(std.mem.indexOfAny(u8, text, "\"\\") == null);
     for (std.enums.values(Program)) |program| assert(std.mem.indexOfAny(u8, program.description(), "\"\\") == null);
 }
 
 test script {
     const text = script(.sltool);
     for ([_][]const u8{
+        "\n1 ICON \"openreliant.ico\"\n",
         std.fmt.comptimePrint("\nFILEVERSION {d},{d},{d},0\n", .{ numbers[0], numbers[1], numbers[2] }),
         "\n        BLOCK \"040904b0\"\n",
         "\n            VALUE \"FileDescription\", \"OpenReliant sltool\"\n",

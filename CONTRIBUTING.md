@@ -362,6 +362,8 @@ trent example's faces. Only original work goes there, made for the example and u
 compatible with the MPL 2.0: never the game's art, sounds or models, or anything made from them.
 Build a model with `sltool shp from-obj` from an OBJ file kept beside it, and a face film with
 `sltool fm8 encode` from its frames kept beside it, so that nothing of the game's goes into them.
+OpenReliant's icon, in `assets/icon`, is original work too: `make icon` makes its PNG, ICO and ICNS
+files from its SVG.
 
 ## Commits and pull requests
 

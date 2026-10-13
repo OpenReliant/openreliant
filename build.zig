@@ -192,6 +192,11 @@ pub fn build(b: *std.Build) void {
     const mission0_file = compile_mission0.addOutputFileArg2("mission0.dte", .{});
     openreliant.root_module.addAnonymousImport("mission0.dte", .{ .root_source_file = mission0_file });
     b.getInstallStep().dependOn(&b.addInstallFile(mission0_file, "missions/mission0.dte").step);
+    // The icon the window shows where the system takes it from the window rather than from the
+    // executable (`src/openreliant/icon.zig`).
+    for ([_][]const u8{ "openreliant-256.png", "openreliant-512.png" }) |icon| {
+        openreliant.root_module.addAnonymousImport(icon, .{ .root_source_file = b.path(b.fmt("assets/icon/{s}", .{icon})) });
+    }
 
     runStep(b, "play", "Run the game", openreliant);
 
@@ -215,9 +220,9 @@ pub fn build(b: *std.Build) void {
     const sltool_step = b.step("sltool", "Build and install sltool alone");
     sltool_step.dependOn(&b.addInstallArtifact(sltool, .{}).step);
 
-    // On Windows, both programs carry version information and a manifest (`src/windows.manifest`).
-    // `build-resources`, built for the host, writes the version information with the version
-    // (`src/tools/build_resources.zig`).
+    // On Windows, both programs carry the icon, version information and a manifest
+    // (`src/windows.manifest`). `build-resources`, built for the host, writes the script that names
+    // the icon and gives the version (`src/tools/build_resources.zig`).
     const host_version = b.createModule(.{
         .root_source_file = b.path("src/version.zig"),
         .target = b.graph.host,
@@ -333,20 +338,21 @@ fn runStep(b: *std.Build, name: []const u8, description: []const u8, program: *s
     b.step(name, description).dependOn(&run.step);
 }
 
-/// Gives `program`, built for Windows, the version information `build_resources` writes for it and
-/// the manifest, `src/windows.manifest`. The rc package compiles them, without the system's
-/// headers, so every system builds the same bytes. Its resource compiler only reads these short
-/// files, so it is built in Debug, which compiles fastest, whatever mode the rest is built in.
+/// Gives `program`, built for Windows, the resources `build_resources` writes the script of, the
+/// icon and the version information, and the manifest, `src/windows.manifest`. The rc package
+/// compiles them, finding the icon in `assets/icon`, without the system's headers, so every system
+/// builds the same bytes. Its resource compiler only reads these few files, so it is built in Debug,
+/// which compiles fastest, whatever mode the rest is built in.
 fn addWindowsResources(b: *std.Build, program: *std.Build.Step.Compile, build_resources: *std.Build.Step.Compile, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize) void {
     const run = b.addRunArtifact(build_resources);
     run.addArg(program.name);
-    const script = run.addOutputFileArg2(b.fmt("{s}-version.rc", .{program.name}), .{});
+    const script = run.addOutputFileArg2(b.fmt("{s}-resources.rc", .{program.name}), .{});
     const resources: rc.Compiler = .init(b.dependency("rc", .{ .optimize = .debug }), .{
         .rc_files = &.{script},
         .manifest = .{ .file = b.path("src/windows.manifest"), .for_dll = false },
         .target = target,
         .optimize = optimize,
-        .rc_options = .{ .auto_includes = .none },
+        .rc_options = .{ .auto_includes = .none, .include_paths = &.{b.path("assets/icon")} },
     });
     program.root_module.addObjectFile(resources.getObjectFile());
 }

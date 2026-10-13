@@ -43,5 +43,6 @@
         "build.zig.zon",
         "src",
         "deps",
+        "assets",
     },
 }

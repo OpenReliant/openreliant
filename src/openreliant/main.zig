@@ -36,6 +36,7 @@ const camera = game.camera;
 pub const debug_command = @import("debug.zig");
 pub const help = @import("help.zig");
 pub const hooks_command = @import("hooks.zig");
+pub const icon = @import("icon.zig");
 pub const install = @import("install.zig");
 pub const joysticks = @import("joysticks.zig");
 pub const log_file = @import("log_file.zig");
@@ -355,6 +356,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
 
     var window: platform.window.Window = try .open("OpenReliant", initial_size[0], initial_size[1], options.fullscreen);
     defer window.close();
+    window.setIcon(&icon.pngs);
     // The compiled shaders of the mods, kept in the game folder, and their replacements for
     // OpenReliant's shaders, chosen as OpenReliant starts while MOD EFFECTS is on.
     const shader_cache: platform.shader_cache.Cache = .{ .io = io, .root = directory };

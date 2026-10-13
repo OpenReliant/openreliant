@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- OpenReliant's icon: OR in Newtown, by Roger White, from Roger's Fonts, in the website's
+       off-white and orange, on its dark sky. -->
+  <defs>
+    <!-- The website's sky: a warm glow from the top right and a blue one from the bottom left. -->
+    <radialGradient id="warm" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1"
+                    gradientTransform="translate(819 -102) scale(2397 1198)">
+      <stop offset="0" stop-color="#3a1d0c"/>
+      <stop offset="0.55" stop-color="#3a1d0c" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cool" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1"
+                    gradientTransform="translate(-102 1126) scale(1593)">
+      <stop offset="0" stop-color="#101a3a"/>
+      <stop offset="0.5" stop-color="#101a3a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="#07080c"/>
+  <rect width="1024" height="1024" fill="url(#cool)"/>
+  <rect width="1024" height="1024" fill="url(#warm)"/>
+  <g>
+    <circle cx="123" cy="174" r="3.2" fill="#fff" fill-opacity="0.55"/>
+    <circle cx="737" cy="102" r="2.8" fill="#fff" fill-opacity="0.45"/>
+    <circle cx="922" cy="205" r="2.4" fill="#fff" fill-opacity="0.4"/>
+    <circle cx="307" cy="92" r="2.2" fill="#fff" fill-opacity="0.35"/>
+    <circle cx="256" cy="840" r="3.6" fill="#fff" fill-opacity="0.45"/>
+    <circle cx="573" cy="901" r="2.8" fill="#fff" fill-opacity="0.3"/>
+    <circle cx="952" cy="799" r="3.0" fill="#fff" fill-opacity="0.4"/>
+    <circle cx="61" cy="563" r="2.2" fill="#fff" fill-opacity="0.3"/>
+  </g>
+  <g transform="translate(108.6 701.6) scale(0.5273 -0.5273)">
+    <path fill="#e8eaf0" d="M747 307Q747 373 741 427Q735 477 724 519Q688 638 596 688Q515 733 359 733Q203 733 115 638Q27 544 27 361Q27 174 115 80Q204 -15 386 -15Q480 -15 547 9Q615 33 658 79Q747 174 747 307ZM582 358Q582 248 541 183Q490 108 430 108Q368 108 338 114L288 128Q257 140 236 167Q218 195 210 226Q191 293 191 384Q191 471 233 534Q284 609 386 609Q493 609 542 533Q582 472 582 358Z"/>
+    <path fill="#f08a2c" transform="translate(773 0)" d="M730 0 553 301Q629 321 662 372Q697 424 697 498Q697 572 666 627Q631 689 568 704Q549 709 544 710Q541 711 531 711L510 714L482 719H445H74V0H225V281H402L561 0ZM545 500Q545 457 519 432Q492 408 410 408H225V590H410Q493 590 521 566Q545 545 545 500Z"/>
+  </g>
+</svg>
