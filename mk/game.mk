@@ -148,14 +148,19 @@ $(DISCS_DIR)/disc%.bin: | $(DISCS_DIR)
 	    exit 1; }
 	unzip -p $(DISCS_DIR)/disc$*.zip '*.bin' '*.iso' > $@
 
-# sltool and openreliant are order-only on purpose: rebuilding them must not extract or install the
-# game again, which would in turn make every later step look stale.
-$(GAME_DIR)/.stamp-cd%: $(DISCS_DIR)/disc%.bin | $(SLTOOL)
+# Extracting the discs and installing the game need sltool and openreliant to be there, not to be
+# current. They are order-only, since rebuilding them must not extract or install the game again,
+# which would in turn make every later step look stale. They are also built only when they are
+# missing (`present`), so that `make play` builds the game once, in its own mode, rather than first
+# as `make build` does after every change.
+present = $(if $(wildcard $(1)),,$(1))
+
+$(GAME_DIR)/.stamp-cd%: $(DISCS_DIR)/disc%.bin | $(call present,$(SLTOOL))
 	rm -rf $(GAME_DIR)/cd$*
 	$(SLTOOL) cd extract $< $(GAME_DIR)/cd$*
 	touch $@
 
-$(GAME_DIR)/.stamp-install: $(GAME_DIR)/.stamp-cd1 $(GAME_DIR)/.stamp-cd2 | $(OPENRELIANT)
+$(GAME_DIR)/.stamp-install: $(GAME_DIR)/.stamp-cd1 $(GAME_DIR)/.stamp-cd2 | $(call present,$(OPENRELIANT))
 	rm -rf $(INSTALL_DIR)
 	$(OPENRELIANT) install --from $(GAME_DIR)/cd1 --from $(GAME_DIR)/cd2 $(INSTALL_DIR) > /dev/null
 	touch $@
