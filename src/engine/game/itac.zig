@@ -778,7 +778,7 @@ pub const Itac = struct {
         itac.large = .read(gpa, resources.*, large_font_name, context.rooms.outlines);
         itac.small = .read(gpa, resources.*, small_font_name, context.rooms.outlines);
         itac.shapes = readShapes(context, shapes_name);
-        itac.sounds = .read(gpa, resources, sounds_name);
+        itac.sounds = .read(gpa, resources, sounds_name, context.rooms.codec);
         itac.tooltip_font = .read(gpa, resources.*, tooltips.font_name, context.rooms.outlines);
         return itac;
     }

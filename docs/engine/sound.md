@@ -147,6 +147,15 @@ a missile's, never does.
 **Improvement:** a missile's voice follows it as an object's does, and is its own, so it ends with
 it; it keeps its full volume half as far again (`sound3d.MissileSound.follows`).
 
+**Improvement:** the game's rates are made for its 3D sounds, which are recorded at 22,050 Hz, so a
+mod's sound at another rate would play at another pitch: an octave low at 44,100 Hz. OpenReliant
+scales the rates a mod's sound plays at by its own rate over 22,050 (`sound3d.rateScale`), whether
+it replaces one of the bank's sounds or is a ship type's or a gun's own. The game's own sounds play
+at the game's rates, including `CLOAK01`'s, which is recorded at 44,100 Hz and plays an octave low.
+A voice is freed once its sound has played at the rate it plays at: its frames over 22,050, scaled
+for a mod's sound, so that a mod's sound at another rate or in stereo isn't stopped early or held
+on (`hog_snd.Sound.update3D`).
+
 ### The player's engine
 
 `sound3d_engine_sound` (`0x0049DCB0`) picks the engine's sound for the player's ship type:

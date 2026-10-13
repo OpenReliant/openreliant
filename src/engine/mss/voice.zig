@@ -42,6 +42,8 @@ pub const Voice = struct {
     phase: f32 = 0,
     /// The frames are used up and nothing is left to loop.
     ended: bool = false,
+    /// Whether it plays its channels mixed to one (`wave.Decoder.downmix`), as a 3D sample does.
+    mono: bool = false,
 
     /// A voice for `file`, a WAVE sound, at its own rate, not yet playing.
     pub fn init(file: []const u8) (error{NotAWave} || wave.Decoder.Error)!Voice {
@@ -114,7 +116,8 @@ pub const Voice = struct {
             voice.ended = true;
             return .{ 0, 0 };
         };
-        return .{ @as(f32, @floatFromInt(frame[0])) / 32768, @as(f32, @floatFromInt(frame[1])) / 32768 };
+        const heard: [2]i16 = if (voice.mono) @splat(wave.Decoder.downmix(frame)) else frame;
+        return .{ @as(f32, @floatFromInt(heard[0])) / 32768, @as(f32, @floatFromInt(heard[1])) / 32768 };
     }
 
     /// The frame at a byte offset into the sound's data, for a stream's loop block and position:
@@ -172,6 +175,17 @@ test Voice {
     voice.stop();
     voice.resumePlaying();
     try std.testing.expectEqual(Status.done, voice.status);
+}
+
+test "Voice.mono mixes the channels to one" {
+    // A stereo frame of a quarter on the left and three quarters on the right.
+    const file = comptime wave.testing.file(.{ .format = .pcm, .channels = 2, .rate = 22050, .byte_rate = 88200, .block_align = 4, .bits = 16 }, "", "", &std.mem.toBytes([2]i16{ 8192, 24576 }));
+    var voice: Voice = try .init(file);
+    voice.mono = true;
+    voice.start();
+    var out: [1][2]f32 = @splat(.{ 0, 0 });
+    voice.mix(&out, 22050, .{ 1, 1 }, 1);
+    try std.testing.expectEqual([2]f32{ 0.5, 0.5 }, out[0]);
 }
 
 test "Status.format" {

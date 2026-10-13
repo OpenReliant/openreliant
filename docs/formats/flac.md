@@ -31,4 +31,4 @@ does. A line of speech decodes all at once, and a piece of music a few seconds o
 of the game, starting once it's decoded ([The driver](../port/sound.md#the-driver)).
 
 For a mod's recording, OpenReliant looks for a WAVE file first, then a FLAC file, then an MP3 file
-(`recordings.find`).
+(`recordings.Source.find`).

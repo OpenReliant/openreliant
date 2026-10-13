@@ -25,7 +25,9 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
 const checksums = @import("../../../formats/checksums.zig");
+const fat = @import("../../../formats/fat.zig");
 const fnt = @import("../../../formats/fnt.zig");
+const numbered = @import("../../../formats/numbered.zig");
 const hog = @import("../../../formats/hog.zig");
 const spr = @import("../../../formats/spr.zig");
 const tcache = @import("../../../formats/tcache.zig");
@@ -692,10 +694,11 @@ pub const Mods = struct {
                 .file => log.info("{s} replaces {s}", .{ mod.name, name }),
                 .texture => |texture| log.info("{s} replaces the texture {s}", .{ mod.name, texture }),
                 .map => |map| log.info("{s} adds the {s} of the texture {s}", .{ mod.name, map.kind.label(), map.texture }),
-                .shape => |shape| log.info("{s} replaces shape {d} of the sprite set {s}", .{ mod.name, shape.index, shape.set }),
+                .shape => |shape| log.info("{s} replaces shape {d} of the sprite set {s}", .{ mod.name, shape.index, shape.file }),
                 .picture => |picture| log.info("{s} replaces the picture {s}", .{ mod.name, picture }),
                 .font => |font| log.info("{s} replaces the font {s}", .{ mod.name, font }),
                 .line => |line| log.info("{s} replaces the line {s}", .{ mod.name, line }),
+                .sound => |sound| log.info("{s} replaces sound {d} of the sound bank {s}", .{ mod.name, sound.index, sound.file }),
                 .recording => |replaced| log.info("{s} replaces {s}{s}", .{ mod.name, replaced.stem, replaced.extension }),
                 .added => log.info("{s} adds {s}", .{ mod.name, name }),
             };
@@ -760,8 +763,9 @@ const Effect = union(enum) {
     texture: []const u8,
     /// It's one of the material maps of a texture in the cache.
     map: GameFiles.Map,
-    /// It replaces a shape in one of the game's sprite sets (`spr.pictureName`).
-    shape: GameFiles.Shape,
+    /// It replaces a shape in one of the game's sprite sets (`spr.pictureName`): the set's name,
+    /// without the extension, and the shape's number.
+    shape: numbered.Part,
     /// It replaces the game's TGA picture with its name, given without the extension
     /// (`game.matmanager.pictureName`).
     picture: []const u8,
@@ -769,11 +773,14 @@ const Effect = union(enum) {
     /// without the extension.
     font: []const u8,
     /// It's a line of speech that replaces the game's line, given without the extension: a speech
-    /// file with the extension (`cbox.extension`) or a recording (`recordings.find`), as
+    /// file with the extension (`cbox.extension`) or a recording (`recordings.Source.find`), as
     /// `radio.readLine` reads them.
     line: []const u8,
-    /// It's a recording (`recordings.find`) that replaces a game file of another format: a piece of
-    /// music or one of Enriquez's scenes.
+    /// It's a recording that replaces a sound of one of the game's banks (`fat.soundName`): the
+    /// bank's name, without the extension, and the sound's number.
+    sound: numbered.Part,
+    /// It's a recording (`recordings.Source.find`) that replaces a game file of another format: a
+    /// piece of music or one of Enriquez's scenes.
     recording: GameFiles.Replaced,
     /// It adds a new file.
     added,
@@ -792,6 +799,7 @@ fn effectOf(list: []const Mod, at: usize, own: GameFiles, name: []const u8) Effe
     if (own.pictureOf(name)) |picture| return .{ .picture = picture };
     if (own.fontOf(name)) |font| return .{ .font = font };
     if (own.lineOf(name)) |line| return .{ .line = line };
+    if (own.soundOf(name)) |sound| return .{ .sound = sound };
     if (own.recordingOf(name)) |replaced| return .{ .recording = replaced };
     return .added;
 }
@@ -910,23 +918,19 @@ const GameFiles = struct {
         return null;
     }
 
-    /// A shape in one of the game's sprite sets: the set's name from the picture name, without the
-    /// extension, and the shape's index in the set.
-    const Shape = struct { set: []const u8, index: usize };
-
     /// The sprite set shape that the file `name` replaces, using the name the interface looks up
     /// (`spr.pictureName`); null if it doesn't replace one.
-    fn shapeOf(gathered: GameFiles, name: []const u8) ?Shape {
-        const stem = pictureStem(name) orelse return null;
-        const mark = std.mem.findScalarLast(u8, stem, '_') orelse return null;
-        const set = stem[0..mark];
-        const index = std.fmt.parseUnsigned(usize, stem[mark + 1 ..], 10) catch return null;
+    fn shapeOf(gathered: GameFiles, name: []const u8) ?numbered.Part {
+        return gathered.partOf(pictureStem(name) orelse return null, spr.extension);
+    }
+
+    /// The numbered part of a game file with `extension` that `stem` names (`numbered.parse`);
+    /// null if the game has no such file, or `stem` names no part.
+    fn partOf(gathered: GameFiles, stem: []const u8, comptime extension: []const u8) ?numbered.Part {
+        const part = numbered.parse(stem) orelse return null;
         var buffer: [files.max_path]u8 = undefined;
-        const looked_up = spr.pictureName(&buffer, set, index) catch return null;
-        if (!std.ascii.eqlIgnoreCase(looked_up, name)) return null;
-        const set_file = std.mem.print(&buffer, "{s}" ++ spr.extension, .{set}) catch return null;
-        if (gathered.kindOf(set_file) != .file) return null;
-        return .{ .set = set, .index = index };
+        const file = std.mem.print(&buffer, "{s}" ++ extension, .{part.file}) catch return null;
+        return if (gathered.kindOf(file) == .file) part else null;
     }
 
     /// The name, without the extension, of the game's TGA picture that the file `name`,
@@ -966,6 +970,12 @@ const GameFiles = struct {
     fn lineOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
         const line = withoutSuffix(name, cbox.extension) orelse recordingStem(name) orelse return null;
         return if (gathered.kindOf(line) == .file) line else null;
+    }
+
+    /// The bank sound that the mod's recording `name` replaces, named after the bank and the
+    /// sound's number (`fat.soundName`); null if it doesn't replace one.
+    fn soundOf(gathered: GameFiles, name: []const u8) ?numbered.Part {
+        return gathered.partOf(recordingStem(name) orelse return null, fat.extension);
     }
 
     /// A game file that a recording replaces: its name without the extension, and its extension.
@@ -1463,7 +1473,7 @@ test GameFiles {
     try std.testing.expectEqual(.normal, own.mapOf("yank_2_normal.ktx2").?.kind);
     // A sprite set shape, by the picture name the interface looks up, and a picture.
     const shape = own.shapeOf("hudhard_021.PNG").?;
-    try std.testing.expectEqualStrings("hudhard", shape.set);
+    try std.testing.expectEqualStrings("hudhard", shape.file);
     try std.testing.expectEqual(21, shape.index);
     try std.testing.expectEqual(1234, own.shapeOf("HUDHARD_1234.png").?.index);
     try std.testing.expectEqual(null, own.shapeOf("hudhard_21.png"));
@@ -1481,7 +1491,7 @@ test effectOf {
     // Two mods: `a`, and `b`, which loads after it.
     try tmp.dir.createDirPath(io, "mods/a");
     try tmp.dir.createDirPath(io, "mods/b");
-    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga", "mods/b/OPTFNT.ttf", "mods/b/abrt_001.ut", "mods/b/abrt_009.ut", "mods/b/abrt_001.flac", "mods/b/theme.flac", "mods/b/theme.wav", "mods/b/0015.mp3", "mods/b/new.flac" }) |path| {
+    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga", "mods/b/OPTFNT.ttf", "mods/b/abrt_001.ut", "mods/b/abrt_009.ut", "mods/b/abrt_001.flac", "mods/b/theme.flac", "mods/b/theme.wav", "mods/b/0015.mp3", "mods/b/new.flac", "mods/b/stdsmp_012.wav", "mods/b/STDSMP_007.flac", "mods/b/stdsmp_12.wav" }) |path| {
         try tmp.dir.writeFile(io, .{ .sub_path = path, .data = path });
     }
     var mods: Mods = try .open(gpa, io, tmp.dir, null);
@@ -1496,6 +1506,7 @@ test effectOf {
     try own.add(gpa, "ABRT_001", .file);
     try own.add(gpa, "theme.wav", .file);
     try own.add(gpa, "0015.box", .file);
+    try own.add(gpa, "stdsmp.fat", .file);
 
     // An earlier mod's file, a game file, a texture and one of its maps, a sprite set shape, a
     // picture, an outline font, a line with the extension, and new files.
@@ -1519,6 +1530,12 @@ test effectOf {
     try std.testing.expectEqual(.file, effectOf(mods.list, 1, own, "theme.wav"));
     try std.testing.expectEqualStrings(".box", effectOf(mods.list, 1, own, "0015.mp3").recording.extension);
     try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "new.flac"));
+    // Sounds of a bank, named as `fat.soundName` names them, with three digits at least.
+    const sound = effectOf(mods.list, 1, own, "stdsmp_012.wav").sound;
+    try std.testing.expectEqualStrings("stdsmp", sound.file);
+    try std.testing.expectEqual(12, sound.index);
+    try std.testing.expectEqual(7, effectOf(mods.list, 1, own, "STDSMP_007.flac").sound.index);
+    try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "stdsmp_12.wav"));
     // The first mod has no earlier mod's files to replace.
     try std.testing.expectEqual(.added, effectOf(mods.list, 0, own, "hull.tga"));
 }

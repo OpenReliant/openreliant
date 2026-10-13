@@ -425,7 +425,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // FFmpeg's decoders, for the movies and for mods' music and lines in FLAC and MP3.
     var decoders: platform.video.Decoders = .init();
     const sound = try arena.create(game.hog_snd.Sound);
-    sound.init(if (output) |open| open.driver() else null, sound_voices, .{ .gpa = gpa, .io = io, .dir = directory, .mods = &mods, .codec = decoders.codec() });
+    sound.init(if (output) |open| open.driver() else null, sound_voices, .{ .gpa = gpa, .io = io, .dir = directory, .recordings = .{ .mods = &mods, .codec = decoders.codec() } });
     defer sound.shutdown();
     sound.volumes = .read(settings_file.profile);
     context.brightness = device_settings.brightness;
@@ -564,15 +564,18 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var radio: game.radio.Radio = .open(gpa, io, directory, &mods);
     defer radio.deinit(sound);
     radio.style = options.speech;
-    radio.codec = decoders.codec();
+    radio.recordings.codec = decoders.codec();
     sound.objects = objects;
     sound.missile_sound = options.missile_sound;
-    // `bank_stdsmp`, which the positional sounds of a frame play from, and `smp3d.fat`, which the
-    // 3D sounds do.
-    const stdsmp = try openreliant.fat.Bank.parse(try resources.readFile(arena, "stdsmp.fat"));
-    sound.betty = try openreliant.fat.Bank.parse(try resources.readFile(arena, "betty.fat"));
-    sound.stdsmp = stdsmp;
-    sound.open3D(try openreliant.fat.Bank.parse(try resources.readFile(arena, "smp3d.fat")));
+    // `bank_stdsmp`, which the positional sounds of a frame play from, Betty's warnings, and
+    // `smp3d.fat`, which the 3D sounds play from, each with the sounds mods give in place of its
+    // own.
+    const stdsmp = game.hog_snd.BankFile.read(arena, &resources, "stdsmp.fat", decoders.codec()) orelse return error.NoSoundBank;
+    const betty = game.hog_snd.BankFile.read(arena, &resources, "betty.fat", decoders.codec()) orelse return error.NoSoundBank;
+    const smp3d = game.hog_snd.BankFile.read(arena, &resources, game.sound3d.bank_name, decoders.codec()) orelse return error.NoSoundBank;
+    sound.stdsmp = stdsmp.bank;
+    sound.betty = betty.bank;
+    sound.open3D(smp3d.bank, smp3d.modded);
 
     // The camera, which keeps the options' cockpit setting and starts in the cockpit mode it picks,
     // as a mission's start does.
@@ -813,7 +816,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .window = .{ 0, 0 },
         .elapsed = 0,
         .sound = sound,
-        .bank = stdsmp,
+        .bank = stdsmp.bank,
         .settings = settings_file,
         .pilot_profile = &pilot_profile,
         .own = own.interface(),

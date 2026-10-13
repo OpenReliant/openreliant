@@ -464,10 +464,16 @@ pub const Context = struct {
         };
     }
 
-    /// The sound bank `name` from the open CD archive; null if it can't be read.
+    /// The sound bank `name` from the open CD archive, with the sounds mods give in place of its
+    /// own; null if it can't be read.
     pub fn readBank(context: Context, name: []const u8) ?hog_snd.BankFile {
         const bytes = context.read(name) orelse return null;
-        return .of(context.gpa, bytes, name);
+        return .of(context.gpa, bytes, name, context.recordingSource());
+    }
+
+    /// Where the mods' recordings come from, which `codec` decodes.
+    pub fn recordingSource(context: Context) recordings.Source {
+        return .{ .mods = context.resources.mods, .codec = context.codec };
     }
 
     /// The sprite set `name` from the open CD archive, with the mod pictures that replace its
@@ -480,7 +486,7 @@ pub const Context = struct {
     /// Reads the speech file `speech` from `speech_hog` (`hog_read_file`), with a mod's recording
     /// or file taking priority (`radio.readLine`); null if it can't be read.
     pub fn readLine(context: Context, speech: []const u8) ?[]u8 {
-        return radio.readLine(context.gpa, context.codec, context.resources.mods, if (context.lines) |lines| lines.* else null, speech);
+        return radio.readLine(context.gpa, context.recordingSource(), if (context.lines) |lines| lines.* else null, speech);
     }
 };
 
@@ -567,11 +573,11 @@ pub const Film = struct {
 
 /// One of Enriquez's scenes, the file `box` from the disc, spoken through `speech` from a screen,
 /// the scene before ended (`say`). A mod's recording of it, named as `box` without its extension,
-/// takes priority (`recordings.read`). A scene left out is not spoken.
+/// takes priority (`recordings.Source.read`). A scene left out is not spoken.
 pub fn speak(context: Context, speech: *cbox.Player, box: []const u8) void {
     speech.stop(context.gpa, context.sound);
     const stem = box[0 .. std.mem.findScalar(u8, box, '.') orelse box.len];
-    const bytes = recordings.read(context.gpa, context.codec, context.resources.mods, stem) orelse context.read(box) orelse return;
+    const bytes = context.recordingSource().read(context.gpa, stem) orelse context.read(box) orelse return;
     defer context.gpa.free(bytes);
     say(context, speech, bytes, box, .screen, null);
 }

@@ -2277,7 +2277,7 @@ test "a heard shot sounds, following it" {
     try speaker.init(4, null);
     const sound = &speaker.sound;
     const bank = comptime hog_snd.testing.bank(80);
-    sound.open3D(try @import("../../formats/fat.zig").Bank.parse(&bank));
+    sound.open3D(try @import("../../formats/fat.zig").Bank.parse(&bank), &.{});
     var world = ship.world();
     world.hearing = speaker.hearing(&ship.mission.clock);
 

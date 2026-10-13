@@ -357,7 +357,7 @@ test "the player's engine is heard as its ship flies out of a bay" {
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(4, null);
     defer speaker.sound.shutdown();
-    speaker.sound.open3D(try @import("../../../formats/fat.zig").Bank.parse(&testing.bank_bytes));
+    speaker.sound.open3D(try @import("../../../formats/fat.zig").Bank.parse(&testing.bank_bytes), &.{});
     bay.mission.objects.player = bay.first;
     var ctx = bay.mission.orders();
     ctx.world.hearing = speaker.hearing(&bay.mission.clock);

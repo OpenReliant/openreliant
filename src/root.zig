@@ -16,6 +16,7 @@ pub const dte = @import("formats/dte.zig");
 pub const fat = @import("formats/fat.zig");
 pub const flac = @import("formats/flac.zig");
 pub const fnt = @import("formats/fnt.zig");
+pub const numbered = @import("formats/numbered.zig");
 pub const frc = @import("formats/frc.zig");
 pub const hog = @import("formats/hog.zig");
 pub const mp3 = @import("formats/mp3.zig");

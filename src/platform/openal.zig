@@ -787,13 +787,14 @@ pub const Renderer = struct {
         return statusOf(renderer.sample3D(handle).source);
     }
 
-    pub fn sample3DLength(renderer: *Renderer, handle: mss.Sample3D) u32 {
+    pub fn sample3DFrames(renderer: *Renderer, handle: mss.Sample3D) u32 {
         const buffer = renderer.sample3D(handle).buffer orelse return 0;
-        return mss.pcmLength(buffer.frames, buffer.channels);
+        return buffer.frames;
     }
 
     /// A 3D sample is placed from the listener, falls off with distance, and sends to the
-    /// reverb, which falls off as it does; a stereo one is spatialized all the same.
+    /// reverb, which falls off as it does. A stereo one is spatialized all the same: without a
+    /// radius, OpenAL Soft places both its channels at the source.
     fn setUp3D(renderer: *Renderer, voice: *Voice) void {
         const source = voice.source;
         c.alSourcei(source, c.AL_SOURCE_RELATIVE, c.AL_TRUE);
@@ -1051,7 +1052,7 @@ test Renderer {
     const file = comptime openreliant.wave.testing.pcm(&std.mem.toBytes(@as([2048]i16, @splat(16384))));
     const placed = driver.allocate3DSample().?;
     try std.testing.expect(driver.set3DSampleFile(placed, file));
-    try std.testing.expectEqual(4096, driver.sample3DLength(placed));
+    try std.testing.expectEqual(2048, driver.sample3DFrames(placed));
     driver.set3DPosition(placed, .{ 1, 0, 0 });
     driver.set3DSampleDistances(placed, 100, 1);
     try std.testing.expectEqual(mss.Status.done, driver.sample3DStatus(placed));

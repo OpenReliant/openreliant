@@ -9,6 +9,7 @@ const assert = std.debug.assert;
 
 const fat = @import("../../formats/fat.zig");
 const shp = @import("../../formats/shp.zig");
+const wave = @import("../../formats/wave.zig");
 const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
 const mss = @import("../mss.zig");
@@ -144,19 +145,49 @@ pub const classes_per_row = 32;
 const first_row_voices = 14;
 const second_row_voices = 30;
 
+/// The bank the 3D sounds play from (`bank_smp3d`).
+pub const bank_name = "smp3d.fat";
+
 /// The 3D sounds' own state (`0x0050713C`, `0x0058CB00` on).
 pub const Effects = struct {
     /// Set up for the open provider (`0x0058CB65`).
     ready: bool = false,
     /// `smp3d.fat` (`bank_smp3d`, `0x0058CB10`).
     bank: ?fat.Bank = null,
+    /// Added by OpenReliant: which of the bank's sounds mods give (`hog_snd.BankFile.modded`).
+    modded: []const bool = &.{},
     /// Each 3D voice's class (`0x0058CB1C`).
     classes: [hog_snd.max_voices_3d]Class = @splat(.not_reserved),
+    /// Added by OpenReliant: what each 3D voice's rates are scaled by (`rateScale`).
+    rate_scales: [hog_snd.max_voices_3d]f32 = @splat(1),
     /// The player's engine sound (`0x0058CB04`), and when its afterburner last came on or went off
     /// (`0x0050713C`).
     engine: EngineState = .idle,
     engine_changed_at: i32 = -1,
+
+    /// Whether a mod gives the bank's sound `entry`.
+    pub fn isModded(effects: *const Effects, entry: u32) bool {
+        return entry < effects.modded.len and effects.modded[entry];
+    }
 };
+
+/// What the rates a voice plays `sample` at are scaled by: for a mod's sound, its own rate over
+/// `sample_rate`, the rate the game's 3D sounds are recorded at and its rates are made for; for the
+/// game's own sounds, 1.
+///
+/// **Improvement:** the game plays every 3D sound at rates made for its own, so a mod's sound at
+/// another rate would play at another pitch, an octave low at 44,100 Hz. The game's one 3D sound at
+/// 44,100 Hz, CLOAK01's, still plays at the game's rates, an octave low, as in the original.
+pub fn rateScale(sample: []const u8, modded: bool) f32 {
+    if (!modded) return 1;
+    const own = wave.Wave.parse(sample) catch return 1;
+    return @as(f32, @floatFromInt(own.rate)) / sample_rate;
+}
+
+/// The rate `rate` the game gives a voice, scaled by `scale` (`rateScale`).
+pub fn scaledRate(rate: u32, scale: f32) u32 {
+    return std.math.lossyCast(u32, @round(@as(f32, @floatFromInt(rate)) * scale));
+}
 
 pub const EngineState = enum(u32) {
     /// The engine's own sound, pitched and loudened by the throttle.
@@ -206,13 +237,13 @@ const friendly_flyby_cosine: f32 = 0;
 const flyby_gap = 500;
 const own_flyby_gap = 200;
 
-/// `sound3d_init` (`0x0049D160`), once a provider is open: `smp3d` the bank, each 3D voice given
-/// its class from the row for as many voices as there are, and the engine's and the afterburner's
-/// voice found. The game scales the table's distances into Miles's units here; OpenReliant scales
-/// them where it uses them.
-pub fn init(sound: *Sound, smp3d: fat.Bank) void {
+/// `sound3d_init` (`0x0049D160`), once a provider is open: `smp3d` the bank, of which mods give the
+/// sounds `modded` says, each 3D voice given its class from the row for as many voices as there
+/// are, and the engine's and the afterburner's voice found. The game scales the table's distances
+/// into Miles's units here; OpenReliant scales them where it uses them.
+pub fn init(sound: *Sound, smp3d: fat.Bank, modded: []const bool) void {
     const effects = &sound.effects;
-    effects.* = .{ .bank = smp3d };
+    effects.* = .{ .bank = smp3d, .modded = modded };
     const count = sound.voice_3d_count;
     const row: usize = if (count > first_row_voices) (if (count > second_row_voices) 2 else 1) else 0;
     for (0..count) |v| {
@@ -315,6 +346,7 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
         voice.direction = .of(direction.?);
     }
     const sample = file orelse bank.sound(definition.entry) orelse return null;
+    sound.effects.rate_scales[v] = rateScale(sample, file != null or sound.effects.isModded(definition.entry));
     voice.follows = definition.follows;
     voice.owner = if (owner) |held| held else -1;
     voice.priority = @intCast(bank.entries[definition.entry].priority);
@@ -341,7 +373,7 @@ pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner
         .explosion01, .explosion02 => @intCast(explosion_rate - std.math.lossyCast(i32, scene.random.fraction() * explosion_spread)),
         else => sample_rate,
     };
-    driver.set3DSamplePlaybackRate(voice.sample, rate);
+    driver.set3DSamplePlaybackRate(voice.sample, scaledRate(rate, sound.effects.rate_scales[v]));
     driver.start3DSample(voice.sample);
     if (followed) |object| object.sound_voice = .of(v);
     return v;
@@ -493,7 +525,7 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
         .idle => if (!burning) {
             const row = sounds.engines[engineRow(player.type)];
             const rate = row.rate + std.math.lossyCast(i32, @as(f32, @floatFromInt(row.rate_by_throttle)) * player.throttle);
-            driver.set3DSamplePlaybackRate(sound.voices_3d[engine].sample, @intCast(@max(rate, 0)));
+            driver.set3DSamplePlaybackRate(sound.voices_3d[engine].sample, scaledRate(@intCast(@max(rate, 0)), effects.rate_scales[engine]));
             const loud = row.volume + std.math.lossyCast(i32, @as(f32, @floatFromInt(row.volume_by_throttle)) * player.throttle);
             driver.set3DSampleVolume(sound.voices_3d[engine].sample, std.math.lossyCast(i32, @as(f32, @floatFromInt(loud)) * scale));
             if (sound.burner_voice) |own| if (!sound.voices_3d[own].isFree()) sound.end3D(own);
@@ -509,7 +541,8 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
             const grown: f32 = @floatFromInt(@min(math.round(since * burner_growth) + burner_start, burner_most));
             const sample = sound.voices_3d[burner].sample;
             driver.set3DSampleVolume(sample, std.math.lossyCast(i32, (grown + burner_base) * scale));
-            driver.set3DSamplePlaybackRate(sample, if (player.reverse_thrust) reverse_rate else @intCast(burner_rate - std.math.lossyCast(i32, grown * burner_pitch_step)));
+            const rate: u32 = if (player.reverse_thrust) reverse_rate else @intCast(burner_rate - std.math.lossyCast(i32, grown * burner_pitch_step));
+            driver.set3DSamplePlaybackRate(sample, scaledRate(rate, effects.rate_scales[burner]));
         } else if (sound.burner_voice == null) {
             effects.engine_changed_at = -1;
             startEngine(sound, scene);
@@ -587,13 +620,20 @@ test {
 }
 
 const testing = struct {
+    /// How many sounds `bank_bytes` holds.
+    const entries = 80;
     /// A bank as large as `smp3d.fat`'s entries reach, each sound a short PCM one.
-    const bank_bytes = hog_snd.testing.bank(80);
+    const bank_bytes = hog_snd.testing.bank(entries);
+
+    /// The rate the voice `v` of `speaker`'s mixer plays at.
+    fn playingRate(speaker: *hog_snd.testing.Speaker, v: u8) u32 {
+        return speaker.mixer.samples_3d[@backingInt(speaker.sound.voices_3d[v].sample)].state.playing.?.rate;
+    }
 
     /// A sound on OpenReliant's Miles with its provider's 32 voices open, and the effects set up.
     fn open(speaker: *hog_snd.testing.Speaker) !void {
         try speaker.init(4, null);
-        speaker.sound.open3D(try fat.Bank.parse(&bank_bytes));
+        speaker.sound.open3D(try fat.Bank.parse(&bank_bytes), &.{});
     }
 
     fn scene(mission: *gameobj.testing.Mission) Scene {
@@ -746,6 +786,48 @@ test ownEngineSound {
     try std.testing.expectEqual(engineSound(.of(.predator)), engineSound(pot));
     try std.testing.expectEqualStrings("RIFF", ownEngineSound(pot).?);
     try std.testing.expectEqual(null, ownEngineSound(.of(.predator)));
+}
+
+test rateScale {
+    const at_44100 = comptime wave.testing.pcmAt(44100, "\x00\x00");
+    try std.testing.expectEqual(1, rateScale(at_44100, false));
+    try std.testing.expectEqual(2, rateScale(at_44100, true));
+    try std.testing.expectEqual(1, rateScale("not a WAVE file", true));
+    try std.testing.expectEqual(44100, scaledRate(sample_rate, 2));
+}
+
+test "a mod's sound plays at its own rate, and its voice lasts as long as it plays" {
+    const gpa = std.testing.allocator;
+    // NANNY01's sound (29) a mod's, at 44,100 Hz and 5 ticks long, and EJECT01's (28) the game's
+    // own, at 22,050 Hz and 10 ticks long.
+    const silence: [2205 * @sizeOf(i16)]u8 = @splat(0);
+    const at_44100 = comptime wave.testing.pcmAt(44100, &silence);
+    const at_22050 = comptime wave.testing.pcm(&silence);
+    var replacements: [testing.entries]?[]const u8 = @splat(null);
+    replacements[29] = at_44100;
+    replacements[28] = at_22050;
+    const bytes = try fat.rebuild(gpa, try fat.Bank.parse(&testing.bank_bytes), &replacements);
+    defer gpa.free(bytes);
+    var modded: [testing.entries]bool = @splat(false);
+    modded[29] = true;
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(4, null);
+    const sound = &speaker.sound;
+    sound.open3D(try fat.Bank.parse(bytes), &modded);
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const ship = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+
+    const mod = play(sound, testing.scene(&mission), null, null, ship, .nanny01, 1, .guaranteed).?;
+    const own = play(sound, testing.scene(&mission), null, null, ship, .eject01, 1, .guaranteed).?;
+    try std.testing.expectEqual(44100, testing.playingRate(&speaker, mod));
+    try std.testing.expectEqual(sample_rate, testing.playingRate(&speaker, own));
+    // Six ticks on, the mod's sound has ended and the game's plays on.
+    mission.clock.frame_start += 6;
+    sound.update3D(testing.scene(&mission));
+    try std.testing.expect(sound.voices_3d[mod].isFree());
+    try std.testing.expect(!sound.voices_3d[own].isFree());
 }
 
 test engineSound {
