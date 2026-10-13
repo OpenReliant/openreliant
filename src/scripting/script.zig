@@ -13,6 +13,7 @@ const create = openreliant.engine.game.create;
 const engine_hooks = openreliant.engine.hooks;
 const input = openreliant.engine.input;
 const mod_options = openreliant.engine.game.interface.mod_options;
+const interface = openreliant.engine.game.interface;
 const Object = engine_hooks.Object;
 const Mod = openreliant.engine.game.bigfile.mods.Mod;
 const data = @import("data.zig");
@@ -199,6 +200,7 @@ pub const Handler = enum {
     on_action,
     on_console_command,
     on_window_resized,
+    on_room_changed,
     on_interface_override,
     on_option_changed,
 
@@ -211,7 +213,7 @@ pub const Handler = enum {
             .on_save, .on_load => family == .global or family == .player,
             .on_records_loaded => family == .load,
             .on_update, .on_step => family == .global or family == .object,
-            .on_frame, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_window_resized => family == .player or family == .menu,
+            .on_frame, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_window_resized, .on_room_changed => family == .player or family == .menu,
             .on_mission_start, .on_mission_end => family == .global or family == .player or family == .menu,
             .on_object_added, .on_object_removed => family == .global,
             .on_added, .on_removed => family == .object,
@@ -241,6 +243,7 @@ pub const Handler = enum {
             .on_action => "When the player uses the controls bound to an action, in flight.",
             .on_console_command => "When a line typed in the console isn't one of its commands, with the line.",
             .on_window_resized => "When the window changes size, with its new size in pixels.",
+            .on_room_changed => "When the player sets off for another view of the carrier's rooms, opens or leaves one of their places, or the rooms come on screen or leave it: with the view, by its number in `records.room_views`, and the place whose screen shows (`rooms.place`). Both are nil while the rooms aren't on screen.",
             .on_interface_override => "When the script's interface takes the place of one an earlier script offered under the same name, with that one.",
             .on_option_changed => "When the player sets one of the mod's options on the mods screen, with its key and the new value. Options are set in the front end, so scripts that run in a game read them with `options.get` as they start.",
         };
@@ -262,6 +265,7 @@ pub const Handler = enum {
             .on_key_press, .on_key_release => struct { key: input.Key },
             .on_action => struct { action: []const u8 },
             .on_window_resized => struct { width: u32, height: u32 },
+            .on_room_changed => struct { view: ?u32, place: ?interface.rooms.Place },
             .on_console_command => struct { text: []const u8 },
             .on_option_changed => struct { key: []const u8, value: mod_options.Value },
         };
@@ -272,7 +276,7 @@ pub const Handler = enum {
     pub fn Result(comptime handler: Handler) type {
         return switch (handler) {
             .on_save => ?data.Data,
-            .on_init, .on_load, .on_records_loaded, .on_update, .on_step, .on_frame, .on_mission_start, .on_mission_end, .on_object_added, .on_object_removed, .on_added, .on_removed, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_window_resized, .on_interface_override, .on_option_changed => void,
+            .on_init, .on_load, .on_records_loaded, .on_update, .on_step, .on_frame, .on_mission_start, .on_mission_end, .on_object_added, .on_object_removed, .on_added, .on_removed, .on_key_press, .on_key_release, .on_action, .on_console_command, .on_window_resized, .on_room_changed, .on_interface_override, .on_option_changed => void,
         };
     }
 };
@@ -301,6 +305,7 @@ pub const Package = enum {
     vfs,
     options,
     debug,
+    rooms,
 
     /// The prefix of package names.
     pub const prefix = "openreliant.";
@@ -323,7 +328,7 @@ pub const Package = enum {
             .nearby => family == .object or family == .player,
             .orders, .radio => family == .global or family == .object,
             .hud, .camera, .postprocessing, .shaders, .debug => family == .player,
-            .ui, .input, .audio => family == .player or family == .menu,
+            .ui, .input, .audio, .rooms => family == .player or family == .menu,
         };
     }
 
@@ -331,7 +336,7 @@ pub const Package = enum {
     pub fn about(package: Package) []const u8 {
         return switch (package) {
             .core => "OpenReliant's version, events for the global scripts, and game modes.",
-            .records => "The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), what the campaign makes of each of them (`missions`), the KILLBOARD's pilots (`killboard`), the combat maneuvers (`maneuvers`), the planets (`planets`), the colour of the planets' light (`planet_light`) and the CD player's tracks (`cd_player`). Only load scripts can change them.",
+            .records => "The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), what the campaign makes of each of them (`missions`), the KILLBOARD's pilots (`killboard`), the combat maneuvers (`maneuvers`), the planets (`planets`), the colour of the planets' light (`planet_light`), the CD player's tracks (`cd_player`) and the rooms' views (`room_views`). Only load scripts can change them.",
             .hooks => "Handlers on the game's functions and events.",
             .world => "The mission's objects, the player's ship and the mission itself.",
             .self => "The script's own object, as a handle: an object script's object, a missile script's missile, or the player's ship for a player script, nil between games.",
@@ -352,6 +357,7 @@ pub const Package = enum {
             .vfs => "Reading the game's and the mods' files.",
             .options => "The options a mod offers the player on the mods screen: declaring the page, and reading the values.",
             .debug => "Lines and text placed in the world, drawn over the flight display where the camera sees them, for debugging.",
+            .rooms => "Where the player is in the carrier's rooms, and the list the CD player shows.",
         };
     }
 };

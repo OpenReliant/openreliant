@@ -88,6 +88,7 @@ Each example mod shows one part of the scripting, with comments in its files:
 | [`balance`](../../examples/mods/balance) | [The records](#the-records), changed from a load script |
 | [`bananas`](../../examples/mods/bananas) | A mod's own gun, missile, pilot and ship type, tuned in [the records](#the-records), and a [pilot set](#objects) on enemy ships |
 | [`campaign`](../../examples/mods/campaign) | A [campaign](#campaigns) with a briefing screen, a movie and an ending screen |
+| [`cd-player-pages`](../../examples/mods/cd-player-pages) | A menu script that follows [the rooms](#the-rooms), draws the front end's arrows over the CD player from a [sprite set it names](#pictures-shapes-and-fonts), and turns the CD player's pages |
 | [`cel-shading`](../../examples/mods/cel-shading) | [Surface and lighting functions](#surface-and-lighting-functions) |
 | [`crt`](../../examples/mods/crt) | A [post effect](#post-effects) |
 | [`custom-order`](../../examples/mods/custom-order) | A [custom AI order](#custom-ai-orders) started by a [mod action](#keys-and-actions) |
@@ -246,6 +247,7 @@ return {
 | `on_key_press(key)`, `on_key_release(key)`, `on_action(action)` | Player, menu | [Keys and actions](#keys-and-actions) |
 | `on_console_command(text)` | Player, menu | A line typed in [the console](#the-console) that isn't one of its commands |
 | `on_window_resized(width, height)` | Player, menu | The window changes size |
+| `on_room_changed(view, place)` | Player, menu | The player moves through [the rooms](#the-rooms) |
 | `on_interface_override(base)` | Global, object, player, menu | [Interfaces](#interfaces) |
 | `on_option_changed(key, value)` | Menu | The player sets one of the mod's [options](#options) |
 
@@ -1137,7 +1139,8 @@ The package also holds the campaign's order of missions, `campaign`
 ([Each mission of the campaign](#each-mission-of-the-campaign)), the KILLBOARD's pilots,
 `killboard` ([The KILLBOARD's pilots](#the-killboards-pilots)), the combat maneuvers,
 `maneuvers` ([Combat maneuvers](#combat-maneuvers)), the planets, `planets` ([Planets](#planets)),
-and the CD player's tracks, `cd_player` ([The CD player's tracks](#the-cd-players-tracks)).
+the CD player's tracks, `cd_player` ([The CD player's tracks](#the-cd-players-tracks)), and the
+rooms' views, `room_views` ([The rooms' views](#the-rooms-views)).
 
 Records are looked up by number or by name, with the field names of the [stat
 tables](../formats/stats.md). The definitions file for editors ([Editors](#editors)) lists every
@@ -1502,6 +1505,37 @@ records.cd_player[24] = { piece = "New_Pensive", name = "OpenReliant Theme" }
 - A piece is found by the name of its file, like the game's music: a file with the same name in a
   mod plays in place of the game's, and a mod can also add a piece with a new name.
 - Names are read from the game's text and can be changed to any text, in the game's code page.
+- The CD player opens on the list of the carrier the player is on. A menu script can turn to the
+  other's ([The rooms](#the-rooms)).
+
+### The rooms' views
+
+`records.room_views` holds the views of the carrier's rooms, the places the player stands in
+between missions ([The views](../engine/rooms.md#the-views)): the Reliant's and the Yamato's, 125
+in all, numbered from 1 in the order they lie in the executable. A view has:
+
+- `movie`, the movie on the way into it, and `loop`, the movie it loops once the player is there:
+  Bink files from the disc's archive, or a mod's of the same name. Without a loop, the way in's
+  last frame stays on the screen. Either can be nil.
+- `label`, the words that show at the foot of the screen while the pointer rests on the way into
+  it.
+- `exits`, the views it leads on to, at most 4, by their numbers, and `hotspot`, where the pointer
+  finds the way into it on each view it's an exit of, on the game's 640 by 480 screen.
+- `action`, what happens once the player is in it, such as `"cd_player"`, which opens the CD player
+  ([RoomAction](reference.md#roomaction)).
+- `sound`, the number of the sound the way into it plays, or nil.
+
+A load script changes them, and the rooms play what they say:
+
+```lua
+local records = require("openreliant.records")
+
+-- View 2 is the Reliant's way into the briefing room: the label says so in the mod's words.
+records.room_views[2].label = "Report for Duty"
+```
+
+- The table always has its 125 views: a script changes views but can't add or remove them.
+- `rooms.view` and `on_room_changed` give a view by the same numbers ([The rooms](#the-rooms)).
 
 ## Saved games
 
@@ -1684,9 +1718,17 @@ return {
 - **Pictures** are PNG files in the mod, named without folders. `size` is in window pixels; without
   it, the picture is drawn at its own size. The style's `color` and `alpha` tint it.
 - **Shapes.** A shape number picks a shape from the game's current sprite set: the flight display's
-  set for `hud`, or the current menu screen's set for `ui` ([Shapes](modding.md#shapes)). Each shape
-  keeps its own anchor point, and is drawn at the game's scale times the style's `scale`. A set
-  that isn't loaded, or a shape it doesn't have, is an error.
+  set for `hud`, or the current menu screen's set for `ui` ([Shapes](modding.md#shapes)). The
+  style's `sprites` names another of the game's sets instead, by its name in `resource.hog`, such
+  as `"frntend5.spr"`, the front end's arrows and boxes: it's read the first time a script draws
+  from it, and a mod's copy of it, or its shapes, stand in for the game's as they do on the game's
+  screens. Each shape keeps its own anchor point, and is drawn at the game's scale times the
+  style's `scale`. A set that isn't loaded or found, or a shape it doesn't have, is an error.
+- **The game's screen.** The front end's screens and the rooms are 640 by 480 pictures, fitted to
+  the window in its middle. `ui.from_game_screen(at)` gives the window's pixel at a point of that
+  screen, and `ui.to_game_screen(at)` the point of the screen at a window's pixel, such as the
+  pointer's, so that a script can draw over a place on one of those pictures, and find the pointer
+  over it.
 - **Fonts.** A text style's `font` is one of the game's, `"default"`, `"hud"`, `"menu_small"` or
   `"menu_large"`, or a font file in the mod. Text is always drawn in the style's colour.
   - A `.ttf` or `.otf` file is drawn at the window's resolution. It takes the spacing of the game's
@@ -1703,11 +1745,12 @@ return {
   point the text is drawn at as its `align` places it, or nil for text without any, such as spaces.
   An outline font's letters can start and end inside or outside the font's widths, so `ink` lines
   up what shows, such as columns of text whose first letters differ.
-- The pictures and fonts stay loaded once drawn, and a reload reads the files again. All the mods'
-  pictures and fonts together can hold up to 128 files and 128 MiB, a picture taking 4 bytes a
+- The pictures, fonts and sprite sets stay loaded once drawn, and a reload reads the mods' files
+  again. All of them together can hold up to 128 files and 128 MiB, a picture taking 4 bytes a
   pixel: a 4096x4096 picture takes 64 MiB. When a new one doesn't fit, the pictures drawn longest
   ago make room for it, so a mod can cycle through more pictures than that, such as the frames of
-  an animation. Only the fonts and the pictures drawn in the last two frames have to fit at once.
+  an animation. Only the fonts, the sprite sets and the pictures drawn in the last two frames have
+  to fit at once.
 - A missing or broken file is an error in the script, and so is a picture or font that doesn't
   fit.
 
@@ -2000,6 +2043,50 @@ audio.say("countermeasures_low")      -- Betty's line
 - `play_music` plays a piece from the game's `music` folder, looping, in place of the music that
   plays.
 - `say` takes one of Betty's lines by name ([BettyLine](reference.md#bettyline)).
+
+### The rooms
+
+`openreliant.rooms` says where the player is in the carrier's rooms, while they're on screen:
+
+- `carrier`, `"reliant"` or `"yamato"`.
+- `view`, the view the player stands in, or walks into, by its number in
+  [`records.room_views`](#the-rooms-views).
+- `place`, the place whose screen shows: `"itac"`, `"simulator"`, `"locker"` or `"cd_player"`, or
+  `"news"` while the television's report plays. It's nil while the player walks the rooms.
+
+All three are nil while the rooms aren't on screen: in flight, in the front end, in the in-game
+options, the briefing and the movies. `on_room_changed(view, place)` runs as either changes: as the
+player sets off for another view, opens or leaves a place, or the rooms come on screen or leave it.
+
+The CD player shows [`records.cd_player`](#the-cd-players-tracks)'s tracks a page at a time,
+twelve to a page: the Reliant's list on page 1 and the Yamato's on page 2. While it's open,
+`rooms.cd_player_page` is the page it shows, and `rooms.set_cd_player_page(page)` turns to another.
+It opens on its carrier's page, numbered 1 to 12 as the game numbers each list. Once a script turns
+a page, the rows are numbered as the records number the tracks, from 13 on page 2. A piece chosen
+plays on, and the pieces that follow it come from its own page, whichever page shows.
+
+```lua
+local rooms = require("openreliant.rooms")
+
+return {
+    engine_handlers = {
+        on_room_changed = function(view, place)
+            if place == "cd_player" then
+                print("the CD player opens on page " .. rooms.cd_player_page)
+            end
+        end,
+        on_key_press = function(key)
+            if rooms.place == "cd_player" and key == "tab" then
+                rooms.set_cd_player_page(rooms.cd_player_page % 2 + 1)
+            end
+        end,
+    },
+}
+```
+
+The rooms draw their pointer over what scripts draw, as the front end does over a mod's screen.
+[`examples/mods/cd-player-pages`](../../examples/mods/cd-player-pages) gives the CD player two
+pages, with the front end's arrows under its screen.
 
 ### Debug drawing
 

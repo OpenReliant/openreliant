@@ -364,29 +364,38 @@ pub const testing = struct {
     /// A set of a palette, whose index 1 is bright red, and a shape of three pixels by two hung one
     /// left of its anchor: a run of three of index 1, then a pixel skipped and one of index 1.
     pub fn paletteAndShape(gpa: Allocator) Allocator.Error![]u8 {
+        return paletteAndShapes(gpa, 2);
+    }
+
+    /// `paletteAndShape`'s palette, then its shape in each of the set's other `count - 1` blocks.
+    pub fn paletteAndShapes(gpa: Allocator, count: u32) Allocator.Error![]u8 {
         var file: std.ArrayList(u8) = .empty;
         errdefer file.deinit(gpa);
-        try file.appendSlice(gpa, std.mem.asBytes(&Header{ .version = magic.*, .shape_count = 2 }));
+        try file.appendSlice(gpa, std.mem.asBytes(&Header{ .version = magic.*, .shape_count = count }));
         const directory_at = file.items.len;
-        try file.appendNTimes(gpa, 0, 2 * @sizeOf(DirectoryEntry));
+        try file.appendNTimes(gpa, 0, count * @sizeOf(DirectoryEntry));
 
         const palette_at = file.items.len;
         try file.appendNTimes(gpa, 0, palette_size);
         file.items[palette_at + 3] = 0x3F;
 
-        const shape_at = file.items.len;
         var header: ShapeHeader = std.mem.zeroes(ShapeHeader);
         header.x1 = -1;
         header.y1 = 0;
         header.x2 = 1;
         header.y2 = 1;
-        try file.appendSlice(gpa, std.mem.asBytes(&header));
-        try file.appendSlice(gpa, &.{ 0x06, 1, 0x00 });
-        try file.appendSlice(gpa, &.{ 0x01, 2, 0x03, 1, 0x00 });
+        // A block's size runs to the next block's start, so each shape has its own copy.
+        const shapes_at = file.items.len;
+        const shape_size = @sizeOf(ShapeHeader) + 8;
+        for (1..count) |_| {
+            try file.appendSlice(gpa, std.mem.asBytes(&header));
+            try file.appendSlice(gpa, &.{ 0x06, 1, 0x00 });
+            try file.appendSlice(gpa, &.{ 0x01, 2, 0x03, 1, 0x00 });
+        }
 
-        const directory = std.mem.bytesAsSlice(DirectoryEntry, file.items[directory_at..][0 .. 2 * @sizeOf(DirectoryEntry)]);
+        const directory = std.mem.bytesAsSlice(DirectoryEntry, file.items[directory_at..][0 .. count * @sizeOf(DirectoryEntry)]);
         directory[0] = .{ .offset = @intCast(palette_at), .reserved = 0 };
-        directory[1] = .{ .offset = @intCast(shape_at), .reserved = 0 };
+        for (directory[1..], 0..) |*entry, at| entry.* = .{ .offset = @intCast(shapes_at + at * shape_size), .reserved = 0 };
         return file.toOwnedSlice(gpa);
     }
 };

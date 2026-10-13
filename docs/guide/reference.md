@@ -43,6 +43,7 @@ include mission scripts.
 | `on_action(action: string)` | player and menu | When the player uses the controls bound to an action, in flight. |
 | `on_console_command(text: string)` | player and menu | When a line typed in the console isn't one of its commands, with the line. |
 | `on_window_resized(width: number, height: number)` | player and menu | When the window changes size, with its new size in pixels. |
+| `on_room_changed(view: number?, place: RoomPlace?)` | player and menu | When the player sets off for another view of the carrier's rooms, opens or leaves one of their places, or the rooms come on screen or leave it: with the view, by its number in `records.room_views`, and the place whose screen shows (`rooms.place`). Both are nil while the rooms aren't on screen. |
 | `on_interface_override(base: { [any]: any })` | global, object, player and menu | When the script's interface takes the place of one an earlier script offered under the same name, with that one. |
 | `on_option_changed(key: string, value: boolean | number | string)` | menu | When the player sets one of the mod's options on the mods screen, with its key and the new value. Options are set in the front end, so scripts that run in a game read them with `options.get` as they start. |
 
@@ -64,7 +65,7 @@ OpenReliant's version, events for the global scripts, and game modes. For load, 
 
 ### `openreliant.records`
 
-The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), what the campaign makes of each of them (`missions`), the KILLBOARD's pilots (`killboard`), the combat maneuvers (`maneuvers`), the planets (`planets`), the colour of the planets' light (`planet_light`) and the CD player's tracks (`cd_player`). Only load scripts can change them. For load, global, object, player and menu scripts.
+The game's records: ships, guns, missiles, pilots, the pilots' faces, the text of the game and the ITAC, the campaign's missions in the order it flies them (`campaign`), what the campaign makes of each of them (`missions`), the KILLBOARD's pilots (`killboard`), the combat maneuvers (`maneuvers`), the planets (`planets`), the colour of the planets' light (`planet_light`), the CD player's tracks (`cd_player`) and the rooms' views (`room_views`). Only load scripts can change them. For load, global, object, player and menu scripts.
 
 Each of the campaign's missions, `missions[n]`, is a `CampaignMission` with these fields:
 
@@ -151,6 +152,18 @@ Each of the CD player's tracks, `cd_player[n]`, is a `CdPlayerTrack` with these 
 |---|---|---|
 | `piece` | string | The music the track plays: the name of its file in the `music` folder without the `.wav`, such as `New_Mission01`, at most 250 characters. A file of that name in a mod plays in place of the game's. |
 | `name` | string | The track's name in the list. |
+
+Each of the rooms' views, `room_views[n]`, is a `RoomView` with these fields:
+
+| Field | Type | What it is |
+|---|---|---|
+| `movie` | string, or nil | The movie on the way into the view, a Bink file of the disc's archive or a mod's, such as `rel_l2cd.bik`, at most 64 characters; nil for none. |
+| `loop` | string, or nil | The movie the view loops once the player is there, as `movie` is given; nil for none, which leaves the way in's last frame on the screen. |
+| `label` | string | The words that name the way into the view, which show at the foot of the screen while the pointer rests on its hotspot. |
+| `exits` | list of number | The views it leads on to, at most 4, by their numbers. |
+| `action` | [RoomAction](#roomaction) | What happens once the player is in the view, such as `cd_player`, which opens the CD player. |
+| `hotspot` | [ScreenRect](#screenrect) | Where the pointer finds the way into the view, on each view it's an exit of, on the game's 640 by 480 screen. |
+| `sound` | number, or nil | The sound of the rooms' `vrsnd.fat` the way into the view plays, by its number; nil for none. |
 
 ### `openreliant.hooks`
 
@@ -250,7 +263,7 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `window_state(instrument: HudInstrument)` | [HudWindowState](#hudwindowstate), or nil | How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
 | `power_ball(at: vector, size: vector?, style: FillStyle?)` | nothing | Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
@@ -273,9 +286,11 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 | `launch_mission()` | nothing | From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it. |
 | `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
+| `from_game_screen(at: vector)` | vector | Where the point `at` of the game's 640 by 480 screen lies in the window, in pixels, as the front end and the rooms fit that screen to the window, in its middle: for drawing over a place on one of their pictures. |
+| `to_game_screen(at: vector)` | vector | Where the window's pixel `at`, such as the pointer's, lies on the game's 640 by 480 screen, as `from_game_screen` places that screen. |
 | `show_screen(name: string?)` | boolean | Shows the screen `name`: the calling mod's by its own name, or any mod's by the qualified one. Nil closes the screen shown. Returns whether it's registered. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
@@ -397,6 +412,18 @@ Lines and text placed in the world, drawn over the flight display where the came
 |---|---|---|
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line between the points `from` and `to` of the world, as `style` says, where the camera sees them. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at the point `at` of the world, as `style` says, where the camera sees it. |
+
+### `openreliant.rooms`
+
+Where the player is in the carrier's rooms, and the list the CD player shows. For player and menu scripts.
+
+| Name | Type | What it is |
+|---|---|---|
+| `carrier` | [Carrier](#carrier), or nil | The carrier whose rooms are on screen; nil while they aren't, as in flight, in the front end, the in-game options and the briefing. |
+| `view` | number, or nil | The view the player stands in, or walks into, by its number in `records.room_views`; nil while the rooms aren't on screen. |
+| `place` | [RoomPlace](#roomplace), or nil | The place whose screen shows: `itac`, `simulator`, `locker` or `cd_player`, or `news` while the television's report plays. Nil while the player walks the rooms, and while they aren't on screen. |
+| `cd_player_page` | number, or nil | The page the CD player shows, while it's open: `records.cd_player`'s tracks twelve to a page, the Reliant's list on page 1 and the Yamato's on page 2. Nil while it isn't open. It opens on its carrier's page, numbered 1 to 12 as the game numbers each list. |
+| `set_cd_player_page(page: number)` | boolean | Turns the CD player to page `page`, while it's open, its rows numbered as `records.cd_player` numbers its tracks, from 13 on page 2. The piece chosen plays on, and the pieces that follow it come from its own page. Returns whether the CD player is open. |
 
 ## Objects
 
@@ -606,7 +633,7 @@ turret, and a turret's own scripts on their turret.
 | `window_state(instrument: HudInstrument)` | [HudWindowState](#hudwindowstate), or nil | How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
 | `power_ball(at: vector, size: vector?, style: FillStyle?)` | nothing | Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
@@ -654,9 +681,11 @@ turret, and a turret's own scripts on their turret.
 | `launch_mission()` | nothing | From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it. |
 | `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
+| `from_game_screen(at: vector)` | vector | Where the point `at` of the game's 640 by 480 screen lies in the window, in pixels, as the front end and the rooms fit that screen to the window, in its middle: for drawing over a place on one of their pictures. |
+| `to_game_screen(at: vector)` | vector | Where the window's pixel `at`, such as the pointer's, lies on the game's 640 by 480 screen, as `from_game_screen` places that screen. |
 | `show_screen(name: string?)` | boolean | Shows the screen `name`: the calling mod's by its own name, or any mod's by the qualified one. Nil closes the screen shown. Returns whether it's registered. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
@@ -1611,6 +1640,7 @@ A table a script gives, which may leave out any field.
 | `color` | vector | `vector.create(1, 1, 1)` |
 | `alpha` | number | 1 |
 | `scale` | number | 1 |
+| `sprites` | string, or nil | nil |
 
 ### TextStyle
 
@@ -1795,6 +1825,15 @@ A table a script gives, which may leave out any field.
 | `pitch` | boolean | false |
 | `roll` | boolean | false |
 
+### ScreenRect
+
+| Field | Type |
+|---|---|
+| `x` | number |
+| `y` | number |
+| `width` | number |
+| `height` | number |
+
 ### Outcome
 
 | Field | Type |
@@ -1960,6 +1999,10 @@ number. A script can set a field to either.
 
 `toggle`, `choice`, `number`, `slider`, `text`, `heading`.
 
+### RoomPlace
+
+`news`, `itac`, `simulator`, `locker`, `cd_player`.
+
 ### Medal
 
 `silver`, `black_eagle`, `valour`, `legion`, `navy_cross`, `medal_of_honour`.
@@ -1971,6 +2014,10 @@ number. A script can set a field to either.
 ### GameVariable
 
 `jump_ready`, `warp_ready`, `backup_available`, `player_missiles_left`, `mcgann_alive`, `nicolai_petrov_alive`, `ivan_petrov_alive`, `kulov_alive`, `mission_over`, `landing_cleared`, `al_rahan_alive`, `sharif_alive`, `steiner_alive`, `mission_success`, `players`, `krasnaya_alive`, `rameses_alive`, `kozah_alive`, `fixed_gate_alive`, `warp_gate_alive`, `last_success`, `objectives_met`, `czar_alive`, `ghost_alive`, `reliant_alive`, `countdown`, `chapter2_thread3_shown`, `red_dragon_alive`, `yamato_alive`, `ion_cannons_hold_lock`, or a number.
+
+### RoomAction
+
+`none`, `briefing`, `itac`, `fish_tank`, `animated`, `simulator`, `locker`, `news`, `unused`, `cd_player`, or a number.
 
 ### Ending
 

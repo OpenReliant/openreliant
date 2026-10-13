@@ -66,7 +66,9 @@ pub const functions = struct {
     pub const pointer = api.Field(?Pointer, "Where the pointer is, in pixels from the window's top left corner, and whether its left button is down; nil before it has been over the window.", struct {
         pub fn get(call: Call) ?Pointer {
             const host = Presentation.of(call).host orelse return null;
-            const at = host.devices.mouse.at orelse return null;
+            // The window gives the pointer's place as fractions of its size.
+            const share: @Vector(2, f32) = host.devices.mouse.at orelse return null;
+            const at = share * @as(@Vector(2, f32), @floatFromInt(@as(@Vector(2, u32), host.window)));
             return .{ .at = .{ at[0], at[1], 0 }, .down = host.devices.mouse.buttons.left };
         }
     });

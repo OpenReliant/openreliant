@@ -61,6 +61,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Put missions into the game's own campaign, or replace its missions, with each one's briefing, carrier, objectives, date, awards, Enriquez's report and debriefing, the ITAC's news, the landing and the chapter's news, the wing's pilots, and the rules the game applies to particular missions, through the game's rooms and saved games | [The campaign's missions](scripting.md#the-campaigns-missions), [Each mission of the campaign](scripting.md#each-mission-of-the-campaign) | |
 | Change the pilots of the ITAC's KILLBOARD, and the missions they join, leave and sit out | [The KILLBOARD's pilots](scripting.md#the-killboards-pilots) | |
 | Change which piece of music each track of the rooms' CD player plays, and its name | [The CD player's tracks](scripting.md#the-cd-players-tracks) | [`music`](../../examples/mods/music) |
+| Change the rooms' views: the movies they play, their labels, where they lead and what opens there | [The rooms' views](scripting.md#the-rooms-views) | |
 | Change the stats and the text for a game mode's missions alone, leaving the game's campaign as it is | [Game modes](scripting.md#game-modes) | |
 
 ## Change how the game plays
@@ -88,7 +89,9 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 
 | A mod can | Read | Example |
 |---|---|---|
-| Draw over the flight display and the menus: text, lines, rectangles, the mod's pictures and fonts, and the game's shapes | [Drawing](scripting.md#drawing), [Pictures, shapes and fonts](scripting.md#pictures-shapes-and-fonts) | [`dvd`](../../examples/mods/dvd), [`drawing-assets`](../../examples/mods/drawing-assets) |
+| Draw over the flight display and the menus: text, lines, rectangles, the mod's pictures and fonts, and the game's shapes from any of its sprite sets | [Drawing](scripting.md#drawing), [Pictures, shapes and fonts](scripting.md#pictures-shapes-and-fonts) | [`dvd`](../../examples/mods/dvd), [`drawing-assets`](../../examples/mods/drawing-assets), [`cd-player-pages`](../../examples/mods/cd-player-pages) |
+| Tell where the player is in the carrier's rooms, hear when that changes, and draw over the rooms and their screens | [The rooms](scripting.md#the-rooms) | [`cd-player-pages`](../../examples/mods/cd-player-pages) |
+| Turn the CD player's pages, to show both carriers' lists on either | [The rooms](scripting.md#the-rooms) | [`cd-player-pages`](../../examples/mods/cd-player-pages) |
 | Add displays to the flight display | [HUD displays](scripting.md#hud-displays) | [`arena`](../../examples/mods/arena), [`strafe-run`](../../examples/mods/strafe-run) |
 | Replace, move and scale the game's HUD instruments, and read what they show | [The game's instruments](scripting.md#the-games-instruments) | [`hud-layout`](../../examples/mods/hud-layout) |
 | Add screens, and replace the front end's | [Screens](scripting.md#screens), [Replacing a screen](scripting.md#replacing-a-screen) | [`main-menu`](../../examples/mods/main-menu), [`strafe-run`](../../examples/mods/strafe-run) |

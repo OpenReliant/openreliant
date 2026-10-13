@@ -13,10 +13,13 @@ explains how to write them; this page explains how they run.
 
 ## Drawing resources
 
-**Improvement:** scripted HUD/UI drawing uses mod PNG pictures, the current game's sprite set,
-and selected bitmap or outline fonts (#590). `drawing.Assets` caches the mods' pictures and fonts
-by script context and file name, while `drawing.View` borrows the current game's fonts, sprite set
-and rasterizer. Custom outline fonts reuse `hud.outline.Fit` and its atlas path. Measurement uses
+**Improvement:** scripted HUD/UI drawing uses mod PNG pictures, the current game's sprite set or
+one a script names, and selected bitmap or outline fonts (#590). `drawing.Assets` caches the mods'
+pictures and fonts by script context and file name, and the game's sprite sets the scripts name by
+their name in `resource.hog` (`ShapeStyle.sprites`), read with the mods' copies and pictures as the
+front end reads its own, while `drawing.View` borrows the current game's fonts, sprite set and
+rasterizer. A named set's shapes are drawn from it directly; the layer's own set is taken as the
+layer draws, since its screen can change it between the scripts' frame and the drawing. Custom outline fonts reuse `hud.outline.Fit` and its atlas path. Measurement uses
 the same bitmap layout as drawing. When a new picture or font needs room, the pictures drawn
 longest ago are taken out of the cache, but never one drawn in the last two frames, and freed at
 the next draw, which hands their textures back to the device. Fonts, and the rest at shutdown,
@@ -485,10 +488,18 @@ starts, calls and stops them ([`running.zig`](../../src/scripting/running.zig)).
 - Menu scripts start at once and run until OpenReliant quits. Player scripts start as a game
   starts and stop as it ends, with the global scripts (`GameScripts` in the driver).
 - Each pass of the driver's loop, before anything is drawn, `Presentation.frame` gets the seconds
-  since the last pass, the devices, the window's size, the camera and the sound, and what each
-  drawing layer is drawn on. It tells the scripts of a new window size (`on_window_resized`) and,
-  in flight, of the actions whose controls have just been used (`on_action`, from
-  `Devices.active` without taking the press), then calls `on_frame`.
+  since the last pass, the devices, the window's size, the camera and the sound, what each
+  drawing layer is drawn on, and where the player is in the rooms while they're on screen
+  (`Host.rooms`). It tells the scripts of a new window size (`on_window_resized`), of a new view
+  or place in the rooms (`on_room_changed`) and, in flight, of the actions whose controls have
+  just been used (`on_action`, from `Devices.active` without taking the press), then calls
+  `on_frame`.
+- Each loop of the rooms' driver says what it shows as it runs the scripts' frame
+  (`Driver.pump`): the rooms, a place's screen, or a screen outside them, such as the in-game
+  options. `openreliant.rooms` reads the last frame's (`rooms.zig`). The host holds values alone,
+  never a screen: `rooms.set_cd_player_page` leaves a request that the CD player's loop takes after
+  the scripts' frame (`Presentation.takeCdPlayerPage`), so a script called between frames can't
+  reach a CD player that has closed.
 - The window's key events reach `Presentation.key`, which tells `on_key_press` and
   `on_key_release` as a key's state changes, so a key the window repeats is told once.
 - The driver tells both kinds as each mission starts and ends (`Play.start`, `Play.end`), with the

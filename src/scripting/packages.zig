@@ -23,6 +23,7 @@ const radio = @import("radio.zig");
 const options = @import("options.zig");
 const postprocessing = @import("postprocessing.zig");
 const shaders = @import("shaders.zig");
+const rooms = @import("rooms.zig");
 
 /// The namespace that declares `package`; null for a package made otherwise, or not made yet.
 pub fn namespace(comptime package: script.Package) ?type {
@@ -45,6 +46,7 @@ pub fn namespace(comptime package: script.Package) ?type {
         .options => options.package,
         .postprocessing => postprocessing.package,
         .shaders => shaders.package,
+        .rooms => rooms.package,
         .records, .hooks, .self, .interfaces => null,
     };
 }

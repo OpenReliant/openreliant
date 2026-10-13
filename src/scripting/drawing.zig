@@ -15,6 +15,8 @@ const Allocator = std.mem.Allocator;
 const openreliant = @import("openreliant");
 const engine = openreliant.engine;
 const hud = engine.game.hud;
+const bigfile = engine.game.bigfile;
+const canvas = engine.game.interface.canvas;
 const language = engine.game.language;
 const device = engine.surrender.srd3d.device;
 const api = @import("api.zig");
@@ -28,25 +30,28 @@ const srtexture = engine.surrender.surrenderlib.srtexture;
 /// Built-in font choices; the layer's default remains the default for existing scripts.
 pub const Font = enum { default, hud, menu_small, menu_large };
 
-/// The most files the mods' pictures and fonts can keep in the cache at once.
+/// The most files the mods' pictures and fonts, and the game's sprite sets scripts draw from, can
+/// keep in the cache at once.
 pub const max_assets = 128;
-/// The most bytes their pixels and font files can take at once. A picture takes 4 bytes a pixel,
+/// The most bytes their pixels and files can take at once. A picture takes 4 bytes a pixel,
 /// so a 4096x4096 picture takes 64 MiB.
 pub const max_asset_bytes = 128 * 1024 * 1024;
 /// How many frames a drawn picture stays in the cache, whatever needs room: the device may still
 /// be drawing one drawn in the last frame.
 pub const kept_frames = 2;
 
-/// The scripts' pictures and fonts, cached by script context and file name. Each picture notes the
-/// frame it was last drawn in. When a new picture or font needs room, the pictures drawn longest
-/// ago make room for it (`makeRoom`), but never one drawn in the last `kept_frames`. A font stays
-/// until the presentation stops.
+/// The scripts' pictures and fonts, cached by script context and file name, and the game's sprite
+/// sets they draw from by name. Each picture notes the frame it was last drawn in. When a new
+/// picture, font or sprite set needs room, the pictures drawn longest ago make room for it
+/// (`makeRoom`), but never one drawn in the last `kept_frames`. A font or a sprite set stays until
+/// the presentation stops.
 ///
 /// Once the device holds a picture's pixels (`srtexture.Image.held`), the cache lets go of its own
 /// copy, so a picture takes its memory only once.
 pub const Assets = struct {
     pictures: std.ArrayList(Picture) = .empty,
     fonts: std.ArrayList(CustomFont) = .empty,
+    sprite_sets: std.ArrayList(SpriteSet) = .empty,
     bytes: usize = 0,
     /// The frame the scripts draw, from 1 for the first (`startFrame`).
     frame: u64 = 0,
@@ -61,6 +66,13 @@ pub const Assets = struct {
         bytes: usize,
         /// The frame it was last drawn in.
         drawn: u64,
+    };
+    /// A sprite set of the game's, which every script draws from alike, and the file its shapes
+    /// are read from.
+    const SpriteSet = struct {
+        name: []u8,
+        file: []u8,
+        art: *hud.Art,
     };
     const CustomFont = struct {
         context: *runtime.Context,
@@ -90,6 +102,13 @@ pub const Assets = struct {
             gpa.free(font.name);
         }
         assets.fonts.deinit(gpa);
+        for (assets.sprite_sets.items) |set| {
+            set.art.deinit(gpa);
+            gpa.destroy(set.art);
+            gpa.free(set.file);
+            gpa.free(set.name);
+        }
+        assets.sprite_sets.deinit(gpa);
         assets.* = .{};
     }
 
@@ -140,11 +159,11 @@ pub const Assets = struct {
     }
 
     /// Takes pictures out of the cache until one more file of `needed` bytes fits, the one drawn
-    /// longest ago first. Fails where the fonts and the pictures drawn in the last `kept_frames`
-    /// leave no room.
+    /// longest ago first. Fails where the fonts, the sprite sets and the pictures drawn in the last
+    /// `kept_frames` leave no room.
     fn makeRoom(assets: *Assets, gpa: Allocator, needed: usize) !void {
         while (true) {
-            const full = assets.pictures.items.len + assets.fonts.items.len == max_assets;
+            const full = assets.pictures.items.len + assets.fonts.items.len + assets.sprite_sets.items.len == max_assets;
             if (!full and assets.bytes + needed <= max_asset_bytes) return;
             const index = assets.stalest() orelse return if (full) error.TooManyAssets else error.AssetsTooLarge;
             try assets.taken_out.ensureUnusedCapacity(gpa, 1);
@@ -164,6 +183,35 @@ pub const Assets = struct {
             found = index;
         }
         return found;
+    }
+
+    /// The game's sprite set `name`, such as `frntend5.spr`, read the first time a script draws
+    /// from it: a mod's copy, else the member of `resource.hog`, with the mods' pictures standing
+    /// in for its shapes, as the game's screens read their sets. A set is cached by the archive's
+    /// name for it, which leaves out its folder (`bigfile.memberName`), and keeps that name for the
+    /// pictures, so it's the cache's copy, not the script's string.
+    fn loadSpriteSet(assets: *Assets, call: Call, name: []const u8) !*hud.Art {
+        var buffer: [bigfile.member_name_room]u8 = undefined;
+        const member = bigfile.memberName(&buffer, name);
+        if (!openreliant.hog.validName(member)) return error.InvalidAssetName;
+        for (assets.sprite_sets.items) |set| {
+            if (std.ascii.eqlIgnoreCase(set.name, member)) return set.art;
+        }
+        const archive = call.runtime().options.shared.files orelse return error.SpriteSetNotFound;
+        if (!archive.has(member)) return error.SpriteSetNotFound;
+        const gpa = call.runtime().gpa;
+        const file = try archive.readFile(gpa, member);
+        errdefer gpa.free(file);
+        try assets.makeRoom(gpa, file.len);
+        const copied = try gpa.dupe(u8, member);
+        errdefer gpa.free(copied);
+        const art = try gpa.create(hud.Art);
+        errdefer gpa.destroy(art);
+        art.* = try .init(gpa, try openreliant.spr.Sprite.parse(file), null, .of(archive.mods, copied));
+        errdefer art.deinit(gpa);
+        try assets.sprite_sets.append(gpa, .{ .name = copied, .file = file, .art = art });
+        assets.bytes += file.len;
+        return art;
     }
 
     /// The mod's font `path` of the script of `call`, laid out as the built-in font `base` where
@@ -223,8 +271,9 @@ fn problem(err: anyerror) []const u8 {
     return switch (err) {
         error.InvalidAssetName => "a file's name must be printable ASCII",
         error.AssetNotFound => "the mod has no file with that name",
-        error.TooManyAssets => std.fmt.comptimePrint("the mods' fonts and the pictures drawn in the last {d} frames already take the {d} files the cache holds", .{ kept_frames, max_assets }),
-        error.AssetsTooLarge => std.fmt.comptimePrint("the mods' fonts and the pictures drawn in the last {d} frames would take more than {d} MiB", .{ kept_frames, max_asset_bytes >> 20 }),
+        error.TooManyAssets => std.fmt.comptimePrint("the mods' fonts, the sprite sets and the pictures drawn in the last {d} frames already take the {d} files the cache holds", .{ kept_frames, max_assets }),
+        error.AssetsTooLarge => std.fmt.comptimePrint("the mods' fonts, the sprite sets and the pictures drawn in the last {d} frames would take more than {d} MiB", .{ kept_frames, max_asset_bytes >> 20 }),
+        error.SpriteSetNotFound => "neither the mods nor the game's resource.hog have it",
         error.PictureTooLarge => std.fmt.comptimePrint("its pixels alone would take more than {d} MiB", .{max_asset_bytes >> 20}),
         error.FontUnavailable => "its base font isn't loaded this frame",
         error.InvalidFontExtension => "a font must be a .fnt, .ttf or .otf file",
@@ -317,6 +366,9 @@ pub const ShapeStyle = struct {
     color: Colour = default_colour,
     alpha: f32 = 1,
     scale: f32 = 1,
+    /// A sprite set of the game's to draw from, such as `frntend5.spr`, in place of the layer's
+    /// own.
+    sprites: ?[]const u8 = null,
 };
 
 /// How big a line of text is drawn, in the window's pixels.
@@ -363,7 +415,8 @@ const Command = union(enum) {
     line: struct { from: Where, to: Where, colour: [4]f32, width: f32 },
     rectangle: struct { from: [2]f32, to: [2]f32, colour: [4]f32 },
     picture: struct { image: *srtexture.Image, at: [2]f32, size: [2]f32, colour: [4]f32 },
-    shape: struct { index: usize, at: [2]f32, colour: [4]f32, scale: f32 },
+    /// A shape of the layer's sprite set, or of `sprites`, a set the scripts named.
+    shape: struct { sprites: ?*hud.Art, index: usize, at: [2]f32, colour: [4]f32, scale: f32 },
     power_ball: struct { setting: [2]f32, at: [2]f32, size: [2]f32, colour: [4]f32 },
 };
 
@@ -420,7 +473,7 @@ pub const Layer = struct {
                 .bottom = @max(rectangle.from[1], rectangle.to[1]),
             }, rectangle.colour),
             .picture => |picture| hud.drawImageOver(into, picture.image, .{ .left = picture.at[0], .top = picture.at[1], .right = picture.at[0] + picture.size[0], .bottom = picture.at[1] + picture.size[1] }, picture.colour),
-            .shape => |shape| if (view.art) |art| try hud.drawShape(art, view.gpa, into, shape.index, .{ hud.round(shape.at[0]), hud.round(shape.at[1]) }, shape.colour, shape.scale * view.scale),
+            .shape => |shape| if (shape.sprites orelse view.art) |art| try hud.drawShape(art, view.gpa, into, shape.index, .{ hud.round(shape.at[0]), hud.round(shape.at[1]) }, shape.colour, shape.scale * view.scale),
             .power_ball => |ball| if (view.power_ball) |drawn| {
                 // Every ball a frame draws turns with the same setting.
                 drawn.render(ball.setting, 0, null);
@@ -452,6 +505,12 @@ fn rgba(colour: Colour, alpha: f32) [4]f32 {
 /// The point of the window a vector names: its first two components.
 fn screenPoint(at: @Vector(3, f32)) [2]f32 {
     return .{ at[0], at[1] };
+}
+
+/// Where the front end and the rooms place the game's 640 by 480 screen in the window `view` is
+/// drawn on.
+fn gameScreen(view: View) canvas.Placement {
+    return .of(view.screen, canvas.fitted);
 }
 
 /// Records text at `at` on the layer `which`.
@@ -524,6 +583,20 @@ pub fn Package(comptime which: Which) type {
         pub const play_movie = if (which == .ui) front_end.functions.play_movie else {};
         pub const quit = if (which == .ui) front_end.functions.quit else {};
         pub const pointer = if (which == .ui) front_end.functions.pointer else {};
+
+        pub const from_game_screen = if (which == .ui) api.Function("Where the point `at` of the game's 640 by 480 screen lies in the window, in pixels, as the front end and the rooms fit that screen to the window, in its middle: for drawing over a place on one of their pictures.", &.{"at"}, struct {
+            fn place(call: Call, at: @Vector(3, f32)) @Vector(3, f32) {
+                const placed = gameScreen(viewOf(call)).inWindow(.{ at[0], at[1] });
+                return .{ placed[0], placed[1], at[2] };
+            }
+        }.place) else {};
+
+        pub const to_game_screen = if (which == .ui) api.Function("Where the window's pixel `at`, such as the pointer's, lies on the game's 640 by 480 screen, as `from_game_screen` places that screen.", &.{"at"}, struct {
+            fn place(call: Call, at: @Vector(3, f32)) @Vector(3, f32) {
+                const placed = gameScreen(viewOf(call)).onScreen(.{ at[0], at[1] });
+                return .{ placed[0], placed[1], at[2] };
+            }
+        }.place) else {};
         pub const show_screen = if (which == .ui) api.Function("Shows the screen `name`: the calling mod's by its own name, or any mod's by the qualified one. Nil closes the screen shown. Returns whether it's registered.", &.{"name"}, struct {
             fn show(call: Call, name: ?[]const u8) bool {
                 return @import("registries.zig").show(call, .screen, name, true);
@@ -551,14 +624,16 @@ pub fn Package(comptime which: Which) type {
             }
         }.draw) else {};
 
-        pub const shape = api.Function("Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.", &.{ "at", "index", "style" }, struct {
+        pub const shape = api.Function("Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.", &.{ "at", "index", "style" }, struct {
             fn draw(call: Call, at: @Vector(3, f32), index: u32, given: ?ShapeStyle) void {
-                const view = viewOf(call);
-                const art = view.art orelse call.raise("this layer has no sprite set this frame", .{});
-                if (art.shape(index) == null) call.raise("no shape {d} in this layer's sprite set", .{index});
                 const style = given orelse ShapeStyle{};
                 const scripts = presentation.Presentation.of(call);
-                scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .shape = .{ .index = index, .at = screenPoint(at), .scale = @max(style.scale, 0), .colour = rgba(style.color, style.alpha) } });
+                // A named set lasts as long as the scripts; the layer's own is taken as it's drawn,
+                // since its screen can change it meanwhile.
+                const named = if (style.sprites) |name| scripts.assets.loadSpriteSet(call, name) catch |err| call.raise("sprite set {s}: {s}", .{ name, problem(err) }) else null;
+                const art = named orelse viewOf(call).art orelse call.raise("this layer has no sprite set this frame", .{});
+                if (art.shape(index) == null) call.raise("no shape {d} in {s}", .{ index, style.sprites orelse "this layer's sprite set" });
+                scripts.layers.getPtr(which).add(scripts.gpa, call, .{ .shape = .{ .sprites = named, .index = index, .at = screenPoint(at), .scale = @max(style.scale, 0), .colour = rgba(style.color, style.alpha) } });
             }
         }.draw);
         pub const shown = api.Field(bool, "Whether it's shown this frame, which is when what's drawn on it shows, and its other fields can be read.", struct {

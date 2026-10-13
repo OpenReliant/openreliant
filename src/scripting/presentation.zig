@@ -7,7 +7,8 @@
 //! - Its `Player` scripts start as a game starts, and stop as it ends, as the global scripts do.
 //! - Both get `on_frame` each frame drawn, even while the game is paused; `on_key_press` and
 //!   `on_key_release` as keys go down and up; `on_action` as the controls bound to an action are
-//!   used in flight; and `on_window_resized` as the window changes size.
+//!   used in flight; `on_window_resized` as the window changes size; and `on_room_changed` as the
+//!   player moves through the carrier's rooms.
 //! - They draw over the flight display and the menus (`drawing.zig`), and change the game only by
 //!   sending events to the global scripts (`core.send_global_event`), whose data is copied into the
 //!   game's state, as it would be sent to another machine.
@@ -28,6 +29,7 @@ const camera = engine.game.camera;
 const hog_snd = engine.game.hog_snd;
 const input = engine.input;
 const mod_options = engine.game.interface.mod_options;
+const rooms = engine.game.interface.rooms;
 const postprocessing = @import("postprocessing.zig");
 const shaders = @import("shaders.zig");
 const game_modes = @import("game_modes.zig");
@@ -81,6 +83,20 @@ pub const Host = struct {
     sound: ?*hog_snd.Sound = null,
     /// Whether the player is flying, which is when the controls' actions mean anything.
     flying: bool = false,
+    /// Where the player is in the carrier's rooms, while they're on screen (`openreliant.rooms`).
+    rooms: ?Rooms = null,
+
+    pub const Rooms = struct {
+        carrier: rooms.Carrier,
+        /// The view the player stands in, or walks into, by its place in the views
+        /// (`rooms.installed`).
+        view: u8,
+        /// The place whose screen shows, or the news report while it plays; null while the player
+        /// walks the rooms.
+        place: ?rooms.Place = null,
+        /// The page the CD player shows, while it's open.
+        cd_player_page: ?usize = null,
+    };
 
     pub const Flight = struct {
         hud: *const hud.State,
@@ -110,6 +126,13 @@ pub const Host = struct {
     };
 };
 
+/// Where the player is in the rooms, as `on_room_changed` tells it: the view, and the place whose
+/// screen shows.
+const Room = struct {
+    view: u8,
+    place: ?rooms.Place,
+};
+
 /// The presentation side of mods' scripts.
 pub const Presentation = struct {
     gpa: Allocator,
@@ -132,6 +155,11 @@ pub const Presentation = struct {
     actions: std.EnumSet(controls.Action) = .empty,
     /// The window's size last frame.
     window: ?[2]u32 = null,
+    /// Where the player was in the rooms last frame; null while they weren't on screen.
+    room: ?Room = null,
+    /// The page a script asked the CD player to turn to (`rooms.set_cd_player_page`), until the CD
+    /// player takes it (`takeCdPlayerPage`).
+    cd_player_request: ?usize = null,
 
     /// Starts the `Menu` scripts of `opened`, which can read `held`, the records. `version` is
     /// OpenReliant's version. Returns null if no mod has player or menu scripts.
@@ -275,6 +303,13 @@ pub const Presentation = struct {
         return shown.runtime.post_effects.passes(buffer);
     }
 
+    /// The page a script asked the CD player to turn to since the CD player last took one; null
+    /// for none.
+    pub fn takeCdPlayerPage(shown: *Presentation) ?usize {
+        defer shown.cd_player_request = null;
+        return shown.cd_player_request;
+    }
+
     /// Tells the scripts of the mod `mod` that the player set its option `option` to `value`.
     pub fn optionChanged(shown: *Presentation, mod: []const u8, option: []const u8, value: mod_options.Value) void {
         shown.runner.callMod(mod, .on_option_changed, .{ .key = option, .value = value });
@@ -305,6 +340,11 @@ pub const Presentation = struct {
             if (!std.mem.eql(u32, &last, &host.window)) shown.runner.callAll(.on_window_resized, .{ .width = host.window[0], .height = host.window[1] });
         }
         shown.window = host.window;
+        const room: ?Room = if (host.rooms) |where| .{ .view = where.view, .place = where.place } else null;
+        if (!std.meta.eql(room, shown.room)) {
+            shown.room = room;
+            shown.runner.callAll(.on_room_changed, if (room) |now| .{ .view = @as(u32, now.view) + 1, .place = now.place } else .{ .view = null, .place = null });
+        }
         var held: std.EnumSet(controls.Action) = .empty;
         if (host.flying) {
             for (std.enums.values(controls.Action)) |action| {
@@ -405,6 +445,8 @@ const Fixture = struct {
     shown: *Presentation,
     devices: input.Devices = .{},
     font: hud.Opened,
+    /// Where the frames have the player in the rooms; null while they aren't on screen.
+    rooms: ?Host.Rooms = null,
 
     fn init(fixture: *Fixture, made: []const struct { []const u8, []const struct { []const u8, []const u8 } }) !void {
         return fixture.initShared(made, .{});
@@ -437,9 +479,10 @@ const Fixture = struct {
         fixture.tmp.cleanup();
     }
 
-    /// A frame of `seconds`, in a window of `window`, with the menus shown.
+    /// A frame of `seconds`, in a window of `window`, with the menus shown, and the player where
+    /// `rooms` says.
     fn frame(fixture: *Fixture, seconds: f32, window: [2]u32) void {
-        var host: Host = .{ .seconds = seconds, .devices = &fixture.devices, .window = window };
+        var host: Host = .{ .seconds = seconds, .devices = &fixture.devices, .window = window, .rooms = fixture.rooms };
         host.views.set(.ui, .{ .font = &fixture.font, .gpa = std.testing.allocator, .screen = window, .scale = 2 });
         fixture.shown.frame(host);
     }
@@ -1181,6 +1224,120 @@ test "menu scripts draw over the menus, and hear keys and the window" {
     try std.testing.expectEqual(1024, layer.commands.items[2].line.to.screen[0]);
 }
 
+test "ui.pointer is in the window's pixels" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nMenu=menu.luau\n" },
+            .{
+                "menu.luau",
+                \\local ui = require("openreliant.ui")
+                \\return { engine_handlers = { on_frame = function()
+                \\    local pointer = ui.pointer
+                \\    ui.text(vector.zero, if pointer then `{pointer.at.x} {pointer.at.y} {pointer.down}` else "none")
+                \\end } }
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const layer = fixture.shown.layers.getPtr(.ui);
+    fixture.frame(0.016, .{ 800, 600 });
+    try std.testing.expectEqualStrings("none", layer.text.items);
+    // The window gives the pointer's place as fractions of its size.
+    fixture.devices.mouse.at = .{ 0.5, 0.25 };
+    fixture.devices.mouse.buttons.left = true;
+    fixture.frame(0.016, .{ 800, 600 });
+    try std.testing.expectEqualStrings("400 150 true", layer.text.items);
+}
+
+test "menu scripts follow the rooms, and ask the CD player for a list" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nMenu=menu.luau\n" },
+            .{
+                "menu.luau",
+                \\local rooms = require("openreliant.rooms")
+                \\local told = {}
+                \\return { engine_handlers = {
+                \\    on_room_changed = function(view, place) table.insert(told, tostring(view) .. " " .. tostring(place)) end,
+                \\    on_frame = function()
+                \\        require("openreliant.ui").text(vector.zero, table.concat(told, ","))
+                \\        if rooms.place == "cd_player" then
+                \\            assert(rooms.carrier == "reliant" and rooms.view == 5 and rooms.cd_player_page == 1)
+                \\            -- The page asked for is the page until the CD player turns to it.
+                \\            assert(rooms.set_cd_player_page(2) and rooms.cd_player_page == 2)
+                \\            assert(not pcall(rooms.set_cd_player_page, 3))
+                \\        else
+                \\            assert(not rooms.set_cd_player_page(2) and rooms.cd_player_page == nil)
+                \\        end
+                \\    end,
+                \\} }
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const shown = fixture.shown;
+    // Outside the rooms, nothing is told.
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqualStrings("", shown.layers.get(.ui).text.items);
+    // The player walks into view 5, and opens the CD player there: each is told once.
+    fixture.rooms = .{ .carrier = .reliant, .view = 4 };
+    fixture.frame(0.016, .{ 640, 480 });
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(null, shown.takeCdPlayerPage());
+    fixture.rooms = .{ .carrier = .reliant, .view = 4, .place = .cd_player, .cd_player_page = 0 };
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(1, shown.takeCdPlayerPage().?);
+    try std.testing.expectEqual(null, shown.takeCdPlayerPage());
+    // Leaving the rooms is told with nil.
+    fixture.rooms = null;
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqualStrings("5 nil,5 cd_player,nil nil", shown.layers.get(.ui).text.items);
+}
+
+test "a script draws the shapes of a sprite set it names" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const sprite = try openreliant.spr.testing.paletteAndShape(gpa);
+    defer gpa.free(sprite);
+    try openreliant.hog.testing.write(gpa, io, tmp.dir, "resource.hog", &.{.{ .name = "frntend5.spr", .data = sprite }});
+    var archive: engine.game.bigfile.Hog = try .open(gpa, io, tmp.dir, "resource.hog");
+    defer archive.close(gpa);
+    var fixture: Fixture = undefined;
+    try fixture.initShared(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nMenu=menu.luau\n" },
+            .{
+                "menu.luau",
+                \\local ui = require("openreliant.ui")
+                \\return { engine_handlers = { on_frame = function()
+                \\    -- By its name in the archive, with or without its folder: read once.
+                \\    ui.shape(vector.zero, 1, { sprites = "frntend5.spr" })
+                \\    ui.shape(vector.zero, 1, { sprites = "interface\\frntend5.spr", scale = 2 })
+                \\    local ok, err = pcall(ui.shape, vector.zero, 5, { sprites = "frntend5.spr" })
+                \\    assert(not ok and string.find(err, "no shape 5 in frntend5.spr", 1, true))
+                \\    ok, err = pcall(ui.shape, vector.zero, 1, { sprites = "none.spr" })
+                \\    assert(not ok and string.find(err, "sprite set none.spr: neither the mods nor the game's resource.hog have it", 1, true))
+                \\    -- The menus have no set of their own here.
+                \\    assert(not pcall(ui.shape, vector.zero, 1))
+                \\end } }
+            },
+        },
+    }}, .{ .files = archive });
+    defer fixture.deinit();
+    fixture.frame(0.016, .{ 640, 480 });
+    const commands = fixture.shown.layers.get(.ui).commands.items;
+    try std.testing.expectEqual(2, commands.len);
+    try std.testing.expect(commands[0].shape.sprites != null);
+    try std.testing.expectEqual(1, fixture.shown.assets.sprite_sets.items.len);
+}
+
 test "scripts draw cached mod pictures, game shapes and measured custom fonts" {
     const gpa = std.testing.allocator;
     var fixture: Fixture = undefined;
@@ -1887,6 +2044,53 @@ test "the main menu example stands in for the game's" {
         fixture.shown.key(key, false);
     }
     try std.testing.expectEqual(interf.Request{ .go = .game_options }, scripted.vtable.take(scripted.context).?);
+}
+
+test "the CD player pages example turns the CD player's pages" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    // The front end's set, with a shape in each block up to the arrows' lit halves.
+    const sprite = try openreliant.spr.testing.paletteAndShapes(gpa, 0x31);
+    defer gpa.free(sprite);
+    try openreliant.hog.testing.write(gpa, io, tmp.dir, "resource.hog", &.{.{ .name = "frntend5.spr", .data = sprite }});
+    var archive: engine.game.bigfile.Hog = try .open(gpa, io, tmp.dir, "resource.hog");
+    defer archive.close(gpa);
+    var fixture: Fixture = undefined;
+    try fixture.initShared(&.{.{ "cd-player-pages", &.{
+        .{ "mod.ini", @embedFile("cd-player-pages/mod.ini") },
+        .{ "pages.luau", @embedFile("cd-player-pages/pages.luau") },
+    } }}, .{ .files = archive });
+    defer fixture.deinit();
+    const shown = fixture.shown;
+    const layer = shown.layers.getPtr(.ui);
+    // As the player walks the rooms, it draws nothing.
+    fixture.rooms = .{ .carrier = .reliant, .view = 5 };
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(0, layer.commands.items.len);
+    // The Reliant's CD player opens: it turns to its own page, to number its rows as the pages
+    // do, and shows the arrows and the first of two pages.
+    fixture.rooms = .{ .carrier = .reliant, .view = 5, .place = .cd_player, .cd_player_page = 0 };
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(0, shown.takeCdPlayerPage().?);
+    try std.testing.expectEqual(2, layer.commands.items.len);
+    try std.testing.expectEqualStrings("1/2", layer.text.items);
+    // Page Down asks for the second page, the Yamato's list.
+    shown.key(.page_down, true);
+    shown.key(.page_down, false);
+    try std.testing.expectEqual(1, shown.takeCdPlayerPage().?);
+    // A press on the left arrow, lit under the pointer, turns back round to the last page. The
+    // window gives the pointer's place as fractions of its size, which is the screen's here.
+    fixture.devices.mouse.at = .{ 515.0 / 640.0, 425.0 / 480.0 };
+    fixture.devices.mouse.buttons.left = true;
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(1, shown.takeCdPlayerPage().?);
+    try std.testing.expectEqual(3, layer.commands.items.len);
+    try std.testing.expectEqualStrings("2/2", layer.text.items);
+    // Held, it turns no further.
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(null, shown.takeCdPlayerPage());
 }
 
 test "the campaign example briefs each of its missions, and plays its movie first" {

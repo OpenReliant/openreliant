@@ -40,9 +40,11 @@ export type BettyLine = "missiles_gone" | "armor_failing" | "screamer" | "havoc"
 export type EffectStage = "before_hud" | "after_hud"
 export type Axis = "x" | "y" | "z"
 export type OptionKind = "toggle" | "choice" | "number" | "slider" | "text" | "heading"
+export type RoomPlace = "news" | "itac" | "simulator" | "locker" | "cd_player"
 export type Medal = "silver" | "black_eagle" | "valour" | "legion" | "navy_cross" | "medal_of_honour"
 export type YamatoVisit = "never" | "always" | "when_reliant_lost"
 export type GameVariable = "jump_ready" | "warp_ready" | "backup_available" | "player_missiles_left" | "mcgann_alive" | "nicolai_petrov_alive" | "ivan_petrov_alive" | "kulov_alive" | "mission_over" | "landing_cleared" | "al_rahan_alive" | "sharif_alive" | "steiner_alive" | "mission_success" | "players" | "krasnaya_alive" | "rameses_alive" | "kozah_alive" | "fixed_gate_alive" | "warp_gate_alive" | "last_success" | "objectives_met" | "czar_alive" | "ghost_alive" | "reliant_alive" | "countdown" | "chapter2_thread3_shown" | "red_dragon_alive" | "yamato_alive" | "ion_cannons_hold_lock" | number
+export type RoomAction = "none" | "briefing" | "itac" | "fish_tank" | "animated" | "simulator" | "locker" | "news" | "unused" | "cd_player" | number
 export type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total_failure" | "friendly_fire" | "ejecting" | number
 export type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
 export type DamageKind = "bullet" | "missile" | "collision" | "crash" | "screamer" | number
@@ -267,6 +269,7 @@ export type ShapeStyle = {
     color: vector?,
     alpha: number?,
     scale: number?,
+    sprites: string?,
 }
 export type TextStyle = {
     font: string?,
@@ -373,6 +376,12 @@ export type ManeuverMirror = {
     yaw: boolean?,
     pitch: boolean?,
     roll: boolean?,
+}
+export type ScreenRect = {
+    x: number,
+    y: number,
+    width: number,
+    height: number,
 }
 export type Outcome = {
     ending: Ending,
@@ -672,6 +681,15 @@ declare extern type CdPlayerTrack with
     piece: string
     name: string
 end
+declare extern type RoomView with
+    movie: string?
+    loop: string?
+    label: string
+    exits: { number }
+    action: RoomAction
+    hotspot: ScreenRect
+    sound: number?
+end
 export type Records = {
     ships: { [number | string]: Ship },
     ship_types: { [number | string]: ShipTypeRecord },
@@ -695,6 +713,8 @@ export type Records = {
     planets: { [number]: Planet },
     --- The CD player's tracks: the Reliant's, 1 to 12, then the Yamato's, 13 to 24. Load scripts change their fields.
     cd_player: { [number]: CdPlayerTrack },
+    --- The rooms' views, the Reliant's and the Yamato's, 1 to 125 in the order they lie in the executable. Load scripts change their fields.
+    room_views: { [number]: RoomView },
 }
 
 -- The packages made from declarations. `openreliant.self` is the script's own Object.
@@ -843,7 +863,7 @@ export type Hud = {
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
     --- Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission.
     power_ball: (at: vector, size: vector?, style: FillStyle?) -> (),
-    --- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
+    --- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     --- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
     text: (at: vector, text: string, style: TextStyle?) -> (),
@@ -879,11 +899,15 @@ export type Ui = {
     play_movie: (name: string) -> (),
     --- Asks the front end to quit the game. Only menu scripts can use it.
     quit: () -> (),
+    --- Where the point `at` of the game's 640 by 480 screen lies in the window, in pixels, as the front end and the rooms fit that screen to the window, in its middle: for drawing over a place on one of their pictures.
+    from_game_screen: (at: vector) -> vector,
+    --- Where the window's pixel `at`, such as the pointer's, lies on the game's 640 by 480 screen, as `from_game_screen` places that screen.
+    to_game_screen: (at: vector) -> vector,
     --- Shows the screen `name`: the calling mod's by its own name, or any mod's by the qualified one. Nil closes the screen shown. Returns whether it's registered.
     show_screen: (name: string?) -> boolean,
     --- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
-    --- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
+    --- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     --- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
     text: (at: vector, text: string, style: TextStyle?) -> (),
@@ -1011,6 +1035,20 @@ export type Debug = {
     text: (at: vector, text: string, style: TextStyle?) -> (),
 }
 
+--- Where the player is in the carrier's rooms, and the list the CD player shows.
+export type Rooms = {
+    --- The carrier whose rooms are on screen; nil while they aren't, as in flight, in the front end, the in-game options and the briefing.
+    carrier: Carrier?,
+    --- The view the player stands in, or walks into, by its number in `records.room_views`; nil while the rooms aren't on screen.
+    view: number?,
+    --- The place whose screen shows: `itac`, `simulator`, `locker` or `cd_player`, or `news` while the television's report plays. Nil while the player walks the rooms, and while they aren't on screen.
+    place: RoomPlace?,
+    --- The page the CD player shows, while it's open: `records.cd_player`'s tracks twelve to a page, the Reliant's list on page 1 and the Yamato's on page 2. Nil while it isn't open. It opens on its carrier's page, numbered 1 to 12 as the game numbers each list.
+    cd_player_page: number?,
+    --- Turns the CD player to page `page`, while it's open, its rows numbered as `records.cd_player` numbers its tracks, from 13 on page 2. The piece chosen plays on, and the pieces that follow it come from its own page. Returns whether the CD player is open.
+    set_cd_player_page: (page: number) -> boolean,
+}
+
 --- The interfaces other scripts offer, as `I.<name>`: those of the global scripts to global scripts, those of an object's scripts to the object's other scripts, and those of player and menu scripts to each other. Nil for one nobody offers.
 export type Interfaces = {
     Flight: {
@@ -1125,6 +1163,8 @@ export type Interfaces = {
         launch_mission: () -> (),
         play_movie: (name: string) -> (),
         quit: () -> (),
+        from_game_screen: (at: vector) -> vector,
+        to_game_screen: (at: vector) -> vector,
         show_screen: (name: string?) -> boolean,
         picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
         shape: (at: vector, index: number, style: ShapeStyle?) -> (),
@@ -1597,6 +1637,7 @@ export type PlayerScript = {
         on_action: ((action: string) -> ())?,
         on_console_command: ((text: string) -> ())?,
         on_window_resized: ((width: number, height: number) -> ())?,
+        on_room_changed: ((view: number?, place: RoomPlace?) -> ())?,
         on_interface_override: ((base: { [any]: any }) -> ())?,
     }?,
     event_handlers: { [string]: (data: any) -> boolean? }?,
@@ -1615,6 +1656,7 @@ export type MenuScript = {
         on_action: ((action: string) -> ())?,
         on_console_command: ((text: string) -> ())?,
         on_window_resized: ((width: number, height: number) -> ())?,
+        on_room_changed: ((view: number?, place: RoomPlace?) -> ())?,
         on_interface_override: ((base: { [any]: any }) -> ())?,
         on_option_changed: ((key: string, value: boolean | number | string) -> ())?,
     }?,

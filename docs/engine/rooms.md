@@ -25,6 +25,8 @@ As the rooms open, they write the pilot's profile with the call sign ([The pilot
 - Each campaign mission's carrier is the one its record gives, the original's unless a mod changes it ([The carrier](#the-carrier)).
 - The loudest peaks of Enriquez's scenes are rounded off, as the radio's lines' are ([Radio](radio.md)). `--original` cuts them flat.
 - The rooms' sounds, the hum, the steps, the doors and the crew's lines, ring subtly in a small room of the ship, and Enriquez's scenes on the television and the monitors as the radio's voices do, in the cockpit's cabin, as over a speaker ([Sound](../port/sound.md#openal-soft)); the game plays them dry. `--no-reverb` and `--original` leave the rooms out.
+- Mods can change the views: a load script sets their movies, labels, exits, hotspots, actions and sounds ([The rooms' views](../guide/scripting.md#the-rooms-views)), which the rooms read from the records (`rooms.install`). The game's are fixed.
+- Mods' scripts can tell which view the player is in and which place's screen shows, and draw over the rooms and the places' screens ([The rooms](../guide/scripting.md#the-rooms)). The pointer of the rooms, the ITAC, the simulator pod, the locker and the CD player is drawn after what scripts draw, so that it stays on top.
 
 ## The carrier
 

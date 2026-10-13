@@ -291,6 +291,16 @@ pub const Placement = struct {
         const scale = scaleFor(window) * share;
         return .{ .scale = scale, .corner = hud.centred(window, size, scale) };
     }
+
+    /// The window's pixel at the point `at` of the screen.
+    pub fn inWindow(placed: Placement, at: [2]f32) [2]f32 {
+        return @as(@Vector(2, f32), placed.corner) + @as(@Vector(2, f32), at) * @as(@Vector(2, f32), @splat(placed.scale));
+    }
+
+    /// The point of the screen at the window's pixel `at`.
+    pub fn onScreen(placed: Placement, at: [2]f32) [2]f32 {
+        return (@as(@Vector(2, f32), at) - @as(@Vector(2, f32), placed.corner)) / @as(@Vector(2, f32), @splat(placed.scale));
+    }
 };
 
 /// How the renderer projects onto the front end's screen (`renderer_start`, `0x004ACC6B`): over
@@ -468,6 +478,8 @@ pub const notch_rows = 3;
 
 /// A rectangle of the front end's screen, as its tables keep one: its corner and its size.
 pub const Rect = extern struct {
+    pub const script_name = "ScreenRect";
+
     x: i16,
     y: i16,
     width: i16,
@@ -545,11 +557,9 @@ pub const Pointer = struct {
     /// `share` is how large the screen is drawn, as the canvas has it (`Canvas.share`).
     pub fn update(pointer: *Pointer, mouse: *input.Mouse, window: [2]u32, share: f32, elapsed: i32) void {
         if (mouse.at) |fractions| {
-            const placed: Placement = .of(window, share);
-            for (&pointer.at, fractions, window, placed.corner, size) |*at, fraction, pixels, start, across| {
-                const on_screen = fraction * @as(f32, @floatFromInt(pixels));
-                at.* = std.math.clamp(hud.round((on_screen - start) / placed.scale), 0, @as(i32, @intCast(across)) - 1);
-            }
+            const pixels = @as(@Vector(2, f32), fractions) * @as(@Vector(2, f32), @floatFromInt(@as(@Vector(2, u32), window)));
+            const point = Placement.of(window, share).onScreen(pixels);
+            for (&pointer.at, point, size) |*at, axis, across| at.* = std.math.clamp(hud.round(axis), 0, @as(i32, @intCast(across)) - 1);
         }
         pointer.down = mouse.buttons.left;
         pointer.right_down = mouse.buttons.right;
@@ -606,6 +616,13 @@ test scaleFor {
     const half: Placement = .of(.{ 1920, 1080 }, 0.5);
     try std.testing.expectEqual(1.125, half.scale);
     try std.testing.expectEqual([2]f32{ 600, 270 }, half.corner);
+}
+
+test Placement {
+    // In a window twice the screen's height and wider still, the screen doubled, in its middle.
+    const placed: Placement = .of(.{ 1920, 960 }, fitted);
+    try std.testing.expectEqual([2]f32{ 320 + 511 * 2, 417 * 2 }, placed.inWindow(.{ 511, 417 }));
+    try std.testing.expectEqual([2]f32{ 511, 417 }, placed.onScreen(placed.inWindow(.{ 511, 417 })));
 }
 
 test "Canvas.onScreen" {

@@ -11,6 +11,7 @@ or go away in any release. Copy one as a starting point for your own mod.
 | [`balance`](balance) | Changing the game's records from a load script |
 | [`bananas`](bananas) | A new gun with its own shot picture, sound and muzzle flash, a missile with a model built from OBJ, a pilot with a voice, a ship that carries them, and a pilot set by a script |
 | [`campaign`](campaign) | A campaign with a briefing screen and a movie |
+| [`cd-player-pages`](cd-player-pages) | Two pages for the CD player in the rooms, the Reliant's list and the Yamato's, turned with the front end's arrows |
 | [`cel-shading`](cel-shading) | A lighting function and a surface function (`openreliant.shaders`) |
 | [`crt`](crt) | A post effect (`openreliant.postprocessing`) |
 | [`custom-order`](custom-order) | Registering an AI order |

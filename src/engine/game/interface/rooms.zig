@@ -5,6 +5,9 @@
 //! or to what happens there (`Action`). The views are tables of the executable, which
 //! `tablegen rooms` transcribes ([`rooms/views.zig`](rooms/views.zig)).
 //!
+//! **Improvement:** mods change the views through the records' `room_views`, which OpenReliant
+//! installs (`install`); the original's are fixed.
+//!
 //! A pass of the rooms' loop (`0x0043A2C1`) reads the keyboard and the pointer: Escape opens the
 //! in-game options (`Step.options`); a view the player has arrived in gets its loop or its action;
 //! and the pointer takes the exit under it. The drawing (`vr_draw`, `0x0043C1C0`) plays the movie
@@ -31,6 +34,7 @@ const cbox = @import("../cbox.zig");
 const gameflow = @import("../gameflow.zig");
 const hog_snd = @import("../hog_snd.zig");
 const hud = @import("../hud.zig");
+const language = @import("../language.zig");
 const radio = @import("../radio.zig");
 const movie = @import("../xtrabits/movie.zig");
 const canvas = @import("canvas.zig");
@@ -52,9 +56,9 @@ pub const View = struct {
     /// disc's archive; null for none. Without a loop, the way in's last frame stays.
     movie: ?[]const u8,
     loop: ?[]const u8,
-    /// The string that names the way into it, which shows as the pointer rests on its hotspot
-    /// (`+0x10`).
-    label: u16,
+    /// The words that name the way into it, which show as the pointer rests on its hotspot: a
+    /// string of the game's text (`+0x10`).
+    label: language.Words,
     /// The views it leads to (`+0x14`, as many as `+0x12` counts), by their place in `views.views`.
     exits: []const u8,
     /// What happens once the player is in it (`+0x28`).
@@ -93,6 +97,8 @@ pub const View = struct {
 
 /// What happens once the player is in a view.
 pub const Action = enum(i16) {
+    pub const script_name = "RoomAction";
+
     /// Nothing: the view loops, and its hotspots lead on.
     none = 0,
     /// Enter Briefing Room: the briefing, the front end's screen 7 (`interface_run`).
@@ -156,6 +162,19 @@ pub const Entry = enum(u32) {
     reliant_pod_from_itac = 0x00506CB0,
     reliant_pod_from_cd_player = 0x00506BF0,
 };
+
+/// The views, by their place in the table.
+pub const Views = @TypeOf(views.views);
+
+/// The views the rooms walk through: the executable's until OpenReliant installs the records'
+/// (`install`).
+var installed: *const Views = &views.views;
+
+/// Uses `table` as the rooms' views. OpenReliant installs the records' once the load scripts have
+/// run.
+pub fn install(table: *const Views) void {
+    installed = table;
+}
 
 /// The place in `views.views` of the view at `address`.
 pub fn viewAt(comptime address: u32) u8 {
@@ -237,6 +256,8 @@ pub const Carrier = enum {
 /// simulator pod (`interface.loadout.simulator_pod`), the locker (`interface.locker`) and the CD
 /// player (`interface.cd_player`).
 pub const Place = enum {
+    pub const script_name = "RoomPlace";
+
     news,
     itac,
     simulator,
@@ -729,7 +750,7 @@ pub const Rooms = struct {
         rooms.readBanks();
         rooms.playHum();
         rooms.shapes = .read(context.gpa, context.resources, pointer_shapes);
-        rooms.enter(views.views[view].movie, now, true);
+        rooms.enter(installed[view].movie, now, true);
         rooms.pickCrew(now);
         return rooms;
     }
@@ -761,7 +782,7 @@ pub const Rooms = struct {
     }
 
     fn current(rooms: Rooms) View {
-        return views.views[rooms.view];
+        return installed[rooms.view];
     }
 
     /// `vrsnd.fat` and `wlksmp.fat`, from the disc; a bank left out leaves its sounds out.
@@ -824,7 +845,7 @@ pub const Rooms = struct {
         const view = rooms.current();
         if (rooms.phase == .settled) {
             for (view.exits, 0..) |exit, place| {
-                if (views.views[exit].hotspot.holds(rooms.pointer.at)) {
+                if (installed[exit].hotspot.holds(rooms.pointer.at)) {
                     rooms.hover = @intCast(place);
                     break;
                 }
@@ -884,7 +905,7 @@ pub const Rooms = struct {
     /// right button, or the left with the transitions off, skips the way in. Whether the pass goes
     /// on.
     fn take(rooms: *Rooms, exit: u8, in: Input) bool {
-        const next = views.views[exit];
+        const next = installed[exit];
         if (next.sound) |sound| if (!in.right or (in.left and !in.transitions)) {
             if (rooms.hum) |hum| _ = rooms.context.sound.playInScene(hum.bank, sound, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
         };
@@ -1063,8 +1084,8 @@ pub const Rooms = struct {
         } else rooms.film.still = true;
     }
 
-    /// `vr_draw` (`0x0043C1C0`): the movie, the label of the exit under the pointer, the fish's
-    /// food, and the pointer, at `ticks`.
+    /// `vr_draw` (`0x0043C1C0`): the movie, the label of the exit under the pointer and the fish's
+    /// food, at `ticks`. The pointer comes last, after what scripts draw (`drawPointer`).
     ///
     /// **Fix:** the game moves the food on by the ticks from the pass's start to the drawing, just
     /// after the pass takes them up, so that it falls only as the drawing takes time, and hardly at
@@ -1072,14 +1093,13 @@ pub const Rooms = struct {
     pub fn draw(rooms: *Rooms, target: canvas.Canvas, ticks: u32) canvas.Error!void {
         rooms.film.draw(target);
         if (rooms.news == null) if (rooms.film.frame()) |frame| try rooms.crew.draw(target, frame);
-        const label: ?u32 = if (rooms.news != null)
-            News.label
+        const label: ?language.Words = if (rooms.news != null)
+            .{ .string = News.label }
         else if (rooms.hover) |place|
-            views.views[rooms.current().exits[place]].label
-        else if (rooms.fish.over_food) Fish.food_label else null;
-        if (label) |id| try target.label(id);
+            installed[rooms.current().exits[place]].label
+        else if (rooms.fish.over_food) .{ .string = Fish.food_label } else null;
+        if (label) |words| try target.labelText(words.in(target.strings.*));
         try rooms.drawFood(target, ticks);
-        try rooms.drawPointer(target);
     }
 
     fn drawFood(rooms: *Rooms, target: canvas.Canvas, ticks: u32) canvas.Error!void {
@@ -1095,7 +1115,7 @@ pub const Rooms = struct {
 
     /// The pointer, cut to the screen: its straight shape stands 19 to the right of its point, as
     /// `vrgfx.spr` places it, and the game's screen cut off what reached past its right edge.
-    fn drawPointer(rooms: *Rooms, whole: canvas.Canvas) canvas.Error!void {
+    pub fn drawPointer(rooms: *Rooms, whole: canvas.Canvas) canvas.Error!void {
         const shapes = if (rooms.shapes) |*loaded| &loaded.art else return;
         const target = whole.onScreen();
         const pointer = rooms.pointer;
@@ -1108,7 +1128,7 @@ pub const Rooms = struct {
             try target.shape(shapes, Pointer.skip_shape, skip_at);
         } else try target.shape(shapes, @as(usize, pointer.shape) + 1, pointer.at);
         const place = rooms.hover orelse return;
-        const exit = views.views[rooms.current().exits[place]];
+        const exit = installed[rooms.current().exits[place]];
         if (exit.action.lights() and pointer.shape == Pointer.straight) {
             try target.shape(shapes, @as(usize, pointer.frame) + Pointer.light_shapes, pointer.at);
         }

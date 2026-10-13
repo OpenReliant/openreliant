@@ -57,11 +57,13 @@ pub const ScriptFrames = struct {
     }
 
     /// A frame of a screen with a loop of its own, such as a room or a movie, in a window `window`
-    /// pixels in size: the scripts draw on the user interface layer, in the menus' small font, at
-    /// the front end's scale. Without that font, the scripts don't run.
-    pub fn screenFrame(frames: *ScriptFrames, window: [2]u32) void {
+    /// pixels in size, with where the player is in the rooms, where they're on screen: the scripts
+    /// draw on the user interface layer, in the menus' small font, at the front end's scale.
+    /// Without that font, the scripts don't run.
+    pub fn screenFrame(frames: *ScriptFrames, window: [2]u32, rooms: ?scripting.presentation.Host.Rooms) void {
         const font = frames.fonts.get(.menu_small) orelse return;
         var shown = frames.host(window, false);
+        shown.rooms = rooms;
         frames.show(&shown, .ui, font, game.interface.canvas.scaleFor(window), null, null);
         frames.presentation.frame(shown);
     }

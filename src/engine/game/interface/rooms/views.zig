@@ -9,253 +9,253 @@ const rooms = @import("../rooms.zig");
 
 pub const views = [125]rooms.View{
     // 0
-    .{ .address = 0x00506AD0, .hotspot = .{ .x = 0, .y = 0, .width = 0, .height = 0 }, .movie = "rel_ladd_bunk.bik", .loop = "rel_doorloop.bik", .label = 0xDB, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
+    .{ .address = 0x00506AD0, .hotspot = .{ .x = 0, .y = 0, .width = 0, .height = 0 }, .movie = "rel_ladd_bunk.bik", .loop = "rel_doorloop.bik", .label = .{ .string = 0xDB }, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
     // 1
-    .{ .address = 0x00506B00, .hotspot = .{ .x = 170, .y = 120, .width = 296, .height = 290 }, .movie = "rel_bunkroom2briefing_door.bik", .loop = "single_rel_bunkroom2briefing_door.bik", .label = 0xDB, .exits = &.{24}, .action = .briefing, .sound = null },
+    .{ .address = 0x00506B00, .hotspot = .{ .x = 170, .y = 120, .width = 296, .height = 290 }, .movie = "rel_bunkroom2briefing_door.bik", .loop = "single_rel_bunkroom2briefing_door.bik", .label = .{ .string = 0xDB }, .exits = &.{24}, .action = .briefing, .sound = null },
     // 2
-    .{ .address = 0x00506B30, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "rel_t2itac.bik", .loop = "rel_itacloop.bik", .label = 0xC3, .exits = &.{ 8, 19, 10 }, .action = .none, .sound = null },
+    .{ .address = 0x00506B30, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "rel_t2itac.bik", .loop = "rel_itacloop.bik", .label = .{ .string = 0xC3 }, .exits = &.{ 8, 19, 10 }, .action = .none, .sound = null },
     // 3
-    .{ .address = 0x00506B60, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "rel_t2l.bik", .loop = "rel_tv_far_away_loop.bik", .label = 0xC7, .exits = &.{ 4, 5, 17, 20 }, .action = .none, .sound = null },
+    .{ .address = 0x00506B60, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "rel_t2l.bik", .loop = "rel_tv_far_away_loop.bik", .label = .{ .string = 0xC7 }, .exits = &.{ 4, 5, 17, 20 }, .action = .none, .sound = null },
     // 4
-    .{ .address = 0x00506B90, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "rel_l2t.bik", .loop = "rel_doorloop.bik", .label = 0xD9, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
+    .{ .address = 0x00506B90, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "rel_l2t.bik", .loop = "rel_doorloop.bik", .label = .{ .string = 0xD9 }, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
     // 5
-    .{ .address = 0x00506BC0, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "rel_l2cd.bik", .loop = "rel_cdloop.bik", .label = 0xC6, .exits = &.{ 14, 6, 15 }, .action = .none, .sound = null },
+    .{ .address = 0x00506BC0, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "rel_l2cd.bik", .loop = "rel_cdloop.bik", .label = .{ .string = 0xC6 }, .exits = &.{ 14, 6, 15 }, .action = .none, .sound = null },
     // 6
-    .{ .address = 0x00506BF0, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "rel_cd2pod.bik", .loop = "rel_podmon_loop.bik", .label = 0xCA, .exits = &.{ 13, 7, 11 }, .action = .none, .sound = null },
+    .{ .address = 0x00506BF0, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "rel_cd2pod.bik", .loop = "rel_podmon_loop.bik", .label = .{ .string = 0xCA }, .exits = &.{ 13, 7, 11 }, .action = .none, .sound = null },
     // 7
-    .{ .address = 0x00506C20, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "rel_pod2itac.bik", .loop = "rel_itacloop.bik", .label = 0xC3, .exits = &.{ 8, 19, 10 }, .action = .none, .sound = null },
+    .{ .address = 0x00506C20, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "rel_pod2itac.bik", .loop = "rel_itacloop.bik", .label = .{ .string = 0xC3 }, .exits = &.{ 8, 19, 10 }, .action = .none, .sound = null },
     // 8
-    .{ .address = 0x00506C50, .hotspot = .{ .x = 150, .y = 100, .width = 150, .height = 300 }, .movie = "bunk2itac_no_eye_recog.bik", .loop = null, .label = 0xCC, .exits = &.{9}, .action = .itac, .sound = null },
+    .{ .address = 0x00506C50, .hotspot = .{ .x = 150, .y = 100, .width = 150, .height = 300 }, .movie = "bunk2itac_no_eye_recog.bik", .loop = null, .label = .{ .string = 0xCC }, .exits = &.{9}, .action = .itac, .sound = null },
     // 9
-    .{ .address = 0x00506C80, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "rel_itac2bunk.bik", .loop = "rel_doorloop.bik", .label = 0xCE, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
+    .{ .address = 0x00506C80, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "rel_itac2bunk.bik", .loop = "rel_doorloop.bik", .label = .{ .string = 0xCE }, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
     // 10
-    .{ .address = 0x00506CB0, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "rel_itac2pod.bik", .loop = "rel_podmon_loop.bik", .label = 0xCA, .exits = &.{ 13, 7, 11 }, .action = .none, .sound = null },
+    .{ .address = 0x00506CB0, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "rel_itac2pod.bik", .loop = "rel_podmon_loop.bik", .label = .{ .string = 0xCA }, .exits = &.{ 13, 7, 11 }, .action = .none, .sound = null },
     // 11
-    .{ .address = 0x00506CE0, .hotspot = .{ .x = 200, .y = 100, .width = 150, .height = 400 }, .movie = "rel_podop2c.bik", .loop = null, .label = 0xD8, .exits = &.{12}, .action = .simulator, .sound = null },
+    .{ .address = 0x00506CE0, .hotspot = .{ .x = 200, .y = 100, .width = 150, .height = 400 }, .movie = "rel_podop2c.bik", .loop = null, .label = .{ .string = 0xD8 }, .exits = &.{12}, .action = .simulator, .sound = null },
     // 12
-    .{ .address = 0x00506D10, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "rel_pod2c.bik", .loop = "rel_doorloop.bik", .label = 0xD9, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
+    .{ .address = 0x00506D10, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "rel_pod2c.bik", .loop = "rel_doorloop.bik", .label = .{ .string = 0xD9 }, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
     // 13
-    .{ .address = 0x00506D40, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "rel_pod2cd.bik", .loop = "rel_cdloop.bik", .label = 0xC6, .exits = &.{ 14, 6, 15 }, .action = .none, .sound = null },
+    .{ .address = 0x00506D40, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "rel_pod2cd.bik", .loop = "rel_cdloop.bik", .label = .{ .string = 0xC6 }, .exits = &.{ 14, 6, 15 }, .action = .none, .sound = null },
     // 14
-    .{ .address = 0x00506D70, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "rel_cd2l.bik", .loop = "rel_tv_far_away_loop.bik", .label = 0xC7, .exits = &.{ 4, 5, 17, 20 }, .action = .none, .sound = null },
+    .{ .address = 0x00506D70, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "rel_cd2l.bik", .loop = "rel_tv_far_away_loop.bik", .label = .{ .string = 0xC7 }, .exits = &.{ 4, 5, 17, 20 }, .action = .none, .sound = null },
     // 15
-    .{ .address = 0x00506DA0, .hotspot = .{ .x = 200, .y = 150, .width = 200, .height = 250 }, .movie = "rel_bunk2cd.bik", .loop = null, .label = 0x3C5, .exits = &.{}, .action = .cd_player, .sound = null },
+    .{ .address = 0x00506DA0, .hotspot = .{ .x = 200, .y = 150, .width = 200, .height = 250 }, .movie = "rel_bunk2cd.bik", .loop = null, .label = .{ .string = 0x3C5 }, .exits = &.{}, .action = .cd_player, .sound = null },
     // 16
-    .{ .address = 0x00506DD0, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "rel_cd2bunk.bik", .loop = "rel_doorloop.bik", .label = 0xDB, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
+    .{ .address = 0x00506DD0, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "rel_cd2bunk.bik", .loop = "rel_doorloop.bik", .label = .{ .string = 0xDB }, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
     // 17
-    .{ .address = 0x00506E00, .hotspot = .{ .x = 300, .y = 0, .width = 100, .height = 100 }, .movie = "rel_c_tv.bik", .loop = "rel_tv_in_loop.bik", .label = 0x298, .exits = &.{18}, .action = .news, .sound = null },
+    .{ .address = 0x00506E00, .hotspot = .{ .x = 300, .y = 0, .width = 100, .height = 100 }, .movie = "rel_c_tv.bik", .loop = "rel_tv_in_loop.bik", .label = .{ .string = 0x298 }, .exits = &.{18}, .action = .news, .sound = null },
     // 18
-    .{ .address = 0x00506E30, .hotspot = .{ .x = 0, .y = 400, .width = 400, .height = 480 }, .movie = "rel_tv_c.bik", .loop = "rel_tv_far_away_loop.bik", .label = 0xC7, .exits = &.{ 4, 5, 17, 20 }, .action = .none, .sound = null },
+    .{ .address = 0x00506E30, .hotspot = .{ .x = 0, .y = 400, .width = 400, .height = 480 }, .movie = "rel_tv_c.bik", .loop = "rel_tv_far_away_loop.bik", .label = .{ .string = 0xC7 }, .exits = &.{ 4, 5, 17, 20 }, .action = .none, .sound = null },
     // 19
-    .{ .address = 0x00506E60, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "rel_itac2t.bik", .loop = "rel_doorloop.bik", .label = 0xD9, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
+    .{ .address = 0x00506E60, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "rel_itac2t.bik", .loop = "rel_doorloop.bik", .label = .{ .string = 0xD9 }, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
     // 20
-    .{ .address = 0x00506E90, .hotspot = .{ .x = 200, .y = 200, .width = 400, .height = 400 }, .movie = "rel_c2lock.bik", .loop = "single_rel_c2lock.bik", .label = 0xD6, .exits = &.{ 23, 21 }, .action = .locker, .sound = null },
+    .{ .address = 0x00506E90, .hotspot = .{ .x = 200, .y = 200, .width = 400, .height = 400 }, .movie = "rel_c2lock.bik", .loop = "single_rel_c2lock.bik", .label = .{ .string = 0xD6 }, .exits = &.{ 23, 21 }, .action = .locker, .sound = null },
     // 21
-    .{ .address = 0x00506EC0, .hotspot = .{ .x = 200, .y = 200, .width = 400, .height = 400 }, .movie = "rel_locklup.bik", .loop = "single_rel_locklup.bik", .label = 0xEA, .exits = &.{22}, .action = .locker, .sound = null },
+    .{ .address = 0x00506EC0, .hotspot = .{ .x = 200, .y = 200, .width = 400, .height = 400 }, .movie = "rel_locklup.bik", .loop = "single_rel_locklup.bik", .label = .{ .string = 0xEA }, .exits = &.{22}, .action = .locker, .sound = null },
     // 22
-    .{ .address = 0x00506EF0, .hotspot = .{ .x = 200, .y = 200, .width = 400, .height = 400 }, .movie = "rel_lockldo.bik", .loop = "single_rel_lockldo.bik", .label = 0xD5, .exits = &.{ 23, 21 }, .action = .none, .sound = null },
+    .{ .address = 0x00506EF0, .hotspot = .{ .x = 200, .y = 200, .width = 400, .height = 400 }, .movie = "rel_lockldo.bik", .loop = "single_rel_lockldo.bik", .label = .{ .string = 0xD5 }, .exits = &.{ 23, 21 }, .action = .none, .sound = null },
     // 23
-    .{ .address = 0x00506F20, .hotspot = .{ .x = 0, .y = 0, .width = 80, .height = 400 }, .movie = "rel_lock2c.bik", .loop = "rel_doorloop.bik", .label = 0xD5, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
+    .{ .address = 0x00506F20, .hotspot = .{ .x = 0, .y = 0, .width = 80, .height = 400 }, .movie = "rel_lock2c.bik", .loop = "rel_doorloop.bik", .label = .{ .string = 0xD5 }, .exits = &.{ 2, 3, 1 }, .action = .none, .sound = null },
     // 24
-    .{ .address = 0x00506F80, .hotspot = .{ .x = 100, .y = 0, .width = 500, .height = 480 }, .movie = "rel_c2bre.bik", .loop = null, .label = 0xDB, .exits = &.{}, .action = .briefing, .sound = null },
+    .{ .address = 0x00506F80, .hotspot = .{ .x = 100, .y = 0, .width = 500, .height = 480 }, .movie = "rel_c2bre.bik", .loop = null, .label = .{ .string = 0xDB }, .exits = &.{}, .action = .briefing, .sound = null },
     // 25
-    .{ .address = 0x0050A958, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "bunk2wr.bik", .loop = null, .label = 0xDB, .exits = &.{ 121, 122 }, .action = .briefing, .sound = null },
+    .{ .address = 0x0050A958, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "bunk2wr.bik", .loop = null, .label = .{ .string = 0xDB }, .exits = &.{ 121, 122 }, .action = .briefing, .sound = null },
     // 26
-    .{ .address = 0x0050A988, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "brd_p2i.bik", .loop = "b2iloop.bik", .label = 0xC3, .exits = &.{ 55, 74, 78 }, .action = .none, .sound = null },
+    .{ .address = 0x0050A988, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "brd_p2i.bik", .loop = "b2iloop.bik", .label = .{ .string = 0xC3 }, .exits = &.{ 55, 74, 78 }, .action = .none, .sound = null },
     // 27
-    .{ .address = 0x0050A9B8, .hotspot = .{ .x = 562, .y = 101, .width = 78, .height = 380 }, .movie = "brd_p2d.bik", .loop = null, .label = 0xC4, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
+    .{ .address = 0x0050A9B8, .hotspot = .{ .x = 562, .y = 101, .width = 78, .height = 380 }, .movie = "brd_p2d.bik", .loop = null, .label = .{ .string = 0xC4 }, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
     // 28
-    .{ .address = 0x0050A9E8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "brd_d2p.bik", .loop = "brd2podl.bik", .label = 0xC5, .exits = &.{ 26, 27, 79, 76 }, .action = .none, .sound = null },
+    .{ .address = 0x0050A9E8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "brd_d2p.bik", .loop = "brd2podl.bik", .label = .{ .string = 0xC5 }, .exits = &.{ 26, 27, 79, 76 }, .action = .none, .sound = null },
     // 29
-    .{ .address = 0x0050AA18, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "brd_cd2d.bik", .loop = null, .label = 0xC4, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AA18, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "brd_cd2d.bik", .loop = null, .label = .{ .string = 0xC4 }, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
     // 30
-    .{ .address = 0x0050AA48, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "brd_l2cd.bik", .loop = "brd2cdl.bik", .label = 0xC6, .exits = &.{ 29, 32, 31 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AA48, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "brd_l2cd.bik", .loop = "brd2cdl.bik", .label = .{ .string = 0xC6 }, .exits = &.{ 29, 32, 31 }, .action = .none, .sound = null },
     // 31
-    .{ .address = 0x0050AA78, .hotspot = .{ .x = 200, .y = 0, .width = 200, .height = 479 }, .movie = "cd_play.bik", .loop = "brd2cdl.bik", .label = 0x3C5, .exits = &.{}, .action = .cd_player, .sound = null },
+    .{ .address = 0x0050AA78, .hotspot = .{ .x = 200, .y = 0, .width = 200, .height = 479 }, .movie = "cd_play.bik", .loop = "brd2cdl.bik", .label = .{ .string = 0x3C5 }, .exits = &.{}, .action = .cd_player, .sound = null },
     // 32
-    .{ .address = 0x0050AAA8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "brd_cd2l.bik", .loop = "brd2lokl.bik", .label = 0xC7, .exits = &.{ 109, 30, 56 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AAA8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "brd_cd2l.bik", .loop = "brd2lokl.bik", .label = .{ .string = 0xC7 }, .exits = &.{ 109, 30, 56 }, .action = .none, .sound = null },
     // 33
-    .{ .address = 0x0050AAD8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "brd_d2cd.bik", .loop = "brd2cdl.bik", .label = 0xC6, .exits = &.{ 29, 32, 72 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AAD8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "brd_d2cd.bik", .loop = "brd2cdl.bik", .label = .{ .string = 0xC6 }, .exits = &.{ 29, 32, 72 }, .action = .none, .sound = null },
     // 34
-    .{ .address = 0x0050AB08, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "itac2dor.bik", .loop = null, .label = 0xC8, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AB08, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "itac2dor.bik", .loop = null, .label = .{ .string = 0xC8 }, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
     // 35
-    .{ .address = 0x0050AB38, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_i2f.bik", .loop = "itac_fiskl.bik", .label = 0xCD, .exits = &.{ 44, 51, 46 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AB38, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_i2f.bik", .loop = "itac_fiskl.bik", .label = .{ .string = 0xCD }, .exits = &.{ 44, 51, 46 }, .action = .none, .sound = null },
     // 36
-    .{ .address = 0x0050AB68, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_l2i.bik", .loop = "itac_itacl.bik", .label = 0xC3, .exits = &.{ 50, 35, 48 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AB68, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_l2i.bik", .loop = "itac_itacl.bik", .label = .{ .string = 0xC3 }, .exits = &.{ 50, 35, 48 }, .action = .none, .sound = null },
     // 37
-    .{ .address = 0x0050AB98, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "itac2lok.bik", .loop = null, .label = 0xD1, .exits = &.{}, .action = .locker, .sound = null },
+    .{ .address = 0x0050AB98, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "itac2lok.bik", .loop = null, .label = .{ .string = 0xD1 }, .exits = &.{}, .action = .locker, .sound = null },
     // 38
-    .{ .address = 0x0050ABC8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_cd2l.bik", .loop = null, .label = 0xC7, .exits = &.{ 36, 49, 37 }, .action = .none, .sound = null },
+    .{ .address = 0x0050ABC8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_cd2l.bik", .loop = null, .label = .{ .string = 0xC7 }, .exits = &.{ 36, 49, 37 }, .action = .none, .sound = null },
     // 39
-    .{ .address = 0x0050ABF8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_cd2d.bik", .loop = "itac_dl.bik", .label = 0xC4, .exits = &.{ 53, 41, 34 }, .action = .none, .sound = null },
+    .{ .address = 0x0050ABF8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_cd2d.bik", .loop = "itac_dl.bik", .label = .{ .string = 0xC4 }, .exits = &.{ 53, 41, 34 }, .action = .none, .sound = null },
     // 40
-    .{ .address = 0x0050AC28, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "itac2cd.bik", .loop = "cd_cdl_.bik", .label = 0xD2, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AC28, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "itac2cd.bik", .loop = "cd_cdl_.bik", .label = .{ .string = 0xD2 }, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
     // 41
-    .{ .address = 0x0050AC58, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_d2cd.bik", .loop = "itac_cdl.bik", .label = 0xC6, .exits = &.{ 39, 38, 40 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AC58, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_d2cd.bik", .loop = "itac_cdl.bik", .label = .{ .string = 0xC6 }, .exits = &.{ 39, 38, 40 }, .action = .none, .sound = null },
     // 42
-    .{ .address = 0x0050AC88, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_p2d.bik", .loop = "itac_dl.bik", .label = 0xC4, .exits = &.{ 53, 34, 41 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AC88, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_p2d.bik", .loop = "itac_dl.bik", .label = .{ .string = 0xC4 }, .exits = &.{ 53, 34, 41 }, .action = .none, .sound = null },
     // 43
-    .{ .address = 0x0050ACB8, .hotspot = .{ .x = 260, .y = 220, .width = 80, .height = 100 }, .movie = "itac2pod_hud.bik", .loop = null, .label = 0xC9, .exits = &.{95}, .action = .simulator, .sound = 3 },
+    .{ .address = 0x0050ACB8, .hotspot = .{ .x = 260, .y = 220, .width = 80, .height = 100 }, .movie = "itac2pod_hud.bik", .loop = null, .label = .{ .string = 0xC9 }, .exits = &.{95}, .action = .simulator, .sound = 3 },
     // 44
-    .{ .address = 0x0050ACE8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_f2p.bik", .loop = "itac_podl.bik", .label = 0xCA, .exits = &.{ 52, 42, 43 }, .action = .none, .sound = null },
+    .{ .address = 0x0050ACE8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_f2p.bik", .loop = "itac_podl.bik", .label = .{ .string = 0xCA }, .exits = &.{ 52, 42, 43 }, .action = .none, .sound = null },
     // 45
-    .{ .address = 0x0050AD18, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "fish2rot.bik", .loop = "itac_dl.bik", .label = 0xC4, .exits = &.{ 53, 34, 41 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AD18, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "fish2rot.bik", .loop = "itac_dl.bik", .label = .{ .string = 0xC4 }, .exits = &.{ 53, 34, 41 }, .action = .none, .sound = null },
     // 46
-    .{ .address = 0x0050AD48, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "itac2fis.bik", .loop = null, .label = 0xCB, .exits = &.{45}, .action = .fish_tank, .sound = null },
+    .{ .address = 0x0050AD48, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "itac2fis.bik", .loop = null, .label = .{ .string = 0xCB }, .exits = &.{45}, .action = .fish_tank, .sound = null },
     // 47
-    .{ .address = 0x0050AD78, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_i2f.bik", .loop = "itac_fiskl.bik", .label = 0xCD, .exits = &.{ 44, 46, 51 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AD78, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "ir_i2f.bik", .loop = "itac_fiskl.bik", .label = .{ .string = 0xCD }, .exits = &.{ 44, 46, 51 }, .action = .none, .sound = null },
     // 48
-    .{ .address = 0x0050ADA8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "itac2itac.bik", .loop = null, .label = 0xCC, .exits = &.{}, .action = .itac, .sound = null },
+    .{ .address = 0x0050ADA8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "itac2itac.bik", .loop = null, .label = .{ .string = 0xCC }, .exits = &.{}, .action = .itac, .sound = null },
     // 49
-    .{ .address = 0x0050ADD8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_l2cd.bik", .loop = "itac_cdl.bik", .label = 0xC6, .exits = &.{ 38, 39, 40 }, .action = .none, .sound = null },
+    .{ .address = 0x0050ADD8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_l2cd.bik", .loop = "itac_cdl.bik", .label = .{ .string = 0xC6 }, .exits = &.{ 38, 39, 40 }, .action = .none, .sound = null },
     // 50
-    .{ .address = 0x0050AE08, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_i2l.bik", .loop = null, .label = 0xC7, .exits = &.{ 36, 49, 37 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AE08, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_i2l.bik", .loop = null, .label = .{ .string = 0xC7 }, .exits = &.{ 36, 49, 37 }, .action = .none, .sound = null },
     // 51
-    .{ .address = 0x0050AE38, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_f2i.bik", .loop = "itac_itacl.bik", .label = 0xC3, .exits = &.{ 47, 48, 50 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AE38, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_f2i.bik", .loop = "itac_itacl.bik", .label = .{ .string = 0xC3 }, .exits = &.{ 47, 48, 50 }, .action = .none, .sound = null },
     // 52
-    .{ .address = 0x0050AE68, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_p2f.bik", .loop = "itac_fiskl.bik", .label = 0xCD, .exits = &.{ 44, 46, 51 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AE68, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_p2f.bik", .loop = "itac_fiskl.bik", .label = .{ .string = 0xCD }, .exits = &.{ 44, 46, 51 }, .action = .none, .sound = null },
     // 53
-    .{ .address = 0x0050AE98, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_d2p.bik", .loop = "itac_podl.bik", .label = 0xCA, .exits = &.{ 52, 42, 43 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AE98, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 479 }, .movie = "ir_d2p.bik", .loop = "itac_podl.bik", .label = .{ .string = 0xCA }, .exits = &.{ 52, 42, 43 }, .action = .none, .sound = null },
     // 54
-    .{ .address = 0x0050AEC8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "itac2rot.bik", .loop = "itac_dl.bik", .label = 0xCE, .exits = &.{ 53, 34, 41 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AEC8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "itac2rot.bik", .loop = "itac_dl.bik", .label = .{ .string = 0xCE }, .exits = &.{ 53, 34, 41 }, .action = .none, .sound = null },
     // 55
-    .{ .address = 0x0050AEF8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "brd_itac.bik", .loop = null, .label = 0xCF, .exits = &.{54}, .action = .itac, .sound = null },
+    .{ .address = 0x0050AEF8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "brd_itac.bik", .loop = null, .label = .{ .string = 0xCF }, .exits = &.{54}, .action = .itac, .sound = null },
     // 56
-    .{ .address = 0x0050AF28, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "brd_l2i.bik", .loop = "b2iloop.bik", .label = 0xC3, .exits = &.{ 74, 55, 78 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AF28, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "brd_l2i.bik", .loop = "b2iloop.bik", .label = .{ .string = 0xC3 }, .exits = &.{ 74, 55, 78 }, .action = .none, .sound = null },
     // 57
-    .{ .address = 0x0050AF58, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "brd_cd2l.bik", .loop = null, .label = 0xC7, .exits = &.{ 109, 56, 73 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AF58, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "brd_cd2l.bik", .loop = null, .label = .{ .string = 0xC7 }, .exits = &.{ 109, 56, 73 }, .action = .none, .sound = null },
     // 58
-    .{ .address = 0x0050AF88, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "cd_d2cd.bik", .loop = "cd_cdl_.bik", .label = 0xC6, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AF88, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "cd_d2cd.bik", .loop = "cd_cdl_.bik", .label = .{ .string = 0xC6 }, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
     // 59
-    .{ .address = 0x0050AFB8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "cd2door.bik", .loop = null, .label = 0xC8, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AFB8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "cd2door.bik", .loop = null, .label = .{ .string = 0xC8 }, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
     // 60
-    .{ .address = 0x0050AFE8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "cd_p2d.bik", .loop = null, .label = 0xC4, .exits = &.{ 58, 59, 67 }, .action = .none, .sound = null },
+    .{ .address = 0x0050AFE8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "cd_p2d.bik", .loop = null, .label = .{ .string = 0xC4 }, .exits = &.{ 58, 59, 67 }, .action = .none, .sound = null },
     // 61
-    .{ .address = 0x0050B018, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "cd2itac.bik", .loop = null, .label = 0xCF, .exits = &.{61}, .action = .itac, .sound = null },
+    .{ .address = 0x0050B018, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "cd2itac.bik", .loop = null, .label = .{ .string = 0xCF }, .exits = &.{61}, .action = .itac, .sound = null },
     // 62
-    .{ .address = 0x0050B048, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "cd_l2i.bik", .loop = null, .label = 0xC3, .exits = &.{ 65, 63, 61 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B048, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "cd_l2i.bik", .loop = null, .label = .{ .string = 0xC3 }, .exits = &.{ 65, 63, 61 }, .action = .none, .sound = null },
     // 63
-    .{ .address = 0x0050B078, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "cd_i2l.bik", .loop = null, .label = 0xC7, .exits = &.{ 62, 69, 70 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B078, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "cd_i2l.bik", .loop = null, .label = .{ .string = 0xC7 }, .exits = &.{ 62, 69, 70 }, .action = .none, .sound = null },
     // 64
-    .{ .address = 0x0050B0A8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "cd2pod_hud.bik", .loop = null, .label = 0xD0, .exits = &.{64}, .action = .simulator, .sound = 3 },
+    .{ .address = 0x0050B0A8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "cd2pod_hud.bik", .loop = null, .label = .{ .string = 0xD0 }, .exits = &.{64}, .action = .simulator, .sound = 3 },
     // 65
-    .{ .address = 0x0050B0D8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "cd_i2p.bik", .loop = null, .label = 0xCA, .exits = &.{ 66, 60, 64 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B0D8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "cd_i2p.bik", .loop = null, .label = .{ .string = 0xCA }, .exits = &.{ 66, 60, 64 }, .action = .none, .sound = null },
     // 66
-    .{ .address = 0x0050B108, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "cd_p2i.bik", .loop = null, .label = 0xC3, .exits = &.{ 65, 63, 61 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B108, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "cd_p2i.bik", .loop = null, .label = .{ .string = 0xC3 }, .exits = &.{ 65, 63, 61 }, .action = .none, .sound = null },
     // 67
-    .{ .address = 0x0050B138, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "cd_d2p.bik", .loop = null, .label = 0xCA, .exits = &.{ 60, 66, 64 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B138, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "cd_d2p.bik", .loop = null, .label = .{ .string = 0xCA }, .exits = &.{ 60, 66, 64 }, .action = .none, .sound = null },
     // 68
-    .{ .address = 0x0050B168, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "cd_cd2d.bik", .loop = null, .label = 0xC4, .exits = &.{ 58, 59, 67 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B168, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "cd_cd2d.bik", .loop = null, .label = .{ .string = 0xC4 }, .exits = &.{ 58, 59, 67 }, .action = .none, .sound = null },
     // 69
-    .{ .address = 0x0050B198, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "cd_l2cd.bik", .loop = null, .label = 0xC6, .exits = &.{ 68, 71 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B198, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "cd_l2cd.bik", .loop = null, .label = .{ .string = 0xC6 }, .exits = &.{ 68, 71 }, .action = .none, .sound = null },
     // 70
-    .{ .address = 0x0050B1C8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "cd2lock.bik", .loop = null, .label = 0xD1, .exits = &.{}, .action = .locker, .sound = null },
+    .{ .address = 0x0050B1C8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "cd2lock.bik", .loop = null, .label = .{ .string = 0xD1 }, .exits = &.{}, .action = .locker, .sound = null },
     // 71
-    .{ .address = 0x0050B1F8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "cd_cd2l.bik", .loop = null, .label = 0xC7, .exits = &.{ 69, 62, 70 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B1F8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "cd_cd2l.bik", .loop = null, .label = .{ .string = 0xC7 }, .exits = &.{ 69, 62, 70 }, .action = .none, .sound = null },
     // 72
-    .{ .address = 0x0050B228, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "brd2cd.bik", .loop = "cd_cdl_.bik", .label = 0xD2, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B228, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "brd2cd.bik", .loop = "cd_cdl_.bik", .label = .{ .string = 0xD2 }, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
     // 73
-    .{ .address = 0x0050B258, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "brd_l2cd.bik", .loop = "brd2cdl.bik", .label = 0xC6, .exits = &.{ 57, 29, 72 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B258, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "brd_l2cd.bik", .loop = "brd2cdl.bik", .label = .{ .string = 0xC6 }, .exits = &.{ 57, 29, 72 }, .action = .none, .sound = null },
     // 74
-    .{ .address = 0x0050B288, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "brd_i2l.bik", .loop = "brd2lokl.bik", .label = 0xC7, .exits = &.{ 109, 56, 73 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B288, .hotspot = .{ .x = 0, .y = 208, .width = 40, .height = 90 }, .movie = "brd_i2l.bik", .loop = "brd2lokl.bik", .label = .{ .string = 0xC7 }, .exits = &.{ 109, 56, 73 }, .action = .none, .sound = null },
     // 75
-    .{ .address = 0x0050B2B8, .hotspot = .{ .x = 0, .y = 0, .width = 0, .height = 0 }, .movie = "b2iloop.bik", .loop = "b2iloop.bik", .label = 0xD3, .exits = &.{ 55, 74, 78 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B2B8, .hotspot = .{ .x = 0, .y = 0, .width = 0, .height = 0 }, .movie = "b2iloop.bik", .loop = "b2iloop.bik", .label = .{ .string = 0xD3 }, .exits = &.{ 55, 74, 78 }, .action = .none, .sound = null },
     // 76
-    .{ .address = 0x0050B2E8, .hotspot = .{ .x = 462, .y = 0, .width = 178, .height = 100 }, .movie = "brd2tv.bik", .loop = "brd2tv_loop.bik", .label = 0x298, .exits = &.{26}, .action = .news, .sound = null },
+    .{ .address = 0x0050B2E8, .hotspot = .{ .x = 462, .y = 0, .width = 178, .height = 100 }, .movie = "brd2tv.bik", .loop = "brd2tv_loop.bik", .label = .{ .string = 0x298 }, .exits = &.{26}, .action = .news, .sound = null },
     // 77
-    .{ .address = 0x0050B318, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "tv2brd.bik", .loop = "brd2podl.bik", .label = 0xCA, .exits = &.{ 26, 27, 79, 76 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B318, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "tv2brd.bik", .loop = "brd2podl.bik", .label = .{ .string = 0xCA }, .exits = &.{ 26, 27, 79, 76 }, .action = .none, .sound = null },
     // 78
-    .{ .address = 0x0050B348, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "brd_i2p.bik", .loop = "brd2podl.bik", .label = 0xCA, .exits = &.{ 26, 27, 79, 76 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B348, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "brd_i2p.bik", .loop = "brd2podl.bik", .label = .{ .string = 0xCA }, .exits = &.{ 26, 27, 79, 76 }, .action = .none, .sound = null },
     // 79
-    .{ .address = 0x0050B378, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "door2pod_hud.bik", .loop = null, .label = 0xD8, .exits = &.{95}, .action = .simulator, .sound = 3 },
+    .{ .address = 0x0050B378, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "door2pod_hud.bik", .loop = null, .label = .{ .string = 0xD8 }, .exits = &.{95}, .action = .simulator, .sound = 3 },
     // 80
-    .{ .address = 0x0050B3A8, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "lockzomo.bik", .loop = "lok_podl.bik", .label = 0xD5, .exits = &.{ 84, 96, 106 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B3A8, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "lockzomo.bik", .loop = "lok_podl.bik", .label = .{ .string = 0xD5 }, .exits = &.{ 84, 96, 106 }, .action = .none, .sound = null },
     // 81
-    .{ .address = 0x0050B3D8, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "lock_lup.bik", .loop = null, .label = 0xD6, .exits = &.{80}, .action = .locker, .sound = null },
+    .{ .address = 0x0050B3D8, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "lock_lup.bik", .loop = null, .label = .{ .string = 0xD6 }, .exits = &.{80}, .action = .locker, .sound = null },
     // 82
-    .{ .address = 0x0050B408, .hotspot = .{ .x = 180, .y = 0, .width = 200, .height = 480 }, .movie = "lock2itac.bik", .loop = null, .label = 0xCF, .exits = &.{82}, .action = .itac, .sound = null },
+    .{ .address = 0x0050B408, .hotspot = .{ .x = 180, .y = 0, .width = 200, .height = 480 }, .movie = "lock2itac.bik", .loop = null, .label = .{ .string = 0xCF }, .exits = &.{82}, .action = .itac, .sound = null },
     // 83
-    .{ .address = 0x0050B438, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "lock_i2l.bik", .loop = null, .label = 0xC7, .exits = &.{ 101, 103, 102 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B438, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "lock_i2l.bik", .loop = null, .label = .{ .string = 0xC7 }, .exits = &.{ 101, 103, 102 }, .action = .none, .sound = null },
     // 84
-    .{ .address = 0x0050B468, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "lock_p2i.bik", .loop = "lock_itacl.bik", .label = 0xC3, .exits = &.{ 82, 83, 107 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B468, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "lock_p2i.bik", .loop = "lock_itacl.bik", .label = .{ .string = 0xC3 }, .exits = &.{ 82, 83, 107 }, .action = .none, .sound = null },
     // 85
-    .{ .address = 0x0050B498, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "pod2itac.bik", .loop = null, .label = 0xCF, .exits = &.{85}, .action = .itac, .sound = null },
+    .{ .address = 0x0050B498, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "pod2itac.bik", .loop = null, .label = .{ .string = 0xCF }, .exits = &.{85}, .action = .itac, .sound = null },
     // 86
-    .{ .address = 0x0050B4C8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "pod_l2i.bik", .loop = "pod_2_itac_loop.bik", .label = 0xC3, .exits = &.{ 85, 94 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B4C8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "pod_l2i.bik", .loop = "pod_2_itac_loop.bik", .label = .{ .string = 0xC3 }, .exits = &.{ 85, 94 }, .action = .none, .sound = null },
     // 87
-    .{ .address = 0x0050B4F8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "pod_cd2l.bik", .loop = "pod_2_lock_loop.bik", .label = 0xC7, .exits = &.{ 92, 86, 93 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B4F8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "pod_cd2l.bik", .loop = "pod_2_lock_loop.bik", .label = .{ .string = 0xC7 }, .exits = &.{ 92, 86, 93 }, .action = .none, .sound = null },
     // 88
-    .{ .address = 0x0050B528, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "pod_d2cd.bik", .loop = null, .label = 0xC6, .exits = &.{ 90, 87, 91 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B528, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "pod_d2cd.bik", .loop = null, .label = .{ .string = 0xC6 }, .exits = &.{ 90, 87, 91 }, .action = .none, .sound = null },
     // 89
-    .{ .address = 0x0050B558, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "pod_2_door.bik", .loop = null, .label = 0xC8, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B558, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "pod_2_door.bik", .loop = null, .label = .{ .string = 0xC8 }, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
     // 90
-    .{ .address = 0x0050B588, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "pod_cd2d.bik", .loop = null, .label = 0xC4, .exits = &.{ 88, 89 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B588, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "pod_cd2d.bik", .loop = null, .label = .{ .string = 0xC4 }, .exits = &.{ 88, 89 }, .action = .none, .sound = null },
     // 91
-    .{ .address = 0x0050B5B8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "pod2cd.bik", .loop = "cd_cdl_.bik", .label = 0xD2, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B5B8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "pod2cd.bik", .loop = "cd_cdl_.bik", .label = .{ .string = 0xD2 }, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
     // 92
-    .{ .address = 0x0050B5E8, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "pod_l2cd.bik", .loop = null, .label = 0xC6, .exits = &.{ 87, 90, 91 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B5E8, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "pod_l2cd.bik", .loop = null, .label = .{ .string = 0xC6 }, .exits = &.{ 87, 90, 91 }, .action = .none, .sound = null },
     // 93
-    .{ .address = 0x0050B618, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "pod2lock.bik", .loop = null, .label = 0xD1, .exits = &.{}, .action = .locker, .sound = null },
+    .{ .address = 0x0050B618, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "pod2lock.bik", .loop = null, .label = .{ .string = 0xD1 }, .exits = &.{}, .action = .locker, .sound = null },
     // 94
-    .{ .address = 0x0050B648, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "pod_i2l.bik", .loop = "pod_2_lock_loop.bik", .label = 0xC7, .exits = &.{ 92, 86, 93 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B648, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "pod_i2l.bik", .loop = "pod_2_lock_loop.bik", .label = .{ .string = 0xC7 }, .exits = &.{ 92, 86, 93 }, .action = .none, .sound = null },
     // 95
-    .{ .address = 0x0050B678, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "pod2rot2.bik", .loop = "pod_2_itac_loop.bik", .label = 0xD7, .exits = &.{ 85, 94 }, .action = .none, .sound = 2 },
+    .{ .address = 0x0050B678, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "pod2rot2.bik", .loop = "pod_2_itac_loop.bik", .label = .{ .string = 0xD7 }, .exits = &.{ 85, 94 }, .action = .none, .sound = 2 },
     // 96
-    .{ .address = 0x0050B6A8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "lock2pod_hud.bik", .loop = null, .label = 0xD8, .exits = &.{95}, .action = .simulator, .sound = 3 },
+    .{ .address = 0x0050B6A8, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "lock2pod_hud.bik", .loop = null, .label = .{ .string = 0xD8 }, .exits = &.{95}, .action = .simulator, .sound = 3 },
     // 97
-    .{ .address = 0x0050B6D8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "lock_d2p.bik", .loop = "lok_podl.bik", .label = 0xCA, .exits = &.{ 106, 96, 84 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B6D8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "lock_d2p.bik", .loop = "lok_podl.bik", .label = .{ .string = 0xCA }, .exits = &.{ 106, 96, 84 }, .action = .none, .sound = null },
     // 98
-    .{ .address = 0x0050B708, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "lock2door.bik", .loop = null, .label = 0xC8, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B708, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "lock2door.bik", .loop = null, .label = .{ .string = 0xC8 }, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
     // 99
-    .{ .address = 0x0050B738, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "lock_cd2d.bik", .loop = "lock2door_loop.bik", .label = 0xC4, .exits = &.{ 97, 98, 105 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B738, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "lock_cd2d.bik", .loop = "lock2door_loop.bik", .label = .{ .string = 0xC4 }, .exits = &.{ 97, 98, 105 }, .action = .none, .sound = null },
     // 100
-    .{ .address = 0x0050B768, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "lock2cd.bik", .loop = "cd_cdl_.bik", .label = 0xD2, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B768, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = "lock2cd.bik", .loop = "cd_cdl_.bik", .label = .{ .string = 0xD2 }, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
     // 101
-    .{ .address = 0x0050B798, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "lock_l2cd.bik", .loop = "lock_cdl.bik", .label = 0xC6, .exits = &.{ 99, 104, 100 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B798, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "lock_l2cd.bik", .loop = "lock_cdl.bik", .label = .{ .string = 0xC6 }, .exits = &.{ 99, 104, 100 }, .action = .none, .sound = null },
     // 102
-    .{ .address = 0x0050B7C8, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = null, .loop = null, .label = 0xD6, .exits = &.{80}, .action = .locker, .sound = null },
+    .{ .address = 0x0050B7C8, .hotspot = .{ .x = 220, .y = 0, .width = 200, .height = 480 }, .movie = null, .loop = null, .label = .{ .string = 0xD6 }, .exits = &.{80}, .action = .locker, .sound = null },
     // 103
-    .{ .address = 0x0050B828, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_l2i.bik", .loop = "lock_itacl.bik", .label = 0xC3, .exits = &.{ 82, 83, 107 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B828, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_l2i.bik", .loop = "lock_itacl.bik", .label = .{ .string = 0xC3 }, .exits = &.{ 82, 83, 107 }, .action = .none, .sound = null },
     // 104
-    .{ .address = 0x0050B858, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_cd2l.bik", .loop = null, .label = 0xC7, .exits = &.{ 101, 103, 102 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B858, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_cd2l.bik", .loop = null, .label = .{ .string = 0xC7 }, .exits = &.{ 101, 103, 102 }, .action = .none, .sound = null },
     // 105
-    .{ .address = 0x0050B888, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_d2cd.bik", .loop = "lock_cdl.bik", .label = 0xC6, .exits = &.{ 99, 104, 100 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B888, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_d2cd.bik", .loop = "lock_cdl.bik", .label = .{ .string = 0xC6 }, .exits = &.{ 99, 104, 100 }, .action = .none, .sound = null },
     // 106
-    .{ .address = 0x0050B8B8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_p2d.bik", .loop = "lock2door_loop.bik", .label = 0xC4, .exits = &.{ 97, 98, 105 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B8B8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_p2d.bik", .loop = "lock2door_loop.bik", .label = .{ .string = 0xC4 }, .exits = &.{ 97, 98, 105 }, .action = .none, .sound = null },
     // 107
-    .{ .address = 0x0050B8E8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_i2p.bik", .loop = "lok_podl.bik", .label = 0xCA, .exits = &.{ 84, 96, 106 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B8E8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_i2p.bik", .loop = "lok_podl.bik", .label = .{ .string = 0xCA }, .exits = &.{ 84, 96, 106 }, .action = .none, .sound = null },
     // 108
-    .{ .address = 0x0050B918, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_l2i.bik", .loop = null, .label = 0xC3, .exits = &.{ 82, 83, 107 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B918, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_l2i.bik", .loop = null, .label = .{ .string = 0xC3 }, .exits = &.{ 82, 83, 107 }, .action = .none, .sound = null },
     // 109
-    .{ .address = 0x0050B948, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "brd2lok.bik", .loop = null, .label = 0xD1, .exits = &.{ 119, 81, 108 }, .action = .locker, .sound = null },
+    .{ .address = 0x0050B948, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "brd2lok.bik", .loop = null, .label = .{ .string = 0xD1 }, .exits = &.{ 119, 81, 108 }, .action = .locker, .sound = null },
     // 110
-    .{ .address = 0x0050B978, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "lock2cd.bik", .loop = "cd_cdl_.bik", .label = 0xD2, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B978, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "lock2cd.bik", .loop = "cd_cdl_.bik", .label = .{ .string = 0xD2 }, .exits = &.{ 68, 71, 31 }, .action = .none, .sound = null },
     // 111
-    .{ .address = 0x0050B9A8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_cd2l.bik", .loop = null, .label = 0xC7, .exits = &.{ 119, 81, 108 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B9A8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_cd2l.bik", .loop = null, .label = .{ .string = 0xC7 }, .exits = &.{ 119, 81, 108 }, .action = .none, .sound = null },
     // 112
-    .{ .address = 0x0050B9D8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_d2cd.bik", .loop = null, .label = 0xC6, .exits = &.{ 111, 118, 110 }, .action = .none, .sound = null },
+    .{ .address = 0x0050B9D8, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_d2cd.bik", .loop = null, .label = .{ .string = 0xC6 }, .exits = &.{ 111, 118, 110 }, .action = .none, .sound = null },
     // 113
-    .{ .address = 0x0050BA08, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "lock2door.bik", .loop = null, .label = 0xC8, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
+    .{ .address = 0x0050BA08, .hotspot = .{ .x = 181, .y = 150, .width = 340, .height = 150 }, .movie = "lock2door.bik", .loop = null, .label = .{ .string = 0xC8 }, .exits = &.{ 25, 28, 33 }, .action = .none, .sound = null },
     // 114
-    .{ .address = 0x0050BA38, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_p2d.bik", .loop = null, .label = 0xC4, .exits = &.{ 112, 113, 117 }, .action = .none, .sound = null },
+    .{ .address = 0x0050BA38, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_p2d.bik", .loop = null, .label = .{ .string = 0xC4 }, .exits = &.{ 112, 113, 117 }, .action = .none, .sound = null },
     // 115
-    .{ .address = 0x0050BA68, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_i2p.bik", .loop = null, .label = 0xCA, .exits = &.{ 116, 114 }, .action = .none, .sound = null },
+    .{ .address = 0x0050BA68, .hotspot = .{ .x = 562, .y = 0, .width = 78, .height = 480 }, .movie = "lock_i2p.bik", .loop = null, .label = .{ .string = 0xCA }, .exits = &.{ 116, 114 }, .action = .none, .sound = null },
     // 116
-    .{ .address = 0x0050BA98, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "lock_p2i.bik", .loop = null, .label = 0xC3, .exits = &.{ 115, 83, 82 }, .action = .none, .sound = null },
+    .{ .address = 0x0050BA98, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "lock_p2i.bik", .loop = null, .label = .{ .string = 0xC3 }, .exits = &.{ 115, 83, 82 }, .action = .none, .sound = null },
     // 117
-    .{ .address = 0x0050BAC8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "lock_d2p.bik", .loop = null, .label = 0xCA, .exits = &.{ 114, 116, 96 }, .action = .none, .sound = null },
+    .{ .address = 0x0050BAC8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "lock_d2p.bik", .loop = null, .label = .{ .string = 0xCA }, .exits = &.{ 114, 116, 96 }, .action = .none, .sound = null },
     // 118
-    .{ .address = 0x0050BAF8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "lock_cd2d.bik", .loop = null, .label = 0xC4, .exits = &.{ 112, 113, 117 }, .action = .none, .sound = null },
+    .{ .address = 0x0050BAF8, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "lock_cd2d.bik", .loop = null, .label = .{ .string = 0xC4 }, .exits = &.{ 112, 113, 117 }, .action = .none, .sound = null },
     // 119
-    .{ .address = 0x0050BB28, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "lock_l2cd.bik", .loop = null, .label = 0xC6, .exits = &.{ 110, 111, 118 }, .action = .none, .sound = null },
+    .{ .address = 0x0050BB28, .hotspot = .{ .x = 0, .y = 0, .width = 40, .height = 480 }, .movie = "lock_l2cd.bik", .loop = null, .label = .{ .string = 0xC6 }, .exits = &.{ 110, 111, 118 }, .action = .none, .sound = null },
     // 120
-    .{ .address = 0x0050BBB8, .hotspot = .{ .x = 402, .y = 0, .width = 178, .height = 480 }, .movie = "wrbu2br.bik", .loop = null, .label = 0xDB, .exits = &.{}, .action = .briefing, .sound = null },
+    .{ .address = 0x0050BBB8, .hotspot = .{ .x = 402, .y = 0, .width = 178, .height = 480 }, .movie = "wrbu2br.bik", .loop = null, .label = .{ .string = 0xDB }, .exits = &.{}, .action = .briefing, .sound = null },
     // 121
-    .{ .address = 0x0050BBE8, .hotspot = .{ .x = 462, .y = 0, .width = 178, .height = 480 }, .movie = "wr_l2bre.bik", .loop = null, .label = 0xDC, .exits = &.{ 123, 120 }, .action = .none, .sound = null },
+    .{ .address = 0x0050BBE8, .hotspot = .{ .x = 462, .y = 0, .width = 178, .height = 480 }, .movie = "wr_l2bre.bik", .loop = null, .label = .{ .string = 0xDC }, .exits = &.{ 123, 120 }, .action = .none, .sound = null },
     // 122
-    .{ .address = 0x0050BC18, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "wr_l2c.bik", .loop = null, .label = 0xDD, .exits = &.{124}, .action = .none, .sound = null },
+    .{ .address = 0x0050BC18, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "wr_l2c.bik", .loop = null, .label = .{ .string = 0xDD }, .exits = &.{124}, .action = .none, .sound = null },
     // 123
-    .{ .address = 0x0050BC48, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "wr_bre2l.bik", .loop = null, .label = 0xDD, .exits = &.{ 121, 122 }, .action = .none, .sound = null },
+    .{ .address = 0x0050BC48, .hotspot = .{ .x = 0, .y = 0, .width = 160, .height = 480 }, .movie = "wr_bre2l.bik", .loop = null, .label = .{ .string = 0xDD }, .exits = &.{ 121, 122 }, .action = .none, .sound = null },
     // 124
-    .{ .address = 0x0050BC78, .hotspot = .{ .x = 462, .y = 0, .width = 178, .height = 480 }, .movie = "wr_c2l.bik", .loop = null, .label = 0xDE, .exits = &.{ 121, 122 }, .action = .none, .sound = null },
+    .{ .address = 0x0050BC78, .hotspot = .{ .x = 462, .y = 0, .width = 178, .height = 480 }, .movie = "wr_c2l.bik", .loop = null, .label = .{ .string = 0xDE }, .exits = &.{ 121, 122 }, .action = .none, .sound = null },
 };
