@@ -313,6 +313,25 @@ values under names of their own, as the scripting API's type does. The definitio
 ship `MissionShip`, apart from the scripting API's `Ship`, a ship type's record. So both files can
 be loaded together, and a test checks that the names they share are declared the same way.
 
+`on` has one signature for every condition: its code's parameters are `any`, and its table has a
+field for every value that a trigger can check, whatever the condition
+([TriggerFields](../guide/mission-reference.md#triggerfields)). Luau can't type them by the
+trigger's condition:
+
+- It only types a function's parameters from a single signature without generics, as with the
+  hooks' `e` in scripts ([The reference](../port/scripting.md#the-reference),
+  [luau#3045](https://github.com/luau-lang/luau/issues/3045),
+  [luau#2373](https://github.com/luau-lang/luau/issues/2373)). One overload of `on` per condition
+  would also be far past the eight overloads that the new type solver accepts
+  ([luau#1853](https://github.com/luau-lang/luau/issues/1853)).
+- Looking the fields up by the condition's name (`index<Fields, C>`) does complete the right fields,
+  but strict mode then rejects every trigger, valid ones included
+  ([luau#2215](https://github.com/luau-lang/luau/issues/2215)), and the old solver can't load the
+  file at all.
+
+The reference lists each condition's values
+([Conditions](../guide/mission-reference.md#conditions)).
+
 ## Reading the text
 
 Luau's own parser reads mission source, so the syntax is exactly Luau's, comments included.
