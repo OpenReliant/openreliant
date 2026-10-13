@@ -30,6 +30,8 @@ pub const Command = union(enum) {
     build: struct { source: []const u8, mission: []const u8 },
     /// Writes the definitions file of mission source for luau-lsp.
     definitions: struct {},
+    /// Writes the reference page of mission source.
+    reference: struct {},
 
     pub const usage =
         \\  dte info <mission>              summarise a mission
@@ -44,6 +46,7 @@ pub const Command = union(enum) {
         \\  dte decompile <mission>         write the mission as Luau source
         \\  dte build <source> <mission>    compile mission source into a mission file
         \\  dte definitions                 write the definitions of mission source for luau-lsp
+        \\  dte reference                   write the reference page of mission source
         \\
     ;
 
@@ -58,10 +61,11 @@ pub const Command = union(enum) {
         switch (command) {
             .build => |operands| return build(ctx, operands.source, operands.mission),
             .definitions => return dte.source.definitions.write(ctx.arena, ctx.stdout),
+            .reference => return dte.source.reference.write(ctx.arena, ctx.stdout),
             else => {},
         }
         const path = switch (command) {
-            .definitions => unreachable,
+            .definitions, .reference => unreachable,
             inline else => |operands| operands.mission,
         };
         const image = try ctx.readInput(path);
@@ -81,7 +85,7 @@ pub const Command = union(enum) {
             .script => try script(ctx, mission, models, .starlancer),
             .check => try check(ctx, mission),
             .decompile => try decompile(ctx, mission, path),
-            .build, .definitions => unreachable,
+            .build, .definitions, .reference => unreachable,
         }
     }
 };
@@ -400,9 +404,10 @@ test Command {
     const build_command = (try Command.parse(&.{ "build", "patrol.mission.luau", "patrol.dte" })).build;
     try std.testing.expectEqualStrings("patrol.mission.luau", build_command.source);
     try std.testing.expectEqualStrings("patrol.dte", build_command.mission);
-    // The definitions take no mission.
+    // The definitions and the reference take no mission.
     try std.testing.expect(try Command.parse(&.{"definitions"}) == .definitions);
     try std.testing.expectError(error.Usage, Command.parse(&.{ "definitions", "M01.DTE" }));
+    try std.testing.expect(try Command.parse(&.{"reference"}) == .reference);
 }
 
 /// Rewrites `mission` four ways and fails if anything changes: with its sections' whole rooms,

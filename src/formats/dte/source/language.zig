@@ -6,9 +6,13 @@
 //! definitions give them.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Writer = std.Io.Writer;
 const assert = std.debug.assert;
 
+const commands = @import("../../../engine/game/executor/commands.zig");
 const names = @import("names.zig");
+const vocabulary = @import("vocabulary.zig");
 const Word = names.Word;
 
 /// A field of a table that a declaration takes.
@@ -222,6 +226,116 @@ pub fn declaration(word: Word) Declaration {
     };
 }
 
+/// `word`'s signature, as Luau writes it: `ship(name: string, fields: ShipFields): Ship`, or
+/// `any_ship: Ship` for a value.
+pub const Signature = struct {
+    word: Word,
+
+    pub fn format(signature: Signature, w: *Writer) Writer.Error!void {
+        const declared = declaration(signature.word);
+        if (declared.parameters) |list| {
+            try w.print("{t}{s}({s}): {s}", .{ signature.word, declared.generics, list, declared.result });
+        } else {
+            try w.print("{t}: {s}", .{ signature.word, declared.result });
+        }
+    }
+};
+
+/// Where the reference lists a word.
+pub const Group = enum {
+    /// A record or a trigger, which the file's top level declares, or the mission's own details.
+    declaration,
+    /// A function or a value of the script.
+    script,
+    /// A record past the mission's records, by its index.
+    index,
+};
+
+/// Where the reference lists `word`.
+pub fn groupOf(word: Word) Group {
+    return switch (word) {
+        .mission, .global, .flight_group, .ship, .nav_point, .waypoint, .point, .curve_point, .squad, .formation, .curve, .part, .handler, .on => .declaration,
+        .component, .any_ship, .command, .spawn, .random, .result, .game, .thread_value, .last_event => .script,
+        .in_flight_group, .not_in_flight_group, .in_squad, .not_in_squad => .script,
+        .greater_f, .greater_equal_f, .less_f, .less_equal_f, .add_f, .sub_f, .mul_f, .div_f => .script,
+        .add_assign_f, .sub_assign_f, .mul_assign_f, .div_assign_f => .script,
+        .ship_index, .flight_group_index, .squad_index, .curve_index, .global_index, .part_index, .object_index, .formation_index, .formation_point_index => .index,
+    };
+}
+
+/// A command's parameter, as mission source names and types it.
+pub const Parameter = struct {
+    /// Its name, made from its label (`labelHead`), unique among the command's.
+    name: []const u8,
+    type: ParameterType,
+    /// The developers' label.
+    label: []const u8,
+};
+
+/// The parameters of `command`, made in `arena`.
+pub fn parameters(arena: Allocator, command: commands.Command) Allocator.Error![]const Parameter {
+    var namer: names.Namer = .init(arena);
+    const list = try arena.alloc(Parameter, command.params.len);
+    for (list, command.params, 0..) |*parameter, param, index| parameter.* = .{
+        .name = try namer.name(labelHead(param.label), "param", index),
+        .type = .{ .param = param },
+        .label = param.label,
+    };
+    return list;
+}
+
+/// What a parameter's name is made from: its label up to the first bracket, comma or semicolon,
+/// which start a note, such as "(can be NULL)".
+fn labelHead(label: []const u8) []const u8 {
+    const end = std.mem.findAny(u8, label, "(,;") orelse label.len;
+    return std.mem.trim(u8, label[0..end], " ");
+}
+
+/// The type of a command's parameter: each kind of value it takes, or a value of a kind the game
+/// names, such as an order. A parameter that can be null is optional.
+pub const ParameterType = struct {
+    param: commands.Param,
+
+    pub fn format(shown: ParameterType, w: *Writer) Writer.Error!void {
+        const kinds = shown.param.kinds;
+        const records = kinds.ship and kinds.flight_group and kinds.squad;
+        // Each kind of value it may take, in the order the type lists them.
+        const options = [_]?[]const u8{
+            if (records) "Entity" else null,
+            if (kinds.ship and !records) "Ship" else null,
+            if (kinds.flight_group and !records) "FlightGroup" else null,
+            if (kinds.squad and !records) "Squad" else null,
+            if (kinds.curve) "Curve" else null,
+            if (vocabulary.of(shown.param)) |kind| kind.typeName() else if (kinds.number or kinds.constant or kinds.percentage) "number" else null,
+            if (kinds.file_name or kinds.text) "string" else null,
+        };
+        var count: usize = 0;
+        for (options) |option| count += @intFromBool(option != null);
+        if (count == 0) return w.writeAll("any");
+        const nullable = shown.param.extra.nullable;
+        if (nullable and count > 1) try w.writeByte('(');
+        var written: usize = 0;
+        for (options) |option| if (option) |type_name| {
+            try w.print("{s}{s}", .{ if (written == 0) "" else " | ", type_name });
+            written += 1;
+        };
+        if (nullable and count > 1) try w.writeByte(')');
+        if (nullable) try w.writeByte('?');
+    }
+};
+
+/// The type of a value a condition's events carry, as a trigger's function gets it: a ship, or a
+/// number.
+pub fn eventValueType(kinds: commands.Kinds) []const u8 {
+    return if (kinds.ship) "Ship" else "number";
+}
+
+/// The type of the trigger's field that checks a value of its condition's events, which says what
+/// the value must be: a ship, a flight group, a squad or `any_ship` for a ship, or a number.
+pub fn checkType(kinds: commands.Kinds) []const u8 {
+    return if (kinds.ship) "(Entity | number)?" else "number?";
+}
+
 // Each table names each field once, which the compiler's check of a table's fields relies on.
 comptime {
     for (tables) |table| {
@@ -229,6 +343,34 @@ comptime {
             for (table.fields[place + 1 ..]) |other| assert(!std.mem.eql(u8, field.name, other.name));
         }
     }
+}
+
+test labelHead {
+    try std.testing.expectEqualStrings("Entity to target", labelHead("Entity to target (can be NULL)"));
+    try std.testing.expectEqualStrings("TRUE for enable", labelHead("TRUE for enable; FALSE for disable"));
+    try std.testing.expectEqualStrings("true - object targetable", labelHead("true - object targetable, false - not targetable"));
+    try std.testing.expectEqualStrings("Probability of Nanny Rescue", labelHead("Probability of Nanny Rescue    ( 1-100% )"));
+    try std.testing.expectEqualStrings("AI Mode", labelHead("AI Mode"));
+}
+
+test parameters {
+    const executor = @import("../../../engine/game/executor.zig");
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    // SetAI's parameters are named after their labels, and take an order by its name and a target
+    // that can be nil.
+    const list = try parameters(arena_state.allocator(), commands.find(executor.commandIndex("SetAI")).?);
+    var buffer: [128]u8 = undefined;
+    var w: Writer = .fixed(&buffer);
+    for (list) |parameter| try w.print("{s}: {f}; ", .{ parameter.name, parameter.type });
+    try std.testing.expectEqualStrings("entity_to_be_controlled: Entity; ai_mode: Order; initialize_immediately: number; entity_to_target: Entity?; ", w.buffered());
+}
+
+test Signature {
+    var buffer: [256]u8 = undefined;
+    var w: Writer = .fixed(&buffer);
+    try w.print("{f}; {f}; {f}", .{ Signature{ .word = .ship }, Signature{ .word = .part }, Signature{ .word = .any_ship } });
+    try std.testing.expectEqualStrings("ship(name: string, fields: ShipFields): Ship; part<A...>(name: string, code: ((A...) -> number)?, fields: PartFields?): (A...) -> number; any_ship: Ship", w.buffered());
 }
 
 test Table {

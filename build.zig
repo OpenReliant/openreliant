@@ -19,8 +19,10 @@ pub fn build(b: *std.Build) void {
     });
     // The outline font OpenReliant carries built in, Newtown, which deps/newtown describes.
     lib.addAnonymousImport("Newtown.ttf", .{ .root_source_file = b.path("deps/newtown/Newtown.ttf") });
-    // The definitions of mission source as generated, which their tests check against.
+    // The definitions and the reference page of mission source as generated, which their tests
+    // check against.
     lib.addAnonymousImport("mission.d.luau", .{ .root_source_file = b.path("docs/guide/mission.d.luau") });
+    lib.addAnonymousImport("mission-reference.md", .{ .root_source_file = b.path("docs/guide/mission-reference.md") });
     addZlib(b, translate_c, lib, target);
 
     // The game: SDL3 in place of Win32 and DirectX, from the SDL package, which builds SDL from
