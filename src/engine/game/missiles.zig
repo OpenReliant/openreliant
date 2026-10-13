@@ -370,6 +370,13 @@ pub const Missile = struct {
     /// (`GameObject + 0x684`), whose target is at `+0x04` and its component at `+0x06`.
     order: Order = .pod_launch,
     target: aigeneric.Target = .none,
+    /// Whether it homes on its target and lights the target's missile warning (`run`, `frame`);
+    /// one that doesn't flies straight on. The launch sets it as the game decides
+    /// (`homesAtLaunch`).
+    ///
+    /// **Improvement:** scripts can set it, so that a mod can have a player's Screamers home as the
+    /// AI's do.
+    homes: bool = true,
     /// Whether it is drawn this frame: not once it has touched something. The game draws it as
     /// it goes.
     shown: bool = false,
@@ -519,10 +526,17 @@ fn spawn(world: gameobj.World, launcher: u16, kind: Type, built: objects.Model, 
     object.root.next_orientation = places.next.orientation;
     object.root.markMoved();
     slot.drawn = places.drawn;
-    return all.missiles.add(.{ .slot = slot, .launcher = launcher, .launcher_reuses = all.reuses[launcher], .type = kind }) orelse {
+    return all.missiles.add(.{ .slot = slot, .launcher = launcher, .launcher_reuses = all.reuses[launcher], .type = kind, .homes = homesAtLaunch(all, kind, launcher) }) orelse {
         slot.release(all.gpa);
         return null;
     };
+}
+
+/// Whether the game homes a missile of type `kind` from the object in slot `launcher`: every one
+/// but a player's Screamer, which flies straight outside a multiplayer game (`0x00497F10`) and
+/// lights no missile warning (`0x004960F0`).
+fn homesAtLaunch(all: *const create.Objects, kind: Type, launcher: u16) bool {
+    return kind.base() != .screamer or launcher >= all.players;
 }
 
 /// `missile_trail_create` for the missile at `at`, where it is still flying and the world has
@@ -610,8 +624,7 @@ fn run(world: gameobj.World, at: u8) void {
             const drop = @as(f32, @floatFromInt(world.clock.frame_duration)) * missile.flight().max_speed * rail_drop;
             push(object, math.yAxis(missile.slot.drawn.orientation), if (ticks < rail_drop_ticks) drop else -drop);
         },
-        // A player's Screamer flies straight, outside a multiplayer game.
-        .screamer => if (missile.launcher < all.players) steady(object, 1) else home(world, at),
+        .screamer => guide(world, at),
         // Where it has no target, the game measures from whatever lies before the first slot, and
         // homing ends it.
         .havoc, .imp => {
@@ -619,15 +632,22 @@ fn run(world: gameobj.World, at: u8) void {
                 const aimed = all.slots[target].drawn.position;
                 if (math.lengthSquared(aimed - missile.slot.drawn.position) < proximity * proximity) return end(world, at);
             }
-            home(world, at);
+            guide(world, at);
         },
-        .solomon => solomon(world, at),
+        .solomon => if (missile.homes) solomon(world, at) else steady(object, 1),
         .jettison => {
             steady(object, 0);
             if (ticks >= jettison_ticks) end(world, at);
         },
-        .raptor, .jack_hammer, .bandit, .vagabond, .hawk => home(world, at),
+        .raptor, .jack_hammer, .bandit, .vagabond, .hawk => guide(world, at),
     }
+}
+
+/// Homes the missile at `at` on its target where it homes (`Missile.homes`), and flies it straight
+/// where it doesn't.
+fn guide(world: gameobj.World, at: u8) void {
+    const missile = world.objects.missiles.get(at) orelse return;
+    if (missile.homes) home(world, at) else steady(missile.object(), 1);
 }
 
 /// Flies it on at `throttle`, steering nowhere (`missile_fly_straight`, `0x00496C60`, at 1).
@@ -836,8 +856,7 @@ pub fn move(all: *create.Objects) void {
 /// `missiles_update` (`0x004960F0`), once a frame after the objects are framed: each missile runs
 /// its order, and then, within its flight time, is tested for contact, and with none framed, to be
 /// drawn `fraction` of the way to its next place, and, with a target and no decoy, lights that
-/// target's missile warning; but not a player's Screamer's outside a multiplayer game. Past its
-/// flight time it ends.
+/// target's missile warning where it homes (`Missile.homes`). Past its flight time it ends.
 ///
 /// Then each trail's frame (`trail.Trails.frame`).
 ///
@@ -859,8 +878,7 @@ pub fn frame(world: gameobj.World, fraction: f32) void {
         if (collide(world, index)) continue;
         objects.frameTree(&live.object().root, if (live.slot.model) |*model| model else null, &live.slot.drawn, fraction, null);
         live.shown = true;
-        const warns = live.type.base() != .screamer or live.launcher >= all.players;
-        if (live.decoy == null and warns) if (live.target.slotIn(all)) |target| {
+        if (live.decoy == null and live.homes) if (live.target.slotIn(all)) |target| {
             all.slots[target].object.missile_homing = 1;
         };
     }
@@ -1247,6 +1265,37 @@ test "a player's Screamer flies straight" {
     try std.testing.expectEqual(1, armed.live());
     try std.testing.expectEqual(player, armed.missile(0).launcher);
     try std.testing.expectEqual(1, armed.missile(0).object().throttle);
+}
+
+test "a script can have a missile home, or fly straight" {
+    var armed: testing.Armed = undefined;
+    try armed.init(std.testing.allocator);
+    defer armed.deinit();
+    armed.points[0].id = @intCast(@backingInt(Type.of(.screamer)));
+    const world = armed.mission.world();
+    // The fixture draws no ship, so a missile's first contact test runs from the origin, and the
+    // player stands off the line from there to the enemy. The enemy stands off to one side of the
+    // player, so that a missile homing on it turns.
+    const player = try armed.add(.friendly, .{ 0, 0, -60000 });
+    const enemy = try armed.add(.hostile, .{ 50000, 0, 50000 });
+    launch(world, player, 0, .at(enemy, null));
+    launch(world, enemy, 0, .at(player, null));
+    const ours = armed.missile(0);
+    const theirs = armed.missile(1);
+    // As in the game, the player's Screamer doesn't home, and the enemy's does.
+    try std.testing.expect(!ours.homes and theirs.homes);
+
+    // Set the other way round, the player's homes and warns its target, and the enemy's flies
+    // straight and warns no one.
+    ours.homes = true;
+    theirs.homes = false;
+    armed.mission.clock.frame_start = 50;
+    frame(world, 0);
+    try std.testing.expectEqual(1, armed.mission.slot(enemy).object.missile_homing);
+    try std.testing.expectEqual(0, armed.mission.slot(player).object.missile_homing);
+    try std.testing.expect(ours.object().yaw_input != 0 and ours.object().throttle < 1);
+    try std.testing.expectEqual(0, theirs.object().yaw_input);
+    try std.testing.expectEqual(1, theirs.object().throttle);
 }
 
 test steer {

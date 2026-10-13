@@ -806,6 +806,23 @@ return {
 - `self.target` can be set to aim the missile elsewhere, `position`, `orientation` and `velocity`
   to move, turn or push it, and `self:detonate()` ends its flight at once. Global scripts can do all
   of these to any missile.
+- `self.homes` says whether the missile homes on its target and lights the target's missile
+  warning, as the AI's missiles do. As in the original, a player's Screamer doesn't, outside a
+  multiplayer game. Setting it to true makes a player's Screamer home as the AI's do, and setting
+  it to false makes any missile fly straight:
+
+  ```lua
+  -- The player's Screamers home on their targets, as the AI's do.
+  local self = require("openreliant.self")
+
+  return {
+      engine_handlers = {
+          on_added = function()
+              if self.type == "screamer" then self.homes = true end
+          end,
+      },
+  }
+  ```
 - `nearby.objects(radius)` gives the objects around the missile, nearest first.
 - Global scripts hear of each missile with the events `missile_added` and `missile_removed`.
 
