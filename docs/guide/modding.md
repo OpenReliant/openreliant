@@ -366,9 +366,10 @@ and a few modern ones beside them:
 | Sound banks | `.fat` | No tool yet: `sltool fat extract` saves a bank's sounds, but can't build a bank |
 | Movies | Bink (`.bik`) | RAD Game Tools' Bink tools |
 
-Sounds and movies in today's formats are planned
-([#496](https://github.com/OpenReliant/openreliant/issues/496)), as are music and lines in Ogg
-Vorbis or Opus.
+Single sounds in place of a bank's are planned
+([#1175](https://github.com/OpenReliant/openreliant/issues/1175)), as are music, lines and sounds
+in Ogg Vorbis or Opus ([#1176](https://github.com/OpenReliant/openreliant/issues/1176)) and movies
+in modern formats ([#1179](https://github.com/OpenReliant/openreliant/issues/1179)).
 
 ### Music
 

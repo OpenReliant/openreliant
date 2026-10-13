@@ -116,8 +116,15 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 
 These are planned, each in an issue:
 
-- Sounds and movies in today's formats, and music and lines of speech in Ogg Vorbis or Opus
-  ([#496](https://github.com/OpenReliant/openreliant/issues/496))
+- Single sounds in place of a sound bank's
+  ([#1175](https://github.com/OpenReliant/openreliant/issues/1175))
+- Music, lines of speech and sounds in Ogg Vorbis or Opus
+  ([#1176](https://github.com/OpenReliant/openreliant/issues/1176))
+- More tracks on the CD player than the game's 24
+  ([#1177](https://github.com/OpenReliant/openreliant/issues/1177))
+- Scripts that play a mod's own sounds and control the music
+  ([#1178](https://github.com/OpenReliant/openreliant/issues/1178))
+- Movies in modern formats ([#1179](https://github.com/OpenReliant/openreliant/issues/1179))
 - Campaigns of more than 28 missions ([#987](https://github.com/OpenReliant/openreliant/issues/987))
 - Post effects that read the scene's depth ([#633](https://github.com/OpenReliant/openreliant/issues/633))
 - KTX2 files with Basis Universal data ([#637](https://github.com/OpenReliant/openreliant/issues/637))
