@@ -39,35 +39,37 @@ pub const Kind = enum {
     }
 };
 
+/// The game's table of the values of `kind`, an enum of their names; none for a part, which the
+/// source names by the part's own name.
+pub fn Names(comptime kind: Kind) ?type {
+    return switch (kind) {
+        .ship_type => gameobj.GameType,
+        .pilot => pilots.GamePilot,
+        .order => orders.Order,
+        .condition => dte.Condition,
+        .head => pilots.Head,
+        .environment_effect => environfx.Effect,
+        .part => null,
+    };
+}
+
 /// The name of value `number` of `kind`, where the game names it.
 pub fn name(kind: Kind, number: u32) ?[]const u8 {
     return switch (kind) {
-        .ship_type => std.enums.tagName(gameobj.GameType, @fromBackingInt(number)),
-        .pilot => std.enums.tagName(pilots.GamePilot, @fromBackingInt(std.math.cast(u8, number) orelse return null)),
-        .order => std.enums.tagName(orders.Order, @fromBackingInt(std.math.cast(i16, number) orelse return null)),
-        .condition => std.enums.tagName(dte.Condition, @fromBackingInt(std.math.cast(u8, number) orelse return null)),
-        .head => std.enums.tagName(pilots.Head, @fromBackingInt(number)),
-        .environment_effect => std.enums.tagName(environfx.Effect, @fromBackingInt(std.math.cast(u5, number) orelse return null)),
-        .part => null,
+        inline else => |known| if (comptime Names(known)) |Enum| {
+            const Backing = @typeInfo(Enum).@"enum".tag_type;
+            return std.enums.tagName(Enum, @fromBackingInt(std.math.cast(Backing, number) orelse return null));
+        } else null,
     };
 }
 
 /// The value of `kind` that the game names `text`, the inverse of `name`.
 pub fn value(kind: Kind, text: []const u8) ?u32 {
     return switch (kind) {
-        .ship_type => numberOf(gameobj.GameType, text),
-        .pilot => numberOf(pilots.GamePilot, text),
-        .order => numberOf(orders.Order, text),
-        .condition => numberOf(dte.Condition, text),
-        .head => numberOf(pilots.Head, text),
-        .environment_effect => numberOf(environfx.Effect, text),
-        .part => null,
+        inline else => |known| if (comptime Names(known)) |Enum| {
+            return std.math.cast(u32, @backingInt(std.meta.stringToEnum(Enum, text) orelse return null));
+        } else null,
     };
-}
-
-/// The number of the tag of `Enum` named `text`, where it has one that a value can take.
-fn numberOf(comptime Enum: type, text: []const u8) ?u32 {
-    return std.math.cast(u32, @backingInt(std.meta.stringToEnum(Enum, text) orelse return null));
 }
 
 /// The name of one of the game's variables (`vm.GameVariable`), where it has one that isn't a

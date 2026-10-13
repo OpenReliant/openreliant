@@ -19,6 +19,8 @@ pub fn build(b: *std.Build) void {
     });
     // The outline font OpenReliant carries built in, Newtown, which deps/newtown describes.
     lib.addAnonymousImport("Newtown.ttf", .{ .root_source_file = b.path("deps/newtown/Newtown.ttf") });
+    // The definitions of mission source as generated, which their tests check against.
+    lib.addAnonymousImport("mission.d.luau", .{ .root_source_file = b.path("docs/guide/mission.d.luau") });
     addZlib(b, translate_c, lib, target);
 
     // The game: SDL3 in place of Win32 and DirectX, from the SDL package, which builds SDL from
@@ -137,8 +139,9 @@ pub fn build(b: *std.Build) void {
     source_parser.linkLibrary(luau_ast_library);
     source_parser.addIncludePath(luau_ast_library.getEmittedIncludeTree());
     source_parser.addCSourceFile(.{ .file = b.path("src/source_parser/luau.cpp"), .flags = &.{ "-std=c++17", "-fno-sanitize=undefined" } });
-    // The scripting API's definitions, which its tests parse as luau-lsp reads them.
+    // The definitions files, which its tests parse as luau-lsp reads them.
     source_parser.addAnonymousImport("openreliant.d.luau", .{ .root_source_file = b.path("docs/guide/openreliant.d.luau") });
+    source_parser.addAnonymousImport("mission.d.luau", .{ .root_source_file = b.path("docs/guide/mission.d.luau") });
     // The installer unpacks the game's cabinet with libarchive, which deps/libarchive builds from
     // source for the target.
     const archive_dependency = b.dependency("libarchive", .{ .target = target, .optimize = optimize });

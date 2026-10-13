@@ -486,14 +486,19 @@ fn named(kind: vocabulary.Kind, value: u32) Named {
     return .{ .kind = kind, .value = value };
 }
 
-/// A number as Luau writes it: the shortest that reads back as the same `f32`, and `0/0`, `1/0`
-/// and `-1/0` for those Luau has no literal for.
+/// A number as Luau writes it: the shortest that reads back as the same `f32`, with an exponent
+/// from `exponent_from` on, and `0/0`, `1/0` and `-1/0` for those Luau has no literal for.
 const Number = struct {
     value: f32,
+
+    /// The smallest number written with an exponent, 2^53. From there on a double holds only some
+    /// whole numbers, and Luau warns about one written in digits that it can't hold exactly.
+    const exponent_from: f32 = 1 << (std.math.floatMantissaBits(f64) + 1);
 
     pub fn format(shown: Number, w: *Writer) Writer.Error!void {
         if (std.math.isNan(shown.value)) return w.writeAll("0/0");
         if (std.math.isInf(shown.value)) return w.writeAll(if (shown.value > 0) "1/0" else "-1/0");
+        if (@abs(shown.value) >= exponent_from) return w.print("{e}", .{shown.value});
         try w.print("{d}", .{shown.value});
     }
 };
@@ -535,6 +540,22 @@ const Fields = struct {
         try writeTable(w, fields.list.items, column, after);
     }
 };
+
+test Number {
+    var buffer: [32]u8 = undefined;
+    for ([_]struct { f32, []const u8 }{
+        .{ 300.5, "300.5" },
+        .{ -11608147, "-11608147" },
+        // From 2^53 on, with an exponent, which Luau reads without a warning.
+        .{ -1.701416e38, "-1.701416e38" },
+        .{ std.math.nan(f32), "0/0" },
+        .{ -std.math.inf(f32), "-1/0" },
+    }) |case| {
+        var w: Writer = .fixed(&buffer);
+        try w.print("{f}", .{number(case[0])});
+        try std.testing.expectEqualStrings(case[1], w.buffered());
+    }
+}
 
 test write {
     const gpa = std.testing.allocator;

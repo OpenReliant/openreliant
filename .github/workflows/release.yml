@@ -78,8 +78,8 @@ jobs:
           # The licence of the libraries whose text has to go with every copy.
           cp deps/luau/LICENSE.txt "$name"/LICENSE-luau.txt
           cp zig-out/LICENSE-glslang.txt zig-out/LICENSE-spirv-cross.txt zig-out/LICENSE-bc7enc.txt zig-out/LICENSE-libarchive.txt "$name"/
-          # The scripting API's definitions, for mods' authors' editors.
-          cp docs/guide/openreliant.d.luau "$name"/
+          # The definitions of the scripting API and of mission source, for mods' authors' editors.
+          cp docs/guide/openreliant.d.luau docs/guide/mission.d.luau "$name"/
           case "${{ matrix.target }}" in
             *windows*)
               cp zig-out/bin/openreliant.exe zig-out/bin/sltool.exe "$name"/

@@ -15,6 +15,7 @@ const bind = @import("../../../engine/game/mission/bind.zig");
 const commands = @import("../../../engine/game/executor/commands.zig");
 const executor = @import("../../../engine/game/executor.zig");
 const conditions = @import("../../../engine/vm/conditions.zig");
+const language = @import("language.zig");
 const names = @import("names.zig");
 const script = @import("script.zig");
 const syntax = @import("syntax.zig");
@@ -88,13 +89,6 @@ pub const Declared = struct {
     index: u32,
     call: Index,
 };
-
-/// The fields each constructor takes.
-const ship_fields = [_][]const u8{ "type", "group", "pilot", "position", "yaw", "pitch", "roll", "launch", "formation_point", "tier" };
-/// A marker's: a ship's but `type`, and a point's `marker` too.
-const marker_fields = ship_fields[1..].*;
-const point_fields = marker_fields ++ [_][]const u8{"marker"};
-const curve_fields = [_][]const u8{ "start", "finish", "from", "to", "leaving_handle", "arriving_handle", "leaving", "arriving" };
 
 pub const Compiler = struct {
     arena: Allocator,
@@ -456,7 +450,7 @@ pub const Compiler = struct {
 
     fn missionName(c: *Compiler) Error!?[]const u8 {
         const call = c.mission orelse return null;
-        const given = try c.fields((try c.arguments(call, 1, 1, "`mission(...)` takes a table: `{{ name = \"Patrol\" }}`"))[0], &.{"name"});
+        const given = try c.fields((try c.arguments(call, 1, 1, "`mission(...)` takes a table: `{{ name = \"Patrol\" }}`"))[0], language.mission_fields.names());
         return if (given.get("name")) |node| try c.string(node) else null;
     }
 
@@ -506,7 +500,7 @@ pub const Compiler = struct {
         const calls = c.declarations.get(.curve).items;
         const records = try c.arena.alloc(dte.Curve, calls.len);
         for (records, calls) |*record, call| {
-            const given = try c.fields((try c.arguments(call, 1, 1, "a curve takes a table of its fields"))[0], &curve_fields);
+            const given = try c.fields((try c.arguments(call, 1, 1, "a curve takes a table of its fields"))[0], language.curve_fields.names());
             record.* = .blank;
             inline for (.{ .{ "start", "start" }, .{ "finish", "end" }, .{ "leaving_handle", "leaving_handle" }, .{ "arriving_handle", "arriving_handle" } }) |pair| {
                 if (given.get(pair[0])) |node| @field(record, pair[1]) = .of(.ship, try c.referenceAs(u16, node, .ship));
@@ -526,7 +520,7 @@ pub const Compiler = struct {
             record.* = .blank;
             record.object_id = try c.narrow(u16, call, c.object_ids.get(.flight_group)[index], "object");
             record.name = try pool.add(c, given[0]);
-            const details: Fields = if (given.len > 1) try c.fields(given[1], &.{ "wing", "formation" }) else .{};
+            const details: Fields = if (given.len > 1) try c.fields(given[1], language.flight_group_fields.names()) else .{};
             if (details.get("wing")) |node| record.wing = switch (c.tree.get(node)) {
                 .string => |text| std.meta.stringToEnum(dte.FlightGroup.Wing, text) orelse return c.fail(node, "a wing is \"player\", \"second\", \"third\" or \"none\"", .{}),
                 else => @fromBackingInt(try c.whole(u8, node)),
@@ -546,9 +540,9 @@ pub const Compiler = struct {
             record.object_id = c.object_ids.get(.ship)[index];
             record.name = try pool.add(c, given[0]);
             const allowed: []const []const u8 = switch (constructor) {
-                .ship => &ship_fields,
-                .point => &point_fields,
-                else => &marker_fields,
+                .ship => language.ship_fields.names(),
+                .point => language.point_fields.names(),
+                else => language.marker_fields.names(),
             };
             const details: Fields = if (given.len > 1) try c.fields(given[1], allowed) else .{};
             record.kind = switch (constructor) {
@@ -582,7 +576,7 @@ pub const Compiler = struct {
                 }
             }
             if (details.get("launch")) |node| {
-                const launch = try c.fields(node, &.{ "from", "gate" });
+                const launch = try c.fields(node, language.launch_fields.names());
                 const from = launch.get("from") orelse return c.fail(node, "a launch gives the type of ship it is `from`", .{});
                 const gate = launch.get("gate") orelse return c.fail(node, "a launch gives the `gate` the ship launches through", .{});
                 record.launch_from = try c.narrow(u16, from, try c.named(from, .ship_type), "ship type");
@@ -595,7 +589,7 @@ pub const Compiler = struct {
             }
             if (details.get("tier")) |node| record.tier = try c.whole(u8, node);
             if (details.get("marker")) |node| {
-                const marker = try c.fields(node, &.{ "curve", "at" });
+                const marker = try c.fields(node, language.marker_place_fields.names());
                 const curve = marker.get("curve") orelse return c.fail(node, "a marker gives the `curve` it marks a place on", .{});
                 record.marker_curve = try c.referenceAs(i16, curve, .curve);
                 if (marker.get("at")) |at| record.marker_at = try c.float(at);
@@ -688,7 +682,7 @@ pub const Compiler = struct {
                 else => return c.fail(given[1], "a part's code is a function, or `nil` for none", .{}),
             };
             if (given.len > 2) {
-                const details = try c.fields(given[2], &.{"start"});
+                const details = try c.fields(given[2], language.part_fields.names());
                 if (details.get("start")) |node| record.flags.start = try c.boolean(node);
             }
         }
@@ -743,14 +737,14 @@ pub const Compiler = struct {
     fn triggerFields(c: *Compiler, record: *dte.Trigger, node: Index) Error!void {
         const values = if (record.condition.descriptor()) |condition| condition.values else &.{};
         const event = try script.eventNames(c.arena, values);
-        const allowed = try std.mem.concat(c.arena, []const u8, &.{ &.{ "repeats", "component", "deferred" }, event });
+        const allowed = try std.mem.concat(c.arena, []const u8, &.{ language.trigger_fields.names(), event });
         const details = try c.fields(node, allowed);
         if (details.get("repeats")) |repeats| switch (c.tree.get(repeats)) {
             .string => |text| record.repeat = if (std.mem.eql(u8, text, "once")) .once else if (std.mem.eql(u8, text, "always")) .always else {
                 return c.fail(repeats, "a trigger repeats \"once\", \"always\", or `{{ counted = 3 }}`", .{});
             },
             .table => {
-                const counted = try c.fields(repeats, &.{ "counted", "left" });
+                const counted = try c.fields(repeats, language.counted_fields.names());
                 record.repeat = .counted;
                 record.repeat_count = try c.whole(u8, counted.get("counted") orelse return c.fail(repeats, "a counted trigger gives how many times it fires: `{{ counted = 3 }}`", .{}));
                 record.repeat_counter = if (counted.get("left")) |left| try c.whole(u8, left) else record.repeat_count;

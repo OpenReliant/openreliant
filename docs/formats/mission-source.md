@@ -188,9 +188,9 @@ on(black_guard, "shot_at", { repeats = "always", attacker = any_ship },
 ```
 
 `on` takes the trigger's subject, the ship, flight group or squad whose events it watches, its
-condition, its fields, which can be left out, and the code its events run. The function's parameters are the values the
-condition's events carry, named after their labels in the condition catalogue
-([Conditions](dte.md#conditions)).
+condition, its fields, which can be left out, and the code its events run. The function's
+parameters are the values the condition's events carry, named after their labels in the condition
+catalogue ([Conditions](dte.md#conditions)).
 
 | Field | Value | Default |
 |---|---|---|
@@ -226,7 +226,7 @@ Luau's syntax:
 | A part started on a thread of its own | `spawn(go_home)`, with its arguments after the part |
 | An assignment | `convoykilled = 1`, `convoykilled += 1`, and `-=`, `*=` and `/=`. Floating-point stores are `add_assign_f(target, value)` and the like |
 | `if` | `if ... then ... elseif ... else ... end`. An `else` with nothing in it is kept |
-| A random choice | `local roll = random()`, then `if roll < 50 then ... elseif roll < 100 then ... else ... end`: one roll below 100, and the first arm whose threshold is above it, the `else` being the default |
+| A random choice | `local roll = random()`, then `if roll < 50 then ... elseif roll < 100 then ... else ... end`: one roll below 100, and the first arm whose threshold is above it, the `else` being the default. The roll can have any name; `sltool dte decompile` names a function's later rolls `roll_2`, `roll_3` and so on |
 | `return` | `return 1` |
 
 | Expression | Source |
@@ -305,6 +305,38 @@ kind's records are written in the order of their declarations. The script holds 
 triggers run, in the order the triggers first run them, then the parts' blocks in order, each
 written as the developers' compiler wrote its statements ([Statements](dte.md#statements)).
 
+## Editors
+
+[luau-lsp](https://github.com/JohnnyMorganz/luau-lsp), the Luau language server, gives editors such
+as VS Code completion and descriptions for mission source, from the definitions file
+[`mission.d.luau`](../guide/mission.d.luau). It declares the declarations and their fields, the
+functions of the script, every command of the catalogue with its parameters and the developers'
+descriptions, and the names of the game's values. It comes with each release, and
+`sltool dte definitions` writes it.
+
+1. Install luau-lsp's extension, version 1.56 or later.
+2. In the settings of the folder that holds the missions, such as its `.vscode/settings.json` in VS
+   Code, add the file under a name, and turn on Luau's new type solver:
+
+   ```json
+   {
+       "luau-lsp.platform.type": "standard",
+       "luau-lsp.types.definitionFiles": { "@mission": "path/to/mission.d.luau" },
+       "luau-lsp.fflags.enableNewSolver": true
+   }
+   ```
+
+Mission source needs Luau's new type solver: a declaration can use a name the file declares after
+it, and the old solver takes that for an unknown global. In nonstrict mode, the default, the new
+solver reports no type errors, so `sltool dte build` is still what finds them. The scripting API's
+definitions don't load in the new solver yet
+([#1139](https://github.com/OpenReliant/openreliant/issues/1139)), so mods' scripts are best kept in
+a folder of their own.
+
+The definitions take the declarations, the functions of the script and the tables of fields from
+[`language.zig`](../../src/formats/dte/source/language.zig), whose tables the compiler checks fields
+against, and the commands, the conditions and the names of values from the game's tables.
+
 ## Reading the text
 
 Luau's own parser reads mission source, so the syntax is exactly Luau's, comments included.
@@ -328,7 +360,10 @@ where a small letter meets a capital, with a number after it where two would cla
 record's from then on, and renaming the display name doesn't change it. A squad's members are
 written as the game walks them, from the squad's first member while they are its own, and a
 formation's points as OpenReliant finds them, from the formation's first point on, those that name
-it (`dte.FormationPoint.Walk`).
+it (`dte.FormationPoint.Walk`). A place or another floating-point value is written as the shortest
+number that reads back as the same 32-bit float, with an exponent from 2^53 on, such as
+`-1.701416e38`: Luau warns about a whole number that large written in digits, since a double can't
+hold every one exactly.
 
 Built again, a decompiled mission is the same mission
 ([`same.zig`](../../src/formats/dte/same.zig)): the same records and code, decoded, with names
