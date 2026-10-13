@@ -1,19 +1,21 @@
 //! Builds the part of FFmpeg that OpenReliant uses as a static library: the Bink video and audio
 //! decoders for the game's movies (`libavcodec/bink.c`, `libavcodec/binkaudio.c`), the MP3 decoder
-//! for the crew's lines and mods' recordings (`libavcodec/mpegaudiodec_float.c`), the FLAC decoder
-//! for mods' recordings (`libavcodec/flacdec.c`), and the parts of `libavcodec` and `libavutil`
-//! they need. It is plain C, without FFmpeg's assembly or threads. OpenReliant reads the Bink
-//! container and the MP3 frames itself (`src/formats/bink.zig`, `src/formats/mp3.zig`) and hands
-//! the FLAC decoder whole files, so none of `libavformat` is built. FFmpeg is LGPL-2.1 or later
-//! (the upstream's `LICENSE.md`), and none of its GPL parts are built.
+//! for the crew's lines and mods' recordings (`libavcodec/mpegaudiodec_float.c`), the FLAC, Vorbis
+//! and Opus decoders for mods' recordings (`libavcodec/flacdec.c`, `libavcodec/vorbisdec.c`,
+//! `libavcodec/opus/dec.c`), and the parts of `libavcodec`, `libavutil` and `libswresample` they
+//! need. The Opus decoder resamples with `libswresample`. It is plain C, without FFmpeg's assembly
+//! or threads. OpenReliant reads the Bink container, the MP3 frames and the Ogg pages itself
+//! (`src/formats/bink.zig`, `src/formats/mp3.zig`, `src/formats/ogg.zig`) and hands the FLAC
+//! decoder whole files, so none of `libavformat` is built. FFmpeg is LGPL-2.1 or later (the
+//! upstream's `LICENSE.md`), and none of its GPL parts are built.
 //!
 //! The files and the configuration are the ones FFmpeg's `configure` gives for
-//! `--disable-everything --disable-asm --disable-pthreads
-//! --enable-decoder=bink,binkaudio_rdft,binkaudio_dct,mp3float,flac`, minus what the decoding
-//! calls never reach: the objects that a program using those calls links, and the settings those
-//! files read. The one addition is `libavutil/sha.c`, which the random seed falls back on when no
-//! system source of random numbers is set up, as here. The version is the upstream release that
-//! the manifest names.
+//! `--disable-everything --disable-asm --disable-pthreads --disable-autodetect
+//! --enable-decoder=bink,binkaudio_rdft,binkaudio_dct,mp3float,flac,vorbis,opus`, minus what the
+//! decoding calls never reach: the objects that a program using those calls links, and the
+//! settings those files read. The one addition is `libavutil/sha.c`, which the random seed falls
+//! back on when no system source of random numbers is set up, as here. The version is the upstream
+//! release that the manifest names.
 //!
 //! Without threads, FFmpeg's one-time setup isn't guarded, so the library is used from one thread.
 
@@ -53,6 +55,8 @@ pub fn build(b: *std.Build) void {
         .CONFIG_BINKAUDIO_RDFT_DECODER = true,
         .CONFIG_MP3FLOAT_DECODER = true,
         .CONFIG_FLAC_DECODER = true,
+        .CONFIG_VORBIS_DECODER = true,
+        .CONFIG_OPUS_DECODER = true,
     });
     const avconfig = b.addConfigHeader(.{ .style = .blank, .include_path = "libavutil/avconfig.h" }, .{
         .AV_HAVE_BIGENDIAN = false,
@@ -72,6 +76,8 @@ pub fn build(b: *std.Build) void {
         \\    &ff_binkaudio_rdft_decoder,
         \\    &ff_mp3float_decoder,
         \\    &ff_flac_decoder,
+        \\    &ff_opus_decoder,
+        \\    &ff_vorbis_decoder,
         \\    NULL };
         \\
     );
@@ -153,6 +159,7 @@ const sources = [_][]const u8{
     "libavcodec/flacdsp.c",
     "libavcodec/get_buffer.c",
     "libavcodec/hpeldsp.c",
+    "libavcodec/mathtables.c",
     "libavcodec/mpegaudio.c",
     "libavcodec/mpegaudiodata.c",
     "libavcodec/mpegaudiodec_common.c",
@@ -164,14 +171,30 @@ const sources = [_][]const u8{
     "libavcodec/mpegaudiodsp_float.c",
     "libavcodec/mpegaudiotabs.c",
     "libavcodec/options.c",
+    "libavcodec/opus/celt.c",
+    "libavcodec/opus/dec.c",
+    "libavcodec/opus/dec_celt.c",
+    "libavcodec/opus/dsp.c",
+    "libavcodec/opus/frame_duration_tab.c",
+    "libavcodec/opus/parse.c",
+    "libavcodec/opus/pvq.c",
+    "libavcodec/opus/rc.c",
+    "libavcodec/opus/silk.c",
+    "libavcodec/opus/tab.c",
     "libavcodec/packet.c",
     "libavcodec/profiles.c",
     "libavcodec/threadprogress.c",
     "libavcodec/tiff_common.c",
     "libavcodec/utils.c",
     "libavcodec/vlc.c",
+    "libavcodec/vorbis.c",
+    "libavcodec/vorbis_data.c",
+    "libavcodec/vorbisdec.c",
+    "libavcodec/vorbisdsp.c",
     "libavcodec/wma_freqs.c",
+    "libavcodec/xiph.c",
 
+    "libavutil/audio_fifo.c",
     "libavutil/avsscanf.c",
     "libavutil/avstring.c",
     "libavutil/bprint.c",
@@ -212,4 +235,12 @@ const sources = [_][]const u8{
     "libavutil/tx_float.c",
     "libavutil/tx_int32.c",
     "libavutil/utils.c",
+
+    "libswresample/audioconvert.c",
+    "libswresample/dither.c",
+    "libswresample/options.c",
+    "libswresample/rematrix.c",
+    "libswresample/resample.c",
+    "libswresample/resample_dsp.c",
+    "libswresample/swresample.c",
 };

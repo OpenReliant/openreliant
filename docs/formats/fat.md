@@ -78,7 +78,7 @@ The payload loads these banks by name:
 ## Mods' sounds
 
 A mod's sound replaces one of a bank's sounds. It's named after the bank and the sound's number, as
-`sltool fat extract` saves it (`fat.soundName`), and is a WAVE, FLAC or MP3 file
+`sltool fat extract` saves it (`fat.soundName`), and is a WAVE, FLAC, MP3, Ogg Vorbis or Opus file
 ([Sounds](../guide/modding.md#sounds)). As OpenReliant reads a bank, it makes a new one in memory
 with the mods' sounds in place of the bank's own, each entry keeping its priority (`fat.rebuild`,
 `hog_snd.BankFile.of`), so the game plays them as it plays its own. A sound the drivers can't play

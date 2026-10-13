@@ -41,9 +41,9 @@ pub const betty = @import("hog_snd/betty.zig");
 /// `rightmost`, `centre` between; a count of plays, `forever` for one that goes on until it is
 /// ended; and `own_pitch`, a sound's own pitch, which the quarter tones up or down are counted
 /// from.
-pub const loudest = 127;
-pub const rightmost = 127;
-pub const centre = 64;
+pub const loudest = mss.max_level;
+pub const rightmost = mss.max_level;
+pub const centre = mss.centre_pan;
 pub const once = 1;
 pub const forever = 0;
 pub const own_pitch = 0;
@@ -195,13 +195,13 @@ pub const Voice3D = extern struct {
 /// options screen resets them to (`0x0042DC5E`).
 pub const Volumes = struct {
     /// `Mastervolume` (`0x005D5A70`): everything.
-    master: i32 = 127,
+    master: i32 = loudest,
     /// `Fxvolume` (`0x005D5A74`): the banks' sounds and the 3D sounds.
     effects: i32 = 80,
     /// `Musicvolume` (`0x005D55EC`).
     music: i32 = 80,
     /// `Speechvolume` (`0x005D5E88`).
-    speech: i32 = 127,
+    speech: i32 = loudest,
 
     pub const section = "Sound";
     /// The key of `[Sound]` each volume is kept under.
@@ -252,7 +252,7 @@ pub const BankFile = struct {
     /// **Improvement:** the original plays only its banks' own sounds.
     pub fn of(gpa: Allocator, bytes: []u8, name: []const u8, source: recordings.Source) ?BankFile {
         const bank = fat.Bank.parse(bytes) catch |err| {
-            log.warn("the bank {s} is left out: {s}", .{ name, @errorName(err) });
+            log.warn("the bank {s} is left out: {t}", .{ name, err });
             gpa.free(bytes);
             return null;
         };
@@ -263,7 +263,7 @@ pub const BankFile = struct {
     /// own, which `codec` decodes (`of`); null where it is left out, which the log says.
     pub fn read(gpa: Allocator, archive: *const bigfile.Hog, name: []const u8, codec: ?bink.Codec) ?BankFile {
         const bytes = archive.readFile(gpa, name) catch |err| {
-            log.warn("the bank {s} is left out: {s}", .{ name, @errorName(err) });
+            log.warn("the bank {s} is left out: {t}", .{ name, err });
             return null;
         };
         return of(gpa, bytes, name, .{ .mods = archive.mods, .codec = codec });
@@ -344,8 +344,8 @@ pub const Music = struct {
     fade_step: i32 = 0,
     /// A piece to play once this one has faded (`0x0056533A` on).
     queued: ?Piece = null,
-    /// Added by OpenReliant: a mod's piece in FLAC or MP3 on its way, which decodes a few seconds
-    /// of music each pass (`Sound.decodeMusic`) and plays once it's decoded. The music counts as
+    /// Added by OpenReliant: a mod's piece in a format other than WAV on its way, which decodes a
+    /// few seconds of music each pass (`Sound.decodeMusic`) and plays once it's decoded. The music counts as
     /// playing meanwhile.
     decoding: ?Decoding = null,
     /// Added by OpenReliant: whether the music is paused because the game's window is away
@@ -354,7 +354,7 @@ pub const Music = struct {
 
     /// A piece of music to play: its path, loop count and level.
     pub const Piece = struct {
-        path: [128]u8 = @splat(0),
+        path: [paths.max_path]u8 = @splat(0),
         path_len: usize = 0,
         loops: u32,
         level: i32,
@@ -374,8 +374,8 @@ pub const Music = struct {
         }
     };
 
-    /// A mod's piece in FLAC or MP3 on its way: the recording being decoded, the piece, and whether
-    /// the music was paused meanwhile.
+    /// A mod's piece in a format other than WAV on its way: the recording being decoded, the
+    /// piece, and whether the music was paused meanwhile.
     pub const Decoding = struct {
         recording: recordings.Decoding,
         piece: Piece,
@@ -383,8 +383,8 @@ pub const Music = struct {
     };
 };
 
-/// How many seconds of a mod's piece in FLAC or MP3 decode each pass (`Sound.decodeMusic`): a few
-/// milliseconds of work, so that the game doesn't stall.
+/// How many seconds of a mod's piece in a format other than WAV decode each pass
+/// (`Sound.decodeMusic`): a few milliseconds of work, so that the game doesn't stall.
 const seconds_decoded_a_pass = 3;
 
 /// Where a piece of music loops back to once it has played through: a byte offset into its data
@@ -957,7 +957,7 @@ pub const Sound = struct {
                 // Where missiles' sounds follow them, one moves with its missile while the voice
                 // is still that missile's.
                 .missile => follow: {
-                    if (sound.missile_sound == .follows) if (scene.objects.missiles.get(voice.ownerIndex().?)) |missile| if (missile.slot.object.sound_voice.index() == v) {
+                    if (sound.missile_sound == .follows) if (voice.ownerIndex()) |at| if (scene.objects.missiles.get(at)) |missile| if (missile.slot.object.sound_voice.index() == v) {
                         position = missile.slot.drawn.position;
                         velocity = missile.slot.object.velocity.vector();
                         direction = math.forward(missile.slot.drawn.orientation);
@@ -978,7 +978,11 @@ pub const Sound = struct {
                     move = false;
                 },
                 .object => {
-                    const at = voice.ownerIndex().?;
+                    // `sound3d.play` gives an object's voice its slot.
+                    const at = voice.ownerIndex() orelse {
+                        sound.end3D(v);
+                        continue;
+                    };
                     const slot = &scene.objects.slots[at];
                     if (slot.object.type.base() == .stand_in) {
                         sound.end3D(v);
@@ -997,7 +1001,7 @@ pub const Sound = struct {
             }
             const heading = if (voice.follows == .point) Vector{ 0, 0, 1 } else math.normalize(math.transformTransposed(scene.camera.orientation, direction));
             if (place) driver.set3DPosition(voice.sample, miles(math.transformTransposed(scene.camera.orientation, relative)));
-            if (face or voice.follows == .point) driver.set3DOrientation(voice.sample, miles(heading), .{ 0, 1, 0 });
+            if (face or voice.follows == .point) driver.set3DOrientation(voice.sample, miles(heading), mss.positional.up);
             if (move) driver.set3DVelocity(voice.sample, miles(math.transformTransposed(scene.camera.orientation, velocity) * @as(Vector, @splat(velocity_scale))));
         }
     }
@@ -1041,7 +1045,7 @@ pub const Sound = struct {
         sound.music.queued = null;
         const files = sound.files orelse return;
         const read = readMusic(files, path) catch |err| {
-            log.warn("the music {s} is left out: {s}", .{ path, @errorName(err) });
+            log.warn("the music {s} is left out: {t}", .{ path, err });
             return;
         };
         switch (read) {
@@ -1196,16 +1200,16 @@ pub fn musicLoopStart(path: []const u8) i32 {
     return 0;
 }
 
-/// A music file read: a WAVE file, and whether it's a mod's; or a mod's FLAC or MP3 file on its way
-/// to one.
+/// A music file read: a WAVE file, and whether it's a mod's; or a mod's file of another format on
+/// its way to one.
 const MusicRead = union(enum) {
     whole: struct { bytes: []u8, from_mod: bool },
     decoding: recordings.Decoding,
 };
 
 /// Reads the music file at `path`, a game path with backslashes: a mod's recording with the same
-/// name, a WAVE, FLAC or MP3 file (`recordings.Source.open`), or else the game folder's file,
-/// ignoring case as Windows does (`files.find`).
+/// name, in any of the formats a recording can be in (`recordings.Kind`), or else the game folder's
+/// file, ignoring case as Windows does (`files.find`).
 ///
 /// **Improvement:** the original plays only its own WAVE files.
 fn readMusic(files: Files, path: []const u8) !MusicRead {
@@ -1216,8 +1220,12 @@ fn readMusic(files: Files, path: []const u8) !MusicRead {
             .decoding => |recording| .{ .decoding = recording },
         };
     }
-    const bytes = try paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse return error.FileNotFound;
-    return .{ .whole = .{ .bytes = bytes, .from_mod = false } };
+    return .{ .whole = .{ .bytes = try readGameMusic(files, path), .from_mod = false } };
+}
+
+/// The game folder's music file at `path`, read whole into `files.gpa`.
+fn readGameMusic(files: Files, path: []const u8) ![]u8 {
+    return try paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse error.FileNotFound;
 }
 
 /// Where a mod's piece of music `own` at `path` loops back to. The loop table's `loop_start` is a
@@ -1231,7 +1239,7 @@ fn readMusic(files: Files, path: []const u8) !MusicRead {
 fn modLoopStart(files: Files, path: []const u8, own: []const u8, loop_start: i32) i32 {
     if (loop_start <= 0) return loop_start;
     return carriedModLoop(files, path, own, @intCast(loop_start)) catch |err| {
-        log.warn("the mod's music {s} may loop back to the wrong moment, since the game's piece can't be read: {s}", .{ path, @errorName(err) });
+        log.warn("the mod's music {s} may loop back to the wrong moment, since the game's piece can't be read: {t}", .{ path, err });
         return loop_start;
     };
 }
@@ -1239,7 +1247,7 @@ fn modLoopStart(files: Files, path: []const u8, own: []const u8, loop_start: i32
 /// The byte offset into the mod's piece `own` that plays at the same moment as `loop_start` bytes
 /// into the game's piece at `path`.
 fn carriedModLoop(files: Files, path: []const u8, own: []const u8, loop_start: u32) !i32 {
-    const game = try paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse return error.FileNotFound;
+    const game = try readGameMusic(files, path);
     defer files.gpa.free(game);
     const original = try wave.Wave.parse(game);
     // The stream has opened the mod's piece already (`Sound.playMusic`), so it parses.
@@ -1299,7 +1307,7 @@ pub const testing = struct {
         return bytes;
     }
 
-    pub const sound_file = wave.testing.pcm(&std.mem.toBytes([4]i16{ 16384, 16384, 16384, 16384 }));
+    pub const sound_file = wave.testing.steady(4, 16384);
 
     /// A sound player on a mixer of its own, heard from the origin. It stays where `init` fills it
     /// in, as the sound holds the mixer.

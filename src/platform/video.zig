@@ -1,9 +1,10 @@
 //! The movies' packets, decoded by FFmpeg's Bink decoders (`deps/ffmpeg`) for the engine's
-//! stand-in for Bink ([`engine/bink.zig`](../engine/bink.zig)'s `Codec`), and the frames of MP3
-//! files by its MP3 decoder. Each Bink decoder is set up as FFmpeg's reader of the container, its
-//! Bink demuxer, sets it up: the video's with the file's signature as its tag and the header's
-//! flags as its extra data, an audio track's with its rate, its channels and the file's signature.
-//! The MP3 decoder reads all it needs from the frames' headers.
+//! stand-in for Bink ([`engine/bink.zig`](../engine/bink.zig)'s `Codec`), and audio files by its
+//! MP3, FLAC, Vorbis and Opus decoders. Each Bink decoder is set up as FFmpeg's reader of the
+//! container, its Bink demuxer, sets it up: the video's with the file's signature as its tag and
+//! the header's flags as its extra data, an audio track's with its rate, its channels and the
+//! file's signature. The MP3 and FLAC decoders read all they need from what they're sent, and the
+//! Vorbis and Opus decoders take an Ogg stream's headers as their extra data.
 //!
 //! FFmpeg is built without threads, so it is used from the thread the game runs on alone.
 
@@ -13,6 +14,8 @@ const Allocator = std.mem.Allocator;
 const c = @import("av");
 const openreliant = @import("openreliant");
 const bink = openreliant.engine.bink;
+const math = openreliant.engine.surrender.math;
+const wave = openreliant.wave;
 
 /// The decoders, which hold nothing between the streams they open. FFmpeg's own warnings and
 /// errors go to the log (`logs.route`).
@@ -25,8 +28,7 @@ pub const Decoders = struct {
         return .{ .context = decoders, .vtable = &.{
             .openVideo = openVideo,
             .openAudio = openAudio,
-            .openMp3 = openMp3,
-            .openFlac = openFlac,
+            .openFile = openFile,
             .picture = picture,
             .send = sendPacket,
             .receive = receive,
@@ -54,31 +56,29 @@ fn openAudio(_: *anyopaque, audio: bink.Audio) bink.Error!bink.Stream {
     return open(.{ .audio = audio });
 }
 
-fn openMp3(_: *anyopaque) bink.Error!bink.Stream {
-    return open(.mp3);
-}
-
-fn openFlac(_: *anyopaque) bink.Error!bink.Stream {
-    return open(.flac);
+fn openFile(_: *anyopaque, encoding: bink.Encoding) bink.Error!bink.Stream {
+    return open(.{ .file = encoding });
 }
 
 /// What a stream's decoder is set up for.
 const Setup = union(enum) {
     video: bink.Video,
     audio: bink.Audio,
-    mp3,
-    /// A whole FLAC file, sent as one packet; the decoder reads its header first.
-    flac,
+    file: bink.Encoding,
 };
 
 /// A decoder set up for `setup`. A Bink decoder's 4 bytes of extra data hold the video's flags, or
-/// an audio track's movie's signature.
+/// an audio track's movie's signature, and a Vorbis or Opus decoder's hold the stream's headers.
 fn open(setup: Setup) bink.Error!bink.Stream {
     const id: c.enum_AVCodecID = switch (setup) {
         .video => c.AV_CODEC_ID_BINKVIDEO,
         .audio => |audio| if (audio.dct) c.AV_CODEC_ID_BINKAUDIO_DCT else c.AV_CODEC_ID_BINKAUDIO_RDFT,
-        .mp3 => c.AV_CODEC_ID_MP3,
-        .flac => c.AV_CODEC_ID_FLAC,
+        .file => |encoding| switch (encoding) {
+            .mp3 => c.AV_CODEC_ID_MP3,
+            .flac => c.AV_CODEC_ID_FLAC,
+            .vorbis => c.AV_CODEC_ID_VORBIS,
+            .opus => c.AV_CODEC_ID_OPUS,
+        },
     };
     const decoder = c.avcodec_find_decoder(id) orelse return error.Decoding;
     var context: ?*c.AVCodecContext = c.avcodec_alloc_context3(decoder) orelse return error.OutOfMemory;
@@ -86,19 +86,28 @@ fn open(setup: Setup) bink.Error!bink.Stream {
     const set_up = context.?;
     switch (setup) {
         .video => |video| {
-            const extradata = try extraData(set_up);
+            const extradata = try extraData(set_up, 4);
             set_up.width = @intCast(video.width);
             set_up.height = @intCast(video.height);
             set_up.codec_tag = signature(video.revision);
             std.mem.writeInt(u32, extradata[0..4], @bitCast(video.flags), .little);
         },
         .audio => |audio| {
-            const extradata = try extraData(set_up);
+            const extradata = try extraData(set_up, 4);
             set_up.sample_rate = @intCast(audio.rate);
             c.av_channel_layout_default(&set_up.ch_layout, audio.channels);
             std.mem.writeInt(u32, extradata[0..4], signature(audio.revision), .little);
         },
-        .mp3, .flac => {},
+        .file => |encoding| switch (encoding) {
+            .mp3, .flac => {},
+            .vorbis => |headers| @memcpy(try extraData(set_up, headers.len), headers),
+            .opus => |headers| {
+                @memcpy(try extraData(set_up, headers.len), headers);
+                // The packets' timestamps count samples at Opus's rate. The decoder moves them past
+                // the pre-skip it drops, and logs a warning where it has no timebase for them.
+                set_up.pkt_timebase = .{ .num = 1, .den = openreliant.ogg.opus_rate };
+            },
+        },
     }
     if (c.avcodec_open2(context, decoder, null) < 0) return error.Decoding;
     var packet: ?*c.AVPacket = c.av_packet_alloc() orelse return error.OutOfMemory;
@@ -110,13 +119,14 @@ fn open(setup: Setup) bink.Error!bink.Stream {
     return stream;
 }
 
-/// Four bytes of extra data for a Bink decoder, padded as FFmpeg reads past them, which the context
+/// `size` bytes of extra data for a decoder, padded as FFmpeg reads past them, which the context
 /// frees as it closes.
-fn extraData(context: *c.AVCodecContext) bink.Error![*]u8 {
-    const extradata: [*]u8 = @ptrCast(c.av_mallocz(4 + c.AV_INPUT_BUFFER_PADDING_SIZE) orelse return error.OutOfMemory);
+fn extraData(context: *c.AVCodecContext, size: usize) bink.Error![]u8 {
+    const length = std.math.cast(c_int, size) orelse return error.Decoding;
+    const extradata: [*]u8 = @ptrCast(c.av_mallocz(size + c.AV_INPUT_BUFFER_PADDING_SIZE) orelse return error.OutOfMemory);
     context.extradata = extradata;
-    context.extradata_size = 4;
-    return extradata;
+    context.extradata_size = length;
+    return extradata[0..size];
 }
 
 /// The Bink signature a movie of `revision` starts with, as a tag.
@@ -200,10 +210,8 @@ fn top16(level: i32) i16 {
 /// A float sample from -1 to 1 as a 16-bit one, rounded to the nearest and a half to the even one,
 /// as FFmpeg's conversion rounds (`lrintf`).
 fn sample16(level: f32) i16 {
-    const scaled = level * 32768;
-    var rounded = @round(scaled);
-    if (@abs(scaled - @trunc(scaled)) == 0.5 and @mod(rounded, 2) != 0) rounded -= std.math.sign(scaled);
-    return @intFromFloat(std.math.clamp(rounded, -32768, 32767));
+    const rounded = math.roundEven(level * wave.full_scale);
+    return @intFromFloat(std.math.clamp(rounded, std.math.minInt(i16), std.math.maxInt(i16)));
 }
 
 fn close(_: *anyopaque, handle: bink.Stream) void {
@@ -221,9 +229,11 @@ test sample16 {
     try std.testing.expectEqual(0, sample16(0));
     try std.testing.expectEqual(16384, sample16(0.5));
     // A half goes to the even one.
-    try std.testing.expectEqual(2, sample16(2.5 / 32768.0));
-    try std.testing.expectEqual(-2, sample16(-2.5 / 32768.0));
-    try std.testing.expectEqual(4, sample16(3.5 / 32768.0));
+    // A step of the 16-bit scale as a float.
+    const step: f32 = 1.0 / @as(f32, wave.full_scale);
+    try std.testing.expectEqual(2, sample16(2.5 * step));
+    try std.testing.expectEqual(-2, sample16(-2.5 * step));
+    try std.testing.expectEqual(4, sample16(3.5 * step));
     try std.testing.expectEqual(32767, sample16(1.5));
     try std.testing.expectEqual(-32768, sample16(-1));
 }
@@ -244,7 +254,7 @@ test "a damaged packet fails, and the decoder closes" {
 test "MP3 frames decode to their samples" {
     var decoders: Decoders = .init();
     const codec = decoders.codec();
-    const stream = try codec.openMp3();
+    const stream = try codec.openFile(.mp3);
     defer codec.close(stream);
     // Two frames of MPEG-2 Layer III at 22,050 Hz in joint stereo, nothing but their headers set:
     // silence, 576 samples of each channel each.
@@ -266,14 +276,14 @@ test "a FLAC file decodes to a WAVE file of its samples" {
     var whole: bink.AudioDecoding = try .beginFlac(codec, file);
     const decoded = try whole.complete(gpa);
     defer gpa.free(decoded);
-    const wave = try openreliant.wave.Wave.parse(decoded);
-    try std.testing.expectEqual(openreliant.wave.Wave.Format.pcm, wave.format);
-    try std.testing.expectEqual(44100, wave.rate);
-    try std.testing.expectEqual(2, wave.channels);
-    try std.testing.expectEqual(192 * 2 * 2, wave.data.len);
+    const parsed = try wave.Wave.parse(decoded);
+    try std.testing.expectEqual(wave.Wave.Format.pcm, parsed.format);
+    try std.testing.expectEqual(44100, parsed.rate);
+    try std.testing.expectEqual(2, parsed.channels);
+    try std.testing.expectEqual(192 * 2 * 2, parsed.data.len);
     for (0..192) |at| {
-        try std.testing.expectEqual(1000, std.mem.readInt(i16, wave.data[at * 4 ..][0..2], .little));
-        try std.testing.expectEqual(-2000, std.mem.readInt(i16, wave.data[at * 4 + 2 ..][0..2], .little));
+        try std.testing.expectEqual(1000, std.mem.readInt(i16, parsed.data[at * 4 ..][0..2], .little));
+        try std.testing.expectEqual(-2000, std.mem.readInt(i16, parsed.data[at * 4 + 2 ..][0..2], .little));
     }
     // A frame at a time, as a mod's music decodes over several of the game's frames: the file's
     // one frame, then the end.
@@ -283,6 +293,41 @@ test "a FLAC file decodes to a WAVE file of its samples" {
     const stepped = try decoding.finish(gpa);
     defer gpa.free(stepped);
     try std.testing.expectEqualSlices(u8, decoded, stepped);
+}
+
+test "an Ogg file decodes to a WAVE file of its samples, up to where its last page says it ends" {
+    const gpa = std.testing.allocator;
+    var decoders: Decoders = .init();
+    const codec = decoders.codec();
+    // Opus: three packets of 20 ms of silence at 48,000 Hz in stereo, 960 samples of each channel
+    // each. The decoder drops the pre-skip of 312 samples at the start, and the last page ends the
+    // stream 400 samples before the end of the last packet.
+    const frame = 960;
+    const opus = try openreliant.ogg.testing.opus(gpa, 2, 312, 3, 3 * frame - 400);
+    defer gpa.free(opus);
+    var opus_decoding: bink.AudioDecoding = try .beginOgg(codec, gpa, opus);
+    const from_opus = try opus_decoding.complete(gpa);
+    defer gpa.free(from_opus);
+    const opus_wave = try wave.Wave.parse(from_opus);
+    try std.testing.expectEqual(48000, opus_wave.rate);
+    try std.testing.expectEqual(2, opus_wave.channels);
+    try std.testing.expectEqual((3 * frame - 400 - 312) * 2 * @sizeOf(i16), opus_wave.data.len);
+    try std.testing.expect(std.mem.allEqual(u8, opus_wave.data, 0));
+    // Vorbis: five packets of short blocks of silence at 22,050 Hz in one channel. The first
+    // decodes to nothing and each of the others to 128 samples, and the last page ends the stream
+    // 400 samples in, 112 before the end of the last packet.
+    const vorbis = try openreliant.ogg.testing.vorbis(gpa, 22050, 1, 5, 400);
+    defer gpa.free(vorbis);
+    var vorbis_decoding: bink.AudioDecoding = try .beginOgg(codec, gpa, vorbis);
+    try std.testing.expect(!try vorbis_decoding.step(gpa, 4 * 128));
+    try std.testing.expectEqual(4 * 128, vorbis_decoding.pcm.items.len);
+    const from_vorbis = try vorbis_decoding.complete(gpa);
+    defer gpa.free(from_vorbis);
+    const vorbis_wave = try wave.Wave.parse(from_vorbis);
+    try std.testing.expectEqual(22050, vorbis_wave.rate);
+    try std.testing.expectEqual(1, vorbis_wave.channels);
+    try std.testing.expectEqual(400 * @sizeOf(i16), vorbis_wave.data.len);
+    try std.testing.expect(std.mem.allEqual(u8, vorbis_wave.data, 0));
 }
 
 test top16 {

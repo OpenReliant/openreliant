@@ -929,7 +929,7 @@ pub const Radio = struct {
     /// for lines from mods.
     archive: ?hog.Archive,
     /// Added by OpenReliant: the mods, whose lines and recordings of lines take priority over the
-    /// archive's, and what decodes those recordings in FLAC or MP3 (`readLine`).
+    /// archive's, and what decodes those recordings that aren't WAVE files (`readLine`).
     recordings: recordings.Source = .none,
     player: cbox.Player = .{},
     /// How the lines sound.
@@ -967,7 +967,7 @@ pub const Radio = struct {
     /// in `dir`.
     pub fn openAt(gpa: Allocator, io: Io, dir: Io.Dir, lines: []const u8, films: []const u8) Radio {
         const archive = bigfile.openArchive(gpa, io, dir, lines) catch |err| none: {
-            log.warn("the radio has no lines: can't open {s}: {s}", .{ lines, @errorName(err) });
+            log.warn("the radio has no lines: can't open {s}: {t}", .{ lines, err });
             break :none null;
         };
         return .{ .gpa = gpa, .archive = archive, .movie = .openAt(gpa, io, dir, films) };
@@ -1469,7 +1469,7 @@ test readLine {
     defer mods.close(gpa);
     var archive: hog.Archive = try .open(gpa, io, tmp.dir, "speech.hog");
     defer archive.close(gpa);
-    // The mods, without a decoder for recordings in FLAC or MP3.
+    // The mods, without a decoder for recordings that aren't WAVE files.
     const source: recordings.Source = .{ .mods = &mods, .codec = null };
 
     // A mod's line by the name the archive uses, which wins over the same name with the extension,

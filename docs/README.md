@@ -23,7 +23,8 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`formats/fat.md`](formats/fat.md) | `.fat` sound banks. |
 | [`formats/speech.md`](formats/speech.md) | Speech files: the radio's lines, their scrambling and their codec. |
 | [`formats/mp3.md`](formats/mp3.md) | MP3 files: the crew's lines in the rooms, mods' music and lines, and the frames OpenReliant reads of them. |
-| [`formats/flac.md`](formats/flac.md) | FLAC files: mods' music and lines, and the header OpenReliant reads of them. |
+| [`formats/flac.md`](formats/flac.md) | FLAC files: mods' music, lines and sounds, and the header OpenReliant reads of them. |
+| [`formats/ogg.md`](formats/ogg.md) | Ogg files: mods' music, lines and sounds in Vorbis or Opus, and the pages and headers OpenReliant reads of them. |
 | [`formats/fm8.md`](formats/fm8.md) | Face films: the pilots' faces the radio's window plays, their chunks and their codec. |
 | [`formats/fnt.md`](formats/fnt.md) | `.fnt` bitmap fonts. |
 | [`formats/bink.md`](formats/bink.md) | `.bik` movies: the Bink container. |

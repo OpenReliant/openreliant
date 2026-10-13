@@ -20,6 +20,7 @@ pub const numbered = @import("formats/numbered.zig");
 pub const frc = @import("formats/frc.zig");
 pub const hog = @import("formats/hog.zig");
 pub const mp3 = @import("formats/mp3.zig");
+pub const ogg = @import("formats/ogg.zig");
 pub const refpack = @import("formats/refpack.zig");
 pub const riff = @import("formats/riff.zig");
 pub const scramble = @import("formats/scramble.zig");

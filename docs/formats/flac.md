@@ -2,8 +2,8 @@
 
 FLAC stores audio losslessly in less space than 16-bit PCM: about two thirds of the space for music,
 and less for speech. The original reads no FLAC files. OpenReliant reads them from mods, in place
-of a piece of music or a line of speech ([Music](../guide/modding.md#music),
-[Lines](../guide/modding.md#lines)).
+of a piece of music, a line of speech or a sound ([Music](../guide/modding.md#music),
+[Lines](../guide/modding.md#lines), [Sounds](../guide/modding.md#sounds)).
 
 A file starts with the marker `fLaC`, followed by its metadata blocks and then the audio frames
 (RFC 9639). Each block starts with a four-byte header: the top bit of the first byte is set on the
@@ -30,5 +30,5 @@ frame at a time. Samples of more than 16 bits keep their top 16 bits, as FFmpeg'
 does. A line of speech decodes all at once, and a piece of music a few seconds of music each frame
 of the game, starting once it's decoded ([The driver](../port/sound.md#the-driver)).
 
-For a mod's recording, OpenReliant looks for a WAVE file first, then a FLAC file, then an MP3 file
-(`recordings.Source.find`).
+Where a mod has a recording in more than one format, OpenReliant takes the first in the order that
+[Music](../guide/modding.md#music) gives (`recordings.Source.find`).

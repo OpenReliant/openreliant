@@ -1,18 +1,24 @@
 //! The Miles Sound System's calls ([`engine/mss.zig`](../engine/mss.zig)'s `Driver`), played by
-//! OpenAL Soft in place of the 3D providers the game chose between: Miles's own, DirectSound3D, EAX,
-//! A3D. OpenAL renders into memory through its loopback device, which the platform's audio stream
-//! pulls from, so none of its own device backends are used.
+//! OpenAL Soft in place of the 3D providers the game chose from: Miles's own, DirectSound3D, EAX
+//! and A3D. OpenAL renders into memory through its loopback device, which the platform's audio
+//! stream pulls from, so none of OpenAL's own device backends are used.
 //!
-//! What the game asked of its provider maps across as it is: each 3D sample's distances, as the
-//! inverse distance clamped model DirectSound3D had; its cone; its velocity's Doppler shift; its
-//! pitch and volume. Samples play by their pan from ahead, streams stereo straight to the
-//! speakers. **Improvements:** OpenAL's band-limited sinc resampler and its smoothing of every
-//! change; UHJ stereo, or HRTF for headphones, where Miles panned left and right; as many speakers as
-//! the device has; a listener that moves, a stronger Doppler shift, sounds with a size, high
-//! frequencies fading with distance, a subwoofer; a reverb on the 3D sounds, of the generic room
-//! the game asks EAX for with its effect volume at nothing, or of a hangar while a launch shows one
-//! from within, and on the sounds of a carrier's rooms and its briefing room, of a room of the
-//! ship; and one of a cabin on the cockpit's own voice.
+//! What the game asks of its provider carries over as it is: each 3D sample's distances, with the
+//! inverse distance clamped model that DirectSound3D used; its cone; its velocity's Doppler shift;
+//! its pitch and volume. Samples play from ahead, turned by their pan, and streams play in stereo
+//! straight to the speakers.
+//!
+//! **Improvements:**
+//!
+//! - OpenAL's band-limited sinc resampler, and its smoothing of every change.
+//! - UHJ stereo, or HRTF for headphones, where Miles panned left and right, and as many speakers
+//!   as the device has.
+//! - A listener that moves, a stronger Doppler shift, sounds with a size, high frequencies that
+//!   fade with distance, and a subwoofer.
+//! - Reverbs. The 3D sounds ring in the generic room the game asks EAX for, though it sets the
+//!   effect's volume to nothing; in a hangar while a launch shows one from within; and in a small
+//!   room of the ship in a carrier's rooms and briefing room. The cockpit's own voice rings in a
+//!   cabin.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -40,7 +46,20 @@ pub const Settings = struct {
     low_frequency_level: f32 = 0.5,
 };
 
-pub const Hrtf = enum { auto, on, off };
+pub const Hrtf = enum {
+    auto,
+    on,
+    off,
+
+    /// Whether HRTF is used, where the output is `headphones` or not.
+    fn used(hrtf: Hrtf, headphones: bool) bool {
+        return switch (hrtf) {
+            .on => true,
+            .off => false,
+            .auto => headphones,
+        };
+    }
+};
 
 pub const Error = error{OpenAl} || Allocator.Error;
 
@@ -61,6 +80,13 @@ const speed_of_sound: f32 = mss.positional.speed_of_sound * velocity_scale;
 /// hundred; ten times goes a good part of the way there. The velocities are held within half the
 /// speed of sound over this, so the shift keeps within the bounds it had.
 const doppler_factor: f32 = 10;
+
+/// The least reference distance and the lowest pitch OpenAL is given, which take no 0.
+const least_reference_distance: f32 = 0.001;
+const lowest_pitch: f32 = 0.001;
+
+/// The most plays of a sound queued at once, for a loop count of more than one (`startVoice`).
+const most_queued = 64;
 
 /// A sound decoded into an OpenAL buffer.
 const Buffer = struct {
@@ -364,11 +390,7 @@ pub const Renderer = struct {
         };
         const device = c.alcLoopbackOpenDeviceSOFT(null) orelse return fail("alcLoopbackOpenDeviceSOFT");
         errdefer _ = c.alcCloseDevice(device);
-        const hrtf = switch (settings.hrtf) {
-            .on => true,
-            .off => false,
-            .auto => headphones,
-        };
+        const hrtf = settings.hrtf.used(headphones);
         const attributes = deviceAttributes(layout[0], rate, hrtf);
         const context = c.alcCreateContext(device, &attributes) orelse return fail("alcCreateContext");
         errdefer c.alcDestroyContext(context);
@@ -439,11 +461,7 @@ pub const Renderer = struct {
     /// render meanwhile.
     pub fn setHrtf(renderer: *Renderer, hrtf: Hrtf, headphones: bool) void {
         renderer.settings.hrtf = hrtf;
-        renderer.useHrtf(switch (hrtf) {
-            .on => true,
-            .off => false,
-            .auto => headphones,
-        });
+        renderer.useHrtf(hrtf.used(headphones));
     }
 
     /// Turns HRTF on or off, on a stereo output, the device reset to it.
@@ -538,10 +556,18 @@ pub const Renderer = struct {
 
     pub fn setSampleFile(renderer: *Renderer, handle: mss.Sample, file: []const u8) bool {
         const voice = renderer.sample(handle);
-        stopVoice(voice);
-        voice.buffer = renderer.bufferOf(file) orelse return false;
-        voice.rate = voice.buffer.?.rate;
+        if (!renderer.load(voice, file)) return false;
         renderer.setUpFlat(voice);
+        return true;
+    }
+
+    /// `voice` stopped, with the sound `file` to play at its own rate. False where it can't be
+    /// played, the voice keeping the sound it had.
+    fn load(renderer: *Renderer, voice: *Voice, file: []const u8) bool {
+        stopVoice(voice);
+        const buffer = renderer.bufferOf(file) orelse return false;
+        voice.buffer = buffer;
+        voice.rate = buffer.rate;
         return true;
     }
 
@@ -692,9 +718,7 @@ pub const Renderer = struct {
 
     pub fn set3DSampleFile(renderer: *Renderer, handle: mss.Sample3D, file: []const u8) bool {
         const voice = renderer.sample3D(handle);
-        stopVoice(voice);
-        voice.buffer = renderer.bufferOf(file) orelse return false;
-        voice.rate = voice.buffer.?.rate;
+        if (!renderer.load(voice, file)) return false;
         setPitch(voice);
         return true;
     }
@@ -739,7 +763,7 @@ pub const Renderer = struct {
 
     pub fn set3DSampleDistances(renderer: *Renderer, handle: mss.Sample3D, max: f32, min: f32) void {
         const source = renderer.sample3D(handle).source;
-        c.alSourcef(source, c.AL_REFERENCE_DISTANCE, @max(min, 0.001));
+        c.alSourcef(source, c.AL_REFERENCE_DISTANCE, @max(min, least_reference_distance));
         c.alSourcef(source, c.AL_MAX_DISTANCE, @max(max, min));
     }
 
@@ -760,7 +784,7 @@ pub const Renderer = struct {
     /// against each other. Its speed is held within half the speed of sound, as a sample's is along
     /// the line to it.
     pub fn set3DListenerVelocity(renderer: *Renderer, velocity: mss.Vector) void {
-        const speed = @sqrt(math.dot(velocity, velocity));
+        const speed = math.length(velocity);
         const most = speed_of_sound / velocity_scale / 2 / doppler_factor;
         const held = if (speed > most) velocity * @as(mss.Vector, @splat(most / speed)) else velocity;
         const moving = openAl(held) * @as(mss.Vector, @splat(velocity_scale));
@@ -800,8 +824,8 @@ pub const Renderer = struct {
         c.alSourcei(source, c.AL_SOURCE_RELATIVE, c.AL_TRUE);
         c.alSourcef(source, c.AL_ROLLOFF_FACTOR, 1);
         c.alSourcef(source, c.AL_ROOM_ROLLOFF_FACTOR, 1);
-        c.alSourcef(source, c.AL_CONE_INNER_ANGLE, 360);
-        c.alSourcef(source, c.AL_CONE_OUTER_ANGLE, 360);
+        c.alSourcef(source, c.AL_CONE_INNER_ANGLE, mss.positional.full_cone);
+        c.alSourcef(source, c.AL_CONE_OUTER_ANGLE, mss.positional.full_cone);
         c.alSourcef(source, c.AL_SOURCE_RADIUS, 0);
         c.alSourcei(source, c.AL_SOURCE_SPATIALIZE_SOFT, c.AL_TRUE);
         c.alSourcef(source, c.AL_AIR_ABSORPTION_FACTOR, if (renderer.settings.air_absorption) 1 else 0);
@@ -935,24 +959,21 @@ fn findResampler() ?c.ALint {
     return null;
 }
 
-/// A WAVE sound decoded into 16-bit samples in a new buffer.
+/// A WAVE sound decoded into 16-bit samples in a new buffer, mono or stereo as the sound is.
 fn decode(gpa: Allocator, file: []const u8) ?Buffer {
     const header = wave.Wave.parse(file) catch return null;
     var decoder = wave.Decoder.init(header) catch return null;
-    const channels: usize = if (header.channels == 2) 2 else 1;
-    const samples = gpa.alloc(i16, decoder.frames * channels) catch return null;
+    const samples = decoder.rest(gpa) catch return null;
     defer gpa.free(samples);
-    var at: usize = 0;
-    while (decoder.next()) |frame| : (at += channels) @memcpy(samples[at..][0..channels], frame[0..channels]);
     var name: c.ALuint = 0;
     c.alGenBuffers(1, &name);
-    const format: c.ALenum = if (channels == 2) c.AL_FORMAT_STEREO16 else c.AL_FORMAT_MONO16;
+    const format: c.ALenum = if (header.channels == 2) c.AL_FORMAT_STEREO16 else c.AL_FORMAT_MONO16;
     c.alBufferData(name, format, samples.ptr, @intCast(samples.len * @sizeOf(i16)), @intCast(header.rate));
     if (c.alGetError() != c.AL_NO_ERROR) {
         c.alDeleteBuffers(1, &name);
         return null;
     }
-    return .{ .name = name, .rate = header.rate, .frames = decoder.frames, .channels = @intCast(channels) };
+    return .{ .name = name, .rate = header.rate, .frames = decoder.frames, .channels = header.channels };
 }
 
 /// A vector in Miles's frame, `+z` ahead, in OpenAL's, `-z` ahead.
@@ -964,7 +985,7 @@ fn setPitch(voice: *Voice) void {
     const buffer = voice.buffer orelse return;
     if (buffer.rate == 0) return;
     const pitch = @as(f32, @floatFromInt(voice.rate)) / @as(f32, @floatFromInt(buffer.rate));
-    c.alSourcef(voice.source, c.AL_PITCH, @max(pitch, 0.001));
+    c.alSourcef(voice.source, c.AL_PITCH, @max(pitch, lowest_pitch));
 }
 
 fn releaseStream(slot: *Stream) void {
@@ -996,7 +1017,7 @@ fn startVoice(voice: *Voice) void {
         },
         else => {
             c.alSourcei(voice.source, c.AL_LOOPING, c.AL_FALSE);
-            const names: [64]c.ALuint = @splat(buffer.name);
+            const names: [most_queued]c.ALuint = @splat(buffer.name);
             c.alSourceQueueBuffers(voice.source, @intCast(@min(voice.loops, names.len)), &names);
         },
     }
@@ -1049,7 +1070,7 @@ test Renderer {
     try std.testing.expectApproxEqAbs(renderer.settings.reverb_level, gain, 1e-6);
 
     // A 3D sample to the right, heard in the right ear more than the left.
-    const file = comptime openreliant.wave.testing.pcm(&std.mem.toBytes(@as([2048]i16, @splat(16384))));
+    const file = comptime openreliant.wave.testing.steady(2048, 16384);
     const placed = driver.allocate3DSample().?;
     try std.testing.expect(driver.set3DSampleFile(placed, file));
     try std.testing.expectEqual(2048, driver.sample3DFrames(placed));
@@ -1142,7 +1163,7 @@ test "subwoofer" {
     defer renderer.destroy();
     try std.testing.expect(renderer.low_frequency != null);
     const driver = renderer.driver();
-    const file = comptime openreliant.wave.testing.pcm(&std.mem.toBytes(@as([4096]i16, @splat(16384))));
+    const file = comptime openreliant.wave.testing.steady(4096, 16384);
     const placed = driver.allocate3DSample().?;
     try std.testing.expect(driver.set3DSampleFile(placed, file));
     driver.set3DPosition(placed, .{ 0, 0, 2 });

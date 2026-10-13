@@ -1,22 +1,22 @@
-//! The Miles Sound System (`MSS32.DLL`), as far as the game calls it: a digital driver that mixes
-//! samples, 3D samples and streams of WAVE sounds. OpenReliant's own stand-in, in software: the
-//! library is not the game's, and nothing of it is carried over but the calls' meanings. Each
-//! function stands for the `AIL_` call it names; the game's code in
-//! [`game/hog_snd.zig`](game/hog_snd.zig) makes them as it made Miles's.
+//! The Miles Sound System (`MSS32.DLL`), as far as the game uses it: a digital driver that mixes
+//! samples, 3D samples and streams of WAVE sounds. This is OpenReliant's own replacement, written
+//! from what the calls do, not from Miles's code. Each function stands for the `AIL_` call it is
+//! named after, and the game's code in [`game/hog_snd.zig`](game/hog_snd.zig) calls them as it
+//! called Miles.
 //!
-//! `Driver` is what the game calls: an interface two drivers stand behind, as the renderer's device
-//! has two. `Mixer` mixes in software, plainly, as Miles is taken to have mixed; the platform's
-//! OpenAL renderer places the sounds with OpenAL Soft. The platform plays either on a thread of its
-//! own, so the mixer holds the platform's `Lock` through each call; `Mixer.mix` expects its caller
-//! to hold it. Three calls are not Miles's, the listener's velocity, a 3D sample's radius and a
-//! sample's room: they serve OpenAL's improvements, and the software mixer, the reference, leaves
-//! them out. A fourth, a 3D sample's length in frames, stands in for its length in bytes
-//! (`AIL_3D_sample_length`) for both.
+//! `Driver` is the interface the game calls, and two drivers implement it, as the renderer has two
+//! devices. `Mixer` mixes in software, plainly, as Miles most likely did, and the platform's OpenAL
+//! renderer places the sounds with OpenAL Soft. The platform plays either one on a thread of its
+//! own, so the mixer holds the platform's `Lock` during each call, and `Mixer.mix` expects its
+//! caller to hold it. Three calls aren't Miles's: the listener's velocity, a 3D sample's radius and
+//! a sample's room. They serve OpenAL's improvements, and the software mixer, which is the
+//! reference, ignores them. A fourth, a 3D sample's length in frames, replaces its length in bytes
+//! (`AIL_3D_sample_length`) for both drivers.
 //!
-//! Volumes and pans run from 0 to 127 (`max_level`), a pan of 64 in the middle (`centre_pan`), as
-//! Miles's do. How Miles turned them into gains is not known here: OpenReliant takes a volume's
-//! share of 127 as its gain (`gain`), and a pan as a balance that keeps the middle at full volume
-//! in both ears.
+//! Volumes and pans run from 0 to 127 (`max_level`), with a pan of 64 in the middle
+//! (`centre_pan`), as in Miles. How Miles turned them into gains isn't known: OpenReliant uses a
+//! volume's share of 127 as its gain (`gain`), and treats a pan as a balance that keeps the middle
+//! at full volume in both ears.
 
 const std = @import("std");
 
@@ -106,6 +106,11 @@ pub fn gain(volume: i32) f32 {
     return @as(f32, @floatFromInt(volume)) / max_level;
 }
 
+/// The gain of `db` decibels, as a `T`: ten to the power of a twentieth of them.
+pub fn decibelGain(comptime T: type, db: T) T {
+    return std.math.pow(T, 10, db / 20);
+}
+
 test clampLevel {
     try std.testing.expectEqual(0, clampLevel(-5));
     try std.testing.expectEqual(80, clampLevel(80));
@@ -116,6 +121,12 @@ test gain {
     try std.testing.expectEqual(1, gain(max_level));
     try std.testing.expectEqual(0, gain(0));
     try std.testing.expectApproxEqAbs(0.5, gain(centre_pan), 0.01);
+}
+
+test decibelGain {
+    try std.testing.expectEqual(1, decibelGain(f32, 0));
+    try std.testing.expectApproxEqAbs(0.1, decibelGain(f64, -20), 1e-12);
+    try std.testing.expectApproxEqAbs(1.9953, decibelGain(f32, 6), 1e-4);
 }
 
 /// A digital driver (`HDIGDRIVER`, `AIL_waveOutOpen`) and its 3D provider: the calls the game makes
@@ -360,8 +371,8 @@ pub const Driver = struct {
     }
 };
 
-/// OpenReliant's own digital driver, in software: the handles and their mix, as plain as Miles's
-/// own mixer is taken to have been. The reference the OpenAL renderer is measured against, and what
+/// OpenReliant's own digital driver, in software: the handles and a plain mix of them, as Miles's
+/// own mixer most likely was. It is the reference the OpenAL renderer is compared with, and what
 /// `--original` plays through.
 pub const Mixer = struct {
     /// The output's frames a second.
@@ -411,7 +422,7 @@ pub const Mixer = struct {
             SampleState => Sample,
             Sample3DState => Sample3D,
             StreamState => Stream,
-            else => unreachable,
+            else => @compileError("no handle for " ++ @typeName(State)),
         };
     }
 
@@ -808,8 +819,11 @@ test {
     std.testing.refAllDecls(@This());
 }
 
+/// A sound for the tests: four frames at half of full scale.
+const test_file = @import("../formats/wave.zig").testing.steady(4, 16384);
+
 test Mixer {
-    const file = comptime @import("../formats/wave.zig").testing.pcm(&std.mem.toBytes([4]i16{ 16384, 16384, 16384, 16384 }));
+    const file = test_file;
     var mixer: Mixer = .init(22050);
     const driver = mixer.driver();
     const handle = driver.allocateSample().?;
@@ -820,7 +834,7 @@ test Mixer {
 
     // Full left: the left ear only, at the volume's share.
     driver.setSamplePan(handle, 0);
-    driver.setSampleVolume(handle, 127);
+    driver.setSampleVolume(handle, max_level);
     driver.startSample(handle);
     try std.testing.expectEqual(Status.playing, driver.sampleStatus(handle));
     var out: [2][2]f32 = undefined;
@@ -838,14 +852,14 @@ test Mixer {
     try std.testing.expectEqual(Status.done, driver.sampleStatus(handle));
 
     // In the middle, both ears at full volume.
-    driver.setSamplePan(handle, 64);
+    driver.setSamplePan(handle, centre_pan);
     driver.startSample(handle);
     mixer.mix(&out);
     try std.testing.expectEqual([2]f32{ 0.5, 0.5 }, out[0]);
 }
 
 test "Mixer places 3D samples and plays streams" {
-    const file = comptime @import("../formats/wave.zig").testing.pcm(&std.mem.toBytes([4]i16{ 16384, 16384, 16384, 16384 }));
+    const file = test_file;
     var mixer: Mixer = .init(22050);
     const driver = mixer.driver();
     const placed = driver.allocate3DSample().?;
@@ -863,7 +877,7 @@ test "Mixer places 3D samples and plays streams" {
     const music = driver.openStream(file).?;
     driver.setStreamLoopCount(music, 0);
     driver.setStreamLoopBlock(music, 4, -1);
-    driver.setStreamVolume(music, 127);
+    driver.setStreamVolume(music, max_level);
     driver.startStream(music);
     var long: [32][2]f32 = undefined;
     mixer.mix(&long);

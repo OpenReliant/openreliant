@@ -357,33 +357,32 @@ and a few modern ones beside them:
 | Textures | PNG up to 16384 pixels a side, or DDS and KTX2 files compressed already | An image editor ([Textures](#textures)) |
 | Interface shapes and pictures | PNG at any size | An image editor ([The interface](#the-interface)) |
 | Interface fonts | `.fnt`, TrueType or OpenType | A font editor ([Fonts](#fonts)) |
-| Music | WAV (16-bit PCM or IMA ADPCM), FLAC or MP3, at any rate | An audio editor ([Music](#music)) |
-| Sounds | WAV (16-bit or 8-bit PCM, or IMA ADPCM), FLAC or MP3, at any rate, mono or stereo, one at a time | An audio editor, from the sounds `sltool fat extract` saves ([Sounds](#sounds)) |
+| Music | WAV (16-bit PCM or IMA ADPCM), FLAC, MP3, Ogg Vorbis or Opus, at any rate | An audio editor ([Music](#music)) |
+| Sounds | WAV (16-bit or 8-bit PCM, or IMA ADPCM), FLAC, MP3, Ogg Vorbis or Opus, at any rate, mono or stereo, one at a time | An audio editor, from the sounds `sltool fat extract` saves ([Sounds](#sounds)) |
 | A mod's engine and gun sounds | WAV (16-bit or 8-bit PCM, or IMA ADPCM), at any rate | An audio editor ([Ship types](#ship-types), [Guns](#guns)) |
-| Lines of speech | WAV (16-bit or 8-bit PCM, or IMA ADPCM), FLAC or MP3, at any rate, mono or stereo; or the game's speech files | An audio editor, or `sltool speech encode` from WAV ([Lines](#lines)) |
+| Lines of speech | WAV (16-bit or 8-bit PCM, or IMA ADPCM), FLAC, MP3, Ogg Vorbis or Opus, at any rate, mono or stereo; or the game's speech files | An audio editor, or `sltool speech encode` from WAV ([Lines](#lines)) |
 | Pilots' faces | `.fm8` face films | `sltool fm8 encode`, from PNG frames ([Faces](#faces)) |
 | Missions | `.dte` | A mission editor ([Missions](#missions)) |
 | Stats tables | `.bin` | Better changed from a load script ([The records](scripting.md#the-records)) |
 | Whole sound banks | `.fat` | No tool builds one: replace a bank's sounds one at a time instead ([Sounds](#sounds)) |
 | Movies | Bink (`.bik`) | RAD Game Tools' Bink tools |
 
-Music, lines and sounds in Ogg Vorbis or Opus are planned
-([#1176](https://github.com/OpenReliant/openreliant/issues/1176)), as are movies in modern formats
-([#1179](https://github.com/OpenReliant/openreliant/issues/1179)).
+Movies in modern formats are planned ([#1179](https://github.com/OpenReliant/openreliant/issues/1179)).
 
 ### Music
 
-A piece of music is a WAV file (16-bit PCM or IMA ADPCM), a FLAC file or an MP3 file, at any rate,
-named after the game's piece: `New_Pensive.wav`, `New_Pensive.flac` or `New_Pensive.mp3` replaces
-the game's `music\New_Pensive.wav`. If a mod has more than one, the WAV file comes first, then the
-FLAC file, then the MP3 file. FLAC keeps the music exactly as recorded in about two thirds of the
-space of 16-bit WAV; MP3 takes less space still, but loses some of the sound. A FLAC or MP3 piece
-decodes over the next few frames, so that the game doesn't stall, and starts once it's decoded, a
-fraction of a second later. If the game's piece loops back to a point partway through, the mod's
-piece loops back to the same moment in the music, whatever its format. Make it the same length as
-the game's piece, or at least as long as its loop point, to keep the loop where the game has it. If
-the game's piece can't be read, the mod's piece loops back to the game file's byte offset instead,
-which may be the wrong moment, and the log says so.
+A piece of music is a WAV file (16-bit PCM or IMA ADPCM), or a FLAC, MP3, Ogg Vorbis or Opus file,
+at any rate, named after the game's piece: `New_Pensive.wav`, `New_Pensive.flac`, `New_Pensive.mp3`,
+`New_Pensive.ogg` or `New_Pensive.opus` replaces the game's `music\New_Pensive.wav`. A `.ogg` or
+`.opus` file can hold either Vorbis or Opus. If a mod has more than one, OpenReliant takes the first
+in that order: WAV, FLAC, MP3, Ogg, then Opus. FLAC keeps the music exactly as recorded in about two
+thirds of the space of 16-bit WAV. MP3, Vorbis and Opus take less space still, but lose some of the
+sound. A piece in any format but WAV decodes over the next few frames, so that the game doesn't
+stall, and starts once it's decoded, a fraction of a second later. If the game's piece loops back to
+a point partway through, the mod's piece loops back to the same moment in the music, whatever its
+format. Make it the same length as the game's piece, or at least as long as its loop point, to keep
+the loop where the game has it. If the game's piece can't be read, the mod's piece loops back to the
+game file's byte offset instead, which may be the wrong moment, and the log says so.
 [`examples/mods/music`](../../examples/mods/music) replaces the main menu's music with a track made
 for it, whose body starts where the game's piece loops back. The CD player in the rooms plays only
 the pieces on its lists, which a load script can change and add tracks to ([The CD player's
@@ -400,15 +399,16 @@ sounds under these names, so you can find the one to replace and start from it. 
 smp3d.fat` names the 3D sounds that play each of that bank's sounds. If a mod has no file for a
 sound, the bank's own sound plays, so a mod can replace just a few.
 
-A sound is a WAV file (16-bit or 8-bit PCM, or IMA ADPCM), a FLAC file or an MP3 file, at any rate,
-mono or stereo. If a mod has more than one for a sound, the WAV file comes first, then the FLAC
-file. MP3 adds a little silence at the start and the end, which you hear when a sound loops, such as
-an engine's, so WAV or FLAC suits sounds better. A sound plays wherever the game plays the bank's,
-with the bank's priority, and at the volume, pitch and place the game gives it. A 3D sound plays at
-its own pitch whatever its rate. In stereo, it keeps its width as far as what it comes from has a
-size: a big ship's engine close by sounds wide, and narrows to a point as the ship moves away, while
-a shot, a missile or an explosion is a point. With `--original`, which mixes the sound plainly, a 3D
-sound in stereo plays in mono so that it can still be placed.
+A sound is a WAV file (16-bit or 8-bit PCM, or IMA ADPCM), or a FLAC, MP3, Ogg Vorbis or Opus file,
+at any rate, mono or stereo. If a mod has more than one for a sound, OpenReliant takes the first in
+the same order as for music ([Music](#music)). MP3 adds a little silence at the start and the end,
+which you hear when a sound loops, such as an engine's, so the other formats suit sounds better. A
+sound plays wherever the game plays the bank's, with the bank's priority, and at the volume, pitch
+and place the game gives it. A 3D sound plays at its own pitch whatever its rate. In stereo, it
+keeps its width as far as what it comes from has a size: a big ship's engine close by sounds wide,
+and narrows to a point as the ship moves away, while a shot, a missile or an explosion is a point.
+With `--original`, which mixes the sound plainly, a 3D sound in stereo plays in mono so that it can
+still be placed.
 
 ## Textures
 
@@ -703,13 +703,14 @@ The game keeps its lines in `ms_speech\msspeech.hog`, under names without an ext
 `ABRT_001`. A mod's line replaces the game's line with the same name. `sltool speech extract
 ms_speech/msspeech.hog lines` saves every line as a WAV file, to find the one to replace.
 
-A mod's line is best a recording, a WAV, FLAC or MP3 file named after the line: `abrt_001.wav`,
-`abrt_001.flac` or `abrt_001.mp3` replaces `ABRT_001`. If a mod has more than one, the WAV file
-comes first, then the FLAC file. The line plays as recorded, at its own rate, mono or stereo, with
-the same effects as the game's lines: the radio's sound for a radio line, and a briefing's last word
-at the narration's loudness. WAV files can hold 16-bit or 8-bit PCM or IMA ADPCM, which audio
-editors write by default. FLAC is about half the size of WAV, and MP3 about a fifth: 64 kbit/s suits
-speech. Enriquez's scenes in the induction and the news reports take recordings too, named after the
+A mod's line is best a recording, a WAV file or a FLAC, MP3, Ogg Vorbis or Opus file named after the
+line: `abrt_001.wav` or `abrt_001.opus`, say, replaces `ABRT_001`. If a mod has more than one,
+OpenReliant takes the first in the same order as for music ([Music](#music)). The line plays as
+recorded, at its own rate, mono or stereo, with the same effects as the game's lines: the radio's
+sound for a radio line, and a briefing's last word at the narration's loudness. WAV files can hold
+16-bit or 8-bit PCM or IMA ADPCM, which audio editors write by default. FLAC is about half the size
+of WAV, MP3 about a fifth and Opus about a tenth: 64 kbit/s suits speech in MP3, and 32 kbit/s in
+Opus. Enriquez's scenes in the induction and the news reports take recordings too, named after the
 scene without `.box`, such as `0015.mp3` for `0015.box`.
 
 A line can also be a speech file in the game's own codec ([Speech files](../formats/speech.md)),

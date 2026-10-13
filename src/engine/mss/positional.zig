@@ -18,6 +18,12 @@ pub const Vector = math.Vector;
 /// The speed of sound, a millisecond, in DirectSound3D's default metres.
 pub const speed_of_sound = 0.3433;
 
+/// A cone's angle, in degrees, that takes in every direction: no cone at all.
+pub const full_cone = 360;
+
+/// Up, for a 3D sample's orientation.
+pub const up: Vector = .{ 0, 1, 0 };
+
 /// A 3D sample's placing, as the `AIL_set_3D_` calls set it.
 pub const Placing = struct {
     position: Vector = @splat(0),
@@ -27,9 +33,9 @@ pub const Placing = struct {
     min_distance: f32 = 1,
     max_distance: f32 = 1000,
     /// The cone: inside half the inner angle full volume, outside half the outer angle
-    /// `outer_volume` over `mss.max_level`, in degrees; 360 each for none.
-    inner_angle: f32 = 360,
-    outer_angle: f32 = 360,
+    /// `outer_volume` over `mss.max_level`, in degrees; `full_cone` each for none.
+    inner_angle: f32 = full_cone,
+    outer_angle: f32 = full_cone,
     outer_volume: f32 = mss.max_level,
 };
 
@@ -41,7 +47,7 @@ pub const Heard = struct {
 
 /// What the listener hears of a sample placed so, at `volume` from 0 to `mss.max_level`.
 pub fn hear(placing: Placing, volume: f32) Heard {
-    const distance = @sqrt(math.dot(placing.position, placing.position));
+    const distance = math.length(placing.position);
     var gain = volume / mss.max_level * attenuation(placing, distance) * cone(placing, distance);
     gain = std.math.clamp(gain, 0, 1);
 
@@ -60,8 +66,8 @@ fn attenuation(placing: Placing, distance: f32) f32 {
 /// The cone's share: toward the listener within the inner cone, all of it; outside the outer,
 /// the outer volume's; between, some of each.
 fn cone(placing: Placing, distance: f32) f32 {
-    if (placing.inner_angle >= 360 or distance == 0) return 1;
-    const face_length = @sqrt(math.dot(placing.face, placing.face));
+    if (placing.inner_angle >= full_cone or distance == 0) return 1;
+    const face_length = math.length(placing.face);
     if (face_length == 0) return 1;
     const toward = -placing.position / @as(Vector, @splat(distance));
     const cosine = std.math.clamp(math.dot(toward, placing.face) / face_length, -1, 1);
@@ -85,7 +91,7 @@ fn doppler(placing: Placing, distance: f32) f32 {
 /// The velocity a sample's Doppler shift is worked out from: its own, with the part along the line
 /// to the listener held within half the speed of sound either way.
 pub fn dopplerVelocity(position: Vector, velocity: Vector) Vector {
-    const distance = @sqrt(math.dot(position, position));
+    const distance = math.length(position);
     if (distance == 0) return velocity;
     const line = position / @as(Vector, @splat(distance));
     const away = math.dot(velocity, line);
