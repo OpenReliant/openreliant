@@ -83,14 +83,27 @@ pub fn writeParameters(writer: *Writer, count: usize) Writer.Error!void {
 
 /// Writes `body`, a line for each statement, indented by `depth` levels.
 pub fn write(writer: *Writer, body: []const Statement, record_names: *const Names, scope: Scope, depth: usize) Writer.Error!void {
-    const printer: Printer = .{ .writer = writer, .names = record_names, .scope = scope };
+    var rolls: usize = 0;
+    const printer: Printer = .{ .writer = writer, .names = record_names, .scope = scope, .rolls = &rolls };
     try printer.block(body, depth);
 }
+
+/// The name of the roll of a body's `number`th random choice: `roll`, then `roll_2` and so on.
+const Roll = struct {
+    number: usize,
+
+    pub fn format(roll: Roll, w: *Writer) Writer.Error!void {
+        try w.writeAll("roll");
+        if (roll.number > 1) try w.print("_{d}", .{roll.number});
+    }
+};
 
 const Printer = struct {
     writer: *Writer,
     names: *const Names,
     scope: Scope,
+    /// How many random choices the body has written, so that each gets a roll of its own name.
+    rolls: *usize,
 
     fn block(p: Printer, body: []const Statement, depth: usize) Writer.Error!void {
         for (body) |line| try p.statement(line, depth);
@@ -178,11 +191,15 @@ const Printer = struct {
     }
 
     /// A random choice: one roll, then an `if` over its arms' thresholds, and the default as `else`.
+    /// The body's first roll is `roll`, and the next ones `roll_2`, `roll_3` and so on, so that none
+    /// hides another.
     fn randomStatement(p: Printer, random: statements.Random, depth: usize) Writer.Error!void {
-        try p.writer.print("local roll = {t}()\n", .{Word.random});
+        p.rolls.* += 1;
+        const roll: Roll = .{ .number = p.rolls.* };
+        try p.writer.print("local {f} = {t}()\n", .{ roll, Word.random });
         for (random.arms, 0..) |arm, index| {
             try p.indent(depth);
-            try p.writer.print("{s} roll < {d} then\n", .{ if (index == 0) "if" else "elseif", arm.threshold });
+            try p.writer.print("{s} {f} < {d} then\n", .{ if (index == 0) "if" else "elseif", roll, arm.threshold });
             try p.block(arm.body, depth + 1);
         }
         if (random.default.len > 0) {
@@ -360,6 +377,7 @@ test write {
         .{ .threshold = 50, .extra = 7, .body = &.{.{ .call = .{ .part = 1, .arguments = &.{} } }} },
         .{ .threshold = 100, .extra = 0, .body = &.{} },
     };
+    const second = [_]statements.Random.Arm{.{ .threshold = 30, .extra = 0, .body = &.{} }};
     const body = [_]Statement{
         .{ .command = .{ .index = executor.commandIndex("SetAI"), .arguments = &.{ .{ .squad = 0 }, statements.testing.order(.find_new_target), .{ .number = 1 }, .null } } },
         .{ .command = .{ .index = executor.commandIndex("CreateTimer"), .arguments = &.{ .{ .number = 3 }, .{ .number = 1 }, .{ .number = 30 }, .{ .number = 1 } } } },
@@ -368,6 +386,7 @@ test write {
         .{ .assign = .{ .target = .{ .global = 0 }, .update = .add_assign, .value = .{ .number = 1 } } },
         .{ .@"if" = .{ .condition = .{ .binary = &both }, .then = &.{.{ .spawn = .{ .part = 1, .arguments = &.{.{ .ship = 1 }} } }}, .otherwise = &inner } },
         .{ .random = .{ .arms = &arms, .default = &.{} } },
+        .{ .random = .{ .arms = &second, .default = &.{} } },
         .{ .@"return" = .{ .number = 1 } },
     };
     try write(&out.writer, &body, &record_names, .{ .event = &.{ "attacker", "shield_damage", "hull_damage" } }, 0);
@@ -386,6 +405,9 @@ test write {
         \\if roll < 50 then
         \\    go_home()
         \\elseif roll < 100 then
+        \\end
+        \\local roll_2 = random()
+        \\if roll_2 < 30 then
         \\end
         \\return 1
         \\

@@ -15,6 +15,10 @@ pub const write = @import("source/write.zig");
 pub const syntax = @import("source/syntax.zig");
 /// The text compiled into a mission file.
 pub const compile = @import("source/compile.zig");
+/// What the source's words take and give, and the fields of its tables.
+pub const language = @import("source/language.zig");
+/// The definitions file for luau-lsp.
+pub const definitions = @import("source/definitions.zig");
 
 /// Whether `id` is made of letters, digits, `_` and `-`, and starts with a letter or `_`:
 /// `[A-Za-z_][A-Za-z0-9_-]*`. Mods' scripts name what they register this way.

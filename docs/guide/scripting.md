@@ -2662,7 +2662,8 @@ as VS Code completion, descriptions and type checks:
 The editor then knows the fields of `e`, of objects and of records, and shows their descriptions.
 It may report that it can't find the packages themselves, which OpenReliant provides. The file needs
 luau-lsp's default type solver: Luau's new solver doesn't load it yet
-([#1139](https://github.com/OpenReliant/openreliant/issues/1139)).
+([#1139](https://github.com/OpenReliant/openreliant/issues/1139)). Mission source has definitions
+of its own ([Editors](../formats/mission-source.md#editors)).
 
 ## Limits
 

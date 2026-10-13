@@ -210,11 +210,13 @@ test definitionErrors {
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    // The scripting API's definitions, as `make definitions` writes them, parse as luau-lsp reads
-    // them, so a Luau update that changes the syntax fails here rather than in modders' editors.
-    const errors = try definitionErrors(arena, @embedFile("openreliant.d.luau"));
-    for (errors) |found| std.debug.print("openreliant.d.luau:{f}: {s}\n", .{ found.at, found.message });
-    try std.testing.expectEqual(0, errors.len);
+    // The definitions files, as `make definitions` writes them, parse as luau-lsp reads them, so a
+    // Luau update that changes the syntax fails here rather than in modders' editors.
+    inline for (.{ "openreliant.d.luau", "mission.d.luau" }) |file| {
+        const errors = try definitionErrors(arena, @embedFile(file));
+        for (errors) |found| std.debug.print(file ++ ":{f}: {s}\n", .{ found.at, found.message });
+        try std.testing.expectEqual(0, errors.len);
+    }
     // Declarations parse only in a definitions file, and the syntax Luau has dropped doesn't.
     const declaration = "declare function launch(gate: number): ()\n";
     try std.testing.expectEqual(0, (try definitionErrors(arena, declaration)).len);

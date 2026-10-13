@@ -159,6 +159,18 @@ fn withoutTag(display: []const u8) []const u8 {
     return display[end + 1 ..];
 }
 
+/// Names as a message or a description lists them, each in backticks: `a`, `b` and `c`.
+pub const Listed = struct {
+    items: []const []const u8,
+
+    pub fn format(listed: Listed, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        for (listed.items, 0..) |name, index| {
+            const separator = if (index == 0) "" else if (index + 1 == listed.items.len) " and " else ", ";
+            try writer.print("{s}`{s}`", .{ separator, name });
+        }
+    }
+};
+
 /// Whether `name` is a Luau identifier that no keyword or name of the source's own takes.
 pub fn isName(name: []const u8) bool {
     if (name.len == 0 or !(std.ascii.isAlphabetic(name[0]) or name[0] == '_')) return false;
@@ -186,6 +198,13 @@ test Namer {
     try std.testing.expectEqualStrings("ship_1st_wing", try namer.name("1st wing", "ship", 4));
     try std.testing.expectEqualStrings("end_part", try namer.name("(F)end", "part", 7));
     try std.testing.expectEqualStrings("game_global", try namer.name("game", "global", 2));
+}
+
+test Listed {
+    var buffer: [64]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buffer);
+    try w.print("{f}; {f}; {f}", .{ Listed{ .items = &.{"a"} }, Listed{ .items = &.{ "a", "b" } }, Listed{ .items = &.{ "a", "b", "c" } } });
+    try std.testing.expectEqualStrings("`a`; `a` and `b`; `a`, `b` and `c`", w.buffered());
 }
 
 test argument {

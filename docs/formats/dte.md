@@ -14,6 +14,9 @@ sltool dte triggers <mission>    # triggers, with the object whose slice holds e
 sltool dte strings <mission>     # the string pool
 sltool dte parts <mission>       # the script's named routines
 sltool dte script <mission>      # every trigger block and part, disassembled
+sltool dte decompile <mission>   # the mission as Luau source (mission-source.md)
+sltool dte build <source> <mission>  # mission source compiled into a mission file
+sltool dte definitions           # the definitions of mission source for luau-lsp
 make check-missions              # parse all 44
 ```
 
