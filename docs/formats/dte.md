@@ -724,37 +724,29 @@ the constant table's filler, which hold stale bytes in the shipped missions.
 
 Mission source compiles to a standard `.DTE`
 ([#1126](https://github.com/OpenReliant/openreliant/issues/1126)), and [Mission
-source](mission-source.md) specifies it. Its syntax is a subset of Luau, read only as a mission is
-built, and its model is the one [Mission Source
-v1](https://github.com/OpenReliant/openreliant/issues/608) defines: explicit IDs, typed references,
-display names apart from IDs, and nothing dropped silently. Its script is the statements above. The
-first implemented slice is source identity and typed symbol resolution
-([#609](https://github.com/OpenReliant/openreliant/issues/609)).
+source](mission-source.md) specifies it: a subset of Luau, read only as a mission is built. Its
+model is the one [#608](https://github.com/OpenReliant/openreliant/issues/608) sets out: records
+declared under names of their own, apart from their display names, references that say what kind
+of record they name, and nothing dropped without a word. Its script is the statements above.
 
-[`dte/source.zig`](../../src/formats/dte/source.zig) provides `Symbols(Record)`, a table for one
-collection of existing format records or source records. Each entry has an explicit source `id`
-and its record. IDs match `[A-Za-z_][A-Za-z0-9_-]*` and are unique within that collection. They
-are independent of display names, original object IDs and binary offsets.
+[`dte/source.zig`](../../src/formats/dte/source.zig) has `Symbols(Record)`, a table of one kind of
+record, each under its name ([#609](https://github.com/OpenReliant/openreliant/issues/609)). Each
+kind of record, and each script bank, has a table of its own, so the same name can stand for
+records in two of them. A name has nothing to do with the record's display name, its object id or
+its place in the file. The table gives a record's index by its name, and the compiler checks that
+the index fits the file's field.
 
-`Reference(Record)` identifies the collection's record type. Resolution uses the selected table,
-so equal IDs in different collections or script banks do not conflict. There is no separate list
-of supported record kinds. Adding fields to a record or introducing another record type does
-not require changing the symbol table. Binary width and sentinel checks belong to the compiler
-that lowers resolved indices into the file.
+Names don't depend on the base game's content either. A record can use a ship type a mod adds, by
+its number, and the compiler is to look up named content in the game's records with its mods, in
+their load order.
 
-Source IDs also do not depend on the base game's asset catalogue. A record can reference a
-numeric type introduced by a mod. Named content resolution in the future compiler must use the
-selected game's effective mod records and resources, including load order, rather than a fixed
-list of shipped types. Source identity and asset lookup are separate operations.
+The table borrows the records and their names. After a name or the order changes, a new table
+gives each record its new index.
 
-The table borrows immutable records and ID bytes. Rebuild it after changing IDs or collection
-order: a reference then resolves to the record's new index. Display names may repeat or change
-without affecting resolution. The caller selects the script bank explicitly.
-
-**Not implemented:** the parser, and building missions from text, which follow under
-[#1126](https://github.com/OpenReliant/openreliant/issues/1126); `sltool dte decompile` writes
-the text. The existing
-binary reader, writer and assembler remain the format implementation.
+Luau's parser reads the text ([Reading the text](mission-source.md#reading-the-text)). **Not
+implemented yet:** building missions from text, which follows under
+[#1126](https://github.com/OpenReliant/openreliant/issues/1126). The binary reader, writer and
+assembler stay the format's implementation.
 
 ## Prior art
 

@@ -5,6 +5,7 @@ const Io = std.Io;
 
 const openreliant = @import("openreliant");
 const dte = openreliant.dte;
+const source_parser = @import("source_parser");
 
 const sltool = @import("main.zig");
 const Context = sltool.Context;
@@ -376,7 +377,8 @@ test Command {
 /// byte for byte, if the file is laid out like the template; from its records alone, record for
 /// record; each routine of its script, reassembled from its disassembly, byte for byte except the
 /// block's padding; and each routine read as statements and lowered again, byte for byte except
-/// the bytes no instruction reaches (`sameReached`).
+/// the bytes no instruction reaches (`sameReached`). Then it writes the mission as source, and
+/// fails if Luau's parser finds an error in it or a construct mission source doesn't use.
 fn check(ctx: Context, mission: dte.Mission) !void {
     const gpa = ctx.arena;
     const out = ctx.stdout;
@@ -433,6 +435,20 @@ fn check(ctx: Context, mission: dte.Mission) !void {
         }
     }
     try out.print("statements: read {f} as statements and lowered them to the same bytes\n", .{sltool.count(routines.len, "routine")});
+
+    var source: Io.Writer.Allocating = .init(gpa);
+    try dte.source.write.write(&source.writer, gpa, mission);
+    const tree = try source_parser.parse(gpa, source.written());
+    for (tree.errors) |found| try out.print("source, at {f}: {s}\n", .{ found.at, found.message });
+    if (tree.errors.len > 0) return error.Differs;
+    for (0..tree.nodes.len) |index| switch (tree.get(@intCast(index))) {
+        .unsupported => |what| {
+            try out.print("source, at {f}: {s}, which mission source doesn't use\n", .{ tree.at(@intCast(index)), what });
+            return error.Differs;
+        },
+        else => {},
+    };
+    try out.writeAll("source: written, and Luau's parser reads it without an error\n");
 }
 
 /// Whether the routine `again` is `original` where it counts: the same length, the same

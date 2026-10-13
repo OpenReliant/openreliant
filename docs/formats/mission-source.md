@@ -3,9 +3,9 @@
 Mission source is a mission written as text. `sltool dte decompile` writes a mission's source from
 its `.DTE` file, and `sltool dte build` compiles source into a standard `.DTE` that plays in the
 original too ([#1126](https://github.com/OpenReliant/openreliant/issues/1126)). The syntax is a
-subset of Luau, read as the mission is built: nothing in the file runs, in OpenReliant or anywhere
-else. **Not implemented yet:** `sltool dte build`
-([#1130](https://github.com/OpenReliant/openreliant/issues/1130) writes the text).
+subset of Luau, which Luau's own parser reads as the mission is built: nothing in the file runs, in
+OpenReliant or anywhere else. **Not implemented yet:** `sltool dte build`, the compiler on top of
+the parser ([Reading the text](#reading-the-text)).
 
 ```luau
 -- mission1.dte as source.
@@ -283,6 +283,24 @@ A reference to a record that the mission doesn't have, such as a curve's ship in
 leftover missions, is written by its index: `ship_index(59031)`, and likewise `flight_group_index`,
 `squad_index`, `curve_index`, `global_index`, `part_index`, `object_index`, `formation_index` and
 `formation_point_index`.
+
+## Reading the text
+
+Luau's own parser reads mission source, so the syntax is exactly Luau's, comments included.
+[`src/source_parser.zig`](../../src/source_parser.zig) calls the parser through a C++ shim, since
+it has no C API, and copies its syntax tree into the library's
+([`syntax.zig`](../../src/formats/dte/source/syntax.zig)): each statement and expression with the
+line and column it starts at, and each error the parser finds with its place. Only the tools that
+read source link the parser. sltool does; the library the tools share doesn't.
+
+Mission source uses a subset of Luau. The parser gives back the rest, such as a loop, a function
+declared by name, a method call, an `if` expression or a string with values put into it, as an
+unsupported node with its place, for the compiler to refuse. An expression in brackets, or with a
+type assertion such as `x :: number`, is the expression itself, type annotations on locals and
+parameters change nothing, and a string in backquotes without values is text like any other.
+
+`sltool dte check` writes each mission it checks as source and parses it, and fails on an error or
+a construct mission source doesn't use.
 
 ## The round trip
 

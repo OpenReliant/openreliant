@@ -1,13 +1,14 @@
-//! Builds Luau as a static library for mod scripts (`src/scripting.zig`): the VM and the compiler,
-//! with the parser and bytecode builder the compiler needs, in C++17. Luau is MIT licensed; its
+//! Builds Luau as static libraries, as Luau's `Sources.cmake` splits it: `luau-ast`, the parser
+//! (`Luau.Common` and `Luau.Ast`), which the tools that read mission source link alone
+//! (`src/source_parser.zig`), and `luau` on top of it, the bytecode builder, the compiler and the
+//! VM, which mod scripts run on (`src/scripting.zig`). Both are C++17. Luau is MIT licensed; its
 //! license text is in `LICENSE.txt`, which the releases include, and the README credits it. The
 //! version is the release named in the manifest.
 //!
-//! The source files are the ones Luau's `Sources.cmake` lists for `Luau.Common`, `Luau.Ast`,
-//! `Luau.Bytecode`, `Luau.Compiler` and `Luau.VM`. Like Luau's `LUAU_EXTERN_C` option, the build
-//! makes the C API (`lua.h`, `lualib.h` and `luacode.h`) `extern "C"`, and makes errors use
-//! `longjmp` instead of C++ exceptions, which can't unwind through Zig code. Vectors use Luau's
-//! default of three single-precision components.
+//! Like Luau's `LUAU_EXTERN_C` option, the build makes the C API (`lua.h`, `lualib.h` and
+//! `luacode.h`) `extern "C"`, and makes errors use `longjmp` instead of C++ exceptions, which can't
+//! unwind through Zig code. Vectors use Luau's default of three single-precision components. The
+//! parser's own C++ API has no C form, so `luau-ast` installs its headers for a C++ shim.
 
 const std = @import("std");
 
@@ -16,22 +17,31 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const module = b.createModule(.{ .target = target, .optimize = optimize, .link_libcpp = true });
-    const lib = b.addLibrary(.{ .linkage = .static, .name = "luau", .root_module = module });
+    const ast = library(b, upstream, "luau-ast", target, optimize, &ast_sources);
+    ast.installHeadersDirectory(upstream.path("Common/include"), "", .{});
+    ast.installHeadersDirectory(upstream.path("Ast/include"), "", .{});
+    b.installArtifact(ast);
 
-    for (include_dirs) |dir| module.addIncludePath(upstream.path(dir));
-    module.addCMacro("LUA_USE_LONGJMP", "1");
-    module.addCMacro("LUA_API", "extern \"C\"");
-    module.addCMacro("LUACODE_API", "extern \"C\"");
-    module.addCSourceFiles(.{
-        .root = upstream.path(""),
-        .files = &sources,
-        .flags = &.{ "-std=c++17", "-fno-sanitize=undefined" },
-    });
-
+    const lib = library(b, upstream, "luau", target, optimize, &sources);
+    lib.root_module.linkLibrary(ast);
+    lib.root_module.addCMacro("LUA_USE_LONGJMP", "1");
+    lib.root_module.addCMacro("LUA_API", "extern \"C\"");
+    lib.root_module.addCMacro("LUACODE_API", "extern \"C\"");
     lib.installHeadersDirectory(upstream.path("VM/include"), "", .{});
     lib.installHeader(upstream.path("Compiler/include/luacode.h"), "luacode.h");
     b.installArtifact(lib);
+}
+
+/// A static library `name` of Luau's `files`, which sees every part's headers.
+fn library(b: *std.Build, upstream: *std.Build.Dependency, name: []const u8, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, files: []const []const u8) *std.Build.Step.Compile {
+    const module = b.createModule(.{ .target = target, .optimize = optimize, .link_libcpp = true });
+    for (include_dirs) |dir| module.addIncludePath(upstream.path(dir));
+    module.addCSourceFiles(.{
+        .root = upstream.path(""),
+        .files = files,
+        .flags = &.{ "-std=c++17", "-fno-sanitize=undefined" },
+    });
+    return b.addLibrary(.{ .linkage = .static, .name = name, .root_module = module });
 }
 
 /// The include paths: each library's headers, and the VM's internal ones.
@@ -44,7 +54,7 @@ const include_dirs = [_][]const u8{
     "VM/src",
 };
 
-const sources = [_][]const u8{
+const ast_sources = [_][]const u8{
     // Luau.Common
     "Common/src/BytecodeWire.cpp",
     "Common/src/StringUtils.cpp",
@@ -58,6 +68,9 @@ const sources = [_][]const u8{
     "Ast/src/Location.cpp",
     "Ast/src/Parser.cpp",
     "Ast/src/PrettyPrinter.cpp",
+};
+
+const sources = [_][]const u8{
     // Luau.Bytecode
     "Bytecode/src/BytecodeBuilder.cpp",
     "Bytecode/src/BytecodeDump.cpp",
