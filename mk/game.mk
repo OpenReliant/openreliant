@@ -121,11 +121,12 @@ $(RENDERS_DIR)/predator-sun.png:
 	$(RENDER) $@ --model USLF_Prd.SHP --toward 1,-0.3,0.45 --heading -0.3,0.2,1
 
 .PHONY: check-missions
-check-missions: | $(GAME_DIR)/.stamp-hog-resource $(GAME_DIR)/.stamp-install $(SLTOOL) ## Parse, write again and bind every .DTE mission
+check-missions: | $(GAME_DIR)/.stamp-hog-resource $(GAME_DIR)/.stamp-install $(SLTOOL) ## Parse, write again and bind every .DTE mission, and check the mission guide's change to mission 1
 	@bad=0; for f in $(ASSETS_DIR)/resource/*.dte; do \
 	    $(SLTOOL) dte info "$$f" > /dev/null && $(SLTOOL) dte check "$$f" > /dev/null || { echo "FAILED: $$f"; bad=$$((bad + 1)); }; \
 	done; echo "$$(ls $(ASSETS_DIR)/resource/*.dte | wc -l | tr -d ' ') missions checked, $$bad with problems"
 	@$(OPENRELIANT) missions $(INSTALL_DIR) | tail -1
+	@scripts/check-mission-guide.sh $(SLTOOL) $(ASSETS_DIR)/resource/mission1.dte docs/guide/missions.md
 
 .PHONY: check-models
 check-models: | $(GAME_DIR)/.stamp-hog-resource $(SLTOOL) ## Validate every .SHP model, and write each again

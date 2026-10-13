@@ -17,6 +17,10 @@ theme:
   custom_dir: docs-theme
 markdown_extensions:
   - tables
+  # Pygments marks the parts of each code block. docs.css colours only a diff's removed and added
+  # lines.
+  - pymdownx.highlight:
+      use_pygments: true
   - pymdownx.superfences
   - attr_list
   - toc:

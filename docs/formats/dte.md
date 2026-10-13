@@ -17,7 +17,7 @@ sltool dte script <mission>      # every trigger block and part, disassembled
 sltool dte decompile <mission>   # the mission as Luau source (mission-source.md)
 sltool dte build <source> <mission>  # mission source compiled into a mission file
 sltool dte definitions           # the definitions of mission source for luau-lsp
-make check-missions              # parse all 44
+make check-missions              # check every mission, and the mission guide's change to mission 1
 ```
 
 ## Container
