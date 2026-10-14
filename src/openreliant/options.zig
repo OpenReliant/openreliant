@@ -146,7 +146,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--no-intro" = .{ .section = .other, .text = "start without the three movies the game plays as it starts, as --mission and --screenshot do" },
     .@"--developer-mode" = .{ .section = .other, .text = "the tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading when they or their shaders are saved" },
     .@"--editor-link" = .{ .section = .other, .text = "listen for a mission editor or a script debugger, such as openreliant debug, on this computer's own address, 127.0.0.1, which can then pause the mission and stop and step its script, as the original's editor link does" },
-    .@"--editor-link-port" = .{ .section = .other, .value = "<port>", .text = std.fmt.comptimePrint("with --editor-link, the port to listen at; {d} by default", .{platform.link.default_port}) },
+    .@"--editor-link-port" = .{ .section = .other, .value = "<port>", .text = std.fmt.comptimePrint("with --editor-link, the port to listen at; {d} by default", .{engine.link.default_port}) },
     .@"--no-update-check" = .{ .section = .other, .text = "don't check for a newer release of OpenReliant. By default it checks as it starts, logs a newer release and shows it once in the main menu" },
     .@"--screenshot" = .{ .section = .other, .value = "<file.png>", .text = "draw one frame, with the camera settled, to a PNG, and quit; the controls, the [OpenReliant] settings and the details in [Device] are not read, so that it comes out the same each time; the mods the mods screen turned off stay off" },
     .@"--screenshot-ticks" = .{ .section = .other, .value = "<ticks>", .text = "with --screenshot, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default" },
@@ -267,7 +267,7 @@ pub const Options = struct {
     developer_mode: bool = false,
     /// Whether an editor can link to the game (`engine.link`), and the port it connects to.
     editor_link: bool = false,
-    editor_link_port: u16 = platform.link.default_port,
+    editor_link_port: u16 = engine.link.default_port,
     /// Whether OpenReliant checks for a newer release of itself as it starts (`updates.zig`).
     update_check: bool = true,
     /// Whether the original's look and sound were taken (`--original`), which the options after it

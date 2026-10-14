@@ -43,12 +43,18 @@ pub const Connection = struct {
         check: *const fn (context: *anyopaque) void,
         /// Waits `milliseconds` for the editor (`Sleep`).
         sleep: *const fn (context: *anyopaque, milliseconds: u32) void,
+        /// The time in milliseconds on a clock that only goes forward, for how long the script's
+        /// start has waited for the editor (`Editor.waitForFlags`).
+        now: *const fn (context: *anyopaque) u64,
     };
 };
 
-/// How long the script's start waits for the editor's messages before it runs the start parts
-/// (`mission_script_start`, `0x0045CCA0`).
-pub const start_wait_ms = 200;
+/// The longest the script's start waits for the editor's flags before it runs the start parts,
+/// while an editor is linked (`Editor.waitForFlags`).
+pub const flags_wait_ms = 1000;
+
+/// How often the script's start checks the link while it waits for the editor's flags.
+pub const flags_check_ms = 1;
 
 /// How long the script's start waits after each start part, and each time round while the editor
 /// holds it (`0x0045CCDB`).
@@ -67,6 +73,9 @@ pub const Editor = struct {
     /// `editor_paused` (`0x00537581`): the editor's pause of the mission. `mission_frame` leaves
     /// out its work, and the timer runs none of its routines.
     paused: bool = false,
+    /// OpenReliant's: whether the editor has sent the script's flags since the script started,
+    /// which the start waits for (`waitForFlags`). A game's link sets it as it copies them.
+    flagged: bool = false,
     /// The game's link to the editor; null for none.
     connection: ?Connection = null,
 
@@ -83,12 +92,13 @@ pub const Editor = struct {
     }
 
     /// `mission_script_start`'s part (`0x0045CC22`, `0x0045CC7B`, `0x0045CC81`): the mission's
-    /// pause lifted, and the hold and the step cleared. Whether the editor is there, and the
-    /// connection, are the link's, and stay.
+    /// pause lifted, and the hold and the step cleared, with the editor's flags still to come.
+    /// Whether the editor is there, and the connection, are the link's, and stay.
     pub fn reset(editor: *Editor) void {
         editor.paused = false;
         editor.hold = .none;
         editor.step = .none;
+        editor.flagged = false;
     }
 
     /// `editor_run_control` (`0x0045A900`) for its commands 1 to 3: the script released, to go on
@@ -112,11 +122,28 @@ pub const Editor = struct {
 
     /// Waits `milliseconds` for the editor, while one is there.
     ///
-    /// **Improvement:** the original waits whether an editor is there or not, a fifth of a second
-    /// as each mission's script starts.
+    /// **Improvement:** the original waits whether an editor is there or not.
     pub fn sleep(editor: *Editor, milliseconds: u32) void {
         if (!editor.present) return;
         if (editor.connection) |connection| connection.vtable.sleep(connection.context, milliseconds);
+    }
+
+    /// The script's start before the start parts run (`mission_script_start`, `0x0045CC95`): the
+    /// editor's messages are read, and while an editor is there and hasn't sent the script's flags,
+    /// read again every `flags_check_ms`, for `flags_wait_ms` at most, so that a breakpoint in a
+    /// start part stops it.
+    ///
+    /// **Improvement:** the original reads the messages, waits a fifth of a second whether an
+    /// editor is there or not (`0x0045CCA0`), and reads them again, and the breakpoints of a
+    /// slower editor miss the start parts.
+    pub fn waitForFlags(editor: *Editor) void {
+        editor.check();
+        const connection = editor.connection orelse return;
+        const started = connection.vtable.now(connection.context);
+        while (editor.present and !editor.flagged and connection.vtable.now(connection.context) -% started < flags_wait_ms) {
+            editor.sleep(flags_check_ms);
+            editor.check();
+        }
     }
 
     /// OpenReliant's: as the editor goes, the script is let go, with no step.
@@ -132,20 +159,27 @@ pub const Editor = struct {
 };
 
 pub const testing = struct {
-    /// An editor in memory, for the tests: the offsets it heard of the stops, and the releases it
-    /// gives as the script's start checks its messages.
+    /// An editor in memory, for the tests: the offsets it heard of the stops, and the flags and
+    /// the releases it gives as the script's start checks its messages.
     pub const Listener = struct {
         offsets: [8]u32 = undefined,
         count: usize = 0,
-        /// The steps the editor releases the script with, one for each check, in order.
+        /// The steps the editor releases the script with, one for each check that finds the script
+        /// held, in order.
         releases: []const Step = &.{},
-        checks: usize = 0,
+        /// How many releases it gave.
+        released: usize = 0,
+        /// The check that brings the editor's flags, counting from 0; null for none.
+        flags_at: ?usize = 0,
+        /// How many times its messages were checked.
+        checked: usize = 0,
+        /// How long it waited, in milliseconds, which is its clock.
         slept: u32 = 0,
-        /// The editor that `check` releases.
+        /// The editor that `check` flags and releases.
         editor: ?*Editor = null,
 
         pub fn connection(listener: *Listener) Connection {
-            return .{ .context = listener, .vtable = &.{ .stopped = stopped, .check = check, .sleep = sleep } };
+            return .{ .context = listener, .vtable = &.{ .stopped = stopped, .check = check, .sleep = sleep, .now = now } };
         }
 
         pub fn last(listener: Listener) u32 {
@@ -160,15 +194,22 @@ pub const testing = struct {
 
         fn check(context: *anyopaque) void {
             const listener: *Listener = @ptrCast(@alignCast(context));
+            defer listener.checked += 1;
             const editor = listener.editor orelse return;
-            if (!editor.holds() or listener.checks >= listener.releases.len) return;
-            editor.release(listener.releases[listener.checks]);
-            listener.checks += 1;
+            if (listener.flags_at == listener.checked) editor.flagged = true;
+            if (!editor.holds() or listener.released >= listener.releases.len) return;
+            editor.release(listener.releases[listener.released]);
+            listener.released += 1;
         }
 
         fn sleep(context: *anyopaque, milliseconds: u32) void {
             const listener: *Listener = @ptrCast(@alignCast(context));
             listener.slept += milliseconds;
+        }
+
+        fn now(context: *anyopaque) u64 {
+            const listener: *Listener = @ptrCast(@alignCast(context));
+            return listener.slept;
         }
     };
 };
@@ -199,4 +240,32 @@ test Editor {
     try std.testing.expect(editor.leavesFrame());
     editor.reset();
     try std.testing.expect(!editor.leavesFrame() and editor.step == .none);
+}
+
+test "the script's start waits for the editor's flags" {
+    const Case = struct {
+        present: bool,
+        flags_at: ?usize,
+        slept: u32,
+    };
+    for ([_]Case{
+        // Flags waiting at the first check need no wait, and those at the third take two.
+        .{ .present = true, .flags_at = 0, .slept = 0 },
+        .{ .present = true, .flags_at = 2, .slept = 2 * flags_check_ms },
+        // An editor that sends none holds the start up for the longest wait.
+        .{ .present = true, .flags_at = null, .slept = flags_wait_ms },
+        // With no editor, the start doesn't wait.
+        .{ .present = false, .flags_at = null, .slept = 0 },
+    }) |case| {
+        var listener: testing.Listener = .{ .flags_at = case.flags_at };
+        var editor: Editor = .{ .present = case.present, .connection = listener.connection() };
+        listener.editor = &editor;
+        editor.waitForFlags();
+        try std.testing.expectEqual(case.slept, listener.slept);
+        try std.testing.expectEqual(case.flags_at != null, editor.flagged);
+    }
+    // Each start waits for flags of its own.
+    var editor: Editor = .{ .flagged = true };
+    editor.reset();
+    try std.testing.expect(!editor.flagged);
 }

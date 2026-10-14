@@ -1,9 +1,11 @@
 //! OpenReliant's editor link (docs/engine/editor-link.md): the link the original keeps with its own
 //! mission editor and script debugger, carried over a transport that works on every system in
 //! place of the original's block of shared memory. This module is the part no game owns: how the
-//! messages travel, framed on a stream of bytes (`Header`), and whether an editor is there. A game
-//! acts on the messages itself (StarLancer's in `game.mission.editor`), and a script VM reports
-//! through it where a thread stopped (`vm.editor`).
+//! messages travel, framed on a stream of bytes (`Header`), whether an editor is there, and the
+//! records of OpenReliant's own messages (`Hello`, `MissionStarted`, `State`), which the game
+//! writes and editors read. A game acts on the messages itself (StarLancer's in
+//! `game.mission.editor`), and a script VM reports through it where a thread stopped
+//! (`vm.editor`).
 //!
 //! **Improvement:** the original reads the editor's messages only while a mission's script starts
 //! (`editor_link_check`, `0x00457670`); OpenReliant reads them every frame.
@@ -11,6 +13,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+
+const vm_editor = @import("vm/editor.zig");
 
 const log = std.log.scoped(.link);
 
@@ -38,6 +42,10 @@ pub const Header = extern struct {
 };
 
 pub const header_size = 8;
+
+/// The port the game listens at for an editor, on its own address, 127.0.0.1, unless
+/// `--editor-link-port` gives another.
+pub const default_port = 22539;
 
 /// The longest payload taken: the whole of the original's block (`editor_link_create`,
 /// `0x00457B90`), which no message of the original fills. A longer one drops the connection.
@@ -84,6 +92,230 @@ pub const Game = struct {
     /// Its script VM's dialect, which tells a client how to read the mission's scripts.
     vm: []const u8,
 };
+
+/// Why a client can't read one of OpenReliant's own messages: a field it needs is missing, or isn't
+/// what the field holds. A reader passes over the keys it doesn't know, so that a newer game's
+/// messages still read.
+pub const ReadError = error{Invalid};
+
+/// `Own.hello`: the link's protocol (`protocol_version`), OpenReliant's version, and the game with
+/// its script VM's dialect.
+pub const Hello = struct {
+    protocol: u32,
+    openreliant: []const u8,
+    game: Game,
+
+    pub fn write(hello: Hello, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.print("protocol={d}\nopenreliant={s}\ngame={s}\nvm={s}\n", .{ hello.protocol, hello.openreliant, hello.game.name, hello.game.vm });
+    }
+
+    /// The hello in `payload`, whose text it borrows.
+    pub fn read(payload: []const u8) ReadError!Hello {
+        return .{
+            .protocol = try number(u32, payload, "protocol"),
+            .openreliant = try text(payload, "openreliant"),
+            .game = .{ .name = try text(payload, "game"), .vm = try text(payload, "vm") },
+        };
+    }
+};
+
+/// `Own.mission_started`: the mission's number, and its file's name, such as `mission1.dte`.
+pub const MissionStarted = struct {
+    number: u16,
+    file: []const u8,
+
+    pub fn write(started: MissionStarted, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.print("number={d}\nfile={s}\n", .{ started.number, started.file });
+    }
+
+    /// The start in `payload`, whose text it borrows.
+    pub fn read(payload: []const u8) ReadError!MissionStarted {
+        return .{ .number = try number(u16, payload, "number"), .file = try text(payload, "file") };
+    }
+};
+
+/// `Own.state`: the script's state as the game holds it. Its values are the script's words,
+/// unsigned.
+pub const State = struct {
+    /// The script's clock, in seconds.
+    clock: u32,
+    /// The editor's hold on the script, its step and its pause of the mission.
+    hold: vm_editor.Hold,
+    step: vm_editor.Step,
+    paused: bool,
+    /// Whether the thread pool's first thread has finished: the start parts are done.
+    first_finished: bool,
+    /// The threads running, in the order of their slots.
+    threads: []const Thread,
+    /// Each of the mission's globals, by its index.
+    globals: []const u32,
+    /// The game's variables: each named one, and each other one that isn't 0, by its number.
+    variables: []const Variable,
+
+    pub const Thread = struct {
+        slot: u32,
+        /// Where it is in the script, as an offset; null outside it.
+        at: ?u32,
+        /// Its call depth.
+        depth: u32,
+        /// The clock value it waits for; 0 for none.
+        wake: u32,
+        /// Whether it waits for its trigger.
+        interrupted: bool,
+        /// The trigger that started it, where one did.
+        trigger: ?u32,
+    };
+
+    pub const Variable = struct {
+        /// The game's name for it, such as `mission_over`, or its number where it has none.
+        name: []const u8,
+        value: u32,
+    };
+
+    /// Writes the state, a `key=value` line for each field: `clock`, `hold`, `step`, `paused` and
+    /// `first_finished`; for each thread, by its slot, `thread.N.at` (`none` outside the script),
+    /// `thread.N.depth`, `thread.N.wake`, `thread.N.interrupted`, and `thread.N.trigger` where a
+    /// trigger started it; `global.N` for each global; and `variable.NAME` for each variable.
+    pub fn write(state: State, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.print("clock={d}\nhold={t}\nstep={t}\npaused={d}\nfirst_finished={d}\n", .{
+            state.clock, state.hold, state.step, @intFromBool(state.paused), @intFromBool(state.first_finished),
+        });
+        for (state.threads) |thread| {
+            if (thread.at) |at| try writer.print("thread.{d}.at={d}\n", .{ thread.slot, at }) else try writer.print("thread.{d}.at=none\n", .{thread.slot});
+            try writer.print("thread.{d}.depth={d}\nthread.{d}.wake={d}\nthread.{d}.interrupted={d}\n", .{
+                thread.slot, thread.depth, thread.slot, thread.wake, thread.slot, @intFromBool(thread.interrupted),
+            });
+            if (thread.trigger) |trigger| try writer.print("thread.{d}.trigger={d}\n", .{ thread.slot, trigger });
+        }
+        for (state.globals, 0..) |value, index| try writer.print("global.{d}={d}\n", .{ index, value });
+        for (state.variables) |each| try writer.print("variable.{s}={d}\n", .{ each.name, each.value });
+    }
+
+    /// The fields of the state that hold one value each.
+    const Scalar = enum { clock, hold, step, paused, first_finished };
+
+    /// The fields of a thread.
+    const ThreadField = enum { at, depth, wake, interrupted, trigger };
+
+    /// The state in `payload`, its lists made in `arena`, its names borrowed from `payload`. A
+    /// global's index fits the 16 bits a mission's directory counts its globals in.
+    pub fn read(arena: Allocator, payload: []const u8) (Allocator.Error || ReadError)!State {
+        var clock: ?u32 = null;
+        var hold: ?vm_editor.Hold = null;
+        var step: ?vm_editor.Step = null;
+        var paused: ?bool = null;
+        var first_finished: ?bool = null;
+        var threads: std.ArrayList(Thread) = .empty;
+        var globals: std.ArrayList(u32) = .empty;
+        var variables: std.ArrayList(Variable) = .empty;
+        var fields: Fields = .of(payload);
+        while (fields.next()) |found| {
+            const key = found.key;
+            const value = found.value;
+            if (std.meta.stringToEnum(Scalar, key)) |scalar| switch (scalar) {
+                .clock => clock = try parse(u32, value),
+                .hold => hold = try named(vm_editor.Hold, value),
+                .step => step = try named(vm_editor.Step, value),
+                .paused => paused = try flag(value),
+                .first_finished => first_finished = try flag(value),
+            } else if (std.mem.cutPrefix(u8, key, "thread.")) |rest| {
+                const slot_text, const name = std.mem.cutScalar(u8, rest, '.') orelse return error.Invalid;
+                const thread = try threadIn(arena, &threads, try parse(u32, slot_text));
+                if (std.meta.stringToEnum(ThreadField, name)) |thread_field| switch (thread_field) {
+                    .at => thread.at = if (std.mem.eql(u8, value, "none")) null else try parse(u32, value),
+                    .depth => thread.depth = try parse(u32, value),
+                    .wake => thread.wake = try parse(u32, value),
+                    .interrupted => thread.interrupted = try flag(value),
+                    .trigger => thread.trigger = try parse(u32, value),
+                };
+            } else if (std.mem.cutPrefix(u8, key, "global.")) |index_text| {
+                const index: usize = try parse(u16, index_text);
+                if (index >= globals.items.len) try globals.appendNTimes(arena, 0, index + 1 - globals.items.len);
+                globals.items[index] = try parse(u32, value);
+            } else if (std.mem.cutPrefix(u8, key, "variable.")) |name| {
+                try variables.append(arena, .{ .name = name, .value = try parse(u32, value) });
+            }
+        }
+        return .{
+            .clock = clock orelse return error.Invalid,
+            .hold = hold orelse return error.Invalid,
+            .step = step orelse return error.Invalid,
+            .paused = paused orelse return error.Invalid,
+            .first_finished = first_finished orelse return error.Invalid,
+            .threads = threads.items,
+            .globals = globals.items,
+            .variables = variables.items,
+        };
+    }
+
+    /// The thread of `slot` in `threads`, added in the slots' order where it isn't there yet.
+    fn threadIn(arena: Allocator, threads: *std.ArrayList(Thread), slot: u32) Allocator.Error!*Thread {
+        for (threads.items) |*thread| if (thread.slot == slot) return thread;
+        var place: usize = threads.items.len;
+        while (place > 0 and threads.items[place - 1].slot > slot) place -= 1;
+        try threads.insert(arena, place, .{ .slot = slot, .at = null, .depth = 0, .wake = 0, .interrupted = false, .trigger = null });
+        return &threads.items[place];
+    }
+
+    /// The variable named `name`, where the state has it.
+    pub fn variable(state: State, name: []const u8) ?u32 {
+        for (state.variables) |each| if (std.mem.eql(u8, each.name, name)) return each.value;
+        return null;
+    }
+};
+
+/// The `key=value` lines of one of OpenReliant's own messages, in order, passing over a line
+/// without `=`.
+const Fields = struct {
+    lines: std.mem.SplitIterator(u8, .scalar),
+
+    const Field = struct { key: []const u8, value: []const u8 };
+
+    fn of(payload: []const u8) Fields {
+        return .{ .lines = std.mem.splitScalar(u8, payload, '\n') };
+    }
+
+    fn next(fields: *Fields) ?Field {
+        while (fields.lines.next()) |line| {
+            const key, const value = std.mem.cutScalar(u8, line, '=') orelse continue;
+            return .{ .key = key, .value = value };
+        }
+        return null;
+    }
+};
+
+/// The text of field `key` of one of OpenReliant's own messages, null where it has none.
+fn field(payload: []const u8, key: []const u8) ?[]const u8 {
+    var fields: Fields = .of(payload);
+    while (fields.next()) |found| if (std.mem.eql(u8, found.key, key)) return found.value;
+    return null;
+}
+
+/// The text of field `key`, which a message must have.
+fn text(payload: []const u8, key: []const u8) ReadError![]const u8 {
+    return field(payload, key) orelse error.Invalid;
+}
+
+/// The number in field `key`, which a message must have.
+fn number(comptime T: type, payload: []const u8, key: []const u8) ReadError!T {
+    return parse(T, try text(payload, key));
+}
+
+fn parse(comptime T: type, value: []const u8) ReadError!T {
+    return std.fmt.parseInt(T, value, 10) catch error.Invalid;
+}
+
+/// A field that holds the name of one of `Enum`'s values.
+fn named(comptime Enum: type, value: []const u8) ReadError!Enum {
+    return std.meta.stringToEnum(Enum, value) orelse error.Invalid;
+}
+
+/// A field that is 1 or 0.
+fn flag(value: []const u8) ReadError!bool {
+    if (std.mem.eql(u8, value, "1")) return true;
+    if (std.mem.eql(u8, value, "0")) return false;
+    return error.Invalid;
+}
 
 /// What the link reads from and writes to: a connection to at most one editor at a time.
 pub const Transport = struct {
@@ -198,12 +430,8 @@ pub const Link = struct {
 
     /// Greets an editor that connected (`Own.hello`).
     fn hello(link: *Link) void {
-        link.sendFields(.hello, &.{
-            .{ .key = "protocol", .value = std.fmt.comptimePrint("{d}", .{protocol_version}) },
-            .{ .key = "openreliant", .value = link.version },
-            .{ .key = "game", .value = link.game.name },
-            .{ .key = "vm", .value = link.game.vm },
-        });
+        const greeting: Hello = .{ .protocol = protocol_version, .openreliant = link.version, .game = link.game };
+        link.sendRecord(.hello, greeting);
     }
 
     /// Sends a message to the editor connected; nothing where none is.
@@ -214,22 +442,18 @@ pub const Link = struct {
         if (payload.len > 0) link.transport.vtable.write(link.transport.context, session, payload);
     }
 
-    /// Sends one of OpenReliant's own messages, `fields` as its `key=value` lines.
-    pub fn sendFields(link: *Link, tag: Own, fields: []const Field) void {
-        var buffer: [fields_size]u8 = undefined;
-        var text: std.Io.Writer = .fixed(&buffer);
-        for (fields) |line| text.print("{s}={s}\n", .{ line.key, line.value }) catch {
-            log.warn("the link's message {d} is too long for its buffer, so it's cut short", .{@backingInt(tag)});
-            break;
+    /// Sends one of OpenReliant's own messages, `record` written as its `key=value` lines
+    /// (`Hello`, `MissionStarted`, `State`); nothing where no editor is connected.
+    pub fn sendRecord(link: *Link, tag: Own, record: anytype) void {
+        if (link.session == null) return;
+        var payload: std.Io.Writer.Allocating = .init(link.gpa);
+        defer payload.deinit();
+        record.write(&payload.writer) catch {
+            log.warn("the link has no memory left for its message 0x{X}", .{@backingInt(tag)});
+            return;
         };
-        link.send(@backingInt(tag), text.buffered());
+        link.send(@backingInt(tag), payload.written());
     }
-
-    /// A field of one of OpenReliant's own messages.
-    pub const Field = struct { key: []const u8, value: []const u8 };
-
-    /// The most text one of OpenReliant's own messages takes.
-    const fields_size = 1024;
 
     fn dropTaken(link: *Link) void {
         link.received.replaceRangeAssumeCapacity(0, link.taken, &.{});
@@ -261,16 +485,6 @@ pub fn readMessage(reader: *std.Io.Reader, gpa: Allocator) std.Io.Reader.ReadAll
     var header: Header = undefined;
     try reader.readSliceAll(std.mem.asBytes(&header));
     return .{ .tag = header.tag, .payload = try reader.readAllocAll(gpa, header.size) };
-}
-
-/// The text field `key` of one of OpenReliant's own messages, null where it has none.
-pub fn field(payload: []const u8, key: []const u8) ?[]const u8 {
-    var lines = std.mem.splitScalar(u8, payload, '\n');
-    while (lines.next()) |line| {
-        const equals = std.mem.findScalar(u8, line, '=') orelse continue;
-        if (std.mem.eql(u8, line[0..equals], key)) return line[equals + 1 ..];
-    }
-    return null;
 }
 
 pub const testing = struct {
@@ -419,6 +633,72 @@ test "OpenReliant's own messages are key=value lines" {
     try std.testing.expectEqualStrings("Example", field(hello.payload, "game").?);
     try std.testing.expectEqualStrings("example", field(hello.payload, "vm").?);
     try std.testing.expectEqual(null, field(hello.payload, "mission"));
+}
+
+test "the records of OpenReliant's own messages read back as written" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var payload: std.Io.Writer.Allocating = .init(arena);
+
+    const hello: Hello = .{ .protocol = protocol_version, .openreliant = "1.2.3", .game = example };
+    try hello.write(&payload.writer);
+    const hello_read: Hello = try .read(payload.written());
+    try std.testing.expectEqual(protocol_version, hello_read.protocol);
+    try std.testing.expectEqualStrings("1.2.3", hello_read.openreliant);
+    try std.testing.expectEqualStrings("Example", hello_read.game.name);
+    try std.testing.expectEqualStrings("example", hello_read.game.vm);
+
+    payload.clearRetainingCapacity();
+    const started: MissionStarted = .{ .number = 90, .file = "mission90.dte" };
+    try started.write(&payload.writer);
+    const started_read: MissionStarted = try .read(payload.written());
+    try std.testing.expectEqual(90, started_read.number);
+    try std.testing.expectEqualStrings("mission90.dte", started_read.file);
+
+    payload.clearRetainingCapacity();
+    const state: State = .{
+        .clock = 41,
+        .hold = .held,
+        .step = .over,
+        .paused = false,
+        .first_finished = true,
+        .threads = &.{
+            .{ .slot = 0, .at = 10, .depth = 1, .wake = 0, .interrupted = false, .trigger = 0 },
+            .{ .slot = 3, .at = null, .depth = 0, .wake = 45, .interrupted = true, .trigger = null },
+        },
+        .globals = &.{ 7, 0xFFFFFFFF },
+        .variables = &.{ .{ .name = "mission_over", .value = 1 }, .{ .name = "200", .value = 5 } },
+    };
+    try state.write(&payload.writer);
+    const state_read: State = try .read(arena, payload.written());
+    try std.testing.expectEqual(41, state_read.clock);
+    try std.testing.expectEqual(vm_editor.Hold.held, state_read.hold);
+    try std.testing.expectEqual(vm_editor.Step.over, state_read.step);
+    try std.testing.expect(!state_read.paused and state_read.first_finished);
+    try std.testing.expectEqual(2, state_read.threads.len);
+    try std.testing.expectEqual(state.threads[0], state_read.threads[0]);
+    try std.testing.expectEqual(state.threads[1], state_read.threads[1]);
+    try std.testing.expectEqualSlices(u32, state.globals, state_read.globals);
+    try std.testing.expectEqual(1, state_read.variable("mission_over").?);
+    try std.testing.expectEqual(5, state_read.variable("200").?);
+    try std.testing.expectEqual(null, state_read.variable("mission_success"));
+
+    // A key it doesn't know is passed over.
+    const newer: State = try .read(arena, "clock=1\nhold=none\nstep=none\npaused=0\nfirst_finished=0\nweather=fine\nthread.2.colour=red\n");
+    try std.testing.expectEqual(1, newer.threads.len);
+    try std.testing.expectEqual(null, newer.threads[0].at);
+
+    // A field missing, or not what it holds, makes the message unreadable, as does a global past
+    // the 16 bits a mission counts them in.
+    try std.testing.expectError(error.Invalid, Hello.read("protocol=1\ngame=Example\n"));
+    try std.testing.expectError(error.Invalid, MissionStarted.read("number=ninety\nfile=x.dte\n"));
+    try std.testing.expectError(error.Invalid, State.read(arena, "clock=1\nhold=gripped\nstep=none\npaused=0\nfirst_finished=0\n"));
+    try std.testing.expectError(error.Invalid, State.read(arena, "clock=1\nhold=none\nstep=none\npaused=0\n"));
+    try std.testing.expectError(error.Invalid, State.read(arena, "clock=1\nhold=none\nstep=none\npaused=0\nfirst_finished=0\nglobal.70000=1\n"));
+    const last: State = try .read(arena, "clock=1\nhold=none\nstep=none\npaused=0\nfirst_finished=0\nglobal.65535=3\n");
+    try std.testing.expectEqual(65536, last.globals.len);
+    try std.testing.expectEqual(3, last.globals[65535]);
 }
 
 test "an editor writes and reads messages framed" {

@@ -415,12 +415,13 @@ pub const Machine = struct {
     /// `mission_script_start` (`0x0045CBC0`), as the mission's binding ends: every object's kept
     /// events emptied, the clock, the timers, the threads and the tags reset, the handlers' verdict
     /// and the last jump's time too, the editor's pause, hold and step cleared, and the timers set
-    /// running. Then the editor's messages are read, and read again a fifth of a second later
-    /// (`0x0045CC95`), before each start part runs (`startPart`). Then every object's triggers are
-    /// armed, and each ship's Destroyed flag is cleared and its components all intact. Where a
-    /// curve starts at the ship, the first such curve's ships are made (`0x0045CD71`): the ship it
-    /// starts at, those its tangents are drawn to, and the ship it ends at, each where its slot
-    /// holds no object made yet, which the start part may have left (`executor.createShip`).
+    /// running. Then, while an editor is linked, the start waits for its flags
+    /// (`vm.editor.Editor.waitForFlags`), before each start part runs (`startPart`). Then every
+    /// object's triggers are armed, and each ship's Destroyed flag is cleared and its components
+    /// all intact. Where a curve starts at the ship, the first such curve's ships are made
+    /// (`0x0045CD71`): the ship it starts at, those its tangents are drawn to, and the ship it ends
+    /// at, each where its slot holds no object made yet, which the start part may have left
+    /// (`executor.createShip`).
     ///
     /// **Fix:** the game takes the object past its array for a curve that names no ship;
     /// OpenReliant passes over it.
@@ -442,9 +443,7 @@ pub const Machine = struct {
         machine.timer_count = 0;
         machine.ticked = false;
         machine.timers_running = true;
-        machine.editor.check();
-        machine.editor.sleep(vm.editor.start_wait_ms);
-        machine.editor.check();
+        machine.editor.waitForFlags();
         for (try file.parts()) |part| {
             if (part.flags.start and !part.isEmpty()) machine.startPart(part);
         }
@@ -2675,7 +2674,7 @@ test "the script's start waits on the editor, and runs a start part it held on f
     try fixture.machine.start();
 
     // The start waited for both releases, and the part's first statement ran once.
-    try std.testing.expectEqual(2, listener.checks);
+    try std.testing.expectEqual(2, listener.released);
     try std.testing.expectEqual(2, listener.count);
     try std.testing.expectEqual(second, listener.offsets[0]);
     try std.testing.expectEqual(store, listener.offsets[1]);
@@ -2683,8 +2682,9 @@ test "the script's start waits on the editor, and runs a start part it held on f
     try std.testing.expectEqual(2, fixture.global(1));
     try std.testing.expectEqual(0, fixture.machine.thread_count);
     try std.testing.expectEqual(vm.editor.Hold.none, fixture.machine.editor.hold);
-    // A fifth of a second before the start parts, then a millisecond each time round.
-    try std.testing.expectEqual(vm.editor.start_wait_ms + 3 * vm.editor.part_wait_ms, listener.slept);
+    // The editor's flags were there at the first check, and the start waited a millisecond each
+    // time round.
+    try std.testing.expectEqual(3 * vm.editor.part_wait_ms, listener.slept);
 }
 
 test "a mission without section 24 takes the flags the mission editor writes" {

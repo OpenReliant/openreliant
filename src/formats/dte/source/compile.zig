@@ -45,13 +45,38 @@ pub const Error = Allocator.Error || error{
 /// Compiles `tree` into a mission file, allocated with `arena`. Where the source has an error, the
 /// parser's or the compiler's, `failure` says what and where, and the error is `Invalid`.
 pub fn compile(arena: Allocator, tree: syntax.Tree, failure: *Failure) Error![]u8 {
+    return (try compileMapped(arena, tree, failure)).file;
+}
+
+/// A mission file compiled, with the map of its script's statements to the source's lines.
+pub const Compiled = struct {
+    file: []u8,
+    /// Each statement of the script, by the offset of the instruction it ends with, in order.
+    statements: []const Statement,
+
+    /// A statement of the script: where its code ends in the script, and the line of the source
+    /// it comes from. A debugger holds before the instruction, once its operands are pushed.
+    pub const Statement = struct {
+        /// The instruction's offset in the script, in bytes, as the editor link gives a stop.
+        offset: u32,
+        at: syntax.Position,
+        /// Whether the VM stops before the instruction, as a breakpoint or a step asks: it doesn't
+        /// before a `return` or a random choice's roll.
+        stops: bool,
+    };
+};
+
+/// `compile`, with the map of the script's statements to the source's lines, for a debugger: where
+/// a breakpoint on a line goes, and which line a stop in the script is on.
+pub fn compileMapped(arena: Allocator, tree: syntax.Tree, failure: *Failure) Error!Compiled {
     if (tree.errors.len > 0) {
         failure.* = .{ .at = tree.errors[0].at, .message = tree.errors[0].message };
         return error.Invalid;
     }
-    var compiler: Compiler = .{ .arena = arena, .tree = tree, .failure = failure };
+    var compiler: Compiler = .{ .arena = arena, .tree = tree, .failure = failure, .marks = .{ .gpa = arena } };
     try compiler.declare();
-    return compiler.build();
+    const file = try compiler.build();
+    return .{ .file = file, .statements = compiler.mapped.items };
 }
 
 /// The kinds of record a name can declare.
@@ -107,9 +132,21 @@ pub const Compiler = struct {
     object_count: u32 = 0,
     /// The object ID of each ship, flight group and squad, by its index (`numberObjects`).
     object_ids: std.EnumArray(ObjectKind, []u32) = .initFill(&.{}),
+    /// The node each statement of the code comes from (`code.function`).
+    statement_nodes: std.AutoHashMapUnmanaged(*const statements.Statement, Index) = .empty,
+    /// Where the statements of the routine being written went (`routine`).
+    marks: statements.Marks,
+    /// The map of the script's statements to the source's lines (`compileMapped`), in the order of
+    /// their offsets, as the routines and their code are written one after the other.
+    mapped: std.ArrayList(Compiled.Statement) = .empty,
 
     /// The kinds of record the object table numbers.
     const ObjectKind = enum { ship, flight_group, squad };
+
+    /// Notes the node a statement of the code comes from, for the map of the lines.
+    pub fn noteStatement(c: *Compiler, statement: *const statements.Statement, node: Index) Allocator.Error!void {
+        try c.statement_nodes.put(c.arena, statement, node);
+    }
 
     /// Records why the compilation fails, at `node`, and gives `Invalid`.
     pub fn fail(c: *Compiler, node: Index, comptime message: []const u8, args: anytype) Error {
@@ -849,7 +886,10 @@ pub const Compiler = struct {
     /// halfwords.
     fn routine(c: *Compiler, bytes: *std.ArrayList(u8), node: Index, parameters: code.Parameters, context: statements.Context) Error!u16 {
         const body = try code.function(c, node, parameters);
-        const made = statements.bytes(c.arena, body, context) catch |err| return switch (err) {
+        var marked = context;
+        marked.marks = &c.marks;
+        c.marks.list.clearRetainingCapacity();
+        const made = statements.bytes(c.arena, body, marked) catch |err| return switch (err) {
             error.OutOfMemory => error.OutOfMemory,
             error.BranchTooFar => c.fail(node, "an `if` or a random choice here holds more code than a branch reaches", .{}),
             error.InlineTooLong => c.fail(node, "a text here is longer than {d} bytes", .{assemble.Routine.longest_text}),
@@ -861,6 +901,18 @@ pub const Compiler = struct {
         const start = bytes.items.len / 2;
         if (start + made.len / 2 >= dte.Part.no_block) return c.fail(node, "the script is longer than a mission's {d} halfwords", .{dte.Part.no_block - 1});
         try bytes.appendSlice(c.arena, made);
+        // The marks count from the routine's code, past the block's length word. Each statement's
+        // node is noted as `code` makes it, for every statement it makes.
+        const header_len = dte.BlockReader.header_len;
+        for (c.marks.list.items) |made_mark| {
+            const from = c.statement_nodes.get(made_mark.statement) orelse unreachable;
+            const opcode: dte.Opcode = @fromBackingInt(made[header_len + made_mark.at]);
+            try c.mapped.append(c.arena, .{
+                .offset = @intCast(start * 2 + header_len + made_mark.at),
+                .at = c.tree.at(from),
+                .stops = if (opcode.info()) |info| info.starts_statement else false,
+            });
+        }
         return @intCast(start);
     }
 

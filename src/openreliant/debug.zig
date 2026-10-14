@@ -9,7 +9,6 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 const openreliant = @import("openreliant");
-const platform = @import("platform");
 const engine = openreliant.engine;
 const dte = openreliant.dte;
 const link = engine.link;
@@ -29,7 +28,7 @@ pub const usage = std.fmt.comptimePrint(
     \\breakpoints, steps through its statements, and shows where it stopped and what it holds. It
     \\waits for the game, and for it again once it goes. Type help for the commands.
     \\
-, .{platform.link.default_port});
+, .{link.default_port});
 
 /// The commands, as `help` lists them.
 const commands_help =
@@ -95,7 +94,7 @@ pub fn main(io: Io, gpa: Allocator, args: []const [:0]const u8) !u8 {
 
 /// The port `--port` gives, or the default; null for an argument it doesn't take.
 fn portOf(args: []const [:0]const u8) ?u16 {
-    var port: u16 = platform.link.default_port;
+    var port: u16 = link.default_port;
     var at: usize = 0;
     while (at < args.len) : (at += 1) {
         if (!std.mem.eql(u8, args[at], "--port") or at + 1 == args.len) return null;
@@ -299,18 +298,18 @@ const Debugger = struct {
     }
 
     fn hello(debugger: *Debugger, payload: []const u8) void {
-        debugger.say("Connected to {s}, OpenReliant {s}.\n", .{ link.field(payload, "game") orelse "a game", link.field(payload, "openreliant") orelse "?" });
-        const vm = link.field(payload, "vm") orelse "";
-        if (!std.mem.eql(u8, vm, editor.game.vm)) {
-            debugger.say("Its scripts are in the {s} dialect, and this debugger reads only {s}: breakpoints by offset still work.\n", .{ vm, editor.game.vm });
+        const greeting = link.Hello.read(payload) catch return debugger.say("The game's greeting can't be read.\n", .{});
+        debugger.say("Connected to {s}, OpenReliant {s}.\n", .{ greeting.game.name, greeting.openreliant });
+        if (!std.mem.eql(u8, greeting.game.vm, editor.game.vm)) {
+            debugger.say("Its scripts are in the {s} dialect, and this debugger reads only {s}: breakpoints by offset still work.\n", .{ greeting.game.vm, editor.game.vm });
         }
     }
 
     fn missionStarted(debugger: *Debugger, payload: []const u8) void {
         debugger.forgetMission();
-        const number = std.fmt.parseInt(u16, link.field(payload, "number") orelse "", 10) catch 0;
-        debugger.mission = number;
-        debugger.say("Mission {d} starts ({s}).\n", .{ number, link.field(payload, "file") orelse "?" });
+        const started = link.MissionStarted.read(payload) catch return debugger.say("The mission's start can't be read.\n", .{});
+        debugger.mission = started.number;
+        debugger.say("Mission {d} starts ({s}).\n", .{ started.number, started.file });
     }
 
     /// The mission's file: its script read, and the breakpoints' flags sent.
@@ -464,9 +463,9 @@ const Debugger = struct {
         debugger.say("\n", .{});
     }
 
-    /// Says where a thread is, from the offset in the script `text` gives, where it gives one.
-    fn sayAt(debugger: *Debugger, text: []const u8) void {
-        const offset = std.fmt.parseInt(u32, text, 10) catch return debugger.say("{s}", .{text});
+    /// Says where a thread is in the script: its place, or none outside the script.
+    fn sayAt(debugger: *Debugger, at: ?u32) void {
+        const offset = at orelse return debugger.say("none", .{});
         const found = if (debugger.script) |*have| have else return debugger.say("{d}", .{offset});
         debugger.sayLocation(found, offset);
     }
@@ -551,60 +550,44 @@ const Debugger = struct {
 
     /// Shows the script's state as the game sent it (`link.Own.state`).
     fn sayState(debugger: *Debugger, payload: []const u8) void {
-        const hold = link.field(payload, "hold") orelse "none";
-        debugger.say("Clock {s} s. The script is {s}", .{ link.field(payload, "clock") orelse "?", if (std.mem.eql(u8, hold, "held")) "held" else "running" });
-        const step = link.field(payload, "step") orelse "none";
-        if (!std.mem.eql(u8, step, "none")) debugger.say(", stepping ({s})", .{step});
-        if (std.mem.eql(u8, link.field(payload, "paused") orelse "0", "1")) debugger.say(", and the mission is paused", .{});
+        var arena: std.heap.ArenaAllocator = .init(debugger.gpa);
+        defer arena.deinit();
+        const state = link.State.read(arena.allocator(), payload) catch return debugger.say("The script's state can't be read.\n", .{});
+        debugger.say("Clock {d} s. The script is {s}", .{ state.clock, if (state.hold == .held) "held" else "running" });
+        if (state.step != .none) debugger.say(", stepping ({t})", .{state.step});
+        if (state.paused) debugger.say(", and the mission is paused", .{});
         debugger.say(".\nThreads:\n", .{});
-        for (0..engine.vm.max_threads) |thread| {
-            var key: [32]u8 = undefined;
-            const at = link.field(payload, keyOf(&key, "thread.{d}.at", thread)) orelse continue;
-            debugger.say("{d:>4}  at ", .{thread});
-            debugger.sayAt(at);
-            if (link.field(payload, keyOf(&key, "thread.{d}.wake", thread))) |wake| if (!std.mem.eql(u8, wake, "0")) debugger.say(", waits for second {s}", .{wake});
-            if (std.mem.eql(u8, link.field(payload, keyOf(&key, "thread.{d}.interrupted", thread)) orelse "0", "1")) debugger.say(", waits for its trigger", .{});
+        for (state.threads) |thread| {
+            debugger.say("{d:>4}  at ", .{thread.slot});
+            debugger.sayAt(thread.at);
+            if (thread.wake != 0) debugger.say(", waits for second {d}", .{thread.wake});
+            if (thread.interrupted) debugger.say(", waits for its trigger", .{});
             debugger.say("\n", .{});
         }
         debugger.say("Globals:\n", .{});
         const found: ?*Script = if (debugger.script) |*have| have else null;
         const globals = if (found) |have| have.mission.globals() catch &.{} else &.{};
-        var lines = std.mem.splitScalar(u8, payload, '\n');
-        while (lines.next()) |line| {
-            const equals = std.mem.findScalar(u8, line, '=') orelse continue;
-            const key = line[0..equals];
-            const value = line[equals + 1 ..];
-            if (std.mem.startsWith(u8, key, "global.")) {
-                const index = std.fmt.parseInt(usize, key["global.".len..], 10) catch continue;
-                const name = if (found) |have| (if (index < globals.len) have.mission.name(globals[index].name) else "") else "";
-                debugger.say("{d:>4}  {s}{s}= ", .{ index, name, if (name.len == 0) "" else " " });
-                debugger.sayWord(value);
-                debugger.say("\n", .{});
-            }
+        for (state.globals, 0..) |value, index| {
+            const name = if (found) |have| (if (index < globals.len) have.mission.name(globals[index].name) else "") else "";
+            debugger.say("{d:>4}  {s}{s}= ", .{ index, name, if (name.len == 0) "" else " " });
+            debugger.sayWord(value);
+            debugger.say("\n", .{});
         }
         debugger.say("The game's variables that aren't 0:\n", .{});
-        lines.reset();
-        while (lines.next()) |line| {
-            const equals = std.mem.findScalar(u8, line, '=') orelse continue;
-            if (!std.mem.startsWith(u8, line, "variable.") or std.mem.eql(u8, line[equals + 1 ..], "0")) continue;
-            debugger.say("  {s} = ", .{line["variable.".len..equals]});
-            debugger.sayWord(line[equals + 1 ..]);
+        for (state.variables) |variable| {
+            if (variable.value == 0) continue;
+            debugger.say("  {s} = ", .{variable.name});
+            debugger.sayWord(variable.value);
             debugger.say("\n", .{});
         }
     }
 
     /// Says one of the script's words as the state gives it, unsigned, as a signed number: the
     /// scripts count down past 0, as the countdown does.
-    fn sayWord(debugger: *Debugger, text: []const u8) void {
-        const word = std.fmt.parseInt(u32, text, 10) catch return debugger.say("{s}", .{text});
+    fn sayWord(debugger: *Debugger, word: u32) void {
         debugger.say("{d}", .{@as(i32, @bitCast(word))});
     }
 };
-
-/// The key `format` makes with `number`, written in `buffer`; empty where it doesn't fit.
-fn keyOf(buffer: []u8, comptime format: []const u8, number: usize) []const u8 {
-    return std.mem.print(buffer, format, .{number}) catch "";
-}
 
 fn unplacedText(err: (script.Unplaced || Allocator.Error)) []const u8 {
     return switch (err) {
@@ -617,7 +600,7 @@ fn unplacedText(err: (script.Unplaced || Allocator.Error)) []const u8 {
 }
 
 test portOf {
-    try std.testing.expectEqual(platform.link.default_port, portOf(&.{}).?);
+    try std.testing.expectEqual(link.default_port, portOf(&.{}).?);
     try std.testing.expectEqual(4000, portOf(&.{ "--port", "4000" }).?);
     try std.testing.expectEqual(null, portOf(&.{"--port"}));
     try std.testing.expectEqual(null, portOf(&.{ "--port", "x" }));
@@ -665,7 +648,7 @@ test "the debugger's commands and the game's messages" {
     // The state names the thread's place, the globals and the variables that aren't 0.
     out.clearRetainingCapacity();
     var state: [256]u8 = undefined;
-    const text = try std.mem.print(&state, "clock=3\nhold=held\nstep=into\npaused=0\nthread.0.at={d}\nthread.0.wake=0\nglobal.1=7\nvariable.mission_over=0\nvariable.backup_available=1\n", .{second});
+    const text = try std.mem.print(&state, "clock=3\nhold=held\nstep=into\npaused=0\nfirst_finished=0\nthread.0.at={d}\nthread.0.wake=0\nglobal.1=7\nvariable.mission_over=0\nvariable.backup_available=1\n", .{second});
     debugger.handle(.{ .tag = @backingInt(link.Own.state), .payload = text });
     try std.testing.expect(std.mem.find(u8, out.written(), "Clock 3 s. The script is held, stepping (into).") != null);
     try std.testing.expect(std.mem.find(u8, out.written(), "   0  at ") != null);

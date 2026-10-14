@@ -273,7 +273,8 @@ for each field, but the mission's file:
 | `global.N` | Global `N`'s value |
 | `variable.NAME` | The game's variable `NAME`, such as `mission_over`; one with no name by its number, where it isn't 0 |
 
-Values are the script's words, unsigned.
+Values are the script's words, unsigned. A reader passes over keys it doesn't know, so that a newer
+game's messages still read.
 
 ### What it does
 
@@ -283,8 +284,8 @@ Values are the script's words, unsigned.
   ([#1057](https://github.com/OpenReliant/openreliant/issues/1057)). It sends tags `0x1A` and `0x1B`.
 - The editor's messages wait while no mission plays, as the original's wait in its block for the
   next mission's start. Each attempt reads the mission's file again, so the flags last for one
-  attempt: an editor sends them again once the file comes with each `Mission started`, a fifth of a
-  second before the start parts run.
+  attempt: an editor sends them again once the file comes with each `Mission started`, and the
+  start parts wait for them.
 - The link opens as the game starts, so that an editor waiting for the game is there before the
   first mission's script starts.
 - The script's start waits on the editor as the original's does, drawing nothing until the editor
@@ -305,8 +306,10 @@ Values are the script's words, unsigned.
   editor had its own copy of the mission and its debugger only heard where the script stopped.
 - As the editor goes, the script is let go: its hold, its step and the editor's pause clear. The
   original keeps the script held, waiting for good.
-- The script's start waits for the editor only while one is there, where the original waits a fifth
-  of a second at every mission's start.
+- While an editor is linked, the script's start waits for its flags before the start parts run, for
+  a second at most, and checks the link every millisecond meanwhile. With no editor linked, it
+  doesn't wait. The original waits a fifth of a second at every mission's start, whether an editor
+  is there or not, and the breakpoints of a slower editor miss the start parts.
 - A tag past `0x17` is logged and passed over, where the original stops the game.
 - While the editor holds the script or pauses the mission, OpenReliant still draws the frame, with
   the frame's work left out.
@@ -359,12 +362,20 @@ A client in Zig can read and write missions exactly as OpenReliant does by impor
 ([Using the library in another project](../port/platform.md#using-the-library-in-another-project)).
 It works the way `openreliant debug` does:
 
-1. Connect to 127.0.0.1 at the port, and read `Hello`.
+1. Connect to 127.0.0.1 at the port, `link.default_port` unless the game was started with
+   another, and read `Hello`.
 2. On `Mission file`, which comes right after `Mission started`, send tag `0x09` with the script's
-   flags within a fifth of a second: a byte for each of the script's bytes, rounded up to a
-   multiple of 4, with bit 0 set on each byte to stop before. The statements end at the opcodes
-   `vm_starts_statement` gives (above), which a step stops before.
+   flags: a byte for each of the script's bytes, rounded up to a multiple of 4, with bit 0 set on
+   each byte to stop before. Send them with no breakpoints too, since the start parts wait for them
+   for up to a second. The statements end at the opcodes `vm_starts_statement` gives (above), which
+   a step stops before.
 3. On tag `0x1A`, the script is held before the byte at the offset it gives: send tag `0x15` with 1
    to run on, 2 to step into the next statement, or 3 to step over it; or with 0 and 1 to pause the
    mission, and 0 and 0 to let it go on.
 4. Send `Get state` for the script's threads, globals and variables.
+
+`engine/link.zig` has a record for each of OpenReliant's own messages, which writes its payload and
+reads it back: `Hello`, `MissionStarted` and `State`. The game writes them, and `openreliant debug`
+reads them. A client that builds missions from source places its breakpoints with the compiler's
+map from the source's lines to the script's statements
+([Building a mission](../formats/mission-source.md#building-a-mission)).
