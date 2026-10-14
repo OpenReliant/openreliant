@@ -378,25 +378,37 @@ pub const Music = struct {
     /// Added by OpenReliant: the piece the stream plays (`Sound.pieceOn`).
     piece: ?Piece = null,
 
+    /// A copy of a piece of music's path.
+    pub const Path = struct {
+        bytes: [paths.max_path]u8 = @splat(0),
+        len: usize = 0,
+
+        /// A copy of `path`, cut short if it's longer than `paths.max_path`.
+        pub fn of(path: []const u8) Path {
+            var copy: Path = .{ .len = @min(path.len, paths.max_path) };
+            @memcpy(copy.bytes[0..copy.len], path[0..copy.len]);
+            return copy;
+        }
+
+        pub fn slice(copy: *const Path) []const u8 {
+            return copy.bytes[0..copy.len];
+        }
+    };
+
     /// A piece of music to play: its path, loop count and level.
     pub const Piece = struct {
-        path: [paths.max_path]u8 = @splat(0),
-        path_len: usize = 0,
+        path: Path,
         loops: u32,
         level: i32,
 
-        /// The piece at `path`, to play `loops` times at `level`. A path longer than `path` holds
-        /// is cut short.
+        /// The piece at `path`, to play `loops` times at `level`.
         pub fn of(path: []const u8, loops: u32, level: i32) Piece {
-            var piece: Piece = .{ .loops = loops, .level = level };
-            piece.path_len = @min(path.len, piece.path.len);
-            @memcpy(piece.path[0..piece.path_len], path[0..piece.path_len]);
-            return piece;
+            return .{ .path = .of(path), .loops = loops, .level = level };
         }
 
         /// The piece's path.
         pub fn pathOf(piece: *const Piece) []const u8 {
-            return piece.path[0..piece.path_len];
+            return piece.path.slice();
         }
     };
 
@@ -1916,7 +1928,7 @@ test "Sound.playMusic queues a piece until the music has stopped" {
     try std.testing.expect(sound.music.fading);
     try std.testing.expectEqual(40, sound.faded_at);
     const queued = sound.music.queued.?;
-    try std.testing.expectEqualStrings("music\\two.wav", queued.path[0..queued.path_len]);
+    try std.testing.expectEqualStrings("music\\two.wav", queued.pathOf());
     sound.updateMusic();
     try std.testing.expectEqual(loudest, sound.music.level);
     // Once the music has stopped, the queued piece starts at its own level.
@@ -2065,6 +2077,15 @@ test pitchFactor {
     try std.testing.expectApproxEqAbs(@as(f32, 2), pitchFactor(24), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 16), pitchFactor(200), 1e-4);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 16.0), pitchFactor(-200), 1e-6);
+}
+
+test "Music.Path" {
+    const short: Music.Path = .of("music\\one.wav");
+    try std.testing.expectEqualStrings("music\\one.wav", short.slice());
+    // A path longer than the buffer is cut short.
+    const long: [paths.max_path + 10]u8 = @splat('a');
+    const cut: Music.Path = .of(&long);
+    try std.testing.expectEqualSlices(u8, long[0..paths.max_path], cut.slice());
 }
 
 test pieceName {

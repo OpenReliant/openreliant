@@ -2992,7 +2992,7 @@ test "PlayMusic plays its piece from the music folder, at once only for 1" {
     try game.start(ctx);
 
     const queued = sound.music.queued.?;
-    try std.testing.expectEqualStrings("music\\theme.wav", queued.path[0..queued.path_len]);
+    try std.testing.expectEqualStrings("music\\theme.wav", queued.pathOf());
     try std.testing.expectEqual(music_forever, queued.loops);
     try std.testing.expectEqual(music_level, queued.level);
     for (0..2) |_| game.fixture.second();

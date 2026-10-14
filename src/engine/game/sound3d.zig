@@ -320,8 +320,8 @@ pub const Own = struct {
     pitch: f32 = 1,
     /// How many times it plays; 0 loops forever.
     loops: u32 = hog_snd.once,
-    /// Minimum and maximum distance, in the game's units: full volume within `near`, silent
-    /// beyond `far`.
+    /// Minimum and maximum distance, in the game's units: full volume within `near`, fading out to
+    /// silence at `far` (`fadeToFar`).
     near: f32 = default_near,
     far: f32 = default_far,
     starter: hog_snd.Starter,

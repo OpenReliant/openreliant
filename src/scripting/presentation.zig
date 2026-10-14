@@ -167,9 +167,9 @@ pub const Presentation = struct {
     cd_player_request: ?usize = null,
     /// The script sounds and their cache.
     sounds: audio.Sounds = .{},
-    /// The piece of music that was playing last frame, for detecting changes (`on_music_changed`);
-    /// null if none was. Only its path is used.
-    music: ?hog_snd.Music.Piece = null,
+    /// The path of the piece of music that was playing last frame, for detecting changes
+    /// (`on_music_changed`); null if none was.
+    music: ?hog_snd.Music.Path = null,
 
     /// Starts the `Menu` scripts of `opened`, which can read `held`, the records. `version` is
     /// OpenReliant's version. Returns null if no mod has player or menu scripts.
@@ -389,8 +389,8 @@ pub const Presentation = struct {
     /// Calls `on_music_changed` if the piece playing, given by its `path` or null for none, differs
     /// from last frame's.
     fn tellMusic(shown: *Presentation, path: ?[]const u8) void {
-        if (samePiece(path, if (shown.music) |*piece| piece.pathOf() else null)) return;
-        shown.music = if (path) |playing| .of(playing, hog_snd.forever, hog_snd.loudest) else null;
+        if (samePiece(path, if (shown.music) |*last| last.slice() else null)) return;
+        shown.music = if (path) |playing| .of(playing) else null;
         shown.runner.callAll(.on_music_changed, .{ .piece = if (path) |playing| hog_snd.pieceName(playing) else null });
     }
 
