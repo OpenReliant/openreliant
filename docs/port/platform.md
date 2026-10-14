@@ -185,6 +185,21 @@ On Windows, both executables carry OpenReliant's icon ([The icon](#the-icon)), a
 
 release-please opens its pull request with the workflow's own token, which needs "Allow GitHub Actions to create and approve pull requests" turned on in the repository's Actions settings. GitHub does not run workflows for pull requests opened with that token, so the release pull request never gets its checks, and an admin merges it past the branch protection.
 
+## Using the library in another project
+
+Another Zig project, such as [OpenReliant Editor](https://github.com/OpenReliant/openreliant-editor), can add OpenReliant to its `build.zig.zon` with `zig fetch --save` and import two of its modules:
+
+- `openreliant`, the library: the readers and writers of the game's files, the engine and its tables;
+- `source_parser`, which parses mission source and builds it into a mission file, as `sltool dte build` does ([Mission source](../formats/mission-source.md)).
+
+```zig
+const openreliant = b.dependency("openreliant", .{ .target = target, .optimize = optimize });
+module.addImport("openreliant", openreliant.module("openreliant"));
+module.addImport("source_parser", openreliant.module("source_parser"));
+```
+
+Besides the source, the package holds the guide's definitions and reference pages, which the modules embed, and the example mods, which the scripting module's tests embed. The project fetches every library the game builds on too, not only the ones these modules use ([#1204](https://github.com/OpenReliant/openreliant/issues/1204)).
+
 ## The icon
 
 OpenReliant's icon is the letters OR in Newtown on the website's dark sky ([`assets/icon`](../../assets/icon/README.md)). On Windows, the executables carry it, and SDL gives the window the executable's icon. On macOS and Linux, the game gives its window the icon as PNGs at 256 and 512 pixels, which SDL decodes (`Window.setIcon`), and macOS shows it in the Dock. A Wayland compositor without the protocol for a window's icon shows its own. `make icon` makes the icon's PNG, ICO and ICNS files from its SVG.
