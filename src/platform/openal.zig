@@ -94,7 +94,28 @@ const Buffer = struct {
     rate: u32,
     frames: u32,
     channels: u16,
+    /// Hash of the sound file, its key in `Renderer.buffers`; 0 for a stream's buffer.
+    key: u64 = 0,
+
+    /// Size of its samples in bytes.
+    fn bytes(buffer: Buffer) usize {
+        return @as(usize, buffer.frames) * buffer.channels * @sizeOf(i16);
+    }
 };
+
+/// An entry of `Renderer.buffers`: a buffer, the number of voices using it, and when a voice last
+/// loaded it.
+const Cached = struct {
+    buffer: Buffer,
+    users: u32 = 0,
+    /// The value of `Renderer.loads` when a voice last loaded it.
+    last_used: u64 = 0,
+};
+
+/// Memory budget for unused buffers (`Renderer.trimBuffers`). Sounds that play often, such as the
+/// banks' sounds, stay cached, and one-off sounds such as radio lines and script sounds are evicted
+/// once the budget is exceeded.
+const unused_buffer_budget = 64 << 20;
 
 /// A sample or 3D sample: an OpenAL source and what the game asked of it.
 const Voice = struct {
@@ -373,8 +394,12 @@ pub const Renderer = struct {
     samples: [mss.max_samples]Voice = @splat(.{}),
     samples_3d: [max_3d_samples]Voice = @splat(.{}),
     streams: [mss.max_streams]Stream = @splat(.{}),
-    /// The banks' sounds, decoded once each, by a hash of their files.
-    buffers: std.AutoHashMapUnmanaged(u64, Buffer) = .empty,
+    /// Decoded buffers of the sounds the samples and 3D samples play, keyed by a hash of the file.
+    buffers: std.AutoHashMapUnmanaged(u64, Cached) = .empty,
+    /// Counts the sounds loaded on voices, to find the least recently used buffer.
+    loads: u64 = 0,
+    /// Memory budget for unused buffers.
+    unused_budget: usize = unused_buffer_budget,
     /// The vectors the game has given that OpenAL can't take, each logged the first time (`takes`).
     refused: std.EnumSet(Setting) = .empty,
 
@@ -432,7 +457,7 @@ pub const Renderer = struct {
             deleteSource(slot.source);
         }
         var buffers = renderer.buffers.valueIterator();
-        while (buffers.next()) |buffer| c.alDeleteBuffers(1, &buffer.name);
+        while (buffers.next()) |cached| c.alDeleteBuffers(1, &cached.buffer.name);
         renderer.buffers.deinit(renderer.gpa);
         for ([_]?Effect{ renderer.room, renderer.cabin, renderer.low_frequency }) |held| {
             if (held) |effect| effect.delete();
@@ -519,16 +544,57 @@ pub const Renderer = struct {
 
     // --- Buffers ---------------------------------------------------------------------------------
 
-    /// A bank's sound as a buffer, decoded the first time it is asked for.
+    /// Returns the buffer for `file`, decoding it on first use.
     fn bufferOf(renderer: *Renderer, file: []const u8) ?Buffer {
         const key = std.hash.Wyhash.hash(0, file);
-        if (renderer.buffers.get(key)) |buffer| return buffer;
-        const buffer = decode(renderer.gpa, file) orelse return null;
-        renderer.buffers.put(renderer.gpa, key, buffer) catch {
+        if (renderer.buffers.get(key)) |cached| return cached.buffer;
+        var buffer = decode(renderer.gpa, file) orelse return null;
+        buffer.key = key;
+        renderer.buffers.put(renderer.gpa, key, .{ .buffer = buffer }) catch {
             c.alDeleteBuffers(1, &buffer.name);
             return null;
         };
         return buffer;
+    }
+
+    /// Sets `voice`'s buffer to `buffer`, or none, and updates the use counts of the old and the
+    /// new buffer.
+    fn setBuffer(renderer: *Renderer, voice: *Voice, buffer: ?Buffer) void {
+        if (voice.buffer) |old| if (renderer.buffers.getPtr(old.key)) |cached| {
+            cached.users -= 1;
+        };
+        if (buffer) |new| if (renderer.buffers.getPtr(new.key)) |cached| {
+            cached.users += 1;
+            renderer.loads += 1;
+            cached.last_used = renderer.loads;
+        };
+        voice.buffer = buffer;
+    }
+
+    /// Resets `voice` to its source, with no buffer, and marks it `allocated` or free.
+    fn reset(renderer: *Renderer, voice: *Voice, allocated: bool) void {
+        renderer.setBuffer(voice, null);
+        voice.* = .{ .allocated = allocated, .source = voice.source };
+    }
+
+    /// Frees unused buffers, least recently used first, until they fit in `unused_budget`. A source
+    /// only ever plays its own voice's buffer, so an unused buffer isn't attached to any source.
+    fn trimBuffers(renderer: *Renderer) void {
+        while (true) {
+            var unused: usize = 0;
+            var oldest: ?*Cached = null;
+            var buffers = renderer.buffers.valueIterator();
+            while (buffers.next()) |cached| {
+                if (cached.users > 0) continue;
+                unused += cached.buffer.bytes();
+                if (oldest) |found| if (found.last_used <= cached.last_used) continue;
+                oldest = cached;
+            }
+            if (unused <= renderer.unused_budget) return;
+            const freed = (oldest orelse return).buffer;
+            c.alDeleteBuffers(1, &freed.name);
+            _ = renderer.buffers.remove(freed.key);
+        }
     }
 
     // --- Samples ---------------------------------------------------------------------------------
@@ -540,7 +606,7 @@ pub const Renderer = struct {
     pub fn allocateSample(renderer: *Renderer) ?mss.Sample {
         for (&renderer.samples, 0..) |*voice, index| {
             if (voice.allocated) continue;
-            voice.* = .{ .allocated = true, .source = voice.source };
+            renderer.reset(voice, true);
             renderer.setUpFlat(voice);
             return @fromBackingInt(@intCast(index));
         }
@@ -550,7 +616,7 @@ pub const Renderer = struct {
     pub fn initSample(renderer: *Renderer, handle: mss.Sample) void {
         const voice = renderer.sample(handle);
         stopVoice(voice);
-        voice.* = .{ .allocated = true, .source = voice.source };
+        renderer.reset(voice, true);
         renderer.setUpFlat(voice);
     }
 
@@ -561,13 +627,15 @@ pub const Renderer = struct {
         return true;
     }
 
-    /// `voice` stopped, with the sound `file` to play at its own rate. False where it can't be
-    /// played, the voice keeping the sound it had.
+    /// Stops `voice` and gives it the sound `file`, to play at the file's own rate. Returns false if
+    /// the file can't be played, leaving the voice's sound as it was. Then frees unused buffers
+    /// over the budget (`trimBuffers`).
     fn load(renderer: *Renderer, voice: *Voice, file: []const u8) bool {
         stopVoice(voice);
         const buffer = renderer.bufferOf(file) orelse return false;
-        voice.buffer = buffer;
+        renderer.setBuffer(voice, buffer);
         voice.rate = buffer.rate;
+        renderer.trimBuffers();
         return true;
     }
 
@@ -703,7 +771,7 @@ pub const Renderer = struct {
     pub fn allocate3DSample(renderer: *Renderer) ?mss.Sample3D {
         for (&renderer.samples_3d, 0..) |*voice, index| {
             if (voice.allocated) continue;
-            voice.* = .{ .allocated = true, .source = voice.source };
+            renderer.reset(voice, true);
             renderer.setUp3D(voice);
             return @fromBackingInt(@intCast(index));
         }
@@ -713,7 +781,7 @@ pub const Renderer = struct {
     pub fn release3DSample(renderer: *Renderer, handle: mss.Sample3D) void {
         const voice = renderer.sample3D(handle);
         stopVoice(voice);
-        voice.* = .{ .source = voice.source };
+        renderer.reset(voice, false);
     }
 
     pub fn set3DSampleFile(renderer: *Renderer, handle: mss.Sample3D, file: []const u8) bool {
@@ -1102,6 +1170,46 @@ test Renderer {
     driver.startStream(music);
     try std.testing.expectEqual(mss.Status.playing, driver.streamStatus(music));
     driver.closeStream(music);
+}
+
+test "unused buffers over the budget are freed, least recently used first" {
+    const gpa = std.testing.allocator;
+    const renderer = Renderer.create(gpa, 22050, 2, .{}, false) catch return error.SkipZigTest;
+    defer renderer.destroy();
+    const driver = renderer.driver();
+    const files = comptime files: {
+        var made: [4][]const u8 = undefined;
+        for (&made, 0..) |*file, n| file.* = openreliant.wave.testing.steady(64, 1000 * (n + 1));
+        break :files made;
+    };
+    const each = 64 * @sizeOf(i16);
+    renderer.unused_budget = 2 * each;
+    const held = driver.allocateSample().?;
+    const other = driver.allocateSample().?;
+    try std.testing.expect(driver.setSampleFile(held, files[0]));
+    // The second voice loads the other files in turn. The unused buffers fit in the budget, so
+    // all four stay cached.
+    for (files[1..]) |file| try std.testing.expect(driver.setSampleFile(other, file));
+    try std.testing.expectEqual(4, renderer.buffers.count());
+    try std.testing.expect(driver.setSampleFile(other, files[1]));
+    try std.testing.expect(driver.setSampleFile(other, files[2]));
+    try std.testing.expect(driver.setSampleFile(other, files[3]));
+    try std.testing.expectEqual(4, renderer.buffers.count());
+    // With a budget of one buffer, the least recently used unused buffer is freed. The first
+    // voice's buffer is in use, so it stays, however old it is.
+    renderer.unused_budget = each;
+    driver.initSample(other);
+    try std.testing.expect(driver.setSampleFile(other, files[3]));
+    try std.testing.expectEqual(3, renderer.buffers.count());
+    try std.testing.expect(renderer.buffers.contains(std.hash.Wyhash.hash(0, files[0])));
+    try std.testing.expect(!renderer.buffers.contains(std.hash.Wyhash.hash(0, files[1])));
+    // The first voice's buffer still plays. Once the voice drops it, it is freed like any other
+    // unused buffer.
+    driver.startSample(held);
+    try std.testing.expectEqual(mss.Status.playing, driver.sampleStatus(held));
+    driver.initSample(held);
+    try std.testing.expect(driver.setSampleFile(other, files[2]));
+    try std.testing.expectEqual(2, renderer.buffers.count());
 }
 
 test "Doppler" {
