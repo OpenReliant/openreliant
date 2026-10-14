@@ -125,7 +125,9 @@ pub fn build(b: *std.Build) void {
     for (examples) |file| if (std.mem.endsWith(u8, file, ".luau")) scripts.append(b.allocator, file) catch @panic("out of memory");
     example_scripts.addOption([]const []const u8, "scripts", scripts.items);
     scripting.addOptions("example_scripts", example_scripts);
-    const source_parser = sourceParser(b, translate_c, lib, target, optimize);
+    // The parser is exported next to the library, for projects that build missions from their
+    // source as sltool does, such as the editor.
+    const source_parser = sourceParser(b, translate_c, lib, target, optimize, "source_parser");
     // The definitions files, which its tests parse as luau-lsp reads them, and the guide to writing
     // missions, whose missions its tests build and play.
     source_parser.addAnonymousImport("openreliant.d.luau", .{ .root_source_file = b.path("docs/guide/openreliant.d.luau") });
@@ -183,7 +185,7 @@ pub fn build(b: *std.Build) void {
             .target = b.graph.host,
             .imports = &.{
                 .{ .name = "openreliant", .module = host_lib },
-                .{ .name = "source_parser", .module = sourceParser(b, translate_c, host_lib, b.graph.host, .debug) },
+                .{ .name = "source_parser", .module = sourceParser(b, translate_c, host_lib, b.graph.host, .debug, null) },
             },
         }),
     });
@@ -359,10 +361,10 @@ fn addWindowsResources(b: *std.Build, program: *std.Build.Step.Compile, build_re
 
 /// The module that reads mission source with Luau's own parser (`src/source_parser.zig`), for
 /// `target`, on `lib`, the library built for it. It links the parser through a C++ shim, since the
-/// parser has no C API.
-fn sourceParser(b: *std.Build, translate_c: *std.Build.Dependency, lib: *std.Build.Module, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize) *std.Build.Module {
+/// parser has no C API. With a `name`, other packages can import the module by that name.
+fn sourceParser(b: *std.Build, translate_c: *std.Build.Dependency, lib: *std.Build.Module, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize, name: ?[]const u8) *std.Build.Module {
     const luau_ast_library = b.dependency("luau", .{ .target = target, .optimize = .fast }).artifact("luau-ast");
-    const module = b.createModule(.{
+    const options: std.Build.Module.CreateOptions = .{
         .root_source_file = b.path("src/source_parser.zig"),
         .target = target,
         .optimize = optimize,
@@ -371,7 +373,8 @@ fn sourceParser(b: *std.Build, translate_c: *std.Build.Dependency, lib: *std.Bui
             .{ .name = "openreliant", .module = lib },
             .{ .name = "luau_syntax", .module = translateHeader(translate_c, b.path("src/source_parser/luau.h"), luau_ast_library, target, optimize) },
         },
-    });
+    };
+    const module = if (name) |exported| b.addModule(exported, options) else b.createModule(options);
     module.linkLibrary(luau_ast_library);
     module.addIncludePath(luau_ast_library.getEmittedIncludeTree());
     module.addCSourceFile(.{ .file = b.path("src/source_parser/luau.cpp"), .flags = &.{ "-std=c++17", "-fno-sanitize=undefined" } });
