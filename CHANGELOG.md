@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.14.0](https://github.com/OpenReliant/openreliant/compare/v0.13.0...v0.14.0) (2026-10-14)
+
+
+### Features
+
+* mods add tracks to the CD player after the game's 24 ([#1182](https://github.com/OpenReliant/openreliant/issues/1182)) ([8245b35](https://github.com/OpenReliant/openreliant/commit/8245b3544e2128e4e19c1e7df5a8fd9eaaff1224)), closes [#1177](https://github.com/OpenReliant/openreliant/issues/1177)
+* mods can change the CD player's tracks ([#1168](https://github.com/OpenReliant/openreliant/issues/1168)) ([0130c68](https://github.com/OpenReliant/openreliant/commit/0130c6880431d7eced07d963026ce239c5ffbc4b)), closes [#1167](https://github.com/OpenReliant/openreliant/issues/1167)
+* mods follow the rooms, change their views and page the CD player ([#1172](https://github.com/OpenReliant/openreliant/issues/1172)) ([114b3c0](https://github.com/OpenReliant/openreliant/commit/114b3c06553da3d989eaa24db15b733a7661be2e)), closes [#1169](https://github.com/OpenReliant/openreliant/issues/1169) [#1170](https://github.com/OpenReliant/openreliant/issues/1170)
+* mods replace single sounds of the game's sound banks ([#1181](https://github.com/OpenReliant/openreliant/issues/1181)) ([1bf67a5](https://github.com/OpenReliant/openreliant/commit/1bf67a5c5c43cec61a70358f95194b72fab5fee6)), closes [#1175](https://github.com/OpenReliant/openreliant/issues/1175)
+* mods' music and lines in FLAC, and music in MP3 ([#1174](https://github.com/OpenReliant/openreliant/issues/1174)) ([e7efae3](https://github.com/OpenReliant/openreliant/commit/e7efae3c2ce532206837a085320880ac7123ecdc)), closes [#1173](https://github.com/OpenReliant/openreliant/issues/1173)
+* mods' music, lines and sounds in Ogg Vorbis and Opus ([#1184](https://github.com/OpenReliant/openreliant/issues/1184)) ([9d02d06](https://github.com/OpenReliant/openreliant/commit/9d02d068e958715601cc4d4cc36e1075774075f6)), closes [#1176](https://github.com/OpenReliant/openreliant/issues/1176)
+* script sounds fade out at their far distance ([#1199](https://github.com/OpenReliant/openreliant/issues/1199)) ([3dcac56](https://github.com/OpenReliant/openreliant/commit/3dcac560456bb2ff58498390c6b15f672c93b5f3))
+* scripts play mods' own sounds and control the music ([#1194](https://github.com/OpenReliant/openreliant/issues/1194)) ([2cdacdf](https://github.com/OpenReliant/openreliant/commit/2cdacdfa8b18b7ee1628f2dbd1f738d2ded17058)), closes [#1178](https://github.com/OpenReliant/openreliant/issues/1178)
+
+
+### Fixes
+
+* OpenAL frees unused sound buffers past a memory budget ([#1198](https://github.com/OpenReliant/openreliant/issues/1198)) ([48f9505](https://github.com/OpenReliant/openreliant/commit/48f95059c29b3ba42ded5f9647a52a463380e4b8)), closes [#1195](https://github.com/OpenReliant/openreliant/issues/1195)
+* the CD player keeps its track while the window is away ([#1183](https://github.com/OpenReliant/openreliant/issues/1183)) ([46e89cd](https://github.com/OpenReliant/openreliant/commit/46e89cd570a08b539a09c74a08a588ffe7d36e35))
+
+
+### Documentation
+
+* a shorter menu on the website ([#1166](https://github.com/OpenReliant/openreliant/issues/1166)) ([cc6d705](https://github.com/OpenReliant/openreliant/commit/cc6d70512166cd67c3231d688f3e794d5b553fba))
+* the website and its docs show OpenReliant's icon as their favicon ([#1164](https://github.com/OpenReliant/openreliant/issues/1164)) ([28f9b1a](https://github.com/OpenReliant/openreliant/commit/28f9b1af719561e32787f8511bf749856c666952))
+
 ## [0.13.0](https://github.com/OpenReliant/openreliant/compare/v0.12.0...v0.13.0) (2026-10-13)
 
 
