@@ -2674,7 +2674,7 @@ test "the script's start waits on the editor, and runs a start part it held on f
     try fixture.machine.start();
 
     // The start waited for both releases, and the part's first statement ran once.
-    try std.testing.expectEqual(2, listener.checks);
+    try std.testing.expectEqual(2, listener.released);
     try std.testing.expectEqual(2, listener.count);
     try std.testing.expectEqual(second, listener.offsets[0]);
     try std.testing.expectEqual(store, listener.offsets[1]);

@@ -288,10 +288,10 @@ pub const arm_room = 10;
 /// count.
 pub const Error = assemble.Error;
 
-/// Where each statement lowered went, for a debugger: the instruction the statement ends with, after
-/// its operands, which a step or a breakpoint of the editor link stops before. An `if` ends with its
-/// branch, before the statements it holds; a random choice with its `random_branch`, before its
-/// arms.
+/// Where each statement lowered went, for a debugger: the instruction the statement ends with,
+/// after its operands, which a step or a breakpoint of the editor link stops before. An `if` ends
+/// with its branch, before the statements it holds; a random choice with its `random_branch`,
+/// before its arms.
 pub const Marks = struct {
     gpa: Allocator,
     list: std.ArrayList(Mark) = .empty,
@@ -300,19 +300,15 @@ pub const Marks = struct {
         statement: *const Statement,
         /// The instruction's offset in the routine's code, past the block's length word.
         at: u32,
-        /// Whether the VM stops before it (`opcodes.Info.starts_statement`): it doesn't before
-        /// `return` or `random_branch`, so a breakpoint can't hold there.
-        stops: bool,
     };
 
     pub fn deinit(marks: *Marks) void {
         marks.list.deinit(marks.gpa);
     }
 
-    /// Notes that `statement` ends with `opcode`, the next instruction `routine` writes.
-    fn add(marks: *Marks, statement: *const Statement, routine: *const assemble.Routine, opcode: Opcode) Allocator.Error!void {
-        const info = opcode.info() orelse unreachable;
-        try marks.list.append(marks.gpa, .{ .statement = statement, .at = @intCast(routine.code.items.len), .stops = info.starts_statement });
+    /// Notes that `statement` ends with the next instruction `routine` writes.
+    fn add(marks: *Marks, statement: *const Statement, routine: *const assemble.Routine) Allocator.Error!void {
+        try marks.list.append(marks.gpa, .{ .statement = statement, .at = @intCast(routine.code.items.len) });
     }
 };
 
@@ -321,9 +317,10 @@ pub fn lower(routine: *assemble.Routine, body: []const Statement, context: Conte
     for (body) |*statement| try lowerStatement(routine, statement, context);
 }
 
-/// Notes in the context's marks, where it has them, that `statement` ends with `opcode`.
-fn mark(routine: *const assemble.Routine, statement: *const Statement, context: Context, opcode: Opcode) Allocator.Error!void {
-    if (context.marks) |marks| try marks.add(statement, routine, opcode);
+/// Notes in the context's marks, where it has them, that `statement` ends with the next instruction
+/// `routine` writes.
+fn mark(routine: *const assemble.Routine, statement: *const Statement, context: Context) Allocator.Error!void {
+    if (context.marks) |marks| try marks.add(statement, routine);
 }
 
 /// The bytes of a routine of `body`: its block and its constant table (`assemble.Routine.finish`).
@@ -341,19 +338,18 @@ fn lowerStatement(routine: *assemble.Routine, statement: *const Statement, conte
             for (command.arguments, 0..) |argument, index| {
                 try push(routine, argument, .{ .kinds = if (index < params.len) params[index].kinds else .{} }, context);
             }
-            try mark(routine, statement, context, .command);
+            try mark(routine, statement, context);
             try routine.op(.command, &.{command.index});
         },
         .call, .spawn => |call| {
             for (call.arguments) |argument| try push(routine, argument, .{}, context);
-            const opcode: Opcode = if (statement.* == .call) .call_part else .spawn_part;
-            try mark(routine, statement, context, opcode);
-            try routine.op(opcode, &.{call.part});
+            try mark(routine, statement, context);
+            try routine.op(if (statement.* == .call) .call_part else .spawn_part, &.{call.part});
         },
         .assign => |assign| {
             try routine.op(assign.target.select(), &.{assign.target.index()});
             try push(routine, assign.value, .{}, context);
-            try mark(routine, statement, context, assign.update.opcode());
+            try mark(routine, statement, context);
             try routine.op(assign.update.opcode(), &.{});
         },
         .@"if" => |branch| {
@@ -361,7 +357,7 @@ fn lowerStatement(routine: *assemble.Routine, statement: *const Statement, conte
             const past_then = try routine.label();
             if (branch.otherwise) |otherwise| {
                 const end = try routine.label();
-                try mark(routine, statement, context, .branch_if_zero_alt);
+                try mark(routine, statement, context);
                 try routine.branch(.branch_if_zero_alt, past_then);
                 try lower(routine, branch.then, context);
                 try routine.branch(.jump, end);
@@ -369,19 +365,19 @@ fn lowerStatement(routine: *assemble.Routine, statement: *const Statement, conte
                 try lower(routine, otherwise, context);
                 routine.place(end);
             } else {
-                try mark(routine, statement, context, .branch_if_zero);
+                try mark(routine, statement, context);
                 try routine.branch(.branch_if_zero, past_then);
                 try lower(routine, branch.then, context);
                 routine.place(past_then);
             }
         },
         .random => |random| {
-            try mark(routine, statement, context, .random_branch);
+            try mark(routine, statement, context);
             try lowerRandom(routine, random, context);
         },
         .@"return" => |value| {
             try push(routine, value, .{ .returned = true }, context);
-            try mark(routine, statement, context, .@"return");
+            try mark(routine, statement, context);
             try routine.op(.@"return", &.{});
         },
     }

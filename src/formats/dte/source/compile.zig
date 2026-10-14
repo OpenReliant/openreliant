@@ -76,11 +76,6 @@ pub fn compileMapped(arena: Allocator, tree: syntax.Tree, failure: *Failure) Err
     var compiler: Compiler = .{ .arena = arena, .tree = tree, .failure = failure, .marks = .{ .gpa = arena } };
     try compiler.declare();
     const file = try compiler.build();
-    std.mem.sort(Compiled.Statement, compiler.mapped.items, {}, struct {
-        fn before(_: void, a: Compiled.Statement, b: Compiled.Statement) bool {
-            return a.offset < b.offset;
-        }
-    }.before);
     return .{ .file = file, .statements = compiler.mapped.items };
 }
 
@@ -141,7 +136,8 @@ pub const Compiler = struct {
     statement_nodes: std.AutoHashMapUnmanaged(*const statements.Statement, Index) = .empty,
     /// Where the statements of the routine being written went (`routine`).
     marks: statements.Marks,
-    /// The map of the script's statements to the source's lines (`compileMapped`).
+    /// The map of the script's statements to the source's lines (`compileMapped`), in the order of
+    /// their offsets, as the routines and their code are written one after the other.
     mapped: std.ArrayList(Compiled.Statement) = .empty,
 
     /// The kinds of record the object table numbers.
@@ -905,11 +901,17 @@ pub const Compiler = struct {
         const start = bytes.items.len / 2;
         if (start + made.len / 2 >= dte.Part.no_block) return c.fail(node, "the script is longer than a mission's {d} halfwords", .{dte.Part.no_block - 1});
         try bytes.appendSlice(c.arena, made);
-        // The marks count from the routine's code, past the block's length word.
-        const code_start: u32 = @intCast(start * 2 + dte.BlockReader.header_len);
+        // The marks count from the routine's code, past the block's length word. Each statement's
+        // node is noted as `code` makes it, for every statement it makes.
+        const header_len = dte.BlockReader.header_len;
         for (c.marks.list.items) |made_mark| {
             const from = c.statement_nodes.get(made_mark.statement) orelse unreachable;
-            try c.mapped.append(c.arena, .{ .offset = code_start + made_mark.at, .at = c.tree.at(from), .stops = made_mark.stops });
+            const opcode: dte.Opcode = @fromBackingInt(made[header_len + made_mark.at]);
+            try c.mapped.append(c.arena, .{
+                .offset = @intCast(start * 2 + header_len + made_mark.at),
+                .at = c.tree.at(from),
+                .stops = if (opcode.info()) |info| info.starts_statement else false,
+            });
         }
         return @intCast(start);
     }

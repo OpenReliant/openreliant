@@ -43,6 +43,9 @@ pub const Connection = struct {
         check: *const fn (context: *anyopaque) void,
         /// Waits `milliseconds` for the editor (`Sleep`).
         sleep: *const fn (context: *anyopaque, milliseconds: u32) void,
+        /// The time in milliseconds on a clock that only goes forward, for how long the script's
+        /// start has waited for the editor (`Editor.waitForFlags`).
+        now: *const fn (context: *anyopaque) u64,
     };
 };
 
@@ -127,16 +130,17 @@ pub const Editor = struct {
 
     /// The script's start before the start parts run (`mission_script_start`, `0x0045CC95`): the
     /// editor's messages are read, and while an editor is there and hasn't sent the script's flags,
-    /// read again every `flags_check_ms`, for `flags_wait_ms` at most. A breakpoint in a start part
-    /// then stops it, however long the editor takes to answer the mission's file.
+    /// read again every `flags_check_ms`, for `flags_wait_ms` at most, so that a breakpoint in a
+    /// start part stops it.
     ///
     /// **Improvement:** the original reads the messages, waits a fifth of a second whether an
-    /// editor is there or not (`0x0045CCA0`), and reads them again. An editor slower than that
-    /// misses the start parts.
+    /// editor is there or not (`0x0045CCA0`), and reads them again, and the breakpoints of a
+    /// slower editor miss the start parts.
     pub fn waitForFlags(editor: *Editor) void {
         editor.check();
-        var waited: u32 = 0;
-        while (editor.present and !editor.flagged and waited < flags_wait_ms) : (waited += flags_check_ms) {
+        const connection = editor.connection orelse return;
+        const started = connection.vtable.now(connection.context);
+        while (editor.present and !editor.flagged and connection.vtable.now(connection.context) -% started < flags_wait_ms) {
             editor.sleep(flags_check_ms);
             editor.check();
         }
@@ -164,17 +168,18 @@ pub const testing = struct {
         /// held, in order.
         releases: []const Step = &.{},
         /// How many releases it gave.
-        checks: usize = 0,
+        released: usize = 0,
         /// The check that brings the editor's flags, counting from 0; null for none.
         flags_at: ?usize = 0,
         /// How many times its messages were checked.
         checked: usize = 0,
+        /// How long it waited, in milliseconds, which is its clock.
         slept: u32 = 0,
         /// The editor that `check` flags and releases.
         editor: ?*Editor = null,
 
         pub fn connection(listener: *Listener) Connection {
-            return .{ .context = listener, .vtable = &.{ .stopped = stopped, .check = check, .sleep = sleep } };
+            return .{ .context = listener, .vtable = &.{ .stopped = stopped, .check = check, .sleep = sleep, .now = now } };
         }
 
         pub fn last(listener: Listener) u32 {
@@ -192,14 +197,19 @@ pub const testing = struct {
             defer listener.checked += 1;
             const editor = listener.editor orelse return;
             if (listener.flags_at == listener.checked) editor.flagged = true;
-            if (!editor.holds() or listener.checks >= listener.releases.len) return;
-            editor.release(listener.releases[listener.checks]);
-            listener.checks += 1;
+            if (!editor.holds() or listener.released >= listener.releases.len) return;
+            editor.release(listener.releases[listener.released]);
+            listener.released += 1;
         }
 
         fn sleep(context: *anyopaque, milliseconds: u32) void {
             const listener: *Listener = @ptrCast(@alignCast(context));
             listener.slept += milliseconds;
+        }
+
+        fn now(context: *anyopaque) u64 {
+            const listener: *Listener = @ptrCast(@alignCast(context));
+            return listener.slept;
         }
     };
 };

@@ -175,7 +175,7 @@ pub const Session = struct {
         @memcpy(session.file_buffer[0..session.file_length], started.file[0..session.file_length]);
         session.finished_told = null;
         loaded.script.editor.present = session.link.present();
-        loaded.script.editor.connection = .{ .context = session, .vtable = &.{ .stopped = stopped, .check = check, .sleep = sleep } };
+        loaded.script.editor.connection = .{ .context = session, .vtable = &.{ .stopped = stopped, .check = check, .sleep = sleep, .now = now } };
         session.tellMission();
     }
 
@@ -254,7 +254,8 @@ pub const Session = struct {
     }
 
     /// Tells the editor of the mission playing, as it starts or as an editor connects, and sends
-    /// it the mission's file, which it places its breakpoints by before the start parts run.
+    /// it the mission's file. The editor answers with the script's flags, which the script's start
+    /// waits for.
     fn tellMission(session: *Session) void {
         const loaded = session.loaded orelse return;
         const started: link.MissionStarted = .{ .number = session.number, .file = session.file_buffer[0..session.file_length] };
@@ -292,11 +293,16 @@ pub const Session = struct {
         const session: *Session = @ptrCast(@alignCast(context));
         session.io.sleep(.fromMilliseconds(milliseconds), .awake) catch {};
     }
+
+    fn now(context: *anyopaque) u64 {
+        const session: *Session = @ptrCast(@alignCast(context));
+        return @intCast(@max(0, Io.Clock.awake.now(session.io).toMilliseconds()));
+    }
 };
 
-/// The script's state as `link.Own.state` gives it (`link.State`), its lists made in `arena`: the
-/// threads running, a thread whose instruction lies outside the script at none; each global; and
-/// the game's variables, by their names, and the unnamed ones by their numbers where they aren't 0.
+/// The script's state for `link.Own.state` (`link.State`), its lists made in `arena`. A thread
+/// whose instruction is outside the script has no place in it. The game's variables come by their
+/// names, and the ones without a name by their numbers, where they aren't 0.
 fn stateOf(arena: std.mem.Allocator, loaded: *mission.Loaded) std.mem.Allocator.Error!link.State {
     const script = &loaded.script;
     const code = loaded.bound.file.entry(.script);

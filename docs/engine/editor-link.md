@@ -273,7 +273,8 @@ for each field, but the mission's file:
 | `global.N` | Global `N`'s value |
 | `variable.NAME` | The game's variable `NAME`, such as `mission_over`; one with no name by its number, where it isn't 0 |
 
-Values are the script's words, unsigned.
+Values are the script's words, unsigned. A reader passes over keys it doesn't know, so that a newer
+game's messages still read.
 
 ### What it does
 

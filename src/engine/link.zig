@@ -94,7 +94,8 @@ pub const Game = struct {
 };
 
 /// Why a client can't read one of OpenReliant's own messages: a field it needs is missing, or isn't
-/// what the field holds.
+/// what the field holds. A reader passes over the keys it doesn't know, so that a newer game's
+/// messages still read.
 pub const ReadError = error{Invalid};
 
 /// `Own.hello`: the link's protocol (`protocol_version`), OpenReliant's version, and the game with
@@ -190,31 +191,45 @@ pub const State = struct {
         for (state.variables) |each| try writer.print("variable.{s}={d}\n", .{ each.name, each.value });
     }
 
-    /// The state in `payload`, its lists made in `arena`, its names borrowed from `payload`.
+    /// The fields of the state that hold one value each.
+    const Scalar = enum { clock, hold, step, paused, first_finished };
+
+    /// The fields of a thread.
+    const ThreadField = enum { at, depth, wake, interrupted, trigger };
+
+    /// The state in `payload`, its lists made in `arena`, its names borrowed from `payload`. A
+    /// global's index fits the 16 bits a mission's directory counts its globals in.
     pub fn read(arena: Allocator, payload: []const u8) (Allocator.Error || ReadError)!State {
+        var clock: ?u32 = null;
+        var hold: ?vm_editor.Hold = null;
+        var step: ?vm_editor.Step = null;
+        var paused: ?bool = null;
+        var first_finished: ?bool = null;
         var threads: std.ArrayList(Thread) = .empty;
         var globals: std.ArrayList(u32) = .empty;
         var variables: std.ArrayList(Variable) = .empty;
-        var lines = std.mem.splitScalar(u8, payload, '\n');
-        while (lines.next()) |line| {
-            const key, const value = std.mem.cutScalar(u8, line, '=') orelse continue;
-            if (std.mem.cutPrefix(u8, key, "thread.")) |rest| {
+        var fields: Fields = .of(payload);
+        while (fields.next()) |found| {
+            const key = found.key;
+            const value = found.value;
+            if (std.meta.stringToEnum(Scalar, key)) |scalar| switch (scalar) {
+                .clock => clock = try parse(u32, value),
+                .hold => hold = try named(vm_editor.Hold, value),
+                .step => step = try named(vm_editor.Step, value),
+                .paused => paused = try flag(value),
+                .first_finished => first_finished = try flag(value),
+            } else if (std.mem.cutPrefix(u8, key, "thread.")) |rest| {
                 const slot_text, const name = std.mem.cutScalar(u8, rest, '.') orelse return error.Invalid;
-                const slot = parse(u32, slot_text) catch return error.Invalid;
-                const thread = try threadIn(arena, &threads, slot);
-                if (std.mem.eql(u8, name, "at")) {
-                    thread.at = if (std.mem.eql(u8, value, "none")) null else try parse(u32, value);
-                } else if (std.mem.eql(u8, name, "depth")) {
-                    thread.depth = try parse(u32, value);
-                } else if (std.mem.eql(u8, name, "wake")) {
-                    thread.wake = try parse(u32, value);
-                } else if (std.mem.eql(u8, name, "interrupted")) {
-                    thread.interrupted = try flag(value);
-                } else if (std.mem.eql(u8, name, "trigger")) {
-                    thread.trigger = try parse(u32, value);
-                }
+                const thread = try threadIn(arena, &threads, try parse(u32, slot_text));
+                if (std.meta.stringToEnum(ThreadField, name)) |thread_field| switch (thread_field) {
+                    .at => thread.at = if (std.mem.eql(u8, value, "none")) null else try parse(u32, value),
+                    .depth => thread.depth = try parse(u32, value),
+                    .wake => thread.wake = try parse(u32, value),
+                    .interrupted => thread.interrupted = try flag(value),
+                    .trigger => thread.trigger = try parse(u32, value),
+                };
             } else if (std.mem.cutPrefix(u8, key, "global.")) |index_text| {
-                const index = parse(u32, index_text) catch return error.Invalid;
+                const index: usize = try parse(u16, index_text);
                 if (index >= globals.items.len) try globals.appendNTimes(arena, 0, index + 1 - globals.items.len);
                 globals.items[index] = try parse(u32, value);
             } else if (std.mem.cutPrefix(u8, key, "variable.")) |name| {
@@ -222,11 +237,11 @@ pub const State = struct {
             }
         }
         return .{
-            .clock = try number(u32, payload, "clock"),
-            .hold = std.meta.stringToEnum(vm_editor.Hold, try text(payload, "hold")) orelse return error.Invalid,
-            .step = std.meta.stringToEnum(vm_editor.Step, try text(payload, "step")) orelse return error.Invalid,
-            .paused = try flag(try text(payload, "paused")),
-            .first_finished = try flag(try text(payload, "first_finished")),
+            .clock = clock orelse return error.Invalid,
+            .hold = hold orelse return error.Invalid,
+            .step = step orelse return error.Invalid,
+            .paused = paused orelse return error.Invalid,
+            .first_finished = first_finished orelse return error.Invalid,
             .threads = threads.items,
             .globals = globals.items,
             .variables = variables.items,
@@ -249,13 +264,30 @@ pub const State = struct {
     }
 };
 
+/// The `key=value` lines of one of OpenReliant's own messages, in order, passing over a line
+/// without `=`.
+const Fields = struct {
+    lines: std.mem.SplitIterator(u8, .scalar),
+
+    const Field = struct { key: []const u8, value: []const u8 };
+
+    fn of(payload: []const u8) Fields {
+        return .{ .lines = std.mem.splitScalar(u8, payload, '\n') };
+    }
+
+    fn next(fields: *Fields) ?Field {
+        while (fields.lines.next()) |line| {
+            const key, const value = std.mem.cutScalar(u8, line, '=') orelse continue;
+            return .{ .key = key, .value = value };
+        }
+        return null;
+    }
+};
+
 /// The text of field `key` of one of OpenReliant's own messages, null where it has none.
 fn field(payload: []const u8, key: []const u8) ?[]const u8 {
-    var lines = std.mem.splitScalar(u8, payload, '\n');
-    while (lines.next()) |line| {
-        const key_found, const value = std.mem.cutScalar(u8, line, '=') orelse continue;
-        if (std.mem.eql(u8, key_found, key)) return value;
-    }
+    var fields: Fields = .of(payload);
+    while (fields.next()) |found| if (std.mem.eql(u8, found.key, key)) return found.value;
     return null;
 }
 
@@ -271,6 +303,11 @@ fn number(comptime T: type, payload: []const u8, key: []const u8) ReadError!T {
 
 fn parse(comptime T: type, value: []const u8) ReadError!T {
     return std.fmt.parseInt(T, value, 10) catch error.Invalid;
+}
+
+/// A field that holds the name of one of `Enum`'s values.
+fn named(comptime Enum: type, value: []const u8) ReadError!Enum {
+    return std.meta.stringToEnum(Enum, value) orelse error.Invalid;
 }
 
 /// A field that is 1 or 0.
@@ -647,10 +684,21 @@ test "the records of OpenReliant's own messages read back as written" {
     try std.testing.expectEqual(5, state_read.variable("200").?);
     try std.testing.expectEqual(null, state_read.variable("mission_success"));
 
-    // A field missing, or not what it holds, makes the message unreadable.
+    // A key it doesn't know is passed over.
+    const newer: State = try .read(arena, "clock=1\nhold=none\nstep=none\npaused=0\nfirst_finished=0\nweather=fine\nthread.2.colour=red\n");
+    try std.testing.expectEqual(1, newer.threads.len);
+    try std.testing.expectEqual(null, newer.threads[0].at);
+
+    // A field missing, or not what it holds, makes the message unreadable, as does a global past
+    // the 16 bits a mission counts them in.
     try std.testing.expectError(error.Invalid, Hello.read("protocol=1\ngame=Example\n"));
     try std.testing.expectError(error.Invalid, MissionStarted.read("number=ninety\nfile=x.dte\n"));
     try std.testing.expectError(error.Invalid, State.read(arena, "clock=1\nhold=gripped\nstep=none\npaused=0\nfirst_finished=0\n"));
+    try std.testing.expectError(error.Invalid, State.read(arena, "clock=1\nhold=none\nstep=none\npaused=0\n"));
+    try std.testing.expectError(error.Invalid, State.read(arena, "clock=1\nhold=none\nstep=none\npaused=0\nfirst_finished=0\nglobal.70000=1\n"));
+    const last: State = try .read(arena, "clock=1\nhold=none\nstep=none\npaused=0\nfirst_finished=0\nglobal.65535=3\n");
+    try std.testing.expectEqual(65536, last.globals.len);
+    try std.testing.expectEqual(3, last.globals[65535]);
 }
 
 test "an editor writes and reads messages framed" {
