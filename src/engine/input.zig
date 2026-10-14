@@ -782,6 +782,13 @@ pub const FreshPress = struct {
     }
 };
 
+test "Mouse.pixelsIn" {
+    var mouse: Mouse = .{};
+    try std.testing.expectEqual(null, mouse.pixelsIn(.{ 800, 600 }));
+    mouse.at = .{ 0.5, 0.25 };
+    try std.testing.expectEqual(@Vector(2, f32){ 400, 150 }, mouse.pixelsIn(.{ 800, 600 }).?);
+}
+
 test "Mouse.notches" {
     var mouse: Mouse = .{};
     // A trackpad turns the wheel by parts of a notch, which count once they make a whole one.
@@ -820,6 +827,13 @@ pub const Mouse = struct {
     /// The notches the wheel has turned that no screen has taken (`notches`), positive to scroll
     /// up. Added by OpenReliant, as the game reads no wheel.
     wheel: f32 = 0,
+
+    /// Where the pointer is, in pixels of an area `size` pixels across, such as the window; null
+    /// until the pointer has been over the window.
+    pub fn pixelsIn(mouse: Mouse, size: [2]u32) ?@Vector(2, f32) {
+        const share: @Vector(2, f32) = mouse.at orelse return null;
+        return share * @as(@Vector(2, f32), @floatFromInt(@as(@Vector(2, u32), size)));
+    }
 
     /// What `read_mouse` reads, the parts of `MouseState` the game uses: the movement since the
     /// read before, in whole counts, and the buttons down.

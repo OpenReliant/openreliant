@@ -777,7 +777,7 @@ fn testIds(hooks: *const Hooks, hook: Hook, buffer: []u32) []const u32 {
 
 test "a hook's handlers run the later mods' first, each mod's in the order it added them" {
     const gpa = std.testing.allocator;
-    const runtime = try Runtime.create(gpa, std.testing.io, &.{}, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });
+    const runtime = try Runtime.create(gpa, std.testing.io, &.{}, runtime_module.testing.options);
     defer runtime.destroy();
     var scripts: engine_hooks.Scripts = .{ .context = undefined, .vtable = undefined };
     var hooks: Hooks = .init(gpa, runtime, &scripts);

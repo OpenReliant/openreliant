@@ -69,7 +69,7 @@ pub const Track = struct {
     /// `longest_piece`.
     pub fn path(listed: Track, buffer: *[files.max_path]u8) ?[]const u8 {
         if (listed.piece.len == 0) return null;
-        return std.fmt.bufPrint(buffer, music_path, .{listed.piece}) catch null;
+        return std.mem.print(buffer, music_path, .{listed.piece}) catch null;
     }
 };
 
@@ -80,9 +80,11 @@ fn track(piece: []const u8, name: u16) Track {
 /// The pieces of each list, which the player shows a page at a time.
 pub const track_count = 12;
 
-/// The most tracks there can be: eight pages, so that every track's number has the two digits the
-/// game writes (`%02d`).
-pub const most = 8 * track_count;
+/// The highest number with the two digits the game writes for a row (`%02d`).
+const highest_number = 99;
+
+/// The most tracks there can be: as many whole pages as keep every track's number to two digits.
+pub const most = highest_number / track_count * track_count;
 
 /// The page of `carrier`'s list.
 fn pageOf(carrier: rooms.Carrier) usize {
@@ -242,7 +244,7 @@ const first_line = 0xAB;
 
 /// The rows' numbers, `%02d` of each from 1 (`0x004E8CF0`), on to the last page's: two digits each.
 const numbers = blk: {
-    assert(most < 100);
+    assert(most <= highest_number);
     var all: [most][2]u8 = undefined;
     for (&all, 1..) |*number, n| number.* = .{ '0' + n / 10, '0' + n % 10 };
     break :blk all;

@@ -1,6 +1,6 @@
-//! `sltool fat ...`: read `.fat` sound banks and save their sounds as WAV files, named as a mod's
-//! sounds in their place are (`fat.soundName`). It reads the banks of the format's first version
-//! too, which Privateer 2 ships, and saves their sounds as stored.
+//! `sltool fat ...`: reads `.fat` sound banks and saves their sounds as WAV files, with the names
+//! a mod's replacement sounds use (`fat.soundName`). It also reads banks in the format's first
+//! version, which Privateer 2 ships, and saves their sounds as they are stored.
 
 const std = @import("std");
 

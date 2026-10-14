@@ -42,7 +42,7 @@ pub const Voice = struct {
     phase: f32 = 0,
     /// The frames are used up and nothing is left to loop.
     ended: bool = false,
-    /// Whether it plays its channels mixed to one (`wave.Decoder.downmix`), as a 3D sample does.
+    /// Whether its channels are mixed to mono (`wave.Decoder.downmix`), as for a 3D sample.
     mono: bool = false,
 
     /// A voice for `file`, a WAVE sound, at its own rate, not yet playing.

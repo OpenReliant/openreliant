@@ -727,7 +727,7 @@ export type Records = {
     planets: { [number]: Planet },
     --- The CD player's tracks, twelve to a page: the Reliant's, 1 to 12, then the Yamato's, 13 to 24. Load scripts change their fields, and add tracks after the last, up to 96 in all, on pages of their own.
     cd_player: { [number]: CdPlayerTrack },
-    --- The rooms' views, the Reliant's and the Yamato's, 1 to 125 in the order they lie in the executable. Load scripts change their fields.
+    --- The rooms' views, the Reliant's and the Yamato's, numbered 1 to 125 in the order they are stored in the executable. Load scripts can change their fields.
     room_views: { [number]: RoomView },
 }
 
@@ -877,7 +877,7 @@ export type Hud = {
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
     --- Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission.
     power_ball: (at: vector, size: vector?, style: FillStyle?) -> (),
-    --- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
+    --- Draws shape `index` with its anchor at `at`, in window pixels. The shape comes from the game's sprite set for this layer (the flight display's, or the front end screen's), or from the set that the style's `sprites` names. The style's `scale` multiplies its size in the game's pixels.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     --- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
     text: (at: vector, text: string, style: TextStyle?) -> (),
@@ -913,15 +913,15 @@ export type Ui = {
     play_movie: (name: string) -> (),
     --- Asks the front end to quit the game. Only menu scripts can use it.
     quit: () -> (),
-    --- Where the point `at` of the game's 640 by 480 screen lies in the window, in pixels, as the front end and the rooms fit that screen to the window, in its middle: for drawing over a place on one of their pictures.
+    --- Converts the point `at` on the game's 640 by 480 screen to window pixels, as the front end and the rooms centre that screen in the window. Use it to draw over a spot on one of their pictures.
     from_game_screen: (at: vector) -> vector,
-    --- Where the window's pixel `at`, such as the pointer's, lies on the game's 640 by 480 screen, as `from_game_screen` places that screen.
+    --- Converts the window pixel `at`, such as the pointer's position, to a point on the game's 640 by 480 screen. The inverse of `from_game_screen`.
     to_game_screen: (at: vector) -> vector,
     --- Shows the screen `name`: the calling mod's by its own name, or any mod's by the qualified one. Nil closes the screen shown. Returns whether it's registered.
     show_screen: (name: string?) -> boolean,
     --- Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full.
     picture: (at: vector, file: string, size: vector?, style: FillStyle?) -> (),
-    --- Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.
+    --- Draws shape `index` with its anchor at `at`, in window pixels. The shape comes from the game's sprite set for this layer (the flight display's, or the front end screen's), or from the set that the style's `sprites` names. The style's `scale` multiplies its size in the game's pixels.
     shape: (at: vector, index: number, style: ShapeStyle?) -> (),
     --- Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says.
     text: (at: vector, text: string, style: TextStyle?) -> (),

@@ -113,7 +113,7 @@ pub const Compiler = struct {
 
     /// Records why the compilation fails, at `node`, and gives `Invalid`.
     pub fn fail(c: *Compiler, node: Index, comptime message: []const u8, args: anytype) Error {
-        const text = std.fmt.allocPrint(c.arena, message, args) catch return error.OutOfMemory;
+        const text = c.arena.print(message, args) catch return error.OutOfMemory;
         c.failure.* = .{ .at = c.tree.at(node), .message = text };
         return error.Invalid;
     }

@@ -49,7 +49,7 @@ const magic = "ORST";
 const version: u16 = 1;
 
 /// The longest file a mod's global sections may take.
-const max_file = 16 << 20;
+const max_file = std.fmt.parseIntSizeSuffix("16MiB", 10) catch unreachable;
 
 /// What a global sections' file holds before its sections: its magic, its version and its count of
 /// sections.
@@ -57,7 +57,7 @@ const file_header = magic.len + @sizeOf(u16) + @sizeOf(u32);
 
 /// Room the engine keeps in each mod's file for what it stores for the mod itself, such as its
 /// options (`options.zig`) and its game modes' progress, past what the mod's scripts may store.
-const engine_room: usize = 1 << 20;
+const engine_room = std.fmt.parseIntSizeSuffix("1MiB", 10) catch unreachable;
 
 /// The most a mod's scripts may keep in each place, in sections and their fields, as the memory
 /// they take. A section's binary form takes no more than its memory, so a file of global sections

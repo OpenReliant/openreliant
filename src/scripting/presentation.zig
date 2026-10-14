@@ -59,7 +59,7 @@ const game_module = @import("game.zig");
 
 /// Limits for player and menu scripts: 100 milliseconds per call, and 64 MiB per mod, as for the
 /// game's.
-pub const limits: runtime.Limits = .{ .time = .fromMilliseconds(100), .memory = 64 << 20 };
+pub const limits: runtime.Limits = .{ .time = .fromMilliseconds(100), .memory = runtime.memory_per_mod };
 
 /// The scripts of each kind that runs on the presentation side.
 const Place = enum { menu, player };
@@ -93,8 +93,8 @@ pub const Host = struct {
 
     pub const Rooms = struct {
         carrier: rooms.Carrier,
-        /// The view the player stands in, or walks into, by its place in the views
-        /// (`rooms.installed`).
+        /// The view the player stands in, or walks into, by its index in the rooms' views,
+        /// counting from 0 (`records.room_views` counts from 1).
         view: u8,
         /// The place whose screen shows, or the news report while it plays; null while the player
         /// walks the rooms.
@@ -776,7 +776,7 @@ test "a display reads the cockpit's instruments in any view" {
     // In the chase view, where the game draws none of them, the readings are as the instruments
     // would show them; the caption has typed the date's six letters, the last from the game's code
     // page, which takes two bytes in UTF-8 and goes back to one as the display draws it.
-    const text = try std.fmt.bufPrint(&expected, "{d} {d} 0.25 0.50 0.75 0.50 false|5 5 1 5 4 0|7 12|match_speed,smart_targeting,ecm,reverse_thrust|3:07|Chase|Mai 3\xE9|5 7", .{ made, asked });
+    const text = try std.mem.print(&expected, "{d} {d} 0.25 0.50 0.75 0.50 false|5 5 1 5 4 0|7 12|match_speed,smart_targeting,ecm,reverse_thrust|3:07|Chase|Mai 3\xE9|5 7", .{ made, asked });
     try std.testing.expectEqualStrings(text, fixture.shown.layers.get(.hud).text.items);
     fixture.shown.endGame();
 }
@@ -843,7 +843,7 @@ test "a display reads the radar's contacts and the target display" {
     const rings = hud.ShipStatus.rings(slot).?;
     const form = hud.target_display.Form.of(hud.targetWindow(slot)).?;
     var expected: [256]u8 = undefined;
-    const text = try std.fmt.bufPrint(&expected, "1 {d} target {d} {d} {d}|{s} Sabre Ace {d} {d} {d} {d} engine Engine 0.26 nil fore", .{
+    const text = try std.mem.print(&expected, "1 {d} target {d} {d} {d}|{s} Sabre Ace {d} {d} {d} {d} engine Engine 0.26 nil fore", .{
         sabre,                                                        contact.at[0], contact.at[1], contact.height,
         @tagName(form),                                               facts.range,   facts.speed,   std.math.clamp(rings.shields[0], 0, hud.ShipStatus.arc_levels),
         std.math.clamp(rings.armor[3], 0, hud.ShipStatus.arc_levels),
@@ -942,7 +942,7 @@ test "a display reads the windows and the display's text" {
     var buffer: [engine.game.mission.wing_size]hud.wing_status.Entry = undefined;
     const wing = hud.wing_status.entries(all, &buffer);
     var expected: [256]u8 = undefined;
-    const text = try std.fmt.bufPrint(&expected, "0.25 0.50 1.00|{d} {d} {d}|1 0 1 {d:.2}|2 2 Patrol true 2 nil|Target|Bogey|Sub|comms_window|jump", .{
+    const text = try std.mem.print(&expected, "0.25 0.50 1.00|{d} {d} {d}|1 0 1 {d:.2}|2 2 Patrol true 2 nil|Target|Bogey|Sub|comms_window|jump", .{
         shares.get(.shields), shares.get(.guns), shares.get(.engines), wing[0].armorShare(),
     });
     try std.testing.expectEqualStrings(text, fixture.shown.layers.get(.hud).text.items);
@@ -998,7 +998,7 @@ test "a display reads what flashes, the charges, and how far the windows and the
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     var expected: [256]u8 = undefined;
-    const text = try std.fmt.bufPrint(&expected, "enemy_lock,ecm|true|0.50 nil 1.00|left,aft|opening 0.50 open 1.00 nil|0.4|1 0|{} 3000", .{hud.gunnery.pairShown(slot)});
+    const text = try std.mem.print(&expected, "enemy_lock,ecm|true|0.50 nil 1.00|left,aft|opening 0.50 open 1.00 nil|0.4|1 0|{} 3000", .{hud.gunnery.pairShown(slot)});
     try std.testing.expectEqualStrings(text, fixture.shown.layers.get(.hud).text.items);
     fixture.shown.endGame();
 }
@@ -1293,7 +1293,7 @@ test "ui.pointer is in the window's pixels" {
     try std.testing.expectEqualStrings("400 150 true", layer.text.items);
 }
 
-test "menu scripts follow the rooms, and ask the CD player for a list" {
+test "menu scripts follow the rooms and turn the CD player's pages" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{
         "a",
@@ -1309,7 +1309,7 @@ test "menu scripts follow the rooms, and ask the CD player for a list" {
                 \\        require("openreliant.ui").text(vector.zero, table.concat(told, ","))
                 \\        if rooms.place == "cd_player" then
                 \\            assert(rooms.carrier == "reliant" and rooms.view == 5 and rooms.cd_player_page == 1)
-                \\            -- The page asked for is the page until the CD player turns to it.
+                \\            -- A requested page reads back as the page until the CD player turns to it.
                 \\            assert(rooms.set_cd_player_page(2) and rooms.cd_player_page == 2)
                 \\            assert(rooms.cd_player_pages == 2 and not pcall(rooms.set_cd_player_page, 3))
                 \\        else
@@ -1322,10 +1322,10 @@ test "menu scripts follow the rooms, and ask the CD player for a list" {
     }});
     defer fixture.deinit();
     const shown = fixture.shown;
-    // Outside the rooms, nothing is told.
+    // Outside the rooms, no event fires.
     fixture.frame(0.016, .{ 640, 480 });
     try std.testing.expectEqualStrings("", shown.layers.get(.ui).text.items);
-    // The player walks into view 5, and opens the CD player there: each is told once.
+    // The player walks into view 5 and opens the CD player there: each fires one event.
     fixture.rooms = .{ .carrier = .reliant, .view = 4 };
     fixture.frame(0.016, .{ 640, 480 });
     fixture.frame(0.016, .{ 640, 480 });
@@ -1334,7 +1334,7 @@ test "menu scripts follow the rooms, and ask the CD player for a list" {
     fixture.frame(0.016, .{ 640, 480 });
     try std.testing.expectEqual(1, shown.takeCdPlayerPage().?);
     try std.testing.expectEqual(null, shown.takeCdPlayerPage());
-    // Leaving the rooms is told with nil.
+    // Leaving the rooms fires an event with nil.
     fixture.rooms = null;
     fixture.frame(0.016, .{ 640, 480 });
     try std.testing.expectEqualStrings("5 nil,5 cd_player,nil nil", shown.layers.get(.ui).text.items);
@@ -1664,7 +1664,7 @@ test "a script draws more pictures over time than the cache holds" {
     var files: std.ArrayList(struct { []const u8, []const u8 }) = .empty;
     try files.append(arena.allocator(), .{ "mod.ini", "[Scripts]\nMenu=a.luau\n" });
     try files.append(arena.allocator(), .{ "a.luau", "local n = 0\nreturn {engine_handlers = {on_frame = function() n += 1; require('openreliant.ui').picture(vector.zero, 'p' .. n .. '.png') end}}" });
-    for (1..pictures + 1) |n| try files.append(arena.allocator(), .{ try std.fmt.allocPrint(arena.allocator(), "p{d}.png", .{n}), png.written() });
+    for (1..pictures + 1) |n| try files.append(arena.allocator(), .{ try arena.allocator().print("p{d}.png", .{n}), png.written() });
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{ "a", files.items }});
     defer fixture.deinit();

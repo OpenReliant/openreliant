@@ -42,7 +42,7 @@ pub const time_limit: Io.Duration = .fromSeconds(5);
 
 /// How much of GitHub's answer is read at most. A release's description, with its notes and its
 /// files, is far smaller.
-const max_answer = 1 << 20;
+const max_answer = std.fmt.parseIntSizeSuffix("1MiB", 10) catch unreachable;
 
 /// The key in `[OpenReliant]` that keeps the newest release the main menu has shown.
 pub const seen_key = "UpdateSeen";

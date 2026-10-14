@@ -149,12 +149,12 @@ it; it keeps its full volume half as far again (`sound3d.MissileSound.follows`).
 
 **Improvement:** the game's rates are made for its 3D sounds, which are recorded at 22,050 Hz, so a
 mod's sound at another rate would play at another pitch: an octave low at 44,100 Hz. OpenReliant
-scales the rates a mod's sound plays at by its own rate over 22,050 (`sound3d.rateScale`), whether
-it replaces one of the bank's sounds or is a ship type's or a gun's own. The game's own sounds play
-at the game's rates, including `CLOAK01`'s, which is recorded at 44,100 Hz and plays an octave low.
-A voice is freed once its sound has played at the rate it plays at: its frames over 22,050, scaled
-for a mod's sound, so that a mod's sound at another rate or in stereo isn't stopped early or held
-on (`hog_snd.Sound.update3D`).
+scales the rates a mod's sound plays at by the sound's own rate divided by 22,050
+(`sound3d.rateScale`), whether it replaces one of the bank's sounds or belongs to a ship type or a
+gun. The game's own sounds play at the game's rates, including `CLOAK01`, which is recorded at
+44,100 Hz and plays an octave low. A voice is freed once its sound has finished at the rate it
+plays at: its frames divided by 22,050, scaled for a mod's sound, so a mod's sound at another rate
+or in stereo isn't cut short or kept too long (`hog_snd.Sound.update3D`).
 
 ### The player's engine
 
@@ -216,7 +216,7 @@ the pieces of its lists, and turns their level ([The CD player](cd-player.md)).
 
 ## Script sounds
 
-Not the game's: player and menu scripts play sounds on the game's voices
+Added by OpenReliant: player and menu scripts play sounds on the game's voices
 ([Sound](../guide/scripting.md#sound)). Each script sound gets an ID, which its voice stores
 (`hog_snd.Starter`). A game sound that takes the voice clears the ID.
 

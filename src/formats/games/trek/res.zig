@@ -135,7 +135,7 @@ pub const File = struct {
     /// Where to write it under a folder, `/`-separated: its name with forward slashes, or
     /// `slot_N` for a file without one.
     pub fn path(item: File, arena: Allocator) Allocator.Error![]const u8 {
-        const name = item.name orelse return std.fmt.allocPrint(arena, "slot_{d}", .{item.slot});
+        const name = item.name orelse return arena.print("slot_{d}", .{item.slot});
         const relative = try arena.dupe(u8, std.mem.trimStart(u8, name, "\\"));
         std.mem.replaceScalar(u8, relative, '\\', '/');
         return relative;

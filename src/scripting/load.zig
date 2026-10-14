@@ -24,7 +24,7 @@ const packages = @import("packages.zig");
 
 /// Limits for load scripts: 1 second per call and 64 MiB per mod. Changing records needs far less,
 /// so only a broken script hits them.
-pub const limits: runtime.Limits = .{ .time = .fromSeconds(1), .memory = 64 << 20 };
+pub const limits: runtime.Limits = .{ .time = .fromSeconds(1), .memory = runtime.memory_per_mod };
 
 /// The seed for `math.random` in load scripts. It's fixed so that the records come out the same on
 /// every machine.
@@ -225,7 +225,7 @@ test "a failed script's changes are undone" {
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
     var held = try testing.records3(arena.allocator());
-    try runWithin(gpa, io, mods_held.list, &held, "0.7.0", .{ .time = .fromMilliseconds(50), .memory = 1 << 20 }, .{});
+    try runWithin(gpa, io, mods_held.list, &held, "0.7.0", .{ .time = .fromMilliseconds(50), .memory = runtime.testing.limits.memory }, .{});
 
     // Every script failed, including the one that timed out and the one that ran out of memory, and
     // the last one still ran.

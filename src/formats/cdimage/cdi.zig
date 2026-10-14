@@ -19,7 +19,7 @@ const mark_half = [_]u8{ 0, 0, 1, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF };
 const track_mark = mark_half ++ mark_half;
 
 /// The longest table this reads.
-pub const max_table = 64 * 1024;
+pub const max_table = std.fmt.parseIntSizeSuffix("64KiB", 10) catch unreachable;
 
 pub const Track = struct {
     /// 0 for audio, 1 for Mode 1 data, 2 for Mode 2 data.

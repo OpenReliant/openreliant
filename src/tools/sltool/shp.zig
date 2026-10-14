@@ -579,7 +579,7 @@ const Beside = struct {
     }
 
     /// The largest buffer or picture read beside a glTF file.
-    const max_resource = 1 << 30;
+    const max_resource = std.fmt.parseIntSizeSuffix("1GiB", 10) catch unreachable;
 };
 
 /// Writes `model` as the glTF file `out_path`, its parts at level `lod`, with its buffer beside it,

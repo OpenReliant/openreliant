@@ -46,7 +46,7 @@ pub const Part = struct {
     /// `.bmsh` for `.msh`, such as `models/shv2vi00/shv2vi00c1_viper2shape.bmsh`.
     pub fn meshPath(part: Part, arena: Allocator, model: []const u8) Allocator.Error![]const u8 {
         const stem = if (std.mem.endsWith(u8, part.mesh, source_extension)) part.mesh[0 .. part.mesh.len - source_extension.len] else part.mesh;
-        const path = try std.fmt.allocPrint(arena, "models/{s}/{s}.bmsh", .{ model, stem });
+        const path = try arena.print("models/{s}/{s}.bmsh", .{ model, stem });
         return std.ascii.lowerString(path, path);
     }
 };

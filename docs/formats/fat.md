@@ -66,22 +66,22 @@ The payload loads these banks by name:
 
 | Bank | What it holds |
 |---|---|
-| `stdsmp.fat` | The menus' and the flight display's sounds, which scripts play by number too, and the sounds of a frame placed around the camera ([Sound](../engine/sound.md#positional-sounds-of-a-frame)) |
+| `stdsmp.fat` | The sounds of the menus and the flight display, which scripts can also play by number, and the sounds of a frame placed around the camera ([Sound](../engine/sound.md#positional-sounds-of-a-frame)) |
 | `smp3d.fat` | The 3D sounds: guns, missiles, explosions, engines, jumps and more, which `sltool fat ls` names ([3D sounds](../engine/sound.md#3d-sounds)) |
 | `betty.fat` | Betty's warnings in the cockpit |
-| `ldsmp.fat` | The loadout's |
-| `inter\itac\itacsnd.fat` | The ITAC's |
-| `vrsnd.fat`, `wlksmp.fat` | A carrier's rooms': the ship's hum and the ways into some views; the player's steps and the doors |
-| `vrsfx.fat`, `waitloop.fat` | The briefing's: the way in's doors and the room's chatter; the sound that plays while it loads |
-| `newsloop.fat`, `rlanda.fat` to `rlande.fat`, `ylanda.fat` to `ylande.fat` | The landings': the news reports' loop, and a sound for each outcome of a landing on the Reliant or the Yamato |
+| `ldsmp.fat` | The loadout's sounds |
+| `inter\itac\itacsnd.fat` | The ITAC's sounds |
+| `vrsnd.fat`, `wlksmp.fat` | A carrier's rooms: the ship's hum and the ways into some views; the player's steps and the doors |
+| `vrsfx.fat`, `waitloop.fat` | The briefing: the doors on the way in and the room's chatter; the sound that plays while it loads |
+| `newsloop.fat`, `rlanda.fat` to `rlande.fat`, `ylanda.fat` to `ylande.fat` | The landings: the news reports' loop, and a sound for each outcome of a landing on the Reliant or the Yamato |
 
 ## Mods' sounds
 
 A mod's sound replaces one of a bank's sounds. It's named after the bank and the sound's number, as
 `sltool fat extract` saves it (`fat.soundName`), and is a WAVE, FLAC, MP3, Ogg Vorbis or Opus file
-([Sounds](../guide/modding.md#sounds)). As OpenReliant reads a bank, it makes a new one in memory
-with the mods' sounds in place of the bank's own, each entry keeping its priority (`fat.rebuild`,
-`hog_snd.BankFile.of`), so the game plays them as it plays its own. A sound the drivers can't play
-stays the bank's own, and the log says so.
+([Sounds](../guide/modding.md#sounds)). When OpenReliant reads a bank, it builds a new one in
+memory with the mods' sounds instead of the bank's own, each entry keeping its priority
+(`fat.rebuild`, `hog_snd.BankFile.of`), so the game plays them like its own. If the drivers can't
+play a mod's sound, the bank's own sound stays, and the log says so.
 
 **Improvement:** the original plays only its banks' own sounds.

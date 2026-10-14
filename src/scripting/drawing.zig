@@ -66,8 +66,8 @@ pub const Assets = struct {
         /// The frame it was last drawn in.
         drawn: u64,
     };
-    /// A sprite set of the game's, which every script draws from alike, and the file its shapes
-    /// are read from.
+    /// One of the game's sprite sets, shared by every script, and the file its shapes are read
+    /// from.
     const SpriteSet = struct {
         name: []u8,
         file: []u8,
@@ -157,8 +157,8 @@ pub const Assets = struct {
         return image;
     }
 
-    /// Takes pictures out of the cache until one more file of `needed` bytes fits, the one drawn
-    /// longest ago first. Fails where the fonts, the sprite sets and the pictures drawn in the last
+    /// Removes pictures from the cache, the one drawn longest ago first, until a file of `needed`
+    /// bytes fits. Fails if the fonts, the sprite sets and the pictures drawn in the last
     /// `kept_frames` leave no room.
     fn makeRoom(assets: *Assets, gpa: Allocator, needed: usize) !void {
         while (true) {
@@ -184,11 +184,11 @@ pub const Assets = struct {
         return found;
     }
 
-    /// The game's sprite set `name`, such as `frntend5.spr`, read the first time a script draws
-    /// from it: a mod's copy, else the member of `resource.hog`, with the mods' pictures standing
-    /// in for its shapes, as the game's screens read their sets. A set is cached by the archive's
-    /// name for it, which leaves out its folder (`bigfile.memberName`), and keeps that name for the
-    /// pictures, so it's the cache's copy, not the script's string.
+    /// Loads the game's sprite set `name`, such as `frntend5.spr`, the first time a script draws
+    /// from it. A mod's copy takes priority over the member of `resource.hog`, and mods' pictures
+    /// replace its shapes, as for the game's own screens. Sets are cached under their member name,
+    /// without the folder (`bigfile.memberName`), and the pictures keep the cache's copy of that
+    /// name, not the script's string.
     fn loadSpriteSet(assets: *Assets, call: Call, name: []const u8) !*hud.Art {
         var buffer: [bigfile.member_name_room]u8 = undefined;
         const member = bigfile.memberName(&buffer, name);
@@ -358,8 +358,7 @@ pub const ShapeStyle = struct {
     color: Colour = default_colour,
     alpha: f32 = 1,
     scale: f32 = 1,
-    /// A sprite set of the game's to draw from, such as `frntend5.spr`, in place of the layer's
-    /// own.
+    /// A game sprite set to draw from instead of the layer's own, such as `frntend5.spr`.
     sprites: ?[]const u8 = null,
 };
 
@@ -407,7 +406,7 @@ const Command = union(enum) {
     line: struct { from: Where, to: Where, colour: [4]f32, width: f32 },
     rectangle: struct { from: [2]f32, to: [2]f32, colour: [4]f32 },
     picture: struct { image: *srtexture.Image, at: [2]f32, size: [2]f32, colour: [4]f32 },
-    /// A shape of the layer's sprite set, or of `sprites`, a set the scripts named.
+    /// A shape from the layer's sprite set, or from `sprites`, a set that a script named.
     shape: struct { sprites: ?*hud.Art, index: usize, at: [2]f32, colour: [4]f32, scale: f32 },
     power_ball: struct { setting: [2]f32, at: [2]f32, size: [2]f32, colour: [4]f32 },
 };
@@ -499,8 +498,8 @@ fn screenPoint(at: @Vector(3, f32)) [2]f32 {
     return .{ at[0], at[1] };
 }
 
-/// Where the front end and the rooms place the game's 640 by 480 screen in the window `view` is
-/// drawn on.
+/// Where the front end and the rooms place the game's 640 by 480 screen in the window that `view`
+/// is drawn on.
 fn gameScreen(view: View) canvas.Placement {
     return .of(view.screen, canvas.fitted);
 }
@@ -576,14 +575,14 @@ pub fn Package(comptime which: Which) type {
         pub const quit = if (which == .ui) front_end.functions.quit else {};
         pub const pointer = if (which == .ui) front_end.functions.pointer else {};
 
-        pub const from_game_screen = if (which == .ui) api.Function("Where the point `at` of the game's 640 by 480 screen lies in the window, in pixels, as the front end and the rooms fit that screen to the window, in its middle: for drawing over a place on one of their pictures.", &.{"at"}, struct {
+        pub const from_game_screen = if (which == .ui) api.Function("Converts the point `at` on the game's 640 by 480 screen to window pixels, as the front end and the rooms centre that screen in the window. Use it to draw over a spot on one of their pictures.", &.{"at"}, struct {
             fn place(call: Call, at: @Vector(3, f32)) @Vector(3, f32) {
                 const placed = gameScreen(viewOf(call)).inWindow(.{ at[0], at[1] });
                 return .{ placed[0], placed[1], at[2] };
             }
         }.place) else {};
 
-        pub const to_game_screen = if (which == .ui) api.Function("Where the window's pixel `at`, such as the pointer's, lies on the game's 640 by 480 screen, as `from_game_screen` places that screen.", &.{"at"}, struct {
+        pub const to_game_screen = if (which == .ui) api.Function("Converts the window pixel `at`, such as the pointer's position, to a point on the game's 640 by 480 screen. The inverse of `from_game_screen`.", &.{"at"}, struct {
             fn place(call: Call, at: @Vector(3, f32)) @Vector(3, f32) {
                 const placed = gameScreen(viewOf(call)).onScreen(.{ at[0], at[1] });
                 return .{ placed[0], placed[1], at[2] };
@@ -616,7 +615,7 @@ pub fn Package(comptime which: Which) type {
             }
         }.draw) else {};
 
-        pub const shape = api.Function("Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels.", &.{ "at", "index", "style" }, struct {
+        pub const shape = api.Function("Draws shape `index` with its anchor at `at`, in window pixels. The shape comes from the game's sprite set for this layer (the flight display's, or the front end screen's), or from the set that the style's `sprites` names. The style's `scale` multiplies its size in the game's pixels.", &.{ "at", "index", "style" }, struct {
             fn draw(call: Call, at: @Vector(3, f32), index: u32, given: ?ShapeStyle) void {
                 const style = given orelse ShapeStyle{};
                 const scripts = presentation.Presentation.of(call);

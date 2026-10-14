@@ -106,7 +106,7 @@ const max_depth = data.max_depth;
 /// as it checks the value. A table that holds the same table twice is copied twice, so a few
 /// tables can stand for a great many, and the count also bounds the time the check takes, which the
 /// scripts' time limit doesn't reach.
-pub const max_kept: usize = 16 << 20;
+pub const max_kept = std.fmt.parseIntSizeSuffix("16MiB", 10) catch unreachable;
 
 /// How much stack copying one level takes.
 const level_stack = 5;
@@ -130,7 +130,7 @@ fn check(state: *State, at: i32, label: []const u8, depth: u32, left: *usize) vo
     if (!state.checkStack(level_stack)) state.raise("{s}: out of memory", .{label});
     const kind = state.typeOf(at);
     const takes = @sizeOf(Value) + if (kind == .string) state.toString(at).?.len else 0;
-    if (takes > left.*) state.raise("{s}: too much data to keep, more than {d} bytes", .{ label, max_kept });
+    if (takes > left.*) state.raise("{s}: too much data to keep, more than {Bi}", .{ label, max_kept });
     left.* -= takes;
     switch (kind) {
         .nil, .none, .boolean, .number, .vector, .string => {},

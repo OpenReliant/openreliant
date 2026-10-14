@@ -37,10 +37,10 @@ const log = std.log.scoped(.sound);
 
 pub const betty = @import("hog_snd/betty.zig");
 
-/// What `sound_play` takes: a volume from nothing to `loudest`; a pan from the left, 0, to
-/// `rightmost`, `centre` between; a count of plays, `forever` for one that goes on until it is
-/// ended; and `own_pitch`, a sound's own pitch, which the quarter tones up or down are counted
-/// from.
+/// The values `sound_play` takes. The volume runs from 0 to `loudest`. The pan runs from 0 (left)
+/// to `rightmost` (right), with `centre` in the middle. A play count of `forever` repeats the
+/// sound until it is stopped. The pitch is in quarter tones up or down from `own_pitch`, the
+/// sound's own pitch.
 pub const loudest = mss.max_level;
 pub const rightmost = mss.max_level;
 pub const centre = mss.centre_pan;
@@ -70,7 +70,7 @@ const queued_fade_step = 5;
 /// immediate in `sound_play`).
 const priority_ceiling = 9999;
 
-/// Not the game's: the priority of a script sound, the lowest priority in the banks. A script sound
+/// Added by OpenReliant: the priority of a script sound, the lowest in the banks. A script sound
 /// never takes a voice from a game sound, and a game sound with a higher priority takes a script
 /// sound's voice when no voice is free.
 pub const script_priority = 1;
@@ -102,8 +102,8 @@ const rollover_after = 58;
 pub const distance_scale: f32 = 0.0004;
 pub const velocity_scale: f32 = 1e-5;
 
-/// Not the game's: who started the sound on a voice: the game, or a script sound, identified by the
-/// ID OpenReliant gives it (`openreliant.audio`).
+/// Added by OpenReliant: who started the sound on a voice. Either the game, or a script sound with
+/// the ID OpenReliant gave it (`openreliant.audio`).
 pub const Starter = enum(u32) {
     game = 0,
     _,
@@ -180,11 +180,11 @@ pub const Voice3D = extern struct {
     /// leaves the voice free while it plays, for any other sound to take.
     pub const no_owner: i32 = -1;
 
-    /// Not the game's: `owner` of a script sound at a point (`sound3d.playOwn`). Unlike a game
-    /// sound at a point, it keeps its voice until it ends.
+    /// Added by OpenReliant: the `owner` of a script sound at a point (`sound3d.playOwn`). Unlike
+    /// a game sound at a point, it keeps its voice until it ends.
     pub const script_owner: i32 = -2;
 
-    /// Not the game's: `sound` of a script sound, which is not one of the game's sounds.
+    /// Added by OpenReliant: the `sound` of a script sound, which is not one of the game's sounds.
     pub const script_sound: i32 = -1;
 
     /// Whether the voice is free: its `owner` is `no_owner`.
@@ -260,18 +260,18 @@ pub const Volumes = struct {
     }
 };
 
-/// A bank's file read whole, as `hog_load` and `hog_read_file` read one, whose sounds play from its
-/// bytes, and the bank it holds.
+/// A bank file read into memory, as `hog_load` and `hog_read_file` read it. Its sounds play
+/// straight from `bytes`.
 pub const BankFile = struct {
     bytes: []u8,
     bank: fat.Bank,
-    /// Added by OpenReliant: which of its sounds mods give (`of`); empty where none does.
+    /// Added by OpenReliant: for each sound, whether a mod replaces it (`of`). Empty when no mod
+    /// replaces any.
     modded: []const bool = &.{},
 
-    /// `bytes`, the file of the bank `name`, which it keeps, with the sounds mods give in place of
-    /// its own from `source`; null where it is not a bank, which the log says, the bytes then
-    /// freed. Each of a mod's sounds is named after the bank and the sound's number
-    /// (`fat.soundName`).
+    /// Parses `bytes` as the bank `name` and takes ownership of them, then swaps in the sounds
+    /// that mods in `source` replace. A mod's sound is named after the bank and the sound's number
+    /// (`fat.soundName`). Returns null and frees `bytes`, with a warning, if they are not a bank.
     ///
     /// **Improvement:** the original plays only its banks' own sounds.
     pub fn of(gpa: Allocator, bytes: []u8, name: []const u8, source: recordings.Source) ?BankFile {
@@ -283,8 +283,9 @@ pub const BankFile = struct {
         return withModSounds(.{ .bytes = bytes, .bank = bank }, gpa, name, source);
     }
 
-    /// The bank `name` of `archive` (`hog_load`), with the sounds its mods give in place of its
-    /// own, which `codec` decodes (`of`); null where it is left out, which the log says.
+    /// Reads the bank `name` from `archive` (`hog_load`) and swaps in the sounds that its mods
+    /// replace, decoded with `codec` (`of`). Returns null, with a warning, if the bank can't be
+    /// read.
     pub fn read(gpa: Allocator, archive: *const bigfile.Hog, name: []const u8, codec: ?bink.Codec) ?BankFile {
         const bytes = archive.readFile(gpa, name) catch |err| {
             log.warn("the bank {s} is left out: {t}", .{ name, err });
@@ -298,9 +299,10 @@ pub const BankFile = struct {
         gpa.free(file.bytes);
     }
 
-    /// `file`, the bank `name`, which it takes, with the sounds mods give in place of its own
-    /// (`fat.rebuild`), made in `gpa`. A sound that can't be played stays the bank's own, and so
-    /// does every sound where the bank can't be made, which the log says.
+    /// Rebuilds `file`, the bank `name`, with the sounds that mods replace (`fat.rebuild`), and
+    /// takes ownership of `file`. A mod's sound that a voice can't play is skipped, so the bank's
+    /// own sound stays. If the bank can't be rebuilt, the log says so and `file` comes back
+    /// unchanged.
     fn withModSounds(file: BankFile, gpa: Allocator, name: []const u8, source: recordings.Source) BankFile {
         if (source.mods.list.len == 0) return file;
         const count = file.bank.entries.len;
@@ -332,8 +334,8 @@ pub const BankFile = struct {
         return .{ .bytes = bytes, .bank = bank, .modded = modded };
     }
 
-    /// A mod's sound `name` from `source` as a WAVE file in `gpa` that a voice can play; null
-    /// where no mod gives one, and, with a warning, where it can't be played.
+    /// Reads a mod's sound `name` from `source` as a WAVE file that a voice can play. Returns null
+    /// if no mod has the sound, or, with a warning, if a voice can't play it.
     fn playable(gpa: Allocator, source: recordings.Source, name: []const u8) ?[]u8 {
         const bytes = source.read(gpa, name) orelse return null;
         _ = mss.voice.Voice.init(bytes) catch |err| {
@@ -368,11 +370,11 @@ pub const Music = struct {
     fade_step: i32 = 0,
     /// A piece to play once this one has faded (`0x0056533A` on).
     queued: ?Piece = null,
-    /// Added by OpenReliant: a mod's piece in a format other than WAV on its way, which decodes a
-    /// few seconds of music each pass (`Sound.decodeMusic`) and plays once it's decoded. The music counts as
-    /// playing meanwhile.
+    /// Added by OpenReliant: a mod's piece in a format other than WAV that is still being decoded,
+    /// a few seconds each pass (`Sound.decodeMusic`). It plays once it is fully decoded, and the
+    /// music counts as playing until then.
     decoding: ?Decoding = null,
-    /// Added by OpenReliant: whether the music is paused because the game's window is away
+    /// Added by OpenReliant: whether the music is paused because the game's window is inactive
     /// (`Sound.holdMusic`).
     held: bool = false,
     /// Added by OpenReliant: the piece the stream plays (`Sound.pieceOn`).
@@ -412,8 +414,8 @@ pub const Music = struct {
         }
     };
 
-    /// A mod's piece in a format other than WAV on its way: the recording being decoded, the
-    /// piece, and whether the music was paused meanwhile.
+    /// A mod's piece in a format other than WAV that is still being decoded, and whether the
+    /// music was paused during the decoding.
     pub const Decoding = struct {
         recording: recordings.Decoding,
         piece: Piece,
@@ -421,8 +423,8 @@ pub const Music = struct {
     };
 };
 
-/// How many seconds of a mod's piece in a format other than WAV decode each pass
-/// (`Sound.decodeMusic`): a few milliseconds of work, so that the game doesn't stall.
+/// How many seconds of a mod's piece are decoded each pass (`Sound.decodeMusic`). That takes a
+/// few milliseconds, so the game doesn't stall.
 const seconds_decoded_a_pass = 3;
 
 /// Where a piece of music loops back to once it has played through: a byte offset into its data
@@ -497,7 +499,7 @@ pub const Sound = struct {
     voice_count: u8 = 0,
     /// The voices `pauseAll` stopped, for `resumeAll` (`0x00563A20`).
     paused: [max_voices]bool = @splat(false),
-    /// Not the game's: who started the sound on each voice and each 3D voice.
+    /// Added by OpenReliant: who started the sound on each voice and each 3D voice.
     starters: [max_voices]Starter = @splat(.game),
     starters_3d: [max_voices_3d]Starter = @splat(.game),
     /// Each positional sound's level in the left ear and the right, gathered over a frame.
@@ -585,9 +587,9 @@ pub const Sound = struct {
         return chosen;
     }
 
-    /// Not the game's: plays the WAVE file `file` as a script sound (`openreliant.audio`) with the
-    /// settings in `how`, choosing a voice as `play` does. `file` must stay valid while it plays.
-    /// Returns the voice, or null if none is free.
+    /// Added by OpenReliant: plays the WAVE file `file` as a script sound (`openreliant.audio`)
+    /// with the settings in `how`, choosing a voice as `play` does. `file` must stay valid while it
+    /// plays. Returns the voice, or null if none is free.
     pub fn playFile(sound: *Sound, file: []const u8, how: Starting) ?u8 {
         const driver = sound.driver orelse return null;
         const chosen = sound.takeVoice(driver, how.priority) orelse return null;
@@ -635,8 +637,8 @@ pub const Sound = struct {
     /// Plays the WAVE file `file`, a line of speech, once on voice `v`, panned to the middle. It
     /// ends the voice's current sound and holds the voice, so that no other sound takes it. The
     /// rooms play the crew's lines this way (`0x0043B598` on). `file` must stay valid while it
-    /// plays. Not the game's: the line gets the reverb of the camera's surroundings, like the
-    /// rooms' other sounds (`inScene`).
+    /// plays. Added by OpenReliant: the line gets the reverb of the camera's surroundings, like
+    /// the rooms' other sounds (`inScene`).
     ///
     /// **Fix:** it plays at the speech volume, scaled by the master volume. The game sets the
     /// sample to full volume itself, whatever the settings.
@@ -667,7 +669,7 @@ pub const Sound = struct {
         const file = bank.sound(index) orelse return;
         const started = sound.startFile(v, file, .{
             .priority = @intCast(bank.entries[index].priority),
-            // Not the game's: the cockpit's warnings play in the cockpit's cabin.
+            // Added by OpenReliant: the cockpit's warnings get the cockpit's reverb.
             .room = if (sound.fromCockpit(bank)) .cockpit else .none,
             .volume = volume,
             .rate_factor = if (pitch != 0) pitchFactor(pitch) else null,
@@ -717,23 +719,24 @@ pub const Sound = struct {
         return true;
     }
 
-    /// Not the game's: the sample on voice `v` rings in what surrounds the camera, as the 3D
-    /// sounds do (`mss.Room.scene`): for a sound of the scene that the game plays as a sample.
+    /// Added by OpenReliant: gives the sample on voice `v` the reverb of the camera's surroundings
+    /// (`mss.Room.scene`), as the 3D sounds have. For sounds in the scene that the game plays as
+    /// plain samples.
     pub fn inScene(sound: *Sound, v: u8) void {
         const driver = sound.driver orelse return;
         if (v < sound.voice_count) driver.setSampleRoom(sound.voices[v].sample, .scene);
     }
 
-    /// `play`, the sound then ringing in what surrounds the camera (`inScene`): the voice it plays
-    /// on, or null.
+    /// Plays a sound as `play` does, with the reverb of the camera's surroundings (`inScene`).
+    /// Returns the voice, or null.
     pub fn playInScene(sound: *Sound, bank: fat.Bank, index: usize, volume: i32, loops: u32, pan: i32, pitch: i32) ?u8 {
         const v = sound.play(bank, index, volume, loops, pan, pitch) orelse return null;
         sound.inScene(v);
         return v;
     }
 
-    /// Not the game's: what surrounds the camera, whose reverb the 3D sounds and the samples of the
-    /// scene ring in, told to the driver as it changes.
+    /// Added by OpenReliant: sets the camera's surroundings, whose reverb the 3D sounds and the
+    /// scene's samples get. The driver is told only when they change.
     pub fn surround(sound: *Sound, surroundings: mss.Surroundings) void {
         if (surroundings == sound.surroundings) return;
         sound.surroundings = surroundings;
@@ -853,8 +856,8 @@ pub const Sound = struct {
     /// `tick_timer` (`0x004827C0`) 100 times a second on its own multimedia timer (`timer_start`,
     /// `0x004A70F0`, started by `sound_init`), so its fades continue while a movie plays.
     /// OpenReliant calls this once a frame from the rooms' loop, the movies' loop and the wait
-    /// before the launch. It then decodes more of a mod's piece on its way (`decodeMusic`), which
-    /// `updateMusic` does in the front end and in missions.
+    /// before the launch. It then decodes more of a mod's piece that is still being decoded
+    /// (`decodeMusic`). In the front end and in missions, `updateMusic` does that instead.
     pub fn runTimer(sound: *Sound, clock: *Clock, now: u64) void {
         clock.advanceTo(now);
         sound.timerTick(clock.game_ticks);
@@ -929,9 +932,10 @@ pub const Sound = struct {
 
     // --- The 3D voices ---------------------------------------------------------------------------
 
-    /// `sound_3d_open` (`0x00481900`) on OpenReliant's one provider: as many 3D voices as it has,
-    /// up to 64, each free, then the effects set up on them (`sound3d.init`) with the bank `smp3d`,
-    /// of which mods give the sounds `modded` says (`BankFile.modded`).
+    /// `sound_3d_open` (`0x00481900`) on OpenReliant's one provider. Allocates as many free 3D
+    /// voices as the provider has, up to 64, then sets up the effects on them (`sound3d.init`)
+    /// with the bank `smp3d`. `modded` tells which of its sounds come from mods
+    /// (`BankFile.modded`).
     pub fn open3D(sound: *Sound, smp3d: fat.Bank, modded: []const bool) void {
         const driver = sound.driver orelse return;
         sound.close3D();
@@ -1002,7 +1006,7 @@ pub const Sound = struct {
     /// is freed, except the engine's and the afterburner's. The others are repositioned relative to
     /// the camera according to what they follow, and freed once out of range.
     ///
-    /// Not the game's: a script sound (`sound3d.playOwn`) keeps its voice until it ends, so a
+    /// Added by OpenReliant: a script sound (`sound3d.playOwn`) keeps its voice until it ends, so a
     /// looping one plays until it's stopped. It fades out toward the edge of its range
     /// (`sound3d.fadeToFar`), stays silent beyond it, and becomes audible again when it comes back
     /// in range.
@@ -1010,8 +1014,8 @@ pub const Sound = struct {
         const driver = sound.driver orelse return;
         if (sound.voice_3d_count == 0) return;
         sound3d.engineUpdate(sound, scene);
-        // Not the game's, which opens no listener: the listener moves with the player's ship, for
-        // the Doppler shifts. The software mixer's stays still.
+        // Added by OpenReliant: the listener moves with the player's ship, for the Doppler
+        // shifts. The game opens no listener, and the software mixer's listener stays still.
         const player = &scene.objects.slots[scene.objects.player].object;
         driver.set3DListenerVelocity(miles(math.transformTransposed(scene.camera.orientation, player.velocity.vector()) * @as(Vector, @splat(velocity_scale))));
         const frame_start = scene.clock.frame_start;
@@ -1026,12 +1030,12 @@ pub const Sound = struct {
                     continue;
                 }
             } else if (!set_aside) {
-                // How long its sound plays, in ticks. The game takes the sound's bytes of 16-bit
-                // PCM over the 441 a tick plays at 22,050 Hz, multiplying by their rounded
-                // reciprocal (`0x004DC8B8`). **Improvement:** OpenReliant divides its frames by the
-                // rate it plays at, `sound3d.sample_rate` scaled for a mod's sound
-                // (`sound3d.rateScale`), so that a mod's sound at another rate or in stereo isn't
-                // stopped early or held on. The game's own sounds come out the same.
+                // How long the sound plays, in ticks. The game divides the sound's size in bytes
+                // of 16-bit PCM by the 441 bytes a tick plays at 22,050 Hz, by multiplying with a
+                // rounded reciprocal (`0x004DC8B8`). **Improvement:** OpenReliant divides the
+                // frames by the rate they play at, `sound3d.sample_rate` scaled for a mod's sound
+                // (`sound3d.rateScale`), so a mod's sound at another rate or in stereo isn't cut
+                // short or kept too long. The game's own sounds get the same length.
                 const frames: f32 = @floatFromInt(driver.sample3DFrames(voice.sample));
                 const ticks = math.round(frames / (sound3d.sample_rate * sound.effects.rate_scales[index]) * main.ticks_per_second);
                 if (ticks < frame_start - voice.started) {
@@ -1177,10 +1181,10 @@ pub const Sound = struct {
         if (sound.music.held) driver.pauseStream(stream, true);
     }
 
-    /// Decodes `seconds_decoded_a_pass` more seconds of a mod's piece on its way, and plays it once
-    /// it's decoded, paused if the music was paused meanwhile.
+    /// Decodes `seconds_decoded_a_pass` more seconds of a mod's piece. Once the piece is fully
+    /// decoded, starts it, paused if the music was paused during the decoding.
     fn decodeMusic(sound: *Sound) void {
-        const decoding = if (sound.music.decoding) |*on_way| on_way else return;
+        const decoding = if (sound.music.decoding) |*pending| pending else return;
         const files = sound.files orelse return;
         const driver = sound.driver orelse return;
         const recording = &decoding.recording;
@@ -1201,9 +1205,9 @@ pub const Sound = struct {
         if (decoded.paused) sound.pauseMusic(true);
     }
 
-    /// Drops a mod's piece on its way, which then never plays.
+    /// Cancels the decoding of a mod's piece, which then never plays.
     fn cancelDecoding(sound: *Sound) void {
-        const decoding = if (sound.music.decoding) |*on_way| on_way else return;
+        const decoding = if (sound.music.decoding) |*pending| pending else return;
         const gpa = (sound.files orelse return).gpa;
         decoding.recording.deinit(gpa);
         sound.music.decoding = null;
@@ -1218,8 +1222,9 @@ pub const Sound = struct {
         sound.update3D(scene);
     }
 
-    /// `music_update` (`0x00482C30`), once a frame: the queued piece starts once the music has
-    /// stopped. OpenReliant first decodes more of a mod's piece on its way (`decodeMusic`).
+    /// `music_update` (`0x00482C30`), called once a frame: starts the queued piece once the music
+    /// has stopped. OpenReliant first decodes more of a mod's piece that is still being decoded
+    /// (`decodeMusic`).
     pub fn updateMusic(sound: *Sound) void {
         sound.decodeMusic();
         const queued = sound.music.queued orelse return;
@@ -1231,7 +1236,7 @@ pub const Sound = struct {
     /// `music_fade_out` (`0x00482960`): starts fading the music out by `step` every five ticks,
     /// counting from `game_ticks`, the timer's count now, until it stops.
     ///
-    /// A mod's piece on its way that hasn't started never plays.
+    /// A mod's piece that is still being decoded is cancelled and never plays.
     pub fn fadeMusic(sound: *Sound, step: i32, game_ticks: u32) void {
         if (sound.music.stream == null) return sound.cancelDecoding();
         sound.music.fading = true;
@@ -1239,8 +1244,8 @@ pub const Sound = struct {
         sound.faded_at = game_ticks;
     }
 
-    /// `music_playing` (`0x00482940`). A mod's piece on its way counts as playing, and so does a
-    /// piece paused while the window is away (`holdMusic`).
+    /// `music_playing` (`0x00482940`). A mod's piece that is still being decoded counts as
+    /// playing, and so does a piece paused because the window is inactive (`holdMusic`).
     pub fn musicPlaying(sound: *Sound) bool {
         const driver = sound.driver orelse return false;
         if (sound.music.decoding != null) return true;
@@ -1256,15 +1261,15 @@ pub const Sound = struct {
     pub fn pauseMusic(sound: *Sound, paused: bool) void {
         const driver = sound.driver orelse return;
         if (sound.music.stream) |stream| driver.pauseStream(stream, paused);
-        if (sound.music.decoding) |*on_way| on_way.paused = paused;
+        if (sound.music.decoding) |*pending| pending.paused = paused;
     }
 
-    /// `music_pause` and `music_resume` as the message pump calls them while the game's window is
-    /// away (`winmain.followActivation`). The game's pump waits for the window to come back, so
-    /// nothing else runs meanwhile. OpenReliant's loops keep running, so the paused piece counts
-    /// as playing (`musicPlaying`), and a piece that starts meanwhile starts paused. That way
-    /// nothing takes the paused piece for one that has ended, such as the CD player, which would
-    /// play its next track.
+    /// `music_pause` and `music_resume` as the message pump calls them when the game's window
+    /// becomes inactive and active again (`winmain.followActivation`). The game's pump blocks
+    /// until the window is active again, so nothing else runs in between. OpenReliant's loops keep
+    /// running, so the paused piece counts as playing (`musicPlaying`), and a piece that starts in
+    /// between starts paused. Otherwise the CD player would take the paused piece for one that has
+    /// ended and play its next track.
     pub fn holdMusic(sound: *Sound, held: bool) void {
         sound.music.held = held;
         sound.pauseMusic(held);
@@ -1288,11 +1293,11 @@ pub const Sound = struct {
         sound.music.queued = null;
     }
 
-    /// Not the game's: the path of the piece playing, or of a mod's piece still decoding. Returns
-    /// null while no music plays (`musicPlaying`).
+    /// Added by OpenReliant: the path of the piece playing, or of a mod's piece still being
+    /// decoded. Returns null while no music plays (`musicPlaying`).
     pub fn pieceOn(sound: *Sound) ?[]const u8 {
         if (!sound.musicPlaying()) return null;
-        if (sound.music.decoding) |*on_way| return on_way.piece.pathOf();
+        if (sound.music.decoding) |*pending| return pending.piece.pathOf();
         return if (sound.music.piece) |*playing| playing.pathOf() else null;
     }
 
@@ -1310,8 +1315,9 @@ pub const Sound = struct {
         voice_3d: u8,
     };
 
-    /// Not the game's: the voice the script sound `starter` plays on. Returns null once the sound
-    /// has ended, or a game sound has taken its voice. A paused sound still counts as playing.
+    /// Added by OpenReliant: the voice the script sound `starter` plays on. Returns null once the
+    /// sound has ended, or once a game sound has taken its voice. A paused sound still counts as
+    /// playing.
     pub fn playingOf(sound: *Sound, starter: Starter) ?Playing {
         const driver = sound.driver orelse return null;
         if (starter == .game) return null;
@@ -1324,7 +1330,7 @@ pub const Sound = struct {
         return null;
     }
 
-    /// Not the game's: stops the script sound `starter` if it is still playing.
+    /// Added by OpenReliant: stops the script sound `starter` if it is still playing.
     pub fn endStarted(sound: *Sound, starter: Starter) void {
         switch (sound.playingOf(starter) orelse return) {
             .voice => |v| sound.endVoice(v),
@@ -1357,16 +1363,16 @@ pub fn musicLoopStart(path: []const u8) i32 {
     return 0;
 }
 
-/// A music file read: a WAVE file, and whether it's a mod's; or a mod's file of another format on
-/// its way to one.
+/// A music file that was read: a whole WAVE file and whether it came from a mod, or a mod's file
+/// in another format that is being decoded to WAVE.
 const MusicRead = union(enum) {
     whole: struct { bytes: []u8, from_mod: bool },
     decoding: recordings.Decoding,
 };
 
-/// Reads the music file at `path`, a game path with backslashes: a mod's recording with the same
-/// name, in any of the formats a recording can be in (`recordings.Kind`), or else the game folder's
-/// file, ignoring case as Windows does (`files.find`).
+/// Reads the music file at `path`, a game path with backslashes. A mod's recording with the same
+/// name, in any format a recording can have (`recordings.Kind`), takes priority. Otherwise it
+/// reads the game folder's file, ignoring case as Windows does (`files.find`).
 ///
 /// **Improvement:** the original plays only its own WAVE files.
 fn readMusic(files: Files, path: []const u8) !MusicRead {
@@ -1385,14 +1391,14 @@ fn readGameMusic(files: Files, path: []const u8) ![]u8 {
     return try paths.readFile(files.io, files.gpa, files.dir, path, .limited(paths.max_file_size)) orelse error.FileNotFound;
 }
 
-/// Where a mod's piece of music `own` at `path` loops back to. The loop table's `loop_start` is a
-/// byte offset into the game's file, so the mod's piece loops back to the same moment of the
-/// music. When the game's file can't be read or isn't a WAVE file, it loops back to `loop_start`
-/// as it is, and the log says so.
+/// Where a mod's piece of music `own`, which replaces the game's piece at `path`, loops back to.
+/// The loop table's `loop_start` is a byte offset into the game's file, so it is converted to the
+/// same point in time in the mod's piece. If the game's file can't be read or isn't a WAVE file,
+/// the log says so and `loop_start` is used unchanged.
 ///
-/// **Improvement:** the original reads no mods. A mod's piece in another format than the game's,
-/// such as 16-bit PCM at 44,100 Hz for the game's IMA ADPCM at 22,050, would otherwise loop back
-/// to another moment of the music.
+/// **Improvement:** the original reads no mods. Without the conversion, a mod's piece in another
+/// format than the game's, such as 16-bit PCM at 44,100 Hz instead of IMA ADPCM at 22,050 Hz,
+/// would loop back to the wrong point.
 fn modLoopStart(files: Files, path: []const u8, own: []const u8, loop_start: i32) i32 {
     if (loop_start <= 0) return loop_start;
     return carriedModLoop(files, path, own, @intCast(loop_start)) catch |err| {
@@ -1560,14 +1566,14 @@ test "Sound.speakOn holds its voice" {
     const sound = &speaker.sound;
     const bytes = comptime testing.bank(1);
     const bank = try fat.Bank.parse(&bytes);
-    // What the voice played ends, and the line plays on it, held.
+    // The voice's sound ends, and the line plays on it with the voice held.
     sound.playOn(2, bank, 0, loudest, forever, centre, own_pitch);
     sound.speakOn(2, testing.sound_file);
     try std.testing.expect(sound.voicePlaying(2));
     try std.testing.expectEqual(1, sound.voices[2].held);
-    // No other sound takes it over.
+    // No other sound takes the voice.
     for (0..3) |_| try std.testing.expect(sound.play(bank, 0, loudest, once, centre, own_pitch) != 2);
-    // Ended, it is let go.
+    // Ending the voice releases it.
     sound.endVoice(2);
     try std.testing.expectEqual(0, sound.voices[2].held);
 }
@@ -1617,7 +1623,7 @@ test BankFile {
     const file = BankFile.of(gpa, try gpa.dupe(u8, &bytes), "two.fat", .none).?;
     defer file.deinit(gpa);
     try std.testing.expectEqual(2, file.bank.entries.len);
-    // Not a bank, it is left out, and its bytes let go.
+    // Bytes that are not a bank are rejected and freed.
     try std.testing.expectEqual(null, BankFile.of(gpa, try gpa.dupe(u8, "x"), "x.fat", .none));
 }
 
@@ -1939,7 +1945,7 @@ test "Sound.playMusic queues a piece until the music has stopped" {
     try std.testing.expectEqual(100, sound.music.level);
 }
 
-test "Sound.holdMusic pauses the music while the window is away, and it counts as playing" {
+test "Sound.holdMusic pauses the music while the window is inactive, and it counts as playing" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
@@ -1954,7 +1960,7 @@ test "Sound.holdMusic pauses the music while the window is away, and it counts a
     sound.files = .{ .gpa = gpa, .io = io, .dir = tmp.dir };
     defer sound.closeMusic();
 
-    // Paused for the window, the music counts as playing, so a queued piece waits for it.
+    // While paused for the window, the music counts as playing, so a queued piece waits.
     sound.playMusic("music\\one.wav", once, loudest, .now);
     sound.holdMusic(true);
     try std.testing.expectEqual(mss.Status.stopped, driver.streamStatus(sound.music.stream.?));
@@ -1962,14 +1968,14 @@ test "Sound.holdMusic pauses the music while the window is away, and it counts a
     sound.music.queued = .of("music\\two.wav", once, 100);
     sound.updateMusic();
     try std.testing.expect(sound.music.queued != null);
-    // A piece that starts meanwhile starts paused.
+    // A piece that starts while the window is inactive starts paused.
     sound.playMusic("music\\two.wav", once, loudest, .now);
     try std.testing.expectEqual(mss.Status.stopped, driver.streamStatus(sound.music.stream.?));
     try std.testing.expect(sound.musicPlaying());
-    // With the window back, the music goes on.
+    // When the window is active again, the music resumes.
     sound.holdMusic(false);
     try std.testing.expectEqual(mss.Status.playing, driver.streamStatus(sound.music.stream.?));
-    // A pause of the game's own still counts as stopped, as in the game.
+    // A pause by the game itself still counts as stopped, as in the original.
     sound.pauseMusic(true);
     try std.testing.expect(!sound.musicPlaying());
 }

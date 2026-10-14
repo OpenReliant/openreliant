@@ -126,6 +126,10 @@ pub const Limits = struct {
     memory: usize,
 };
 
+/// How much memory one mod's scripts may use, on every side (`game.limits`,
+/// `presentation.limits`, `load.limits`).
+pub const memory_per_mod = std.fmt.parseIntSizeSuffix("64MiB", 10) catch unreachable;
+
 pub const Options = struct {
     side: Side,
     limits: Limits,
@@ -134,6 +138,14 @@ pub const Options = struct {
     /// OpenReliant's version, such as `0.7.0` (`core.package.version`).
     version: []const u8,
     shared: Shared = .{},
+};
+
+/// Runtimes for tests.
+pub const testing = struct {
+    /// One second per call and 1 MiB per mod, plenty for the tests' scripts.
+    pub const limits: Limits = .{ .time = .fromSeconds(1), .memory = std.fmt.parseIntSizeSuffix("1MiB", 10) catch unreachable };
+    /// A game-side runtime with `limits`.
+    pub const options: Options = .{ .side = .game, .limits = limits, .seed = 1, .version = "0.7.0" };
 };
 
 /// What every state shares.
@@ -1321,7 +1333,7 @@ test "Runtime.recompileFolders" {
     try load.testing.makeMods(io, tmp.dir, &.{.{ "a", &.{ .{ "mod.ini", "" }, .{ "value.luau", "return 1" } } }});
     var opened: mods.Mods = try .open(gpa, io, tmp.dir, null);
     defer opened.close(gpa);
-    const scripts = try Runtime.create(gpa, io, opened.list, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });
+    const scripts = try Runtime.create(gpa, io, opened.list, testing.options);
     defer scripts.destroy();
     const before = try scripts.open(0, .global, null);
     const first = scripts.run(before, "value").?;
@@ -1349,7 +1361,7 @@ test "a context closed during its own call keeps its thread until no call runs" 
     try load.testing.makeMods(io, tmp.dir, &.{.{ "a", &.{.{ "mod.ini", "" }} }});
     var opened: mods.Mods = try .open(gpa, io, tmp.dir, null);
     defer opened.close(gpa);
-    const scripts = try Runtime.create(gpa, io, opened.list, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });
+    const scripts = try Runtime.create(gpa, io, opened.list, testing.options);
     defer scripts.destroy();
     const context = try scripts.open(0, .global, null);
     // A function that closes its own context, as a missile's script that sets off its missile

@@ -13,8 +13,7 @@ const riff = @import("riff.zig");
 
 pub const extension = ".wav";
 
-/// The level of a 16-bit sample at full scale: a sample as a float from -1 to 1 is the sample over
-/// this.
+/// The level of a 16-bit sample at full scale. A sample divided by this is a float from -1 to 1.
 pub const full_scale = -std.math.minInt(i16);
 
 /// What a sound's WAVE header says.
@@ -246,8 +245,8 @@ test pcm16 {
     try std.testing.expectEqual(null, decoder.next());
 }
 
-/// Reads a wave's frames in order, as 16-bit samples, the one channel of a mono sound in both. IMA
-/// ADPCM is decoded as it goes, a block at a time, with no buffer of its own.
+/// Reads a wave's frames in order as 16-bit samples, with a mono sound's channel in both channels.
+/// IMA ADPCM is decoded on the fly, a block at a time, without a buffer.
 pub const Decoder = struct {
     wave: Wave,
     /// How `wave` holds its samples, which `init` checked it can decode.
@@ -264,13 +263,14 @@ pub const Decoder = struct {
     /// The sample formats it decodes.
     pub const Codec = enum { pcm8, pcm16, ima_adpcm };
 
-    /// A frame of `next` with its two channels mixed to one: their average. A mono frame, which
-    /// `next` gives in both channels, stays as it is.
+    /// Mixes a frame from `next` to one channel, the average of its two. A mono frame, which `next`
+    /// gives in both channels, is unchanged.
     pub fn downmix(frame: [2]i16) i16 {
         return @intCast(@divTrunc(@as(i32, frame[0]) + frame[1], 2));
     }
 
-    /// A decoder of `wave`. A sound without a rate is refused, as it would never play to its end.
+    /// A decoder for `wave`. A sound with a rate of 0 is rejected, since it would never finish
+    /// playing.
     pub fn init(wave: Wave) Error!Decoder {
         if (wave.channels != 1 and wave.channels != 2) return error.Unsupported;
         if (wave.block_align == 0 or wave.rate == 0) return error.Unsupported;
@@ -290,8 +290,8 @@ pub const Decoder = struct {
         return .{ .wave = wave, .codec = codec, .frames = wave.frameCount() };
     }
 
-    /// The rest of the frames, as 16-bit samples made in `gpa`, interleaved in the wave's own
-    /// channels.
+    /// Decodes the remaining frames into 16-bit samples, interleaved, with the wave's own number
+    /// of channels.
     pub fn rest(decoder: *Decoder, gpa: std.mem.Allocator) std.mem.Allocator.Error![]i16 {
         const channels = decoder.wave.channels;
         const samples = try gpa.alloc(i16, @as(usize, decoder.frames - decoder.frame) * channels);
@@ -407,8 +407,8 @@ pub const testing = struct {
     /// A chunk of `body`, with its header and its padding.
     pub const chunk = riff.testing.chunk;
 
-    /// A WAVE file of `format`, its format chunk `fmt` (and the chunk's `fmt_extension`), then
-    /// `extra` chunks before the data.
+    /// A WAVE file with the format chunk `fmt` (followed by `fmt_extension`), then the `extra`
+    /// chunks, then the data.
     pub fn file(comptime fmt: Wave.FormatChunk, comptime fmt_extension: []const u8, comptime extra: []const u8, comptime data: []const u8) []const u8 {
         const body = Wave.form ++ chunk("fmt ", &std.mem.toBytes(fmt) ++ fmt_extension) ++ extra ++ chunk("data", data);
         return chunk(riff.Header.riff_id, body);
@@ -494,7 +494,7 @@ test "Decoder reads PCM" {
     try std.testing.expectEqual([2]i16{ 127 << 8, 127 << 8 }, bytes.next().?);
     try std.testing.expectEqual([2]i16{ -128 << 8, -128 << 8 }, bytes.next().?);
 
-    // A sound without a rate is refused.
+    // A sound with a rate of 0 is rejected.
     var rateless = try Wave.parse(comptime testing.pcm("\x00\x00"));
     rateless.rate = 0;
     try std.testing.expectError(error.Unsupported, Decoder.init(rateless));

@@ -19,8 +19,8 @@ const wave = @import("../../formats/wave.zig");
 
 const log = std.log.scoped(.mods);
 
-/// The formats of a mod's recording, in the order they're looked for. An Ogg file can hold Vorbis or
-/// Opus, with either extension.
+/// The formats of a mod's recording, in the order they are looked for. An Ogg file can hold Vorbis
+/// or Opus, with either extension.
 pub const Kind = enum {
     wave,
     flac,
@@ -85,7 +85,7 @@ pub fn decode(codec: ?bink.Codec, gpa: Allocator, recording: Recording, most: us
             gpa.free(bytes);
             return error.TooLarge;
         },
-        .decoding => |on_way| on_way,
+        .decoding => |pending| pending,
     };
     while (true) {
         const done = decoding.step(gpa, decoding.audio.rate) catch |err| {
@@ -108,9 +108,9 @@ pub fn problem(err: anyerror) []const u8 {
     };
 }
 
-/// The extensions of the game's files that a mod's recording replaces, besides the lines of speech,
-/// which have none: the music's WAVE files (`hog_snd.Sound.playMusic`) and Enriquez's scenes
-/// (`interface.rooms.speak`).
+/// The extensions of the game files that a mod's recording can replace: the music's WAVE files
+/// (`hog_snd.Sound.playMusic`) and Enriquez's scenes (`interface.rooms.speak`). The lines of
+/// speech have no extension.
 pub const replaced_extensions = [_][]const u8{ wave.extension, ".box" };
 
 /// A mod's recording, as the mod's file holds it.
@@ -119,8 +119,8 @@ pub const Recording = struct {
     kind: Kind,
 };
 
-/// A recording in a format other than WAVE, decoded into a WAVE file a few frames at a time, so that
-/// a long piece of music can decode over several of the game's frames (`bink.AudioDecoding`).
+/// A recording in a format other than WAVE, decoded into a WAVE file a few frames at a time, so a
+/// long piece of music can be decoded over several of the game's frames (`bink.AudioDecoding`).
 pub const Decoding = struct {
     audio: bink.AudioDecoding,
     /// The recording's file, which the decoder reads until it's done.
@@ -132,8 +132,8 @@ pub const Decoding = struct {
         return decoding.audio.step(gpa, samples);
     }
 
-    /// The WAVE file of what was decoded, made in `gpa`. It frees the decoder and the recording's
-    /// file, whether or not it succeeds.
+    /// Makes a WAVE file of what was decoded. Frees the decoder and the recording's file, whether
+    /// or not it succeeds.
     pub fn finish(decoding: *Decoding, gpa: Allocator) Allocator.Error![]u8 {
         defer gpa.free(decoding.file);
         return decoding.audio.finish(gpa);
@@ -145,15 +145,15 @@ pub const Decoding = struct {
     }
 };
 
-/// A mod's recording ready to play, or on its way.
+/// A mod's recording, either ready to play or still being decoded.
 pub const Opened = union(enum) {
     /// A WAVE file, as it is.
     wave: []u8,
     decoding: Decoding,
 };
 
-/// Where a mod's recordings come from: the mods that hold them, and what decodes those that aren't
-/// WAVE files, if anything.
+/// Where mods' recordings come from: the mods that hold them, and the decoder for those that aren't
+/// WAVE files, if there is one.
 pub const Source = struct {
     mods: *const bigfile.Mods,
     codec: ?bink.Codec,
@@ -161,14 +161,13 @@ pub const Source = struct {
     /// No mods, and nothing to decode with.
     pub const none: Source = .{ .mods = &bigfile.Mods.none, .codec = null };
 
-    /// Reads a mod's recording `name`, a name without an extension, into `gpa` as it is: the first
+    /// Reads a mod's recording `name`, given without an extension, without decoding it: the first
     /// of `name.wav`, `name.flac`, `name.mp3`, `name.ogg` and `name.opus` that a mod has (`Kind`).
-    /// Returns null if no mod has any of them, and also, with a warning, if that file can't be
-    /// read.
+    /// Returns null if no mod has any of them, or, with a warning, if the file can't be read.
     pub fn find(source: Source, gpa: Allocator, name: []const u8) ?Recording {
         var buffer: [bigfile.member_name_room + Kind.longest]u8 = undefined;
         for (std.enums.values(Kind)) |kind| {
-            // A name too long for a mod's file is in no mod.
+            // A name too long for a mod's file can't be in any mod.
             const named = std.mem.print(&buffer, "{s}{s}", .{ name, kind.extension() }) catch return null;
             const found = source.mods.readFile(gpa, named) catch |err| {
                 log.warn("can't read the recording {s}: {t}", .{ named, err });
@@ -183,7 +182,7 @@ pub const Source = struct {
     /// Logs a warning and returns null if it can't be decoded.
     pub fn open(source: Source, gpa: Allocator, recording: Recording, name: []const u8) ?Opened {
         return begin(source.codec, gpa, recording) catch |err| {
-            log.warn("the recording {s}{s} is left out: {s}", .{ name, recording.kind.extension(), problem(err) });
+            warnLeftOut(name, recording.kind, err);
             return null;
         };
     }
@@ -194,9 +193,13 @@ pub const Source = struct {
     pub fn read(source: Source, gpa: Allocator, name: []const u8) ?[]u8 {
         const recording = source.find(gpa, name) orelse return null;
         return decode(source.codec, gpa, recording, std.math.maxInt(usize)) catch |err| {
-            log.warn("the recording {s}{s} is left out: {s}", .{ name, recording.kind.extension(), problem(err) });
+            warnLeftOut(name, recording.kind, err);
             return null;
         };
+    }
+
+    fn warnLeftOut(name: []const u8, kind: Kind, err: anyerror) void {
+        log.warn("the recording {s}{s} is left out: {s}", .{ name, kind.extension(), problem(err) });
     }
 };
 
@@ -243,8 +246,8 @@ test "Source.open" {
     defer gpa.free(piece);
     try std.testing.expectEqual(22050, (try wave.Wave.parse(piece)).rate);
     try std.testing.expectEqual(0, decoders.streams);
-    // A file that doesn't start decoding, and one without a decoder, are left out, their bytes
-    // freed.
+    // A file that fails to start decoding, and a file without a decoder, give null, and their
+    // bytes are freed.
     try std.testing.expectEqual(null, source.open(gpa, .{ .bytes = try gpa.dupe(u8, "not MP3"), .kind = .mp3 }, "broken"));
     try std.testing.expectEqual(null, Source.none.open(gpa, .{ .bytes = try gpa.dupe(u8, &frames), .kind = .mp3 }, "piece"));
 }

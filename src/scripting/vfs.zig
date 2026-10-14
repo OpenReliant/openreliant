@@ -185,9 +185,10 @@ test "a file bigger than the mod's scripts have left of their memory is refused,
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     const load = @import("load.zig");
+    const limits = @import("runtime.zig").testing.limits;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    const big = try gpa.alloc(u8, 2 << 20);
+    const big = try gpa.alloc(u8, 2 * limits.memory);
     defer gpa.free(big);
     @memset(big, 'x');
     try load.testing.makeMods(io, tmp.dir, &.{.{
@@ -213,7 +214,7 @@ test "a file bigger than the mod's scripts have left of their memory is refused,
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
     var held = try load.testing.records3(arena.allocator());
-    try load.testing.runLimited(gpa, io, mods.list, &held, "0.7.0", .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .{});
+    try load.testing.runLimited(gpa, io, mods.list, &held, "0.7.0", limits, .{});
     // The script ran to its end.
     try std.testing.expectEqual(7, held.guns[0].range);
 }

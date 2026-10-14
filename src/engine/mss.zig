@@ -1,6 +1,6 @@
 //! The Miles Sound System (`MSS32.DLL`), as far as the game uses it: a digital driver that mixes
 //! samples, 3D samples and streams of WAVE sounds. This is OpenReliant's own replacement, written
-//! from what the calls do, not from Miles's code. Each function stands for the `AIL_` call it is
+//! from what the calls do, not from Miles's code. Each function replaces the `AIL_` call it is
 //! named after, and the game's code in [`game/hog_snd.zig`](game/hog_snd.zig) calls them as it
 //! called Miles.
 //!
@@ -106,7 +106,7 @@ pub fn gain(volume: i32) f32 {
     return @as(f32, @floatFromInt(volume)) / max_level;
 }
 
-/// The gain of `db` decibels, as a `T`: ten to the power of a twentieth of them.
+/// The linear gain of `db` decibels, as a `T`: 10 to the power of `db / 20`.
 pub fn decibelGain(comptime T: type, db: T) T {
     return std.math.pow(T, 10, db / 20);
 }
@@ -371,8 +371,8 @@ pub const Driver = struct {
     }
 };
 
-/// OpenReliant's own digital driver, in software: the handles and a plain mix of them, as Miles's
-/// own mixer most likely was. It is the reference the OpenAL renderer is compared with, and what
+/// OpenReliant's software digital driver: the handles and a plain mix of them, as Miles's own mixer
+/// most likely was. It is the reference that the OpenAL renderer is compared with, and what
 /// `--original` plays through.
 pub const Mixer = struct {
     /// The output's frames a second.
@@ -576,8 +576,8 @@ pub const Mixer = struct {
     /// only, which is why the game decompresses its ADPCM first (`AIL_decompress_ADPCM`);
     /// OpenReliant's play either.
     ///
-    /// **Improvement:** a sound in stereo, as a mod's may be, plays mixed to mono so that it keeps
-    /// its place. Every 3D sound the game plays is mono.
+    /// **Improvement:** a stereo sound, which a mod may have, is mixed to mono so that it stays in
+    /// place. Every 3D sound the game plays is mono.
     pub fn set3DSampleFile(mixer: *Mixer, handle: Sample3D, file: []const u8) bool {
         mixer.lock.acquire();
         defer mixer.lock.release();
@@ -691,8 +691,8 @@ pub const Mixer = struct {
         return statusOf(mixer.sample3D(handle).playing);
     }
 
-    /// Not Miles's: the frames its sound holds, in place of `AIL_3D_sample_length`'s bytes of
-    /// 16-bit PCM, which count each channel (`hog_snd.Sound.update3D`).
+    /// Not Miles's: the number of frames in its sound, instead of `AIL_3D_sample_length`'s size in
+    /// bytes of 16-bit PCM, which counts each channel (`hog_snd.Sound.update3D`).
     pub fn sample3DFrames(mixer: *Mixer, handle: Sample3D) u32 {
         mixer.lock.acquire();
         defer mixer.lock.release();

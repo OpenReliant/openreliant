@@ -997,10 +997,8 @@ const GameFiles = struct {
     /// The file `name` without the extension of a mod's recording (`recordings.Kind`); null if it
     /// has another.
     fn recordingStem(name: []const u8) ?[]const u8 {
-        for (std.enums.values(recordings.Kind)) |kind| {
-            if (withoutSuffix(name, kind.extension())) |stem| return stem;
-        }
-        return null;
+        const kind = recordings.Kind.of(name) orelse return null;
+        return withoutSuffix(name, kind.extension());
     }
 
     /// The file `name` without the picture extension; null if it has a different extension.

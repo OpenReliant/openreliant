@@ -192,7 +192,7 @@ pub const Level = struct {
             const kind = for (std.enums.values(PointKind)) |candidate| {
                 if (isPoint(attribute.name, candidate)) break candidate;
             } else continue;
-            const size = if (kind == .jet) if (level.find(try std.fmt.allocPrint(arena, "{s}Size", .{attribute.name}))) |sized| sized.number() else null else null;
+            const size = if (kind == .jet) if (level.find(try arena.print("{s}Size", .{attribute.name}))) |sized| sized.number() else null else null;
             try found.append(arena, .{ .name = attribute.name, .kind = kind, .position = position, .size = size });
         }
         return found.items;
@@ -208,7 +208,7 @@ fn fieldOf(name: []const u8, prefix: []const u8) ?[]const u8 {
 
 /// The attribute name of `prefix`'s field `name`.
 fn fieldName(arena: Allocator, prefix: []const u8, name: []const u8) Allocator.Error![]const u8 {
-    return std.fmt.allocPrint(arena, "{s}_{s}", .{ prefix, name });
+    return arena.print("{s}_{s}", .{ prefix, name });
 }
 
 /// The matrix row a hardpoint's field gives, `xform0` to `xform3`, or null for another field.

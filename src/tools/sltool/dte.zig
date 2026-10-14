@@ -491,11 +491,11 @@ fn check(ctx: Context, mission: dte.Mission) !void {
 
     var failure: dte.source.compile.Failure = undefined;
     const built = dte.source.compile.compile(gpa, tree, &failure) catch |err| switch (err) {
-        error.Invalid => return fail(out, try std.fmt.allocPrint(gpa, "source, at {f}", .{failure})),
+        error.Invalid => return fail(out, try gpa.print("source, at {f}", .{failure})),
         else => return err,
     };
     if (try dte.same.difference(gpa, mission, try .parse(built))) |difference| {
-        return fail(out, try std.fmt.allocPrint(gpa, "built again from its source: {s}", .{difference}));
+        return fail(out, try gpa.print("built again from its source: {s}", .{difference}));
     }
     // And the engine binds it, as starting the mission does.
     var bound: openreliant.engine.game.mission.Mission = try .bind(gpa, built);

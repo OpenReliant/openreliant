@@ -116,7 +116,7 @@ pub const description_lines: Canvas.Lines = .{ .width = details_lines.width, .he
 pub const thumbnail_box: [2]i32 = .{ details_lines.width, 70 };
 pub const thumbnail_gap = 6;
 /// The most pixels' bytes a thumbnail is read to, far more than the panel shows.
-const most_thumbnail_bytes = 16 * 1024 * 1024;
+const most_thumbnail_bytes = std.fmt.parseIntSizeSuffix("16MiB", 10) catch unreachable;
 
 /// The arrows that move the chosen mod up or down the order: a gold box of up and down arrows, unlike
 /// the lists' arrows that scroll the list, in the middle of the gap between the frames and

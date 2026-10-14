@@ -160,8 +160,8 @@ pub const Effects = struct {
     classes: [hog_snd.max_voices_3d]Class = @splat(.not_reserved),
     /// Added by OpenReliant: what each 3D voice's rates are scaled by (`rateScale`).
     rate_scales: [hog_snd.max_voices_3d]f32 = @splat(1),
-    /// Added by OpenReliant: the starting volume and the minimum distance, in Miles's units, of each
-    /// 3D voice's sound, for fading out script sounds (`heardLevel`).
+    /// Added by OpenReliant: the starting volume and the minimum distance, in Miles's units, of
+    /// each 3D voice's sound, for fading out script sounds (`heardLevel`).
     levels: [hog_snd.max_voices_3d]i32 = @splat(0),
     nears: [hog_snd.max_voices_3d]f32 = @splat(0),
     /// The player's engine sound (`0x0058CB04`), and when its afterburner last came on or went off
@@ -182,9 +182,9 @@ pub const Effects = struct {
     }
 };
 
-/// Not the game's: the volume factor for a script sound at `distance`, so that it fades out at
-/// `far` instead of cutting off there. Beyond `near`, the drivers apply the inverse distance law,
-/// `near / distance`. This factor makes the total gain the smaller of that and
+/// Added by OpenReliant: the volume factor for a script sound at `distance`, so that it fades out
+/// at `far` instead of cutting off there. Beyond `near`, the drivers apply the inverse distance
+/// law, `near / distance`. This factor makes the total gain the smaller of that and
 /// `(1 - (distance - near) / (far - near))` squared, which reaches 0 at `far`. FMOD calls this the
 /// inverse tapered roll-off.
 pub fn fadeToFar(near: f32, far: f32, distance: f32) f32 {
@@ -304,13 +304,14 @@ pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u
     return playFile(sound, scene, at, facing, owner, which, null, volume, class);
 }
 
-/// `play`, with the WAV file `file`, if given, in place of the bank's sound for `which`: a mod's own
-/// sound, played like `which`. **Improvement:** the game only plays its banks' sounds.
+/// `play`, but with the WAV file `file`, if given, instead of the bank's sound for `which`: a
+/// mod's own sound, played like `which`. **Improvement:** the original only plays its banks'
+/// sounds.
 pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, file: ?[]const u8, volume: f32, class: Class) ?u8 {
     return begin(sound, scene, &sounds.definitions[@backingInt(which)], .{ .game = which }, at, facing, owner, file, volume, class);
 }
 
-/// Not the game's: the settings of a 3D script sound (`playOwn`).
+/// Added by OpenReliant: the settings of a 3D script sound (`playOwn`).
 pub const Own = struct {
     /// Where it plays: at an object, given by its slot, which it follows, or at a fixed point.
     at: union(enum) { object: u16, point: Vector },
@@ -335,10 +336,10 @@ pub const default_far = sounds.definitions[@backingInt(sounds.Sound.gun01)].max_
 /// The direction a script sound at a point faces. It doesn't matter: the sound has no cone.
 const facing_anywhere: Vector = .{ 0, 0, 1 };
 
-/// Not the game's: plays the WAVE file `file` as a 3D script sound (`openreliant.audio`) with the
-/// settings in `own`, on a free voice, with no cone. `file` must stay valid while it plays. The
-/// sound doesn't start beyond `own.far`. Once started, it plays until it ends, or until it's
-/// stopped if it loops (`hog_snd.Sound.update3D`). Returns the voice, or null.
+/// Added by OpenReliant: plays the WAVE file `file` as a 3D script sound (`openreliant.audio`)
+/// with the settings in `own`, on a free voice, with no cone. `file` must stay valid while it
+/// plays. The sound doesn't start beyond `own.far`. Once started, it plays until it ends, or
+/// until it's stopped if it loops (`hog_snd.Sound.update3D`). Returns the voice, or null.
 pub fn playOwn(sound: *Sound, scene: Scene, file: []const u8, own: Own) ?u8 {
     const follows: Follows, const at: ?Vector, const owner: ?u16 = switch (own.at) {
         .object => |slot| .{ .object, null, slot },
@@ -474,8 +475,8 @@ fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Pla
     driver.set3DVelocity(voice.sample, hog_snd.miles(moving));
     driver.set3DSampleCone(voice.sample, definition.cone_inner, definition.cone_outer, std.math.lossyCast(i32, definition.cone_outer_volume));
     driver.set3DSampleDistances(voice.sample, range, min_distance * hog_snd.distance_scale);
-    // Not the game's: how far the sound of what it follows spreads, its model's radius, which the
-    // software mixer leaves out.
+    // Added by OpenReliant: the sound spreads over the radius of the model it follows. The
+    // software mixer ignores the radius.
     driver.set3DSampleRadius(voice.sample, radius * hog_snd.distance_scale);
     const rate: u32 = switch (played) {
         .game => |which| switch (which) {
@@ -557,18 +558,19 @@ pub fn engineSound(ship_type: gameobj.Type) sounds.Sound {
     return .pship01;
 }
 
-/// The engine's sound a mod gives its ship type, a WAV file's bytes, which plays as its base's would,
-/// pitched and loudened by the throttle the same way; null for its base's.
+/// The engine sound that a mod gives its ship type, as the bytes of a WAV file. It plays like the
+/// base type's sound, with the same pitch and volume changes from the throttle. Returns null if
+/// the mod gives none, so the base type's sound plays.
 fn ownEngineSound(ship_type: gameobj.Type) ?[]const u8 {
     const mod = ship_type.added() orelse return null;
     return mod.extra.engine_sound;
 }
 
-/// The player's engine started on the engine's voice: the sound for the player's ship type
-/// (`engineSound`), or the one a mod gives the type (`ownEngineSound`). The game starts it in the
-/// Reliant's and the Yamato's launches, as the ship comes out (`launch_reliant_run` at `0x0041B2AE`,
-/// `launch_yamato_run` at `0x00419A50`), and as the afterburner ends where it has no voice of its
-/// own (`engineUpdate`, `0x0049DE94`).
+/// Starts the player's engine sound on the engine's voice: the sound for the player's ship type
+/// (`engineSound`), or the one a mod gives the type (`ownEngineSound`). The game starts it during
+/// the Reliant's and the Yamato's launches, as the ship comes out (`launch_reliant_run` at
+/// `0x0041B2AE`, `launch_yamato_run` at `0x00419A50`), and when the afterburner ends, if the
+/// afterburner has no voice of its own (`engineUpdate`, `0x0049DE94`).
 fn startEngine(sound: *Sound, scene: Scene) void {
     const all = scene.objects;
     const ship_type = all.slots[all.player].object.type;

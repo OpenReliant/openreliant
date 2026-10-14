@@ -196,7 +196,7 @@ const Mode = union(enum) {
 };
 
 /// The most of Ghidra's listing this reads: it is not one of the game's files, and runs longer.
-const max_listing_size = 256 << 20;
+const max_listing_size = std.fmt.parseIntSizeSuffix("256MiB", 10) catch unreachable;
 
 /// The payload executable at `path`, read whole, as a reader of its memory.
 fn loadBinary(init: std.process.Init, arena: std.mem.Allocator, path: []const u8) !image.Reader {

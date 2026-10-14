@@ -365,5 +365,5 @@ test Tree {
 
 test Position {
     var buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("12:5", try std.fmt.bufPrint(&buffer, "{f}", .{Position{ .line = 11, .column = 4 }}));
+    try std.testing.expectEqualStrings("12:5", try std.mem.print(&buffer, "{f}", .{Position{ .line = 11, .column = 4 }}));
 }

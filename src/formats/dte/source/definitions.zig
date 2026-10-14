@@ -131,7 +131,7 @@ fn writeEventFields(arena: Allocator, w: *Writer) Error!void {
     var found: std.StringArrayHashMapUnmanaged(Checked) = .empty;
     for (conditions.table, 0..) |condition, number| {
         const event = try script.eventNames(arena, condition.values);
-        const condition_name = vocabulary.name(.condition, @intCast(number)) orelse try std.fmt.allocPrint(arena, "{d}", .{number});
+        const condition_name = vocabulary.name(.condition, @intCast(number)) orelse try arena.print("{d}", .{number});
         for (condition.values, event) |value, name| {
             if (!value.checked) continue;
             const slot = try found.getOrPut(arena, name);

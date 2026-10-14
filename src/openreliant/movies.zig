@@ -245,16 +245,15 @@ const Bank = struct {
     file: hog_snd.BankFile,
     voice: ?u8,
 
-    /// The bank `name` names, read from `resources` (`hog_load`) with the sounds mods give in place
-    /// of its own, which `codec` decodes, and its first sound played through `sound` at `volume`,
-    /// `loops` times, from the middle at its own pitch (`sound_play`); null where the bank is left
-    /// out.
+    /// Reads the bank `name` from `resources` (`hog_load`), with the sounds that mods replace
+    /// decoded by `codec`, and plays its first sound through `sound` at `volume`, `loops` times,
+    /// centred and at its own pitch (`sound_play`). Returns null if the bank can't be read.
     fn start(gpa: Allocator, resources: *const game.bigfile.Hog, codec: engine.bink.Codec, sound: *hog_snd.Sound, name: []const u8, volume: i32, loops: u32) ?Bank {
         const file = hog_snd.BankFile.read(gpa, resources, name, codec) orelse return null;
         return .{ .file = file, .voice = sound.play(file.bank, 0, volume, loops, hog_snd.centre, hog_snd.own_pitch) };
     }
 
-    /// Its voice ended (`sound_voice_end`), then the bank freed.
+    /// Ends its voice (`sound_voice_end`), then frees the bank.
     fn stop(bank: Bank, gpa: Allocator, sound: *hog_snd.Sound) void {
         if (bank.voice) |v| sound.endVoice(v);
         bank.file.deinit(gpa);

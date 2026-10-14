@@ -861,8 +861,8 @@ test "the canon campaign's missions keep the rules OpenReliant 0.8 applied by nu
             12, 13, 17, 22 => 1,
             else => number,
         };
-        try std.testing.expectEqualStrings(try std.fmt.bufPrint(&movie, "new_m{d:0>2}.bik", .{shown}), mission.briefing.hologram.?);
-        try std.testing.expectEqualStrings(try std.fmt.bufPrint(&tag, "ms_speech\\enrbr_tag{d:0>2}.ut", .{number}), mission.briefing.last_word.?);
+        try std.testing.expectEqualStrings(try std.mem.print(&movie, "new_m{d:0>2}.bik", .{shown}), mission.briefing.hologram.?);
+        try std.testing.expectEqualStrings(try std.mem.print(&tag, "ms_speech\\enrbr_tag{d:0>2}.ut", .{number}), mission.briefing.last_word.?);
         try std.testing.expectEqual(null, mission.briefing.speech);
     }
 }

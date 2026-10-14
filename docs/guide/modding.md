@@ -374,13 +374,13 @@ Movies in modern formats are planned ([#1179](https://github.com/OpenReliant/ope
 A piece of music is a WAV file (16-bit PCM or IMA ADPCM), or a FLAC, MP3, Ogg Vorbis or Opus file,
 at any rate, named after the game's piece: `New_Pensive.wav`, `New_Pensive.flac`, `New_Pensive.mp3`,
 `New_Pensive.ogg` or `New_Pensive.opus` replaces the game's `music\New_Pensive.wav`. A `.ogg` or
-`.opus` file can hold either Vorbis or Opus. If a mod has more than one, OpenReliant takes the first
-in that order: WAV, FLAC, MP3, Ogg, then Opus. FLAC keeps the music exactly as recorded in about two
+`.opus` file can hold either Vorbis or Opus. If a mod has more than one, OpenReliant uses the first
+in this order: WAV, FLAC, MP3, Ogg, then Opus. FLAC keeps the music exactly as recorded in about two
 thirds of the space of 16-bit WAV. MP3, Vorbis and Opus take less space still, but lose some of the
-sound. A piece in any format but WAV decodes over the next few frames, so that the game doesn't
-stall, and starts once it's decoded, a fraction of a second later. If the game's piece loops back to
-a point partway through, the mod's piece loops back to the same moment in the music, whatever its
-format. Make it the same length as the game's piece, or at least as long as its loop point, to keep
+sound. A piece in any format other than WAV is decoded over the next few frames, so the game
+doesn't stall, and starts once it is decoded, a fraction of a second later. If the game's piece
+loops back to a point partway through, the mod's piece loops back to the same point in time,
+whatever its format. Make it the same length as the game's piece, or at least as long as its loop point, to keep
 the loop where the game has it. If the game's piece can't be read, the mod's piece loops back to the
 game file's byte offset instead, which may be the wrong moment, and the log says so.
 [`examples/mods/music`](../../examples/mods/music) replaces the main menu's music with a track made
@@ -402,14 +402,14 @@ smp3d.fat` names the 3D sounds that play each of that bank's sounds. If a mod ha
 sound, the bank's own sound plays, so a mod can replace just a few.
 
 A sound is a WAV file (16-bit or 8-bit PCM, or IMA ADPCM), or a FLAC, MP3, Ogg Vorbis or Opus file,
-at any rate, mono or stereo. If a mod has more than one for a sound, OpenReliant takes the first in
+at any rate, mono or stereo. If a mod has more than one for a sound, OpenReliant uses the first in
 the same order as for music ([Music](#music)). MP3 adds a little silence at the start and the end,
 which you hear when a sound loops, such as an engine's, so the other formats suit sounds better. A
 sound plays wherever the game plays the bank's, with the bank's priority, and at the volume, pitch
-and place the game gives it. A 3D sound plays at its own pitch whatever its rate. In stereo, it
-keeps its width as far as what it comes from has a size: a big ship's engine close by sounds wide,
-and narrows to a point as the ship moves away, while a shot, a missile or an explosion is a point.
-With `--original`, which mixes the sound plainly, a 3D sound in stereo plays in mono so that it can
+and place the game gives it. A 3D sound plays at its own pitch, whatever its rate. A stereo 3D
+sound is only as wide as the thing it comes from: a big ship's engine sounds wide close by and
+narrows to a point as the ship moves away, while a shot, a missile or an explosion is a point. With
+`--original`, which uses the plain software mixer, a stereo 3D sound plays in mono so that it can
 still be placed. Scripts can also play a sound file from their mod by name, in any of these
 formats, in 2D or 3D ([Sound](scripting.md#sound)).
 
@@ -706,9 +706,9 @@ The game keeps its lines in `ms_speech\msspeech.hog`, under names without an ext
 `ABRT_001`. A mod's line replaces the game's line with the same name. `sltool speech extract
 ms_speech/msspeech.hog lines` saves every line as a WAV file, to find the one to replace.
 
-A mod's line is best a recording, a WAV file or a FLAC, MP3, Ogg Vorbis or Opus file named after the
-line: `abrt_001.wav` or `abrt_001.opus`, say, replaces `ABRT_001`. If a mod has more than one,
-OpenReliant takes the first in the same order as for music ([Music](#music)). The line plays as
+The best way to replace a line is with a recording: a WAV, FLAC, MP3, Ogg Vorbis or Opus file
+named after the line. For example, `abrt_001.wav` or `abrt_001.opus` replaces `ABRT_001`. If a mod
+has more than one, OpenReliant uses the first in the same order as for music ([Music](#music)). The line plays as
 recorded, at its own rate, mono or stereo, with the same effects as the game's lines: the radio's
 sound for a radio line, and a briefing's last word at the narration's loudness. WAV files can hold
 16-bit or 8-bit PCM or IMA ADPCM, which audio editors write by default. FLAC is about half the size
@@ -873,8 +873,8 @@ When the player flies it, it can also give:
   picture at two or four times that keeps it sharp. A picture left out keeps the base's shape.
 - `WingIcon`, the name of the picture the wing's window shows the ship as, `teapoticon_000.png`,
   drawn over the base's icon's rectangle.
-- `EngineSound`, a WAV file, PCM or IMA ADPCM at any rate, that loops as the engine's sound,
-  pitched and loudened by the throttle as the base's is. Give it whole cycles of each tone, so that
+- `EngineSound`, a WAV file, PCM or IMA ADPCM at any rate, that loops as the engine's sound. The
+  throttle changes its pitch and volume as it does for the base type's sound. Give it whole cycles of each tone, so that
   its loop doesn't click.
 - `BlindFire` and `SpectralShields`, `yes` or `no`, whether it carries blind fire and spectral
   shields. Without them, it carries what its base carries. The loadout lists them with its specials.
@@ -924,8 +924,9 @@ A gun uses its base's shots, flashes and sounds, except for the ones it gives it
   extension, so a PNG, DDS or KTX2 file works. Give it a transparent background.
 - `ShotSize` is how far the picture reaches from the shot's middle in each direction. The default
   is 60, the size of the Pulse Cannon's flare.
-- `Sound` is a WAV file in the mod, PCM or IMA ADPCM at any rate, that each shot makes in place of
-  its base's. It is heard as its base's sound is: as far, as loud, and following the shot.
+- `Sound` is a WAV file in the mod, PCM or IMA ADPCM at any rate, that each shot makes instead of
+  the base gun's sound. It is heard like the base gun's sound: as far, as loud, and following the
+  shot.
 - `Flash` is a picture in the mod, which the muzzle flash is drawn with as each shot leaves the
   gun, in place of its base's flares: across the muzzle and in three blades along the flash, added
   to what's behind it, shrinking away as its base's does. It is found as `Shot` is. Black is
@@ -1269,7 +1270,7 @@ most:
 | Build a model | `sltool shp from-obj <in.obj> <out.shp>`, `sltool shp from-gltf <in.gltf> <out.shp>` |
 | Save a face film's frames, or make a film | `sltool fm8 extract <film> <out-dir>`, `sltool fm8 encode <frames-dir> <film>` |
 | Save lines as WAV files, or make a line | `sltool speech extract <archive> <out-dir>`, `sltool speech encode <in.wav> <out.ut>` |
-| List a sound bank's sounds, or save them as WAV files named as a mod's sounds are | `sltool fat ls <bank>`, `sltool fat extract <bank> <out-dir>` |
+| List a sound bank's sounds, or save them as WAV files with the names a mod's sounds use | `sltool fat ls <bank>`, `sltool fat extract <bank> <out-dir>` |
 | List a mission's ships, triggers and script parts | `sltool dte ships <mission>`, `sltool dte triggers <mission>`, `sltool dte parts <mission>` |
 | List a stats table | `sltool stats list <stats.bin>` |
 
@@ -1326,8 +1327,8 @@ problem](https://github.com/OpenReliant/openreliant/issues/new?template=mod_prob
 report one. As it starts, it lists each mod it loads, in order, by its manifest's name if it has
 one, and then what each of the mod's files does: which game file, texture, shape, picture, font,
 line or sound it replaces, which earlier mod's file it replaces, or which file it adds. A recording
-in another format than the game file it replaces, such as `New_Pensive.flac`, is listed as replacing
-that file, `New_Pensive.wav`. A mod that the mods screen has turned off is listed as off, and none
+in a different format from the game file it replaces, such as `New_Pensive.flac`, is listed as
+replacing `New_Pensive.wav`. A mod that the mods screen has turned off is listed as off, and none
 of it is used. When a font is loaded, the log says which outline font draws it.
 
 ```text

@@ -21,7 +21,7 @@ extern fn openreliant_shader_diagnostic(result: *const Native) [*:0]const u8;
 extern fn openreliant_shader_free(result: *Native) void;
 
 /// The largest part of a shader's source the compiler takes.
-pub const max_source_bytes = 1024 * 1024;
+pub const max_source_bytes = std.fmt.parseIntSizeSuffix("1MiB", 10) catch unreachable;
 
 /// The message for a source or a name that holds a NUL byte, which the libraries can't take.
 const nul_message = "shader source and filename cannot contain NUL";
@@ -103,7 +103,7 @@ pub fn compile(gpa: Allocator, name: []const u8, source: []const u8) Allocator.E
 pub fn compileParts(gpa: Allocator, kind: Kind, stage: Stage, parts: []const Part, preamble: []const u8) Allocator.Error!Result {
     std.debug.assert(parts.len > 0 and parts.len <= max_parts);
     for (parts) |part| {
-        if (part.source.len > max_source_bytes) return .{ .diagnostic = try gpa.print("{s}: shader source exceeds 1 MiB", .{part.name}) };
+        if (part.source.len > max_source_bytes) return .{ .diagnostic = try gpa.print("{s}: shader source exceeds {Bi}", .{ part.name, max_source_bytes }) };
         if (std.mem.findScalar(u8, part.source, 0) != null or std.mem.findScalar(u8, part.name, 0) != null)
             return .{ .diagnostic = try gpa.dupe(u8, nul_message) };
     }

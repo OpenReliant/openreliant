@@ -97,7 +97,7 @@ Each example mod shows one part of the scripting, with comments in its files:
 | [`dvd`](../../examples/mods/dvd) | A menu script that [draws](#drawing) over the menus |
 | [`interceptor`](../../examples/mods/interceptor) | A mod's ship type, flown in a [game mode](#game-modes) |
 | [`main-menu`](../../examples/mods/main-menu) | [Replacing a screen](#replacing-a-screen) of the front end |
-| [`music`](../../examples/mods/music) | A piece of music in place of the game's, which keeps its [loop point](modding.md#music), and a track of [the CD player](#the-cd-players-tracks) that plays it, from a load script |
+| [`music`](../../examples/mods/music) | A piece of music that replaces the game's and keeps its [loop point](modding.md#music), and a track of [the CD player](#the-cd-players-tracks) that plays it, from a load script |
 | [`rules`](../../examples/mods/rules) | [Hooks](#hooks) on the game's functions |
 | [`strafe-run`](../../examples/mods/strafe-run) | A custom order, a [HUD display](#hud-displays), a [camera view](#camera-views), a [screen](#screens) and [actions](#keys-and-actions), through the [built-in interfaces](#built-in-interfaces) |
 | [`tally`](../../examples/mods/tally) | [Saved games](#saved-games), [storage](#storage) and [timers](#timers) |
@@ -1490,10 +1490,10 @@ records.planet_light = vector.create(1, 1, 1)
 
 `records.cd_player` holds the tracks of the CD player in the rooms: the Reliant's twelve, Spirit of
 War to The Catalyst, numbered 1 to 12, then the Yamato's, Final Word to The Rise, numbered 13 to 24
-([The CD player](../engine/cd-player.md#the-lists)). Each has its `piece`, the music it plays, as
-the name of its file in the `music` folder without the `.wav`, and its `name` in the list. A load
-script changes them, so that a mod's music can have a row of the player, and adds tracks after the
-last one, which the player shows on pages of their own:
+([The CD player](../engine/cd-player.md#the-lists)). Each has a `piece`, the music it plays, given
+as the name of its file in the `music` folder without `.wav`, and a `name` shown in the list. A
+load script can change them, so a mod's music can have a row in the player, and can add tracks after
+the last one, which the player shows on extra pages:
 
 ```lua
 local records = require("openreliant.records")
@@ -1506,11 +1506,11 @@ records.cd_player[24] = { piece = "New_Pensive", name = "OpenReliant Theme" }
 records.cd_player[#records.cd_player + 1] = { piece = "Foster_Theme", name = "Foster's Theme" }
 ```
 
-- The player shows twelve tracks to a page: the Reliant's list, the Yamato's, then the tracks mods
-  add, up to 96 tracks in all. A script adds a track by assigning to the number after the last, and
+- The player shows twelve tracks per page: the Reliant's list, the Yamato's, then the tracks that
+  mods add, up to 96 tracks in all. A script adds a track by assigning to the number after the last, and
   can't remove one.
-- A piece is found by the name of its file, like the game's music: a file with the same name in a
-  mod plays in place of the game's, and a mod can also add a piece with a new name.
+- A piece is looked up by its file name, like the game's music: a file with the same name in a mod
+  replaces the game's, and a mod can also add a piece with a new name.
 - Names are read from the game's text and can be changed to any text, in the game's code page.
 - The CD player opens on the list of the carrier the player is on. A menu script can turn to the
   other pages ([The rooms](#the-rooms)).
@@ -1519,20 +1519,21 @@ records.cd_player[#records.cd_player + 1] = { piece = "Foster_Theme", name = "Fo
 
 `records.room_views` holds the views of the carrier's rooms, the places the player stands in
 between missions ([The views](../engine/rooms.md#the-views)): the Reliant's and the Yamato's, 125
-in all, numbered from 1 in the order they lie in the executable. A view has:
+in all, numbered from 1 in the order they are stored in the executable. A view has:
 
-- `movie`, the movie on the way into it, and `loop`, the movie it loops once the player is there:
-  Bink files from the disc's archive, or a mod's of the same name. Without a loop, the way in's
-  last frame stays on the screen. Either can be nil.
-- `label`, the words that show at the foot of the screen while the pointer rests on the way into
+- `movie`, the movie that plays on the way into it, and `loop`, the movie that loops while the
+  player is there: Bink files from the disc's archive, or a mod's file with the same name. Without a
+  loop, the last frame of the way in stays on the screen. Either can be nil.
+- `label`, the text that shows at the bottom of the screen while the pointer is over the way into
   it.
-- `exits`, the views it leads on to, at most 4, by their numbers, and `hotspot`, where the pointer
-  finds the way into it on each view it's an exit of, on the game's 640 by 480 screen.
+- `exits`, the numbers of the views it leads to, at most 4, and `hotspot`, the area of the game's
+  640 by 480 screen where the pointer selects the way into it, in each view that has it as an
+  exit.
 - `action`, what happens once the player is in it, such as `"cd_player"`, which opens the CD player
   ([RoomAction](reference.md#roomaction)).
-- `sound`, the number of the sound the way into it plays, or nil.
+- `sound`, the number of the sound that plays on the way into it, or nil.
 
-A load script changes them, and the rooms play what they say:
+A load script can change them, and the rooms follow the changes:
 
 ```lua
 local records = require("openreliant.records")
@@ -1727,15 +1728,15 @@ return {
 - **Shapes.** A shape number picks a shape from the game's current sprite set: the flight display's
   set for `hud`, or the current menu screen's set for `ui` ([Shapes](modding.md#shapes)). The
   style's `sprites` names another of the game's sets instead, by its name in `resource.hog`, such
-  as `"frntend5.spr"`, the front end's arrows and boxes: it's read the first time a script draws
-  from it, and a mod's copy of it, or its shapes, stand in for the game's as they do on the game's
+  as `"frntend5.spr"`, the front end's arrows and boxes. It's read the first time a script draws
+  from it, and a mod's copy of the set, or of its shapes, replaces the game's as on the game's own
   screens. Each shape keeps its own anchor point, and is drawn at the game's scale times the
   style's `scale`. A set that isn't loaded or found, or a shape it doesn't have, is an error.
-- **The game's screen.** The front end's screens and the rooms are 640 by 480 pictures, fitted to
-  the window in its middle. `ui.from_game_screen(at)` gives the window's pixel at a point of that
-  screen, and `ui.to_game_screen(at)` the point of the screen at a window's pixel, such as the
-  pointer's, so that a script can draw over a place on one of those pictures, and find the pointer
-  over it.
+- **The game's screen.** The front end's screens and the rooms are 640 by 480 pictures, scaled to
+  fit the window and centred in it. `ui.from_game_screen(at)` converts a point on that screen to
+  window pixels, and `ui.to_game_screen(at)` converts a window pixel, such as the pointer's
+  position, to a point on the screen. With them, a script can draw over a spot on one of those
+  pictures, and tell whether the pointer is over it.
 - **Fonts.** A text style's `font` is one of the game's, `"default"`, `"hud"`, `"menu_small"` or
   `"menu_large"`, or a font file in the mod. Text is always drawn in the style's colour.
   - A `.ttf` or `.otf` file is drawn at the window's resolution. It takes the spacing of the game's
@@ -2086,25 +2087,27 @@ player's target.
 
 ### The rooms
 
-`openreliant.rooms` says where the player is in the carrier's rooms, while they're on screen:
+`openreliant.rooms` tells where the player is in the carrier's rooms, while they're on screen:
 
 - `carrier`, `"reliant"` or `"yamato"`.
-- `view`, the view the player stands in, or walks into, by its number in
+- `view`, the number of the view the player is in, or is walking into, in
   [`records.room_views`](#the-rooms-views).
-- `place`, the place whose screen shows: `"itac"`, `"simulator"`, `"locker"` or `"cd_player"`, or
-  `"news"` while the television's report plays. It's nil while the player walks the rooms.
+- `place`, the place whose screen is showing: `"itac"`, `"simulator"`, `"locker"` or
+  `"cd_player"`, or `"news"` while the television's report plays. It's nil while the player walks
+  through the rooms.
 
 All three are nil while the rooms aren't on screen: in flight, in the front end, in the in-game
-options, the briefing and the movies. `on_room_changed(view, place)` runs as either changes: as the
-player sets off for another view, opens or leaves a place, or the rooms come on screen or leave it.
+options, the briefing and the movies. `on_room_changed(view, place)` runs when either changes:
+when the player sets off for another view, opens or leaves a place, or the rooms appear on screen
+or leave it.
 
-The CD player shows [`records.cd_player`](#the-cd-players-tracks)'s tracks a page at a time,
-twelve to a page: the Reliant's list on page 1, the Yamato's on page 2, and the tracks mods add on
-the pages after them. `rooms.cd_player_pages` is how many pages there are. While it's open,
-`rooms.cd_player_page` is the page it shows, and `rooms.set_cd_player_page(page)` turns to another.
-It opens on its carrier's page, numbered 1 to 12 as the game numbers each list. Once a script turns
-a page, the rows are numbered as the records number the tracks, from 13 on page 2. A piece chosen
-plays on, and the pieces that follow it come from its own page, whichever page shows.
+The CD player shows the tracks of [`records.cd_player`](#the-cd-players-tracks) a page at a time,
+twelve per page: the Reliant's list on page 1, the Yamato's on page 2, and the tracks that mods add
+on the pages after them. `rooms.cd_player_pages` is the number of pages. While the CD player is
+open, `rooms.cd_player_page` is the page it shows, and `rooms.set_cd_player_page(page)` turns to
+another. It opens on its carrier's page, with the rows numbered 1 to 12 as in the game. Once a
+script turns a page, the rows are numbered as in the records, from 13 on page 2. A chosen piece
+keeps playing, and the pieces that follow it come from its own page, whichever page is showing.
 
 ```lua
 local rooms = require("openreliant.rooms")

@@ -224,9 +224,9 @@ pub const Pointer = struct {
     /// DirectInput's movements from where its pointer last stood, and puts the system's back
     /// near the window's corner after each.
     pub fn update(pointer: *Pointer, mouse: input.Mouse, screen: [2]u32) void {
-        if (mouse.at) |share| for (&pointer.at, share, screen) |*at, fraction, size| {
+        if (mouse.pixelsIn(screen)) |pixels| for (&pointer.at, @as([2]f32, pixels), screen) |*at, pixel, size| {
             const last: i32 = @intCast(size -| 1);
-            at.* = std.math.clamp(round(fraction * @as(f32, @floatFromInt(size))), 0, last);
+            at.* = std.math.clamp(round(pixel), 0, last);
         };
         const down = mouse.buttons.any();
         pointer.pressed = down and !pointer.down;

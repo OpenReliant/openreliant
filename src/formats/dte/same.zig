@@ -85,7 +85,7 @@ const Comparison = struct {
     b: Side,
 
     fn say(c: *Comparison, comptime message: []const u8, args: anytype) Error!?[]const u8 {
-        return try std.fmt.allocPrint(c.arena, message, args);
+        return try c.arena.print(message, args);
     }
 
     /// Objects compared by the records they stand for, for `statements.same`.
