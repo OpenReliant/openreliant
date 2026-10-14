@@ -488,13 +488,13 @@ starts, calls and stops them ([`running.zig`](../../src/scripting/running.zig)).
 - Menu scripts start at once and run until OpenReliant quits. Player scripts start as a game
   starts and stop as it ends, with the global scripts (`GameScripts` in the driver).
 - Each pass of the driver's loop, before anything is drawn, `Presentation.frame` gets the seconds
-  since the last pass, the devices, the window's size, the camera, the sound and, in a mission,
-  the scene its sounds in 3D play in (`Host.scene`), what each drawing layer is drawn on, and
-  where the player is in the rooms while they're on screen (`Host.rooms`). It tells the scripts of
-  a new window size (`on_window_resized`), of a new view or place in the rooms
-  (`on_room_changed`), of a new piece of music (`on_music_changed`, the piece's path compared
-  ignoring case) and, in flight, of the actions whose controls have just been used (`on_action`,
-  from `Devices.active` without taking the press), then calls `on_frame`.
+  since the last pass, the devices, the window size, the camera, the sound system, the scene for 3D
+  sounds during a mission (`Host.scene`), the view each drawing layer draws on, and the player's
+  place in the rooms while they're on screen (`Host.rooms`). It reports a new window size
+  (`on_window_resized`), a new view or place in the rooms (`on_room_changed`), a new piece of
+  music (`on_music_changed`, comparing paths case-insensitively) and, in flight, the actions whose
+  controls were just pressed (`on_action`, from `Devices.active`, without consuming the press).
+  Then it calls `on_frame`.
 - Each loop of the rooms' driver says what it shows as it runs the scripts' frame
   (`Driver.pump`): the rooms, a place's screen, or a screen outside them, such as the in-game
   options. `openreliant.rooms` reads the last frame's (`rooms.zig`). The host holds values alone,
@@ -521,15 +521,14 @@ where the camera sees them (`hud.Sight`).
 
 ### Sound
 
-[`audio.zig`](../../src/scripting/audio.zig) plays the scripts' sounds on the game's voices
-([Scripts' sounds](../engine/sound.md#scripts-sounds)). `audio.Sounds` keeps the files the scripts
-play, each by its mod and name, decoded into a WAVE file the first time it plays
-(`recordings.decode`), up to 64 MiB together: a file that needs room takes it from the files played
-longest ago, but never from one that plays still, since the software mixer reads a sound's samples
-from its file as it plays. It also keeps the sounds the scripts started, by the number each was
-given (`hog_snd.Starter`), and the family of the script that started it, and forgets each once it
-has ended. As the game ends, it stops the player scripts' sounds, and as the menu scripts reload,
-theirs.
+[`audio.zig`](../../src/scripting/audio.zig) plays script sounds on the game's voices
+([Script sounds](../engine/sound.md#script-sounds)). `audio.Sounds` caches the mod sound files the
+scripts play, by mod and name, decoded into WAVE files on first use (`recordings.decode`), up to
+64 MiB. When the cache is full, it evicts the least recently played files that aren't playing. A
+playing file can't be evicted, because the software mixer reads the samples straight from it.
+`audio.Sounds` also tracks the sounds the scripts started, by ID (`hog_snd.Starter`) and script
+family, and drops them once they end. It stops the player scripts' sounds when the game ends, and
+the menu scripts' sounds when the menu scripts reload.
 
 ### Events to the game
 

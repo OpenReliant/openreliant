@@ -165,6 +165,15 @@ const max_category = 255;
 const max_module_name = 255;
 const max_chunk_name = 255;
 
+/// The message for an error from `Context.readModFile`; null for any other error.
+pub fn fileProblem(err: anyerror) ?[]const u8 {
+    return switch (err) {
+        error.InvalidFileName => "a file name must be printable ASCII, with no folder",
+        error.FileNotFound => "the mod has no file with that name",
+        else => null,
+    };
+}
+
 /// Marks a module as currently loading in `Context.loaded`, to detect circular requires.
 var loading: u8 = 0;
 
@@ -932,6 +941,14 @@ pub const Context = struct {
 
     pub fn modOf(context: *const Context) *const Mod {
         return &context.runtime.mods[context.mod];
+    }
+
+    /// Reads the file `name` of the context's mod into `gpa`. Fails with `error.InvalidFileName`
+    /// if `name` isn't a plain file name, and with `error.FileNotFound` if the mod has no such
+    /// file (`fileProblem`).
+    pub fn readModFile(context: *const Context, gpa: Allocator, name: []const u8) ![]u8 {
+        if (!openreliant.hog.validName(name)) return error.InvalidFileName;
+        return (try context.modOf().readFile(gpa, name)) orelse error.FileNotFound;
     }
 
     /// The mod's memory category.

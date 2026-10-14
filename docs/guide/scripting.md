@@ -2040,48 +2040,48 @@ return {
 ```lua
 local audio = require("openreliant.audio")
 
-audio.play_sound(3, 0.5)                          -- the game's standard sound 3, at half volume
-local hum = audio.play_sound("hum.ogg", { loop = true })   -- a file of the mod, over and over
+audio.play_sound(3, 0.5)                                         -- standard sound 3, half volume
+local hum = audio.play_sound("hum.ogg", { loop = true })         -- a file from the mod, looping
 audio.stop_sound(hum)
-audio.play_sound("ping.wav", { at = vector.create(0, 0, 5000) })     -- in 3D, at a point
-audio.play_sound("ping.wav", { object = target, pitch = 1.5 })      -- in 3D, at an object
-audio.play_music("New_Pensive.wav", { after_fade = true })          -- once the music fades out
-audio.say("countermeasures_low")                  -- Betty's line
+audio.play_sound("ping.wav", { at = vector.create(0, 0, 5000) }) -- 3D, at a point
+audio.play_sound("ping.wav", { object = target, pitch = 1.5 })   -- 3D, following an object
+audio.play_music("New_Pensive.wav", { after_fade = true })       -- after the music fades out
+audio.say("countermeasures_low")                                 -- one of Betty's lines
 ```
 
-- `play_sound` takes the number of one of the game's standard sounds, the menus' and the
-  display's, or the name of a sound file in the script's own mod: a WAV, FLAC, MP3, Ogg Vorbis or
-  Opus file, as a mod's sounds can be ([Sounds](modding.md#sounds)). A file is read and decoded the
-  first time it plays, and kept for the next times. The files the scripts play take at most 64 MiB
-  together once decoded, and the ones played longest ago make room for new ones.
-- Its options are all optional ([SoundOptions](reference.md#soundoptions)): `volume` from 0 to 1,
-  of the effects volume; `pitch`, what the sound's rate is multiplied by, from a sixteenth to 16;
-  `loop`, to play it over and over until it's stopped; and `pan`, from -1 on the left to 1 on the
-  right. A number in place of the table is the volume.
-- With `object` or `at`, the sound plays in 3D while a mission is shown: at an object, moving with
-  it, or at a point of the world, where it stays. It's heard at its full volume within `near`, more
-  quietly farther off, and not at all past `far`, in the game's units. By default they're 10,000
-  and 200,000, as for the guns' shots. A Predator at full throttle covers 320 units a step, 8,000
-  a second, so a sound that should carry as the player flies off needs a lot more. It doesn't
-  start past `far`. Once it plays, it goes on unheard out there, and is heard again as it comes
-  back within `far`. It ends with its mission.
-- `play_sound` returns a number for the sound, which `stop_sound` and `sound_playing` take, or nil
-  where it doesn't play, such as when every voice is busy. A script's sound never cuts off a sound
-  of the game's, but one of the game's may cut off a script's where every voice is busy.
-- A sound plays on after the call that started it. The sounds the player scripts started stop as
-  the game ends, and those of the menu scripts as they're reloaded.
-- `play_music` plays a piece from the game's `music` folder, or a mod's piece of that name
-  ([Music](modding.md#music)), in place of the music playing: for ever, or once with
-  `loop = false`. With `after_fade = true`, it waits for the music playing to fade out, as a
-  mission's music changes. `fade_music` fades the music out, as the game does before a launch, and
-  `stop_music` stops it at once, with the piece that waits.
-- `music` is the name of the piece playing, as `play_music` takes it, or nil.
-  `on_music_changed(piece)` runs as a piece starts, with its name, and as the music stops, with
+- `play_sound` plays a standard game sound (the menu and display sounds) by number, or a sound file
+  from the script's mod by name: WAV, FLAC, MP3, Ogg Vorbis or Opus, the formats mod sounds support
+  ([Sounds](modding.md#sounds)). A file is read and decoded the first time it plays, and cached.
+  The cache holds up to 64 MiB of decoded sound. When it's full, the least recently played files
+  that aren't playing are evicted.
+- The options are all optional ([SoundOptions](reference.md#soundoptions)): `volume`, from 0 to 1,
+  scaled by the effects volume; `pitch`, a factor for the sound's rate, from 1/16 to 16; `loop`,
+  to loop the sound until it's stopped; and `pan`, from -1 (left) to 1 (right). A number instead of
+  a table sets the volume.
+- With `object` or `at`, the sound plays in 3D during a mission: at an object, following it, or at
+  a fixed point. It plays at full volume within `near`, gets quieter with distance, and fades out to
+  silence at `far`. The distances are in the game's units: 10,000 and 200,000 by default, the same
+  as the guns' shots. For scale, a Predator at full throttle covers 320 units a step, or 8,000
+  units a second, so a sound meant to carry as the player flies away needs much larger distances.
+  A sound beyond `far` doesn't start. A sound already playing keeps playing silently beyond `far`,
+  and becomes audible again when it comes back in range. 3D sounds stop when the mission ends.
+- `play_sound` returns an ID for `stop_sound` and `sound_playing`, or nil if the sound doesn't
+  play, for example when every voice is busy. Script sounds never cut off game sounds, but a game
+  sound can cut off a script sound when every voice is busy.
+- Sounds started by player scripts stop when the game ends, and sounds started by menu scripts stop
+  when the menu scripts reload.
+- `play_music` plays a piece from the game's `music` folder, or a mod's piece with that name
+  ([Music](modding.md#music)), replacing the current music. The piece loops unless `loop` is
+  false. With `after_fade = true`, it starts after the current music fades out, as mission music
+  changes do. `fade_music` fades the music out, as the game does before a launch. `stop_music`
+  stops it at once and drops any queued piece.
+- `music` is the name of the piece playing, as passed to `play_music`, or nil.
+  `on_music_changed(piece)` runs when a piece starts, with its name, and when the music stops, with
   nil.
 - `say` takes one of Betty's lines by name ([BettyLine](reference.md#bettyline)).
 
-[`examples/mods/audio`](../../examples/mods/audio) shows the name of each piece as it starts, with a
-chime of its own, and plays its sounds in 3D: a beacon that pings from a point, and a ping from the
+[`examples/mods/audio`](../../examples/mods/audio) plays a chime and shows the piece's name when the
+music changes, and plays 3D sounds: a beacon that pings from a fixed point, and a ping from the
 player's target.
 
 ### The rooms

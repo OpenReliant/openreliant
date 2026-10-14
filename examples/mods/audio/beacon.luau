@@ -1,17 +1,16 @@
--- Sounds in 3D, and the music. In flight, Shift F4 drops a beacon that pings once a second from
--- where the player's ship was, until Shift F4 picks it up again: it's heard at its full volume
--- within 40,000 units, more quietly farther off, and not at all past 400,000. A Predator at full
--- throttle covers 8,000 units a second, so that's five seconds of flight and fifty. Shift F3 has
--- the player's target ping, from the target as it flies. Anywhere, Shift F2 fades the music out,
--- or brings the main menu's piece in where none plays. This is a player script: it runs for the
--- whole game.
+-- 3D sounds and music controls. In flight, Shift F4 drops a beacon that pings once a second at the
+-- ship's position, until Shift F4 is pressed again. It plays at full volume within 40,000 units and
+-- fades out to silence at 400,000. At full throttle a Predator covers 8,000 units a second, so
+-- that's 5 and 50 seconds of flight. Shift F3 plays a ping at the player's target, following it.
+-- Anywhere, Shift F2 fades out the music, or starts the main menu's piece if no music plays. This
+-- is a player script: it runs for the whole game.
 
 local audio = require("openreliant.audio")
 local hud = require("openreliant.hud")
 local input = require("openreliant.input")
 local ship = require("openreliant.self")
 
--- The beacon's sound, by the number play_sound gave it; nil for none.
+-- The ID of the beacon's sound from play_sound; nil if there's no beacon.
 local beacon = nil
 
 local function shifted()
@@ -31,10 +30,10 @@ return {
                     audio.play_music("New_Pensive.wav", { after_fade = true })
                 end
             elseif not hud.shown then
-                -- The sounds in 3D play in flight alone.
+                -- 3D sounds only play in flight.
                 return
             elseif key == "f4" then
-                -- A sound that loops plays until it's stopped, or its mission ends.
+                -- A looping sound plays until it's stopped or the mission ends.
                 if audio.sound_playing(beacon) then
                     audio.stop_sound(beacon)
                     beacon = nil
@@ -49,7 +48,7 @@ return {
             elseif key == "f3" then
                 local target = hud.target and hud.target.object
                 if target then
-                    -- The chime an octave up, at the guns' shots' distances.
+                    -- The chime an octave higher, with the default distances.
                     audio.play_sound("chime.wav", { object = target, pitch = 2 })
                 end
             end

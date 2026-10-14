@@ -715,7 +715,7 @@ fn darrensNaughtyBlag(call: Call, game: aigeneric.Context) void {
 /// How loud a mission's music plays (`cmd_PlayMusic`, `0x00458E16`).
 const music_level = 80;
 
-/// How many times a mission's music plays: for ever (`cmd_PlayMusic`, `0x00458E18`).
+/// The loop count of a mission's music: 0, which loops forever (`cmd_PlayMusic`, `0x00458E18`).
 pub const music_forever = 0;
 
 /// The room the game gives a piece's path (`cmd_PlayMusic`'s buffer, `0x00458DF0`).
@@ -724,17 +724,17 @@ const music_path_size = 128;
 /// The folder the pieces are in (`cmd_PlayMusic`'s format, `0x004F5C14`).
 const music_folder = "music\\";
 
-/// `cmd_PlayMusic` (`0x00458DF0`, command `0x23`): plays the piece the first argument names from
-/// the game's music folder, for ever, at once where the second argument is 1, or else once the
-/// music playing has faded out (`hog_snd.Sound.When.of`, `playPiece`).
+/// `cmd_PlayMusic` (`0x00458DF0`, command `0x23`): plays the piece named by the first argument from
+/// the game's music folder, looping forever. It starts at once if the second argument is 1, and
+/// otherwise after the current music fades out (`hog_snd.Sound.When.of`, `playPiece`).
 fn playMusic(call: Call, game: aigeneric.Context) void {
     const hearing = game.world.hearing orelse return;
     const name = argumentText(call, 0) orelse return;
     playPiece(hearing.sound, name, music_forever, .of(call.args[1], game.world.clock.game_ticks));
 }
 
-/// Plays the piece `name` from the game's music folder `loops` times, 0 for ever, as
-/// `cmd_PlayMusic` plays it, when `when` has it.
+/// Plays the piece `name` from the game's music folder `loops` times (0 loops forever), as
+/// `cmd_PlayMusic` does, starting when `when` says.
 ///
 /// **Fix:** the game writes a path longer than its buffer past it; OpenReliant plays nothing.
 pub fn playPiece(sound: *hog_snd.Sound, name: []const u8, loops: u32, when: hog_snd.Sound.When) void {

@@ -8,7 +8,7 @@ or go away in any release. Copy one as a starting point for your own mod.
 | Mod | What it shows |
 |---|---|
 | [`arena`](arena) | A game mode with its own rules and HUD, which skips the simulator's radio talk (`radio_say`) |
-| [`audio`](audio) | Sounds of the mod's own, on their own and in 3D, and the music: what plays, fading it out, and a piece after it (`openreliant.audio`) |
+| [`audio`](audio) | Playing the mod's own sounds in 2D and 3D, showing which piece of music is playing, and fading the music out (`openreliant.audio`) |
 | [`balance`](balance) | Changing the game's records from a load script |
 | [`bananas`](bananas) | A new gun with its own shot picture, sound and muzzle flash, a missile with a model built from OBJ, a pilot with a voice, a ship that carries them, and a pilot set by a script |
 | [`campaign`](campaign) | A campaign with a briefing screen and a movie |

@@ -138,7 +138,7 @@ pub const Assets = struct {
             return picture.image;
         }
         const gpa = call.runtime().gpa;
-        const file = try readAsset(call, path);
+        const file = try call.context.readModFile(gpa, path);
         defer gpa.free(file);
         // The header gives the room the pixels need, so that room is made before they're read.
         const across, const down = try openreliant.png.size(file);
@@ -193,7 +193,7 @@ pub const Assets = struct {
     fn loadSpriteSet(assets: *Assets, call: Call, name: []const u8) !*hud.Art {
         var buffer: [bigfile.member_name_room]u8 = undefined;
         const member = bigfile.memberName(&buffer, name);
-        if (!openreliant.hog.validName(member)) return error.InvalidAssetName;
+        if (!openreliant.hog.validName(member)) return error.InvalidFileName;
         for (assets.sprite_sets.items) |set| {
             if (std.ascii.eqlIgnoreCase(set.name, member)) return set.art;
         }
@@ -228,7 +228,7 @@ pub const Assets = struct {
             if (font.context == call.context and same_layout and std.ascii.eqlIgnoreCase(font.name, path)) return font.opened;
         }
         const gpa = call.runtime().gpa;
-        const file = try readAsset(call, path);
+        const file = try call.context.readModFile(gpa, path);
         defer gpa.free(file);
         const needed = if (is_bitmap) file.len else file.len + bitmap.font.bytes.len;
         try assets.makeRoom(gpa, needed);
@@ -266,11 +266,9 @@ pub const Assets = struct {
     }
 };
 
-/// What's wrong with a mod's picture or font, in plain words for the script's error.
+/// The message for an error with a mod's picture or font.
 fn problem(err: anyerror) []const u8 {
     return switch (err) {
-        error.InvalidAssetName => "a file's name must be printable ASCII",
-        error.AssetNotFound => "the mod has no file with that name",
         error.TooManyAssets => std.fmt.comptimePrint("the mods' fonts, the sprite sets and the pictures drawn in the last {d} frames already take the {d} files the cache holds", .{ kept_frames, max_assets }),
         error.AssetsTooLarge => std.fmt.comptimePrint("the mods' fonts, the sprite sets and the pictures drawn in the last {d} frames would take more than {d} MiB", .{ kept_frames, max_asset_bytes >> 20 }),
         error.SpriteSetNotFound => "neither the mods nor the game's resource.hog have it",
@@ -281,13 +279,8 @@ fn problem(err: anyerror) []const u8 {
         error.InvalidFont => "it can't be read as a TrueType or OpenType font",
         error.BaseFontHasNoInk => "its base font has no letters to fit it over",
         error.NoCapitalsInCommon => "it has none of the capitals " ++ hud.outline.references ++ " that its base font has",
-        else => @errorName(err),
+        else => runtime.fileProblem(err) orelse @errorName(err),
     };
-}
-
-fn readAsset(call: Call, path: []const u8) ![]u8 {
-    if (!openreliant.hog.validName(path)) return error.InvalidAssetName;
-    return (try call.context.modOf().readFile(call.runtime().gpa, path)) orelse error.AssetNotFound;
 }
 
 fn selectedFont(call: Call, view: View, name: ?[]const u8, base: Font) *hud.Opened {

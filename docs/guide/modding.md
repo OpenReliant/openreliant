@@ -386,8 +386,8 @@ game file's byte offset instead, which may be the wrong moment, and the log says
 [`examples/mods/music`](../../examples/mods/music) replaces the main menu's music with a track made
 for it, whose body starts where the game's piece loops back. The CD player in the rooms plays only
 the pieces on its lists, which a load script can change and add tracks to ([The CD player's
-tracks](scripting.md#the-cd-players-tracks)), so the example gives its track a row there too. A
-script can play a piece, fade the music out or stop it, and hear it change
+tracks](scripting.md#the-cd-players-tracks)), so the example gives its track a row there too.
+Scripts can also play, fade out and stop music, and get notified when it changes
 ([Sound](scripting.md#sound)).
 
 ### Sounds
@@ -410,8 +410,8 @@ and place the game gives it. A 3D sound plays at its own pitch whatever its rate
 keeps its width as far as what it comes from has a size: a big ship's engine close by sounds wide,
 and narrows to a point as the ship moves away, while a shot, a missile or an explosion is a point.
 With `--original`, which mixes the sound plainly, a 3D sound in stereo plays in mono so that it can
-still be placed. A script can also play a sound file of its own mod by its name, in any of these
-formats, on its own or in 3D ([Sound](scripting.md#sound)).
+still be placed. Scripts can also play a sound file from their mod by name, in any of these
+formats, in 2D or 3D ([Sound](scripting.md#sound)).
 
 ## Textures
 

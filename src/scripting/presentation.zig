@@ -9,8 +9,8 @@
 //!   `on_key_release` as keys go down and up; `on_action` as the controls bound to an action are
 //!   used in flight; `on_window_resized` as the window changes size; `on_room_changed` as the
 //!   player moves through the carrier's rooms; and `on_music_changed` as the music changes.
-//! - They play sounds and music (`audio.zig`). The sounds a family's scripts started stop with
-//!   them: the player scripts' as the game ends, and the menu scripts' as they're reloaded.
+//! - They play sounds and music (`audio.zig`). Sounds started by player scripts stop when the game
+//!   ends, and sounds started by menu scripts stop when the menu scripts reload.
 //! - They draw over the flight display and the menus (`drawing.zig`), and change the game only by
 //!   sending events to the global scripts (`core.send_global_event`), whose data is copied into the
 //!   game's state, as it would be sent to another machine.
@@ -84,7 +84,7 @@ pub const Host = struct {
     flight: ?Flight = null,
     /// The sound, where any is heard.
     sound: ?*hog_snd.Sound = null,
-    /// The scene the sounds in 3D play in, while a mission is shown.
+    /// The scene 3D sounds play in, during a mission.
     scene: ?hog_snd.Scene = null,
     /// Whether the player is flying, which is when the controls' actions mean anything.
     flying: bool = false,
@@ -165,10 +165,10 @@ pub const Presentation = struct {
     /// The page a script asked the CD player to turn to (`rooms.set_cd_player_page`), until the CD
     /// player takes it (`takeCdPlayerPage`).
     cd_player_request: ?usize = null,
-    /// The sounds the scripts play.
+    /// The script sounds and their cache.
     sounds: audio.Sounds = .{},
-    /// The piece of music playing last frame, by its path, which `on_music_changed` is told against;
-    /// null while none played.
+    /// The piece of music that was playing last frame, for detecting changes (`on_music_changed`);
+    /// null if none was. Only its path is used.
     music: ?hog_snd.Music.Piece = null,
 
     /// Starts the `Menu` scripts of `opened`, which can read `held`, the records. `version` is
@@ -342,8 +342,9 @@ pub const Presentation = struct {
         }
     }
 
-    /// Runs a frame of the scripts: what they drew last frame goes, the window's new size, where
-    /// the player is in the rooms, the music and the actions used are told, and `on_frame` runs.
+    /// Runs a frame of the scripts: clears the last frame's drawing, reports changes to the window
+    /// size, the player's place in the rooms, the music and the actions used, then calls
+    /// `on_frame`.
     pub fn frame(shown: *Presentation, host: Host) void {
         shown.host = host;
         shown.views = host.views;
@@ -385,8 +386,8 @@ pub const Presentation = struct {
         shown.runtime.registries.frame(shown.runtime, host.seconds);
     }
 
-    /// Tells the scripts the piece of music at `path` plays, or none for null, where that's a change
-    /// from last frame.
+    /// Calls `on_music_changed` if the piece playing, given by its `path` or null for none, differs
+    /// from last frame's.
     fn tellMusic(shown: *Presentation, path: ?[]const u8) void {
         if (samePiece(path, if (shown.music) |*piece| piece.pathOf() else null)) return;
         shown.music = if (path) |playing| .of(playing, hog_snd.forever, hog_snd.loudest) else null;
@@ -431,8 +432,8 @@ pub const Presentation = struct {
     }
 };
 
-/// Whether the pieces of music at `one` and `other` are the same, or neither plays. A piece is the
-/// same whatever the case of its path, as Windows has it.
+/// Whether the music paths `one` and `other` name the same piece, ignoring case as Windows does.
+/// Two nulls, for no music, count as the same.
 fn samePiece(one: ?[]const u8, other: ?[]const u8) bool {
     const first = one orelse return other == null;
     const second = other orelse return false;
@@ -486,7 +487,7 @@ const Fixture = struct {
     font: hud.Opened,
     /// Where the frames have the player in the rooms; null while they aren't on screen.
     rooms: ?Host.Rooms = null,
-    /// The sound the frames have, if any.
+    /// The sound system for the frames, if any.
     sound: ?*hog_snd.Sound = null,
 
     fn init(fixture: *Fixture, made: []const struct { []const u8, []const struct { []const u8, []const u8 } }) !void {
@@ -1418,26 +1419,26 @@ test "scripts play their mods' sounds, control the music, and hear it change" {
         }
     }.voice;
 
-    // The menu script's sound plays at twice its rate, on the left, and the music starts.
+    // The menu script's sound plays at twice its rate, panned left, and the music starts.
     fixture.frame(0.016, .{ 640, 480 });
     const v = scripted(sound).?;
     const state = speaker.mixer.samples[@backingInt(sound.voices[v].sample)].state;
     try std.testing.expectEqual(2 * hog_snd.testing.Speaker.rate, state.playing.?.rate);
     try std.testing.expectEqual(0, state.pan);
-    // The sound stops, and the next piece waits for the music to fade out.
+    // The sound stops, and the next piece is queued until the music fades out.
     fixture.frame(0.016, .{ 640, 480 });
     try std.testing.expectEqual(engine.mss.Status.done, driver.sampleStatus(sound.voices[v].sample));
     try std.testing.expect(sound.music.fading and sound.music.queued != null);
     var ticks: u32 = 0;
     while (sound.music.stream != null) : (ticks += 6) sound.timerTick(ticks);
     sound.updateMusic();
-    // The music stops, with nothing after it.
+    // The music stops, and the queue is empty.
     fixture.frame(0.016, .{ 640, 480 });
     fixture.frame(0.016, .{ 640, 480 });
     try std.testing.expectEqual(null, sound.pieceOn());
     try std.testing.expectEqualStrings("one.wav,two.wav,nil", shown.layers.get(.ui).text.items);
 
-    // A player script's sound comes from the same file, and stops as the game ends.
+    // A player script's sound uses the same cached file, and stops when the game ends.
     try shown.startGame(null, fixture.mission.objects, false);
     fixture.frame(0.016, .{ 640, 480 });
     const hum = scripted(sound).?;
@@ -1491,7 +1492,7 @@ test "the audio example chimes as a piece starts, drops a beacon, and fades the 
     shown.frame(host);
     fixture.devices.keyboard.down[@backingInt(input.Key.left_shift)] = true;
 
-    // Shift F2 brings the main menu's piece in. As it starts, the chime plays, and its name shows.
+    // Shift F2 starts the main menu's piece. When it starts, the chime plays and its name shows.
     press(shown, .f2);
     sound.updateMusic();
     shown.frame(host);
@@ -1500,7 +1501,7 @@ test "the audio example chimes as a piece starts, drops a beacon, and fades the 
         if (starter != .game) break true;
     } else false;
     try std.testing.expect(chimes);
-    // Shift F4 drops a beacon at the ship, which loops in 3D until Shift F4 picks it up.
+    // Shift F4 drops a beacon at the ship, which loops in 3D until Shift F4 is pressed again.
     const beacon = struct {
         fn playing(of: *const hog_snd.Sound) bool {
             for (of.starters_3d[0..of.voice_3d_count], of.voices_3d[0..of.voice_3d_count]) |starter, voice| {
