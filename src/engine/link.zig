@@ -128,7 +128,7 @@ pub const Link = struct {
     session: ?u32 = null,
 
     /// How many bytes a read takes at most.
-    const read_size = 64 * 1024;
+    const read_size = std.fmt.parseIntSizeSuffix("64KiB", 10) catch unreachable;
 
     pub fn init(gpa: Allocator, transport: Transport, game: Game, version: []const u8) Link {
         return .{ .gpa = gpa, .transport = transport, .game = game, .version = version };

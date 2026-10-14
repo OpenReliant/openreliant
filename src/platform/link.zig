@@ -25,7 +25,7 @@ pub const default_port = 22539;
 const most_waiting = 4 * (link.header_size + link.max_payload);
 
 /// How many bytes a read takes at most.
-const read_size = 16 * 1024;
+const read_size = std.fmt.parseIntSizeSuffix("16KiB", 10) catch unreachable;
 
 /// How many bytes of the game's a write gathers before they go out.
 const write_size = 256;

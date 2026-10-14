@@ -110,9 +110,9 @@ pub const Repositories = struct {
 pub const format = 1;
 
 /// The size limit of an index, in bytes.
-pub const most_index_bytes = 4 * 1024 * 1024;
+pub const most_index_bytes = std.fmt.parseIntSizeSuffix("4MiB", 10) catch unreachable;
 /// The size limit of a thumbnail, in bytes.
-pub const most_thumbnail_bytes = 2 * 1024 * 1024;
+pub const most_thumbnail_bytes = std.fmt.parseIntSizeSuffix("2MiB", 10) catch unreachable;
 
 /// The largest archive an entry may have: a HOG archive's offsets and sizes are 32-bit (`hog`), so
 /// it can't be larger. A larger size skips the entry, as a missing one does.

@@ -294,7 +294,7 @@ test "handles name missiles until their flight ends" {
     slot.object.velocity = .of(.{ 0, 3, 4 });
     const record = all.missiles.add(.{ .slot = slot, .launcher = launcher, .launcher_reuses = all.reuses[launcher], .type = .of(.raptor), .target = .at(launcher, null) }).?;
 
-    const scripts = try Runtime.create(gpa, std.testing.io, &.{}, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });
+    const scripts = try Runtime.create(gpa, std.testing.io, &.{}, runtime_module.testing.options);
     defer scripts.destroy();
     @import("objects.zig").register(scripts);
     register(scripts);

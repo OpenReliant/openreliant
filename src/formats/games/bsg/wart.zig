@@ -60,7 +60,7 @@ pub const Entry = extern struct {
 };
 
 /// The most a compressed member's chunk unpacks to. Each chunk's stream unpacks on its own.
-pub const chunk_size = 128 * 1024;
+pub const chunk_size = std.fmt.parseIntSizeSuffix("128KiB", 10) catch unreachable;
 
 /// A chunk's length, before its stream.
 const ChunkLength = u32;

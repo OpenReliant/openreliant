@@ -286,7 +286,7 @@ test UniqueNames {
 
 test count {
     var buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("1 part, 2 faces, 3 vertices", try std.fmt.bufPrint(&buffer, "{f}, {f}, {f}", .{ count(1, "part"), count(2, "face"), countAs(3, "vertex", "vertices") }));
+    try std.testing.expectEqualStrings("1 part, 2 faces, 3 vertices", try std.mem.print(&buffer, "{f}, {f}, {f}", .{ count(1, "part"), count(2, "face"), countAs(3, "vertex", "vertices") }));
 }
 
 test positional {

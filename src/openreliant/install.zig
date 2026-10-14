@@ -523,6 +523,9 @@ fn cdDrives(arena: Allocator) Allocator.Error![]const []const u8 {
     return drives.items;
 }
 
+/// The most of Linux's mount table that is read, far more than any system lists.
+const max_mount_table = std.fmt.parseIntSizeSuffix("1MiB", 10) catch unreachable;
+
 /// Linux's table of mounts, `/proc/self/mounts`. It's read as a stream: like every file in `/proc`,
 /// it gives its size as 0, which a reader that goes by the size takes as empty.
 fn mountTable(io: Io, arena: Allocator) ![]const u8 {
@@ -530,7 +533,7 @@ fn mountTable(io: Io, arena: Allocator) ![]const u8 {
     defer file.close(io);
     var buffer: [4096]u8 = undefined;
     var reader = file.readerStreaming(io, &buffer);
-    return reader.interface.allocRemaining(arena, .limited(1 << 20));
+    return reader.interface.allocRemaining(arena, .limited(max_mount_table));
 }
 
 /// The mount points of the disc file systems, ISO 9660 and UDF, in a table of mounts as Linux

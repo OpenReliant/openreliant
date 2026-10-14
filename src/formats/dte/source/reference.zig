@@ -142,14 +142,14 @@ fn writeCommand(arena: Allocator, w: *Writer, command: commands.Command, number:
     if (parameters.len == 0) return w.writeAll("Takes nothing.\n");
     try w.writeAll("| Parameter | Type | Label |\n|---|---|---|\n");
     for (parameters) |parameter| {
-        try w.print("| `{s}` | `{f}` | {f} |\n", .{ parameter.name, cell(try std.fmt.allocPrint(arena, "{f}", .{parameter.type})), cell(parameter.label) });
+        try w.print("| `{s}` | `{f}` | {f} |\n", .{ parameter.name, cell(try arena.print("{f}", .{parameter.type})), cell(parameter.label) });
     }
 }
 
 /// Writes `condition`, the catalogue's `number`th: what a trigger of it can watch, and the values
 /// its events carry.
 fn writeCondition(arena: Allocator, w: *Writer, condition: conditions.Condition, number: usize) Error!void {
-    const name = vocabulary.name(.condition, @intCast(number)) orelse try std.fmt.allocPrint(arena, "{d}", .{number});
+    const name = vocabulary.name(.condition, @intCast(number)) orelse try arena.print("{d}", .{number});
     try w.print("\n### `{s}`\n\nThe catalogue's `{s}`, condition {d}.", .{ name, condition.name, number });
     var subjects: std.ArrayList([]const u8) = .empty;
     inline for (.{ .{ "ship", "a ship" }, .{ "flight_group", "a flight group" }, .{ "squad", "a squad" } }) |pair| {

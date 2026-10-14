@@ -137,7 +137,7 @@ const Source = struct {
             if ((counts.get(start) orelse 0) < 2 or source.handlers.contains(start)) continue;
             const subject = if (owner) |object| source.record_names.objects[object] orelse "" else "";
             const condition = vocabulary.name(.condition, @backingInt(trigger.condition)) orelse "";
-            const display = try std.fmt.allocPrint(source.arena, "{s} {s}", .{ subject, condition });
+            const display = try source.arena.print("{s} {s}", .{ subject, condition });
             try source.handlers.put(source.arena, start, try source.namer.name(display, @tagName(Word.handler), index));
         }
     }
@@ -250,9 +250,9 @@ const Source = struct {
             for (try source.mission.membersOf(index)) |member| {
                 const object = source.record_names.object(member.object_id);
                 try members.append(source.arena, if (member.part()) |component|
-                    try std.fmt.allocPrint(source.arena, "{t}({f}, {d})", .{ Word.component, object, component })
+                    try source.arena.print("{t}({f}, {d})", .{ Word.component, object, component })
                 else
-                    try std.fmt.allocPrint(source.arena, "{f}", .{object}));
+                    try source.arena.print("{f}", .{object}));
             }
             try writeList(w, members.items, try source.open(w, name, .squad, squad.name));
         }
@@ -262,7 +262,7 @@ const Source = struct {
         try heading(w, "Formations", source.formations.len);
         for (source.formations, source.formation_names, source.formation_points) |formation, name, list| {
             var points: std.ArrayList([]const u8) = .empty;
-            for (list) |point| try points.append(source.arena, try std.fmt.allocPrint(source.arena, "{f}", .{vector(source.points[point].offset)}));
+            for (list) |point| try points.append(source.arena, try source.arena.print("{f}", .{vector(source.points[point].offset)}));
             try writeList(w, points.items, try source.open(w, name, .formation, formation.name));
         }
     }
@@ -306,7 +306,7 @@ const Source = struct {
         try heading(w, "Triggers", source.triggers.len);
         for (source.triggers, source.owners) |trigger, owner| {
             const subject: script.Indexed = if (owner) |object| source.record_names.object(object) else .{ .name = "nil" };
-            const head = try std.fmt.allocPrint(source.arena, "{t}({f}, {f}", .{ Word.on, subject, named(.condition, @backingInt(trigger.condition)) });
+            const head = try source.arena.print("{t}({f}, {f}", .{ Word.on, subject, named(.condition, @backingInt(trigger.condition)) });
             var fields: Fields = .init(source.arena);
             switch (trigger.repeat) {
                 .once => {},
@@ -439,11 +439,11 @@ const Source = struct {
             const formation = source.points[point].formation;
             if (formation < source.formations.len) {
                 if (std.mem.findScalar(u16, source.formation_points[formation], point)) |place| {
-                    return std.fmt.allocPrint(source.arena, "{s}[{d}]", .{ source.formation_names[formation], place + 1 });
+                    return source.arena.print("{s}[{d}]", .{ source.formation_names[formation], place + 1 });
                 }
             }
         }
-        return std.fmt.allocPrint(source.arena, "{t}({d})", .{ Word.formation_point_index, point });
+        return source.arena.print("{t}({d})", .{ Word.formation_point_index, point });
     }
 };
 
@@ -532,7 +532,7 @@ const Fields = struct {
     }
 
     fn add(fields: *Fields, key: []const u8, comptime format: []const u8, args: anytype) Allocator.Error!void {
-        try fields.list.append(fields.arena, try std.fmt.allocPrint(fields.arena, "{s} = " ++ format, .{key} ++ args));
+        try fields.list.append(fields.arena, try fields.arena.print("{s} = " ++ format, .{key} ++ args));
     }
 
     /// Writes the fields as a table (`writeTable`).

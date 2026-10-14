@@ -129,16 +129,16 @@ pub const Namer = struct {
             }
         }
         const base: []const u8 = if (made.items.len == 0)
-            try std.fmt.allocPrint(namer.arena, "{s}_{d}", .{ kind, index })
+            try namer.arena.print("{s}_{d}", .{ kind, index })
         else if (std.ascii.isDigit(made.items[0]))
-            try std.fmt.allocPrint(namer.arena, "{s}_{s}", .{ kind, made.items })
+            try namer.arena.print("{s}_{s}", .{ kind, made.items })
         else if (isReserved(made.items))
-            try std.fmt.allocPrint(namer.arena, "{s}_{s}", .{ made.items, kind })
+            try namer.arena.print("{s}_{s}", .{ made.items, kind })
         else
             made.items;
         var unique = base;
         var count: usize = 2;
-        while (namer.taken.contains(unique)) : (count += 1) unique = try std.fmt.allocPrint(namer.arena, "{s}_{d}", .{ base, count });
+        while (namer.taken.contains(unique)) : (count += 1) unique = try namer.arena.print("{s}_{d}", .{ base, count });
         try namer.taken.put(namer.arena, unique, {});
         return unique;
     }

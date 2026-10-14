@@ -650,7 +650,7 @@ test "handles name objects until they are removed" {
     _ = try mission.add(.of(.predator), .{ 0, 0, 0 });
     const sabre = try mission.add(.of(.sabre), .{ 0, 100, 0 });
 
-    const scripts = try Runtime.create(gpa, std.testing.io, &.{}, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });
+    const scripts = try Runtime.create(gpa, std.testing.io, &.{}, runtime_module.testing.options);
     defer scripts.destroy();
     register(scripts);
     scripts.objects = mission.objects;
@@ -716,7 +716,7 @@ test "handles name objects until they are removed" {
     try std.testing.expectEqual(gameobj.Quadrants{ .left = 0, .right = 1, .fore = 2, .aft = 3 }, changed.object.shields);
     try bind.testing.expectSourceError(thread, "sabre.shields = { left = -1, right = 0, fore = 0, aft = 0 }", "object.shields: left: expected a number from 0");
     var whole: [96]u8 = undefined;
-    try bind.testing.expectSourceError(thread, try std.fmt.bufPrint(&whole, "sabre.armor = {{ left = {d}, right = 0, fore = 0, aft = 0 }}", .{combat.startingArmor() + 1}), "object.armor: left: expected a number from 0");
+    try bind.testing.expectSourceError(thread, try std.mem.print(&whole, "sabre.armor = {{ left = {d}, right = 0, fore = 0, aft = 0 }}", .{combat.startingArmor() + 1}), "object.armor: left: expected a number from 0");
     try bind.testing.expectSourceError(thread, "sabre.orientation = { right = vector.zero, down = vector.zero, forward = vector.zero }", "aren't zero or parallel");
 
     // Once its slot is reset, the handle is no longer valid.

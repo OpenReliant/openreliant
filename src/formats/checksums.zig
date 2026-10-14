@@ -16,7 +16,7 @@ pub const Digest = [Sha256.digest_length]u8;
 const digits = Sha256.digest_length * 2;
 
 /// The bytes a file is read in as it is hashed.
-const chunk_size = 1 << 20;
+const chunk_size = std.fmt.parseIntSizeSuffix("1MiB", 10) catch unreachable;
 
 /// The digest of `bytes`.
 pub fn digest(bytes: []const u8) Digest {

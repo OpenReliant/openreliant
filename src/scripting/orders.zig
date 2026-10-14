@@ -271,7 +271,7 @@ test "scripts read the order table and an object's orders, and end them" {
     defer mission.deinit();
     _ = try mission.add(.of(.predator), .{ 0, 0, 0 });
     const sabre = try mission.add(.of(.sabre), .{ 0, 100, 0 });
-    const scripts = try runtime.Runtime.create(gpa, std.testing.io, &.{}, .{ .side = .game, .limits = .{ .time = .fromSeconds(1), .memory = 1 << 20 }, .seed = 1, .version = "0.7.0" });
+    const scripts = try runtime.Runtime.create(gpa, std.testing.io, &.{}, runtime.testing.options);
     defer scripts.destroy();
     objects.register(scripts);
     packages.push(scripts);

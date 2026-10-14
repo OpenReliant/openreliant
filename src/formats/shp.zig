@@ -1145,7 +1145,7 @@ pub const PartData = struct {
 /// file, and `budget_base` more. A shipped model's records take less than twice its bytes, where an
 /// earlier exporter wrote shorter records than the engine keeps.
 const budget_per_byte = 16;
-const budget_base = 1 << 20;
+const budget_base = std.fmt.parseIntSizeSuffix("1MiB", 10) catch unreachable;
 
 /// A parsed model. Everything is allocated from the allocator passed to `parse`, which is expected
 /// to be an arena.

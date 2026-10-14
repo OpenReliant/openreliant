@@ -35,10 +35,10 @@ const log = std.log.scoped(.web);
 pub const allocator = std.heap.smp_allocator;
 
 /// The size of the buffers a response is read through.
-pub const chunk_size = 64 * 1024;
+pub const chunk_size = std.fmt.parseIntSizeSuffix("64KiB", 10) catch unreachable;
 /// The longest redirect location accepted, as GitHub's release downloads redirect. RFC 9110
 /// recommends at least 8000 bytes.
-pub const redirect_size = 8 * 1024;
+pub const redirect_size = std.fmt.parseIntSizeSuffix("8KiB", 10) catch unreachable;
 /// How many redirects a download follows at most. GitHub's release downloads redirect once, to
 /// another host.
 const most_redirects = 5;

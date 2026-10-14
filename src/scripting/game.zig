@@ -63,7 +63,7 @@ const world = @import("world.zig");
 
 /// Limits for game scripts: 100 milliseconds per call, since they run as the game plays, and
 /// 64 MiB per mod.
-pub const limits: runtime.Limits = .{ .time = .fromMilliseconds(100), .memory = 64 << 20 };
+pub const limits: runtime.Limits = .{ .time = .fromMilliseconds(100), .memory = runtime.memory_per_mod };
 
 /// The game side of mods' scripts while a game runs.
 pub const Game = struct {

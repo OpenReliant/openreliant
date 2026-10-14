@@ -67,6 +67,9 @@ fn info(ctx: Context, bytes: []u8) !void {
     try ctx.stdout.writeByte('\n');
 }
 
+/// The largest frame `encode` reads.
+const max_frame_file = std.fmt.parseIntSizeSuffix("64MiB", 10) catch unreachable;
+
 /// Writes `film_path`, a film of the PNG files in `frames_path`, in the order of their names.
 fn encode(ctx: Context, frames_path: []const u8, film_path: []const u8) !void {
     const io = ctx.io;
@@ -90,7 +93,7 @@ fn encode(ctx: Context, frames_path: []const u8, film_path: []const u8) !void {
     const frames = try ctx.arena.alloc([]const u8, names.items.len);
     var size: ?[2]u32 = null;
     for (names.items, frames) |name, *frame| {
-        const bytes = try dir.readFileAlloc(io, name, ctx.arena, .limited(64 * 1024 * 1024));
+        const bytes = try dir.readFileAlloc(io, name, ctx.arena, .limited(max_frame_file));
         const picture = try png.read(ctx.arena, bytes);
         const own: [2]u32 = .{ picture.width, picture.height };
         if (size) |first| if (!std.mem.eql(u32, &first, &own)) {

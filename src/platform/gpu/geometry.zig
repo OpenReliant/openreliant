@@ -36,9 +36,12 @@ pub const Geometry = struct {
         c.SDL_UploadToGPUBuffer(copy, &.{ .transfer_buffer = geometry.transfer, .offset = geometry.size }, &.{ .buffer = geometry.indices, .size = index_bytes }, true);
     }
 
-    /// Buffers of at least `needed` bytes each, in powers of two from 64 KiB.
+    /// The smallest buffers `make` creates.
+    const least_size: u32 = std.fmt.parseIntSizeSuffix("64KiB", 10) catch unreachable;
+
+    /// Buffers of at least `needed` bytes each, in powers of two from `least_size`.
     fn make(handle: *c.SDL_GPUDevice, needed: u32) Error!Geometry {
-        const size = std.math.ceilPowerOfTwo(u32, @max(needed, 64 * 1024)) catch return error.OutOfMemory;
+        const size = std.math.ceilPowerOfTwo(u32, @max(needed, least_size)) catch return error.OutOfMemory;
         const transfer_size = std.math.mul(u32, size, 2) catch return error.OutOfMemory;
         const vertices = c.SDL_CreateGPUBuffer(handle, &.{ .usage = c.SDL_GPU_BUFFERUSAGE_VERTEX, .size = size }) orelse return sdl.fail("SDL_CreateGPUBuffer");
         errdefer c.SDL_ReleaseGPUBuffer(handle, vertices);

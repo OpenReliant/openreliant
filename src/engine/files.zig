@@ -10,7 +10,7 @@ const Io = std.Io;
 pub const max_path = 260;
 
 /// The most OpenReliant reads of one of the game's files into memory, far past the largest.
-pub const max_file_size = 256 << 20;
+pub const max_file_size = std.fmt.parseIntSizeSuffix("256MiB", 10) catch unreachable;
 
 /// The characters that split the folders of a game path. Windows takes both.
 pub const separators = "\\/";

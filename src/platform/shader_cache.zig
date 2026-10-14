@@ -30,7 +30,7 @@ pub const folder = "cache/shaders";
 const Hash = [Sha256.digest_length]u8;
 
 /// The cache's files. Change the version when the payload's layout changes.
-const Files = cache_file.Files(.{ .folder = folder, .magic = "ORSH".*, .version = 3, .Key = Hash, .max_bytes = 16 * 1024 * 1024 });
+const Files = cache_file.Files(.{ .folder = folder, .magic = "ORSH".*, .version = 3, .Key = Hash, .max_bytes = std.fmt.parseIntSizeSuffix("16MiB", 10) catch unreachable });
 
 comptime {
     // The header's size, which `docs/port/renderer.md` gives the offsets after.

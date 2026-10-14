@@ -17,10 +17,10 @@ pub const name = "openreliant.log";
 
 /// How large the file can grow. Each run starts it afresh, so it never takes more of the disk.
 /// Messages past it only go to the terminal, and a crash is still written.
-pub const max_size = 8 * 1024 * 1024;
+pub const max_size = std.fmt.parseIntSizeSuffix("8MiB", 10) catch unreachable;
 
 /// What the terminal, the scripting console and the log file itself say once the log is full.
-pub const full_message = std.fmt.comptimePrint("the log file {s} is full at {d} MiB, so the rest of this run's messages only go to the terminal. A script that writes a message every frame can fill it.", .{ name, max_size >> 20 });
+pub const full_message = std.fmt.comptimePrint("the log file {s} is full at {Bi}, so the rest of this run's messages only go to the terminal. A script that writes a message every frame can fill it.", .{ name, max_size });
 
 const full_line = "warning: " ++ full_message ++ "\n";
 

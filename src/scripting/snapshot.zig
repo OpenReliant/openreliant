@@ -33,7 +33,7 @@ pub const extension = ".scripts";
 /// The most a file of scripts' state may take, as loading reads it (`GameScripts.loaded`): far more
 /// than mods keep, with room for several at their limits for storage and `on_save` at once, while a
 /// damaged file can't make loading take any amount of memory. `take` keeps within it.
-pub const max_size = 256 << 20;
+pub const max_size = std.fmt.parseIntSizeSuffix("256MiB", 10) catch unreachable;
 
 /// What the file starts with, and the version of its form.
 const magic = "ORSV";

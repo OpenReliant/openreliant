@@ -603,7 +603,7 @@ const Debugger = struct {
 
 /// The key `format` makes with `number`, written in `buffer`; empty where it doesn't fit.
 fn keyOf(buffer: []u8, comptime format: []const u8, number: usize) []const u8 {
-    return std.fmt.bufPrint(buffer, format, .{number}) catch "";
+    return std.mem.print(buffer, format, .{number}) catch "";
 }
 
 fn unplacedText(err: (script.Unplaced || Allocator.Error)) []const u8 {
@@ -665,7 +665,7 @@ test "the debugger's commands and the game's messages" {
     // The state names the thread's place, the globals and the variables that aren't 0.
     out.clearRetainingCapacity();
     var state: [256]u8 = undefined;
-    const text = try std.fmt.bufPrint(&state, "clock=3\nhold=held\nstep=into\npaused=0\nthread.0.at={d}\nthread.0.wake=0\nglobal.1=7\nvariable.mission_over=0\nvariable.backup_available=1\n", .{second});
+    const text = try std.mem.print(&state, "clock=3\nhold=held\nstep=into\npaused=0\nthread.0.at={d}\nthread.0.wake=0\nglobal.1=7\nvariable.mission_over=0\nvariable.backup_available=1\n", .{second});
     debugger.handle(.{ .tag = @backingInt(link.Own.state), .payload = text });
     try std.testing.expect(std.mem.find(u8, out.written(), "Clock 3 s. The script is held, stepping (into).") != null);
     try std.testing.expect(std.mem.find(u8, out.written(), "   0  at ") != null);

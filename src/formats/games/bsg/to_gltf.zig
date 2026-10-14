@@ -114,9 +114,9 @@ const Making = struct {
     fn objectNode(made: *Making, name: []const u8, depth: usize) Error!u32 {
         const allocator = made.arena();
         const lower = try std.ascii.allocLowerString(allocator, name);
-        const model_path = try std.fmt.allocPrint(allocator, "models/{s}/{s}.mdl", .{ lower, lower });
+        const model_path = try allocator.print("models/{s}/{s}.mdl", .{ lower, lower });
         const model: model_file.Model = try .parse(allocator, try made.files.read(allocator, model_path) orelse return error.MissingModel);
-        const level_path = try std.fmt.allocPrint(allocator, "levels/{s}.lvl", .{lower});
+        const level_path = try allocator.print("levels/{s}.lvl", .{lower});
         const level: ?level_file.Level = if (try made.files.read(allocator, level_path)) |bytes| try .parse(allocator, bytes) else null;
 
         var children: std.ArrayList(u32) = .empty;
@@ -197,7 +197,7 @@ const Making = struct {
             if (depth >= max_mounts) break :mount;
             const node = made.objectNode(mounted, depth + 1) catch |err| switch (err) {
                 error.MissingModel => {
-                    try made.missing.append(allocator, try std.fmt.allocPrint(allocator, "models/{s}/", .{mounted}));
+                    try made.missing.append(allocator, try allocator.print("models/{s}/", .{mounted}));
                     break :mount;
                 },
                 else => |e| return e,
@@ -310,7 +310,7 @@ const Making = struct {
     fn textureOf(made: *Making, name: []const u8) Error!?Texture {
         const allocator = made.arena();
         const stem = try std.ascii.allocLowerString(allocator, std.Io.Dir.path.stem(name));
-        const source = try std.fmt.allocPrint(allocator, "models/textures/{s}.btga", .{stem});
+        const source = try allocator.print("models/textures/{s}.btga", .{stem});
         if (made.textures.get(source)) |known| return known;
         const bytes = try made.files.read(allocator, source) orelse {
             try made.missing.append(allocator, source);
@@ -318,7 +318,7 @@ const Making = struct {
             return null;
         };
         const read: texture_file.Texture = try .parse(allocator, bytes);
-        const file = try std.fmt.allocPrint(allocator, "{s}.png", .{stem});
+        const file = try allocator.print("{s}.png", .{stem});
         std.mem.replaceScalar(u8, file, ' ', '_');
         try made.pictures.append(allocator, .{ .file = file, .texture = read });
         const found: Texture = .{ .ref = try made.gltf.texture(file), .alpha = read.hasAlpha() };
@@ -364,7 +364,7 @@ fn hardpointName(arena: Allocator, defined: level_file.Hardpoint) Allocator.Erro
 /// What tells materials apart: the record and the textures' names.
 fn materialKey(arena: Allocator, material: mesh_file.Material) Allocator.Error![]const u8 {
     const textures = material.textures;
-    return std.fmt.allocPrint(arena, "{x}:{s}:{s}:{s}:{s}", .{ std.mem.asBytes(material.record), textures[0], textures[1], textures[2], textures[3] });
+    return arena.print("{x}:{s}:{s}:{s}:{s}", .{ std.mem.asBytes(material.record), textures[0], textures[1], textures[2], textures[3] });
 }
 
 /// A material's name: its texture's, such as `sh_v2_viper01`, and how it blends where it doesn't
@@ -373,9 +373,9 @@ fn materialName(arena: Allocator, material: mesh_file.Material) Allocator.Error!
     const stem = if (material.colour()) |name| std.Io.Dir.path.stem(name) else "untextured";
     return switch (material.record.blend) {
         .@"opaque" => stem,
-        .additive => std.fmt.allocPrint(arena, "{s}_additive", .{stem}),
-        .blended => std.fmt.allocPrint(arena, "{s}_blended", .{stem}),
-        _ => std.fmt.allocPrint(arena, "{s}_blend{d}", .{ stem, @backingInt(material.record.blend) }),
+        .additive => arena.print("{s}_additive", .{stem}),
+        .blended => arena.print("{s}_blended", .{stem}),
+        _ => arena.print("{s}_blend{d}", .{ stem, @backingInt(material.record.blend) }),
     };
 }
 

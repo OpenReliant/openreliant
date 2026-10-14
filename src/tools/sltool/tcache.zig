@@ -190,6 +190,6 @@ test "extracts a texture" {
     } };
     try command.run(ctx);
 
-    const written = try tmp.dir.readFileAlloc(std.testing.io, "out/Kiev_1.png", arena, .limited(1 << 20));
+    const written = try tmp.dir.readFileAlloc(std.testing.io, "out/Kiev_1.png", arena, .unlimited);
     try std.testing.expectEqualSlices(u8, png.signature, written[0..8]);
 }
