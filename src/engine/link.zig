@@ -43,6 +43,10 @@ pub const Header = extern struct {
 
 pub const header_size = 8;
 
+/// The port the game listens at for an editor, on its own address, 127.0.0.1, unless
+/// `--editor-link-port` gives another.
+pub const default_port = 22539;
+
 /// The longest payload taken: the whole of the original's block (`editor_link_create`,
 /// `0x00457B90`), which no message of the original fills. A longer one drops the connection.
 pub const max_payload = 0xD4A08;

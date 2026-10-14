@@ -361,7 +361,8 @@ A client in Zig can read and write missions exactly as OpenReliant does by impor
 ([Using the library in another project](../port/platform.md#using-the-library-in-another-project)).
 It works the way `openreliant debug` does:
 
-1. Connect to 127.0.0.1 at the port, and read `Hello`.
+1. Connect to 127.0.0.1 at the port, `link.default_port` unless the game was started with
+   another, and read `Hello`.
 2. On `Mission file`, which comes right after `Mission started`, send tag `0x09` with the script's
    flags: a byte for each of the script's bytes, rounded up to a multiple of 4, with bit 0 set on
    each byte to stop before. Send them with no breakpoints too, since the start parts wait for them

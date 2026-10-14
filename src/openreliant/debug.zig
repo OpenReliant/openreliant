@@ -9,7 +9,6 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 const openreliant = @import("openreliant");
-const platform = @import("platform");
 const engine = openreliant.engine;
 const dte = openreliant.dte;
 const link = engine.link;
@@ -29,7 +28,7 @@ pub const usage = std.fmt.comptimePrint(
     \\breakpoints, steps through its statements, and shows where it stopped and what it holds. It
     \\waits for the game, and for it again once it goes. Type help for the commands.
     \\
-, .{platform.link.default_port});
+, .{link.default_port});
 
 /// The commands, as `help` lists them.
 const commands_help =
@@ -95,7 +94,7 @@ pub fn main(io: Io, gpa: Allocator, args: []const [:0]const u8) !u8 {
 
 /// The port `--port` gives, or the default; null for an argument it doesn't take.
 fn portOf(args: []const [:0]const u8) ?u16 {
-    var port: u16 = platform.link.default_port;
+    var port: u16 = link.default_port;
     var at: usize = 0;
     while (at < args.len) : (at += 1) {
         if (!std.mem.eql(u8, args[at], "--port") or at + 1 == args.len) return null;
@@ -601,7 +600,7 @@ fn unplacedText(err: (script.Unplaced || Allocator.Error)) []const u8 {
 }
 
 test portOf {
-    try std.testing.expectEqual(platform.link.default_port, portOf(&.{}).?);
+    try std.testing.expectEqual(link.default_port, portOf(&.{}).?);
     try std.testing.expectEqual(4000, portOf(&.{ "--port", "4000" }).?);
     try std.testing.expectEqual(null, portOf(&.{"--port"}));
     try std.testing.expectEqual(null, portOf(&.{ "--port", "x" }));

@@ -16,9 +16,6 @@ const link = @import("openreliant").engine.link;
 
 const log = std.log.scoped(.link);
 
-/// The port an editor connects to, unless the options give another.
-pub const default_port = 22539;
-
 /// The most bytes the transport keeps for the game to take. Past it, the editor has sent more than
 /// a few of the longest messages the link takes while the game took none, and the transport drops
 /// the connection.
