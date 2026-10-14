@@ -350,14 +350,14 @@ needs that OpenReliant doesn't carry yet:
   ([#1057](https://github.com/OpenReliant/openreliant/issues/1057));
 - the live scene: the objects' places, orientations and orders, which the original's editor kept
   from its own copy of the mission ([#1059](https://github.com/OpenReliant/openreliant/issues/1059));
-- the mission format as a library, so that it reads and writes missions as OpenReliant does
-  ([#1060](https://github.com/OpenReliant/openreliant/issues/1060));
 - the other games' script dialects, which `Hello`'s `vm` names
   ([#1017](https://github.com/OpenReliant/openreliant/issues/1017)).
 
 ### Writing a client
 
-A client works the way `openreliant debug` does:
+A client in Zig can read and write missions exactly as OpenReliant does by importing its library
+([Using the library in another project](../port/platform.md#using-the-library-in-another-project)).
+It works the way `openreliant debug` does:
 
 1. Connect to 127.0.0.1 at the port, and read `Hello`.
 2. On `Mission file`, which comes right after `Mission started`, send tag `0x09` with the script's
