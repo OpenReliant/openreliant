@@ -300,6 +300,20 @@ export type ActionDefinition = {
     button: number?,
     gamepad_button: GamepadButton?,
 }
+export type SoundOptions = {
+    volume: number?,
+    pitch: number?,
+    loop: boolean?,
+    pan: number?,
+    object: Object?,
+    at: vector?,
+    near: number?,
+    far: number?,
+}
+export type MusicOptions = {
+    loop: boolean?,
+    after_fade: boolean?,
+}
 export type Effect = {
     name: string,
     shader: string,
@@ -939,12 +953,22 @@ export type Camera = {
     set_view: (view: string | number, object: Object?) -> boolean,
 }
 
---- Interface sounds, music and Betty's lines.
+--- The game's sounds and the mods' own, on their own or in 3D, the music, and Betty's lines.
 export type Audio = {
-    --- Plays sound `index` of the game's standard sounds, the menus' and the display's, at `volume` from 0 to 1, or at its loudest where it's nil. Returns whether it played.
-    play_sound: (index: number, volume: number?) -> boolean,
-    --- Plays the piece `name` from the game's music folder for ever, in place of the music playing.
-    play_music: (name: string) -> (),
+    --- The name of the piece of music playing, as `play_music` takes it; nil while none plays.
+    music: string?,
+    --- Plays `sound`: the number of one of the game's standard sounds, the menus' and the display's, or the name of a sound file in the script's mod, in any format a mod's sounds can be in. `options` says how, or is just a number for the volume. With `object` or `at`, it plays in 3D, while a mission is shown. Returns a number for the sound, which `stop_sound` and `sound_playing` take, or nil where it doesn't play.
+    play_sound: (sound: number | string, options: (number | SoundOptions)?) -> number?,
+    --- Stops the sound `id` that `play_sound` started, if it plays still. Nil stops nothing.
+    stop_sound: (id: number?) -> (),
+    --- Whether the sound `id` that `play_sound` started plays still, or is paused with the game. False for nil.
+    sound_playing: (id: number?) -> boolean,
+    --- Plays the piece `name` from the game's music folder, or a mod's piece of that name, in place of the music playing: for ever, or once where `options.loop` is false. With `options.after_fade`, it waits for the music playing to fade out, as a mission's music changes.
+    play_music: (name: string, options: MusicOptions?) -> (),
+    --- Fades the music out, as the game does before a launch. A piece that waits with `after_fade` plays once it has faded.
+    fade_music: () -> (),
+    --- Stops the music at once, and the piece that waits with `after_fade`, if any.
+    stop_music: () -> (),
     --- Betty says `line`. Returns whether she does.
     say: (line: BettyLine) -> boolean,
 }
@@ -1136,8 +1160,13 @@ export type Interfaces = {
         measure: (text: string, style: (number | TextStyle)?) -> Size,
     },
     Audio: {
-        play_sound: (index: number, volume: number?) -> boolean,
-        play_music: (name: string) -> (),
+        music: string?,
+        play_sound: (sound: number | string, options: (number | SoundOptions)?) -> number?,
+        stop_sound: (id: number?) -> (),
+        sound_playing: (id: number?) -> boolean,
+        play_music: (name: string, options: MusicOptions?) -> (),
+        fade_music: () -> (),
+        stop_music: () -> (),
         say: (line: BettyLine) -> boolean,
     },
     Missions: {
@@ -1640,6 +1669,7 @@ export type PlayerScript = {
         on_console_command: ((text: string) -> ())?,
         on_window_resized: ((width: number, height: number) -> ())?,
         on_room_changed: ((view: number?, place: RoomPlace?) -> ())?,
+        on_music_changed: ((piece: string?) -> ())?,
         on_interface_override: ((base: { [any]: any }) -> ())?,
     }?,
     event_handlers: { [string]: (data: any) -> boolean? }?,
@@ -1659,6 +1689,7 @@ export type MenuScript = {
         on_console_command: ((text: string) -> ())?,
         on_window_resized: ((width: number, height: number) -> ())?,
         on_room_changed: ((view: number?, place: RoomPlace?) -> ())?,
+        on_music_changed: ((piece: string?) -> ())?,
         on_interface_override: ((base: { [any]: any }) -> ())?,
         on_option_changed: ((key: string, value: boolean | number | string) -> ())?,
     }?,

@@ -488,12 +488,13 @@ starts, calls and stops them ([`running.zig`](../../src/scripting/running.zig)).
 - Menu scripts start at once and run until OpenReliant quits. Player scripts start as a game
   starts and stop as it ends, with the global scripts (`GameScripts` in the driver).
 - Each pass of the driver's loop, before anything is drawn, `Presentation.frame` gets the seconds
-  since the last pass, the devices, the window's size, the camera and the sound, what each
-  drawing layer is drawn on, and where the player is in the rooms while they're on screen
-  (`Host.rooms`). It tells the scripts of a new window size (`on_window_resized`), of a new view
-  or place in the rooms (`on_room_changed`) and, in flight, of the actions whose controls have
-  just been used (`on_action`, from `Devices.active` without taking the press), then calls
-  `on_frame`.
+  since the last pass, the devices, the window's size, the camera, the sound and, in a mission,
+  the scene its sounds in 3D play in (`Host.scene`), what each drawing layer is drawn on, and
+  where the player is in the rooms while they're on screen (`Host.rooms`). It tells the scripts of
+  a new window size (`on_window_resized`), of a new view or place in the rooms
+  (`on_room_changed`), of a new piece of music (`on_music_changed`, the piece's path compared
+  ignoring case) and, in flight, of the actions whose controls have just been used (`on_action`,
+  from `Devices.active` without taking the press), then calls `on_frame`.
 - Each loop of the rooms' driver says what it shows as it runs the scripts' frame
   (`Driver.pump`): the rooms, a place's screen, or a screen outside them, such as the in-game
   options. `openreliant.rooms` reads the last frame's (`rooms.zig`). The host holds values alone,
@@ -517,6 +518,18 @@ game's code page and drawn with `hud.drawText`, in the menus' small font over th
 over the flight display and the pause menu in a ramped copy of the display's font, so that it takes
 the colour the script gives. The debug's lines and text are placed in the world and projected
 where the camera sees them (`hud.Sight`).
+
+### Sound
+
+[`audio.zig`](../../src/scripting/audio.zig) plays the scripts' sounds on the game's voices
+([Scripts' sounds](../engine/sound.md#scripts-sounds)). `audio.Sounds` keeps the files the scripts
+play, each by its mod and name, decoded into a WAVE file the first time it plays
+(`recordings.decode`), up to 64 MiB together: a file that needs room takes it from the files played
+longest ago, but never from one that plays still, since the software mixer reads a sound's samples
+from its file as it plays. It also keeps the sounds the scripts started, by the number each was
+given (`hog_snd.Starter`), and the family of the script that started it, and forgets each once it
+has ended. As the game ends, it stops the player scripts' sounds, and as the menu scripts reload,
+theirs.
 
 ### Events to the game
 

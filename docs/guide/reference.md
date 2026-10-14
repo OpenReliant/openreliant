@@ -44,6 +44,7 @@ include mission scripts.
 | `on_console_command(text: string)` | player and menu | When a line typed in the console isn't one of its commands, with the line. |
 | `on_window_resized(width: number, height: number)` | player and menu | When the window changes size, with its new size in pixels. |
 | `on_room_changed(view: number?, place: RoomPlace?)` | player and menu | When the player sets off for another view of the carrier's rooms, opens or leaves one of their places, or the rooms come on screen or leave it: with the view, by its number in `records.room_views`, and the place whose screen shows (`rooms.place`). Both are nil while the rooms aren't on screen. |
+| `on_music_changed(piece: string?)` | player and menu | When a piece of music starts, with its name as `audio.play_music` takes it, or the music stops, with nil. |
 | `on_interface_override(base: { [any]: any })` | global, object, player and menu | When the script's interface takes the place of one an earlier script offered under the same name, with that one. |
 | `on_option_changed(key: string, value: boolean | number | string)` | menu | When the player sets one of the mod's options on the mods screen, with its key and the new value. Options are set in the front end, so scripts that run in a game read them with `options.get` as they start. |
 
@@ -318,12 +319,17 @@ The camera's view: which it is, switching it, and registering views of the mod's
 
 ### `openreliant.audio`
 
-Interface sounds, music and Betty's lines. For player and menu scripts.
+The game's sounds and the mods' own, on their own or in 3D, the music, and Betty's lines. For player and menu scripts.
 
 | Name | Type | What it is |
 |---|---|---|
-| `play_sound(index: number, volume: number?)` | boolean | Plays sound `index` of the game's standard sounds, the menus' and the display's, at `volume` from 0 to 1, or at its loudest where it's nil. Returns whether it played. |
-| `play_music(name: string)` | nothing | Plays the piece `name` from the game's music folder for ever, in place of the music playing. |
+| `music` | string, or nil | The name of the piece of music playing, as `play_music` takes it; nil while none plays. |
+| `play_sound(sound: number \| string, options: (number \| SoundOptions)?)` | number, or nil | Plays `sound`: the number of one of the game's standard sounds, the menus' and the display's, or the name of a sound file in the script's mod, in any format a mod's sounds can be in. `options` says how, or is just a number for the volume. With `object` or `at`, it plays in 3D, while a mission is shown. Returns a number for the sound, which `stop_sound` and `sound_playing` take, or nil where it doesn't play. |
+| `stop_sound(id: number?)` | nothing | Stops the sound `id` that `play_sound` started, if it plays still. Nil stops nothing. |
+| `sound_playing(id: number?)` | boolean | Whether the sound `id` that `play_sound` started plays still, or is paused with the game. False for nil. |
+| `play_music(name: string, options: MusicOptions?)` | nothing | Plays the piece `name` from the game's music folder, or a mod's piece of that name, in place of the music playing: for ever, or once where `options.loop` is false. With `options.after_fade`, it waits for the music playing to fade out, as a mission's music changes. |
+| `fade_music()` | nothing | Fades the music out, as the game does before a launch. A piece that waits with `after_fade` plays once it has faded. |
+| `stop_music()` | nothing | Stops the music at once, and the piece that waits with `after_fade`, if any. |
 | `say(line: BettyLine)` | boolean | Betty says `line`. Returns whether she does. |
 
 ### `openreliant.postprocessing`
@@ -644,8 +650,13 @@ turret, and a turret's own scripts on their turret.
 
 | Member | Type or returns | Description |
 |---|---|---|
-| `play_sound(index: number, volume: number?)` | boolean | Plays sound `index` of the game's standard sounds, the menus' and the display's, at `volume` from 0 to 1, or at its loudest where it's nil. Returns whether it played. |
-| `play_music(name: string)` | nothing | Plays the piece `name` from the game's music folder for ever, in place of the music playing. |
+| `music` | string, or nil | The name of the piece of music playing, as `play_music` takes it; nil while none plays. |
+| `play_sound(sound: number \| string, options: (number \| SoundOptions)?)` | number, or nil | Plays `sound`: the number of one of the game's standard sounds, the menus' and the display's, or the name of a sound file in the script's mod, in any format a mod's sounds can be in. `options` says how, or is just a number for the volume. With `object` or `at`, it plays in 3D, while a mission is shown. Returns a number for the sound, which `stop_sound` and `sound_playing` take, or nil where it doesn't play. |
+| `stop_sound(id: number?)` | nothing | Stops the sound `id` that `play_sound` started, if it plays still. Nil stops nothing. |
+| `sound_playing(id: number?)` | boolean | Whether the sound `id` that `play_sound` started plays still, or is paused with the game. False for nil. |
+| `play_music(name: string, options: MusicOptions?)` | nothing | Plays the piece `name` from the game's music folder, or a mod's piece of that name, in place of the music playing: for ever, or once where `options.loop` is false. With `options.after_fade`, it waits for the music playing to fade out, as a mission's music changes. |
+| `fade_music()` | nothing | Fades the music out, as the game does before a launch. A piece that waits with `after_fade` plays once it has faded. |
+| `stop_music()` | nothing | Stops the music at once, and the piece that waits with `after_fade`, if any. |
 | `say(line: BettyLine)` | boolean | Betty says `line`. Returns whether she does. |
 
 ### I.Missions
@@ -1692,6 +1703,30 @@ A table a script gives, which may leave out a field with a default.
 | `modifier` | [Modifier](#modifier) | `"none"` |
 | `button` | number, or nil | nil |
 | `gamepad_button` | [GamepadButton](#gamepadbutton), or nil | nil |
+
+### SoundOptions
+
+A table a script gives, which may leave out any field.
+
+| Field | Type | Default |
+|---|---|---|
+| `volume` | number | 1 |
+| `pitch` | number | 1 |
+| `loop` | boolean | false |
+| `pan` | number | 0 |
+| `object` | [object](#objects), or nil | nil |
+| `at` | vector, or nil | nil |
+| `near` | number | 10000 |
+| `far` | number | 200000 |
+
+### MusicOptions
+
+A table a script gives, which may leave out any field.
+
+| Field | Type | Default |
+|---|---|---|
+| `loop` | boolean | true |
+| `after_fade` | boolean | false |
 
 ### Effect
 

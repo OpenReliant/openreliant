@@ -7,8 +7,10 @@
 //! - Its `Player` scripts start as a game starts, and stop as it ends, as the global scripts do.
 //! - Both get `on_frame` each frame drawn, even while the game is paused; `on_key_press` and
 //!   `on_key_release` as keys go down and up; `on_action` as the controls bound to an action are
-//!   used in flight; `on_window_resized` as the window changes size; and `on_room_changed` as the
-//!   player moves through the carrier's rooms.
+//!   used in flight; `on_window_resized` as the window changes size; `on_room_changed` as the
+//!   player moves through the carrier's rooms; and `on_music_changed` as the music changes.
+//! - They play sounds and music (`audio.zig`). The sounds a family's scripts started stop with
+//!   them: the player scripts' as the game ends, and the menu scripts' as they're reloaded.
 //! - They draw over the flight display and the menus (`drawing.zig`), and change the game only by
 //!   sending events to the global scripts (`core.send_global_event`), whose data is copied into the
 //!   game's state, as it would be sent to another machine.
@@ -48,6 +50,7 @@ const objects = @import("objects.zig");
 const interfaces = @import("interfaces.zig");
 const running = @import("running.zig");
 const drawing = @import("drawing.zig");
+const audio = @import("audio.zig");
 const data = @import("data.zig");
 const api = @import("api.zig");
 const Call = api.Call;
@@ -81,6 +84,8 @@ pub const Host = struct {
     flight: ?Flight = null,
     /// The sound, where any is heard.
     sound: ?*hog_snd.Sound = null,
+    /// The scene the sounds in 3D play in, while a mission is shown.
+    scene: ?hog_snd.Scene = null,
     /// Whether the player is flying, which is when the controls' actions mean anything.
     flying: bool = false,
     /// Where the player is in the carrier's rooms, while they're on screen (`openreliant.rooms`).
@@ -160,6 +165,11 @@ pub const Presentation = struct {
     /// The page a script asked the CD player to turn to (`rooms.set_cd_player_page`), until the CD
     /// player takes it (`takeCdPlayerPage`).
     cd_player_request: ?usize = null,
+    /// The sounds the scripts play.
+    sounds: audio.Sounds = .{},
+    /// The piece of music playing last frame, by its path, which `on_music_changed` is told against;
+    /// null while none played.
+    music: ?hog_snd.Music.Piece = null,
 
     /// Starts the `Menu` scripts of `opened`, which can read `held`, the records. `version` is
     /// OpenReliant's version. Returns null if no mod has player or menu scripts.
@@ -195,6 +205,7 @@ pub const Presentation = struct {
     /// Stops the scripts, as OpenReliant quits.
     pub fn stop(shown: *Presentation) void {
         shown.runner.deinit();
+        shown.sounds.deinit(shown.gpa);
         for (&shown.layers.values) |*layer| layer.deinit(shown.gpa);
         shown.assets.deinit(shown.gpa);
         shown.standing.deinit(shown.gpa);
@@ -207,6 +218,7 @@ pub const Presentation = struct {
     /// (`startGame`).
     pub fn reload(shown: *Presentation) Allocator.Error!void {
         shown.runner.stopAll(shown.lists.getPtr(.menu));
+        shown.sounds.stop(.menu);
         try shown.runtime.recompileFolders();
         try shown.startScripts(.menu, false);
     }
@@ -245,6 +257,7 @@ pub const Presentation = struct {
     pub fn endGame(shown: *Presentation) void {
         shown.resetRegisteredCamera();
         shown.runner.stopAll(shown.lists.getPtr(.player));
+        shown.sounds.stop(.player);
         shown.runtime.dropPlayerSelf();
         shown.game = null;
         shown.runtime.objects = null;
@@ -329,13 +342,14 @@ pub const Presentation = struct {
         }
     }
 
-    /// Runs a frame of the scripts: what they drew last frame goes, the window's new size and the
-    /// actions used are told, and `on_frame` runs.
+    /// Runs a frame of the scripts: what they drew last frame goes, the window's new size, where
+    /// the player is in the rooms, the music and the actions used are told, and `on_frame` runs.
     pub fn frame(shown: *Presentation, host: Host) void {
         shown.host = host;
         shown.views = host.views;
         for (&shown.layers.values) |*layer| layer.clear();
         shown.assets.startFrame();
+        shown.sounds.forgetEnded();
         if (shown.window) |last| {
             if (!std.mem.eql(u32, &last, &host.window)) shown.runner.callAll(.on_window_resized, .{ .width = host.window[0], .height = host.window[1] });
         }
@@ -345,6 +359,7 @@ pub const Presentation = struct {
             shown.room = room;
             shown.runner.callAll(.on_room_changed, if (room) |now| .{ .view = @as(u32, now.view) + 1, .place = now.place } else .{ .view = null, .place = null });
         }
+        shown.tellMusic(if (host.sound) |sound| sound.pieceOn() else null);
         var held: std.EnumSet(controls.Action) = .empty;
         if (host.flying) {
             for (std.enums.values(controls.Action)) |action| {
@@ -368,6 +383,14 @@ pub const Presentation = struct {
         shown.runner.advance(host.seconds);
         shown.runner.callAll(.on_frame, .{ .seconds = host.seconds });
         shown.runtime.registries.frame(shown.runtime, host.seconds);
+    }
+
+    /// Tells the scripts the piece of music at `path` plays, or none for null, where that's a change
+    /// from last frame.
+    fn tellMusic(shown: *Presentation, path: ?[]const u8) void {
+        if (samePiece(path, if (shown.music) |*piece| piece.pathOf() else null)) return;
+        shown.music = if (path) |playing| .of(playing, hog_snd.forever, hog_snd.loudest) else null;
+        shown.runner.callAll(.on_music_changed, .{ .piece = if (path) |playing| hog_snd.pieceName(playing) else null });
     }
 
     /// Where the mods' displays put the game's instruments of the flight display this frame, and
@@ -408,6 +431,22 @@ pub const Presentation = struct {
     }
 };
 
+/// Whether the pieces of music at `one` and `other` are the same, or neither plays. A piece is the
+/// same whatever the case of its path, as Windows has it.
+fn samePiece(one: ?[]const u8, other: ?[]const u8) bool {
+    const first = one orelse return other == null;
+    const second = other orelse return false;
+    return std.ascii.eqlIgnoreCase(first, second);
+}
+
+test samePiece {
+    try std.testing.expect(samePiece(null, null));
+    try std.testing.expect(samePiece("music\\New_Pensive.wav", "MUSIC\\new_pensive.wav"));
+    try std.testing.expect(!samePiece("music\\one.wav", null));
+    try std.testing.expect(!samePiece(null, "music\\one.wav"));
+    try std.testing.expect(!samePiece("music\\one.wav", "music\\two.wav"));
+}
+
 /// The family of the scripts of `place`.
 fn familyOf(place: Place) script.Family {
     return switch (place) {
@@ -447,6 +486,8 @@ const Fixture = struct {
     font: hud.Opened,
     /// Where the frames have the player in the rooms; null while they aren't on screen.
     rooms: ?Host.Rooms = null,
+    /// The sound the frames have, if any.
+    sound: ?*hog_snd.Sound = null,
 
     fn init(fixture: *Fixture, made: []const struct { []const u8, []const struct { []const u8, []const u8 } }) !void {
         return fixture.initShared(made, .{});
@@ -482,7 +523,7 @@ const Fixture = struct {
     /// A frame of `seconds`, in a window of `window`, with the menus shown, and the player where
     /// `rooms` says.
     fn frame(fixture: *Fixture, seconds: f32, window: [2]u32) void {
-        var host: Host = .{ .seconds = seconds, .devices = &fixture.devices, .window = window, .rooms = fixture.rooms };
+        var host: Host = .{ .seconds = seconds, .devices = &fixture.devices, .window = window, .rooms = fixture.rooms, .sound = fixture.sound };
         host.views.set(.ui, .{ .font = &fixture.font, .gpa = std.testing.allocator, .screen = window, .scale = 2 });
         fixture.shown.frame(host);
     }
@@ -1296,6 +1337,185 @@ test "menu scripts follow the rooms, and ask the CD player for a list" {
     fixture.rooms = null;
     fixture.frame(0.016, .{ 640, 480 });
     try std.testing.expectEqualStrings("5 nil,5 cd_player,nil nil", shown.layers.get(.ui).text.items);
+}
+
+test "scripts play their mods' sounds, control the music, and hear it change" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nMenu=menu.luau\nPlayer=player.luau\n" },
+            .{ "beep.wav", hog_snd.testing.sound_file },
+            .{ "notes.txt", "not a sound" },
+            .{ "broken.wav", "not a WAVE file" },
+            .{
+                "menu.luau",
+                \\local audio = require("openreliant.audio")
+                \\local told = {}
+                \\local beep
+                \\local frames = 0
+                \\return { engine_handlers = {
+                \\    on_music_changed = function(piece) table.insert(told, tostring(piece)) end,
+                \\    on_frame = function()
+                \\        frames += 1
+                \\        if frames == 1 then
+                \\            beep = audio.play_sound("BEEP.wav", {volume = 0.5, pitch = 2, loop = true, pan = -1})
+                \\            assert(beep and audio.sound_playing(beep))
+                \\            -- A file the mod hasn't got, one that isn't a sound, and wrong options are errors.
+                \\            for _, name in {"missing.wav", "notes.txt", "broken.wav", "../beep.wav"} do
+                \\                assert(not pcall(audio.play_sound, name))
+                \\            end
+                \\            assert(not pcall(audio.play_sound, "beep.wav", {pitch = 0}))
+                \\            assert(not pcall(audio.play_sound, "beep.wav", {near = 10, far = 5}))
+                \\            -- In 3D outside a mission, or the game's sound without its bank, nothing plays.
+                \\            assert(audio.play_sound("beep.wav", {at = vector.zero}) == nil)
+                \\            assert(audio.play_sound(0) == nil)
+                \\            assert(not audio.sound_playing(nil))
+                \\            audio.play_music("one.wav")
+                \\        elseif frames == 2 then
+                \\            assert(audio.music == "one.wav")
+                \\            audio.stop_sound(beep)
+                \\            assert(not audio.sound_playing(beep))
+                \\            audio.play_music("two.wav", {after_fade = true, loop = false})
+                \\        elseif frames == 3 then
+                \\            assert(audio.music == "two.wav")
+                \\            audio.stop_music()
+                \\        end
+                \\        require("openreliant.ui").text(vector.zero, table.concat(told, ","))
+                \\    end,
+                \\} }
+            },
+            .{
+                "player.luau",
+                \\local audio = require("openreliant.audio")
+                \\local hum
+                \\return { engine_handlers = { on_frame = function()
+                \\    hum = hum or audio.play_sound("beep.wav", {loop = true})
+                \\end } }
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const shown = fixture.shown;
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(4, null);
+    const driver = speaker.mixer.driver();
+    const sound = &speaker.sound;
+    try fixture.tmp.dir.createDirPath(io, "music");
+    try fixture.tmp.dir.writeFile(io, .{ .sub_path = "music/one.wav", .data = hog_snd.testing.sound_file });
+    try fixture.tmp.dir.writeFile(io, .{ .sub_path = "music/two.wav", .data = hog_snd.testing.sound_file });
+    sound.files = .{ .gpa = gpa, .io = io, .dir = fixture.tmp.dir };
+    defer sound.closeMusic();
+    fixture.sound = sound;
+    const scripted = struct {
+        fn voice(of: *const hog_snd.Sound) ?u8 {
+            for (of.starters[0..of.voice_count], 0..) |starter, v| {
+                if (starter != .game) return @intCast(v);
+            }
+            return null;
+        }
+    }.voice;
+
+    // The menu script's sound plays at twice its rate, on the left, and the music starts.
+    fixture.frame(0.016, .{ 640, 480 });
+    const v = scripted(sound).?;
+    const state = speaker.mixer.samples[@backingInt(sound.voices[v].sample)].state;
+    try std.testing.expectEqual(2 * hog_snd.testing.Speaker.rate, state.playing.?.rate);
+    try std.testing.expectEqual(0, state.pan);
+    // The sound stops, and the next piece waits for the music to fade out.
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(engine.mss.Status.done, driver.sampleStatus(sound.voices[v].sample));
+    try std.testing.expect(sound.music.fading and sound.music.queued != null);
+    var ticks: u32 = 0;
+    while (sound.music.stream != null) : (ticks += 6) sound.timerTick(ticks);
+    sound.updateMusic();
+    // The music stops, with nothing after it.
+    fixture.frame(0.016, .{ 640, 480 });
+    fixture.frame(0.016, .{ 640, 480 });
+    try std.testing.expectEqual(null, sound.pieceOn());
+    try std.testing.expectEqualStrings("one.wav,two.wav,nil", shown.layers.get(.ui).text.items);
+
+    // A player script's sound comes from the same file, and stops as the game ends.
+    try shown.startGame(null, fixture.mission.objects, false);
+    fixture.frame(0.016, .{ 640, 480 });
+    const hum = scripted(sound).?;
+    try std.testing.expectEqual(engine.mss.Status.playing, driver.sampleStatus(sound.voices[hum].sample));
+    try std.testing.expectEqual(1, shown.sounds.files.items.len);
+    shown.endGame();
+    try std.testing.expectEqual(engine.mss.Status.done, driver.sampleStatus(sound.voices[hum].sample));
+}
+
+test "the audio example chimes as a piece starts, drops a beacon, and fades the music" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{ "audio", &.{
+        .{ "mod.ini", @embedFile("audio/mod.ini") },
+        .{ "now_playing.luau", @embedFile("audio/now_playing.luau") },
+        .{ "beacon.luau", @embedFile("audio/beacon.luau") },
+        .{ "chime.wav", @embedFile("audio/chime.wav") },
+        .{ "beacon.wav", @embedFile("audio/beacon.wav") },
+    } }});
+    defer fixture.deinit();
+    const shown = fixture.shown;
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(4, null);
+    const sound = &speaker.sound;
+    const smp3d = comptime hog_snd.testing.bank(80);
+    sound.open3D(try openreliant.fat.Bank.parse(&smp3d), &.{});
+    try fixture.tmp.dir.createDirPath(io, "music");
+    try fixture.tmp.dir.writeFile(io, .{ .sub_path = "music/New_Pensive.wav", .data = hog_snd.testing.sound_file });
+    sound.files = .{ .gpa = gpa, .io = io, .dir = fixture.tmp.dir };
+    defer sound.closeMusic();
+    try shown.startGame(null, fixture.mission.objects, false);
+    var view: engine.game.camera.Camera = .{};
+    var host: Host = .{
+        .seconds = 0.04,
+        .devices = &fixture.devices,
+        .window = .{ 640, 480 },
+        .sound = sound,
+        .camera = .{ .camera = &view, .now = 1, .player = 0 },
+        .scene = .{ .objects = fixture.mission.objects, .camera = .{ .position = @splat(0), .orientation = engine.surrender.math.identity }, .view = .chase, .clock = &fixture.mission.clock, .random = &fixture.mission.random },
+    };
+    const layer: drawing.View = .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 };
+    host.views.set(.hud, layer);
+    host.views.set(.ui, layer);
+    const press = struct {
+        fn press(on: *Presentation, key: input.Key) void {
+            on.key(key, true);
+            on.key(key, false);
+        }
+    }.press;
+    shown.frame(host);
+    fixture.devices.keyboard.down[@backingInt(input.Key.left_shift)] = true;
+
+    // Shift F2 brings the main menu's piece in. As it starts, the chime plays, and its name shows.
+    press(shown, .f2);
+    sound.updateMusic();
+    shown.frame(host);
+    try std.testing.expectEqualStrings("NOW PLAYING: NEW_PENSIVE", shown.layers.get(.ui).text.items);
+    const chimes = for (sound.starters[0..sound.voice_count]) |starter| {
+        if (starter != .game) break true;
+    } else false;
+    try std.testing.expect(chimes);
+    // Shift F4 drops a beacon at the ship, which loops in 3D until Shift F4 picks it up.
+    const beacon = struct {
+        fn playing(of: *const hog_snd.Sound) bool {
+            for (of.starters_3d[0..of.voice_3d_count], of.voices_3d[0..of.voice_3d_count]) |starter, voice| {
+                if (starter != .game and !voice.isFree()) return true;
+            }
+            return false;
+        }
+    }.playing;
+    press(shown, .f4);
+    try std.testing.expect(beacon(sound));
+    press(shown, .f4);
+    try std.testing.expect(!beacon(sound));
+    // Shift F2 fades the music out.
+    press(shown, .f2);
+    try std.testing.expect(sound.music.fading);
 }
 
 test "a script draws the shapes of a sprite set it names" {

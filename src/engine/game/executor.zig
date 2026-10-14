@@ -716,7 +716,7 @@ fn darrensNaughtyBlag(call: Call, game: aigeneric.Context) void {
 const music_level = 80;
 
 /// How many times a mission's music plays: for ever (`cmd_PlayMusic`, `0x00458E18`).
-const music_forever = 0;
+pub const music_forever = 0;
 
 /// The room the game gives a piece's path (`cmd_PlayMusic`'s buffer, `0x00458DF0`).
 const music_path_size = 128;
@@ -730,20 +730,20 @@ const music_folder = "music\\";
 fn playMusic(call: Call, game: aigeneric.Context) void {
     const hearing = game.world.hearing orelse return;
     const name = argumentText(call, 0) orelse return;
-    playPiece(hearing.sound, name, .of(call.args[1], game.world.clock.game_ticks));
+    playPiece(hearing.sound, name, music_forever, .of(call.args[1], game.world.clock.game_ticks));
 }
 
-/// Plays the piece `name` from the game's music folder for ever, as `cmd_PlayMusic` plays it, when
-/// `when` has it.
+/// Plays the piece `name` from the game's music folder `loops` times, 0 for ever, as
+/// `cmd_PlayMusic` plays it, when `when` has it.
 ///
 /// **Fix:** the game writes a path longer than its buffer past it; OpenReliant plays nothing.
-pub fn playPiece(sound: *hog_snd.Sound, name: []const u8, when: hog_snd.Sound.When) void {
+pub fn playPiece(sound: *hog_snd.Sound, name: []const u8, loops: u32, when: hog_snd.Sound.When) void {
     var buffer: [music_path_size]u8 = undefined;
     const path = std.mem.print(&buffer, music_folder ++ "{s}", .{name}) catch {
         log.warn("the music {s} is left out: its path is too long", .{name});
         return;
     };
-    sound.playMusic(path, music_forever, music_level, when);
+    sound.playMusic(path, loops, music_level, when);
 }
 
 /// Who a comms command's first argument names to speak: a mission's ship, or a pilot of the
