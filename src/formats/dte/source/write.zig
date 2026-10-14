@@ -25,7 +25,7 @@ pub fn write(writer: *Writer, arena: Allocator, mission: dte.Mission) Error!void
 }
 
 /// The longest line a declaration's fields keep to before they go on lines of their own.
-const line_length = 100;
+pub const line_length = 100;
 
 const Source = struct {
     arena: Allocator,
@@ -457,7 +457,7 @@ fn writeList(w: *Writer, items: []const []const u8, column: usize) Writer.Error!
 
 /// `items` as a table, `{ a, b }`, starting `column` characters into its line, with `after`
 /// characters after it on the line: on that line where it fits, or with an item to a line.
-fn writeTable(w: *Writer, items: []const []const u8, column: usize, after: usize) Writer.Error!void {
+pub fn writeTable(w: *Writer, items: []const []const u8, column: usize, after: usize) Writer.Error!void {
     if (items.len == 0) return w.writeAll("{}");
     var length = column + "{  }".len + after;
     for (items, 0..) |item, index| length += item.len + @as(usize, if (index > 0) ", ".len else 0);
@@ -488,7 +488,7 @@ fn named(kind: vocabulary.Kind, value: u32) Named {
 
 /// A number as Luau writes it: the shortest that reads back as the same `f32`, with an exponent
 /// from `exponent_from` on, and `0/0`, `1/0` and `-1/0` for those Luau has no literal for.
-const Number = struct {
+pub const Number = struct {
     value: f32,
 
     /// The smallest number written with an exponent, 2^53. From there on a double holds only some
@@ -503,12 +503,12 @@ const Number = struct {
     }
 };
 
-fn number(value: f32) Number {
+pub fn number(value: f32) Number {
     return .{ .value = value };
 }
 
 /// A place as `{ x, y, z }`.
-const Vector = struct {
+pub const Vector = struct {
     value: [3]f32,
 
     pub fn format(shown: Vector, w: *Writer) Writer.Error!void {
@@ -516,7 +516,7 @@ const Vector = struct {
     }
 };
 
-fn vector(value: [3]f32) Vector {
+pub fn vector(value: [3]f32) Vector {
     return .{ .value = value };
 }
 

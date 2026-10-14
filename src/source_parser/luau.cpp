@@ -57,6 +57,8 @@ struct Builder {
         made.op = op;
         made.line = location.begin.line;
         made.column = location.begin.column;
+        made.end_line = location.end.line;
+        made.end_column = location.end.column;
         made.first = static_cast<uint32_t>(children.size());
         made.count = static_cast<uint32_t>(kids.size());
         children.insert(children.end(), kids.begin(), kids.end());
@@ -192,9 +194,9 @@ struct Builder {
                 std::vector<uint32_t> parts;
                 if (item.key) parts.push_back(expression(item.key));
                 parts.push_back(expression(item.value));
-                // An item starts at its key, where it has one.
-                kids.push_back(node(OR_ITEM, (item.key ? item.key : item.value)->location, parts,
-                                    static_cast<uint8_t>(item.kind)));
+                // An item starts at its key, where it has one, and ends with its value.
+                const Luau::Location span((item.key ? item.key : item.value)->location.begin, item.value->location.end);
+                kids.push_back(node(OR_ITEM, span, parts, static_cast<uint8_t>(item.kind)));
             }
             return node(OR_TABLE, at, kids);
         }

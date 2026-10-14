@@ -15,6 +15,8 @@ pub const write = @import("source/write.zig");
 pub const syntax = @import("source/syntax.zig");
 /// The text compiled into a mission file.
 pub const compile = @import("source/compile.zig");
+/// Edits to the text as an editor makes them.
+pub const edit = @import("source/edit.zig");
 /// What the source's words take and give, and the fields of its tables.
 pub const language = @import("source/language.zig");
 /// The definitions file for luau-lsp.

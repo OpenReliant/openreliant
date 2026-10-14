@@ -1,9 +1,9 @@
 //! Mission source as Luau's parser reads it
 //! ([Mission source](../../../../docs/formats/mission-source.md)): a tree of the statements and
-//! expressions in the file, each node with the line and column it starts at. The `source_parser`
-//! module fills it with Luau's own parser, which only the tools that read source link. A construct
-//! mission source doesn't use, such as a loop, is an `unsupported` node, so that the compiler can
-//! say where it is.
+//! expressions in the file, each node with the line and column where it starts and ends. The
+//! `source_parser` module fills it with Luau's own parser, which only the tools that read source
+//! link. A construct that mission source doesn't use, such as a loop, is an `unsupported` node, so
+//! that the compiler can say where it is.
 
 const std = @import("std");
 
@@ -106,7 +106,8 @@ pub const BinaryOperator = enum(u8) {
 /// The forms of a table's item: `value`, `key = value` and `[key] = value`.
 pub const ItemKind = enum(u8) { list, record, general };
 
-/// Where a node or an error starts, counting lines and columns from 0, as Luau does.
+/// A place in the source, where a node or an error starts or a node ends. Lines and columns count
+/// from 0, and columns count bytes, as in Luau.
 pub const Position = extern struct {
     line: u32,
     column: u32,
@@ -125,6 +126,8 @@ pub const Node = extern struct {
     /// an assignment's or a function's children are its names, its targets or its parameters.
     op: u8,
     at: Position,
+    /// Just past the node's last byte.
+    end: Position,
     /// The node's children, `count` of them from `first` in `Tree.children`.
     first: u32,
     count: u32,
@@ -291,6 +294,11 @@ pub const Tree = struct {
         return tree.nodes[index].at;
     }
 
+    /// Where node `index` ends, just past its last byte. A table's item ends with its value.
+    pub fn end(tree: Tree, index: Index) Position {
+        return tree.nodes[index].end;
+    }
+
     fn childrenOf(tree: Tree, index: Index) []const Index {
         const node = tree.nodes[index];
         return tree.children[node.first..][0..node.count];
@@ -328,19 +336,19 @@ pub const Tree = struct {
 test Tree {
     // `x += -2` and `on("a", { b = true })`, built by hand as the bridge writes them.
     const nodes = [_]Node{
-        .{ .kind = .global_name, .op = 0, .at = .{ .line = 0, .column = 0 }, .first = 0, .count = 0, .text_start = 0, .text_length = 1, .number = 0 },
-        .{ .kind = .number, .op = 0, .at = .{ .line = 0, .column = 6 }, .first = 0, .count = 0, .text_start = 1, .text_length = 0, .number = 2 },
-        .{ .kind = .unary, .op = @backingInt(UnaryOperator.minus), .at = .{ .line = 0, .column = 5 }, .first = 0, .count = 1, .text_start = 1, .text_length = 0, .number = 0 },
-        .{ .kind = .compound_assign, .op = @backingInt(BinaryOperator.add), .at = .{ .line = 0, .column = 0 }, .first = 1, .count = 2, .text_start = 1, .text_length = 0, .number = 0 },
-        .{ .kind = .global_name, .op = 0, .at = .{ .line = 1, .column = 0 }, .first = 3, .count = 0, .text_start = 1, .text_length = 2, .number = 0 },
-        .{ .kind = .string, .op = 0, .at = .{ .line = 1, .column = 3 }, .first = 3, .count = 0, .text_start = 3, .text_length = 1, .number = 0 },
-        .{ .kind = .string, .op = 0, .at = .{ .line = 1, .column = 10 }, .first = 3, .count = 0, .text_start = 4, .text_length = 1, .number = 0 },
-        .{ .kind = .boolean, .op = 1, .at = .{ .line = 1, .column = 14 }, .first = 3, .count = 0, .text_start = 5, .text_length = 0, .number = 0 },
-        .{ .kind = .item, .op = @backingInt(ItemKind.record), .at = .{ .line = 1, .column = 10 }, .first = 3, .count = 2, .text_start = 5, .text_length = 0, .number = 0 },
-        .{ .kind = .table, .op = 0, .at = .{ .line = 1, .column = 8 }, .first = 5, .count = 1, .text_start = 5, .text_length = 0, .number = 0 },
-        .{ .kind = .call, .op = 0, .at = .{ .line = 1, .column = 0 }, .first = 6, .count = 3, .text_start = 5, .text_length = 0, .number = 0 },
-        .{ .kind = .call_statement, .op = 0, .at = .{ .line = 1, .column = 0 }, .first = 9, .count = 1, .text_start = 5, .text_length = 0, .number = 0 },
-        .{ .kind = .block, .op = 0, .at = .{ .line = 0, .column = 0 }, .first = 10, .count = 2, .text_start = 5, .text_length = 0, .number = 0 },
+        .{ .kind = .global_name, .op = 0, .at = .{ .line = 0, .column = 0 }, .end = .{ .line = 0, .column = 1 }, .first = 0, .count = 0, .text_start = 0, .text_length = 1, .number = 0 },
+        .{ .kind = .number, .op = 0, .at = .{ .line = 0, .column = 6 }, .end = .{ .line = 0, .column = 7 }, .first = 0, .count = 0, .text_start = 1, .text_length = 0, .number = 2 },
+        .{ .kind = .unary, .op = @backingInt(UnaryOperator.minus), .at = .{ .line = 0, .column = 5 }, .end = .{ .line = 0, .column = 7 }, .first = 0, .count = 1, .text_start = 1, .text_length = 0, .number = 0 },
+        .{ .kind = .compound_assign, .op = @backingInt(BinaryOperator.add), .at = .{ .line = 0, .column = 0 }, .end = .{ .line = 0, .column = 7 }, .first = 1, .count = 2, .text_start = 1, .text_length = 0, .number = 0 },
+        .{ .kind = .global_name, .op = 0, .at = .{ .line = 1, .column = 0 }, .end = .{ .line = 1, .column = 2 }, .first = 3, .count = 0, .text_start = 1, .text_length = 2, .number = 0 },
+        .{ .kind = .string, .op = 0, .at = .{ .line = 1, .column = 3 }, .end = .{ .line = 1, .column = 6 }, .first = 3, .count = 0, .text_start = 3, .text_length = 1, .number = 0 },
+        .{ .kind = .string, .op = 0, .at = .{ .line = 1, .column = 10 }, .end = .{ .line = 1, .column = 11 }, .first = 3, .count = 0, .text_start = 4, .text_length = 1, .number = 0 },
+        .{ .kind = .boolean, .op = 1, .at = .{ .line = 1, .column = 14 }, .end = .{ .line = 1, .column = 18 }, .first = 3, .count = 0, .text_start = 5, .text_length = 0, .number = 0 },
+        .{ .kind = .item, .op = @backingInt(ItemKind.record), .at = .{ .line = 1, .column = 10 }, .end = .{ .line = 1, .column = 18 }, .first = 3, .count = 2, .text_start = 5, .text_length = 0, .number = 0 },
+        .{ .kind = .table, .op = 0, .at = .{ .line = 1, .column = 8 }, .end = .{ .line = 1, .column = 20 }, .first = 5, .count = 1, .text_start = 5, .text_length = 0, .number = 0 },
+        .{ .kind = .call, .op = 0, .at = .{ .line = 1, .column = 0 }, .end = .{ .line = 1, .column = 21 }, .first = 6, .count = 3, .text_start = 5, .text_length = 0, .number = 0 },
+        .{ .kind = .call_statement, .op = 0, .at = .{ .line = 1, .column = 0 }, .end = .{ .line = 1, .column = 21 }, .first = 9, .count = 1, .text_start = 5, .text_length = 0, .number = 0 },
+        .{ .kind = .block, .op = 0, .at = .{ .line = 0, .column = 0 }, .end = .{ .line = 1, .column = 21 }, .first = 10, .count = 2, .text_start = 5, .text_length = 0, .number = 0 },
     };
     const children = [_]Index{ 1, 0, 2, 6, 7, 8, 4, 5, 9, 10, 3, 11 };
     const tree: Tree = .{ .nodes = &nodes, .children = &children, .text = "xonab", .errors = &.{}, .root = 12 };
@@ -352,8 +360,9 @@ test Tree {
     const item = tree.get(8).item.record;
     try std.testing.expectEqualStrings("b", item.key);
     try std.testing.expect(tree.get(item.value).boolean);
-    // An item starts at its key.
+    // An item starts at its key, and ends with its value.
     try std.testing.expectEqual(Position{ .line = 1, .column = 10 }, tree.at(8));
+    try std.testing.expectEqual(Position{ .line = 1, .column = 18 }, tree.end(8));
 
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();

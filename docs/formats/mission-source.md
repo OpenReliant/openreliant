@@ -339,14 +339,35 @@ trigger's condition:
 The reference lists each condition's values
 ([Conditions](../guide/mission-reference.md#conditions)).
 
+### Edits
+
+An editor that changes records through forms, such as the
+[mission editor](https://github.com/OpenReliant/openreliant-editor), edits the source with
+[`edit.zig`](../../src/formats/dte/source/edit.zig) instead of writing the whole file again, so the
+rest of the text keeps its comments and layout. Each edit replaces one span of the text, the way an
+undoable text editor replaces it:
+
+- `setArgument` sets an argument of a declaration, such as a ship's display name.
+- `setField` sets a field of a declaration's table. It replaces the value if the table has the
+  field, and otherwise adds the field after the last item: on a new line with the same indent if
+  the table spans several lines, and on the same line if not. A call without a table gets one,
+  before a trigger's function.
+- `removeField` removes a field. A field alone on its line goes with the line and its comment.
+- `declare` adds a declaration on a new line, such as after the last one with the same word.
+
+Values are written the way the decompiler writes them. `language.fieldsOf` gives the table of
+fields that each declaration takes and which argument it is, and the table gives each field's type
+and description for a form.
+
 ## Reading the text
 
 Luau's own parser reads mission source, so the syntax is exactly Luau's, comments included.
 [`src/source_parser.zig`](../../src/source_parser.zig) calls the parser through a C++ shim, since
-it has no C API, and copies its syntax tree into the library's
+the parser has no C API, and copies its syntax tree into the library's
 ([`syntax.zig`](../../src/formats/dte/source/syntax.zig)): each statement and expression with the
-line and column it starts at, and each error the parser finds with its place. Only the tools that
-read source link the parser. sltool does; the library the tools share doesn't.
+line and column where it starts and ends, and each error the parser finds with its place. Columns
+count bytes, as in Luau. A table's item starts at its key and ends with its value. Only the tools
+that read source link the parser: sltool does, and the library that the tools share doesn't.
 
 Mission source uses a subset of Luau. The parser gives back the rest, such as a loop, a function
 declared by name, a method call, an `if` expression or a string with values put into it, as an

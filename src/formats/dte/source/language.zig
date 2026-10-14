@@ -235,6 +235,28 @@ pub fn declaration(word: Word) Declaration {
     };
 }
 
+/// The table of fields that a declaration takes, and which of its arguments it is.
+pub const FieldsArgument = struct {
+    index: usize,
+    table: Table,
+};
+
+/// The table of fields that `word` takes, if it takes one: what an editor's form for the record
+/// shows, and where its edits go.
+pub fn fieldsOf(word: Word) ?FieldsArgument {
+    return switch (word) {
+        .mission => .{ .index = 0, .table = mission_fields },
+        .flight_group => .{ .index = 1, .table = flight_group_fields },
+        .ship => .{ .index = 1, .table = ship_fields },
+        .nav_point, .waypoint, .curve_point => .{ .index = 1, .table = marker_fields },
+        .point => .{ .index = 1, .table = point_fields },
+        .curve => .{ .index = 0, .table = curve_fields },
+        .part => .{ .index = 2, .table = part_fields },
+        .on => .{ .index = 2, .table = trigger_fields },
+        else => null,
+    };
+}
+
 /// `word`'s signature, as Luau writes it: `ship(name: string, fields: ShipFields): MissionShip`,
 /// or `any_ship: MissionShip` for a value.
 pub const Signature = struct {
@@ -373,6 +395,24 @@ test parameters {
     var w: Writer = .fixed(&buffer);
     for (list) |parameter| try w.print("{s}: {f}; ", .{ parameter.name, parameter.type });
     try std.testing.expectEqualStrings("entity_to_be_controlled: Entity; ai_mode: Order; initialize_immediately: number; entity_to_target: Entity?; ", w.buffered());
+}
+
+test fieldsOf {
+    // A word has a table exactly if it has a `fields` parameter: that parameter, of the table's
+    // type.
+    for (std.enums.values(Word)) |word| {
+        var listed = std.mem.splitSequence(u8, declaration(word).parameters orelse "", ", ");
+        var index: usize = 0;
+        const parameter = while (listed.next()) |parameter| : (index += 1) {
+            if (std.mem.startsWith(u8, parameter, "fields: ")) break parameter;
+        } else {
+            try std.testing.expect(fieldsOf(word) == null);
+            continue;
+        };
+        const fields = fieldsOf(word).?;
+        try std.testing.expectEqual(index, fields.index);
+        try std.testing.expect(std.mem.find(u8, parameter, fields.table.name) != null);
+    }
 }
 
 test Signature {

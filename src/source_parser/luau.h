@@ -69,7 +69,8 @@ enum {
     OR_ITEM_GENERAL = 2,
 };
 
-/* A node. Its kind decides what `op` holds (`syntax.Node.op`). `first` and `count` give its
+/* A node. Its kind decides what `op` holds (`syntax.Node.op`). `line` and `column` give where it
+ * starts, and `end_line` and `end_column` where it ends, just past it. `first` and `count` give its
  * children's indices in `OrTree.children`, and `text_start` and `text_length` its text in
  * `OrTree.text`. `number` holds a number's value, and for a name and a local's use the local's
  * number, which each local the file declares has of its own. */
@@ -78,6 +79,8 @@ typedef struct {
     uint8_t op;
     uint32_t line;
     uint32_t column;
+    uint32_t end_line;
+    uint32_t end_column;
     uint32_t first;
     uint32_t count;
     uint32_t text_start;

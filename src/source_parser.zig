@@ -79,6 +79,8 @@ comptime {
     }
     assert(@offsetOf(syntax.Node, "at") + @offsetOf(syntax.Position, "line") == @offsetOf(luau.OrNode, "line"));
     assert(@offsetOf(syntax.Node, "at") + @offsetOf(syntax.Position, "column") == @offsetOf(luau.OrNode, "column"));
+    assert(@offsetOf(syntax.Node, "end") + @offsetOf(syntax.Position, "line") == @offsetOf(luau.OrNode, "end_line"));
+    assert(@offsetOf(syntax.Node, "end") + @offsetOf(syntax.Position, "column") == @offsetOf(luau.OrNode, "end_column"));
     sameNumbers(syntax.Kind, "OR_", &.{ "OR_UNARY_", "OR_BINARY_", "OR_ITEM_" });
     sameNumbers(syntax.UnaryOperator, "OR_UNARY_", &.{});
     sameNumbers(syntax.BinaryOperator, "OR_BINARY_", &.{});
@@ -597,6 +599,101 @@ fn lineNumbers(arena: Allocator, text: []const u8, wanted: []const []const u8) !
 fn statementOn(compiled: compile.Compiled, line: u32) ?compile.Compiled.Statement {
     for (compiled.statements) |statement| if (statement.at.line == line) return statement;
     return null;
+}
+
+test "a node ends where Luau's parser ends it" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const tree = try parse(arena, "sabre = ship(\"Sabre\", { type = \"sabre\" })\n");
+    const assign = tree.get(tree.get(tree.root).block[0]).assign;
+    const call = assign.values[0];
+    try std.testing.expectEqual(syntax.Position{ .line = 0, .column = 8 }, tree.at(call));
+    try std.testing.expectEqual(syntax.Position{ .line = 0, .column = 41 }, tree.end(call));
+    // A table's item runs from its key to the end of its value.
+    const table = tree.get(call).call.arguments[1];
+    const item = tree.get(table).table[0];
+    try std.testing.expectEqual(syntax.Position{ .line = 0, .column = 24 }, tree.at(item));
+    try std.testing.expectEqual(syntax.Position{ .line = 0, .column = 38 }, tree.end(item));
+}
+
+test "edits to a declaration keep the rest of the source" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const text =
+        \\alpha = flight_group("(FG)Alpha", { wing = "player" })
+        \\nav = nav_point("Nav 1")
+        \\sabre = ship("Sabre", {
+        \\    type = "sabre",
+        \\    group = alpha, -- the enemies
+        \\    position = { 0, 0, 40000 },
+        \\})
+        \\on(nav, "ship_reached", function()
+        \\    return 1
+        \\end)
+        \\
+    ;
+    const edit = dte.source.edit;
+    const source: edit.Source = try .init(arena, text, try parse(arena, text));
+    const Case = struct { edit: ?edit.Edit, wanted: []const u8 };
+    const sabre = source.declaration("sabre").?;
+    const alpha = source.declaration("alpha").?;
+    const nav = source.declaration("nav").?;
+    const trigger = source.callOn(7).?;
+    for ([_]Case{
+        // A field's value is replaced.
+        .{ .edit = try source.setField(arena, sabre, 1, "position", .{ .vector = .{ -2000, 0, 42000.5 } }), .wanted = "    position = { -2000, 0, 42000.5 },\n" },
+        // A new field goes on a new line, with the same indent as the others.
+        .{ .edit = try source.setField(arena, sabre, 1, "yaw", .{ .number = 180 }), .wanted = "    position = { 0, 0, 40000 },\n    yaw = 180,\n})" },
+        // In a one-line table, it goes after the last item.
+        .{ .edit = try source.setField(arena, alpha, 1, "formation", .{ .name = "vee" }), .wanted = "{ wing = \"player\", formation = vee })" },
+        // A call without a table gets one.
+        .{ .edit = try source.setField(arena, nav, 1, "position", .{ .vector = .{ 0, 0, 40000 } }), .wanted = "nav_point(\"Nav 1\", { position = { 0, 0, 40000 } })" },
+        // A trigger without fields gets a table before its function.
+        .{ .edit = try source.setField(arena, trigger, 2, "repeats", .{ .text = "always" }), .wanted = "on(nav, \"ship_reached\", { repeats = \"always\" }, function()" },
+        // Removing a field removes its line, comment included.
+        .{ .edit = source.removeField(sabre, 1, "group"), .wanted = "    type = \"sabre\",\n    position" },
+        // Removing the only field leaves an empty table.
+        .{ .edit = source.removeField(alpha, 1, "wing"), .wanted = "flight_group(\"(FG)Alpha\", {})" },
+        // An argument such as the display name, with the string escaped.
+        .{ .edit = try source.setArgument(arena, sabre, 0, .{ .text = "Sabre \"1\"" }), .wanted = "ship(\"Sabre \\\"1\\\"\", {" },
+        // A declaration goes after the last one with the same word.
+        .{ .edit = try source.declare(arena, source.lastDeclarationOf("ship"), "sabre_2", "ship", &.{ .{ .text = "Sabre 2" }, .{ .table = &.{.{ .key = "type", .value = .{ .text = "sabre" } }} } }), .wanted = "})\nsabre_2 = ship(\"Sabre 2\", { type = \"sabre\" })\non(nav" },
+    }) |case| try expectEdit(arena, source, case.edit.?, case.wanted);
+    // A field the table doesn't have can't be removed, and a table can't go past the arguments.
+    try std.testing.expectEqual(null, source.removeField(sabre, 1, "pilot"));
+    try std.testing.expectEqual(null, try source.setField(arena, nav, 3, "yaw", .{ .number = 1 }));
+}
+
+test "edits follow an unusual layout" {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    // The table ends on its last item's line, and the text's last line has no line break.
+    const text =
+        \\sabre = ship("Sabre", {
+        \\    type = "sabre" })
+    ;
+    const edit = dte.source.edit;
+    const source: edit.Source = try .init(arena, text, try parse(arena, text));
+    const sabre = source.declaration("sabre").?;
+    // A new field goes on the last item's line, before the table's end.
+    try expectEdit(arena, source, (try source.setField(arena, sabre, 1, "yaw", .{ .number = 90 })).?, "    type = \"sabre\", yaw = 90 })");
+    // A declaration after the last line starts a new line.
+    const nav = try source.declare(arena, source.lastDeclarationOf("ship"), "nav", "nav_point", &.{.{ .text = "Nav 1" }});
+    try expectEdit(arena, source, nav, "\"sabre\" })\nnav = nav_point(\"Nav 1\")\n");
+}
+
+/// Checks that the text after `edit` contains `wanted`, and that Luau's parser reads it without
+/// errors.
+fn expectEdit(arena: Allocator, source: dte.source.edit.Source, edit: dte.source.edit.Edit, wanted: []const u8) !void {
+    const made = try source.apply(arena, edit);
+    if (std.mem.find(u8, made, wanted) == null) {
+        std.debug.print("{s}\nis not in:\n{s}\n", .{ wanted, made });
+        return error.TestUnexpectedResult;
+    }
+    try std.testing.expectEqual(0, (try parse(arena, made)).errors.len);
 }
 
 test "the guide's mistake is reported as the guide shows it" {

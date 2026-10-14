@@ -317,8 +317,9 @@ fn firstArmed(list: []const Watch, object: u16) ?Watch {
 /// How far CloseProximity's watches look, in the subject's radii (`0x004DC72C`).
 const close_reach: f32 = 20;
 
-/// How far ShipReached's watches look (`0x4B742400`, its square).
-const reached_reach: f32 = 4000;
+/// How far ShipReached's watches look (`0x4B742400`, its square), which an editor's map draws
+/// around a waypoint or a nav point.
+pub const reached_reach: f32 = 4000;
 
 /// The operand of a Proximity trigger that gives its distance, in the subject's radii.
 const proximity_operand = 1;
