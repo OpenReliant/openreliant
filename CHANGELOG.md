@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/OpenReliant/openreliant/compare/v0.14.0...v0.15.0) (2026-10-14)
+
+
+### Features
+
+* what the editor's debugger needs from the link and the compiler ([#1208](https://github.com/OpenReliant/openreliant/issues/1208)) ([0f92996](https://github.com/OpenReliant/openreliant/commit/0f929963ecde98b3e1b8a1efa9365089b4e01dbb)), closes [#1206](https://github.com/OpenReliant/openreliant/issues/1206)
+
 ## [0.14.0](https://github.com/OpenReliant/openreliant/compare/v0.13.0...v0.14.0) (2026-10-14)
 
 
