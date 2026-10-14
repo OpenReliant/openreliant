@@ -85,10 +85,10 @@ conditional branch, a return or a spawn, after the instructions that push its op
 numbers the statements at those instructions, and `break <part>:<n>` stops before the `n`th.
 
 Breakpoints stay set from one mission to the next. As a mission starts, the game sends the debugger
-the mission's file, and the debugger places the breakpoints in its script before the start parts
-run, so a breakpoint set before the game starts can stop them. Each attempt at a mission reads its
-file again, and the breakpoints are placed again for it. A breakpoint whose part the mission doesn't
-have waits for one that has it.
+the mission's file, and waits for the debugger to place the breakpoints in its script before the
+start parts run, so a breakpoint set before the game starts can stop them. Each attempt at a
+mission reads its file again, and the breakpoints are placed again for it. A breakpoint whose part
+the mission doesn't have waits for one that has it.
 
 `step` and `next` work from where the script stopped. From a running script, they stop at the next
 statement any thread runs.

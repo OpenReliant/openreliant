@@ -186,7 +186,7 @@ pub const Session = struct {
         loaded.session = null;
         loaded.script.editor.connection = null;
         session.loaded = null;
-        session.link.sendFields(.mission_ended, &.{});
+        session.link.send(@backingInt(link.Own.mission_ended), "");
     }
 
     /// Once a frame, and wherever the script's start checks the link (`editor_link_check`): an
@@ -220,7 +220,10 @@ pub const Session = struct {
             return;
         }
         switch (received[message.tag].action) {
-            .copy => |section| copy(&loaded.bound, section, message.payload),
+            .copy => |section| {
+                copy(&loaded.bound, section, message.payload);
+                if (section == .script_flags) loaded.script.editor.flagged = true;
+            },
             .run_control => runControl(loaded, message.payload),
             .unread, .nothing => {},
             .not_ported => if (!session.logged.isSet(message.tag)) {
@@ -239,26 +242,23 @@ pub const Session = struct {
         }
     }
 
-    /// Tells the editor the script's state (`writeState`).
+    /// Tells the editor the script's state (`stateOf`).
     fn tellState(session: *Session, loaded: *mission.Loaded) void {
-        var text: std.Io.Writer.Allocating = .init(session.link.gpa);
-        defer text.deinit();
-        writeState(&text.writer, loaded) catch {
+        var arena: std.heap.ArenaAllocator = .init(session.link.gpa);
+        defer arena.deinit();
+        const state = stateOf(arena.allocator(), loaded) catch {
             log.warn("the link has no memory left for the script's state", .{});
             return;
         };
-        session.link.send(@backingInt(link.Own.state), text.written());
+        session.link.sendRecord(.state, state);
     }
 
     /// Tells the editor of the mission playing, as it starts or as an editor connects, and sends
     /// it the mission's file, which it places its breakpoints by before the start parts run.
     fn tellMission(session: *Session) void {
         const loaded = session.loaded orelse return;
-        var number: [std.fmt.count("{d}", .{std.math.maxInt(u16)})]u8 = undefined;
-        session.link.sendFields(.mission_started, &.{
-            .{ .key = "number", .value = number[0..std.fmt.printInt(&number, session.number, 10, .lower, .{})] },
-            .{ .key = "file", .value = session.file_buffer[0..session.file_length] },
-        });
+        const started: link.MissionStarted = .{ .number = session.number, .file = session.file_buffer[0..session.file_length] };
+        session.link.sendRecord(.mission_started, started);
         session.link.send(@backingInt(link.Own.mission_file), loaded.bound.image);
     }
 
@@ -294,46 +294,47 @@ pub const Session = struct {
     }
 };
 
-/// The script's state as `link.Own.state` gives it, a `key=value` line each: its clock (`clock`),
-/// the editor's hold, step and pause (`hold`, `step`, `paused`), and whether the pool's first
-/// thread has finished (`first_finished`); for each thread running, by its slot, where it is in the
-/// script (`thread.N.at`, none outside it), its call depth, the clock value it waits for, 0 for
-/// none, whether it waits for its trigger, and the trigger that started it, if one did; each
-/// global's value (`global.N`); and the game's variables (`variable.NAME`), by their names, and
-/// the unnamed ones by their numbers where they aren't 0. Values are the script's words, unsigned.
-fn writeState(writer: *std.Io.Writer, loaded: *mission.Loaded) std.Io.Writer.Error!void {
+/// The script's state as `link.Own.state` gives it (`link.State`), its lists made in `arena`: the
+/// threads running, a thread whose instruction lies outside the script at none; each global; and
+/// the game's variables, by their names, and the unnamed ones by their numbers where they aren't 0.
+fn stateOf(arena: std.mem.Allocator, loaded: *mission.Loaded) std.mem.Allocator.Error!link.State {
     const script = &loaded.script;
-    const editor = script.editor;
-    try writer.print("clock={d}\nhold={t}\nstep={t}\npaused={d}\nfirst_finished={d}\n", .{
-        script.clock,
-        editor.hold,
-        editor.step,
-        @intFromBool(editor.paused),
-        @intFromBool(script.first_finished),
-    });
     const code = loaded.bound.file.entry(.script);
-    var threads = script.liveThreads();
-    while (threads.next()) |found| {
+    var threads: std.ArrayList(link.State.Thread) = .empty;
+    var live = script.liveThreads();
+    while (live.next()) |found| {
         const thread, const index = found;
         const ip = thread.ip orelse continue;
         const at = ip -% code.offset;
-        if (at < @as(u32, code.count) * @sizeOf(u16)) {
-            try writer.print("thread.{d}.at={d}\n", .{ index, at });
-        } else try writer.print("thread.{d}.at=none\n", .{index});
-        try writer.print("thread.{d}.depth={d}\nthread.{d}.wake={d}\nthread.{d}.interrupted={d}\n", .{
-            index, thread.record.call_depth, index, thread.record.wake_time, index, @intFromBool(thread.record.interrupted),
+        try threads.append(arena, .{
+            .slot = @intCast(index),
+            .at = if (at < @as(u32, code.count) * @sizeOf(u16)) at else null,
+            .depth = thread.record.call_depth,
+            .wake = thread.record.wake_time,
+            .interrupted = thread.record.interrupted,
+            .trigger = if (thread.trigger) |trigger| @intCast(trigger) else null,
         });
-        if (thread.trigger) |trigger| try writer.print("thread.{d}.trigger={d}\n", .{ index, trigger });
     }
-    for (loaded.bound.file.globals() catch &.{}, 0..) |global, index| {
-        try writer.print("global.{d}={d}\n", .{ index, global.value });
-    }
+    const file_globals = loaded.bound.file.globals() catch &.{};
+    const globals = try arena.alloc(u32, file_globals.len);
+    for (globals, file_globals) |*value, global| value.* = global.value;
+    var variables: std.ArrayList(link.State.Variable) = .empty;
     for (0..vm.Variables.count) |number| {
         const value = script.variables.slot(@intCast(number)).*;
         if (std.enums.tagName(vm.GameVariable, @fromBackingInt(@intCast(number)))) |name| {
-            try writer.print("variable.{s}={d}\n", .{ name, value });
-        } else if (value != 0) try writer.print("variable.{d}={d}\n", .{ number, value });
+            try variables.append(arena, .{ .name = name, .value = value });
+        } else if (value != 0) try variables.append(arena, .{ .name = try arena.print("{d}", .{number}), .value = value });
     }
+    return .{
+        .clock = script.clock,
+        .hold = script.editor.hold,
+        .step = script.editor.step,
+        .paused = script.editor.paused,
+        .first_finished = script.first_finished,
+        .threads = threads.items,
+        .globals = globals,
+        .variables = variables.items,
+    };
 }
 
 /// `editor_table_copy` (`0x0045A770`): `payload` copied over a section of the mission, as many
@@ -468,16 +469,20 @@ test Session {
     try std.testing.expectEqual(@backingInt(link.Own.hello), (try t.heard(&buffer)).tag);
     const started = try t.heard(&buffer);
     try std.testing.expectEqual(@backingInt(link.Own.mission_started), started.tag);
-    try std.testing.expectEqualStrings("7", link.field(started.payload, "number").?);
-    try std.testing.expectEqualStrings("mission7.dte", link.field(started.payload, "file").?);
+    const started_read: link.MissionStarted = try .read(started.payload);
+    try std.testing.expectEqual(7, started_read.number);
+    try std.testing.expectEqualStrings("mission7.dte", started_read.file);
     try t.expectFile();
     try std.testing.expectEqual(0, try t.word(.first_finished));
 
-    // It flags the part's first instruction, and the part stops before it.
+    // It flags the part's first instruction, which the script's start waits for, and the part
+    // stops before it.
     var flags: [32]u8 = @splat(0);
     flags[Test.first] = 1;
     try t.pipe.sendToGame(0x09, &flags);
+    try std.testing.expect(!t.loaded.script.editor.flagged);
     t.session.poll();
+    try std.testing.expect(t.loaded.script.editor.flagged);
     const part = (try t.loaded.bound.file.parts())[0];
     t.loaded.script.runPart(part);
     try std.testing.expectEqual(Test.first, try t.word(.stopped));
@@ -618,12 +623,15 @@ test "the editor asks for the mission's file and the script's state" {
     var text: [4096]u8 = undefined;
     const state = t.pipe.takeFromGame(&text) orelse return error.TestExpectedMessage;
     try std.testing.expectEqual(@backingInt(link.Own.state), state.tag);
-    try std.testing.expectEqualStrings("held", link.field(state.payload, "hold").?);
-    try std.testing.expectEqualStrings(std.fmt.comptimePrint("{d}", .{Test.first}), link.field(state.payload, "thread.0.at").?);
-    try std.testing.expectEqualStrings("0", link.field(state.payload, "thread.0.depth").?);
-    try std.testing.expectEqualStrings("0", link.field(state.payload, "global.1").?);
-    try std.testing.expectEqualStrings("1", link.field(state.payload, "variable.mission_over").?);
-    try std.testing.expectEqual(null, link.field(state.payload, "variable.200"));
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const state_read: link.State = try .read(arena.allocator(), state.payload);
+    try std.testing.expectEqual(vm.editor.Hold.held, state_read.hold);
+    try std.testing.expectEqual(Test.first, state_read.threads[0].at.?);
+    try std.testing.expectEqual(0, state_read.threads[0].depth);
+    try std.testing.expectEqual(0, state_read.globals[1]);
+    try std.testing.expectEqual(1, state_read.variable("mission_over").?);
+    try std.testing.expectEqual(null, state_read.variable("200"));
 
     // A tag only the game sends is passed over.
     try t.pipe.sendToGame(@backingInt(link.Own.state), "");

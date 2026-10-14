@@ -56,6 +56,12 @@ pub fn build(arena: Allocator, text: []const u8, failure: *compile.Failure) comp
     return compile.compile(arena, try parse(arena, text), failure);
 }
 
+/// `build`, with the map of the script's statements to the source's lines, for a debugger
+/// (`compile.compileMapped`).
+pub fn buildMapped(arena: Allocator, text: []const u8, failure: *compile.Failure) compile.Error!compile.Compiled {
+    return compile.compileMapped(arena, try parse(arena, text), failure);
+}
+
 /// Compiles the mission source file `source` into the mission file `mission`, both in `dir`, as
 /// `sltool dte build` and the build's `build-mission` do. Where the source has an error, `failure`
 /// says what and where, the error is `Invalid`, and no file is written.
@@ -540,6 +546,57 @@ test "the guide's missions build" {
             return err;
         };
     }
+}
+
+test buildMapped {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const first = (try guideMissions(arena))[0];
+    var failure: compile.Failure = undefined;
+    const compiled = try buildMapped(arena, first.source, &failure);
+    const script = try (try dte.Mission.parse(compiled.file)).script();
+    try std.testing.expect(compiled.statements.len > 0);
+    // The statements in the script's order, each on an instruction of its kind: a stop before a
+    // statement, or a `return` or a random choice, which the VM doesn't stop before.
+    var last: ?u32 = null;
+    for (compiled.statements) |statement| {
+        if (last) |before| try std.testing.expect(statement.offset > before);
+        last = statement.offset;
+        const opcode: dte.Opcode = @fromBackingInt(script[statement.offset]);
+        const info = opcode.info().?;
+        try std.testing.expectEqual(info.starts_statement, statement.stops);
+        try std.testing.expect(info.starts_statement or opcode == .@"return" or opcode == .random_branch);
+    }
+    // A line's statement is found by its line: the command the Sabres attack with stops before
+    // `command`, the assignment that wins before its store, and the `return` after it doesn't stop.
+    const lines = try lineNumbers(arena, first.source, &.{ "    SetAI(enemies, \"fight\", 1, player)", "    game.mission_success = 3", "    return 1" });
+    const attack = statementOn(compiled, lines[0]).?;
+    try std.testing.expect(attack.stops);
+    try std.testing.expectEqual(dte.Opcode.command, @as(dte.Opcode, @fromBackingInt(script[attack.offset])));
+    const success = statementOn(compiled, lines[1]).?;
+    try std.testing.expect(success.stops);
+    try std.testing.expectEqual(dte.Opcode.assign, @as(dte.Opcode, @fromBackingInt(script[success.offset])));
+    try std.testing.expect(!statementOn(compiled, lines[2]).?.stops);
+}
+
+/// The number, counting from 0, of the first line of `text` that is each of `wanted`, in order.
+fn lineNumbers(arena: Allocator, text: []const u8, wanted: []const []const u8) ![]u32 {
+    const found = try arena.alloc(u32, wanted.len);
+    for (wanted, found) |line_text, *number| {
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        var index: u32 = 0;
+        number.* = while (lines.next()) |line| : (index += 1) {
+            if (std.mem.eql(u8, line, line_text)) break index;
+        } else return error.TestUnexpectedResult;
+    }
+    return found;
+}
+
+/// The first statement of `compiled` on `line`.
+fn statementOn(compiled: compile.Compiled, line: u32) ?compile.Compiled.Statement {
+    for (compiled.statements) |statement| if (statement.at.line == line) return statement;
+    return null;
 }
 
 test "the guide's mistake is reported as the guide shows it" {

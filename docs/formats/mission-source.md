@@ -292,6 +292,13 @@ kind's records are written in the order of their declarations. The script holds 
 triggers run, in the order the triggers first run them, then the parts' blocks in order, each
 written as the developers' compiler wrote its statements ([Statements](dte.md#statements)).
 
+For a debugger, `compileMapped` also gives a map of the script's statements. For each statement, it
+gives the offset in the script of the instruction the statement ends with, as the editor link gives
+a stop, the line and column of its source, and whether the script stops before it. The script stops
+before an assignment, a command, a call, a spawn and an `if`, but not before a `return` or a random
+choice ([Stopping and stepping](../engine/editor-link.md#stopping-and-stepping)).
+`source_parser.buildMapped` parses source and compiles it with the map.
+
 OpenReliant's own Mission 0, the sandbox, is mission source too:
 [`mission0.mission.luau`](../../src/openreliant/mission0.mission.luau), which the build compiles
 with the same compiler, built for the host ([`build_mission.zig`](../../src/tools/build_mission.zig)).

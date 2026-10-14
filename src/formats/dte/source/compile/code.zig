@@ -55,9 +55,12 @@ const Reader = struct {
     fn body(r: Reader, block: Index) Error![]const Statement {
         const lines = r.get(block).block;
         var list: std.ArrayList(Statement) = .empty;
+        // The node each statement comes from, for the compiler's map of the lines.
+        var nodes: std.ArrayList(Index) = .empty;
         var at: usize = 0;
         while (at < lines.len) : (at += 1) {
             const line = lines[at];
+            try nodes.append(r.c.arena, line);
             if (r.get(line) == .local) {
                 // A random choice: its roll, then the `if` over its arms.
                 const next = if (at + 1 < lines.len) lines[at + 1] else return r.fail(line, "a random choice's roll is followed by the `if` over its arms", .{});
@@ -67,6 +70,7 @@ const Reader = struct {
             }
             try list.append(r.c.arena, try r.statement(line));
         }
+        for (list.items, nodes.items) |*made, node| try r.c.noteStatement(made, node);
         return list.items;
     }
 
@@ -100,7 +104,11 @@ const Reader = struct {
     fn ifStatement(r: Reader, branch: syntax.Syntax.If) Error!statements.If {
         const otherwise: ?[]const Statement = if (branch.@"else") |node| switch (r.get(node)) {
             // `elseif`: an `else` that holds one `if`.
-            .@"if" => try r.c.arena.dupe(Statement, &.{try r.statement(node)}),
+            .@"if" => elseif: {
+                const lone = try r.c.arena.dupe(Statement, &.{try r.statement(node)});
+                try r.c.noteStatement(&lone[0], node);
+                break :elseif lone;
+            },
             else => try r.body(node),
         } else null;
         return .{ .condition = try r.expression(branch.condition), .then = try r.body(branch.then), .otherwise = otherwise };
