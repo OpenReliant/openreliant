@@ -112,9 +112,8 @@ const Cached = struct {
     last_used: u64 = 0,
 };
 
-/// Memory budget for unused buffers (`Renderer.trimBuffers`). Sounds that play often, such as the
-/// banks' sounds, stay cached, and one-off sounds such as radio lines and script sounds are evicted
-/// once the budget is exceeded.
+/// Memory budget for unused buffers (`Renderer.trimBuffers`). The least recently used are freed
+/// first, so sounds that play often, such as the banks' sounds, usually stay cached.
 const unused_buffer_budget = std.fmt.parseIntSizeSuffix("64MiB", 10) catch unreachable;
 
 /// A sample or 3D sample: an OpenAL source and what the game asked of it.
@@ -1183,33 +1182,33 @@ test "unused buffers over the budget are freed, least recently used first" {
         break :files made;
     };
     const each = 64 * @sizeOf(i16);
+    const cached = struct {
+        fn has(of: *const Renderer, file: []const u8) bool {
+            return of.buffers.contains(std.hash.Wyhash.hash(0, file));
+        }
+    }.has;
     renderer.unused_budget = 2 * each;
     const held = driver.allocateSample().?;
     const other = driver.allocateSample().?;
     try std.testing.expect(driver.setSampleFile(held, files[0]));
-    // The second voice loads the other files in turn. The unused buffers fit in the budget, so
-    // all four stay cached.
+    // The second voice loads the other files in turn. The two unused buffers fit in the budget,
+    // so all four stay cached, and loading a cached file again reuses its buffer.
     for (files[1..]) |file| try std.testing.expect(driver.setSampleFile(other, file));
-    try std.testing.expectEqual(4, renderer.buffers.count());
-    try std.testing.expect(driver.setSampleFile(other, files[1]));
-    try std.testing.expect(driver.setSampleFile(other, files[2]));
     try std.testing.expect(driver.setSampleFile(other, files[3]));
     try std.testing.expectEqual(4, renderer.buffers.count());
-    // With a budget of one buffer, the least recently used unused buffer is freed. The first
-    // voice's buffer is in use, so it stays, however old it is.
+    // With a budget of one buffer, the least recently used unused buffer, files[1], is freed.
+    // files[0] is older, but the first voice still uses it.
     renderer.unused_budget = each;
-    driver.initSample(other);
-    try std.testing.expect(driver.setSampleFile(other, files[3]));
+    try std.testing.expect(driver.setSampleFile(other, files[2]));
     try std.testing.expectEqual(3, renderer.buffers.count());
-    try std.testing.expect(renderer.buffers.contains(std.hash.Wyhash.hash(0, files[0])));
-    try std.testing.expect(!renderer.buffers.contains(std.hash.Wyhash.hash(0, files[1])));
-    // The first voice's buffer still plays. Once the voice drops it, it is freed like any other
-    // unused buffer.
+    try std.testing.expect(cached(renderer, files[0]) and !cached(renderer, files[1]));
     driver.startSample(held);
     try std.testing.expectEqual(mss.Status.playing, driver.sampleStatus(held));
+    // Once the first voice drops files[0], it's the least recently used unused buffer, and is freed.
     driver.initSample(held);
-    try std.testing.expect(driver.setSampleFile(other, files[2]));
+    try std.testing.expect(driver.setSampleFile(other, files[3]));
     try std.testing.expectEqual(2, renderer.buffers.count());
+    try std.testing.expect(!cached(renderer, files[0]));
 }
 
 test "Doppler" {
