@@ -178,7 +178,7 @@ fn bettySays(call: Call, line: betty.Line) bool {
 }
 
 /// Size of the cache of decoded mod sound files.
-pub const max_sound_bytes = 64 << 20;
+pub const max_sound_bytes = std.fmt.parseIntSizeSuffix("64MiB", 10) catch unreachable;
 
 /// The script sounds: a cache of the mod sound files the scripts play, decoded into WAVE files on
 /// first use, and the list of sounds the scripts started. When the cache is full, it evicts the
@@ -307,8 +307,8 @@ pub const Sounds = struct {
 fn problem(err: anyerror) []const u8 {
     return switch (err) {
         error.UnknownFormat => "a sound must be a " ++ formats ++ " file",
-        error.TooLarge => std.fmt.comptimePrint("it takes more than {d} MiB decoded", .{max_sound_bytes >> 20}),
-        error.NoRoom => std.fmt.comptimePrint("the sounds still playing fill the {d} MiB sound cache", .{max_sound_bytes >> 20}),
+        error.TooLarge => std.fmt.comptimePrint("it takes more than {Bi} decoded", .{max_sound_bytes}),
+        error.NoRoom => std.fmt.comptimePrint("the sounds still playing fill the {Bi} sound cache", .{max_sound_bytes}),
         else => runtime.fileProblem(err) orelse recordings.problem(err),
     };
 }
