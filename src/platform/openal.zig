@@ -115,7 +115,7 @@ const Cached = struct {
 /// Memory budget for unused buffers (`Renderer.trimBuffers`). Sounds that play often, such as the
 /// banks' sounds, stay cached, and one-off sounds such as radio lines and script sounds are evicted
 /// once the budget is exceeded.
-const unused_buffer_budget = 64 << 20;
+const unused_buffer_budget = std.fmt.parseIntSizeSuffix("64MiB", 10) catch unreachable;
 
 /// A sample or 3D sample: an OpenAL source and what the game asked of it.
 const Voice = struct {
