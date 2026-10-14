@@ -46,7 +46,8 @@ pub const Kind = enum {
         break :longest most;
     };
 
-    /// The format of the file `name` by its extension, ignoring case; null for none of them.
+    /// The format of the file `name` from its extension, ignoring case; null if it is none of
+    /// these.
     pub fn of(name: []const u8) ?Kind {
         for (std.enums.values(Kind)) |kind| {
             if (std.ascii.endsWithIgnoreCase(name, kind.extension())) return kind;
@@ -55,8 +56,8 @@ pub const Kind = enum {
     }
 };
 
-/// Opens `recording`, taking its bytes: a WAVE file is ready as it is, and a file of another format
-/// starts decoding with `codec`. Where it fails, the bytes are freed.
+/// Opens `recording` and takes ownership of its bytes. A WAVE file is used as it is; any other
+/// format starts decoding with `codec`. On failure, frees the bytes.
 pub fn begin(codec: ?bink.Codec, gpa: Allocator, recording: Recording) !Opened {
     switch (recording.kind) {
         .wave => return .{ .wave = recording.bytes },
@@ -74,9 +75,9 @@ pub fn begin(codec: ?bink.Codec, gpa: Allocator, recording: Recording) !Opened {
     }
 }
 
-/// `recording` as a WAVE file in `gpa`, decoded all at once with `codec` (`begin`), taking its
-/// bytes. Fails with `error.TooLarge` where the file, or its samples once decoded, would take more
-/// than `most` bytes, which it finds a second of samples at a time.
+/// Decodes `recording` into a WAVE file in `gpa` all at once (`begin`), taking ownership of its
+/// bytes. Fails with `error.TooLarge` if the file or its decoded samples take more than `most`
+/// bytes, checked after each second of decoded audio.
 pub fn decode(codec: ?bink.Codec, gpa: Allocator, recording: Recording, most: usize) ![]u8 {
     var decoding = switch (try begin(codec, gpa, recording)) {
         .wave => |bytes| {
@@ -99,7 +100,7 @@ pub fn decode(codec: ?bink.Codec, gpa: Allocator, recording: Recording, most: us
     }
 }
 
-/// What `begin` or `decode` failing means, for a message.
+/// A message for an error from `begin` or `decode`.
 pub fn problem(err: anyerror) []const u8 {
     return switch (err) {
         error.NoDecoder => "there's no decoder for it",
@@ -178,8 +179,8 @@ pub const Source = struct {
         return null;
     }
 
-    /// Opens `recording`, the recording `name` (`find`), taking its bytes (`begin`). Returns null,
-    /// with a warning, if the file doesn't decode or there's nothing to decode it with.
+    /// Opens `recording`, found under `name` (`find`), and takes ownership of its bytes (`begin`).
+    /// Logs a warning and returns null if it can't be decoded.
     pub fn open(source: Source, gpa: Allocator, recording: Recording, name: []const u8) ?Opened {
         return begin(source.codec, gpa, recording) catch |err| {
             log.warn("the recording {s}{s} is left out: {s}", .{ name, recording.kind.extension(), problem(err) });
@@ -187,9 +188,9 @@ pub const Source = struct {
         };
     }
 
-    /// Reads a mod's recording `name`, a name without an extension, as a WAVE file in `gpa`,
-    /// decoded all at once (`find`, `decode`). Returns null if no mod has it, and also, with a
-    /// warning, if it can't be used.
+    /// Reads the mod recording `name`, given without an extension, into `gpa` as a WAVE file,
+    /// decoded all at once (`find`, `decode`). Returns null if no mod has it. Logs a warning and
+    /// returns null if it can't be decoded.
     pub fn read(source: Source, gpa: Allocator, name: []const u8) ?[]u8 {
         const recording = source.find(gpa, name) orelse return null;
         return decode(source.codec, gpa, recording, std.math.maxInt(usize)) catch |err| {
@@ -210,17 +211,17 @@ test "Kind.of" {
 test decode {
     const gpa = std.testing.allocator;
     var decoders: bink.testing.Decoders = .{};
-    // A WAVE file is as it is, unless it takes more than the most.
+    // A WAVE file is returned as it is, unless it's larger than `most`.
     const ready = try decode(null, gpa, .{ .bytes = try gpa.dupe(u8, "a WAVE file"), .kind = .wave }, 11);
     defer gpa.free(ready);
     try std.testing.expectError(error.TooLarge, decode(null, gpa, .{ .bytes = try gpa.dupe(u8, "a WAVE file"), .kind = .wave }, 10));
-    // An MP3 file decodes whole, unless its samples take more than the most.
+    // An MP3 file is decoded whole, unless its samples are larger than `most`.
     const frames = mp3.testing.silence(2);
     const whole = try decode(decoders.codec(), gpa, .{ .bytes = try gpa.dupe(u8, &frames), .kind = .mp3 }, std.math.maxInt(usize));
     defer gpa.free(whole);
     try std.testing.expectEqual(22050, (try wave.Wave.parse(whole)).rate);
     try std.testing.expectError(error.TooLarge, decode(decoders.codec(), gpa, .{ .bytes = try gpa.dupe(u8, &frames), .kind = .mp3 }, 16));
-    // Without a decoder, it can't be decoded.
+    // Without a decoder, decoding fails.
     try std.testing.expectError(error.NoDecoder, decode(null, gpa, .{ .bytes = try gpa.dupe(u8, &frames), .kind = .mp3 }, std.math.maxInt(usize)));
     try std.testing.expectEqual(0, decoders.streams);
 }

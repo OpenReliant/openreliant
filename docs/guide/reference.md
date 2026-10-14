@@ -44,7 +44,7 @@ include mission scripts.
 | `on_console_command(text: string)` | player and menu | When a line typed in the console isn't one of its commands, with the line. |
 | `on_window_resized(width: number, height: number)` | player and menu | When the window changes size, with its new size in pixels. |
 | `on_room_changed(view: number?, place: RoomPlace?)` | player and menu | When the player sets off for another view of the carrier's rooms, opens or leaves one of their places, or the rooms come on screen or leave it: with the view, by its number in `records.room_views`, and the place whose screen shows (`rooms.place`). Both are nil while the rooms aren't on screen. |
-| `on_music_changed(piece: string?)` | player and menu | When a piece of music starts, with its name as `audio.play_music` takes it, or the music stops, with nil. |
+| `on_music_changed(piece: string?)` | player and menu | When a piece of music starts, with its name as passed to `audio.play_music`, or when the music stops, with nil. |
 | `on_interface_override(base: { [any]: any })` | global, object, player and menu | When the script's interface takes the place of one an earlier script offered under the same name, with that one. |
 | `on_option_changed(key: string, value: boolean | number | string)` | menu | When the player sets one of the mod's options on the mods screen, with its key and the new value. Options are set in the front end, so scripts that run in a game read them with `options.get` as they start. |
 
@@ -319,17 +319,17 @@ The camera's view: which it is, switching it, and registering views of the mod's
 
 ### `openreliant.audio`
 
-The game's sounds and the mods' own, on their own or in 3D, the music, and Betty's lines. For player and menu scripts.
+Sounds: standard game sounds and mod sound files in 2D or 3D, the music, and Betty's lines. For player and menu scripts.
 
 | Name | Type | What it is |
 |---|---|---|
-| `music` | string, or nil | The name of the piece of music playing, as `play_music` takes it; nil while none plays. |
-| `play_sound(sound: number \| string, options: (number \| SoundOptions)?)` | number, or nil | Plays `sound`: the number of one of the game's standard sounds, the menus' and the display's, or the name of a sound file in the script's mod, in any format a mod's sounds can be in. `options` says how, or is just a number for the volume. With `object` or `at`, it plays in 3D, while a mission is shown. Returns a number for the sound, which `stop_sound` and `sound_playing` take, or nil where it doesn't play. |
-| `stop_sound(id: number?)` | nothing | Stops the sound `id` that `play_sound` started, if it plays still. Nil stops nothing. |
-| `sound_playing(id: number?)` | boolean | Whether the sound `id` that `play_sound` started plays still, or is paused with the game. False for nil. |
-| `play_music(name: string, options: MusicOptions?)` | nothing | Plays the piece `name` from the game's music folder, or a mod's piece of that name, in place of the music playing: for ever, or once where `options.loop` is false. With `options.after_fade`, it waits for the music playing to fade out, as a mission's music changes. |
-| `fade_music()` | nothing | Fades the music out, as the game does before a launch. A piece that waits with `after_fade` plays once it has faded. |
-| `stop_music()` | nothing | Stops the music at once, and the piece that waits with `after_fade`, if any. |
+| `music` | string, or nil | The name of the piece of music playing, as passed to `play_music`; nil if no music plays. |
+| `play_sound(sound: number \| string, options: (number \| SoundOptions)?)` | number, or nil | Plays `sound`: the number of a standard game sound (the menu and display sounds), or the name of a sound file in the script's mod, in any format mod sounds support. `options` is a table of settings, or a number for the volume. With `object` or `at`, the sound plays in 3D during a mission. Returns an ID for `stop_sound` and `sound_playing`, or nil if the sound doesn't play. |
+| `stop_sound(id: number?)` | nothing | Stops the sound with ID `id` if it is still playing. Does nothing if `id` is nil. |
+| `sound_playing(id: number?)` | boolean | Whether the sound with ID `id` is still playing, or paused with the game. False if `id` is nil. |
+| `play_music(name: string, options: MusicOptions?)` | nothing | Plays the piece `name` from the game's music folder, or a mod's piece with that name, replacing the current music. The piece loops unless `options.loop` is false. With `options.after_fade`, it starts after the current music fades out, as mission music changes do. |
+| `fade_music()` | nothing | Fades the music out, as the game does before a launch. A piece queued with `after_fade` starts when the fade ends. |
+| `stop_music()` | nothing | Stops the music at once, and drops any piece queued with `after_fade`. |
 | `say(line: BettyLine)` | boolean | Betty says `line`. Returns whether she does. |
 
 ### `openreliant.postprocessing`
@@ -650,13 +650,13 @@ turret, and a turret's own scripts on their turret.
 
 | Member | Type or returns | Description |
 |---|---|---|
-| `music` | string, or nil | The name of the piece of music playing, as `play_music` takes it; nil while none plays. |
-| `play_sound(sound: number \| string, options: (number \| SoundOptions)?)` | number, or nil | Plays `sound`: the number of one of the game's standard sounds, the menus' and the display's, or the name of a sound file in the script's mod, in any format a mod's sounds can be in. `options` says how, or is just a number for the volume. With `object` or `at`, it plays in 3D, while a mission is shown. Returns a number for the sound, which `stop_sound` and `sound_playing` take, or nil where it doesn't play. |
-| `stop_sound(id: number?)` | nothing | Stops the sound `id` that `play_sound` started, if it plays still. Nil stops nothing. |
-| `sound_playing(id: number?)` | boolean | Whether the sound `id` that `play_sound` started plays still, or is paused with the game. False for nil. |
-| `play_music(name: string, options: MusicOptions?)` | nothing | Plays the piece `name` from the game's music folder, or a mod's piece of that name, in place of the music playing: for ever, or once where `options.loop` is false. With `options.after_fade`, it waits for the music playing to fade out, as a mission's music changes. |
-| `fade_music()` | nothing | Fades the music out, as the game does before a launch. A piece that waits with `after_fade` plays once it has faded. |
-| `stop_music()` | nothing | Stops the music at once, and the piece that waits with `after_fade`, if any. |
+| `music` | string, or nil | The name of the piece of music playing, as passed to `play_music`; nil if no music plays. |
+| `play_sound(sound: number \| string, options: (number \| SoundOptions)?)` | number, or nil | Plays `sound`: the number of a standard game sound (the menu and display sounds), or the name of a sound file in the script's mod, in any format mod sounds support. `options` is a table of settings, or a number for the volume. With `object` or `at`, the sound plays in 3D during a mission. Returns an ID for `stop_sound` and `sound_playing`, or nil if the sound doesn't play. |
+| `stop_sound(id: number?)` | nothing | Stops the sound with ID `id` if it is still playing. Does nothing if `id` is nil. |
+| `sound_playing(id: number?)` | boolean | Whether the sound with ID `id` is still playing, or paused with the game. False if `id` is nil. |
+| `play_music(name: string, options: MusicOptions?)` | nothing | Plays the piece `name` from the game's music folder, or a mod's piece with that name, replacing the current music. The piece loops unless `options.loop` is false. With `options.after_fade`, it starts after the current music fades out, as mission music changes do. |
+| `fade_music()` | nothing | Fades the music out, as the game does before a launch. A piece queued with `after_fade` starts when the fade ends. |
+| `stop_music()` | nothing | Stops the music at once, and drops any piece queued with `after_fade`. |
 | `say(line: BettyLine)` | boolean | Betty says `line`. Returns whether she does. |
 
 ### I.Missions

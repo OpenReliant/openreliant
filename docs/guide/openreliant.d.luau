@@ -953,21 +953,21 @@ export type Camera = {
     set_view: (view: string | number, object: Object?) -> boolean,
 }
 
---- The game's sounds and the mods' own, on their own or in 3D, the music, and Betty's lines.
+--- Sounds: standard game sounds and mod sound files in 2D or 3D, the music, and Betty's lines.
 export type Audio = {
-    --- The name of the piece of music playing, as `play_music` takes it; nil while none plays.
+    --- The name of the piece of music playing, as passed to `play_music`; nil if no music plays.
     music: string?,
-    --- Plays `sound`: the number of one of the game's standard sounds, the menus' and the display's, or the name of a sound file in the script's mod, in any format a mod's sounds can be in. `options` says how, or is just a number for the volume. With `object` or `at`, it plays in 3D, while a mission is shown. Returns a number for the sound, which `stop_sound` and `sound_playing` take, or nil where it doesn't play.
+    --- Plays `sound`: the number of a standard game sound (the menu and display sounds), or the name of a sound file in the script's mod, in any format mod sounds support. `options` is a table of settings, or a number for the volume. With `object` or `at`, the sound plays in 3D during a mission. Returns an ID for `stop_sound` and `sound_playing`, or nil if the sound doesn't play.
     play_sound: (sound: number | string, options: (number | SoundOptions)?) -> number?,
-    --- Stops the sound `id` that `play_sound` started, if it plays still. Nil stops nothing.
+    --- Stops the sound with ID `id` if it is still playing. Does nothing if `id` is nil.
     stop_sound: (id: number?) -> (),
-    --- Whether the sound `id` that `play_sound` started plays still, or is paused with the game. False for nil.
+    --- Whether the sound with ID `id` is still playing, or paused with the game. False if `id` is nil.
     sound_playing: (id: number?) -> boolean,
-    --- Plays the piece `name` from the game's music folder, or a mod's piece of that name, in place of the music playing: for ever, or once where `options.loop` is false. With `options.after_fade`, it waits for the music playing to fade out, as a mission's music changes.
+    --- Plays the piece `name` from the game's music folder, or a mod's piece with that name, replacing the current music. The piece loops unless `options.loop` is false. With `options.after_fade`, it starts after the current music fades out, as mission music changes do.
     play_music: (name: string, options: MusicOptions?) -> (),
-    --- Fades the music out, as the game does before a launch. A piece that waits with `after_fade` plays once it has faded.
+    --- Fades the music out, as the game does before a launch. A piece queued with `after_fade` starts when the fade ends.
     fade_music: () -> (),
-    --- Stops the music at once, and the piece that waits with `after_fade`, if any.
+    --- Stops the music at once, and drops any piece queued with `after_fade`.
     stop_music: () -> (),
     --- Betty says `line`. Returns whether she does.
     say: (line: BettyLine) -> boolean,

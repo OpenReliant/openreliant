@@ -1,6 +1,6 @@
--- Tells which piece of music plays: as a piece starts, a chime of the mod's own plays, and the
--- piece's name shows at the top of the menus and the rooms for a few seconds. This is a menu
--- script: it runs from the moment OpenReliant starts, and hears the music change everywhere.
+-- Shows which piece of music is playing. When a piece starts, it plays a chime from this mod and
+-- shows the piece's name at the top of the menus and the rooms for a few seconds. This is a menu
+-- script: it runs from startup, so it sees every music change.
 
 local audio = require("openreliant.audio")
 local ui = require("openreliant.ui")
@@ -13,15 +13,15 @@ local left = 0
 
 return {
     engine_handlers = {
-        -- `piece` is the piece's name as audio.play_music takes it, such as "New_Pensive.wav", or
-        -- nil as the music stops.
+        -- `piece` is the name of the piece as passed to audio.play_music, such as
+        -- "New_Pensive.wav", or nil when the music stops.
         on_music_changed = function(piece)
             if not piece then
                 return
             end
             title = string.upper((string.gsub(piece, "%.%w+$", "")))
             left = shown_for
-            -- The mod's own file, at a third of the effects volume, a little to the right.
+            -- A file from this mod, at about a third of the effects volume, panned slightly right.
             audio.play_sound("chime.wav", { volume = 0.35, pan = 0.5 })
         end,
         on_frame = function(seconds)

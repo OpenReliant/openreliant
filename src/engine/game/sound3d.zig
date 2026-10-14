@@ -160,9 +160,10 @@ pub const Effects = struct {
     classes: [hog_snd.max_voices_3d]Class = @splat(.not_reserved),
     /// Added by OpenReliant: what each 3D voice's rates are scaled by (`rateScale`).
     rate_scales: [hog_snd.max_voices_3d]f32 = @splat(1),
-    /// Added by OpenReliant: the volume each 3D voice's sound started at, which a script's sound
-    /// plays at again as it comes back within its range (`hog_snd.Sound.update3D`).
+    /// Added by OpenReliant: the starting volume and the minimum distance, in Miles's units, of each
+    /// 3D voice's sound, for fading out script sounds (`heardLevel`).
     levels: [hog_snd.max_voices_3d]i32 = @splat(0),
+    nears: [hog_snd.max_voices_3d]f32 = @splat(0),
     /// The player's engine sound (`0x0058CB04`), and when its afterburner last came on or went off
     /// (`0x0050713C`).
     engine: EngineState = .idle,
@@ -172,7 +173,26 @@ pub const Effects = struct {
     pub fn isModded(effects: *const Effects, entry: u32) bool {
         return entry < effects.modded.len and effects.modded[entry];
     }
+
+    /// The volume of the script sound on 3D voice `v` at `distance`, in Miles's units: its starting
+    /// volume, faded out toward its maximum distance `range` (`fadeToFar`).
+    pub fn heardLevel(effects: *const Effects, v: u8, range: f32, distance: f32) i32 {
+        const level: f32 = @floatFromInt(effects.levels[v]);
+        return std.math.lossyCast(i32, @round(level * fadeToFar(effects.nears[v], range, distance)));
+    }
 };
+
+/// Not the game's: the volume factor for a script sound at `distance`, so that it fades out at
+/// `far` instead of cutting off there. Beyond `near`, the drivers apply the inverse distance law,
+/// `near / distance`. This factor makes the total gain the smaller of that and
+/// `(1 - (distance - near) / (far - near))` squared, which reaches 0 at `far`. FMOD calls this the
+/// inverse tapered roll-off.
+pub fn fadeToFar(near: f32, far: f32, distance: f32) f32 {
+    if (distance <= near) return 1;
+    if (distance >= far) return 0;
+    const left = 1 - (distance - near) / (far - near);
+    return @min(1, left * left * distance / near);
+}
 
 /// What the rates a voice plays `sample` at are scaled by: for a mod's sound, its own rate over
 /// `sample_rate`, the rate the game's 3D sounds are recorded at and its rates are made for; for the
@@ -284,41 +304,41 @@ pub fn play(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u
     return playFile(sound, scene, at, facing, owner, which, null, volume, class);
 }
 
-/// `play` of `which`, its sample the WAV file `file` in place of its bank's where it is given: a
-/// mod's sound of its own, heard as `which` is. **Improvement:** the game plays its banks' alone.
+/// `play`, with the WAV file `file`, if given, in place of the bank's sound for `which`: a mod's own
+/// sound, played like `which`. **Improvement:** the game only plays its banks' sounds.
 pub fn playFile(sound: *Sound, scene: Scene, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, file: ?[]const u8, volume: f32, class: Class) ?u8 {
     return begin(sound, scene, &sounds.definitions[@backingInt(which)], .{ .game = which }, at, facing, owner, file, volume, class);
 }
 
-/// Not the game's: how a script's sound plays in 3D (`playOwn`).
+/// Not the game's: the settings of a 3D script sound (`playOwn`).
 pub const Own = struct {
-    /// What it plays at: an object, by its slot, which it moves with, or a point, where it stays.
+    /// Where it plays: at an object, given by its slot, which it follows, or at a fixed point.
     at: union(enum) { object: u16, point: Vector },
-    /// Its share of the effects volume, from 0 to 1.
+    /// From 0 to 1, scaled by the effects volume.
     volume: f32 = 1,
-    /// What its own rate is multiplied by.
+    /// Factor for the sound's own rate.
     pitch: f32 = 1,
-    /// The times it plays, 0 for ever.
+    /// How many times it plays; 0 loops forever.
     loops: u32 = hog_snd.once,
-    /// Within `near` it is heard at its full volume, and past `far` not at all, in the game's
-    /// units.
+    /// Minimum and maximum distance, in the game's units: full volume within `near`, fading out to
+    /// silence at `far` (`fadeToFar`).
     near: f32 = default_near,
     far: f32 = default_far,
     starter: hog_snd.Starter,
 };
 
-/// The distances a script's sound is heard within where it gives none: those of the guns' shots
-/// (GUN01's).
+/// The default minimum and maximum distances of a 3D script sound: those of the guns' shots
+/// (GUN01).
 pub const default_near = sounds.definitions[@backingInt(sounds.Sound.gun01)].min_distance;
 pub const default_far = sounds.definitions[@backingInt(sounds.Sound.gun01)].max_distance;
 
-/// The way a script's sound at a point faces: anywhere, since its cone is whole.
+/// The direction a script sound at a point faces. It doesn't matter: the sound has no cone.
 const facing_anywhere: Vector = .{ 0, 0, 1 };
 
-/// Not the game's: plays `file`, a WAVE file, as a script's sound (`openreliant.audio`), as `own`
-/// says, on a voice no sound of the game's plays on, with a whole cone. `file` must stay valid
-/// while it plays. It isn't started past `own.far`; once started, it plays until it ends, or for
-/// ever where it loops (`hog_snd.Sound.update3D`). Returns the voice, or null.
+/// Not the game's: plays the WAVE file `file` as a 3D script sound (`openreliant.audio`) with the
+/// settings in `own`, on a free voice, with no cone. `file` must stay valid while it plays. The
+/// sound doesn't start beyond `own.far`. Once started, it plays until it ends, or until it's
+/// stopped if it loops (`hog_snd.Sound.update3D`). Returns the voice, or null.
 pub fn playOwn(sound: *Sound, scene: Scene, file: []const u8, own: Own) ?u8 {
     const follows: Follows, const at: ?Vector, const owner: ?u16 = switch (own.at) {
         .object => |slot| .{ .object, null, slot },
@@ -339,14 +359,14 @@ pub fn playOwn(sound: *Sound, scene: Scene, file: []const u8, own: Own) ?u8 {
     return begin(sound, scene, &definition, .{ .script = .{ .starter = own.starter, .pitch = own.pitch } }, at, facing_anywhere, owner, file, own.volume, .not_reserved);
 }
 
-/// What a 3D sound is: one of the game's, or a script's (`playOwn`), which plays at `pitch` times
-/// its own rate.
+/// A 3D sound: one of the game's sounds, or a script sound (`playOwn`) played at `pitch` times its
+/// own rate.
 const Played = union(enum) {
     game: sounds.Sound,
     script: struct { starter: hog_snd.Starter, pitch: f32 },
 };
 
-/// The rest of `sound3d_play`, for a sound `definition` defines.
+/// The rest of `sound3d_play`, for the sound that `definition` describes.
 fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Played, at: ?Vector, facing: ?Vector, owner: ?u16, file: ?[]const u8, volume: f32, class: Class) ?u8 {
     const driver = sound.driver orelse return null;
     if (!sound.effects.ready) return null;
@@ -437,6 +457,7 @@ fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Pla
         .script => |own| own.starter,
     };
     sound.effects.levels[v] = std.math.lossyCast(i32, level);
+    sound.effects.nears[v] = min_distance * hog_snd.distance_scale;
 
     const turned = math.transformTransposed(scene.camera.orientation, relative);
     // A sound that faces nowhere faces away from the listener; its cone is whole anyway.
@@ -444,7 +465,10 @@ fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Pla
     const moving = math.transformTransposed(scene.camera.orientation, velocity);
     if (!driver.set3DSampleFile(voice.sample, sample)) return null;
     driver.set3DSampleLoopCount(voice.sample, definition.loop_count);
-    driver.set3DSampleVolume(voice.sample, sound.effects.levels[v]);
+    driver.set3DSampleVolume(voice.sample, switch (played) {
+        .game => sound.effects.levels[v],
+        .script => sound.effects.heardLevel(v, range, math.length(relative)),
+    });
     driver.set3DPosition(voice.sample, hog_snd.miles(turned));
     driver.set3DOrientation(voice.sample, hog_snd.miles(heading), mss.positional.up);
     driver.set3DVelocity(voice.sample, hog_snd.miles(moving));
@@ -875,6 +899,27 @@ test ownEngineSound {
     try std.testing.expectEqual(null, ownEngineSound(.of(.predator)));
 }
 
+test fadeToFar {
+    // Full volume up to `near`, silent from `far` on.
+    try std.testing.expectEqual(1, fadeToFar(10, 100, 5));
+    try std.testing.expectEqual(1, fadeToFar(10, 100, 10));
+    try std.testing.expectEqual(0, fadeToFar(10, 100, 100));
+    try std.testing.expectEqual(0, fadeToFar(10, 100, 1000));
+    // Halfway, the inverse distance law is quieter, so the factor is 1. Close to `far`, the curve
+    // is quieter, and the total gain keeps falling smoothly.
+    try std.testing.expectEqual(1, fadeToFar(10, 100, 55));
+    var last: f32 = 1;
+    var distance: f32 = 10;
+    while (distance < 100) : (distance += 1) {
+        const total = fadeToFar(10, 100, distance) * 10 / distance;
+        try std.testing.expect(total <= last + 1e-6);
+        last = total;
+    }
+    try std.testing.expect(fadeToFar(10, 100, 95) < 0.1);
+    // With `near` equal to `far`, the sound cuts off at `far`.
+    try std.testing.expectEqual(0, fadeToFar(10, 10, 11));
+}
+
 test rateScale {
     const at_44100 = comptime wave.testing.pcmAt(44100, "\x00\x00");
     try std.testing.expectEqual(1, rateScale(at_44100, false));
@@ -935,24 +980,24 @@ test playOwn {
         }
     }.at;
 
-    // At a point within reach, it takes a voice no class keeps, holds it, and plays at its own rate
-    // times its pitch.
+    // At a point in range, it takes an unreserved voice, keeps it, and plays at its own rate times
+    // its pitch.
     const v = playOwn(sound, scene, file, .{ .at = .{ .point = .{ 0, 0, 1000 } }, .pitch = 0.5, .starter = starter }).?;
     try std.testing.expectEqual(Class.not_reserved, sound.effects.classes[v]);
     try std.testing.expect(!sound.voices_3d[v].isFree());
     try std.testing.expectEqual(sample_rate, testing.playingRate(&speaker, v));
     try std.testing.expectEqual(hog_snd.Sound.Playing{ .voice_3d = v }, sound.playingOf(starter).?);
-    // Past its far distance, it doesn't start.
+    // Beyond `far`, it doesn't start.
     try std.testing.expectEqual(null, playOwn(sound, scene, file, .{ .at = .{ .point = .{ 0, 0, 1e7 } }, .starter = @fromBackingInt(6) }));
-    // Once it has played, its voice is freed.
+    // Once it ends, its voice is freed.
     var out: [8192][2]f32 = undefined;
     speaker.mixer.mix(&out);
     sound.update3D(scene);
     try std.testing.expect(sound.voices_3d[v].isFree());
     try std.testing.expectEqual(null, sound.playingOf(starter));
 
-    // Looping at an object, it plays on past its length. With the camera far off it plays on
-    // unheard, and it's heard again as the camera comes back.
+    // A looping sound at an object keeps playing past its length. With the camera out of range it
+    // is silent, and it becomes audible again when the camera comes back.
     const looping = playOwn(sound, scene, file, .{ .at = .{ .object = ship }, .loops = hog_snd.forever, .starter = starter }).?;
     const level = sound.effects.levels[looping];
     try std.testing.expect(level > 0);
@@ -964,10 +1009,19 @@ test playOwn {
     sound.update3D(scene);
     try std.testing.expectEqual(0, volumeOf(&speaker.mixer, sound.voices_3d[looping]));
     try std.testing.expect(sound.playingOf(starter) != null);
+    // Halfway to `far` it keeps its starting volume, and the driver applies the distance. Close to
+    // `far` it fades out.
+    scene.camera.position = .{ 0, 0, 1000 - default_far / 2 };
+    sound.update3D(scene);
+    try std.testing.expectEqual(level, volumeOf(&speaker.mixer, sound.voices_3d[looping]));
+    scene.camera.position = .{ 0, 0, 1000 - default_far * 0.95 };
+    sound.update3D(scene);
+    const fading = volumeOf(&speaker.mixer, sound.voices_3d[looping]);
+    try std.testing.expect(fading > 0 and fading < level);
     scene.camera.position = @splat(0);
     sound.update3D(scene);
     try std.testing.expectEqual(level, volumeOf(&speaker.mixer, sound.voices_3d[looping]));
-    // Ended by its number, its voice is free for the game's sounds.
+    // Stopped by its ID, it frees its voice for game sounds.
     sound.endStarted(starter);
     try std.testing.expect(sound.voices_3d[looping].isFree());
 }

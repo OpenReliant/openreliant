@@ -214,25 +214,29 @@ out by 15 before the hangar's movie of a mission it flies ([Movies](movies.md#th
 wing launches, and `new_searching mission 09.wav` once it is out. The CD player in the rooms plays
 the pieces of its lists, and turns their level ([The CD player](cd-player.md)).
 
-## Scripts' sounds
+## Script sounds
 
-Not the game's: mods' player and menu scripts play sounds on the same voices
-([Sound](../guide/scripting.md#sound)). Each sound a script starts gets a number, which its voice
-keeps (`hog_snd.Starter`) and finds it again by; a sound of the game's on the voice clears it.
+Not the game's: player and menu scripts play sounds on the game's voices
+([Sound](../guide/scripting.md#sound)). Each script sound gets an ID, which its voice stores
+(`hog_snd.Starter`). A game sound that takes the voice clears the ID.
 
-- On the banks' voices (`hog_snd.Sound.playFile`), a mod's file takes a voice as `sound_play` takes
-  one, at priority 1, the lowest a bank gives: it takes no voice that a sound of the game's plays
-  on, and where none is free, a sound of the game's of a higher priority takes its voice. One of
-  the game's standard sounds keeps its bank's priority.
-- In 3D (`sound3d.playOwn`), a script's sound takes a voice of class 0, else borrows a free one of
-  another class, as `sound3d_play` takes one, with a whole cone, at its own rate times its pitch.
-  At a point, it keeps its voice while it plays (`Voice3D.script_owner`), where the game's sounds at
-  a point leave theirs free, and it's placed again each frame. It isn't started beyond its maximum
-  distance. Once it plays, `sound_3d_update` frees its voice once it has ended rather than after its
-  length, so a looping one plays until it's ended, and beyond the maximum distance it plays on
-  silent rather than ending, heard again as it comes back within it.
-- `hog_snd.Sound.stopMusic` stops the music and drops the piece waiting, as `music_play` does
-  before a piece it plays at once, and `hog_snd.Sound.pieceOn` gives the piece playing.
+- 2D sounds (`hog_snd.Sound.playFile`) pick a voice as `sound_play` does, at priority 1, the lowest
+  priority in the banks. A script sound never takes a voice from a game sound, and a game sound
+  with a higher priority takes a script sound's voice when no voice is free. A standard game sound
+  played by a script keeps its bank priority.
+- 3D sounds (`sound3d.playOwn`) pick a voice as `sound3d_play` does: an unreserved voice, or else a
+  free voice of another class. They have no cone, and play at their own rate times their pitch. A
+  sound at a point keeps its voice until it ends (`Voice3D.script_owner`), unlike a game sound at a
+  point, and its position is updated every frame.
+- A 3D script sound doesn't start beyond its maximum distance. `sound_3d_update` frees its voice
+  when the sound ends, not after a fixed length, so a looping sound plays until it's stopped.
+- Toward its maximum distance, a 3D script sound fades out instead of cutting off. Beyond the
+  minimum distance, its gain is the lower of the inverse distance law and
+  `(1 - (distance - minimum) / (maximum - minimum))` squared (`sound3d.fadeToFar`), which FMOD calls
+  the inverse tapered roll-off. Beyond the maximum distance it is silent but keeps playing, and
+  becomes audible again when it comes back in range.
+- `hog_snd.Sound.stopMusic` stops the music and drops any queued piece, as `music_play` does before
+  it starts a piece at once. `hog_snd.Sound.pieceOn` returns the piece playing.
 
 ## Speech
 
