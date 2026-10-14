@@ -18,7 +18,7 @@ pub const Vector = math.Vector;
 /// The speed of sound, a millisecond, in DirectSound3D's default metres.
 pub const speed_of_sound = 0.3433;
 
-/// A cone's angle, in degrees, that takes in every direction: no cone at all.
+/// A cone angle, in degrees, that covers every direction: no cone at all.
 pub const full_cone = 360;
 
 /// Up, for a 3D sample's orientation.
@@ -32,8 +32,9 @@ pub const Placing = struct {
     face: Vector = .{ 0, 0, 1 },
     min_distance: f32 = 1,
     max_distance: f32 = 1000,
-    /// The cone: inside half the inner angle full volume, outside half the outer angle
-    /// `outer_volume` over `mss.max_level`, in degrees; `full_cone` each for none.
+    /// The cone, with angles in degrees. Within half the inner angle the volume is full, and
+    /// beyond half the outer angle it is `outer_volume` over `mss.max_level`. `full_cone` for
+    /// both angles means no cone.
     inner_angle: f32 = full_cone,
     outer_angle: f32 = full_cone,
     outer_volume: f32 = mss.max_level,

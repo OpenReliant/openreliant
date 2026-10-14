@@ -17,7 +17,8 @@ pub const Part = struct {
     index: usize,
 };
 
-/// `stem`, a part's name without an extension, split; null where `name` writes no such name.
+/// Splits `stem`, a part's name without an extension, into the file's name and the part's number.
+/// Returns null if `name` would never write `stem`.
 pub fn parse(stem: []const u8) ?Part {
     const mark = std.mem.findScalarLast(u8, stem, '_') orelse return null;
     const digits = stem[mark + 1 ..];

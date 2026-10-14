@@ -24,19 +24,18 @@ player, and the driver runs its loop (`Driver.listen` in
 **Improvements:**
 
 - RANDOM TRACK MODE draws the next piece from `std.Random`, among the page's other pieces. The game
-  draws `rand() % 12` up to 20 times for one other than the piece that ended, and plays that piece
-  again where none is.
+  draws `rand() % 12` up to 20 times to find a piece other than the one that ended, and plays the
+  same piece again if it finds none.
 - Mods can change the lists: a load script sets which piece each row plays and its name, and adds
   tracks after the last, up to 96 in all
   ([The CD player's tracks](../guide/scripting.md#the-cd-players-tracks)). The game's are fixed.
-- The lists are pages of the records' tracks, twelve to a page: the Reliant's, the Yamato's, then
-  the tracks mods add, the last page holding what's left. A menu script can turn the page
-  ([The rooms](../guide/scripting.md#the-rooms)). The rows are then numbered as the records number
-  the tracks, 13 to 24 on the Yamato's page and on from 25 after it, and a page's rows without a
-  piece hold nothing to choose. The player keeps the piece chosen
-  by its place among all the tracks rather than by its row, so the pieces that follow it come from
-  its own page, and it shows lit only there. The game keeps the row alone, and numbers each list
-  01 to 12.
+- The lists are pages of the records' tracks, twelve per page: the Reliant's, the Yamato's, then
+  the tracks that mods add, with the rest on the last page. A menu script can turn the page
+  ([The rooms](../guide/scripting.md#the-rooms)). The rows are numbered as in the records: 13 to 24
+  on the Yamato's page, and from 25 on after it. Rows without a piece can't be chosen. The player
+  remembers the chosen piece by its position among all the tracks rather than by its row, so the
+  pieces that follow it come from its own page, and it is lit only on that page. The game only
+  remembers the row, and numbers each list 01 to 12.
 - The pointer is drawn after what scripts draw over the player, so that it stays on top.
 
 ## The screen

@@ -158,13 +158,13 @@ Each of the rooms' views, `room_views[n]`, is a `RoomView` with these fields:
 
 | Field | Type | What it is |
 |---|---|---|
-| `movie` | string, or nil | The movie on the way into the view, a Bink file of the disc's archive or a mod's, such as `rel_l2cd.bik`, at most 64 characters; nil for none. |
-| `loop` | string, or nil | The movie the view loops once the player is there, as `movie` is given; nil for none, which leaves the way in's last frame on the screen. |
-| `label` | string | The words that name the way into the view, which show at the foot of the screen while the pointer rests on its hotspot. |
-| `exits` | list of number | The views it leads on to, at most 4, by their numbers. |
+| `movie` | string, or nil | The movie that plays on the way into the view: a Bink file from the disc's archive or from a mod, such as `rel_l2cd.bik`, at most 64 characters; nil for none. |
+| `loop` | string, or nil | The movie that loops while the player is in the view, given like `movie`; nil for none, which leaves the last frame of the way in on the screen. |
+| `label` | string | The text that names the way into the view. It shows at the bottom of the screen while the pointer is over the view's hotspot. |
+| `exits` | list of number | The numbers of the views this view leads to, at most 4. |
 | `action` | [RoomAction](#roomaction) | What happens once the player is in the view, such as `cd_player`, which opens the CD player. |
-| `hotspot` | [ScreenRect](#screenrect) | Where the pointer finds the way into the view, on each view it's an exit of, on the game's 640 by 480 screen. |
-| `sound` | number, or nil | The sound of the rooms' `vrsnd.fat` the way into the view plays, by its number; nil for none. |
+| `hotspot` | [ScreenRect](#screenrect) | The area of the game's 640 by 480 screen where the pointer selects the way into this view, in each view that has it as an exit. |
+| `sound` | number, or nil | The number of the sound from the rooms' `vrsnd.fat` that plays on the way into the view; nil for none. |
 
 ### `openreliant.hooks`
 
@@ -264,7 +264,7 @@ Drawing over the flight display, while it's shown: text, lines and rectangles, i
 | `window_state(instrument: HudInstrument)` | [HudWindowState](#hudwindowstate), or nil | How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
 | `power_ball(at: vector, size: vector?, style: FillStyle?)` | nothing | Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` with its anchor at `at`, in window pixels. The shape comes from the game's sprite set for this layer (the flight display's, or the front end screen's), or from the set that the style's `sprites` names. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
@@ -287,11 +287,11 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 | `launch_mission()` | nothing | From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it. |
 | `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
-| `from_game_screen(at: vector)` | vector | Where the point `at` of the game's 640 by 480 screen lies in the window, in pixels, as the front end and the rooms fit that screen to the window, in its middle: for drawing over a place on one of their pictures. |
-| `to_game_screen(at: vector)` | vector | Where the window's pixel `at`, such as the pointer's, lies on the game's 640 by 480 screen, as `from_game_screen` places that screen. |
+| `from_game_screen(at: vector)` | vector | Converts the point `at` on the game's 640 by 480 screen to window pixels, as the front end and the rooms centre that screen in the window. Use it to draw over a spot on one of their pictures. |
+| `to_game_screen(at: vector)` | vector | Converts the window pixel `at`, such as the pointer's position, to a point on the game's 640 by 480 screen. The inverse of `from_game_screen`. |
 | `show_screen(name: string?)` | boolean | Shows the screen `name`: the calling mod's by its own name, or any mod's by the qualified one. Nil closes the screen shown. Returns whether it's registered. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` with its anchor at `at`, in window pixels. The shape comes from the game's sprite set for this layer (the flight display's, or the front end screen's), or from the set that the style's `sprites` names. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
@@ -640,7 +640,7 @@ turret, and a turret's own scripts on their turret.
 | `window_state(instrument: HudInstrument)` | [HudWindowState](#hudwindowstate), or nil | How far the game's window that holds `instrument` has opened, and whether it's opening or closing, as the display last moved it on, which it does in every view; for the comms, the further open of its two windows. Nil for an instrument outside the windows, and outside a mission. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
 | `power_ball(at: vector, size: vector?, style: FillStyle?)` | nothing | Draws the power window's ball, turning with the player's power setting as the window's does, whether or not the window is open, with its top left corner at `at` and `size` in window pixels (nil for its size on the game's display), tinted by `style`. Unlike the window's, it doesn't shake when the ship is hit. Only during a mission. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` with its anchor at `at`, in window pixels. The shape comes from the game's sprite set for this layer (the flight display's, or the front end screen's), or from the set that the style's `sprites` names. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |
@@ -693,11 +693,11 @@ turret, and a turret's own scripts on their turret.
 | `launch_mission()` | nothing | From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it. |
 | `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
-| `from_game_screen(at: vector)` | vector | Where the point `at` of the game's 640 by 480 screen lies in the window, in pixels, as the front end and the rooms fit that screen to the window, in its middle: for drawing over a place on one of their pictures. |
-| `to_game_screen(at: vector)` | vector | Where the window's pixel `at`, such as the pointer's, lies on the game's 640 by 480 screen, as `from_game_screen` places that screen. |
+| `from_game_screen(at: vector)` | vector | Converts the point `at` on the game's 640 by 480 screen to window pixels, as the front end and the rooms centre that screen in the window. Use it to draw over a spot on one of their pictures. |
+| `to_game_screen(at: vector)` | vector | Converts the window pixel `at`, such as the pointer's position, to a point on the game's 640 by 480 screen. The inverse of `from_game_screen`. |
 | `show_screen(name: string?)` | boolean | Shows the screen `name`: the calling mod's by its own name, or any mod's by the qualified one. Nil closes the screen shown. Returns whether it's registered. |
 | `picture(at: vector, file: string, size: vector?, style: FillStyle?)` | nothing | Draws a PNG from the calling mod at `at`, with `size` in window pixels (nil uses its native size), tinted by `style`. Files are cached for the script context; one that hasn't been drawn for 2 frames makes room for others when the cache is full. |
-| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` of the game's sprite set for this layer (the flight display's, or the front end screen's), or of the set the style's `sprites` names, with its anchor at `at`, in window pixels. The style's `scale` multiplies its size in the game's pixels. |
+| `shape(at: vector, index: number, style: ShapeStyle?)` | nothing | Draws shape `index` with its anchor at `at`, in window pixels. The shape comes from the game's sprite set for this layer (the flight display's, or the front end screen's), or from the set that the style's `sprites` names. The style's `scale` multiplies its size in the game's pixels. |
 | `text(at: vector, text: string, style: TextStyle?)` | nothing | Draws `text` at `at`, in pixels from the window's top left corner, in the game's font, as `style` says. |
 | `line(from: vector, to: vector, style: LineStyle?)` | nothing | Draws a line from `from` to `to`, in pixels, as `style` says. |
 | `rectangle(from: vector, to: vector, style: FillStyle?)` | nothing | Fills the rectangle between the corners `from` and `to`, in pixels, as `style` says. |

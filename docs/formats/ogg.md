@@ -23,7 +23,7 @@ A file is a series of pages (RFC 3533), each with a header of 27 bytes:
 | 26 | 1 | Number of segments |
 
 The lengths of the segments follow, one byte each, and then the segments. A segment shorter than
-255 bytes ends its packet, so a packet runs over as many segments, and pages, as it needs. The
+255 bytes ends its packet, so a packet spans as many segments, and pages, as it needs. The
 checksum is a CRC-32 with the polynomial `0x04C11DB7`, starting at 0, neither reflected nor
 inverted, over the whole page with the checksum's own bytes as 0.
 
@@ -48,15 +48,15 @@ samples that were encoded.
 
 ## In OpenReliant
 
-[`formats/ogg.zig`](../../src/formats/ogg.zig) reads the pages and checks their checksums, puts
-together the packets of the file's first stream, and reads the stream's headers. It passes over
-bytes that start no page, pages that are cut short or damaged, and any packet that a missing page
-cuts. FFmpeg's Vorbis and Opus decoders ([Platform](../port/platform.md#movies)) then decode the
+[`formats/ogg.zig`](../../src/formats/ogg.zig) reads the pages and checks their checksums,
+reassembles the packets of the file's first stream, and reads the stream's headers. It skips bytes
+that don't start a page, pages that are truncated or damaged, and any packet that a missing page
+cuts off. FFmpeg's Vorbis and Opus decoders ([Platform](../port/platform.md#movies)) then decode the
 packets into a WAVE file of 16-bit PCM at the stream's rate and channels (`bink.AudioDecoding`).
 The Vorbis decoder takes the three headers laced together: the byte 2, the lengths of the first two
 headers in the way a page gives its segments' lengths, then all three headers. The Opus decoder
 takes the identification header, drops the pre-skip and applies the output gain. OpenReliant then
-cuts the samples past the stream's end, the last page's granule position less the pre-skip, so that
-a sound or a piece of music loops without a gap. A line of speech or a sound decodes all at once,
-and a piece of music a few seconds of music each frame of the game, starting once it's decoded
+cuts the samples past the stream's end, the last page's granule position minus the pre-skip, so
+that a sound or a piece of music loops without a gap. A line of speech or a sound is decoded all at
+once, and a piece of music a few seconds at a time, once a frame, starting once it is fully decoded
 ([The driver](../port/sound.md#the-driver)).

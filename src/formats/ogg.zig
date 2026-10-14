@@ -21,7 +21,7 @@ pub const capture = "OggS";
 
 /// A page's flags.
 pub const Flags = packed struct(u8) {
-    /// The page's first segments carry on the packet that the stream's previous page didn't end.
+    /// The page continues a packet that started on the stream's previous page.
     continued: bool = false,
     /// The stream's first page.
     first: bool = false,
@@ -100,7 +100,7 @@ pub const Page = struct {
         return if (page.checksum(bytes) == header.crc) page else null;
     }
 
-    /// The checksum of the page, which `bytes` start with: its bytes, with its checksum's as 0.
+    /// The checksum of the page at the start of `bytes`, computed with the checksum field as 0.
     fn checksum(page: Page, bytes: []const u8) u32 {
         const crc_at = @offsetOf(PageHeader, "crc");
         var crc: Crc = .init();
@@ -111,8 +111,8 @@ pub const Page = struct {
     }
 };
 
-/// A file's pages, in order. Bytes that start no page are passed over, and so are pages that are
-/// cut short or have the wrong checksum, as a decoder finds its way back to the pages.
+/// A file's pages, in order. It skips bytes that don't start a page, and pages that are cut short or
+/// have a wrong checksum, the way a decoder resynchronises.
 pub const Pages = struct {
     bytes: []const u8,
     at: usize = 0,
@@ -136,8 +136,8 @@ pub const Pages = struct {
     }
 };
 
-/// The packets of a file's first stream, in order, among the pages of any other streams. A packet
-/// that runs over pages is put together. One that a missing or damaged page cuts is passed over.
+/// The packets of a file's first stream, in order, skipping the pages of other streams. It joins a
+/// packet that spans pages, and skips a packet that a missing or damaged page cuts.
 pub const Packets = struct {
     pages: Pages,
     /// The stream's serial number, from its first page.
@@ -167,9 +167,10 @@ pub const Packets = struct {
         packets.* = undefined;
     }
 
-    /// The stream's next packet, which lasts until the next call; null at the stream's end.
+    /// Returns the stream's next packet, valid until the next call; null at the end of the
+    /// stream.
     pub fn next(packets: *Packets, gpa: Allocator) Allocator.Error!?[]const u8 {
-        // Done with the last packet handed out, which `joined` holds if it ran over pages.
+        // Drop the previous packet, which `joined` holds if it spanned pages.
         if (!packets.joining) packets.joined.clearRetainingCapacity();
         while (true) {
             const page = packets.page orelse {
@@ -203,9 +204,9 @@ pub const Packets = struct {
         return .{ .bytes = page.body[start..packets.at], .ends = ends };
     }
 
-    /// The samples of each channel that the stream's packets decode to, as its last page read gives
-    /// them: its granule position, less `pre_skip`, the samples the decoder drops at the start
-    /// (`Stream.pre_skip`). Null if no page gives a granule position.
+    /// The number of samples per channel the stream's packets decode to: the granule position of
+    /// the last page read, less `pre_skip`, the samples the decoder drops at the start
+    /// (`Stream.pre_skip`). Null if no page gave a granule position.
     pub fn samples(packets: Packets, pre_skip: u16) ?u64 {
         return (packets.granule orelse return null) -| pre_skip;
     }
@@ -224,8 +225,8 @@ pub const Packets = struct {
             packets.at = 0;
             if (page.granule()) |granule| packets.granule = granule;
             packets.ended = page.header.flags.last;
-            // The start of a packet whose page is missing, and the end of one whose start is, are
-            // passed over.
+            // Skip the start of a packet whose next page is missing, and the end of a packet whose
+            // start was missing.
             if (packets.joining and !(follows and page.header.flags.continued)) {
                 packets.joining = false;
                 packets.joined.clearRetainingCapacity();
@@ -237,8 +238,8 @@ pub const Packets = struct {
     }
 };
 
-/// Appends to `lacing` the lengths that lace a packet of `length` bytes: as many of the most a
-/// segment holds as fit, then the rest, which may be 0.
+/// Appends the segment lengths of a packet of `length` bytes to `lacing`: `segment_most` for each
+/// full segment, then the remainder, which may be 0.
 fn lace(gpa: Allocator, lacing: *std.ArrayList(u8), length: usize) Allocator.Error!void {
     @memset(try lacing.addManyAsSlice(gpa, length / segment_most), segment_most);
     try lacing.append(gpa, @intCast(length % segment_most));
@@ -256,10 +257,10 @@ pub const Error = error{
     BadHeaders,
 } || Allocator.Error;
 
-/// What a stream's header packets say, which its decoder is set up with.
+/// What a stream's header packets say, for setting up its decoder.
 pub const Stream = struct {
     codec: Codec,
-    /// Samples a second.
+    /// Samples per second.
     rate: u32,
     channels: u8,
     /// The samples of each channel that the decoder drops at the start: Opus's pre-skip, the
@@ -269,7 +270,7 @@ pub const Stream = struct {
     /// header packets laced together (`xiph_lacing`).
     setup: []u8,
 
-    /// Reads the stream's header packets from `packets`, which then go on with its audio.
+    /// Reads the stream's header packets from `packets`. The packets that follow are audio.
     pub fn read(gpa: Allocator, packets: *Packets) Error!Stream {
         const first = try packets.next(gpa) orelse return error.NoStream;
         if (std.mem.startsWith(u8, first, opus_head)) return readOpus(gpa, packets, first);
@@ -342,12 +343,11 @@ const opus_tags = "OpusTags";
 /// 0, a table follows it of how the channels map to the Opus streams in each packet.
 pub const OpusHead = extern struct {
     signature: [opus_head.len]u8,
-    /// 1, and anything up to 15 for a later version that decoders of this one can read.
+    /// 1, or up to 15 for later versions that this decoder can still read.
     version: u8,
     channels: u8,
     pre_skip: u16 align(1),
-    /// The rate of the audio that the encoder was given, which the stream doesn't keep
-    /// (`opus_rate`).
+    /// The sample rate of the encoder's input. The stream always decodes at `opus_rate`.
     input_rate: u32 align(1),
     /// A gain for the decoder to apply, in 256ths of a decibel. FFmpeg's decoder applies it.
     output_gain: i16 align(1),
@@ -394,8 +394,8 @@ pub const VorbisIdentification = extern struct {
     }
 };
 
-/// How many headers follow in Xiph lacing, less one: the first byte of Vorbis's three headers laced
-/// together, which then give the first two headers' lengths in the way a page gives its segments'.
+/// The first byte of Vorbis's three headers in Xiph lacing: the number of headers less one. The
+/// lengths of the first two headers follow, coded like a page's segment lengths.
 const xiph_lacing = 2;
 
 /// Ogg files for the tests, built by hand.
@@ -403,7 +403,7 @@ pub const testing = struct {
     /// The serial number of the streams that the tests make.
     pub const serial = 0x4F52;
 
-    /// What a page says of itself: its flags, its granule position, its stream and its number.
+    /// A page's header fields: flags, granule position, stream and page number.
     pub const Place = struct {
         flags: Flags = .{},
         granule: i64,

@@ -27,12 +27,12 @@ const log = std.log.scoped(.sdl);
 /// The frames the callback renders at a time.
 const chunk = 512;
 
-/// The rate the output runs at where the system says nothing of the device's, and the lowest it
-/// runs at whatever the device says.
+/// The output's rate when the system doesn't report the device's rate, and the lowest rate the
+/// output runs at, whatever the device reports.
 const fallback_rate = 44100;
 const lowest_rate = 8000;
 
-/// How often `Output.update` looks at what the output is, in milliseconds.
+/// How often `Output.update` checks whether the output is a pair of headphones, in milliseconds.
 const look_interval = 1000;
 
 /// What plays Miles's calls.
@@ -56,7 +56,7 @@ pub const Output = struct {
     channels: u8,
     source: Source,
     master: ?mss.master.Master,
-    /// When `update` last looked at what the output is, in SDL's milliseconds.
+    /// When `update` last checked the output, in SDL's milliseconds.
     looked_at: u64 = 0,
 
     const Source = union(enum) {
@@ -108,8 +108,8 @@ pub const Output = struct {
         output.gpa.destroy(output);
     }
 
-    /// Once a frame: now and then, whether the output has changed between headphones and anything
-    /// else, for OpenAL's HRTF.
+    /// Called once a frame. Every `look_interval`, checks whether the output has switched between
+    /// headphones and anything else, for OpenAL's HRTF.
     pub fn update(output: *Output) void {
         const renderer = output.openAl() orelse return;
         if (renderer.settings.hrtf != .auto or renderer.channels != 2) return;
@@ -124,7 +124,7 @@ pub const Output = struct {
         renderer.followOutput(on);
     }
 
-    /// Sets when OpenAL Soft renders for headphones, where it plays.
+    /// Sets when OpenAL Soft renders for headphones. Does nothing with the software mixer.
     pub fn setHrtf(output: *Output, hrtf: openal.Hrtf) void {
         const renderer = output.openAl() orelse return;
         const lock = lockOf(output.stream);
@@ -133,7 +133,7 @@ pub const Output = struct {
         renderer.setHrtf(hrtf, headphones());
     }
 
-    /// Turns OpenAL Soft's reverbs on or off, where it plays.
+    /// Turns OpenAL Soft's reverbs on or off. Does nothing with the software mixer.
     pub fn setReverb(output: *Output, on: bool) void {
         const renderer = output.openAl() orelse return;
         const lock = lockOf(output.stream);
@@ -150,7 +150,7 @@ pub const Output = struct {
         output.master = if (settings) |chosen| .init(output.rate, output.channels, chosen) else null;
     }
 
-    /// OpenAL Soft's renderer, where it plays.
+    /// OpenAL Soft's renderer, or null with the software mixer.
     fn openAl(output: *Output) ?*openal.Renderer {
         return switch (output.source) {
             .openal => |renderer| renderer,

@@ -1,8 +1,9 @@
 //! The rooms' views as scripts see them in `openreliant.records.room_views`
-//! ([#1169](https://github.com/OpenReliant/openreliant/issues/1169)): the Reliant's and the Yamato's,
-//! numbered 1 to 125 in the order they lie in the executable (`interface.rooms.views`). Each is a
-//! proxy for its `interface.rooms.View`, whose fields load scripts change in place, as they do a
-//! record's, so that a mod can change what the rooms play and where they lead.
+//! ([#1169](https://github.com/OpenReliant/openreliant/issues/1169)): the Reliant's and the
+//! Yamato's, numbered 1 to 125 in the order they are stored in the executable
+//! (`interface.rooms.views`). Each is a proxy for its `interface.rooms.View`. Load scripts change
+//! its fields in place, as with a record, so a mod can change what the rooms play and where they
+//! lead.
 
 const std = @import("std");
 
@@ -25,7 +26,7 @@ pub const script_name = "RoomView";
 
 /// How the reference and the definitions introduce the views.
 pub const each = "Each of the rooms' views";
-pub const entries_about = "The rooms' views, the Reliant's and the Yamato's, 1 to 125 in the order they lie in the executable. Load scripts change their fields.";
+pub const entries_about = "The rooms' views, the Reliant's and the Yamato's, numbered 1 to 125 in the order they are stored in the executable. Load scripts can change their fields.";
 
 /// What the proxies need of the views (`table.Table`).
 pub const list_name = "room_views";
@@ -34,7 +35,7 @@ pub const item_noun = "a view";
 pub const list_tag = @backingInt(runtime.Tag.room_views);
 pub const item_tag = @backingInt(runtime.Tag.room_view);
 
-/// How many views the records hold: the executable's.
+/// How many views the records hold: as many as the executable has.
 pub fn count(held: *const Records) usize {
     return held.room_views.len;
 }
@@ -44,8 +45,18 @@ const proxies = table.Table(@This());
 pub const register = proxies.register;
 pub const push = proxies.push;
 
-/// A view's fields, as scripts name them: those of `interface.rooms.View` but its address.
+/// A view's fields, as scripts name them: all fields of `interface.rooms.View` except its address.
 pub const Field = enum { movie, loop, label, exits, action, hotspot, sound };
+
+comptime {
+    // Scripts see every field of a view except its address, under the same name.
+    for (@typeInfo(rooms.View).@"struct".field_names) |name| {
+        if (!std.mem.eql(u8, name, "address") and !@hasField(Field, name)) @compileError("records.room_views doesn't show a view's " ++ name);
+    }
+    for (std.enums.values(Field)) |field| {
+        if (!@hasField(rooms.View, @tagName(field))) @compileError("rooms.View has no field " ++ @tagName(field));
+    }
+}
 
 /// A view's exits as scripts read them: the numbers of the views they lead to.
 const Exits = values.List(u32, rooms.View.max_exits);
@@ -61,13 +72,13 @@ pub fn TypeOf(comptime field: Field) type {
 /// What the reference says of `field`.
 pub fn about(field: Field) []const u8 {
     return switch (field) {
-        .movie => std.fmt.comptimePrint("The movie on the way into the view, a Bink file of the disc's archive or a mod's, such as `rel_l2cd.bik`, at most {d} characters; nil for none.", .{movie.max_name}),
-        .loop => "The movie the view loops once the player is there, as `movie` is given; nil for none, which leaves the way in's last frame on the screen.",
-        .label => "The words that name the way into the view, which show at the foot of the screen while the pointer rests on its hotspot.",
-        .exits => std.fmt.comptimePrint("The views it leads on to, at most {d}, by their numbers.", .{rooms.View.max_exits}),
+        .movie => std.fmt.comptimePrint("The movie that plays on the way into the view: a Bink file from the disc's archive or from a mod, such as `rel_l2cd.bik`, at most {d} characters; nil for none.", .{movie.max_name}),
+        .loop => "The movie that loops while the player is in the view, given like `movie`; nil for none, which leaves the last frame of the way in on the screen.",
+        .label => "The text that names the way into the view. It shows at the bottom of the screen while the pointer is over the view's hotspot.",
+        .exits => std.fmt.comptimePrint("The numbers of the views this view leads to, at most {d}.", .{rooms.View.max_exits}),
         .action => "What happens once the player is in the view, such as `cd_player`, which opens the CD player.",
-        .hotspot => "Where the pointer finds the way into the view, on each view it's an exit of, on the game's 640 by 480 screen.",
-        .sound => "The sound of the rooms' `vrsnd.fat` the way into the view plays, by its number; nil for none.",
+        .hotspot => "The area of the game's 640 by 480 screen where the pointer selects the way into this view, in each view that has it as an exit.",
+        .sound => "The number of the sound from the rooms' `vrsnd.fat` that plays on the way into the view; nil for none.",
     };
 }
 
@@ -82,7 +93,7 @@ pub fn getField(state: *State, item: table.Item, field: Field) void {
     switch (field) {
         .movie => values.push(state, ?[]const u8, view.movie),
         .loop => values.push(state, ?[]const u8, view.loop),
-        // The labels are the game's text, where `table.pushValue` reads the ITAC's.
+        // The labels are in the game's text, while `table.pushValue` reads the ITAC's.
         .label => table.pushWords(state, item.records, view.label, .text),
         .exits => {
             var exits: Exits = .{};
@@ -146,7 +157,7 @@ test "the rooms' views" {
     try bind.testing.runSource(thread,
         \\local views = records.room_views
         \\assert(#views == 125 and tostring(views[1]) == "RoomView")
-        \\-- Where the Reliant's rooms start: by the ladder to the bunk, leading on to views 3, 4 and 2.
+        \\-- The Reliant's rooms start by the ladder to the bunk, with exits to views 3, 4 and 2.
         \\local start = views[1]
         \\assert(start.movie == "rel_ladd_bunk.bik" and start.loop == "rel_doorloop.bik")
         \\assert(start.label == "Walk to Bunk" and start.action == "none" and start.sound == nil)

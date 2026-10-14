@@ -1,24 +1,24 @@
-//! The Miles Sound System's calls ([`engine/mss.zig`](../engine/mss.zig)'s `Driver`), played by
-//! OpenAL Soft in place of the 3D providers the game chose from: Miles's own, DirectSound3D, EAX
-//! and A3D. OpenAL renders into memory through its loopback device, which the platform's audio
-//! stream pulls from, so none of OpenAL's own device backends are used.
+//! Plays the Miles Sound System's calls ([`engine/mss.zig`](../engine/mss.zig)'s `Driver`) with
+//! OpenAL Soft, replacing the 3D providers the game chose from: Miles's own, DirectSound3D, EAX
+//! and A3D. OpenAL renders into memory through its loopback device, and the platform's audio
+//! stream pulls from there, so none of OpenAL's device backends are used.
 //!
-//! What the game asks of its provider carries over as it is: each 3D sample's distances, with the
-//! inverse distance clamped model that DirectSound3D used; its cone; its velocity's Doppler shift;
-//! its pitch and volume. Samples play from ahead, turned by their pan, and streams play in stereo
-//! straight to the speakers.
+//! Everything the game sets on its provider is passed on unchanged: each 3D sample's distances,
+//! with DirectSound3D's inverse distance clamped model, its cone, its velocity for the Doppler
+//! shift, its pitch and its volume. 2D samples play from in front of the listener, turned by their
+//! pan, and streams play in stereo straight to the speakers.
 //!
 //! **Improvements:**
 //!
 //! - OpenAL's band-limited sinc resampler, and its smoothing of every change.
-//! - UHJ stereo, or HRTF for headphones, where Miles panned left and right, and as many speakers
-//!   as the device has.
+//! - UHJ stereo, or HRTF for headphones, instead of Miles's left and right panning, and output to
+//!   as many speakers as the device has.
 //! - A listener that moves, a stronger Doppler shift, sounds with a size, high frequencies that
 //!   fade with distance, and a subwoofer.
-//! - Reverbs. The 3D sounds ring in the generic room the game asks EAX for, though it sets the
-//!   effect's volume to nothing; in a hangar while a launch shows one from within; and in a small
-//!   room of the ship in a carrier's rooms and briefing room. The cockpit's own voice rings in a
-//!   cabin.
+//! - Reverb. The 3D sounds get the generic room reverb the game asks EAX for, though the game sets
+//!   the effect's volume to zero. During a launch seen from inside a hangar they get a hangar's
+//!   reverb, and in a carrier's rooms and the briefing room, a small room's. The cockpit's voice
+//!   gets a cabin's reverb.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -51,7 +51,7 @@ pub const Hrtf = enum {
     on,
     off,
 
-    /// Whether HRTF is used, where the output is `headphones` or not.
+    /// Whether HRTF is used, given whether the output is `headphones`.
     fn used(hrtf: Hrtf, headphones: bool) bool {
         return switch (hrtf) {
             .on => true,
@@ -81,7 +81,8 @@ const speed_of_sound: f32 = mss.positional.speed_of_sound * velocity_scale;
 /// speed of sound over this, so the shift keeps within the bounds it had.
 const doppler_factor: f32 = 10;
 
-/// The least reference distance and the lowest pitch OpenAL is given, which take no 0.
+/// The smallest reference distance and the lowest pitch passed to OpenAL, which doesn't accept 0
+/// for either.
 const least_reference_distance: f32 = 0.001;
 const lowest_pitch: f32 = 0.001;
 
@@ -883,9 +884,9 @@ pub const Renderer = struct {
         return buffer.frames;
     }
 
-    /// A 3D sample is placed from the listener, falls off with distance, and sends to the
-    /// reverb, which falls off as it does. A stereo one is spatialized all the same: without a
-    /// radius, OpenAL Soft places both its channels at the source.
+    /// A 3D sample is placed relative to the listener, falls off with distance, and sends to the
+    /// reverb, which falls off the same way. A stereo sample is spatialized too: without a radius,
+    /// OpenAL Soft places both its channels at the source.
     fn setUp3D(renderer: *Renderer, voice: *Voice) void {
         const source = voice.source;
         c.alSourcei(source, c.AL_SOURCE_RELATIVE, c.AL_TRUE);

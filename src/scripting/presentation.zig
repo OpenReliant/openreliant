@@ -93,8 +93,8 @@ pub const Host = struct {
 
     pub const Rooms = struct {
         carrier: rooms.Carrier,
-        /// The view the player stands in, or walks into, by its place in the views
-        /// (`rooms.installed`).
+        /// The view the player stands in, or walks into, by its index in the rooms' views,
+        /// counting from 0 (`records.room_views` counts from 1).
         view: u8,
         /// The place whose screen shows, or the news report while it plays; null while the player
         /// walks the rooms.
@@ -1293,7 +1293,7 @@ test "ui.pointer is in the window's pixels" {
     try std.testing.expectEqualStrings("400 150 true", layer.text.items);
 }
 
-test "menu scripts follow the rooms, and ask the CD player for a list" {
+test "menu scripts follow the rooms and turn the CD player's pages" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{
         "a",
@@ -1309,7 +1309,7 @@ test "menu scripts follow the rooms, and ask the CD player for a list" {
                 \\        require("openreliant.ui").text(vector.zero, table.concat(told, ","))
                 \\        if rooms.place == "cd_player" then
                 \\            assert(rooms.carrier == "reliant" and rooms.view == 5 and rooms.cd_player_page == 1)
-                \\            -- The page asked for is the page until the CD player turns to it.
+                \\            -- A requested page reads back as the page until the CD player turns to it.
                 \\            assert(rooms.set_cd_player_page(2) and rooms.cd_player_page == 2)
                 \\            assert(rooms.cd_player_pages == 2 and not pcall(rooms.set_cd_player_page, 3))
                 \\        else
@@ -1322,10 +1322,10 @@ test "menu scripts follow the rooms, and ask the CD player for a list" {
     }});
     defer fixture.deinit();
     const shown = fixture.shown;
-    // Outside the rooms, nothing is told.
+    // Outside the rooms, no event fires.
     fixture.frame(0.016, .{ 640, 480 });
     try std.testing.expectEqualStrings("", shown.layers.get(.ui).text.items);
-    // The player walks into view 5, and opens the CD player there: each is told once.
+    // The player walks into view 5 and opens the CD player there: each fires one event.
     fixture.rooms = .{ .carrier = .reliant, .view = 4 };
     fixture.frame(0.016, .{ 640, 480 });
     fixture.frame(0.016, .{ 640, 480 });
@@ -1334,7 +1334,7 @@ test "menu scripts follow the rooms, and ask the CD player for a list" {
     fixture.frame(0.016, .{ 640, 480 });
     try std.testing.expectEqual(1, shown.takeCdPlayerPage().?);
     try std.testing.expectEqual(null, shown.takeCdPlayerPage());
-    // Leaving the rooms is told with nil.
+    // Leaving the rooms fires an event with nil.
     fixture.rooms = null;
     fixture.frame(0.016, .{ 640, 480 });
     try std.testing.expectEqualStrings("5 nil,5 cd_player,nil nil", shown.layers.get(.ui).text.items);

@@ -81,35 +81,37 @@ pub const Codec = struct {
         codec.vtable.close(codec.context, stream);
     }
 
-    /// Decodes the MP3 file `bytes` (`formats/mp3.zig`) all at once into a WAVE file of 16-bit PCM
-    /// in `gpa`, at the first frame's rate and channels, for the rooms' crew's lines
-    /// (`AudioDecoding`).
+    /// Decodes the MP3 file `bytes` (`formats/mp3.zig`) all at once into a WAVE file of 16-bit PCM,
+    /// at the first frame's rate and channels (`AudioDecoding`). Used for the crew's lines in the
+    /// rooms.
     pub fn decodeMp3(codec: Codec, gpa: Allocator, bytes: []const u8) (Error || error{NoFrames})![]u8 {
         var decoding: AudioDecoding = try .beginMp3(codec, bytes);
         return decoding.complete(gpa);
     }
 };
 
-/// How an audio file's audio is coded, which its decoder is set up for (`Codec.openFile`).
+/// How an audio file is encoded, which sets up its decoder (`Codec.openFile`).
 pub const Encoding = union(enum) {
-    /// An MP3 file's frames (`formats/mp3.zig`), sent one at a time: the rooms' crew's lines,
-    /// which Miles's MP3 decoder (`MP3DEC.ASI`) plays in the game, and mods' recordings.
+    /// An MP3 file's frames (`formats/mp3.zig`), sent one at a time. Used for the crew's lines in
+    /// the rooms, which Miles's MP3 decoder (`MP3DEC.ASI`) plays in the original, and for mods'
+    /// recordings.
     mp3,
-    /// A FLAC file (`formats/flac.zig`), sent whole as one packet: mods' recordings.
+    /// A FLAC file (`formats/flac.zig`), sent whole as one packet. Used for mods' recordings.
     flac,
-    /// An Ogg stream's packets of Vorbis or Opus (`formats/ogg.zig`), sent one at a time, with the
-    /// stream's headers as the decoder takes them (`ogg.Stream.setup`): mods' recordings.
+    /// The packets of an Ogg stream of Vorbis or Opus (`formats/ogg.zig`), sent one at a time. The
+    /// payload is the stream's headers in the form the decoder takes them (`ogg.Stream.setup`).
+    /// Used for mods' recordings.
     vorbis: []const u8,
     opus: []const u8,
 };
 
-/// An audio file decoded a few frames at a time (`step`) into the WAVE file `finish` makes, so that
-/// a long piece of music can decode over several of the game's frames: an MP3, FLAC or Ogg file.
-/// The file must last until the decoding is finished.
+/// Decodes an MP3, FLAC or Ogg file a few frames at a time (`step`) into a WAVE file (`finish`), so
+/// a long piece of music can be decoded over several of the game's frames. The file must stay
+/// valid until the decoding is finished.
 pub const AudioDecoding = struct {
     codec: Codec,
     stream: Stream,
-    /// The file's rate and channels, which the WAVE file takes.
+    /// The file's sample rate and channel count, which the WAVE file gets.
     rate: u32,
     channels: u8,
     /// The samples decoded so far, interleaved.
@@ -119,8 +121,8 @@ pub const AudioDecoding = struct {
     /// frame at a time.
     frames: union(enum) { mp3: mp3.Frames, flac, ogg: OggStream },
 
-    /// An Ogg stream's packets, and the samples of each channel that the decoder drops at the start
-    /// (`ogg.Stream.pre_skip`).
+    /// An Ogg stream's packets, and how many samples of each channel the decoder drops at the
+    /// start (`ogg.Stream.pre_skip`).
     const OggStream = struct {
         packets: ogg.Packets,
         pre_skip: u16,
@@ -129,7 +131,7 @@ pub const AudioDecoding = struct {
     /// Starts decoding the MP3 file `bytes`, at its first frame's rate and channels.
     pub fn beginMp3(codec: Codec, bytes: []const u8) (Error || error{NoFrames})!AudioDecoding {
         const frames: mp3.Frames = .init(bytes);
-        // A copy finds the first frame, which the decoder still gets first.
+        // Read the first frame from a copy of the iterator, so the decoder still gets it first.
         var ahead = frames;
         const first = ahead.next() orelse return error.NoFrames;
         return .{ .codec = codec, .stream = try codec.openFile(.mp3), .rate = first.header.rate, .channels = first.header.channels, .frames = .{ .mp3 = frames } };
@@ -182,16 +184,16 @@ pub const AudioDecoding = struct {
         return false;
     }
 
-    /// The WAVE file of the samples decoded, made in `gpa`. It lets go of the decoder, whether or
-    /// not it succeeds.
+    /// Makes a WAVE file of the samples decoded so far. Frees the decoder, whether or not it
+    /// succeeds.
     pub fn finish(decoding: *AudioDecoding, gpa: Allocator) Allocator.Error![]u8 {
         defer decoding.deinit(gpa);
         return wave.pcm16(gpa, decoding.rate, decoding.channels, decoding.kept());
     }
 
-    /// The samples decoded, without those past an Ogg stream's end: the decoder decodes whole
-    /// packets, and the stream's last page says where in the last one it ends, so that a piece
-    /// loops without a gap.
+    /// The samples decoded, without those past the end of an Ogg stream. The decoder decodes whole
+    /// packets, and the stream's last page says where in the last packet the stream ends. Cutting
+    /// there lets a piece loop without a gap.
     fn kept(decoding: AudioDecoding) []const i16 {
         const all = decoding.pcm.items;
         const ogg_stream = switch (decoding.frames) {
@@ -203,8 +205,8 @@ pub const AudioDecoding = struct {
         return all[0..@min(all.len, length)];
     }
 
-    /// Decodes the rest of the file and makes its WAVE file (`finish`). It lets go of the decoder,
-    /// whether or not it succeeds.
+    /// Decodes the rest of the file and makes its WAVE file (`finish`). Frees the decoder, whether
+    /// or not it succeeds.
     pub fn complete(decoding: *AudioDecoding, gpa: Allocator) Error![]u8 {
         _ = decoding.step(gpa, std.math.maxInt(usize)) catch |err| {
             decoding.deinit(gpa);
@@ -233,7 +235,7 @@ test AudioDecoding {
     const file = mp3.testing.silence(3);
     var decoding: AudioDecoding = try .beginMp3(codec, &file);
     try std.testing.expectEqual(22050, decoding.rate);
-    // One sample of each channel takes a frame, and 103 more take the other two.
+    // One sample per channel needs one frame, and 103 more need the other two.
     try std.testing.expect(!try decoding.step(gpa, 1));
     try std.testing.expectEqual(204, decoding.pcm.items.len);
     try std.testing.expect(!try decoding.step(gpa, 103));
@@ -245,7 +247,7 @@ test AudioDecoding {
     const parsed = try wave.Wave.parse(made);
     try std.testing.expectEqual(2, parsed.channels);
     try std.testing.expectEqual(612 * 2, parsed.data.len);
-    // A FLAC file goes to the decoder whole, here decoded all at once.
+    // A FLAC file is sent to the decoder whole. Here it is decoded all at once.
     const lossless = try flac.testing.constant(gpa, 44100, &.{ 1, 2 }, 8);
     defer gpa.free(lossless);
     var whole: AudioDecoding = try .beginFlac(codec, lossless);
@@ -253,9 +255,9 @@ test AudioDecoding {
     defer gpa.free(decoded);
     try std.testing.expectEqual(44100, (try wave.Wave.parse(decoded)).rate);
     try std.testing.expectEqual(0, decoders.streams);
-    // An Ogg stream's packets go to the decoder one at a time, and the samples past where its last
-    // page says it ends are cut. Here the test codec gives each packet's byte as a sample: 3 of
-    // them, where the stream ends 2 samples in, after a pre-skip of 1.
+    // An Ogg stream's packets are sent to the decoder one at a time, and samples past the end
+    // that the last page gives are cut. Here the test codec gives each packet's byte as a sample:
+    // 3 samples, and the stream ends after 2, with a pre-skip of 1.
     const silent = try ogg.testing.opus(gpa, 1, 1, 3, 3);
     defer gpa.free(silent);
     var from_ogg: AudioDecoding = try .beginOgg(codec, gpa, silent);
@@ -266,7 +268,7 @@ test AudioDecoding {
     const cut = try from_ogg.finish(gpa);
     defer gpa.free(cut);
     try std.testing.expectEqual(2 * @sizeOf(i16), (try wave.Wave.parse(cut)).data.len);
-    // A file of none of the kinds is refused before a decoder opens.
+    // A file in the wrong format is rejected before a decoder opens.
     try std.testing.expectError(error.NoFrames, AudioDecoding.beginMp3(codec, "no frames"));
     try std.testing.expectError(error.NotFlac, AudioDecoding.beginFlac(codec, "RIFF"));
     try std.testing.expectError(error.NoStream, AudioDecoding.beginOgg(codec, gpa, "RIFF"));

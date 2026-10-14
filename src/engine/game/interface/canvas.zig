@@ -556,8 +556,7 @@ pub const Pointer = struct {
     ///
     /// `share` is how large the screen is drawn, as the canvas has it (`Canvas.share`).
     pub fn update(pointer: *Pointer, mouse: *input.Mouse, window: [2]u32, share: f32, elapsed: i32) void {
-        if (mouse.at) |fractions| {
-            const pixels = @as(@Vector(2, f32), fractions) * @as(@Vector(2, f32), @floatFromInt(@as(@Vector(2, u32), window)));
+        if (mouse.pixelsIn(window)) |pixels| {
             const point = Placement.of(window, share).onScreen(pixels);
             for (&pointer.at, point, size) |*at, axis, across| at.* = std.math.clamp(hud.round(axis), 0, @as(i32, @intCast(across)) - 1);
         }

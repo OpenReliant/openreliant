@@ -15,11 +15,12 @@ explains how to write them; this page explains how they run.
 
 **Improvement:** scripted HUD/UI drawing uses mod PNG pictures, the current game's sprite set or
 one a script names, and selected bitmap or outline fonts (#590). `drawing.Assets` caches the mods'
-pictures and fonts by script context and file name, and the game's sprite sets the scripts name by
-their name in `resource.hog` (`ShapeStyle.sprites`), read with the mods' copies and pictures as the
-front end reads its own, while `drawing.View` borrows the current game's fonts, sprite set and
-rasterizer. A named set's shapes are drawn from it directly; the layer's own set is taken as the
-layer draws, since its screen can change it between the scripts' frame and the drawing. Custom outline fonts reuse `hud.outline.Fit` and its atlas path. Measurement uses
+pictures and fonts by script context and file name, and the game's sprite sets that scripts name, by
+their name in `resource.hog` (`ShapeStyle.sprites`). The sets are read with the mods' copies and
+pictures, as the front end reads its own, while `drawing.View` borrows the current game's fonts,
+sprite set and rasterizer. A named set's shapes are drawn from it directly. The layer's own set is
+looked up when the layer draws, since its screen can change the set between the scripts' frame and
+the drawing. Custom outline fonts reuse `hud.outline.Fit` and its atlas path. Measurement uses
 the same bitmap layout as drawing. When a new picture or font needs room, the pictures drawn
 longest ago are taken out of the cache, but never one drawn in the last two frames, and freed at
 the next draw, which hands their textures back to the device. Fonts, and the rest at shutdown,
@@ -497,7 +498,7 @@ starts, calls and stops them ([`running.zig`](../../src/scripting/running.zig)).
   Then it calls `on_frame`.
 - Each loop of the rooms' driver says what it shows as it runs the scripts' frame
   (`Driver.pump`): the rooms, a place's screen, or a screen outside them, such as the in-game
-  options. `openreliant.rooms` reads the last frame's (`rooms.zig`). The host holds values alone,
+  options. `openreliant.rooms` reads the last frame's (`rooms.zig`). The host holds only values,
   never a screen: `rooms.set_cd_player_page` leaves a request that the CD player's loop takes after
   the scripts' frame (`Presentation.takeCdPlayerPage`), so a script called between frames can't
   reach a CD player that has closed.

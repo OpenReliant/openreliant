@@ -91,7 +91,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | A mod can | Read | Example |
 |---|---|---|
 | Draw over the flight display and the menus: text, lines, rectangles, the mod's pictures and fonts, and the game's shapes from any of its sprite sets | [Drawing](scripting.md#drawing), [Pictures, shapes and fonts](scripting.md#pictures-shapes-and-fonts) | [`dvd`](../../examples/mods/dvd), [`drawing-assets`](../../examples/mods/drawing-assets), [`cd-player-pages`](../../examples/mods/cd-player-pages) |
-| Tell where the player is in the carrier's rooms, hear when that changes, and draw over the rooms and their screens | [The rooms](scripting.md#the-rooms) | [`cd-player-pages`](../../examples/mods/cd-player-pages) |
+| Find out where the player is in the carrier's rooms, get notified when that changes, and draw over the rooms and their screens | [The rooms](scripting.md#the-rooms) | [`cd-player-pages`](../../examples/mods/cd-player-pages) |
 | Turn the CD player's pages, to show both carriers' lists on either | [The rooms](scripting.md#the-rooms) | [`cd-player-pages`](../../examples/mods/cd-player-pages) |
 | Add displays to the flight display | [HUD displays](scripting.md#hud-displays) | [`arena`](../../examples/mods/arena), [`strafe-run`](../../examples/mods/strafe-run) |
 | Replace, move and scale the game's HUD instruments, and read what they show | [The game's instruments](scripting.md#the-games-instruments) | [`hud-layout`](../../examples/mods/hud-layout) |

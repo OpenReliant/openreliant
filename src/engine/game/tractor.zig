@@ -143,8 +143,8 @@ const beam_length: f32 = 400;
 const beam_span: [2][2]f32 = .{ .{ 0.04, 0.04 }, .{ 0.99, 0.99 } };
 const beam_quads = 1 + beam_ribbons;
 
-/// How far a beam's glow reaches either side of its axis, as a share of the beam's own width, and
-/// how solid it is beside the beam. Not the game's.
+/// Added by OpenReliant: how far a beam's glow reaches on either side of its axis, as a multiple
+/// of the beam's width, and how opaque it is beside the beam.
 const glow_width: f32 = 3;
 const glow_share: f32 = 0.35;
 
@@ -210,9 +210,9 @@ pub const Beam = struct {
     /// How it is turned in the part's frame, as it was last aimed.
     turn: math.Matrix = math.identity,
 
-    /// The game draws the square in one group of polygons and the ribbons in another, of the same
-    /// material; OpenReliant draws them in one, over `look`'s texture, with the glow's ribbons where
-    /// its `glow` has them.
+    /// The game draws the square in one group of polygons and the ribbons in another, with the
+    /// same material. OpenReliant draws them in one group, over `look`'s texture, with the glow's
+    /// ribbons where its `glow` has them.
     pub fn create(gpa: Allocator, look: Look, ship: u16, part: usize, point: Vector) Allocator.Error!*Beam {
         var corners: [most_corners]Vector = undefined;
         corners[0..guns.blade_corners].* = .{

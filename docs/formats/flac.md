@@ -27,8 +27,8 @@ The first block is always the STREAMINFO, 34 bytes long:
 file's rate and channels, which a voice or the music plays (`bink.AudioDecoding`). The whole file
 goes to the decoder as one packet: the decoder reads the marker and the metadata, then decodes one
 frame at a time. Samples of more than 16 bits keep their top 16 bits, as FFmpeg's own conversion
-does. A line of speech decodes all at once, and a piece of music a few seconds of music each frame
-of the game, starting once it's decoded ([The driver](../port/sound.md#the-driver)).
+does. A line of speech is decoded all at once, and a piece of music a few seconds at a time, once a
+frame, starting once it is fully decoded ([The driver](../port/sound.md#the-driver)).
 
-Where a mod has a recording in more than one format, OpenReliant takes the first in the order that
+If a mod has a recording in more than one format, OpenReliant uses the first in the order that
 [Music](../guide/modding.md#music) gives (`recordings.Source.find`).
