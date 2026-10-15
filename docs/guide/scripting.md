@@ -2326,7 +2326,9 @@ A game mode can also brief its missions in the game's briefing room, as the Star
 briefs its two: `briefing_room = "reliant"` or `"yamato"`. Before each mission, after the mod's
 `briefing` screen where the mode has one, the player sees the room's door, then Enriquez at the
 room's screen playing the mission's `hologram`, then the loadout on the same ship, and last her
-`last_word`. The hologram is a Bink file, the game's or the mod's, and the last word a speech
+`last_word`. With `walk_in = true`, the player walks into the room after the door, as in the
+campaign, with the door's sound and the room's chatter; without it, the briefing starts in the
+room, as the trial's does. The hologram is a Bink file, the game's or the mod's, and the last word a speech
 file, such as `ms_speech\enrbr_tag01.ut`; without one, her animation plays without a line. Give a
 mod's movie a name of its own, such as `prequel_m01.bik`, since a file in a mod replaces the game's
 file with the same name everywhere.
