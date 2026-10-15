@@ -34,7 +34,7 @@ The rates and speeds of the [flight model](objects.md#motion) are therefore meas
 
 **Improvement:** OpenReliant has no periodic timer. `advanceTo` takes the platform's monotonic count of hundredths of a second, and ticks come from the difference between counts rather than frame durations, so clocks keep to that count and nothing accumulates. The frame rate is decoupled from the tick rate in both directions: a frame shorter than 1/100 second runs no tick, a frame spanning several runs all of them in catchup, and a second of play is always 100 ticks and 25 simulation steps regardless of display refresh rate.
 
-**Improvement:** `objects.stepFraction` counts elapsed time past the last tick, which `advanceToFine` maintains from a higher-precision timer, so moving entities update smoothly on every frame rather than stepping on ticks. Visual effects, which move by a velocity per tick, are drawn that far past the tick as well (`objects.pastTick`, and [Effects](effects.md#drawn-between-the-ticks)), and so is an object the orders place from tick to tick rather than move, by how far they place it a tick (`create.Slot.glide`): the pilot's pod drawn in by a tractor ([Ejection](ejection.md#scoop-up)), and an object with no flight stats under Fly. `--no-smooth-motion` and `--original` move objects on ticks, as the original does.
+**Improvement:** `objects.stepFraction` counts elapsed time past the last tick, which `advanceToFine` maintains from a higher-precision timer, so moving entities update smoothly on every frame rather than stepping on ticks. The drawn frame alone places them so ([Game frames and drawn frames](#game-frames-and-drawn-frames)). Visual effects, which move by a velocity per tick, are drawn that far past the tick as well (`objects.pastTick`, and [Effects](effects.md#drawn-between-the-ticks)), and so is an object the orders place from tick to tick rather than move, by how far they place it a tick (`create.Slot.glide`): the pilot's pod drawn in by a tractor ([Ejection](ejection.md#scoop-up)), and an object with no flight stats under Fly. `--no-smooth-motion` and `--original` move objects on ticks, as the original does.
 
 The simulation step processes objects in sequence ([The object array](objects.md#the-object-array)):
 
@@ -42,13 +42,30 @@ The simulation step processes objects in sequence ([The object array](objects.md
 2. Node updates, shield recharge, and the [guns' step](guns.md#the-step).
 3. Player controls fly the player's ship while its active order is Player Control.
 4. `objects_update` moves all objects, and [shots in flight](guns.md#shots) advance.
-5. Each frame, `mission_frame` interpolates each object between its last two steps, checks shots against potential targets, and draws the scene after the camera frame.
+5. Each game frame, `mission_frame` interpolates each object between its last two steps and checks shots against potential targets; each drawn frame draws the scene after the camera frame.
 
-Mods' global and object scripts run at the end of each simulation step (`on_step`), and in each frame in which game time passes, after the orders (`on_update`) ([Scripting](../port/scripting.md#the-games-scripts)).
+Mods' global and object scripts run at the end of each simulation step (`on_step`), and in each game frame, after the orders (`on_update`) ([Scripting](../port/scripting.md#the-games-scripts)).
 
 Ported so far: the clocks, pacing, keyboard, joystick and mouse inputs (polled 25 times a second as `read_keyboard`, `read_joystick` and `read_mouse` do, rather than once per frame), simulation step work on objects and [missiles](missiles.md#flight), and per-frame orders and interpolation (`main.missionFrame`), which every mission runs with its script's frame's work.
 
 Not yet: the countdown that `game_tick` steps once a second, and sound streaming that shares `tick_timer`.
+
+### Game frames and drawn frames
+
+**Improvement:** the game runs `mission_frame` once a drawn frame, after all the ticks since the last one. So the orders, the script, the missiles, the shots and the effects run as often as the screen is drawn, and the objects are framed by how far into the step the frame falls. The same mission then plays differently at different frame rates.
+
+OpenReliant splits the frame in two:
+
+- **Game frames.** `main.gameFrames` runs the frame's game work (`main.missionFrame`) once a tick, right after the tick, the way the game runs it on a screen drawn 100 times a second. `frame_start` and `frame_duration` are the game frame's, so `frame_duration` is one tick. Each game frame frames the objects at `simulation_counter / 4` of the step, without the wall clock ([Drawing between steps](objects.md#drawing-between-steps)).
+- **Drawn frames.** Once a drawn frame, the controls, the radio, the camera, the sound and the display run, timed by the ticks since the drawn frame before (`Clock.drawBegin`, `drawn_start` and `drawn_duration`). With smooth motion, the drawn frame places the objects and the missiles as far on as the clock has run past the tick, and puts the game frame's frames back once it is drawn (`main.DrawnPlaces`). The missiles' trails also run here, so that each lays its newest ring where its missile is drawn.
+
+So the game frames' work plays the same way at any frame rate. A run paced one tick per drawn frame, as a screenshot is, plays as before.
+
+Some game work still runs once a drawn frame, until it moves to the game frames ([#947](https://github.com/OpenReliant/openreliant/issues/947)):
+
+- the controls frame: the targeting keys, the frame keys and the radio's queue;
+- the display's charges, missile lock and radio lines (`hud_draw`);
+- the camera, which decides when the mission ends and posts the director's CameraReached events.
 
 ## Random numbers
 
@@ -62,6 +79,10 @@ a fraction from 0 to 1. Each object also has its own random numbers (`object_ran
 ([`random.zig`](../../src/engine/random.zig)), in the same range as `rand`, so the game's code uses
 them unchanged. The sequences differ from the original's. An object's own numbers still step the
 original's way, because the seed is part of the object's record.
+
+**Improvement:** what is only drawn, the camera's shake, the display's flicker, the lights and the
+missiles' trails, draws from random numbers of its own, so that how often the screen is drawn
+leaves the game's numbers as they are ([Game frames and drawn frames](#game-frames-and-drawn-frames)).
 
 ## Collisions
 

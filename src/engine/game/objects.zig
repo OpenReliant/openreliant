@@ -1007,6 +1007,154 @@ pub fn frameTree(root: *Node, model: ?*Model, drawn: *Model.Local, fraction: f32
     parts.place(drawn.position, drawn.orientation);
 }
 
+test KeptFrames {
+    const gpa = std.testing.allocator;
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    var slot: create.Slot = .{ .object = gameobj.testing.object(), .model = try Model.create(gpa, &model.source, &model.loaded, .{}) };
+    const live = &slot.model.?;
+    defer live.deinit(gpa);
+    gameobj.linkParts(live, &model.source);
+    // Through the step the object goes from 0 to 100, and its part rises 10 in the model.
+    const root = &slot.object.root;
+    root.flags.committed = true;
+    root.next_position = .{ .x = 100, .y = 0, .z = 0 };
+    const part = &live.parts[0];
+    part.animation.committed = true;
+    part.animation.next.place.position = part.animation.now.place.position + Vector{ 0, 10, 0 };
+    frameTree(root, live, &slot.drawn, 0.5, null);
+    root.flags.unframed = true;
+    const drawn = slot.drawn;
+    const origin = part.origin;
+    const placed = part.drawn();
+
+    var kept: KeptFrames = .{};
+    defer kept.deinit(gpa);
+    try kept.keep(gpa, &slot);
+    // Framed further on, then put back, everything framing wrote is as it was.
+    frameTree(root, live, &slot.drawn, 0.75, null);
+    try std.testing.expectEqual(Vector{ 75, 0, 0 }, slot.drawn.position);
+    var cursor: KeptFrames.Cursor = .{};
+    kept.putBack(&cursor, &slot);
+    try std.testing.expectEqual(drawn, slot.drawn);
+    try std.testing.expectEqual(origin, part.origin);
+    try std.testing.expectEqual(placed, part.drawn());
+    try std.testing.expect(root.flags.unframed);
+    try std.testing.expectEqual(KeptFrames.Cursor{ .roots = 1, .models = 1, .parts = 1 }, cursor);
+}
+
+/// OpenReliant's: what framing an object writes, kept so that a drawn frame can frame the object
+/// further on and then put the game frame's frames back (`main.DrawnPlaces`). For each object that
+/// is its root's place now and next (a ship riding a node is held there, `main.frameObjects`), the
+/// root's `unframed` flag, and the frame it is drawn at. For each model, the models its parts carry
+/// included, it is the model's place, and each part's frame in the model, its frame in the world
+/// and its `unframed` flag.
+pub const KeptFrames = struct {
+    roots: std.ArrayList(Root) = .empty,
+    models: std.ArrayList(math.Place) = .empty,
+    parts: std.ArrayList(PartFrame) = .empty,
+
+    const Root = struct {
+        position: shp.Vec3,
+        orientation: math.Matrix,
+        next_position: shp.Vec3,
+        next_orientation: math.Matrix,
+        unframed: bool,
+        drawn: Model.Local,
+    };
+
+    const PartFrame = struct {
+        origin: Vector,
+        turn: math.Matrix,
+        place: math.Place,
+        unframed: bool,
+    };
+
+    /// How far `putBack` has got through each list.
+    pub const Cursor = struct {
+        roots: usize = 0,
+        models: usize = 0,
+        parts: usize = 0,
+    };
+
+    pub fn deinit(kept: *KeptFrames, gpa: Allocator) void {
+        kept.roots.deinit(gpa);
+        kept.models.deinit(gpa);
+        kept.parts.deinit(gpa);
+    }
+
+    pub fn clear(kept: *KeptFrames) void {
+        kept.roots.clearRetainingCapacity();
+        kept.models.clearRetainingCapacity();
+        kept.parts.clearRetainingCapacity();
+    }
+
+    /// Keeps the frames of the object in `slot`. Where it runs out of memory, it keeps none of them.
+    pub fn keep(kept: *KeptFrames, gpa: Allocator, slot: *const create.Slot) Allocator.Error!void {
+        const root = &slot.object.root;
+        const before: Cursor = .{ .roots = kept.roots.items.len, .models = kept.models.items.len, .parts = kept.parts.items.len };
+        errdefer {
+            kept.roots.shrinkRetainingCapacity(before.roots);
+            kept.models.shrinkRetainingCapacity(before.models);
+            kept.parts.shrinkRetainingCapacity(before.parts);
+        }
+        try kept.roots.append(gpa, .{
+            .position = root.position,
+            .orientation = root.orientation,
+            .next_position = root.next_position,
+            .next_orientation = root.next_orientation,
+            .unframed = root.flags.unframed,
+            .drawn = slot.drawn,
+        });
+        if (slot.model) |*model| try kept.keepModel(gpa, model);
+    }
+
+    fn keepModel(kept: *KeptFrames, gpa: Allocator, model: *const Model) Allocator.Error!void {
+        try kept.models.append(gpa, .{ .position = model.position, .orientation = model.orientation });
+        for (model.parts) |*part| try kept.parts.append(gpa, .{
+            .origin = part.origin,
+            .turn = part.turn,
+            .place = part.drawn(),
+            .unframed = part.animation.unframed,
+        });
+        var each = model.carried();
+        while (each.next()) |mount| try kept.keepModel(gpa, &mount.model);
+    }
+
+    /// Puts back the frames `keep` kept of the same object, from `cursor` on, and moves the cursor
+    /// past them. The objects go back in the order they were kept.
+    pub fn putBack(kept: *const KeptFrames, cursor: *Cursor, slot: *create.Slot) void {
+        const root = &slot.object.root;
+        const was = kept.roots.items[cursor.roots];
+        cursor.roots += 1;
+        root.position = was.position;
+        root.orientation = was.orientation;
+        root.next_position = was.next_position;
+        root.next_orientation = was.next_orientation;
+        root.flags.unframed = was.unframed;
+        slot.drawn = was.drawn;
+        if (slot.model) |*model| kept.putBackModel(cursor, model);
+    }
+
+    fn putBackModel(kept: *const KeptFrames, cursor: *Cursor, model: *Model) void {
+        const place = kept.models.items[cursor.models];
+        cursor.models += 1;
+        model.position = place.position;
+        model.orientation = place.orientation;
+        for (model.parts, kept.parts.items[cursor.parts..][0..model.parts.len]) |*part, was| {
+            part.origin = was.origin;
+            part.turn = was.turn;
+            part.object.position = was.place.position;
+            part.object.orientation = was.place.orientation;
+            part.animation.unframed = was.unframed;
+        }
+        cursor.parts += model.parts.len;
+        var each = model.carried();
+        while (each.next()) |mount| kept.putBackModel(cursor, &mount.model);
+    }
+};
+
 /// Destroys `component`, one of `model`'s parts, the same way a hit that takes its last armour
 /// does (`component_damage`): it sets the armour of the part that takes the component's hits
 /// (`Model.hitPart`) below zero, and flags the model's root as `destroyed`. The objects' next pass
@@ -2740,6 +2888,12 @@ pub const Timing = struct {
 
     pub fn of(clock: *const Clock, smooth: bool, riders: Riders) Timing {
         return .{ .fraction = stepFraction(clock, smooth), .ahead = pastTick(clock, smooth), .riders = riders };
+    }
+
+    /// How far along a game frame frames the objects: by the step's ticks alone, nothing past the
+    /// tick (`main.gameFrames`).
+    pub fn atTick(clock: *const Clock, riders: Riders) Timing {
+        return .of(clock, false, riders);
     }
 };
 

@@ -510,6 +510,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     try loading.show(game.xtrabits.loading.startup_first);
     try loading.show(game.xtrabits.loading.startup_step);
     var rand: engine.random.Random = .{};
+    // The random numbers of what is only drawn: the camera's shake, the display's flicker, the
+    // lights and the missiles' trails. Apart from the game's, so that how often the screen is drawn
+    // leaves the game's numbers as they are.
+    var drawn_random: engine.random.Random = .{};
     const space = try game.backdrop.Backdrop.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.backdrop.star_map_name), &rand, context.projection.near, options.sun);
     const sky = try game.nebula.Sky.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.nebula.dome_image_name));
     try sky.select(&textures, game.nebula.default_nebula, &space.lights);
@@ -663,6 +667,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The force feedback's effects, and what plays them on the player's controller.
     const forces_library = engine.input.force.load(io, arena, directory, &mods);
     var force_feedback: engine.input.force.Forces = .{ .library = &forces_library, .settings = options.forces };
+    // Where a drawn frame places the objects and the missiles, for smooth motion.
+    var drawn_places: game.main.DrawnPlaces = .{ .gpa = gpa };
+    defer drawn_places.deinit();
     // What the objects run in, the camera's view brought up to date each frame.
     var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .view = view.view, .last_view = view.view, .shake = &view.hit_shake, .random = &rand, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .trails = &trails, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .atmospheres = &atmospheres, .extras = &extra_images, .escort_marker = escort_marker, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
 
@@ -685,7 +692,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .player = &player,
         .view = &view,
         .radio = &radio,
-        .random = &rand,
+        .random = &drawn_random,
         .strings = &strings,
         .pause_menu = &pause_menu,
         .devices = &devices,
@@ -1186,8 +1193,12 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             } else if (frames_left != null) clock.advanceBy(now / platform.window.tick_nanoseconds, 1) else clock.advanceToFine(now, platform.window.tick_nanoseconds);
             // While the communications window is open the keys 1 to 8 are its menu's.
             devices.keyboard.numbers_taken = display.state.windows.status.get(.comms).phase == .open;
-            while (clock.nextTick(&devices, world)) |_| {}
-            clock.frameBegin();
+            // A game frame for each tick: the tick, then `mission_frame`'s game work at it. That runs
+            // every object's orders, which fly the ships and read the player's controls, and frames
+            // every object between its last two places, as far into the step as the tick is.
+            const ended = game.main.gameFrames(&clock, &devices, world, options.riders, play.loaded);
+            // Then the drawn frame, over the ticks since the last one.
+            clock.drawBegin();
             // `mission_frame` looks for Escape and F1 before its work, and pausing into the menu
             // leaves the work out.
             _ = try game.main.pauseKeys(pausing, &devices);
@@ -1197,11 +1208,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 // The force feedback plays while the controller rumbles and its setting lets it.
                 force_feedback.feedback = devices.joystick.rumbles;
                 force_feedback.setting = devices.settings.force_feedback;
-                // Each frame `mission_frame` runs every object's orders, which fly the ships and read
-                // the player's controls, and then, before anything is drawn, has every object's frames
-                // drawn between its last two places, as far into the step as the clock is; the camera
-                // follows the player's.
-                const ended = game.main.missionFrame(orders, .of(&clock, smooth_motion, options.riders), play.loaded);
                 // The mission over, once the camera has watched the player's end or the pilot's pickup,
                 // once the player's ship has landed, or once its script ends it, the game settles how
                 // it ended and goes on from it (`missionEnded`): the campaign to its next mission or
@@ -1242,7 +1248,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         if (devices.keyboard.pressed(@backingInt(test_keys.wing_key), .none, true)) test_keys.bringWing(orders);
                     }
 
-                    game.main.controlsFrame(.{
+                    const controls: game.main.Controls = .{
                         .orders = orders,
                         .devices = &devices,
                         .camera = &view,
@@ -1253,16 +1259,18 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         .last_view = last_view,
                         .cockpit = if (cockpit.shown) |*shown| shown else null,
                         .forces = &force_feedback,
-                        .random = &rand,
+                        .random = &drawn_random,
                         .smooth_motion = smooth_motion,
-                    });
+                    };
+                    game.main.controlsFrame(controls);
                     // Foster's last stand, once the script has asked for it, which the game plays
                     // as its targeting keys end.
                     if (display.state.fosters_last_stand) {
                         if (!try movies.fostersLastStand(play.number, &clock, sound, &radio)) return;
                         display.state.fosters_last_stand = false;
                     }
-                    switch (player_launch.step(slot, clock.mission_ticks)) {
+                    const launch_step = player_launch.step(slot, clock.mission_ticks);
+                    switch (launch_step) {
                         // The skipped frame isn't drawn, but the display's frame still runs,
                         // unseen: the radio's lines start and end in it (`hud_draw`), and a
                         // mission's script may wait for a line to end before the player launches.
@@ -1272,12 +1280,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                             try display.drawDisplay();
                             continue;
                         },
-                        .ended => {
-                            if (play.loaded) |loaded| for (asked_parts) |part| loaded.runPart(orders, part);
-                            watch.frame(&view, objects, clock.viewTime());
-                        },
-                        .over => watch.frame(&view, objects, clock.viewTime()),
+                        .ended => if (play.loaded) |loaded| for (asked_parts) |part| loaded.runPart(orders, part),
+                        .over => {},
                     }
+                    // With smooth motion, what moves is drawn as far on as the clock has run past
+                    // the tick, from here until the frame is drawn, and the camera follows it there.
+                    drawn_places.place(objects, .of(&clock, smooth_motion, options.riders), clock.frame_start);
+                    game.main.viewFrame(controls);
+                    if (launch_step != .under_way) watch.frame(&view, objects, clock.viewTime());
                 }
             }
         }
@@ -1376,14 +1386,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .escort_marker = escort_marker,
                 .flash = &flash,
                 .interference = &display.state.interference,
-                .ticks = @intCast(clock.frameTicks()),
+                .ticks = @intCast(clock.drawnTicks()),
                 .paused = clock.paused,
                 .attachments = .{
                     .camera = view.place.position,
                     .frame_start = clock.frame_start,
-                    .random = &rand,
+                    .random = &drawn_random,
                 },
             }, driver.interface());
+            // The objects go back to where the game frame framed them.
+            drawn_places.restore(objects);
             // `mission_frame` ends with the 0 key, which saves the frame just drawn.
             if (!clock.paused and game.main.screenshotAsked(&devices.keyboard)) presenter.saveScreenshot(gpa, &screenshots);
             last_view = view.view;

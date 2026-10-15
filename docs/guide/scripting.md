@@ -222,7 +222,7 @@ without `.hog`, a colon, and the name the mod gave it. A gun `banana_gun` in the
 ## Engine handlers
 
 A script returns a table, whose `engine_handlers` holds the functions OpenReliant calls, such as
-`on_update` each frame, or `on_mission_start`. Each one is optional:
+`on_update` each game frame, or `on_mission_start`. Each one is optional:
 
 ```lua
 return {
@@ -240,7 +240,7 @@ return {
 | `on_init(data)` | Global, object, player, menu | The script starts |
 | `on_save()`, `on_load(saved)` | Global, player | The game is saved, or loaded ([Saved games](#saved-games)) |
 | `on_records_loaded()` | Load | Every mod's load scripts have run |
-| `on_update(seconds)` | Global, object | Each frame in which game time passes |
+| `on_update(seconds)` | Global, object | Each game frame, once a tick (100 a second) while the game runs |
 | `on_step()` | Global, object | Each simulation step, 25 a second |
 | `on_frame(seconds)` | Player, menu | Each frame drawn, even while paused |
 | `on_mission_start(mission)`, `on_mission_end(outcome)` | Global, player, menu | A mission starts or ends |

@@ -267,9 +267,11 @@ pub const Trails = struct {
         trails.list.remove(trails.gpa, at);
     }
 
-    /// The end of `missiles_update` (`0x004960F0`), once a frame: each trail's pieces, newest
-    /// first, by its look: the side ribbons (`sides`), the ribbon (`ribbonFrame`), the plume
-    /// (`plumeFrame`) and the glow (`glowFrame`). A trail that fades out is freed on the way.
+    /// The end of `missiles_update` (`0x004960F0`), which OpenReliant runs once a drawn frame, once
+    /// the missiles are placed for it (`main.viewFrame`): each trail's pieces, newest first, by its
+    /// look: the side ribbons (`sides`), the ribbon (`ribbonFrame`), the plume (`plumeFrame`) and
+    /// the glow (`glowFrame`). The ribbons fade by the drawn frame's ticks (`Clock.drawnTicks`). A
+    /// trail that fades out is freed on the way.
     pub fn frame(trails: *Trails, world: gameobj.World) void {
         var walk = trails.list.walk();
         while (walk.next()) |index| {
@@ -290,7 +292,7 @@ pub const Trails = struct {
         const ribbon = trail.ribbon.?;
         const style = trail.looked();
         const colour = ribbonColour(trail, world.objects);
-        const faded = ribbon.fade(world.clock.frame_duration, style.segments, colour);
+        const faded = ribbon.fade(world.clock.drawn_duration, style.segments, colour);
         const slot = followed(trail, world.objects) orelse {
             if (faded) return trails.free(at);
             ribbon.shown = true;
@@ -329,7 +331,7 @@ pub const Trails = struct {
         var faded = true;
         for (trail.sides[0..count], 0..) |side, strand| {
             const ribbon = side orelse continue;
-            faded = ribbon.fade(world.clock.frame_duration, style.side_segments, style.side_colour);
+            faded = ribbon.fade(world.clock.drawn_duration, style.side_segments, style.side_colour);
             const slot = followed(trail, world.objects) orelse continue;
             const object = &slot.object;
             const turning = turningOf(object);
@@ -689,7 +691,7 @@ const testing = struct {
             errdefer stage.armed.deinit();
             stage.textures = try .init(gpa, &.{ "mtrail2", "shield128", "partic6" });
             stage.trails = .init(gpa, try .load(&stage.textures.table));
-            stage.armed.mission.clock.frame_duration = 1;
+            stage.armed.mission.clock.drawn_duration = 1;
         }
 
         fn deinit(stage: *Stage) void {
@@ -753,9 +755,11 @@ test "Trails.frame" {
     const trail = stage.trails.get(at).?;
     const ribbon = trail.ribbon.?;
 
-    // Each frame lays the newest ring at the tail, burning at its throttle, and moves on once the
-    // missile has flown three tail widths from the ring before.
+    // Each drawn frame, after the missiles' game frame, lays the newest ring at the tail, burning
+    // at its throttle, and moves on once the missile has flown three tail widths from the ring
+    // before.
     missiles.frame(world, 0);
+    stage.trails.frame(world);
     try std.testing.expect(ribbon.shown);
     try std.testing.expectEqual(1, ribbon.colours[4][3]);
     try std.testing.expectEqual(2 * looks[1].colour[0], ribbon.colours[4][0]);
@@ -765,12 +769,13 @@ test "Trails.frame" {
         clock.frame_start += 1;
         missiles.move(world.objects);
         missiles.frame(world, 1);
+        stage.trails.frame(world);
     }
     try std.testing.expectEqual(2, trail.cursor);
     // Its missile ended, it fades out, a ring over five rings over 0.375 ticks, and is freed.
     missiles.end(world, 0);
     try std.testing.expectEqual(Follows.nothing, trail.follows);
-    for (0..20) |_| missiles.frame(world, 0);
+    for (0..20) |_| stage.trails.frame(world);
     try std.testing.expectEqual(null, stage.trails.list.newest);
 }
 

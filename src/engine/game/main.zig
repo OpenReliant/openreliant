@@ -207,6 +207,12 @@ pub const Clock = struct {
     frame_start: i32 = 0,
     /// `frame_duration` (`0x00588330`): ticks between the previous frame and this one.
     frame_duration: i32 = 0,
+    /// OpenReliant's: `mission_ticks` when the current drawn frame began, and the ticks since the
+    /// drawn frame before it (`drawBegin`). The frame's game work runs once a tick (`gameFrames`),
+    /// so `frame_start` and `frame_duration` belong to that. The work that runs once a drawn frame
+    /// (the controls, the camera, the sound and the display) measures its time by these instead.
+    drawn_start: i32 = 0,
+    drawn_duration: i32 = 0,
     /// `simulation_counter` (`0x00588718`).
     simulation_counter: u32 = 0,
     /// `simulation_turn` (`0x00562FFC`): the object whose orientation `simulation_step`
@@ -297,20 +303,42 @@ pub const Clock = struct {
     /// `frame_begin` (`0x00491E00`): `frame_duration` becomes the ticks since `frame_start`, and
     /// `frame_start` becomes `mission_ticks`. Code that runs once a frame measures time with these.
     pub fn frameBegin(clock: *Clock) void {
-        const began = clock.frame_start;
-        clock.frame_start = clock.mission_ticks;
-        clock.frame_duration = clock.mission_ticks -% began;
+        begin(clock.mission_ticks, &clock.frame_start, &clock.frame_duration);
     }
 
-    /// `frame_reset` (`0x00491DE0`).
+    /// `frame_reset` (`0x00491DE0`), and the drawn frame's clock with it.
     pub fn frameReset(clock: *Clock) void {
         clock.frame_start = clock.mission_ticks;
         clock.frame_duration = 0;
+        clock.drawn_start = clock.mission_ticks;
+        clock.drawn_duration = 0;
     }
 
     /// The ticks the current frame covers (`frame_duration`), none where the clock ran back.
     pub fn frameTicks(clock: *const Clock) u32 {
-        return @intCast(@max(clock.frame_duration, 0));
+        return ticksIn(clock.frame_duration);
+    }
+
+    /// OpenReliant's `frameBegin` for a drawn frame: `drawn_duration` becomes the ticks since
+    /// `drawn_start`, and `drawn_start` becomes `mission_ticks`.
+    pub fn drawBegin(clock: *Clock) void {
+        begin(clock.mission_ticks, &clock.drawn_start, &clock.drawn_duration);
+    }
+
+    /// The ticks the current drawn frame covers (`drawn_duration`), none where the clock ran back.
+    pub fn drawnTicks(clock: *const Clock) u32 {
+        return ticksIn(clock.drawn_duration);
+    }
+
+    /// Begins a frame at `now`, the frame before having begun at `began`: `duration` becomes the
+    /// ticks since then, and `began` becomes `now`.
+    fn begin(now: i32, began: *i32, duration: *i32) void {
+        duration.* = now -% began.*;
+        began.* = now;
+    }
+
+    fn ticksIn(duration: i32) u32 {
+        return @intCast(@max(duration, 0));
     }
 };
 
@@ -503,7 +531,7 @@ pub fn pausedFrame(devices: *input.Devices, hearing: hog_snd.Hearing, world: gam
     devices.joystick.rumble(.{});
 }
 
-/// What the frame's controls, its camera and its sound run with (`controlsFrame`).
+/// What the frame's controls, its camera and its sound run with (`controlsFrame`, `viewFrame`).
 pub const Controls = struct {
     /// The world, its clock, and the devices the controls read.
     orders: aigeneric.Context,
@@ -520,27 +548,26 @@ pub const Controls = struct {
     /// The cockpit's model, where the player's ship has one, which the camera's frame moves.
     cockpit: ?*cockpit.Cockpit.Shown,
     forces: *input.force.Forces,
+    /// **Improvement:** the random numbers of what is only drawn, the camera's shake and the
+    /// missiles' trails, apart from the game's, so that how often the screen is drawn leaves the
+    /// game's numbers as they are.
     random: *Random,
     /// Whether what moves is drawn between the game's ticks (`objects.pastTick`).
     smooth_motion: bool,
 };
 
-/// `mission_frame`'s work for the controls, the camera and the sound, once a frame over the ticks
-/// it spans: `frame_controls` (the camera's keys, then the targeting keys, `hud.targetKeys`, then
-/// its own, `input.frameKeys`); the camera's frame, of the view's own object, which the ejection's
-/// views show, or else the player's ship, the cockpit's model moved by the ship's rates of turn
-/// over its full ones and its speed over its cruise speed; the player's ship left undrawn from its
-/// cockpit, as `camera_set_view` sees to; and the frame's sound, heard from where the camera now is:
-/// the fades `tick_timer` steps, the music waiting its turn, the positional sounds gathered, and
-/// the 3D sounds placed again. OpenReliant's: the effects playing turn the controller's motors
-/// (`input.force`).
+/// `mission_frame`'s work for the controls, once a drawn frame over the ticks it spans
+/// (`Clock.drawnTicks`): `frame_controls` (the camera's keys, then the targeting keys,
+/// `hud.targetKeys`, then its own, `input.frameKeys`), then the radio's queue, its reports and its
+/// remarks. The camera and the sound follow once the objects are placed for the frame
+/// (`viewFrame`).
 pub fn controlsFrame(controls: Controls) void {
     const world = controls.orders.world;
     const clock = world.clock;
     const all = world.objects;
     const view = controls.camera;
     const devices = controls.devices;
-    const ticks = clock.frameTicks();
+    const ticks = clock.drawnTicks();
     const at = clock.viewTime();
     const slot = &all.slots[all.player];
     view.frameControls(devices, all.player, ticks, at);
@@ -574,6 +601,32 @@ pub fn controlsFrame(controls: Controls) void {
         radio.stepReports(ctx, clock.game_ticks);
     }
     radio_module.remarksFrame(world);
+}
+
+/// `mission_frame`'s work once the objects are placed for the drawn frame (`DrawnPlaces`), once a
+/// drawn frame over the ticks it spans (`Clock.drawnTicks`), after the controls (`controlsFrame`):
+/// the missiles' trails, which the game runs at the end of `missiles_update`, each laying its
+/// newest ring where its missile is drawn (`missiles.trail.Trails.frame`); the camera's frame, of
+/// the view's own object, which the ejection's views show, or else the player's ship, the
+/// cockpit's model moved by the ship's rates of turn over its full ones and its speed over its
+/// cruise speed; the player's ship left undrawn from its cockpit, as `camera_set_view` sees to;
+/// and the frame's sound, heard from where the camera now is: the fades `tick_timer` steps, the
+/// music waiting its turn, the positional sounds gathered, and the 3D sounds placed again.
+/// OpenReliant's: the effects playing turn the controller's motors (`input.force`).
+pub fn viewFrame(controls: Controls) void {
+    const world = controls.orders.world;
+    const clock = world.clock;
+    const all = world.objects;
+    const view = controls.camera;
+    const devices = controls.devices;
+    const ticks = clock.drawnTicks();
+    const at = clock.viewTime();
+    const slot = &all.slots[all.player];
+    if (world.trails) |trails| {
+        var drawn = world;
+        drawn.random = controls.random;
+        trails.frame(drawn);
+    }
     const cockpit_input = if (controls.cockpit) |shown| shown.inputFor(slot, view.view) else null;
     const subject = camera.Subject.of(slot);
     const seen = if (view.object) |object| camera.Subject.of(&all.slots[object]) else subject;
@@ -619,7 +672,7 @@ pub fn controlsFrame(controls: Controls) void {
 /// countermeasures (`cloak.Countermeasures.frame`) and the shockwaves
 /// (`shockwave.Shockwaves.frame`). Between them the frame's hits on the player's ship push its
 /// controller (`input.force.Forces.pushFrame`). A mission and the sandbox alike run this once a
-/// frame, before the camera's own frame and anything drawn.
+/// game tick (`gameFrames`), before the drawn frame's camera and anything drawn.
 ///
 /// As the frame begins, mods' scripts take the world as the frame has it, which the orders they
 /// give run against (`hooks.Scripts.frame`).
@@ -702,6 +755,36 @@ pub const FrameEnd = enum {
     /// The editor link left the frame's work out.
     left_out,
 };
+
+/// `mission_run`'s loop (`0x00494040`) as OpenReliant paces it: for each game tick the loop owes
+/// (`Clock.nextTick`), a game frame at that tick: `frame_begin` and the frame's game work
+/// (`missionFrame`), with the objects framed by the step's ticks alone. It stops at a frame that
+/// ends the mission. While the game is paused no frame runs. In a pass that owes no tick, while the
+/// editor leaves the frame out (`vm.editor.Editor.leavesFrame`), the frame still runs once, which
+/// holds the script's clock and keeps the editor's ships up to date. Returns how the last frame
+/// ended, `played` where none ran.
+///
+/// **Improvement:** the game runs `mission_frame` once a drawn frame, after all the ticks since the
+/// last one, so the orders, the script, the missiles, the shots and the effects run as often as
+/// the screen is drawn, and the objects are framed by how far into the step the frame falls. Here
+/// the frame's game work runs once a tick, as the game runs it on a screen drawn 100 times a
+/// second, whatever the screen's rate; the drawn frame places the objects for itself
+/// (`DrawnPlaces`) and puts them back. So the game frames' work plays the same way at any frame
+/// rate.
+pub fn gameFrames(clock: *Clock, devices: *input.Devices, world: gameobj.World, riders: objects.Riders, loaded: ?*Loaded) FrameEnd {
+    const orders: aigeneric.Context = .{ .world = world, .devices = devices };
+    var ended: FrameEnd = .played;
+    var ran = false;
+    while (clock.nextTick(devices, world)) |_| {
+        if (clock.paused) continue;
+        clock.frameBegin();
+        ran = true;
+        ended = missionFrame(orders, .atTick(clock, riders), loaded);
+        if (ended == .over) return .over;
+    }
+    if (!ran) if (loaded) |playing| if (playing.script.editor.leavesFrame()) return missionFrame(orders, .atTick(clock, riders), loaded);
+    return ended;
+}
 
 /// `mission_frame`'s missile lock (`hud_missile_lock`, `0x00491520`), which runs while the last
 /// frame's view shows it (`0x004933D7`), whatever the camera has switched to since, but not while
@@ -952,12 +1035,26 @@ pub fn frameObjects(all: *create.Objects, timing: objects.Timing, now: i32) void
         object.missile_homing = 0;
         // Gliding, or the frame after, it is drawn from where the orders placed it.
         const gliding = @reduce(.Or, slot.glide != @as(math.Vector, @splat(0)));
-        const glide: ?math.Vector = if (gliding or slot.glided) slot.glide * @as(math.Vector, @splat(timing.ahead)) else null;
+        slot.drawn_glide = if (gliding or slot.glided) slot.glide else null;
         slot.glided = gliding;
         slot.glide = @splat(0);
-        _ = holdRider(all, index);
-        frameObject(slot, timing, glide, now);
+        placeObject(all, index, timing, now);
     }
+    holdRiders(all, timing, now);
+}
+
+/// Holds the ship in slot `index` on the node it rides (`holdRider`) and frames it as far through
+/// the step as `timing` says, going on by the glide the frame kept (`create.Slot.drawn_glide`).
+fn placeObject(all: *create.Objects, index: u16, timing: objects.Timing, now: i32) void {
+    const slot = &all.slots[index];
+    _ = holdRider(all, index);
+    const glide: ?math.Vector = if (slot.drawn_glide) |per_tick| per_tick * @as(math.Vector, @splat(timing.ahead)) else null;
+    frameObject(slot, timing, glide, now);
+}
+
+/// `frameObjects`' second pass, with `timing.riders` `together`: each ship riding a node stands on
+/// it again, and is framed again (`objects.Riders`).
+fn holdRiders(all: *create.Objects, timing: objects.Timing, now: i32) void {
     if (timing.riders == .in_turn) return;
     var riders = all.walk();
     while (riders.next()) |index| {
@@ -981,6 +1078,78 @@ fn frameObject(slot: *create.Slot, timing: objects.Timing, glide: ?math.Vector, 
     objects.frameTree(&slot.object.root, if (slot.model) |*model| model else null, &slot.drawn, timing.fraction, glide);
     cloak.wobble(slot, now);
 }
+
+/// OpenReliant's: where a drawn frame places the objects and the missiles. A game frame frames
+/// them by the step's ticks alone (`gameFrames`). With smooth motion, a drawn frame places them as
+/// far on as the platform's clock has run past the last tick (`objects.pastTick`), so that what
+/// moves moves on every drawn frame. Once the frame is drawn, it puts back the frames the game
+/// frame left, so placing the objects for drawing changes nothing the game goes on from.
+pub const DrawnPlaces = struct {
+    gpa: Allocator,
+    kept: objects.KeptFrames = .{},
+    /// The slots of the objects, and then the missiles, whose frames `kept` holds, in order.
+    slots: std.ArrayList(u16) = .empty,
+    missiles: std.ArrayList(u8) = .empty,
+    /// Whether the objects stand where the drawn frame placed them, for `restore`.
+    placed: bool = false,
+
+    pub fn deinit(places: *DrawnPlaces) void {
+        places.kept.deinit(places.gpa);
+        places.slots.deinit(places.gpa);
+        places.missiles.deinit(places.gpa);
+    }
+
+    /// Keeps the frames of every object and missile the game frame framed, then frames them
+    /// `timing` of the way through the step, as the game frame does (`frameObjects`,
+    /// `missiles.frame`), with nothing else the game frame does to them. Where there is no time
+    /// past the tick, or the frames can't be kept, the objects stay as the game frame framed them.
+    pub fn place(places: *DrawnPlaces, all: *create.Objects, timing: objects.Timing, now: i32) void {
+        std.debug.assert(!places.placed);
+        if (timing.ahead == 0) return;
+        places.keepAll(all) catch {
+            places.clear();
+            return;
+        };
+        places.placed = true;
+        for (places.slots.items) |index| placeObject(all, index, timing, now);
+        holdRiders(all, timing, now);
+        for (places.missiles.items) |index| all.missiles.get(index).?.frameAt(timing.fraction);
+    }
+
+    fn keepAll(places: *DrawnPlaces, all: *create.Objects) Allocator.Error!void {
+        places.clear();
+        var walk = all.walk();
+        while (walk.next()) |index| {
+            const slot = &all.slots[index];
+            if (slot.object.flags.outOfFrame()) continue;
+            try places.slots.append(places.gpa, index);
+            try places.kept.keep(places.gpa, slot);
+        }
+        var missiles_walk = all.missiles.walk();
+        while (missiles_walk.next()) |index| {
+            const missile = all.missiles.get(index) orelse continue;
+            if (!missile.shown) continue;
+            try places.missiles.append(places.gpa, index);
+            try places.kept.keep(places.gpa, &missile.slot);
+        }
+    }
+
+    /// Puts back the frames `place` kept, once the frame is drawn.
+    pub fn restore(places: *DrawnPlaces, all: *create.Objects) void {
+        if (!places.placed) return;
+        places.placed = false;
+        var cursor: objects.KeptFrames.Cursor = .{};
+        for (places.slots.items) |index| places.kept.putBack(&cursor, &all.slots[index]);
+        for (places.missiles.items) |index| places.kept.putBack(&cursor, &all.missiles.get(index).?.slot);
+        places.clear();
+    }
+
+    fn clear(places: *DrawnPlaces) void {
+        places.kept.clear();
+        places.slots.clearRetainingCapacity();
+        places.missiles.clearRetainingCapacity();
+    }
+};
 
 /// Puts the frame's scene together and draws it, in `mission_frame`'s order: the objects
 /// (`drawObjects`), the environment's effects and the backdrop, the sky; the star streaks are
@@ -2365,6 +2534,94 @@ test missionFrame {
     // The frame ran the ship's order, and framed every object where it is drawn.
     try std.testing.expect(mission.objects.slots[1].object.yaw_input > 0);
     try std.testing.expect(!mission.objects.slots[1].object.root.flags.unframed);
+}
+
+test gameFrames {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    for (0..2) |_| _ = try mission.add(.of(.predator), @splat(0));
+    try std.testing.expect(try aigeneric.push(mission.orders(), 1, .slow_rotate, .none));
+    var devices: input.Devices = .{};
+    const clock = &mission.clock;
+
+    // Three ticks owed: a game frame at each, a tick long.
+    clock.advanceTimer(3);
+    try std.testing.expectEqual(.played, gameFrames(clock, &devices, mission.world(), .together, null));
+    try std.testing.expectEqual(3, clock.frame_start);
+    try std.testing.expectEqual(1, clock.frame_duration);
+    // The drawn frame after them spans all three.
+    clock.drawBegin();
+    try std.testing.expectEqual(3, clock.drawnTicks());
+    // A pass that owes no tick runs no game frame, and its drawn frame spans none.
+    try std.testing.expectEqual(.played, gameFrames(clock, &devices, mission.world(), .together, null));
+    try std.testing.expectEqual(3, clock.frame_start);
+    clock.drawBegin();
+    try std.testing.expectEqual(0, clock.drawnTicks());
+    // While the game is paused, no game frame runs.
+    clock.paused = true;
+    clock.advanceTimer(2);
+    _ = gameFrames(clock, &devices, mission.world(), .together, null);
+    try std.testing.expectEqual(3, clock.frame_start);
+}
+
+test DrawnPlaces {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const ship = try mission.add(.of(.predator), @splat(0));
+    const slot = mission.slot(ship);
+    // Halfway through a step that takes the ship from 0 to 100, the game frame frames it at 50.
+    slot.object.root.flags.committed = true;
+    slot.object.root.next_position = .{ .x = 100, .y = 0, .z = 0 };
+    mission.clock.simulation_counter = 2;
+    frameObjects(mission.objects, .atTick(&mission.clock, .together), 0);
+    try std.testing.expectEqual(math.Vector{ 50, 0, 0 }, slot.drawn.position);
+    const framed = slot.object;
+    const drawn = slot.drawn;
+
+    var places: DrawnPlaces = .{ .gpa = gpa };
+    defer places.deinit();
+    // Half a tick past the tick, the drawn frame draws it an eighth of the step further on.
+    mission.clock.past_tick = 0.5;
+    places.place(mission.objects, .of(&mission.clock, true, .together), 0);
+    try std.testing.expectEqual(math.Vector{ 62.5, 0, 0 }, slot.drawn.position);
+    // Once drawn, it goes back to where the game frame framed it.
+    places.restore(mission.objects);
+    try std.testing.expectEqual(drawn, slot.drawn);
+    try std.testing.expectEqualSlices(u8, std.mem.asBytes(&framed), std.mem.asBytes(&slot.object));
+    // With no time past the tick, it places nothing.
+    mission.clock.past_tick = 0;
+    places.place(mission.objects, .of(&mission.clock, true, .together), 0);
+    try std.testing.expect(!places.placed);
+}
+
+test "a mission plays the same way however often it is drawn" {
+    const gpa = std.testing.allocator;
+    var missions: [2]gameobj.testing.Mission = undefined;
+    for (&missions) |*mission| {
+        try mission.init(gpa);
+        for (0..2) |_| _ = try mission.add(.of(.predator), @splat(0));
+        try std.testing.expect(try aigeneric.push(mission.orders(), 1, .slow_rotate, .none));
+    }
+    defer for (&missions) |*mission| mission.deinit();
+    var devices: input.Devices = .{};
+    var places: DrawnPlaces = .{ .gpa = gpa };
+    defer places.deinit();
+    // The first is drawn after each tick, part of a tick past it; the second is never drawn.
+    for (0..40) |_| for (&missions, 0..) |*mission, which| {
+        mission.clock.advanceTimer(1);
+        _ = gameFrames(&mission.clock, &devices, mission.world(), .together, null);
+        if (which > 0) continue;
+        mission.clock.past_tick = 0.6;
+        places.place(mission.objects, .of(&mission.clock, true, .together), mission.clock.frame_start);
+        places.restore(mission.objects);
+    };
+    const drawn = missions[0].slot(1);
+    const undrawn = missions[1].slot(1);
+    try std.testing.expectEqual(undrawn.drawn, drawn.drawn);
+    try std.testing.expectEqualSlices(u8, std.mem.asBytes(&undrawn.object), std.mem.asBytes(&drawn.object));
 }
 
 test runLock {

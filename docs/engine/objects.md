@@ -355,6 +355,17 @@ frame, so it moves with the object as drawn. A node no step has moved keeps its 
 children are every part of the model, so a part is drawn between steps while the part it is linked
 to is hidden, and a hidden part's own children, the models it carries, keep their frames.
 
+The game's code reads these frames as where each object is: the orders steer by them, and the
+shots and missiles test what they strike against them.
+
+**Improvement:** OpenReliant runs `mission_frame`'s game work once a tick
+([The game loop](loop.md#game-frames-and-drawn-frames)), so the frames the game reads are always
+`simulation_counter / 4` of the way through the step. With smooth motion, a drawn frame places
+the objects and the missiles further on, by how far the platform's clock has run past the tick
+(`main.DrawnPlaces`), draws them there, and then puts back the frames the game frame left: the
+root's place and the frame it is drawn at, each part's frame, and the flags framing clears. So
+placing the objects for drawing changes nothing the game goes on from.
+
 In a multiplayer game another player's ship is drawn between the places its last two messages gave
 it (`+0x768`, `+0x798`) instead.
 

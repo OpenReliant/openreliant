@@ -29,7 +29,7 @@ include mission scripts.
 | `on_save()`: plain data | global and player | When the game is saved, between missions, and as each mission of the campaign starts, for its restart point: what it returns, which must be plain data, is kept with it. Mission scripts aren't kept. |
 | `on_load(saved: any?)` | global and player | In place of `on_init`, when a saved game is loaded or the game goes back to the restart point, with what the script's `on_save` returned then, or nil. A script that didn't run then, such as one of a mod added since, gets `on_init` instead. |
 | `on_records_loaded()` | load | After every mod's load scripts have run. |
-| `on_update(seconds: number)` | global and object | Each frame in which game time passes, after the ships' orders, with the seconds it covers. |
+| `on_update(seconds: number)` | global and object | Each game frame, once a tick (100 a second) while the game runs, after the ships' orders, with the seconds it covers. |
 | `on_step()` | global and object | Each simulation step, 25 a second, after everything has moved. |
 | `on_frame(seconds: number)` | player and menu | Each frame drawn, even while the game is paused, with the seconds of real time since the last. |
 | `on_mission_start(mission: Mission)` | global, player and menu | When a mission has started and its first ships are there. |

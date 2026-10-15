@@ -2586,20 +2586,20 @@ pub const Instrument = enum {
     }
 };
 
-/// `hud_draw` (`0x004843B0`): the display for a frame, in its order. First it takes the player's
-/// target, plays or ends the missile lock's tone (`missile_lock.Lock.sound`) and runs the devices'
-/// charges, in every view, and draws the launch's caption and `WaitForKey`'s prompt. In the view
-/// ahead from the cockpit it then draws the jump prompt, the target, the eject marker, the scanner
-/// and the status lights. In every view a line said waits for the radio's window
-/// (`radio.Radio.waitForWindow`); in the views but the one ahead the view's name follows, and in
-/// the director's view the subtitle. Then, in the view ahead, the
-/// instruments: the readouts, the ship status indicator, the targeting cluster, the radar, the
-/// reticle and the clock. Last, in every view, the windows move on, and in the view ahead are
-/// drawn.
+/// `hud_draw` (`0x004843B0`): the display for a drawn frame, in its order, timed by the ticks the
+/// drawn frame spans (`main.Clock.drawnTicks`). First it takes the player's target, plays or ends
+/// the missile lock's tone (`missile_lock.Lock.sound`) and runs the devices' charges, in every
+/// view, and draws the launch's caption and `WaitForKey`'s prompt. In the view ahead from the
+/// cockpit it then draws the jump prompt, the target, the eject marker, the scanner and the status
+/// lights. In every view a line said waits for the radio's window (`radio.Radio.waitForWindow`); in
+/// the views but the one ahead the view's name follows, and in the director's view the subtitle.
+/// Then, in the view ahead, the instruments: the readouts, the ship status indicator, the
+/// targeting cluster, the radar, the reticle and the clock. Last, in every view, the windows move
+/// on, and in the view ahead are drawn.
 pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
     const slot = &frame.all.slots[frame.all.player];
     const live = &slot.object;
-    const frame_duration = frame.clock.frame_duration;
+    const frame_duration = frame.clock.drawn_duration;
     const ahead = instrumented(frame.last_view);
     // What every element draws with, in the display's colour, and shaken as `hud_blit` shakes it.
     const pen: Pen = .{
@@ -4001,7 +4001,7 @@ pub const State = struct {
     /// What `hud_draw` draws only in the view ahead from the cockpit, after the view's name, with
     /// the ship whose line the radio's window names, where it shows (`speaker`).
     fn drawInstruments(state: *State, pen: Pen, placing: *Placings, frame: Frame, lead: Cursor, speaker: ?u16) Error!void {
-        const frame_duration = frame.clock.frame_duration;
+        const frame_duration = frame.clock.drawn_duration;
         const slot = &frame.all.slots[frame.all.player];
         const live = &slot.object;
         const gauges = Cluster.Gauges.of(slot) orelse return;
