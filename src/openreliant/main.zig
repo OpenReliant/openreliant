@@ -830,8 +830,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .own = own.interface(),
         .video = video_settings,
         .saves = .{ .gpa = gpa, .folder = saving.folder, .game = saving.gameOf(&flow.loading), .strings = &strings, .local_time = localDate },
-        // The mods screen, which with `--no-mods` stays shut.
-        .mods = if (options.mods) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic, .pages = option_pages.pages() } else null,
+        // The mods screen, which stays shut with `--no-mods`, and with `--mods`, so that it can't
+        // save the chosen mods as the list in the settings file.
+        .mods = if (options.mods and chosen_mods.len == 0) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic, .pages = option_pages.pages() } else null,
         .modes = game_modes.shown.items,
         // The menu scripts' screens that stand in for the front end's own.
         .scripted = if (presentation) |shown| shown.scripted() else null,
@@ -928,8 +929,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         try game.winmain.followActivation(&app, pausing, play.loaded != null);
         if (output) |open| open.update();
         const size = presenter.size();
-        // The scripting console, which takes the keys while it's up. The scripts reload when it
-        // asks, and when a folder mod's script or shader is saved.
+        // The scripting console, which takes the keys while it's up, and runs the lines an editor
+        // sends. The scripts reload when it asks, and when a folder mod's script or shader is
+        // saved.
         if (console) |*shown| {
             devices.keyboard.read();
             const mission = !flow.in_front_end and play.loaded != null;
@@ -940,13 +942,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .reload => reloading = true,
                 };
             } else if (ScriptConsole.asked(&devices.keyboard)) try shown.bringUp(pausing, mission, &typed);
-            // The lines an editor sent run as if typed into the console (`engine.link.ConsoleLine`).
             if (editor) |session| {
-                for (session.console_lines.items) |line| {
-                    if (try shown.console.runText(game_scripts.reachable(), line)) |request| switch (request) {
-                        .reload => reloading = true,
-                    };
-                }
+                if (try shown.runLines(session.console_lines.items, game_scripts.reachable())) reloading = true;
                 session.clearConsoleLines();
             }
             if (reloading) try game_scripts.reload(if (mission) .{
@@ -955,7 +952,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .seed = game.main.scriptSeed(world.random, play.number),
             } else null);
         } else if (editor) |session| if (session.console_lines.items.len > 0) {
-            std.log.warn("the editor sent a line for the console, which needs --developer-mode and a mod with scripts, so the game passes over it", .{});
+            std.log.warn("ignoring the editor's console line: the console needs --developer-mode and a mod with scripts", .{});
             session.clearConsoleLines();
         };
         const console_up = if (console) |*shown| shown.isUp() else false;

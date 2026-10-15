@@ -145,12 +145,12 @@ pub const RunControl = extern struct {
 const finished_every = 5;
 
 /// The most events the game keeps between two states while an editor is linked (`Session.events`).
-/// Past it, the oldest go first, and the state counts how many (`link.State.events_dropped`).
+/// Past it, the oldest are dropped first, and the state counts them (`link.State.events_dropped`).
 pub const max_events = 512;
 
 /// The editor link as the game works it for a mission: from its script's start (`begin`) to its end
-/// (`end`), the editor's messages are acted on. In between, the original's wait for the next
-/// mission, and OpenReliant's own are taken as they come (`poll`).
+/// (`end`), the editor's messages are acted on. In between, the original's messages wait for the
+/// next mission, and OpenReliant's own are read as they come (`poll`).
 pub const Session = struct {
     link: *link.Link,
     /// What the script's start waits with (`vm.editor.Editor.sleep`).
@@ -234,7 +234,7 @@ pub const Session = struct {
                 session.tellMission();
             },
             .disconnected => if (session.loaded) |loaded| loaded.script.editor.letGo(),
-            .message => |message| if (session.loaded) |loaded| session.receive(loaded, message) else session.between(message),
+            .message => |message| if (session.loaded) |loaded| session.receive(loaded, message) else session.receiveBetween(message),
         };
         session.tellFinished();
     }
@@ -274,9 +274,10 @@ pub const Session = struct {
         }
     }
 
-    /// Acts on one of OpenReliant's own messages while no mission plays: a console line is kept for
-    /// the game to run, and a request for the mission's file or the script's state is passed over.
-    fn between(session: *Session, message: link.Message) void {
+    /// Acts on one of OpenReliant's own messages between missions, while no mission plays: a
+    /// console line is kept for the game to run, and a request for the mission's file or the
+    /// script's state is passed over.
+    fn receiveBetween(session: *Session, message: link.Message) void {
         switch (link.Own.of(message.tag) orelse return) {
             .console_line => session.keepConsoleLine(message.payload),
             else => log.debug("the editor sent tag 0x{X} with no mission playing, so the game passes over it", .{message.tag}),
@@ -286,7 +287,7 @@ pub const Session = struct {
     /// Keeps the console line in `payload` for the game to run (`console_lines`).
     fn keepConsoleLine(session: *Session, payload: []const u8) void {
         const console = link.ConsoleLine.read(payload) catch {
-            log.warn("the editor sent a console line without its line, so the game passes over it", .{});
+            log.warn("the editor sent a console line with no line in it, so the game passes over it", .{});
             return;
         };
         const gpa = session.link.gpa;
@@ -357,13 +358,12 @@ pub const Session = struct {
     }
 
     /// Keeps what the script did for the editor's next state, with when it happened on the
-    /// script's clock: the game's ticks since the clock started, less the ticks the editor held the
-    /// script (`mission.Loaded.tickClock`).
+    /// script's clock (`mission.Loaded.scriptTicks`).
     fn happened(context: *anyopaque, event: vm.editor.Event) void {
         const session: *Session = @ptrCast(@alignCast(context));
         const loaded = session.loaded orelse return;
         const ticks = if (loaded.script.game) |playing| playing.world.clock.game_ticks else loaded.clock_at;
-        const milliseconds = @as(u64, ticks -% loaded.clock_from) * std.time.ms_per_s / ticks_per_second;
+        const milliseconds = @as(u64, loaded.scriptTicks(ticks)) * std.time.ms_per_s / ticks_per_second;
         const time = std.math.cast(u32, milliseconds) orelse std.math.maxInt(u32);
         if (session.events.items.len == max_events) {
             _ = session.events.orderedRemove(0);
@@ -677,14 +677,8 @@ test "the game tells the editor of the first thread once a fifth second, while n
     var t: Test = undefined;
     try t.init(gpa);
     defer t.deinit();
-    t.session.begin(t.loaded, .{ .number = 1, .file = "mission1.dte" });
-    t.pipe.connect();
-    t.session.poll();
+    try t.start();
     var buffer: [128]u8 = undefined;
-    _ = try t.heard(&buffer);
-    _ = try t.heard(&buffer);
-    try t.expectFile();
-    _ = try t.word(.first_finished);
     const script = &t.loaded.script;
     for ([_]struct { clock: u32, told: bool }{
         .{ .clock = 0, .told = false },
@@ -732,14 +726,7 @@ test "the editor asks for the mission's file and the script's state" {
     var t: Test = undefined;
     try t.init(gpa);
     defer t.deinit();
-    t.session.begin(t.loaded, .{ .number = 1, .file = "mission1.dte" });
-    t.pipe.connect();
-    t.session.poll();
-    var buffer: [128]u8 = undefined;
-    _ = try t.heard(&buffer);
-    _ = try t.heard(&buffer);
-    try t.expectFile();
-    _ = try t.word(.first_finished);
+    try t.start();
 
     // Asked again, the mission's file comes back whole.
     try t.pipe.sendToGame(@backingInt(link.Own.get_mission), "");
@@ -754,14 +741,9 @@ test "the editor asks for the mission's file and the script's state" {
     t.loaded.script.runPart((try t.loaded.bound.file.parts())[0]);
     _ = try t.word(.stopped);
     t.loaded.script.variables.mission_over = 1;
-    try t.pipe.sendToGame(@backingInt(link.Own.get_state), "");
-    t.session.poll();
-    var text: [4096]u8 = undefined;
-    const state = t.pipe.takeFromGame(&text) orelse return error.TestExpectedMessage;
-    try std.testing.expectEqual(@backingInt(link.Own.state), state.tag);
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
-    const state_read: link.State = try .read(arena.allocator(), state.payload);
+    const state_read = try t.state(arena.allocator());
     try std.testing.expectEqual(vm.editor.Hold.held, state_read.hold);
     try std.testing.expectEqual(Test.first, state_read.threads[0].at.?);
     try std.testing.expectEqual(0, state_read.threads[0].depth);
@@ -772,7 +754,8 @@ test "the editor asks for the mission's file and the script's state" {
     // A tag only the game sends is passed over.
     try t.pipe.sendToGame(@backingInt(link.Own.state), "");
     t.session.poll();
-    try std.testing.expectEqual(null, t.pipe.takeFromGame(&text));
+    var buffer: [128]u8 = undefined;
+    try std.testing.expectEqual(null, t.pipe.takeFromGame(&buffer));
 }
 
 test "the state gives the ships' orders, and what the script did since the last state" {
@@ -800,18 +783,19 @@ test "the state gives the ships' orders, and what the script did since the last 
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    // The ships in play, the destroyed one left out, and the Sabre's order and target.
+    // Trigger 1 fires and command 11 runs, 41.8 seconds into the mission.
     t.loaded.clock_from = 1000;
     world.clock.game_ticks = 1000 + 4180;
     t.loaded.script.editor.report(.{ .trigger = 1 });
     t.loaded.script.editor.report(.{ .command = 11 });
     const busy = try t.state(arena);
+    // The ships in play, the destroyed one left out, and the Sabre's order and target.
     try std.testing.expectEqual(2, busy.ships.len);
     try std.testing.expectEqual(player, busy.ships[0].index);
     try std.testing.expectEqual(sabre, busy.ships[1].index);
     try std.testing.expectEqualStrings("fight", busy.ships[1].order);
     try std.testing.expectEqual(player, busy.ships[1].target.?);
-    // The events, each when it happened on the script's clock, in milliseconds.
+    // The events, each with when it happened on the script's clock, in milliseconds.
     try std.testing.expectEqualSlices(link.State.ScriptEvent, &.{
         .{ .kind = .trigger, .index = 1, .time = 41_800 },
         .{ .kind = .command, .index = 11, .time = 41_800 },

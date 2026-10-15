@@ -1,10 +1,10 @@
 //! The script VM's side of the editor link (docs/engine/editor-link.md): what the VM's globals keep
 //! for the editor, and how `vm_run` (`0x0045C980`) stops and steps a thread for it. The editor's
 //! messages set the hold and the step (`editor_run_control`, `0x0045A900`, ported as the game's
-//! handler of tag `0x15`), and the VM reaches the editor through `Editor.connection`, which tells
-//! it where a thread stopped and what the script did, and reads its messages while the script
-//! starts. None of it is a game's: a game's link fills `Editor.present` and `Editor.connection` from
-//! its own connection.
+//! handler of tag `0x15`). The VM talks to the editor through `Editor.connection`: it tells the
+//! editor where a thread stopped and what the script did, and reads the editor's messages while the
+//! script starts. Nothing here belongs to one game: the game's link fills in `Editor.present` and
+//! `Editor.connection` from its own connection.
 
 const std = @import("std");
 

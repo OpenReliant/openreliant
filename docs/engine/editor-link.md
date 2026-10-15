@@ -268,10 +268,10 @@ takes none.
 
 ### What it does
 
-- The original's messages wait while no mission plays, as they wait in the original's block for the
-  next mission's start, and the messages after one of them wait with it. OpenReliant's own are
-  taken as they come: a console line runs, and a request for the mission's file or the script's
-  state is passed over. Each attempt reads the mission's file again, so the flags last for one
+- While no mission plays, the original's messages wait for the next mission's start, as they wait
+  in the original's block, and any message after one of them waits too. OpenReliant's own messages
+  are read as they come: a console line runs, and a request for the mission's file or the script's
+  state is ignored. Each attempt reads the mission's file again, so the flags last for one
   attempt: an editor sends them again once the file comes with each `Mission started`, and the
   start parts wait for them.
 - The link opens as the game starts, so that an editor waiting for the game is there before the
@@ -344,26 +344,26 @@ still read.
 | `thread.N.trigger` | The trigger that started it, where one did |
 | `global.N` | Global `N`'s value |
 | `variable.NAME` | The game's variable `NAME`, such as `mission_over`; one with no name by its number, where it isn't 0 |
-| `ship.N.order` | The current order of the mission's ship `N`, by its name, such as `fight`, or its number where it has none; `none` for no order. Only the ships in play are given: made, and not destroyed |
-| `ship.N.target` | The slot of the ship that order aims at, where it aims at one, which is a ship's index for the mission's ships |
+| `ship.N.order` | The current order of the mission's ship `N`: its name, such as `fight`, its number if it has no name, or `none`. Only the ships in play are listed: created, and not destroyed |
+| `ship.N.target` | The slot of the ship the order targets, if it targets one. For the mission's ships, the slot is the ship's index |
 | `event.N.kind`, `event.N.index` | What the script did since the last `State`, in order from 0: a trigger that fired (`trigger`), by its index in the trigger list, or a command that ran (`command`), by its number in the catalogue |
 | `event.N.time` | When it happened, on the script's clock, in milliseconds |
-| `events_dropped` | How many events were left out, where more than 512 came between two states. The oldest go first |
+| `events_dropped` | How many events were left out because more than 512 came between two states. The oldest are dropped first |
 
-Values are the script's words, unsigned, except the orders' names. The game keeps the events only
-while an editor is linked, and forgets them once a `State` has given them.
+Values are the script's words, unsigned, except the names of orders and of the events' kinds. The
+game keeps events only while an editor is linked, and clears them once a `State` has sent them.
 
-`Mission file` gives where the ships are: the game keeps each of the mission's ships' run-time
-place and heading in its record, from its object, every frame, as the original does
-(`mission_ships_sync`), and marks a destroyed one in its flags
+`Mission file` gives where the ships are. Every frame, the game copies each of the mission's ships'
+position and heading from its object into its record, as the original does
+(`mission_ships_sync`), and marks a destroyed ship in its flags
 ([The mission file](../formats/dte.md)). With the orders from `State`, that's the live scene.
 
-`Console line` runs its line in the game's console as if typed into it
+`Console line` runs its line in the game's console, as if typed there
 ([The console](../guide/scripting.md#the-console)): one of the console's commands, such as
-`reload`, or Luau in the context the console is in. The console is there in the developer mode,
-where a mod has scripts; without it, the game logs that it passes over the line. What the console
-answers goes to the game's log, `openreliant.log` in the game's folder, under `console`, next to
-what the scripts print ([Log messages](../guide/modding.md#log-messages)).
+`reload`, or Luau. The console exists only with `--developer-mode` and a mod with scripts;
+otherwise the game logs that it ignores the line. The console's answers go to the game's log,
+`openreliant.log` in the game's folder, under `console`, next to what the scripts print
+([Log messages](../guide/modding.md#log-messages)).
 
 ### Adding a message
 
@@ -403,8 +403,8 @@ needs that OpenReliant doesn't carry yet:
 - the other games' script dialects, which `Hello`'s `vm` names
   ([#1017](https://github.com/OpenReliant/openreliant/issues/1017)).
 
-A live scene, each ship's place, heading and order as the game plays, comes from `Mission file`
-and `State` ([OpenReliant's own messages](#openreliants-own-messages)).
+The live scene, each ship's position, heading and order as the game plays, comes from
+`Mission file` and `State` ([OpenReliant's own messages](#openreliants-own-messages)).
 
 ### Writing a client
 

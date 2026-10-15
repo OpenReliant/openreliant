@@ -144,7 +144,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--no-compressor" = .{ .section = .sound, .text = "leave the mix's loudness as it is, only keeping its peaks in check" },
     .@"--no-sound" = .{ .section = .sound, .text = "play without sound" },
     .@"--no-mods" = .{ .section = .other, .text = "start without the mods in the game's mods folder" },
-    .@"--mods" = .{ .section = .other, .value = "<mod,...>", .text = "start with only these mods, up to 64, loaded in this order, whatever the mods screen has on, and leave its list as it is: each by its name in the game's mods folder, or by a path to a mod's folder or .hog file elsewhere. A mod that needs another loads only where that one comes before it. --no-mods takes over" },
+    .@"--mods" = .{ .section = .other, .value = "<mod,...>", .text = "start with only these mods, up to 64, in this order, whatever the mods screen has on. Give the name of a mod in the game's mods folder, or the path to a mod's folder or .hog file elsewhere. A mod that needs another loads only if that one comes before it. The mods screen stays shut, so its list doesn't change. --no-mods overrides it" },
     .@"--no-intro" = .{ .section = .other, .text = "start without the three movies the game plays as it starts, as --mission and --screenshot do" },
     .@"--developer-mode" = .{ .section = .other, .text = "the tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading when they or their shaders are saved" },
     .@"--editor-link" = .{ .section = .other, .text = "listen for a mission editor or a script debugger, such as openreliant debug, on this computer's own address, 127.0.0.1, which can then pause the mission and stop and step its script, as the original's editor link does" },
@@ -265,7 +265,7 @@ pub const Options = struct {
     /// Whether to load the mods in the game's `mods` folder (`game.bigfile.Mods`).
     mods: bool = true,
     /// The mods `--mods` names, separated by commas, which are the only ones loaded
-    /// (`chosenMods`); null for the mods screen's.
+    /// (`chosenMods`); null to load the ones the mods screen has on.
     mods_chosen: ?[]const u8 = null,
     /// Whether the tools for writing mods' scripts are on: the scripting console, and folder mods'
     /// scripts reloading as they're saved (`console.Driver`).
@@ -371,8 +371,8 @@ pub const Options = struct {
         return options.part_names[0..options.part_count];
     }
 
-    /// The mods `--mods` names, in the order given, into `names`: each with the spaces around it
-    /// trimmed, and the empty ones left out. Parsing has made sure they fit.
+    /// The mods `--mods` names, in the order given, put into `names`: each with the spaces around
+    /// it trimmed, and the empty ones left out. Parsing allows no more than `names` holds.
     pub fn chosenMods(options: *const Options, names: *[max_chosen_mods][]const u8) []const []const u8 {
         var count: usize = 0;
         var each = std.mem.splitScalar(u8, options.mods_chosen orelse return &.{}, ',');
@@ -676,7 +676,8 @@ test Options {
     try std.testing.expectError(error.Usage, parsed(&.{ "--seed", "-1" }));
     try std.testing.expect((try parsed(&.{})).intro);
     try std.testing.expect(!(try parsed(&.{"--no-intro"})).intro);
-    // Mods are loaded unless `--no-mods` is given, the mods screen's unless `--mods` chooses them.
+    // Mods are loaded unless `--no-mods` is given: the ones the mods screen has on, or the ones
+    // `--mods` names.
     try std.testing.expect((try parsed(&.{})).mods);
     try std.testing.expect(!(try parsed(&.{"--no-mods"})).mods);
     try std.testing.expectEqual(null, (try parsed(&.{})).mods_chosen);

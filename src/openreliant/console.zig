@@ -106,6 +106,16 @@ pub const Driver = struct {
         };
     }
 
+    /// Runs the lines an editor sent, in `scripts`, as if they were typed into the console
+    /// (`engine.link.ConsoleLine`). Returns whether one of them asked to reload the scripts.
+    pub fn runLines(driver: *Driver, lines: []const []const u8, scripts: console_module.Scripts) Allocator.Error!bool {
+        var reload = false;
+        for (lines) |line| if (try driver.console.runText(scripts, line)) |request| switch (request) {
+            .reload => reload = true,
+        };
+        return reload;
+    }
+
     /// Draws the console over the frame drawn into `target`, a window `window` pixels across and
     /// down, while it's up, over `backdrop`.
     pub fn draw(driver: *Driver, target: device.Device, window: [2]u32, strings: *const game.language.Language, backdrop: screen.Backdrop) Allocator.Error!void {

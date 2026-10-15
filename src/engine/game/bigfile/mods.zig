@@ -552,11 +552,11 @@ pub const Mods = struct {
         return sorting.finish(gpa, io, game, report_files);
     }
 
-    /// Opens only the mods `chosen` names, in that order, all of them on, as `--mods` asks: each
-    /// by its name in the `mods` folder of the game folder `game`, matched ignoring case, or by a
-    /// path from `from` to a mod's folder or archive elsewhere, which has a slash in it. The mods
-    /// it doesn't name aren't opened, so the mods screen's list stays as it is. `order` says which
-    /// archives the GET MODS screen installed, which must match their checksum files.
+    /// Opens only the mods named in `chosen`, in that order and all on, as `--mods` asks
+    /// (`openWanted`): a name is a mod in the `mods` folder of the game folder `game`, and a path
+    /// leads from `from` to a mod's folder or archive elsewhere. `order` says which archives the
+    /// GET MODS screen installed, which must match their checksum files. The log lists each mod and
+    /// what each of its files replaces or adds (`report`).
     pub fn openChosen(gpa: Allocator, io: Io, game: Io.Dir, running: ?std.SemanticVersion, order: Order, chosen: []const []const u8, from: Io.Dir) Allocator.Error!Mods {
         var path: [files.max_path]u8 = undefined;
         var folder: ?Io.Dir = if (files.find(io, game, folder_name, &path)) |found| game.openDir(io, found, .{}) catch null else null;
@@ -1089,16 +1089,16 @@ fn isArchive(name: []const u8) bool {
     return std.ascii.eqlIgnoreCase(std.Io.Dir.path.extension(name), archive_extension);
 }
 
-/// The mods as they open, sorted by what becomes of each (`Mods.openListing`, `Mods.openChosen`):
-/// loaded, off, damaged, or needing a mod that doesn't load before it.
+/// The mods as they open, sorted into lists by what happens to each (`Mods.openListing`,
+/// `Mods.openChosen`): loaded, off, damaged, or needing a mod that doesn't load before it.
 const Sorting = struct {
     list: std.ArrayList(Mod) = .empty,
     off: std.ArrayList(Mod) = .empty,
     damaged: std.ArrayList(Mod) = .empty,
     unmet: std.ArrayList(Mod) = .empty,
 
-    /// Sorts `opened`, which `on` says is on, into its list. One that needs an OpenReliant later
-    /// than `running` is skipped and closed.
+    /// Sorts `opened` into its list, `on` saying whether it's on. A mod that needs a newer
+    /// OpenReliant than `running` is skipped and closed.
     fn add(sorting: *Sorting, gpa: Allocator, opened: Mod, on: bool, running: ?std.SemanticVersion) Allocator.Error!void {
         var mod = opened;
         if (running) |version| if (mod.needsLater(version)) |needed| {
@@ -1117,8 +1117,8 @@ const Sorting = struct {
         };
     }
 
-    /// The mods as sorted, with the index of their files, and with `report_files`, what each one's
-    /// files replace or add written to the log (`Mods.report`).
+    /// The mods as sorted, with the index of their files. With `report_files`, the log lists what
+    /// each mod's files replace or add (`Mods.report`).
     fn finish(sorting: *Sorting, gpa: Allocator, io: Io, game: Io.Dir, report_files: bool) Allocator.Error!Mods {
         var mods: Mods = .{ .list = try sorting.list.toOwnedSlice(gpa) };
         errdefer mods.close(gpa);
@@ -1130,7 +1130,7 @@ const Sorting = struct {
         return mods;
     }
 
-    /// Closes the mods sorted so far, where opening them fails.
+    /// Closes the mods sorted so far, when opening the mods fails.
     fn deinit(sorting: *Sorting, gpa: Allocator) void {
         for ([_]*std.ArrayList(Mod){ &sorting.list, &sorting.off, &sorting.damaged, &sorting.unmet }) |kept| {
             for (kept.items) |*mod| mod.close(gpa);
@@ -1139,12 +1139,14 @@ const Sorting = struct {
     }
 };
 
-/// The mod `wanted` names for `Mods.openChosen`, opened on: a path from `from` to a mod's folder or
-/// archive where it has a slash in it, and otherwise a mod's name in the `mods` folder `folder`,
-/// matched ignoring case. Null, with a message in the log, where there's no such mod.
+/// Opens the mod that `wanted` names, on, for `Mods.openChosen`. A path, with a slash in it, leads
+/// from `from` to a mod's folder or archive; a name is a mod in the `mods` folder `folder`, matched
+/// ignoring case. Returns null, and logs why, when there's no such mod.
 fn openWanted(gpa: Allocator, io: Io, folder: ?Io.Dir, from: Io.Dir, wanted: []const u8, order: Order) Allocator.Error!?Mod {
     var buffer: [files.max_path]u8 = undefined;
-    const elsewhere = std.mem.findAny(u8, wanted, "/\\") != null;
+    const elsewhere = for (wanted) |byte| {
+        if (Io.Dir.path.isSep(byte)) break true;
+    } else false;
     const parent: Io.Dir, const name: []const u8 = if (elsewhere) .{
         from.openDir(io, Io.Dir.path.dirname(wanted) orelse ".", .{}) catch {
             log.warn("skipping the mod {s}: there's no such folder or archive", .{wanted});
@@ -1326,12 +1328,12 @@ test "a mod that needs a newer version is skipped" {
     try std.testing.expectEqual(5, every.list.len);
 }
 
-test "the mods --mods chooses load alone, in its order" {
+test "only the chosen mods load, in their order" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    // Three mods in the mods folder, Gamma needing Alpha, and an archive elsewhere.
+    // Three mods in the mods folder, where gamma needs Alpha, and an archive elsewhere.
     try tmp.dir.createDirPath(io, "mods/Alpha");
     try tmp.dir.writeFile(io, .{ .sub_path = "mods/Alpha/note.txt", .data = "alpha" });
     try tmp.dir.createDirPath(io, "mods/beta");
@@ -1341,8 +1343,8 @@ test "the mods --mods chooses load alone, in its order" {
     try tmp.dir.createDirPath(io, "dist");
     try hog.testing.write(gpa, io, tmp.dir, "dist/delta.hog", &.{.{ .name = "note.txt", .data = "delta" }});
 
-    // Beta isn't chosen, a name matches ignoring case, and the archive comes by its path, last, so
-    // its file wins.
+    // Beta isn't chosen, alpha finds Alpha, and the archive, given by its path, loads last, so its
+    // note wins.
     var mods: Mods = try .openChosen(gpa, io, tmp.dir, null, .none, &.{ "alpha", "dist/delta.hog" }, tmp.dir);
     defer mods.close(gpa);
     try std.testing.expectEqual(2, mods.list.len);

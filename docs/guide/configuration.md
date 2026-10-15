@@ -82,7 +82,7 @@ player doesn't launch, the launch counts as over 600 ticks, six seconds, into th
 | Option | Description |
 |---|---|
 | `--no-mods` | Start without the mods in the game's `mods` folder ([Modding](modding.md)) |
-| `--mods <mod,...>` | Start with only these mods, up to 64, loaded in this order, whatever the mods screen has on, and leave its list as it is: each by its name in the game's `mods` folder, or by a path to a mod's folder or `.hog` file elsewhere. A mod that needs another loads only where that one comes before it. `--no-mods` takes over ([The mods screen](modding.md#the-mods-screen)) |
+| `--mods <mod,...>` | Start with only these mods, up to 64, in this order, whatever the mods screen has on. Give the name of a mod in the game's `mods` folder, or the path to a mod's folder or `.hog` file elsewhere. A mod that needs another loads only if that one comes before it. The mods screen stays shut, so its list doesn't change. `--no-mods` overrides it ([The mods screen](modding.md#the-mods-screen)) |
 | `--no-intro` | Start without the three movies the game plays as it starts, as `--mission` and `--screenshot` do |
 | `--developer-mode` | The tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading when they or their shaders are saved ([Scripting](scripting.md#the-console)) |
 | `--editor-link` | Listen for a mission editor or a script debugger, such as `openreliant debug`, on this computer's own address, 127.0.0.1, which can then pause the mission and stop and step its script, as the original's editor link does ([Debugging mission scripts](debugging.md)) |

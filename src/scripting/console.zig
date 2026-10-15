@@ -23,8 +23,8 @@ const Game = @import("game.zig").Game;
 const Presentation = @import("presentation.zig").Presentation;
 const reference = @import("reference.zig");
 
-/// The log the console's own lines go to as well as to its screen (`Console.say`). A failure goes
-/// to it as a warning: it's the line's, not the game's.
+/// The log that the console's own lines also go to (`answer`). A failure is logged as a warning:
+/// the line failed, not the game.
 const console_log = std.log.scoped(.console);
 
 pub const screen = @import("console/screen.zig");
@@ -125,9 +125,8 @@ pub const Output = struct {
 /// The console's output, which the log writes to (`log`).
 pub var output: Output = .{};
 
-/// Writes `text`, the console's own, to its output, and to the log too, a message for each of its
-/// lines, under `console` (`console_log`), so that an editor that sends the console lines reads
-/// what it answers.
+/// Writes `text`, the console's own answer, to its output, and logs each of its lines under
+/// `console` (`console_log`), so that an editor that sends the console lines can read the answers.
 fn answer(tone: Tone, text: []const u8) void {
     output.add(tone, text);
     var lines = std.mem.splitScalar(u8, text, '\n');
@@ -303,8 +302,8 @@ pub const Console = struct {
         return console.runText(scripts, utf8);
     }
 
-    /// Runs `text`, a line of UTF-8, as `run` runs the line typed: one of the console's commands,
-    /// Luau, or a line for the scripts. An editor's console lines come this way
+    /// Runs `text`, a line of UTF-8, as `run` runs a typed line: one of the console's commands,
+    /// Luau, or a line for the scripts. An editor's console lines run this way
     /// (`link.ConsoleLine`).
     pub fn runText(console: *Console, scripts: Scripts, text: []const u8) Allocator.Error!?Request {
         var prompt_buffer: [prompt_room]u8 = undefined;

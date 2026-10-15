@@ -2781,8 +2781,8 @@ wingmen global> exit
   the mouse wheel and the arrows scroll the output.
 - Any other line goes to the player and menu scripts' `on_console_command(text)`, so that a mod
   can add commands of its own.
-- What the console shows of its own goes to the log too, under `console`, so that an editor linked
-  to the game, which sends it lines to run, can read what it answers
+- The console's own answers also go to the log, under `console`, so that a linked editor that sends
+  the console lines can read the answers
   ([The editor link](../engine/editor-link.md#openreliants-own-messages)).
 
 ### Reloading

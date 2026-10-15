@@ -244,9 +244,9 @@ pub const State = struct {
     const ReadEvent = struct { kind: ?ScriptEvent.Kind = null, index: u32 = 0, time: u32 = 0 };
 
     /// The state in `payload`, its lists made in `arena`, its names borrowed from `payload`. A
-    /// global's index fits the 16 bits a mission's directory counts its globals in, and a ship's the
-    /// 16 bits of an object's slot. The events are numbered from 0 with none missing, and each has
-    /// its kind.
+    /// global's index must fit the 16 bits a mission's directory counts its globals in, and a
+    /// ship's index the 16 bits of an object's slot. The events must be numbered from 0 with none
+    /// missing, and each must have its kind.
     pub fn read(arena: Allocator, payload: []const u8) (Allocator.Error || ReadError)!State {
         var clock: ?u32 = null;
         var hold: ?vm_editor.Hold = null;
@@ -849,7 +849,8 @@ test "taking OpenReliant's own messages leaves the original's waiting" {
     try pipe.sendToGame(0x15, &.{ 0, 0, 0, 0, 1, 0, 0, 0 });
     try pipe.sendToGame(@backingInt(Own.console_line), "line=help\n");
     try std.testing.expectEqual(Own.console_line, Own.of(link.next(.own).?.message.tag).?);
-    // The original's tag waits, and the console line after it with it.
+    // The original's tag waits however often the link is asked, and the console line after it
+    // waits with it.
     try std.testing.expectEqual(null, link.next(.own));
     try std.testing.expectEqual(null, link.next(.own));
     try std.testing.expectEqual(0x15, link.next(.all).?.message.tag);
