@@ -169,7 +169,6 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const turn = math.product(math.rotation(.y, if (gate < side_split) quarter_turn else -quarter_turn), frame.orientation);
     objects.setPlace(&slot.object, &slot.drawn, .{ .position = frame.point(at), .orientation = turn });
     if (index != all.player) return;
-    world.player.carrier = carrier;
     showHangar(ctx, frame, bounds);
     if (world.camera) |view| {
         view.cockpit_mode = .cockpit;

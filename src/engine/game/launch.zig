@@ -300,10 +300,10 @@ pub fn launchesAsBase(carrier: gameobj.Type) bool {
 /// launch node. OpenReliant launches from such a carrier as from a hangar bay (`Style.of`), and a
 /// ship without a launch node stays where it was placed.
 ///
-/// **Improvement:** the game records the ship the player launched from (`player_carrier`) in the
-/// Reliant's and the Yamato's launches alone, the only ones the player makes in it. OpenReliant
-/// records it for every style, so that PERMISSION TO LAND and the bridge's lines work from any
-/// carrier a mission launches the player from.
+/// **Improvement:** the game records the ship the player launched from (`player_carrier`) only in
+/// the Reliant's and the Yamato's launches, the only ones the original's missions give the player.
+/// OpenReliant records it for every style, so that PERMISSION TO LAND and the bridge's lines work
+/// from any carrier a mission launches the player from.
 pub fn init(ctx: aigeneric.Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
