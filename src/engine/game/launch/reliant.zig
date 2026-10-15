@@ -149,9 +149,9 @@ const sample_volume = 127;
 /// Reliant in slot `carrier`, through the gate the component of its order's target names. The ship
 /// rides the Reliant's root with its throttle and steering at 0, standing in its tube (`tube`) and
 /// turned as the Reliant will be next. For the player's ship, the hangar shows (`showHangar`) and
-/// the ship rides its retainer; the Reliant becomes the ship the player launched from
-/// (`input.Player.carrier`), which the cutaway leaves out; and the camera is locked in view 0 in
-/// the cockpit mode.
+/// the ship rides its retainer; the Reliant, which `launch.init` records as the ship the player
+/// launched from (`input.Player.carrier`), is left out of the cutaway; and the camera is locked in
+/// view 0 in the cockpit mode.
 ///
 /// **Fix:** the game reads through a tube door the Reliant's model lacks; OpenReliant leaves the
 /// ship where it stands.
@@ -171,7 +171,6 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const turn = reliant.object.root.next_orientation;
     objects.setPlace(object, &slot.drawn, .{ .position = in_tube, .orientation = turn });
     if (index != all.player) return;
-    world.player.carrier = carrier;
     showHangar(ctx, index, gate, in_tube, turn);
     if (world.camera) |view| {
         view.cockpit_mode = .cockpit;
