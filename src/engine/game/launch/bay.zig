@@ -34,7 +34,7 @@ pub const Step = enum(i32) {
 };
 
 /// How long the doors take to open before the ship flies out, in ticks (`0x0041A9FE`).
-pub const open_ticks = 200;
+const open_ticks = 200;
 
 /// How long the ship flies out before the doors close, in ticks (`0x0041AACB`), and from the
 /// Pukov and the Varyag (`0x0041AADB`).
@@ -42,7 +42,7 @@ const out_ticks = 200;
 const long_out_ticks = 400;
 
 /// How long after the doors close the ship flies itself, in ticks (`0x0041AC4A`).
-pub const close_ticks = 300;
+const close_ticks = 300;
 
 /// The throttle the ship flies out at (`0x0041AAF2`).
 const out_throttle: f32 = 2;

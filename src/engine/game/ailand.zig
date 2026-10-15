@@ -261,7 +261,7 @@ pub const YamatoStep = enum(u32) {
 
 /// OpenReliant's own, for a landing in a bay: how far out from the mouth of the bay the cutaway
 /// sets the ship, along the way it launches: this share of the bay's depth, from the launch point
-/// to the mouth, and at least this many of the ship's own radii, so that a shallow bay still gives
+/// to the mouth, and at least this many times the ship's radius, so that a shallow bay still gives
 /// the ship a way to fly in on. They go by the bay and the ship rather than by a fixed distance,
 /// so that the landing fits any carrier.
 const bay_approach_share: f32 = 0.6;

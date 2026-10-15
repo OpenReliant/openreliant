@@ -772,8 +772,8 @@ The cutaway is the Reliant's: one of its two views, picked at random, standing b
 ([The landing's views](camera.md#the-landings-views)); the carrier moved away and stopped, every
 other object disabled, and the ship passing through everything. The ship is set out from the mouth
 of the bay, where the way out from the launch point along its Z axis leaves the carrier's bounds,
-by six tenths of the bay's depth from the point to the mouth, and at least twenty of the ship's
-own radii, so that the distance fits the carrier and the ship rather than one model. It looks in at
+by six tenths of the bay's depth from the point to the mouth, and at least twenty times the ship's
+radius, so that the distance fits the carrier and the ship rather than one model. It looks in at
 the point, and the gate's doors open as the launch opens them. The ship then steers at the launch
 point, upright, its throttle 0.0001 for each unit it has to go, at most the throttle that flies it
 at the Yamato's bay speed of 100, and stops within 200 of the point, sounding its landing. The
