@@ -54,6 +54,7 @@ pub const Arg = enum {
     @"--no-compressor",
     @"--no-sound",
     @"--no-mods",
+    @"--mods",
     @"--no-intro",
     @"--developer-mode",
     @"--editor-link",
@@ -143,6 +144,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--no-compressor" = .{ .section = .sound, .text = "leave the mix's loudness as it is, only keeping its peaks in check" },
     .@"--no-sound" = .{ .section = .sound, .text = "play without sound" },
     .@"--no-mods" = .{ .section = .other, .text = "start without the mods in the game's mods folder" },
+    .@"--mods" = .{ .section = .other, .value = "<mod,...>", .text = "start with only these mods, up to 64, in this order, whatever the mods screen has on. Give the name of a mod in the game's mods folder, or the path to a mod's folder or .hog file elsewhere. A mod that needs another loads only if that one comes before it. The mods screen stays shut, so its list doesn't change. --no-mods overrides it" },
     .@"--no-intro" = .{ .section = .other, .text = "start without the three movies the game plays as it starts, as --mission and --screenshot do" },
     .@"--developer-mode" = .{ .section = .other, .text = "the tools for writing mods' scripts: the scripting console, which F11 brings up where a mod has scripts, and folder mods' scripts reloading when they or their shaders are saved" },
     .@"--editor-link" = .{ .section = .other, .text = "listen for a mission editor or a script debugger, such as openreliant debug, on this computer's own address, 127.0.0.1, which can then pause the mission and stop and step its script, as the original's editor link does" },
@@ -262,6 +264,9 @@ pub const Options = struct {
     intro: bool = true,
     /// Whether to load the mods in the game's `mods` folder (`game.bigfile.Mods`).
     mods: bool = true,
+    /// The mods `--mods` names, separated by commas, which are the only ones loaded
+    /// (`chosenMods`); null to load the ones the mods screen has on.
+    mods_chosen: ?[]const u8 = null,
     /// Whether the tools for writing mods' scripts are on: the scripting console, and folder mods'
     /// scripts reloading as they're saved (`console.Driver`).
     developer_mode: bool = false,
@@ -364,6 +369,20 @@ pub const Options = struct {
     /// The script parts `--part` names, in the order given.
     pub fn parts(options: *const Options) []const []const u8 {
         return options.part_names[0..options.part_count];
+    }
+
+    /// The mods `--mods` names, in the order given, put into `names`: each with the spaces around
+    /// it trimmed, and the empty ones left out. Parsing allows no more than `names` holds.
+    pub fn chosenMods(options: *const Options, names: *[max_chosen_mods][]const u8) []const []const u8 {
+        var count: usize = 0;
+        var each = std.mem.splitScalar(u8, options.mods_chosen orelse return &.{}, ',');
+        while (each.next()) |name| {
+            const trimmed = std.mem.trim(u8, name, " ");
+            if (trimmed.len == 0 or count == names.len) continue;
+            names[count] = trimmed;
+            count += 1;
+        }
+        return names[0..count];
     }
 
     /// The seed each mission's random numbers start from, where the run fixes one: `--seed`'s, or
@@ -482,6 +501,11 @@ pub const Options = struct {
                 if (axes.next() != null) return error.BadValue;
             },
             .@"--no-mods" => options.mods = false,
+            .@"--mods" => {
+                if (std.mem.trim(u8, value, ", ").len == 0) return error.BadValue;
+                if (std.mem.count(u8, value, ",") >= max_chosen_mods) return error.BadValue;
+                options.mods_chosen = value;
+            },
             .@"--no-intro" => options.intro = false,
             .@"--developer-mode" => options.developer_mode = true,
             .@"--editor-link" => options.editor_link = true,
@@ -595,6 +619,9 @@ const minimum_screenshot_ticks = 2;
 /// The most script parts `--part` names.
 const max_parts = 8;
 
+/// The most mods `--mods` names.
+pub const max_chosen_mods = 64;
+
 /// Reading the options, for the tests.
 pub const testing = struct {
     /// The options `args` play with.
@@ -649,9 +676,21 @@ test Options {
     try std.testing.expectError(error.Usage, parsed(&.{ "--seed", "-1" }));
     try std.testing.expect((try parsed(&.{})).intro);
     try std.testing.expect(!(try parsed(&.{"--no-intro"})).intro);
-    // Mods are loaded unless `--no-mods` is given.
+    // Mods are loaded unless `--no-mods` is given: the ones the mods screen has on, or the ones
+    // `--mods` names.
     try std.testing.expect((try parsed(&.{})).mods);
     try std.testing.expect(!(try parsed(&.{"--no-mods"})).mods);
+    try std.testing.expectEqual(null, (try parsed(&.{})).mods_chosen);
+    var names: [max_chosen_mods][]const u8 = undefined;
+    const with_mods = try parsed(&.{ "--mods", "bananas, dist/music.hog,,teapot" });
+    const chosen_mods = with_mods.chosenMods(&names);
+    try std.testing.expectEqual(3, chosen_mods.len);
+    try std.testing.expectEqualStrings("bananas", chosen_mods[0]);
+    try std.testing.expectEqualStrings("dist/music.hog", chosen_mods[1]);
+    try std.testing.expectEqualStrings("teapot", chosen_mods[2]);
+    try std.testing.expectError(error.Usage, parsed(&.{ "--mods", " , " }));
+    const too_many_mods: [max_chosen_mods]u8 = @splat(',');
+    try std.testing.expectError(error.Usage, parsed(&.{ "--mods", "a" ++ too_many_mods }));
     // The check for a newer release is on, with `--original` too, until `--no-update-check`.
     try std.testing.expect((try parsed(&.{"--original"})).update_check);
     try std.testing.expect(!(try parsed(&.{"--no-update-check"})).update_check);

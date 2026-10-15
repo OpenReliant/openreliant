@@ -1,9 +1,10 @@
 //! The script VM's side of the editor link (docs/engine/editor-link.md): what the VM's globals keep
 //! for the editor, and how `vm_run` (`0x0045C980`) stops and steps a thread for it. The editor's
 //! messages set the hold and the step (`editor_run_control`, `0x0045A900`, ported as the game's
-//! handler of tag `0x15`), and the VM reaches the editor through `Editor.connection`, which tells
-//! it where a thread stopped and reads its messages while the script starts. None of it is a
-//! game's: a game's link fills `Editor.present` and `Editor.connection` from its own connection.
+//! handler of tag `0x15`). The VM talks to the editor through `Editor.connection`: it tells the
+//! editor where a thread stopped and what the script did, and reads the editor's messages while the
+//! script starts. Nothing here belongs to one game: the game's link fills in `Editor.present` and
+//! `Editor.connection` from its own connection.
 
 const std = @import("std");
 
@@ -29,6 +30,14 @@ pub const Step = enum(i8) {
     over = 3,
 };
 
+/// OpenReliant's: what the script did, which the editor's timeline shows (`Editor.report`).
+pub const Event = union(enum) {
+    /// A trigger fired, by its index in the trigger list.
+    trigger: u32,
+    /// A command of the catalogue ran, by its number.
+    command: u8,
+};
+
 /// How the VM reaches the editor, through the game's link.
 pub const Connection = struct {
     context: *anyopaque,
@@ -46,6 +55,8 @@ pub const Connection = struct {
         /// The time in milliseconds on a clock that only goes forward, for how long the script's
         /// start has waited for the editor (`Editor.waitForFlags`).
         now: *const fn (context: *anyopaque) u64,
+        /// OpenReliant's: tells the editor what the script did (`Editor.report`).
+        happened: *const fn (context: *anyopaque, event: Event) void,
     };
 };
 
@@ -115,6 +126,12 @@ pub const Editor = struct {
         if (editor.connection) |connection| connection.vtable.stopped(connection.context, offset);
     }
 
+    /// OpenReliant's: tells the editor what the script did, while one is there.
+    pub fn report(editor: *Editor, event: Event) void {
+        if (!editor.present) return;
+        if (editor.connection) |connection| connection.vtable.happened(connection.context, event);
+    }
+
     /// Acts on the editor's messages waiting (`editor_link_check`).
     pub fn check(editor: *Editor) void {
         if (editor.connection) |connection| connection.vtable.check(connection.context);
@@ -177,9 +194,17 @@ pub const testing = struct {
         slept: u32 = 0,
         /// The editor that `check` flags and releases.
         editor: ?*Editor = null,
+        /// What it heard the script do, in order.
+        events: [8]Event = undefined,
+        event_count: usize = 0,
 
         pub fn connection(listener: *Listener) Connection {
-            return .{ .context = listener, .vtable = &.{ .stopped = stopped, .check = check, .sleep = sleep, .now = now } };
+            return .{ .context = listener, .vtable = &.{ .stopped = stopped, .check = check, .sleep = sleep, .now = now, .happened = happened } };
+        }
+
+        /// What it heard the script do.
+        pub fn heard(listener: *const Listener) []const Event {
+            return listener.events[0..listener.event_count];
         }
 
         pub fn last(listener: Listener) u32 {
@@ -211,6 +236,13 @@ pub const testing = struct {
             const listener: *Listener = @ptrCast(@alignCast(context));
             return listener.slept;
         }
+
+        fn happened(context: *anyopaque, event: Event) void {
+            const listener: *Listener = @ptrCast(@alignCast(context));
+            if (listener.event_count == listener.events.len) return;
+            listener.events[listener.event_count] = event;
+            listener.event_count += 1;
+        }
     };
 };
 
@@ -231,7 +263,12 @@ test Editor {
     try std.testing.expect(editor.holds() and editor.leavesFrame());
     editor.sleep(5);
     try std.testing.expectEqual(5, listener.slept);
+    // The editor hears what the script does while it's there.
+    editor.report(.{ .trigger = 2 });
+    try std.testing.expectEqualSlices(Event, &.{.{ .trigger = 2 }}, listener.heard());
     editor.present = false;
+    editor.report(.{ .command = 11 });
+    try std.testing.expectEqual(1, listener.heard().len);
     try std.testing.expect(!editor.leavesFrame());
     // With no editor there, nothing waits for one.
     editor.sleep(5);

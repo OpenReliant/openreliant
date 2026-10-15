@@ -267,9 +267,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer update_check.close();
     // OpenReliant's mods, whose files take priority over the game's files wherever they are; none
     // with `--no-mods`. The mods screen sets which are on and the order they load in, for a
-    // screenshot too.
+    // screenshot too, and `--mods` sets them for the run alone.
     const mods_order: game.bigfile.mods.Order = .{ .profile = settings_file.profile };
-    var mods: game.bigfile.Mods = if (options.mods) try .openOrdered(arena, io, directory, version.semantic, mods_order) else .none;
+    var chosen_names: [options_page.max_chosen_mods][]const u8 = undefined;
+    const chosen_mods = options.chosenMods(&chosen_names);
+    var mods: game.bigfile.Mods = if (!options.mods)
+        .none
+    else if (chosen_mods.len > 0)
+        try .openChosen(arena, io, directory, version.semantic, mods_order, chosen_mods, .cwd())
+    else
+        try .openOrdered(arena, io, directory, version.semantic, mods_order);
     defer mods.close(arena);
     // The ship types, guns, missiles and pilots the mods add, each numbered from where the game's
     // end.
@@ -823,8 +830,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .own = own.interface(),
         .video = video_settings,
         .saves = .{ .gpa = gpa, .folder = saving.folder, .game = saving.gameOf(&flow.loading), .strings = &strings, .local_time = localDate },
-        // The mods screen, which with `--no-mods` stays shut.
-        .mods = if (options.mods) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic, .pages = option_pages.pages() } else null,
+        // The mods screen, which stays shut with `--no-mods`, and with `--mods`, so that it can't
+        // save the chosen mods as the list in the settings file.
+        .mods = if (options.mods and chosen_mods.len == 0) .{ .loaded = &mods, .gpa = gpa, .io = io, .game = directory, .version = version.semantic, .pages = option_pages.pages() } else null,
         .modes = game_modes.shown.items,
         // The menu scripts' screens that stand in for the front end's own.
         .scripted = if (presentation) |shown| shown.scripted() else null,
@@ -921,8 +929,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         try game.winmain.followActivation(&app, pausing, play.loaded != null);
         if (output) |open| open.update();
         const size = presenter.size();
-        // The scripting console, which takes the keys while it's up. The scripts reload when it
-        // asks, and when a folder mod's script or shader is saved.
+        // The scripting console, which takes the keys while it's up, and runs the lines an editor
+        // sends. The scripts reload when it asks, and when a folder mod's script or shader is
+        // saved.
         if (console) |*shown| {
             devices.keyboard.read();
             const mission = !flow.in_front_end and play.loaded != null;
@@ -933,12 +942,19 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .reload => reloading = true,
                 };
             } else if (ScriptConsole.asked(&devices.keyboard)) try shown.bringUp(pausing, mission, &typed);
+            if (editor) |session| {
+                if (try shown.runLines(session.console_lines.items, game_scripts.reachable())) reloading = true;
+                session.clearConsoleLines();
+            }
             if (reloading) try game_scripts.reload(if (mission) .{
                 .orders = .{ .world = world, .devices = &devices },
                 .mission = game.main.scriptMission(&reload_file, objects, play.number, play.file_number),
                 .seed = game.main.scriptSeed(world.random, play.number),
             } else null);
-        }
+        } else if (editor) |session| if (session.console_lines.items.len > 0) {
+            std.log.warn("ignoring the editor's console line: the console needs --developer-mode and a mod with scripts", .{});
+            session.clearConsoleLines();
+        };
         const console_up = if (console) |*shown| shown.isUp() else false;
 
         world.view = view.view;
@@ -2128,6 +2144,7 @@ const EditorLink = struct {
     }
 
     fn close(editor: *EditorLink) void {
+        editor.session.deinit();
         editor.link.deinit();
         editor.server.stop();
     }

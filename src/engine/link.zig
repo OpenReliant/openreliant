@@ -2,8 +2,8 @@
 //! mission editor and script debugger, carried over a transport that works on every system in
 //! place of the original's block of shared memory. This module is the part no game owns: how the
 //! messages travel, framed on a stream of bytes (`Header`), whether an editor is there, and the
-//! records of OpenReliant's own messages (`Hello`, `MissionStarted`, `State`), which the game
-//! writes and editors read. A game acts on the messages itself (StarLancer's in
+//! records of OpenReliant's own messages (`Hello`, `MissionStarted`, `State`, `ConsoleLine`), which
+//! one side writes and the other reads. A game acts on the messages itself (StarLancer's in
 //! `game.mission.editor`), and a script VM reports through it where a thread stopped
 //! (`vm.editor`).
 //!
@@ -72,8 +72,10 @@ pub const Own = enum(u16) {
     /// From the editor: asks for the script's state, which the game answers with `state`.
     get_state = 0x105,
     /// The script's state: its clock, the editor's hold, step and pause, the threads, the globals
-    /// and the game's variables.
+    /// and the game's variables, the ships' orders, and what the script did since the last state.
     state = 0x106,
+    /// From the editor: a line for the game's console, run as if typed into it (`ConsoleLine`).
+    console_line = 0x107,
     _,
 
     /// `tag` as one of OpenReliant's own; null for one of the original's.
@@ -82,8 +84,9 @@ pub const Own = enum(u16) {
     }
 };
 
-/// The version of the link's own messages, which `Own.hello` gives.
-pub const protocol_version = 1;
+/// The version of the link's own messages, which `Own.hello` gives. Version 2 adds the console
+/// line, and the ships' orders and the script's events to the state.
+pub const protocol_version = 2;
 
 /// A game on the engine, as the link names it to an editor (`Own.hello`).
 pub const Game = struct {
@@ -151,6 +154,13 @@ pub const State = struct {
     globals: []const u32,
     /// The game's variables: each named one, and each other one that isn't 0, by its number.
     variables: []const Variable,
+    /// Each of the mission's ships in play, by its index: its order and its target.
+    ships: []const Ship = &.{},
+    /// What the script did since the last state, in order: the triggers fired and the commands
+    /// run.
+    events: []const ScriptEvent = &.{},
+    /// How many events were left out, past the most the game keeps between two states.
+    events_dropped: u32 = 0,
 
     pub const Thread = struct {
         slot: u32,
@@ -172,10 +182,33 @@ pub const State = struct {
         value: u32,
     };
 
+    pub const Ship = struct {
+        /// Its index in the mission's ships, which is also its object's slot.
+        index: u16,
+        /// Its current order, by its name, or its number where it has none; `none` for no order.
+        order: []const u8,
+        /// The slot of the ship its order aims at, where it aims at one: a ship's index for one of
+        /// the mission's ships.
+        target: ?u16,
+    };
+
+    pub const ScriptEvent = struct {
+        kind: Kind,
+        /// The trigger's index in the trigger list, or the command's number in the catalogue.
+        index: u32,
+        /// When it happened on the script's clock, in milliseconds.
+        time: u32,
+
+        pub const Kind = enum { trigger, command };
+    };
+
     /// Writes the state, a `key=value` line for each field: `clock`, `hold`, `step`, `paused` and
     /// `first_finished`; for each thread, by its slot, `thread.N.at` (`none` outside the script),
     /// `thread.N.depth`, `thread.N.wake`, `thread.N.interrupted`, and `thread.N.trigger` where a
-    /// trigger started it; `global.N` for each global; and `variable.NAME` for each variable.
+    /// trigger started it; `global.N` for each global; `variable.NAME` for each variable; for each
+    /// ship in play, by its index, `ship.N.order`, and `ship.N.target` where its order has one;
+    /// for each event, from 0, `event.N.kind`, `event.N.index` and `event.N.time`; and
+    /// `events_dropped` where some were left out.
     pub fn write(state: State, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("clock={d}\nhold={t}\nstep={t}\npaused={d}\nfirst_finished={d}\n", .{
             state.clock, state.hold, state.step, @intFromBool(state.paused), @intFromBool(state.first_finished),
@@ -189,16 +222,31 @@ pub const State = struct {
         }
         for (state.globals, 0..) |value, index| try writer.print("global.{d}={d}\n", .{ index, value });
         for (state.variables) |each| try writer.print("variable.{s}={d}\n", .{ each.name, each.value });
+        for (state.ships) |ship| {
+            try writer.print("ship.{d}.order={s}\n", .{ ship.index, ship.order });
+            if (ship.target) |target| try writer.print("ship.{d}.target={d}\n", .{ ship.index, target });
+        }
+        for (state.events, 0..) |event, index| try writer.print("event.{d}.kind={t}\nevent.{d}.index={d}\nevent.{d}.time={d}\n", .{
+            index, event.kind, index, event.index, index, event.time,
+        });
+        if (state.events_dropped > 0) try writer.print("events_dropped={d}\n", .{state.events_dropped});
     }
 
     /// The fields of the state that hold one value each.
-    const Scalar = enum { clock, hold, step, paused, first_finished };
+    const Scalar = enum { clock, hold, step, paused, first_finished, events_dropped };
 
-    /// The fields of a thread.
+    /// The fields of a thread, of a ship and of an event.
     const ThreadField = enum { at, depth, wake, interrupted, trigger };
+    const ShipField = enum { order, target };
+    const EventField = enum { kind, index, time };
+
+    /// An event as its lines are read: its kind is null until a line gives it.
+    const ReadEvent = struct { kind: ?ScriptEvent.Kind = null, index: u32 = 0, time: u32 = 0 };
 
     /// The state in `payload`, its lists made in `arena`, its names borrowed from `payload`. A
-    /// global's index fits the 16 bits a mission's directory counts its globals in.
+    /// global's index must fit the 16 bits a mission's directory counts its globals in, and a
+    /// ship's index the 16 bits of an object's slot. The events must be numbered from 0 with none
+    /// missing, and each must have its kind.
     pub fn read(arena: Allocator, payload: []const u8) (Allocator.Error || ReadError)!State {
         var clock: ?u32 = null;
         var hold: ?vm_editor.Hold = null;
@@ -208,6 +256,9 @@ pub const State = struct {
         var threads: std.ArrayList(Thread) = .empty;
         var globals: std.ArrayList(u32) = .empty;
         var variables: std.ArrayList(Variable) = .empty;
+        var ships: std.ArrayList(Ship) = .empty;
+        var events: std.ArrayList(ReadEvent) = .empty;
+        var events_dropped: u32 = 0;
         var fields: Fields = .of(payload);
         while (fields.next()) |found| {
             const key = found.key;
@@ -218,9 +269,10 @@ pub const State = struct {
                 .step => step = try named(vm_editor.Step, value),
                 .paused => paused = try flag(value),
                 .first_finished => first_finished = try flag(value),
+                .events_dropped => events_dropped = try parse(u32, value),
             } else if (std.mem.cutPrefix(u8, key, "thread.")) |rest| {
                 const slot_text, const name = std.mem.cutScalar(u8, rest, '.') orelse return error.Invalid;
-                const thread = try threadIn(arena, &threads, try parse(u32, slot_text));
+                const thread = try sortedIn(Thread, "slot", arena, &threads, .{ .slot = try parse(u32, slot_text), .at = null, .depth = 0, .wake = 0, .interrupted = false, .trigger = null });
                 if (std.meta.stringToEnum(ThreadField, name)) |thread_field| switch (thread_field) {
                     .at => thread.at = if (std.mem.eql(u8, value, "none")) null else try parse(u32, value),
                     .depth => thread.depth = try parse(u32, value),
@@ -234,8 +286,28 @@ pub const State = struct {
                 globals.items[index] = try parse(u32, value);
             } else if (std.mem.cutPrefix(u8, key, "variable.")) |name| {
                 try variables.append(arena, .{ .name = name, .value = try parse(u32, value) });
+            } else if (std.mem.cutPrefix(u8, key, "ship.")) |rest| {
+                const index_text, const name = std.mem.cutScalar(u8, rest, '.') orelse return error.Invalid;
+                const ship = try sortedIn(Ship, "index", arena, &ships, .{ .index = try parse(u16, index_text), .order = "none", .target = null });
+                if (std.meta.stringToEnum(ShipField, name)) |ship_field| switch (ship_field) {
+                    .order => ship.order = value,
+                    .target => ship.target = try parse(u16, value),
+                };
+            } else if (std.mem.cutPrefix(u8, key, "event.")) |rest| {
+                const index_text, const name = std.mem.cutScalar(u8, rest, '.') orelse return error.Invalid;
+                const index: usize = try parse(u32, index_text);
+                if (index > events.items.len) return error.Invalid;
+                if (index == events.items.len) try events.append(arena, .{});
+                const event = &events.items[index];
+                if (std.meta.stringToEnum(EventField, name)) |event_field| switch (event_field) {
+                    .kind => event.kind = try named(ScriptEvent.Kind, value),
+                    .index => event.index = try parse(u32, value),
+                    .time => event.time = try parse(u32, value),
+                };
             }
         }
+        const read_events = try arena.alloc(ScriptEvent, events.items.len);
+        for (read_events, events.items) |*event, found| event.* = .{ .kind = found.kind orelse return error.Invalid, .index = found.index, .time = found.time };
         return .{
             .clock = clock orelse return error.Invalid,
             .hold = hold orelse return error.Invalid,
@@ -245,22 +317,43 @@ pub const State = struct {
             .threads = threads.items,
             .globals = globals.items,
             .variables = variables.items,
+            .ships = ships.items,
+            .events = read_events,
+            .events_dropped = events_dropped,
         };
     }
 
-    /// The thread of `slot` in `threads`, added in the slots' order where it isn't there yet.
-    fn threadIn(arena: Allocator, threads: *std.ArrayList(Thread), slot: u32) Allocator.Error!*Thread {
-        for (threads.items) |*thread| if (thread.slot == slot) return thread;
-        var place: usize = threads.items.len;
-        while (place > 0 and threads.items[place - 1].slot > slot) place -= 1;
-        try threads.insert(arena, place, .{ .slot = slot, .at = null, .depth = 0, .wake = 0, .interrupted = false, .trigger = null });
-        return &threads.items[place];
+    /// The record in `list` whose `key` is `made`'s, where it has one, and otherwise `made`, added
+    /// in the order of the records' `key`.
+    fn sortedIn(comptime T: type, comptime key: []const u8, arena: Allocator, list: *std.ArrayList(T), made: T) Allocator.Error!*T {
+        const wanted = @field(made, key);
+        for (list.items) |*item| if (@field(item, key) == wanted) return item;
+        var place: usize = list.items.len;
+        while (place > 0 and @field(list.items[place - 1], key) > wanted) place -= 1;
+        try list.insert(arena, place, made);
+        return &list.items[place];
     }
 
     /// The variable named `name`, where the state has it.
     pub fn variable(state: State, name: []const u8) ?u32 {
         for (state.variables) |each| if (std.mem.eql(u8, each.name, name)) return each.value;
         return null;
+    }
+};
+
+/// `Own.console_line`: a line for the game's console, run as if typed into it: one of the console's
+/// commands, such as `reload`, or Luau in the context the console is in. A line break ends it.
+pub const ConsoleLine = struct {
+    line: []const u8,
+
+    pub fn write(console: ConsoleLine, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const first, _ = std.mem.cutScalar(u8, console.line, '\n') orelse .{ console.line, "" };
+        try writer.print("line={s}\n", .{first});
+    }
+
+    /// The line in `payload`, whose text it borrows.
+    pub fn read(payload: []const u8) ReadError!ConsoleLine {
+        return .{ .line = try text(payload, "line") };
     }
 };
 
@@ -385,6 +478,9 @@ pub const Link = struct {
         all,
         /// Only an editor connecting or going: the messages wait for a later call.
         connections,
+        /// Connections, and OpenReliant's own messages while one is next: the first of the
+        /// original's waits for a later call, and the messages after it with it.
+        own,
     };
 
     /// What happened since the last call: an editor connecting or going, or a message. The caller
@@ -417,6 +513,7 @@ pub const Link = struct {
             return null;
         }
         if (link.received.items.len - header_size < header.size) return null;
+        if (taking == .own and Own.of(header.tag) == null) return null;
         link.taken = header_size + header.size;
         return .{ .message = .{ .tag = header.tag, .payload = link.received.items[header_size..link.taken] } };
     }
@@ -443,7 +540,7 @@ pub const Link = struct {
     }
 
     /// Sends one of OpenReliant's own messages, `record` written as its `key=value` lines
-    /// (`Hello`, `MissionStarted`, `State`); nothing where no editor is connected.
+    /// (`Hello`, `MissionStarted`, `State`, `ConsoleLine`); nothing where no editor is connected.
     pub fn sendRecord(link: *Link, tag: Own, record: anytype) void {
         if (link.session == null) return;
         var payload: std.Io.Writer.Allocating = .init(link.gpa);
@@ -628,7 +725,7 @@ test "OpenReliant's own messages are key=value lines" {
     var buffer: [128]u8 = undefined;
     const hello = pipe.takeFromGame(&buffer).?;
     try std.testing.expectEqual(@backingInt(Own.hello), hello.tag);
-    try std.testing.expectEqualStrings("1", field(hello.payload, "protocol").?);
+    try std.testing.expectEqual(protocol_version, try parse(u32, field(hello.payload, "protocol").?));
     try std.testing.expectEqualStrings("1.2.3", field(hello.payload, "openreliant").?);
     try std.testing.expectEqualStrings("Example", field(hello.payload, "game").?);
     try std.testing.expectEqualStrings("example", field(hello.payload, "vm").?);
@@ -683,6 +780,38 @@ test "the records of OpenReliant's own messages read back as written" {
     try std.testing.expectEqual(1, state_read.variable("mission_over").?);
     try std.testing.expectEqual(5, state_read.variable("200").?);
     try std.testing.expectEqual(null, state_read.variable("mission_success"));
+    try std.testing.expectEqual(0, state_read.ships.len);
+    try std.testing.expectEqual(0, state_read.events.len);
+
+    // The ships' orders, and what the script did since the last state.
+    payload.clearRetainingCapacity();
+    var busy = state;
+    busy.ships = &.{
+        .{ .index = 2, .order = "fight", .target = 0 },
+        .{ .index = 0, .order = "player_control", .target = null },
+    };
+    busy.events = &.{
+        .{ .kind = .trigger, .index = 1, .time = 41_800 },
+        .{ .kind = .command, .index = 11, .time = 41_800 },
+    };
+    busy.events_dropped = 3;
+    try busy.write(&payload.writer);
+    const busy_read: State = try .read(arena, payload.written());
+    try std.testing.expectEqual(2, busy_read.ships.len);
+    // In the order of their indices.
+    try std.testing.expectEqual(0, busy_read.ships[0].index);
+    try std.testing.expectEqualStrings("player_control", busy_read.ships[0].order);
+    try std.testing.expectEqual(null, busy_read.ships[0].target);
+    try std.testing.expectEqualStrings("fight", busy_read.ships[1].order);
+    try std.testing.expectEqual(0, busy_read.ships[1].target.?);
+    try std.testing.expectEqualSlices(State.ScriptEvent, busy.events, busy_read.events);
+    try std.testing.expectEqual(3, busy_read.events_dropped);
+
+    payload.clearRetainingCapacity();
+    const line: ConsoleLine = .{ .line = "x = 6 * 7\nprint(x)" };
+    try line.write(&payload.writer);
+    // A line break ends the line, and an `=` in it stays.
+    try std.testing.expectEqualStrings("x = 6 * 7", (try ConsoleLine.read(payload.written())).line);
 
     // A key it doesn't know is passed over.
     const newer: State = try .read(arena, "clock=1\nhold=none\nstep=none\npaused=0\nfirst_finished=0\nweather=fine\nthread.2.colour=red\n");
@@ -699,6 +828,33 @@ test "the records of OpenReliant's own messages read back as written" {
     const last: State = try .read(arena, "clock=1\nhold=none\nstep=none\npaused=0\nfirst_finished=0\nglobal.65535=3\n");
     try std.testing.expectEqual(65536, last.globals.len);
     try std.testing.expectEqual(3, last.globals[65535]);
+    // The events come numbered from 0, each with its kind.
+    const start = "clock=1\nhold=none\nstep=none\npaused=0\nfirst_finished=0\n";
+    try std.testing.expectError(error.Invalid, State.read(arena, start ++ "event.1.kind=trigger\n"));
+    try std.testing.expectError(error.Invalid, State.read(arena, start ++ "event.0.index=4\n"));
+    try std.testing.expectError(error.Invalid, State.read(arena, start ++ "event.0.kind=parade\n"));
+    try std.testing.expectError(error.Invalid, State.read(arena, start ++ "ship.70000.order=fight\n"));
+    try std.testing.expectError(error.Invalid, ConsoleLine.read("text=reload\n"));
+}
+
+test "taking OpenReliant's own messages leaves the original's waiting" {
+    const gpa = std.testing.allocator;
+    var pipe: testing.Pipe = .{ .gpa = gpa };
+    defer pipe.deinit();
+    var link: Link = .init(gpa, pipe.transport(), example, "1.2.3");
+    defer link.deinit();
+    pipe.connect();
+    _ = link.next(.all);
+    try pipe.sendToGame(@backingInt(Own.console_line), "line=reload\n");
+    try pipe.sendToGame(0x15, &.{ 0, 0, 0, 0, 1, 0, 0, 0 });
+    try pipe.sendToGame(@backingInt(Own.console_line), "line=help\n");
+    try std.testing.expectEqual(Own.console_line, Own.of(link.next(.own).?.message.tag).?);
+    // The original's tag waits however often the link is asked, and the console line after it
+    // waits with it.
+    try std.testing.expectEqual(null, link.next(.own));
+    try std.testing.expectEqual(null, link.next(.own));
+    try std.testing.expectEqual(0x15, link.next(.all).?.message.tag);
+    try std.testing.expectEqual(Own.console_line, Own.of(link.next(.own).?.message.tag).?);
 }
 
 test "an editor writes and reads messages framed" {

@@ -134,8 +134,14 @@ pub const Loaded = struct {
     /// and leaves out the hold's (`holdClock`).
     pub fn tickClock(loaded: *Loaded, game_ticks: u32) void {
         loaded.clock_at = game_ticks;
-        const seconds = (game_ticks -% loaded.clock_from) / ticks_per_second;
+        const seconds = loaded.scriptTicks(game_ticks) / ticks_per_second;
         while (loaded.script.clock < seconds) executor.clockTick(&loaded.script);
+    }
+
+    /// The script's clock at `game_ticks`, in the game's ticks: the ticks since the clock started,
+    /// less the ticks the editor held the script.
+    pub fn scriptTicks(loaded: *const Loaded, game_ticks: u32) u32 {
+        return game_ticks -% loaded.clock_from;
     }
 
     /// The script's clock held, as the game's ticks run on to `game_ticks` while the editor holds
