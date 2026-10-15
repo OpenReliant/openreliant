@@ -2714,7 +2714,7 @@ test "the director's commands stack shots, wait for them and stop them" {
     fixture.second();
     try std.testing.expectEqual(0, fixture.global(0));
     const seen: camera.Subject = .{ .position = @splat(0), .orientation = @import("../surrender/math.zig").identity };
-    world.clock.frame_duration = 100;
+    world.clock.drawn_duration = 100;
     _ = view.frame(.{ .object = seen, .player = seen, .ticks = 100, .game = ctx.world });
     try std.testing.expectEqual(camera.View.cockpit, view.view);
     for ([_]u16{ 0, 3 }) |ship| try std.testing.expect(!all.slots[ship].object.flags.jumping);

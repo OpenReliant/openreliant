@@ -479,6 +479,10 @@ pub const Slot = struct {
     /// drawn back where it was placed.
     glide: Vector = @splat(0),
     glided: bool = false,
+    /// The glide the last game frame framed it by: `glide` while it glided or the frame after,
+    /// null otherwise. A drawn frame draws it on by this for the time past the tick
+    /// (`main.DrawnPlaces`).
+    drawn_glide: ?Vector = null,
     /// Where its root's frame has it drawn (`objects.frameTree`), which stays put between the
     /// steps that move it.
     drawn: objects.Model.Local = .{},

@@ -129,18 +129,19 @@ fn angles(ships: []align(1) const dte.Ship, ship: ?u16) ?[2]f32 {
     return .{ @floatFromInt(ships[index].runtime_yaw), @floatFromInt(ships[index].runtime_pitch) };
 }
 
-/// `director_frame` (`0x00450FA0`), once a frame in the director's view (`camera_frame`): the curve
-/// runs on by the frame's ticks. The camera stands at its point for how far along it is
-/// (`place`), and passes each place a point marks (`curves.passMarker`), posting the point's
-/// CameraReached (`director_progress`, `0x004510C0`, `events.cameraReached`), one a frame. It looks
-/// at the ship it tracks, or else turns by the yaw and the pitch that far from the curve's first to
-/// its last. At the curve's end, the next begins (`curveEnd`).
+/// `director_frame` (`0x00450FA0`), once a drawn frame in the director's view (`camera_frame`): the
+/// curve runs on by the drawn frame's ticks (`main.Clock.drawnTicks`). The camera stands at its
+/// point for how far along it is (`place`), and passes each place a point marks
+/// (`curves.passMarker`), posting the point's CameraReached (`director_progress`, `0x004510C0`,
+/// `events.cameraReached`), one a frame. It looks at the ship it tracks, or else turns by the yaw
+/// and the pitch that far from the curve's first to its last. At the curve's end, the next begins
+/// (`curveEnd`).
 ///
 /// **Improvement:** the camera stands and turns `ahead` of a tick on, and where the ships are drawn
 /// (`drawnAt`), so that with smooth motion it moves on every frame, as they do.
 pub fn frame(world: gameobj.World, view: *camera.Camera, ahead: f32) void {
     const director = &view.director;
-    director.elapsed +%= world.clock.frameTicks();
+    director.elapsed +%= world.clock.drawnTicks();
     const t = director.share(0);
     const shown = director.share(ahead);
     if (place(world, director.*, shown)) |at| view.place.position = at;
@@ -227,7 +228,7 @@ const TestShot = struct {
 
     /// The camera's frame, `ticks` long.
     fn frame(shot: *TestShot, ticks: i32) void {
-        shot.game.mission.clock.frame_duration = ticks;
+        shot.game.mission.clock.drawn_duration = ticks;
         const seen: camera.Subject = .{ .position = @splat(0), .orientation = math.identity };
         _ = shot.view.frame(.{ .object = seen, .player = seen, .ticks = @intCast(ticks), .game = shot.world() });
     }

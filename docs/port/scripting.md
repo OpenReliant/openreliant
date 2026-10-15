@@ -386,7 +386,7 @@ while a game runs, null otherwise:
 |---|---|---|
 | `begin` | `main.startMission`, before the script's start part makes the mission's ships | The objects' and the last mission's scripts stop, the mission's scripts start, `math.random` starts again, and the mission's order context is kept for the functions that give orders |
 | `started` | The end of `main.startMission` | `on_mission_start`, then the hook `mission_started` |
-| `update` | `main.missionFrame`, after the orders (`aigeneric.ordersUpdate`), in a frame whose `frame_duration` isn't 0 | The events waiting, then `on_update`, with `frame_duration` in seconds |
+| `update` | `main.missionFrame`, after the orders (`aigeneric.ordersUpdate`), in each game frame, once a tick ([Game frames and drawn frames](../engine/loop.md#game-frames-and-drawn-frames)) | The events waiting, then `on_update`, with `frame_duration` in seconds |
 | `step` | The end of `gameobj.simulationStep` | `on_step` |
 | `ended` | `main.endMission`, as the driver lets a mission go | `on_mission_end`, then the hook `mission_ended`; the objects' and the mission's scripts stop |
 | `call` | The hooks ([Hooks](#hooks)) | For `object_added`, the object's scripts start, then `on_object_added`; for `object_removed`, `on_object_removed`, then the object's scripts get `on_removed` and stop. Then the hooks' handlers |

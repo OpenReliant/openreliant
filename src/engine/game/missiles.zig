@@ -388,6 +388,11 @@ pub const Missile = struct {
         return &missile.slot.object;
     }
 
+    /// Frames it `fraction` of the way through the simulation's step (`objects.frameTree`).
+    pub fn frameAt(missile: *Missile, fraction: f32) void {
+        objects.frameTree(&missile.object().root, if (missile.slot.model) |*model| model else null, &missile.slot.drawn, fraction, null);
+    }
+
     /// Lets go of its object's model.
     pub fn release(missile: *Missile, gpa: Allocator) void {
         missile.slot.release(gpa);
@@ -858,7 +863,9 @@ pub fn move(all: *create.Objects) void {
 /// drawn `fraction` of the way to its next place, and, with a target and no decoy, lights that
 /// target's missile warning where it homes (`Missile.homes`). Past its flight time it ends.
 ///
-/// Then each trail's frame (`trail.Trails.frame`).
+/// Then the game runs each trail's frame (`trail.Trails.frame`). OpenReliant runs that once a drawn
+/// frame instead, once the missiles are placed for it (`main.viewFrame`), since this runs once a
+/// game frame (`main.gameFrames`).
 ///
 /// Not ported: in a multiplayer game, a missile whose lock is lost or whose launcher is gone
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
@@ -876,13 +883,12 @@ pub fn frame(world: gameobj.World, fraction: f32) void {
             continue;
         }
         if (collide(world, index)) continue;
-        objects.frameTree(&live.object().root, if (live.slot.model) |*model| model else null, &live.slot.drawn, fraction, null);
+        live.frameAt(fraction);
         live.shown = true;
         if (live.decoy == null and live.homes) if (live.target.slotIn(all)) |target| {
             all.slots[target].object.missile_homing = 1;
         };
     }
-    if (world.trails) |trails| trails.frame(world);
 }
 
 /// Adds each missile `frame` left drawn to the world's layer, as `object_draw` does for it there:
