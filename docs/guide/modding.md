@@ -800,7 +800,7 @@ What all four have in common:
 
 | Kind | List section | Its own section | First number | Most the mods add | Numbered in the mod's |
 |---|---|---|---|---|---|
-| Ship types | `[ShipTypes]` | `[ShipType name]` | 256 | 732 | missions' ships |
+| Ship types | `[ShipTypes]` | `[ShipType name]` | 256 | 732 | missions' ships, and the carriers they launch from |
 | Guns | `[Guns]` | `[Gun name]` | 16 | 240 | models' gun muzzles |
 | Missiles | `[Missiles]` | `[Missile name]` | 11 | 245 | models' missile hardpoints, for every loadout tier |
 | Pilots | `[Pilots]` | `[Pilot name]` | 194 | 61 | missions' ships' pilots |
