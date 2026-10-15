@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.0](https://github.com/OpenReliant/openreliant/compare/v0.17.0...v0.18.0) (2026-10-15)
+
+
+### Features
+
+* a mod's missions and models can use the records of the mods it requires ([#1221](https://github.com/OpenReliant/openreliant/issues/1221)) ([fdb46bd](https://github.com/OpenReliant/openreliant/commit/fdb46bddd1d9e7b9d4a787cb941cd7e11d0cbf25)), closes [#1219](https://github.com/OpenReliant/openreliant/issues/1219)
+* a mod's scripts name the records it adds by their own names ([#1223](https://github.com/OpenReliant/openreliant/issues/1223)) ([3bbaed9](https://github.com/OpenReliant/openreliant/commit/3bbaed9a1b6c74cc9cc0177bd8b1558e27907d81)), closes [#1220](https://github.com/OpenReliant/openreliant/issues/1220)
+
 ## [0.17.0](https://github.com/OpenReliant/openreliant/compare/v0.16.0...v0.17.0) (2026-10-15)
 
 
