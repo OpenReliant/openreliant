@@ -213,7 +213,9 @@ without `.hog`, a colon, and the name the mod gave it. A gun `banana_gun` in the
   `hud.set_display_enabled` or `orders.info`, take the qualified name, and within the mod also the
   name without the prefix. The game's own names come first, so a mod's view called `cockpit` is
   named `strafe-run:cockpit` even within the mod.
-- The records, and values such as an object's `type`, take what a mod adds by its qualified name.
+- The records, and values such as an object's `type`, take what a mod adds by its qualified name,
+  and in that mod's scripts also by its own name, such as `records.ships.teapot` in the mod
+  `teapot`. The game's names come first here too.
 - Keep names, not numbers. The numbers OpenReliant gives what mods add change with the mods that
   are on.
 

@@ -9,7 +9,8 @@
 //! by the game's numbers: guns and text from 1, the rest from 0. All but the text can also be
 //! looked up by OpenReliant's names, such as `records.guns.laser_cannon` or
 //! `records.ships.predator`, and what the mods add by its qualified name, such as
-//! `records.ships["teapot:teapot"]`. A record is a proxy (`bind.Binding`)
+//! `records.ships["teapot:teapot"]`, or in that mod's scripts by its own, `records.ships.teapot`.
+//! A record is a proxy (`bind.Binding`)
 //! whose fields are named as in the format docs, and a text entry is a string. Records can't be
 //! removed, because missions refer to them by number. Adding new ones isn't supported yet
 //! ([#333](https://github.com/OpenReliant/openreliant/issues/333),
@@ -549,8 +550,11 @@ fn placeOf(state: *State, records: Records, comptime set: Set, key: i32) ?usize 
         for (comptime set.names()) |named| {
             if (std.mem.eql(u8, name, named.name)) break :named named.number;
         }
-        // What the mods add, by its qualified name.
-        const found = if (comptime set.Added()) |Family| Family.find(name) else null;
+        // What the mods add, by its qualified name, or in a mod's scripts by the mod's own name.
+        const found = if (comptime set.Added()) |Family| Family.find(name) orelse own: {
+            var buffer: [runtime.max_name]u8 = undefined;
+            break :own Family.find(values.ownName(state, name, &buffer) orelse break :own null);
+        } else null;
         if (found) |number| break :named number;
         return null;
     } else return null;

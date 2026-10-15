@@ -30,6 +30,7 @@ const objects = @import("objects.zig");
 const missiles = @import("missiles.zig");
 const turrets = @import("turrets.zig");
 const data = @import("data.zig");
+const runtime_module = @import("runtime.zig");
 
 /// A table scripts handed over, such as an interface, held by a reference that its holder lets go
 /// (`Runtime.release`).
@@ -196,7 +197,12 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
         },
         .@"enum" => |info| {
             if (state.toString(given)) |tag_name| {
-                return byName(T, tag_name) orelse state.raise("{s}: expected {s}, got '{s}'", .{ label, comptime choices(T), tag_name });
+                if (byName(T, tag_name)) |value| return value;
+                if (comptime takesModNames(T)) {
+                    var buffer: [runtime_module.max_name]u8 = undefined;
+                    if (ownName(state, tag_name, &buffer)) |qualified| if (byName(T, qualified)) |value| return value;
+                }
+                state.raise("{s}: expected {s}, got '{s}'", .{ label, comptime choices(T), tag_name });
             }
             const number = state.toNumber(given) orelse wrongType(state, label, comptime choices(T), given);
             if (number == @floor(number) and number >= std.math.minInt(info.tag_type) and number <= std.math.maxInt(info.tag_type)) {
@@ -402,9 +408,19 @@ pub fn takesNumbers(comptime T: type) bool {
 }
 
 /// Whether a value of `T` can also be one a mod adds, by its qualified name, such as
-/// `"teapot:teapot"`.
+/// `"teapot:teapot"`, or in that mod's scripts by its own name, such as `"teapot"`.
 pub fn takesModNames(comptime T: type) bool {
     return @hasDecl(T, "fromScriptName");
+}
+
+/// The calling mod's own name `text` qualified with the mod's, in `buffer`: `teapot` in the mod
+/// `teapot` is `teapot:teapot`. Null for a name that is qualified already, or outside a mod's
+/// script. The game's names come first, so a name is only taken as the mod's own where it isn't
+/// one of the game's.
+pub fn ownName(state: *State, text: []const u8, buffer: []u8) ?[]const u8 {
+    if (std.mem.findScalar(u8, text, ':') != null) return null;
+    const context = state.threadData(runtime_module.Context) orelse return null;
+    return std.fmt.bufPrint(buffer, "{s}:{s}", .{ context.modOf().qualifier(), text }) catch null;
 }
 
 /// The values an enum field accepts, for error messages.
