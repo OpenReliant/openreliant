@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.17.0](https://github.com/OpenReliant/openreliant/compare/v0.16.0...v0.17.0) (2026-10-15)
+
+
+### Features
+
+* a game mode's briefing room can play the walk into the room ([#1216](https://github.com/OpenReliant/openreliant/issues/1216)) ([c181e72](https://github.com/OpenReliant/openreliant/commit/c181e7265e37ae24581c2f04c40c111871689dda))
+* the player's launch records the carrier from any style ([#1191](https://github.com/OpenReliant/openreliant/issues/1191)) ([18d36e7](https://github.com/OpenReliant/openreliant/commit/18d36e7a21b03400ef7982afe397fb10c7bb2537)), closes [#1187](https://github.com/OpenReliant/openreliant/issues/1187)
+* the player's ship lands in a hangar bay of any carrier that launches from one ([#1192](https://github.com/OpenReliant/openreliant/issues/1192)) ([cbb3af1](https://github.com/OpenReliant/openreliant/commit/cbb3af113e78aaa18c96ec4ac77c5d7995d1645c)), closes [#1188](https://github.com/OpenReliant/openreliant/issues/1188)
+
+
+### Fixes
+
+* a mission launches ships from a mod's carrier type ([#1189](https://github.com/OpenReliant/openreliant/issues/1189)) ([f29cef7](https://github.com/OpenReliant/openreliant/commit/f29cef7daf7a6b83c641292d29758637664697dc)), closes [#1185](https://github.com/OpenReliant/openreliant/issues/1185)
+
 ## [0.16.0](https://github.com/OpenReliant/openreliant/compare/v0.15.0...v0.16.0) (2026-10-15)
 
 
