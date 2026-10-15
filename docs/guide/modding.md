@@ -794,7 +794,8 @@ What all four have in common:
 - The number after a name in the list is the number the mod's own files, such as its missions and
   models, use for it. When OpenReliant loads one of the mod's files, it replaces that number with the
   one it gave, so the files stay in the game's formats. Leave the number empty when the mod's files
-  don't use it. Files from other mods or from the game can't use what the mod adds.
+  don't use it. The game's files can't use what a mod adds, and another mod's files can only through
+  that mod's own list ([Another mod's records](#another-mods-records)).
 - An entry with a mistake, such as a base that isn't one of the game's, is left out, and the log says
   why.
 
@@ -809,6 +810,26 @@ What all four have in common:
 of its own, [`examples/mods/bananas`](../../examples/mods/bananas) a gun, a missile, a pilot and a
 ship that carries them, and [`examples/mods/teapot`](../../examples/mods/teapot) a ship with a model
 of its own, made from an OBJ file ([Models from OBJ](#models-from-obj)).
+
+### Another mod's records
+
+A mod's files can use what another mod adds, if the mod requires that mod. It lists the record in
+its own list section by its qualified name, with the number its files use for it:
+
+```ini
+[Mod]
+Requires=realistic-planets
+
+[ShipTypes]
+realistic-planets:mars=300
+```
+
+- The mod's missions then place Realistic Planets' Mars as type 300. The record stays the other
+  mod's, with everything that mod gives it, such as its planet entry, so it has no section here.
+- The other mod must be in `Requires`, which makes sure that it's on and loads first, and the entry
+  needs a number. An entry that names a mod this mod doesn't require, or a record that mod doesn't
+  add, is left out, and the log says why.
+- It works the same way for guns, missiles and pilots.
 
 **Improvement:** the original's ship types, guns, missiles and pilots are its own.
 
