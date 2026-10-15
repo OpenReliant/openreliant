@@ -1162,3 +1162,23 @@ test "a game mode's briefing with the walk in: the way into its room, then its m
     try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, 1));
     try std.testing.expect(briefing.stage == .briefing and briefing.playing);
 }
+
+test "a game mode's briefing with the walk in on the Yamato: the screen by its door first" {
+    var tested: rooms.testing.Tested = undefined;
+    try testFiles(&tested, &.{"prequel_m01.bik"});
+    defer tested.deinit();
+    var keyboard: input.Keyboard = .{};
+    // Mission 3, which the campaign briefs on the Reliant, in the Yamato's room.
+    var briefing: Briefing = .open(tested.context(), 3, false, null, .{ .carrier = .yamato, .walk_in = true, .movie = "prequel_m01.bik" }, null);
+    defer briefing.close();
+    try std.testing.expectEqual(&Room.yamato, briefing.room);
+    // The movie before the way in, then the way in, then the briefing in the room.
+    try std.testing.expectEqualDeep(Step{ .movie = "amonoff_.bik" }, passAt(&briefing, &keyboard, false, 0).?);
+    try std.testing.expectEqual(Stage.door_open, briefing.stage);
+    try std.testing.expectEqualDeep(Step{ .movie = "briefing room 350.bik" }, passAt(&briefing, &keyboard, false, 1).?);
+    try std.testing.expectEqual(Stage.walked_in, briefing.stage);
+    // The test's movies are on the Reliant's disc, so without the mod's movie here the briefing
+    // ends at once.
+    try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, 2));
+    try std.testing.expectEqual(Stage.tag, briefing.stage);
+}
