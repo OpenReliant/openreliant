@@ -338,6 +338,67 @@ test "the interceptor example adds a ship type, and its load script changes its 
     try std.testing.expectApproxEqAbs(6, held.ships[game.additions.ships.first].shield_power, 1e-3);
 }
 
+test "a mod's load script names the ship type it adds by its own name" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    const game = openreliant.engine.game;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try testing.makeMods(io, tmp.dir, &.{.{
+        "pots",
+        &.{
+            .{
+                "mod.ini",
+                \\[Scripts]
+                \\Load=records.luau
+                \\[ShipTypes]
+                \\teapot=
+                \\[ShipType teapot]
+                \\Base=phoenix
+                \\Model=teapot.shp
+            },
+            .{
+                "records.luau",
+                \\local records = require("openreliant.records")
+                \\-- The type by its own name and by its qualified one are the same record.
+                \\assert(records.ships.teapot == records.ships["pots:teapot"])
+                \\records.ships.teapot.max_speed = 150
+                \\-- A planet entry takes it by its own name too, and gives back the qualified one.
+                \\local planets = records.planets
+                \\planets[#planets + 1] = { type = "teapot" }
+                \\assert(planets[#planets].type == "pots:teapot")
+                \\-- The game's names come first, and another mod's types need their qualified names.
+                \\assert(records.ships.phoenix ~= records.ships.teapot)
+                \\assert(records.ships.kettle == nil)
+            },
+        },
+    }});
+    var opened: mods.Mods = try .open(gpa, io, tmp.dir, null);
+    defer opened.close(gpa);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    try game.additions.read(arena.allocator(), opened.list);
+    defer game.additions.reset();
+
+    var game_ships: [12]openreliant.stats.Ship = @splat(std.mem.zeroes(openreliant.stats.Ship));
+    game_ships[@backingInt(game.gameobj.GameType.phoenix)].max_speed = 300;
+    var held: records.Records = try .init(arena.allocator(), .{
+        .ships = try game.additions.ships.records(openreliant.stats.Ship, arena.allocator(), &game_ships, 0),
+        .ship_types = &.{},
+        .guns = &.{},
+        .missiles = &.{},
+        .pilots = &.{},
+        .faces = &.{},
+        .text = &.{},
+        .itac_text = &.{},
+    });
+    try run(gpa, io, opened.list, &held, "0.7.0", .{});
+    try std.testing.expectEqual(300, held.ships[@backingInt(game.gameobj.GameType.phoenix)].max_speed);
+    try std.testing.expectApproxEqAbs(150, held.ships[game.additions.ships.first].max_speed, 1e-3);
+    const added = held.planets[held.planets.len - 1];
+    try std.testing.expectEqual(game.additions.ships.first, added.type.number());
+}
+
 test "the bananas example adds a gun, a missile, a pilot and a ship that names them" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;

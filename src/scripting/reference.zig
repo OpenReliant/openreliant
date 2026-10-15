@@ -760,7 +760,7 @@ pub fn writeMarkdown(w: *Writer) Writer.Error!void {
     inline for (gathered.enums) |T| {
         try w.print("\n### {s}\n\n", .{comptime bind.noun(T)});
         inline for (comptime values.names(T), 0..) |name, at| try w.print("{s}`{s}`", .{ if (at == 0) "" else ", ", name });
-        if (comptime values.takesModNames(T)) try w.writeAll(", the qualified name of one a mod adds");
+        if (comptime values.takesModNames(T)) try w.writeAll(", the qualified name of one a mod adds, its own name in that mod's scripts");
         try w.writeAll(if (comptime values.takesNumbers(T)) ", or a number.\n" else ".\n");
     }
 }
@@ -972,7 +972,7 @@ fn writeChoices(w: *Writer, comptime T: type) Writer.Error!void {
     if (names.len > listed_names) return;
     try w.writeAll(" (");
     inline for (names, 0..) |name, at| try w.print("{s}\"{s}\"", .{ if (at == 0) "" else ", ", name });
-    if (comptime values.takesModNames(Plain)) try w.writeAll(", a mod's qualified name");
+    if (comptime values.takesModNames(Plain)) try w.writeAll(", a mod's qualified name, its own in that mod's scripts");
     if (comptime values.takesNumbers(Plain)) try w.writeAll(", or a number");
     try w.writeAll(")");
 }
