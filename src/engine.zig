@@ -14,6 +14,7 @@
 const std = @import("std");
 
 pub const bink = @import("engine/bink.zig");
+pub const compare = @import("engine/compare.zig");
 pub const files = @import("engine/files.zig");
 pub const game = @import("engine/game.zig");
 pub const genilib = @import("engine/genilib.zig");

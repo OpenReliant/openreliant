@@ -52,6 +52,8 @@ const WholeShaders = whole_shaders.Loaded;
 pub const Rooms = @import("rooms.zig").Driver;
 const RoomsEnd = @import("rooms.zig").End;
 pub const test_keys = @import("test_keys.zig");
+pub const twin_check = @import("twin.zig");
+const Twin = twin_check.Twin;
 pub const updates = @import("updates.zig");
 pub const ScriptConsole = @import("console.zig").Driver;
 pub const ScriptFrames = @import("script_frames.zig").ScriptFrames;
@@ -148,7 +150,7 @@ pub fn main(init: std.process.Init) !u8 {
         .help, .version, .wrong => asked,
     };
     run(io, init.gpa, arena, options, game_path, directory, &settings_file) catch |err| switch (err) {
-        error.MissingMission => return 1,
+        error.MissingMission, error.TwinCheckFailed => return 1,
         else => return err,
     };
     return 0;
@@ -788,9 +790,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .slot = if (watched) |name| try shipToWatch(play.number, play.file, name) else null,
         .from = options.watch_from,
     };
+    // The twin check's second copy of the mission (`--twin`), made before the mission starts and
+    // started after it, the same way.
+    var twin: ?*Twin = null;
+    defer if (twin) |made| made.destroy();
     if (options.mission != null) {
         try game_scripts.start();
+        if (options.twin) twin = try .create(gpa, world, &types);
         try play.start(.{ .world = world, .devices = &devices });
+        if (twin) |made| try made.start(play.startWith(.{ .world = world, .devices = &devices }), try gpa.dupe(u8, play.file), play.number, &clock, play.loaded.?);
     }
     // What the front end draws with, and where the game is between it and the missions.
     var front_resources: ?engine.genilib.interf.Resources = null;
@@ -1447,6 +1455,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         }
         // What the menu's screens saved goes to the file.
         settings_file.save(io, directory);
+        // The twin check's copy runs the ticks the game ran, and the two are compared.
+        if (twin) |made| if (!flow.in_front_end) try made.pass(.{ .world = world, .clock = &clock, .loaded = play.loaded, .riders = options.riders });
         if (frames_left) |*left| {
             left.* -= 1;
             if (left.* == 0) {
@@ -2220,14 +2230,9 @@ const Play = struct {
 
     /// Starts the mission, letting go of the one before, the loading screen shown first
     /// (`game.xtrabits.loading.missionFrames`).
-    fn start(play: *Play, orders: game.aigeneric.Context) !void {
-        play.end();
-        play.over = false;
-        if (play.loading) |loading| {
-            const frames = game.xtrabits.loading.missionFrames(loading.splash, loading.size()[0], orders.world.objects.simulator.mode);
-            for (frames) |frame| try loading.show(frame);
-        }
-        play.loaded = try game.main.startMission(play.gpa, .{
+    /// What each start starts the mission with, its world and devices `orders`.
+    fn startWith(play: *Play, orders: game.aigeneric.Context) game.main.Start {
+        return .{
             .orders = orders,
             .clock = play.clock,
             .tables = play.tables,
@@ -2242,7 +2247,17 @@ const Play = struct {
             .wing = play.wing,
             .seed = play.seed orelse clockSeed(play.io),
             .editor = play.editor,
-        }, try play.gpa.dupe(u8, play.file), play.number);
+        };
+    }
+
+    fn start(play: *Play, orders: game.aigeneric.Context) !void {
+        play.end();
+        play.over = false;
+        if (play.loading) |loading| {
+            const frames = game.xtrabits.loading.missionFrames(loading.splash, loading.size()[0], orders.world.objects.simulator.mode);
+            for (frames) |frame| try loading.show(frame);
+        }
+        play.loaded = try game.main.startMission(play.gpa, play.startWith(orders), try play.gpa.dupe(u8, play.file), play.number);
         // The game's ticks count from here, as `mission_run` counts them from where they stand as
         // its loop begins, so that the time the start took, the editor's holds in it among it,
         // passes with none.

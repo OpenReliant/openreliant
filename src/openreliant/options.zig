@@ -25,6 +25,7 @@ pub const Arg = enum {
     @"--part",
     @"--watch",
     @"--watch-from",
+    @"--twin",
     @"--fullscreen",
     @"--size",
     @"--fps",
@@ -111,6 +112,7 @@ const docs: std.enums.EnumArray(Arg, Doc) = .init(.{
     .@"--difficulty" = .{ .section = .mission, .value = "<easy|medium|hard>", .text = "the game's difficulty: how hard hits land on your ship, and shots on the enemy. By default, as in the game, medium with --mission, where a new campaign's starts, and easy in the main menu until SET GAME DIFFICULTY sets it" },
     .@"--music" = .{ .section = .mission, .value = "<file>", .text = "a piece from the game's music folder to play from the start, until the mission's script plays its own; none by default" },
     .@"--no-pause-menu" = .{ .section = .mission, .text = "with --mission, fly the mission again as soon as it ends, where it otherwise ends in the game's pause menu" },
+    .@"--twin" = .{ .section = .mission, .text = "with --mission, run a second copy of the mission beside it with nothing drawn or heard, compare the two after every frame, and stop at the first tick where they differ, naming the fields that do; for finding what of the game still depends on what the player sees and hears. It needs --no-mods, and fixes the seed as --screenshot does" },
     .@"--skip-launch" = .{ .section = .mission, .text = "with --mission, play the player's launch through without drawing it, so that the mission shows from the moment the ship is out; --screenshot-ticks count from there" },
     .@"--part" = .{ .section = .mission, .value = "<name|number>", .text = "with --mission, run this part of the mission's script once the player's launch is over, as a trigger would; by its number, or its name or a piece of it in any case, as sltool dte parts lists them. Give it again for more parts, up to 8, which run in the order given" },
     .@"--watch" = .{ .section = .mission, .value = "<name|number>", .text = "with --mission, watch this ship of the mission once the player's launch is over and the ship is there, from a place beside it that moves with it; by its number, or its name or a piece of it in any case, as sltool dte ships lists them" },
@@ -252,6 +254,9 @@ pub const Options = struct {
     /// Whether a mission `--mission` names plays the player's launch through without drawing it
     /// (`main.PlayerLaunch`).
     skip_launch: bool = false,
+    /// Whether a mission `--mission` names runs beside a twin with nothing drawn or heard
+    /// (`twin.Twin`).
+    twin: bool = false,
     /// The script parts `--part` names, which run once the player's launch is over
     /// (`main.partsNamed`): the first `part_count`.
     part_names: [max_parts][]const u8 = undefined,
@@ -386,11 +391,12 @@ pub const Options = struct {
     }
 
     /// The seed each mission's random numbers start from, where the run fixes one: `--seed`'s, or
-    /// with `--screenshot`, so that its frame comes out the same each time, the runtime's first
-    /// seed. Null leaves each start to take the clock's.
+    /// with `--screenshot`, so that its frame comes out the same each time, and with `--twin`, so
+    /// that the twin starts from the same, the runtime's first seed. Null leaves each start to take
+    /// the clock's.
     pub fn fixedSeed(options: *const Options) ?u64 {
         if (options.seed) |seed| return seed;
-        if (options.screenshot != null) return engine.random.Random.default_seed;
+        if (options.screenshot != null or options.twin) return engine.random.Random.default_seed;
         return null;
     }
 
@@ -486,6 +492,7 @@ pub const Options = struct {
             .@"--music" => options.music = if (std.mem.eql(u8, value, "none")) null else value,
             .@"--no-pause-menu" => options.pause_menu = false,
             .@"--skip-launch" => options.skip_launch = true,
+            .@"--twin" => options.twin = true,
             .@"--part" => {
                 if (options.part_count == max_parts) return error.BadValue;
                 options.part_names[options.part_count] = value;

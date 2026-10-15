@@ -103,6 +103,15 @@ pub const TypeCache = struct {
         return .{ .context = cache, .load = load };
     }
 
+    /// OpenReliant's: a cache with the same settings and none of the types loaded, for a second
+    /// copy of the objects, such as the twin check's (`openreliant --twin`).
+    pub fn emptyCopy(cache: *const TypeCache) TypeCache {
+        var copy = cache.*;
+        copy.loaded = @splat(null);
+        copy.missing = .empty;
+        return copy;
+    }
+
     /// The type's model, loaded the first time; null for a type the game names no model for, and
     /// for one whose model it lacks or can't read, which is logged.
     fn load(context: *anyopaque, ship_type: create.TypeIndex) ?*const create.Type {

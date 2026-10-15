@@ -61,11 +61,22 @@ OpenReliant splits the frame in two:
 
 So the game frames' work plays the same way at any frame rate. A run paced one tick per drawn frame, as a screenshot is, plays as before.
 
-Some game work still runs once a drawn frame, until it moves to the game frames ([#947](https://github.com/OpenReliant/openreliant/issues/947)):
+Some game work still depends on what is drawn or heard, until it moves to the game frames ([#947](https://github.com/OpenReliant/openreliant/issues/947)). The twin check below finds it:
 
 - the controls frame: the targeting keys, the frame keys and the radio's queue;
 - the display's charges, missile lock and radio lines (`hud_draw`);
-- the camera, which decides when the mission ends and posts the director's CameraReached events.
+- the camera, which decides when the mission ends and posts the director's CameraReached events;
+- the radio's films and lines, which the mission's script waits for (`WaitForMovie`), and which run only where there is a radio;
+- the planets' atmospheres, which turn their planets as they are drawn, in the planets' own frames;
+- the level of detail drawing picks for each part, which the game's bounds read (`object_bounds`);
+- the explosions' debris, whose ship types count as in use;
+- game-frame work that draws random numbers only where a part of the presentation is there, such as an explosion's effects.
+
+### The twin check
+
+`openreliant --mission <number> --twin` runs a second copy of the mission beside it with nothing drawn or heard ([`src/openreliant/twin.zig`](../../src/openreliant/twin.zig)). Its world leaves out every optional part but the mission's records and what it makes ships from, and it has its own objects, player, clock and random numbers, started from the same seed as the game's. After each pass of the main loop the twin runs the ticks the game ran, and the two are compared field by field (`engine.compare`): the random numbers, the clocks, the player, the objects with their models' parts, and the mission's script. At the first tick where they differ, the run writes the fields that do and ends with an error. A few fields that only the presentation sets and reads are left out, each named with its reason. The twin needs a game without mods' scripts (`--no-mods`).
+
+`make check-twin` runs it on a few missions, paced as a screenshot is, and shows where each first differs. While the list above stands, every mission differs at its first tick.
 
 ## Random numbers
 

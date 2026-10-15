@@ -128,6 +128,19 @@ check-missions: | $(GAME_DIR)/.stamp-hog-resource $(GAME_DIR)/.stamp-install $(S
 	@$(OPENRELIANT) missions $(INSTALL_DIR) | tail -1
 	@scripts/check-mission-guide.sh $(SLTOOL) $(ASSETS_DIR)/resource/mission1.dte docs/guide/missions.md
 
+# The missions the twin check runs: the sandbox, and missions with a launch, the radio, planets
+# and fights.
+TWIN_MISSIONS := 0 1 5 14 20
+
+.PHONY: check-twin
+check-twin: $(OPENRELIANT) | $(GAME_DIR)/.stamp-install ## Run missions beside a twin with nothing drawn or heard, and show where each first differs (#947)
+	@runs=$$(mktemp -d); bad=0; for m in $(TWIN_MISSIONS); do \
+	    echo "mission $$m:"; \
+	    $(OPENRELIANT) $(INSTALL_DIR) --mission $$m --twin --no-mods --no-sound --size 640x360 \
+	        --screenshot $$runs/$$m.png --screenshot-ticks 6000 > $$runs/$$m.log 2>&1 || bad=$$((bad + 1)); \
+	    sed -n '/twin:/,$$p' $$runs/$$m.log; \
+	done; rm -rf $$runs; echo "$(words $(TWIN_MISSIONS)) missions, $$bad differing"; test $$bad -eq 0
+
 .PHONY: check-models
 check-models: | $(GAME_DIR)/.stamp-hog-resource $(SLTOOL) ## Validate every .SHP model, and write each again
 	@bad=0; for f in $(ASSETS_DIR)/resource/*.[sS][hH][pP]; do \
