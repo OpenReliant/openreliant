@@ -39,7 +39,7 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`formats/dreamcast.md`](formats/dreamcast.md) | The Dreamcast version: its disc, its text tables and its texture cache. |
 | [`engine/missions.md`](engine/missions.md) | Missions: how a mission's start finds its file, reads it and binds it. |
 | [`engine/script-vm.md`](engine/script-vm.md) | The script VM at run time: threads, calls, commands, timers, events. |
-| [`engine/editor-link.md`](engine/editor-link.md) | The original's link to its mission editor and script debugger: the shared block, the messages, the holds and the steps; and OpenReliant's, over TCP. |
+| [`engine/editor-link.md`](engine/editor-link.md) | The original's link to its mission editor and script debugger: the shared block, the messages, the holds and the steps; how OpenReliant carries it over TCP; and OpenReliant's own messages, each with why it's there. |
 | [`engine/camera.md`](engine/camera.md) | The camera: the projection, the views, and where each puts the camera. |
 | [`engine/backdrop.md`](engine/backdrop.md) | The backdrop: sky dome, nebula, stars, dust, sun, lens flares and the default lights. |
 | [`engine/rendering.md`](engine/rendering.md) | Rendering: layers, depth, shading modes as materials, lighting, blending, highlights. |

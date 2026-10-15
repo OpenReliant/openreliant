@@ -1,14 +1,26 @@
 # The editor link
 
 StarLancer's own mission editor and script debugger, which Warthog made with the game and never
-released, could drive the original while it ran. The two share a block of named memory: the editor replaces the loaded
-mission's tables, moves and remakes its ships, pauses the mission, and stops, steps and runs the
-script, and the game reports where the script stopped. Nothing public speaks this link.
+released, could drive the original while it ran. The two share a block of named memory: the editor
+replaces the loaded mission's tables, moves and remakes its ships, pauses the mission, and stops,
+steps and runs the script, and the game reports where the script stopped. Warthog never released a
+tool that speaks this link.
 
 LordBlacksun decoded the link ([#539](https://github.com/OpenReliant/openreliant/issues/539)), and
 the disassembly bears out what follows.
 
-## The block
+The link carries two sets of messages:
+
+- the original's, tags `0x00` to `0x1B` ([The original's protocol](#the-originals-protocol)), which
+  OpenReliant carries over TCP ([In OpenReliant](#in-openreliant));
+- a few of OpenReliant's own, from tag `0x100`
+  ([OpenReliant's own messages](#openreliants-own-messages)).
+
+A client uses the original's messages wherever they can do the job.
+
+## The original's protocol
+
+### The block
 
 `editor_link_open` (`0x00457630`) opens the link on the first check. It makes the block,
 `CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 0xD4A08, "FileMappingObject")`
@@ -17,9 +29,9 @@ the editor made it first; maps a view of it (`MapViewOfFile` with `FILE_MAP_ALL_
 `0x00457BB0`); zeroes both message counts, so that the messages either side posted before are lost;
 and flushes the counts (`FlushViewOfFile`, `0x00457BE0`). A view that can't be mapped stops the game
 ("file map creation error"). Each check maps a view of its own, as `mission_script_start` gives it
-none, and never lets it go, nor does `editor_link_open` let go of its own; a check that can't map one
-reads through a null pointer. `editor_link_send` lets go of the view it maps (`editor_link_unmap`,
-`0x00457BD0`).
+none, and never lets it go, nor does `editor_link_open` let go of its own; a check that can't map
+one reads through a null pointer. `editor_link_send` lets go of the view it maps
+(`editor_link_unmap`, `0x00457BD0`).
 
 | Offset | Size | Field |
 |---|---|---|
@@ -38,7 +50,7 @@ last one waiting, its payload after the last payload, and flushes the view after
 message and the payload. With its sixth argument set, it leaves out a tag that is waiting already;
 the game's own messages leave it clear, so each is posted.
 
-## When the game reads it
+### When the game reads it
 
 Only `mission_script_start` (`0x0045CBC0`) reads the editor's messages, through `editor_link_check`
 (`0x00457670`). Nothing else in the executable calls the check or the read, and no pointer to either
@@ -53,7 +65,7 @@ and the script is neither held nor released (`vm_hold` 0) sends tag `0x1B`. `Win
 `editor_absent` as the game starts, and `mission_script_start` before its first check, so with no
 editor the game sends nothing and its script never stops.
 
-## The script's start
+### The script's start
 
 `mission_script_start` lifts the editor's pause (`editor_paused`, `0x00537581`), clears the hold
 (`vm_hold`, `0x005373F8`) and the step (`vm_step_mode`, `0x00537582`, to -1), forgets the picked
@@ -69,30 +81,36 @@ ship and the misses, and sets `editor_absent`. Then:
 So the game waits on the editor while it holds a start part, the window with it. Each time round,
 the part's statements before the stop run again, and a new thread stops at the same byte.
 
-## From the editor
+### From the editor
 
 `editor_link_read` sends each tag to its case through a jump table (`editor_link_cases`,
 `0x004579BC`), and stops the game on a tag past `0x17` (`fatal_error`, "unidentified comms
-request").
+request"). The last column says what OpenReliant does with the tag.
 
-| Tag | Payload | What the game does |
-|---|---|---|
-| `0x00` | None | Sets each mission ship's runtime place and angles from the ships the editor keeps at `0x80208` in the block, `0x4C` bytes each (`editor_ships_place`, `0x004520A0`): `runtime_position` from the record's `+0x08`, and `runtime_yaw`, `runtime_pitch` and `runtime_roll` from its halfwords at `+0x20`, `+0x2C` and `+0x3C`, which aren't where a mission ship keeps them. **Unknown:** the rest of the editor's record |
-| `0x01` | `object_id` (`u32`), then the place at `+0x08`, three floats | Places the object of each mission ship with that `object_id` there, then builds the curves again (`editor_ship_move`, `0x0045A6D0`, `curves_rebuild`) |
-| `0x02` | 50 halfwords | Sets the counts of the mission's tables ([The tables' counts](#the-tables-counts)), then frees every thread (`editor_table_counts`, `0x0045A730`, `vm_threads_reset`) |
-| `0x03` to `0x05`, `0x07` to `0x0E` | A table | Copies the table over the loaded mission's ([The table copies](#the-table-copies)) |
-| `0x06` | The ships, `0x4C` bytes each | Copies some fields of each mission ship (`editor_ships_copy`, `0x0045AD80`): `object_id`, `name` with the halfword after it, `flight_group`, `kind`, `launch_from` to `launch_gate`, `formation_point` with the halfword after it, `marker_curve` with the two bytes after it, and `marker_at`. The places, the angles, the pilots and the flags stay as they are |
-| `0x0F` | None | Binds the mission's tables again (`mission_bind_tables`) |
-| `0x10` | The first part changed (`u32`), then how many were added (`i16`), or removed where negative | Renumbers the script timers' parts ([The timers' parts](#the-timers-parts)) |
-| `0x11` | A ship, `0x4C` bytes | Retires the object at the index that `ship_index` (`0x004531C0`) works out from the payload's own address (`editor_ship_remove`, `0x0045A800`). That address lies in the block, not among the mission's ships, so the index isn't the ship's (**Unverified:** what the editor meant to send) |
-| `0x12` | A ship, `0x4C` bytes | Retires an object as `0x11` does, then makes a ship from the payload's record (`editor_ship_remake`, `0x0045A820`, `mission_ship_create`) |
-| `0x13` | None | Nothing |
-| `0x14` | A mission ship's index (`u32`) | Where the ship has an object, places the player's ship four of the object's radii (`0x004DC424`) back from the ship's runtime place along the world's Z axis, and turns it to look at the ship (`editor_view_ship`, `0x0045A850`) |
-| `0x15` | 8 bytes | Run control ([Run control](#run-control)) |
-| `0x16` | A mission ship's index (`u16`) | Picks the ship (`editor_picked_ship`, `0x0052A1D8`), which nothing reads |
-| `0x17` | 32 bytes | Keeps them at `0x005270E4`, which nothing reads |
+| Tag | Payload | What the game does | In OpenReliant |
+|---|---|---|---|
+| `0x00` | None | Sets each mission ship's runtime place and angles from the ships the editor keeps at `0x80208` in the block, `0x4C` bytes each (`editor_ships_place`, `0x004520A0`): `runtime_position` from the record's `+0x08`, and `runtime_yaw`, `runtime_pitch` and `runtime_roll` from its halfwords at `+0x20`, `+0x2C` and `+0x3C`, which aren't where a mission ship keeps them. **Unknown:** the rest of the editor's record | Not yet |
+| `0x01` | `object_id` (`u32`), then the place at `+0x08`, three floats | Places the object of each mission ship with that `object_id` there, then builds the curves again (`editor_ship_move`, `0x0045A6D0`, `curves_rebuild`) | Not yet |
+| `0x02` | 50 halfwords | Sets the counts of the mission's tables ([The tables' counts](#the-tables-counts)), then frees every thread (`editor_table_counts`, `0x0045A730`, `vm_threads_reset`) | Not yet |
+| `0x03` to `0x05`, `0x07`, `0x08`, `0x0A` to `0x0E` | A table | Copies the table over the loaded mission's ([The table copies](#the-table-copies)) | Not yet |
+| `0x06` | The ships, `0x4C` bytes each | Copies some fields of each mission ship (`editor_ships_copy`, `0x0045AD80`): `object_id`, `name` with the halfword after it, `flight_group`, `kind`, `launch_from` to `launch_gate`, `formation_point` with the halfword after it, `marker_curve` with the two bytes after it, and `marker_at`. The places, the angles, the pilots and the flags stay as they are | Not yet |
+| `0x09` | The script's flags | Copies them over the loaded mission's ([The table copies](#the-table-copies)) | Ported |
+| `0x0F` | None | Binds the mission's tables again (`mission_bind_tables`) | Not yet |
+| `0x10` | The first part changed (`u32`), then how many were added (`i16`), or removed where negative | Renumbers the script timers' parts ([The timers' parts](#the-timers-parts)) | Not yet |
+| `0x11` | A ship, `0x4C` bytes | Retires the object at the index that `ship_index` (`0x004531C0`) works out from the payload's own address (`editor_ship_remove`, `0x0045A800`). That address lies in the block, not among the mission's ships, so the index isn't the ship's (**Unverified:** what the editor meant to send) | Not yet |
+| `0x12` | A ship, `0x4C` bytes | Retires an object as `0x11` does, then makes a ship from the payload's record (`editor_ship_remake`, `0x0045A820`, `mission_ship_create`) | Not yet |
+| `0x13` | None | Nothing | Ported |
+| `0x14` | A mission ship's index (`u32`) | Where the ship has an object, places the player's ship four of the object's radii (`0x004DC424`) back from the ship's runtime place along the world's Z axis, and turns it to look at the ship (`editor_view_ship`, `0x0045A850`) | Not yet |
+| `0x15` | 8 bytes | Run control ([Run control](#run-control)) | Ported |
+| `0x16` | A mission ship's index (`u16`) | Picks the ship (`editor_picked_ship`, `0x0052A1D8`), which nothing reads | Passed over |
+| `0x17` | 32 bytes | Keeps them at `0x005270E4`, which nothing reads | Passed over |
 
-### The table copies
+The tags not ported yet are the editor's live changes to the mission
+([#1057](https://github.com/OpenReliant/openreliant/issues/1057)). OpenReliant logs each one the
+first time it comes, and passes over it. It passes over `0x16` and `0x17` too, since nothing reads
+their bytes.
+
+#### The table copies
 
 `editor_table_copy` (`0x0045A770`) copies as many bytes as the table's count times its record's
 size from the payload, whatever the payload's size, over the table:
@@ -114,7 +132,7 @@ size from the payload, whatever the payload's size, over the table:
 The tables lie in the mission's image, so a count larger than the file's fills the room the
 mission's sections reserve beyond their records ([The mission file](../formats/dte.md)).
 
-### The tables' counts
+#### The tables' counts
 
 `editor_tables` (`0x004EE970`) lists 50 tables, 16 bytes each. A reference to a record carries the
 number of its table's entry as its tag
@@ -140,7 +158,7 @@ entries.
 Tag `0x02` sets each count from the halfword at the same place in its payload, where the entry has a
 count's address. The script's timers keep their count (`vm_timer_count`).
 
-### The timers' parts
+#### The timers' parts
 
 Tag `0x10` hands each of the script's timers to `index_renumber` (`0x00451440`), which renumbers a
 record's index as records are added or removed at a place. A timer whose part comes before the
@@ -150,7 +168,7 @@ left with none (`index_set_none`, `0x00451510`). The others move by the count (`
 count, or move a record from one place to another (`index_move`, `0x004514B0`), for callers other
 than the link.
 
-### Run control
+#### Run control
 
 `editor_run_control` (`0x0045A900`) acts on its payload's first word, and does nothing past 4:
 
@@ -163,14 +181,14 @@ Commands 1 to 3 set `vm_hold` to -1 and `vm_step_mode` to the command, but comma
 while the script is neither held nor released. Command 4 runs the part at once on a new thread
 (`part_run`), whatever its index.
 
-## From the game
+### From the game
 
-| Tag | Payload |
-|---|---|
-| `0x1A` | The script stopped: the offset in the script of the byte it stopped before (`u32`) |
-| `0x1B` | `vm_first_finished` (`u32`): whether the thread pool's first thread has finished |
+| Tag | Payload | In OpenReliant |
+|---|---|---|
+| `0x1A` | The script stopped: the offset in the script of the byte it stopped before (`u32`) | Ported |
+| `0x1B` | `vm_first_finished` (`u32`): whether the thread pool's first thread has finished | Ported |
 
-## Stopping and stepping
+### Stopping and stepping
 
 While the editor is there, `vm_run` (`0x0045C980`) checks before each instruction
 (`0x0045C995` to `0x0045CA52`), by the instruction's offset in the script:
@@ -198,7 +216,7 @@ on. A thread that finishes ends the step.
 | 2 | Stops before the next instruction that starts a statement |
 | 3 | Steps over: stops before the next statement of the same block, or of the block a return goes back to |
 
-## What the hold and the pause stop
+### What the hold and the pause stop
 
 | Where | While the script is held (`vm_hold` 1) | While the editor pauses the mission (`editor_paused`) |
 |---|---|---|
@@ -207,9 +225,9 @@ on. A thread that finishes ends the step.
 | `mission_frame` (`0x0049288E`) | With the editor there, the frame leaves out its work after the check of `mission_over`: the ships take their objects' places, and nothing more is done or drawn | The same |
 | `timer_callback` (`0x004A6F80`) | With the editor there, the script clock's timer (`vm_clock_timer`, `0x0052A1E4`) passes | No timer runs its routine: the game's ticks (`tick_timer`), the script's clock and the speech's stream all stop |
 
-`mission_run`'s loop runs a game tick for each of the timer's ticks whatever `mission_frame` does, so
-during a hold the simulation goes on, the ships flying on with the controls their orders last set,
-while a pause stops it with the timer.
+`mission_run`'s loop runs a game tick for each of the timer's ticks whatever `mission_frame` does,
+so during a hold the simulation goes on, the ships flying on with the controls their orders last
+set, while a pause stops it with the timer.
 
 With an editor linked, `window_suspend` (`0x004A8260`) and `window_proc`'s restore (`0x004A8471`)
 leave the window as it is, so that the game plays on, its sound too, while the editor has the focus.
@@ -217,11 +235,12 @@ leave the window as it is, so that the game plays on, its sound too, while the e
 ## In OpenReliant
 
 OpenReliant carries the original's messages over a TCP connection in place of the block, and acts on
-them as the original does, with the improvements and fixes below. The code keeps the parts apart, so
-that another game on the engine can link its own editor:
+them as the original does, with the improvements and fixes below. It adds a few messages of its own
+([OpenReliant's own messages](#openreliants-own-messages)). The code keeps the parts apart, so that
+another game on the engine can link its own editor:
 
-- `engine/link.zig`: the link, which no game owns: the messages' framing, whether an editor is there,
-  and OpenReliant's own messages.
+- `engine/link.zig`: the link, which no game owns: the messages' framing, whether an editor is
+  there, and OpenReliant's own messages.
 - `vm/editor.zig`: what the script VM keeps for the editor, which `vm/machine.zig` stops and steps
   by.
 - `game/mission/editor.zig`: StarLancer's tags, as a table of each tag's name, its case in the
@@ -247,41 +266,8 @@ The original's tags keep their payloads. A payload larger than the original's bl
 bytes, drops the connection, as does an editor that sends more than four of those while the game
 takes none.
 
-OpenReliant's own tags follow the original's, from `0x100`. Each payload is text, a `key=value` line
-for each field, but the mission's file:
-
-| Tag | Message | Payload | Sent |
-|---|---|---|---|
-| `0x100` | Hello | `protocol` (1), `openreliant` (its version), `game` (`StarLancer`), `vm` (the script VM's dialect, `starlancer`) | By the game, as an editor connects |
-| `0x101` | Mission started | `number`, `file` (such as `mission1.dte`) | By the game, as a mission's script starts, and to an editor that connects while one plays |
-| `0x102` | Mission ended | None | By the game, as the mission ends |
-| `0x103` | Get mission | None | By the editor, for `Mission file` |
-| `0x104` | Mission file | The mission's file as the game runs it, its globals as they stand | By the game, right after `Mission started`, and as the editor asks |
-| `0x105` | Get state | None | By the editor, for `State` |
-| `0x106` | State | The script's state, below | By the game, as the editor asks |
-
-`State` gives, a line each:
-
-| Key | Value |
-|---|---|
-| `clock` | The script's clock, in seconds |
-| `hold`, `step`, `paused` | The editor's hold (`held`, `released` or `none`), its step (`run_on`, `into`, `over` or `none`), and its pause (1 or 0) |
-| `first_finished` | Whether the thread pool's first thread has finished (1 or 0) |
-| `thread.N.at` | Where thread `N`, by its slot, is in the script, as an offset; `none` outside it |
-| `thread.N.depth`, `thread.N.wake`, `thread.N.interrupted` | Its call depth, the clock value it waits for (0 for none), and whether it waits for its trigger (1 or 0) |
-| `thread.N.trigger` | The trigger that started it, where one did |
-| `global.N` | Global `N`'s value |
-| `variable.NAME` | The game's variable `NAME`, such as `mission_over`; one with no name by its number, where it isn't 0 |
-
-Values are the script's words, unsigned. A reader passes over keys it doesn't know, so that a newer
-game's messages still read.
-
 ### What it does
 
-- OpenReliant acts on tags `0x09` (the flags), `0x13` and `0x15` (run control), and passes over
-  `0x16` and `0x17`, whose bytes nothing reads. It logs the other tags, the editor's live changes to
-  the mission, once each, and passes over them
-  ([#1057](https://github.com/OpenReliant/openreliant/issues/1057)). It sends tags `0x1A` and `0x1B`.
 - The editor's messages wait while no mission plays, as the original's wait in its block for the
   next mission's start. Each attempt reads the mission's file again, so the flags last for one
   attempt: an editor sends them again once the file comes with each `Mission started`, and the
@@ -302,8 +288,9 @@ game's messages still read.
 - OpenReliant reads the editor's messages every frame, so that a hold during the mission can be
   released, and the editor hears of the first thread once for each fifth second of the script's
   clock.
-- OpenReliant sends the editor the mission's file and the script's state, where the original's
-  editor had its own copy of the mission and its debugger only heard where the script stopped.
+- OpenReliant's own messages tell a client the game, the mission playing, its file and the script's
+  state, which the original's messages never tell
+  ([OpenReliant's own messages](#openreliants-own-messages)).
 - As the editor goes, the script is let go: its hold, its step and the editor's pause clear. The
   original keeps the script held, waiting for good.
 - While an editor is linked, the script's start waits for its flags before the start parts run, for
@@ -324,7 +311,47 @@ game's messages still read.
 - Run control's part runs only where its index is within the mission's parts, where the original
   reads past the parts' table.
 
-### Clients
+## OpenReliant's own messages
+
+The original's editor kept its own copy of the mission, and its debugger heard only where the
+script stopped. OpenReliant adds a few messages for what the original's can't tell a client. Their
+tags follow the original's, from `0x100`. Each payload is text, a `key=value` line for each field,
+but the mission's file. A reader passes over keys it doesn't know, so that a newer game's messages
+still read.
+
+| Tag | Message | Payload | Sent | Why |
+|---|---|---|---|---|
+| `0x100` | Hello | `protocol` (1), `openreliant` (its version), `game` (`StarLancer`), `vm` (the script VM's dialect, `starlancer`) | By the game, as an editor connects | The original's editor worked only with StarLancer. A client learns which game and script dialect it's linked to, and the version of these messages |
+| `0x101` | Mission started | `number`, `file` (such as `mission1.dte`) | By the game, as a mission's script starts, and to an editor that connects while one plays | The original's messages never say which mission plays: its editor started its own. Tag `0x1B` says only whether the first thread has finished |
+| `0x102` | Mission ended | None | By the game, as the mission ends | The original's messages don't say when a mission ends |
+| `0x103` | Get mission | None | By the editor | Asks for `Mission file` |
+| `0x104` | Mission file | The mission's file as the game runs it, its globals as they stand | By the game, right after `Mission started`, and as the editor asks | The original's editor had its own copy of the mission, as an editor that builds the mission has. A client without one, such as `openreliant debug`, reads the script here, and an editor checks that the game plays its build |
+| `0x105` | Get state | None | By the editor | Asks for `State` |
+| `0x106` | State | The script's state, below | By the game, as the editor asks | The original's debugger hears only where the script stopped (`0x1A`). None of its messages carries the threads, the globals or the game's variables |
+
+`State` gives, a line each:
+
+| Key | Value |
+|---|---|
+| `clock` | The script's clock, in seconds |
+| `hold`, `step`, `paused` | The editor's hold (`held`, `released` or `none`), its step (`run_on`, `into`, `over` or `none`), and its pause (1 or 0) |
+| `first_finished` | Whether the thread pool's first thread has finished (1 or 0), as tag `0x1B` gives it |
+| `thread.N.at` | Where thread `N`, by its slot, is in the script, as an offset; `none` outside it |
+| `thread.N.depth`, `thread.N.wake`, `thread.N.interrupted` | Its call depth, the clock value it waits for (0 for none), and whether it waits for its trigger (1 or 0) |
+| `thread.N.trigger` | The trigger that started it, where one did |
+| `global.N` | Global `N`'s value |
+| `variable.NAME` | The game's variable `NAME`, such as `mission_over`; one with no name by its number, where it isn't 0 |
+
+Values are the script's words, unsigned.
+
+### Adding a message
+
+A new message has to make its case. OpenReliant adds one only where the messages the link has, the
+original's and these, can't do the job, and the table above says why each one is there. What the
+original's tags can carry goes through them, such as an editor's live changes to the mission
+([#1057](https://github.com/OpenReliant/openreliant/issues/1057)).
+
+## Clients
 
 `openreliant debug` is a small client that shows what the link does
 ([Debugging mission scripts](../guide/debugging.md)). A full mission editor and script debugger is a
@@ -340,10 +367,11 @@ and simulation tools" (Warthog's
 [results of 3 July 2002](https://web.archive.org/web/20030901020916/http://www.hemscott.com:80/scripts/AFXnewstory.dll/text?EPIC=WHOG&SerialNumber=399&NewsType=CDP&Indate=03/07/2002)).
 StarLancer's editor was most likely one of those mission editors, which makes this link the
 protocol of a predecessor of Snout, and a full client OpenReliant's counterpart of Snout: a WYSIWYG
-mission editor for the games that keep StarLancer's mission records and script VM. Battlestar Galactica's Xbox executable holds neither of the link's strings ("unidentified comms
-request", `FileMappingObject`), but its command catalogue has a `DebugBreak` command (`0x2C`,
-"Causes a debug breakpoint to be hit") that StarLancer's lacks. **Unverified:** whether it keeps a
-link of another kind.
+mission editor for the games that keep StarLancer's mission records and script VM. Battlestar
+Galactica's Xbox executable holds neither of the link's strings ("unidentified comms request",
+`FileMappingObject`), but its command catalogue has a `DebugBreak` command (`0x2C`, "Causes a debug
+breakpoint to be hit") that StarLancer's lacks. **Unverified:** whether it keeps a link of another
+kind.
 
 The original's tags already edit the running mission in place, as a WYSIWYG editor does: they
 place, move, remove and remake its ships, and send the player's view to one. What such a client
@@ -351,10 +379,12 @@ needs that OpenReliant doesn't carry yet:
 
 - the editor's live changes to the mission, the original's tags
   ([#1057](https://github.com/OpenReliant/openreliant/issues/1057));
-- the live scene: the objects' places, orientations and orders, which the original's editor kept
-  from its own copy of the mission ([#1059](https://github.com/OpenReliant/openreliant/issues/1059));
 - the other games' script dialects, which `Hello`'s `vm` names
   ([#1017](https://github.com/OpenReliant/openreliant/issues/1017)).
+
+No message gives a live scene, each object's place, orientation and order as the game plays
+([#1059](https://github.com/OpenReliant/openreliant/issues/1059)). A message for it would have to
+make its case ([Adding a message](#adding-a-message)).
 
 ### Writing a client
 
@@ -363,16 +393,16 @@ A client in Zig can read and write missions exactly as OpenReliant does by impor
 It works the way `openreliant debug` does:
 
 1. Connect to 127.0.0.1 at the port, `link.default_port` unless the game was started with
-   another, and read `Hello`.
-2. On `Mission file`, which comes right after `Mission started`, send tag `0x09` with the script's
-   flags: a byte for each of the script's bytes, rounded up to a multiple of 4, with bit 0 set on
-   each byte to stop before. Send them with no breakpoints too, since the start parts wait for them
-   for up to a second. The statements end at the opcodes `vm_starts_statement` gives (above), which
-   a step stops before.
-3. On tag `0x1A`, the script is held before the byte at the offset it gives: send tag `0x15` with 1
-   to run on, 2 to step into the next statement, or 3 to step over it; or with 0 and 1 to pause the
-   mission, and 0 and 0 to let it go on.
-4. Send `Get state` for the script's threads, globals and variables.
+   another, and read `Hello` (OpenReliant's own).
+2. On `Mission file` (OpenReliant's own), which comes right after `Mission started`, send tag `0x09`
+   (the original's) with the script's flags: a byte for each of the script's bytes, rounded up to a
+   multiple of 4, with bit 0 set on each byte to stop before. Send them with no breakpoints too,
+   since the start parts wait for them for up to a second. The statements end at the opcodes
+   `vm_starts_statement` gives (above), which a step stops before.
+3. On tag `0x1A` (the original's), the script is held before the byte at the offset it gives: send
+   tag `0x15` (the original's) with 1 to run on, 2 to step into the next statement, or 3 to step
+   over it; or with 0 and 1 to pause the mission, and 0 and 0 to let it go on.
+4. Send `Get state` (OpenReliant's own) for the script's threads, globals and variables.
 
 `engine/link.zig` has a record for each of OpenReliant's own messages, which writes its payload and
 reads it back: `Hello`, `MissionStarted` and `State`. The game writes them, and `openreliant debug`
