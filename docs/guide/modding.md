@@ -182,6 +182,10 @@ The mods the section doesn't list are on, and load after the listed ones, in the
 Only 0 turns a mod off. To go back to loading every mod in the order of its name, delete the section.
 You can also edit it by hand.
 
+For a single run, `--mods` loads only the mods it names, in that order, and leaves the section as it
+is: `--mods bananas` plays a mod on its own, and a path, such as `--mods dist/bananas.hog`, loads a
+mod from outside the `mods` folder ([Configuration](configuration.md)).
+
 - A mod whose name has an equals sign, starts with a bracket or has spaces at either end can't be
   listed. It stays on and loads with the unlisted mods.
 - The screen lists up to 255 mods, and leaves out the ones that need a newer OpenReliant

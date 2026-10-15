@@ -23,6 +23,10 @@ const Game = @import("game.zig").Game;
 const Presentation = @import("presentation.zig").Presentation;
 const reference = @import("reference.zig");
 
+/// The log the console's own lines go to as well as to its screen (`Console.say`). A failure goes
+/// to it as a warning: it's the line's, not the game's.
+const console_log = std.log.scoped(.console);
+
 pub const screen = @import("console/screen.zig");
 
 test {
@@ -120,6 +124,18 @@ pub const Output = struct {
 
 /// The console's output, which the log writes to (`log`).
 pub var output: Output = .{};
+
+/// Writes `text`, the console's own, to its output, and to the log too, a message for each of its
+/// lines, under `console` (`console_log`), so that an editor that sends the console lines reads
+/// what it answers.
+fn answer(tone: Tone, text: []const u8) void {
+    output.add(tone, text);
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| switch (tone) {
+        .info, .typed => console_log.info("{s}", .{line}),
+        .warning, .failure => console_log.warn("{s}", .{line}),
+    };
+}
 
 /// Writes a message of the log to the console's output, as the driver's log function passes on the
 /// scripts' messages: errors and warnings in their tones.
@@ -284,9 +300,16 @@ pub const Console = struct {
         console.typed.len = 0;
         console.recalled = null;
         console.view.back = 0;
+        return console.runText(scripts, utf8);
+    }
+
+    /// Runs `text`, a line of UTF-8, as `run` runs the line typed: one of the console's commands,
+    /// Luau, or a line for the scripts. An editor's console lines come this way
+    /// (`link.ConsoleLine`).
+    pub fn runText(console: *Console, scripts: Scripts, text: []const u8) Allocator.Error!?Request {
         var prompt_buffer: [prompt_room]u8 = undefined;
-        console.say(.typed, "{s} {s}", .{ console.prompt(&prompt_buffer), utf8 });
-        const line = std.mem.trim(u8, utf8, " ");
+        console.say(.typed, "{s} {s}", .{ console.prompt(&prompt_buffer), text });
+        const line = std.mem.trim(u8, text, " ");
         if (line.len == 0) return null;
         switch (console.mode) {
             .commands => return console.command(line, scripts),
@@ -333,7 +356,7 @@ pub const Console = struct {
         defer text.deinit();
         const found = writeHelp(&text.writer, name) catch return error.OutOfMemory;
         if (!found) return console.say(.warning, "there's no command, package, engine handler or hook named {s}", .{name});
-        output.add(.info, std.mem.trimEnd(u8, text.written(), "\n"));
+        answer(.info, std.mem.trimEnd(u8, text.written(), "\n"));
     }
 
     /// Writes what `help` says of `name`: the commands where it's empty, a command, or what the
@@ -356,7 +379,7 @@ pub const Console = struct {
         var text: Io.Writer.Allocating = .init(console.gpa);
         defer text.deinit();
         console.writeMods(&text.writer, scripts) catch return error.OutOfMemory;
-        output.add(.info, std.mem.trimEnd(u8, text.written(), "\n"));
+        answer(.info, std.mem.trimEnd(u8, text.written(), "\n"));
     }
 
     fn writeMods(console: *Console, w: *Io.Writer, scripts: Scripts) (Allocator.Error || Io.Writer.Error)!void {
@@ -431,15 +454,15 @@ pub const Console = struct {
         const context = contextOf(target, scripts) orelse return console.notRunning(target);
         var result: Io.Writer.Allocating = .init(console.gpa);
         defer result.deinit();
-        if (try context.runtime.evaluate(context, line, &result.writer) and result.written().len > 0) output.add(.info, result.written());
+        if (try context.runtime.evaluate(context, line, &result.writer) and result.written().len > 0) answer(.info, result.written());
     }
 
-    /// Writes a line of the console's own to the output.
+    /// Writes a line of the console's own (`answer`).
     fn say(_: *const Console, tone: Tone, comptime format: []const u8, args: anytype) void {
         var buffer: [max_line]u8 = undefined;
         var w: Io.Writer = .fixed(&buffer);
         w.print(format, args) catch {};
-        output.add(tone, w.buffered());
+        answer(tone, w.buffered());
     }
 };
 

@@ -1085,7 +1085,8 @@ pub const Machine = struct {
     /// `vm_command` (`0x0045BEA0`): runs a command of the catalogue on its arguments, the top of
     /// the stack, which it pops (`runCommand`). Its result takes the first argument's place, above
     /// the stack, and is the thread's result. A command a hook holds (`CommandResult.hold`) puts
-    /// its arguments back instead, and the thread waits to run it again.
+    /// its arguments back instead, and the thread waits to run it again. The editor hears of each
+    /// command that ran (`editor.Editor.report`).
     fn command(machine: *Machine, index: u8, number: u8) Fault!u32 {
         const thread = &machine.threads[index];
         if (number >= executor.commands.table.len) return error.OutOfRange;
@@ -1101,6 +1102,7 @@ pub const Machine = struct {
             const call: Call = .{ .machine = machine, .thread = index, .args = &.{} };
             return call.againItself();
         }
+        machine.editor.report(.{ .command = number });
         return machine.commandResult(index, @backingInt(result));
     }
 

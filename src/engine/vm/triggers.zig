@@ -55,12 +55,13 @@ pub fn raise(machine: *Machine, object: ?u16, event: Event) void {
 /// on its block, the one whose locals have the event's values, at once or for the scheduler as the
 /// trigger says, unless a thread it started still runs (`threadRunning`). It is disarmed as its
 /// repeat mode says (`disarm`), whether or not a thread started. Mods' scripts are told of each
-/// trigger that fires (`trigger_fired`).
+/// trigger that fires (`trigger_fired`), and so is the editor (`editor.Editor.report`).
 fn match(machine: *Machine, object: u16, event: Event) void {
     var each = firings(machine, object, event);
     while (each.next()) |firing| {
         const trigger = firing.trigger;
         log.debug("trigger {d} of object {d} fires on {f}", .{ firing.index, object, event.condition });
+        machine.editor.report(.{ .trigger = @intCast(firing.index) });
         if (machine.game) |game| hooks.tell(game, .trigger_fired, .{
             .trigger = firing.index,
             .condition = event.condition,

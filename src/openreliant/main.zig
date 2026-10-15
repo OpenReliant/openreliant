@@ -267,9 +267,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer update_check.close();
     // OpenReliant's mods, whose files take priority over the game's files wherever they are; none
     // with `--no-mods`. The mods screen sets which are on and the order they load in, for a
-    // screenshot too.
+    // screenshot too, and `--mods` sets them for the run alone.
     const mods_order: game.bigfile.mods.Order = .{ .profile = settings_file.profile };
-    var mods: game.bigfile.Mods = if (options.mods) try .openOrdered(arena, io, directory, version.semantic, mods_order) else .none;
+    var chosen_names: [options_page.max_chosen_mods][]const u8 = undefined;
+    const chosen_mods = options.chosenMods(&chosen_names);
+    var mods: game.bigfile.Mods = if (!options.mods)
+        .none
+    else if (chosen_mods.len > 0)
+        try .openChosen(arena, io, directory, version.semantic, mods_order, chosen_mods, .cwd())
+    else
+        try .openOrdered(arena, io, directory, version.semantic, mods_order);
     defer mods.close(arena);
     // The ship types, guns, missiles and pilots the mods add, each numbered from where the game's
     // end.
@@ -933,12 +940,24 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     .reload => reloading = true,
                 };
             } else if (ScriptConsole.asked(&devices.keyboard)) try shown.bringUp(pausing, mission, &typed);
+            // The lines an editor sent run as if typed into the console (`engine.link.ConsoleLine`).
+            if (editor) |session| {
+                for (session.console_lines.items) |line| {
+                    if (try shown.console.runText(game_scripts.reachable(), line)) |request| switch (request) {
+                        .reload => reloading = true,
+                    };
+                }
+                session.clearConsoleLines();
+            }
             if (reloading) try game_scripts.reload(if (mission) .{
                 .orders = .{ .world = world, .devices = &devices },
                 .mission = game.main.scriptMission(&reload_file, objects, play.number, play.file_number),
                 .seed = game.main.scriptSeed(world.random, play.number),
             } else null);
-        }
+        } else if (editor) |session| if (session.console_lines.items.len > 0) {
+            std.log.warn("the editor sent a line for the console, which needs --developer-mode and a mod with scripts, so the game passes over it", .{});
+            session.clearConsoleLines();
+        };
         const console_up = if (console) |*shown| shown.isUp() else false;
 
         world.view = view.view;
@@ -2128,6 +2147,7 @@ const EditorLink = struct {
     }
 
     fn close(editor: *EditorLink) void {
+        editor.session.deinit();
         editor.link.deinit();
         editor.server.stop();
     }

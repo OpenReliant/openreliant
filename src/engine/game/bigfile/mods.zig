@@ -540,46 +540,34 @@ pub const Mods = struct {
             }
         }.lessThan);
 
-        var list: std.ArrayList(Mod) = .empty;
-        defer list.deinit(gpa);
-        errdefer for (list.items) |*mod| mod.close(gpa);
-        var off: std.ArrayList(Mod) = .empty;
-        defer off.deinit(gpa);
-        errdefer for (off.items) |*mod| mod.close(gpa);
-        var damaged: std.ArrayList(Mod) = .empty;
-        defer damaged.deinit(gpa);
-        errdefer for (damaged.items) |*mod| mod.close(gpa);
-        var unmet: std.ArrayList(Mod) = .empty;
-        defer unmet.deinit(gpa);
-        errdefer for (unmet.items) |*mod| mod.close(gpa);
+        var sorting: Sorting = .{};
+        errdefer sorting.deinit(gpa);
         for (entries.items) |entry| {
             // A mod that is off isn't checked against its checksum, as none of it is used.
             const on = order.isOn(entry.name);
             const recorded = order.installedFrom(entry.name) != null;
-            var mod = try Mod.open(gpa, io, folder, entry.name, entry.kind, on, recorded) orelse continue;
-            if (running) |version| if (mod.needsLater(version)) |needed| {
-                log.warn("skipping the mod {f}: it needs OpenReliant {f}, and this is {f}", .{ mod, needed, version });
-                mod.close(gpa);
-                continue;
-            };
-            if (!on) log.info("the mod {f} is off", .{mod});
-            const into = if (mod.checksum == .mismatch) &damaged else if (!on) &off else if (mod.missing(Earlier{ .mods = list.items })) |needed| unmet: {
-                log.warn("skipping the mod {f}: it needs the mod {s}, which doesn't load before it", .{ mod, needed });
-                break :unmet &unmet;
-            } else &list;
-            into.append(gpa, mod) catch |err| {
-                mod.close(gpa);
-                return err;
-            };
+            const mod = try Mod.open(gpa, io, folder, entry.name, entry.kind, on, recorded) orelse continue;
+            try sorting.add(gpa, mod, on, running);
         }
-        var mods: Mods = .{ .list = try list.toOwnedSlice(gpa) };
-        errdefer mods.close(gpa);
-        mods.off = try off.toOwnedSlice(gpa);
-        mods.damaged = try damaged.toOwnedSlice(gpa);
-        mods.unmet = try unmet.toOwnedSlice(gpa);
-        try mods.makeIndex(gpa);
-        if (report_files) try mods.report(gpa, io, game);
-        return mods;
+        return sorting.finish(gpa, io, game, report_files);
+    }
+
+    /// Opens only the mods `chosen` names, in that order, all of them on, as `--mods` asks: each
+    /// by its name in the `mods` folder of the game folder `game`, matched ignoring case, or by a
+    /// path from `from` to a mod's folder or archive elsewhere, which has a slash in it. The mods
+    /// it doesn't name aren't opened, so the mods screen's list stays as it is. `order` says which
+    /// archives the GET MODS screen installed, which must match their checksum files.
+    pub fn openChosen(gpa: Allocator, io: Io, game: Io.Dir, running: ?std.SemanticVersion, order: Order, chosen: []const []const u8, from: Io.Dir) Allocator.Error!Mods {
+        var path: [files.max_path]u8 = undefined;
+        var folder: ?Io.Dir = if (files.find(io, game, folder_name, &path)) |found| game.openDir(io, found, .{}) catch null else null;
+        defer if (folder) |*opened| opened.close(io);
+        var sorting: Sorting = .{};
+        errdefer sorting.deinit(gpa);
+        for (chosen) |wanted| {
+            const mod = try openWanted(gpa, io, folder, from, wanted, order) orelse continue;
+            try sorting.add(gpa, mod, true, running);
+        }
+        return sorting.finish(gpa, io, game, true);
     }
 
     pub fn close(mods: *Mods, gpa: Allocator) void {
@@ -1101,6 +1089,86 @@ fn isArchive(name: []const u8) bool {
     return std.ascii.eqlIgnoreCase(std.Io.Dir.path.extension(name), archive_extension);
 }
 
+/// The mods as they open, sorted by what becomes of each (`Mods.openListing`, `Mods.openChosen`):
+/// loaded, off, damaged, or needing a mod that doesn't load before it.
+const Sorting = struct {
+    list: std.ArrayList(Mod) = .empty,
+    off: std.ArrayList(Mod) = .empty,
+    damaged: std.ArrayList(Mod) = .empty,
+    unmet: std.ArrayList(Mod) = .empty,
+
+    /// Sorts `opened`, which `on` says is on, into its list. One that needs an OpenReliant later
+    /// than `running` is skipped and closed.
+    fn add(sorting: *Sorting, gpa: Allocator, opened: Mod, on: bool, running: ?std.SemanticVersion) Allocator.Error!void {
+        var mod = opened;
+        if (running) |version| if (mod.needsLater(version)) |needed| {
+            log.warn("skipping the mod {f}: it needs OpenReliant {f}, and this is {f}", .{ mod, needed, version });
+            mod.close(gpa);
+            return;
+        };
+        if (!on) log.info("the mod {f} is off", .{mod});
+        const into = if (mod.checksum == .mismatch) &sorting.damaged else if (!on) &sorting.off else if (mod.missing(Earlier{ .mods = sorting.list.items })) |needed| unmet: {
+            log.warn("skipping the mod {f}: it needs the mod {s}, which doesn't load before it", .{ mod, needed });
+            break :unmet &sorting.unmet;
+        } else &sorting.list;
+        into.append(gpa, mod) catch |err| {
+            mod.close(gpa);
+            return err;
+        };
+    }
+
+    /// The mods as sorted, with the index of their files, and with `report_files`, what each one's
+    /// files replace or add written to the log (`Mods.report`).
+    fn finish(sorting: *Sorting, gpa: Allocator, io: Io, game: Io.Dir, report_files: bool) Allocator.Error!Mods {
+        var mods: Mods = .{ .list = try sorting.list.toOwnedSlice(gpa) };
+        errdefer mods.close(gpa);
+        mods.off = try sorting.off.toOwnedSlice(gpa);
+        mods.damaged = try sorting.damaged.toOwnedSlice(gpa);
+        mods.unmet = try sorting.unmet.toOwnedSlice(gpa);
+        try mods.makeIndex(gpa);
+        if (report_files) try mods.report(gpa, io, game);
+        return mods;
+    }
+
+    /// Closes the mods sorted so far, where opening them fails.
+    fn deinit(sorting: *Sorting, gpa: Allocator) void {
+        for ([_]*std.ArrayList(Mod){ &sorting.list, &sorting.off, &sorting.damaged, &sorting.unmet }) |kept| {
+            for (kept.items) |*mod| mod.close(gpa);
+            kept.deinit(gpa);
+        }
+    }
+};
+
+/// The mod `wanted` names for `Mods.openChosen`, opened on: a path from `from` to a mod's folder or
+/// archive where it has a slash in it, and otherwise a mod's name in the `mods` folder `folder`,
+/// matched ignoring case. Null, with a message in the log, where there's no such mod.
+fn openWanted(gpa: Allocator, io: Io, folder: ?Io.Dir, from: Io.Dir, wanted: []const u8, order: Order) Allocator.Error!?Mod {
+    var buffer: [files.max_path]u8 = undefined;
+    const elsewhere = std.mem.findAny(u8, wanted, "/\\") != null;
+    const parent: Io.Dir, const name: []const u8 = if (elsewhere) .{
+        from.openDir(io, Io.Dir.path.dirname(wanted) orelse ".", .{}) catch {
+            log.warn("skipping the mod {s}: there's no such folder or archive", .{wanted});
+            return null;
+        },
+        Io.Dir.path.basename(wanted),
+    } else in_folder: {
+        const mods_folder = folder orelse {
+            log.warn("skipping the mod {s}: the game's folder has no {s} folder", .{ wanted, folder_name });
+            return null;
+        };
+        break :in_folder .{ mods_folder, files.find(io, mods_folder, wanted, &buffer) orelse {
+            log.warn("skipping the mod {s}: the {s} folder has no such mod", .{ wanted, folder_name });
+            return null;
+        } };
+    };
+    defer if (elsewhere) parent.close(io);
+    const kind = (parent.statFile(io, name, .{}) catch {
+        log.warn("skipping the mod {s}: there's no such folder or archive", .{wanted});
+        return null;
+    }).kind;
+    return Mod.open(gpa, io, parent, name, kind, true, !elsewhere and order.installedFrom(name) != null);
+}
+
 /// Whether a file or folder name is hidden, such as `.DS_Store` or `.git`. Mods skip them.
 fn hidden(name: []const u8) bool {
     return std.mem.startsWith(u8, name, ".");
@@ -1256,6 +1324,41 @@ test "a mod that needs a newer version is skipped" {
     var every: Mods = try .open(gpa, io, tmp.dir, null);
     defer every.close(gpa);
     try std.testing.expectEqual(5, every.list.len);
+}
+
+test "the mods --mods chooses load alone, in its order" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    // Three mods in the mods folder, Gamma needing Alpha, and an archive elsewhere.
+    try tmp.dir.createDirPath(io, "mods/Alpha");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/Alpha/note.txt", .data = "alpha" });
+    try tmp.dir.createDirPath(io, "mods/beta");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/beta/note.txt", .data = "beta" });
+    try tmp.dir.createDirPath(io, "mods/gamma");
+    try tmp.dir.writeFile(io, .{ .sub_path = "mods/gamma/mod.ini", .data = "[Mod]\nRequires=Alpha\n" });
+    try tmp.dir.createDirPath(io, "dist");
+    try hog.testing.write(gpa, io, tmp.dir, "dist/delta.hog", &.{.{ .name = "note.txt", .data = "delta" }});
+
+    // Beta isn't chosen, a name matches ignoring case, and the archive comes by its path, last, so
+    // its file wins.
+    var mods: Mods = try .openChosen(gpa, io, tmp.dir, null, .none, &.{ "alpha", "dist/delta.hog" }, tmp.dir);
+    defer mods.close(gpa);
+    try std.testing.expectEqual(2, mods.list.len);
+    try std.testing.expectEqualStrings("Alpha", mods.list[0].name);
+    try std.testing.expectEqualStrings("delta.hog", mods.list[1].name);
+    const note = (try mods.readFile(gpa, "note.txt")).?;
+    defer gpa.free(note);
+    try std.testing.expectEqualStrings("delta", note);
+
+    // A mod loads only after the mods it needs, and a name that isn't there is skipped.
+    var needing: Mods = try .openChosen(gpa, io, tmp.dir, null, .none, &.{ "gamma", "Alpha", "missing" }, tmp.dir);
+    defer needing.close(gpa);
+    try std.testing.expectEqual(1, needing.list.len);
+    try std.testing.expectEqualStrings("Alpha", needing.list[0].name);
+    try std.testing.expectEqual(1, needing.unmet.len);
+    try std.testing.expectEqualStrings("gamma", needing.unmet[0].name);
 }
 
 test "a mod loads only after the mods it needs" {
