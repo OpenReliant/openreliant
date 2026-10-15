@@ -270,11 +270,15 @@ pub const Room = struct {
 
 /// A game mode's briefing in one of the game's briefing rooms, as the StarLancer trial briefs its
 /// missions: the room, the movie on the room's screen and Enriquez's last word, in place of the
-/// campaign's for the mission's number. The walk into the room is left out, as in the trial.
+/// campaign's for the mission's number. The walk into the room is left out, as in the trial,
+/// unless the mode asks for it (`walk_in`).
 ///
 /// **Improvement:** the original briefs only the campaign's missions.
 pub const Own = struct {
     carrier: rooms.Carrier,
+    /// Whether the player walks into the room as in the campaign, with the door's sound and the
+    /// room's chatter, before the briefing.
+    walk_in: bool = false,
     /// The movie on the room's screen, a Bink file of the game's or a mod's; none ends the
     /// briefing at once, for the loadout.
     movie: ?[]const u8 = null,
@@ -488,11 +492,11 @@ pub const Briefing = struct {
         sound.pauseAll();
         context.disc.open(briefing.carrier.disc());
         if (briefing.from_loadout) return briefing.afterBriefing(ticks);
-        // A game mode's briefing starts in the room.
-        if (briefing.own != null) {
+        // A game mode's briefing starts in the room, unless the mode asks for the walk in.
+        if (briefing.own) |own| if (!own.walk_in) {
             briefing.stage = .walked_in;
             return null;
-        }
+        };
         briefing.sounds = context.readBank(sounds_bank);
         if (briefing.room.way.before) |before| {
             briefing.stage = .door_open;
@@ -1143,4 +1147,38 @@ test "a game mode's briefing: its room and movie, without the walk in or a last 
     try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, 2));
     try std.testing.expectEqual(Stage.tag, briefing.stage);
     try std.testing.expectEqual(0, briefing.line.len);
+}
+
+test "a game mode's briefing with the walk in: the way into its room, then its movie" {
+    var tested: rooms.testing.Tested = undefined;
+    try testFiles(&tested, &.{"prequel_m01.bik"});
+    defer tested.deinit();
+    var keyboard: input.Keyboard = .{};
+    var briefing: Briefing = .open(tested.context(), 19, false, null, .{ .carrier = .reliant, .walk_in = true, .movie = "prequel_m01.bik" }, null);
+    defer briefing.close();
+    // The Reliant's way in, then the mod's movie plays in the room.
+    try std.testing.expectEqualDeep(Step{ .movie = "rel_c2bre.bik" }, passAt(&briefing, &keyboard, false, 0).?);
+    try std.testing.expectEqual(Stage.walked_in, briefing.stage);
+    try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, 1));
+    try std.testing.expect(briefing.stage == .briefing and briefing.playing);
+}
+
+test "a game mode's briefing with the walk in on the Yamato: the screen by its door first" {
+    var tested: rooms.testing.Tested = undefined;
+    try testFiles(&tested, &.{"prequel_m01.bik"});
+    defer tested.deinit();
+    var keyboard: input.Keyboard = .{};
+    // Mission 3, which the campaign briefs on the Reliant, in the Yamato's room.
+    var briefing: Briefing = .open(tested.context(), 3, false, null, .{ .carrier = .yamato, .walk_in = true, .movie = "prequel_m01.bik" }, null);
+    defer briefing.close();
+    try std.testing.expectEqual(&Room.yamato, briefing.room);
+    // The movie before the way in, then the way in, then the briefing in the room.
+    try std.testing.expectEqualDeep(Step{ .movie = "amonoff_.bik" }, passAt(&briefing, &keyboard, false, 0).?);
+    try std.testing.expectEqual(Stage.door_open, briefing.stage);
+    try std.testing.expectEqualDeep(Step{ .movie = "briefing room 350.bik" }, passAt(&briefing, &keyboard, false, 1).?);
+    try std.testing.expectEqual(Stage.walked_in, briefing.stage);
+    // The test's movies are on the Reliant's disc, so without the mod's movie here the briefing
+    // ends at once.
+    try std.testing.expectEqual(null, passAt(&briefing, &keyboard, false, 2));
+    try std.testing.expectEqual(Stage.tag, briefing.stage);
 }

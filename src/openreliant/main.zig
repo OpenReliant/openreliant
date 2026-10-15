@@ -1059,7 +1059,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         var flight = modeFlight(&game_modes);
                         if (current.briefing_room) |carrier| {
                             const entry = game_modes.mission().?;
-                            const room: game.interface.briefing.Own = .{ .carrier = carrier, .movie = entry.hologram, .last_word = entry.last_word };
+                            const room: game.interface.briefing.Own = .{ .carrier = carrier, .walk_in = current.walk_in, .movie = entry.hologram, .last_word = entry.last_word };
                             switch (try through.modeBriefing(flight.mission, room, current.loadout_ships) orelse return) {
                                 // The loadout's ship and racks, unless the mode gives the ship.
                                 .fly => |flown| if (flown.result) |result| if (flight.ship == null) {

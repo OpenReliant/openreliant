@@ -135,6 +135,9 @@ pub const Definition = struct {
     /// the loadout on the same ship and her `last_word` (`MissionTable`), as the StarLancer trial
     /// briefs its missions ([#819](https://github.com/OpenReliant/openreliant/issues/819)).
     briefing_room: ?rooms.Carrier = null,
+    /// Whether the player walks into the briefing room before each briefing there, as in the
+    /// campaign, rather than starting in the room as the trial does.
+    walk_in: bool = false,
     /// The ships the loadout offers there, in order, in place of those the campaign's tier and the
     /// pilot's rank open. It starts on the first, and then on the ship chosen last.
     loadout_ships: ?values.List(gameobj.Type, max_loadout_ships) = null,
@@ -179,6 +182,8 @@ pub const Mode = struct {
     /// The game's briefing room that briefs its missions, if one does, and the ships its loadout
     /// offers, if the mode lists them.
     briefing_room: ?rooms.Carrier = null,
+    /// Whether the player walks into that room before each briefing.
+    walk_in: bool = false,
     loadout_ships: ?[]const gameobj.Type = null,
     /// The pilots it seats in the player's wing, from Alpha 2, if it names any.
     wing_pilots: ?[]const pilots.Number = null,
@@ -286,6 +291,7 @@ pub const Registry = struct {
             .kind = given.kind(),
             .briefing = if (names.briefing) |screen_name| try memory.dupe(u8, screen_name) else null,
             .briefing_room = given.briefing_room,
+            .walk_in = given.walk_in,
             .loadout_ships = if (given.loadout_ships) |listed| try memory.dupe(gameobj.Type, listed.slice()) else null,
             .wing_pilots = if (given.wing_pilots) |listed| try memory.dupe(pilots.Number, listed.slice()) else null,
             .debriefing = given.debriefing,
@@ -436,7 +442,7 @@ fn entries(memory: Allocator, given: []const MissionGiven) (Allocator.Error || e
 
 /// What `openreliant.core` holds of game modes.
 pub const functions = struct {
-    pub const register_game_mode = api.Function("Registers a game mode, which the main menu's GAME MODES lists. The mod's name qualifies its `name`, and the screen shows its `label` and `description`. `missions` lists the missions it flies in turn: each is the number of a standard `.DTE` file of the game's or a mod's, or a table that also gives the number the mission flies as, the names of its objectives, and its `hologram` and `last_word` in the briefing room. `ship` is the ship the player flies them in; without it, each mission gives the ship. With `loop`, the mode starts again after its last mission. A `campaign` shows the restart screen after a mission is lost or left, and carries on from the mission the player reached. `briefing` names the mod's registered screen that the front end shows before each mission. `briefing_room`, `reliant` or `yamato`, then briefs each mission in that game's briefing room, with the loadout. `loadout_ships` lists the ships that loadout offers, in order, starting on the first. `wing_pilots` lists the pilots of the player's wingmen, Alpha 2 to 6, in place of the campaign's wing, which the missions flown as the campaign's numbers give the wingmen: each a pilot of the game's by its number, or one a mod adds by its qualified name, and `none` keeps a place's pilot. With `debriefing`, the ITAC debriefs each mission that goes on to the next. `ending` names the mod's registered screen that the front end shows after the last mission. `records` names the mod's script that changes the records for the mode's missions alone: it runs as a load script before each of them, and its changes go back as the mission ends. Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name.", &.{"definition"}, register);
+    pub const register_game_mode = api.Function("Registers a game mode, which the main menu's GAME MODES lists. The mod's name qualifies its `name`, and the screen shows its `label` and `description`. `missions` lists the missions it flies in turn: each is the number of a standard `.DTE` file of the game's or a mod's, or a table that also gives the number the mission flies as, the names of its objectives, and its `hologram` and `last_word` in the briefing room. `ship` is the ship the player flies them in; without it, each mission gives the ship. With `loop`, the mode starts again after its last mission. A `campaign` shows the restart screen after a mission is lost or left, and carries on from the mission the player reached. `briefing` names the mod's registered screen that the front end shows before each mission. `briefing_room`, `reliant` or `yamato`, then briefs each mission in that game's briefing room, with the loadout; with `walk_in`, the player walks into the room before each briefing, as in the campaign. `loadout_ships` lists the ships that loadout offers, in order, starting on the first. `wing_pilots` lists the pilots of the player's wingmen, Alpha 2 to 6, in place of the campaign's wing, which the missions flown as the campaign's numbers give the wingmen: each a pilot of the game's by its number, or one a mod adds by its qualified name, and `none` keeps a place's pilot. With `debriefing`, the ITAC debriefs each mission that goes on to the next. `ending` names the mod's registered screen that the front end shows after the last mission. `records` names the mod's script that changes the records for the mode's missions alone: it runs as a load script before each of them, and its changes go back as the mission ends. Only load and menu scripts can use it, as OpenReliant starts. Returns the mode's qualified name.", &.{"definition"}, register);
     pub const game_mode = api.Field(?[]const u8, "The qualified name of the game mode that runs, such as `arena:arena`; nil in the game's campaign, INSTANT ACTION and anywhere else.", struct {
         pub fn get(call: Call) ?[]const u8 {
             const registry = call.runtime().options.shared.modes orelse return null;
