@@ -2227,8 +2227,12 @@ const MassSum = struct {
 };
 
 /// What `object_bounds` (`0x00476680`) sums over every node under the root: the bounding box and
-/// the radius over the vertices of each part's current level, and the inertia tensor of the shown
+/// the radius over the vertices of each part's finest level, and the inertia tensor of the shown
 /// parts (`partInertia`).
+///
+/// **Fix:** the game takes each part's current level, the one it last drew, so the bounds and the
+/// radius change with how far the camera was. OpenReliant takes the finest, the same wherever the
+/// camera is.
 const Extent = struct {
     bounds: [2]Vector = .{ @splat(std.math.floatMax(f32)), @splat(-std.math.floatMax(f32)) },
     radius: f32 = 0,
@@ -2237,7 +2241,7 @@ const Extent = struct {
     /// Adds `part`, of record `data`, where the model was last placed.
     fn add(extent: *Extent, part: *const objects.Model.Part, data: ?shp.PartData) void {
         if (part.object.levels.len > 0) {
-            for (part.object.levels[part.object.level].mesh.positions) |position| {
+            for (part.object.finest().positions) |position| {
                 const at = math.transform(part.object.orientation, position) + part.object.position;
                 const low = @min(extent.bounds[0], at);
                 const high = @max(extent.bounds[1], at);

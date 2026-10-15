@@ -471,6 +471,11 @@ pub const MeshObject = struct {
     /// mod's atmosphere (`atmosphere.Shell`), whose light is the sunlight its haze scatters.
     adds_linearly: bool = false,
 
+    /// The mesh of the finest level, the first; it has one at least.
+    pub fn finest(object: *const MeshObject) *const Mesh {
+        return object.levels[0].mesh;
+    }
+
     /// The mesh of the level drawn, or of the coarsest where the level is past them; it has one
     /// at least.
     pub fn shown(object: *const MeshObject) *const Mesh {

@@ -1851,18 +1851,20 @@ pub const Model = struct {
         };
     }
 
-    /// The bounds of the level the part at `child` in the root's child list (`rootChild`) drew
-    /// last, in its own frame; null where there is no such part, or it has no level.
-    pub fn levelBounds(model: *const Model, child: usize) ?[2]Vector {
+    /// The bounds of the finest level of the part at `child` in the root's child list
+    /// (`rootChild`), in its own frame; null where there is no such part, or it has no level.
+    ///
+    /// **Fix:** the game takes the level the part last drew, so a bay's or a door's bounds change
+    /// with how far the camera was. OpenReliant takes the finest, the same wherever the camera is.
+    pub fn partBounds(model: *const Model, child: usize) ?[2]Vector {
         const part = model.rootChild(child) orelse return null;
-        const levels = part.object.levels;
-        if (part.object.level >= levels.len) return null;
-        return levels[part.object.level].mesh.bounds;
+        if (part.object.levels.len == 0) return null;
+        return part.object.finest().bounds;
     }
 
-    /// The middle of those bounds (`levelBounds`).
+    /// The middle of those bounds (`partBounds`).
     pub fn boundsMiddle(model: *const Model, child: usize) ?Vector {
-        const bounds = model.levelBounds(child) orelse return null;
+        const bounds = model.partBounds(child) orelse return null;
         return (bounds[1] + bounds[0]) * @as(Vector, @splat(0.5));
     }
 

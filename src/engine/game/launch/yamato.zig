@@ -161,7 +161,7 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const gate = std.math.cast(usize, slot.orders[0].target.component) orelse return;
     const model = if (holder.model) |*held| held else return;
     const bay = gate + first_bay;
-    const bounds = model.levelBounds(bay) orelse return;
+    const bounds = model.partBounds(bay) orelse return;
     setBay(model, gate, true);
     const frame = model.frameAt(bay, holder.drawn);
     var at = (bounds[0] + bounds[1]) * @as(math.Vector, @splat(0.5));
@@ -320,7 +320,7 @@ fn setMarker(world: gameobj.World, slot: *create.Slot) void {
     const holder = &world.objects.slots[carrier];
     const model = if (holder.model) |*held| held else return;
     const gate = std.math.cast(usize, slot.orders[0].target.component) orelse return;
-    const bounds = model.levelBounds(gate + first_bay) orelse return;
+    const bounds = model.partBounds(gate + first_bay) orelse return;
     const local: math.Vector = .{
         if (gate < side_split) bounds[1][0] + marker_margin else bounds[0][0] - marker_margin,
         bounds[0][1] - marker_margin,

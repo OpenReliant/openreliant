@@ -1079,19 +1079,21 @@ fn frameObject(slot: *create.Slot, timing: objects.Timing, glide: ?math.Vector, 
     cloak.wobble(slot, now);
 }
 
-/// OpenReliant's: where a drawn frame places the objects and the missiles. A game frame frames
-/// them by the step's ticks alone (`gameFrames`). With smooth motion, a drawn frame places them as
-/// far on as the platform's clock has run past the last tick (`objects.pastTick`), so that what
-/// moves moves on every drawn frame. Once the frame is drawn, it puts back the frames the game
-/// frame left, so placing the objects for drawing changes nothing the game goes on from.
+/// OpenReliant's: what a drawn frame does to the objects and the missiles, and undoes. A game frame
+/// frames them by the step's ticks alone (`gameFrames`). Each drawn frame keeps those frames, and
+/// with smooth motion places the objects as far on as the platform's clock has run past the last
+/// tick (`objects.pastTick`), so that what moves moves on every drawn frame. Once the frame is
+/// drawn, it puts back the frames the game frame left, along with whatever drawing changed in them,
+/// such as the planets the atmospheres turn (`create.atmosphere.Atmospheres.frame`). So drawing
+/// changes nothing the game goes on from.
 pub const DrawnPlaces = struct {
     gpa: Allocator,
     kept: objects.KeptFrames = .{},
     /// The slots of the objects, and then the missiles, whose frames `kept` holds, in order.
     slots: std.ArrayList(u16) = .empty,
     missiles: std.ArrayList(u8) = .empty,
-    /// Whether the objects stand where the drawn frame placed them, for `restore`.
-    placed: bool = false,
+    /// Whether `kept` holds the frames, for `restore`.
+    holding: bool = false,
 
     pub fn deinit(places: *DrawnPlaces) void {
         places.kept.deinit(places.gpa);
@@ -1099,18 +1101,18 @@ pub const DrawnPlaces = struct {
         places.missiles.deinit(places.gpa);
     }
 
-    /// Keeps the frames of every object and missile the game frame framed, then frames them
-    /// `timing` of the way through the step, as the game frame does (`frameObjects`,
-    /// `missiles.frame`), with nothing else the game frame does to them. Where there is no time
-    /// past the tick, or the frames can't be kept, the objects stay as the game frame framed them.
+    /// Keeps the frames of every object and missile the game frame framed, then, where there is
+    /// time past the tick, frames them `timing` of the way through the step, as the game frame does
+    /// (`frameObjects`, `missiles.frame`), with nothing else the game frame does to them. Where the
+    /// frames can't be kept, the objects stay as the game frame framed them.
     pub fn place(places: *DrawnPlaces, all: *create.Objects, timing: objects.Timing, now: i32) void {
-        std.debug.assert(!places.placed);
-        if (timing.ahead == 0) return;
+        std.debug.assert(!places.holding);
         places.keepAll(all) catch {
             places.clear();
             return;
         };
-        places.placed = true;
+        places.holding = true;
+        if (timing.ahead == 0) return;
         for (places.slots.items) |index| placeObject(all, index, timing, now);
         holdRiders(all, timing, now);
         for (places.missiles.items) |index| all.missiles.get(index).?.frameAt(timing.fraction);
@@ -1136,8 +1138,8 @@ pub const DrawnPlaces = struct {
 
     /// Puts back the frames `place` kept, once the frame is drawn.
     pub fn restore(places: *DrawnPlaces, all: *create.Objects) void {
-        if (!places.placed) return;
-        places.placed = false;
+        if (!places.holding) return;
+        places.holding = false;
         var cursor: objects.KeptFrames.Cursor = .{};
         for (places.slots.items) |index| places.kept.putBack(&cursor, &all.slots[index]);
         for (places.missiles.items) |index| places.kept.putBack(&cursor, &all.missiles.get(index).?.slot);
@@ -2205,9 +2207,10 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     // does as the mission before ends (`mission_run`, at `0x00494260`).
     start.display.subtarget.clear(all);
     all.reset(world.random);
-    // The shell and the debris, counted as used so the sweep below keeps them.
-    if (all.bullets.looks) |looks| looks.loadShell(all, types);
-    if (world.explosions) |explosions| explosions.debris = .load(all, types);
+    // The shell and the debris, which the sweep below keeps.
+    var drawn_types: create.TypeSet = .empty;
+    if (all.bullets.looks) |looks| looks.loadShell(types, &drawn_types);
+    if (world.explosions) |explosions| explosions.debris = .load(types, &drawn_types);
 
     if (world.hearing) |hearing| sound3d.endAll(hearing.sound);
     world.player.ending = .playing;
@@ -2252,7 +2255,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
         std.log.warn("the camera's marker is left out: {s}", .{@errorName(err)});
         break :marker null;
     };
-    start.types.sweep(&all.types);
+    start.types.sweep(&all.types, &drawn_types);
     // The schematics the target display last showed went with the types let go.
     start.display.target_pictures = .{};
     for (try loaded.bound.ships()) |ship| {
@@ -2591,10 +2594,13 @@ test DrawnPlaces {
     places.restore(mission.objects);
     try std.testing.expectEqual(drawn, slot.drawn);
     try std.testing.expectEqualSlices(u8, std.mem.asBytes(&framed), std.mem.asBytes(&slot.object));
-    // With no time past the tick, it places nothing.
+    // With no time past the tick, it moves nothing, but what drawing turns goes back all the same.
     mission.clock.past_tick = 0;
     places.place(mission.objects, .of(&mission.clock, true, .together), 0);
-    try std.testing.expect(!places.placed);
+    try std.testing.expectEqual(drawn, slot.drawn);
+    slot.drawn.orientation = math.rotation(.y, 0.5);
+    places.restore(mission.objects);
+    try std.testing.expectEqual(drawn, slot.drawn);
 }
 
 test "a mission plays the same way however often it is drawn" {
