@@ -24,6 +24,16 @@
 //!   guns and their hardpoints for missiles. As OpenReliant loads one of the mod's files, it
 //!   changes that number to the one the record got (`remapMission`, `remapModel`), so the files
 //!   stay in the game's formats.
+//! - A mod can list a record that a mod it requires adds, by its qualified name, with the number
+//!   its own files use for it, so that its files can use that record too (`Family.Reference`):
+//!
+//! ```ini
+//! [Mod]
+//! Requires=realistic-planets
+//!
+//! [ShipTypes]
+//! realistic-planets:mars=300
+//! ```
 //!
 //! The lists are fixed once OpenReliant has started (`read`), and read from anywhere.
 //!
@@ -125,8 +135,29 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             }
         };
 
+        /// Another mod's record that a mod lists by its qualified name, from a mod it requires, so
+        /// that its own files can use the record by the number it gives it.
+        pub const Reference = struct {
+            /// The record's qualified name.
+            name: []const u8,
+            /// The name of the mod that lists it (`Mod.name`), and the number that mod's files use.
+            mod: []const u8,
+            own_number: u32,
+            /// The record's number.
+            number: u32,
+        };
+
+        /// What the mods' manifests list: the records the mods add, in the order of their numbers,
+        /// and the records of other mods they name.
+        pub const Listed = struct {
+            added: []Added,
+            references: []Reference,
+        };
+
         /// The records the mods add, in the order of their numbers; empty until `install`.
         var registered: []Added = &.{};
+        /// The other mods' records the mods name; empty until `installReferences`.
+        var referenced: []const Reference = &.{};
 
         /// Makes `list` the records the mods add, as OpenReliant starts. The list must outlive
         /// every use.
@@ -135,9 +166,16 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             registered = list;
         }
 
+        /// Makes `list` the other mods' records that the mods name, as OpenReliant starts. The list
+        /// must outlive every use.
+        pub fn installReferences(list: []const Reference) void {
+            referenced = list;
+        }
+
         /// Lets go of the records, as a test ends.
         pub fn reset() void {
             registered = &.{};
+            referenced = &.{};
         }
 
         pub fn all() []Added {
@@ -169,10 +207,14 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             return first + registered.len;
         }
 
-        /// The number of the record the mod called `mod` gives the number `number` in its files.
+        /// The number of the record the mod called `mod` gives the number `number` in its files:
+        /// one it adds, or one of a mod it requires that it names.
         pub fn remapped(mod: []const u8, number: u32) ?u32 {
             for (registered, first..) |each, assigned| {
                 if (each.own_number == number and std.mem.eql(u8, each.mod, mod)) return @intCast(assigned);
+            }
+            for (referenced) |each| {
+                if (each.own_number == number and std.mem.eql(u8, each.mod, mod)) return each.number;
             }
             return null;
         }
@@ -189,29 +231,95 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             return find(qualified);
         }
 
-        /// The records each mod in `mods` adds, as its manifest lists them, in load order. A
-        /// record the manifest gets wrong is left out, which the log says, and so are those past
-        /// `capacity`.
-        pub fn read(arena: Allocator, mods: []const Mod) Allocator.Error![]Added {
+        /// The records each mod in `mods` adds, and the records of the mods it requires that it
+        /// names, as its manifest lists them, in load order. A record the manifest gets wrong is
+        /// left out, which the log says, and so are those past `capacity`.
+        pub fn read(arena: Allocator, mods: []const Mod) Allocator.Error!Listed {
             var list: std.ArrayList(Added) = .empty;
+            var references: std.ArrayList(Reference) = .empty;
+            var full = false;
             for (mods) |mod| {
                 var listed = mod.manifest.keys(spec.list_section);
                 while (listed.next()) |own| {
+                    const context: Context = .{ .arena = arena, .mod = mod, .own = own };
+                    if (std.mem.findScalar(u8, own, ':') != null) {
+                        const reference = refer(context, list.items, references.items) orelse continue;
+                        try references.append(arena, reference);
+                        continue;
+                    }
+                    if (full) continue;
                     if (list.items.len == capacity) {
                         log.warn("{s}: {s}: more than {d} of the mods' {s}s, so the rest are left out", .{ mod.name, mods_module.manifest_name, capacity, spec.noun });
-                        return list.items;
+                        full = true;
+                        continue;
                     }
-                    const made = try parse(.{ .arena = arena, .mod = mod, .own = own }, list.items) orelse continue;
+                    const made = try parse(context, list.items, references.items) orelse continue;
                     try list.append(arena, made);
                 }
             }
-            return list.items;
+            return .{ .added = list.items, .references = references.items };
+        }
+
+        /// The name of what the mod called `mod` already gives the number `number` in its files,
+        /// of `added` and `references`, if anything.
+        fn holder(mod: []const u8, number: u32, added: []const Added, references: []const Reference) ?[]const u8 {
+            for (added) |each| if (std.mem.eql(u8, each.mod, mod) and each.own_number == number) return each.own();
+            for (references) |each| if (std.mem.eql(u8, each.mod, mod) and each.own_number == number) return each.name;
+            return null;
+        }
+
+        /// The number `text` that the list section gives `context.own` for the mod's files, or null
+        /// where it isn't one of the family's, or the mod already gives it to something else in
+        /// `added` or `references`, which the log says.
+        fn ownNumber(context: Context, text: []const u8, added: []const Added, references: []const Reference) ?u32 {
+            const number = std.fmt.parseInt(u32, text, 0) catch 0;
+            if (number < first or number >= end) {
+                context.warn(spec.noun, "gives " ++ spec.numbered_in ++ " the number {s}, which isn't from {d} to {d}", .{ text, first, end - 1 });
+                return null;
+            }
+            if (holder(context.mod.name, number, added, references)) |name| {
+                context.warn(spec.noun, "gives " ++ spec.numbered_in ++ " the same number as '{s}'", .{name});
+                return null;
+            }
+            return number;
+        }
+
+        /// The record of another mod that `context.own` names by its qualified name, for the
+        /// number the list section gives it, or null where the mod doesn't require that mod, that
+        /// mod doesn't add it, or the number isn't one it can give, which the log says. `added`
+        /// holds the records read before, which hold every record of the mods it requires, as
+        /// those load before it, and `references` the records of other mods named before.
+        fn refer(context: Context, added: []const Added, references: []const Reference) ?Reference {
+            const own = context.own;
+            const colon = std.mem.findScalarLast(u8, own, ':').?;
+            const owner = own[0..colon];
+            var needed = context.mod.requirements();
+            const required = while (needed.next()) |name| {
+                if (std.ascii.eqlIgnoreCase(name, owner)) break true;
+            } else false;
+            if (!required) {
+                context.warn(spec.noun, "is another mod's, and Requires doesn't list '{s}'", .{owner});
+                return null;
+            }
+            const number = for (added, first..) |each, at| {
+                if (std.ascii.eqlIgnoreCase(each.name, own)) break at;
+            } else {
+                context.warn(spec.noun, "isn't one that '{s}' adds", .{owner});
+                return null;
+            };
+            const number_text = std.mem.trim(u8, context.mod.manifest.value(spec.list_section, own) orelse "", " \t");
+            if (number_text.len == 0) {
+                context.warn(spec.noun, "needs the number " ++ spec.numbered_in ++ " use for it", .{});
+                return null;
+            }
+            const own_number = ownNumber(context, number_text, added, references) orelse return null;
+            return .{ .name = added[number - first].name, .mod = context.mod.name, .own_number = own_number, .number = @intCast(number) };
         }
 
         /// The record `context.own` of `context.mod`, as its manifest describes it, or null
         /// where it gets it wrong, which the log says. `earlier` holds the records read before
-        /// it.
-        fn parse(context: Context, earlier: []const Added) Allocator.Error!?Added {
+        /// it, and `references` the records of other mods named before it.
+        fn parse(context: Context, earlier: []const Added, references: []const Reference) Allocator.Error!?Added {
             const manifest = context.mod.manifest;
             const own = context.own;
             if (own.len == 0 or std.mem.findAny(u8, own, ": ") != null) {
@@ -242,18 +350,7 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
                 .extra = extra,
             };
             const number_text = std.mem.trim(u8, manifest.value(spec.list_section, own) orelse "", " \t");
-            if (number_text.len > 0) {
-                const number = std.fmt.parseInt(u32, number_text, 0) catch 0;
-                if (number < first or number >= end) {
-                    context.warn(spec.noun, "gives " ++ spec.numbered_in ++ " the number {s}, which isn't from {d} to {d}", .{ number_text, first, end - 1 });
-                    return null;
-                }
-                for (earlier) |each| if (std.mem.eql(u8, each.mod, context.mod.name) and each.own_number == number) {
-                    context.warn(spec.noun, "gives " ++ spec.numbered_in ++ " the same number as '{s}'", .{each.own()});
-                    return null;
-                };
-                made.own_number = number;
-            }
+            if (number_text.len > 0) made.own_number = ownNumber(context, number_text, earlier, references) orelse return null;
             return made;
         }
 
@@ -602,13 +699,15 @@ pub const pilots = Family(u8, PilotExtra, .{
     .readExtra = readPilot,
 });
 
-/// Reads what each mod in `mods` adds, family by family, in load order, as OpenReliant starts:
-/// the guns, missiles and pilots before the ship types, which can name them.
+/// Reads what each mod in `mods` adds, and the records of other mods it names, family by family,
+/// in load order, as OpenReliant starts: the guns, missiles and pilots before the ship types, which
+/// can name them.
 pub fn read(arena: Allocator, mods: []const Mod) Allocator.Error!void {
-    guns.install(try guns.read(arena, mods));
-    missiles.install(try missiles.read(arena, mods));
-    pilots.install(try pilots.read(arena, mods));
-    ships.install(try ships.read(arena, mods));
+    inline for (.{ guns, missiles, pilots, ships }) |family| {
+        const listed = try family.read(arena, mods);
+        family.install(listed.added);
+        family.installReferences(listed.references);
+    }
 }
 
 /// Lets go of every family, as a test ends.
@@ -801,6 +900,68 @@ test "a family reads what each mod lists" {
     try std.testing.expectEqual(null, ships.get(ships.first + 3));
     try std.testing.expectEqual(null, ships.get(0x0B));
     try std.testing.expectEqual(ships.first + 3, ships.count());
+}
+
+test "a mod's files name the records of the mods it requires" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const planets: Mod = .{ .name = "realistic-planets.hog", .source = undefined, .manifest = .{ .text =
+        \\[ShipTypes]
+        \\mars=
+        \\phobos=
+        \\deimos=
+        \\[ShipType mars]
+        \\Base=venus_hi
+        \\Model=mars.shp
+        \\[ShipType phobos]
+        \\Base=venus_hi
+        \\Model=phobos.shp
+        \\[ShipType deimos]
+        \\Base=venus_hi
+        \\Model=deimos.shp
+        \\[Pilots]
+        \\ace=
+        \\[Pilot ace]
+        \\Base=3
+    } };
+    const tour: Mod = .{ .name = "tour", .source = undefined, .manifest = .{ .text =
+        \\[Mod]
+        \\Requires=Realistic-Planets
+        \\[ShipTypes]
+        \\realistic-planets:mars=300
+        \\Realistic-Planets:Phobos=0x130
+        \\realistic-planets:moon=301
+        \\elsewhere:thing=302
+        \\realistic-planets:deimos=
+        \\own=300
+        \\later=303
+        \\[ShipType own]
+        \\Base=predator
+        \\Model=own.shp
+        \\[ShipType later]
+        \\Base=predator
+        \\Model=later.shp
+        \\[Pilots]
+        \\realistic-planets:ace=200
+    } };
+    try read(arena.allocator(), &.{ planets, tour });
+    defer reset();
+
+    // The types a mod names are the ones their mod adds, whatever the case of their names.
+    try std.testing.expectEqual(ships.first, ships.remapped("tour", 300).?);
+    try std.testing.expectEqual(ships.first + 1, ships.remapped("tour", 0x130).?);
+    try std.testing.expectEqual(pilots.first, pilots.remapped("tour", 200).?);
+    // A record its mod doesn't add, a mod it doesn't require, and a record without a number are left
+    // out.
+    try std.testing.expectEqual(null, ships.remapped("tour", 301));
+    try std.testing.expectEqual(null, ships.remapped("tour", 302));
+    try std.testing.expectEqual(2, ships.referenced.len);
+    // Its own type can't take a number it gives the other mod's, and its others keep theirs.
+    try std.testing.expectEqual(4, ships.all().len);
+    try std.testing.expectEqualStrings("tour:later", ships.all()[3].name);
+    try std.testing.expectEqual(ships.first + 3, ships.remapped("tour", 303).?);
+    // The mod that adds the type gives it no number of its own.
+    try std.testing.expectEqual(null, ships.remapped("realistic-planets.hog", 300));
 }
 
 test "Family.records" {
