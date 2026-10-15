@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.16.0](https://github.com/OpenReliant/openreliant/compare/v0.15.0...v0.16.0) (2026-10-15)
+
+
+### Features
+
+* the editor link's live scene, timeline and console, and --mods ([#1214](https://github.com/OpenReliant/openreliant/issues/1214)) ([05a8555](https://github.com/OpenReliant/openreliant/commit/05a855514233a307183d59f59baead665ac8a63b)), closes [#1059](https://github.com/OpenReliant/openreliant/issues/1059) [#1207](https://github.com/OpenReliant/openreliant/issues/1207) [#1201](https://github.com/OpenReliant/openreliant/issues/1201) [#1202](https://github.com/OpenReliant/openreliant/issues/1202)
+
+
+### Fixes
+
+* the names a mod gives its ship types and pilots reach the game ([#1190](https://github.com/OpenReliant/openreliant/issues/1190)) ([66a0fc1](https://github.com/OpenReliant/openreliant/commit/66a0fc140c5f9d9af22a2e47f2cee7eb0c14b948)), closes [#1186](https://github.com/OpenReliant/openreliant/issues/1186)
+
+
+### Documentation
+
+* the editor link's messages, the original's and OpenReliant's own ([#1212](https://github.com/OpenReliant/openreliant/issues/1212)) ([4a2bc7c](https://github.com/OpenReliant/openreliant/commit/4a2bc7c2375ff98a567c3783928683e899290a52))
+
 ## [0.15.0](https://github.com/OpenReliant/openreliant/compare/v0.14.0...v0.15.0) (2026-10-14)
 
 
