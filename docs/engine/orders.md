@@ -758,6 +758,27 @@ of a door closing (`0x36`, `doorclos`).
 PERMISSION TO LAND does nothing where the player's ship launched from no carrier, where the game
 reads through a null pointer.
 
+**Improvement:** the player's ship lands in a hangar bay of any other carrier that ships launch
+from as one ([Hangar bays](launch.md#hangar-bays)), the Victorious or a mod's carrier among them,
+so that PERMISSION TO LAND ends a mod's mission on the carrier the mission launched the player
+from. The landing aims at a gate: the component of its order's target, which a mission's `SetAI`
+names with `component(carrier, gate)`, or gate 0 when the order aims at the carrier as a whole, as
+the player's request does. Aimed at the whole carrier, the landing is due 700 ticks on, as the
+Reliant's is; aimed at a gate, it begins at once, so that a mission's script lands the ship at its
+own moment. A carrier whose model has no launch point for the gate is one that nothing lands on.
+A ship other than the player's lets the landing go at once, as on the Yamato.
+
+The cutaway is the Reliant's: one of its two views, picked at random, standing by the bay
+([The landing's views](camera.md#the-landings-views)); the carrier moved away and stopped, every
+other object disabled, and the ship passing through everything. The ship is set out from the mouth
+of the bay, where the way out from the launch point along its Z axis leaves the carrier's bounds,
+by six tenths of the bay's depth from the point to the mouth, and at least twenty times the ship's
+radius, so that the distance fits the carrier and the ship rather than one model. It looks in at
+the point, and the gate's doors open as the launch opens them. The ship then steers at the launch
+point, upright, its throttle 0.0001 for each unit it has to go, at most the throttle that flies it
+at the Yamato's bay speed of 100, and stops within 200 of the point, sounding its landing. The
+doors close behind it, and 270 ticks later the mission is over.
+
 The Yamato's style lands the ship in the Yamato's landing bay, ship type `0xD5` (Jap Yam Landing
 Bay, `yamhanger.shp`), whose part 6 is the hangar and part 1 the pad. Its init
 (`land_yamato_init`, `0x0040EB60`) sets the first step, due in 700 ticks, and for the player's ship

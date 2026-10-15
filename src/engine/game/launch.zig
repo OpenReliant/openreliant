@@ -549,14 +549,29 @@ test makeHangar {
 /// `0x0041B174`, `0x0041B206`). OpenReliant passes the gate instead.
 pub fn attach(all: *create.Objects, index: u16, on: u16, gate: i16) void {
     const slot = &all.slots[index];
+    const found = gateOf(all, on, gate) orelse return;
+    slot.riding = .{ .object = on, .part = found.part };
+    const at = found.place;
+    objects.setPlace(&slot.object, &slot.drawn, .{ .position = at.point(slot.object.centre.vector()), .orientation = at.orientation });
+}
+
+/// A launch point of an object: the part that holds it, and where it stands and how it is turned
+/// in the world, within that part's frame as the object was drawn last.
+pub const Gate = struct {
+    part: usize,
+    place: math.Place,
+};
+
+/// Launch point `gate` of the object in slot `on`, counting from 0 over its points (`Points`), or
+/// null where the object has no model or no such point. A ship launches out along the place's Z
+/// axis, and lands back in against it (`ailand`).
+pub fn gateOf(all: *const create.Objects, on: u16, gate: i16) ?Gate {
     const holder = &all.slots[on];
-    const model = if (holder.model) |*held| held else return;
-    const point = Points.nth(model, std.math.cast(usize, gate) orelse return) orelse return;
-    slot.riding = .{ .object = on, .part = point.part };
+    const model = if (holder.model) |*held| held else return null;
+    const point = Points.nth(model, std.math.cast(usize, gate) orelse return null) orelse return null;
     const frame = model.frameAt(point.part, holder.drawn);
     const standing: math.Place = .{ .position = point.attachment.position.vector(), .orientation = point.attachment.orientation };
-    const at = standing.within(frame);
-    objects.setPlace(&slot.object, &slot.drawn, .{ .position = at.point(slot.object.centre.vector()), .orientation = at.orientation });
+    return .{ .part = point.part, .place = standing.within(frame) };
 }
 
 /// `launch_point_init` (`0x0041A4B0`), the first routine of the escape pods' styles and the

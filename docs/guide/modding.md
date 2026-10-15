@@ -890,6 +890,13 @@ its own launches them as a hangar bay: each ship waits at the launch point of it
 `launch_point` object of the model ([Models from OBJ](#models-from-obj)), and flies out once its
 launch starts.
 
+PERMISSION TO LAND brings the player's ship back into such a carrier the same way, once the
+mission's script has cleared it to land (`game.landing_cleared = 1`): the carrier's bridge answers,
+and the ship flies in at the doors of gate 0 and down to its launch point, which ends the mission.
+A mission can land the ship at another gate, and at a moment of its own, with
+`SetAI(player, "land", 1, component(carrier, gate))`
+([Landing](../engine/orders.md#landing)).
+
 #### Ship types without a base
 
 A ship type can leave out `Base`. It then behaves like no ship the game treats specially:
