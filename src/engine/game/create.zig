@@ -627,7 +627,7 @@ pub const Slot = struct {
             }
         };
         var counting: Counting = .{ .sought = part };
-        _ = eachComponent(model, null, &counting);
+        _ = eachComponent(model, &counting);
         return if (counting.found) @intCast(counting.counted) else null;
     }
 
@@ -1711,10 +1711,14 @@ pub const Sweep = struct {
 };
 
 /// `object_collect_components` (`0x00468760`): lists the parts of the object's model that count as
-/// components, a node's marked children before their own subtrees, which is the order missions,
-/// triggers and the display name them by. The parts of the models mounted on a part follow it, so
-/// a turret's own components come after the hull's. Each one is marked on its part, and a part the
-/// model marks as targetable becomes targetable.
+/// components, in the order missions, triggers and the display name them by. It walks a node's
+/// child list, the marked children first, then each child's own list. `create_object` hangs every
+/// part's node from the object's root, in part order (`object_add_part`, `0x004760C0`, in its loop
+/// at `0x0046720C`), and linking a part to the one it hangs from leaves its node there
+/// (`object_link_part`), so the model's own components come first, in part order, whatever they
+/// hang from. A part node's own list holds what its attachment points mount (`node_mount`), so the
+/// components of each model mounted on the model's parts follow, in turn. Each one is marked on
+/// its part, and a part the model marks as targetable becomes targetable.
 ///
 /// The game stops with a fatal error past `max_components`; OpenReliant leaves the rest unlisted,
 /// since nothing can name them.
@@ -1734,26 +1738,21 @@ pub fn collectComponents(slot: *Slot) void {
             return true;
         }
     };
-    _ = eachComponent(model, null, Collecting{ .slot = slot });
+    _ = eachComponent(model, Collecting{ .slot = slot });
 }
 
 /// Walks the parts of `model` that their records mark as components, in the order
-/// `collectComponents` lists them: first the marked parts that hang from `parent` (the root for
-/// null), then the components under each part, and those of the models mounted on it. Calls
-/// `visitor.visit` for each part; it returns false to stop the walk. Returns false if the walk was
-/// stopped.
-fn eachComponent(model: *objects.Model, parent: ?usize, visitor: anytype) bool {
+/// `collectComponents` lists them: the model's own, in part order, then those of each model
+/// mounted on its parts, in turn, which `model.mounts` holds in the order of the parts and their
+/// attachment points. Calls `visitor.visit` for each part; it returns false to stop the walk.
+/// Returns false if the walk was stopped.
+fn eachComponent(model: *objects.Model, visitor: anytype) bool {
     for (model.parts) |*part| {
-        if (part.parent != parent or !part.flags.component) continue;
+        if (!part.flags.component) continue;
         if (!visitor.visit(part)) return false;
     }
-    for (model.parts, 0..) |part, index| {
-        if (part.parent != parent) continue;
-        if (!eachComponent(model, index, visitor)) return false;
-        for (model.mounts) |*mount| {
-            if (mount.part != index) continue;
-            if (!eachComponent(&mount.model, null, visitor)) return false;
-        }
+    for (model.mounts) |*mount| {
+        if (!eachComponent(&mount.model, visitor)) return false;
     }
     return true;
 }
@@ -2197,14 +2196,18 @@ test collectComponents {
     defer slot.model.?.deinit(gpa);
     slot.type = &kind;
 
+    // A model of two components mounted on part 0.
+    var mounted: objects.testing.Parts(2) = undefined;
+    mounted.init();
+    for (&mounted.data) |*part| part.part.flags.component = true;
+    slot.model.?.mounts = try gpa.dupe(objects.Model.Mount, &.{.{ .part = 0, .attachment = 0, .origin = @splat(0), .orientation = math.identity, .model = try mounted.model(gpa, .{}) }});
+    const turret = &slot.model.?.mounts[0].model;
+
     collectComponents(&slot);
-    // The root's marked children come first, then each child's own: part 1, then 0's child 3, then
-    // 1's child 2.
-    try std.testing.expectEqual(3, slot.object.component_count);
-    // The root's marked child first, then part 0's child and part 1's.
-    for (slot.components[0..3], [_]usize{ 1, 3, 2 }) |listed, part| {
-        try std.testing.expectEqual(&slot.model.?.parts[part], listed.?);
-    }
+    // The model's own come first, in part order whatever they hang from, then the mounted model's.
+    try std.testing.expectEqual(5, slot.object.component_count);
+    const listed = [_]*objects.Model.Part{ &slot.model.?.parts[1], &slot.model.?.parts[2], &slot.model.?.parts[3], &turret.parts[0], &turret.parts[1] };
+    for (slot.components[0..5], listed) |component, part| try std.testing.expectEqual(part, component.?);
     for ([_]usize{ 1, 2, 3 }) |part| try std.testing.expect(slot.model.?.parts[part].component);
     try std.testing.expect(!slot.model.?.parts[0].component);
     // Only the part the model marks is targetable.
@@ -2213,10 +2216,8 @@ test collectComponents {
 
     // A component keeps its number after it leaves the list, and the plain part has none.
     slot.components[1] = null;
-    try std.testing.expectEqual(null, slot.componentIndex(&slot.model.?.parts[3]));
-    for ([_]usize{ 1, 3, 2 }, 0..) |part, number| {
-        try std.testing.expectEqual(number, slot.componentNumber(&slot.model.?.parts[part]).?);
-    }
+    try std.testing.expectEqual(null, slot.componentIndex(&slot.model.?.parts[2]));
+    for (listed, 0..) |part, number| try std.testing.expectEqual(number, slot.componentNumber(part).?);
     try std.testing.expectEqual(null, slot.componentNumber(&slot.model.?.parts[0]));
 
     // A model of nothing but components lists no more than the object holds.
