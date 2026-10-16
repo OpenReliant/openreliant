@@ -263,7 +263,7 @@ pub const Blast = struct {
     /// `drawn` times: it flickers red and orange vertex by vertex, grows, and shakes the view, and
     /// it reaches each ship it listed that stands within it.
     fn spread(blast: *Blast, world: gameobj.World, out: f32, drawn: u32) void {
-        if (drawn > 0 or !blast.flickered) blast.flicker(world.random);
+        if (drawn > 0 or !blast.flickered) blast.flicker(world.effectsRandom());
         blast.ball.scale = math.lerp(least_scale, blast.size * reach, out);
         world.shake.* = most_shake * out;
         blast.glow_sprite[0].half_size = @splat(blast.ball.scale * glow_scale);
@@ -319,7 +319,7 @@ pub const Blast = struct {
         const seen = world.camera orelse return;
         const eye = seen.place.position;
         const toward = math.lookAt(blast.place.position - eye);
-        const random = world.random;
+        const random = world.effectsRandom();
         var thrown: i32 = 0;
         while (thrown < bits_least + @as(i32, @intFromFloat(random.fraction() * bits_range))) : (thrown += 1) {
             const y = random.centred() * bits_spread;

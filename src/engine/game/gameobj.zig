@@ -1955,6 +1955,12 @@ pub const World = struct {
     /// The game's random numbers (`Random`), from which the guns' step draws a damaged gun's
     /// misfire.
     random: *Random,
+    /// **Improvement:** the random numbers of the effects only drawn, the particles, the
+    /// explosions' fireballs and bits, the sparks and the rays, apart from the game's. The game
+    /// draws those from its own numbers, but only where the effects are there, so a world that
+    /// draws nothing would go on from different numbers. Null where nothing is drawn, as in a test
+    /// (`effectsRandom`).
+    effects_random: ?*Random = null,
     /// The sound the objects are heard through, and where from; null where nothing is heard.
     hearing: ?@import("hog_snd.zig").Hearing = null,
     /// The camera, whose view the game's code switches (`camera_set_view`); null where nothing is
@@ -2035,7 +2041,13 @@ pub const World = struct {
     /// explosions; null where nothing is seen.
     pub fn sending(world: World) ?@import("particles.zig").Sending {
         const seen = world.camera orelse return null;
-        return .{ .view = seen.place, .clock = world.clock, .random = world.random, .explosions = world.explosions };
+        return .{ .view = seen.place, .clock = world.clock, .random = world.effectsRandom(), .explosions = world.explosions };
+    }
+
+    /// The random numbers the effects only drawn take (`effects_random`), the game's where it has
+    /// none.
+    pub fn effectsRandom(world: World) *Random {
+        return world.effects_random orelse world.random;
     }
 
     /// The bound mission's curves (section `curves`): none where no mission is bound, or where its

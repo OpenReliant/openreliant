@@ -1488,7 +1488,7 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
         .place = at,
     };
     // What it is drawn with comes first, and draws its numbers before the rest (`bullet_place`).
-    if (all.bullets.looks) |looks| dress(bullet, looks, world.random, turn);
+    if (all.bullets.looks) |looks| dress(bullet, looks, world.effectsRandom(), turn);
     if (effects.Trail.of(kind)) |trail| bullet.trail = trail.start(clock.frame_start);
 
     // The light it casts, which the oldest shot of its ring gives up.
@@ -1762,7 +1762,7 @@ pub fn bulletsFrame(world: gameobj.World, clock: *const Clock, fraction: f32) vo
         // next, after its type's own work on its pieces.
         bullet.place = math.lerp(bullet.last, bullet.at, fraction);
         if (bullet.piece_count > 0) {
-            animate(bullet, clock, bullet.stats(&world.objects.gun_stats), world.random);
+            animate(bullet, clock, bullet.stats(&world.objects.gun_stats), world.effectsRandom());
             placePieces(bullet);
         }
         if (bullet.trail) |*trail| trail.frame(world, .{ .position = bullet.place, .orientation = bullet.pieces[0].turn });

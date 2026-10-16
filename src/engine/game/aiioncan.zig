@@ -466,7 +466,7 @@ pub const Record = struct {
         const points = pointsOf(cannon, .ion_rays);
         for (record.rays[0..kind.rays], 0..) |*held, n| {
             const ends = pair(points, n) orelse return;
-            const ray = rays.add(power_ray, world.random) catch return;
+            const ray = rays.add(power_ray, world.effectsRandom()) catch return;
             ray.colour(0, power_ray_colour);
             ray.from = ends[0];
             ray.to = ends[1];
@@ -505,7 +505,7 @@ pub const Record = struct {
     /// fireballs it sets off about the ship.
     fn fire(record: *Record, world: gameobj.World, cannons: *const Cannons, index: u16, kind: Kind, focus: objects.PartRef, focus_at: math.Place, target: *const create.Slot) void {
         if (world.rays) |rays| beam: {
-            const ray = rays.add(beam_ray, world.random) catch break :beam;
+            const ray = rays.add(beam_ray, world.effectsRandom()) catch break :beam;
             ray.light.kind.point.range = beam_light_range;
             for (kind.beam, 0..) |rgb, strand| ray.colour(strand, rgb);
             ray.quadsOver(0, cannons.beam);

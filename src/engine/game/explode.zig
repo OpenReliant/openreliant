@@ -321,7 +321,7 @@ pub const Explosions = struct {
                 slot.* = null;
                 continue;
             }
-            burning.light.intensity = 1 - world.random.fraction() * burn_flicker;
+            burning.light.intensity = 1 - world.effectsRandom().fraction() * burn_flicker;
             burning.light.kind.point.position = place.point(burning.at);
         }
     }
@@ -919,7 +919,7 @@ pub fn streamWithin(world: gameobj.World, emitter: *particles.Emitter, parent: ?
 /// blast's shockwave takes; none without a camera.
 fn flames(world: gameobj.World, at: Vector, velocity: Vector, how: Flames) ?particles.Emitter {
     const view = (world.camera orelse return null).place;
-    const turn = math.fromAngles(-std.math.pi / 3.0, 0, world.random.fraction() * std.math.tau);
+    const turn = math.fromAngles(-std.math.pi / 3.0, 0, world.effectsRandom().fraction() * std.math.tau);
     var emitter: particles.Emitter = .{
         .born = world.clock.frame_start,
         .template = &flame,
@@ -927,7 +927,7 @@ fn flames(world: gameobj.World, at: Vector, velocity: Vector, how: Flames) ?part
         .spread = .{ 1, 1, 0.2 },
         .speed = how.speed,
         .speed_range = how.speed_range,
-        .inherited = velocity * @as(Vector, @splat(how.carried.of(world.random))),
+        .inherited = velocity * @as(Vector, @splat(how.carried.of(world.effectsRandom()))),
     };
     burstFrom(world, &emitter, how.count);
     return emitter;
@@ -963,10 +963,27 @@ fn sparkles(world: gameobj.World, at: Vector, velocity: Vector, carried: f32, ho
     burstFrom(world, &emitter, how.count);
 }
 
+test "the effects draw random numbers of their own" {
+    var stage: testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    var effects: Random = .init(7);
+    var world = stage.world();
+    world.effects_random = &effects;
+    const game_numbers = stage.mission.random.fingerprint();
+    const effect_numbers = effects.fingerprint();
+    // A blast's bits and its fireball take the effects' numbers, and leave the game's as they were,
+    // as a world that draws nothing leaves them.
+    scatter(world, @splat(0), blast_bits);
+    fireballAt(world, @splat(0), .{ .size = 10 });
+    try std.testing.expectEqual(game_numbers, stage.mission.random.fingerprint());
+    try std.testing.expect(effects.fingerprint() != effect_numbers);
+}
+
 /// Sets a fireball off at `at`, where the world has explosions.
 pub fn fireballAt(world: gameobj.World, at: Vector, spec: Fireball.Spec) void {
     const explosions = world.explosions orelse return;
-    explosions.setOff(at, spec, world.clock, world.random);
+    explosions.setOff(at, spec, world.clock, world.effectsRandom());
 }
 
 /// Sets the Uber Explode off for `owner` (`uber.Uber.start`), in the style the settings give,
@@ -980,7 +997,7 @@ pub fn uberExplode(world: gameobj.World, owner: u16, place: math.Place, size: f3
 /// explosions.
 pub fn throwChunk(world: gameobj.World, at: Vector, direction: Vector, how: rocks.Throw) void {
     const explosions = world.explosions orelse return;
-    rocks.throw(explosions, at, direction, how, world.clock, world.random);
+    rocks.throw(explosions, at, direction, how, world.clock, world.effectsRandom());
 }
 
 /// A throw of bits every way: how many, and how.
@@ -992,16 +1009,17 @@ const Scatter = struct {
 /// Throws `how`'s bits out of `at` every way, where the world has explosions.
 fn scatter(world: gameobj.World, at: Vector, how: Scatter) void {
     const explosions = world.explosions orelse return;
+    const random = world.effectsRandom();
     for (0..how.count) |_| {
-        const direction = math.normalize(world.random.centredVector(@splat(1)));
-        explosions.throwBit(at, direction, how.throw, world.clock, world.random);
+        const direction = math.normalize(random.centredVector(@splat(1)));
+        explosions.throwBit(at, direction, how.throw, world.clock, random);
     }
 }
 
 /// Throws a bit out of `at`, where the world has explosions.
 pub fn throwBit(world: gameobj.World, at: Vector, direction: Vector, how: Bit.Throw) void {
     const explosions = world.explosions orelse return;
-    explosions.throwBit(at, direction, how, world.clock, world.random);
+    explosions.throwBit(at, direction, how, world.clock, world.effectsRandom());
 }
 
 /// The fireballs a burst sets off about the ship, lit and each a little late, within
@@ -1376,7 +1394,7 @@ pub fn burnPart(world: gameobj.World, index: u16, name: []const u8, how: Burn) v
         var each = std.mem.window(shp.Point, pairs.points, 2, 2);
         while (each.next()) |pair| {
             if (pair.len < 2) break;
-            const ray = rays.add(spec, world.random) catch return;
+            const ray = rays.add(spec, world.effectsRandom()) catch return;
             ray.colour(0, burn_ray_colour);
             ray.from = pair[0].position.vector();
             ray.to = pair[1].position.vector();
