@@ -2623,9 +2623,9 @@ pub const Looks = struct {
 
     /// `guns_load_shell` (`0x00479140`), as a mission starts, once the objects are reset: the
     /// Turret Flak's shell, the first level of the first part of ship type `shell_type`'s model,
-    /// counted as used so that it stays loaded (`xtrabits.firstLevels`).
-    pub fn loadShell(looks: *Looks, all: *Objects, types: ShipTypes) void {
-        const levels = xtrabits.firstLevels(all, types, shell_type) orelse &.{};
+    /// kept loaded (`xtrabits.firstLevels`), its type marked in `kept`.
+    pub fn loadShell(looks: *Looks, types: ShipTypes, kept: *TypeSet) void {
+        const levels = xtrabits.firstLevels(types, kept, shell_type) orelse &.{};
         looks.shell = if (levels.len > 0) .{ .mesh = levels[0].mesh, .until = std.math.inf(f32) } else null;
     }
 
@@ -3316,14 +3316,12 @@ test Looks {
     try std.testing.expectEqual(std.math.inf(f32), huge.levels[0].until);
     // Without the shell's model, a Turret Flak shot is not drawn.
     try std.testing.expectEqual(null, built.looks.shell);
-    // Its shell is loaded as a mission starts, its type counted as used so that the types no
-    // object uses, let go between missions, keep it.
-    var random: Random = .{};
-    const all = try create.Objects.create(gpa, &random);
-    defer all.destroy();
-    built.looks.loadShell(all, create.testing.no_models);
+    // Its shell is loaded as a mission starts, its type kept so that the types no object uses, let
+    // go between missions, keep it.
+    var kept: create.TypeSet = .empty;
+    built.looks.loadShell(create.testing.no_models, &kept);
     try std.testing.expectEqual(null, built.looks.shell);
-    try std.testing.expectEqual(1, all.types[shell_type.number()].objects);
+    try std.testing.expect(kept.isSet(shell_type.number()));
 }
 
 test dress {
@@ -3490,6 +3488,7 @@ const shieldfx = @import("shieldfx.zig");
 const sparks = @import("sparks.zig");
 const create = @import("create.zig");
 const ShipTypes = create.Types;
+const TypeSet = create.TypeSet;
 const Objects = create.Objects;
 const formats = @import("../../formats/stats.zig");
 const gameobj = @import("gameobj.zig");

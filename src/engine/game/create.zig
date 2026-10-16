@@ -451,6 +451,11 @@ pub const TypeUse = struct {
     loaded: ?*const Type = null,
 };
 
+/// OpenReliant's: ship types whose models stay loaded for what is only drawn, such as the
+/// explosions' debris (`xtrabits.firstLevels`). A mission's start keeps them loaded along with the
+/// types the objects are of (`library.TypeCache.sweep`).
+pub const TypeSet = std.bit_set.Static(max_ship_types);
+
 /// The slot the loops over the objects walk after those handed out (`0x0057E04E`), which the
 /// mission's start sets to 399, the last. The cutaway scenes use it: in one of them only the
 /// player's ship and this slot's object are drawn.
@@ -814,8 +819,7 @@ pub const Objects = struct {
     }
 
     /// A type's model, loaded for its first object where it isn't held, and one more object of it
-    /// counted, so that it stays (`create_object`, `ship_type_first_levels`). Null where the game
-    /// has no model for it.
+    /// counted, so that it stays (`create_object`). Null where the game has no model for it.
     pub fn useType(all: *Objects, types: Types, ship_type: gameobj.Type) ?*const Type {
         const use = &all.types[ship_type.number()];
         if (use.objects == 0 and use.loaded == null) use.loaded = types.load(types.context, @intCast(ship_type.number()));

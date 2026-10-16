@@ -267,6 +267,9 @@ The centre of mass:
   `object_bounds` (`0x00476680`) takes it off the position of each part hung from the root.
 - `object_bounds` then finds the object's bounding box and radius, its farthest vertex from the
   origin, over the vertices of every part node's current level, and sums its moment of inertia.
+  **Fix:** the current level is the one the part last drew, so the bounds and the radius change
+  with how far the camera was. OpenReliant takes every part's finest level, as it does for the
+  bounds of a bay or a door that a launch or a landing reads.
 
 A gun or a pod mounted on a part hangs its model's root among the part node's children
 (`node_mount`, `0x00499A10`), so both sums take in the mounted models' parts too: their mass and
@@ -360,11 +363,12 @@ shots and missiles test what they strike against them.
 
 **Improvement:** OpenReliant runs `mission_frame`'s game work once a tick
 ([The game loop](loop.md#game-frames-and-drawn-frames)), so the frames the game reads are always
-`simulation_counter / 4` of the way through the step. With smooth motion, a drawn frame places
-the objects and the missiles further on, by how far the platform's clock has run past the tick
-(`main.DrawnPlaces`), draws them there, and then puts back the frames the game frame left: the
-root's place and the frame it is drawn at, each part's frame, and the flags framing clears. So
-placing the objects for drawing changes nothing the game goes on from.
+`simulation_counter / 4` of the way through the step. Each drawn frame keeps the frames the game
+frame left (`main.DrawnPlaces`): the root's place and the frame it is drawn at, each part's frame,
+and the flags framing clears. With smooth motion it places the objects and the missiles further on,
+by how far the platform's clock has run past the tick, and draws them there. Once drawn, it puts
+the kept frames back, along with whatever drawing changed in them, such as the planets the
+atmospheres turn. So drawing changes nothing the game goes on from.
 
 In a multiplayer game another player's ship is drawn between the places its last two messages gave
 it (`+0x768`, `+0x798`) instead.

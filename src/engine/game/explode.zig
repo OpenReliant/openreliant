@@ -519,19 +519,19 @@ pub const Debris = struct {
     const small_body_scale: f32 = 0.75;
     const small_body: f32 = 0.1;
 
-    /// Each type's model, counted as used so that it stays loaded (`ship_type_first_levels`).
-    pub fn load(all: *create.Objects, types: create.Types) Debris {
+    /// Each type's model, kept loaded (`ship_type_first_levels`), its type marked in `kept`.
+    pub fn load(types: create.Types, kept: *create.TypeSet) Debris {
         var debris: Debris = .{};
-        loadEach(&debris.pieces, all, types, gameobj.Type.of(.debris), stretch);
-        loadEach(&debris.bodies, all, types, gameobj.Type.of(.crewman), body_stretch);
-        loadEach(&debris.rock_chunks, all, types, gameobj.Type.of(.rock_chunk), 1);
+        loadEach(&debris.pieces, types, kept, gameobj.Type.of(.debris), stretch);
+        loadEach(&debris.bodies, types, kept, gameobj.Type.of(.crewman), body_stretch);
+        loadEach(&debris.rock_chunks, types, kept, gameobj.Type.of(.rock_chunk), 1);
         return debris;
     }
 
     /// Each of `into` from the types from `first` on, stretched by `by`.
-    fn loadEach(into: []Levels, all: *create.Objects, types: create.Types, first: gameobj.Type, by: f32) void {
+    fn loadEach(into: []Levels, types: create.Types, kept: *create.TypeSet, first: gameobj.Type, by: f32) void {
         for (into, 0..) |*levels, n| {
-            const found = xtrabits.firstLevels(all, types, @fromBackingInt(first.number() + @as(u32, @intCast(n)))) orelse continue;
+            const found = xtrabits.firstLevels(types, kept, @fromBackingInt(first.number() + @as(u32, @intCast(n)))) orelse continue;
             levels.* = .of(found, by);
         }
     }

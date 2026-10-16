@@ -196,9 +196,9 @@ fn evenGate(gate: i16) bool {
 }
 
 /// The middle of tube `gate`, as `reliant` is drawn: halfway between the middles of the bounds of
-/// the levels its two doors (`Door`) drew last, each `across` to the side in its door's frame, as
-/// the launch (`launch_reliant_init`) and the landing (`land_reliant_cutaway`) work it out. Null
-/// where the model lacks either door, or its part has no level.
+/// its two doors' (`Door`) finest levels (`objects.Model.partBounds`), each `across` to the side in
+/// its door's frame, as the launch (`launch_reliant_init`) and the landing (`land_reliant_cutaway`)
+/// work it out. Null where the model lacks either door, or its part has no level.
 pub fn tubeMiddle(reliant: *const create.Slot, gate: usize, across: f32) ?math.Vector {
     const model = if (reliant.model) |*held| held else return null;
     var sum: math.Vector = @splat(0);

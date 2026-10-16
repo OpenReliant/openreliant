@@ -1334,6 +1334,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             scene.clear();
             try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
         } else {
+            // A frame that ran no view frame, paused or held by the editor, keeps the frames too,
+            // so that whatever drawing changes in them goes back.
+            if (!drawn_places.holding) drawn_places.place(objects, .of(&clock, smooth_motion, options.riders), clock.frame_start);
             context.camera = .{ .position = view.place.position, .orientation = view.place.orientation };
             context.projection = view.projection(size[0], size[1], field_of_view);
             // The cockpit's model hangs from the camera, and the radar's backing stands on the radar.

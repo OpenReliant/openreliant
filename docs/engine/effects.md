@@ -137,7 +137,9 @@ and the torpedo's.
 
 A bit is a piece of debris, one of the ten models of types `0x4E` to `0x57`, which
 `explosions_init` loads through `ship_type_first_levels` (`0x004AE190`) and draws 1.5 times as far
-before a coarser level. The piece goes by one number `r` from 0 to 1: the first below a quarter, the
+before a coarser level. The game keeps them loaded by counting each type as used by one more
+object. **Improvement:** OpenReliant keeps them apart from the objects' counts, in a set of types
+kept for drawing, which a mission's start keeps loaded as well. The piece goes by one number `r` from 0 to 1: the first below a quarter, the
 last below a half, and above that the second to the tenth, `1 + (r - 0.5) × 16`. Its scale is half
 to one and a half times the throw's size. It leaves along its direction at 1500 to 4500 a second,
 strayed up to a quarter of a radian about each axis, times the throw's speed; it turns up to 0.05

@@ -79,7 +79,7 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const holder = &all.slots[carrier];
     slot.riding = .{ .object = carrier };
     const model = if (holder.model) |*held| held else return;
-    const bounds = model.levelBounds(bay_part) orelse {
+    const bounds = model.partBounds(bay_part) orelse {
         log.warn("the carrier in slot {d} has no bay to launch from", .{carrier});
         return;
     };

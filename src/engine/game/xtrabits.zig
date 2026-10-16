@@ -172,31 +172,35 @@ pub fn objectRandom(object: *GameObject) f32 {
     return Random.share(objectRandom15(object));
 }
 
-/// `ship_type_first_levels` (`0x004AE190`): a ship type's model, loaded where none of its objects
-/// has yet, one more object of it counted, and its first part's levels of detail. Null where the
-/// game has no model for it. **Unverified:** it lies after this file's known code.
-pub fn firstLevels(all: *create.Objects, types: create.Types, ship_type: gameobj.Type) ?[]const srapiext.Level {
-    const loaded = all.useType(types, ship_type) orelse return null;
+/// `ship_type_first_levels` (`0x004AE190`): a ship type's model, loaded where it isn't yet, kept
+/// loaded, and its first part's levels of detail. Null where the game has no model for it.
+/// **Unverified:** it lies after this file's known code.
+///
+/// **Improvement:** the game keeps the type loaded by counting one more object of it
+/// (`create.Objects.useType`). Only drawing code calls it, so OpenReliant marks the type in `kept`
+/// instead, which a mission's start keeps loaded (`library.TypeCache.sweep`), and the objects'
+/// counts stay the game's own.
+pub fn firstLevels(types: create.Types, kept: *create.TypeSet, ship_type: gameobj.Type) ?[]const srapiext.Level {
+    kept.set(ship_type.number());
+    const loaded = types.load(types.context, @intCast(ship_type.number())) orelse return null;
     const parts = loaded.loaded.parts;
     return if (parts.len > 0) parts[0].levels else null;
 }
 
 test firstLevels {
-    var random: Random = .{};
-    const all = try create.Objects.create(std.testing.allocator, &random);
-    defer all.destroy();
+    var kept: create.TypeSet = .empty;
 
-    // A type without a model has no levels, but is counted as used all the same.
-    try std.testing.expectEqual(null, firstLevels(all, create.testing.no_models, .of(.debris)));
-    try std.testing.expectEqual(1, all.types[gameobj.GameType.debris.number()].objects);
+    // A type without a model has no levels, but is kept all the same.
+    try std.testing.expectEqual(null, firstLevels(create.testing.no_models, &kept, .of(.debris)));
+    try std.testing.expect(kept.isSet(gameobj.GameType.debris.number()));
 
     // One with a model gives its first part's.
     var model: create.testing.Model = undefined;
     try model.init(std.testing.allocator);
     defer model.deinit(std.testing.allocator);
-    const levels = firstLevels(all, model.types(), .of(.debris_1)).?;
+    const levels = firstLevels(model.types(), &kept, .of(.debris_1)).?;
     try std.testing.expectEqual(&model.mesh, levels[0].mesh);
-    try std.testing.expectEqual(1, all.types[gameobj.GameType.debris_1.number()].objects);
+    try std.testing.expect(kept.isSet(gameobj.GameType.debris_1.number()));
 }
 
 test objectRandom {

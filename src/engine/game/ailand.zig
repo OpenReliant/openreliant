@@ -408,7 +408,7 @@ fn reliantUpdate(ctx: Context, index: u16) void {
 /// `land_reliant_cutaway` (`0x0040F600`): the cutaway of the Reliant's landing. One of its two
 /// views, picked at random, watches the ship, locked. The carrier moves to `carrier_away`, turned
 /// as the world is, and the middle of its first launch tube is worked out there: halfway between
-/// the middles of the tube's doors, each the middle of the bounds of the level its part drew last
+/// the middles of the tube's doors, each the middle of the bounds of its part's finest level
 /// (`launch.reliant.tubeMiddle`). The ship stands at `start_offset` from it in the carrier's frame,
 /// looking at `over_tube`, stopped, its power shared evenly. The carrier's orders are all popped,
 /// and it stops.
@@ -733,7 +733,8 @@ fn bayMouth(carrier: *const gameobj.GameObject, gate: math.Place) Vector {
 }
 
 /// Where part `part` of the object in `slot` stands, as its model places it, and the middle of the
-/// bounds of the level it drew last, in its own frame; null where the model lacks the part.
+/// bounds of its finest level (`objects.Model.partBounds`), in its own frame; null where the model
+/// lacks the part.
 fn partMiddle(slot: *create.Slot, part: usize) ?struct { frame: math.Place, middle: Vector } {
     const model = if (slot.model) |*held| held else return null;
     const middle = model.boundsMiddle(part) orelse return null;
@@ -795,11 +796,11 @@ fn flaredAim(frame: math.Place, object: *const gameobj.GameObject) Vector {
 }
 
 /// Whether a ship whose top stands `top` along the Y axis of the tube's frame `frame` (`tubeFrame`)
-/// is below the underside of the tube's upper door, as the level the door drew last bounds it.
+/// is below the underside of the tube's upper door, as the door's finest level bounds it.
 /// False where the Reliant's model lacks the door.
 fn belowDoor(reliant: *const create.Slot, frame: math.Place, top: f32) bool {
     const model = if (reliant.model) |*held| held else return false;
-    const bounds = model.levelBounds(upper_door) orelse return false;
+    const bounds = model.partBounds(upper_door) orelse return false;
     const middle = model.boundsMiddle(upper_door) orelse return false;
     const underside = model.frameAt(upper_door, reliant.drawn).point(.{ middle[0], bounds[1][1], middle[2] });
     return top > frame.inverse(underside)[1];
@@ -837,7 +838,7 @@ pub fn seen(all: *const create.Objects, index: u16) ?camera.Landing {
         .yamato => {
             const bay = &all.slots[create.cutaway_slot];
             const model = if (bay.model) |*held| held else return null;
-            const hangar = model.levelBounds(bay_hangar) orelse return null;
+            const hangar = model.partBounds(bay_hangar) orelse return null;
             return .{ .yamato = .{ .bay = bay.drawn, .hangar = hangar, .due = state.due } };
         },
         .none, _ => return null,
