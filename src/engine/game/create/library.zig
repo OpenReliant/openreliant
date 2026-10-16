@@ -172,8 +172,8 @@ pub const TypeCache = struct {
         return try .init(gpa, shapes, cache.global_palette, pictures);
     }
 
-    /// Lets go of each type no object is of any more, by the objects' count of each (`uses`), but
-    /// those what is drawn holds (`kept`).
+    /// Lets go of each type no object is of any more, by the objects' count of each (`uses`), except
+    /// those kept for drawing (`kept`).
     pub fn sweep(cache: *TypeCache, uses: *const [create.max_ship_types]create.TypeUse, kept: *const create.TypeSet) void {
         for (&cache.loaded, uses, 0..) |*held, use, index| {
             const cached = held.* orelse continue;
@@ -271,7 +271,7 @@ test TypeCache {
     try hud.drawShape(&cached.schematic.?, arena, recorder.interface(), 1, .{ 0, 0 }, .{ 1, 1, 1, 1 }, 1);
     try std.testing.expectEqual(1, recorder.textures.?.held());
 
-    // Swept while an object is of it, or what is drawn holds it, the type stays; once neither does,
+    // Swept while an object is of it, or it is kept for drawing, the type stays; once neither holds,
     // it goes, and its own shapes hand their textures back to the device.
     var uses: [create.max_ship_types]create.TypeUse = @splat(.{});
     var kept: create.TypeSet = .empty;

@@ -177,7 +177,7 @@ pub fn objectRandom(object: *GameObject) f32 {
 /// **Unverified:** it lies after this file's known code.
 ///
 /// **Improvement:** the game keeps the type loaded by counting one more object of it
-/// (`create.Objects.useType`). Only what is drawn calls it, so OpenReliant marks the type in `kept`
+/// (`create.Objects.useType`). Only drawing code calls it, so OpenReliant marks the type in `kept`
 /// instead, which a mission's start keeps loaded (`library.TypeCache.sweep`), and the objects'
 /// counts stay the game's own.
 pub fn firstLevels(types: create.Types, kept: *create.TypeSet, ship_type: gameobj.Type) ?[]const srapiext.Level {

@@ -451,9 +451,9 @@ pub const TypeUse = struct {
     loaded: ?*const Type = null,
 };
 
-/// OpenReliant's: the ship types whose models what is only drawn holds, such as the explosions'
-/// debris (`xtrabits.firstLevels`), which a mission's start keeps loaded beside the types objects
-/// are of (`library.TypeCache.sweep`).
+/// OpenReliant's: ship types whose models stay loaded for what is only drawn, such as the
+/// explosions' debris (`xtrabits.firstLevels`). A mission's start keeps them loaded along with the
+/// types the objects are of (`library.TypeCache.sweep`).
 pub const TypeSet = std.bit_set.Static(max_ship_types);
 
 /// The slot the loops over the objects walk after those handed out (`0x0057E04E`), which the

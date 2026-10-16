@@ -1007,6 +1007,24 @@ pub fn frameTree(root: *Node, model: ?*Model, drawn: *Model.Local, fraction: f32
     parts.place(drawn.position, drawn.orientation);
 }
 
+test "Model.partBounds" {
+    const gpa = std.testing.allocator;
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    var live = try Model.create(gpa, &model.source, &model.loaded, .{});
+    defer live.deinit(gpa);
+    gameobj.linkParts(&live, &model.source);
+    // The bounds are the finest level's, whatever level the part last drew.
+    const finest = model.mesh.bounds;
+    try std.testing.expectEqual(finest, live.partBounds(0).?);
+    live.parts[0].object.level = 3;
+    try std.testing.expectEqual(finest, live.partBounds(0).?);
+    try std.testing.expectEqual((finest[0] + finest[1]) * @as(Vector, @splat(0.5)), live.boundsMiddle(0).?);
+    // A part the root's list doesn't reach has none.
+    try std.testing.expectEqual(null, live.partBounds(1));
+}
+
 test KeptFrames {
     const gpa = std.testing.allocator;
     var model: create.testing.Model = undefined;
@@ -1858,8 +1876,8 @@ pub const Model = struct {
     /// with how far the camera was. OpenReliant takes the finest, the same wherever the camera is.
     pub fn partBounds(model: *const Model, child: usize) ?[2]Vector {
         const part = model.rootChild(child) orelse return null;
-        if (part.object.levels.len == 0) return null;
-        return part.object.finest().bounds;
+        const mesh = part.object.finest() orelse return null;
+        return mesh.bounds;
     }
 
     /// The middle of those bounds (`partBounds`).

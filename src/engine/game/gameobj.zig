@@ -2240,8 +2240,8 @@ const Extent = struct {
 
     /// Adds `part`, of record `data`, where the model was last placed.
     fn add(extent: *Extent, part: *const objects.Model.Part, data: ?shp.PartData) void {
-        if (part.object.levels.len > 0) {
-            for (part.object.finest().positions) |position| {
+        if (part.object.finest()) |mesh| {
+            for (mesh.positions) |position| {
                 const at = math.transform(part.object.orientation, position) + part.object.position;
                 const low = @min(extent.bounds[0], at);
                 const high = @max(extent.bounds[1], at);
