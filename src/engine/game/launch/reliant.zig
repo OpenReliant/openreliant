@@ -253,7 +253,11 @@ fn showHangar(ctx: aigeneric.Context, index: u16, gate: i16, in_tube: math.Vecto
 ///    the mission's date is typed out (`hud.Caption`). **Improvement:** the hangar's walls throw
 ///    the beacons' flash on it no more (`objects.Model.endBounce`).
 /// 6. `clear`: out of the bay's view, the player's cutaway ends, and with the cutaway from below
-///    the camera takes that view.
+///    the camera takes that view. **Improvement:** the game asks the camera whether it shows the
+///    bay. The bay's view holds the camera from the start where its cutaway was picked, so
+///    OpenReliant asks which cutaway was picked, which works the same where nothing is drawn. It
+///    differs only where a mission's director's view forces the camera away from the bay mid-launch:
+///    the hangar then stays until the launch ends.
 /// 7. `fall`, 8. `level`: after a while the ship flies ahead again, steering nothing and at no
 ///    throttle.
 /// 9. `end`: for the player's ship, the date goes, the camera leaves the cutaway for view 0 in the
@@ -315,8 +319,8 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
             moveOn(state, .drop, now);
         },
         .clear => {
-            const in_bay = if (world.camera) |view| view.view == .launch_bay else false;
-            if (player and !in_bay) {
+            const bay_cutaway = world.player.cutaway == .bay;
+            if (player and !bay_cutaway) {
                 world.player.showing = .everything;
                 create.resetSlot(ctx, create.cutaway_slot);
                 if (world.player.cutaway == .below) switchView(ctx, .launch_below, index);
@@ -515,6 +519,40 @@ test tubeMiddle {
     try std.testing.expectEqual(math.Vector{ 0, -250, 10000 }, tubeMiddle(slot, 0, 0).?);
     // A tube whose upper door the model lacks has none.
     try std.testing.expectEqual(null, tubeMiddle(slot, door_step, 0));
+}
+
+test "the player's cutaway ends at the drop unless it is the bay's, drawn or not" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var reliant_model: testing.Reliant = undefined;
+    try reliant_model.init(gpa);
+    defer reliant_model.deinit(gpa);
+    const player = try mission.add(.of(.predator), @splat(0));
+    const reliant = try mission.add(.of(.reliant), .{ 0, 0, 10000 });
+    try reliant_model.fit(gpa, mission.slot(reliant));
+    // Nothing is drawn: there's no camera.
+    var ctx = mission.orders();
+    ctx.world.spawn = mission.spawn(create.testing.no_models);
+    const hangar = &mission.objects.slots[create.cutaway_slot].object;
+
+    for ([_]Cutaway{ .bay, .below }) |cutaway| {
+        _ = try aigeneric.pushShip(ctx, player, .launch, reliant, 0);
+        aigeneric.objectOrders(ctx, player);
+        launch.start(mission.objects, player);
+        aigeneric.objectOrders(ctx, player);
+        _ = runTo(&mission, ctx, player, .lower);
+        mission.player.cutaway = cutaway;
+        _ = runTo(&mission, ctx, player, .fall);
+        // The bay's cutaway keeps the hangar and the launch's scene past the drop; the one from
+        // below ends there.
+        const kept = cutaway == .bay;
+        try std.testing.expectEqual(kept, hangar.type.base() == .reliant_hangar);
+        try std.testing.expectEqual(kept, mission.player.showing == .launch);
+        runOut(&mission, ctx, player);
+        try std.testing.expectEqual(gameobj.Type.of(.stand_in), hangar.type);
+    }
 }
 
 test "the player's launch shows the hangar and the cutaways, and ends in view 0" {

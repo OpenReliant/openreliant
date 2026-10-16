@@ -175,6 +175,11 @@ Three views watch the player's ship go ([Camera](camera.md#views)):
 
 With the second and the third, the camera stays in the cockpit until its view takes it.
 
+**Improvement:** at step 7 the game asks the camera whether it shows the bay. The bay's view holds
+the camera from step 2 where its cutaway was picked, so OpenReliant asks which cutaway was picked,
+which works the same where nothing is drawn. The two differ only where a mission's director's view
+forces the camera away from the bay mid-launch: the hangar then stays until the launch ends.
+
 ### The date
 
 From step 6 to step 10 of the player's launch, the display types out the date of the mission being
