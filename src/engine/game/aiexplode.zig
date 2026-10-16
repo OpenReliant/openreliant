@@ -336,11 +336,11 @@ fn shipInit(ctx: Context, index: u16) void {
 
     if (players and !cutaway) {
         const view: camera.View = switch (state.style) {
-            .spin_out => if (movingSlowly(slot, world.view)) .pull_back else .watch,
+            .spin_out => if (movingSlowly(slot, world.view())) .pull_back else .watch,
             .burst => .watch_marker,
             .halt => .pull_back,
         };
-        if (world.camera) |watching| _ = watching.setView(view, index, true, true, ctx.world.clock.viewTime());
+        _ = camera.switchView(world, view, index, true, true);
         world.player.ending = .destroyed;
     }
 
@@ -583,7 +583,7 @@ test "a ship's end" {
     // The player's has the camera watch it, and ends the mission.
     ai.objectDestroyed(ctx, player, true, true);
     aigeneric.objectOrders(ctx, player);
-    try std.testing.expect(watching.view == .pull_back or watching.view == .watch or watching.view == .watch_marker);
+    try std.testing.expect(mission.player.viewing.view == .pull_back or mission.player.viewing.view == .watch or mission.player.viewing.view == .watch_marker);
     try std.testing.expectEqual(.destroyed, mission.player.ending);
 }
 
@@ -595,7 +595,7 @@ test "the pod shot down in the ejection's cutaway bursts at once" {
     var ctx = mission.orders();
     ctx.world.camera = &watching;
     const pod = try mission.add(.of(.predator), @splat(0));
-    _ = watching.setView(.pod_shot, pod, true, true, 0);
+    _ = camera.switchView(ctx.world, .pod_shot, pod, true, true);
     mission.player.showing = .ejection;
     mission.player.ending = .destroyed;
     mission.slot(pod).object.flags.ejected = true;
@@ -604,7 +604,7 @@ test "the pod shot down in the ejection's cutaway bursts at once" {
     ai.objectDestroyed(ctx, pod, true, true);
     aigeneric.objectOrders(ctx, pod);
     try std.testing.expectEqual(Style.halt, mission.slot(pod).state.explode.style);
-    try std.testing.expectEqual(.pod_shot, watching.view);
+    try std.testing.expectEqual(.pod_shot, mission.player.viewing.view);
     try std.testing.expectEqual(.destroyed, mission.player.ending);
 }
 

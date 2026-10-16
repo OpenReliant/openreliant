@@ -119,8 +119,8 @@ pub const Registry = struct {
 
     pub fn resetCamera(registry: *Registry, scripts: *runtime.Runtime) void {
         if (scripts.presentation) |shown| if (shown.host) |host| if (host.camera) |held| {
-            if (registry.selected_camera) |index| if (held.camera.view == viewId(index) and !held.camera.locked) {
-                _ = held.camera.setView(.cockpit, held.player, false, false, held.now);
+            if (registry.selected_camera) |index| if (held.viewing.view == viewId(index) and !held.viewing.locked) {
+                _ = camera.switchViewing(held.viewing, held.camera, .cockpit, held.player, false, false, held.now, held.bounds);
             };
         };
         registry.selected_camera = null;
@@ -143,9 +143,9 @@ pub const Registry = struct {
     pub fn selectCamera(registry: *Registry, scripts: *runtime.Runtime, index: usize, object: ?engine.hooks.Object) bool {
         const host = scripts.presentation.?.host orelse return false;
         const held = host.camera orelse return false;
-        if (!held.camera.setView(viewId(index), if (object) |ship| ship.slot() else held.player, false, false, held.now)) return false;
+        if (!camera.switchViewing(held.viewing, held.camera, viewId(index), if (object) |ship| ship.slot() else held.player, false, false, held.now, held.bounds)) return false;
         registry.selected_camera = index;
-        if (scripts.objects) |all| registry.camera_subject = .of(all, held.camera.object.?);
+        if (scripts.objects) |all| registry.camera_subject = .of(all, held.viewing.object.?);
         return true;
     }
 
@@ -154,10 +154,10 @@ pub const Registry = struct {
         defer registry.updating = false;
         if (scripts.presentation) |shown| if (shown.host) |host| if (host.camera) |held| {
             if (registry.selected_camera) |index| {
-                if (held.camera.view != viewId(index)) {
+                if (held.viewing.view != viewId(index)) {
                     registry.selected_camera = null;
                     registry.camera_subject = null;
-                } else if (!held.camera.locked) registry.cameraFrame(scripts, index, seconds);
+                } else if (!held.viewing.locked) registry.cameraFrame(scripts, index, seconds);
             }
         };
         const count = registry.entries.items.len;
@@ -214,7 +214,7 @@ pub const Registry = struct {
         const entry = registry.entries.items[index];
         const callbacks = entry.callbacks orelse return;
         const held = scripts.presentation.?.host.?.camera.?;
-        const ship = held.camera.object orelse held.player;
+        const ship = held.viewing.object orelse held.player;
         const subject = registry.camera_subject;
         if (scripts.objects == null or subject == null or !subject.?.valid(scripts.objects.?) or @import("world.zig").objectIn(scripts.objects.?, ship) == null) {
             registry.disable(scripts, index);
@@ -231,7 +231,7 @@ pub const Registry = struct {
             return;
         };
         // Callback code can switch views. Do not overwrite that selection or a mission lock.
-        if (registry.selected_camera != index or held.camera.view != viewId(index) or held.camera.locked or !registry.entries.items[index].enabled) return;
+        if (registry.selected_camera != index or held.viewing.view != viewId(index) or held.viewing.locked or !registry.entries.items[index].enabled) return;
         const axes = pose.orientation;
         if (!validOrientation(axes)) {
             log.warn("{s}: camera {s} returned non-orthonormal axes", .{ entry.context.modOf().name, entry.name.slice() });

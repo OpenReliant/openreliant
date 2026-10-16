@@ -380,9 +380,7 @@ pub fn createShip(game: aigeneric.Context, bound: *const mission.Mission, index:
     create.extra.hatMade(game.world, made);
     const first: Order = if (made >= all.players) .do_nothing else if (made == all.player) .player_control else .multiplayer_control;
     _ = aigeneric.give(game, made, first, .none);
-    if (made == all.player) if (game.world.camera) |view| {
-        _ = view.setView(.cockpit, made, false, false, game.world.clock.viewTime());
-    };
+    if (made == all.player) _ = camera.switchView(game.world, .cockpit, made, false, false);
     objects.setOrientation(&slot.object, &slot.drawn, turn);
     if (ship.launchGate()) |gate| for (ships, 0..) |carrier, from| {
         if (carrier.kind != ship.launch_from) continue;
@@ -886,34 +884,31 @@ fn setShipAvoidanceShip(call: Call, ship: Ship) void {
 
 /// `cmd_StartMissileCam` (`0x00458B60`, command `0x1F`): the camera switches to the missile view,
 /// locked and forced, following the next missile in flight that the ship the argument names
-/// launched (`camera.Camera.setView`), and stays as it is where there's none. The thread then
+/// launched (`camera.switchView`), and stays as it is where there's none. The thread then
 /// yields until it runs next. Mission 28 has the camera follow a torpedo of the Yamato's so.
 ///
 /// **Fix:** where the argument names no ship, the game reads past the objects' table; OpenReliant
 /// does nothing.
 fn startMissileCam(call: Call) u32 {
     const game = call.machine.game orelse return yield;
-    const view = game.world.camera orelse return yield;
     const ship = call.argumentShip(game.world.objects, 0) orelse return yield;
-    _ = view.setView(.missile, ship, true, true, game.world.clock.viewTime());
+    _ = camera.switchView(game.world, .missile, ship, true, true);
     return yield;
 }
 
 /// `cmd_StartChaseCam` (`0x00458B80`, command `0x20`): the camera follows the ship the argument
-/// names in the chase view, locked and forced (`camera.Camera.setView`), or goes back to the
+/// names in the chase view, locked and forced (`camera.switchView`), or goes back to the
 /// player's cockpit, forced, where it names none. The thread then yields until it runs next.
 ///
 /// **Fix:** where the argument names a ship past the objects' slots, the game follows an object
 /// past their table; OpenReliant goes back to the cockpit, as for none.
 fn startChaseCam(call: Call) u32 {
     const game = call.machine.game orelse return yield;
-    const view = game.world.camera orelse return yield;
     const all = game.world.objects;
-    const now = game.world.clock.viewTime();
     if (call.argumentShip(all, 0)) |ship| {
-        _ = view.setView(.chase, ship, true, true, now);
+        _ = camera.switchView(game.world, .chase, ship, true, true);
     } else {
-        _ = view.setView(.cockpit, all.player, false, true, now);
+        _ = camera.switchView(game.world, .cockpit, all.player, false, true);
     }
     return yield;
 }
@@ -1449,7 +1444,7 @@ fn matchSpeed(call: Call, game: aigeneric.Context) void {
     const all = world.objects;
     if (machine.mission.shipIndex(call.args[0]) != all.player) return;
     if (call.args[1] != 0) {
-        input.matchTargetSpeed(world.player, all, world.view);
+        input.matchTargetSpeed(world.player, all, world.view());
         world.player.matching_speed = true;
     } else {
         world.player.matching_speed = false;
@@ -1543,17 +1538,15 @@ fn directorShot(machine: *vm.Machine, args: []const u32) camera.shots.Shot {
 /// `cmd_StopDirectorCam` (`0x00458E30`, command `0x24`): the camera goes back to the player's
 /// cockpit, forced, unless the player's slot holds a stand-in. The shots waiting stay.
 fn stopDirectorCam(_: Call, game: aigeneric.Context) void {
-    const view = game.world.camera orelse return;
     const all = game.world.objects;
-    if (all.slots[all.player].object.type.base() != .stand_in) _ = view.setView(.cockpit, all.player, false, true, game.world.clock.viewTime());
+    if (all.slots[all.player].object.type.base() != .stand_in) _ = camera.switchView(game.world, .cockpit, all.player, false, true);
 }
 
 /// `cmd_WaitForDirectorCam` (`0x00459C90`, command `0x50`): the thread waits while the camera is in
 /// the director's view, running the command again each time (`vm.machine.Call.againItself`).
 fn waitForDirectorCam(call: Call) u32 {
     const game = call.machine.game orelse return run_on;
-    const view = game.world.camera orelse return run_on;
-    return if (view.view == .director) call.againItself() else run_on;
+    return if (game.world.player.viewing.view == .director) call.againItself() else run_on;
 }
 
 test commandIndex {
@@ -2216,9 +2209,9 @@ test "the commands of the simulator's training, and those no shipped mission run
     try std.testing.expectEqual(Order.patrol_route, patrol.order);
     try std.testing.expectEqual(0, patrol.target.index);
     try std.testing.expectEqual(0x3A0, display.subtitle.string);
-    try std.testing.expectEqual(camera.View.chase, view.view);
-    try std.testing.expectEqual(2, view.object);
-    try std.testing.expect(view.locked);
+    try std.testing.expectEqual(camera.View.chase, ctx.world.view());
+    try std.testing.expectEqual(2, ctx.world.player.viewing.object);
+    try std.testing.expect(ctx.world.player.viewing.locked);
 
     // On, the afterburner fills, and the script waits for the key, prompting for it.
     const player = &all.slots[all.player];
@@ -2707,7 +2700,7 @@ test "the director's commands stack shots, wait for them and stop them" {
     const all = world.objects;
     for (all.slots[1..3]) |slot| try std.testing.expectEqual(gameobj.Type.of(.marker), slot.object.type);
     // The shot on screen, the flight group held, and the script waiting for it.
-    try std.testing.expectEqual(camera.View.director, view.view);
+    try std.testing.expectEqual(camera.View.director, ctx.world.view());
     try std.testing.expectEqual(3, view.director.tracked);
     try std.testing.expectEqual(100, view.director.total);
     for ([_]u16{ 0, 3 }) |ship| try std.testing.expect(all.slots[ship].object.flags.jumping);
@@ -2715,13 +2708,13 @@ test "the director's commands stack shots, wait for them and stop them" {
     try std.testing.expectEqual(0, fixture.global(0));
     const seen: camera.Subject = .{ .position = @splat(0), .orientation = @import("../surrender/math.zig").identity };
     world.clock.drawn_duration = 100;
-    _ = view.frame(.{ .object = seen, .player = seen, .ticks = 100, .game = ctx.world });
-    try std.testing.expectEqual(camera.View.cockpit, view.view);
+    view.frame(.{ .object = seen, .player = seen, .ticks = 100, .game = ctx.world, .viewing = &ctx.world.player.viewing });
+    try std.testing.expectEqual(camera.View.cockpit, ctx.world.view());
     for ([_]u16{ 0, 3 }) |ship| try std.testing.expect(!all.slots[ship].object.flags.jumping);
     // Over, the script runs on: the next shot begins and is stopped, and stays stacked.
     fixture.second();
     try std.testing.expectEqual(1, fixture.global(0));
-    try std.testing.expectEqual(camera.View.cockpit, view.view);
+    try std.testing.expectEqual(camera.View.cockpit, ctx.world.view());
     try std.testing.expectEqual(1, view.shots.count);
     try std.testing.expectEqual(camera.shots.Shot.Path{ .ship = 3 }, view.shots.first().?.path.?);
 }

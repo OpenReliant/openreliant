@@ -486,7 +486,7 @@ pub const Hearing = struct {
 
     /// The scene a 3D sound is placed in, for `world`.
     pub fn scene(hearing: Hearing, world: gameobj.World) Scene {
-        return .{ .objects = world.objects, .camera = hearing.camera.*, .view = world.view, .clock = hearing.clock, .random = world.random };
+        return .{ .objects = world.objects, .camera = hearing.camera.*, .view = world.view(), .clock = hearing.clock, .random = world.random };
     }
 };
 

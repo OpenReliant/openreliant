@@ -351,8 +351,8 @@ pub fn collisionCourse(world: gameobj.World, index: u16, target: u16, steps: f32
     const all = world.objects;
     const ship = &all.slots[index];
     const struck = &all.slots[target];
-    const own_cruise = slotCruise(ship, world.view) orelse return false;
-    const speeds = (slotCruise(struck, world.view) orelse return false) + own_cruise;
+    const own_cruise = slotCruise(ship, world.view()) orelse return false;
+    const speeds = (slotCruise(struck, world.view()) orelse return false) + own_cruise;
     var apart = ship.object.nextPosition() - struck.object.nextPosition();
     const reach = speeds * steps + struck.object.radius + ship.object.radius + margin;
     if (math.lengthSquared(apart) > reach * reach) return false;
@@ -875,7 +875,7 @@ pub fn arrive(world: gameobj.World, index: u16, at: Vector, orientation: math.Ma
         return true;
     }
     const local = math.transformTransposed(orientation, off);
-    const slowing = arrive_steps * cruiseSpeed(object, flight, world.view) / (1 - flight.inertia);
+    const slowing = arrive_steps * cruiseSpeed(object, flight, world.view()) / (1 - flight.inertia);
     if (-local[2] > reach * ahead_cosine and
         math.transformTransposed(orientation, object.nextHeading())[2] > facing_cosine)
     {
@@ -1039,7 +1039,7 @@ pub fn avoidAhead(world: gameobj.World, index: u16, point: *Vector) bool {
     const slot = &all.slots[index];
     const ship = &slot.object;
     if (ship.flags.components or ship.flags.no_avoidance) return false;
-    const cruise = slotCruise(slot, world.view) orelse return false;
+    const cruise = slotCruise(slot, world.view()) orelse return false;
     const next = ship.placeAt(.next);
     const from = next.position;
     var avoided = false;

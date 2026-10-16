@@ -63,8 +63,9 @@ So the game frames' work plays the same way at any frame rate. A run paced one t
 
 Some game work still runs once a drawn frame, until it moves to the game frames ([#947](https://github.com/OpenReliant/openreliant/issues/947)):
 
-- the controls frame: the targeting keys and the frame keys;
-- the camera, which decides when the mission ends and posts the director's CameraReached events.
+- the controls frame: the camera keys, the targeting keys and the frame keys;
+- the director's view, which flies the script's shots, posts their CameraReached events, and goes
+  back to the cockpit as a shot ends ([Camera](camera.md#what-the-game-keeps)).
 
 ## Random numbers
 

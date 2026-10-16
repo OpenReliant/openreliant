@@ -109,7 +109,7 @@ pub fn playBeep(sound: *hog_snd.Sound, view: camera.View, which: Beep) void {
 pub fn beep(world: ?gameobj.World, which: Beep) void {
     const heard = world orelse return;
     const hearing = heard.hearing orelse return;
-    playBeep(hearing.sound, heard.view, which);
+    playBeep(hearing.sound, heard.view(), which);
 }
 
 /// The display's sounds asked for where no world is at hand, which `draw` plays later in the same

@@ -406,7 +406,7 @@ fn pickUp(ctx: Context, index: u16) void {
     const ship = &all.slots[seen];
     objects.setPlace(&ship.object, &ship.drawn, .{ .position = scene.at, .orientation = scene.orientation });
     _ = aigeneric.giveShip(ctx, seen, scene.order, index, null);
-    if (world.camera) |watching| _ = watching.setCutaway(scene.view, seen, ctx.world.clock.viewTime(), .of(ship), .of(pod));
+    _ = camera.switchCutaway(world, scene.view, seen, .of(ship), .of(pod));
     if (fate == .killed) pod.object.radius *= killed_target_scale;
 }
 
@@ -763,7 +763,7 @@ test pickUp {
         try std.testing.expectEqual(cutaway_place, pod.drawn.position);
         const ship = mission.slot(create.cutaway_slot);
         try std.testing.expectEqual(index, ship.orders[0].target.ship());
-        try std.testing.expectEqual(create.cutaway_slot, watching.object);
+        try std.testing.expectEqual(create.cutaway_slot, mission.player.viewing.object);
         switch (fate) {
             // A nanny ship, or the Antanov, short of the pod along Z, scoops it up, watched round
             // the ship.
@@ -771,7 +771,7 @@ test pickUp {
                 try std.testing.expectEqual(if (fate == .rescued) gameobj.Type.of(.nanny) else gameobj.Type.of(.antanov), ship.object.type);
                 try std.testing.expectEqual(cutaway_place - Vector{ 0, 0, pickup_short }, ship.drawn.position);
                 try std.testing.expectEqual(.scoop_up, ship.orders[0].order);
-                try std.testing.expectEqual(.pickup, watching.view);
+                try std.testing.expectEqual(.pickup, mission.player.viewing.view);
                 try std.testing.expectEqual(100, pod.object.radius);
             },
             // A Sabre, across, above and short of it, shoots it down, watched from behind the
@@ -780,7 +780,7 @@ test pickUp {
                 try std.testing.expectEqual(gameobj.Type.of(.sabre), ship.object.type);
                 try std.testing.expectEqual(cutaway_place + Vector{ killer_across, killer_above, -killer_across }, ship.drawn.position);
                 try std.testing.expectEqual(.eject_fighter_attack, ship.orders[0].order);
-                try std.testing.expectEqual(.pod_shot, watching.view);
+                try std.testing.expectEqual(.pod_shot, mission.player.viewing.view);
                 try std.testing.expectEqual(100 * killed_target_scale, pod.object.radius);
             },
         }

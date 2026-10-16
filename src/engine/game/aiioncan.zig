@@ -828,7 +828,7 @@ pub fn update(ctx: Context, index: u16) void {
             if (kind.effects) record.aimLaser(focus_at, target, 1);
         },
         .destroy => {
-            if (world.view == .director and target_index == all.player) return;
+            if (world.view() == .director and target_index == all.player) return;
             cannons.free(world.rays, index);
             destroyShip(ctx, target_index);
             aigeneric.end(ctx, index);
@@ -1245,11 +1245,11 @@ test "Moose warns the player of the charge, and the director's view holds the sh
     // Its shot done, the director's view of the player's ship holds the player's end.
     for ([_]i32{ 280, 300, 150, 200, 100 }) |ticks| mission.ordersAfter(ctx, boridin, ticks);
     try std.testing.expectEqual(.destroy, state.step);
-    world.view = .director;
+    world.player.viewing.view = .director;
     mission.ordersAfter(.of(world), boridin, 0);
     try std.testing.expectEqual(.destroy, state.step);
     try std.testing.expect(mission.slot(player).orders[0].order != .explode);
-    world.view = .chase;
+    world.player.viewing.view = .chase;
     mission.ordersAfter(.of(world), boridin, 0);
     try std.testing.expectEqual(0, mission.slot(boridin).object.order_count);
 }

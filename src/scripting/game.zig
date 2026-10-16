@@ -1492,15 +1492,15 @@ test "the scripts give their orders against the world as each frame has it" {
     try fixture.init(&.{.{ "a", &.{ .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" }, .{ "a.luau", "" } } }});
     defer fixture.deinit();
     var orders = fixture.mission.orders();
-    orders.world.view = .director;
+    orders.world.light_maps = false;
     // Before a mission, the frame changes nothing.
     fixture.game.scripts.frame(orders);
     try std.testing.expectEqual(null, fixture.game.runtime.orders);
     // During one, the scripts keep the frame's.
     fixture.begin();
-    try std.testing.expect(fixture.game.runtime.orders.?.world.view != .director);
+    try std.testing.expect(fixture.game.runtime.orders.?.world.light_maps);
     fixture.game.scripts.frame(orders);
-    try std.testing.expectEqual(.director, fixture.game.runtime.orders.?.world.view);
+    try std.testing.expect(!fixture.game.runtime.orders.?.world.light_maps);
 }
 
 test "a mod's scripts that fail to start leave no context open" {

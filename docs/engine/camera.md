@@ -68,6 +68,14 @@ The options' cockpit setting (`cockpit_mode_setting`, `0x5D5A78`), which `WinMai
 
 OpenReliant keeps the setting with the camera, which `--view` sets. A ship that does not launch starts in view 0; one too large for the chase mode's distance starts in the external view instead, as OpenReliant flies ships the game never gives the player.
 
+### What the game keeps
+
+The game reads the camera's view as well as the camera does: the mission ends by it ([Ejection](ejection.md#the-missions-end)), and the ships' cruise speed, the cloak and the missile lock depend on it. OpenReliant keeps the view, its object, when it switched, the lock and the missile the missile view follows in the game, with the player (`camera.Viewing`, `input.Player.viewing`), so a world that draws nothing keeps them just the same. Every switch goes through it (`camera.switchView`), and the camera, where one is drawn, follows: its bars, its chase and orbit, and where a cutaway puts it at once (`Camera.cutTo`). `mission_frame` keeps the view it ends with as the last frame's (`camera_view_last`, `0x0049346C`), which the missile lock and the display go by, and `mission_start` puts the view back in the player's cockpit (`0x00493522`).
+
+The game's part of `camera_frame` runs once a game frame (`camera.gameFrame`): a view that can't go on goes back to the cockpit, forced. That is the chase or spectator view of an object with no stats, the target view with no target, and the missile view 150 ticks after its missile is gone (`0x00460C90`). Until the ship drops out of the bay, the bay view holds its time at nothing. The drawn frame only places the camera (`Camera.frame`), and holds it still where the view can't go on.
+
+Still in the drawn frame ([#947](https://github.com/OpenReliant/openreliant/issues/947)): the camera keys, and the director's view, which flies the script's shots, posts their CameraReached events, and goes back to the cockpit as a shot ends.
+
 ## Cockpit
 
 The camera's orientation is the ship's turned by the view's angle, and its position the ship's plus the model's eye point, the `.SHP` header's vector at `0x08`, turned likewise, so the rear view looks back from behind the ship. The Kamov (ship type 0x2D) looks back from 1500 behind it instead.

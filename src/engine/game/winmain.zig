@@ -91,7 +91,10 @@ test followActivation {
     var app: App = .{};
     var clock: Clock = .{};
     var view: camera.Camera = .{};
-    const player: u16 = 0;
+    var mission: @import("gameobj.zig").testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const world = mission.world();
     var menu: hudoptions.PauseMenu = .{};
     defer menu.close();
     const pausing: main.Pausing = .{
@@ -101,7 +104,7 @@ test followActivation {
         .menu = &menu,
         .archive = archive.hog,
         .camera = &view,
-        .player = &player,
+        .world = &world,
     };
 
     // Active, nothing changes.

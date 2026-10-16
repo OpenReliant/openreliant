@@ -437,10 +437,10 @@ pub const Pausing = struct {
     /// The archive the menu's fonts come from, and the outline fonts that stand in for them.
     archive: bigfile.Hog,
     outlines: ?*hud.outline.Outlines = null,
-    /// The camera, which resuming switches to view 0, following the player's ship's slot, when its
-    /// cockpit setting (`camera.Camera.setting`) changed while paused.
+    /// The camera, whose cockpit setting (`camera.Camera.setting`) the menu may change, and the
+    /// game's world, whose view resuming then switches to view 0, following the player's ship.
     camera: *camera.Camera,
-    player: *const u16,
+    world: *const gameobj.World,
 };
 
 /// `game_pause` (`0x00491E20`): pauses or resumes the mission. Pausing, where it isn't paused yet,
@@ -473,7 +473,8 @@ pub fn pause(pausing: Pausing, on: bool) !void {
         sound.resumeAll();
         menu.close();
         if (menu.view_setting != pausing.camera.setting) {
-            _ = pausing.camera.setView(.cockpit, pausing.player.*, false, true, clock.viewTime());
+            const world = pausing.world.*;
+            _ = camera.switchView(world, .cockpit, world.objects.player, false, true);
         }
     }
 }
@@ -502,8 +503,11 @@ test pauseKeys {
     var menu: hudoptions.PauseMenu = .{};
     defer menu.close();
     var view: camera.Camera = .{};
-    const player: u16 = 0;
-    const pausing: Pausing = .{ .gpa = gpa, .clock = &clock, .sound = &sound, .menu = &menu, .archive = archive.hog, .camera = &view, .player = &player };
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const world = mission.world();
+    const pausing: Pausing = .{ .gpa = gpa, .clock = &clock, .sound = &sound, .menu = &menu, .archive = archive.hog, .camera = &view, .world = &world };
     var devices: input.Devices = .{};
     try std.testing.expect(!try pauseKeys(pausing, &devices));
     // F1 pauses straight into the controls; paused, the keys do nothing more.
@@ -543,8 +547,6 @@ pub const Controls = struct {
     sight: ?hud.Sight,
     screen: [2]u32,
     ui_scale: hud.UiScale,
-    /// Last frame's view (`camera_view_last`).
-    last_view: camera.View,
     /// The cockpit's model, where the player's ship has one, which the camera's frame moves.
     cockpit: ?*cockpit.Cockpit.Shown,
     forces: *input.force.Forces,
@@ -568,15 +570,14 @@ pub fn controlsFrame(controls: Controls) void {
     const view = controls.camera;
     const devices = controls.devices;
     const ticks = clock.drawnTicks();
-    const at = clock.viewTime();
     const slot = &all.slots[all.player];
-    view.frameControls(devices, all.player, ticks, at);
+    if (view.frameControls(world.player.viewing, devices, ticks)) |chosen| _ = camera.switchView(world, chosen, all.player, false, false);
     hud.targetKeys(controls.display, .{
         .devices = devices,
         .player = world.player,
         .all = all,
         .sight = controls.sight,
-        .last_view = controls.last_view,
+        .last_view = world.player.viewing.last,
         .scale = controls.ui_scale.of(controls.screen),
         .multiplayer = false,
         .world = world,
@@ -586,7 +587,7 @@ pub fn controlsFrame(controls: Controls) void {
         .player = world.player,
         .devices = devices,
         .slot = slot,
-        .view = view.view,
+        .view = world.player.viewing.view,
         .game_ticks = clock.game_ticks,
         .multiplayer = false,
         .world = world,
@@ -618,11 +619,12 @@ pub fn viewFrame(controls: Controls) void {
         drawn.random = controls.random;
         trails.frame(drawn);
     }
-    const cockpit_input = if (controls.cockpit) |shown| shown.inputFor(slot, view.view) else null;
+    const viewing = &world.player.viewing;
+    const cockpit_input = if (controls.cockpit) |shown| shown.inputFor(slot, viewing.view) else null;
     const subject = camera.Subject.of(slot);
-    const seen = if (view.object) |object| camera.Subject.of(&all.slots[object]) else subject;
+    const seen = if (viewing.object) |object| camera.Subject.of(&all.slots[object]) else subject;
     const marker = if (world.explosions) |explosions| if (explosions.marker) |left| left.position else null else null;
-    if (view.frame(.{
+    view.frame(.{
         .object = seen,
         .player = subject,
         // The target view goes round the player's target.
@@ -635,16 +637,15 @@ pub fn viewFrame(controls: Controls) void {
         .random = controls.random,
         .forces = controls.forces,
         .dropping = launch.dropping(all, all.player),
-        .landing = ailand.seen(all, view.object orelse all.player),
+        .landing = ailand.seen(all, viewing.object orelse all.player),
         .showing = &world.player.showing,
         .game = world,
-    })) |next| {
-        _ = view.setView(next, all.player, false, true, at);
-    }
-    slot.object.flags.hidden = view.inside(all.player);
+        .viewing = viewing,
+    });
+    slot.object.flags.hidden = viewing.inside(all.player, view.cockpit_mode);
     if (world.hearing) |hearing| {
         hearing.sound.timerTick(clock.game_ticks);
-        hearing.sound.surround(world.player.showing.surroundings(view.view));
+        hearing.sound.surround(world.player.showing.surroundings(viewing.view));
         if (hearing.sound.stdsmp) |bank| hearing.sound.frame(bank, hearing.scene(world));
     }
     devices.joystick.rumble(controls.forces.motors(clock.frame_start));
@@ -664,8 +665,9 @@ pub fn viewFrame(controls: Controls) void {
 /// (`shockwave.Shockwaves.frame`). Between them the frame's hits on the player's ship push its
 /// controller (`input.force.Forces.pushFrame`). Last, where there is a display, the missile lock
 /// (`runLock`) and the devices' charges, which the game runs as it draws the display
-/// (`hud.State.runCharges`). A mission and the sandbox alike run this once a
-/// game tick (`gameFrames`), before the drawn frame's camera and anything drawn.
+/// (`hud.State.runCharges`); then the camera's part in the game (`camera.gameFrame`), and the view
+/// kept as the last frame's (`camera.Viewing.last`, `0x0049346C`). A mission and the sandbox alike
+/// run this once a game tick (`gameFrames`), before the drawn frame's camera and anything drawn.
 ///
 /// As the frame begins, mods' scripts take the world as the frame has it, which the orders they
 /// give run against (`hooks.Scripts.frame`).
@@ -744,6 +746,8 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
         runLock(orders.world, display);
         display.runCharges(orders.world, orders.world.clock.frame_duration, false);
     }
+    camera.gameFrame(orders.world);
+    player.viewing.last = player.viewing.view;
     return if (over or player.terminated != 0) .over else .played;
 }
 
@@ -792,7 +796,7 @@ pub fn gameFrames(clock: *Clock, devices: *input.Devices, world: gameobj.World, 
 /// the player's ship rides the worm between gates (`wgate.ridingWorm`).
 fn runLock(world: gameobj.World, display: *hud.State) void {
     if (wgate.ridingWorm(world.gates)) return;
-    if (world.last_view.showsLock()) display.lock.frame(world, &display.missiles);
+    if (world.player.viewing.last.showsLock()) display.lock.frame(world, &display.missiles);
 }
 
 /// `mission_run`'s work once its loop is over (`0x004941FC`): a mission that its script ended
@@ -855,25 +859,26 @@ const shot_watched = 500;
 /// `mission_frame`'s end of the mission by what the camera watches (`0x00492651`): once the
 /// player's ship's end, the pod's pickup or the pod shot down has been watched its time, the
 /// mission is over. Watching the pod shot down, the time counts from when it bursts. A watch view
-/// that lasts, as `--watch` sets, never ends it (`camera.Camera.lasting`).
+/// that lasts, as `--watch` sets, never ends it (`camera.Viewing.lasting`). It goes by the view the
+/// game keeps (`input.Player.viewing`), so a world that draws nothing ends its mission alike.
 ///
 /// Not ported: a multiplayer game, where the camera goes on to watch another player
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn missionOver(world: gameobj.World) bool {
-    const watching = world.camera orelse return false;
+    const viewing = &world.player.viewing;
     const now = world.clock.viewTime();
-    const watched: u32 = switch (watching.view) {
-        .watch => if (watching.lasting) return false else end_watched,
+    const watched: u32 = switch (viewing.view) {
+        .watch => if (viewing.lasting) return false else end_watched,
         .pull_back, .watch_marker => end_watched,
         .pickup => pickup_watched,
         .pod_shot => watched: {
             if (world.objects.slots[world.objects.player].object.flags.exploding) break :watched shot_watched;
-            watching.switched = now;
+            viewing.switched = now;
             return false;
         },
         else => return false,
     };
-    return now > watching.switched + watched;
+    return now > viewing.switched + watched;
 }
 
 /// `mission_frame`'s pass that draws the objects, beyond drawing them: over each object drawn
@@ -934,7 +939,7 @@ fn keepPlayerTarget(world: gameobj.World) void {
         if (away > hud.pick_reach) _ = input.cycleTarget(world.display, all, .next, if (target.side == .hostile) .hostile else .friendly, false);
     }
     const display = world.display orelse return;
-    if (!display.subtarget.shows(entry.target) and world.view == .cockpit) display.subtarget.pick(all);
+    if (!display.subtarget.shows(entry.target) and world.view() == .cockpit) display.subtarget.pick(all);
 }
 
 test keepPlayerTarget {
@@ -1834,34 +1839,38 @@ test missionOver {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const index = try mission.add(.of(.predator), @splat(0));
-    var watching: camera.Camera = .{};
-    var world = mission.world();
-    // Without a camera, or in a view of the mission, the mission goes on.
-    try std.testing.expect(!missionOver(world));
-    world.camera = &watching;
+    const world = mission.world();
+    const viewing = &mission.player.viewing;
+    // In a view of the mission, the mission goes on. Nothing is drawn: the end goes by the view the
+    // game keeps.
     mission.clock.mission_ticks = 100_000;
     try std.testing.expect(!missionOver(world));
     // The player's end is watched for six seconds, the pickup for twelve.
     for ([_]struct { camera.View, u32 }{ .{ .pull_back, end_watched }, .{ .pickup, pickup_watched } }) |case| {
         const view, const watched = case;
-        _ = watching.setView(view, index, true, true, 1000);
+        mission.clock.mission_ticks = 1000;
+        _ = camera.switchView(world, view, index, true, true);
         mission.clock.mission_ticks = @intCast(1000 + watched);
         try std.testing.expect(!missionOver(world));
         mission.clock.mission_ticks += 1;
         try std.testing.expect(missionOver(world));
     }
     // A watch that lasts never ends the mission, but the end's own watch does.
-    _ = watching.setView(.watch, index, true, true, 1000);
-    watching.lasting = true;
+    mission.clock.mission_ticks = 1000;
+    _ = camera.switchView(world, .watch, index, true, true);
+    viewing.lasting = true;
     mission.clock.mission_ticks = 100_000;
     try std.testing.expect(!missionOver(world));
-    _ = watching.setView(.watch, index, true, true, 1000);
+    mission.clock.mission_ticks = 1000;
+    _ = camera.switchView(world, .watch, index, true, true);
+    mission.clock.mission_ticks = 100_000;
     try std.testing.expect(missionOver(world));
     // The pod shot down is watched from when it bursts.
-    _ = watching.setView(.pod_shot, index, true, true, 0);
+    mission.clock.mission_ticks = 0;
+    _ = camera.switchView(world, .pod_shot, index, true, true);
     mission.clock.mission_ticks = 5000;
     try std.testing.expect(!missionOver(world));
-    try std.testing.expectEqual(5000, watching.switched);
+    try std.testing.expectEqual(5000, viewing.switched);
     mission.slot(index).object.flags.exploding = true;
     mission.clock.mission_ticks = 5001 + shot_watched;
     try std.testing.expect(missionOver(world));
@@ -2225,12 +2234,14 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     world.player.flyback = .{};
     world.player.primary_target = null;
     world.player.scanner = .{};
-    if (world.camera) |view| {
-        view.view = .cockpit;
-        view.object = all.player;
-        view.locked = false;
-        view.cockpit_mode = view.setting.mode();
-    }
+    // `mission_start` (`0x00493522` on) puts the view, and the last frame's, in the player's
+    // cockpit, unlocked.
+    const viewing = &world.player.viewing;
+    viewing.view = .cockpit;
+    viewing.object = all.player;
+    viewing.last = .cockpit;
+    viewing.locked = false;
+    if (world.camera) |view| view.cockpit_mode = view.setting.mode();
     winmain.startMission(world.player, if (start.campaign) |campaign| campaign.kept(number).kills else 0);
     world.random.* = .init(start.seed);
     all.mission_number = number;
@@ -2635,14 +2646,14 @@ test runLock {
     display.missiles = stage.ring;
     var world = stage.armed.mission.world();
     // Switched from the cockpit to a view without it this frame, the lock still starts.
-    world.view = .target;
-    world.last_view = .cockpit;
+    world.player.viewing.view = .target;
+    world.player.viewing.last = .cockpit;
     runLock(world, &display);
     try std.testing.expectEqual(lock.Phase.closing, display.lock.phase);
     // Switched the other way, it doesn't run yet.
     display.lock = .{};
-    world.view = .cockpit;
-    world.last_view = .target;
+    world.player.viewing.view = .cockpit;
+    world.player.viewing.last = .target;
     runLock(world, &display);
     try std.testing.expectEqual(lock.Phase.idle, display.lock.phase);
 }

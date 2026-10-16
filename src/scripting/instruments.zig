@@ -401,7 +401,7 @@ pub const instruments_shown = api.Field(bool, "Whether the game's instruments sh
     pub fn get(call: Call) bool {
         const host = presentation.Presentation.of(call).host orelse return false;
         const held = host.camera orelse return false;
-        return hud.instrumented(held.camera.view);
+        return hud.instrumented(held.viewing.view);
     }
 });
 

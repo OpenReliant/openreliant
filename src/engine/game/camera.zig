@@ -1,6 +1,7 @@
 //! `C:\lancer\game\camera.cpp`: the views and where each puts the camera. `camera_set_view`
 //! (`0x0045F1B0`) switches view, `camera_frame` (`0x0045FC90`) places the camera once a frame, and
-//! `frame_controls` (`0x00414060`) picks views and steers the orbiting ones from the keyboard.
+//! `frame_controls` (`0x00414060`) picks views and steers the orbiting ones from the keyboard. The
+//! game keeps the view (`Viewing`, `switchView`, `gameFrame`), and the camera shows it (`Camera`).
 
 const std = @import("std");
 
@@ -14,6 +15,7 @@ const Order = @import("ai/orders.zig").Order;
 const hud = @import("hud.zig");
 const gameobj = @import("gameobj.zig");
 const missiles = @import("missiles.zig");
+const launch = @import("launch.zig");
 const yamato_launch = @import("launch/yamato.zig");
 const wgate = @import("wgate.zig");
 const Vector = math.Vector;
@@ -388,6 +390,14 @@ pub const World = struct {
     /// The game's world, through which the director's view flies along the mission's curves; null
     /// where no game runs, as in a test.
     game: ?gameobj.World = null,
+    /// What the game has the camera view (`input.Player.viewing`).
+    viewing: *const Viewing,
+
+    /// How long the view has been up at the frame, in ticks: since it was switched to, and on by as
+    /// much past the tick as the frame is drawn (`ahead`).
+    fn shown(world: World) f32 {
+        return @as(f32, @floatFromInt(world.now -| world.viewing.switched)) + world.ahead;
+    }
 };
 
 /// What the landing's views stand by, by the carrier the ship lands on (`ailand.seen`).
@@ -415,31 +425,135 @@ pub const Landing = union(enum) {
     };
 };
 
-/// The camera: the state `camera_set_view` and `camera_frame` keep in globals, and Surrender's
-/// camera frame they place, with the cockpit's model it moves in view 0. Leaves out the views not
-/// named in `View`, and the shake from hits in any view but 0.
-pub const Camera = struct {
-    place: Place = .{ .position = @splat(0), .orientation = math.identity },
+/// What the camera views, which the game keeps in `camera_set_view`'s globals: the view, the object
+/// it shows, since when, and whether a script holds it. The game goes by it as well as the camera:
+/// the mission ends once the player's end has been watched long enough (`main.missionOver`), and
+/// the ships' cruise speed, the cloak and the missile lock depend on the view. The camera
+/// (`Camera`) shows what it says. A world that draws nothing keeps it just the same
+/// (`input.Player.viewing`).
+pub const Viewing = struct {
     view: View = .cockpit,
     /// The object the view shows (`camera_object`, `0x00539A8C`).
     object: ?u16 = null,
+    /// Set while a script holds the camera (`0x00539ACC`): the camera keys do nothing.
+    locked: bool = false,
+    /// `frame_start` when the view last changed (`0x00539AA4`).
+    switched: u32 = 0,
+    /// OpenReliant's: the watch view (`View.watch`) is one that lasts, as `--watch` sets it, rather
+    /// than the one the player's end switches to, so it doesn't end the mission
+    /// (`main.missionOver`). Any change of view clears it (`set`).
+    lasting: bool = false,
+    /// The view as the last game frame ended (`camera_view_last`, `0x00539A64`), which the missile
+    /// lock and the display go by.
+    last: View = .cockpit,
+    /// The missile the missile view follows (`camera_missile`, `0x00539A94`), and whether it has
+    /// ended (`0x00539A7C`), after which the view holds still for `missile_linger` ticks and goes
+    /// back to the cockpit (`gameFrame`).
+    missile: u8 = 0,
+    missile_gone: bool = false,
+
+    /// What a switch of view goes by: the gates, whose worm the player's ship may be riding, and
+    /// the missiles in flight, which the missile view follows; null where there are none.
+    pub const Bounds = struct {
+        gates: ?*const wgate.Gates = null,
+        missiles: ?*const missiles.Missiles = null,
+
+        /// `world`'s.
+        pub fn of(world: gameobj.World) Bounds {
+            return .{ .gates = world.gates, .missiles = &world.objects.missiles };
+        }
+    };
+
+    /// The game's part of `camera_set_view`: switches to `view` at tick `now`, `object` the one it
+    /// shows, `lock` keeping the camera keys off it. Refused while the player's ship rides the worm
+    /// between gates, forced or not (`wgate.ridingWorm`, `0x0045F1B0`), and while the camera is
+    /// locked, unless `force`. The missile view follows the next missile in flight, from the one it
+    /// last followed, that `object` launched; with none, it is refused.
+    pub fn set(viewing: *Viewing, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Bounds) bool {
+        if (wgate.ridingWorm(by.gates)) return false;
+        if (viewing.locked and !force) return false;
+        if (view == .missile) {
+            const records = by.missiles orelse return false;
+            viewing.missile = nextMissile(records, viewing.missile, object orelse return false) orelse return false;
+            viewing.missile_gone = false;
+        }
+        viewing.view = view;
+        viewing.object = object;
+        viewing.locked = lock;
+        viewing.switched = now;
+        viewing.lasting = false;
+        return true;
+    }
+
+    /// Whether the view is in `object`'s cockpit, in `mode`: `camera_set_view` then sets the
+    /// object's flag bit 0, so that it isn't drawn.
+    pub fn inside(viewing: Viewing, object: u16, mode: CockpitMode) bool {
+        return viewing.object == object and inCockpit(viewing.view, mode);
+    }
+};
+
+/// Switches the world's view (`camera_set_view`, `Viewing.set`) at the mission's tick, and the
+/// camera with it, where there is one (`Camera.cutTo`).
+pub fn switchView(world: gameobj.World, view: View, object: ?u16, lock: bool, force: bool) bool {
+    return switchViewing(&world.player.viewing, world.camera, view, object, lock, force, world.clock.viewTime(), .of(world));
+}
+
+/// Switches `viewing` (`Viewing.set`), and `drawn` with it where there is a camera
+/// (`Camera.cutTo`).
+pub fn switchViewing(viewing: *Viewing, drawn: ?*Camera, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Viewing.Bounds) bool {
+    const before = viewing.*;
+    if (!viewing.set(view, object, lock, force, now, by)) return false;
+    if (drawn) |shown| shown.cutTo(before, viewing.*);
+    return true;
+}
+
+/// Switches to one of the ejection's views, `view`, of `object`, locked and forced
+/// (`switchView`), with what the camera stands off by taken from `seen`, the object, and `pod`, the
+/// pilot's, as they stand now (`Camera.placeCutaway`).
+pub fn switchCutaway(world: gameobj.World, view: View, object: u16, seen: Subject, pod: Subject) bool {
+    if (!switchView(world, view, object, true, true)) return false;
+    if (world.camera) |drawn| drawn.placeCutaway(view, seen, pod);
+    return true;
+}
+
+/// Switches to one of a launch's views, `view`, of `object`, locked and forced (`switchView`),
+/// placing the camera once where the view stands (`Camera.placeLaunch`).
+pub fn switchLaunch(world: gameobj.World, view: View, object: u16, seen: Subject, player: Subject, even_gate: bool) bool {
+    if (!switchView(world, view, object, true, true)) return false;
+    if (world.camera) |drawn| drawn.placeLaunch(view, seen, player, even_gate);
+    return true;
+}
+
+/// Switches to one of the Yamato's exterior views, `view`, of `object`, locked and forced
+/// (`switchView`), placing the camera once where the view stands (`Camera.placeYamato`).
+pub fn switchYamato(world: gameobj.World, view: View, object: u16, player: Subject) bool {
+    if (!switchView(world, view, object, true, true)) return false;
+    if (world.camera) |drawn| drawn.placeYamato(view, player);
+    return true;
+}
+
+/// Switches to one of a jump's views, `view`, of `object`, locked and forced (`switchView`),
+/// placing the camera once where the view stands (`Camera.placeJump`).
+pub fn switchJump(world: gameobj.World, view: View, object: u16, seen: Subject, player: Subject) bool {
+    if (!switchView(world, view, object, true, true)) return false;
+    if (world.camera) |drawn| drawn.placeJump(view, seen, player);
+    return true;
+}
+
+/// The camera: Surrender's camera frame, which `camera_frame` places as the game's view
+/// (`Viewing`) says, and what the original keeps to place it, with the cockpit's model it moves in
+/// view 0. Leaves out the views not named in `View`, and the shake from hits in any view but 0.
+pub const Camera = struct {
+    place: Place = .{ .position = @splat(0), .orientation = math.identity },
     cockpit_mode: CockpitMode = .open,
     /// The options' cockpit setting (`cockpit_mode_setting`, `0x005D5A78`), which the settings'
     /// video changes: a mission's start, and the end of the player's launch, put the camera in the
     /// cockpit mode it picks (`CockpitSetting.mode`).
     setting: CockpitSetting = .cockpit,
-    /// Set while a script holds the camera (`0x00539ACC`): the camera keys do nothing.
-    locked: bool = false,
     /// How much of the screen each bar covers (`0x00539A38`), and how fast they move
     /// (`0x00539A50`).
     bars: f32 = 0,
     bar_speed: f32 = 0,
-    /// `frame_start` when the view last changed (`0x00539AA4`).
-    switched: u32 = 0,
-    /// OpenReliant's: the watch view (`View.watch`) is one that lasts, as `--watch` sets it, rather
-    /// than the one the player's end switches to, so it doesn't end the mission
-    /// (`main.missionOver`). Any change of view clears it (`setView`).
-    lasting: bool = false,
     /// Where the ejection's views stand off from what they watch, as they are switched to
     /// (`0x00539A44`): the eject view's reach out to its object's right, the pickup's way to half
     /// between the picking ship and the pod, and the pod shot's way from the pod to the Sabre.
@@ -458,15 +572,8 @@ pub const Camera = struct {
     /// Set while the joystick's hat is held (`0x0051CF8C`), so that the view returns to the front
     /// when it is released.
     hat_glancing: bool = false,
-    /// The missiles in flight, which the missile view follows one of: the record it follows
-    /// (`camera_missile`, `0x00539A94`), and whether that has ended (`0x00539A7C`), after which the
-    /// camera holds still for `missile_linger` ticks and goes back to the cockpit.
+    /// The missiles in flight, which the missile view follows one of (`Viewing.missile`).
     missiles: ?*const missiles.Missiles = null,
-    missile: u8 = 0,
-    missile_gone: bool = false,
-    /// The gates, whose worm the player's ship may be riding, which holds the view as it is
-    /// (`setView`); null where the mission has none.
-    gates: ?*const wgate.Gates = null,
     /// The director's shots waiting, and what the director keeps of the one on screen.
     shots: shots.Shots = .{},
     director: director.Director = .{},
@@ -491,24 +598,13 @@ pub const Camera = struct {
     /// Bars grow this share of the screen a tick, times their speed (`camera_frame`, `0x004DC418`).
     pub const bar_rate: f32 = 0.001;
 
-    /// Switches view (`camera_set_view`): `object` is the one the view shows, `lock` keeps the
-    /// camera keys off it. Refused while the player's ship rides the worm between gates, forced or
-    /// not (`wgate.ridingWorm`, `0x0045F1B0`), and while the camera is locked, unless `force`. The
-    /// game then places the camera at once, as `frame` does, and has the stars draw no streaks this
-    /// frame.
-    ///
-    /// The missile view follows the next missile in flight, from the one it last followed, that
-    /// `object` launched; with none, it is refused. Out of the director's view, the ships its shot
-    /// held go (`shots.Held.hold`), and into it, the shot's own are held.
-    pub fn setView(camera: *Camera, view: View, object: ?u16, lock: bool, force: bool, now: u32) bool {
-        if (wgate.ridingWorm(camera.gates)) return false;
-        if (camera.locked and !force) return false;
-        if (view == .missile) {
-            const records = camera.missiles orelse return false;
-            camera.missile = nextMissile(records, camera.missile, object orelse return false) orelse return false;
-            camera.missile_gone = false;
-        }
-        if (camera.view == .director) if (camera.held) |held| held.hold(false);
+    /// The camera's part of a switch of view (`camera_set_view`), from `before` to `after`
+    /// (`switchView`): it has the stars draw no streaks next frame, and slides the bars in for a
+    /// letterboxed view or takes them away for another. Out of the director's view, the ships its
+    /// shot held go (`shots.Held.hold`), and into it, the shot's own are held.
+    pub fn cutTo(camera: *Camera, before: Viewing, after: Viewing) void {
+        const view = after.view;
+        if (before.view == .director) if (camera.held) |held| held.hold(false);
         camera.cut = true;
         if (view.letterboxed()) {
             camera.bar_speed = 1;
@@ -519,14 +615,9 @@ pub const Camera = struct {
         // The subtarget's parts are picked out in view 0 and put back in any other (`0x0045F42D`,
         // `0x0045F397`).
         if (camera.subtarget) |sub| if (view == .cockpit) sub.shown.pick(sub.all) else sub.shown.clear(sub.all);
-        if (view == .chase and (camera.view != .chase or camera.object != object)) {
+        if (view == .chase and (before.view != .chase or before.object != after.object)) {
             camera.chase.distance = Chase.start_distance;
         }
-        camera.locked = lock;
-        camera.object = object;
-        camera.switched = now;
-        camera.view = view;
-        camera.lasting = false;
         switch (view) {
             .cockpit => if (camera.cockpit_mode == .chase) camera.chase.resetTurns(),
             .chase, .spectator => camera.chase.resetTurns(),
@@ -537,30 +628,24 @@ pub const Camera = struct {
             },
             else => {},
         }
-        return true;
     }
 
-    /// Switches to one of the ejection's views, `view`, of `object`, locked and forced
-    /// (`camera_set_view`), with what it stands off by taken from `seen`, the object, and `pod`,
-    /// the pilot's, as they stand now.
-    pub fn setCutaway(camera: *Camera, view: View, object: u16, now: u32, seen: Subject, pod: Subject) bool {
-        if (!camera.setView(view, object, true, true, now)) return false;
+    /// What the ejection's views stand off by from what they watch, as `view` is switched to
+    /// (`switchCutaway`), from `seen`, the object, and `pod`, the pilot's, as they stand now.
+    pub fn placeCutaway(camera: *Camera, view: View, seen: Subject, pod: Subject) void {
         camera.cutaway = switch (view) {
             .eject => math.xAxis(seen.orientation) * @as(Vector, @splat(eject_reach)),
             .pickup => (pod.position - seen.position) * @as(Vector, @splat(pickup_share)),
             .pod_shot => math.normalize(seen.position - pod.position),
             else => camera.cutaway,
         };
-        return true;
     }
 
-    /// Switches to one of a launch's views, `view`, of `object`, locked and forced
-    /// (`camera_set_view`), placing the camera once where the view stands: the bay view beside
-    /// `seen`, the object, on its left where `even_gate` and else on its right; the view from below
-    /// under `player`, the player's ship, looking up at it; and the view aside beside and below the
-    /// object. `frame` then turns it.
-    pub fn setLaunch(camera: *Camera, view: View, object: u16, now: u32, seen: Subject, player: Subject, even_gate: bool) bool {
-        if (!camera.setView(view, object, true, true, now)) return false;
+    /// Where a launch's view, `view`, puts the camera once as it is switched to (`switchLaunch`):
+    /// the bay view beside `seen`, the object, on its left where `even_gate` and else on its right;
+    /// the view from below under `player`, the player's ship, looking up at it; and the view aside
+    /// beside and below the object. `frame` then turns it.
+    pub fn placeLaunch(camera: *Camera, view: View, seen: Subject, player: Subject, even_gate: bool) void {
         switch (view) {
             .launch_bay => {
                 const across: Vector = .{ if (even_gate) -bay_offset[0] else bay_offset[0], bay_offset[1], bay_offset[2] };
@@ -571,13 +656,12 @@ pub const Camera = struct {
             .launch_aside => camera.place.position = seen.place().point(aside_offset),
             else => {},
         }
-        return true;
     }
 
-    /// The Yamato's exterior views (`camera_set_view`, `0x0045F4B0` onward). The ahead view
-    /// keeps its orientation; the aside view keeps its position and follows the ship.
-    pub fn setYamato(camera: *Camera, view: View, object: u16, now: u32, player: Subject) bool {
-        if (!camera.setView(view, object, true, true, now)) return false;
+    /// Where the Yamato's exterior views put the camera as they are switched to (`switchYamato`,
+    /// `camera_set_view`, `0x0045F4B0` onward). The ahead view keeps its orientation; the aside
+    /// view keeps its position and follows the ship.
+    pub fn placeYamato(camera: *Camera, view: View, player: Subject) void {
         switch (view) {
             .yamato_beside => camera.place = yamatoBeside(player, 0),
             .yamato_ahead => camera.place = .{
@@ -587,38 +671,29 @@ pub const Camera = struct {
             .yamato_aside => camera.place = lookingAt(player.place().point(yamato_aside_offset), player.position),
             else => {},
         }
-        return true;
     }
 
-    /// Switches to one of a jump's views, `view`, of `object`, locked and forced
-    /// (`camera_set_view`), placing the camera once where the view stands: Jump Out's view
-    /// `jump_out_reach` out from `seen`, the object, along each of its axes; the view ahead
-    /// `jump_ahead_offset` from it, looking at it level in the frame of `player`, the player's ship;
-    /// and the view aside `jump_aside_offset` from it. `frame` then moves it. The close view needs
-    /// no placing: `frame` places it from the player's ship every frame, as it does at the switch.
-    pub fn setJump(camera: *Camera, view: View, object: u16, now: u32, seen: Subject, player: Subject) bool {
-        if (!camera.setView(view, object, true, true, now)) return false;
+    /// Where a jump's view, `view`, puts the camera once as it is switched to (`switchJump`): Jump
+    /// Out's view `jump_out_reach` out from `seen`, the object, along each of its axes; the view
+    /// ahead `jump_ahead_offset` from it, looking at it level in the frame of `player`, the player's
+    /// ship; and the view aside `jump_aside_offset` from it. `frame` then moves it. The close view
+    /// needs no placing: `frame` places it from the player's ship every frame, as it does at the
+    /// switch.
+    pub fn placeJump(camera: *Camera, view: View, seen: Subject, player: Subject) void {
         switch (view) {
             .jump_out => camera.place.position = seen.place().point(@splat(jump_out_reach)),
             .jump_in_ahead => camera.place = levelLookingAt(seen.place().point(jump_ahead_offset), seen.position, player.orientation),
             .jump_in_aside => camera.place.position = seen.place().point(jump_aside_offset),
             else => {},
         }
-        return true;
-    }
-
-    /// Whether `object` is not drawn because the camera is in its cockpit: `camera_set_view` sets
-    /// the object's flag bit 0 then.
-    pub fn inside(camera: Camera, object: u16) bool {
-        return camera.object == object and inCockpit(camera.view, camera.cockpit_mode);
     }
 
     /// A camera key (`frame_controls`): the cockpit key, in the cockpit view, cycles the cockpit
     /// mode first. Returns the view to switch to, with the player's ship as its object for the
-    /// views from it, or null for another action or while the camera is locked.
-    pub fn key(camera: *Camera, action: controls.Action) ?View {
+    /// views from it, or null for another action.
+    pub fn key(camera: *Camera, viewing: Viewing, action: controls.Action) ?View {
         const view = keyView(action) orelse return null;
-        if (action == .cockpit_camera and camera.view == .cockpit and !camera.locked) {
+        if (action == .cockpit_camera and viewing.view == .cockpit and !viewing.locked) {
             camera.cockpit_mode = camera.cockpit_mode.next();
             if (camera.cockpit_mode == .chase) camera.chase.distance = Chase.start_distance;
         }
@@ -629,11 +704,12 @@ pub const Camera = struct {
     /// the target and external views, the arrow keys steer the orbit, with Shift up and down to
     /// zoom. With `HatEnable`, holding the hat in a straight direction switches to the matching
     /// cockpit view, and releasing it returns to the front view. Then each camera key that was
-    /// pressed selects its view (the last one in the game's order wins), with `player` as the
-    /// object. The keys are read in the game's order, since `key_pressed` clears latches.
-    pub fn frameControls(camera: *Camera, devices: *input.Devices, player: u16, ticks: u32, now: u32) void {
+    /// pressed selects its view (the last one in the game's order wins), which it returns, for the
+    /// caller to switch to with the player's ship as its object (`switchView`). The keys are read
+    /// in the game's order, since `key_pressed` clears latches.
+    pub fn frameControls(camera: *Camera, viewing: Viewing, devices: *input.Devices, ticks: u32) ?View {
         const keyboard = &devices.keyboard;
-        if (camera.view == .target or camera.view == .external) {
+        if (viewing.view == .target or viewing.view == .external) {
             const scan = input.scan;
             var keys: Orbit.Keys = .{};
             if (keyboard.pressed(scan.left, .none, false)) {
@@ -663,22 +739,16 @@ pub const Camera = struct {
         }
         if (glancing and !camera.hat_glancing) chosen = .cockpit;
         for (camera_actions) |action| {
-            if (devices.active(action, true)) chosen = camera.key(action);
+            if (devices.active(action, true)) chosen = camera.key(viewing, action);
         }
-        if (chosen) |view| _ = camera.setView(view, player, false, false, now);
+        return chosen;
     }
 
-    /// How long the view has been up at `world`'s frame, in ticks: since it was switched to, and on
-    /// by as much past the tick as the frame is drawn (`World.ahead`).
-    fn shown(camera: Camera, world: World) f32 {
-        return @as(f32, @floatFromInt(world.now -| camera.switched)) + world.ahead;
-    }
-
-    /// Places the camera for a frame (`camera_frame`): while it shakes from hits by more than
+    /// Places the camera for a drawn frame (`camera_frame`): while it shakes from hits by more than
     /// `shake_rumbles`, plays the shake on the controller too (`force_shake`, `0x004BE000`); moves
-    /// the bars, then puts the camera where the view says. Returns a view to switch to when this
-    /// one cannot go on, as the game does.
-    pub fn frame(camera: *Camera, world: World) ?View {
+    /// the bars, then puts the camera where the view says. Where the view can't go on, it holds
+    /// still until the game switches it back (`gameFrame`).
+    pub fn frame(camera: *Camera, world: World) void {
         if (world.forces) |forces| if (camera.hit_shake > shake_rumbles) forces.startUnlessPlaying(.shake, @intCast(world.now));
         const ticks: f32 = @floatFromInt(world.ticks);
         // What the shake from hits jitters by this frame, before it dies away some more.
@@ -702,7 +772,7 @@ pub const Camera = struct {
                 camera.bar_speed = 0;
             }
         }
-        switch (camera.view) {
+        switch (world.viewing.view) {
             .cockpit => if (camera.cockpit_mode == .chase) {
                 camera.place = camera.chase.frame(world.object.motion, world.object.position, world.object.orientation);
             } else {
@@ -720,29 +790,25 @@ pub const Camera = struct {
                 else
                     cockpit(side, world.object.position, world.object.orientation, world.object.eye);
             },
-            .chase, .spectator => {
-                if (!world.object.motion.ship_type.hasStats()) return .cockpit;
+            .chase, .spectator => if (world.object.motion.ship_type.hasStats()) {
                 camera.place = camera.chase.frame(world.object.motion, world.object.position, world.object.orientation);
             },
-            .target => {
-                const target = world.target orelse return .cockpit;
+            .target => if (world.target) |target| {
                 camera.place = camera.orbit.place(.target, target.position, target.radius);
             },
             .external => camera.place = camera.orbit.place(.external, world.player.position, world.player.radius),
             .flyby => camera.place = flyby(camera.place.position, world.player.position, world.player.orientation, world.player.radius),
-            .pull_back => camera.place = pullBack(world.object.position, world.object.orientation, camera.shown(world)),
-            .eject => camera.place = ejected(camera.cutaway, world.object.position, camera.shown(world)),
-            .pickup => camera.place = pickedUp(camera.cutaway, world.object.position, world.object.orientation, camera.shown(world)),
+            .pull_back => camera.place = pullBack(world.object.position, world.object.orientation, world.shown()),
+            .eject => camera.place = ejected(camera.cutaway, world.object.position, world.shown()),
+            .pickup => camera.place = pickedUp(camera.cutaway, world.object.position, world.object.orientation, world.shown()),
             .pod_shot => {
-                // Until the pod bursts, the view holds its time at nothing.
-                if (!world.player.exploding) camera.switched = world.now;
-                const since = if (world.player.exploding) camera.shown(world) else 0;
+                // Until the pod bursts, the view holds its time at nothing (`main.missionOver`).
+                const since = if (world.player.exploding) world.shown() else 0;
                 camera.place = podShot(camera.cutaway, world.player.position, world.object.position, since);
             },
             .launch_bay => {
-                // Until the ship drops, the view holds its time at nothing.
-                if (!world.dropping) camera.switched = world.now;
-                const since = if (world.dropping) camera.shown(world) else 0;
+                // Until the ship drops, the view holds its time at nothing (`gameFrame`).
+                const since = if (world.dropping) world.shown() else 0;
                 camera.place.orientation = math.product(world.player.orientation, math.fromAngles(bay_pitch - since * bay_tilt, 0, 0));
             },
             // `camera_ease_to_player` (`0x00461C60`) eases the view's angles toward looking at the
@@ -753,7 +819,7 @@ pub const Camera = struct {
                 camera.place = lookingAt(camera.place.position, world.player.position);
             },
             .yamato_beside => {
-                camera.place = yamatoBeside(world.player, camera.shown(world));
+                camera.place = yamatoBeside(world.player, world.shown());
                 if (world.game) |game| if (playerRunning(game, .launch)) |slot| if (slot.state.launch.style == .yamato) {
                     const state = slot.state.launch;
                     const step = state.step.as(yamato_launch.Step);
@@ -782,13 +848,13 @@ pub const Camera = struct {
                 const since = @as(f32, @floatFromInt(@as(i64, world.now) - bay.due)) + world.ahead;
                 camera.place = landingBay(bay.bay, bay.hangar, since, world.object.position);
             },
-            .landing_ship => if (landingShip(world.player, camera.shown(world))) |place| {
+            .landing_ship => if (landingShip(world.player, world.shown())) |place| {
                 camera.place = place;
             },
             .jump_out => camera.place = lookingAt(camera.place.position, world.object.position),
             .nanny_dock => camera.place = lookingAt(world.object.place().point(nanny_dock_offset), world.player.position),
             .warp_prepare => {
-                const turn = math.rotation(.y, warp_prepare_yaw - camera.shown(world) * warp_prepare_turn);
+                const turn = math.rotation(.y, warp_prepare_yaw - world.shown() * warp_prepare_turn);
                 const warping = if (world.game) |game| playerRunning(game, .warp_out) else null;
                 const facing = if (warping) |slot| slot.state.warp.orientation else world.player.orientation;
                 camera.place = .{
@@ -800,10 +866,10 @@ pub const Camera = struct {
             .warp_arrive => if (world.game) |game| if (game.gates) |gates| if (gates.of(game.objects.player)) |record| {
                 const distance = if (gates.grid.segments < @import("wgate/tunnel.zig").Grid.of(.high).segments) warp_arrive_distance_low else warp_arrive_distance;
                 camera.place = lookingAt(record.warp_place.ahead(distance), world.player.position);
-                camera.place.orientation = math.turned(camera.place.orientation, .z, camera.shown(world) * warp_arrive_roll);
+                camera.place.orientation = math.turned(camera.place.orientation, .z, world.shown() * warp_arrive_roll);
             },
             .jump_in_close => {
-                camera.place = lookingAt(world.player.place().point(jumpCloseOffset(camera.shown(world))), world.player.position);
+                camera.place = lookingAt(world.player.place().point(jumpCloseOffset(world.shown())), world.player.position);
                 // The camera shakes with a hit, as the cockpit's does.
                 if (shake > 0) camera.place.orientation = math.product(
                     Cockpit.jitter(camera.hit_shake * Cockpit.camera_shake, world.random),
@@ -816,7 +882,7 @@ pub const Camera = struct {
             // next shot waiting begins.
             .director => if (world.game) |game| {
                 director.frame(game, camera, world.ahead);
-                if (camera.view != .director) {
+                if (game.player.viewing.view != .director) {
                     camera.shots.pop();
                     shots.start(game, camera);
                 }
@@ -825,15 +891,10 @@ pub const Camera = struct {
             .watch_marker => if (world.marker) |marker| {
                 camera.place = lookingAt(camera.place.position, marker);
             },
-            .missile => {
-                if (camera.missile_gone) return if (camera.switched < world.now) .cockpit else null;
-                const followed = if (camera.missiles) |records| records.records[camera.missile] else null;
-                const missile = followed orelse {
-                    camera.switched = world.now + missile_linger;
-                    camera.missile_gone = true;
-                    return null;
-                };
-                if (!world.object.motion.ship_type.hasStats()) return .cockpit;
+            // Once its missile is gone, the view holds still (`gameFrame`).
+            .missile => if (!world.viewing.missile_gone and world.object.motion.ship_type.hasStats()) {
+                const records = camera.missiles orelse return;
+                const missile = records.records[world.viewing.missile] orelse return;
                 const object = &missile.slot.object;
                 camera.place = camera.chase.follow(.{
                     .throttle = object.throttle,
@@ -844,16 +905,15 @@ pub const Camera = struct {
             },
             else => {},
         }
-        return null;
     }
 
     /// The projection for the view and the bars on a screen of `width` by `height`, unstretched:
     /// the bay view's wide over the whole screen, whatever the bars (`camera_frame`); the views
     /// the player flies in, those without the bars, seeing `field_of_view` degrees up and down
     /// (`factorsFor`); and the other cutaways the game's, as their shots were framed.
-    pub fn projection(camera: Camera, width: u32, height: u32, field_of_view: f32) srapi.Projection {
-        if (camera.view == .launch_bay) return .init(width, height, .{ 0, 0, 1, 1 }, unstretched(width, height, wide_factors));
-        const base = if (camera.view.letterboxed()) factors else factorsFor(field_of_view);
+    pub fn projection(camera: Camera, view: View, width: u32, height: u32, field_of_view: f32) srapi.Projection {
+        if (view == .launch_bay) return .init(width, height, .{ 0, 0, 1, 1 }, unstretched(width, height, wide_factors));
+        const base = if (view.letterboxed()) factors else factorsFor(field_of_view);
         return .init(width, height, .{ 0, camera.bars, 1, 1 - camera.bars }, unstretched(width, height, base));
     }
 };
@@ -861,6 +921,37 @@ pub const Camera = struct {
 /// How long the missile view holds still once its missile has ended, before it goes back to the
 /// cockpit (`camera_frame`, `0x00460C90`).
 const missile_linger = 150;
+
+/// The game's part of `camera_frame`, once a game frame: a view that can't go on goes back to the
+/// player's cockpit, forced (`switchView`). Those are the chase and spectator views of an object
+/// with no stats, the target view with no target, and the missile view of an object with no stats
+/// or once its missile has been gone `missile_linger` ticks. Until the player's ship drops out of
+/// its carrier's bay, the bay view holds its time at nothing (`launch.dropping`).
+pub fn gameFrame(world: gameobj.World) void {
+    const viewing = &world.player.viewing;
+    const all = world.objects;
+    const now = world.clock.viewTime();
+    const stats = all.slots[viewing.object orelse all.player].object.type.hasStats();
+    const back = switch (viewing.view) {
+        .chase, .spectator => !stats,
+        .target => if (world.display) |display| display.target == null else false,
+        .missile => back: {
+            if (viewing.missile_gone) break :back viewing.switched < now;
+            if (all.missiles.records[viewing.missile] == null) {
+                viewing.switched = now + missile_linger;
+                viewing.missile_gone = true;
+                break :back false;
+            }
+            break :back !stats;
+        },
+        .launch_bay => back: {
+            if (!launch.dropping(all, all.player)) viewing.switched = now;
+            break :back false;
+        },
+        else => false,
+    };
+    if (back) _ = switchView(world, .cockpit, all.player, false, true);
+}
 
 /// The next missile in flight after `from`, going round the records, that `launcher` launched
 /// (`camera_set_view`), or null for none.
@@ -1019,9 +1110,10 @@ test Cockpit {
 
 test "the shake from a hit dies away and turns the camera" {
     var camera: Camera = .{ .hit_shake = 3 };
+    var viewing: Viewing = .{};
     var random: Random = .{};
     const ship: Subject = .{ .position = @splat(0), .orientation = math.identity };
-    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 10, .random = &random });
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 10, .random = &random, .viewing = &viewing });
     // It goes no higher than 2, then dies away by 0.02 a tick.
     try std.testing.expectApproxEqAbs(1.8, camera.hit_shake, 1e-6);
     // The camera is turned off the ship's own orientation.
@@ -1327,20 +1419,24 @@ fn yamatoBeside(player: Subject, since: f32) Place {
 test "the Yamato cutaways follow or hold their original camera positions" {
     const player: Subject = .{ .position = .{ 100, 200, 300 }, .orientation = math.identity };
     var view: Camera = .{};
-    try std.testing.expect(view.setYamato(.yamato_ahead, 0, 0, player));
+    var viewing: Viewing = .{};
+    try std.testing.expect(testingSwitch(&viewing, &view, .yamato_ahead, 0, true, true, 0));
+    view.placeYamato(.yamato_ahead, player);
     const ahead = view.place;
     try std.testing.expectEqual(Vector{ 100, -400, 40300 }, ahead.position);
     var moved = player;
     moved.position[2] += 1000;
-    _ = view.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 100 });
+    view.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 100, .viewing = &viewing });
     try std.testing.expectEqual(ahead, view.place);
-    try std.testing.expect(view.setYamato(.yamato_aside, 0, 0, player));
+    try std.testing.expect(testingSwitch(&viewing, &view, .yamato_aside, 0, true, true, 0));
+    view.placeYamato(.yamato_aside, player);
     const aside = view.place.position;
-    _ = view.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 100 });
+    view.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 100, .viewing = &viewing });
     try std.testing.expectEqual(aside, view.place.position);
     try std.testing.expectApproxEqAbs(1, math.dot(math.forward(view.place.orientation), math.normalize(moved.position - aside)), 1e-6);
-    try std.testing.expect(view.setYamato(.yamato_beside, 0, 0, player));
-    _ = view.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 1000 });
+    try std.testing.expect(testingSwitch(&viewing, &view, .yamato_beside, 0, true, true, 0));
+    view.placeYamato(.yamato_beside, player);
+    view.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 1000, .viewing = &viewing });
     // The original extrapolates past the interpolation's end instead of clamping it.
     try std.testing.expectApproxEqAbs(770, view.place.position[1], 1e-3);
     try std.testing.expectEqual(moved.position[2] + 500, view.place.position[2]);
@@ -1358,24 +1454,26 @@ test "the views that read an order's state read it only while that order runs" {
     const turned = math.rotation(.y, 1);
     for ([_]View{ .warp_prepare, .yamato_beside }) |shown| {
         var view: Camera = .{};
-        try std.testing.expect(view.setView(shown, ship, false, true, 0));
-        _ = view.frame(.{ .object = player, .player = player, .ticks = 1, .now = 0 });
+        var viewing: Viewing = .{};
+        try std.testing.expect(testingSwitch(&viewing, &view, shown, ship, false, true, 0));
+        view.frame(.{ .object = player, .player = player, .ticks = 1, .now = 0, .viewing = &viewing });
         const alone = view.place;
         // Another order's state, which the views would read as a turn and as a launch's step.
         try std.testing.expect(try aigeneric.push(mission.orders(), ship, .player_control, .none));
         slot.state.warp.orientation = turned;
         slot.state.launch.style = .yamato;
-        try std.testing.expect(view.setView(shown, ship, false, true, 0));
-        _ = view.frame(.{ .object = player, .player = player, .ticks = 1, .now = 0, .game = mission.world() });
+        try std.testing.expect(testingSwitch(&viewing, &view, shown, ship, false, true, 0));
+        view.frame(.{ .object = player, .player = player, .ticks = 1, .now = 0, .game = mission.world(), .viewing = &viewing });
         try std.testing.expectEqual(alone, view.place);
         aigeneric.popAll(mission.orders(), ship);
     }
     // Warping out, the view turns as the ship stood when it lined up.
     var view: Camera = .{};
+    var viewing: Viewing = .{};
     try std.testing.expect(try aigeneric.push(mission.orders(), ship, .warp_out, .none));
     slot.state.warp.orientation = turned;
-    try std.testing.expect(view.setView(.warp_prepare, ship, false, true, 0));
-    _ = view.frame(.{ .object = player, .player = player, .ticks = 1, .now = 0, .game = mission.world() });
+    try std.testing.expect(testingSwitch(&viewing, &view, .warp_prepare, ship, false, true, 0));
+    view.frame(.{ .object = player, .player = player, .ticks = 1, .now = 0, .game = mission.world(), .viewing = &viewing });
     try std.testing.expectApproxEqAbs(1, math.dot(math.forward(view.place.orientation), math.forward(math.product(turned, math.rotation(.y, warp_prepare_yaw)))), 1e-5);
 }
 
@@ -1530,14 +1628,16 @@ fn levelLookingAt(at: Vector, target: Vector, upright: Matrix) Place {
 
 test "Jump Out's view watches its ship go" {
     var camera: Camera = .{};
+    var viewing: Viewing = .{};
     const turned = math.rotation(.y, 1);
     const ship: Subject = .{ .position = .{ 100, 200, 300 }, .orientation = turned };
-    try std.testing.expect(camera.setJump(.jump_out, 3, 10, ship, ship));
-    try std.testing.expect(camera.locked);
+    try std.testing.expect(testingSwitch(&viewing, &camera, .jump_out, 3, true, true, 10));
+    camera.placeJump(.jump_out, ship, ship);
+    try std.testing.expect(viewing.locked);
     try expectVector(ship.place().point(@splat(jump_out_reach)), camera.place.position);
     // As the ship goes, the camera stays and turns after it.
     const gone: Subject = .{ .position = .{ 100, 200, 50000 }, .orientation = turned };
-    _ = camera.frame(.{ .object = gone, .player = gone, .ticks = 1, .now = 20 });
+    camera.frame(.{ .object = gone, .player = gone, .ticks = 1, .now = 20, .viewing = &viewing });
     try expectVector(ship.place().point(@splat(jump_out_reach)), camera.place.position);
     try expectVector(math.normalize(gone.position - camera.place.position), math.forward(camera.place.orientation));
 }
@@ -1548,28 +1648,32 @@ test "the arrival's views" {
 
     // Close: ahead of the ship, looking back at it, pulling away between 50 and 70 ticks in.
     var close: Camera = .{};
-    try std.testing.expect(close.setJump(.jump_in_close, 0, 100, ship, ship));
+    var viewing: Viewing = .{};
+    try std.testing.expect(testingSwitch(&viewing, &close, .jump_in_close, 0, true, true, 100));
+    close.placeJump(.jump_in_close, ship, ship);
     for ([_]struct { u32, f32 }{ .{ 100, 1200 }, .{ 150, 1200 }, .{ 160, 1300 }, .{ 170, 1400 }, .{ 400, 1400 } }) |at| {
-        _ = close.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = at[0] });
+        close.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = at[0], .viewing = &viewing });
         try expectVector(ship.place().point(.{ 200, -500, at[1] }), close.place.position);
         try expectVector(math.normalize(ship.position - close.place.position), math.forward(close.place.orientation));
     }
 
     // Ahead: held where it was put, level in the ship's frame, looking at where the ship was.
     var ahead: Camera = .{};
-    try std.testing.expect(ahead.setJump(.jump_in_ahead, 0, 100, ship, ship));
+    try std.testing.expect(testingSwitch(&viewing, &ahead, .jump_in_ahead, 0, true, true, 100));
+    ahead.placeJump(.jump_in_ahead, ship, ship);
     const held = ahead.place;
     try expectVector(ship.place().point(jump_ahead_offset), held.position);
     try expectVector(math.normalize(ship.position - held.position), math.forward(held.orientation));
     try std.testing.expectApproxEqAbs(0, math.dot(math.xAxis(held.orientation), math.yAxis(turned)), 1e-5);
     const moved: Subject = .{ .position = ship.place().point(.{ 0, 0, 25000 }), .orientation = turned };
-    _ = ahead.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 200 });
+    ahead.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 200, .viewing = &viewing });
     try std.testing.expectEqual(held, ahead.place);
 
     // Aside: where it was put, watching the ship fly in.
     var aside: Camera = .{};
-    try std.testing.expect(aside.setJump(.jump_in_aside, 0, 100, ship, ship));
-    _ = aside.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 200 });
+    try std.testing.expect(testingSwitch(&viewing, &aside, .jump_in_aside, 0, true, true, 100));
+    aside.placeJump(.jump_in_aside, ship, ship);
+    aside.frame(.{ .object = moved, .player = moved, .ticks = 1, .now = 200, .viewing = &viewing });
     try expectVector(ship.place().point(jump_aside_offset), aside.place.position);
     try expectVector(math.normalize(moved.position - aside.place.position), math.forward(aside.place.orientation));
 }
@@ -1644,59 +1748,70 @@ test pickedUp {
 
 test "Camera.setCutaway" {
     var camera: Camera = .{};
+    var viewing: Viewing = .{};
     const turned: Subject = .{ .position = .{ 0, 0, 100 }, .orientation = math.rotation(.y, std.math.pi / 2.0) };
     const pod: Subject = .{ .position = .{ 0, 0, 1000 }, .orientation = math.identity };
     // The eject view stands off the object's right.
-    try std.testing.expect(camera.setCutaway(.eject, 0, 10, turned, turned));
+    try std.testing.expect(testingSwitch(&viewing, &camera, .eject, 0, true, true, 10));
+    camera.placeCutaway(.eject, turned, turned);
     try expectVector(math.xAxis(turned.orientation) * @as(Vector, @splat(eject_reach)), camera.cutaway);
-    try std.testing.expect(camera.locked);
-    try std.testing.expectEqual(10, camera.switched);
+    try std.testing.expect(viewing.locked);
+    try std.testing.expectEqual(10, viewing.switched);
     // The pickup view looks halfway from the picking ship to the pod.
-    try std.testing.expect(camera.setCutaway(.pickup, 1, 20, turned, pod));
+    try std.testing.expect(testingSwitch(&viewing, &camera, .pickup, 1, true, true, 20));
+    camera.placeCutaway(.pickup, turned, pod);
     try expectVector(.{ 0, 0, 450 }, camera.cutaway);
     // The pod-shot view stands off the pod the other way from the Sabre.
-    try std.testing.expect(camera.setCutaway(.pod_shot, 1, 30, turned, pod));
+    try std.testing.expect(testingSwitch(&viewing, &camera, .pod_shot, 1, true, true, 30));
+    camera.placeCutaway(.pod_shot, turned, pod);
     try expectVector(.{ 0, 0, -1 }, camera.cutaway);
     // Locked as they are, only another forced switch takes the camera from them.
-    try std.testing.expect(!camera.setView(.chase, 0, false, false, 40));
+    try std.testing.expect(!testingSwitch(&viewing, &camera, .chase, 0, false, false, 40));
 }
 
 test "Camera.setLaunch" {
     var camera: Camera = .{};
+    var viewing: Viewing = .{};
     // The ship faces along the world's X axis, its own left along +Z.
     const ship: Subject = .{ .position = .{ 0, 0, 1000 }, .orientation = math.rotation(.y, std.math.pi / 2.0) };
     // The bay view stands beside it, on the left for a gate of even number, above and behind.
-    try std.testing.expect(camera.setLaunch(.launch_bay, 0, 10, ship, ship, true));
+    try std.testing.expect(testingSwitch(&viewing, &camera, .launch_bay, 0, true, true, 10));
+    camera.placeLaunch(.launch_bay, ship, ship, true);
     try expectVector(.{ -300, -600, 1750 }, camera.place.position);
-    try std.testing.expect(camera.locked);
-    try std.testing.expect(camera.setLaunch(.launch_bay, 0, 10, ship, ship, false));
+    try std.testing.expect(viewing.locked);
+    try std.testing.expect(testingSwitch(&viewing, &camera, .launch_bay, 0, true, true, 10));
+    camera.placeLaunch(.launch_bay, ship, ship, false);
     try expectVector(.{ -300, -600, 250 }, camera.place.position);
     // The view from below stands far under the player's ship, looking up at it.
-    try std.testing.expect(camera.setLaunch(.launch_below, 0, 20, ship, ship, true));
+    try std.testing.expect(testingSwitch(&viewing, &camera, .launch_below, 0, true, true, 20));
+    camera.placeLaunch(.launch_below, ship, ship, true);
     try expectVector(.{ 100, 10000, 400 }, camera.place.position);
     try expectVector(math.normalize(ship.position - camera.place.position), math.forward(camera.place.orientation));
     // The view aside stands to the ship's left and below it.
-    try std.testing.expect(camera.setLaunch(.launch_aside, 0, 30, ship, ship, true));
+    try std.testing.expect(testingSwitch(&viewing, &camera, .launch_aside, 0, true, true, 30));
+    camera.placeLaunch(.launch_aside, ship, ship, true);
     try expectVector(.{ 0, 6000, 2700 }, camera.place.position);
 }
 
 test "the landing's views stand off the carrier's tube, watching the ship" {
     var camera: Camera = .{};
+    var viewing: Viewing = .{};
     const ship: Subject = .{ .position = .{ 0, -3000, 5000 }, .orientation = math.identity };
     const landing: Landing = .{ .reliant = .{ .tube = .{ 0, 0, 1000 }, .carrier = math.rotation(.y, std.math.pi) } };
-    try std.testing.expect(camera.setView(.landing_tube, 0, true, true, 10));
-    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 10, .landing = landing });
+    try std.testing.expect(testingSwitch(&viewing, &camera, .landing_tube, 0, true, true, 10));
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 10, .landing = landing, .viewing = &viewing });
     // Turned with the carrier, half a turn round: 500 to the left of the tube and 500 ahead.
     try expectVector(.{ -500, 0, 1500 }, camera.place.position);
     try expectVector(math.normalize(ship.position - camera.place.position), math.forward(camera.place.orientation));
-    try std.testing.expect(camera.setView(.landing_aside, 0, true, true, 20));
-    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 20, .landing = landing });
+    try std.testing.expect(testingSwitch(&viewing, &camera, .landing_aside, 0, true, true, 20));
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 20, .landing = landing, .viewing = &viewing });
     try expectVector(.{ 3500, -1000, 4000 }, camera.place.position);
     try expectVector(math.normalize(ship.position - camera.place.position), math.forward(camera.place.orientation));
 }
 
 test "a landing in a hangar bay's views stand off the gate's launch point and its doors" {
     var camera: Camera = .{};
+    var viewing: Viewing = .{};
     // A gate launching ships astern, half a turn round, its bay's mouth 10000 astern of its point;
     // a ship of radius 800 landing, so that the bay's depth is its reach.
     const landing: Landing = .{ .bay = .{
@@ -1705,14 +1820,14 @@ test "a landing in a hangar bay's views stand off the gate's launch point and it
     } };
     const ship: Subject = .{ .position = .{ 0, -3000, -20000 }, .orientation = math.identity, .radius = 800 };
     try std.testing.expectEqual(10000, bayReach(landing.bay, 800));
-    try std.testing.expect(camera.setView(.landing_tube, 0, true, true, 10));
-    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 10, .landing = landing });
+    try std.testing.expect(testingSwitch(&viewing, &camera, .landing_tube, 0, true, true, 10));
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 10, .landing = landing, .viewing = &viewing });
     // Turned with the gate, by the ship's radius: 800 to the left of its point, 280 above and
     // 1400 astern of it.
     try expectVector(.{ -800, -280, -400 }, camera.place.position);
     try expectVector(math.normalize(ship.position - camera.place.position), math.forward(camera.place.orientation));
-    try std.testing.expect(camera.setView(.landing_aside, 0, true, true, 20));
-    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 20, .landing = landing });
+    try std.testing.expect(testingSwitch(&viewing, &camera, .landing_aside, 0, true, true, 20));
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 20, .landing = landing, .viewing = &viewing });
     // Off the mouth, by the bay's depth: a third of it to the gate's left and out astern, and an
     // eighth above.
     try expectVector(.{ -10000.0 / 3.0, -1250, -9000 - 10000.0 / 3.0 }, camera.place.position);
@@ -1739,41 +1854,45 @@ test "the Yamato's landing's views" {
 
 test "the launch's views follow the ship" {
     var camera: Camera = .{};
+    var viewing: Viewing = .{};
     var ship: Subject = .{ .position = .{ 0, 0, 1000 }, .orientation = math.identity };
-    _ = camera.setLaunch(.launch_bay, 0, 10, ship, ship, true);
-    // Until the ship drops, the bay view looks 54 degrees down from its nose, holding its time.
-    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 50 });
-    try std.testing.expectEqual(50, camera.switched);
+    _ = testingSwitch(&viewing, &camera, .launch_bay, 0, true, true, 10);
+    camera.placeLaunch(.launch_bay, ship, ship, true);
+    // Until the ship drops, the bay view looks 54 degrees down from its nose (`gameFrame` holds its
+    // time).
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 50, .viewing = &viewing });
     const looking = math.forward(camera.place.orientation);
     try std.testing.expectApproxEqAbs(@sin(std.math.degreesToRadians(54.0)), looking[1], 1e-6);
     // Once it drops, the view tilts further down after it.
-    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 150, .dropping = true });
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 150, .dropping = true, .viewing = &viewing });
     try std.testing.expect(math.forward(camera.place.orientation)[1] > looking[1]);
-    try std.testing.expectEqual(50, camera.switched);
 
     // The views from below and aside keep looking at the ship as it goes, the view aside showing
     // the whole scene.
     var showing: @import("main.zig").Showing = .launch;
-    _ = camera.setLaunch(.launch_aside, 0, 200, ship, ship, true);
+    _ = testingSwitch(&viewing, &camera, .launch_aside, 0, true, true, 200);
+    camera.placeLaunch(.launch_aside, ship, ship, true);
     ship.position = .{ 0, 3000, 1000 };
-    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 210, .showing = &showing });
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 210, .showing = &showing, .viewing = &viewing });
     try expectVector(math.normalize(ship.position - camera.place.position), math.forward(camera.place.orientation));
     try std.testing.expectEqual(.everything, showing);
 }
 
 test "the views that move with time go on between ticks" {
     var camera: Camera = .{};
+    var viewing: Viewing = .{};
     const ship: Subject = .{ .position = .{ 0, 0, 100 }, .orientation = math.identity };
     // Half a tick past its hundredth, view 8 stands where it would a hundred and a half ticks on.
-    _ = camera.setView(.pull_back, 0, true, true, 0);
-    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 100, .ahead = 0.5 });
+    _ = testingSwitch(&viewing, &camera, .pull_back, 0, true, true, 0);
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 100, .ahead = 0.5, .viewing = &viewing });
     try expectVector(pullBack(ship.position, ship.orientation, 100.5).position, camera.place.position);
-    // The pod-shot view holds at nothing until the pod bursts, the time past the tick with it.
+    // The pod-shot view holds at nothing until the pod bursts, the time past the tick with it. The
+    // game holds its time meanwhile (`main.missionOver`).
     const sabre: Subject = .{ .position = .{ 0, 0, 5000 }, .orientation = math.identity };
-    try std.testing.expect(camera.setCutaway(.pod_shot, 1, 0, sabre, ship));
-    _ = camera.frame(.{ .object = sabre, .player = ship, .ticks = 1, .now = 200, .ahead = 0.5 });
+    try std.testing.expect(testingSwitch(&viewing, &camera, .pod_shot, 1, true, true, 0));
+    camera.placeCutaway(.pod_shot, sabre, ship);
+    camera.frame(.{ .object = sabre, .player = ship, .ticks = 1, .now = 200, .ahead = 0.5, .viewing = &viewing });
     try expectVector(podShot(camera.cutaway, ship.position, sabre.position, 0).position, camera.place.position);
-    try std.testing.expectEqual(200, camera.switched);
 }
 
 test podShot {
@@ -1813,18 +1932,30 @@ fn expectVector(expected: Vector, actual: Vector) !void {
     return math.testing.expectVectorWithin(expected, actual, 1e-3);
 }
 
+/// For the tests: switches `viewing`, and `drawn` with it, with nothing to refuse it, as
+/// `switchView` does in a game.
+fn testingSwitch(viewing: *Viewing, drawn: *Camera, view: View, object: ?u16, lock: bool, force: bool, now: u32) bool {
+    return switchViewing(viewing, drawn, view, object, lock, force, now, .{});
+}
+
+/// For the tests: the camera's keys over a frame `ticks` long, and the switch to the view they pick
+/// at tick `now`, as the controls' frame makes it (`main.controlsFrame`).
+fn testingKeys(camera: *Camera, viewing: *Viewing, devices: *input.Devices, ticks: u32, now: u32) void {
+    if (camera.frameControls(viewing.*, devices, ticks)) |chosen| _ = testingSwitch(viewing, camera, chosen, 0, false, false, now);
+}
+
 test unstretched {
     // At 4:3 the game's own; wider screens widen the view rather than stretch it.
     const four_three = unstretched(1024, 768, factors);
     try std.testing.expectApproxEqAbs(factors[0], four_three[0], 1e-4);
     const camera: Camera = .{};
-    const sixteen_nine = camera.projection(1920, 1080, original_field_of_view);
+    const sixteen_nine = camera.projection(.cockpit, 1920, 1080, original_field_of_view);
     try std.testing.expectApproxEqAbs(sixteen_nine.scale[0], sixteen_nine.scale[1], 1e-3);
     try std.testing.expect(sixteen_nine.bounds[2] > 1.1);
     try std.testing.expectApproxEqAbs(0.625, sixteen_nine.bounds[3], 1e-4);
     // The bay view projects wider, over the whole screen whatever the bars.
-    const wide: Camera = .{ .view = .launch_bay, .bars = letterbox };
-    const bay = wide.projection(1024, 768, original_field_of_view);
+    const wide: Camera = .{ .bars = letterbox };
+    const bay = wide.projection(.launch_bay, 1024, 768, original_field_of_view);
     try std.testing.expect(bay.scale[1] < four_three[1] * 768);
     try std.testing.expectEqual(0, bay.viewport[1]);
     try std.testing.expectEqual(768, bay.viewport[3]);
@@ -1841,23 +1972,23 @@ test factorsFor {
     try std.testing.expectApproxEqAbs(0.375, square[0], 1e-6);
     // The views the player flies in see what the setting says; the cutaways keep the game's.
     const flying: Camera = .{};
-    try std.testing.expectApproxEqAbs(1, flying.projection(1024, 768, 90).bounds[3], 1e-4);
-    const cutaway: Camera = .{ .view = .director };
-    try std.testing.expectApproxEqAbs(0.625, cutaway.projection(1024, 768, 90).bounds[3], 1e-4);
+    try std.testing.expectApproxEqAbs(1, flying.projection(.cockpit, 1024, 768, 90).bounds[3], 1e-4);
+    try std.testing.expectApproxEqAbs(0.625, flying.projection(.director, 1024, 768, 90).bounds[3], 1e-4);
 }
 
 test "no switch of view while the player's ship rides the worm" {
     var gates: wgate.Gates = undefined;
     gates.riding = true;
-    var camera: Camera = .{ .gates = &gates };
+    var camera: Camera = .{};
+    var viewing: Viewing = .{};
     // Refused, forced or not, and the frame drawn next is no cut.
-    try std.testing.expect(!camera.setView(.external, 0, false, true, 10));
+    try std.testing.expect(!switchViewing(&viewing, &camera, .external, 0, false, true, 10, .{ .gates = &gates }));
     try std.testing.expect(!camera.cut);
-    try std.testing.expectEqual(View.cockpit, camera.view);
+    try std.testing.expectEqual(View.cockpit, viewing.view);
     // Out of the worm, it goes ahead.
     gates.riding = false;
-    try std.testing.expect(camera.setView(.external, 0, false, true, 10));
-    try std.testing.expectEqual(View.external, camera.view);
+    try std.testing.expect(switchViewing(&viewing, &camera, .external, 0, false, true, 10, .{ .gates = &gates }));
+    try std.testing.expectEqual(View.external, viewing.view);
 }
 
 test Camera {
@@ -1868,50 +1999,54 @@ test Camera {
         .radius = 500,
     };
     var camera: Camera = .{};
-    try std.testing.expect(camera.setView(.cockpit, 0, false, false, 10));
-    try std.testing.expectEqual(null, camera.frame(.{ .object = ship, .player = ship, .ticks = 3 }));
+    var viewing: Viewing = .{};
+    try std.testing.expect(testingSwitch(&viewing, &camera, .cockpit, 0, false, false, 10));
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 3, .viewing = &viewing });
     try expectVector(.{ 0, -100, 1300 }, camera.place.position);
-    try std.testing.expect(camera.inside(0));
-    try std.testing.expect(!camera.inside(1));
+    try std.testing.expect(viewing.inside(0, camera.cockpit_mode));
+    try std.testing.expect(!viewing.inside(1, camera.cockpit_mode));
 
     // The cockpit key in the cockpit view cycles the mode: to the cockpit model, then the chase.
-    try std.testing.expectEqual(View.cockpit, camera.key(.cockpit_camera).?);
+    try std.testing.expectEqual(View.cockpit, camera.key(viewing, .cockpit_camera).?);
     try std.testing.expectEqual(CockpitMode.cockpit, camera.cockpit_mode);
-    _ = camera.key(.cockpit_camera);
+    _ = camera.key(viewing, .cockpit_camera);
     try std.testing.expectEqual(CockpitMode.chase, camera.cockpit_mode);
-    try std.testing.expect(!camera.inside(0));
-    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 3 });
+    try std.testing.expect(!viewing.inside(0, camera.cockpit_mode));
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 3, .viewing = &viewing });
     try std.testing.expect(camera.place.position[2] > 1000);
 
     // A locked camera refuses a switch unless forced; cutaways bring in the bars. A switch that
     // goes ahead is a cut, which the frame drawn next draws no streaks across.
     camera.cut = false;
-    try std.testing.expect(camera.setView(.pull_back, 0, true, false, 20));
+    try std.testing.expect(testingSwitch(&viewing, &camera, .pull_back, 0, true, false, 20));
     try std.testing.expect(camera.cut);
     camera.cut = false;
-    try std.testing.expect(!camera.setView(.external, 0, false, false, 30));
+    try std.testing.expect(!testingSwitch(&viewing, &camera, .external, 0, false, false, 30));
     try std.testing.expect(!camera.cut);
     try std.testing.expectEqual(1, camera.bar_speed);
-    for (0..40) |_| _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 3 });
+    for (0..40) |_| camera.frame(.{ .object = ship, .player = ship, .ticks = 3, .viewing = &viewing });
     try std.testing.expectEqual(letterbox, camera.bars);
     try std.testing.expectEqual(0, camera.bar_speed);
-    try std.testing.expectApproxEqAbs(76.8, camera.projection(1024, 768, original_field_of_view).viewport[1], 1e-3);
+    try std.testing.expectApproxEqAbs(76.8, camera.projection(viewing.view, 1024, 768, original_field_of_view).viewport[1], 1e-3);
 
     // Forced to the external view: bars gone, orbiting the player at the nearest it may.
-    try std.testing.expect(camera.setView(.external, 0, false, true, 40));
+    try std.testing.expect(testingSwitch(&viewing, &camera, .external, 0, false, true, 40));
     try std.testing.expectEqual(0, camera.bars);
-    _ = camera.frame(.{ .object = ship, .player = ship, .ticks = 3 });
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 3, .viewing = &viewing });
     try expectVector(.{ 0, 0, 1000 + 500 * Orbit.near }, camera.place.position);
 
-    // The target view needs a target; without one it asks for the cockpit.
-    _ = camera.setView(.target, 0, false, false, 50);
-    try std.testing.expectEqual(View.cockpit, camera.frame(.{ .object = ship, .player = ship, .ticks = 3 }).?);
+    // The target view needs a target; without one the camera holds still, until the game goes
+    // back to the cockpit (`gameFrame`).
+    _ = testingSwitch(&viewing, &camera, .target, 0, false, false, 50);
+    const held = camera.place;
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 3, .viewing = &viewing });
+    try std.testing.expectEqual(held, camera.place);
     // With one, it goes round the target at the nearest it may.
     var target = ship;
     target.position = .{ 5000, 0, 0 };
     target.radius = 100;
-    _ = camera.setView(.target, 0, false, false, 60);
-    try std.testing.expectEqual(null, camera.frame(.{ .object = ship, .player = ship, .target = target, .ticks = 3 }));
+    _ = testingSwitch(&viewing, &camera, .target, 0, false, false, 60);
+    camera.frame(.{ .object = ship, .player = ship, .target = target, .ticks = 3, .viewing = &viewing });
     try expectVector(.{ 5000, 0, 100 * Orbit.near }, camera.place.position);
 }
 
@@ -2004,58 +2139,83 @@ test flyby {
 
 test "Camera.frameControls" {
     var camera: Camera = .{};
+    var viewing: Viewing = .{};
     var devices: input.Devices = .{};
     const keyboard = &devices.keyboard;
     // The external camera's key, 7, picks its view once for the press.
     keyboard.down[controls.binding(.external_camera).key] = true;
-    camera.frameControls(&devices, 0, 1, 100);
-    try std.testing.expectEqual(View.external, camera.view);
-    try std.testing.expectEqual(100, camera.switched);
-    camera.switched = 0;
-    camera.frameControls(&devices, 0, 1, 200);
-    try std.testing.expectEqual(0, camera.switched);
+    testingKeys(&camera, &viewing, &devices, 1, 100);
+    try std.testing.expectEqual(View.external, viewing.view);
+    try std.testing.expectEqual(100, viewing.switched);
+    viewing.switched = 0;
+    testingKeys(&camera, &viewing, &devices, 1, 200);
+    try std.testing.expectEqual(0, viewing.switched);
 
     // In it, the left arrow turns the orbit.
     keyboard.down[input.scan.left] = true;
-    camera.frameControls(&devices, 0, 10, 300);
+    testingKeys(&camera, &viewing, &devices, 10, 300);
     try std.testing.expect(camera.orbit.yaw_speed < 0);
 
     // The cockpit key, pressed in the cockpit view, cycles the cockpit mode.
-    _ = camera.setView(.cockpit, 0, false, false, 0);
+    _ = testingSwitch(&viewing, &camera, .cockpit, 0, false, false, 0);
     keyboard.* = .{};
     keyboard.down[controls.binding(.cockpit_camera).key] = true;
-    camera.frameControls(&devices, 0, 1, 400);
+    testingKeys(&camera, &viewing, &devices, 1, 400);
     try std.testing.expectEqual(CockpitMode.cockpit, camera.cockpit_mode);
 }
 
 test "the hat switches views while it is held" {
     var camera: Camera = .{};
+    var viewing: Viewing = .{};
     var devices: input.Devices = .{};
     devices.joystick.hats = 1;
     const pov = &devices.joystick.state.pov[0];
 
     // Holding the hat left selects the left view, again every frame.
     pov.* = 27000;
-    camera.frameControls(&devices, 0, 1, 100);
-    try std.testing.expectEqual(View.cockpit_left, camera.view);
-    camera.frameControls(&devices, 0, 1, 200);
-    try std.testing.expectEqual(200, camera.switched);
+    testingKeys(&camera, &viewing, &devices, 1, 100);
+    try std.testing.expectEqual(View.cockpit_left, viewing.view);
+    testingKeys(&camera, &viewing, &devices, 1, 200);
+    try std.testing.expectEqual(200, viewing.switched);
     // Releasing it returns to the front view; a diagonal selects nothing.
     pov.* = input.JoystickState.centred;
-    camera.frameControls(&devices, 0, 1, 300);
-    try std.testing.expectEqual(View.cockpit, camera.view);
+    testingKeys(&camera, &viewing, &devices, 1, 300);
+    try std.testing.expectEqual(View.cockpit, viewing.view);
     pov.* = 4500;
-    camera.frameControls(&devices, 0, 1, 400);
-    try std.testing.expectEqual(300, camera.switched);
+    testingKeys(&camera, &viewing, &devices, 1, 400);
+    try std.testing.expectEqual(300, viewing.switched);
 
     // Without HatEnable, the hat does nothing.
     pov.* = 18000;
     devices.settings.hat_enabled = false;
-    camera.frameControls(&devices, 0, 1, 500);
-    try std.testing.expectEqual(View.cockpit, camera.view);
+    testingKeys(&camera, &viewing, &devices, 1, 500);
+    try std.testing.expectEqual(View.cockpit, viewing.view);
     devices.settings.hat_enabled = true;
-    camera.frameControls(&devices, 0, 1, 600);
-    try std.testing.expectEqual(View.cockpit_rear, camera.view);
+    testingKeys(&camera, &viewing, &devices, 1, 600);
+    try std.testing.expectEqual(View.cockpit_rear, viewing.view);
+}
+
+test gameFrame {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ship = try mission.add(.of(.predator), @splat(0));
+    mission.objects.player = ship;
+    const world = mission.world();
+    const viewing = &mission.player.viewing;
+    // With nothing drawn, until the ship drops out of the bay, the bay view holds its time at
+    // nothing.
+    try std.testing.expect(switchView(world, .launch_bay, ship, true, true));
+    mission.clock.mission_ticks = 50;
+    gameFrame(world);
+    try std.testing.expectEqual(50, viewing.switched);
+    try std.testing.expectEqual(View.launch_bay, viewing.view);
+    // The chase view of an object with no stats goes back to the player's cockpit.
+    const marker = try mission.add(.of(.marker), @splat(0));
+    try std.testing.expect(switchView(world, .chase, marker, false, true));
+    gameFrame(world);
+    try std.testing.expectEqual(View.cockpit, viewing.view);
+    try std.testing.expectEqual(ship, viewing.object.?);
 }
 
 test "the missile view" {
@@ -2064,23 +2224,32 @@ test "the missile view" {
     defer armed.deinit();
     const player = try armed.add(.friendly, @splat(0));
     const other = try armed.add(.hostile, .{ 0, 0, 50000 });
-    var camera: Camera = .{ .missiles = &armed.mission.objects.missiles };
+    const mission = &armed.mission;
+    var camera: Camera = .{ .missiles = &mission.objects.missiles };
+    var world = mission.world();
+    world.camera = &camera;
+    const viewing = &mission.player.viewing;
     // With none of the player's in flight, the view is refused.
-    try std.testing.expect(!camera.setView(.missile, player, false, false, 0));
-    missiles.launch(armed.mission.world(), other, 0, .none);
-    missiles.launch(armed.mission.world(), player, 0, .none);
-    try std.testing.expect(!camera.setView(.missile, other + 1, false, false, 0));
+    try std.testing.expect(!switchView(world, .missile, player, false, false));
+    missiles.launch(world, other, 0, .none);
+    missiles.launch(world, player, 0, .none);
+    try std.testing.expect(!switchView(world, .missile, other + 1, false, false));
     // It follows the player's, behind and above it, easing out from where the chase view left it.
-    try std.testing.expect(camera.setView(.missile, player, false, false, 0));
-    try std.testing.expectEqual(1, camera.missile);
+    try std.testing.expect(switchView(world, .missile, player, false, false));
+    try std.testing.expectEqual(1, viewing.missile);
     const subject: Subject = .{ .position = @splat(0), .orientation = math.identity, .motion = .{ .ship_type = .of(.predator) } };
-    try std.testing.expectEqual(null, camera.frame(.{ .object = subject, .player = subject, .ticks = 1, .now = 10 }));
+    camera.frame(.{ .object = subject, .player = subject, .ticks = 1, .now = 10, .viewing = viewing });
     const missile = armed.missile(1);
     try std.testing.expectEqual(missile.slot.drawn.position[1] + Chase.missile_height, camera.place.position[1]);
-    // Once it ends, the camera holds for a second and a half, then goes back to the cockpit.
-    missiles.end(armed.mission.world(), 1);
-    try std.testing.expectEqual(null, camera.frame(.{ .object = subject, .player = subject, .ticks = 1, .now = 20 }));
-    try std.testing.expect(camera.missile_gone);
-    try std.testing.expectEqual(null, camera.frame(.{ .object = subject, .player = subject, .ticks = 1, .now = 170 }));
-    try std.testing.expectEqual(View.cockpit, camera.frame(.{ .object = subject, .player = subject, .ticks = 1, .now = 171 }).?);
+    // Once it ends, the view holds for a second and a half, then the game goes back to the cockpit.
+    missiles.end(world, 1);
+    mission.clock.mission_ticks = 20;
+    gameFrame(world);
+    try std.testing.expect(viewing.missile_gone);
+    mission.clock.mission_ticks = 170;
+    gameFrame(world);
+    try std.testing.expectEqual(View.missile, viewing.view);
+    mission.clock.mission_ticks = 171;
+    gameFrame(world);
+    try std.testing.expectEqual(View.cockpit, viewing.view);
 }

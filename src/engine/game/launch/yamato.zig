@@ -170,10 +170,8 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     objects.setPlace(&slot.object, &slot.drawn, .{ .position = frame.point(at), .orientation = turn });
     if (index != all.player) return;
     showHangar(ctx, frame, bounds);
-    if (world.camera) |view| {
-        view.cockpit_mode = .cockpit;
-        _ = view.setView(.cockpit, index, true, true, world.clock.viewTime());
-    }
+    if (world.camera) |view| view.cockpit_mode = .cockpit;
+    _ = camera.switchView(world, .cockpit, index, true, true);
     world.player.showing = .launch;
 }
 
@@ -232,7 +230,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
     const player = index == all.player;
     const effects = &world.player.yamato_launch;
     if (player and state.step.as(Step) == .fly and effects.cutaway == .beside and state.due - now < camera_lead) {
-        if (world.camera) |view| if (view.view != .yamato_beside) switchView(world, .yamato_beside);
+        if (world.player.viewing.view != .yamato_beside) switchView(world, .yamato_beside);
     }
     if (state.due < now) switch (state.step.as(Step)) {
         .release => {
@@ -305,11 +303,10 @@ fn advance(state: *launch.State, step: Step, now: i32) void {
 }
 
 /// Switches the camera to the Yamato launch's view `view` of the player's ship
-/// (`camera.Camera.setYamato`).
+/// (`camera.switchYamato`).
 fn switchView(world: gameobj.World, view: camera.View) void {
-    const watching = world.camera orelse return;
     const player = world.objects.player;
-    _ = watching.setYamato(view, player, world.clock.viewTime(), .of(&world.objects.slots[player]));
+    _ = camera.switchYamato(world, view, player, .of(&world.objects.slots[player]));
 }
 
 /// Places the camera's marker (`create.Objects.camera_marker`) at the hardware renderer's position.
@@ -416,7 +413,7 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     try std.testing.expectEqual(carrier, mission.player.carrier.?);
     try std.testing.expectEqual(gameobj.Type.of(.yamato_hangar), mission.slot(create.cutaway_slot).object.type);
     try std.testing.expectEqual(.launch, mission.player.showing);
-    try std.testing.expect(view.locked);
+    try std.testing.expect(mission.player.viewing.locked);
     // The hangar's front edge, a hangar with no bounds' middle, stands at the bay's far side, at its
     // middle across and along, and its steam is the soft steam the settings start with.
     try math.testing.expectVector(.{ 1400, 200, 10200 }, mission.slot(create.cutaway_slot).drawn.position);
@@ -443,19 +440,19 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     try std.testing.expectEqual(gameobj.Type.of(.stand_in), mission.slot(create.cutaway_slot).object.type);
     // Force the delayed beside cutaway, which starts only in step 6's last 50 ticks.
     mission.player.yamato_launch.cutaway = .beside;
-    _ = view.setView(.cockpit, player, true, true, 0);
+    _ = camera.switchView(ctx.world, .cockpit, player, true, true);
     const state = &mission.slot(player).state.launch;
     mission.clock.frame_start = state.due - camera_lead;
     aigeneric.objectOrders(ctx, player);
-    try std.testing.expectEqual(camera.View.cockpit, view.view);
+    try std.testing.expectEqual(camera.View.cockpit, mission.player.viewing.view);
     mission.clock.frame_start += 1;
     aigeneric.objectOrders(ctx, player);
-    try std.testing.expectEqual(camera.View.yamato_beside, view.view);
+    try std.testing.expectEqual(camera.View.yamato_beside, mission.player.viewing.view);
     while (mission.slot(player).object.order_count != 0) launch.testing.pastDue(&mission, ctx, player);
     try std.testing.expect(!display.caption.on);
-    try std.testing.expectEqual(camera.View.cockpit, view.view);
+    try std.testing.expectEqual(camera.View.cockpit, mission.player.viewing.view);
     try std.testing.expectEqual(.chase, view.cockpit_mode);
-    try std.testing.expect(!view.locked);
+    try std.testing.expect(!mission.player.viewing.locked);
 }
 
 /// Streams all six vents in array order. Outer bursts last 20 to 99 ticks, with 20 to 119 ticks

@@ -17,6 +17,7 @@ const shp = @import("../../formats/shp.zig");
 const math = @import("../surrender/math.zig");
 const Vector = math.Vector;
 const ai = @import("ai.zig");
+const camera = @import("camera.zig");
 const aigeneric = @import("aigeneric.zig");
 const Context = aigeneric.Context;
 const create = @import("create.zig");
@@ -441,7 +442,7 @@ fn stationUpdate(ctx: Context, index: u16) void {
         .beside_behind => .{ -aside, 0, -aside },
         .turning_in => turning: {
             const flight = slot.flight orelse return;
-            break :turning .{ ai.cruiseSpeed(object, flight, world.view) * turn_widths / flight.yaw_rate, 0, -aside };
+            break :turning .{ ai.cruiseSpeed(object, flight, world.view()) * turn_widths / flight.yaw_rate, 0, -aside };
         },
         .far_behind => .{ 0, 0, -far_behind },
         .near_behind => .{ 0, 0, -near_behind },
@@ -742,13 +743,11 @@ fn nannyUpdate(ctx: Context, index: u16) void {
     const model = if (nanny.model) |*held| held else return nannyEnd(ctx, index);
     const port: usize = @intFromBool(target.component != 0);
     const flight = slot.flight orelse return nannyEnd(ctx, index);
-    const slowest = approach_speed / ai.cruiseSpeed(object, flight, world.view);
+    const slowest = approach_speed / ai.cruiseSpeed(object, flight, world.view());
     const ship = object.nextPosition();
     switch (state.step) {
         .opening => {
-            if (index == all.player) if (world.camera) |watching| {
-                _ = watching.setView(.nanny_dock, at, true, true, world.clock.viewTime());
-            };
+            if (index == all.player) _ = camera.switchView(world, .nanny_dock, at, true, true);
             swingDoor(world, at, entry_doors[port], 0, nanny_door_speed);
             state.step = .approaching;
         },
@@ -805,9 +804,7 @@ fn nannyUpdate(ctx: Context, index: u16) void {
 fn nannyEnd(ctx: Context, index: u16) void {
     _ = aigeneric.pop(ctx, index);
     const world = ctx.world;
-    if (index == world.objects.player) if (world.camera) |watching| {
-        _ = watching.setView(.cockpit, index, false, true, world.clock.viewTime());
-    };
+    if (index == world.objects.player) _ = camera.switchView(world, .cockpit, index, false, true);
 }
 
 /// Plays a Nanny door track with its sound at the door's world frame (`dock_nanny_run`).

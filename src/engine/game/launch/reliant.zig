@@ -172,10 +172,8 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     objects.setPlace(object, &slot.drawn, .{ .position = in_tube, .orientation = turn });
     if (index != all.player) return;
     showHangar(ctx, index, gate, in_tube, turn);
-    if (world.camera) |view| {
-        view.cockpit_mode = .cockpit;
-        _ = view.setView(.cockpit, all.player, true, true, ctx.world.clock.viewTime());
-    }
+    if (world.camera) |view| view.cockpit_mode = .cockpit;
+    _ = camera.switchView(world, .cockpit, all.player, true, true);
     world.player.showing = .launch;
 }
 
@@ -190,7 +188,7 @@ fn tube(reliant: *const create.Slot, gate: i16) ?math.Vector {
 
 /// Whether `gate` is even. For an even gate the tube's middle lies to the right (`0x0041AF2D`), the
 /// hangar is turned half a turn (`0x0041B0FC`), and the bay's view stands on the ship's left
-/// (`camera.Camera.setLaunch`).
+/// (`camera.switchLaunch`).
 fn evenGate(gate: i16) bool {
     return @mod(gate, 2) == 0;
 }
@@ -384,13 +382,12 @@ fn playSample(world: gameobj.World, index: usize) void {
 }
 
 /// Switches the camera to one of the launch's views, `view`, of the object in slot `object`
-/// (`camera.Camera.setLaunch`): the bay's beside the object on the side of its order's gate.
+/// (`camera.switchLaunch`): the bay's beside the object on the side of its order's gate.
 fn switchView(ctx: aigeneric.Context, view: camera.View, object: u16) void {
-    const watching = ctx.world.camera orelse return;
     const all = ctx.world.objects;
     const seen = &all.slots[object];
     const gate = seen.orders[0].target.component;
-    _ = watching.setLaunch(view, object, ctx.world.clock.viewTime(), .of(seen), .of(&all.slots[all.player]), evenGate(gate));
+    _ = camera.switchLaunch(ctx.world, view, object, .of(seen), .of(&all.slots[all.player]), evenGate(gate));
 }
 
 /// Fixtures for the tests here and in the landing's (`ailand`).
@@ -581,9 +578,9 @@ test "the player's launch shows the hangar and the cutaways, and ends in view 0"
     try std.testing.expect(mission.objects.slots[create.cutaway_slot].object.flags.no_collisions);
     try std.testing.expectEqual(reliant, mission.player.carrier.?);
     try std.testing.expectEqual(.launch, mission.player.showing);
-    try std.testing.expectEqual(camera.View.cockpit, view.view);
+    try std.testing.expectEqual(camera.View.cockpit, mission.player.viewing.view);
     try std.testing.expectEqual(.cockpit, view.cockpit_mode);
-    try std.testing.expect(view.locked);
+    try std.testing.expect(mission.player.viewing.locked);
     // The gate stays the order's own once the hangar is laid over the tube.
     try std.testing.expectEqual(0, mission.slot(player).orders[0].target.component);
 
@@ -593,7 +590,7 @@ test "the player's launch shows the hangar and the cutaways, and ends in view 0"
     // The engine starts with a shake, and a cutaway is picked: the bay's takes the camera at once.
     try std.testing.expectEqual(start_shake, mission.shake);
     try std.testing.expect(mission.player.cutaway != .none);
-    if (mission.player.cutaway == .bay) try std.testing.expectEqual(camera.View.launch_bay, view.view);
+    if (mission.player.cutaway == .bay) try std.testing.expectEqual(camera.View.launch_bay, mission.player.viewing.view);
     _ = runTo(&mission, ctx, player, .clear);
     // As the ship drops, the date is typed out.
     try std.testing.expect(display.caption.on);
@@ -603,7 +600,7 @@ test "the player's launch shows the hangar and the cutaways, and ends in view 0"
     try std.testing.expect(!display.caption.on);
     try std.testing.expectEqual(gameobj.Type.of(.stand_in), mission.objects.slots[create.cutaway_slot].object.type);
     try std.testing.expectEqual(.everything, mission.player.showing);
-    try std.testing.expectEqual(camera.View.cockpit, view.view);
+    try std.testing.expectEqual(camera.View.cockpit, mission.player.viewing.view);
     try std.testing.expectEqual(.chase, view.cockpit_mode);
-    try std.testing.expect(!view.locked);
+    try std.testing.expect(!mission.player.viewing.locked);
 }

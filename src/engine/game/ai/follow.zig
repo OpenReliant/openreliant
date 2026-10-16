@@ -268,7 +268,7 @@ fn arriveAt(ctx: Context, index: u16, from: f32, lead: f32) bool {
     const step = if (state.ticks == 0) std.math.sign(lead) else lead / @as(f32, @floatFromInt(state.ticks));
     const here = ride(world, data, state, curves.point(curve, from));
     const next = ride(world, data, state, curves.point(curve, from + step));
-    const cruise = ai.slotCruise(slot, world.view) orelse return true;
+    const cruise = ai.slotCruise(slot, world.view()) orelse return true;
     const pace = math.distance(here, next) / cruise;
     return ai.arrive(world, index, here, math.lookAt(next - here), pace);
 }

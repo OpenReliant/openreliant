@@ -115,7 +115,7 @@ fn beginCurve(world: gameobj.World, view: *camera.Camera, curve: ?u16, first: bo
     director.yaw = .{ from[0], to[0] };
     director.pitch = .{ from[1], to[1] };
     director.next_marker = if (curve) |index| curves.nextMarker(ships, index, 0).at else null;
-    if (first) _ = view.setView(.director, null, true, true, world.clock.viewTime());
+    if (first) _ = camera.switchView(world, .director, null, true, true);
 }
 
 /// A full turn, in degrees (`0x004DC3E0`).
@@ -192,7 +192,7 @@ fn curveEnd(world: gameobj.World, view: *camera.Camera) void {
         if (list[index].endShip()) |end| events.cameraReached(world, end);
         if (curves.following(list, index, view.director.taken)) |next| return beginCurve(world, view, @intCast(next), false);
     };
-    _ = view.setView(.cockpit, world.objects.player, false, true, world.clock.viewTime());
+    _ = camera.switchView(world, .cockpit, world.objects.player, false, true);
 }
 
 /// Where the object of mission ship `ship` is drawn, where there is one.
@@ -230,7 +230,12 @@ const TestShot = struct {
     fn frame(shot: *TestShot, ticks: i32) void {
         shot.game.mission.clock.drawn_duration = ticks;
         const seen: camera.Subject = .{ .position = @splat(0), .orientation = math.identity };
-        _ = shot.view.frame(.{ .object = seen, .player = seen, .ticks = @intCast(ticks), .game = shot.world() });
+        shot.view.frame(.{ .object = seen, .player = seen, .ticks = @intCast(ticks), .game = shot.world(), .viewing = shot.viewing() });
+    }
+
+    /// What the game has the camera view.
+    fn viewing(shot: *TestShot) *camera.Viewing {
+        return &shot.game.mission.player.viewing;
     }
 };
 
@@ -245,8 +250,8 @@ test "a shot flies the camera along its path, turning, and back to the cockpit" 
     const view = &shot.view;
 
     shots.stack(shot.world(), view, .{ .path = .{ .curve = 0 }, .seconds = 2.5 });
-    try std.testing.expectEqual(camera.View.director, view.view);
-    try std.testing.expect(view.locked);
+    try std.testing.expectEqual(camera.View.director, shot.viewing().view);
+    try std.testing.expect(shot.viewing().locked);
     // Two whole seconds, over a path 3000 long: the first curve's third of them.
     try std.testing.expectEqual(200, view.director.total);
     try std.testing.expectEqual(66, view.director.ticks);
@@ -262,11 +267,11 @@ test "a shot flies the camera along its path, turning, and back to the cockpit" 
     try std.testing.expectEqual(0, view.director.elapsed);
     shot.frame(100);
     try std.testing.expect(view.place.position[2] > 2000);
-    try std.testing.expectEqual(camera.View.director, view.view);
+    try std.testing.expectEqual(camera.View.director, shot.viewing().view);
     // Past its end, the shot is over: back to the cockpit, unlocked, and none waits.
     shot.frame(50);
-    try std.testing.expectEqual(camera.View.cockpit, view.view);
-    try std.testing.expect(!view.locked);
+    try std.testing.expectEqual(camera.View.cockpit, shot.viewing().view);
+    try std.testing.expect(!shot.viewing().locked);
     try std.testing.expectEqual(0, view.shots.count);
 }
 
@@ -290,7 +295,7 @@ test "a still shot stands at its ship, looks at the one it tracks and holds ship
     try std.testing.expectApproxEqAbs(1, math.forward(view.place.orientation)[2], 1e-6);
     // Over, the next waiting begins at once, and the ship held goes.
     shot.frame(50);
-    try std.testing.expectEqual(camera.View.director, view.view);
+    try std.testing.expectEqual(camera.View.director, shot.viewing().view);
     try std.testing.expectEqual(1, view.shots.count);
     try std.testing.expectEqual(2, view.director.still);
     try std.testing.expect(!all.slots[3].object.flags.jumping);
@@ -334,14 +339,14 @@ test "a shot given no seconds is at its curve's end at once, turned by the start
     const view = &shot.view;
 
     shots.stack(shot.world(), view, .{ .path = .{ .curve = 0 }, .seconds = 0 });
-    try std.testing.expectEqual(camera.View.director, view.view);
+    try std.testing.expectEqual(camera.View.director, shot.viewing().view);
     try std.testing.expectEqual(0, view.director.ticks);
     // At the first frame the camera stands at the curve's end, turned by its start's angles, and
     // the curve, ending at no ship, ends the path: back to the cockpit.
     shot.frame(1);
     try std.testing.expectEqual(Vector{ 0, 0, 1000 }, view.place.position);
     try math.testing.expectMatrixWithin(mission.yawPitch(30, 0), view.place.orientation, 1e-5);
-    try std.testing.expectEqual(camera.View.cockpit, view.view);
+    try std.testing.expectEqual(camera.View.cockpit, shot.viewing().view);
     try std.testing.expectEqual(0, view.shots.count);
 }
 
@@ -354,15 +359,15 @@ test "a shot with neither curve nor ship holds the camera where it is, level" {
     view.place.position = .{ 7, 8, 9 };
 
     shots.stack(shot.world(), view, .{ .path = null, .seconds = 1 });
-    try std.testing.expectEqual(camera.View.director, view.view);
+    try std.testing.expectEqual(camera.View.director, shot.viewing().view);
     try std.testing.expectEqual(100, view.director.ticks);
     shot.frame(50);
     try std.testing.expectEqual(Vector{ 7, 8, 9 }, view.place.position);
     try std.testing.expectEqual(math.identity, view.place.orientation);
-    try std.testing.expectEqual(camera.View.director, view.view);
+    try std.testing.expectEqual(camera.View.director, shot.viewing().view);
     // After its 100 ticks, back to the cockpit.
     shot.frame(50);
-    try std.testing.expectEqual(camera.View.cockpit, view.view);
+    try std.testing.expectEqual(camera.View.cockpit, shot.viewing().view);
 }
 
 test "a path that comes round on itself ends with its shot" {
@@ -380,10 +385,10 @@ test "a path that comes round on itself ends with its shot" {
     try std.testing.expectEqual(100, view.director.ticks);
     shot.frame(100);
     try std.testing.expectEqual(1, view.director.curve);
-    try std.testing.expectEqual(camera.View.director, view.view);
+    try std.testing.expectEqual(camera.View.director, shot.viewing().view);
     // Once it has taken both, the shot is over.
     shot.frame(100);
-    try std.testing.expectEqual(camera.View.cockpit, view.view);
-    try std.testing.expect(!view.locked);
+    try std.testing.expectEqual(camera.View.cockpit, shot.viewing().view);
+    try std.testing.expect(!shot.viewing().locked);
     try std.testing.expectEqual(0, view.shots.count);
 }
