@@ -2642,13 +2642,12 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
         lock_lit = lit.enemy_lock;
     }
     if (frame.sound) |sound| state.warnOfLock(sound, lock_lit, live.missile_homing != 0);
-    if (frame.radio) |on_air| on_air.waitForWindow(frame.sound, frame_duration);
     try drawViewName(placing.pen(pen, .view_name), frame.last_view);
     try state.subtitle.draw(placing.pen(pen, .subtitle), frame.last_view);
     try state.messages.draw(placing.pen(pen, .messages), &resources.target_fonts.new);
     if (ahead) try state.drawInstruments(pen, &placing, frame, lead, speaker);
     const contents: windows.Contents = .{
-        .radio = if (frame.radio) |on_air| .{ .radio = on_air, .sound = frame.sound, .hit_shake = frame.hit_shake, .random = frame.random } else null,
+        .radio = if (frame.radio) |on_air| .{ .radio = on_air, .hit_shake = frame.hit_shake, .random = frame.random } else null,
         .gunnery = .{ .slot = slot, .wire_frame = state.wire_frame },
         .damage = .{ .object = live },
         .missiles = .{ .ring = &state.missiles },
@@ -4454,7 +4453,7 @@ pub const MovieHold = struct {
         sound.pauseAll();
         sound3d.pause(sound, true);
         const air = on_air orelse return .{ .speaking = false };
-        const speaking = air.speaking(sound);
+        const speaking = air.player.playing(sound);
         if (speaking) air.player.pause(sound, true);
         return .{ .speaking = speaking };
     }

@@ -10,7 +10,6 @@ const assert = std.debug.assert;
 const device = @import("../../surrender/srd3d/device.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const gameobj = @import("../gameobj.zig");
-const hog_snd = @import("../hog_snd.zig");
 const hud = @import("../hud.zig");
 const Random = @import("../../random.zig").Random;
 const radio_module = @import("../radio.zig");
@@ -49,8 +48,6 @@ pub fn firstShape(side: gameobj.Side(u16)) u16 {
 /// What window 0 shows from.
 pub const Shown = struct {
     radio: *radio_module.Radio,
-    /// What the line is heard through; none where nothing is heard.
-    sound: ?*hog_snd.Sound,
     /// The camera's shake, which shakes the film a row at a time, and the game's random numbers
     /// (`Random`), which it draws from.
     hit_shake: f32,
@@ -72,13 +69,8 @@ pub fn frame(shown: Shown, held: *windows.Windows, canvas: windows.Canvas, ahead
     const movie = &radio.movie;
     const first = firstShape(radio.side);
     if (ahead and held.status.get(.radio).phase == .closing) return canvas.shaky(first + shapes - 1, picture_at);
-    if (!movie.playing) return held.close(.radio);
+    if (!movie.playing) return;
     if (!movie.waiting) {
-        if (!radio.speaking(shown.sound)) {
-            held.close(.radio);
-            movie.stop();
-            return;
-        }
         if (!ahead) return;
         const shake: ?hud.Shake = if (shown.hit_shake > 0) .{ .hit_shake = shown.hit_shake, .interference = 0, .random = shown.random } else null;
         canvas.image(.radio_face, &movie.picture, film_size, picture_at, shake);

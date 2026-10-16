@@ -233,11 +233,10 @@ fn bridgeLine(buffer: []u8, all: *const create.Objects, carrier: u16, suffix: []
 /// ending the line playing. Not ported: that a multiplayer mission says nothing
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn playerSays(world: gameobj.World, line: []const u8) void {
-    const radio = world.radio orelse return;
-    const hearing = world.hearing orelse return;
+    const radio, const ctx = onAir(world) orelse return;
     var buffer: [report_text_size]u8 = undefined;
     const speech = std.mem.print(&buffer, "{s}{s}", .{ if (world.player.female) "fp" else "mp", line }) catch return;
-    radio.playSpeech(hearing.sound, speech);
+    radio.playSpeech(ctx, speech);
 }
 
 /// Whether the player's ship is landing: its current order is Land.
@@ -322,7 +321,7 @@ pub fn onAir(world: gameobj.World) ?struct { *Radio, Context } {
 /// `radio_busy` on the world's radio: whether a line plays or waits; never where nothing is heard.
 fn busy(world: gameobj.World) bool {
     const radio, const ctx = onAir(world) orelse return false;
-    return radio.busy(ctx.sound);
+    return radio.busy(ctx.frame_start);
 }
 
 /// `Radio.sayPilot` on the world's radio, where it has one.
@@ -944,6 +943,11 @@ pub const Radio = struct {
     name: ?u16 = null,
     object: i32 = nobody,
     side: gameobj.Side(u16) = .friendly,
+    /// The frame's tick the line playing ends at (`speaking`), heard or not; null where none plays.
+    until: ?i32 = null,
+    /// Whether the radio holds its window, window 0, open: from the moment it says a line until the
+    /// line's film has stopped (`hold`, `release`).
+    held: bool = false,
     /// The queue (`0x005295A0`), how many lines wait (`0x00529594`), where the next is put
     /// (`0x00529870`) and where the next is taken from (`0x00529CBE`).
     queue: [queue_size]Queued = undefined,
@@ -993,6 +997,7 @@ pub const Radio = struct {
         radio.movie.waiting = false;
         radio.name = null;
         radio.object = nobody;
+        radio.held = false;
         radio.count = 0;
         radio.write = 0;
         radio.read = 0;
@@ -1003,18 +1008,25 @@ pub const Radio = struct {
     /// line playing ends. The queue and the window are left as they are, and the next mission's
     /// start clears them (`reset`).
     pub fn stopSpeech(radio: *Radio, sound: *hog_snd.Sound) void {
+        radio.until = null;
         radio.player.stop(radio.gpa, sound);
     }
 
-    /// `speech_playing` (`0x004620A0`): whether a line plays (`cbox.Player.playing`).
-    pub fn speaking(radio: *const Radio, sound: ?*hog_snd.Sound) bool {
-        const heard = sound orelse return false;
-        return radio.player.playing(heard);
+    /// `speech_playing` (`0x004620A0`): whether a line plays at the frame's tick `now`.
+    ///
+    /// **Improvement:** the game asks the sound device whether the line's sample still plays, so a
+    /// line lasts as long as its sound does, and without sound it ends at once. OpenReliant times
+    /// every line by its speech file's length in the game's ticks (`until`, `cbox.Line.ticks`), and
+    /// the sound plays alongside. The radio's lines, and the script's waits for them, then take as
+    /// long with sound or without, at any frame rate.
+    pub fn speaking(radio: *const Radio, now: i32) bool {
+        const until = radio.until orelse return false;
+        return now < until;
     }
 
-    /// `radio_busy` (`0x004561A0`): whether a line plays or waits.
-    pub fn busy(radio: *const Radio, sound: *hog_snd.Sound) bool {
-        return radio.speaking(sound) or radio.count > 0;
+    /// `radio_busy` (`0x004561A0`): whether a line plays at the frame's tick `now`, or waits.
+    pub fn busy(radio: *const Radio, now: i32) bool {
+        return radio.speaking(now) or radio.count > 0;
     }
 
     /// `radio_say` (`0x004562D0`), outside a multiplayer mission: `line` said as `mode` has it.
@@ -1036,7 +1048,7 @@ pub const Radio = struct {
         switch (mode) {
             .now => radio.sayNow(ctx, said),
             .queued => radio.enqueue(said, ctx.frame_start),
-            .if_idle => if (!radio.busy(ctx.sound)) radio.enqueue(said, ctx.frame_start),
+            .if_idle => if (!radio.busy(ctx.frame_start)) radio.enqueue(said, ctx.frame_start),
             _ => {},
         }
     }
@@ -1045,8 +1057,9 @@ pub const Radio = struct {
     /// playing stops, the window names the speaker, their side found (`sideOf`), and the line's
     /// speech is read and its film played, the line starting with it (`start`).
     fn sayNow(radio: *Radio, ctx: Context, line: Line) void {
+        radio.held = true;
         if (ctx.windows) |windows| if (windows.status.get(.radio).phase != .open) windows.hold(.radio);
-        radio.player.stop(radio.gpa, ctx.sound);
+        radio.stopSpeech(ctx.sound);
         radio.name = line.name;
         radio.object = line.object;
         radio.side = sideOf(ctx.all, line.object);
@@ -1093,21 +1106,35 @@ pub const Radio = struct {
         }, mode);
     }
 
+    /// The radio's work for a game frame of `ticks`, at the game's tick `game_ticks`, as
+    /// `mission_frame` does it after the controls, then `hud_draw`: the film's timer (`runFilm`),
+    /// the queue (`frame`), the reports (`stepReports`), the wait for the window (`waitForWindow`),
+    /// and the window's close once the line is over (`closeOver`).
+    pub fn step(radio: *Radio, ctx: Context, ticks: u32, game_ticks: u32) void {
+        radio.runFilm(ctx, ticks);
+        radio.frame(ctx);
+        radio.stepReports(ctx, game_ticks);
+        radio.waitForWindow(ctx, @intCast(ticks));
+        radio.closeOver(ctx);
+    }
+
     /// `radio_frame` (`0x00456510`), each frame: while lines wait, the window is shut or closing and
     /// no line plays, the next is taken, and said unless its time has passed: the window opens
     /// held, names the speaker, and, where the line is someone's, its speech is read and its film
     /// played, the line starting with it. One that is nobody's leaves the window open with nothing
     /// in it, which then closes.
+    ///
+    /// The game reads the display's window to tell whether it is up. The radio holds it itself
+    /// (`held`), so it works the same where nothing is drawn, as on a server. Not ported: a mission
+    /// that opens the radio's window itself (`OpenInstrument` with window 0), which no shipped
+    /// mission does, doesn't hold the queue.
     pub fn frame(radio: *Radio, ctx: Context) void {
         if (radio.count == 0) return;
-        if (ctx.windows) |windows| switch (windows.status.get(.radio).phase) {
-            .shut, .closing => {},
-            .opening, .open => return,
-        };
-        if (radio.speaking(ctx.sound)) return;
+        if (radio.held) return;
+        if (radio.speaking(ctx.frame_start)) return;
         const line = &radio.queue[radio.read];
         if (line.due(ctx.frame_start)) {
-            if (ctx.windows) |windows| windows.hold(.radio);
+            radio.hold(ctx);
             radio.dropLine();
             radio.object = line.object;
             radio.name = line.name;
@@ -1158,30 +1185,57 @@ pub const Radio = struct {
     /// The film's timer for a frame of `ticks` (`hudmovie.Movie.run`): a film that held for its
     /// line, which is over, has stopped, and the window closes.
     pub fn runFilm(radio: *Radio, ctx: Context, ticks: u32) void {
-        if (!radio.movie.run(ticks, radio.speaking(ctx.sound), squadron(ctx.all))) return;
-        if (ctx.windows) |windows| windows.close(.radio);
+        if (!radio.movie.run(ticks, radio.speaking(ctx.frame_start), squadron(ctx.all))) return;
+        radio.release(ctx);
     }
 
     /// `hud_draw` (`0x0048531D`), each frame: while the line said waits for the window to open
     /// (`hudmovie.Movie.waiting`), the frame's ticks are counted, and at `speech_delay` the line
     /// starts, and its film with it.
-    pub fn waitForWindow(radio: *Radio, sound: ?*hog_snd.Sound, ticks: i32) void {
+    ///
+    /// **Improvement:** the game counts the drawn frames' ticks, and the closes below run as it
+    /// draws the window; OpenReliant runs both in the game frame (`step`), so the radio's timing
+    /// doesn't depend on what is drawn.
+    pub fn waitForWindow(radio: *Radio, ctx: Context, ticks: i32) void {
         const movie = &radio.movie;
         if (!movie.waiting) return;
         movie.waited += ticks;
         if (movie.waited < speech_delay) return;
-        if (sound) |heard| radio.startLine(heard);
+        radio.startLine(ctx);
         movie.waiting = false;
+    }
+
+    /// `hud_window_draw`'s case 0 (`hud.radio.frame`), while the radio holds its window: a film
+    /// that has stopped closes the window, and once the line is over the window closes and the film
+    /// stops.
+    fn closeOver(radio: *Radio, ctx: Context) void {
+        if (!radio.held) return;
+        if (!radio.movie.playing) return radio.release(ctx);
+        if (radio.movie.waiting or radio.speaking(ctx.frame_start)) return;
+        radio.release(ctx);
+        radio.movie.stop();
+    }
+
+    /// The window held open (`Windows.hold`), where there is a display to show it.
+    fn hold(radio: *Radio, ctx: Context) void {
+        radio.held = true;
+        if (ctx.windows) |windows| windows.hold(.radio);
+    }
+
+    /// The window let go to close (`Windows.close`).
+    fn release(radio: *Radio, ctx: Context) void {
+        radio.held = false;
+        if (ctx.windows) |windows| windows.close(.radio);
     }
 
     /// `cmd_PlaySpeech`'s line (`0x00458090`): the speech file `speech` played at once, without a
     /// window or a film, ending the line playing. The game reads it into a buffer of its own
     /// (`0x005883D0`), so a line waiting for the window keeps its own.
-    pub fn playSpeech(radio: *Radio, sound: *hog_snd.Sound, speech: []const u8) void {
-        radio.player.stop(radio.gpa, sound);
+    pub fn playSpeech(radio: *Radio, ctx: Context, speech: []const u8) void {
+        radio.stopSpeech(ctx.sound);
         const bytes = radio.readSpeech(speech) orelse return;
         defer radio.gpa.free(bytes);
-        radio.play(sound, bytes);
+        radio.play(ctx, bytes);
     }
 
     /// The string of the name the window writes over the speaker's face (`hud.radio.frame`): the
@@ -1224,7 +1278,7 @@ pub const Radio = struct {
     /// started where a film was playing already; otherwise it waits for the window
     /// (`waitForWindow`).
     fn start(radio: *Radio, ctx: Context, film: []const u8, flags: hudmovie.Flags) void {
-        if (radio.movie.play(film, flags, squadron(ctx.all))) radio.startLine(ctx.sound);
+        if (radio.movie.play(film, flags, squadron(ctx.all))) radio.startLine(ctx);
     }
 
     /// The line said last (`line`) read from the archive, in place of the one before.
@@ -1239,10 +1293,10 @@ pub const Radio = struct {
     }
 
     /// `speech_start` for the line said last, which then goes.
-    fn startLine(radio: *Radio, sound: *hog_snd.Sound) void {
+    fn startLine(radio: *Radio, ctx: Context) void {
         if (radio.line.len == 0) return;
         defer radio.dropLine();
-        radio.play(sound, radio.line);
+        radio.play(ctx, radio.line);
     }
 
     /// Reads the speech file that `speech` names, from a mod or the archive (`readLine`).
@@ -1251,13 +1305,15 @@ pub const Radio = struct {
     }
 
     /// `bytes`, a speech file, played (`cbox.Player.start`) at the volume every line the game plays
-    /// takes, the line playing ended; one that is not a speech file is left out with a warning.
-    fn play(radio: *Radio, sound: *hog_snd.Sound, bytes: []u8) void {
+    /// takes, the line playing ended, and lasting its length from the frame's start (`until`); one
+    /// that is not a speech file is left out with a warning.
+    fn play(radio: *Radio, ctx: Context, bytes: []u8) void {
         const parsed = cbox.Line.parse(bytes) orelse {
             log.warn("a line of the radio's is not a speech file or a recording", .{});
             return;
         };
-        _ = radio.player.start(radio.gpa, sound, parsed, hog_snd.loudest, radio.style, null);
+        radio.until = ctx.frame_start +% @as(i32, @intCast(parsed.ticks()));
+        _ = radio.player.start(radio.gpa, ctx.sound, parsed, hog_snd.loudest, radio.style, null);
     }
 };
 
@@ -1300,38 +1356,42 @@ test Radio {
     defer radio.deinit(sound);
     try std.testing.expect(radio.archive != null and radio.movie.archive != null);
     var windows: Windows = .{};
-    const ctx: Context = .{ .sound = sound, .windows = &windows, .all = mission.objects, .frame_start = 100 };
+    var ctx: Context = .{ .sound = sound, .windows = &windows, .all = mission.objects, .frame_start = 100 };
 
     // A line said at once opens the window held and names its speaker; the line waits for the
     // window, with its film, the 45th Tigers' pilot's as the Volunteers' in mission 1.
     radio.sayShip(ctx, wingman, .squadron, "ms1_ban_001.ut", .now, .looping, no_expiry);
     try std.testing.expectEqual(.opening, windows.status.get(.radio).phase);
-    try std.testing.expect(windows.status.get(.radio).held);
+    try std.testing.expect(windows.status.get(.radio).held and radio.held);
     try std.testing.expectEqual(pilots.faces[0].name, radio.name.?);
     try std.testing.expectEqual(@as(i32, wingman), radio.object);
     try std.testing.expect(radio.movie.playing and radio.movie.waiting);
     try std.testing.expectEqual([4]u8{ 0x40, 0x40, 0x40, 0xFF }, radio.movie.rgba[0..4].*);
-    try std.testing.expect(!radio.speaking(sound));
-    radio.waitForWindow(sound, speech_delay - 1);
-    try std.testing.expect(!radio.speaking(sound));
-    radio.waitForWindow(sound, 1);
-    try std.testing.expect(radio.speaking(sound));
+    try std.testing.expect(!radio.speaking(ctx.frame_start));
+    radio.waitForWindow(ctx, speech_delay - 1);
+    try std.testing.expect(!radio.speaking(ctx.frame_start));
+    radio.waitForWindow(ctx, 1);
     try std.testing.expect(!radio.movie.waiting);
+    // The line lasts its 20 ticks from the frame it starts in.
+    try std.testing.expect(radio.speaking(100) and radio.speaking(119) and !radio.speaking(120));
 
-    // A line queued waits while the window is up, and until the line playing is over.
+    // A line queued waits while the window is held, and until the line playing is over.
     radio.sayShip(ctx, enemy, .talking, "plck_001.ut", .queued, .looping, no_expiry);
     try std.testing.expectEqual(1, radio.count);
     radio.frame(ctx);
     try std.testing.expectEqual(1, radio.count);
-    windows.close(.radio);
-    radio.player.stop(gpa, sound);
+    // Once it is over, the window closes and the film stops. Then the queued line is taken: it
+    // opens the window again, and its line waits for it, on the hostile side.
+    ctx.frame_start = 120;
+    radio.closeOver(ctx);
+    try std.testing.expect(!radio.held and !radio.movie.playing);
+    try std.testing.expectEqual(.closing, windows.status.get(.radio).phase);
     radio.frame(ctx);
     try std.testing.expectEqual(0, radio.count);
-    // Taken, it opens the window again, with a film playing already, so its line starts at once,
-    // on the hostile side.
-    try std.testing.expectEqual(.opening, windows.status.get(.radio).phase);
-    try std.testing.expect(radio.speaking(sound));
+    try std.testing.expect(radio.held and radio.movie.waiting);
     try std.testing.expectEqual(.hostile, radio.side);
+    radio.waitForWindow(ctx, speech_delay);
+    try std.testing.expect(radio.speaking(ctx.frame_start));
     // The ship whose line it is shows while the window is up, unless cloaked.
     try std.testing.expectEqual(enemy, radio.speakingShip(&windows, mission.objects).?);
     mission.slot(enemy).object.flags.cloaked = true;
@@ -1342,30 +1402,32 @@ test Radio {
     const pilot_line: Line = .{ .film = hudmovie.static_film, .speech = "plck_001.ut", .name = null, .object = pilot_base + 3, .expiry = 50 };
     radio.say(ctx, pilot_line, .if_idle);
     try std.testing.expectEqual(0, radio.count);
-    radio.player.stop(gpa, sound);
+    ctx.frame_start = 140;
     radio.say(ctx, pilot_line, .if_idle);
     try std.testing.expectEqual(1, radio.count);
-    try std.testing.expectEqual(150, radio.queue[radio.read].expiry.?);
-    windows.close(.radio);
-    radio.frame(.{ .sound = sound, .windows = &windows, .all = mission.objects, .frame_start = 200 });
+    try std.testing.expectEqual(190, radio.queue[radio.read].expiry.?);
+    radio.closeOver(ctx);
+    ctx.frame_start = 200;
+    radio.frame(ctx);
     try std.testing.expectEqual(0, radio.count);
-    try std.testing.expect(!radio.speaking(sound));
+    try std.testing.expect(!radio.speaking(ctx.frame_start));
     // The queue holds five; a sixth is dropped.
     for (0..queue_size + 1) |_| radio.say(ctx, pilot_line, .queued);
     try std.testing.expectEqual(queue_size, radio.count);
     radio.reset(sound);
     try std.testing.expectEqual(0, radio.count);
-    try std.testing.expect(!radio.movie.playing);
+    try std.testing.expect(!radio.movie.playing and !radio.held);
 
-    // A line played by the script has no window nor film; one the archive lacks is left out.
-    radio.playSpeech(sound, "ms1_ban_001.ut");
-    try std.testing.expect(radio.speaking(sound));
+    // A line played by the script has no window nor film, and lasts its length; one the archive
+    // lacks is left out.
+    radio.playSpeech(ctx, "ms1_ban_001.ut");
+    try std.testing.expect(radio.speaking(200) and !radio.speaking(220));
     try std.testing.expect(!radio.movie.playing);
-    radio.playSpeech(sound, "nothing.ut");
-    try std.testing.expect(!radio.speaking(sound));
+    radio.playSpeech(ctx, "nothing.ut");
+    try std.testing.expect(!radio.speaking(ctx.frame_start));
 }
 
-test "a line nobody hears lasts as long as it would with sound" {
+test "the radio's step times its lines by the game's ticks, heard or not" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     // Lines of a fifth of a second: 20 ticks.
@@ -1382,47 +1444,37 @@ test "a line nobody hears lasts as long as it would with sound" {
     const wingman = try mission.add(.of(.predator), @splat(0));
 
     var radio = archives.radio(gpa, io);
-    // Without a driver, as with `--no-sound`, the sound has no speech sample, and the game's clock
-    // times the lines.
+    // Without a driver, as with `--no-sound`: nothing is heard.
     var clock: @import("main.zig").Clock = .{};
     var sound: hog_snd.Sound = .{ .clock = &clock };
     defer radio.deinit(&sound);
     var windows: Windows = .{};
-    const ctx: Context = .{ .sound = &sound, .windows = &windows, .all = mission.objects, .frame_start = 100 };
+    var ctx: Context = .{ .sound = &sound, .windows = &windows, .all = mission.objects, .frame_start = 100 };
 
-    // The line starts as the window opens, and lasts its 20 ticks of the game's clock, while its
-    // film plays.
+    // Step by step, the line waits for the window, then lasts its 20 ticks while its film loops.
+    // Once it is over, the window closes and the film stops, so a script waiting for the film
+    // waits that long.
     radio.sayShip(ctx, wingman, .squadron, "ms1_ban_001.ut", .now, .looping, no_expiry);
-    try std.testing.expect(!radio.speaking(&sound));
-    radio.waitForWindow(&sound, speech_delay);
-    try std.testing.expect(!radio.movie.waiting);
-    try std.testing.expect(radio.speaking(&sound));
-    clock.game_ticks += 19;
-    try std.testing.expect(radio.speaking(&sound));
-    try std.testing.expect(radio.movie.playing);
-    clock.game_ticks += 1;
-    try std.testing.expect(!radio.speaking(&sound));
+    var steps: i32 = 0;
+    while (radio.movie.playing) : (steps += 1) {
+        radio.step(ctx, 1, @intCast(ctx.frame_start));
+        ctx.frame_start += 1;
+    }
+    try std.testing.expectEqual(speech_delay + 20, steps);
+    try std.testing.expect(!radio.held);
+    try std.testing.expectEqual(.closing, windows.status.get(.radio).phase);
 
-    // A line said at once ends the one playing and lasts its own time; a line queued waits until
-    // that is over.
+    // A line said at once over a film that plays starts at once, ends the one playing and lasts
+    // its own time. As a mission ends, the line playing stops at once.
     radio.sayShip(ctx, wingman, .squadron, "ms1_ban_001.ut", .now, .looping, no_expiry);
-    clock.game_ticks += 10;
+    radio.waitForWindow(ctx, speech_delay);
+    ctx.frame_start += 10;
     radio.sayShip(ctx, wingman, .squadron, "ms1_ban_001.ut", .now, .looping, no_expiry);
-    clock.game_ticks += 19;
-    try std.testing.expect(radio.speaking(&sound));
-    radio.sayShip(ctx, wingman, .squadron, "plck_001.ut", .queued, .looping, no_expiry);
-    windows.close(.radio);
-    radio.frame(ctx);
-    try std.testing.expectEqual(1, radio.count);
-    clock.game_ticks += 1;
-    radio.frame(ctx);
-    try std.testing.expectEqual(0, radio.count);
-    // As a mission ends, the line playing stops at once.
-    try std.testing.expect(radio.speaking(&sound));
+    try std.testing.expect(radio.speaking(ctx.frame_start + 19) and !radio.speaking(ctx.frame_start + 20));
     radio.stopSpeech(&sound);
-    try std.testing.expect(!radio.speaking(&sound));
+    try std.testing.expect(!radio.speaking(ctx.frame_start));
     radio.reset(&sound);
-    try std.testing.expect(!radio.speaking(&sound));
+    try std.testing.expect(!radio.speaking(ctx.frame_start));
 }
 
 test sideOf {
@@ -1529,7 +1581,7 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     // The pilot asks at once, and the Reliant's bridge answers in its time, clearing the ship by one
     // of the lines for a success.
     permissionToLand(world, 100);
-    try std.testing.expect(radio.speaking(sound));
+    try std.testing.expect(radio.speaking(mission.clock.frame_start));
     const report = radio.reports[0].?;
     try std.testing.expectEqual(reliant_bridge, report.object);
     try std.testing.expectEqual(bridge_name, report.name);
@@ -1565,7 +1617,7 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     mission.objects.mission_number = create.training_missions[0];
     mission.player.female = true;
     permissionToLand(world, 3000);
-    try std.testing.expect(radio.speaking(sound));
+    try std.testing.expect(radio.speaking(mission.clock.frame_start));
     try std.testing.expectEqual(instructor, radio.reports[0].?.object);
     try std.testing.expectEqualStrings("pilots\\VirtFlt_Ins.fm8", radio.reports[0].?.film.slice());
     try std.testing.expectEqualStrings(instructor_line, radio.reports[0].?.speech.slice());

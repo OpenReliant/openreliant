@@ -558,9 +558,9 @@ pub const Controls = struct {
 
 /// `mission_frame`'s work for the controls, once a drawn frame over the ticks it spans
 /// (`Clock.drawnTicks`): `frame_controls` (the camera's keys, then the targeting keys,
-/// `hud.targetKeys`, then its own, `input.frameKeys`), then the radio's queue, its reports and its
-/// remarks. The camera and the sound follow once the objects are placed for the frame
-/// (`viewFrame`).
+/// `hud.targetKeys`, then its own, `input.frameKeys`). The radio, which the game runs after them,
+/// runs in the game frame (`missionFrame`). The camera and the sound follow once the objects are
+/// placed for the frame (`viewFrame`).
 pub fn controlsFrame(controls: Controls) void {
     const world = controls.orders.world;
     const clock = world.clock;
@@ -592,15 +592,6 @@ pub fn controlsFrame(controls: Controls) void {
         .world = world,
         .all = all,
     });
-    // `mission_frame` runs the radio's queue after the controls, then its reports and its remarks;
-    // the film's timer turns with the game's clock.
-    if (radio_module.onAir(world)) |on_air| {
-        const radio, const ctx = on_air;
-        radio.runFilm(ctx, ticks);
-        radio.frame(ctx);
-        radio.stepReports(ctx, clock.game_ticks);
-    }
-    radio_module.remarksFrame(world);
 }
 
 /// `mission_frame`'s work once the objects are placed for the drawn frame (`DrawnPlaces`), once a
@@ -659,8 +650,9 @@ pub fn viewFrame(controls: Controls) void {
     devices.joystick.rumble(controls.forces.motors(clock.frame_start));
 }
 
-/// `mission_frame` (`0x004924B0`), as far as the objects go: the player's ship pointed to the
-/// flyback marker it has strayed from (`input.nextNavPoint`), then the player's ship uncloaked where
+/// `mission_frame` (`0x004924B0`), as far as the objects go: the radio, as the game runs it after
+/// the controls (`radio.Radio.step`), and its remarks (`radio.remarksFrame`), then the player's ship
+/// pointed to the flyback marker it has strayed from (`input.nextNavPoint`), then the player's ship uncloaked where
 /// the display ran the cloak's charge dry last frame (`hud.State.uncloakSpent`), then every
 /// object's orders, which fly the ships and read the player's controls, then the player's ship sent
 /// home where it destroyed a friend (`friendly_fire.sendHome`), then the scanner's beep
@@ -706,6 +698,12 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
             return .left_out;
         }
     }
+    // `mission_frame` runs the radio after the controls, then its remarks.
+    if (radio_module.onAir(orders.world)) |on_air| {
+        const radio, const ctx = on_air;
+        radio.step(ctx, orders.world.clock.frameTicks(), orders.world.clock.game_ticks);
+    }
+    radio_module.remarksFrame(orders.world);
     input.nextNavPoint(orders.world);
     if (loaded) |playing| {
         if (orders.world.clock.frame_duration != 0 and player.ending == .playing and player.showing != .landing) {
