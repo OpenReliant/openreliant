@@ -2127,10 +2127,10 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 /// (`0x004934F0`), for the mission `image`, made in `gpa`, which the mission then owns, played as
 /// mission `number`. Returns the mission loaded for play, which the caller destroys once it ends.
 ///
-/// The loading readies the display's objectives and the launch's caption for the mission, turns its
-/// icons off and clears `WaitForKey`'s prompt and the subtitle, drops the flyback markers, and
-/// empties the radio's queue, its reports and its remarks, the script's switches among them
-/// (`hud_init`, `radio_reset`), and Moose's warnings of the player's hits on friends
+/// The loading sets the display up again (`hud.State.reset`) and empties the shield reserves, as
+/// `hud_init` does, readies the display's objectives for the mission, clears the subtitle, drops
+/// the flyback markers, and empties the radio's queue, its reports and its remarks, the script's
+/// switches among them (`radio_reset`), and Moose's warnings of the player's hits on friends
 /// (`mission_run`, `0x00474B20`), empties the effects' pools and the missiles in flight,
 /// puts a stand-in in every object's slot (`create.Objects.reset`), loads the Turret Flak's
 /// shell and the debris (`guns_load_shell`, `explosions_init`), and clears the mark of the player's
@@ -2154,8 +2154,8 @@ const camera_marker_at: math.Vector = .{ 0, 0, -8000 };
 ///    places;
 /// 5. resets the frame's clock (`frame_reset`), loads the cockpit of the player's ship, or of the
 ///    Kamov in mission 25's first part (`cockpitShip`), and readies the display for it as
-///    `hud_init` and the start have it: its devices fitted (`fitDevices`), its missiles in the
-///    missile display, no missile lock, and the eject marker out;
+///    the start has it: its devices fitted (`fitDevices`), its missiles in the missile display, and
+///    no missile lock;
 /// 6. **Fix:** starts the player's engine's sound where its ship has no launch to start it, so that
 ///    a ship that starts in space is heard (`sound3d.hearEngine`);
 /// 7. writes the pilot's profile with the pilot's call sign (`Start.profile`, `profile_save`,
@@ -2194,12 +2194,9 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     world.player.remarks = .{};
     world.player.friendly_fire = .{};
     if (world.flash) |lit| lit.* = .{};
+    world.player.shield_reserves = .{};
+    start.display.reset(world.clock.game_ticks);
     start.display.interference = .{};
-    start.display.fosters_last_stand = false;
-    start.display.caption = .{};
-    start.display.messages = .{};
-    start.display.icons = .{};
-    start.display.key_prompt = .{};
     start.display.subtitle = .{};
     start.display.objectives.reset(number, all.mission25_second_part, start.objectives);
     if (world.countermeasures) |dropped| dropped.reset();
@@ -2268,7 +2265,6 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     const player_type = all.slotType(all.player, if (try loaded.bound.file.player()) |record| @fromBackingInt(record.kind) else player.object.type);
     const ship = cockpitShip(all, player_type);
     try start.cockpit.load(start.types.resources, start.types.textures, ship, start.types.models);
-    start.display.ejected = false;
     fitDevices(start.display, ship, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
     start.display.missiles.build(&player.object);
     start.display.lock.reset();
@@ -2327,9 +2323,9 @@ pub fn scriptOutcome(player: *const input.Player, loaded: *const Loaded) hooks.O
 }
 
 /// Fits the display's devices to the player's ship, `ship` (`cockpitShip`), as the start does
-/// after `hud_init` has set the display up: every ship carries an ECM, the ships of `player_ships`
-/// that say so spectral shields and blind fire, and a ship whose model can cloak
-/// (`shp.Header.Flags.cloak`) a cloak. Blind fire starts on where it is carried; elsewhere it is
+/// after the loading has set the display up (`hud.State.reset`): every ship carries an ECM, the
+/// ships of `player_ships` that say so spectral shields and blind fire, and a ship whose model can
+/// cloak (`shp.Header.Flags.cloak`) a cloak. Blind fire starts on where it is carried; elsewhere it is
 /// left as it was.
 pub fn fitDevices(display: *hud.State, ship: ?PlayerShip, can_cloak: bool) void {
     display.devices.getPtr(.ecm).setting = .off;
