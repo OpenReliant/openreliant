@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.19.0](https://github.com/OpenReliant/openreliant/compare/v0.18.0...v0.19.0) (2026-10-16)
+
+
+### Features
+
+* the game's frame work runs once a tick, apart from drawing ([#1227](https://github.com/OpenReliant/openreliant/issues/1227)) ([8a5db86](https://github.com/OpenReliant/openreliant/commit/8a5db8683a54387045813d56b57c0fd1b1371680))
+* the radio times its lines by the game's ticks, heard or not ([#1238](https://github.com/OpenReliant/openreliant/issues/1238)) ([657a02d](https://github.com/OpenReliant/openreliant/commit/657a02d71e42a174b65d75ab9d2fcc7e93aeb284))
+
+
+### Fixes
+
+* a nanny ship takes in a pod the destroyed Antanov had claimed ([#1236](https://github.com/OpenReliant/openreliant/issues/1236)) ([00bab71](https://github.com/OpenReliant/openreliant/commit/00bab71d3f8a089e9885abbe1d0f7c38a697c911)), closes [#1196](https://github.com/OpenReliant/openreliant/issues/1196)
+* a restart starts with the devices fully charged ([#1235](https://github.com/OpenReliant/openreliant/issues/1235)) ([1b5b770](https://github.com/OpenReliant/openreliant/commit/1b5b770d6b987a94fb9414ea1243beff8b9a4538)), closes [#1226](https://github.com/OpenReliant/openreliant/issues/1226)
+* components are numbered in the original's order ([#1234](https://github.com/OpenReliant/openreliant/issues/1234)) ([28f5477](https://github.com/OpenReliant/openreliant/commit/28f5477c0800c8dfe6fffdc8e1d2cd0a2ce9d423)), closes [#1224](https://github.com/OpenReliant/openreliant/issues/1224) [#1231](https://github.com/OpenReliant/openreliant/issues/1231)
+* drawing leaves the planets, the bounds and the type counts as the game had them ([#1230](https://github.com/OpenReliant/openreliant/issues/1230)) ([e39dd6e](https://github.com/OpenReliant/openreliant/commit/e39dd6e32cd2e17344c5aeed7e9fa7a1b0bbd00a))
+* the effects the game sets off draw random numbers of their own ([#1233](https://github.com/OpenReliant/openreliant/issues/1233)) ([fedadec](https://github.com/OpenReliant/openreliant/commit/fedadec50364be60e6d22c76f92a965349a87896))
+
 ## [0.18.0](https://github.com/OpenReliant/openreliant/compare/v0.17.0...v0.18.0) (2026-10-15)
 
 
