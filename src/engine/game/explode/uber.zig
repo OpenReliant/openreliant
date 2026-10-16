@@ -219,73 +219,71 @@ pub const Blast = struct {
     duration: i32,
     /// How far through it is at the frame's tick.
     done: f32 = 0,
+    /// How far out the ball has spread, which is how far it strikes; the game keeps it as the
+    /// ball's scale.
+    radius: f32 = 0,
     caught: [max_caught]Caught = undefined,
     caught_count: usize = 0,
-    style: Style,
-    /// The tick it last drew its numbers afresh at (`rounds`), and whether its ball has flickered.
-    paced_at: i32,
-    flickered: bool = false,
-    /// The halves (`UberHemi1`, `UberHemi2`), which share their own colours and texture
-    /// coordinates, the first as many as the style's hemisphere has vertices.
-    halves: [2]srapiext.MeshObject,
-    half_colours: [max_hemisphere_vertices][4]f32 = undefined,
-    half_uv: [max_hemisphere_vertices][2]f32 = undefined,
-    /// The ball, which the game names as it names the second half, and its glow (`Uber BMO`). Its
-    /// flicker is a colour for each vertex of the game's ball, which its own vertices take between
-    /// them.
-    ball: srapiext.MeshObject,
-    ball_flicker: [game_ball_vertices][4]f32 = undefined,
-    ball_colours: [max_ball_vertices][4]f32 = undefined,
-    ball_uv: [max_ball_vertices][2]f32 = @splat(ball_texel),
-    glow: srapiext.SpriteSet,
-    glow_sprite: [1]srapiext.Sprite = .{.{ .colour = glow_colour }},
-    /// Its light, in the fuller style.
-    light: srlight.Light,
+    /// How it shows, where it is drawn.
+    shown: ?Shown = null,
 
     fn listed(blast: *Blast) []Caught {
         return blast.caught[0..blast.caught_count];
     }
 
-    fn shape(blast: *const Blast) Shape {
-        return .of(blast.style);
-    }
-
-    /// How many times the blast draws its numbers afresh this frame, at tick `now`: once a frame,
-    /// as the game does; or in the fuller style, once for each simulation step since it last did.
-    fn rounds(blast: *Blast, now: i32) u32 {
-        return switch (blast.style) {
-            .original => 1,
-            .fuller => gameobj.stepsDue(&blast.paced_at, now),
+    /// Shows the blast in `style`, over `look`'s meshes for it: its halves start at its point, dark
+    /// and faint, but for their rims, which never show, each taking its texture from where its
+    /// vertices lie; the second is turned half round.
+    fn show(blast: *Blast, look: *Uber.Look, style: Style, now: i32) void {
+        const place = blast.place;
+        const meshes = look.meshes.getPtr(style);
+        const half: srapiext.MeshObject = .{
+            .flags = .{ .not_culled = true, .always_drawn = true, .unbounded = true, .baked_object = true, .own_first = true },
+            .position = place.position,
+            .orientation = place.orientation,
+            .radius = meshes.hemisphere.radius,
+            .levels = &meshes.levels[0],
         };
-    }
-
-    /// The ball's part of the frame, `out` of the way to its widest, drawing its numbers afresh
-    /// `drawn` times: it flickers red and orange vertex by vertex, grows, and shakes the view, and
-    /// it reaches each ship it listed that stands within it.
-    fn spread(blast: *Blast, world: gameobj.World, out: f32, drawn: u32) void {
-        if (drawn > 0 or !blast.flickered) blast.flicker(world.effectsRandom());
-        blast.ball.scale = math.lerp(least_scale, blast.size * reach, out);
-        world.shake.* = most_shake * out;
-        blast.glow_sprite[0].half_size = @splat(blast.ball.scale * glow_scale);
-        blast.glow_sprite[0].bias = -blast.ball.scale;
-        for (blast.listed()) |*caught| if (!caught.reached) blast.strike(world, caught);
-    }
-
-    /// The ball's flicker drawn afresh: each vertex of the game's ball red at a random number to
-    /// the fifth, its green `ball_green` of its red; each of its own vertices taking the colours of
-    /// those round it (`shield.Grid.sample`).
-    fn flicker(blast: *Blast, random: *Random) void {
-        // Two numbers the game draws and drops.
-        _ = random.rand();
-        _ = random.rand();
-        for (&blast.ball_flicker) |*colour| {
-            const f = random.fraction();
-            const red = f * f * f * f * f;
-            colour.* = .{ red, red * ball_green, 0, 1 };
+        blast.shown = .{
+            .style = style,
+            .meshes = meshes,
+            .paced_at = now,
+            .halves = .{ half, half },
+            .ball = .{ .flags = half.flags, .position = place.position, .orientation = place.orientation, .radius = 1, .levels = &meshes.levels[1] },
+            .glow = .{ .position = place.position, .surface = .glow(look.glow), .sprites = &.{} },
+            .light = .{
+                .mask = 0,
+                .intensity = 0,
+                .colour = light_colour,
+                .kind = .{ .point = .{ .position = place.position, .range = blast.size * light_reach } },
+            },
+        };
+        const shown = &blast.shown.?;
+        shown.halves[1].orientation = math.product(math.fromAngles(0, std.math.pi, 0), place.orientation);
+        const shape = shown.grids();
+        const vertices = shape.hemisphereVertices();
+        for (shown.half_colours[0..vertices], shown.half_uv[0..vertices], meshes.hemisphere.positions, 0..) |*colour, *uv, at, index| {
+            colour.* = .{ 0, 0, 0, half_alpha * shape.fade(index) };
+            uv.* = .{ at[0] * half_mapping + half_mapping, at[1] * half_mapping + half_mapping };
         }
-        const grid = blast.shape().ball;
-        for (blast.ball_colours[0..grid.vertices()], 0..) |*colour, index| colour.* = grid.sample(game_ball, &blast.ball_flicker, index);
-        blast.flickered = true;
+        for (&shown.halves) |*drawn| {
+            drawn.baked = shown.half_colours[0..vertices];
+            drawn.own_uv = .{ shown.half_uv[0..vertices], null };
+        }
+        const ball_vertices = shape.ball.vertices();
+        shown.ball.baked = shown.ball_colours[0..ball_vertices];
+        shown.ball.own_uv = .{ shown.ball_uv[0..ball_vertices], null };
+        shown.glow.sprites = &shown.glow_sprite;
+    }
+
+    /// The ball's part of the frame, `out` of the way to its widest: it spreads out, flickering
+    /// where it is drawn (`Shown.spread`), shakes the view, and reaches each ship it listed that
+    /// stands within it.
+    fn spread(blast: *Blast, world: gameobj.World, out: f32, drawn: u32) void {
+        blast.radius = math.lerp(least_scale, blast.size * reach, out);
+        if (blast.shown) |*shown| shown.spread(world.effectsRandom(), blast.radius, drawn);
+        world.shake.* = most_shake * out;
+        for (blast.listed()) |*caught| if (!caught.reached) blast.strike(world, caught);
     }
 
     /// The ball reaching a ship it listed, unless the ship is exploding already or gone: a knock
@@ -296,7 +294,7 @@ pub const Blast = struct {
         const object = &slot.object;
         if (object.type.base() == .stand_in) return;
         if (slot.running(.explode) != null) return;
-        if (math.distance(slot.drawn.position, blast.place.position) > blast.ball.scale) return;
+        if (math.distance(slot.drawn.position, blast.place.position) > blast.radius) return;
         const random = world.random;
         const centre = object.position();
         const push = math.normalize(centre - blast.place.position) * @as(Vector, @splat(object.mass * knock_strength));
@@ -330,12 +328,100 @@ pub const Blast = struct {
     }
 };
 
-/// What the Uber Explode keeps: for each style the hemisphere the halves share (`0x00562CD0`),
-/// which a blast opens out, and the ball's sphere; and the blast going off, where one is.
+/// How a blast shows, in its style.
+const Shown = struct {
+    style: Style,
+    /// The style's hemisphere and ball (`Uber.Look`); the halves open the hemisphere out.
+    meshes: *Uber.Meshes,
+    /// The tick it last drew its numbers afresh at (`rounds`), and whether its ball has flickered.
+    paced_at: i32,
+    flickered: bool = false,
+    /// The halves (`UberHemi1`, `UberHemi2`), which share their own colours and texture
+    /// coordinates, the first as many as the style's hemisphere has vertices.
+    halves: [2]srapiext.MeshObject,
+    half_colours: [max_hemisphere_vertices][4]f32 = undefined,
+    half_uv: [max_hemisphere_vertices][2]f32 = undefined,
+    /// The ball, which the game names as it names the second half, and its glow (`Uber BMO`). Its
+    /// flicker is a colour for each vertex of the game's ball, which its own vertices take between
+    /// them.
+    ball: srapiext.MeshObject,
+    ball_flicker: [game_ball_vertices][4]f32 = undefined,
+    ball_colours: [max_ball_vertices][4]f32 = undefined,
+    ball_uv: [max_ball_vertices][2]f32 = @splat(ball_texel),
+    glow: srapiext.SpriteSet,
+    glow_sprite: [1]srapiext.Sprite = .{.{ .colour = glow_colour }},
+    /// Its light, in the fuller style.
+    light: srlight.Light,
+
+    /// Its grids, by its style.
+    fn grids(shown: *const Shown) Shape {
+        return .of(shown.style);
+    }
+
+    /// How many times the blast draws its numbers afresh this frame, at tick `now`: once a frame,
+    /// as the game does; or in the fuller style, once for each simulation step since it last did.
+    fn rounds(shown: *Shown, now: i32) u32 {
+        return switch (shown.style) {
+            .original => 1,
+            .fuller => gameobj.stepsDue(&shown.paced_at, now),
+        };
+    }
+
+    /// The halves `done` of the way through a blast of `size`, before `faded`: they grow to
+    /// `half_scale` of its size, open out until `opened`, and brighten and fade by `brightness`,
+    /// their light with them.
+    fn grow(shown: *Shown, size: f32, done: f32) void {
+        const shape = shown.grids();
+        for (&shown.halves) |*half| half.scale = size * half_scale;
+        if (done < opened) open(shown.meshes.hemisphere.positions, shape, done / opened);
+        const bright = brightness(done);
+        for (shown.half_colours[0..shape.hemisphereVertices()], 0..) |*colour, index| {
+            const lit = bright * shape.fade(index);
+            colour.* = .{ lit, lit, lit, lit * half_alpha };
+        }
+        shown.light.intensity = light_intensity * bright;
+    }
+
+    /// The ball spread out to `radius`, drawing its numbers afresh `drawn` times from `random`: it
+    /// flickers red and orange vertex by vertex, the first time and each time it draws them, and
+    /// its glow grows with it.
+    fn spread(shown: *Shown, random: *Random, radius: f32, drawn: u32) void {
+        if (drawn > 0 or !shown.flickered) shown.flicker(random);
+        shown.ball.scale = radius;
+        shown.glow_sprite[0].half_size = @splat(radius * glow_scale);
+        shown.glow_sprite[0].bias = -radius;
+    }
+
+    /// The ball's flicker drawn afresh: each vertex of the game's ball red at a random number to
+    /// the fifth, its green `ball_green` of its red; each of its own vertices taking the colours of
+    /// those round it (`shield.Grid.sample`).
+    fn flicker(shown: *Shown, random: *Random) void {
+        // Two numbers the game draws and drops.
+        _ = random.rand();
+        _ = random.rand();
+        for (&shown.ball_flicker) |*colour| {
+            const f = random.fraction();
+            const red = f * f * f * f * f;
+            colour.* = .{ red, red * ball_green, 0, 1 };
+        }
+        const grid = shown.grids().ball;
+        for (shown.ball_colours[0..grid.vertices()], 0..) |*colour, index| colour.* = grid.sample(game_ball, &shown.ball_flicker, index);
+        shown.flickered = true;
+    }
+};
+
+/// What the Uber Explode keeps: how its blasts look, where they are drawn, and the blast going off,
+/// where one is.
 pub const Uber = struct {
-    meshes: std.EnumArray(Style, Meshes),
-    glow: *srtexture.Image,
+    look: ?Look,
     blast: ?Blast = null,
+
+    /// How the blasts look: for each style the hemisphere the halves share (`0x00562CD0`), which a
+    /// blast opens out, and the ball's sphere; and the texture the ball glows with.
+    const Look = struct {
+        meshes: std.EnumArray(Style, Meshes),
+        glow: *srtexture.Image,
+    };
 
     /// A style's hemisphere and ball, and a level of detail for each.
     const Meshes = struct {
@@ -349,20 +435,23 @@ pub const Uber = struct {
         }
     };
 
-    /// As the explosions are set up (`explosions_init`, `0x0046B240`): the hemisphere, fully open,
-    /// and the ball's sphere, for each style.
-    pub fn create(gpa: Allocator, images: Images) Allocator.Error!*Uber {
+    /// As the explosions are set up (`explosions_init`, `0x0046B240`): where there are `images` to
+    /// draw with, the hemisphere, fully open, and the ball's sphere, for each style.
+    pub fn create(gpa: Allocator, images: ?Images) Allocator.Error!*Uber {
         const uber = try gpa.create(Uber);
         errdefer gpa.destroy(uber);
-        uber.* = .{ .meshes = undefined, .glow = images.glow };
+        uber.* = .{ .look = null };
+        const textures = images orelse return uber;
+        uber.look = .{ .meshes = undefined, .glow = textures.glow };
+        const look = &uber.look.?;
         var made: usize = 0;
-        errdefer for (std.enums.values(Style)[0..made]) |style| uber.meshes.getPtr(style).deinit(gpa);
+        errdefer for (std.enums.values(Style)[0..made]) |style| look.meshes.getPtr(style).deinit(gpa);
         for (std.enums.values(Style)) |style| {
             const shape: Shape = .of(style);
-            var half = try hemisphereMesh(gpa, shape, images.ring);
+            var half = try hemisphereMesh(gpa, shape, textures.ring);
             errdefer half.deinit(gpa);
-            const meshes = uber.meshes.getPtr(style);
-            meshes.* = .{ .hemisphere = half, .ball = try shield.sphereMesh(gpa, shape.ball, images.ball) };
+            const meshes = look.meshes.getPtr(style);
+            meshes.* = .{ .hemisphere = half, .ball = try shield.sphereMesh(gpa, shape.ball, textures.ball) };
             meshes.levels = .{ .{.{ .mesh = &meshes.hemisphere, .until = std.math.inf(f32) }}, .{.{ .mesh = &meshes.ball, .until = std.math.inf(f32) }} };
             made += 1;
         }
@@ -370,18 +459,16 @@ pub const Uber = struct {
     }
 
     pub fn destroy(uber: *Uber, gpa: Allocator) void {
-        for (&uber.meshes.values) |*meshes| meshes.deinit(gpa);
+        if (uber.look) |*look| for (&look.meshes.values) |*meshes| meshes.deinit(gpa);
         gpa.destroy(uber);
     }
 
     /// `uber_explode_start` (`0x00472AB0`): sets a blast of `size` off at `place` for `owner`, over
-    /// `duration` ticks, shown in `style`, in place of any going off. It lists the ships it may
-    /// reach: each object but the player's ship that is created and not disabled, of a side but the
-    /// neutral one, with combat stats and an order, but for the gates, the Boridin and its
-    /// breakaway, and within `reach` of its size. Its halves start at the point, dark and faint,
-    /// but for their rims, which never show, each taking its texture from where its vertices lie;
-    /// the second is turned half round. The view flashes, the two rings of `waves` spread, and the
-    /// owner's ship sounds `uberexp`.
+    /// `duration` ticks, in place of any going off, shown in `style` where it is drawn
+    /// (`Blast.show`). It lists the ships it may reach: each object but the player's ship that is
+    /// created and not disabled, of a side but the neutral one, with combat stats and an order, but
+    /// for the gates, the Boridin and its breakaway, and within `reach` of its size. The view
+    /// flashes, the two rings of `waves` spread, and the owner's ship sounds `uberexp`.
     ///
     /// The game asks for an order stack, which it makes with an object's first order; OpenReliant
     /// asks for an order.
@@ -389,50 +476,10 @@ pub const Uber = struct {
     /// **Fix:** the game lists every ship in reach, running past the end of its list with more than
     /// `max_caught`; OpenReliant lists the first `max_caught`.
     pub fn start(uber: *Uber, world: gameobj.World, owner: u16, place: math.Place, size: f32, duration: i32, style: Style) void {
-        const meshes = uber.meshes.getPtr(style);
-        const shape: Shape = .of(style);
-        const half: srapiext.MeshObject = .{
-            .flags = .{ .not_culled = true, .always_drawn = true, .unbounded = true, .baked_object = true, .own_first = true },
-            .position = place.position,
-            .orientation = place.orientation,
-            .radius = meshes.hemisphere.radius,
-            .levels = &meshes.levels[0],
-        };
         const now = world.clock.frame_start;
-        uber.blast = .{
-            .owner = owner,
-            .place = place,
-            .size = size,
-            .started = now,
-            .duration = duration,
-            .style = style,
-            .paced_at = now,
-            .halves = .{ half, half },
-            .ball = .{ .flags = half.flags, .position = place.position, .orientation = place.orientation, .radius = 1, .levels = &meshes.levels[1] },
-            .glow = .{ .position = place.position, .sprites = &.{} },
-            .light = .{
-                .mask = 0,
-                .intensity = 0,
-                .colour = light_colour,
-                .kind = .{ .point = .{ .position = place.position, .range = size * light_reach } },
-            },
-        };
+        uber.blast = .{ .owner = owner, .place = place, .size = size, .started = now, .duration = duration };
         const blast = &uber.blast.?;
-        blast.halves[1].orientation = math.product(math.fromAngles(0, std.math.pi, 0), place.orientation);
-        const vertices = shape.hemisphereVertices();
-        for (blast.half_colours[0..vertices], blast.half_uv[0..vertices], meshes.hemisphere.positions, 0..) |*colour, *uv, at, index| {
-            colour.* = .{ 0, 0, 0, half_alpha * shape.fade(index) };
-            uv.* = .{ at[0] * half_mapping + half_mapping, at[1] * half_mapping + half_mapping };
-        }
-        for (&blast.halves) |*shown| {
-            shown.baked = blast.half_colours[0..vertices];
-            shown.own_uv = .{ blast.half_uv[0..vertices], null };
-        }
-        const ball_vertices = shape.ball.vertices();
-        blast.ball.baked = blast.ball_colours[0..ball_vertices];
-        blast.ball.own_uv = .{ blast.ball_uv[0..ball_vertices], null };
-        blast.glow.surface = .glow(uber.glow);
-        blast.glow.sprites = &blast.glow_sprite;
+        if (uber.look) |*look| blast.show(look, style, now);
 
         const all = world.objects;
         for (all.slots[0..all.count], 0..) |*slot, index| {
@@ -466,12 +513,11 @@ pub const Uber = struct {
     }
 
     /// `uber_explode_update` (`0x00473210`), first in `explosions_update`: once its duration is
-    /// past the blast ends (`end`). Until `faded` the halves grow to `half_scale` of its size,
-    /// open out until `opened`, and brighten and fade by `brightness`, their light with them in the
-    /// fuller style; from `opened` the ball spreads (`Blast.spread`); from `flash_from` the view
+    /// past the blast ends (`end`). Until `faded` the halves grow, open out and brighten and fade
+    /// (`Shown.grow`); from `opened` the ball spreads (`Blast.spread`); from `flash_from` the view
     /// flashes longer and longer; and from `faded` burning bits fly at the camera
     /// (`Blast.throwBits`), a round of them each time the blast draws its numbers afresh
-    /// (`Blast.rounds`).
+    /// (`Shown.rounds`). Where it is not drawn, only the ball spreads, unseen.
     ///
     /// **Fix:** the game colours one vertex of the halves' rims with the rest, which shows a sliver
     /// of the rim; OpenReliant keeps the whole rim clear, as the blast starts it.
@@ -481,18 +527,9 @@ pub const Uber = struct {
         if (blast.started + blast.duration < now) return uber.end(world);
         const done = particles.through(now, blast.started, blast.duration);
         blast.done = done;
-        const drawn = blast.rounds(now);
-        const shape = blast.shape();
-        if (done < faded) {
-            for (&blast.halves) |*half| half.scale = blast.size * half_scale;
-            if (done < opened) open(uber.meshes.getPtr(blast.style).hemisphere.positions, shape, done / opened);
-            const bright = brightness(done);
-            for (blast.half_colours[0..shape.hemisphereVertices()], 0..) |*colour, index| {
-                const lit = bright * shape.fade(index);
-                colour.* = .{ lit, lit, lit, lit * half_alpha };
-            }
-            blast.light.intensity = light_intensity * bright;
-        }
+        // None where the blast doesn't show, so that it throws no bits.
+        const drawn = if (blast.shown) |*shown| shown.rounds(now) else 0;
+        if (done < faded) if (blast.shown) |*shown| shown.grow(blast.size, done);
         if (done > opened) blast.spread(world, (done - opened) / (1 - opened), drawn);
         if (done > flash_from) if (world.flash) |flash| {
             flash.left = @intFromFloat((done - flash_from) * flash_rate);
@@ -522,17 +559,18 @@ pub const Uber = struct {
         events.exploded(world, blast.owner);
     }
 
-    /// The blast's objects, in the world's layer: the halves until `faded`, with its light in the
-    /// fuller style, and the ball and its glow from `opened`.
+    /// The blast's objects, in the world's layer, where it shows: the halves until `faded`, with
+    /// its light in the fuller style, and the ball and its glow from `opened`.
     pub fn draw(uber: *Uber, gpa: Allocator, scene: *srcore.Scene) Allocator.Error!void {
         const blast = &(uber.blast orelse return);
+        const shown = &(blast.shown orelse return);
         if (blast.done < faded) {
-            for (&blast.halves) |*half| try xtrabits.sceneAdd(gpa, scene, .{ .mesh = half }, .world);
-            if (blast.style == .fuller) try xtrabits.sceneAdd(gpa, scene, .{ .light = &blast.light }, .world);
+            for (&shown.halves) |*half| try xtrabits.sceneAdd(gpa, scene, .{ .mesh = half }, .world);
+            if (shown.style == .fuller) try xtrabits.sceneAdd(gpa, scene, .{ .light = &shown.light }, .world);
         }
         if (blast.done > opened) {
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &blast.ball }, .world);
-            try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &blast.glow }, .world);
+            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &shown.ball }, .world);
+            try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &shown.glow }, .world);
         }
     }
 };
@@ -687,12 +725,13 @@ test Uber {
     stage.mission.clock.frame_start = 1000;
     uber.start(world, 0, .{ .position = @splat(0) }, size, 1000, .original);
     const blast = &uber.blast.?;
+    const shown = &blast.shown.?;
     try std.testing.expectEqual(1, blast.caught_count);
     try std.testing.expectEqual(near, blast.caught[0].index);
     // Its halves start dark and faint, their rims clear; the rings spread.
     const rim = Shape.of(.original).hemisphere.ring(game_rings, 0);
-    try std.testing.expectEqual([4]f32{ 0, 0, 0, half_alpha }, blast.half_colours[0]);
-    try std.testing.expectEqual([4]f32{ 0, 0, 0, 0 }, blast.half_colours[rim]);
+    try std.testing.expectEqual([4]f32{ 0, 0, 0, half_alpha }, shown.half_colours[0]);
+    try std.testing.expectEqual([4]f32{ 0, 0, 0, 0 }, shown.half_colours[rim]);
     try std.testing.expectEqual(.uber, built.waves.waves[0].?.kind);
     try std.testing.expectEqual(size * waves[1].size, built.waves.waves[1].?.size);
 
@@ -700,9 +739,9 @@ test Uber {
     // ball is yet to show.
     stage.mission.clock.frame_start = 1200;
     uber.frame(world);
-    try std.testing.expectEqual(size * half_scale, blast.halves[1].scale);
-    try std.testing.expectEqual([4]f32{ 1, 1, 1, half_alpha }, blast.half_colours[rim - 1]);
-    try std.testing.expectEqual([4]f32{ 0, 0, 0, 0 }, blast.half_colours[rim]);
+    try std.testing.expectEqual(size * half_scale, shown.halves[1].scale);
+    try std.testing.expectEqual([4]f32{ 1, 1, 1, half_alpha }, shown.half_colours[rim - 1]);
+    try std.testing.expectEqual([4]f32{ 0, 0, 0, 0 }, shown.half_colours[rim]);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     try uber.draw(gpa, &scene);
@@ -741,18 +780,18 @@ test "the fuller style" {
     const uber = stage.explosions.uber;
     stage.mission.clock.frame_start = 1000;
     uber.start(world, 0, .{ .position = @splat(0) }, 1000, 1000, .fuller);
-    const blast = &uber.blast.?;
+    const shown = &uber.blast.?.shown.?;
 
     // It draws its numbers afresh once for each simulation step: none within a step, two for two.
-    try std.testing.expectEqual(0, blast.rounds(1003));
-    try std.testing.expectEqual(1, blast.rounds(1004));
-    try std.testing.expectEqual(2, blast.rounds(1013));
-    try std.testing.expectEqual(0, blast.rounds(1015));
+    try std.testing.expectEqual(0, shown.rounds(1003));
+    try std.testing.expectEqual(1, shown.rounds(1004));
+    try std.testing.expectEqual(2, shown.rounds(1013));
+    try std.testing.expectEqual(0, shown.rounds(1015));
 
     // Its light shines as bright as the halves while they show.
     stage.mission.clock.frame_start = 1200;
     uber.frame(world);
-    try std.testing.expectEqual(light_intensity, blast.light.intensity);
+    try std.testing.expectEqual(light_intensity, shown.light.intensity);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     try uber.draw(gpa, &scene);
@@ -761,5 +800,31 @@ test "the fuller style" {
     // The ball flickers the first frame it shows, even between steps.
     stage.mission.clock.frame_start = 1401;
     uber.frame(world);
-    try std.testing.expect(blast.flickered);
+    try std.testing.expect(shown.flickered);
+}
+
+test "a blast where nothing is drawn" {
+    var stage: explode.testing.Stage = undefined;
+    try stage.initShowing(null);
+    defer stage.deinit();
+    const world = stage.world();
+    const ctx: aigeneric.Context = .of(world);
+    const uber = stage.explosions.uber;
+    _ = try stage.mission.add(.of(.predator), @splat(0));
+    const near = try stage.mission.add(.of(.sabre), .{ 0, 0, 3000 });
+    _ = try aigeneric.push(ctx, near, .do_nothing, .none);
+    stage.mission.clock.frame_start = 1000;
+    uber.start(world, 0, .{ .position = @splat(0) }, 1000, 1000, .fuller);
+    try std.testing.expectEqual(null, uber.blast.?.shown);
+
+    // The ball reaches the ship unseen, and sets no fireball off about it; at the end the ship is
+    // destroyed.
+    stage.mission.clock.frame_start = 1900;
+    uber.frame(world);
+    try std.testing.expect(uber.blast.?.caught[0].reached);
+    try std.testing.expectEqual(.do_nothing, world.objects.slots[near].current().?.order);
+    for (stage.explosions.fireballs) |fireball| try std.testing.expectEqual(null, fireball);
+    stage.mission.clock.frame_start = 2001;
+    uber.frame(world);
+    try std.testing.expectEqual(.explode, world.objects.slots[near].current().?.order);
 }

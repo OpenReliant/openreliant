@@ -2041,7 +2041,7 @@ pub const World = struct {
     /// explosions; null where nothing is seen.
     pub fn sending(world: World) ?@import("particles.zig").Sending {
         const seen = world.camera orelse return null;
-        return .{ .view = seen.place, .clock = world.clock, .random = world.effectsRandom(), .explosions = world.explosions };
+        return .{ .view = seen.place, .clock = world.clock, .random = world.effectsRandom(), .explosions = @import("explode.zig").drawnIn(world) };
     }
 
     /// The random numbers the effects only drawn take (`effects_random`), the game's where it has

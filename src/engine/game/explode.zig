@@ -52,8 +52,13 @@ test {
 }
 
 /// What the explosions leave for the frames after them.
+///
+/// Where nothing is drawn, as on a server, it has no images, and only the explosions' part in the
+/// game runs: the capital ships' splits and the Uber Explode's blast. What is only drawn goes in
+/// through `drawnIn`.
 pub const Explosions = struct {
-    images: Images,
+    /// The textures an explosion shows; null where nothing is drawn.
+    images: ?Images,
     settings: Settings = .{},
     /// The pieces the bits are made of, which a mission loads as it starts.
     debris: Debris = .{},
@@ -119,14 +124,14 @@ pub const Explosions = struct {
         }
     };
 
-    pub fn init(gpa: Allocator, images: Images) Allocator.Error!Explosions {
+    pub fn init(gpa: Allocator, images: ?Images) Allocator.Error!Explosions {
         const bits = try gpa.create(Bits);
         errdefer gpa.destroy(bits);
         bits.* = .{};
         const chunks = try gpa.create(rocks.Chunks);
         errdefer gpa.destroy(chunks);
         chunks.* = .{};
-        const huge: *uber.Uber = try .create(gpa, images.uber);
+        const huge: *uber.Uber = try .create(gpa, if (images) |shown| shown.uber else null);
         errdefer huge.destroy(gpa);
         return .{ .images = images, .bits = bits, .chunks = chunks, .uber = huge, .pieces = try .create(gpa), .splits = .init(gpa) };
     }
@@ -187,6 +192,7 @@ pub const Explosions = struct {
     /// the world's layer, the burning wrecks' lights among the lights, and each fireball showing,
     /// with its light among the lights, `ahead` of a tick past the frame's tick.
     pub fn draw(explosions: *Explosions, gpa: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
+        const images = explosions.images orelse return;
         try explosions.uber.draw(gpa, scene);
         for (&explosions.bits.slots) |*slot| {
             const bit = &(slot.* orelse continue);
@@ -203,7 +209,7 @@ pub const Explosions = struct {
         for (&explosions.fireballs) |*slot| {
             const fireball = &(slot.* orelse continue);
             if (!fireball.showing) continue;
-            fireball.show(explosions.images, ahead);
+            fireball.show(images, ahead);
             try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &fireball.set }, .world);
             if (fireball.light) |*light| try xtrabits.sceneAdd(gpa, scene, .{ .light = light }, .background);
         }
@@ -361,9 +367,10 @@ pub const Explosions = struct {
     /// `explosion_fireball` (`0x0046BD00`): sets a fireball off at `at`, into the first free of
     /// the slots the settings give, and not at all where there is none.
     pub fn setOff(explosions: *Explosions, at: Vector, spec: Fireball.Spec, clock: *const Clock, random: *Random) void {
+        const images = explosions.images orelse return;
         const style = explosions.settings.fireballs;
         const slot = table.firstFree(Fireball, explosions.fireballs[0..style.slots()]) orelse return;
-        slot.* = .init(explosions.images, at, spec, style, clock, random);
+        slot.* = .init(images, at, spec, style, clock, random);
     }
 };
 
@@ -980,9 +987,18 @@ test "the effects draw random numbers of their own" {
     try std.testing.expect(effects.fingerprint() != effect_numbers);
 }
 
-/// Sets a fireball off at `at`, where the world has explosions.
+/// The world's explosions, where it draws them; null where it has none or draws nothing. What is
+/// only drawn goes into them through here, so that a world that draws nothing, as on a server,
+/// draws none of the effects' random numbers (`gameobj.World.effectsRandom`) and goes on as one that
+/// draws them.
+pub fn drawnIn(world: gameobj.World) ?*Explosions {
+    const explosions = world.explosions orelse return null;
+    return if (explosions.images != null) explosions else null;
+}
+
+/// Sets a fireball off at `at`, where the world draws explosions.
 pub fn fireballAt(world: gameobj.World, at: Vector, spec: Fireball.Spec) void {
-    const explosions = world.explosions orelse return;
+    const explosions = drawnIn(world) orelse return;
     explosions.setOff(at, spec, world.clock, world.effectsRandom());
 }
 
@@ -993,10 +1009,10 @@ pub fn uberExplode(world: gameobj.World, owner: u16, place: math.Place, size: f3
     explosions.uber.start(world, owner, place, size, duration, explosions.settings.uber);
 }
 
-/// Throws a chunk of rock from `at` along `direction` (`rocks.throw`), where the world has
+/// Throws a chunk of rock from `at` along `direction` (`rocks.throw`), where the world draws
 /// explosions.
 pub fn throwChunk(world: gameobj.World, at: Vector, direction: Vector, how: rocks.Throw) void {
-    const explosions = world.explosions orelse return;
+    const explosions = drawnIn(world) orelse return;
     rocks.throw(explosions, at, direction, how, world.clock, world.effectsRandom());
 }
 
@@ -1006,9 +1022,9 @@ const Scatter = struct {
     throw: Bit.Throw,
 };
 
-/// Throws `how`'s bits out of `at` every way, where the world has explosions.
+/// Throws `how`'s bits out of `at` every way, where the world draws explosions.
 fn scatter(world: gameobj.World, at: Vector, how: Scatter) void {
-    const explosions = world.explosions orelse return;
+    const explosions = drawnIn(world) orelse return;
     const random = world.effectsRandom();
     for (0..how.count) |_| {
         const direction = math.normalize(random.centredVector(@splat(1)));
@@ -1016,9 +1032,9 @@ fn scatter(world: gameobj.World, at: Vector, how: Scatter) void {
     }
 }
 
-/// Throws a bit out of `at`, where the world has explosions.
+/// Throws a bit out of `at`, where the world draws explosions.
 pub fn throwBit(world: gameobj.World, at: Vector, direction: Vector, how: Bit.Throw) void {
-    const explosions = world.explosions orelse return;
+    const explosions = drawnIn(world) orelse return;
     explosions.throwBit(at, direction, how, world.clock, world.effectsRandom());
 }
 
@@ -1299,10 +1315,10 @@ pub const breakaway_core_sparks: particles.Template = .{
 
 /// `part_streams` (`0x004715D0`) on its own: `template`'s smoke from each point of each of the
 /// lists of them on `ref`, a part of the object in slot `index`, for good or for `burn_life` ticks,
-/// where the world has explosions (`Explosions.smoke`), as the Boridin's main body smokes when its
-/// section breaks away.
+/// where the world draws explosions (`Explosions.smoke`), as the Boridin's main body smokes when
+/// its section breaks away.
 pub fn partStreams(world: gameobj.World, index: u16, ref: objects.PartRef, forever: bool, template: *const particles.Template) void {
-    const explosions = world.explosions orelse return;
+    const explosions = drawnIn(world) orelse return;
     const data = ref.data() orelse return;
     explosions.smoke(world, .{ .object = index, .part = ref }, data, forever, template);
 }
@@ -1403,7 +1419,7 @@ pub fn burnPart(world: gameobj.World, index: u16, name: []const u8, how: Burn) v
         }
     }
     if (!how.lights) return;
-    const explosions = world.explosions orelse return;
+    const explosions = drawnIn(world) orelse return;
     explosions.burnLights(on, data);
     explosions.smoke(world, on, data, how.forever, &wreck_smoke);
 }
@@ -1459,7 +1475,7 @@ pub const testing = struct {
     var sheet: srtexture.Image = undefined;
     var flak: srtexture.Image = undefined;
 
-    fn images() Explosions.Images {
+    pub fn images() Explosions.Images {
         var found: Explosions.Images = .{ .bang = undefined, .sheet = &sheet, .flak = &flak, .uber = uber.testing.images() };
         for (&found.bang, &bang) |*image, *texture| image.* = texture;
         return found;
@@ -1487,9 +1503,14 @@ pub const testing = struct {
         explosions: Explosions,
 
         pub fn init(stage: *Stage) !void {
+            return stage.initShowing(images());
+        }
+
+        /// With `shown` to draw the explosions with, or none, as on a server.
+        pub fn initShowing(stage: *Stage, shown: ?Explosions.Images) !void {
             try stage.mission.init(std.testing.allocator);
             errdefer stage.mission.deinit();
-            stage.explosions = try .init(std.testing.allocator, images());
+            stage.explosions = try .init(std.testing.allocator, shown);
         }
 
         pub fn deinit(stage: *Stage) void {
@@ -1681,7 +1702,7 @@ test Fireball {
     clock.frame_duration = 20;
     explosions.frame(stage.world());
     try std.testing.expect(bang.showing);
-    bang.show(explosions.images, 0);
+    bang.show(testing.images(), 0);
     try std.testing.expectEqual(&testing.bang[8], bang.set.surface.textures[0].image);
     try std.testing.expectEqual(1, bang.set.sprites.len);
     try std.testing.expectEqual(Vector{ 20, 0, 100 }, bang.sprite[0].offset);
@@ -1689,7 +1710,7 @@ test Fireball {
     try std.testing.expectEqual([3]f32{ 20, 0, 100 }, bang.light.?.kind.point.position);
 
     // Drawn half a tick on, it has drifted on half a tick more and begun to fade into the next.
-    bang.show(explosions.images, 0.5);
+    bang.show(testing.images(), 0.5);
     try std.testing.expectEqual(Vector{ 20.5, 0, 100 }, bang.sprite[0].offset);
     try std.testing.expectEqual(2, bang.set.sprites.len);
     try std.testing.expectEqual(&testing.bang[9], bang.sprite[1].surface.?.textures[0].image);
@@ -1700,11 +1721,11 @@ test Fireball {
     // The original's flips from frame to frame, is dimmer, and its light stays where it went off.
     bang.style = .original;
     bang.light.?.kind.point.position = .{ 0, 0, 100 };
-    bang.show(explosions.images, 0.5);
+    bang.show(testing.images(), 0.5);
     try std.testing.expectEqual(1, bang.set.sprites.len);
     try std.testing.expectEqual(1, bang.sprite[0].fade);
     try std.testing.expectEqual([3]f32{ 0, 0, 100 }, bang.light.?.kind.point.position);
-    bang.show(explosions.images, 0);
+    bang.show(testing.images(), 0);
     try std.testing.expectApproxEqAbs(Fireballs.original.peak() / 2, bang.light.?.intensity, 1e-6);
 
     // The sheet steps through its cells, mirrored as its look says.
@@ -1714,7 +1735,7 @@ test Fireball {
     sheet.look.mirror_v = false;
     clock.frame_start += 50;
     explosions.frame(stage.world());
-    sheet.show(explosions.images, 0);
+    sheet.show(testing.images(), 0);
     const u = 2 * Fireball.sheet_step;
     const v = 1 * Fireball.sheet_step;
     try std.testing.expectEqual([4]f32{ u + Fireball.sheet_cell, u, v, v + Fireball.sheet_cell }, sheet.sprite[0].uv);

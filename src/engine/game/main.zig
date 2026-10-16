@@ -2208,7 +2208,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     // The shell and the debris, which the sweep below keeps.
     var drawn_types: create.TypeSet = .empty;
     if (all.bullets.looks) |looks| looks.loadShell(types, &drawn_types);
-    if (world.explosions) |explosions| explosions.debris = .load(types, &drawn_types);
+    if (explode.drawnIn(world)) |explosions| explosions.debris = .load(types, &drawn_types);
 
     if (world.hearing) |hearing| sound3d.endAll(hearing.sound);
     world.player.ending = .playing;

@@ -413,7 +413,7 @@ fn trailFrom(kind: Kind, born: i32) particles.Emitter {
 /// `explode_break_up` (`0x0046C550`): cuts each of the ship's parts in four and sends the pieces
 /// flying (`cutTree`). Its pieces show as the part does, lit as the debris setting says.
 pub fn breakUp(world: gameobj.World, index: u16, kind: Kind) void {
-    const explosions = world.explosions orelse return;
+    const explosions = explode.drawnIn(world) orelse return;
     const slot = &world.objects.slots[index];
     const model = &(slot.model orelse return);
     for (0..model.parts.len) |at| cutTree(explosions, world, slot, model, at, .{ .ship = kind });
@@ -523,7 +523,7 @@ const part_flight_range = 20;
 /// `0x0046CCF0` for part `index` of `model` and, after it, each part of each model it carries
 /// (`cutTree`): each goes up (`burstPart`), the assembly's parts measuring `reach` across together.
 pub fn burstTree(world: gameobj.World, slot: *const create.Slot, model: *const objects.Model, index: usize, reach: f32) void {
-    const explosions = world.explosions orelse return;
+    const explosions = explode.drawnIn(world) orelse return;
     cutTree(explosions, world, slot, model, index, .{ .component = reach });
 }
 
