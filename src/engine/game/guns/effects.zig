@@ -203,7 +203,7 @@ pub fn flakBurst(world: gameobj.World, index: u8, at: Vector) void {
     sound3d.playIn(world, null, null, index, .flak01, 1, .explosions);
     const seen = world.camera orelse return;
     if (math.lengthSquared(seen.place.position - at) >= flak_near * flak_near) return explode.fireballAt(world, at, flak_far);
-    const random = world.random;
+    const random = world.effectsRandom();
     explode.fireballAt(world, at, flak_flash);
     var after = flak_after;
     after.delay = flash_late + @as(i32, @intFromFloat(random.fraction() * flash_late));
@@ -261,7 +261,7 @@ pub fn throwCases(world: gameobj.World, owner: u16, model: *const objects.Model,
     const carried = world.objects.slots[owner].object.velocity.vector() * @as(Vector, @splat(case_carried));
     for (model.parts[part].attachments) |*attachment| {
         if (attachment.kind != .case_ejector) continue;
-        const random = world.random;
+        const random = sending.random;
         const across: f32 = @floatFromInt(random.rand() & (case_cells[0] - 1));
         const down: f32 = @floatFromInt(random.rand() & (case_cells[1] - 1));
         const width = 1 / @as(f32, @floatFromInt(case_cells[0]));

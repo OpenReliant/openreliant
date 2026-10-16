@@ -280,7 +280,7 @@ pub fn spray(world: gameobj.World, kind: Kind, at: Vector, direction: Vector, ca
         const watching = world.camera orelse return;
         if (math.distance(at, watching.place.position) > near_only) return;
     }
-    const random = world.random;
+    const random = world.effectsRandom();
     const aim = math.lookAt(direction);
     for (0..how.count) |_| {
         const yaw = random.centred() * how.spread;

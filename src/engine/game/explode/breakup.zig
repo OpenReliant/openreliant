@@ -460,7 +460,7 @@ fn sourceOf(explosions: *const explode.Explosions, part: *const objects.Model.Pa
 /// whole or cut again as its place among them says.
 fn breakUpPart(explosions: *explode.Explosions, world: gameobj.World, slot: *const create.Slot, source: Source, kind: Kind) void {
     const gpa = explosions.pieces.gpa;
-    const random = world.random;
+    const random = world.effectsRandom();
     const now = world.clock.frame_start;
     const centre = slot.drawn.position;
     const carried = slot.object.velocity.vector();
@@ -533,7 +533,7 @@ pub fn burstTree(world: gameobj.World, slot: *const create.Slot, model: *const o
 /// the faster the more the assembly's parts measure across together (`reach`), and a lit fireball
 /// its size waits for it where it will end.
 fn burstPart(explosions: *explode.Explosions, world: gameobj.World, slot: *const create.Slot, part: *const objects.Model.Part, source: ?Source, reach: f32) void {
-    const random = world.random;
+    const random = world.effectsRandom();
     const at = part.drawn();
     const radius = part.object.radius;
     explode.fireballAt(world, at.position, .{ .size = radius, .light = true });

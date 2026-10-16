@@ -511,8 +511,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     try loading.show(game.xtrabits.loading.startup_step);
     var rand: engine.random.Random = .{};
     // The random numbers of what is only drawn: the camera's shake, the display's flicker, the
-    // lights and the missiles' trails. Apart from the game's, so that how often the screen is drawn
-    // leaves the game's numbers as they are.
+    // lights, the missiles' trails and the effects (`gameobj.World.effects_random`). Apart from the
+    // game's, so that how often the screen is drawn, and whether it is, leaves the game's numbers as
+    // they are.
     var drawn_random: engine.random.Random = .{};
     const space = try game.backdrop.Backdrop.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.backdrop.star_map_name), &rand, context.projection.near, options.sun);
     const sky = try game.nebula.Sky.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.nebula.dome_image_name));
@@ -671,7 +672,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var drawn_places: game.main.DrawnPlaces = .{ .gpa = gpa };
     defer drawn_places.deinit();
     // What the objects run in, the camera's view brought up to date each frame.
-    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .view = view.view, .last_view = view.view, .shake = &view.hit_shake, .random = &rand, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .trails = &trails, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .atmospheres = &atmospheres, .extras = &extra_images, .escort_marker = escort_marker, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
+    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .view = view.view, .last_view = view.view, .shake = &view.hit_shake, .random = &rand, .effects_random = &drawn_random, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .trails = &trails, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .atmospheres = &atmospheres, .extras = &extra_images, .escort_marker = escort_marker, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
 
     world.launch_steam = options.launch_steam;
 
