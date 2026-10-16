@@ -463,12 +463,6 @@ pub const Stage = enum(i32) {
             _ => @backingInt(stage) < @backingInt(Stage.pulling),
         };
     }
-
-    /// Whether the ship holds the pod's claim through it: the first stage claims it, or gives up,
-    /// in the update it runs.
-    fn claimed(stage: Stage) bool {
-        return stage != .claiming;
-    }
 };
 
 /// `order_scoop_up_init` (`0x0041BBF0`): the ship takes a tractor for the pod, its target, and
@@ -498,17 +492,17 @@ pub fn scoopUpInit(ctx: Context, index: u16) void {
 /// `order_scoop_up_exit` (`0x0041BC70`): the pod is let go, and the tractor, and the ship is no
 /// longer marked as scooping.
 ///
-/// **Fix:** the game clears the pod's flag whatever the order did, so a ship that finds the pod
-/// claimed releases the other ship's claim as it gives up, and takes the pod in too once Find
-/// Scoop Up picks it again. OpenReliant clears the flag only where this ship claimed it
-/// (`Stage.claimed`).
+/// The pod's claim is cleared whatever the order did, so a ship that finds the pod claimed
+/// releases the claim as it gives up, and takes the pod in once Find Scoop Up picks it again. A
+/// ship whose hull is shot away never runs this exit: `explode.loseComponent` marks it exploding
+/// before `ai.hullLost` asks its order to give way, and an exploding ship's order doesn't
+/// (`aigeneric.giveWay`). Its claim stays on the pod until the next ship to try frees it this way.
+/// In mission 20, the nanny ship takes the pod in like this after the player destroys the Antanov.
 pub fn scoopUpExit(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const state = &slot.state.scoop_up;
-    if (state.stage.claimed()) {
-        if (targetOf(all, slot)) |pod| all.slots[pod].object.flags.tractored = false;
-    }
+    if (targetOf(all, slot)) |pod| all.slots[pod].object.flags.tractored = false;
     if (ctx.world.tractors) |tractors| if (state.held()) |place| tractors.free(place);
     slot.object.network.scooping = false;
 }
@@ -1016,8 +1010,6 @@ test Stage {
     try std.testing.expect(Stage.locking.steers() and !Stage.pulling.steers());
     try std.testing.expect(@as(Stage, @fromBackingInt(-1)).steers());
     try std.testing.expect(!@as(Stage, @fromBackingInt(9)).steers());
-    // It holds the pod's claim from the stage after the first.
-    try std.testing.expect(!Stage.claiming.claimed() and Stage.approaching.claimed());
 }
 
 test Scooper {
@@ -1060,12 +1052,12 @@ test scoopUp {
     scoopUp(ctx, nanny);
     try std.testing.expectEqual(0.4, slot.object.throttle);
 
-    // Another ship finds the pod claimed, and gives up, leaving the claim.
+    // Another ship finds the pod claimed, and gives up, releasing the claim as it goes.
     const other = try mission.addOther(.{ 0, 0, 30000 });
     try std.testing.expect(try aigeneric.pushShip(ctx, other, .scoop_up, pod, null));
     aigeneric.objectOrders(ctx, other);
     try std.testing.expectEqual(0, mission.slot(other).object.order_count);
-    try std.testing.expect(held.object.flags.tractored);
+    try std.testing.expect(!held.object.flags.tractored);
     try std.testing.expect(!mission.slot(other).object.network.scooping);
 
     // Near and at rest, it opens up: its beams from its hull's tractor points, a bubble half as
@@ -1141,6 +1133,31 @@ test scoopUp {
     try std.testing.expectEqual(null, scoop.built.tractors.slots[0]);
     try std.testing.expect(!held.object.flags.tractored);
     try std.testing.expect(!slot.object.network.scooping);
+}
+
+test "a claim left by a ship whose hull is shot away" {
+    const gpa = std.testing.allocator;
+    var scoop: testing.Scoop = undefined;
+    try scoop.init(gpa);
+    defer scoop.deinit(gpa);
+    const mission = &scoop.mission;
+    const ctx = scoop.ctx;
+    const held = mission.slot(scoop.pod);
+    // The ship that claimed the pod has its hull shot away: marked exploding first, its order
+    // doesn't give way, so its exit never runs and the claim stays.
+    mission.slot(scoop.nanny).object.flags.exploding = true;
+    ai.hullLost(ctx, scoop.nanny);
+    try std.testing.expect(held.object.flags.tractored);
+    // The next ship gives up once and frees the claim, and on its next try takes the pod.
+    const other = try mission.addOther(.{ 0, 0, 30000 });
+    try std.testing.expect(try aigeneric.pushShip(ctx, other, .scoop_up, scoop.pod, null));
+    aigeneric.objectOrders(ctx, other);
+    try std.testing.expectEqual(0, mission.slot(other).object.order_count);
+    try std.testing.expect(!held.object.flags.tractored);
+    try std.testing.expect(try aigeneric.pushShip(ctx, other, .scoop_up, scoop.pod, null));
+    aigeneric.objectOrders(ctx, other);
+    try std.testing.expect(held.object.flags.tractored);
+    try std.testing.expectEqual(.approaching, mission.slot(other).state.scoop_up.stage);
 }
 
 test "Scoop Up gives up on a pod gone first" {

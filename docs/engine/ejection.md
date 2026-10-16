@@ -140,7 +140,13 @@ their `opendoor` track plays forward from its start to open them, and back from 
 them. A ship of any other type takes the Antanov's parts and stow distance, and plays no doors. In
 a multiplayer game the order waits for every player before making the beams and before the pod
 leaves. `order_scoop_up_exit` (`0x0041BC70`) clears the pod's flag `0x1000`, whatever the order did,
-frees the tractor (`tractor_free`, `0x0041D1A0`), and clears the ship's network flag `0x4`.
+frees the tractor (`tractor_free`, `0x0041D1A0`), and clears the ship's network flag `0x4`. So a
+ship that finds the pod claimed releases the claim as it gives up. A ship whose hull is shot away
+never runs the exit: `explode_capship_component` (`0x0046F820`) marks it exploding before
+`object_hull_lost` (`0x00401F00`) asks its order to give way, and `order_give_way` (`0x0040CA50`)
+passes over an exploding ship. So its claim stays on the pod, and its tractor stays taken. The next
+ship to try then gives up once, frees the claim, and takes the pod in on its next try. In mission 20
+the nanny ship takes the pod in this way after the player destroys the Antanov.
 
 A beam (`tractor_beam_mesh`, `0x0041CBC0`, `TractorBeam_Mesh`) is a square 100 across at its emitter
 and three ribbons 100 across and 400 long crossing on its axis at a third of a half turn apart, over
@@ -206,9 +212,6 @@ too.
   the Yamato's launch that `launches_init` makes) for its tractor, writes its beams and bubble
   through it, and frees it as the order ends. OpenReliant has the ship take the pod in without
   beams, bubble or light.
-- **Fix:** `order_scoop_up_exit` clears the pod's flag `0x1000` whatever the order did, so a ship
-  that finds the pod claimed releases the other ship's claim as it gives up, and takes the pod in
-  too once Find Scoop Up picks it again. OpenReliant clears the flag only where the ship claimed it.
 - **Fix:** odds of nothing at all divide by zero in the game; OpenReliant has the pilot rescued.
 - **Fix:** where the cockpit has no eject point, the game bursts the flash and kicks the pod from
   places it never set; OpenReliant does neither, and the pod still takes its 100 ticks to clear.
