@@ -3790,6 +3790,29 @@ pub const State = struct {
     /// What flashes this frame. Kept for the scripts.
     flashes: Flashes = .{},
 
+    /// What `hud_init` sets the display's state to (`0x00483EF4` to `0x0048403A`). It runs as each
+    /// mission loads (`mission_load`, at `0x004AD1B6`), a restart's too, since every mission's end
+    /// frees the display (`mission_free`, `hud_free`). After it, the display has no messages, no
+    /// icons and no enemy lock, and its warnings flash from the start. Foster's last stand is
+    /// cleared, and the radar is at its widest range, not zooming. Each device is off and fully
+    /// charged. The pilot hasn't ejected, nothing waits for a key, and the launch's caption is off.
+    /// Blind fire is on, the sight is back in the middle of the screen, and Betty may say at once
+    /// that the armed missile has run out (`game_ticks`). The mission's start empties the shield
+    /// reserves with it, and then fits the devices to the player's ship (`main.fitDevices`).
+    ///
+    /// **Fix:** the game sets the voice of the missile name Betty said last to 0, so the first
+    /// name she says in a mission ends whatever plays on voice 0. OpenReliant keeps no voice.
+    pub fn reset(state: *State, game_ticks: u32) void {
+        const fresh: State = .{};
+        inline for (.{
+            "messages",    "icons",      "enemy_lock", "warning_ticks", "fosters_last_stand", "radar_range",
+            "radar_rings", "radar_zoom", "devices",    "cloak_spent",   "ejected",            "eject_ticks",
+            "key_prompt",  "caption",    "blind_fire", "sight",
+        }) |name| @field(state, name) = @field(fresh, name);
+        state.missiles.empty_warned_until = game_ticks;
+        state.missiles.name_voice = null;
+    }
+
     /// `hud_draw`'s work on the devices' charges for a frame, which it does in every view: a
     /// device that runs dry is turned off. The cloak's charge runs only outside a multiplayer
     /// game.
@@ -4042,6 +4065,25 @@ pub const State = struct {
         return state.scanner_frame;
     }
 };
+
+test "State.reset" {
+    // A mission ends with the cloak on and half drained, the radar zoomed in and the pilot out.
+    var state: State = .{ .smart_targeting = true, .blind_fire = false, .ejected = true, .radar_range = 0 };
+    state.devices.getPtr(.cloak).* = .{ .setting = .on, .ticks = @divExact(Charge.full(.cloak).ticks, 2) };
+    state.devices.getPtr(.spectral_shields).setting = .absent;
+    state.cloak_spent = true;
+    state.missiles.empty_warned_until = 900;
+    state.missiles.name_voice = 3;
+    state.reset(500);
+    // The next one, a restart too, starts with each device off and fully charged.
+    for (std.enums.values(Device)) |kind| try std.testing.expectEqual(Charge.full(kind), state.devices.get(kind));
+    try std.testing.expect(!state.cloak_spent and !state.ejected and state.blind_fire);
+    try std.testing.expectEqual(Radar.first_range, state.radar_range);
+    try std.testing.expectEqual(500, state.missiles.empty_warned_until);
+    try std.testing.expectEqual(null, state.missiles.name_voice);
+    // The player's own settings stay.
+    try std.testing.expect(state.smart_targeting);
+}
 
 /// What the mission has ready for JUMP DRIVE: the first two of the game's variables a script sets
 /// (`vm.Variables`).

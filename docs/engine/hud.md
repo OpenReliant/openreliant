@@ -34,7 +34,7 @@ Each panel but the ship status is one of the display's [windows](#the-windows), 
 
 ## How it is reached
 
-`hud_draw` (`0x004843B0`) draws the display once a frame. `mission_run` puts it in `sr + 0x88` and Surrender calls it while it renders, so no call reaches it in the listing and Ghidra does not find it without being told; `make ghidra-run SCRIPT=DefineFunctions.java ARGS="0x004843b0"` does that. `hud_init` (`0x00483150`) sets the display up once, from the device reset at `0x004AD0A0` rather than per frame: it clears the display's message lines (`hud_messages`, `0x0057BC5C`), allocates the file's work buffer, takes `oldpalette.tga` and `powerball.tga`, and works out the tables the [power ball](#the-power-distribution) is drawn from.
+`hud_draw` (`0x004843B0`) draws the display once a frame. `mission_run` puts it in `sr + 0x88` and Surrender calls it while it renders, so no call reaches it in the listing and Ghidra does not find it without being told; `make ghidra-run SCRIPT=DefineFunctions.java ARGS="0x004843b0"` does that. `hud_init` (`0x00483150`) sets the display up as each mission loads (`mission_load`, `0x004AD0A0`), a restart included: each mission's end frees the display (`mission_free` calls `hud_free`, `0x00484260`), which lets `hud_init` run again. It clears the display's message lines (`hud_messages`, `0x0057BC5C`), allocates the file's work buffer, takes `oldpalette.tga` and `powerball.tga`, and works out the tables the [power ball](#the-power-distribution) is drawn from. Then it resets the display's state, among other things the radar's range, the [devices](#the-devices), blind fire and the icons, and empties the shield reserves. OpenReliant does this in `hud.State.reset` and the mission's start.
 
 `mission_frame` itself calls only three of the file's routines: the windows' `hud_window_open` (`0x0048B510`) and `hud_window_close` (`0x0048B590`); the subtarget (`0x0048CC30`), which walks the target's assembly by `link_id`; and `hud_message_add`
 (`0x0048CEB0`), which adds one of the display's message lines.
@@ -649,14 +649,14 @@ tick while off, up to full, and draining while on. One that runs dry is turned o
 | Cloak | `cloak_state` (`0x00566638`) | `cloak_charge` (`0x0056663C`) | 10000 | 1, outside a multiplayer game |
 | Spectral shields | `spectral_shields_state` (`0x0057BF20`) | `spectral_shields_charge` (`0x00566620`) | 6000 | 6 |
 
-A state is -1 for a ship that does not carry the device, 0 for off and 1 for on. `hud_init` sets all
-three to 0 and full, and turns blind fire on. The mission's start (`0x004934F0`) then fits the
-player's ship by its type: every ship carries an ECM; the Nagi, the Crusader, the Tempest and the
-Shroud carry spectral shields; the Predator, the Coyote, the Patriot, the Reaper, the Shroud and the
-Phoenix carry blind fire, which starts on; a ship whose model can cloak (header flag 2) carries a
-cloak. Ship types `0xF4` to `0xFF`, whose models are the first twelve's `t_` twins, count as the
-same twelve. The same switch picks the cockpit's frame model
-([`main.zig`](../../src/engine/game/main.zig)).
+A state is -1 for a ship that does not carry the device, 0 for off and 1 for on. As each mission
+loads, `hud_init` sets all three to 0 and full, so a restart starts fully charged, and turns blind
+fire on. The mission's start (`0x004934F0`) then fits the player's ship by its type: every ship
+carries an ECM; the Nagi, the Crusader, the Tempest and the Shroud carry spectral shields; the
+Predator, the Coyote, the Patriot, the Reaper, the Shroud and the Phoenix carry blind fire, which
+starts on; a ship whose model can cloak (header flag 2) carries a cloak. Ship types `0xF4` to
+`0xFF`, whose models are the first twelve's `t_` twins, count as the same twelve. The same switch
+picks the cockpit's frame model ([`main.zig`](../../src/engine/game/main.zig)).
 
 `frame_controls` reads the device keys after the camera's and the targeting keys
 (`hud_target_keys`, `0x0048B6B0`, where SMART TARGET flips `smart_targeting`):
