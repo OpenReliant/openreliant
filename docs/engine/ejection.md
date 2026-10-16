@@ -182,7 +182,8 @@ the player's exploding object bursts at once, and neither switches the camera no
 `0x0052A414`): views 8, `0x1A` and `0x1B`, the player's ship destroyed, after 600 ticks
 (`0x0049267E`); view `0x1C`, the pickup, after 1200 (`0x0049268D`); and view `0x1D` 500 ticks after
 the pod began to explode (`0x004926AD`), the view holding its time until then. The watch view that
-`--watch` sets (`camera.Camera.lasting`) never ends the mission.
+`--watch` sets (`camera.Viewing.lasting`) never ends the mission. It goes by the view the game keeps
+([Camera](camera.md#what-the-game-keeps)), so a mission ends alike where nothing is drawn.
 
 ## Source files
 

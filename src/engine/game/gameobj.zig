@@ -1947,10 +1947,6 @@ pub const World = struct {
     /// maps (`winmain.Details.light_maps`), which the orders that turn a ship's lights on and off
     /// go by.
     light_maps: bool = true,
-    view: camera.View,
-    /// Last frame's view (`camera_view_last`, `0x00539A64`), which the missile lock follows
-    /// (`main.runLock`).
-    last_view: camera.View,
     shake: *f32,
     /// The game's random numbers (`Random`), from which the guns' step draws a damaged gun's
     /// misfire.
@@ -2042,6 +2038,11 @@ pub const World = struct {
     pub fn sending(world: World) ?@import("particles.zig").Sending {
         const seen = world.camera orelse return null;
         return .{ .view = seen.place, .clock = world.clock, .random = world.effectsRandom(), .explosions = @import("explode.zig").drawnIn(world) };
+    }
+
+    /// The view the camera shows, as the game keeps it (`input.Player.viewing`).
+    pub fn view(world: World) camera.View {
+        return world.player.viewing.view;
     }
 
     /// The random numbers the effects only drawn take (`effects_random`), the game's where it has
@@ -2604,18 +2605,17 @@ pub const testing = struct {
         player: input.Player,
         shake: f32,
         clock: Clock,
-        view: camera.View,
 
-        /// Fills in every field, so a field added here has to be filled in too.
+        /// Fills in every field, so a field added here has to be filled in too. The player watches
+        /// from the chase view.
         pub fn init(mission: *Mission, gpa: std.mem.Allocator) !void {
             mission.* = .{
                 .random = .{},
                 .objects = undefined,
                 .tables = create.testing.tables(),
-                .player = .{},
+                .player = .{ .viewing = .{ .view = .chase, .last = .chase } },
                 .shake = 0,
                 .clock = .{},
-                .view = .chase,
             };
             mission.objects = try .create(gpa, &mission.random);
         }
@@ -2625,7 +2625,7 @@ pub const testing = struct {
         }
 
         pub fn world(mission: *Mission) World {
-            return .{ .objects = mission.objects, .player = &mission.player, .clock = &mission.clock, .view = mission.view, .last_view = mission.view, .shake = &mission.shake, .random = &mission.random };
+            return .{ .objects = mission.objects, .player = &mission.player, .clock = &mission.clock, .shake = &mission.shake, .random = &mission.random };
         }
 
         /// What the objects' orders run against.

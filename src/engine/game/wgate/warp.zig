@@ -6,6 +6,7 @@ const math = @import("../../surrender/math.zig");
 const ease = @import("../../genilib/interf/ease.zig");
 const aigeneric = @import("../aigeneric.zig");
 const ai = @import("../ai.zig");
+const camera = @import("../camera.zig");
 const cloak = @import("../cloak.zig");
 const events = @import("../mission/events.zig");
 const gameobj = @import("../gameobj.zig");
@@ -367,9 +368,7 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
             }
             sound3d.playIn(world, null, null, index, .warpproject, 1, sound3d.fxClass(all, index));
             state.orientation = slot.object.root.next_orientation;
-            if (index == all.player) if (world.camera) |view| {
-                _ = view.setView(.warp_prepare, index, true, true, world.clock.viewTime());
-            };
+            if (index == all.player) _ = camera.switchView(world, .warp_prepare, index, true, true);
             advance(state, OutStep.create, null);
         },
         .create => {
@@ -401,11 +400,12 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
                 held.portalSetUp();
                 if (slot.model) |*model| xtrabits.clipTree(model, &held.portal);
                 sound3d.playIn(world, null, null, index, .warpout, 1, sound3d.fxClass(all, index));
-                if (index == all.player) if (world.camera) |view| {
-                    const switched = view.switched;
-                    _ = view.setView(.warp_depart, index, true, true, world.clock.viewTime());
-                    view.switched = switched;
-                };
+                if (index == all.player) {
+                    const viewing = &world.player.viewing;
+                    const switched = viewing.switched;
+                    _ = camera.switchView(world, .warp_depart, index, true, true);
+                    viewing.switched = switched;
+                }
                 return advance(state, OutStep.enter, held);
             }
             extendedShape(held, slot.object.flags.components, held.progress);
@@ -484,9 +484,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
             if (slot.orders[0].target.slotIn(all)) |target| {
                 state.position = arrival(all.slots[target].drawn, slot.orders[0].sequence);
             }
-            if (index == all.player) if (world.camera) |view| {
-                _ = view.setView(.warp_arrive, index, true, true, world.clock.viewTime());
-            };
+            if (index == all.player) _ = camera.switchView(world, .warp_arrive, index, true, true);
             if (index == all.player) {
                 for (all.slots[0..all.count]) |*other| other.object.flags.jumping = false;
                 if (world.environment) |environment| environment.update(all);
@@ -533,9 +531,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
             if (held.progress > 1) advance(state, InStep.finish, held);
         },
         .finish => {
-            if (index == all.player) if (world.camera) |view| {
-                _ = view.setView(.cockpit, index, false, true, world.clock.viewTime());
-            };
+            if (index == all.player) _ = camera.switchView(world, .cockpit, index, false, true);
             slot.object.flags.no_collisions = false;
             slot.object.flags.frozen = false;
             slot.object.flags.unpowered = false;
@@ -558,9 +554,7 @@ fn abort(ctx: aigeneric.Context, index: u16) void {
     slot.object.flags.no_collisions = false;
     slot.object.flags.hidden = false;
     if (slot.model) |*model| xtrabits.clipTree(model, null);
-    if (index == ctx.world.objects.player) if (ctx.world.camera) |view| {
-        _ = view.setView(.cockpit, index, false, true, ctx.world.clock.viewTime());
-    };
+    if (index == ctx.world.objects.player) _ = camera.switchView(ctx.world, .cockpit, index, false, true);
     aigeneric.end(ctx, index);
 }
 

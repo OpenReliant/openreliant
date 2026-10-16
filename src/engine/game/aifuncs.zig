@@ -84,7 +84,7 @@ pub fn mill(ctx: Context, index: u16) void {
     const state = &slot.state.mill;
     const now = ctx.world.clock.frame_start;
     if (state.started + mill_ticks < now) return aigeneric.end(ctx, index);
-    const cruise = ai.slotCruise(slot, ctx.world.view) orelse return;
+    const cruise = ai.slotCruise(slot, ctx.world.view()) orelse return;
     const round: f32 = cruise * @as(f32, @floatFromInt(now - state.started)) * mill_pace;
     const across = math.xAxis(state.circle) * @as(Vector, @splat(@sin(round) * mill_radius));
     const along = math.forward(state.circle) * @as(Vector, @splat(@cos(round) * mill_radius));
@@ -266,7 +266,7 @@ pub fn escort(ctx: Context, index: u16) void {
     const limit = if (near) escort_near_limit else ai.full_limit;
     const flags: ai.Steering = if (near) .{ .roll_upright = true } else .clear;
     _ = ai.steer(ctx.world, index, lead, limit, ai.no_ease, flags);
-    const cruise = ai.slotCruise(slot, ctx.world.view) orelse return;
+    const cruise = ai.slotCruise(slot, ctx.world.view()) orelse return;
     slot.object.throttle = math.dot(math.forward(slot.drawn.orientation), to) * escort_catch_up + other.object.speed / cruise;
 }
 
@@ -330,7 +330,7 @@ pub fn fly(ctx: Context, index: u16) void {
     const speed: f32 = @floatFromInt(slot.orders[0].data.fly);
     if (speed == 0) {
         object.throttle = ai.full_throttle;
-    } else if (ai.slotCruise(slot, ctx.world.view)) |cruise| {
+    } else if (ai.slotCruise(slot, ctx.world.view())) |cruise| {
         object.throttle = speed / cruise;
     } else {
         const ticks: f32 = @floatFromInt(ctx.world.clock.frame_duration);
@@ -797,7 +797,7 @@ pub fn matchSpeed(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const target = ai.targetOrPop(ctx, index, .{}) orelse return;
-    const cruise = ai.slotCruise(slot, ctx.world.view) orelse return;
+    const cruise = ai.slotCruise(slot, ctx.world.view()) orelse return;
     slot.object.throttle = all.slots[target.slot].object.speed / cruise;
 }
 

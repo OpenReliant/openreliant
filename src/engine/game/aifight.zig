@@ -236,7 +236,7 @@ pub const Fighter = struct {
 
     /// `object_cruise_speed` of the ship; nothing for one with no flight stats.
     pub fn cruise(fighter: Fighter) f32 {
-        return ai.slotCruise(fighter.slot, fighter.ctx.world.view) orelse 0;
+        return ai.slotCruise(fighter.slot, fighter.ctx.world.view()) orelse 0;
     }
 
     /// Steers at `at` the pilot's way, with its limit and its ease.

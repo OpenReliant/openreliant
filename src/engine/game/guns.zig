@@ -1635,7 +1635,7 @@ fn candidates(world: gameobj.World, bullet: *Bullet, record: Gun, lifetime: i32)
         const to = object.nextPosition() - bullet.at;
         const when = std.math.clamp(math.dot(to, bullet.velocity) * along, 0, life);
         const nearest = bullet.velocity * @as(Vector, @splat(when));
-        const moving = ai.slotCruise(slot, world.view) orelse 0;
+        const moving = ai.slotCruise(slot, world.view()) orelse 0;
         const reach = moving * when + object.radius + hugeReach(bullet.kind);
         if (math.lengthSquared(nearest - to) >= reach * reach) continue;
         if (componentModel(slot)) |model| {
@@ -1940,7 +1940,7 @@ fn hullHit(world: gameobj.World, bullet: *Bullet, index: u16, struck: collision.
     collision.armorDamage(world, index, struck, dealt(all, index, bullet.kind, record.damage.hull), bullet.owner, .bullet);
     const at = math.lerp(bullet.last, bullet.at, along);
     shieldfx.hullHit(world, index, at);
-    const inside = if (world.camera) |watching| watching.inside(index) else false;
+    const inside = if (world.camera) |watching| world.player.viewing.inside(index, watching.cockpit_mode) else false;
     if (!inside) {
         const carried = slot.object.velocity.vector() * @as(Vector, @splat(hull_sparks_carry));
         sparks.spray(world, .hull, at, at - slot.drawn.position, carried, hull_sparks);

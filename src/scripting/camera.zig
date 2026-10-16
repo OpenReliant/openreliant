@@ -19,9 +19,9 @@ pub const package = struct {
     pub const view = api.Field(?Identifier, "The view the camera shows: one of the game's (`View`), or a mod's by its qualified name; nil while no mission is shown.", struct {
         pub fn get(call: Call) ?Identifier {
             const held = Presentation.hostOf(call).camera orelse return null;
-            if (call.runtime().registries.cameraName(held.camera.view)) |name| return .{ .name = name };
-            if (values.name(engine_camera.View, held.camera.view)) |name| return .{ .name = name };
-            return .{ .number = @backingInt(held.camera.view) };
+            if (call.runtime().registries.cameraName(held.viewing.view)) |name| return .{ .name = name };
+            if (values.name(engine_camera.View, held.viewing.view)) |name| return .{ .name = name };
+            return .{ .number = @backingInt(held.viewing.view) };
         }
     });
 
@@ -40,7 +40,7 @@ fn setView(call: Call, wanted: Identifier, object: ?Object) bool {
         },
         .number => |number| if (number < engine_camera.views.records.len) @fromBackingInt(@intCast(number)) else return false,
     };
-    if (!held.camera.setView(view, of, false, false, held.now)) return false;
+    if (!engine_camera.switchViewing(held.viewing, held.camera, view, of, false, false, held.now, held.bounds)) return false;
     call.runtime().registries.selected_camera = null;
     call.runtime().registries.camera_subject = null;
     return true;

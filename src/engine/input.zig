@@ -1291,6 +1291,9 @@ pub const Player = struct {
     terminated: u32 = 0,
     /// What the mission's scene shows (`0x00587CD4`).
     showing: @import("game/main.zig").Showing = .everything,
+    /// What the camera views (`camera.Viewing`), which the game keeps whether or not anything is
+    /// drawn.
+    viewing: camera.Viewing = .{},
     /// `player_carrier` (`0x0057E05C`): the ship the player's ship launched from, which the
     /// launch's cutaway leaves out, and none from the mission's start until a launch names it.
     carrier: ?u16 = null,
@@ -1426,7 +1429,7 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
     const slot = &world.objects.slots[index];
     const combat = slot.combat orelse return;
     // The current order's data keeps the mouse's stick position.
-    playerControls(world.player, devices, &slot.object, combat, slot.orders[0].data.words[0..2], world.view, world.clock.frame_duration);
+    playerControls(world.player, devices, &slot.object, combat, slot.orders[0].data.words[0..2], world.view(), world.clock.frame_duration);
     matchSpeed(world, devices);
     playerWeapons(world, devices, index);
 }
@@ -1863,7 +1866,7 @@ pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
     } else {
         world.player.mouse_launched = false;
     }
-    if (devices.active(.cloak_ship, true) and world.view != .director and cloak.canCloak(slot)) {
+    if (devices.active(.cloak_ship, true) and world.view() != .director and cloak.canCloak(slot)) {
         const settled = if (slot.cloak) |cloaking| !cloaking.changing else true;
         const on = !object.flags.cloaked;
         setCloak(world, on);
@@ -1888,7 +1891,7 @@ pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
 /// EJECT (`0x00413D88`), while the mission goes on, or the pilot's ship is breaking up and the
 /// pilot can still get out (`main.Ending.ejecting`), on any ship but the Kamov that may eject and
 /// whose current order is Player Control or Eject Player: the eject view circles the ship
-/// (`camera.Camera.setCutaway`), the ship uncloaks where it is cloaked, and Eject sends the pilot's
+/// (`camera.switchCutaway`), the ship uncloaks where it is cloaked, and Eject sends the pilot's
 /// pod out of it (`aieject.init`).
 ///
 /// Not ported: a multiplayer game, in which EJECT does nothing, and what it tells one
@@ -1908,10 +1911,8 @@ pub fn eject(world: gameobj.World, index: u16) void {
         else => return,
     }
     object.flags.ejected = false;
-    if (world.camera) |watching| {
-        const seen: camera.Subject = .of(slot);
-        _ = watching.setCutaway(.eject, index, world.clock.viewTime(), seen, seen);
-    }
+    const seen: camera.Subject = .of(slot);
+    _ = camera.switchCutaway(world, .eject, index, seen, seen);
     if (object.flags.cloaked) cloak.uncloak(world, index);
     _ = aigeneric.give(.of(world), index, .eject, .none);
 }
@@ -2033,13 +2034,13 @@ pub fn playerJump(world: gameobj.World) void {
 pub fn matchSpeed(world: gameobj.World, devices: *Devices) void {
     const player = world.player;
     const all = world.objects;
-    matchTargetSpeed(player, all, world.view);
+    matchTargetSpeed(player, all, world.view());
     if (!devices.active(.match_speed, true)) return;
     player.matching_speed = !player.matching_speed;
     if (player.matching_speed) {
         const aimed = if (ai.playerControlEntry(all)) |entry| ai.targetValid(all, entry.target, .{}) else false;
         hud.beep(world, if (aimed) .on else .refused);
-        matchTargetSpeed(player, all, world.view);
+        matchTargetSpeed(player, all, world.view());
     } else {
         hud.beep(world, .off);
         all.slots[all.player].object.throttle = player.throttle_before_match;
@@ -3084,9 +3085,9 @@ test eject {
     slot.object.flags.ejected = true;
     eject(world, index);
     try std.testing.expectEqual(.eject, slot.orders[0].order);
-    try std.testing.expectEqual(.eject, watching.view);
-    try std.testing.expect(watching.locked);
-    try std.testing.expectEqual(index, watching.object.?);
+    try std.testing.expectEqual(.eject, mission.player.viewing.view);
+    try std.testing.expect(mission.player.viewing.locked);
+    try std.testing.expectEqual(index, mission.player.viewing.object.?);
     // Once the mission is over, it can't.
     mission.player.ending = .destroyed;
     _ = aigeneric.pop(mission.orders(), index);

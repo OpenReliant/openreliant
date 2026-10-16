@@ -417,10 +417,8 @@ fn cutaway(ctx: Context, index: u16, carrier: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
     const state = &slot.state.land;
-    if (world.camera) |view| {
-        const pick: camera.View = if (world.random.oneIn(2)) .landing_aside else .landing_tube;
-        _ = view.setView(pick, index, true, true, ctx.world.clock.viewTime());
-    }
+    const pick: camera.View = if (world.random.oneIn(2)) .landing_aside else .landing_tube;
+    _ = camera.switchView(world, pick, index, true, true);
     const reliant = &all.slots[carrier];
     objects.setPlace(&reliant.object, &reliant.drawn, .{ .position = carrier_away, .orientation = math.identity });
     if (reliant_launch.tubeMiddle(reliant, first_tube, 0)) |tube| state.tube = tube;
@@ -565,10 +563,8 @@ fn yamatoCutaway(ctx: Context, index: u16) void {
     if (bay.model) |*model| if (model.rootChild(bay_hangar) != null) {
         model.parts[bay_hangar].object.light_mask = bay_light_mask;
     };
-    if (world.camera) |view| {
-        const pick: camera.View = if (world.random.oneIn(2)) .landing_bay else .landing_ship;
-        _ = view.setView(pick, index, true, true, world.clock.viewTime());
-    }
+    const pick: camera.View = if (world.random.oneIn(2)) .landing_bay else .landing_ship;
+    _ = camera.switchView(world, pick, index, true, true);
     const max = bay.object.bounds_max.vector();
     const min = bay.object.bounds_min.vector();
     objects.setPosition(object, &slot.drawn, away.point(max * stand_share + min * (@as(Vector, @splat(1)) - stand_share)));
@@ -652,7 +648,7 @@ fn bayUpdate(ctx: Context, index: u16) void {
             const point: Vector = state.gate_place;
             _ = ai.steer(world, index, point, ai.full_limit, ai.no_ease, .{ .roll_upright = true });
             const distance = math.distance(point, object.nextPosition());
-            const most = if (ai.slotCruise(slot, world.view)) |cruise| bay_speed / cruise else approach_most;
+            const most = if (ai.slotCruise(slot, world.view())) |cruise| bay_speed / cruise else approach_most;
             object.throttle = @min(distance * approach_throttle, most);
             if (distance >= near) return;
             object.letGo();
@@ -683,10 +679,8 @@ fn bayCutaway(ctx: Context, index: u16, carrier: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
     const state = &slot.state.land;
-    if (world.camera) |view| {
-        const pick: camera.View = if (world.random.oneIn(2)) .landing_aside else .landing_tube;
-        _ = view.setView(pick, index, true, true, world.clock.viewTime());
-    }
+    const pick: camera.View = if (world.random.oneIn(2)) .landing_aside else .landing_tube;
+    _ = camera.switchView(world, pick, index, true, true);
     const holder = &all.slots[carrier];
     objects.setPlace(&holder.object, &holder.drawn, .{ .position = carrier_away, .orientation = math.identity });
     const gate = (launch.gateOf(all, carrier, bayGate(slot.orders[0].target)) orelse return).place;
@@ -744,7 +738,7 @@ fn partMiddle(slot: *create.Slot, part: usize) ?struct { frame: math.Place, midd
 /// The throttle at which the ship in `slot` flies at `bay_speed`, by its cruise speed
 /// (`object_cruise_speed`); none for a ship with no flight stats.
 fn bayThrottle(world: gameobj.World, slot: *const create.Slot) f32 {
-    const cruise = ai.slotCruise(slot, world.view) orelse return 0;
+    const cruise = ai.slotCruise(slot, world.view()) orelse return 0;
     return bay_speed / cruise;
 }
 

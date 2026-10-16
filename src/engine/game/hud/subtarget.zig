@@ -8,7 +8,7 @@
 //! every object of a type shares them; OpenReliant copies each level's mesh with its surfaces, the
 //! only part it changes, and shares the rest. Putting the parts back lets the copies go.
 //!
-//! `camera.Camera.setView` picks the parts out as the view becomes 0 and puts them back for any
+//! `camera.Camera.cutTo` picks the parts out as the view becomes 0 and puts them back for any
 //! other; `mission_frame` picks them out in view 0 where the target or its component changed
 //! (`main.keepPlayerTarget`); a component lost on the target puts them back (`objects.loseComponents`,
 //! `node_draw`); and the next mission's start puts them back, before its objects are reset, which

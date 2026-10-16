@@ -275,9 +275,7 @@ pub fn outInit(ctx: aigeneric.Context, index: u16) void {
     state.with_player = false;
     placeOut(ctx, index);
     sound3d.playIn(world, null, null, index, .jumponline, 1, sound3d.fxClass(all, index));
-    if (index == all.player) if (world.camera) |view| {
-        _ = view.setJump(.jump_out, index, ctx.world.clock.viewTime(), .of(slot), .of(slot));
-    };
+    if (index == all.player) _ = camera.switchJump(world, .jump_out, index, .of(slot), .of(slot));
     if (index < all.players) cloak.set(world, index, false);
 }
 
@@ -487,7 +485,7 @@ fn placeOut(ctx: aigeneric.Context, index: u16) void {
             objects.setPlace(&slot.object, &slot.drawn, .{ .position = at, .orientation = facing });
             ai.stop(&slot.object);
             slot.object.velocity = .of(math.transform(slot.object.root.next_orientation, .{ 0, 0, formation_speed }));
-            if (ai.slotCruise(slot, world.view)) |cruise| slot.object.throttle = formation_speed / cruise;
+            if (ai.slotCruise(slot, world.view())) |cruise| slot.object.throttle = formation_speed / cruise;
             break;
         }
         place -= row;
@@ -596,10 +594,8 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
             state.advance(.{ .in = .flashing }, now);
             hearArrival(world, index);
             if (index == all.player) {
-                if (world.camera) |view| {
-                    const pick = arrivalView(world.random.fraction());
-                    _ = view.setJump(pick, index, ctx.world.clock.viewTime(), .of(slot), .of(&all.slots[all.player]));
-                }
+                const pick = arrivalView(world.random.fraction());
+                _ = camera.switchJump(world, pick, index, .of(slot), .of(&all.slots[all.player]));
                 if (world.environment) |space| space.update(all);
                 world.player.jumping_in = true;
             }
@@ -630,9 +626,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
         .settling => {
             const entry = slot.orders[0];
             if (entry.order != .jump_in_spread or state.since <= now) {
-                if (index == all.player) if (world.camera) |view| {
-                    _ = view.setView(.cockpit, index, false, true, ctx.world.clock.viewTime());
-                };
+                if (index == all.player) _ = camera.switchView(world, .cockpit, index, false, true);
                 freeEffect(world, state);
                 aigeneric.end(ctx, index);
                 events.jumpedIn(world, index);
@@ -827,11 +821,11 @@ test "the player's arrival is watched from a cutaway, and ends in the cockpit" {
     ctx.world.camera = &view;
     _ = try aigeneric.pushShip(ctx, player, .jump_in, target, null);
     nextFrame(&mission, ctx, player);
-    try std.testing.expect(switch (view.view) {
+    try std.testing.expect(switch (mission.player.viewing.view) {
         .jump_in_close, .jump_in_ahead, .jump_in_aside => true,
         else => false,
     });
-    try std.testing.expect(view.locked);
+    try std.testing.expect(mission.player.viewing.locked);
     try std.testing.expect(mission.player.jumping_in);
     // As it flies in, the view shakes less and less.
     while (slot.state.jump.step.in != .flying) nextFrame(&mission, ctx, player);
@@ -841,8 +835,8 @@ test "the player's arrival is watched from a cutaway, and ends in the cockpit" {
     try std.testing.expect(mission.shake < 1);
     while (slot.object.order_count > 0) nextFrame(&mission, ctx, player);
     try std.testing.expect(!mission.player.jumping_in);
-    try std.testing.expectEqual(camera.View.cockpit, view.view);
-    try std.testing.expect(!view.locked);
+    try std.testing.expectEqual(camera.View.cockpit, mission.player.viewing.view);
+    try std.testing.expect(!mission.player.viewing.locked);
 }
 
 test "the player hears their own ship jump in, however long the jump" {

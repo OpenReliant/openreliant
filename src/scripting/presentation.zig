@@ -124,6 +124,10 @@ pub const Host = struct {
 
     pub const Camera = struct {
         camera: *camera.Camera,
+        /// What the game has the camera view (`input.Player.viewing`), and what a switch of view
+        /// goes by.
+        viewing: *camera.Viewing,
+        bounds: camera.Viewing.Bounds = .{},
         /// The time the camera's views switch by (`main.Clock.viewTime`).
         now: u32,
         /// The player's ship, which a view follows unless a script names another object.
@@ -609,7 +613,8 @@ test "registered views, displays and screens execute and close with their contex
     defer fixture.deinit();
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     var view: engine.game.camera.Camera = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 } };
+    var viewing: engine.game.camera.Viewing = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 } };
     const layer: drawing.View = .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 };
     host.views.set(.hud, layer);
     host.views.set(.ui, layer);
@@ -621,7 +626,7 @@ test "registered views, displays and screens execute and close with their contex
     fixture.shown.key(.escape, true);
     try std.testing.expectEqual(null, fixture.shown.runtime.registries.selected_screen);
     fixture.shown.endGame();
-    try std.testing.expectEqual(engine.game.camera.View.cockpit, view.view);
+    try std.testing.expectEqual(engine.game.camera.View.cockpit, viewing.view);
     try std.testing.expectEqual(null, fixture.shown.runtime.registries.find(.display, "a:status"));
     try fixture.shown.reload();
     try std.testing.expect(fixture.shown.runtime.registries.find(.screen, "a:panel") != null);
@@ -675,9 +680,10 @@ test "a display stands in for the game's instruments and reads what they show" {
     var player: input.Player = .{};
     player.kills.count = 7;
     var view: engine.game.camera.Camera = .{};
+    var viewing: engine.game.camera.Viewing = .{};
     var strings_table: [2][]const u8 = .{ "", "Moose" };
     const strings: engine.game.language.Language = .{ .strings = &strings_table };
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player, .strings = &strings, .speaker_name = 2 } };
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player, .strings = &strings, .speaker_name = 2 } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     // The scripts read the replaced instruments in the game's order, as the display has them.
@@ -761,8 +767,9 @@ test "a display reads the cockpit's instruments in any view" {
     strings_table[chase_name - 1] = "Chase";
     const strings: engine.game.language.Language = .{ .strings = &strings_table };
     var view: engine.game.camera.Camera = .{};
-    view.view = .chase;
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{
+    var viewing: engine.game.camera.Viewing = .{};
+    viewing.view = .chase;
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{
         .hud = &state,
         .player = &player,
         .play = .{ .minutes = 3, .seconds = 7 },
@@ -831,7 +838,8 @@ test "a display reads the radar's contacts and the target display" {
     state.flashes.target_hits = .initOne(.fore);
     var player: input.Player = .{};
     var view: engine.game.camera.Camera = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player, .strings = &strings } };
+    var viewing: engine.game.camera.Viewing = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player, .strings = &strings } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     // The radar shows the Sabre alone, as the target, up the screen; the target display its name,
@@ -908,7 +916,8 @@ test "a display reads the windows and the display's text" {
     strings_table[5 - 1] = "Sub";
     const strings: engine.game.language.Language = .{ .strings = &strings_table };
     var view: engine.game.camera.Camera = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{
+    var viewing: engine.game.camera.Viewing = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{
         .hud = &state,
         .player = &player,
         .variables = &variables,
@@ -994,7 +1003,8 @@ test "a display reads what flashes, the charges, and how far the windows and the
     state.windows.status.set(.other_comms, .{ .phase = .open, .progress = hud.windows.opening_ticks });
     var player: input.Player = .{};
     var view: engine.game.camera.Camera = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player } };
+    var viewing: engine.game.camera.Viewing = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     var expected: [256]u8 = undefined;
@@ -1024,7 +1034,8 @@ test "a player script's self follows the player's ship from mission to mission" 
     defer fixture.deinit();
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     var view: engine.game.camera.Camera = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 } };
+    var viewing: engine.game.camera.Viewing = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     try std.testing.expectEqualStrings("true", fixture.shown.layers.get(.hud).text.items);
@@ -1059,13 +1070,14 @@ test "camera locks take precedence and failed registry callbacks fall back safel
     }});
     defer fixture.deinit();
     try fixture.shown.startGame(null, fixture.mission.objects, false);
-    var view: engine.game.camera.Camera = .{ .locked = true, .view = .director };
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 } };
+    var view: engine.game.camera.Camera = .{};
+    var viewing: engine.game.camera.Viewing = .{ .locked = true, .view = .director };
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 } };
     fixture.shown.frame(host);
-    try std.testing.expectEqual(engine.game.camera.View.director, view.view);
-    view.locked = false;
+    try std.testing.expectEqual(engine.game.camera.View.director, viewing.view);
+    viewing.locked = false;
     fixture.shown.frame(host);
-    try std.testing.expectEqual(engine.game.camera.View.cockpit, view.view);
+    try std.testing.expectEqual(engine.game.camera.View.cockpit, viewing.view);
     try std.testing.expectEqual(null, fixture.shown.runtime.registries.find(.camera, "a:bad"));
     host.views.set(.ui, .{ .font = &fixture.font, .gpa = std.testing.allocator, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.runtime.registries.selected_screen = fixture.shown.runtime.registries.find(.screen, "a:bad");
@@ -1095,8 +1107,9 @@ test "camera callbacks that select an original view do not apply their returned 
     defer fixture.deinit();
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     var view: engine.game.camera.Camera = .{};
-    fixture.shown.frame(.{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 } });
-    try std.testing.expectEqual(engine.game.camera.View.external, view.view);
+    var viewing: engine.game.camera.Viewing = .{};
+    fixture.shown.frame(.{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 } });
+    try std.testing.expectEqual(engine.game.camera.View.external, viewing.view);
     try engine.surrender.math.testing.expectVector(@splat(0), view.place.position);
     try std.testing.expectEqual(null, fixture.shown.runtime.registries.selected_camera);
 }
@@ -1133,7 +1146,8 @@ test "the hud-layout example stands in for the radar and places the cluster and 
     state.bounds.set(.radar, .{ .left = 270, .top = 380, .right = 370, .bottom = 470 });
     var player: input.Player = .{};
     var view: engine.game.camera.Camera = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player } };
+    var viewing: engine.game.camera.Viewing = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     const placed = fixture.shown.instrumentPlacements();
@@ -1169,7 +1183,8 @@ test "the strafe-run example combines registries and built-in interfaces" {
     defer fixture.shown.endGame();
     scripts.scripts.begin(fixture.mission.orders(), .{ .number = 0, .file = "mission0.dte" }, 1);
     var view: engine.game.camera.Camera = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .flying = true, .camera = .{ .camera = &view, .now = 1, .player = 0 } };
+    var viewing: engine.game.camera.Viewing = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .flying = true, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 } };
     const layer: drawing.View = .{ .font = &fixture.font, .gpa = std.testing.allocator, .screen = .{ 640, 480 }, .scale = 1 };
     host.views.set(.hud, layer);
     host.views.set(.ui, layer);
@@ -1184,7 +1199,7 @@ test "the strafe-run example combines registries and built-in interfaces" {
     try std.testing.expectEqual(0.25, fixture.mission.slot(sabre).object.yaw_input);
     fixture.devices.keyboard.down[@backingInt(input.Key.f10)] = true;
     fixture.shown.frame(host);
-    try std.testing.expectEqualStrings("strafe-run:chase", fixture.shown.runtime.registries.cameraName(view.view).?);
+    try std.testing.expectEqualStrings("strafe-run:chase", fixture.shown.runtime.registries.cameraName(viewing.view).?);
     try engine.surrender.math.testing.expectVector(.{ 0, -200, -1000 }, view.place.position);
     fixture.devices.keyboard.down[@backingInt(input.Key.f9)] = true;
     fixture.shown.frame(host);
@@ -1472,12 +1487,13 @@ test "the audio example chimes as a piece starts, drops a beacon, and fades the 
     defer sound.closeMusic();
     try shown.startGame(null, fixture.mission.objects, false);
     var view: engine.game.camera.Camera = .{};
+    var viewing: engine.game.camera.Viewing = .{};
     var host: Host = .{
         .seconds = 0.04,
         .devices = &fixture.devices,
         .window = .{ 640, 480 },
         .sound = sound,
-        .camera = .{ .camera = &view, .now = 1, .player = 0 },
+        .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 },
         .scene = .{ .objects = fixture.mission.objects, .camera = .{ .position = @splat(0), .orientation = engine.surrender.math.identity }, .view = .chase, .clock = &fixture.mission.clock, .random = &fixture.mission.random },
     };
     const layer: drawing.View = .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 };

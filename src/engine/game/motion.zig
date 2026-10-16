@@ -400,7 +400,7 @@ pub fn moveSlot(world: gameobj.World, index: u16) void {
         .jumping = .{ .state = &slot.state.jump, .clock = world.clock },
         .following = .{ .world = world, .index = index },
     };
-    move(&slot.object, flight, world.view, slot.motion, if (index == all.player) world.shake else null, by);
+    move(&slot.object, flight, world.view(), slot.motion, if (index == all.player) world.shake else null, by);
 }
 
 test steer {
