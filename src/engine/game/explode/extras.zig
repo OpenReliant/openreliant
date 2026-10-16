@@ -149,7 +149,7 @@ const sparks_speed_range: f32 = 10;
 /// A core's sparks of `template`, streaming for good from `at`, in the frame of what `on` hangs
 /// them from or in the world, strayed by `spread` (`explode.Explosions.hangStream`).
 fn streamSparks(world: gameobj.World, on: explode.Stream.On, at: Vector, spread: Vector, template: *const particles.Template) void {
-    const explosions = world.explosions orelse return;
+    const explosions = explode.drawnIn(world) orelse return;
     explosions.hangStream(on, .{
         .life = explode.forever_life,
         .born = world.clock.frame_start,

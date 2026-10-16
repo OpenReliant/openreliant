@@ -260,7 +260,7 @@ pub fn hatMade(world: gameobj.World, index: u16) void {
     slot.extra = extra;
     const hat = &extra.hat;
     hangRays(world, index, hat);
-    if (world.explosions) |explosions| explosions.hangStream(.{ .part = hat.coil }, .{
+    if (explode.drawnIn(world)) |explosions| explosions.hangStream(.{ .part = hat.coil }, .{
         .life = explode.forever_life,
         .born = world.clock.frame_start,
         .place = .{ .position = hat.sparksAt() },

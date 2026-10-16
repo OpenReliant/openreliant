@@ -8,6 +8,15 @@ The game moves its effects on by the ticks, a hundred a second, and draws each w
 
 **Improvement:** each is drawn as far past its tick as the frame is, the share of a tick the clock keeps (`objects.pastTick`): a particle, a spark, a bit, a chunk of rock, a fireball and its light, a piece of the break-up and a shockwave all that much further along by their velocities, a piece and a chunk turned that much further by their spin, and a shockwave's ring spread that much further. What they do stays on the ticks. `--no-smooth-motion` and `--original` draw them where the ticks leave them.
 
+## Where nothing is drawn
+
+Where nothing is drawn, as on a server, the explosions keep only their part in the game: the
+capital ships' [splits](#splits), [the Ulysses' end](#the-ulysses-end) and the
+[Uber Explode](#the-uber-explode)'s blast, which reaches, strikes and destroys ships unseen. The
+fireballs, burning bits, chunks of rock, break-up, streams and burning wrecks' lights are left out,
+and draw none of the effects' random numbers (`explode.drawnIn`), so the game goes on from the same
+numbers as where they are drawn ([Random numbers](loop.md#random-numbers)).
+
 ## Particles
 
 `particles.cpp` keeps particles: sprites that fly off an emitter and change size and colour over

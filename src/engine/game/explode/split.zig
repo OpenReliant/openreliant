@@ -864,6 +864,44 @@ test "a capital ship bursts apart" {
     try std.testing.expect(mission.objects.slots[ship].model.?.parts[0].hidden);
 }
 
+test "a split goes on alike where nothing is drawn" {
+    // Drawn, with the effects' own numbers, and not drawn at all, as on a server, a sweep draws the
+    // same game numbers and makes the same other half.
+    const drawn = try testingSweep(true);
+    try std.testing.expect(drawn[1] != null);
+    try std.testing.expectEqual(drawn, try testingSweep(false));
+}
+
+/// The game's numbers, by their fingerprint, and where the other half went, once a Badanov's sweep
+/// has run its course, `drawn` or not.
+fn testingSweep(drawn: bool) !struct { u64, ?u16, Vector } {
+    const gpa = std.testing.allocator;
+    const shp = @import("../../../formats/shp.zig");
+    var stage: explode.testing.Stage = undefined;
+    try stage.initShowing(if (drawn) explode.testing.images() else null);
+    defer stage.deinit();
+    var fixture: create.testing.Model = undefined;
+    try fixture.init(gpa);
+    defer fixture.deinit(gpa);
+    fixture.data[0].part.class = .hull;
+    var cut = [_]shp.Point{ testingPoint(-100), testingPoint(0), testingPoint(100) };
+    var lists = [_]shp.PointList{.{ .kind = .cut, .points = &cut }};
+    fixture.data[0].point_lists = &lists;
+    const mission = &stage.mission;
+    _ = try mission.add(.of(.kamov), @splat(0));
+    const ship = try mission.addWith(fixture.types(), .of(.badanov), .{ 0, 0, 5000 });
+    var effects: @import("../../random.zig").Random = .init(7);
+    var world = stage.world();
+    world.spawn = mission.spawn(fixture.types());
+    if (drawn) world.effects_random = &effects;
+    const splits = &stage.explosions.splits;
+    start(world, ship);
+    const other = splits.slots[0].?.capital.other;
+    while (splits.slots[0] != null) : (mission.clock.frame_start += 25) splits.frame(world);
+    const velocity: Vector = if (other) |half| mission.objects.slots[half].object.velocity.vector() else @splat(0);
+    return .{ mission.random.fingerprint(), other, velocity };
+}
+
 fn testingPoint(z: f32) @import("../../../formats/shp.zig").Point {
     return .{ ._unknown_00 = 0, .vertex = 0, .position = .{ .x = 0, .y = 0, .z = z } };
 }
