@@ -652,9 +652,8 @@ pub fn viewFrame(controls: Controls) void {
 
 /// `mission_frame` (`0x004924B0`), as far as the objects go: the radio, as the game runs it after
 /// the controls (`radio.Radio.step`), and its remarks (`radio.remarksFrame`), then the player's ship
-/// pointed to the flyback marker it has strayed from (`input.nextNavPoint`), then the player's ship uncloaked where
-/// the display ran the cloak's charge dry last frame (`hud.State.uncloakSpent`), then every
-/// object's orders, which fly the ships and read the player's controls, then the player's ship sent
+/// pointed to the flyback marker it has strayed from (`input.nextNavPoint`), then every object's
+/// orders, which fly the ships and read the player's controls, then the player's ship sent
 /// home where it destroyed a friend (`friendly_fire.sendHome`), then the scanner's beep
 /// (`scanner.Scanner.frame`), then the frames they are drawn at,
 /// then the missiles (`missiles.frame`) and the shots in flight (`guns.bulletsFrame`),
@@ -663,7 +662,9 @@ pub fn viewFrame(controls: Controls) void {
 /// damaged ships' smoke (`smoke.frame`), the explosions (`explode.Explosions.frame`), the
 /// countermeasures (`cloak.Countermeasures.frame`) and the shockwaves
 /// (`shockwave.Shockwaves.frame`). Between them the frame's hits on the player's ship push its
-/// controller (`input.force.Forces.pushFrame`). A mission and the sandbox alike run this once a
+/// controller (`input.force.Forces.pushFrame`). Last, where there is a display, the missile lock
+/// (`runLock`) and the devices' charges, which the game runs as it draws the display
+/// (`hud.State.runCharges`). A mission and the sandbox alike run this once a
 /// game tick (`gameFrames`), before the drawn frame's camera and anything drawn.
 ///
 /// As the frame begins, mods' scripts take the world as the frame has it, which the orders they
@@ -712,7 +713,6 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
             playing.process(orders);
         }
     }
-    if (orders.world.display) |display| display.uncloakSpent(orders.world);
     if (orders.world.jump_effects) |effects| effects.beginFrame();
     aigeneric.ordersUpdate(orders);
     if (orders.world.objects.scripts) |scripts| if (orders.world.clock.frameTicks() > 0) {
@@ -740,7 +740,10 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     if (orders.world.explosions) |explosions| explosions.frame(orders.world);
     if (orders.world.countermeasures) |dropped| dropped.frame(orders.world);
     if (orders.world.shockwaves) |waves| waves.frame(orders.world);
-    if (orders.world.display) |display| runLock(orders.world, display);
+    if (orders.world.display) |display| {
+        runLock(orders.world, display);
+        display.runCharges(orders.world, orders.world.clock.frame_duration, false);
+    }
     return if (over or player.terminated != 0) .over else .played;
 }
 

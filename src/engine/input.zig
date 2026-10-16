@@ -3045,17 +3045,14 @@ test "the player's cloak" {
     launchMissile(world, stage.index);
     try std.testing.expect(slot.cloak.?.going);
 
-    // Cloaked again, the display's cloak running dry uncloaks it the next frame.
+    // Cloaked again, the display's cloak running dry uncloaks it.
     cloak.frame(slot, 1000 + 2 * cloak.change_ticks);
     stage.mission.clock.frame_start = 2000;
     setCloak(world, true);
     cloak.frame(slot, 2000 + cloak.change_ticks);
     display.devices.getPtr(.cloak).ticks = 1;
-    display.runCharges(&slot.object, 10, false);
-    try std.testing.expect(!slot.cloak.?.going);
-    display.uncloakSpent(world);
+    display.runCharges(world, 10, false);
     try std.testing.expect(slot.cloak.?.going);
-    try std.testing.expect(!display.cloak_spent);
 
     // A ship that carries no cloak can't.
     cloak.frame(slot, 2000 + 2 * cloak.change_ticks);

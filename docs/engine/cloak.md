@@ -146,9 +146,6 @@ the Toggle Cloak order, the other way from how it stands (`order_toggle_cloak`, 
 
 - OpenReliant updates a part's shimmer and hull as it adds them to the scene, not after culling, so
   a part out of sight changes too.
-- The display has no world to reach the ship through, so as the cloak's charge runs out OpenReliant
-  marks it spent (`hud.State.uncloakSpent`), and the next frame's orders uncloak the ship, a frame
-  late.
 - **Improvement:** the shimmer's colour is worked out for its strength, not read from the table
   of 1024.
 - **Improvement:** OpenReliant's shadows ([Shadows](../port/renderer.md#shadows)) fade with the
