@@ -55,17 +55,18 @@ const Place = std.math.IntFittingRange(0, capacity - 1);
 /// texture the beams are drawn over (`airipper_texture`, `0x00518AF8`).
 pub const Rippers = struct {
     gpa: Allocator,
-    /// How the beams look (`tractor.Look`).
-    look: tractor.Look,
+    /// How the beams look (`tractor.Look`); null where nothing is drawn, as on a server, where the
+    /// sets of beams are kept without beams in them.
+    look: ?tractor.Look,
     cargo: [capacity]?Carried = @splat(null),
     next_cargo: usize = 0,
     grips: [capacity]?*Grip = @splat(null),
     next_grip: Place = 0,
 
     /// `airipper_init` (`0x0040FC90`), as a mission loads: nothing carried, no beams, and `laser2`
-    /// (`tractor.Look.init`).
-    pub fn init(gpa: Allocator, textures: *srtexture.Table) matmanager.Error!Rippers {
-        return .{ .gpa = gpa, .look = try .init(textures) };
+    /// (`tractor.Look.init`) from `textures`, where there are textures to draw with.
+    pub fn init(gpa: Allocator, textures: ?*srtexture.Table) matmanager.Error!Rippers {
+        return .{ .gpa = gpa, .look = if (textures) |table| try .init(table) else null };
     }
 
     /// `airipper_free` (`0x0040FCF0`), as a mission ends, then the tables as a mission loads:
@@ -84,7 +85,8 @@ pub const Rippers = struct {
     /// `airipper_fx_take` (`0x00412140`), with `airipper_fx_pincers` (`0x00412390`): the next set
     /// of beams, let go first where one holds it, for the Ripper in slot `ripper`, one from the
     /// first point of each of its back pincers' first point lists (`pincers`), and its place;
-    /// null where it can't be made.
+    /// null where it can't be made. Where nothing is drawn (`look`), the set takes its place
+    /// without beams, so that the orders keep the same places drawn or not.
     fn take(rippers: *Rippers, world: gameobj.World, ripper: u16) ?Taken {
         const index = rippers.next_grip;
         rippers.next_grip = if (index == capacity - 1) 0 else index + 1;
@@ -93,12 +95,13 @@ pub const Rippers = struct {
         made.* = .{};
         rippers.grips[index] = made;
         const taken: Taken = .{ .grip = made, .place = index };
+        const look = rippers.look orelse return taken;
         const model = if (world.objects.slots[ripper].model) |*live| live else return taken;
         for (&made.beams, pincers) |*beam, name| {
             const part = model.partNamed(name) orelse continue;
             if (part.model != model) continue;
             const point = firstPoint(part) orelse continue;
-            beam.* = tractor.Beam.create(rippers.gpa, rippers.look, ripper, part.index, point) catch null;
+            beam.* = tractor.Beam.create(rippers.gpa, look, ripper, part.index, point) catch null;
         }
         return taken;
     }
@@ -1269,6 +1272,23 @@ const TestRipper = struct {
         return if (t.game.slot(t.ripper).current()) |entry| entry.order else null;
     }
 };
+
+test "the sets of beams keep their places where nothing is drawn" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const ripper = try mission.add(.of(.ripper), @splat(0));
+    // Without textures to draw with, each set takes the next place, as it would drawn, and holds no
+    // beams.
+    var rippers: Rippers = try .init(gpa, null);
+    defer rippers.deinit();
+    const first = rippers.takeFor(mission.world(), ripper, null);
+    const second = rippers.takeFor(mission.world(), ripper, null);
+    try std.testing.expectEqual(0, first.place().?);
+    try std.testing.expectEqual(1, second.place().?);
+    for (rippers.gripAt(first).?.beams) |beam| try std.testing.expectEqual(null, beam);
+}
 
 test "a Ripper grabs a pod ahead of it, and stows it aboard" {
     var t: TestRipper = undefined;

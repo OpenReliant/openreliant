@@ -2587,12 +2587,13 @@ pub const Instrument = enum {
 };
 
 /// `hud_draw` (`0x004843B0`): the display for a drawn frame, in its order, timed by the ticks the
-/// drawn frame spans (`main.Clock.drawnTicks`). First it takes the player's target, plays or ends
-/// the missile lock's tone (`missile_lock.Lock.sound`) and runs the devices' charges, in every
-/// view, and draws the launch's caption and `WaitForKey`'s prompt. In the view ahead from the
-/// cockpit it then draws the jump prompt, the target, the eject marker, the scanner and the status
-/// lights. In every view a line said waits for the radio's window (`radio.Radio.waitForWindow`); in
-/// the views but the one ahead the view's name follows, and in the director's view the subtitle.
+/// drawn frame spans (`main.Clock.drawnTicks`). First it takes the player's target and plays or
+/// ends the missile lock's tone (`missile_lock.Lock.sound`), in every view, and draws the launch's
+/// caption and `WaitForKey`'s prompt. In the view ahead from the cockpit it then draws the jump
+/// prompt, the target, the eject marker, the scanner and the status lights. In the views but the
+/// one ahead the view's name follows, and in the director's view the subtitle. The game also runs
+/// the devices' charges here, and the radio's wait for its window and its closes, which OpenReliant
+/// runs in the game frame (`State.runCharges`, `radio.Radio.step`).
 /// Then, in the view ahead, the instruments: the readouts, the ship status indicator, the
 /// targeting cluster, the radar, the reticle and the clock. Last, in every view, the windows move
 /// on, and in the view ahead are drawn.
@@ -2621,7 +2622,6 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
     state.messages.expire(frame.clock.frame_start);
     state.followTarget(frame.all, frame.multiplayer);
     if (frame.sound) |sound| state.lock.sound(sound, frame.view);
-    state.runCharges(live, frame_duration, frame.multiplayer);
     try state.caption.draw(placing.pen(pen, .caption), frame.all.mission_number, frame.clock.game_ticks);
     try state.key_prompt.draw(placing.pen(pen, .key_prompt), frame.devices);
     // Where the lead cursor stands, which the reticle closes on, and whether the enemy lock's
@@ -3778,9 +3778,6 @@ pub const State = struct {
     lock: missile_lock.Lock = .{},
     /// The missile display's ring of the player's missiles.
     missiles: missile_display.Ring = .{},
-    /// Whether the cloak's charge has run dry since the player's ship last uncloaked for it
-    /// (`uncloakSpent`).
-    cloak_spent: bool = false,
     /// Where each instrument last drew, in the window's pixels, as the mods' displays place it
     /// (`Placings`); null for one that hasn't drawn yet. Kept for the scripts.
     bounds: std.EnumArray(Instrument, ?Clip) = .initFill(null),
@@ -3805,33 +3802,28 @@ pub const State = struct {
         const fresh: State = .{};
         inline for (.{
             "messages",    "icons",      "enemy_lock", "warning_ticks", "fosters_last_stand", "radar_range",
-            "radar_rings", "radar_zoom", "devices",    "cloak_spent",   "ejected",            "eject_ticks",
-            "key_prompt",  "caption",    "blind_fire", "sight",
+            "radar_rings", "radar_zoom", "devices",    "ejected",       "eject_ticks",        "key_prompt",
+            "caption",     "blind_fire", "sight",
         }) |name| @field(state, name) = @field(fresh, name);
         state.missiles.empty_warned_until = game_ticks;
         state.missiles.name_voice = null;
     }
 
-    /// `hud_draw`'s work on the devices' charges for a frame, which it does in every view: a
-    /// device that runs dry is turned off. The cloak's charge runs only outside a multiplayer
+    /// `hud_draw`'s work on the devices' charges for a frame of `frame_duration` ticks, which it
+    /// does in every view: a device that runs dry is turned off, and the player's ship uncloaks as
+    /// the cloak's runs dry (`input.setCloak`). The cloak's charge runs only outside a multiplayer
     /// game.
     ///
-    /// The game uncloaks the ship here as the cloak's charge runs dry (`input.setCloak`). The
-    /// display has no world to reach the ship through, so OpenReliant marks the cloak spent and the
-    /// next frame's orders uncloak it (`uncloakSpent`), a frame later.
-    pub fn runCharges(state: *State, object: *gameobj.GameObject, frame_duration: i32, multiplayer: bool) void {
+    /// **Improvement:** the game runs the charges as it draws the display, over the drawn frame's
+    /// ticks; OpenReliant runs them in the game frame (`main.missionFrame`), once a tick, so how
+    /// long a device lasts doesn't depend on what is drawn.
+    pub fn runCharges(state: *State, world: gameobj.World, frame_duration: i32, multiplayer: bool) void {
+        const object = &world.objects.slots[world.objects.player].object;
         if (state.devices.getPtr(.ecm).run(.ecm, frame_duration)) input.setEcm(state, object, false);
-        if (!multiplayer and state.devices.getPtr(.cloak).run(.cloak, frame_duration)) state.cloak_spent = true;
+        if (!multiplayer and state.devices.getPtr(.cloak).run(.cloak, frame_duration)) input.setCloak(world, false);
         if (state.devices.getPtr(.spectral_shields).run(.spectral_shields, frame_duration)) {
             input.setSpectralShields(state, object, false, null);
         }
-    }
-
-    /// Uncloaks the player's ship once the cloak's charge has run dry (`runCharges`).
-    pub fn uncloakSpent(state: *State, world: gameobj.World) void {
-        if (!state.cloak_spent) return;
-        state.cloak_spent = false;
-        input.setCloak(world, false);
     }
 
     /// `hud_draw`'s warning with the enemy lock's light, `showing` this frame: while it shows, the
@@ -4070,13 +4062,12 @@ test "State.reset" {
     var state: State = .{ .smart_targeting = true, .blind_fire = false, .ejected = true, .radar_range = 0 };
     state.devices.getPtr(.cloak).* = .{ .setting = .on, .ticks = @divExact(Charge.full(.cloak).ticks, 2) };
     state.devices.getPtr(.spectral_shields).setting = .absent;
-    state.cloak_spent = true;
     state.missiles.empty_warned_until = 900;
     state.missiles.name_voice = 3;
     state.reset(500);
     // The next one, a restart too, starts with each device off and fully charged.
     for (std.enums.values(Device)) |kind| try std.testing.expectEqual(Charge.full(kind), state.devices.get(kind));
-    try std.testing.expect(!state.cloak_spent and !state.ejected and state.blind_fire);
+    try std.testing.expect(!state.ejected and state.blind_fire);
     try std.testing.expectEqual(Radar.first_range, state.radar_range);
     try std.testing.expectEqual(500, state.missiles.empty_warned_until);
     try std.testing.expectEqual(null, state.missiles.name_voice);

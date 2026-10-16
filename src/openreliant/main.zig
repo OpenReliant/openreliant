@@ -638,7 +638,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     try jump_effects.init(gpa, &textures);
     defer jump_effects.deinit();
     jump_effects.lighting = options.jump_light;
-    rippers.look.glow = options.beam_glow;
+    if (rippers.look) |*look| look.glow = options.beam_glow;
     var atmospheres: game.create.atmosphere.Atmospheres = try .init(gpa, &textures);
     defer atmospheres.deinit();
     atmospheres.style = options.atmospheres;

@@ -641,7 +641,9 @@ OpenReliant draws all nine by these conditions.
 ## The devices
 
 Three devices run off a charge in ticks, which `hud_draw` keeps in every view: charging a tick a
-tick while off, up to full, and draining while on. One that runs dry is turned off.
+tick while off, up to full, and draining while on. One that runs dry is turned off, and the
+player's ship uncloaks as the cloak's runs dry. **Improvement:** OpenReliant runs the charges in
+the game frame, once a tick (`hud.State.runCharges`), rather than as the display is drawn.
 
 | Device | State | Charge | Full | Drains a tick |
 | --- | --- | --- | --- | --- |
