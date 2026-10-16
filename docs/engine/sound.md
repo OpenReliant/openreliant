@@ -263,9 +263,9 @@ cuts the peaks and plays the lines dry.
 **Improvement:** without a speech sample, as with `--no-sound`, a line still lasts as long as it
 would play, timed by the game's clock (`game_ticks`), which stops while the game is paused
 (`cbox.Player`). A line paused keeps the time it had left. Whatever waits for a line then waits as
-long as with sound: the radio's window shows the speaker's face, and a scene runs its length in the
-rooms, the induction, the briefing and the loadout. Otherwise each line would end as soon as it
-started.
+long as with sound: a scene runs its length in the rooms, the induction, the briefing and the
+loadout. Otherwise each line would end as soon as it started. The radio times its lines by the
+game's clock with sound too ([The radio](radio.md#lines)).
 
 The crew in the rooms speak their lines on voice 2, an MP3 file each, which Miles's MP3 decoder
 (`MP3DEC.ASI`) plays ([The crew](rooms.md#the-crew)). OpenReliant reads the frames

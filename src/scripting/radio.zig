@@ -57,7 +57,7 @@ fn sayPilot(call: Call, pilot: pilots.Number, speech: []const u8, given: ?Line) 
 /// `radio.busy()`: `Radio.busy` (`radio_busy`).
 fn isBusy(call: Call) bool {
     const on_air, const ctx = onAir(call) orelse return false;
-    return on_air.busy(ctx.sound);
+    return on_air.busy(ctx.frame_start);
 }
 
 /// The mission's radio and what it reaches, while a mission runs with one that is heard.

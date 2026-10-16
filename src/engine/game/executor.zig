@@ -519,7 +519,7 @@ fn setRescueProbabilities(call: Call, game: aigeneric.Context) void {
 fn playSpeech(call: Call, game: aigeneric.Context) void {
     const radio, const ctx = radio_module.onAir(game.world) orelse return;
     const name = argumentText(call, 0) orelse return;
-    radio.playSpeech(ctx.sound, name);
+    radio.playSpeech(ctx, name);
 }
 
 /// `cmd_WaitForSpeech` (`0x00458100`, command `0x07`): the thread waits while a line plays
@@ -528,7 +528,7 @@ fn playSpeech(call: Call, game: aigeneric.Context) void {
 fn waitForSpeech(call: Call) u32 {
     const game = call.machine.game orelse return run_on;
     const radio, const ctx = radio_module.onAir(game.world) orelse return run_on;
-    return if (radio.speaking(ctx.sound)) call.againItself() else run_on;
+    return if (radio.speaking(ctx.frame_start)) call.againItself() else run_on;
 }
 
 /// The text the command's argument `index` points at in the mission's file (`push_string`), up to
@@ -2808,10 +2808,10 @@ test "the radio's commands say lines and wait for their films" {
     radio.movie.stop();
     fixture.second();
     try std.testing.expectEqual(1, fixture.global(0));
-    try std.testing.expect(radio.speaking(sound));
+    try std.testing.expect(radio.speaking(ctx.world.clock.frame_start));
     fixture.second();
     try std.testing.expectEqual(1, fixture.global(0));
-    radio.player.stop(gpa, sound);
+    radio.stopSpeech(sound);
     fixture.second();
     try std.testing.expectEqual(2, fixture.global(0));
 }

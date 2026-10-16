@@ -34,6 +34,17 @@ and the film plays. A line that is nobody's leaves the window open with nothing 
 closes. The game also leaves out a line of object `0x3E9`, which no slot reaches. A sixth line
 queued is dropped.
 
+**Improvement:** the game times the radio by what is heard and drawn. A line lasts as long as its
+sound plays (`speech_playing`), so without sound it ends at once, and the window's wait and its
+closes run as `hud_draw` draws it. OpenReliant runs the whole radio in the game frame, once a tick
+(`radio.Radio.step`): the film's timer, the queue, the reports, the wait for the window, and the
+closes below. A line lasts its speech file's length in the game's ticks, heard or not, and the sound
+plays alongside. The radio itself keeps track of whether it holds window 0 open, from the moment it
+says a line until the line's film has stopped, and the display's window follows it. So the lines, and the
+script's waits for them (`WaitForMovie`, `WaitForSpeech`), take the same time with sound or without,
+at any frame rate, and where nothing is drawn. A mission that opens window 0 itself (`OpenInstrument`)
+doesn't hold the queue, which no shipped mission does.
+
 The pilots' table (`pilot_faces`, `0x005048D8`, 24 bytes each) holds a face for each of the 194
 pilots of `pilot_stats`, which `object_set_pilot` points an object at as its pilot record: the
 string that names the pilot, a halfword (**Unknown:** `0x53` in every record), the side, the voice
@@ -61,7 +72,8 @@ OpenReliant stops it. The line playing has already stopped as the mission before
 `hudmovie_play` (`0x0048D120`) plays a film and decides when the line starts. With a film playing
 already, the line starts at once unless the flags say not (bit 3). Otherwise the line waits for the
 window (`hudmovie_waiting`, `0x0057C298`): `hud_draw` counts the frame's ticks
-(`hudmovie_waited`, `0x0057C3AC`) and starts the line once they pass 91, 92 ticks after it was said,
+(`hudmovie_waited`, `0x0057C3AC`), which OpenReliant counts in the game frame, and starts the line
+once they pass 91, 92 ticks after it was said,
 as the window has been open for a third of a second. The film's timer holds it at its first frame
 meanwhile. Its flags:
 
@@ -80,7 +92,8 @@ the dead channel's film plays with 13 (`0xD`).
 
 - In the view ahead while the window closes, the last of its shapes, the emblem.
 - A film that has stopped closes the window (and clears `0x00569974`, which nothing reads).
-- Once the line has started, a line that is over closes the window and stops the film. While it
+- Once the line has started, a line that is over closes the window and stops the film. OpenReliant
+  runs these two closes in the game frame, while the radio holds the window. While it
   plays, in the view ahead, the speaker's name at `(x + 1, y + 2)` and the film at
   `(x + 13, y + 19)`, each row moved right by a random share of `10 * hit_shake` pixels, drawn
   every pixel, the see-through colour among them. **Improvement:** OpenReliant draws every film at
