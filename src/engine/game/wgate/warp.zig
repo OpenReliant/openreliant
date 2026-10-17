@@ -586,25 +586,33 @@ fn radius(record: *const wgate.Record, progress: f32) f32 {
 /// The tunnel of `record` as Warp Out opens it, `progress` of the way: its depth grows by the
 /// square root of the progress (`warp_open_depth`, `0x0041DD50`) to as many spacings as it has
 /// rings, a capital ship's wider apart. Once past the mouth, its first ring stands at the mouth at
-/// the radius it opens from, and each ring the depth has reached stands at the depth, at the radius
-/// the opening has reached (`radius`); its last ring closes the end.
+/// the radius it opens from, and each ring the depth has not yet passed stands at the depth, at
+/// the radius the opening has reached (`radius`); its last ring closes the end. A ring the depth
+/// has passed stays where it was.
+///
+/// With the finer tunnel (`tunnel.Tunnels`), only the game's rings follow this rule. The rings
+/// drawn between them run straight from one to the next (`tunnel.Tunnel.fillBetween`), as the
+/// game draws the band between them.
 fn openingShape(record: *wgate.Record, capital: bool, progress: f32) void {
     const tunnel = &record.tunnel;
     const spacing = if (capital) capital_spacing else fighter_spacing;
     const depth = ease.out(0, @as(f32, @floatFromInt(tunnel.grid.rings)) * spacing, @max(progress, 0));
     if (depth <= mouth_depth) return;
-    for (tunnel.radii, tunnel.depths, 0..) |*r, *z, n| {
-        const ring = @as(f32, @floatFromInt(n)) / @as(f32, @floatFromInt(tunnel.split));
+    const passed = @trunc((depth - mouth_depth) / spacing);
+    for (0..tunnel.grid.rings + 1) |ring| {
+        const at = ring * tunnel.split;
         if (ring == 0) {
-            r.* = radius(record, 0);
-            z.* = mouth_depth;
-        } else if (ring >= @trunc((depth - mouth_depth) / spacing)) {
-            r.* = radius(record, progress);
-            z.* = depth;
+            tunnel.radii[at] = radius(record, 0);
+            tunnel.depths[at] = mouth_depth;
+        } else if (@as(f32, @floatFromInt(ring)) >= passed) {
+            tunnel.radii[at] = radius(record, progress);
+            tunnel.depths[at] = depth;
         }
     }
-    tunnel.radii[tunnel.radii.len - 1] = radius(record, progress) * end_radius;
-    tunnel.depths[tunnel.depths.len - 1] = tunnel.depths[tunnel.depths.len - 1 - tunnel.split];
+    const last = tunnel.radii.len - 1;
+    tunnel.radii[last] = radius(record, progress) * end_radius;
+    tunnel.depths[last] = tunnel.depths[last - tunnel.split];
+    tunnel.fillBetween();
 }
 
 /// `warp_ring_depth` (`0x0041DC60`): cosine easing with an 80% to 100% oscillation past 1.
@@ -731,6 +739,17 @@ test "warp rings wait for the opening depth and keep the final depth at the prec
     // retain their previous values; the update threshold depends on depth, not progress alone.
     try std.testing.expectEqual(before[6 * record.tunnel.split], record.tunnel.radii[6 * record.tunnel.split]);
     try std.testing.expect(record.tunnel.radii[7 * record.tunnel.split] != before[7 * record.tunnel.split]);
+    // The rings drawn between the game's run straight between them, so no band lies flat.
+    const split = record.tunnel.split;
+    try std.testing.expect(split > 1);
+    for (0..record.tunnel.grid.rings) |ring| {
+        const from = ring * split;
+        for (1..split) |step| {
+            const along = @as(f32, @floatFromInt(step)) / @as(f32, @floatFromInt(split));
+            try std.testing.expectApproxEqAbs(math.lerp(record.tunnel.depths[from], record.tunnel.depths[from + split], along), record.tunnel.depths[from + step], 1e-2);
+            try std.testing.expectApproxEqAbs(math.lerp(record.tunnel.radii[from], record.tunnel.radii[from + split], along), record.tunnel.radii[from + step], 1e-2);
+        }
+    }
     const last = record.tunnel.depths.len - 1;
     try std.testing.expectEqual(record.tunnel.depths[last - record.tunnel.split], record.tunnel.depths[last]);
     arrivalShape(record, false, 0.5);
