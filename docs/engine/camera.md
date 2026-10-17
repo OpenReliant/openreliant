@@ -70,11 +70,11 @@ OpenReliant keeps the setting with the camera, which `--view` sets. A ship that 
 
 ### What the game keeps
 
-The game reads the camera's view as well as the camera does: the mission ends by it ([Ejection](ejection.md#the-missions-end)), and the ships' cruise speed, the cloak and the missile lock depend on it. OpenReliant keeps the view, its object, when it switched, the lock and the missile the missile view follows in the game, with the player (`camera.Viewing`, `input.Player.viewing`), so a world that draws nothing keeps them just the same. Every switch goes through it (`camera.switchView`), and the camera, where one is drawn, follows: its bars, its chase and orbit, and where a cutaway puts it at once (`Camera.cutTo`). `mission_frame` keeps the view it ends with as the last frame's (`camera_view_last`, `0x0049346C`), which the missile lock and the display go by, and `mission_start` puts the view back in the player's cockpit (`0x00493522`).
+The game reads the camera's view as well as the camera does: the mission ends by it ([Ejection](ejection.md#the-missions-end)), and the ships' cruise speed, the cloak and the missile lock depend on it. OpenReliant keeps the view, its object, when it switched, the lock, the missile the missile view follows, and the director's shots and the ships they hold in the game, with the player (`camera.Viewing`, `input.Player.viewing`), so a world that draws nothing keeps them just the same. Every switch goes through it (`camera.switchView`), and the camera, where one is drawn, follows: its bars, its chase and orbit, and where a cutaway puts it at once (`Camera.cutTo`). `mission_frame` keeps the view it ends with as the last frame's (`camera_view_last`, `0x0049346C`), which the missile lock and the display go by, and `mission_start` puts the view back in the player's cockpit (`0x00493522`).
 
 The game's part of `camera_frame` runs once a game frame (`camera.gameFrame`): a view that can't go on goes back to the cockpit, forced. That is the chase or spectator view of an object with no stats, the target view with no target, and the missile view 150 ticks after its missile is gone (`0x00460C90`). Until the ship drops out of the bay, the bay view holds its time at nothing. The drawn frame only places the camera (`Camera.frame`), and holds it still where the view can't go on.
 
-The camera keys run in the game frame with the other controls ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)). Still in the drawn frame ([#947](https://github.com/OpenReliant/openreliant/issues/947)): the director's view, which flies the script's shots, posts their CameraReached events, and goes back to the cockpit as a shot ends.
+The camera keys run in the game frame with the other controls ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)), and so does the director's view: its shots, their CameraReached events, and the return to the cockpit as a shot ends ([The director's camera](director.md)). The drawn frame only places the camera along the shot.
 
 ## Cockpit
 
@@ -213,7 +213,8 @@ The Yamato's landing picks one of two views at random in the same way:
 
 View 13 shows the shots a mission's script stacks for [the director's camera](director.md), which
 flies the camera along the mission's curves or stands it at a ship. The first shot switches to it,
-held and forced, and the director moves the camera each frame. Once the director has gone back to
+held and forced, and the director moves the camera each frame (once a game frame in OpenReliant,
+`camera.gameFrame`). Once the director has gone back to
 view 0, `camera_frame` ends the shot and begins the next waiting. `camera_set_view` holds the shot's
 ships still as it switches to the view, and lets them go as it switches away
 ([The ships a shot holds](director.md#the-ships-a-shot-holds)).

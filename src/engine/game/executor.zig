@@ -1500,8 +1500,7 @@ fn followCurve(call: Call, ship: Ship, order: Order, offset: ?u32) void {
 /// `cmd_StartDirectorCam` (`0x004582E0`, command `0x10`): the director's shots waiting are
 /// dropped, and the camera takes this one at once (`stackDirectorCam`).
 fn startDirectorCam(call: Call, game: aigeneric.Context) void {
-    const view = game.world.camera orelse return;
-    view.shots.count = 0;
+    game.world.player.viewing.shots.count = 0;
     stackDirectorCam(call, game);
 }
 
@@ -1510,8 +1509,7 @@ fn startDirectorCam(call: Call, game: aigeneric.Context) void {
 /// the ship it stands at; the ship it looks at; its seconds; the ship its path rides along with;
 /// and the ship, flight group or squad it holds still while it is on screen.
 fn stackDirectorCam(call: Call, game: aigeneric.Context) void {
-    const view = game.world.camera orelse return;
-    camera.shots.stack(game.world, view, directorShot(call.machine, call.args));
+    camera.shots.stack(game.world, directorShot(call.machine, call.args));
 }
 
 /// The shot `StackDirectorCam`'s arguments `args` give. The first names a curve unless it names one
@@ -2691,9 +2689,9 @@ test "the director's commands stack shots, wait for them and stop them" {
     defer game.deinit();
     const world = &game.mission;
     const fixture = &game.fixture;
-    var view: camera.Camera = .{};
-    var ctx = game.spawning();
-    ctx.world.camera = &view;
+    // Nothing is drawn: the director's shots run in the game.
+    const ctx = game.spawning();
+    const viewing = &ctx.world.player.viewing;
     try game.start(ctx);
 
     // The curve's points are made as markers, the start part having left them.
@@ -2701,22 +2699,21 @@ test "the director's commands stack shots, wait for them and stop them" {
     for (all.slots[1..3]) |slot| try std.testing.expectEqual(gameobj.Type.of(.marker), slot.object.type);
     // The shot on screen, the flight group held, and the script waiting for it.
     try std.testing.expectEqual(camera.View.director, ctx.world.view());
-    try std.testing.expectEqual(3, view.director.tracked);
-    try std.testing.expectEqual(100, view.director.total);
+    try std.testing.expectEqual(3, viewing.director.tracked);
+    try std.testing.expectEqual(100, viewing.director.total);
     for ([_]u16{ 0, 3 }) |ship| try std.testing.expect(all.slots[ship].object.flags.jumping);
     fixture.second();
     try std.testing.expectEqual(0, fixture.global(0));
-    const seen: camera.Subject = .{ .position = @splat(0), .orientation = @import("../surrender/math.zig").identity };
-    world.clock.drawn_duration = 100;
-    view.frame(.{ .object = seen, .player = seen, .ticks = 100, .game = ctx.world, .viewing = &ctx.world.player.viewing });
+    world.clock.frame_duration = 100;
+    camera.gameFrame(ctx.world);
     try std.testing.expectEqual(camera.View.cockpit, ctx.world.view());
     for ([_]u16{ 0, 3 }) |ship| try std.testing.expect(!all.slots[ship].object.flags.jumping);
     // Over, the script runs on: the next shot begins and is stopped, and stays stacked.
     fixture.second();
     try std.testing.expectEqual(1, fixture.global(0));
     try std.testing.expectEqual(camera.View.cockpit, ctx.world.view());
-    try std.testing.expectEqual(1, view.shots.count);
-    try std.testing.expectEqual(camera.shots.Shot.Path{ .ship = 3 }, view.shots.first().?.path.?);
+    try std.testing.expectEqual(1, viewing.shots.count);
+    try std.testing.expectEqual(camera.shots.Shot.Path{ .ship = 3 }, viewing.shots.first().?.path.?);
 }
 
 /// The radio for the tests of its commands: a line, `MS1_BAN_001`, and the static's film in

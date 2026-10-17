@@ -426,11 +426,11 @@ pub const Landing = union(enum) {
 };
 
 /// What the camera views, which the game keeps in `camera_set_view`'s globals: the view, the object
-/// it shows, since when, and whether a script holds it. The game goes by it as well as the camera:
-/// the mission ends once the player's end has been watched long enough (`main.missionOver`), and
-/// the ships' cruise speed, the cloak and the missile lock depend on the view. The camera
-/// (`Camera`) shows what it says. A world that draws nothing keeps it just the same
-/// (`input.Player.viewing`).
+/// it shows, since when, and whether a script holds it, with the director's shots and the ships
+/// they hold. The game goes by it as well as the camera: the mission ends once the player's end has
+/// been watched long enough (`main.missionOver`), and the ships' cruise speed, the cloak and the
+/// missile lock depend on the view. The camera (`Camera`) shows what it says. A world that draws
+/// nothing keeps it just the same (`input.Player.viewing`).
 pub const Viewing = struct {
     view: View = .cockpit,
     /// The object the view shows (`camera_object`, `0x00539A8C`).
@@ -451,6 +451,16 @@ pub const Viewing = struct {
     /// back to the cockpit (`gameFrame`).
     missile: u8 = 0,
     missile_gone: bool = false,
+    /// The director's shots waiting, the first on screen (`shots.Shots`), and what the director
+    /// keeps of that one (`director.Director`).
+    shots: shots.Shots = .{},
+    director: director.Director = .{},
+    /// The ships the director's shot on screen holds still (`camera_held_kind`, `0x00539A30`, and
+    /// `camera_held_index`, `0x00539A40`), and those the first shot waiting holds, as the view
+    /// takes it (`camera_shot_hold_kind`, `0x00539A5C`, and `camera_shot_hold_index`,
+    /// `0x00539938`).
+    held: ?shots.Held = null,
+    holding: ?shots.Held = null,
 
     /// What a switch of view goes by: the gates, whose worm the player's ship may be riding, and
     /// the missiles in flight, which the missile view follows; null where there are none.
@@ -468,7 +478,8 @@ pub const Viewing = struct {
     /// shows, `lock` keeping the camera keys off it. Refused while the player's ship rides the worm
     /// between gates, forced or not (`wgate.ridingWorm`, `0x0045F1B0`), and while the camera is
     /// locked, unless `force`. The missile view follows the next missile in flight, from the one it
-    /// last followed, that `object` launched; with none, it is refused.
+    /// last followed, that `object` launched; with none, it is refused. Out of the director's view,
+    /// the ships its shot held go (`shots.Held.hold`), and into it, the shot's own are held.
     pub fn set(viewing: *Viewing, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Bounds) bool {
         if (wgate.ridingWorm(by.gates)) return false;
         if (viewing.locked and !force) return false;
@@ -477,11 +488,16 @@ pub const Viewing = struct {
             viewing.missile = nextMissile(records, viewing.missile, object orelse return false) orelse return false;
             viewing.missile_gone = false;
         }
+        if (viewing.view == .director) if (viewing.held) |held| held.hold(false);
         viewing.view = view;
         viewing.object = object;
         viewing.locked = lock;
         viewing.switched = now;
         viewing.lasting = false;
+        if (view == .director) {
+            viewing.held = viewing.holding;
+            if (viewing.held) |held| held.hold(true);
+        }
         return true;
     }
 
@@ -501,9 +517,10 @@ pub fn switchView(world: gameobj.World, view: View, object: ?u16, lock: bool, fo
 /// Switches `viewing` (`Viewing.set`), and `drawn` with it where there is a camera
 /// (`Camera.cutTo`).
 pub fn switchViewing(viewing: *Viewing, drawn: ?*Camera, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Viewing.Bounds) bool {
-    const before = viewing.*;
+    const from = viewing.view;
+    const from_object = viewing.object;
     if (!viewing.set(view, object, lock, force, now, by)) return false;
-    if (drawn) |shown| shown.cutTo(before, viewing.*);
+    if (drawn) |shown| shown.cutTo(from, from_object, viewing);
     return true;
 }
 
@@ -574,15 +591,6 @@ pub const Camera = struct {
     hat_glancing: bool = false,
     /// The missiles in flight, which the missile view follows one of (`Viewing.missile`).
     missiles: ?*const missiles.Missiles = null,
-    /// The director's shots waiting, and what the director keeps of the one on screen.
-    shots: shots.Shots = .{},
-    director: director.Director = .{},
-    /// The ships the director's shot on screen holds still (`camera_held_kind`, `0x00539A30`, and
-    /// `camera_held_index`, `0x00539A40`), and those the first shot waiting holds, as the view
-    /// takes it (`camera_shot_hold_kind`, `0x00539A5C`, and `camera_shot_hold_index`,
-    /// `0x00539938`).
-    held: ?shots.Held = null,
-    holding: ?shots.Held = null,
     /// Set as the view switches, which resets the star streaks (`backdrop_reset_streaks`), so that
     /// the frame drawn next draws none, even where the view switches back to what it was.
     cut: bool = false,
@@ -598,13 +606,11 @@ pub const Camera = struct {
     /// Bars grow this share of the screen a tick, times their speed (`camera_frame`, `0x004DC418`).
     pub const bar_rate: f32 = 0.001;
 
-    /// The camera's part of a switch of view (`camera_set_view`), from `before` to `after`
-    /// (`switchView`): it has the stars draw no streaks next frame, and slides the bars in for a
-    /// letterboxed view or takes them away for another. Out of the director's view, the ships its
-    /// shot held go (`shots.Held.hold`), and into it, the shot's own are held.
-    pub fn cutTo(camera: *Camera, before: Viewing, after: Viewing) void {
+    /// The camera's part of a switch of view (`camera_set_view`), from view `from` of `from_object`
+    /// to what `after` views (`switchView`): it has the stars draw no streaks next frame, and
+    /// slides the bars in for a letterboxed view or takes them away for another.
+    pub fn cutTo(camera: *Camera, from: View, from_object: ?u16, after: *const Viewing) void {
         const view = after.view;
-        if (before.view == .director) if (camera.held) |held| held.hold(false);
         camera.cut = true;
         if (view.letterboxed()) {
             camera.bar_speed = 1;
@@ -615,17 +621,13 @@ pub const Camera = struct {
         // The subtarget's parts are picked out in view 0 and put back in any other (`0x0045F42D`,
         // `0x0045F397`).
         if (camera.subtarget) |sub| if (view == .cockpit) sub.shown.pick(sub.all) else sub.shown.clear(sub.all);
-        if (view == .chase and (before.view != .chase or before.object != after.object)) {
+        if (view == .chase and (from != .chase or from_object != after.object)) {
             camera.chase.distance = Chase.start_distance;
         }
         switch (view) {
             .cockpit => if (camera.cockpit_mode == .chase) camera.chase.resetTurns(),
             .chase, .spectator => camera.chase.resetTurns(),
             .target, .external => camera.orbit = .{},
-            .director => {
-                camera.held = camera.holding;
-                if (camera.held) |held| held.hold(true);
-            },
             else => {},
         }
     }
@@ -878,15 +880,7 @@ pub const Camera = struct {
             },
             .jump_in_ahead => {},
             .jump_in_aside => camera.place = lookingAt(camera.place.position, world.player.position),
-            // The director moves the camera on; once its shot is over, and the view with it, the
-            // next shot waiting begins.
-            .director => if (world.game) |game| {
-                director.frame(game, camera, world.ahead);
-                if (game.player.viewing.view != .director) {
-                    camera.shots.pop();
-                    shots.start(game, camera);
-                }
-            },
+            .director => if (world.game) |game| director.show(game, camera, world.viewing.director, world.ahead),
             .watch => camera.place = lookingAt(camera.place.position, world.object.position),
             .watch_marker => if (world.marker) |marker| {
                 camera.place = lookingAt(camera.place.position, marker);
@@ -926,7 +920,8 @@ const missile_linger = 150;
 /// player's cockpit, forced (`switchView`). Those are the chase and spectator views of an object
 /// with no stats, the target view with no target, and the missile view of an object with no stats
 /// or once its missile has been gone `missile_linger` ticks. Until the player's ship drops out of
-/// its carrier's bay, the bay view holds its time at nothing (`launch.dropping`).
+/// its carrier's bay, the bay view holds its time at nothing (`launch.dropping`). In the director's
+/// view, the shot runs on, and the next waiting begins once it is over.
 pub fn gameFrame(world: gameobj.World) void {
     const viewing = &world.player.viewing;
     const all = world.objects;
@@ -947,6 +942,16 @@ pub fn gameFrame(world: gameobj.World) void {
         .launch_bay => back: {
             if (!launch.dropping(all, all.player)) viewing.switched = now;
             break :back false;
+        },
+        // The director's shot runs on (`director.step`); once it is over, and the view with it,
+        // the next shot waiting begins.
+        .director => {
+            director.step(world);
+            if (viewing.view != .director) {
+                viewing.shots.pop();
+                shots.start(world);
+            }
+            return;
         },
         else => false,
     };
