@@ -920,7 +920,7 @@ pub fn end(world: gameobj.World, at: u8) void {
     missile.ending = true;
     hooks.tell(world, .missile_removed, .{ .missile = .of(at), .launcher = if (missile.launcherIn(all)) |slot| .of(slot) else null });
     const object = missile.object();
-    if (object.sound_voice.index()) |voice| if (world.hearing) |hearing| hearing.sound.end3D(voice);
+    if (world.hearing) |hearing| if (hearing.sound.missileVoice(at, all.missiles.reuses[at])) |voice| hearing.sound.end3D(voice);
     if (missile.type.base().shockwave()) |kind| shockwave_mod.setOff(world, missile.slot.drawn, .{
         .kind = kind,
         .size = end_wave_size,

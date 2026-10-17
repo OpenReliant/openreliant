@@ -601,10 +601,6 @@ fn controlsFrame(orders: aigeneric.Context) void {
 /// and the frame's sound, heard from where the camera now is: the fades `tick_timer` steps, the
 /// music waiting its turn, the positional sounds gathered, and the 3D sounds placed again.
 /// OpenReliant's: the effects playing turn the controller's motors (`input.force`).
-///
-/// The sound works on the game's objects rather than the copy, since it still writes into them
-/// (`GameObject.sound_voice`, `flyby_at`)
-/// ([#1251](https://github.com/OpenReliant/openreliant/issues/1251)).
 pub fn viewFrame(drawing: Drawing) void {
     const world = drawing.orders.world;
     var shown = world;
@@ -648,7 +644,7 @@ pub fn viewFrame(drawing: Drawing) void {
     if (world.hearing) |hearing| {
         hearing.sound.timerTick(clock.game_ticks);
         hearing.sound.surround(world.player.showing.surroundings(viewing.view));
-        if (hearing.sound.stdsmp) |bank| hearing.sound.frame(bank, hearing.scene(world));
+        if (hearing.sound.stdsmp) |bank| hearing.sound.frame(bank, hearing.scene(shown));
     }
     devices.joystick.rumble(drawing.forces.motors(clock.frame_start));
 }

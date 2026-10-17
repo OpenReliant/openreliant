@@ -1107,7 +1107,8 @@ pub const GameObject = extern struct {
     /// Whether it is to be sent home for its friendly fire (`friendly_fire.sendHome`).
     sent_home: SentHome,
     /// The frame (`Clock.frame_start`) it was last heard flying past the camera
-    /// (`sound3d.engineUpdate`).
+    /// (`sound3d.engineUpdate`). OpenReliant's sound keeps it (`hog_snd.Sound.flybys`), so that
+    /// the sound writes nothing into the objects; this stays 0.
     flyby_at: i32,
     /// Orders on its stack.
     order_count: i16,
@@ -1205,7 +1206,8 @@ pub const GameObject = extern struct {
     /// How far harm reaches it (`SetInvulnerability`).
     invulnerable: Invulnerability,
     /// The 3D voice following it: `sound_3d_voice_end` sets it back to none, and the missiles'
-    /// code reads it (`0x00495CF0`).
+    /// code reads it (`0x00495CF0`). OpenReliant's sound keeps it (`hog_snd.Sound.missile_voices`),
+    /// so that the sound writes nothing into the objects; this stays none.
     sound_voice: Voice,
 
     /// The names of the script commands that set a bit are the developers' own.

@@ -378,7 +378,7 @@ fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Pla
     var velocity: Vector = @splat(0);
     var direction: ?Vector = null;
     var radius: f32 = 0;
-    var followed: ?*gameobj.GameObject = null;
+    var followed: ?usize = null;
     var min_distance = definition.min_distance;
     switch (definition.follows) {
         .shot => {
@@ -396,12 +396,13 @@ fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Pla
         // Where the missile goes next, facing the way it flies, still; or moving with it, and
         // its voice its own.
         .missile => {
-            const missile = scene.objects.missiles.get(owner orelse return null) orelse return null;
+            const record = owner orelse return null;
+            const missile = scene.objects.missiles.get(record) orelse return null;
             position = missile.slot.object.nextPosition();
             direction = math.normalize(missile.slot.object.velocity.vector());
             if (sound.missile_sound == .follows) {
                 velocity = missile.slot.object.velocity.vector();
-                followed = &missile.slot.object;
+                followed = record;
                 min_distance *= followed_missile_reach;
             }
         },
@@ -487,7 +488,7 @@ fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Pla
     };
     driver.set3DSamplePlaybackRate(voice.sample, scaledRate(rate, sound.effects.rate_scales[v]));
     driver.start3DSample(voice.sample);
-    if (followed) |object| object.sound_voice = .of(v);
+    if (followed) |record| sound.missile_voices[record] = .{ .value = v, .reuse = scene.objects.missiles.reuses[record] };
     return v;
 }
 
@@ -706,7 +707,8 @@ fn flybys(sound: *Sound, scene: Scene) void {
         if (object.flags.disabled or object.flags.hidden or object.flags.exploding) continue;
         if (!(object.throttle >= flyby_throttle)) continue;
         const gap: i32 = if (own) own_flyby_gap else flyby_gap;
-        if (scene.clock.frame_start < object.flyby_at + gap) continue;
+        const reuse = all.reuses[index];
+        if (scene.clock.frame_start < sound.flybyAt(index, reuse) + gap) continue;
         const velocity = object.velocity.vector();
         if (!(math.length(velocity) >= flyby_speed)) continue;
         const cosine = math.dot(velocity, looking) / @sqrt(math.dot(velocity, velocity) * math.dot(looking, looking));
@@ -714,7 +716,7 @@ fn flybys(sound: *Sound, scene: Scene) void {
         if (cosine > (if (hostile) hostile_flyby_cosine else friendly_flyby_cosine)) continue;
         // In a multiplayer game every ship sounds as a friendly one; OpenReliant has none.
         const which: sounds.Sound = if (hostile) .pass01 else .pass02;
-        if (play(sound, scene, null, null, @as(u16, @intCast(index)), which, 1, .flyby) != null) object.flyby_at = scene.clock.frame_start;
+        if (play(sound, scene, null, null, @as(u16, @intCast(index)), which, 1, .flyby) != null) sound.flybys[index] = .{ .value = scene.clock.frame_start, .reuse = reuse };
     }
 }
 
@@ -856,7 +858,6 @@ test MissileSound {
     var armed: missiles.testing.Armed = undefined;
     try armed.init(std.testing.allocator);
     defer armed.deinit();
-    sound.objects = armed.mission.objects;
     const scene = testing.scene(&armed.mission);
     const player = try armed.add(.friendly, @splat(0));
     missiles.launch(armed.mission.world(), player, 0, .none);
@@ -869,20 +870,24 @@ test MissileSound {
 
     // Following, the voice is the missile's, carries farther, and moves with it.
     const v = play(sound, scene, null, null, 0, .missile01, 1, .guaranteed).?;
-    try std.testing.expectEqual(v, missile.slot.object.sound_voice.index());
+    const reuse = armed.mission.objects.missiles.reuses[0];
+    try std.testing.expectEqual(v, sound.missileVoice(0, reuse));
     const reach = speaker.mixer.samples_3d[@backingInt(sound.voices_3d[v].sample)].state.placing.min_distance;
     try std.testing.expectApproxEqAbs(sounds.definitions[@backingInt(sounds.Sound.missile01)].min_distance * followed_missile_reach * hog_snd.distance_scale, reach, 1e-6);
     missile.slot.drawn.position = .{ 0, 0, 5000 };
     sound.update3D(scene);
     try std.testing.expectApproxEqAbs(5000 * hog_snd.distance_scale, placed(&speaker.mixer, sound.voices_3d[v])[2], 1e-6);
-    // Ended, the missile has no voice.
+    // Ended, the missile has no voice; nor has a later missile in its record.
     sound.end3D(v);
-    try std.testing.expectEqual(null, missile.slot.object.sound_voice.index());
+    try std.testing.expectEqual(null, sound.missileVoice(0, reuse));
+    const again = play(sound, scene, null, null, 0, .missile01, 1, .guaranteed).?;
+    try std.testing.expectEqual(null, sound.missileVoice(0, reuse + 1));
+    sound.end3D(again);
 
     // Staying, the missile has no voice, and the sound keeps where it started.
     sound.missile_sound = .stays;
     const still = play(sound, scene, null, null, 0, .missile01, 1, .guaranteed).?;
-    try std.testing.expectEqual(null, missile.slot.object.sound_voice.index());
+    try std.testing.expectEqual(null, sound.missileVoice(0, reuse));
     const started = placed(&speaker.mixer, sound.voices_3d[still]);
     missile.slot.drawn.position = .{ 0, 0, 20000 };
     sound.update3D(scene);
@@ -1135,9 +1140,12 @@ test "a fighter flying past the camera is heard" {
     object.side = .hostile;
     mission.clock.frame_start = 1000;
     engineUpdate(sound, scene);
-    try std.testing.expectEqual(1000, object.flyby_at);
+    const reuse = mission.objects.reuses[other];
+    try std.testing.expectEqual(1000, sound.flybyAt(other, reuse));
     // Not again for 500 ticks.
-    object.flyby_at = 900;
+    sound.flybys[other] = .{ .value = 900, .reuse = reuse };
     engineUpdate(sound, scene);
-    try std.testing.expectEqual(900, object.flyby_at);
+    try std.testing.expectEqual(900, sound.flybyAt(other, reuse));
+    // An object new to the slot hasn't been heard yet.
+    try std.testing.expectEqual(0, sound.flybyAt(other, reuse + 1));
 }
