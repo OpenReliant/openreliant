@@ -3773,6 +3773,10 @@ pub const State = struct {
     /// The object that stood under the reticle as the targeting keys were last read
     /// (`0x00566664`), which TARGET UNDER RETICULE takes.
     under_reticle: ?u16 = null,
+    /// Where the reticle looks as the last frame was drawn, which the targeting keys find the
+    /// object under the reticle by (`Reticle`); null before the first frame, and where nothing is
+    /// drawn.
+    reticle: ?Reticle = null,
     /// The player's missile lock (`main.cpp`'s), whose count dims the target's brackets and
     /// shortens the lead cursor's line by `lock_shortening` for each short of 100.
     lock: missile_lock.Lock = .{},
@@ -4264,12 +4268,21 @@ pub fn pixelOf(at: Point) ?[2]i32 {
 /// it as under the reticle, in the display's own pixels.
 pub const reticle_reach: i32 = 0x20;
 
+/// Where the reticle looks: the scene as it was drawn, and how much larger than its own art the
+/// display is drawn on it (`UiScale.of`).
+pub const Reticle = struct {
+    sight: Sight,
+    scale: f32,
+};
+
 /// The first object other than the player's ship that stands in front of the camera within
-/// `reticle_reach` of the middle of the screen, drawn `scale` times its size. One whose pixel
-/// lies beyond the screen's reach (`pixelOf`), as one just in front of the camera's plane, is not.
-pub fn underReticle(all: *const create.Objects, sight: Sight, scale: f32) ?u16 {
+/// `reticle_reach` of the middle of the screen, the display drawn at the reticle's scale. One
+/// whose pixel lies beyond the screen's reach (`pixelOf`), as one just in front of the camera's
+/// plane, is not.
+pub fn underReticle(all: *const create.Objects, reticle: Reticle) ?u16 {
+    const sight = reticle.sight;
     const middle = sight.middle();
-    const reach = pixels(reticle_reach, scale);
+    const reach = pixels(reticle_reach, reticle.scale);
     for (all.slots[0..all.count], 0..) |*slot, index| {
         if (index == all.player or !slot.object.type.hasStats()) continue;
         const seen = sight.view(slot.drawn.position);
@@ -4285,13 +4298,8 @@ pub const Keys = struct {
     devices: *input.Devices,
     player: *input.Player,
     all: *create.Objects,
-    /// The scene as it was last drawn, which finds the object under the reticle; null before the
-    /// first frame.
-    sight: ?Sight,
     /// Last frame's view (`camera_view_last`).
     last_view: camera.View,
-    /// How much larger than its own art the display is drawn (`UiScale.of`).
-    scale: f32,
     multiplayer: bool,
     /// The world the keys' sounds are heard in; null where nothing is heard.
     world: ?gameobj.World = null,
@@ -4335,7 +4343,7 @@ pub const Keys = struct {
 pub fn targetKeys(state: *State, keys: Keys) void {
     const all = keys.all;
     const devices = keys.devices;
-    state.under_reticle = if (keys.sight) |sight| underReticle(all, sight, keys.scale) else null;
+    state.under_reticle = if (state.reticle) |reticle| underReticle(all, reticle) else null;
     if (state.windows.status.get(.comms).phase == .open) if (keys.world) |world| {
         keys.player.menu.run(.{ .world = world, .devices = devices });
     };
@@ -4564,14 +4572,12 @@ const TargetingTest = struct {
         return index;
     }
 
-    fn keys(test_: *TargetingTest, sight: ?Sight) Keys {
+    fn keys(test_: *TargetingTest) Keys {
         return .{
             .devices = &test_.devices,
             .player = &test_.mission.player,
             .all = test_.mission.objects,
-            .sight = sight,
             .last_view = .cockpit,
-            .scale = 1,
             .multiplayer = false,
         };
     }
@@ -4588,7 +4594,8 @@ const TargetingTest = struct {
         };
         keyboard.down[bound.key] = true;
         if (modifier) |held| keyboard.down[held] = true;
-        targetKeys(&test_.state, test_.keys(sight));
+        test_.state.reticle = if (sight) |drawn| .{ .sight = drawn, .scale = 1 } else null;
+        targetKeys(&test_.state, test_.keys());
         keyboard.down[bound.key] = false;
         if (modifier) |held| keyboard.down[held] = false;
         keyboard.read();
@@ -6437,10 +6444,10 @@ test "an object a hair in front of the camera's plane stands far from the reticl
     const all = t.mission.objects;
     _ = try t.add(.of(.sabre), .{ 1000, 1000, 0.0001 });
     try std.testing.expectEqual(null, testSight().pixel(testSight().view(.{ 1000, 1000, 0.0001 })));
-    try std.testing.expectEqual(null, underReticle(all, testSight(), 1));
+    try std.testing.expectEqual(null, underReticle(all, .{ .sight = testSight(), .scale = 1 }));
     // One dead ahead after it is still found.
     const ahead = try t.add(.of(.sabre), .{ 0, 0, 5000 });
-    try std.testing.expectEqual(ahead, underReticle(all, testSight(), 1).?);
+    try std.testing.expectEqual(ahead, underReticle(all, .{ .sight = testSight(), .scale = 1 }).?);
 }
 
 test Beeps {

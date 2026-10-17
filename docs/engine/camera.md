@@ -74,7 +74,7 @@ The game reads the camera's view as well as the camera does: the mission ends by
 
 The game's part of `camera_frame` runs once a game frame (`camera.gameFrame`): a view that can't go on goes back to the cockpit, forced. That is the chase or spectator view of an object with no stats, the target view with no target, and the missile view 150 ticks after its missile is gone (`0x00460C90`). Until the ship drops out of the bay, the bay view holds its time at nothing. The drawn frame only places the camera (`Camera.frame`), and holds it still where the view can't go on.
 
-Still in the drawn frame ([#947](https://github.com/OpenReliant/openreliant/issues/947)): the camera keys, and the director's view, which flies the script's shots, posts their CameraReached events, and goes back to the cockpit as a shot ends.
+The camera keys run in the game frame with the other controls ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)). Still in the drawn frame ([#947](https://github.com/OpenReliant/openreliant/issues/947)): the director's view, which flies the script's shots, posts their CameraReached events, and goes back to the cockpit as a shot ends.
 
 ## Cockpit
 

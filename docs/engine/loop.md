@@ -56,16 +56,15 @@ Not yet: the countdown that `game_tick` steps once a second, and sound streaming
 
 OpenReliant splits the frame in two:
 
-- **Game frames.** `main.gameFrames` runs the frame's game work (`main.missionFrame`) once a tick, right after the tick, the way the game runs it on a screen drawn 100 times a second. `frame_start` and `frame_duration` are the game frame's, so `frame_duration` is one tick. Each game frame frames the objects at `simulation_counter / 4` of the step, without the wall clock ([Drawing between steps](objects.md#drawing-between-steps)).
-- **Drawn frames.** Once a drawn frame, the controls, the camera, the sound and the display run, timed by the ticks since the drawn frame before (`Clock.drawBegin`, `drawn_start` and `drawn_duration`). Each drawn frame keeps the frames the game frame left, and puts them back once it is drawn, along with whatever drawing changed in them, such as the planets the atmospheres turn (`main.DrawnPlaces`). With smooth motion, it places the objects and the missiles as far on as the clock has run past the tick in between. The missiles' trails also run here, so that each lays its newest ring where its missile is drawn.
+- **Game frames.** `main.gameFrames` runs the frame's game work (`main.missionFrame`) once a tick, right after the tick, the way the game runs it on a screen drawn 100 times a second. `frame_start` and `frame_duration` are the game frame's, so `frame_duration` is one tick. Each game frame frames the objects at `simulation_counter / 4` of the step, without the wall clock ([Drawing between steps](objects.md#drawing-between-steps)). It reads the controls first, as `frame_controls` (`0x00414060`) does: the camera keys, the targeting keys and the frame keys, so a key pressed between game frames is read in the next. The targeting keys find the object under the reticle in the scene as it was last drawn (`hud.State.reticle`).
+- **Drawn frames.** Once a drawn frame, the camera, the sound and the display run, timed by the ticks since the drawn frame before (`Clock.drawBegin`, `drawn_start` and `drawn_duration`). Each drawn frame keeps the frames the game frame left, and puts them back once it is drawn, along with whatever drawing changed in them, such as the planets the atmospheres turn (`main.DrawnPlaces`). With smooth motion, it places the objects and the missiles as far on as the clock has run past the tick in between. The missiles' trails also run here, so that each lays its newest ring where its missile is drawn.
 
 So the game frames' work plays the same way at any frame rate. A run paced one tick per drawn frame, as a screenshot is, plays as before.
 
-Some game work still runs once a drawn frame, until it moves to the game frames ([#947](https://github.com/OpenReliant/openreliant/issues/947)):
-
-- the controls frame: the camera keys, the targeting keys and the frame keys;
-- the director's view, which flies the script's shots, posts their CameraReached events, and goes
-  back to the cockpit as a shot ends ([Camera](camera.md#what-the-game-keeps)).
+Some game work still runs once a drawn frame, until it moves to the game frames
+([#947](https://github.com/OpenReliant/openreliant/issues/947)): the director's view, which flies
+the script's shots, posts their CameraReached events, and goes back to the cockpit as a shot ends
+([Camera](camera.md#what-the-game-keeps)).
 
 ## Random numbers
 

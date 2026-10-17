@@ -1245,22 +1245,18 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         if (devices.keyboard.pressed(@backingInt(test_keys.wing_key), .none, true)) test_keys.bringWing(orders);
                     }
 
-                    const controls: game.main.Controls = .{
+                    const drawing: game.main.Drawing = .{
                         .orders = orders,
                         .devices = &devices,
                         .camera = &view,
                         .display = &display.state,
-                        .sight = display.sight,
-                        .screen = display.screen,
-                        .ui_scale = display.ui_scale,
                         .cockpit = if (cockpit.shown) |*shown| shown else null,
                         .forces = &force_feedback,
                         .random = &drawn_random,
                         .smooth_motion = smooth_motion,
                     };
-                    game.main.controlsFrame(controls);
                     // Foster's last stand, once the script has asked for it, which the game plays
-                    // as its targeting keys end.
+                    // as its targeting keys end: here, after the game frames that read them.
                     if (display.state.fosters_last_stand) {
                         if (!try movies.fostersLastStand(play.number, &clock, sound, &radio)) return;
                         display.state.fosters_last_stand = false;
@@ -1282,7 +1278,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     // With smooth motion, what moves is drawn as far on as the clock has run past
                     // the tick, from here until the frame is drawn, and the camera follows it there.
                     drawn_places.place(objects, .of(&clock, smooth_motion, options.riders), clock.frame_start);
-                    game.main.viewFrame(controls);
+                    game.main.viewFrame(drawing);
                     if (launch_step != .under_way) watch.frame(orders.world);
                 }
             }
@@ -1340,7 +1336,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             backing.place(context.projection, view.place, display.ui_scale.of(size), display.placements.get(.radar));
             display.device = gpu.interface();
             display.screen = size;
-            display.sight = .{ .place = view.place, .projection = context.projection };
+            display.state.reticle = .{ .sight = .{ .place = view.place, .projection = context.projection }, .scale = display.ui_scale.of(size) };
             display.cockpit_mode = view.cockpit_mode;
             try game.main.drawFrame(arena, frame_arena.allocator(), &scene, &context, .{
                 .objects = objects,
@@ -2336,9 +2332,6 @@ const Display = struct {
     ui_scale: game.hud.UiScale,
     /// What the cockpit view shows, which leaves the reticle out of the chase view.
     cockpit_mode: camera.CockpitMode = .cockpit,
-    /// The scene as it is drawn, which the targeting keys find the object under the reticle by
-    /// and the target is drawn over; null until the first frame.
-    sight: ?game.hud.Sight = null,
     /// Where the line starts that places the marker for a target out of sight.
     edge_line: game.hud.EdgeLine,
     /// The objects, whose player's ship the display shows, and the mission being played, whose
@@ -2395,7 +2388,7 @@ const Display = struct {
         }
         try display.drawDisplay();
         if (display.presentation) |scripts| {
-            try scripts.draw(.hud, display.device, display.sight);
+            try scripts.draw(.hud, display.device, display.sight());
             if (scripts.runtime.registries.selected_screen != null) try scripts.draw(.ui, display.device, null);
         }
     }
@@ -2415,13 +2408,19 @@ const Display = struct {
         });
     }
 
+    /// The scene as it was last drawn, which the target is drawn over; null until the first frame
+    /// (`game.hud.State.reticle`).
+    fn sight(display: *const Display) ?game.hud.Sight {
+        return if (display.state.reticle) |reticle| reticle.sight else null;
+    }
+
     fn drawDisplay(display: *Display) !void {
         try game.hud.draw(&display.state, &display.resources, .{
             .gpa = display.gpa,
             .device = display.device,
             .screen = display.screen,
             .ui_scale = display.ui_scale,
-            .sight = display.sight,
+            .sight = display.sight(),
             .all = display.objects,
             .player = display.player,
             .clock = display.clock,
