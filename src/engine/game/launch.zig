@@ -378,7 +378,7 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
 /// launch's `views`, and the player's ship shows everything again.
 pub fn endForPlayer(world: gameobj.World, index: u16, views: []const camera.View) void {
     if (world.display) |display| display.caption.stop();
-    if (world.camera) |view| view.cockpit_mode = view.setting.mode();
+    world.player.viewing.cockpit_mode = world.player.viewing.cockpit_setting.mode();
     if (std.mem.indexOfScalar(camera.View, views, world.player.viewing.view) != null) _ = camera.switchView(world, .cockpit, index, false, true);
     world.player.showing = .everything;
 }

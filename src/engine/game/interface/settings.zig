@@ -306,9 +306,9 @@ pub const Own = struct {
 
 /// The game's video settings, where the driver keeps them, which the video changes.
 pub const Video = struct {
-    /// The camera, whose cockpit setting is the options' (`cockpit_mode_setting`), which a
-    /// mission starts in.
-    camera: *camera.Camera,
+    /// What the camera views, whose cockpit setting is the options' (`cockpit_mode_setting`),
+    /// which a mission starts in.
+    viewing: *camera.Viewing,
     /// Surrender's state, whose brightness (`sr + 0x15FA`) the device's gamma ramp follows.
     surrender: *srapi.Context,
     /// Whether the device has a gamma ramp (`sr + 0x38` bit 0), without which the brightness is

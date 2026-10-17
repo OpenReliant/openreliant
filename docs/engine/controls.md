@@ -415,7 +415,7 @@ update of the Player Control order (`player_controls`, `0x00413410`), once a fra
 [`input/power.zig`](../../src/engine/input/power.zig) ports the power distribution and the shield
 balance: `reach`, `shares`, `distribute`, `choose` for the power keys, `move` and
 `balanceShields`.
-`Camera.frameControls` ports the hat. `load_key_config` is ported in
+`camera.Viewing.frameControls` ports the hat. `load_key_config` is ported in
 [`game/interface.zig`](../../src/engine/game/interface.zig), with the fixes above, and with it
 `save_key_config`, `control_binding_find` and `key_config_defaults`; the controls screen that sets
 them is the settings screen ([Front end](front-end.md#controls));

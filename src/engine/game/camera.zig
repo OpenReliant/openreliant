@@ -224,14 +224,14 @@ pub const View = enum(u8) {
     }
 };
 
-/// What the cockpit view shows (`cockpit_mode`, `0x00539A9C`). The cockpit key cycles it while
-/// that view is up; the options set it at the start of a mission.
 /// Whether a view puts the camera in its ship's cockpit: one of the views from the cockpit, save
 /// the view ahead in the chase mode.
 pub fn inCockpit(view: View, mode: CockpitMode) bool {
     return view.fromCockpit() and !(view == .cockpit and mode == .chase);
 }
 
+/// What the cockpit view shows (`cockpit_mode`, `0x00539A9C`). The cockpit key cycles it while
+/// that view is up; the options set it at the start of a mission.
 pub const CockpitMode = enum(u2) {
     /// From the eye, with no cockpit drawn.
     open = 0,
@@ -427,10 +427,16 @@ pub const Landing = union(enum) {
 
 /// What the camera views, which the game keeps in `camera_set_view`'s globals: the view, the object
 /// it shows, since when, and whether a script holds it, with the director's shots and the ships
-/// they hold. The game goes by it as well as the camera: the mission ends once the player's end has
-/// been watched long enough (`main.missionOver`), and the ships' cruise speed, the cloak and the
-/// missile lock depend on the view. The camera (`Camera`) shows what it says. A world that draws
-/// nothing keeps it just the same (`input.Player.viewing`).
+/// they hold, the cockpit mode and the orbit the camera keys steer. The game goes by it as well as
+/// the camera: the mission ends once the player's end has been watched long enough
+/// (`main.missionOver`), and the ships' cruise speed, the cloak and the missile lock depend on the
+/// view. The camera (`Camera`) shows what it says. A world that draws nothing keeps it just the
+/// same (`input.Player.viewing`).
+///
+/// What the original's game work changes in the camera as it switches the view, OpenReliant's
+/// game frames record here, and the camera, which drawing keeps, takes it up as it next frames
+/// (`changes`, `Camera.notice`). Not yet split: the game still writes the camera's shake
+/// ([#1251](https://github.com/OpenReliant/openreliant/issues/1251)).
 pub const Viewing = struct {
     view: View = .cockpit,
     /// The object the view shows (`camera_object`, `0x00539A8C`).
@@ -461,6 +467,20 @@ pub const Viewing = struct {
     /// `0x00539938`).
     held: ?shots.Held = null,
     holding: ?shots.Held = null,
+    /// What the cockpit view shows, which the cockpit key cycles (`key`), and the options' setting
+    /// that a mission's start and the end of a launch put it back to (`cockpit_mode_setting`,
+    /// `0x005D5A78`).
+    cockpit_mode: CockpitMode = .open,
+    cockpit_setting: CockpitSetting = .cockpit,
+    /// Where the target and external views go round their object, which the arrow keys steer
+    /// (`frameControls`).
+    orbit: Orbit = .{},
+    /// Set while the joystick's hat is held (`0x0051CF8C`), so that the view returns to the front
+    /// when it is released.
+    hat_glancing: bool = false,
+    /// OpenReliant's: what the game changed of what the camera shows, which the camera takes up as
+    /// it next frames (`Camera.notice`).
+    changes: Changes = .{},
 
     /// What a switch of view goes by: the gates, whose worm the player's ship may be riding, and
     /// the missiles in flight, which the missile view follows; null where there are none.
@@ -479,7 +499,9 @@ pub const Viewing = struct {
     /// between gates, forced or not (`wgate.ridingWorm`, `0x0045F1B0`), and while the camera is
     /// locked, unless `force`. The missile view follows the next missile in flight, from the one it
     /// last followed, that `object` launched; with none, it is refused. Out of the director's view,
-    /// the ships its shot held go (`shots.Held.hold`), and into it, the shot's own are held.
+    /// the ships its shot held go (`shots.Held.hold`), and into it, the shot's own are held. The
+    /// target and external views start their orbit again. The camera takes up the switch as it
+    /// next frames (`Camera.cutTo`).
     pub fn set(viewing: *Viewing, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Bounds) bool {
         if (wgate.ridingWorm(by.gates)) return false;
         if (viewing.locked and !force) return false;
@@ -489,6 +511,7 @@ pub const Viewing = struct {
             viewing.missile_gone = false;
         }
         if (viewing.view == .director) if (viewing.held) |held| held.hold(false);
+        const cut: Cut = .{ .from = viewing.view, .from_object = viewing.object, .view = view, .object = object, .cockpit_mode = viewing.cockpit_mode };
         viewing.view = view;
         viewing.object = object;
         viewing.locked = lock;
@@ -498,29 +521,160 @@ pub const Viewing = struct {
             viewing.held = viewing.holding;
             if (viewing.held) |held| held.hold(true);
         }
+        if (view == .target or view == .external) viewing.orbit = .{};
+        viewing.changes.add(.{ .cut = cut });
         return true;
     }
 
-    /// Whether the view is in `object`'s cockpit, in `mode`: `camera_set_view` then sets the
-    /// object's flag bit 0, so that it isn't drawn.
-    pub fn inside(viewing: Viewing, object: u16, mode: CockpitMode) bool {
-        return viewing.object == object and inCockpit(viewing.view, mode);
+    /// Whether the view is in `object`'s cockpit, in the cockpit mode: `camera_set_view` then sets
+    /// the object's flag bit 0, so that it isn't drawn.
+    pub fn inside(viewing: *const Viewing, object: u16) bool {
+        return viewing.object == object and inCockpit(viewing.view, viewing.cockpit_mode);
+    }
+
+    /// A camera key (`frame_controls`): the cockpit key, in the cockpit view, cycles the cockpit
+    /// mode first, and into the chase mode, the chase starts from its start distance. Returns the
+    /// view to switch to, with the player's ship as its object for the views from it, or null for
+    /// another action.
+    pub fn key(viewing: *Viewing, action: controls.Action) ?View {
+        const view = keyView(action) orelse return null;
+        if (action == .cockpit_camera and viewing.view == .cockpit and !viewing.locked) {
+            viewing.cockpit_mode = viewing.cockpit_mode.next();
+            if (viewing.cockpit_mode == .chase) viewing.changes.add(.chase_mode);
+        }
+        return view;
+    }
+
+    /// The camera's part of `frame_controls` for a frame `ticks` hundredths of a second long: in
+    /// the target and external views, the arrow keys steer the orbit, with Shift up and down to
+    /// zoom. With `HatEnable`, holding the hat in a straight direction switches to the matching
+    /// cockpit view, and releasing it returns to the front view. Then each camera key that was
+    /// pressed selects its view (the last one in the game's order wins), which it returns, for the
+    /// caller to switch to with the player's ship as its object (`switchView`). The keys are read
+    /// in the game's order, since `key_pressed` clears latches.
+    ///
+    /// `orbited` is the radius of the object the orbit goes round, null for none. The original's
+    /// camera keeps the orbit's distance in range as it places the camera each frame
+    /// (`Orbit.keep`); OpenReliant's camera places it without writing into the orbit, so the orbit
+    /// is kept in range here, as the frame before would have left it and as the frame after will
+    /// show it.
+    pub fn frameControls(viewing: *Viewing, devices: *input.Devices, ticks: u32, orbited: ?f32) ?View {
+        const keyboard = &devices.keyboard;
+        if (viewing.view == .target or viewing.view == .external) {
+            const scan = input.scan;
+            var keys: Orbit.Keys = .{};
+            if (keyboard.pressed(scan.left, .none, false)) {
+                keys.left = true;
+            } else if (keyboard.pressed(scan.right, .none, false)) {
+                keys.right = true;
+            }
+            if (keyboard.pressed(scan.up, .shift, false)) {
+                keys = .{ .left = keys.left, .right = keys.right, .up = true, .shift = true };
+            } else if (keyboard.pressed(scan.down, .shift, false)) {
+                keys = .{ .left = keys.left, .right = keys.right, .down = true, .shift = true };
+            } else if (keyboard.pressed(scan.up, .none, false)) {
+                keys.up = true;
+            } else if (keyboard.pressed(scan.down, .none, false)) {
+                keys.down = true;
+            }
+            if (orbited) |radius| viewing.orbit.keep(viewing.view, radius);
+            viewing.orbit.steer(keys, @floatFromInt(ticks));
+            if (orbited) |radius| viewing.orbit.keep(viewing.view, radius);
+        }
+        var chosen: ?View = null;
+        const glancing = viewing.hat_glancing;
+        viewing.hat_glancing = false;
+        if (devices.settings.hat_enabled and devices.joystick.hats != 0) {
+            if (hatView(devices.joystick.state.pov[0])) |view| {
+                chosen = view;
+                viewing.hat_glancing = true;
+            }
+        }
+        if (glancing and !viewing.hat_glancing) chosen = .cockpit;
+        for (camera_actions) |action| {
+            if (devices.active(action, true)) chosen = viewing.key(action);
+        }
+        return chosen;
     }
 };
 
-/// Switches the world's view (`camera_set_view`, `Viewing.set`) at the mission's tick, and the
-/// camera with it, where there is one (`Camera.cutTo`).
+/// OpenReliant's: a change the game makes to what the camera shows, which the camera takes up as
+/// it next frames (`Camera.notice`), where the original's game work makes it to the camera at
+/// once.
+pub const Change = union(enum) {
+    /// A switch of view (`Viewing.set`), which the camera cuts to (`Camera.cutTo`).
+    cut: Cut,
+    /// The cockpit key put the cockpit view in the chase mode (`Viewing.key`): the chase starts
+    /// from its start distance.
+    chase_mode,
+    /// Where an ejection's view stands off from what it watches, as it is switched to
+    /// (`switchCutaway`, `Camera.placeCutaway`).
+    cutaway: struct { view: View, seen: Subject, pod: Subject },
+    /// Where a launch's view puts the camera (`switchLaunch`, `Camera.placeLaunch`).
+    launch: struct { view: View, seen: Subject, player: Subject, even_gate: bool },
+    /// Where one of the Yamato's exterior views puts the camera (`switchYamato`,
+    /// `Camera.placeYamato`).
+    yamato: struct { view: View, player: Subject },
+    /// Where a jump's view puts the camera (`switchJump`, `Camera.placeJump`).
+    jump: struct { view: View, seen: Subject, player: Subject },
+};
+
+/// A switch of view: from `from` of `from_object` to `view` of `object`, in the cockpit mode it
+/// was made in.
+pub const Cut = struct {
+    from: View,
+    from_object: ?u16,
+    view: View,
+    object: ?u16,
+    cockpit_mode: CockpitMode,
+};
+
+/// OpenReliant's: the latest changes the game made to what the camera shows (`Change`), counted
+/// from the first, so that the camera takes up those it hasn't yet without writing into them
+/// (`Camera.notice`).
+pub const Changes = struct {
+    list: [capacity]Change = undefined,
+    /// How many have been made, the latest at `count - 1`.
+    count: u32 = 0,
+
+    /// The most it keeps. More than a few come between two drawn frames only where the game frames
+    /// run with none drawn, as while `--skip-launch` passes over the launch; the camera then takes
+    /// up the latest.
+    pub const capacity = 16;
+
+    pub fn add(changes: *Changes, change: Change) void {
+        changes.list[changes.count % capacity] = change;
+        changes.count +%= 1;
+    }
+
+    /// The changes made after the first `seen`, oldest first: the latest `capacity` at most.
+    pub fn since(changes: *const Changes, seen: u32) Since {
+        const new = @min(changes.count -% seen, @min(changes.count, capacity));
+        return .{ .changes = changes, .at = changes.count - new };
+    }
+
+    pub const Since = struct {
+        changes: *const Changes,
+        at: u32,
+
+        pub fn next(it: *Since) ?Change {
+            if (it.at == it.changes.count) return null;
+            defer it.at += 1;
+            return it.changes.list[it.at % capacity];
+        }
+    };
+};
+
+/// Switches the world's view (`camera_set_view`, `Viewing.set`) at the mission's tick.
 pub fn switchView(world: gameobj.World, view: View, object: ?u16, lock: bool, force: bool) bool {
-    return switchViewing(&world.player.viewing, world.camera, view, object, lock, force, world.clock.viewTime(), .of(world));
+    return world.player.viewing.set(view, object, lock, force, world.clock.viewTime(), .of(world));
 }
 
-/// Switches `viewing` (`Viewing.set`), and `drawn` with it where there is a camera
-/// (`Camera.cutTo`).
+/// Switches `viewing` (`Viewing.set`) from the drawing side, as a mod's script does, and `drawn`
+/// with it at once where there is a camera (`Camera.notice`).
 pub fn switchViewing(viewing: *Viewing, drawn: ?*Camera, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Viewing.Bounds) bool {
-    const from = viewing.view;
-    const from_object = viewing.object;
     if (!viewing.set(view, object, lock, force, now, by)) return false;
-    if (drawn) |shown| shown.cutTo(from, from_object, viewing);
+    if (drawn) |shown| shown.notice(viewing);
     return true;
 }
 
@@ -528,32 +682,32 @@ pub fn switchViewing(viewing: *Viewing, drawn: ?*Camera, view: View, object: ?u1
 /// (`switchView`), with what the camera stands off by taken from `seen`, the object, and `pod`, the
 /// pilot's, as they stand now (`Camera.placeCutaway`).
 pub fn switchCutaway(world: gameobj.World, view: View, object: u16, seen: Subject, pod: Subject) bool {
-    if (!switchView(world, view, object, true, true)) return false;
-    if (world.camera) |drawn| drawn.placeCutaway(view, seen, pod);
-    return true;
+    return switchPlacing(world, view, object, .{ .cutaway = .{ .view = view, .seen = seen, .pod = pod } });
 }
 
 /// Switches to one of a launch's views, `view`, of `object`, locked and forced (`switchView`),
 /// placing the camera once where the view stands (`Camera.placeLaunch`).
 pub fn switchLaunch(world: gameobj.World, view: View, object: u16, seen: Subject, player: Subject, even_gate: bool) bool {
-    if (!switchView(world, view, object, true, true)) return false;
-    if (world.camera) |drawn| drawn.placeLaunch(view, seen, player, even_gate);
-    return true;
+    return switchPlacing(world, view, object, .{ .launch = .{ .view = view, .seen = seen, .player = player, .even_gate = even_gate } });
 }
 
 /// Switches to one of the Yamato's exterior views, `view`, of `object`, locked and forced
 /// (`switchView`), placing the camera once where the view stands (`Camera.placeYamato`).
 pub fn switchYamato(world: gameobj.World, view: View, object: u16, player: Subject) bool {
-    if (!switchView(world, view, object, true, true)) return false;
-    if (world.camera) |drawn| drawn.placeYamato(view, player);
-    return true;
+    return switchPlacing(world, view, object, .{ .yamato = .{ .view = view, .player = player } });
 }
 
 /// Switches to one of a jump's views, `view`, of `object`, locked and forced (`switchView`),
 /// placing the camera once where the view stands (`Camera.placeJump`).
 pub fn switchJump(world: gameobj.World, view: View, object: u16, seen: Subject, player: Subject) bool {
+    return switchPlacing(world, view, object, .{ .jump = .{ .view = view, .seen = seen, .player = player } });
+}
+
+/// Switches to `view` of `object`, locked and forced (`switchView`), and has the camera place
+/// itself as `placing` says once it takes the switch up.
+fn switchPlacing(world: gameobj.World, view: View, object: u16, placing: Change) bool {
     if (!switchView(world, view, object, true, true)) return false;
-    if (world.camera) |drawn| drawn.placeJump(view, seen, player);
+    world.player.viewing.changes.add(placing);
     return true;
 }
 
@@ -562,11 +716,6 @@ pub fn switchJump(world: gameobj.World, view: View, object: u16, seen: Subject, 
 /// view 0. Leaves out the views not named in `View`, and the shake from hits in any view but 0.
 pub const Camera = struct {
     place: Place = .{ .position = @splat(0), .orientation = math.identity },
-    cockpit_mode: CockpitMode = .open,
-    /// The options' cockpit setting (`cockpit_mode_setting`, `0x005D5A78`), which the settings'
-    /// video changes: a mission's start, and the end of the player's launch, put the camera in the
-    /// cockpit mode it picks (`CockpitSetting.mode`).
-    setting: CockpitSetting = .cockpit,
     /// How much of the screen each bar covers (`0x00539A38`), and how fast they move
     /// (`0x00539A50`).
     bars: f32 = 0,
@@ -576,7 +725,6 @@ pub const Camera = struct {
     /// between the picking ship and the pod, and the pod shot's way from the pod to the Sabre.
     cutaway: Vector = @splat(0),
     chase: Chase = .{},
-    orbit: Orbit = .{},
     /// How hard the last hit shook the camera (`hit_shake`, `0x00588724`): at most 2, and less by
     /// 0.02 a tick.
     hit_shake: f32 = 0,
@@ -586,9 +734,6 @@ pub const Camera = struct {
     /// Where the cockpit's model stands this frame, in view 0 outside the chase mode; null in the
     /// rest.
     cockpit_place: ?Cockpit.Placed = null,
-    /// Set while the joystick's hat is held (`0x0051CF8C`), so that the view returns to the front
-    /// when it is released.
-    hat_glancing: bool = false,
     /// The missiles in flight, which the missile view follows one of (`Viewing.missile`).
     missiles: ?*const missiles.Missiles = null,
     /// Set as the view switches, which resets the star streaks (`backdrop_reset_streaks`), so that
@@ -597,6 +742,9 @@ pub const Camera = struct {
     /// The player's subtarget picked out in red, which a switch of view picks out or puts back,
     /// with the objects it is picked out of; null where there is no display.
     subtarget: ?Subtarget = null,
+    /// OpenReliant's: how many of the game's changes to what it shows it has taken up
+    /// (`Viewing.changes`, `notice`).
+    seen: u32 = 0,
 
     pub const Subtarget = struct {
         shown: *hud.subtarget.Subtarget,
@@ -606,11 +754,27 @@ pub const Camera = struct {
     /// Bars grow this share of the screen a tick, times their speed (`camera_frame`, `0x004DC418`).
     pub const bar_rate: f32 = 0.001;
 
-    /// The camera's part of a switch of view (`camera_set_view`), from view `from` of `from_object`
-    /// to what `after` views (`switchView`): it has the stars draw no streaks next frame, and
-    /// slides the bars in for a letterboxed view or takes them away for another.
-    pub fn cutTo(camera: *Camera, from: View, from_object: ?u16, after: *const Viewing) void {
-        const view = after.view;
+    /// Takes up the changes the game made to what the camera shows since it last did
+    /// (`Viewing.changes`), in the order the game made them. It does so as it frames, and the
+    /// drawn frame has it do so before it copies the objects, which a cut's subtarget changes.
+    pub fn notice(camera: *Camera, viewing: *const Viewing) void {
+        var changes = viewing.changes.since(camera.seen);
+        while (changes.next()) |change| switch (change) {
+            .cut => |cut| camera.cutTo(cut),
+            .chase_mode => camera.chase.distance = Chase.start_distance,
+            .cutaway => |placed| camera.placeCutaway(placed.view, placed.seen, placed.pod),
+            .launch => |placed| camera.placeLaunch(placed.view, placed.seen, placed.player, placed.even_gate),
+            .yamato => |placed| camera.placeYamato(placed.view, placed.player),
+            .jump => |placed| camera.placeJump(placed.view, placed.seen, placed.player),
+        };
+        camera.seen = viewing.changes.count;
+    }
+
+    /// The camera's part of a switch of view (`camera_set_view`, `Viewing.set`): it has the stars
+    /// draw no streaks next frame, and slides the bars in for a letterboxed view or takes them away
+    /// for another.
+    fn cutTo(camera: *Camera, cut: Cut) void {
+        const view = cut.view;
         camera.cut = true;
         if (view.letterboxed()) {
             camera.bar_speed = 1;
@@ -621,13 +785,12 @@ pub const Camera = struct {
         // The subtarget's parts are picked out in view 0 and put back in any other (`0x0045F42D`,
         // `0x0045F397`).
         if (camera.subtarget) |sub| if (view == .cockpit) sub.shown.pick(sub.all) else sub.shown.clear(sub.all);
-        if (view == .chase and (from != .chase or from_object != after.object)) {
+        if (view == .chase and (cut.from != .chase or cut.from_object != cut.object)) {
             camera.chase.distance = Chase.start_distance;
         }
         switch (view) {
-            .cockpit => if (camera.cockpit_mode == .chase) camera.chase.resetTurns(),
+            .cockpit => if (cut.cockpit_mode == .chase) camera.chase.resetTurns(),
             .chase, .spectator => camera.chase.resetTurns(),
-            .target, .external => camera.orbit = .{},
             else => {},
         }
     }
@@ -690,67 +853,13 @@ pub const Camera = struct {
         }
     }
 
-    /// A camera key (`frame_controls`): the cockpit key, in the cockpit view, cycles the cockpit
-    /// mode first. Returns the view to switch to, with the player's ship as its object for the
-    /// views from it, or null for another action.
-    pub fn key(camera: *Camera, viewing: Viewing, action: controls.Action) ?View {
-        const view = keyView(action) orelse return null;
-        if (action == .cockpit_camera and viewing.view == .cockpit and !viewing.locked) {
-            camera.cockpit_mode = camera.cockpit_mode.next();
-            if (camera.cockpit_mode == .chase) camera.chase.distance = Chase.start_distance;
-        }
-        return view;
-    }
-
-    /// The camera's part of `frame_controls` for a frame `ticks` hundredths of a second long: in
-    /// the target and external views, the arrow keys steer the orbit, with Shift up and down to
-    /// zoom. With `HatEnable`, holding the hat in a straight direction switches to the matching
-    /// cockpit view, and releasing it returns to the front view. Then each camera key that was
-    /// pressed selects its view (the last one in the game's order wins), which it returns, for the
-    /// caller to switch to with the player's ship as its object (`switchView`). The keys are read
-    /// in the game's order, since `key_pressed` clears latches.
-    pub fn frameControls(camera: *Camera, viewing: Viewing, devices: *input.Devices, ticks: u32) ?View {
-        const keyboard = &devices.keyboard;
-        if (viewing.view == .target or viewing.view == .external) {
-            const scan = input.scan;
-            var keys: Orbit.Keys = .{};
-            if (keyboard.pressed(scan.left, .none, false)) {
-                keys.left = true;
-            } else if (keyboard.pressed(scan.right, .none, false)) {
-                keys.right = true;
-            }
-            if (keyboard.pressed(scan.up, .shift, false)) {
-                keys = .{ .left = keys.left, .right = keys.right, .up = true, .shift = true };
-            } else if (keyboard.pressed(scan.down, .shift, false)) {
-                keys = .{ .left = keys.left, .right = keys.right, .down = true, .shift = true };
-            } else if (keyboard.pressed(scan.up, .none, false)) {
-                keys.up = true;
-            } else if (keyboard.pressed(scan.down, .none, false)) {
-                keys.down = true;
-            }
-            camera.orbit.steer(keys, @floatFromInt(ticks));
-        }
-        var chosen: ?View = null;
-        const glancing = camera.hat_glancing;
-        camera.hat_glancing = false;
-        if (devices.settings.hat_enabled and devices.joystick.hats != 0) {
-            if (hatView(devices.joystick.state.pov[0])) |view| {
-                chosen = view;
-                camera.hat_glancing = true;
-            }
-        }
-        if (glancing and !camera.hat_glancing) chosen = .cockpit;
-        for (camera_actions) |action| {
-            if (devices.active(action, true)) chosen = camera.key(viewing, action);
-        }
-        return chosen;
-    }
-
-    /// Places the camera for a drawn frame (`camera_frame`): while it shakes from hits by more than
-    /// `shake_rumbles`, plays the shake on the controller too (`force_shake`, `0x004BE000`); moves
-    /// the bars, then puts the camera where the view says. Where the view can't go on, it holds
-    /// still until the game switches it back (`gameFrame`).
+    /// Places the camera for a drawn frame (`camera_frame`), once it has taken up the game's
+    /// changes (`notice`): while it shakes from hits by more than `shake_rumbles`, plays the shake
+    /// on the controller too (`force_shake`, `0x004BE000`); moves the bars, then puts the camera
+    /// where the view says. Where the view can't go on, it holds still until the game switches it
+    /// back (`gameFrame`).
     pub fn frame(camera: *Camera, world: World) void {
+        camera.notice(world.viewing);
         if (world.forces) |forces| if (camera.hit_shake > shake_rumbles) forces.startUnlessPlaying(.shake, @intCast(world.now));
         const ticks: f32 = @floatFromInt(world.ticks);
         // What the shake from hits jitters by this frame, before it dies away some more.
@@ -775,7 +884,7 @@ pub const Camera = struct {
             }
         }
         switch (world.viewing.view) {
-            .cockpit => if (camera.cockpit_mode == .chase) {
+            .cockpit => if (world.viewing.cockpit_mode == .chase) {
                 camera.place = camera.chase.frame(world.object.motion, world.object.position, world.object.orientation);
             } else {
                 camera.place = cockpit(.cockpit, world.object.position, world.object.orientation, world.object.eye);
@@ -796,9 +905,9 @@ pub const Camera = struct {
                 camera.place = camera.chase.frame(world.object.motion, world.object.position, world.object.orientation);
             },
             .target => if (world.target) |target| {
-                camera.place = camera.orbit.place(.target, target.position, target.radius);
+                camera.place = world.viewing.orbit.place(.target, target.position, target.radius);
             },
-            .external => camera.place = camera.orbit.place(.external, world.player.position, world.player.radius),
+            .external => camera.place = world.viewing.orbit.place(.external, world.player.position, world.player.radius),
             .flyby => camera.place = flyby(camera.place.position, world.player.position, world.player.orientation, world.player.radius),
             .pull_back => camera.place = pullBack(world.object.position, world.object.orientation, world.shown()),
             .eject => camera.place = ejected(camera.cutaway, world.object.position, world.shown()),
@@ -1336,11 +1445,19 @@ pub const Orbit = struct {
         return 0;
     }
 
-    /// Places the camera round an object of `radius` at `centre`, keeping the distance in range.
-    pub fn place(orbit: *Orbit, view: View, centre: Vector, radius: f32) Place {
+    /// Keeps the distance in range of `view` round an object of `radius`, as placing the camera
+    /// does (`camera_frame`).
+    pub fn keep(orbit: *Orbit, view: View, radius: f32) void {
         orbit.distance = std.math.clamp(orbit.distance, radius * near, radius * far(view));
-        const turn = math.turned(math.turned(math.identity, .y, std.math.degreesToRadians(orbit.yaw)), .x, std.math.degreesToRadians(orbit.pitch));
-        const position = centre + math.transform(turn, .{ 0, 0, orbit.distance });
+    }
+
+    /// Places the camera round an object of `radius` at `centre`, at a distance kept in range
+    /// (`keep`).
+    pub fn place(orbit: Orbit, view: View, centre: Vector, radius: f32) Place {
+        var kept = orbit;
+        kept.keep(view, radius);
+        const turn = math.turned(math.turned(math.identity, .y, std.math.degreesToRadians(kept.yaw)), .x, std.math.degreesToRadians(kept.pitch));
+        const position = centre + math.transform(turn, .{ 0, 0, kept.distance });
         return .{ .position = position, .orientation = math.lookAt(math.normalize(centre - position)) };
     }
 };
@@ -1946,7 +2063,7 @@ fn testingSwitch(viewing: *Viewing, drawn: *Camera, view: View, object: ?u16, lo
 /// For the tests: the camera's keys over a frame `ticks` long, and the switch to the view they pick
 /// at tick `now`, as the controls' frame makes it (`main.controlsFrame`).
 fn testingKeys(camera: *Camera, viewing: *Viewing, devices: *input.Devices, ticks: u32, now: u32) void {
-    if (camera.frameControls(viewing.*, devices, ticks)) |chosen| _ = testingSwitch(viewing, camera, chosen, 0, false, false, now);
+    if (viewing.frameControls(devices, ticks, null)) |chosen| _ = testingSwitch(viewing, camera, chosen, 0, false, false, now);
 }
 
 test unstretched {
@@ -2008,16 +2125,20 @@ test Camera {
     try std.testing.expect(testingSwitch(&viewing, &camera, .cockpit, 0, false, false, 10));
     camera.frame(.{ .object = ship, .player = ship, .ticks = 3, .viewing = &viewing });
     try expectVector(.{ 0, -100, 1300 }, camera.place.position);
-    try std.testing.expect(viewing.inside(0, camera.cockpit_mode));
-    try std.testing.expect(!viewing.inside(1, camera.cockpit_mode));
+    try std.testing.expect(viewing.inside(0));
+    try std.testing.expect(!viewing.inside(1));
 
-    // The cockpit key in the cockpit view cycles the mode: to the cockpit model, then the chase.
-    try std.testing.expectEqual(View.cockpit, camera.key(viewing, .cockpit_camera).?);
-    try std.testing.expectEqual(CockpitMode.cockpit, camera.cockpit_mode);
-    _ = camera.key(viewing, .cockpit_camera);
-    try std.testing.expectEqual(CockpitMode.chase, camera.cockpit_mode);
-    try std.testing.expect(!viewing.inside(0, camera.cockpit_mode));
+    // The cockpit key in the cockpit view cycles the mode: to the cockpit model, then the chase,
+    // which starts from its start distance as the camera next frames.
+    try std.testing.expectEqual(View.cockpit, viewing.key(.cockpit_camera).?);
+    try std.testing.expectEqual(CockpitMode.cockpit, viewing.cockpit_mode);
+    camera.chase.distance = 0;
+    _ = viewing.key(.cockpit_camera);
+    try std.testing.expectEqual(CockpitMode.chase, viewing.cockpit_mode);
+    try std.testing.expect(!viewing.inside(0));
+    try std.testing.expectEqual(0, camera.chase.distance);
     camera.frame(.{ .object = ship, .player = ship, .ticks = 3, .viewing = &viewing });
+    try std.testing.expect(camera.chase.distance > 0);
     try std.testing.expect(camera.place.position[2] > 1000);
 
     // A locked camera refuses a switch unless forced; cutaways bring in the bars. A switch that
@@ -2128,10 +2249,56 @@ test Orbit {
 
     var level: Orbit = .{};
     const place = level.place(.external, .{ 0, 0, 100 }, 50);
-    // Pulled out to the nearest it may be, ahead along +Z, looking back at the centre.
-    try std.testing.expectEqual(90, level.distance);
+    // Placed at the nearest it may be, ahead along +Z, looking back at the centre; the orbit
+    // itself is kept in range only where the game keeps it.
     try expectVector(.{ 0, 0, 190 }, place.position);
     try expectVector(.{ 0, 0, -1 }, math.transform(place.orientation, .{ 0, 0, 1 }));
+    try std.testing.expectEqual(0, level.distance);
+    level.keep(.external, 50);
+    try std.testing.expectEqual(90, level.distance);
+}
+
+test "the orbit's zoom stays in range as the keys steer it" {
+    var viewing: Viewing = .{};
+    var devices: input.Devices = .{};
+    viewing.view = .external;
+    // Shift and down pull it out, as far as the external view's farthest.
+    devices.keyboard.down[input.scan.left_shift] = true;
+    devices.keyboard.down[input.scan.down] = true;
+    for (0..100) |_| _ = viewing.frameControls(&devices, 1, 50);
+    try std.testing.expectEqual(50 * Orbit.external_far, viewing.orbit.distance);
+    // Shift and up bring it in from there at once, as far as the nearest.
+    devices.keyboard.down[input.scan.down] = false;
+    devices.keyboard.down[input.scan.up] = true;
+    _ = viewing.frameControls(&devices, 1, 50);
+    try std.testing.expectEqual(50 * Orbit.external_far - Orbit.zoom_speed, viewing.orbit.distance);
+    for (0..100) |_| _ = viewing.frameControls(&devices, 1, 50);
+    try std.testing.expectEqual(50 * Orbit.near, viewing.orbit.distance);
+}
+
+test Changes {
+    var changes: Changes = .{};
+    // None yet.
+    var none = changes.since(0);
+    try std.testing.expectEqual(null, none.next());
+    // Those after the first seen, oldest first.
+    changes.add(.chase_mode);
+    changes.add(.{ .yamato = .{ .view = .yamato_ahead, .player = .{ .position = @splat(0), .orientation = math.identity } } });
+    var after_one = changes.since(1);
+    try std.testing.expectEqual(.yamato, std.meta.activeTag(after_one.next().?));
+    try std.testing.expectEqual(null, after_one.next());
+    // Past what it keeps, the latest it keeps.
+    for (0..Changes.capacity + 3) |_| changes.add(.chase_mode);
+    var latest = changes.since(0);
+    var count: usize = 0;
+    while (latest.next()) |_| count += 1;
+    try std.testing.expectEqual(Changes.capacity, count);
+    // Counted again from none, as the game starts them again, those made since.
+    var again: Changes = .{};
+    again.add(.chase_mode);
+    var fresh = again.since(changes.count);
+    try std.testing.expectEqual(.chase_mode, std.meta.activeTag(fresh.next().?));
+    try std.testing.expectEqual(null, fresh.next());
 }
 
 test flyby {
@@ -2159,14 +2326,14 @@ test "Camera.frameControls" {
     // In it, the left arrow turns the orbit.
     keyboard.down[input.scan.left] = true;
     testingKeys(&camera, &viewing, &devices, 10, 300);
-    try std.testing.expect(camera.orbit.yaw_speed < 0);
+    try std.testing.expect(viewing.orbit.yaw_speed < 0);
 
     // The cockpit key, pressed in the cockpit view, cycles the cockpit mode.
     _ = testingSwitch(&viewing, &camera, .cockpit, 0, false, false, 0);
     keyboard.* = .{};
     keyboard.down[controls.binding(.cockpit_camera).key] = true;
     testingKeys(&camera, &viewing, &devices, 1, 400);
-    try std.testing.expectEqual(CockpitMode.cockpit, camera.cockpit_mode);
+    try std.testing.expectEqual(CockpitMode.cockpit, viewing.cockpit_mode);
 }
 
 test "the hat switches views while it is held" {

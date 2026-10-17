@@ -90,7 +90,6 @@ test followActivation {
     defer archive.close(gpa);
     var app: App = .{};
     var clock: Clock = .{};
-    var view: camera.Camera = .{};
     var mission: @import("gameobj.zig").testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
@@ -103,7 +102,6 @@ test followActivation {
         .sound = sound,
         .menu = &menu,
         .archive = archive.hog,
-        .camera = &view,
         .world = &world,
     };
 

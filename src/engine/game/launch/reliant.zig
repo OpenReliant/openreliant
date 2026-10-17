@@ -172,7 +172,7 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     objects.setPlace(object, &slot.drawn, .{ .position = in_tube, .orientation = turn });
     if (index != all.player) return;
     showHangar(ctx, index, gate, in_tube, turn);
-    if (world.camera) |view| view.cockpit_mode = .cockpit;
+    world.player.viewing.cockpit_mode = .cockpit;
     _ = camera.switchView(world, .cockpit, all.player, true, true);
     world.player.showing = .launch;
 }
@@ -563,10 +563,9 @@ test "the player's launch shows the hangar and the cutaways, and ends in view 0"
     const player = try mission.add(.of(.predator), @splat(0));
     const reliant = try mission.add(.of(.reliant), .{ 0, 0, 10000 });
     try reliant_model.fit(gpa, mission.slot(reliant));
-    var view: camera.Camera = .{ .setting = .chase };
+    mission.player.viewing.cockpit_setting = .chase;
     var display: @import("../hud.zig").State = .{};
     var ctx = mission.orders();
-    ctx.world.camera = &view;
     ctx.world.display = &display;
     ctx.world.spawn = mission.spawn(create.testing.no_models);
 
@@ -579,7 +578,7 @@ test "the player's launch shows the hangar and the cutaways, and ends in view 0"
     try std.testing.expectEqual(reliant, mission.player.carrier.?);
     try std.testing.expectEqual(.launch, mission.player.showing);
     try std.testing.expectEqual(camera.View.cockpit, mission.player.viewing.view);
-    try std.testing.expectEqual(.cockpit, view.cockpit_mode);
+    try std.testing.expectEqual(.cockpit, mission.player.viewing.cockpit_mode);
     try std.testing.expect(mission.player.viewing.locked);
     // The gate stays the order's own once the hangar is laid over the tube.
     try std.testing.expectEqual(0, mission.slot(player).orders[0].target.component);
@@ -601,6 +600,6 @@ test "the player's launch shows the hangar and the cutaways, and ends in view 0"
     try std.testing.expectEqual(gameobj.Type.of(.stand_in), mission.objects.slots[create.cutaway_slot].object.type);
     try std.testing.expectEqual(.everything, mission.player.showing);
     try std.testing.expectEqual(camera.View.cockpit, mission.player.viewing.view);
-    try std.testing.expectEqual(.chase, view.cockpit_mode);
+    try std.testing.expectEqual(.chase, mission.player.viewing.cockpit_mode);
     try std.testing.expect(!mission.player.viewing.locked);
 }

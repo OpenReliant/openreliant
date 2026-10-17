@@ -592,12 +592,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     sound.betty = betty.bank;
     sound.open3D(smp3d.bank, smp3d.modded);
 
-    // The camera, which keeps the options' cockpit setting and starts in the cockpit mode it picks,
-    // as a mission's start does.
-    const cockpit_setting = options.cockpit orelse device_settings.view;
-    var view: camera.Camera = .{ .setting = cockpit_setting, .cockpit_mode = cockpit_setting.mode(), .missiles = &objects.missiles };
+    // The camera. The game keeps the options' cockpit setting with what the camera views, which
+    // starts in the cockpit mode the setting picks, as a mission's start does.
+    var view: camera.Camera = .{ .missiles = &objects.missiles };
+    player.viewing.cockpit_setting = options.cockpit orelse device_settings.view;
+    player.viewing.cockpit_mode = player.viewing.cockpit_setting.mode();
     // The game's video settings, which the settings screen's video changes.
-    const video_settings: game.interface.settings.Video = .{ .camera = &view, .surrender = &context, .gamma = gpu.interface().setsGamma(), .transitions = &movies.transitions };
+    const video_settings: game.interface.settings.Video = .{ .viewing = &player.viewing, .surrender = &context, .gamma = gpu.interface().setsGamma(), .transitions = &movies.transitions };
     // The mission's clocks, which `mission_run` zeroes before it loops.
     var clock: game.main.Clock = .{};
     // Lines of speech that nobody hears, as with `--no-sound`, are timed by the game's clock.
@@ -769,7 +770,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .types = &types,
         .cockpit = &cockpit,
         .display = &display.state,
-        .view = &view,
         .loading = &loading,
         .objects = objects,
         .player = &player,
@@ -879,7 +879,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .menu = &pause_menu,
         .archive = resources,
         .outlines = &outlines,
-        .camera = &view,
         .world = &world,
     };
     // Whether the system's pointer shows over the window, and whether the window holds the mouse.
@@ -1273,6 +1272,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 }
             }
         }
+        // The camera takes up what the game frames changed of what it shows before the objects are
+        // copied: a switch of view picks the subtarget's parts out of them, or puts them back.
+        view.notice(&player.viewing);
         // The frame draws a copy of the objects, which with smooth motion has what moves as far on
         // as the clock has run past the tick, and the camera follows it there. Until the frame is
         // drawn, the subtarget keeps the copies of its parts that the copy may show.
@@ -1330,7 +1332,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             display.placements = shown.instrumentPlacements();
             display.parts = shown.partPlacements();
             if (host.camera != null) if (drawn_objects) |copy| {
-                copy.slots[copy.player].object.flags.hidden = player.viewing.inside(copy.player, view.cockpit_mode);
+                copy.slots[copy.player].object.flags.hidden = player.viewing.inside(copy.player);
             };
         }
 
@@ -1352,7 +1354,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             display.device = gpu.interface();
             display.screen = size;
             display.state.reticle = .{ .sight = .{ .place = view.place, .projection = context.projection }, .scale = display.ui_scale.of(size) };
-            display.cockpit_mode = view.cockpit_mode;
+            display.cockpit_mode = player.viewing.cockpit_mode;
             // The display draws the copy too, and the game's objects again once the frame is drawn.
             display.objects = copy;
             defer display.objects = objects;
@@ -1365,7 +1367,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .environment = &environment,
                 .gates = &gates,
                 .view = player.viewing.view,
-                .cockpit_mode = view.cockpit_mode,
+                .cockpit_mode = player.viewing.cockpit_mode,
                 .jumping_in = player.jumping_in,
                 .last_view = player.viewing.last,
                 .cut = view.cut,
@@ -2204,8 +2206,6 @@ const Play = struct {
     types: *game.create.library.TypeCache,
     cockpit: *game.main.cockpit.Cockpit,
     display: *game.hud.State,
-    /// The camera, which shows the player's ship in the view it starts in (`startingView`).
-    view: *camera.Camera,
     /// Whether the attempt is over, the pause menu standing in the debriefing's place.
     over: bool = false,
     /// Whether `WinMain` flies the mission (`main_menu.Flight.byWinMain`), which lands after it.
@@ -2283,7 +2283,7 @@ const Play = struct {
         }
         // A launch holds the camera until the ship is out; a ship that does not launch starts in
         // its view at once.
-        if (!orders.world.player.viewing.locked) _ = camera.switchView(orders.world, startingView(&all.slots[all.player], play.view.cockpit_mode), all.player, false, true);
+        if (!orders.world.player.viewing.locked) _ = camera.switchView(orders.world, startingView(&all.slots[all.player], orders.world.player.viewing.cockpit_mode), all.player, false, true);
     }
 
     /// Starts the mission again as an attempt ends, or as RESTART starts it again: outside the

@@ -170,7 +170,7 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     objects.setPlace(&slot.object, &slot.drawn, .{ .position = frame.point(at), .orientation = turn });
     if (index != all.player) return;
     showHangar(ctx, frame, bounds);
-    if (world.camera) |view| view.cockpit_mode = .cockpit;
+    world.player.viewing.cockpit_mode = .cockpit;
     _ = camera.switchView(world, .cockpit, index, true, true);
     world.player.showing = .launch;
 }
@@ -402,10 +402,9 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     // A nav point among the mission's ships, and the camera's marker after them.
     const nav_point = try mission.add(.of(.marker), .{ 5000, 0, 0 });
     mission.objects.camera_marker = try mission.add(.of(.marker), .{ 0, 0, -8000 });
-    var view: camera.Camera = .{ .setting = .chase };
+    mission.player.viewing.cockpit_setting = .chase;
     var display: @import("../hud.zig").State = .{};
     var ctx = mission.orders();
-    ctx.world.camera = &view;
     ctx.world.display = &display;
     ctx.world.spawn = mission.spawn(create.testing.no_models);
     _ = try aigeneric.pushShip(ctx, player, .launch, carrier, 0);
@@ -451,7 +450,7 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     while (mission.slot(player).object.order_count != 0) launch.testing.pastDue(&mission, ctx, player);
     try std.testing.expect(!display.caption.on);
     try std.testing.expectEqual(camera.View.cockpit, mission.player.viewing.view);
-    try std.testing.expectEqual(.chase, view.cockpit_mode);
+    try std.testing.expectEqual(.chase, mission.player.viewing.cockpit_mode);
     try std.testing.expect(!mission.player.viewing.locked);
 }
 

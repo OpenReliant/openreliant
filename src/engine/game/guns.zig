@@ -1940,7 +1940,7 @@ fn hullHit(world: gameobj.World, bullet: *Bullet, index: u16, struck: collision.
     collision.armorDamage(world, index, struck, dealt(all, index, bullet.kind, record.damage.hull), bullet.owner, .bullet);
     const at = math.lerp(bullet.last, bullet.at, along);
     shieldfx.hullHit(world, index, at);
-    const inside = if (world.camera) |watching| world.player.viewing.inside(index, watching.cockpit_mode) else false;
+    const inside = world.player.viewing.inside(index);
     if (!inside) {
         const carried = slot.object.velocity.vector() * @as(Vector, @splat(hull_sparks_carry));
         sparks.spray(world, .hull, at, at - slot.drawn.position, carried, hull_sparks);
