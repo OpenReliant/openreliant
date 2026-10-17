@@ -42,7 +42,8 @@ closes below. A line lasts its speech file's length in the game's ticks, heard o
 plays alongside. The radio itself keeps track of whether it holds window 0 open, from the moment it
 says a line until the line's film has stopped, and the display's window follows it. So the lines, and the
 script's waits for them (`WaitForMovie`, `WaitForSpeech`), take the same time with sound or without,
-at any frame rate, and where nothing is drawn. A mission that opens window 0 itself (`OpenInstrument`)
+at any frame rate, and where nothing is drawn or heard: a world with no sound at all, as on a
+server, still has its radio on air (`radio.onAir`), and only leaves the lines unplayed. A mission that opens window 0 itself (`OpenInstrument`)
 doesn't hold the queue, which no shipped mission does.
 
 The pilots' table (`pilot_faces`, `0x005048D8`, 24 bytes each) holds a face for each of the 194

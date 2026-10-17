@@ -81,9 +81,9 @@ original's way, because the seed is part of the object's record.
 missiles' trails, draws from random numbers of its own, so that how often the screen is drawn
 leaves the game's numbers as they are ([Game frames and drawn frames](#game-frames-and-drawn-frames)).
 So do the effects the game sets off, the particles, the explosions' fireballs and bits, the sparks,
-the rays and the shots' looks (`gameobj.World.effects_random`). The game draws those from its own
-numbers only where the effects are there, so without this a game that draws nothing would go on
-from other numbers. Where nothing is drawn, the explosions run only their part in the game
+the rays, the shots' looks and the explosions' sounds' pitch (`gameobj.World.effects_random`). The
+game draws those from its own numbers only where the effects are drawn or heard, so without this a
+game that draws or hears nothing would go on from other numbers. Where nothing is drawn, the explosions run only their part in the game
 ([Effects](effects.md#where-nothing-is-drawn)).
 
 ## Collisions

@@ -473,7 +473,8 @@ pub const Scene = struct {
     camera: camera.Place,
     view: camera.View,
     clock: *const Clock,
-    /// The game's random numbers (`Random`), which pitch the explosions.
+    /// The random numbers that pitch the explosions, the effects' own
+    /// (`gameobj.World.effects_random`).
     random: *@import("../random.zig").Random,
 };
 
@@ -486,7 +487,7 @@ pub const Hearing = struct {
 
     /// The scene a 3D sound is placed in, for `world`.
     pub fn scene(hearing: Hearing, world: gameobj.World) Scene {
-        return .{ .objects = world.objects, .camera = hearing.camera.*, .view = world.view(), .clock = hearing.clock, .random = world.random };
+        return .{ .objects = world.objects, .camera = hearing.camera.*, .view = world.view(), .clock = hearing.clock, .random = world.effectsRandom() };
     }
 };
 
@@ -1454,6 +1455,22 @@ pub fn tickTimer(clock: *Clock) void {
             }
         }
     }
+}
+
+test "Hearing.scene" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var speaker: testing.Speaker = undefined;
+    try speaker.init(1, null);
+    defer speaker.sound.shutdown();
+    var effects: @import("../random.zig").Random = .init(1);
+    var world = mission.world();
+    // The explosions are pitched from the game's numbers where there are no others, and from the
+    // effects' own where there are, so that hearing them leaves the game's as they were.
+    try std.testing.expect(speaker.hearing(&mission.clock).scene(world).random == &mission.random);
+    world.effects_random = &effects;
+    try std.testing.expect(speaker.hearing(&mission.clock).scene(world).random == &effects);
 }
 
 pub const testing = struct {

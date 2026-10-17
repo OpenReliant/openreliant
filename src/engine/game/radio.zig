@@ -306,19 +306,19 @@ pub fn pick(world: gameobj.World, lines: []const []const u8) []const u8 {
     return world.random.pick(lines);
 }
 
-/// The radio and what it reaches as a line is said, where the world has a radio and is heard.
+/// The radio and what it reaches as a line is said, where the world has a radio: the lines are
+/// heard where the world is heard, and timed by the game's ticks either way (`Radio.until`).
 pub fn onAir(world: gameobj.World) ?struct { *Radio, Context } {
     const radio = world.radio orelse return null;
-    const hearing = world.hearing orelse return null;
     return .{ radio, .{
-        .sound = hearing.sound,
+        .sound = if (world.hearing) |hearing| hearing.sound else null,
         .windows = if (world.display) |display| &display.windows else null,
         .all = world.objects,
         .frame_start = world.clock.frame_start,
     } };
 }
 
-/// `radio_busy` on the world's radio: whether a line plays or waits; never where nothing is heard.
+/// `radio_busy` on the world's radio: whether a line plays or waits; never where it has none.
 fn busy(world: gameobj.World) bool {
     const radio, const ctx = onAir(world) orelse return false;
     return radio.busy(ctx.frame_start);
@@ -828,8 +828,8 @@ pub const Line = struct {
 
 /// What the radio reaches of the game as a line is said.
 pub const Context = struct {
-    /// What the lines are heard through.
-    sound: *hog_snd.Sound,
+    /// What the lines are heard through; null where nothing is heard, as on a server.
+    sound: ?*hog_snd.Sound,
     /// The display's windows, where there is a display: window 0 is the radio's.
     windows: ?*Windows,
     all: *const create.Objects,
@@ -991,7 +991,7 @@ pub const Radio = struct {
     /// **Fix:** the game leaves a film playing into the next mission, whose first line then starts
     /// before its window has opened; OpenReliant stops it.
     pub fn reset(radio: *Radio, sound: ?*hog_snd.Sound) void {
-        if (sound) |heard| radio.stopSpeech(heard) else radio.player.deinit(radio.gpa);
+        radio.stopSpeech(sound);
         radio.dropLine();
         radio.movie.stop();
         radio.movie.waiting = false;
@@ -1005,11 +1005,11 @@ pub const Radio = struct {
     }
 
     /// `speech_stop_all` (`0x004620D0`), as a mission ends (`mission_end`, at `0x00494370`): the
-    /// line playing ends. The queue and the window are left as they are, and the next mission's
-    /// start clears them (`reset`).
-    pub fn stopSpeech(radio: *Radio, sound: *hog_snd.Sound) void {
+    /// line playing ends, and its sound where it is heard through `sound`. The queue and the window
+    /// are left as they are, and the next mission's start clears them (`reset`).
+    pub fn stopSpeech(radio: *Radio, sound: ?*hog_snd.Sound) void {
         radio.until = null;
-        radio.player.stop(radio.gpa, sound);
+        if (sound) |heard| radio.player.stop(radio.gpa, heard) else radio.player.deinit(radio.gpa);
     }
 
     /// `speech_playing` (`0x004620A0`): whether a line plays at the frame's tick `now`.
@@ -1304,16 +1304,16 @@ pub const Radio = struct {
         return readLine(radio.gpa, radio.recordings, radio.archive, speech);
     }
 
-    /// `bytes`, a speech file, played (`cbox.Player.start`) at the volume every line the game plays
-    /// takes, the line playing ended, and lasting its length from the frame's start (`until`); one
-    /// that is not a speech file is left out with a warning.
+    /// `bytes`, a speech file, lasting its length from the frame's start (`until`), and played
+    /// where it is heard (`cbox.Player.start`) at the volume every line the game plays takes, the
+    /// line playing ended; one that is not a speech file is left out with a warning.
     fn play(radio: *Radio, ctx: Context, bytes: []u8) void {
         const parsed = cbox.Line.parse(bytes) orelse {
             log.warn("a line of the radio's is not a speech file or a recording", .{});
             return;
         };
         radio.until = ctx.frame_start +% @as(i32, @intCast(parsed.ticks()));
-        _ = radio.player.start(radio.gpa, ctx.sound, parsed, hog_snd.loudest, radio.style, null);
+        if (ctx.sound) |heard| _ = radio.player.start(radio.gpa, heard, parsed, hog_snd.loudest, radio.style, null);
     }
 };
 
@@ -1475,6 +1475,19 @@ test "the radio's step times its lines by the game's ticks, heard or not" {
     try std.testing.expect(!radio.speaking(ctx.frame_start));
     radio.reset(&sound);
     try std.testing.expect(!radio.speaking(ctx.frame_start));
+
+    // With no sound at all, as on a server, the world's radio is still on air, and a line lasts as
+    // long; a mission's start ends it.
+    var world = mission.world();
+    world.radio = &radio;
+    _, var unheard = onAir(world).?;
+    try std.testing.expectEqual(null, unheard.sound);
+    unheard.frame_start = ctx.frame_start;
+    radio.sayShip(unheard, wingman, .squadron, "ms1_ban_001.ut", .now, .looping, no_expiry);
+    radio.waitForWindow(unheard, speech_delay);
+    try std.testing.expect(radio.speaking(unheard.frame_start + 19) and !radio.speaking(unheard.frame_start + 20));
+    radio.reset(null);
+    try std.testing.expect(!radio.speaking(unheard.frame_start));
 }
 
 test sideOf {
