@@ -261,6 +261,21 @@ pub const Tunnel = struct {
         return tunnel.mesh.positions[tunnel.drawnGrid().vertex(tunnel.grid.throat() * tunnel.split, 0)];
     }
 
+    /// The radii and depths of the rings drawn between the game's rings, each on the straight line
+    /// from the game's ring before it to the one after, as the game draws the band between them.
+    pub fn fillBetween(tunnel: *Tunnel) void {
+        const split = tunnel.split;
+        for (0..tunnel.grid.rings) |ring| {
+            const from = ring * split;
+            const to = from + split;
+            for (from + 1..to, 1..) |drawn, step| {
+                const along = share(step, split);
+                tunnel.radii[drawn] = math.lerp(tunnel.radii[from], tunnel.radii[to], along);
+                tunnel.depths[drawn] = math.lerp(tunnel.depths[from], tunnel.depths[to], along);
+            }
+        }
+    }
+
     /// Each drawn vertex's colour from the game's vertices' about it (`Corners`).
     pub fn lay(tunnel: *Tunnel) void {
         for (tunnel.drawn_colours, 0..) |*shade, vertex| shade.* = Corners.of(tunnel.grid, tunnel.split, vertex).blend(@Vector(4, f32), tunnel.colours);

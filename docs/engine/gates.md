@@ -177,7 +177,9 @@ Yamato moves explicitly while frozen. After the emergence and final wait, the tu
 freed, collision and motion flags are restored, the player returns to the cockpit and
 JumpedIn is posted.
 
-The existing fine-tunnel setting applies to warps too. `--original` uses the original grid.
+The existing fine-tunnel setting applies to warps too. As a warp opens, only the game's rings follow
+the opening; the rings drawn between them run straight from one to the next, as the game draws the
+band. `--original` uses the original grid.
 **Fix:** a missing record or allocation failure ends the order and releases its frozen flags
 instead of leaving the ship stuck.
 
