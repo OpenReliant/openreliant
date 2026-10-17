@@ -149,7 +149,10 @@ has gone. Nothing gives an object its voice (`+0xB96` stays `0xFFFF`), so `missi
 a missile's, never does.
 
 **Improvement:** a missile's voice follows it as an object's does, and is its own, so it ends with
-it; it keeps its full volume half as far again (`sound3d.MissileSound.follows`).
+it; it keeps its full volume 1.5 times as far (`sound3d.MissileSound.follows`). The game would keep
+the voice in the missile's object (`+0xB96`). OpenReliant's sound keeps it itself, by the missile's
+record and the record's reuse count (`hog_snd.Sound.missile_voices`), so that the sound writes
+nothing into the game's objects.
 
 **Improvement:** the game's rates are made for its 3D sounds, which are recorded at 22,050 Hz, so a
 mod's sound at another rate would play at another pitch: an octave low at 44,100 Hz. OpenReliant
@@ -200,8 +203,9 @@ The same update hears each fighter flying past the camera: within 10,000 units, 
 hidden or exploding, at a throttle of 0.4 or more and moving at 100 or more, its velocity at least
 a right angle from where the camera looks, or for a hostile one at least 41 degrees. A hostile
 ship sounds `PASS01`, another `PASS02`, on a voice of class 7, no more than once in 500 ticks, or
-200 for the player's own, which is not heard in views 0 to 3, 12 and 15. The frame it was heard is
-kept at `+0x67C`.
+200 for the player's own, which is not heard in views 0 to 3, 12 and 15. The game keeps the frame it
+was heard in the object (`+0x67C`); OpenReliant's sound keeps it itself, by the object's slot and
+the slot's reuse count (`hog_snd.Sound.flybys`).
 
 ## Music
 

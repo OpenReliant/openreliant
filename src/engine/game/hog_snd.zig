@@ -32,6 +32,7 @@ const main = @import("main.zig");
 const Clock = main.Clock;
 const gameobj = @import("gameobj.zig");
 const sound3d = @import("sound3d.zig");
+const missiles = @import("missiles.zig");
 
 const log = std.log.scoped(.sound);
 
@@ -520,8 +521,12 @@ pub const Sound = struct {
     burner_voice: ?u8 = null,
     /// The 3D sounds' own state.
     effects: sound3d.Effects = .{},
-    /// The live objects (`game_objects`), whose voices `end3D` lets go of.
-    objects: ?*@import("create.zig").Objects = null,
+    /// The 3D voice following each missile, by the missile's record, where one does
+    /// (`missileVoice`). The game keeps it in the missile's object (`GameObject.sound_voice`).
+    missile_voices: [missiles.max_missiles]?Kept(u8) = @splat(null),
+    /// When each object was last heard flying past the camera (`Clock.frame_start`), by its slot
+    /// (`flybyAt`). The game keeps it in the object (`GameObject.flyby_at`).
+    flybys: [gameobj.max_objects]?Kept(i32) = @splat(null),
     /// `betty.fat` (`bank_betty`, `0x0056654C`): the cockpit's warnings.
     betty: ?fat.Bank = null,
     /// `bank_stdsmp` (`0x005D6CA0`): the display's sounds and the frame's positional ones
@@ -960,22 +965,17 @@ pub const Sound = struct {
         sound.burner_voice = null;
     }
 
-    /// `sound_3d_voice_end` (`0x00481AF0`): ends a 3D voice's sound and frees the voice. The object
-    /// or missile it followed loses its voice.
+    /// `sound_3d_voice_end` (`0x00481AF0`): ends a 3D voice's sound and frees the voice. The
+    /// missile it followed loses its voice (`missile_voices`). The game clears the voice of the
+    /// object or the missile it followed, but only a missile's following sound ever sets one
+    /// (`sound3d.MissileSound`).
     pub fn end3D(sound: *Sound, v: u8) void {
         const driver = sound.driver orelse return;
         const voice = &sound.voices_3d[v];
         if (voice.isFree()) return;
-        if (sound.objects) |all| if (voice.ownerIndex()) |at| {
-            const followed: ?*gameobj.GameObject = switch (voice.follows) {
-                .object => if (at < all.slots.len) &all.slots[at].object else null,
-                .missile => if (all.missiles.get(at)) |missile| &missile.slot.object else null,
-                else => null,
-            };
-            // The game lets go of the object's voice whichever it is; only a missile's sound that
-            // follows it gives it one (`sound3d.MissileSound`).
-            if (followed) |object| if (object.sound_voice.index() == v) {
-                object.sound_voice = .none;
+        if (voice.follows == .missile) if (voice.ownerIndex()) |at| if (at < sound.missile_voices.len) {
+            if (sound.missile_voices[at]) |held| if (held.value == v) {
+                sound.missile_voices[at] = null;
             };
         };
         voice.priority = 0;
@@ -985,6 +985,36 @@ pub const Sound = struct {
         voice.follows = .none;
         sound.starters_3d[v] = .game;
         driver.end3DSample(voice.sample);
+    }
+
+    /// A value the sound keeps for what is in a record or a slot of the game's tables, with the
+    /// record's or the slot's reuse count as it was kept (`table.Linked.reuses`,
+    /// `create.Objects.reuses`). The count tells what it was kept for from what takes the record
+    /// or the slot later.
+    pub fn Kept(comptime T: type) type {
+        return struct {
+            value: T,
+            reuse: u32,
+
+            /// The value, if it was kept for what now has the reuse count `reuse`.
+            pub fn of(kept: @This(), reuse: u32) ?T {
+                return if (kept.reuse == reuse) kept.value else null;
+            }
+        };
+    }
+
+    /// The voice following the missile in record `at`, whose reuse count is `reuse`; null for
+    /// none.
+    pub fn missileVoice(sound: *const Sound, at: usize, reuse: u32) ?u8 {
+        const held = sound.missile_voices[at] orelse return null;
+        return held.of(reuse);
+    }
+
+    /// When the object in slot `index`, whose reuse count is `reuse`, was last heard flying past
+    /// the camera: 0 for one not heard yet, as the game creates it.
+    pub fn flybyAt(sound: *const Sound, index: usize, reuse: u32) i32 {
+        const heard = sound.flybys[index] orelse return 0;
+        return heard.of(reuse) orelse 0;
     }
 
     /// Whether voice `v` is the one set aside for the player's engine or its afterburner's.
@@ -1059,7 +1089,7 @@ pub const Sound = struct {
                 // Where missiles' sounds follow them, one moves with its missile while the voice
                 // is still that missile's.
                 .missile => follow: {
-                    if (sound.missile_sound == .follows) if (voice.ownerIndex()) |at| if (scene.objects.missiles.get(at)) |missile| if (missile.slot.object.sound_voice.index() == v) {
+                    if (sound.missile_sound == .follows) if (voice.ownerIndex()) |at| if (scene.objects.missiles.get(at)) |missile| if (sound.missileVoice(at, scene.objects.missiles.reuses[at]) == v) {
                         position = missile.slot.drawn.position;
                         velocity = missile.slot.object.velocity.vector();
                         direction = math.forward(missile.slot.drawn.orientation);

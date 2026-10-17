@@ -581,7 +581,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer radio.deinit(sound);
     radio.style = options.speech;
     radio.recordings.codec = decoders.codec();
-    sound.objects = objects;
     sound.missile_sound = options.missile_sound;
     // `bank_stdsmp`, which the positional sounds of a frame play from, Betty's warnings, and
     // `smp3d.fat`, which the 3D sounds play from, each with the sounds mods give in place of its
