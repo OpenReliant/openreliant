@@ -564,6 +564,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     objects.bullets.shot_lights = options.shot_lights;
     own.shot_lights = &objects.bullets.shot_lights;
     var player: engine.input.Player = .{};
+    // The camera's shake from hits, which the game keeps (`gameobj.World.shake`).
+    var hit_shake: f32 = 0;
     // The joystick or gamepad the game uses, opened as `input_init` opens a joystick, and again
     // whenever a controller is connected or disconnected.
     try platform.joystick.init(.game);
@@ -671,7 +673,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var drawn: game.main.Drawn = try .init(gpa);
     defer drawn.deinit();
     // What the objects run in, the camera's view brought up to date each frame.
-    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .shake = &view.hit_shake, .random = &rand, .effects_random = &drawn_random, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .trails = &trails, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .atmospheres = &atmospheres, .extras = &extra_images, .escort_marker = escort_marker, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
+    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .shake = &hit_shake, .random = &rand, .effects_random = &drawn_random, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .trails = &trails, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .atmospheres = &atmospheres, .extras = &extra_images, .escort_marker = escort_marker, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
 
     world.launch_steam = options.launch_steam;
 
@@ -859,7 +861,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var frames_left: ?usize = null;
     if (options.screenshot != null) {
         const subject = camera.Subject.of(&objects.slots[objects.player]);
-        for (0..settling_frames) |_| view.frame(.{ .object = subject, .player = subject, .ticks = 1, .viewing = &player.viewing });
+        for (0..settling_frames) |_| view.frame(.{ .object = subject, .player = subject, .ticks = 1, .viewing = &player.viewing, .shake = hit_shake });
         frames_left = options.screenshot_ticks;
     }
 
@@ -2457,7 +2459,7 @@ const Display = struct {
             .last_view = display.player.viewing.last,
             .mode = display.cockpit_mode,
             .strings = display.strings,
-            .hit_shake = display.view.hit_shake,
+            .hit_shake = display.view.shake_left,
             .view = display.player.viewing.view,
             .sound = display.settings.sound,
             .radio = display.radio,
