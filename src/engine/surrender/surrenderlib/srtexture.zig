@@ -638,6 +638,12 @@ pub const Table = struct {
         table.unreleased.shrinkRetainingCapacity(kept);
     }
 
+    /// OpenReliant's: the images whose pixels the table still holds while `release_held`. These
+    /// include every image the device hasn't sent up yet, which a mission's loading sends up ahead.
+    pub fn waiting(table: *const Table) []const *Image {
+        return table.unreleased.items;
+    }
+
     /// Keeps `image`, which the table made, to let go of its pixels once the device holds them.
     fn track(table: *Table, image: *Image) Allocator.Error!void {
         if (table.release_held) try table.unreleased.append(table.gpa, image);
@@ -1411,13 +1417,15 @@ test "the table lets go of the pixels the device holds" {
     textures.table.release_held = true;
     const hull = (try textures.table.find("hull")).?;
     const lhull = (try textures.table.find("lhull")).?;
+    // Both wait to go up to the device.
+    try std.testing.expectEqualSlices(*Image, &.{ hull, lhull }, textures.table.waiting());
     // The device took the hull, and not yet the other.
     hull.held = true;
     textures.table.releaseHeld();
     try std.testing.expect(!hull.readable() and lhull.readable());
     try std.testing.expectEqual(8, hull.width());
     for (hull.levels) |level| try std.testing.expectEqual(0, level.texels.len);
-    try std.testing.expectEqual(1, textures.table.unreleased.items.len);
+    try std.testing.expectEqualSlices(*Image, &.{lhull}, textures.table.waiting());
 }
 
 test "testing.Textures" {
