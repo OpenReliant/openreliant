@@ -18,6 +18,7 @@ const std = @import("std");
 const gameflow = @import("../gameflow.zig");
 const input = @import("../../input.zig");
 const hog = @import("../../../formats/hog.zig");
+const spr = @import("../../../formats/spr.zig");
 const canvas_module = @import("canvas.zig");
 const main_menu = @import("main_menu.zig");
 const rooms = @import("rooms.zig");
@@ -200,8 +201,8 @@ pub const Locker = struct {
     arrived: bool = false,
     /// The sets of the awards the pilot has, by their places (`0x0051D45C`, `0x0051DA34`); none for
     /// those it lacks, or that are left out.
-    medal_sets: [awards]?canvas_module.Shapes = @splat(null),
-    ribbon_sets: [awards]?canvas_module.Shapes = @splat(null),
+    medal_sets: [awards]?Set = @splat(null),
+    ribbon_sets: [awards]?Set = @splat(null),
     pointer_shapes: ?canvas_module.Shapes = null,
     /// The pointer as the pass read it, and the award under it (`0x0051D494`).
     pointer: canvas_module.Pointer = .{},
@@ -230,8 +231,8 @@ pub const Locker = struct {
     pub fn deinit(locker: *Locker) void {
         const gpa = locker.context.rooms.gpa;
         locker.film.close();
-        for (&locker.medal_sets) |*set| if (set.*) |*shapes| shapes.deinit(gpa);
-        for (&locker.ribbon_sets) |*set| if (set.*) |*shapes| shapes.deinit(gpa);
+        for (&locker.medal_sets) |*set| if (set.*) |*held| held.shapes.deinit(gpa);
+        for (&locker.ribbon_sets) |*set| if (set.*) |*held| held.shapes.deinit(gpa);
         if (locker.pointer_shapes) |*shapes| shapes.deinit(gpa);
         locker.* = undefined;
     }
@@ -244,10 +245,10 @@ pub const Locker = struct {
 
     /// The sprite set `name` from the CD archive (`hog_read_file`, `0x00436738`), with the mod
     /// pictures that replace its shapes; null if it can't be read.
-    fn readSet(locker: Locker, name: []const u8) ?canvas_module.Shapes {
+    fn readSet(locker: Locker, name: []const u8) ?Set {
         var shapes = locker.context.rooms.readShapes(name) orelse return null;
         shapes.usePalette(palette_block);
-        return shapes;
+        return .{ .shapes = shapes, .empty = shapes.emptyAtStart(locker.context.rooms.gpa) };
     }
 
     /// A pass of its loop (`0x00436852` on, `0x00436A7D` on): whether it stays open. With the lid
@@ -320,8 +321,8 @@ pub const Locker = struct {
         locker.film.draw(canvas);
         if (locker.tableFrame()) |frame| {
             for (&locker.medal_sets, &locker.ribbon_sets, locker.case.medals, locker.case.ribbons) |*medal, *ribbon, medal_display, ribbon_display| {
-                if (medal.*) |*shapes| try drawAward(canvas, shapes, medal_display, frame);
-                if (ribbon.*) |*shapes| try drawAward(canvas, shapes, ribbon_display, frame);
+                if (medal.*) |*set| try drawAward(canvas, set, medal_display, frame);
+                if (ribbon.*) |*set| try drawAward(canvas, set, ribbon_display, frame);
             }
         }
         if (locker.lid == .up and locker.arrived) try canvas.label(locker.label());
@@ -340,11 +341,31 @@ pub const Locker = struct {
     }
 };
 
-/// Draws an award at its shape for frame `frame` of its table, where it shows one.
-fn drawAward(canvas: Canvas, shapes: *canvas_module.Shapes, display: tables.Display, frame: usize) canvas_module.Error!void {
+/// An award's set of shapes, and how many of them, from the first, show nothing
+/// (`canvas.Shapes.emptyAtStart`).
+const Set = struct {
+    shapes: canvas_module.Shapes,
+    empty: usize,
+
+    /// The shape of the set drawn for shape `shape` of the award's table: counted from the set's
+    /// first shape that shows, and no further than its last.
+    ///
+    /// **Fix:** each of the Reliant's medals' sets starts with six empty shapes, which the tables
+    /// don't allow for. The game shows a medal six frames after the lid has uncovered it, so that
+    /// its first shapes, which the lid's edge cuts off, show after the lid has gone. With the lid
+    /// going down, which the game never plays on the Reliant, the medal would go six frames before
+    /// the lid covers it. OpenReliant skips a set's empty shapes, so that each award comes and goes
+    /// with the lid.
+    fn shapeFor(set: Set, shape: u8) usize {
+        return @min(shape + set.empty, set.shapes.art.set.count() - 1);
+    }
+};
+
+/// Draws an award at its shape for frame `frame` of its table, where it shows one (`Set.shapeFor`).
+fn drawAward(canvas: Canvas, set: *Set, display: tables.Display, frame: usize) canvas_module.Error!void {
     const shape = shapeAt(display, frame);
     if (shape == 0) return;
-    try canvas.shape(&shapes.art, shape, display.at);
+    try canvas.shape(&set.shapes.art, set.shapeFor(shape), display.at);
 }
 
 /// The shape `display` shows on frame `frame` of its table, 0 for none.
@@ -405,6 +426,19 @@ test shapeAt {
     try std.testing.expectEqual(0, shapeAt(display, 8));
     try std.testing.expectEqual(1, shapeAt(display, 9));
     try std.testing.expectEqual(display.shapes[display.shapes.len - 1], shapeAt(display, 1000));
+}
+
+test "Set.shapeFor" {
+    const gpa = std.testing.allocator;
+    // A set of four shapes, the first two empty: the table's first shape draws the set's third,
+    // and none past its last.
+    const shapes = canvas_module.Shapes.of(gpa, try spr.testing.paletteAndShapesAfterEmpty(gpa, 5, 2), "rmedal1.spr", null).?;
+    var set: Set = .{ .shapes = shapes, .empty = shapes.emptyAtStart(gpa) };
+    defer set.shapes.deinit(gpa);
+    try std.testing.expectEqual(2, set.empty);
+    try std.testing.expectEqual(3, set.shapeFor(1));
+    try std.testing.expectEqual(4, set.shapeFor(2));
+    try std.testing.expectEqual(4, set.shapeFor(3));
 }
 
 test Locker {

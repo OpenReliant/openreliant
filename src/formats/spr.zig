@@ -109,6 +109,14 @@ pub const Shape = struct {
         return pixels;
     }
 
+    /// Whether any of its pixels has an index other than 0, which a set's shapes leave clear: a
+    /// shape of index 0 alone, or of skips alone, shows nothing.
+    pub fn shows(shape: Shape, gpa: Allocator) (Error || Allocator.Error)!bool {
+        const pixels = try shape.decode(gpa);
+        defer gpa.free(pixels);
+        return std.mem.findNone(u8, pixels, &.{0}) != null;
+    }
+
     /// `decode` into `pixels`, one for each of the shape's, marking in `drawn`, where it is given,
     /// each pixel a row draws, index 0 among them, as `VFX_shape_draw` writes them: what the rows
     /// skip, or leave past their end, stays unmarked.
@@ -347,6 +355,18 @@ test decodeRow {
     try std.testing.expectError(error.RowTruncated, decodeRow(&.{ 0x07, 1 }, 0, &row, null));
 }
 
+test "Shape.shows" {
+    const gpa = std.testing.allocator;
+    var header = std.mem.zeroes(ShapeHeader);
+    header.x2 = 3;
+    header.y2 = 1;
+    // Two rows of four: a skip and a run of index 0 show nothing; one pixel of another index shows.
+    const empty: Shape = .{ .header = header, .rows = &.{ 0x01, 4, 0x00, 0x08, 0, 0x00 } };
+    try std.testing.expect(!try empty.shows(gpa));
+    const one: Shape = .{ .header = header, .rows = &.{ 0x01, 4, 0x00, 0x01, 3, 0x03, 7, 0x00 } };
+    try std.testing.expect(try one.shows(gpa));
+}
+
 test expandPalette {
     var packed_palette: [palette_size]u8 = @splat(0);
     packed_palette[0] = 0x3F; // full scale at six bits
@@ -368,6 +388,11 @@ pub const testing = struct {
 
     /// `paletteAndShape`'s palette, then its shape in each of the set's other `count - 1` blocks.
     pub fn paletteAndShapes(gpa: Allocator, count: u32) Allocator.Error![]u8 {
+        return paletteAndShapesAfterEmpty(gpa, count, 0);
+    }
+
+    /// `paletteAndShapes`, its first `empty` shapes drawn with index 0, so that they show nothing.
+    pub fn paletteAndShapesAfterEmpty(gpa: Allocator, count: u32, empty: usize) Allocator.Error![]u8 {
         var file: std.ArrayList(u8) = .empty;
         errdefer file.deinit(gpa);
         try file.appendSlice(gpa, std.mem.asBytes(&Header{ .version = magic.*, .shape_count = count }));
@@ -386,10 +411,11 @@ pub const testing = struct {
         // A block's size runs to the next block's start, so each shape has its own copy.
         const shapes_at = file.items.len;
         const shape_size = @sizeOf(ShapeHeader) + 8;
-        for (1..count) |_| {
+        for (1..count) |at| {
+            const index: u8 = if (at <= empty) 0 else 1;
             try file.appendSlice(gpa, std.mem.asBytes(&header));
-            try file.appendSlice(gpa, &.{ 0x06, 1, 0x00 });
-            try file.appendSlice(gpa, &.{ 0x01, 2, 0x03, 1, 0x00 });
+            try file.appendSlice(gpa, &.{ 0x06, index, 0x00 });
+            try file.appendSlice(gpa, &.{ 0x01, 2, 0x03, index, 0x00 });
         }
 
         const directory = std.mem.bytesAsSlice(DirectoryEntry, file.items[directory_at..][0 .. count * @sizeOf(DirectoryEntry)]);

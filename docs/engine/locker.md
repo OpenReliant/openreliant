@@ -22,6 +22,12 @@ campaign's ([Saved games](../formats/save.md)).
   Yamato's going up and down.
 - Past the end of its table, for a lid's movie longer than the game's, an award keeps the table's
   last shape. The game reads on past the table.
+- Each of the Reliant's medals' sets starts with six empty shapes, which the tables don't allow
+  for. The game shows a medal six frames after the lid has uncovered it, so that its first shapes,
+  which the lid's edge cuts off, show after the lid has gone; with the lid going down, which the
+  game never plays on the Reliant, the medal would go six frames before the lid covers it.
+  OpenReliant counts a table's shapes from the set's first that shows, so that each award comes
+  and goes with the lid. The ribbons' sets have no empty shapes.
 
 Its timer, 15 times a second (`0x00437DE0`), is left out: nothing it counts shows.
 
