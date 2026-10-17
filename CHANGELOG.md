@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/OpenReliant/openreliant/compare/v0.19.0...v0.19.1) (2026-10-17)
+
+
+### Fixes
+
+* the lens flares no longer vanish in missions without a sun marker ([#1247](https://github.com/OpenReliant/openreliant/issues/1247)) ([98fe7cd](https://github.com/OpenReliant/openreliant/commit/98fe7cd7e8385263f78c52b69bf68e3215cf06be))
+
 ## [0.19.0](https://github.com/OpenReliant/openreliant/compare/v0.18.0...v0.19.0) (2026-10-16)
 
 
