@@ -6,7 +6,8 @@
 //! lit, takes no light from the first six lights (`light_mask`), and has red for its own colour
 //! (`red`), so the lighting draws it in red over its texture. The game copies the meshes because
 //! every object of a type shares them; OpenReliant copies each level's mesh with its surfaces, the
-//! only part it changes, and shares the rest. Putting the parts back lets the copies go.
+//! only part it changes, and shares the rest. Putting the parts back lets the copies go, or, while a
+//! drawn frame may still show them, keeps them until it is drawn (`Subtarget.hold`).
 //!
 //! `camera.Camera.cutTo` picks the parts out as the view becomes 0 and puts them back for any
 //! other; `mission_frame` picks them out in view 0 where the target or its component changed
@@ -49,6 +50,11 @@ pub const Subtarget = struct {
     reuse: u32 = 0,
     saved: [max_parts]Saved = undefined,
     count: usize = 0,
+    /// OpenReliant's: whether a drawn frame's copy of the objects may show the parts' copies
+    /// (`main.Drawn`), from when the copy is taken (`hold`) until the frame is drawn (`letGo`).
+    /// Meanwhile the copies of the parts put back are kept in `spent` rather than let go.
+    held: bool = false,
+    spent: std.ArrayList([]srapiext.Level) = .empty,
 
     /// What a part picked out had: its own levels and the copies it shows in their place, its
     /// light mask and its colour.
@@ -101,7 +107,7 @@ pub const Subtarget = struct {
     pub fn clear(subtarget: *Subtarget, all: *create.Objects) void {
         if (subtarget.object < 0) return;
         defer {
-            for (subtarget.saved[0..subtarget.count]) |saved| freeLevels(all.gpa, saved.copies);
+            for (subtarget.saved[0..subtarget.count]) |saved| subtarget.spend(all.gpa, saved.copies);
             subtarget.count = 0;
             subtarget.object = -1;
         }
@@ -116,6 +122,27 @@ pub const Subtarget = struct {
             part.object.light_mask = saved.light_mask;
             part.object.colour = saved.colour;
         }
+    }
+
+    /// A drawn frame's copy of the objects may show the parts picked out now (`main.Drawn`), so
+    /// the copies of the parts put back from now on are kept until the frame is drawn (`letGo`).
+    pub fn hold(subtarget: *Subtarget) void {
+        subtarget.held = true;
+    }
+
+    /// Lets go of the copies of the parts put back since `hold`, once the frame is drawn.
+    pub fn letGo(subtarget: *Subtarget, gpa: Allocator) void {
+        subtarget.held = false;
+        for (subtarget.spent.items) |copies| freeLevels(gpa, copies);
+        subtarget.spent.clearAndFree(gpa);
+    }
+
+    /// Lets go of `copies`, or keeps them in `spent` while a drawn frame may show them (`held`).
+    /// If there is no memory to keep them, they leak rather than being freed while that frame may
+    /// still show them.
+    fn spend(subtarget: *Subtarget, gpa: Allocator, copies: []srapiext.Level) void {
+        if (!subtarget.held) return freeLevels(gpa, copies);
+        subtarget.spent.append(gpa, copies) catch {};
     }
 };
 
@@ -255,4 +282,15 @@ test Subtarget {
     subtarget.clear(all);
     try std.testing.expect(live.parts[0].object.levels.ptr != own.ptr);
     for (live.parts[0..2]) |*part| part.object.levels = own;
+
+    // While a drawn frame may show the copies, those of the parts put back are kept until the
+    // frame is drawn.
+    subtarget.pick(all);
+    subtarget.hold();
+    subtarget.clear(all);
+    try std.testing.expectEqual(own.ptr, live.parts[0].object.levels.ptr);
+    try std.testing.expectEqual(2, subtarget.spent.items.len);
+    subtarget.letGo(gpa);
+    try std.testing.expectEqual(0, subtarget.spent.items.len);
+    try std.testing.expect(!subtarget.held);
 }

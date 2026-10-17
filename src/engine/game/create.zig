@@ -485,8 +485,7 @@ pub const Slot = struct {
     glide: Vector = @splat(0),
     glided: bool = false,
     /// The glide the last game frame framed it by: `glide` while it glided or the frame after,
-    /// null otherwise. A drawn frame draws it on by this for the time past the tick
-    /// (`main.DrawnPlaces`).
+    /// null otherwise. A drawn frame draws it on by this for the time past the tick (`main.Drawn`).
     drawn_glide: ?Vector = null,
     /// Where its root's frame has it drawn (`objects.frameTree`), which stays put between the
     /// steps that move it.
@@ -531,6 +530,17 @@ pub const Slot = struct {
         slot.dropShield(gpa);
         if (slot.extra) |held| held.destroy(gpa);
         slot.extra = null;
+    }
+
+    /// OpenReliant's: points the slot, a copy of another, at a copy of its model made in `arena`
+    /// (`objects.Model.copy`), its components among the copy's parts.
+    pub fn copyModel(slot: *Slot, arena: Allocator) Allocator.Error!void {
+        const original = if (slot.model) |*held| held.* else return;
+        const copied = &slot.model.?;
+        copied.* = try original.copy(arena);
+        for (slot.components[0..slot.listed().len]) |*entry| {
+            if (entry.*) |part| entry.* = original.counterpart(copied, part);
+        }
     }
 
     /// Its current order, the first of its stack, where it has one (`stack`): as mutable as
@@ -785,6 +795,20 @@ pub const Objects = struct {
         all.missiles.reset(all.gpa);
         for (&all.slots) |*slot| slot.release(all.gpa);
         all.gpa.destroy(all);
+    }
+
+    /// OpenReliant's: makes `drawn` a copy of the objects for drawing to work on (`main.Drawn`),
+    /// with the models of the objects and the missiles copied into `arena` (`Slot.copyModel`). The
+    /// copy runs no scripts, so nothing drawing calls runs a mod's hook. It shares the objects'
+    /// guns, shield bubbles and extras with the game.
+    ///
+    /// Not yet split: drawing still writes into the shield bubbles and the extras
+    /// ([#1251](https://github.com/OpenReliant/openreliant/issues/1251)).
+    pub fn copyInto(all: *const Objects, drawn: *Objects, arena: Allocator) Allocator.Error!void {
+        drawn.* = all.*;
+        drawn.scripts = null;
+        for (&drawn.slots) |*slot| try slot.copyModel(arena);
+        for (&drawn.missiles.records) |*record| if (record.*) |*missile| try missile.slot.copyModel(arena);
     }
 
     /// `objects_reset` (`0x00466630`), as a mission starts: every slot gets a new stand-in, of
@@ -2230,6 +2254,34 @@ test collectComponents {
     slot.type = &crowded_kind;
     collectComponents(&slot);
     try std.testing.expectEqual(gameobj.max_components, slot.object.component_count);
+}
+
+test "Objects.copyInto" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var model: testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    model.withComponent();
+    const index = try mission.addWith(model.types(), .of(.predator), @splat(0));
+    const slot = mission.slot(index);
+    var scripts: hooks.Scripts = undefined;
+    mission.objects.scripts = &scripts;
+    defer mission.objects.scripts = null;
+    const drawn = try gpa.create(Objects);
+    defer gpa.destroy(drawn);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    try mission.objects.copyInto(drawn, arena.allocator());
+
+    // The copy's model is its own, its component among its own parts, and it runs no scripts.
+    const copy = &drawn.slots[index];
+    try std.testing.expect(copy.model.?.parts.ptr != slot.model.?.parts.ptr);
+    try std.testing.expectEqual(&slot.model.?.parts[0], slot.component(0).?);
+    try std.testing.expectEqual(&copy.model.?.parts[0], copy.component(0).?);
+    try std.testing.expectEqual(null, drawn.scripts);
 }
 
 test "Objects.slotType" {

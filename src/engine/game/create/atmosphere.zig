@@ -422,8 +422,8 @@ pub const Atmospheres = struct {
     /// **Improvement:** the game turns the drawn planet a little further each frame. OpenReliant
     /// keeps the total angle instead, and each frame turns the planet from its orientation in the
     /// mission, leaned as the planets' table says, by that angle, so that its axis keeps its
-    /// lean. The turn lasts until the frame is drawn, when the drawn frame puts back the planet's
-    /// frames as the game frame left them (`main.DrawnPlaces`).
+    /// lean. It turns the copy of the planet that the frame draws (`main.Drawn`), so the game's
+    /// planet keeps the frames the game frame left.
     pub fn frame(atmospheres: *Atmospheres, gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, camera: Vector, sun: Vector, brightness: f32, now: i32) Allocator.Error!void {
         const ticks: f32 = @floatFromInt(now - atmospheres.turned_at);
         defer atmospheres.turned_at = now;
