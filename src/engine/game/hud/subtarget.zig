@@ -9,8 +9,8 @@
 //! only part it changes, and shares the rest. Putting the parts back lets the copies go, or, while a
 //! drawn frame may still show them, keeps them until it is drawn (`Subtarget.hold`).
 //!
-//! `camera.Camera.cutTo` picks the parts out as the view becomes 0 and puts them back for any
-//! other; `mission_frame` picks them out in view 0 where the target or its component changed
+//! A switch of view picks the parts out as the view becomes 0 and puts them back for any other,
+//! as the camera takes it up (`camera.Camera.notice`); `mission_frame` picks them out in view 0 where the target or its component changed
 //! (`main.keepPlayerTarget`); a component lost on the target puts them back (`objects.loseComponents`,
 //! `node_draw`); and the next mission's start puts them back, before its objects are reset, which
 //! the game does as the mission before ends (`mission_run`, at `0x00494260`). `openreliant` puts

@@ -294,14 +294,14 @@ pub const Item = union(enum) {
     graphics: graphics.Item,
 };
 
-/// Sets the options' cockpit setting, and the camera's cockpit mode the setting stands for, as the
-/// pause menu's video screen sets them (`pause_screen_video`, `0x0048F260`); a mission's start sets
-/// the mode so anyway. A setting that changes is written to `[Device]` (`0x0042EE3F`).
+/// Sets the options' cockpit setting, and the cockpit mode the setting stands for, as the pause
+/// menu's video screen sets them (`pause_screen_video`, `0x0048F260`); a mission's start sets the
+/// mode so anyway. A setting that changes is written to `[Device]` (`0x0042EE3F`).
 fn setView(video: settings.Video, setting: CockpitSetting, file: *profile.File) Allocator.Error!void {
-    const view = video.camera;
-    view.cockpit_mode = setting.mode();
-    if (view.setting == setting) return;
-    view.setting = setting;
+    const viewing = video.viewing;
+    viewing.cockpit_mode = setting.mode();
+    if (viewing.cockpit_setting == setting) return;
+    viewing.cockpit_setting = setting;
     try file.writeInt(section, view_key, @backingInt(setting));
 }
 
@@ -338,7 +338,7 @@ pub const Video = struct {
         tab.* = .{ .display = display, .kept = .{ .display = display.chosen } };
         tab.graphics.enter(context);
         const video = context.video orelse return;
-        tab.kept.view = video.camera.setting;
+        tab.kept.view = video.viewing.cockpit_setting;
         tab.kept.brightness = video.surrender.brightness;
         tab.kept.transitions = video.transitions.*;
     }
@@ -433,7 +433,7 @@ pub const Video = struct {
                     tab.applyDisplay(context);
                 },
                 .default_view => if (context.video) |video| {
-                    try setView(video, stepped(video.camera.setting, arrow.step), context.settings_file);
+                    try setView(video, stepped(video.viewing.cockpit_setting, arrow.step), context.settings_file);
                 },
             },
             .check => |check| switch (check) {
@@ -519,7 +519,7 @@ pub const Video = struct {
             const value: Label.Text = switch (choice) {
                 .resolution => .{ .words = sizeText(tab.display, &buffer) },
                 .frame_rate => .{ .words = rateText(chosen.frame_rate, told.refresh_rate, &buffer) },
-                .default_view => .{ .string = viewName(if (shown) |video| video.camera.setting else default_view) },
+                .default_view => .{ .string = viewName(if (shown) |video| video.viewing.cockpit_setting else default_view) },
             };
             try choice.row().line().draw(canvas, art, .{ .label = choice.row().text(), .control = .{ .choice = value } });
         }
@@ -544,14 +544,15 @@ pub const Video = struct {
     }
 };
 
-/// The game's video settings, for the tests: a camera, Surrender's state, and the transitions.
+/// The game's video settings, for the tests: what the camera views, Surrender's state, and the
+/// transitions.
 const GameVideo = struct {
-    view: camera.Camera = .{},
+    viewing: camera.Viewing = .{},
     surrender: srapi.Context = .{ .projection = undefined },
     transitions: bool = true,
 
     fn video(kept: *GameVideo, gamma: bool) settings.Video {
-        return .{ .camera = &kept.view, .surrender = &kept.surrender, .gamma = gamma, .transitions = &kept.transitions };
+        return .{ .viewing = &kept.viewing, .surrender = &kept.surrender, .gamma = gamma, .transitions = &kept.transitions };
     }
 };
 
@@ -644,8 +645,8 @@ test "the arrows and the boxes change the video" {
     const view_on = tab.itemAt(context, .{ 342, 327 }).?;
     try std.testing.expectEqual(Item{ .arrow = .{ .choice = .default_view, .step = .on } }, view_on);
     _ = try tab.choose(view_on, context);
-    try std.testing.expectEqual(CockpitSetting.chase, kept.view.setting);
-    try std.testing.expectEqual(camera.CockpitMode.chase, kept.view.cockpit_mode);
+    try std.testing.expectEqual(CockpitSetting.chase, kept.viewing.cockpit_setting);
+    try std.testing.expectEqual(camera.CockpitMode.chase, kept.viewing.cockpit_mode);
     try std.testing.expectEqualStrings("1", file.profile.value(section, view_key).?);
     // VR TRANSITIONS' box, left of it, turns them off, written at once.
     const transitions = tab.itemAt(context, .{ 50, 328 }).?;
@@ -671,7 +672,7 @@ test "the arrows and the boxes change the video" {
     try std.testing.expect(recorder.graphics.chosen.original);
     // CANCEL CHANGES puts all back, and writes the game's again.
     try tab.cancel(context);
-    try std.testing.expectEqual(CockpitSetting.cockpit, kept.view.setting);
+    try std.testing.expectEqual(CockpitSetting.cockpit, kept.viewing.cockpit_setting);
     try std.testing.expect(kept.transitions);
     try std.testing.expectEqualStrings("1", file.profile.value(section, transitions_key).?);
     try std.testing.expectEqual(Display.Chosen{}, recorder.display.chosen);

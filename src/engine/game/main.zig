@@ -437,9 +437,8 @@ pub const Pausing = struct {
     /// The archive the menu's fonts come from, and the outline fonts that stand in for them.
     archive: bigfile.Hog,
     outlines: ?*hud.outline.Outlines = null,
-    /// The camera, whose cockpit setting (`camera.Camera.setting`) the menu may change, and the
-    /// game's world, whose view resuming then switches to view 0, following the player's ship.
-    camera: *camera.Camera,
+    /// The game's world, whose cockpit setting (`camera.Viewing.cockpit_setting`) the menu may
+    /// change, and whose view resuming then switches to view 0, following the player's ship.
     world: *const gameobj.World,
 };
 
@@ -464,7 +463,7 @@ pub fn pause(pausing: Pausing, on: bool) !void {
             sound.pauseAll();
             try menu.open(pausing.gpa, pausing.archive, pausing.outlines);
         }
-        menu.view_setting = pausing.camera.setting;
+        menu.view_setting = pausing.world.player.viewing.cockpit_setting;
         return;
     }
     if (clock.paused) {
@@ -472,7 +471,7 @@ pub fn pause(pausing: Pausing, on: bool) !void {
         sound3d.pause(sound, false);
         sound.resumeAll();
         menu.close();
-        if (menu.view_setting != pausing.camera.setting) {
+        if (menu.view_setting != pausing.world.player.viewing.cockpit_setting) {
             const world = pausing.world.*;
             _ = camera.switchView(world, .cockpit, world.objects.player, false, true);
         }
@@ -502,12 +501,11 @@ test pauseKeys {
     var sound: hog_snd.Sound = .{};
     var menu: hudoptions.PauseMenu = .{};
     defer menu.close();
-    var view: camera.Camera = .{};
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
     const world = mission.world();
-    const pausing: Pausing = .{ .gpa = gpa, .clock = &clock, .sound = &sound, .menu = &menu, .archive = archive.hog, .camera = &view, .world = &world };
+    const pausing: Pausing = .{ .gpa = gpa, .clock = &clock, .sound = &sound, .menu = &menu, .archive = archive.hog, .world = &world };
     var devices: input.Devices = .{};
     try std.testing.expect(!try pauseKeys(pausing, &devices));
     // F1 pauses straight into the controls; paused, the keys do nothing more.
@@ -557,19 +555,24 @@ pub const Drawing = struct {
 };
 
 /// `frame_controls` (`0x00414060`), once a game frame where there are devices to read and a
-/// display: the camera's keys (`camera.Camera.frameControls`), where there is a camera, then the
-/// targeting keys (`hud.targetKeys`), then its own (`input.frameKeys`). A key pressed between game
-/// frames is read in the next. First, the player's ship takes blind fire's aim from the reticle the
-/// display last drew (`hud.State.blind_fire_aims`).
+/// display: the camera's keys (`camera.Viewing.frameControls`), then the targeting keys
+/// (`hud.targetKeys`), then its own (`input.frameKeys`). A key pressed between game frames is read
+/// in the next. First, the player's ship takes blind fire's aim from the reticle the display last
+/// drew (`hud.State.blind_fire_aims`).
 fn controlsFrame(orders: aigeneric.Context) void {
     const devices = orders.devices orelse return;
     const world = orders.world;
     const display = world.display orelse return;
     const all = world.objects;
     all.slots[all.player].object.blind_fire_aim = @intFromBool(display.blind_fire_aims);
-    if (world.camera) |view| {
-        if (view.frameControls(world.player.viewing, devices, world.clock.frameTicks())) |chosen| _ = camera.switchView(world, chosen, all.player, false, false);
-    }
+    const viewing = &world.player.viewing;
+    // What the target and external views go round: the display's target, or the player's ship.
+    const orbited: ?f32 = switch (viewing.view) {
+        .target => if (display.target) |aimed| all.slots[aimed.slot].object.radius else null,
+        .external => all.slots[all.player].object.radius,
+        else => null,
+    };
+    if (viewing.frameControls(devices, world.clock.frameTicks(), orbited)) |chosen| _ = camera.switchView(world, chosen, all.player, false, false);
     hud.targetKeys(display, .{
         .devices = devices,
         .player = world.player,
@@ -640,7 +643,7 @@ pub fn viewFrame(drawing: Drawing) void {
         .game = shown,
         .viewing = viewing,
     });
-    slot.object.flags.hidden = viewing.inside(all.player, view.cockpit_mode);
+    slot.object.flags.hidden = viewing.inside(all.player);
     if (world.hearing) |hearing| {
         hearing.sound.timerTick(clock.game_ticks);
         hearing.sound.surround(world.player.showing.surroundings(viewing.view));
@@ -2213,7 +2216,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     viewing.object = all.player;
     viewing.last = .cockpit;
     viewing.locked = false;
-    if (world.camera) |view| view.cockpit_mode = view.setting.mode();
+    viewing.cockpit_mode = viewing.cockpit_setting.mode();
     winmain.startMission(world.player, if (start.campaign) |campaign| campaign.kept(number).kills else 0);
     world.random.* = .init(start.seed);
     all.mission_number = number;
