@@ -453,6 +453,10 @@ pub const MeshObject = struct {
     own_uv: [2]?[][2]f32 = .{ null, null },
     /// The object's own baked colours (`+0x110`), for `baked_object`.
     baked: ?[]const [4]f32 = null,
+    /// OpenReliant's: its own baked colours for each of its levels, used in place of `baked` where
+    /// it has them (`ownColours`). A part that can cloak keeps its hull's colours, which hits
+    /// change, this way (`cloak.PartCloak`).
+    baked_levels: ?[]const [][4]f32 = null,
     /// `+0xAC`: the portal that clips it, where its flags ask (`portal_clipped`); none clips
     /// nothing.
     portal: ?*const Portal = null,
@@ -480,6 +484,13 @@ pub const MeshObject = struct {
     /// at least.
     pub fn shown(object: *const MeshObject) *const Mesh {
         return object.levels[@min(object.level, object.levels.len - 1)].mesh;
+    }
+
+    /// Its own baked colours for the level drawn: the level's from `baked_levels`, or else
+    /// `baked`.
+    pub fn ownColours(object: *const MeshObject) ?[]const [4]f32 {
+        if (object.baked_levels) |each| if (object.level < each.len) return each[object.level];
+        return object.baked;
     }
 
     /// Where it stands in the world and which way it faces.
@@ -519,6 +530,21 @@ test MeshObject {
     object.light_mask = srlight.no_lights;
     try std.testing.expect(!object.takesLights());
     try std.testing.expectEqual(Vector{ 1, 2, 3 }, object.place().position);
+
+    // Its own colours are the drawn level's where it has a set for each, and `baked` otherwise.
+    const all: [1][4]f32 = .{.{ 1, 0, 0, 1 }};
+    try std.testing.expectEqual(null, object.ownColours());
+    object.baked = &all;
+    try std.testing.expectEqual(&all, object.ownColours().?.ptr);
+    var first: [1][4]f32 = .{.{ 0, 1, 0, 1 }};
+    var second: [1][4]f32 = .{.{ 0, 0, 1, 1 }};
+    const sets = [_][][4]f32{ &first, &second };
+    object.baked_levels = &sets;
+    try std.testing.expectEqual(&first, object.ownColours().?.ptr);
+    object.level = 1;
+    try std.testing.expectEqual(&second, object.ownColours().?.ptr);
+    object.level = 2;
+    try std.testing.expectEqual(&all, object.ownColours().?.ptr);
 }
 
 /// `portal_create` (`0x004C50D0`) for a portal of no corners, a single plane (flag `0x100`): a

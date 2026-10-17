@@ -246,7 +246,9 @@ object's `blind_fire_aim` (`+0x674`) says whether blind fire aims, and the playe
 at the lead cursor's point (`hud_lead_point`, `0x0057C260`).
 
 OpenReliant draws all of it, and aims the player's shots at the lead cursor's point
-([Guns](guns.md#shots)).
+([Guns](guns.md#shots)). The display keeps whether blind fire aimed as it last drew the reticle
+(`hud.State.blind_fire_aims`), and the next game frame sets the ship's `blind_fire_aim` from it
+before reading the controls, so that the game reads nothing that drawing writes.
 
 ### The chase view
 

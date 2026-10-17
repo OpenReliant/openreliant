@@ -373,7 +373,7 @@ fn light(
         }
     }
 
-    const own: ?[]const [4]f32 = if (flags.baked_object) object.baked else null;
+    const own: ?[]const [4]f32 = if (flags.baked_object) object.ownColours() else null;
     const meshes: ?[]const [4]f32 = if (flags.baked_mesh) mesh.baked else null;
     for (listed) |v| {
         colours[v] = base;

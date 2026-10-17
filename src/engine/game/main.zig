@@ -557,12 +557,14 @@ pub const Drawing = struct {
 /// `frame_controls` (`0x00414060`), once a game frame where there are devices to read and a
 /// display: the camera's keys (`camera.Camera.frameControls`), where there is a camera, then the
 /// targeting keys (`hud.targetKeys`), then its own (`input.frameKeys`). A key pressed between game
-/// frames is read in the next.
+/// frames is read in the next. First, the player's ship takes blind fire's aim from the reticle the
+/// display last drew (`hud.State.blind_fire_aims`).
 fn controlsFrame(orders: aigeneric.Context) void {
     const devices = orders.devices orelse return;
     const world = orders.world;
     const display = world.display orelse return;
     const all = world.objects;
+    all.slots[all.player].object.blind_fire_aim = @intFromBool(display.blind_fire_aims);
     if (world.camera) |view| {
         if (view.frameControls(world.player.viewing, devices, world.clock.frameTicks())) |chosen| _ = camera.switchView(world, chosen, all.player, false, false);
     }
@@ -876,10 +878,11 @@ pub fn missionOver(world: gameobj.World) bool {
 
 /// `mission_frame`'s pass that draws the objects, beyond drawing them: over each object drawn
 /// this frame, whether one fights the player with its missile ready, which lights the display's
-/// enemy lock, what its destroyed components leave (`objects.loseComponents`, which `object_draw`
-/// runs), and each one's avoidance lists (`avoidanceScan`). The damaged ships' smoke is
-/// `smoke.frame`'s. While the player's ship rides the worm between gates, the pass passes over
-/// every object (`wgate.ridingWorm`), and the enemy lock goes out.
+/// enemy lock, its cloak's frame (`cloak.frame`), what its destroyed components leave
+/// (`objects.loseComponents`, which `object_draw` runs), and each one's avoidance lists
+/// (`avoidanceScan`). The damaged ships' smoke is `smoke.frame`'s. While the player's ship rides
+/// the worm between gates, the pass passes over every object (`wgate.ridingWorm`), and the enemy
+/// lock goes out.
 fn objectsPass(orders: aigeneric.Context) void {
     const world = orders.world;
     const all = world.objects;
@@ -892,6 +895,7 @@ fn objectsPass(orders: aigeneric.Context) void {
         if (slot.current()) |entry| {
             if (entry.order == .fight and entry.target.slot() == all.player and slot.state.fight.missile_ready) enemy_lock = true;
         }
+        cloak.frame(slot, world.clock.frame_start);
         objects.loseComponents(orders, index);
         avoidanceScan(world, index);
     }
@@ -1180,7 +1184,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     };
     if (frame.chase) |seen_behind| if (frame.display) |display| if (frame.view == .cockpit and frame.cockpit_mode == .chase and !riding) {
         const ship = &frame.objects.slots[frame.objects.player];
-        const aim: ?math.Vector = if (ship.object.blind_fire_aim != 0) display.lead_point else null;
+        const aim: ?math.Vector = if (display.blind_fire_aims) display.lead_point else null;
         try seen_behind.draw(gpa, scene, ship.drawn, display.reticle_bright, aim, display.chase_pointer, display.chase_nav_roll);
     };
     if (frame.gates) |gates| try gates.draw(gpa, scene, frame.objects, attachments.frame_start);
@@ -1283,15 +1287,16 @@ pub const DetailReach = enum {
     }
 };
 
-/// `mission_frame`'s pass that draws the objects: each live object, save stand-ins and disabled
-/// and jumping ones, has its cloak's frame run where it has one (`cloak.frame`), and is drawn with
-/// `object_draw` (`objects.Model.draw`), with its own offset into its lights' blinks, its lights
-/// unless `lights_disabled`, its engine glows burning by the throttle of its last update times the
-/// share of its engines left, a Ripper's by which way it goes (`objects.View.ripper`), but none
-/// while it is among `splits`, and nothing at all while it is `hidden`, as the ship the camera sits in is. That ship, `seat`, still casts its shadow
-/// (`objects.Model.castShadows`), cloaked as its hull stands (`cloak.shadeUnseen`). A cloaked
-/// object is drawn with neither lights nor glows, its parts as its cloak draws them
-/// (`cloak.Drawing`).
+/// `mission_frame`'s pass that draws the objects: each live object, except stand-ins and disabled
+/// and jumping ones, is drawn with `object_draw` (`objects.Model.draw`). It's drawn with its own
+/// offset into its lights' blinks, its lights unless `lights_disabled`, and its engine glows
+/// burning by the throttle of its last update times the share of its engines left, a Ripper's by
+/// which way it goes (`objects.View.ripper`), but none while it is among `splits`. Nothing is drawn
+/// while it is `hidden`, as the ship the camera sits in is. That ship, `seat`, still casts its
+/// shadow (`objects.Model.castShadows`), cloaked as its hull stands (`cloak.shadeUnseen`). A
+/// cloaked object is drawn with neither lights nor glows, its parts as its cloak draws them
+/// (`cloak.Drawing`). The game runs each object's cloak frame in this pass too, which OpenReliant
+/// runs in the game frame (`objectsPass`).
 ///
 /// After it, each object's extra is drawn (`drawExtra`), and the Titan that Planet Bombard's flashes
 /// burst on runs their routine (`environfx.Environment.bombardDrawn`).
@@ -1305,7 +1310,6 @@ pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, a
         const slot = &all.slots[index];
         const object = &slot.object;
         if (object.flags.outOfFrame()) continue;
-        cloak.frame(slot, attachments.frame_start);
         const model = if (slot.model) |*model| model else continue;
         if (object.flags.hidden or shown.leavesOut(all, index)) {
             if (index == seat) {
@@ -1715,6 +1719,7 @@ test "the passes draw a cloaked object through its cloak" {
     // shimmer.
     const halfway = cloak.change_ticks / 2;
     frameObjects(stage.mission.objects, .{}, halfway);
+    cloak.frame(stage.slot(), halfway);
     try std.testing.expect(!std.meta.eql(math.identity, stage.slot().drawn.orientation));
     try drawObjects(gpa, &scene, stage.mission.objects, .{ .frame_start = halfway }, null, null, .{}, null);
     const drawn = scene.layers.get(.world).items;
@@ -1727,6 +1732,7 @@ test "the passes draw a cloaked object through its cloak" {
     scene.clear();
     cloak.frame(stage.slot(), cloak.change_ticks);
     cloak.toggle(stage.mission.world(), stage.index);
+    cloak.frame(stage.slot(), 2 * cloak.change_ticks);
     try drawObjects(gpa, &scene, stage.mission.objects, .{ .frame_start = 2 * cloak.change_ticks }, null, null, .{}, null);
     try std.testing.expectEqual(null, stage.slot().cloak);
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
@@ -2564,6 +2570,14 @@ test "the controls are read in the game frame" {
     keyboard.down[input.controls.binding(.external_camera).key] = true;
     _ = missionFrame(seen, .{}, null);
     try std.testing.expectEqual(camera.View.external, mission.player.viewing.view);
+    keyboard.* = .{};
+    // Blind fire aims as the reticle was last drawn.
+    display.blind_fire_aims = true;
+    _ = missionFrame(orders, .{}, null);
+    try std.testing.expectEqual(1, mission.objects.slots[0].object.blind_fire_aim);
+    display.blind_fire_aims = false;
+    _ = missionFrame(orders, .{}, null);
+    try std.testing.expectEqual(0, mission.objects.slots[0].object.blind_fire_aim);
 }
 
 test gameFrames {
