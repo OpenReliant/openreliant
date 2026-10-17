@@ -588,8 +588,7 @@ test "the prototype gate's power core lights as it loses its inner core" {
     const glow = &stage.mission.slot(gate).extra.?.glow;
     try std.testing.expectEqual(0, glow.parent.?.part.?);
     try std.testing.expectEqual(Vector{ 0, 300, 0 }, glow.at);
-    try std.testing.expect(glow.stand(world.objects));
-    try std.testing.expectEqual(Vector{ 0, 300, 5000 }, glow.set.position);
+    try std.testing.expectEqual(Vector{ 0, 300, 5000 }, glow.standing(world.objects).?);
     // Its sparks stand in the world where the glow stands.
     const stream = stage.explosions.streams[0].?;
     try std.testing.expectEqual(&explode.gate_core_sparks, stream.emitter.template);
@@ -624,8 +623,7 @@ test "the Boridin breakaway's core lights, stays where it lit, and goes out with
     try std.testing.expectEqual(0, stream.on.part.part.index);
     // The ship moves on, and the glow stays.
     objects.setPosition(&slot.object, &slot.drawn, .{ 0, 0, 9000 });
-    try std.testing.expect(glow.stand(world.objects));
-    try std.testing.expectEqual(Vector{ 200, 0, 5000 }, glow.set.position);
+    try std.testing.expectEqual(Vector{ 200, 0, 5000 }, glow.standing(world.objects).?);
 
     // The core's own loss puts it out, its sparks with it.
     try std.testing.expect(componentLost(world, ship, model, breakaway_core_link));

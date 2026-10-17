@@ -24,6 +24,7 @@ const gameobj = @import("gameobj.zig");
 const matmanager = @import("matmanager.zig");
 const objects = @import("objects.zig");
 const sparks = @import("sparks.zig");
+const table = @import("table.zig");
 const xtrabits = @import("xtrabits.zig");
 
 /// A sphere's grid: its slices round the axis through its poles, and its bands from pole to pole.
@@ -334,6 +335,9 @@ pub const Shields = struct {
     field: *srtexture.Image,
     /// The capital ships' shields, made in `gpa`.
     capital: Capital,
+    /// What drawing keeps of each slot's bubble (`Shown`), made in `gpa` as it is first drawn.
+    shown: [gameobj.max_objects]?*Shown = @splat(null),
+    gpa: Allocator,
 
     /// `0x0049EF10`: the textures, each tint's ramp, and the levels' spheres (`0x0049EE90`), at the
     /// options' detail, in `style`.
@@ -355,6 +359,7 @@ pub const Shields = struct {
             .texture = texture,
             .field = field,
             .capital = .{ .gpa = gpa },
+            .gpa = gpa,
         };
     }
 
@@ -372,6 +377,21 @@ pub const Shields = struct {
     pub fn deinit(shields: *Shields, gpa: Allocator) void {
         for (shields.meshes) |mesh| mesh.deinit(gpa);
         shields.capital.deinit();
+        for (shields.shown) |held| if (held) |shown| shown.destroy(shields.gpa);
+    }
+
+    /// What drawing keeps of `bubble`, the bubble of slot `index`, whose reuse count is `reuse`:
+    /// made the first time it is drawn, and again for the bubble of a later object in the slot.
+    fn shownFor(shields: *Shields, index: usize, reuse: u32, bubble: *const Bubble) Allocator.Error!*Shown {
+        const held = &shields.shown[index];
+        if (held.*) |shown| {
+            if (shown.reuse == reuse) return shown;
+            shown.destroy(shields.gpa);
+            held.* = null;
+        }
+        const made = try Shown.create(shields.gpa, bubble, reuse, shields.style);
+        held.* = made;
+        return made;
     }
 
     /// The level of detail for a bubble `distance` from the camera, or null past the last: in the
@@ -406,6 +426,8 @@ pub const Shields = struct {
     /// distance from the camera gives, save the player's while the camera is in its cockpit. Each
     /// bubble's colours and texture move on by the ticks since they last did, as it is drawn
     /// (`shield_bubble_drawn`, `0x0049F450`, which runs `shield_bubble_update`, `0x0049E7D0`).
+    /// First, what drawing keeps of the bubble takes up the hits it took since (`Shown.takeUp`),
+    /// on the level it was last drawn at, which the game made as they struck.
     ///
     /// Then the capital shields (`Capital.draw`).
     ///
@@ -424,7 +446,9 @@ pub const Shields = struct {
             const since = look.frame_start -% struck;
             if (since < 0 or since > shown_for) continue;
             const level = shields.levelAt(math.distance(slot.object.position(), look.camera)) orelse continue;
-            const hits = try bubble.hitsFor(all.gpa, shields.style);
+            const shown = try shields.shownFor(index, all.reuses[index], bubble);
+            shown.takeUp(shields, bubble);
+            const hits = &shown.hits;
             if (hits.* == .original) hits.original.level = level;
             if (index == all.player and look.inside) continue;
             const mesh = &shields.meshes[level];
@@ -434,27 +458,27 @@ pub const Shields = struct {
                     const vertices = mesh.positions.len;
                     if (!look.paused) {
                         const ticks: f32 = @floatFromInt(if (kept.updated) |updated| look.frame_start -% updated else 0);
-                        if (!bubble.flickers(shields, mesh, look.frame_start, kept.colours[0..vertices], look.random)) kept.fade(ramp, vertices, ticks);
+                        if (!shown.flickers(bubble, shields, mesh, look.frame_start, kept.colours[0..vertices], look.random)) kept.fade(ramp, vertices, ticks);
                         kept.swirl(vertices, ticks);
                         kept.updated = look.frame_start;
                     }
-                    bubble.object.own_uv = .{ &kept.uv, null };
-                    bubble.object.baked = &kept.colours;
+                    shown.object.own_uv = .{ &kept.uv, null };
+                    shown.object.baked = &kept.colours;
                 },
                 .smooth => |*recent| {
                     const now = @as(f32, @floatFromInt(look.frame_start)) + look.ahead;
                     const colours = try arena.alloc([4]f32, mesh.positions.len);
                     const uv = try arena.alloc([2]f32, mesh.positions.len);
-                    if (!bubble.flickers(shields, mesh, look.frame_start, colours, look.random)) recent.colour(ramp, mesh, now, colours);
+                    if (!shown.flickers(bubble, shields, mesh, look.frame_start, colours, look.random)) recent.colour(ramp, mesh, now, colours);
                     recent.swirl(mesh, now, uv);
-                    bubble.object.own_uv = .{ uv, null };
-                    bubble.object.baked = colours;
+                    shown.object.own_uv = .{ uv, null };
+                    shown.object.baked = colours;
                 },
             }
-            bubble.object.levels = &shields.levels[level];
-            bubble.object.position = slot.drawn.position;
-            bubble.object.orientation = slot.drawn.orientation;
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &bubble.object }, .world);
+            shown.object.levels = &shields.levels[level];
+            shown.object.position = slot.drawn.position;
+            shown.object.orientation = slot.drawn.orientation;
+            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &shown.object }, .world);
         }
         try shields.capital.draw(shields, gpa, scene, all, look);
     }
@@ -505,29 +529,33 @@ test bubbleObject {
 }
 
 /// A ship's shield bubble (`0x0049EF90`, 0x48 bytes), which `create_object` makes for a ship that
-/// lists no components and is not debris, and which hangs from the ship's frame.
+/// lists no components and is not debris, and which hangs from the ship's frame: what the game
+/// keeps of it. What it shows, drawing keeps (`Shown`).
 pub const Bubble = struct {
-    /// Its scene object (`+0x04`, `bubbleObject`), scaled to `bubble_scale` of the ship's radius.
-    object: srapiext.MeshObject,
+    /// Its size: `bubble_scale` of the ship's radius, as its scene object (`+0x04`,
+    /// `bubbleObject`) is scaled.
+    scale: f32,
     /// When a shot or a knock last struck it (`+0x0C`), or null for never.
     struck: ?i32 = null,
     tint: Tint,
     /// Until when it flickers as a force field (`+0x44`), or null.
     flicker_until: ?i32 = null,
-    /// What its hits leave, kept as its style keeps them, from the first time it is struck or
-    /// drawn.
-    hits: ?Hits = null,
+    /// OpenReliant's: the hits it took, which drawing makes into the bubble's hits as it next draws
+    /// it (`Shown.takeUp`), where the game makes them at once. It keeps as many as either style
+    /// keeps hits.
+    strikes: Strikes = .{},
 
-    pub const Hits = union(Style) {
-        original: *Kept,
-        smooth: Recent,
-    };
+    pub const Strikes = table.Latest(Strike, @max(hit_slots, recent_hits));
+
+    /// A hit: the bubble standing at `place` round a ship at `centre`, struck at `at`, at tick
+    /// `now`.
+    pub const Strike = struct { place: math.Place, centre: Vector, at: Vector, now: i32 };
 
     /// `0x0049EF90`: a bubble for a ship of `radius`, of the ship type's side.
     pub fn create(gpa: Allocator, radius: f32, side: gameobj.Side(i16)) Allocator.Error!*Bubble {
         const bubble = try gpa.create(Bubble);
         bubble.* = .{
-            .object = bubbleObject(radius * bubble_scale),
+            .scale = radius * bubble_scale,
             .tint = if (side == .friendly) .friendly else .other,
         };
         return bubble;
@@ -535,29 +563,13 @@ pub const Bubble = struct {
 
     /// `0x0049F070`.
     pub fn destroy(bubble: *Bubble, gpa: Allocator) void {
-        if (bubble.hits) |hits| switch (hits) {
-            .original => |kept| gpa.destroy(kept),
-            .smooth => {},
-        };
         gpa.destroy(bubble);
-    }
-
-    /// Its hits, made in `style` where it has none yet.
-    fn hitsFor(bubble: *Bubble, gpa: Allocator, style: Style) Allocator.Error!*Hits {
-        if (bubble.hits == null) bubble.hits = switch (style) {
-            .original => .{ .original = try Kept.create(gpa) },
-            .smooth => .{ .smooth = .{} },
-        };
-        return &bubble.hits.?;
     }
 
     /// The bubble struck at `at`, standing at `place` round a ship at `centre`, at tick `now`
     /// (`0x0049F1E0`).
-    fn strike(bubble: *Bubble, gpa: Allocator, shields: *const Shields, place: math.Place, centre: Vector, at: Vector, now: i32) Allocator.Error!void {
-        switch ((try bubble.hitsFor(gpa, shields.style)).*) {
-            .original => |kept| kept.strike(&shields.meshes[kept.level], place, bubble.object.scale, centre, at),
-            .smooth => |*recent| recent.remember(place, at, now),
-        }
+    fn strike(bubble: *Bubble, place: math.Place, centre: Vector, at: Vector, now: i32) void {
+        bubble.strikes.add(.{ .place = place, .centre = centre, .at = at, .now = now });
         bubble.struck = now;
     }
 
@@ -567,16 +579,75 @@ pub const Bubble = struct {
         bubble.flicker_until = now + flicker_for;
         bubble.struck = now;
     }
+};
 
-    /// Whether the bubble flickers as a force field at `now`, which holds its hits (`0x0049E7D0`):
+/// What a slot's shield bubble (`Bubble`) shows, which drawing keeps from the first time it draws
+/// it: its scene object, its hits as its style keeps them, how many of the bubble's strikes it has
+/// made into them, and the flicker it has seen out. The game keeps all of it in the bubble
+/// (`0x0049EF90`). OpenReliant keeps it apart, for each object a slot holds
+/// (`create.Objects.reuses`), so that drawing writes nothing into the bubble.
+pub const Shown = struct {
+    /// The slot's reuse count as it was made, which tells it from the bubble of a later object.
+    reuse: u32,
+    /// Its scene object (`+0x04`, `bubbleObject`).
+    object: srapiext.MeshObject,
+    hits: Hits,
+    /// How many of the bubble's strikes it has made into its hits (`Bubble.strikes`).
+    seen: u32 = 0,
+    /// The flicker it has seen out (`Bubble.flicker_until`), which the game sets back to null as
+    /// it ends.
+    flicker_done: ?i32 = null,
+
+    pub const Hits = union(Style) {
+        original: *Kept,
+        smooth: Recent,
+    };
+
+    /// What drawing keeps of `bubble`, in a slot whose reuse count is `reuse`, in `style`.
+    fn create(gpa: Allocator, bubble: *const Bubble, reuse: u32, style: Style) Allocator.Error!*Shown {
+        const shown = try gpa.create(Shown);
+        errdefer gpa.destroy(shown);
+        shown.* = .{
+            .reuse = reuse,
+            .object = bubbleObject(bubble.scale),
+            .hits = switch (style) {
+                .original => .{ .original = try Kept.create(gpa) },
+                .smooth => .{ .smooth = .{} },
+            },
+        };
+        return shown;
+    }
+
+    fn destroy(shown: *Shown, gpa: Allocator) void {
+        switch (shown.hits) {
+            .original => |kept| gpa.destroy(kept),
+            .smooth => {},
+        }
+        gpa.destroy(shown);
+    }
+
+    /// Makes the strikes of `bubble` it hasn't yet into its hits, in the order they came, on the
+    /// level it was last drawn at, as the game makes each as it strikes (`0x0049F1E0`).
+    fn takeUp(shown: *Shown, shields: *const Shields, bubble: *const Bubble) void {
+        var strikes = bubble.strikes.since(shown.seen);
+        while (strikes.next()) |hit| switch (shown.hits) {
+            .original => |kept| kept.strike(&shields.meshes[kept.level], hit.place, bubble.scale, hit.centre, hit.at),
+            .smooth => |*recent| recent.remember(hit.place, hit.at, hit.now),
+        };
+        shown.seen = bubble.strikes.count;
+    }
+
+    /// Whether `bubble` flickers as a force field at `now`, which holds its hits (`0x0049E7D0`):
     /// then `mesh` is drawn over `ffield` until `flicker_until`, and `colours` are a random grey on
     /// one frame in `flicker_odds` and dark on the rest. The texture is set on the level's mesh,
-    /// which every bubble at that level shares, as the game sets it.
-    fn flickers(bubble: *Bubble, shields: *const Shields, mesh: *srapiext.Mesh, now: i32, colours: [][4]f32, random: ?*Random) bool {
+    /// which every bubble at that level shares, as the game sets it. The game sets the flicker back
+    /// to null as it ends; drawing keeps which it has seen out.
+    fn flickers(shown: *Shown, bubble: *const Bubble, shields: *const Shields, mesh: *srapiext.Mesh, now: i32, colours: [][4]f32, random: ?*Random) bool {
         const until = bubble.flicker_until orelse return false;
+        if (shown.flicker_done == until) return false;
         const over = until < now;
         mesh.surfaces[0].textures[0] = .{ .image = if (over) shields.texture else shields.field };
-        if (over) bubble.flicker_until = null;
+        if (over) shown.flicker_done = until;
         const numbers = random orelse {
             @memset(colours, @splat(0));
             return true;
@@ -590,7 +661,8 @@ pub const Bubble = struct {
     }
 };
 
-/// What the game keeps of a bubble's hits (`0x0049EF90`): a strength for each vertex of the level
+/// What a bubble's hits leave, as the game keeps them (`0x0049EF90`), which drawing keeps
+/// (`Shown`): a strength for each vertex of the level
 /// it was struck at, the texture's swirl, and the scene object's colours (`+0x110`) and texture
 /// coordinates (`+0x114`).
 pub const Kept = struct {
@@ -746,9 +818,7 @@ pub fn flare(world: gameobj.World, index: u16, at: Vector) void {
         const carried = object.velocity.vector() * @as(Vector, @splat(sparks_carry));
         sparks.spray(world, .shield, at, at - slot.drawn.position, carried, shield_sparks);
     }
-    const shared = world.shields orelse return;
-    // The game makes a bubble's hits with the bubble; where OpenReliant can't, it shows nothing.
-    bubble.strike(world.objects.gpa, shared, slot.drawn, object.position(), at, world.clock.frame_start) catch {};
+    bubble.strike(slot.drawn, object.position(), at, world.clock.frame_start);
 }
 
 // --- The capital ships' shields ------------------------------------------------------------------
@@ -1162,10 +1232,17 @@ test "a hit ripples out from where it struck" {
     const near = grid.ring(4, 0);
     const equator = grid.ring(7, 0);
 
-    // Struck on its pole: half a strength there, more further round, and nothing past 1.4 radians.
-    try bubble.strike(gpa, shields, .{}, @splat(0), .{ 0, 0, 500 }, 10);
+    // Struck on its pole: half a strength there, more further round, and nothing past 1.4 radians,
+    // as drawing takes the hit up.
+    bubble.strike(.{}, @splat(0), .{ 0, 0, 500 }, 10);
     try std.testing.expectEqual(10, bubble.struck);
-    const kept = bubble.hits.?.original;
+    const shown = try Shown.create(gpa, bubble, 0, .original);
+    defer shown.destroy(gpa);
+    shown.takeUp(shields, bubble);
+    const kept = shown.hits.original;
+    try std.testing.expectEqual(1, kept.next);
+    // Taken up once.
+    shown.takeUp(shields, bubble);
     try std.testing.expectEqual(1, kept.next);
     try std.testing.expectApproxEqAbs(0.5, kept.strengths[pole][0], 1e-5);
     try std.testing.expectApproxEqAbs(0.5 + 4 * std.math.pi / 14.0 / 1.2, kept.strengths[near][0], 1e-5);
@@ -1186,11 +1263,15 @@ test "a hit ripples out from where it struck" {
 
     // A flicker as a force field swaps the texture while it lasts, and back after.
     bubble.flicker(30);
-    try std.testing.expect(bubble.flickers(shields, mesh, 40, kept.colours[0..vertices], null));
+    try std.testing.expect(shown.flickers(bubble, shields, mesh, 40, kept.colours[0..vertices], null));
     try std.testing.expectEqual(shields.field, mesh.surfaces[0].textures[0].image);
-    try std.testing.expect(bubble.flickers(shields, mesh, 140, kept.colours[0..vertices], null));
+    try std.testing.expect(shown.flickers(bubble, shields, mesh, 140, kept.colours[0..vertices], null));
     try std.testing.expectEqual(shields.texture, mesh.surfaces[0].textures[0].image);
-    try std.testing.expect(!bubble.flickers(shields, mesh, 150, kept.colours[0..vertices], null));
+    try std.testing.expect(!shown.flickers(bubble, shields, mesh, 150, kept.colours[0..vertices], null));
+    // Drawing leaves the bubble's flicker as the game set it, and a new one flickers again.
+    try std.testing.expectEqual(130, bubble.flicker_until);
+    bubble.flicker(200);
+    try std.testing.expect(shown.flickers(bubble, shields, mesh, 210, kept.colours[0..vertices], null));
 }
 
 test flare {
@@ -1252,9 +1333,10 @@ test "Shields.draw" {
     // Both were struck within the last hundred ticks, but the camera is in the player's cockpit.
     try built.shields.draw(gpa, arena, &scene, mission.objects, look);
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
-    try std.testing.expectEqual(&mission.slot(other).shield.?.object, scene.layers.get(.world).items[0].mesh);
+    const shown = built.shields.shown[other].?;
+    try std.testing.expectEqual(&shown.object, scene.layers.get(.world).items[0].mesh);
     // A thousand away is the finest level's reach.
-    try std.testing.expectEqual(0, mission.slot(other).shield.?.hits.?.original.level);
+    try std.testing.expectEqual(0, shown.hits.original.level);
 
     // From outside, both; past a hundred ticks, neither.
     scene.clear();
@@ -1265,6 +1347,14 @@ test "Shields.draw" {
     look.frame_start = 201;
     try built.shields.draw(gpa, arena, &scene, mission.objects, look);
     try std.testing.expectEqual(0, scene.layers.get(.world).items.len);
+
+    // A later object in the other's slot has a bubble drawn afresh.
+    mission.objects.reuses[other] +%= 1;
+    mission.slot(other).shield.?.struck = 250;
+    scene.clear();
+    look.frame_start = 260;
+    try built.shields.draw(gpa, arena, &scene, mission.objects, look);
+    try std.testing.expectEqual(mission.objects.reuses[other], built.shields.shown[other].?.reuse);
 }
 
 test "the smooth style" {
@@ -1291,10 +1381,13 @@ test "the smooth style" {
     const near = fine_grid.ring(14, 0);
     const angle = 14 * std.math.pi / @as(f32, fine_grid.down);
 
-    // A hit on its pole, remembered as where it struck and when.
-    try bubble.strike(gpa, shields, .{}, @splat(0), .{ 0, 0, 500 }, 10);
+    // A hit on its pole, remembered as where it struck and when, as drawing takes it up.
+    bubble.strike(.{}, @splat(0), .{ 0, 0, 500 }, 10);
     try std.testing.expectEqual(10, bubble.struck);
-    const recent = &bubble.hits.?.smooth;
+    const shown = try Shown.create(gpa, bubble, 0, .smooth);
+    defer shown.destroy(gpa);
+    shown.takeUp(shields, bubble);
+    const recent = &shown.hits.smooth;
     recent.colour(ramp, mesh, 10, colours);
     try std.testing.expect(colours[pole][2] > 0);
     try std.testing.expectEqual(0, colours[near][2]);

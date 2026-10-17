@@ -800,10 +800,9 @@ pub const Objects = struct {
     /// OpenReliant's: makes `drawn` a copy of the objects for drawing to work on (`main.Drawn`),
     /// with the models of the objects and the missiles copied into `arena` (`Slot.copyModel`). The
     /// copy runs no scripts, so nothing drawing calls runs a mod's hook. It shares the objects'
-    /// guns, shield bubbles and extras with the game.
-    ///
-    /// Not yet split: drawing still writes into the shield bubbles and the extras
-    /// ([#1251](https://github.com/OpenReliant/openreliant/issues/1251)).
+    /// guns, shield bubbles and extras with the game, which drawing only reads: it keeps what a
+    /// bubble shows itself (`shield.Shown`), and makes what an extra shows for each frame
+    /// (`extra.Glow.drawn`, `extra.Hanging.drawn`).
     pub fn copyInto(all: *const Objects, drawn: *Objects, arena: Allocator) Allocator.Error!void {
         drawn.* = all.*;
         drawn.scripts = null;

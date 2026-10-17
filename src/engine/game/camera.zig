@@ -17,6 +17,7 @@ const gameobj = @import("gameobj.zig");
 const missiles = @import("missiles.zig");
 const launch = @import("launch.zig");
 const yamato_launch = @import("launch/yamato.zig");
+const table = @import("table.zig");
 const wgate = @import("wgate.zig");
 const Vector = math.Vector;
 
@@ -630,41 +631,11 @@ pub const Cut = struct {
     cockpit_mode: CockpitMode,
 };
 
-/// OpenReliant's: the latest changes the game made to what the camera shows (`Change`), counted
-/// from the first, so that the camera takes up those it hasn't yet without writing into them
-/// (`Camera.notice`).
-pub const Changes = struct {
-    list: [capacity]Change = undefined,
-    /// How many have been made, the latest at `count - 1`.
-    count: u32 = 0,
-
-    /// The most it keeps. More than a few come between two drawn frames only where the game frames
-    /// run with none drawn, as while `--skip-launch` passes over the launch; the camera then takes
-    /// up the latest.
-    pub const capacity = 16;
-
-    pub fn add(changes: *Changes, change: Change) void {
-        changes.list[changes.count % capacity] = change;
-        changes.count +%= 1;
-    }
-
-    /// The changes made after the first `seen`, oldest first: the latest `capacity` at most.
-    pub fn since(changes: *const Changes, seen: u32) Since {
-        const new = @min(changes.count -% seen, @min(changes.count, capacity));
-        return .{ .changes = changes, .at = changes.count - new };
-    }
-
-    pub const Since = struct {
-        changes: *const Changes,
-        at: u32,
-
-        pub fn next(it: *Since) ?Change {
-            if (it.at == it.changes.count) return null;
-            defer it.at += 1;
-            return it.changes.list[it.at % capacity];
-        }
-    };
-};
+/// OpenReliant's: the latest changes the game made to what the camera shows (`Change`), which the
+/// camera takes up as it frames (`Camera.notice`). More than a few come between two drawn frames
+/// only where the game frames run with none drawn, as while `--skip-launch` passes over the
+/// launch; the camera then takes up the latest.
+pub const Changes = table.Latest(Change, 16);
 
 /// Switches the world's view (`camera_set_view`, `Viewing.set`) at the mission's tick.
 pub fn switchView(world: gameobj.World, view: View, object: ?u16, lock: bool, force: bool) bool {
@@ -2286,31 +2257,6 @@ test "the orbit's zoom stays in range as the keys steer it" {
     try std.testing.expectEqual(50 * Orbit.external_far - Orbit.zoom_speed, viewing.orbit.distance);
     for (0..100) |_| _ = viewing.frameControls(&devices, 1, 50);
     try std.testing.expectEqual(50 * Orbit.near, viewing.orbit.distance);
-}
-
-test Changes {
-    var changes: Changes = .{};
-    // None yet.
-    var none = changes.since(0);
-    try std.testing.expectEqual(null, none.next());
-    // Those after the first seen, oldest first.
-    changes.add(.chase_mode);
-    changes.add(.{ .yamato = .{ .view = .yamato_ahead, .player = .{ .position = @splat(0), .orientation = math.identity } } });
-    var after_one = changes.since(1);
-    try std.testing.expectEqual(.yamato, std.meta.activeTag(after_one.next().?));
-    try std.testing.expectEqual(null, after_one.next());
-    // Past what it keeps, the latest it keeps.
-    for (0..Changes.capacity + 3) |_| changes.add(.chase_mode);
-    var latest = changes.since(0);
-    var count: usize = 0;
-    while (latest.next()) |_| count += 1;
-    try std.testing.expectEqual(Changes.capacity, count);
-    // Counted again from none, as the game starts them again, those made since.
-    var again: Changes = .{};
-    again.add(.chase_mode);
-    var fresh = again.since(changes.count);
-    try std.testing.expectEqual(.chase_mode, std.meta.activeTag(fresh.next().?));
-    try std.testing.expectEqual(null, fresh.next());
 }
 
 test flyby {

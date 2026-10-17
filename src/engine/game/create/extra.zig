@@ -85,22 +85,40 @@ pub const Glow = struct {
     set: srapiext.SpriteSet,
     sprite: [1]srapiext.Sprite,
 
-    /// Sizes it `half` either way, sorted as if it stood `bias` farther.
-    pub fn size(glow: *Glow, half: f32, bias: f32) void {
-        glow.sprite[0].half_size = @splat(half);
-        glow.sprite[0].bias = bias;
+    /// Where it stands: where its parent puts it, or in the world; null where its parent is gone.
+    pub fn standing(glow: *const Glow, all: *const create.Objects) ?Vector {
+        const parent = glow.parent orelse return glow.at;
+        return (parent.place(all) orelse return null).point(glow.at);
     }
 
-    /// Stands it where its parent puts it: false where its parent is gone.
-    pub fn stand(glow: *Glow, all: *const create.Objects) bool {
-        const parent = glow.parent orelse {
-            glow.set.position = glow.at;
-            return true;
-        };
-        const place = parent.place(all) orelse return false;
-        glow.set.position = place.point(glow.at);
-        return true;
+    /// How large a frame draws it: `half` either way, sorted as if it stood `bias` farther.
+    pub const Size = struct {
+        half: f32,
+        bias: f32 = 0,
+
+        /// Gives `sprite` this size.
+        fn give(size: Size, sprite: *srapiext.Sprite) void {
+            sprite.half_size = @splat(size.half);
+            sprite.bias = size.bias;
+        }
+    };
+
+    /// The glow as a frame draws it, made in `arena`, which lasts until the frame is drawn:
+    /// standing where its parent puts it, sized as `size` says or else as it was made. Null where
+    /// its parent is gone. The glow itself is left as it is, so that drawing writes nothing into
+    /// the game's objects.
+    pub fn drawn(glow: *const Glow, arena: Allocator, all: *const create.Objects, size: ?Size) Allocator.Error!?*srapiext.SpriteSet {
+        const position = glow.standing(all) orelse return null;
+        const shown = try arena.create(Shown);
+        shown.* = .{ .set = glow.set, .sprite = glow.sprite };
+        if (size) |sized| sized.give(&shown.sprite[0]);
+        shown.set.sprites = &shown.sprite;
+        shown.set.position = position;
+        return &shown.set;
     }
+
+    /// A glow as a frame draws it (`drawn`).
+    const Shown = struct { set: srapiext.SpriteSet, sprite: [1]srapiext.Sprite };
 };
 
 /// How large a glow is as it is made (`0x0046DED5`, `0x0046E140`).
@@ -112,7 +130,7 @@ pub fn makeGlow(gpa: Allocator, images: *const Images, parent: ?objects.NodeOf, 
     const extra = try gpa.create(Extra);
     extra.* = .{ .glow = .{ .parent = parent, .at = at, .sparks = sparks, .set = .{ .sprites = &.{} }, .sprite = .{.{}} } };
     const glow = &extra.glow;
-    glow.size(glow_made_size, 0);
+    Glow.Size.give(.{ .half = glow_made_size }, &glow.sprite[0]);
     glow.set.sprites = &glow.sprite;
     glow.set.surface.textures = .{ .{ .image = images.glow }, .none };
     return extra;
@@ -132,11 +150,15 @@ pub const Hanging = struct {
         hanging.object = .{ .flags = flags, .position = @splat(0), .radius = hanging.mesh.radius, .levels = &hanging.level };
     }
 
-    /// Stands its object where its part, at `part`, puts it.
-    pub fn stand(hanging: *Hanging, part: math.Place) void {
+    /// Its object as a frame draws it, made in `arena`, which lasts until the frame is drawn:
+    /// standing where its part, at `part`, puts it. The object itself is left as it is.
+    pub fn drawn(hanging: *const Hanging, arena: Allocator, part: math.Place) Allocator.Error!*srapiext.MeshObject {
         const at = hanging.place.within(part);
-        hanging.object.position = at.position;
-        hanging.object.orientation = at.orientation;
+        const shown = try arena.create(srapiext.MeshObject);
+        shown.* = hanging.object;
+        shown.position = at.position;
+        shown.orientation = at.orientation;
+        return shown;
     }
 };
 
