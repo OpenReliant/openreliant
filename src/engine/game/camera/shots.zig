@@ -9,7 +9,6 @@ const std = @import("std");
 
 const ai = @import("../ai.zig");
 const aigeneric = @import("../aigeneric.zig");
-const camera = @import("../camera.zig");
 const create = @import("../create.zig");
 const director = @import("../executor/director.zig");
 const gameobj = @import("../gameobj.zig");
@@ -58,26 +57,27 @@ pub const Shots = struct {
     }
 };
 
-/// `camera_shot_stack` (`0x00461D30`): `shot` waits after the others, and where none waited begins
-/// at once (`start`), in `world`, whose camera is `view`.
+/// `camera_shot_stack` (`0x00461D30`): `shot` waits after the others in `world`'s view
+/// (`camera.Viewing.shots`), and where none waited begins at once (`start`).
 ///
 /// **Fix:** the game stacks a shot past the table's last over the globals after it; OpenReliant
 /// passes over the shot.
-pub fn stack(world: gameobj.World, view: *camera.Camera, shot: Shot) void {
-    const shots = &view.shots;
+pub fn stack(world: gameobj.World, shot: Shot) void {
+    const shots = &world.player.viewing.shots;
     if (shots.count >= Shots.capacity) return;
     shots.waiting[shots.count] = shot;
     shots.count += 1;
-    if (shots.count == 1) start(world, view);
+    if (shots.count == 1) start(world);
 }
 
 /// `camera_shot_start` (`0x0045F170`): the first shot begins. The ships it holds wait for the
 /// director's view to hold them (`camera_shot_hold_kind`, `0x00539A5C`, and
 /// `camera_shot_hold_index`, `0x00539938`), and the director takes it (`director.begin`).
-pub fn start(world: gameobj.World, view: *camera.Camera) void {
-    const shot = view.shots.first() orelse return;
-    view.holding = if (shot.held) |target| .of(world, target) else null;
-    director.begin(world, view, shot);
+pub fn start(world: gameobj.World) void {
+    const viewing = &world.player.viewing;
+    const shot = viewing.shots.first() orelse return;
+    viewing.holding = if (shot.held) |target| .of(world, target) else null;
+    director.begin(world, shot);
 }
 
 /// The ships a shot holds still, and the objects they are in.

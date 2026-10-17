@@ -111,6 +111,12 @@ alone, and ends the path there, as its length has it. It ends the path too once 
 curves as the mission has ([Curves](#curves)). For a shot with neither curve nor ship, the game
 reads a ship at address zero; OpenReliant holds the camera where it is, level.
 
+OpenReliant keeps the shots and the director with the view the game keeps
+([Camera](camera.md#what-the-game-keeps)), and runs the shot on once a game frame, by its ticks
+(`director.step`): the CameraReached events, the curve's end and the next shot waiting come from
+there, whether or not anything is drawn. Once a drawn frame, the camera stands and turns where the
+curve has got to (`director.show`), with smooth motion a share of a tick further on.
+
 **Improvement:** with smooth motion, the camera stands and turns as far on as the frame is drawn
 past its tick, and where the ships are drawn, so that it moves on every frame, as they do.
 

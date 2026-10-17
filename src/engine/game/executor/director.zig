@@ -2,7 +2,9 @@
 //! it flies the camera along a path of the mission's curves ([`curves.zig`](curves.zig)), or stands
 //! it at a ship, over the shot's seconds, looking at a ship or turning from the angles of the ship
 //! the path starts at to those of the ship it ends at. The camera shows it in its view 13
-//! (`camera.View.director`), locked, and back in the cockpit once the path is over.
+//! (`camera.View.director`), locked, and back in the cockpit once the path is over. The shot runs
+//! on in the game frame, whether or not anything is drawn (`step`), and the camera follows it where
+//! it is drawn (`show`).
 //!
 //! **Unverified:** the source file. The code lies between `loadout.cpp`'s and `Executor.cpp`'s, and
 //! the Executor's commands are what reach it.
@@ -61,11 +63,11 @@ pub const Director = struct {
     }
 };
 
-/// `director_begin_shot` (`0x00450D10`): the camera of `world`, `view`, begins `shot`: its path, the
-/// ship it looks at and the ship its path rides along with, and its seconds, taken whole, in ticks;
-/// then the path's first curve, or the ship it stands at (`beginCurve`).
-pub fn begin(world: gameobj.World, view: *camera.Camera, shot: shots.Shot) void {
-    const director = &view.director;
+/// `director_begin_shot` (`0x00450D10`): `world`'s director begins `shot`: its path, the ship it
+/// looks at and the ship its path rides along with, and its seconds, taken whole, in ticks; then
+/// the path's first curve, or the ship it stands at (`beginCurve`).
+pub fn begin(world: gameobj.World, shot: shots.Shot) void {
+    const director = &world.player.viewing.director;
     const list = world.missionCurves();
     var curve: ?u16 = null;
     director.still = null;
@@ -82,7 +84,7 @@ pub fn begin(world: gameobj.World, view: *camera.Camera, shot: shots.Shot) void 
     director.path_length = if (curve) |first| curves.pathLength(list, first) else 0;
     director.taken = 0;
     log.debug("the director's camera takes a shot of {d} ticks, along curve {?d}, at ship {?d}", .{ director.total, curve, director.still });
-    beginCurve(world, view, curve, true);
+    beginCurve(world, curve, true);
 }
 
 /// `director_begin_curve` (`0x00450D90`): the camera begins curve `curve` of the path, or stands at
@@ -97,8 +99,8 @@ pub fn begin(world: gameobj.World, view: *camera.Camera, shot: shots.Shot) void 
 /// **Fix:** the game reads the angles of a ship past the mission's for a curve that ends at none,
 /// and of the ship at address zero for a shot with neither curve nor ship; OpenReliant turns the
 /// camera by the ship the curve starts at alone, and holds it level where it has neither.
-fn beginCurve(world: gameobj.World, view: *camera.Camera, curve: ?u16, first: bool) void {
-    const director = &view.director;
+fn beginCurve(world: gameobj.World, curve: ?u16, first: bool) void {
+    const director = &world.player.viewing.director;
     const list = world.missionCurves();
     director.curve = curve;
     if (curve != null) director.taken +|= 1;
@@ -129,26 +131,32 @@ fn angles(ships: []align(1) const dte.Ship, ship: ?u16) ?[2]f32 {
     return .{ @floatFromInt(ships[index].runtime_yaw), @floatFromInt(ships[index].runtime_pitch) };
 }
 
-/// `director_frame` (`0x00450FA0`), once a drawn frame in the director's view (`camera_frame`): the
-/// curve runs on by the drawn frame's ticks (`main.Clock.drawnTicks`). The camera stands at its
-/// point for how far along it is (`place`), and passes each place a point marks
-/// (`curves.passMarker`), posting the point's CameraReached (`director_progress`, `0x004510C0`,
-/// `events.cameraReached`), one a frame. It looks at the ship it tracks, or else turns by the yaw
-/// and the pitch that far from the curve's first to its last. At the curve's end, the next begins
-/// (`curveEnd`).
-///
-/// **Improvement:** the camera stands and turns `ahead` of a tick on, and where the ships are drawn
-/// (`drawnAt`), so that with smooth motion it moves on every frame, as they do.
-pub fn frame(world: gameobj.World, view: *camera.Camera, ahead: f32) void {
-    const director = &view.director;
-    director.elapsed +%= world.clock.drawnTicks();
+/// `director_frame` (`0x00450FA0`)'s part in the game, once a game frame in the director's view
+/// (`camera.gameFrame`): the curve runs on by the frame's ticks, passing each place a point marks
+/// (`curves.passMarker`) and posting the point's CameraReached (`director_progress`, `0x004510C0`,
+/// `events.cameraReached`), one a frame. At the curve's end, the next begins (`curveEnd`). The
+/// camera follows where it is drawn (`show`).
+pub fn step(world: gameobj.World) void {
+    const director = &world.player.viewing.director;
+    director.elapsed +%= world.clock.frameTicks();
     const t = director.share(0);
-    const shown = director.share(ahead);
-    if (place(world, director.*, shown)) |at| view.place.position = at;
     if (director.curve) |curve| if (curves.passMarker(world.missionShips(), curve, director.next_marker, t)) |marker| {
         director.next_marker = marker.at;
         if (marker.passed) |ship| events.cameraReached(world, ship);
     };
+    if (t >= 1) curveEnd(world);
+}
+
+/// `director_frame`'s placing of the camera, `view`, once a drawn frame in the director's view
+/// (`camera.Camera.frame`): it stands at its point for how far along the curve `director` is
+/// (`place`), and looks at the ship it tracks, or else turns by the yaw and the pitch that far from
+/// the curve's first to its last.
+///
+/// **Improvement:** the camera stands and turns `ahead` of a tick on, and where the ships are drawn
+/// (`drawnAt`), so that with smooth motion it moves on every frame, as they do.
+pub fn show(world: gameobj.World, view: *camera.Camera, director: Director, ahead: f32) void {
+    const shown = director.share(ahead);
+    if (place(world, director, shown)) |at| view.place.position = at;
     const yaw = math.lerp(director.yaw[0], director.yaw[1], shown);
     const pitch = math.lerp(director.pitch[0], director.pitch[1], shown);
     if (director.tracked) |ship| {
@@ -156,7 +164,6 @@ pub fn frame(world: gameobj.World, view: *camera.Camera, ahead: f32) void {
     } else {
         view.place.orientation = mission.yawPitch(yaw, pitch);
     }
-    if (t >= 1) curveEnd(world, view);
 }
 
 /// `director_place` (`0x004511A0`): where the camera stands `t` of the way along the curve: its
@@ -186,11 +193,12 @@ fn place(world: gameobj.World, director: Director, t: f32) ?Vector {
 /// ends the path there, as its length has it (`curves.pathLength`). The path ends too once it has
 /// taken as many curves as the mission has (`Director.taken`), where the game flies a path that
 /// comes round on itself for ever, so that its shot and those after it never end.
-fn curveEnd(world: gameobj.World, view: *camera.Camera) void {
+fn curveEnd(world: gameobj.World) void {
+    const director = &world.player.viewing.director;
     const list = world.missionCurves();
-    if (view.director.curve) |index| if (index < list.len) {
+    if (director.curve) |index| if (index < list.len) {
         if (list[index].endShip()) |end| events.cameraReached(world, end);
-        if (curves.following(list, index, view.director.taken)) |next| return beginCurve(world, view, @intCast(next), false);
+        if (curves.following(list, index, director.taken)) |next| return beginCurve(world, @intCast(next), false);
     };
     _ = camera.switchView(world, .cockpit, world.objects.player, false, true);
 }
@@ -226,11 +234,17 @@ const TestShot = struct {
         return seen;
     }
 
-    /// The camera's frame, `ticks` long.
+    /// A game frame `ticks` long (`camera.gameFrame`), then a drawn frame (`show`).
     fn frame(shot: *TestShot, ticks: i32) void {
-        shot.game.mission.clock.drawn_duration = ticks;
+        shot.game.mission.clock.frame_duration = ticks;
+        camera.gameFrame(shot.world());
+        shot.show();
+    }
+
+    /// The camera's drawn frame.
+    fn show(shot: *TestShot) void {
         const seen: camera.Subject = .{ .position = @splat(0), .orientation = math.identity };
-        shot.view.frame(.{ .object = seen, .player = seen, .ticks = @intCast(ticks), .game = shot.world(), .viewing = shot.viewing() });
+        shot.view.frame(.{ .object = seen, .player = seen, .ticks = 1, .game = shot.world(), .viewing = shot.viewing() });
     }
 
     /// What the game has the camera view.
@@ -249,12 +263,12 @@ test "a shot flies the camera along its path, turning, and back to the cockpit" 
     defer shot.game.deinit();
     const view = &shot.view;
 
-    shots.stack(shot.world(), view, .{ .path = .{ .curve = 0 }, .seconds = 2.5 });
+    shots.stack(shot.world(), .{ .path = .{ .curve = 0 }, .seconds = 2.5 });
     try std.testing.expectEqual(camera.View.director, shot.viewing().view);
     try std.testing.expect(shot.viewing().locked);
     // Two whole seconds, over a path 3000 long: the first curve's third of them.
-    try std.testing.expectEqual(200, view.director.total);
-    try std.testing.expectEqual(66, view.director.ticks);
+    try std.testing.expectEqual(200, shot.viewing().director.total);
+    try std.testing.expectEqual(66, shot.viewing().director.ticks);
     // Half way along the first curve, and half way round from 350 to 370 and up from 0 to 20.
     shot.frame(33);
     try std.testing.expectApproxEqAbs(500, view.place.position[2], 1e-3);
@@ -262,9 +276,9 @@ test "a shot flies the camera along its path, turning, and back to the cockpit" 
     try math.testing.expectMatrixWithin(turned, view.place.orientation, 1e-5);
     // At its end, the second carries the path on, for the rest of the ticks.
     shot.frame(33);
-    try std.testing.expectEqual(1, view.director.curve);
-    try std.testing.expectEqual(133, view.director.ticks);
-    try std.testing.expectEqual(0, view.director.elapsed);
+    try std.testing.expectEqual(1, shot.viewing().director.curve);
+    try std.testing.expectEqual(133, shot.viewing().director.ticks);
+    try std.testing.expectEqual(0, shot.viewing().director.elapsed);
     shot.frame(100);
     try std.testing.expect(view.place.position[2] > 2000);
     try std.testing.expectEqual(camera.View.director, shot.viewing().view);
@@ -272,7 +286,7 @@ test "a shot flies the camera along its path, turning, and back to the cockpit" 
     shot.frame(50);
     try std.testing.expectEqual(camera.View.cockpit, shot.viewing().view);
     try std.testing.expect(!shot.viewing().locked);
-    try std.testing.expectEqual(0, view.shots.count);
+    try std.testing.expectEqual(0, shot.viewing().shots.count);
 }
 
 test "a still shot stands at its ship, looks at the one it tracks and holds ships still" {
@@ -286,9 +300,9 @@ test "a still shot stands at its ship, looks at the one it tracks and holds ship
     all.slots[2].drawn.position = .{ 100, 0, 500 };
 
     const world = shot.world();
-    shots.stack(world, view, .{ .path = .{ .ship = 1 }, .tracked = 2, .seconds = 1, .held = .at(3, null) });
-    shots.stack(world, view, .{ .path = .{ .ship = 2 }, .seconds = 1 });
-    try std.testing.expectEqual(2, view.shots.count);
+    shots.stack(world, .{ .path = .{ .ship = 1 }, .tracked = 2, .seconds = 1, .held = .at(3, null) });
+    shots.stack(world, .{ .path = .{ .ship = 2 }, .seconds = 1 });
+    try std.testing.expectEqual(2, shot.viewing().shots.count);
     try std.testing.expect(all.slots[3].object.flags.jumping);
     shot.frame(50);
     try std.testing.expectEqual(Vector{ 100, 0, 0 }, view.place.position);
@@ -296,8 +310,8 @@ test "a still shot stands at its ship, looks at the one it tracks and holds ship
     // Over, the next waiting begins at once, and the ship held goes.
     shot.frame(50);
     try std.testing.expectEqual(camera.View.director, shot.viewing().view);
-    try std.testing.expectEqual(1, view.shots.count);
-    try std.testing.expectEqual(2, view.director.still);
+    try std.testing.expectEqual(1, shot.viewing().shots.count);
+    try std.testing.expectEqual(2, shot.viewing().director.still);
     try std.testing.expect(!all.slots[3].object.flags.jumping);
     // With no ship to track, it turns by the ship's own angles: none.
     shot.frame(10);
@@ -320,13 +334,13 @@ test "a path rides along with its ship, and passes the places points mark" {
 
     // The ship stands 50 across as the shot begins, and moves on 50 more.
     all.slots[0].drawn.position = .{ 50, 0, 0 };
-    shots.stack(shot.world(), view, .{ .path = .{ .curve = 0 }, .pace = 0, .seconds = 3 });
-    try std.testing.expectEqual(0.25, view.director.next_marker);
+    shots.stack(shot.world(), .{ .path = .{ .curve = 0 }, .pace = 0, .seconds = 3 });
+    try std.testing.expectEqual(0.25, shot.viewing().director.next_marker);
     all.slots[0].drawn.position = .{ 100, 0, 0 };
     shot.frame(50);
     try std.testing.expectEqual(100, view.place.position[0]);
     // Past the marked place, the next is none.
-    try std.testing.expectEqual(null, view.director.next_marker);
+    try std.testing.expectEqual(null, shot.viewing().director.next_marker);
 }
 
 test "a shot given no seconds is at its curve's end at once, turned by the start alone" {
@@ -338,16 +352,17 @@ test "a shot given no seconds is at its curve's end at once, turned by the start
     defer shot.game.deinit();
     const view = &shot.view;
 
-    shots.stack(shot.world(), view, .{ .path = .{ .curve = 0 }, .seconds = 0 });
+    shots.stack(shot.world(), .{ .path = .{ .curve = 0 }, .seconds = 0 });
     try std.testing.expectEqual(camera.View.director, shot.viewing().view);
-    try std.testing.expectEqual(0, view.director.ticks);
-    // At the first frame the camera stands at the curve's end, turned by its start's angles, and
-    // the curve, ending at no ship, ends the path: back to the cockpit.
-    shot.frame(1);
+    try std.testing.expectEqual(0, shot.viewing().director.ticks);
+    // Drawn, the camera stands at the curve's end, turned by its start's angles.
+    shot.show();
     try std.testing.expectEqual(Vector{ 0, 0, 1000 }, view.place.position);
     try math.testing.expectMatrixWithin(mission.yawPitch(30, 0), view.place.orientation, 1e-5);
+    // At the first game frame the curve, ending at no ship, ends the path: back to the cockpit.
+    shot.frame(1);
     try std.testing.expectEqual(camera.View.cockpit, shot.viewing().view);
-    try std.testing.expectEqual(0, view.shots.count);
+    try std.testing.expectEqual(0, shot.viewing().shots.count);
 }
 
 test "a shot with neither curve nor ship holds the camera where it is, level" {
@@ -358,9 +373,9 @@ test "a shot with neither curve nor ship holds the camera where it is, level" {
     const view = &shot.view;
     view.place.position = .{ 7, 8, 9 };
 
-    shots.stack(shot.world(), view, .{ .path = null, .seconds = 1 });
+    shots.stack(shot.world(), .{ .path = null, .seconds = 1 });
     try std.testing.expectEqual(camera.View.director, shot.viewing().view);
-    try std.testing.expectEqual(100, view.director.ticks);
+    try std.testing.expectEqual(100, shot.viewing().director.ticks);
     shot.frame(50);
     try std.testing.expectEqual(Vector{ 7, 8, 9 }, view.place.position);
     try std.testing.expectEqual(math.identity, view.place.orientation);
@@ -379,16 +394,15 @@ test "a path that comes round on itself ends with its shot" {
         dte.testing.curve(2, 1, .{ 0, 0, 1000 }, .{ 0, 0, 0 }),
     });
     defer shot.game.deinit();
-    const view = &shot.view;
 
-    shots.stack(shot.world(), view, .{ .path = .{ .curve = 0 }, .seconds = 2 });
-    try std.testing.expectEqual(100, view.director.ticks);
+    shots.stack(shot.world(), .{ .path = .{ .curve = 0 }, .seconds = 2 });
+    try std.testing.expectEqual(100, shot.viewing().director.ticks);
     shot.frame(100);
-    try std.testing.expectEqual(1, view.director.curve);
+    try std.testing.expectEqual(1, shot.viewing().director.curve);
     try std.testing.expectEqual(camera.View.director, shot.viewing().view);
     // Once it has taken both, the shot is over.
     shot.frame(100);
     try std.testing.expectEqual(camera.View.cockpit, shot.viewing().view);
     try std.testing.expect(!shot.viewing().locked);
-    try std.testing.expectEqual(0, view.shots.count);
+    try std.testing.expectEqual(0, shot.viewing().shots.count);
 }
