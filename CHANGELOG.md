@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.3](https://github.com/OpenReliant/openreliant/compare/v0.19.2...v0.19.3) (2026-10-17)
+
+
+### Fixes
+
+* a mission's textures and shaders get ready while it loads ([#1260](https://github.com/OpenReliant/openreliant/issues/1260)) ([99f501c](https://github.com/OpenReliant/openreliant/commit/99f501cd2a3e135823913487a3cad16427f79960)), closes [#1259](https://github.com/OpenReliant/openreliant/issues/1259)
+* the locker's medals come and go with the lid ([#1257](https://github.com/OpenReliant/openreliant/issues/1257)) ([8ebbad3](https://github.com/OpenReliant/openreliant/commit/8ebbad3c8a7287a092d102922e740e3f93937e0f)), closes [#1193](https://github.com/OpenReliant/openreliant/issues/1193)
+
 ## [0.19.2](https://github.com/OpenReliant/openreliant/compare/v0.19.1...v0.19.2) (2026-10-17)
 
 
