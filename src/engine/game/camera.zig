@@ -392,6 +392,8 @@ pub const World = struct {
     game: ?gameobj.World = null,
     /// What the game has the camera view (`input.Player.viewing`).
     viewing: *const Viewing,
+    /// The game's shake from hits (`gameobj.World.shake`), as the last game frame left it.
+    shake: f32 = 0,
 
     /// How long the view has been up at the frame, in ticks: since it was switched to, and on by as
     /// much past the tick as the frame is drawn (`ahead`).
@@ -435,8 +437,7 @@ pub const Landing = union(enum) {
 ///
 /// What the original's game work changes in the camera as it switches the view, OpenReliant's
 /// game frames record here, and the camera, which drawing keeps, takes it up as it next frames
-/// (`changes`, `Camera.notice`). Not yet split: the game still writes the camera's shake
-/// ([#1251](https://github.com/OpenReliant/openreliant/issues/1251)).
+/// (`changes`, `Camera.notice`). The game keeps the camera's shake too (`gameobj.World.shake`).
 pub const Viewing = struct {
     view: View = .cockpit,
     /// The object the view shows (`camera_object`, `0x00539A8C`).
@@ -725,9 +726,9 @@ pub const Camera = struct {
     /// between the picking ship and the pod, and the pod shot's way from the pod to the Sabre.
     cutaway: Vector = @splat(0),
     chase: Chase = .{},
-    /// How hard the last hit shook the camera (`hit_shake`, `0x00588724`): at most 2, and less by
-    /// 0.02 a tick.
-    hit_shake: f32 = 0,
+    /// What is left of the game's shake from hits as the frame is drawn, a tick on
+    /// (`Cockpit.faded`), which the camera and the display shake by.
+    shake_left: f32 = 0,
     /// The guns' kick on the cockpit's hands (`0x005636E0`): 1 as the player's guns fire
     /// (`0x0047BE3A`), and a twentieth less each frame.
     recoil: f32 = 0,
@@ -860,16 +861,12 @@ pub const Camera = struct {
     /// back (`gameFrame`).
     pub fn frame(camera: *Camera, world: World) void {
         camera.notice(world.viewing);
-        if (world.forces) |forces| if (camera.hit_shake > shake_rumbles) forces.startUnlessPlaying(.shake, @intCast(world.now));
+        if (world.forces) |forces| if (world.shake > shake_rumbles) forces.startUnlessPlaying(.shake, @intCast(world.now));
         const ticks: f32 = @floatFromInt(world.ticks);
-        // What the shake from hits jitters by this frame, before it dies away some more.
-        var shake: f32 = 0;
-        if (camera.hit_shake > 0) {
-            if (camera.hit_shake > Cockpit.shake_most) camera.hit_shake = Cockpit.shake_most;
-            shake = camera.hit_shake * Cockpit.shake_share;
-            camera.hit_shake -= ticks * Cockpit.shake_fade;
-            if (camera.hit_shake < 0) camera.hit_shake = 0;
-        }
+        // What the shake from hits jitters by this frame, before it dies away some more, which the
+        // game frames make it do (`main.gameFrames`).
+        const shake: f32 = if (world.shake > 0) @min(world.shake, Cockpit.shake_most) * Cockpit.shake_share else 0;
+        camera.shake_left = Cockpit.faded(world.shake);
         camera.cockpit_place = null;
         if (camera.bar_speed != 0) {
             camera.bars += ticks * camera.bar_speed * bar_rate;
@@ -891,7 +888,7 @@ pub const Camera = struct {
                 if (world.cockpit) |model| camera.cockpit_place = Cockpit.place(model, &camera.recoil, shake, world.random);
                 // The camera itself shakes with a hit, by what is left of it.
                 if (shake > 0) camera.place.orientation = math.product(
-                    Cockpit.jitter(camera.hit_shake * Cockpit.camera_shake, world.random),
+                    Cockpit.jitter(camera.shake_left * Cockpit.camera_shake, world.random),
                     camera.place.orientation,
                 );
             },
@@ -983,7 +980,7 @@ pub const Camera = struct {
                 camera.place = lookingAt(world.player.place().point(jumpCloseOffset(world.shown())), world.player.position);
                 // The camera shakes with a hit, as the cockpit's does.
                 if (shake > 0) camera.place.orientation = math.product(
-                    Cockpit.jitter(camera.hit_shake * Cockpit.camera_shake, world.random),
+                    Cockpit.jitter(camera.shake_left * Cockpit.camera_shake, world.random),
                     camera.place.orientation,
                 );
             },
@@ -1130,6 +1127,14 @@ pub const Cockpit = struct {
     pub const camera_shake: f32 = 0.03;
     pub const root_jitter_share: f32 = 0.5;
 
+    /// What is left of the shake from hits `shake` a tick on, as `camera_frame` has it die away
+    /// after each frame's work: no more than `shake_most`, less `shake_fade`, and no less than
+    /// nothing.
+    pub fn faded(shake: f32) f32 {
+        if (!(shake > 0)) return shake;
+        return @max(@min(shake, shake_most) - shake_fade, 0);
+    }
+
     /// What moves the cockpit, and where its model stands.
     pub const Input = struct {
         /// The ship's rates of turn over its flight model's full ones: pitch, yaw and roll.
@@ -1223,13 +1228,20 @@ test Cockpit {
 }
 
 test "the shake from a hit dies away and turns the camera" {
-    var camera: Camera = .{ .hit_shake = 3 };
+    // It goes no higher than 2, then dies away by 0.02 a tick, to nothing.
+    try std.testing.expectApproxEqAbs(1.98, Cockpit.faded(3), 1e-6);
+    try std.testing.expectApproxEqAbs(0.48, Cockpit.faded(0.5), 1e-6);
+    try std.testing.expectEqual(0, Cockpit.faded(0.01));
+    try std.testing.expectEqual(0, Cockpit.faded(0));
+
+    var camera: Camera = .{};
     var viewing: Viewing = .{};
     var random: Random = .{};
     const ship: Subject = .{ .position = @splat(0), .orientation = math.identity };
-    camera.frame(.{ .object = ship, .player = ship, .ticks = 10, .random = &random, .viewing = &viewing });
-    // It goes no higher than 2, then dies away by 0.02 a tick.
-    try std.testing.expectApproxEqAbs(1.8, camera.hit_shake, 1e-6);
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 10, .random = &random, .viewing = &viewing, .shake = 3 });
+    // The frame shows what is left of the game's shake a tick on, which the game frames take it
+    // down by.
+    try std.testing.expectApproxEqAbs(1.98, camera.shake_left, 1e-6);
     // The camera is turned off the ship's own orientation.
     try std.testing.expect(!std.meta.eql(math.identity, camera.place.orientation));
     // Without a cockpit model there is nothing to place.

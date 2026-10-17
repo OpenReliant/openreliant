@@ -907,7 +907,7 @@ pub fn jumpOut(ctx: aigeneric.Context, index: u16) void {
                     tube.scroll(elapsed);
                 }
                 if (gates.rumbles(world.random, ctx.world.clock.frame_start)) {
-                    if (world.camera) |view| view.hit_shake = ride_shake;
+                    world.shake.* = ride_shake;
                     if (world.flash) |flash| flash.start();
                     if (world.hearing) |hearing| hearing.sound.bufferAt(ride_sound, slot.drawn.position, hearing.camera.*, slot.object.radius * ride_loudness);
                 }
@@ -919,7 +919,7 @@ pub fn jumpOut(ctx: aigeneric.Context, index: u16) void {
         .done => {
             if (player) {
                 if (world.flash) |flash| flash.start();
-                if (world.camera) |view| view.hit_shake = ride_shake;
+                world.shake.* = ride_shake;
                 gates.riding = false;
             }
             gates.exiting = false;

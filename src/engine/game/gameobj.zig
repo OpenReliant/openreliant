@@ -1949,6 +1949,10 @@ pub const World = struct {
     /// maps (`winmain.Details.light_maps`), which the orders that turn a ship's lights on and off
     /// go by.
     light_maps: bool = true,
+    /// The camera's shake from hits (`hit_shake`, `0x00588724`), which hits, shockwaves, launches,
+    /// jumps, the worm between gates and the player's speed raise, and which dies away a tick at a
+    /// time (`main.gameFrames`, `camera.Cockpit.faded`). The game keeps it, and drawing only reads
+    /// it: the camera, the display and the controller's shake.
     shake: *f32,
     /// The game's random numbers (`Random`), from which the guns' step draws a damaged gun's
     /// misfire.

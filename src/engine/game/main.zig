@@ -286,9 +286,14 @@ pub const Clock = struct {
     /// each tick of the timer since the last pass. Returns whether the simulation stepped, or null
     /// once the loop has caught up with the timer.
     pub fn nextTick(clock: *Clock, devices: *input.Devices, world: gameobj.World) ?bool {
-        if (clock.ran_to == clock.game_ticks) return null;
+        if (!clock.owesTick()) return null;
         clock.ran_to +%= 1;
         return gameobj.gameTick(clock, devices, world);
+    }
+
+    /// Whether the loop owes a tick (`nextTick`).
+    pub fn owesTick(clock: *const Clock) bool {
+        return clock.ran_to != clock.game_ticks;
     }
 
     /// Every tick the loop owes. Returns how many simulation steps ran.
@@ -642,6 +647,7 @@ pub fn viewFrame(drawing: Drawing) void {
         .showing = &world.player.showing,
         .game = shown,
         .viewing = viewing,
+        .shake = world.shake.*,
     });
     slot.object.flags.hidden = viewing.inside(all.player);
     if (world.hearing) |hearing| {
@@ -781,7 +787,11 @@ pub fn gameFrames(clock: *Clock, devices: *input.Devices, world: gameobj.World, 
     const orders: aigeneric.Context = .{ .world = world, .devices = devices };
     var ended: FrameEnd = .played;
     var ran = false;
-    while (clock.nextTick(devices, world)) |_| {
+    while (true) {
+        // The shake from hits dies away a tick, as `camera_frame` has it do once each frame is
+        // drawn, before the tick's step and its game frame raise it again.
+        if (clock.owesTick() and !clock.paused) world.shake.* = camera.Cockpit.faded(world.shake.*);
+        _ = clock.nextTick(devices, world) orelse break;
         if (clock.paused) continue;
         clock.frameBegin();
         ran = true;
@@ -2565,11 +2575,14 @@ test gameFrames {
     var devices: input.Devices = .{};
     const clock = &mission.clock;
 
-    // Three ticks owed: a game frame at each, a tick long.
+    // Three ticks owed: a game frame at each, a tick long. The shake from hits dies away a tick
+    // before each.
+    mission.shake = 1;
     clock.advanceTimer(3);
     try std.testing.expectEqual(.played, gameFrames(clock, &devices, mission.world(), .together, null));
     try std.testing.expectEqual(3, clock.frame_start);
     try std.testing.expectEqual(1, clock.frame_duration);
+    try std.testing.expectApproxEqAbs(1 - 3 * camera.Cockpit.shake_fade, mission.shake, 1e-6);
     // The drawn frame after them spans all three.
     clock.drawBegin();
     try std.testing.expectEqual(3, clock.drawnTicks());
@@ -2578,11 +2591,12 @@ test gameFrames {
     try std.testing.expectEqual(3, clock.frame_start);
     clock.drawBegin();
     try std.testing.expectEqual(0, clock.drawnTicks());
-    // While the game is paused, no game frame runs.
+    // While the game is paused, no game frame runs, and the shake holds.
     clock.paused = true;
     clock.advanceTimer(2);
     _ = gameFrames(clock, &devices, mission.world(), .together, null);
     try std.testing.expectEqual(3, clock.frame_start);
+    try std.testing.expectApproxEqAbs(1 - 3 * camera.Cockpit.shake_fade, mission.shake, 1e-6);
 }
 
 test Drawn {
