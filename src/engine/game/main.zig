@@ -535,18 +535,14 @@ pub fn pausedFrame(devices: *input.Devices, hearing: hog_snd.Hearing, world: gam
     devices.joystick.rumble(.{});
 }
 
-/// What the frame's controls, its camera and its sound run with (`controlsFrame`, `viewFrame`).
-pub const Controls = struct {
-    /// The world, its clock, and the devices the controls read.
+/// What the drawn frame's camera, trails and sound run with (`viewFrame`).
+pub const Drawing = struct {
+    /// The world, its clock, and the devices whose motors the effects turn.
     orders: aigeneric.Context,
     devices: *input.Devices,
     camera: *camera.Camera,
+    /// The display, whose target the target view goes round.
     display: *hud.State,
-    /// The scene as last drawn, which the targeting keys find the object under the reticle by, the
-    /// screen's size in pixels, and how large the display is drawn on it.
-    sight: ?hud.Sight,
-    screen: [2]u32,
-    ui_scale: hud.UiScale,
     /// The cockpit's model, where the player's ship has one, which the camera's frame moves.
     cockpit: ?*cockpit.Cockpit.Shown,
     forces: *input.force.Forces,
@@ -558,37 +554,33 @@ pub const Controls = struct {
     smooth_motion: bool,
 };
 
-/// `mission_frame`'s work for the controls, once a drawn frame over the ticks it spans
-/// (`Clock.drawnTicks`): `frame_controls` (the camera's keys, then the targeting keys,
-/// `hud.targetKeys`, then its own, `input.frameKeys`). The radio, which the game runs after them,
-/// runs in the game frame (`missionFrame`). The camera and the sound follow once the objects are
-/// placed for the frame (`viewFrame`).
-pub fn controlsFrame(controls: Controls) void {
-    const world = controls.orders.world;
-    const clock = world.clock;
+/// `frame_controls` (`0x00414060`), once a game frame where there are devices to read and a
+/// display: the camera's keys (`camera.Camera.frameControls`), where there is a camera, then the
+/// targeting keys (`hud.targetKeys`), then its own (`input.frameKeys`). A key pressed between game
+/// frames is read in the next.
+fn controlsFrame(orders: aigeneric.Context) void {
+    const devices = orders.devices orelse return;
+    const world = orders.world;
+    const display = world.display orelse return;
     const all = world.objects;
-    const view = controls.camera;
-    const devices = controls.devices;
-    const ticks = clock.drawnTicks();
-    const slot = &all.slots[all.player];
-    if (view.frameControls(world.player.viewing, devices, ticks)) |chosen| _ = camera.switchView(world, chosen, all.player, false, false);
-    hud.targetKeys(controls.display, .{
+    if (world.camera) |view| {
+        if (view.frameControls(world.player.viewing, devices, world.clock.frameTicks())) |chosen| _ = camera.switchView(world, chosen, all.player, false, false);
+    }
+    hud.targetKeys(display, .{
         .devices = devices,
         .player = world.player,
         .all = all,
-        .sight = controls.sight,
         .last_view = world.player.viewing.last,
-        .scale = controls.ui_scale.of(controls.screen),
         .multiplayer = false,
         .world = world,
     });
     input.frameKeys(.{
-        .display = controls.display,
+        .display = display,
         .player = world.player,
         .devices = devices,
-        .slot = slot,
-        .view = world.player.viewing.view,
-        .game_ticks = clock.game_ticks,
+        .slot = &all.slots[all.player],
+        .view = world.view(),
+        .game_ticks = world.clock.game_ticks,
         .multiplayer = false,
         .world = world,
         .all = all,
@@ -596,7 +588,7 @@ pub fn controlsFrame(controls: Controls) void {
 }
 
 /// `mission_frame`'s work once the objects are placed for the drawn frame (`DrawnPlaces`), once a
-/// drawn frame over the ticks it spans (`Clock.drawnTicks`), after the controls (`controlsFrame`):
+/// drawn frame over the ticks it spans (`Clock.drawnTicks`):
 /// the missiles' trails, which the game runs at the end of `missiles_update`, each laying its
 /// newest ring where its missile is drawn (`missiles.trail.Trails.frame`); the camera's frame, of
 /// the view's own object, which the ejection's views show, or else the player's ship, the
@@ -605,22 +597,22 @@ pub fn controlsFrame(controls: Controls) void {
 /// and the frame's sound, heard from where the camera now is: the fades `tick_timer` steps, the
 /// music waiting its turn, the positional sounds gathered, and the 3D sounds placed again.
 /// OpenReliant's: the effects playing turn the controller's motors (`input.force`).
-pub fn viewFrame(controls: Controls) void {
-    const world = controls.orders.world;
+pub fn viewFrame(drawing: Drawing) void {
+    const world = drawing.orders.world;
     const clock = world.clock;
     const all = world.objects;
-    const view = controls.camera;
-    const devices = controls.devices;
+    const view = drawing.camera;
+    const devices = drawing.devices;
     const ticks = clock.drawnTicks();
     const at = clock.viewTime();
     const slot = &all.slots[all.player];
     if (world.trails) |trails| {
         var drawn = world;
-        drawn.random = controls.random;
+        drawn.random = drawing.random;
         trails.frame(drawn);
     }
     const viewing = &world.player.viewing;
-    const cockpit_input = if (controls.cockpit) |shown| shown.inputFor(slot, viewing.view) else null;
+    const cockpit_input = if (drawing.cockpit) |shown| shown.inputFor(slot, viewing.view) else null;
     const subject = camera.Subject.of(slot);
     const seen = if (viewing.object) |object| camera.Subject.of(&all.slots[object]) else subject;
     const marker = if (world.explosions) |explosions| if (explosions.marker) |left| left.position else null else null;
@@ -628,14 +620,14 @@ pub fn viewFrame(controls: Controls) void {
         .object = seen,
         .player = subject,
         // The target view goes round the player's target.
-        .target = if (controls.display.target) |aimed| camera.Subject.of(&all.slots[aimed.slot]) else null,
+        .target = if (drawing.display.target) |aimed| camera.Subject.of(&all.slots[aimed.slot]) else null,
         .ticks = ticks,
         .now = at,
-        .ahead = objects.pastTick(clock, controls.smooth_motion),
+        .ahead = objects.pastTick(clock, drawing.smooth_motion),
         .marker = marker,
         .cockpit = cockpit_input,
-        .random = controls.random,
-        .forces = controls.forces,
+        .random = drawing.random,
+        .forces = drawing.forces,
         .dropping = launch.dropping(all, all.player),
         .landing = ailand.seen(all, viewing.object orelse all.player),
         .showing = &world.player.showing,
@@ -648,11 +640,11 @@ pub fn viewFrame(controls: Controls) void {
         hearing.sound.surround(world.player.showing.surroundings(viewing.view));
         if (hearing.sound.stdsmp) |bank| hearing.sound.frame(bank, hearing.scene(world));
     }
-    devices.joystick.rumble(controls.forces.motors(clock.frame_start));
+    devices.joystick.rumble(drawing.forces.motors(clock.frame_start));
 }
 
-/// `mission_frame` (`0x004924B0`), as far as the objects go: the radio, as the game runs it after
-/// the controls (`radio.Radio.step`), and its remarks (`radio.remarksFrame`), then the player's ship
+/// `mission_frame` (`0x004924B0`), as far as the objects go: the controls (`controlsFrame`), then
+/// the radio (`radio.Radio.step`) and its remarks (`radio.remarksFrame`), then the player's ship
 /// pointed to the flyback marker it has strayed from (`input.nextNavPoint`), then every object's
 /// orders, which fly the ships and read the player's controls, then the player's ship sent
 /// home where it destroyed a friend (`friendly_fire.sendHome`), then the scanner's beep
@@ -701,7 +693,8 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
             return .left_out;
         }
     }
-    // `mission_frame` runs the radio after the controls, then its remarks.
+    // `mission_frame` reads the controls, then runs the radio, then its remarks.
+    controlsFrame(orders);
     if (radio_module.onAir(orders.world)) |on_air| {
         const radio, const ctx = on_air;
         radio.step(ctx, orders.world.clock.frameTicks(), orders.world.clock.game_ticks);
@@ -2545,6 +2538,32 @@ test missionFrame {
     // The frame ran the ship's order, and framed every object where it is drawn.
     try std.testing.expect(mission.objects.slots[1].object.yaw_input > 0);
     try std.testing.expect(!mission.objects.slots[1].object.root.flags.unframed);
+}
+
+test "the controls are read in the game frame" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    _ = try mission.add(.of(.predator), @splat(0));
+    var display: hud.State = .{};
+    var view: camera.Camera = .{};
+    var devices: input.Devices = .{};
+    var world = mission.world();
+    world.display = &display;
+    const orders: aigeneric.Context = .{ .world = world, .devices = &devices };
+    // SMART TARGET, pressed between game frames, is read in the next, with no camera.
+    const keyboard = &devices.keyboard;
+    keyboard.down[input.controls.binding(.smart_target).key] = true;
+    keyboard.down[input.scan.left_control] = true;
+    _ = missionFrame(orders, .{}, null);
+    try std.testing.expect(display.smart_targeting);
+    keyboard.* = .{};
+    // With a camera, the external camera's key switches the game's view.
+    var seen = orders;
+    seen.world.camera = &view;
+    keyboard.down[input.controls.binding(.external_camera).key] = true;
+    _ = missionFrame(seen, .{}, null);
+    try std.testing.expectEqual(camera.View.external, mission.player.viewing.view);
 }
 
 test gameFrames {
