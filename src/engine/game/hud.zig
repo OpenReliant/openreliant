@@ -3748,6 +3748,10 @@ pub const State = struct {
     /// Where the lead cursor last stood in the scene (`hud_lead_point`, `0x0057C260`), which blind
     /// fire aims the player's shots at (`guns.shoot`).
     lead_point: Vector = @splat(0),
+    /// Whether blind fire aimed at the lead cursor as the reticle was last drawn (`drawReticle`).
+    /// The game sets the player's ship's `blind_fire_aim` there; OpenReliant's game frame hands it
+    /// to the ship (`main.controlsFrame`), so that the game reads nothing drawing writes.
+    blind_fire_aims: bool = false,
     /// The radar's rings (`0x0057BC50`).
     radar_rings: u16 = Radar.first_rings,
     /// The radar's range (`radar_range`, `0x0057BE00`), 0 the closest.
@@ -4021,7 +4025,6 @@ pub const State = struct {
     fn drawInstruments(state: *State, pen: Pen, placing: *Placings, frame: Frame, lead: Cursor, speaker: ?u16) Error!void {
         const frame_duration = frame.clock.drawn_duration;
         const slot = &frame.all.slots[frame.all.player];
-        const live = &slot.object;
         const gauges = Cluster.Gauges.of(slot) orelse return;
         if (frame.sight) |sight| try drawNavMarker(placing.pen(pen, .nav_marker), sight, frame.all);
         for (std.enums.values(Readout)) |readout| {
@@ -4037,8 +4040,7 @@ pub const State = struct {
         try drawCluster(placing.pen(pen, .gauges), gauges);
         try drawRadar(placing.pen(pen, .radar), state, frame.all, speaker);
         stepRadarZoom(state, frame.clock.game_ticks);
-        const aims = try drawReticle(state, placing.pen(pen, .reticle), frame.mode, lead, blindFire(state, slot), frame_duration);
-        live.blind_fire_aim = @intFromBool(aims);
+        state.blind_fire_aims = try drawReticle(state, placing.pen(pen, .reticle), frame.mode, lead, blindFire(state, slot), frame_duration);
         const time = clockTime(frame.all, frame.clock.play, frame.variables);
         try drawClock(placing.pen(pen, .clock), time[0], time[1]);
     }
@@ -5479,8 +5481,8 @@ pub const Cursor = union(enum) {
 };
 
 /// Draws the reticle as `hud_draw` does in view 0, for the target's lead cursor `target_at`, and
-/// says whether blind fire aims at it, which the game keeps as the object's `blind_fire_aim`. The
-/// chase view draws neither the reticle nor the sight.
+/// says whether blind fire aims at it (`State.blind_fire_aims`). The chase view draws neither the
+/// reticle nor the sight.
 pub fn drawReticle(
     state: *State,
     pen: Pen,

@@ -144,8 +144,15 @@ the Toggle Cloak order, the other way from how it stands (`order_toggle_cloak`, 
 
 [`cloak.zig`](../../src/engine/game/cloak.zig) ports the cloak, with these differences:
 
-- OpenReliant updates a part's shimmer and hull as it adds them to the scene, not after culling, so
-  a part out of sight changes too.
+- OpenReliant runs `cloak_frame` once a game tick, in the game frame's pass over the objects, and
+  there turns each part's shimmer and fades its hull for the ticks since the last, whether the part
+  is drawn or not. The game does those two as it draws each part. So the cloak plays the same
+  however often the screen is drawn, and the game doesn't depend on what is drawn. Drawing only
+  places the shimmer and sets the hull's alpha.
+- **Fix:** the game keeps one set of colours for all of a part's levels, and a hit shows on the
+  vertices of the level drawn last, so what it showed moves to other vertices when the level
+  changes. OpenReliant keeps a set for each level and shows a hit on all of them
+  (`MeshObject.baked_levels`), so it stays where it struck whichever level is drawn.
 - **Improvement:** the shimmer's colour is worked out for its strength, not read from the table
   of 1024.
 - **Improvement:** OpenReliant's shadows ([Shadows](../port/renderer.md#shadows)) fade with the

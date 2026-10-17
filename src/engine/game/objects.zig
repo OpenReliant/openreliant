@@ -1971,12 +1971,12 @@ pub const Model = struct {
                     .slots = slotsOf(source.tracks),
                 },
             };
-            // A part that can cloak is coloured by its own colours, clear until a hit shows it
-            // through the cloak (`mesh_object_create`). Seen through, it casts a shadow as solid as
-            // its hull (`cloak.Drawing`).
+            // A part that can cloak is coloured by its own colours, a set for each level, clear
+            // until a hit shows it through the cloak (`mesh_object_create`). Seen through, it casts
+            // a shadow as solid as its hull (`cloak.Drawing`).
             if (part.cloaking) |cloaking| {
                 node.cloak = try .create(gpa, cloaking, source.part.name(), part.levels, radius);
-                node.object.baked = node.cloak.?.hull_colours;
+                node.object.baked_levels = node.cloak.?.hull_colours;
                 node.object.alpha_shadow = true;
             }
             parts_made += 1;
@@ -2729,7 +2729,7 @@ pub const Model = struct {
             if (part.hidden) continue;
             if (view.cloak) |drawing| {
                 if (drawing.shimmer(part, &view)) |shimmer| try xtrabits.sceneAdd(gpa, scene, .{ .mesh = shimmer }, layer);
-                if (!drawing.hull(part, &view)) continue;
+                drawing.hull(part, &view);
             }
             try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &part.object }, layer);
         }

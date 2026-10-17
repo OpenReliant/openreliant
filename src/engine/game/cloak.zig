@@ -54,21 +54,10 @@ pub const Cloak = struct {
     came_at: i32,
     going_at: i32 = 0,
     struck_at: i32 = 0,
-    /// When its shimmer and its hull were drawn (`+0x1C` and `+0x20`, `+0x24` and `+0x28`).
-    shimmer_drawn: Drawn = .{},
-    hull_drawn: Drawn = .{},
-
-    /// The tick something was drawn at in the frame before, and in this one.
-    pub const Drawn = struct {
-        before: i32 = 0,
-        now: i32 = 0,
-
-        /// The ticks since it was drawn the frame before, at tick `now`, which is when it is drawn.
-        fn since(drawn: *Drawn, now: i32) i32 {
-            drawn.now = now;
-            return now - drawn.before;
-        }
-    };
+    /// The tick of its last frame (`frame`). Each frame, the shimmer turns and what hits showed
+    /// fades by the ticks since. The game keeps the ticks its shimmer and its hull were drawn at
+    /// instead, in the frame before and in this one (`+0x1C` to `+0x28`).
+    stepped_at: i32 = 0,
 
     /// When it started its change, coming on or going.
     fn changedAt(cloak: Cloak) i32 {
@@ -152,38 +141,59 @@ pub fn drop(slot: *create.Slot) void {
     slot.cloak = null;
 }
 
-/// `cloak_frame` (`0x00463810`), in `mission_frame`'s pass that draws the objects, for an object
-/// with a cloak, at tick `now`: what its shimmer and its hull were drawn at moves back a frame.
-/// Coming on, over `change_ticks`, its shimmer strengthens and its hull fades; once it has come on,
-/// every part's hull is clear and its shimmer full, as `change_ticks` since they were drawn would
-/// leave them. Going, the other way; once it has gone, each part's hull is its own again
-/// (`restore`) and the cloak is dropped.
+/// `cloak_frame` (`0x00463810`), for an object with a cloak, at tick `now`. Coming on, over
+/// `change_ticks`, its shimmer strengthens and its hull fades. Once it has come on, each part's
+/// hull is clear and its shimmer full, and what hits showed fades and the shimmer turns by
+/// `change_ticks` once. Going, the other way; once it has gone, each part's hull is its own again
+/// (`restore`) and the cloak is dropped. Then the shimmers turn and what hits showed of a clear
+/// hull fades, by the ticks since its last frame (`step`).
+///
+/// The game runs it in `mission_frame`'s pass that draws the objects, and turns the shimmers and
+/// fades the hulls as it draws each part (`Drawing`), for the ticks since that object was last
+/// drawn. OpenReliant runs all of it once a game tick, in the objects' pass (`main.objectsPass`),
+/// so that the cloak plays the same however often the screen is drawn, and the game doesn't
+/// depend on what is drawn.
 pub fn frame(slot: *create.Slot, now: i32) void {
     const cloak = if (slot.cloak) |*kept| kept else return;
-    cloak.shimmer_drawn.before = cloak.shimmer_drawn.now;
-    cloak.hull_drawn.before = cloak.hull_drawn.now;
+    const ticks = now - cloak.stepped_at;
+    cloak.stepped_at = now;
     const since = cloak.since(now);
     if (since < change_ticks) {
         const done = @as(f32, @floatFromInt(since)) / change_ticks;
         cloak.shimmer = if (cloak.going) 1 - done else done;
         cloak.hull = 1 - cloak.shimmer;
         cloak.changing = true;
-        return;
-    }
-    if (cloak.going) {
+    } else if (cloak.going) {
         if (slot.model) |*model| restore(model);
         return drop(slot);
+    } else {
+        if (cloak.changing) if (slot.model) |*model| eachCloaking(model, {}, struct {
+            fn visit(_: void, part: *objects.Model.Part, effect: *PartCloak) void {
+                effect.fade(change_ticks);
+                part.object.colour[3] = 0;
+                if (effect.shimmer_made) effect.swirl(change_ticks, 1);
+            }
+        }.visit);
+        cloak.changing = false;
+        cloak.shimmer = 1;
+        cloak.hull = 0;
     }
-    if (cloak.changing) if (slot.model) |*model| eachCloaking(model, {}, struct {
-        fn visit(_: void, part: *objects.Model.Part, effect: *PartCloak) void {
-            effect.fade(part.object.shown().positions.len, change_ticks);
-            part.object.colour[3] = 0;
-            if (effect.shimmer_made) effect.swirl(change_ticks, 1);
+    if (slot.model) |*model| step(model, cloak.*, ticks, slot.object.type.base() == .kafelnikof);
+}
+
+/// The work the game does as it draws each part of `model` that has a shimmer
+/// (`cloak_shimmer_callback`, `cloak_hull_callback`), for `ticks`: the shimmer turns, unless the
+/// cloak's shimmer is nothing or the object is the Kafelnikof (`PartCloak.swirl`), and while the
+/// hull is clear, what hits showed of a part that cloaks fades (`PartCloak.fade`).
+fn step(model: *objects.Model, cloak: Cloak, ticks: i32, kafelnikof: bool) void {
+    const Step = struct { cloak: Cloak, ticks: i32, kafelnikof: bool };
+    eachCloaking(model, Step{ .cloak = cloak, .ticks = ticks, .kafelnikof = kafelnikof }, struct {
+        fn visit(stepping: Step, _: *objects.Model.Part, effect: *PartCloak) void {
+            if (!effect.shimmer_made) return;
+            if (stepping.cloak.shimmer != 0 and !stepping.kafelnikof) effect.swirl(stepping.ticks, stepping.cloak.shimmer);
+            if (effect.cloaks and stepping.cloak.hull == 0) effect.fade(stepping.ticks);
         }
     }.visit);
-    cloak.changing = false;
-    cloak.shimmer = 1;
-    cloak.hull = 0;
 }
 
 /// How far a cloaked ship's frame shears as its cloak changes, at most, about each pair of its
@@ -223,34 +233,44 @@ const struck_falloff: f32 = 0.45;
 
 /// `cloak_reveal` (`0x00463AF0`): a hit at `at` on the object in slot `index`, where it is
 /// cloaked, shows its hull round the point (`cloak_node_reveal`, `0x004629D0`): each vertex of a
-/// part that cloaks, where the part is drawn at its level now, within `struck_reach` of the
-/// object's radius, is the more solid the nearer it stands, up to whole. The Kafelnikof's parts go
-/// by their own smallest extent, not the radius. A shot spent on the shields shows it, and one on a
-/// component, the Nova Cannon's beam, and a shield's flare.
+/// part that cloaks within `struck_reach` of the object's radius is the more solid the nearer it
+/// stands, up to whole. The Kafelnikof's parts go by their own smallest extent, not the radius. A
+/// shot spent on the shields shows it, and one on a component, the Nova Cannon's beam, and a
+/// shield's flare.
+///
+/// **Fix:** the game shows the hit on the vertices of the level each part was drawn at last, in
+/// one set of colours that all its levels share, so what a hit showed moves to other vertices
+/// when the level changes. OpenReliant keeps a set for each level and shows the hit on every level
+/// (`PartCloak.show`), so it stays where it struck whichever level is drawn, and the game doesn't
+/// depend on which level was drawn.
 pub fn reveal(world: gameobj.World, index: u16, at: Vector) void {
     const slot = &world.objects.slots[index];
     const cloak = if (slot.cloak) |*kept| kept else return;
     cloak.struck_at = world.clock.frame_start;
     const model = if (slot.model) |*live| live else return;
-    const Struck = struct { at: Vector, radius: f32, kafelnikof: bool };
-    eachCloaking(model, Struck{ .at = at, .radius = slot.object.radius, .kafelnikof = slot.object.type.base() == .kafelnikof }, struct {
-        fn visit(struck: Struck, part: *objects.Model.Part, effect: *PartCloak) void {
-            if (!effect.cloaks) return;
-            const shown = part.object.shown();
-            const size = if (struck.kafelnikof) blk: {
-                const extent = shown.bounds[1] - shown.bounds[0];
-                break :blk @min(@min(extent[0], extent[1]), extent[2]);
-            } else struck.radius;
-            const reach = size * struck_reach;
-            const placed: math.Place = .{ .position = part.object.position, .orientation = part.object.orientation };
-            for (shown.positions, effect.hull_colours[0..shown.positions.len]) |position, *colour| {
-                const distance = math.distance(struck.at, placed.point(position));
-                if (distance > reach) continue;
-                colour[3] = @min(colour[3] + @min((reach - distance) / (size * struck_falloff), 1), 1);
-            }
+    const struck: Struck = .{ .at = at, .radius = slot.object.radius, .kafelnikof = slot.object.type.base() == .kafelnikof };
+    eachCloaking(model, struck, struct {
+        fn visit(hit: Struck, part: *objects.Model.Part, effect: *PartCloak) void {
+            if (effect.cloaks) effect.show(hit, part.object.levels, part.object.place());
         }
     }.visit);
 }
+
+/// A hit that shows a cloaked hull (`reveal`): where it struck, the object's radius, and whether
+/// the object is the Kafelnikof.
+const Struck = struct {
+    at: Vector,
+    radius: f32,
+    kafelnikof: bool,
+
+    /// The size a level showing `mesh` goes by: the object's radius, or on the Kafelnikof the
+    /// mesh's smallest extent.
+    fn size(struck: Struck, mesh: *const srapiext.Mesh) f32 {
+        if (!struck.kafelnikof) return struck.radius;
+        const extent = mesh.bounds[1] - mesh.bounds[0];
+        return @min(@min(extent[0], extent[1]), extent[2]);
+    }
+};
 
 /// The Kafelnikof's parts that cloak, where every other object cloaks whole
 /// (`kafelnikof_cloaking_parts`, `0x004E1998`).
@@ -272,7 +292,7 @@ fn seeThrough(model: *objects.Model, kafelnikof: bool) void {
             effect.cloaks = cloaks(on_kafelnikof, effect.name);
             if (!effect.cloaks) return;
             part.object.levels = effect.see_through;
-            @memset(effect.hull_colours, @splat(0));
+            effect.clearHull();
         }
     }.visit);
 }
@@ -301,7 +321,7 @@ fn restore(model: *objects.Model) void {
             if (!effect.cloaks) return;
             part.object.colour[3] = 1;
             part.object.levels = effect.own;
-            @memset(effect.hull_colours, @splat(0));
+            effect.clearHull();
         }
     }.visit);
 }
@@ -335,7 +355,9 @@ pub const PartCloak = struct {
     name: []const u8,
     own: []const srapiext.Level,
     see_through: []const srapiext.Level,
-    hull_colours: [][4]f32,
+    /// The hull's own colours, a set for each of its levels with a colour a vertex
+    /// (`srapiext.MeshObject.baked_levels`). The game keeps one set for all its levels (`reveal`).
+    hull_colours: [][][4]f32,
     shimmer_levels: []const srapiext.Level,
     shimmer: srapiext.MeshObject,
     shimmer_colours: [][4]f32,
@@ -349,9 +371,17 @@ pub const PartCloak = struct {
     pub fn create(gpa: Allocator, cloaking: srofiles.Cloaking, name: []const u8, own: []const srapiext.Level, radius: f32) Allocator.Error!PartCloak {
         var vertices: usize = 0;
         for (own) |level| vertices = @max(vertices, level.mesh.positions.len);
-        const hull_colours = try gpa.alloc([4]f32, vertices);
-        errdefer gpa.free(hull_colours);
-        @memset(hull_colours, @splat(0));
+        const hull_colours = try gpa.alloc([][4]f32, own.len);
+        var made: usize = 0;
+        errdefer {
+            for (hull_colours[0..made]) |colours| gpa.free(colours);
+            gpa.free(hull_colours);
+        }
+        for (hull_colours, own) |*colours, level| {
+            colours.* = try gpa.alloc([4]f32, level.mesh.positions.len);
+            @memset(colours.*, @splat(0));
+            made += 1;
+        }
         const shimmer_colours = try gpa.alloc([4]f32, vertices);
         errdefer gpa.free(shimmer_colours);
         @memset(shimmer_colours, @splat(0));
@@ -377,31 +407,54 @@ pub const PartCloak = struct {
     }
 
     pub fn deinit(effect: PartCloak, gpa: Allocator) void {
+        for (effect.hull_colours) |colours| gpa.free(colours);
         gpa.free(effect.hull_colours);
         gpa.free(effect.shimmer_colours);
         gpa.free(effect.shimmer_uv);
     }
 
+    /// The hull's own colours cleared, on every level.
+    fn clearHull(effect: *PartCloak) void {
+        for (effect.hull_colours) |colours| @memset(colours, @splat(0));
+    }
+
     /// `cloak_hull_fade` (`0x004632F0`) for one part while its hull is clear, `ticks` since it was
-    /// drawn, `shown` the vertices of the level drawn: what hits have shown of them fades by
-    /// `struck_fade` a tick. With the hull not clear the game sets its alpha instead, which the
-    /// callers do.
-    fn fade(effect: *PartCloak, shown: usize, ticks: i32) void {
+    /// drawn: what hits have shown of it fades by `struck_fade` a tick. With the hull not clear the
+    /// game sets its alpha instead, which `Drawing.hull` does. The game fades the vertices of the
+    /// level drawn; OpenReliant fades every level's (`reveal`).
+    fn fade(effect: *PartCloak, ticks: i32) void {
         const faded = @as(f32, @floatFromInt(ticks)) * struck_fade;
-        for (effect.hull_colours[0..shown]) |*colour| {
+        for (effect.hull_colours) |colours| for (colours) |*colour| {
             if (!(colour[3] > 0)) continue;
             colour[3] = @max(colour[3] + faded, 0);
+        };
+    }
+
+    /// `cloak_node_reveal` for one part that cloaks, drawn with `levels` and placed at `placed`: on
+    /// each level, each vertex within `struck_reach` times the level's size (`Struck.size`) of the
+    /// hit gets more solid the nearer it is, up to whole.
+    fn show(effect: *PartCloak, struck: Struck, levels: []const srapiext.Level, placed: math.Place) void {
+        for (levels, effect.hull_colours[0..@min(levels.len, effect.hull_colours.len)]) |level, colours| {
+            const mesh = level.mesh;
+            const size = struck.size(mesh);
+            const reach = size * struck_reach;
+            for (mesh.positions, colours[0..mesh.positions.len]) |position, *colour| {
+                const distance = math.distance(struck.at, placed.point(position));
+                if (distance > reach) continue;
+                colour[3] = @min(colour[3] + @min((reach - distance) / (size * struck_falloff), 1), 1);
+            }
         }
     }
 
-    /// `cloak_shimmer_swirl` (`0x00463050`) for one part, `ticks` since its shimmer was drawn, at
+    /// `cloak_shimmer_swirl` (`0x00463050`) for one part, `ticks` since its shimmer last turned, at
     /// `strength`: its texture coordinates turn about the texture's corner, the faster the nearer
-    /// they lie, and it takes `shimmerColour`.
+    /// they lie, and it takes `shimmerColour`. The game turns those of the level drawn; OpenReliant
+    /// turns all that `shimmerOn` laid on, the finest level's, since each turns on its own.
     fn swirl(effect: *PartCloak, ticks: i32, strength: f32) void {
         effect.shimmer.flags.lit = false;
         const turned = @as(f32, @floatFromInt(ticks)) * swirl_rate;
         const colour = shimmerColour(strength);
-        const vertices = effect.shimmer.shown().positions.len;
+        const vertices = effect.shimmer_levels[0].mesh.positions.len;
         for (effect.shimmer_uv[0..vertices], effect.shimmer_colours[0..vertices]) |*uv, *shade| {
             const u, const v = uv.*;
             const angle = turned / (u * u + v * v);
@@ -442,15 +495,13 @@ pub fn shimmerColour(strength: f32) [3]f32 {
 }
 
 /// What a cloaked object's part draws, as `node_draw` does with flag `0x80`: its shimmer, where it
-/// has one, placed where the part stands and updated as it is drawn (`cloak_shimmer_callback`,
-/// `0x00463B20`), unless the cloak is off or the object is the Kafelnikof; and its hull,
-/// see-through and faded (`cloak_hull_callback`, `0x00463B90`), which the original leaves out on
-/// its software renderer. Nothing changes while the game is paused.
-///
-/// The game updates each as the pipeline draws it, once it is in sight; OpenReliant updates it as
-/// it is added to the scene, in sight or not.
+/// has one, placed where the part stands (`cloak_shimmer_callback`, `0x00463B20`), unless the
+/// cloak's shimmer is nothing or the object is the Kafelnikof; and its hull, see-through
+/// (`cloak_hull_callback`, `0x00463B90`), which the original leaves out on its software renderer.
+/// While the game is paused, both are drawn as they stand. The cloak's frame turns the shimmer and
+/// fades the hull (`frame`).
 pub const Drawing = struct {
-    cloak: *Cloak,
+    cloak: *const Cloak,
     kafelnikof: bool,
 
     /// The shimmer to add for `part`, drawn in `view`, or null.
@@ -459,27 +510,16 @@ pub const Drawing = struct {
         if (!effect.shimmer_made) return null;
         effect.shimmer.position = part.object.position;
         effect.shimmer.orientation = part.object.orientation;
-        if (view.paused) return &effect.shimmer;
-        const ticks = drawing.cloak.shimmer_drawn.since(view.frame_start);
-        if (drawing.cloak.shimmer == 0 or drawing.kafelnikof) return null;
-        effect.swirl(ticks, drawing.cloak.shimmer);
+        if (!view.paused and (drawing.cloak.shimmer == 0 or drawing.kafelnikof)) return null;
         return &effect.shimmer;
     }
 
-    /// Whether `part`'s hull is drawn in `view`, fading it as the cloak has it where it does. A
-    /// part with no shimmer is drawn as it would be uncloaked.
-    pub fn hull(drawing: Drawing, part: *objects.Model.Part, view: *const objects.View) bool {
-        const effect = if (part.cloak) |*kept| kept else return true;
-        if (!effect.shimmer_made) return true;
-        if (!effect.cloaks or view.paused) return true;
-        const ticks = drawing.cloak.hull_drawn.since(view.frame_start);
-        const solid = drawing.cloak.hull;
-        if (solid == 0) {
-            effect.fade(part.object.shown().positions.len, ticks);
-        } else {
-            part.object.colour[3] = solid;
-        }
-        return true;
+    /// The hull of `part`, drawn in `view`: a part that cloaks is as solid as the cloak's hull while
+    /// the hull isn't clear. A part with no shimmer is drawn as it would be uncloaked.
+    pub fn hull(drawing: Drawing, part: *objects.Model.Part, view: *const objects.View) void {
+        const effect = if (part.cloak) |*kept| kept else return;
+        if (!effect.shimmer_made or !effect.cloaks or view.paused) return;
+        if (drawing.cloak.hull != 0) part.object.colour[3] = drawing.cloak.hull;
     }
 };
 
@@ -596,7 +636,7 @@ test reveal {
     try stage.init(gpa);
     defer stage.deinit(gpa);
     const slot = stage.slot();
-    const colours = stage.part().cloak.?.hull_colours;
+    const colours = stage.part().cloak.?.hull_colours[0];
     set(stage.mission.world(), stage.index, true);
     slot.object.radius = 100;
 
@@ -614,6 +654,34 @@ test reveal {
     try std.testing.expectEqual(0, colours[1][3]);
 }
 
+test "frame turns the shimmer and fades the hull for the ticks since the last" {
+    const gpa = std.testing.allocator;
+    var stage: TestStage = undefined;
+    try stage.init(gpa);
+    defer stage.deinit(gpa);
+    const slot = stage.slot();
+    const effect = &stage.part().cloak.?;
+    stage.mission.clock.frame_start = 0;
+    set(stage.mission.world(), stage.index, true);
+    frame(slot, 0);
+    // Come on, the shimmer at its full colour, unlit.
+    frame(slot, change_ticks);
+    try std.testing.expect(!effect.shimmer.flags.lit);
+    try std.testing.expectApproxEqAbs(shimmer_full[2], effect.shimmer_colours[0][2], 1e-6);
+    // The hull clear, what a hit showed fades a tick at a time since the last frame, and the
+    // shimmer turns as far.
+    effect.hull_colours[0][0][3] = 1;
+    effect.shimmer_uv[0] = .{ 1, 0 };
+    frame(slot, change_ticks + 50);
+    try std.testing.expectApproxEqAbs(0.5, effect.hull_colours[0][0][3], 1e-6);
+    try std.testing.expectApproxEqAbs(@cos(50 * swirl_rate), effect.shimmer_uv[0][0], 1e-6);
+    // The Kafelnikof's shimmer doesn't turn.
+    slot.object.type = .of(.kafelnikof);
+    frame(slot, change_ticks + 100);
+    try std.testing.expectApproxEqAbs(@cos(50 * swirl_rate), effect.shimmer_uv[0][0], 1e-6);
+    try std.testing.expectEqual(0, effect.hull_colours[0][0][3]);
+}
+
 test Drawing {
     const gpa = std.testing.allocator;
     var stage: TestStage = undefined;
@@ -621,30 +689,46 @@ test Drawing {
     defer stage.deinit(gpa);
     const slot = stage.slot();
     const part = stage.part();
-    const effect = &part.cloak.?;
     set(stage.mission.world(), stage.index, true);
-    frame(slot, change_ticks);
+    frame(slot, change_ticks / 2);
     part.object.position = .{ 1, 2, 3 };
     var drawing: Drawing = .{ .cloak = &slot.cloak.?, .kafelnikof = false };
-    var view: objects.View = .{ .frame_start = 300 };
+    var view: objects.View = .{};
 
-    // Come on: the shimmer where the part stands, at its full colour, unlit.
+    // Halfway on: the shimmer where the part stands, and the hull half solid.
     const shimmer = drawing.shimmer(part, &view) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(part.object.position, shimmer.position);
-    try std.testing.expect(!shimmer.flags.lit);
-    try std.testing.expectApproxEqAbs(shimmer_full[2], effect.shimmer_colours[0][2], 1e-6);
-    // The hull drawn clear, what a hit showed fading a tick at a time since it was drawn last.
-    effect.hull_colours[0][3] = 1;
-    slot.cloak.?.hull_drawn.before = 250;
-    try std.testing.expect(drawing.hull(part, &view));
-    try std.testing.expectApproxEqAbs(0.5, effect.hull_colours[0][3], 1e-6);
-    // Paused, nothing changes; the Kafelnikof shows no shimmer.
-    view = .{ .frame_start = 400, .paused = true };
-    try std.testing.expect(drawing.hull(part, &view));
-    try std.testing.expectApproxEqAbs(0.5, effect.hull_colours[0][3], 1e-6);
-    view.paused = false;
+    drawing.hull(part, &view);
+    try std.testing.expectApproxEqAbs(0.5, part.object.colour[3], 1e-6);
+    // The Kafelnikof shows no shimmer, but while the game is paused it is drawn as it stands.
     drawing.kafelnikof = true;
     try std.testing.expectEqual(null, drawing.shimmer(part, &view));
+    view.paused = true;
+    try std.testing.expect(drawing.shimmer(part, &view) != null);
+}
+
+test "PartCloak.show" {
+    const gpa = std.testing.allocator;
+    const srmesh = @import("../surrender/surrenderlib/srmesh.zig");
+    var image: @import("../surrender/surrenderlib/srtexture.zig").Image = .{ .levels = &.{} };
+    var fine = try srmesh.testing.square(gpa);
+    defer fine.deinit(gpa);
+    var coarse = try srmesh.testing.square(gpa);
+    defer coarse.deinit(gpa);
+    // The coarser level lists the square's corners the other way round.
+    std.mem.reverse(Vector, coarse.positions);
+    const levels = [_]srapiext.Level{ .{ .mesh = &fine, .until = 1000 }, .{ .mesh = &coarse, .until = 2000 } };
+    const cloaking = try srofiles.Cloaking.build(gpa, &levels, &image);
+    defer cloaking.deinit(gpa);
+    const effect = try PartCloak.create(gpa, cloaking, "part", &levels, 100);
+    defer effect.deinit(gpa);
+    var shown = effect;
+    // A hit on a corner shows it on each level, wherever that level lists it.
+    shown.show(.{ .at = fine.positions[0], .radius = 100, .kafelnikof = false }, &levels, .{});
+    try std.testing.expectEqual(1, shown.hull_colours[0][0][3]);
+    try std.testing.expectEqual(0, shown.hull_colours[0][3][3]);
+    try std.testing.expectEqual(0, shown.hull_colours[1][0][3]);
+    try std.testing.expectEqual(1, shown.hull_colours[1][3][3]);
 }
 
 test shimmerColour {
