@@ -372,6 +372,19 @@ pub const Shapes = struct {
         return of(gpa, bytes, name, .of(archive.mods, name));
     }
 
+    /// How many of its shapes, from the first after the palette, show nothing before one that does
+    /// (`spr.Shape.shows`).
+    pub fn emptyAtStart(shapes: Shapes, gpa: Allocator) usize {
+        var empty: usize = 0;
+        for (1..shapes.art.set.count()) |index| {
+            const shape = shapes.art.shape(index) orelse break;
+            const shows = shape.shows(gpa) catch true;
+            if (shows) break;
+            empty += 1;
+        }
+        return empty;
+    }
+
     /// `read`, drawn with block `palette`'s palette (`usePalette`).
     pub fn readWith(gpa: Allocator, archive: *const bigfile.Hog, name: []const u8, palette: usize) ?Shapes {
         var shapes = read(gpa, archive, name) orelse return null;
@@ -690,6 +703,19 @@ test Shapes {
     try std.testing.expectEqual(null, shapes.art.global);
     // Not a sprite set, it is left out, and its bytes let go.
     try std.testing.expectEqual(null, Shapes.of(gpa, try gpa.dupe(u8, "x"), "x.spr", null));
+    // A palette alone has no shapes, empty or not.
+    try std.testing.expectEqual(0, shapes.emptyAtStart(gpa));
+}
+
+test "Shapes.emptyAtStart" {
+    const gpa = std.testing.allocator;
+    // Of four shapes, the first two show nothing.
+    var shapes = Shapes.of(gpa, try spr.testing.paletteAndShapesAfterEmpty(gpa, 5, 2), "awards.spr", null).?;
+    defer shapes.deinit(gpa);
+    try std.testing.expectEqual(2, shapes.emptyAtStart(gpa));
+    var whole = Shapes.of(gpa, try spr.testing.paletteAndShapes(gpa, 3), "whole.spr", null).?;
+    defer whole.deinit(gpa);
+    try std.testing.expectEqual(0, whole.emptyAtStart(gpa));
 }
 
 test hit {
