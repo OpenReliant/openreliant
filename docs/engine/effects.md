@@ -523,7 +523,7 @@ The game leaves unset when a ray last changed and how long it stays lit. OpenRel
 
 ## Extras
 
-A few types carry an extra on one of their parts beyond their model. The game keeps it in a record of `0x1C` bytes that hangs on the part's frame (`+0x16C`): a first object (`+0x00`), a second (`+0x04`), four [electric rays](#electric-rays) (`+0x08`) and a particle emitter (`+0x18`), which streams among the burning wrecks' smoke (`burn_streams`, `0x0055AD60`). `mission_frame`'s pass over the objects draws it after its object, and `object_free` (`0x00475EF0`) lets it go with the object.
+A few types carry an extra on one of their parts beyond their model. The game keeps it in a record of `0x1C` bytes that hangs on the part's frame (`+0x16C`): a first object (`+0x00`), a second (`+0x04`), four [electric rays](#electric-rays) (`+0x08`) and a particle emitter (`+0x18`), which streams among the burning wrecks' smoke (`burn_streams`, `0x0055AD60`). `mission_frame`'s pass over the objects draws it after its object, and `object_free` (`0x00475EF0`) lets it go with the object. The pass sizes and places the extra's objects; OpenReliant's makes a copy of them for each frame instead (`create.extra.Glow.drawn`, `Hanging.drawn`), so that drawing writes nothing into the extra.
 
 ### The Dark Reign's hat
 
@@ -740,6 +740,15 @@ triangles.
 [`guns.zig`](../../src/engine/game/guns.zig) and
 [`collision.zig`](../../src/engine/game/collision.zig) the shots and knocks that flare them. A
 cloaked ship's shields don't flare: the hit shows its hull instead ([The cloak](cloak.md#hits)).
+
+The game keeps a bubble's hits in the bubble and makes each as it strikes, on the level the bubble
+was last drawn at, and drawing writes into the bubble as it moves it on. OpenReliant splits the
+bubble: the game keeps when it was struck, its tint and its flicker, and records each hit
+(`shield.Bubble.strikes`). Drawing keeps the rest for each slot's bubble (`shield.Shown`): its
+scene object, its hits in either style, and the flicker it has seen out. As it next draws the
+bubble, it makes the hits it hasn't yet into its own, in the order they came and on the level it
+last drew the bubble at, which is what the game had made of them by then. So drawing writes
+nothing into the bubble.
 
 ### Capital shields
 

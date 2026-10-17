@@ -1,5 +1,6 @@
 //! The fixed tables the game keeps its effects in, as OpenReliant holds them. Not from any file of
 //! the original: its tables find a slot for a new record in one of two ways, which these share.
+//! OpenReliant's own `Latest` keeps what the game records for drawing to take up.
 
 const std = @import("std");
 
@@ -23,6 +24,42 @@ pub fn Ring(comptime T: type, comptime capacity: usize) type {
             ring.next = (at + 1) % round;
             return &ring.slots[at];
         }
+    };
+}
+
+/// OpenReliant's: the latest `capacity` records the game made, counted from the first, so that
+/// drawing takes up those it hasn't seen yet without writing into them: the changes to what the
+/// camera shows (`camera.Changes`) and the hits a shield bubble took (`shield.Bubble.strikes`).
+pub fn Latest(comptime T: type, comptime capacity: usize) type {
+    return struct {
+        list: [capacity]T = undefined,
+        /// How many have been made, the latest at `count - 1`.
+        count: u32 = 0,
+
+        const Self = @This();
+
+        pub fn add(latest: *Self, record: T) void {
+            latest.list[latest.count % capacity] = record;
+            latest.count +%= 1;
+        }
+
+        /// The records made after the first `seen`, oldest first: the latest `capacity` at most.
+        /// A count from before the records were counted again from none takes up all there are.
+        pub fn since(latest: *const Self, seen: u32) Since {
+            const new = @min(latest.count -% seen, @min(latest.count, capacity));
+            return .{ .latest = latest, .at = latest.count - new };
+        }
+
+        pub const Since = struct {
+            latest: *const Self,
+            at: u32,
+
+            pub fn next(it: *Since) ?T {
+                if (it.at == it.latest.count) return null;
+                defer it.at += 1;
+                return it.latest.list[it.at % capacity];
+            }
+        };
     };
 }
 
@@ -146,6 +183,31 @@ test Ring {
     // Round all of them once more are used.
     _ = ring.take(4);
     try std.testing.expectEqual(2, ring.next);
+}
+
+test Latest {
+    const Numbers = Latest(u8, 4);
+    var numbers: Numbers = .{};
+    // None yet.
+    var none = numbers.since(0);
+    try std.testing.expectEqual(null, none.next());
+    // Those after the first seen, oldest first.
+    numbers.add(1);
+    numbers.add(2);
+    var after_one = numbers.since(1);
+    try std.testing.expectEqual(2, after_one.next().?);
+    try std.testing.expectEqual(null, after_one.next());
+    // Past what it keeps, the latest it keeps.
+    for (3..10) |number| numbers.add(@intCast(number));
+    var latest = numbers.since(0);
+    for ([_]u8{ 6, 7, 8, 9 }) |expected| try std.testing.expectEqual(expected, latest.next().?);
+    try std.testing.expectEqual(null, latest.next());
+    // Counted again from none, those made since.
+    var again: Numbers = .{};
+    again.add(5);
+    var fresh = again.since(numbers.count);
+    try std.testing.expectEqual(5, fresh.next().?);
+    try std.testing.expectEqual(null, fresh.next());
 }
 
 test firstFree {

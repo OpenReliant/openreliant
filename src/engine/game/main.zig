@@ -1158,7 +1158,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     attachments.scale = context.projection.scale[0];
     attachments.paused = frame.paused;
     const riding = wgate.ridingWorm(frame.gates);
-    if (!riding) try drawObjects(gpa, scene, frame.objects, attachments, frame.seat, if (frame.explosions) |explosions| &explosions.splits else null, frame.shown, frame.environment);
+    if (!riding) try drawObjects(gpa, arena, scene, frame.objects, attachments, frame.seat, if (frame.explosions) |explosions| &explosions.splits else null, frame.shown, frame.environment);
     if (frame.tractors) |tractors| try tractors.draw(gpa, scene, frame.objects);
     if (frame.rippers) |rippers| try rippers.draw(gpa, scene, frame.objects);
     if (frame.jump_effects) |effects| try effects.draw(gpa, scene, frame.objects);
@@ -1290,7 +1290,7 @@ pub const DetailReach = enum {
 /// While the player's ship rides the worm between gates, the pass draws nothing (`drawFrame`).
 ///
 /// The pass's smoke is `smoke.frame`.
-pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, attachments: objects.View, seat: ?u16, splits: ?*const explode.split.Splits, shown: Shown, environment: ?*const environfx.Environment) Allocator.Error!void {
+pub fn drawObjects(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: *create.Objects, attachments: objects.View, seat: ?u16, splits: ?*const explode.split.Splits, shown: Shown, environment: ?*const environfx.Environment) Allocator.Error!void {
     var walk = all.walk();
     while (walk.next()) |index| {
         const slot = &all.slots[index];
@@ -1317,7 +1317,7 @@ pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, a
             view.cloak = .{ .cloak = cloaking, .kafelnikof = object.type.base() == .kafelnikof };
         }
         try model.draw(gpa, scene, .world, view);
-        if (slot.extra) |extra| try drawExtra(gpa, scene, all, object, extra, attachments.frame_start);
+        if (slot.extra) |extra| try drawExtra(gpa, arena, scene, all, object, extra, attachments.frame_start);
         if (index == all.bombarded and create.bombards(object.type)) if (environment) |effects| if (attachments.random) |random| {
             try effects.bombardDrawn(gpa, scene, slot, random, attachments.frame_start);
         };
@@ -1340,22 +1340,21 @@ pub fn drawObjects(gpa: Allocator, scene: *srcore.Scene, all: *create.Objects, a
 /// **Fix:** the game adds an extra even while it leaves its object out, as the ejection's cutaway
 /// leaves out every ship but two, so that the Dark Reign's hat would hang there without its ship.
 /// OpenReliant draws an extra only with its object.
-fn drawExtra(gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, object: *const gameobj.GameObject, extra: *create.extra.Extra, now: i32) Allocator.Error!void {
+fn drawExtra(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: *const create.Objects, object: *const gameobj.GameObject, extra: *const create.extra.Extra, now: i32) Allocator.Error!void {
     switch (extra.*) {
         .glow => |*glow| {
-            switch (object.type.base()) {
-                .proto_gate => glow.size(gatePulse(now), 0),
-                .boridin_breakaway => glow.size(breakaway_glow_size, breakaway_glow_bias),
-                else => {},
-            }
-            if (glow.stand(all)) try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &glow.set }, .world);
+            const size: ?create.extra.Glow.Size = switch (object.type.base()) {
+                .proto_gate => .{ .half = gatePulse(now) },
+                .boridin_breakaway => .{ .half = breakaway_glow_size, .bias = breakaway_glow_bias },
+                else => null,
+            };
+            if (try glow.drawn(arena, all, size)) |set| try xtrabits.sceneAdd(gpa, scene, .{ .sprites = set }, .world);
         },
         .hat => |*hat| {
             if (object.flags.exploding) return;
             const coil = hat.coil.live(all) orelse return;
-            for ([_]*create.extra.Hanging{ &hat.band, &hat.star }) |hanging| {
-                hanging.stand(coil.drawn());
-                try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &hanging.object }, .world);
+            for ([_]*const create.extra.Hanging{ &hat.band, &hat.star }) |hanging| {
+                try xtrabits.sceneAdd(gpa, scene, .{ .mesh = try hanging.drawn(arena, coil.drawn()) }, .world);
             }
         },
     }
@@ -1412,6 +1411,8 @@ test ripperWay {
 
 test "the objects are framed and drawn, save those left out" {
     const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
     var random: Random = .{};
     const all = try create.Objects.create(gpa, &random);
     defer all.destroy();
@@ -1434,7 +1435,7 @@ test "the objects are framed and drawn, save those left out" {
     try std.testing.expectEqual(0, all.slots[3].object.missile_homing);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try drawObjects(gpa, &scene, all, .{}, 0, null, .{}, null);
+    try drawObjects(gpa, arena.allocator(), &scene, all, .{}, 0, null, .{}, null);
     // Only the fourth is drawn: its one part. The first, which the camera sits in, casts its
     // shadow without being drawn.
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
@@ -1447,20 +1448,22 @@ test "the objects are framed and drawn, save those left out" {
     const seen = try create.createObject(all, &tables, model.types(), create.cutaway_slot, .of(.predator), 0, .{ 0, 0, 500 }, &random);
     frameObjects(all, .{}, 0);
     scene.clear();
-    try drawObjects(gpa, &scene, all, .{}, null, null, .{ .showing = .ejection }, null);
+    try drawObjects(gpa, arena.allocator(), &scene, all, .{}, null, null, .{ .showing = .ejection }, null);
     const drawn = scene.layers.get(.world).items;
     try std.testing.expectEqual(2, drawn.len);
     for (drawn) |item| try std.testing.expect(std.meta.eql(item.mesh.position, all.slots[0].drawn.position) or std.meta.eql(item.mesh.position, all.slots[seen].drawn.position));
 
     // A launch's cutaway leaves out the ship the player launches from.
     scene.clear();
-    try drawObjects(gpa, &scene, all, .{}, null, null, .{ .showing = .launch, .carrier = 3 }, null);
+    try drawObjects(gpa, arena.allocator(), &scene, all, .{}, null, null, .{ .showing = .launch, .carrier = 3 }, null);
     for (scene.layers.get(.world).items) |item| try std.testing.expect(!std.meta.eql(item.mesh.position, all.slots[3].drawn.position));
     try std.testing.expectEqual(2, scene.layers.get(.world).items.len);
 }
 
 test "the Dark Reign's hat is drawn where its coil stands, but not as the ship explodes or is left out" {
     const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
     var stage: explode.testing.Stage = undefined;
     try stage.init();
     defer stage.deinit();
@@ -1472,12 +1475,14 @@ test "the Dark Reign's hat is drawn where its coil stands, but not as the ship e
     frameObjects(all, .{}, 0);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try drawObjects(gpa, &scene, all, .{}, null, null, .{}, null);
-    // The band and the star come after the ship, the band 1800 down the coil.
+    try drawObjects(gpa, arena.allocator(), &scene, all, .{}, null, null, .{}, null);
+    // The band and the star come after the ship, the band 1800 down the coil. They are drawn as
+    // the frame makes them, and the hat's own objects stay as they were.
     const drawn = scene.layers.get(.world).items;
-    try std.testing.expect(drawn[drawn.len - 2].mesh == &hat.band.object);
-    try std.testing.expect(drawn[drawn.len - 1].mesh == &hat.star.object);
-    try std.testing.expectEqual(math.Vector{ 0, -1800, 5000 }, hat.band.object.position);
+    try std.testing.expectEqual(hat.band.object.levels.ptr, drawn[drawn.len - 2].mesh.levels.ptr);
+    try std.testing.expectEqual(hat.star.object.levels.ptr, drawn[drawn.len - 1].mesh.levels.ptr);
+    try std.testing.expectEqual(math.Vector{ 0, -1800, 5000 }, drawn[drawn.len - 2].mesh.position);
+    try std.testing.expectEqual(math.Vector{ 0, 0, 0 }, hat.band.object.position);
 
     // Exploding, or left out, it draws no hat.
     const flags = &stage.mission.slot(ship.index).object.flags;
@@ -1485,8 +1490,8 @@ test "the Dark Reign's hat is drawn where its coil stands, but not as the ship e
     for ([_]gameobj.GameObject.Flags{ kept.with(.{ .exploding = true }), kept.with(.{ .hidden = true }) }) |set| {
         flags.* = set;
         scene.clear();
-        try drawObjects(gpa, &scene, all, .{}, null, null, .{}, null);
-        for (scene.layers.get(.world).items) |item| try std.testing.expect(item.mesh != &hat.band.object);
+        try drawObjects(gpa, arena.allocator(), &scene, all, .{}, null, null, .{}, null);
+        for (scene.layers.get(.world).items) |item| try std.testing.expect(item != .mesh or item.mesh.levels.ptr != hat.band.object.levels.ptr);
     }
     flags.* = kept;
 }
@@ -1499,6 +1504,8 @@ test gatePulse {
 
 test "a core's glow is drawn as its type sizes it, where it stands" {
     const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
@@ -1512,15 +1519,17 @@ test "a core's glow is drawn as its type sizes it, where it stands" {
     frameObjects(all, .{}, 0);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try drawObjects(gpa, &scene, all, .{}, null, null, .{}, null);
+    try drawObjects(gpa, arena.allocator(), &scene, all, .{}, null, null, .{}, null);
     // The breakaway's glow comes after the ship, 4500 either way, sorted 28000 farther, standing
-    // where it was lit.
+    // where it was lit. The frame makes it so, and the glow itself stays as it was made.
     const glow = &slot.extra.?.glow;
     const drawn = scene.layers.get(.world).items;
-    try std.testing.expect(drawn[drawn.len - 1].sprites == &glow.set);
-    try std.testing.expectEqual(breakaway_glow_size, glow.sprite[0].half_size[0]);
-    try std.testing.expectEqual(breakaway_glow_bias, glow.sprite[0].bias);
-    try std.testing.expectEqual(math.Vector{ 100, 0, 0 }, glow.set.position);
+    const set = drawn[drawn.len - 1].sprites;
+    try std.testing.expectEqual(breakaway_glow_size, set.sprites[0].half_size[0]);
+    try std.testing.expectEqual(breakaway_glow_bias, set.sprites[0].bias);
+    try std.testing.expectEqual(math.Vector{ 100, 0, 0 }, set.position);
+    try std.testing.expectEqual(0, glow.sprite[0].bias);
+    try std.testing.expectEqual(math.Vector{ 0, 0, 0 }, glow.set.position);
 }
 
 test "the camera is in a hangar while a launch shows the bay, or a landing the tube, from within" {
@@ -1693,6 +1702,8 @@ test drawFrame {
 
 test "the passes draw a cloaked object through its cloak" {
     const gpa = std.testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
     var stage: cloak.testing.Cloaked = undefined;
     try stage.init(gpa);
     defer stage.deinit(gpa);
@@ -1707,7 +1718,7 @@ test "the passes draw a cloaked object through its cloak" {
     frameObjects(stage.mission.objects, .{}, halfway);
     cloak.frame(stage.slot(), halfway);
     try std.testing.expect(!std.meta.eql(math.identity, stage.slot().drawn.orientation));
-    try drawObjects(gpa, &scene, stage.mission.objects, .{ .frame_start = halfway }, null, null, .{}, null);
+    try drawObjects(gpa, arena.allocator(), &scene, stage.mission.objects, .{ .frame_start = halfway }, null, null, .{}, null);
     const drawn = scene.layers.get(.world).items;
     try std.testing.expectEqual(2, drawn.len);
     try std.testing.expectEqual(&part.cloak.?.shimmer, drawn[0].mesh);
@@ -1719,7 +1730,7 @@ test "the passes draw a cloaked object through its cloak" {
     cloak.frame(stage.slot(), cloak.change_ticks);
     cloak.toggle(stage.mission.world(), stage.index);
     cloak.frame(stage.slot(), 2 * cloak.change_ticks);
-    try drawObjects(gpa, &scene, stage.mission.objects, .{ .frame_start = 2 * cloak.change_ticks }, null, null, .{}, null);
+    try drawObjects(gpa, arena.allocator(), &scene, stage.mission.objects, .{ .frame_start = 2 * cloak.change_ticks }, null, null, .{}, null);
     try std.testing.expectEqual(null, stage.slot().cloak);
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
 }
