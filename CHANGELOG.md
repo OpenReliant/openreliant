@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.19.2](https://github.com/OpenReliant/openreliant/compare/v0.19.1...v0.19.2) (2026-10-17)
+
+
+### Fixes
+
+* cloaks and blind fire no longer depend on what is drawn ([#1254](https://github.com/OpenReliant/openreliant/issues/1254)) ([421c7a4](https://github.com/OpenReliant/openreliant/commit/421c7a4660ffeb3d10c68f457f24eee1d49699b4))
+* warp tunnels open without steps and bright shards ([#1256](https://github.com/OpenReliant/openreliant/issues/1256)) ([dc65139](https://github.com/OpenReliant/openreliant/commit/dc651399602aeb9e531f4d70821e129a6240f93a)), closes [#1225](https://github.com/OpenReliant/openreliant/issues/1225)
+
+
+### Documentation
+
+* the website's next step shows the current release's progress ([#1252](https://github.com/OpenReliant/openreliant/issues/1252)) ([8412bb9](https://github.com/OpenReliant/openreliant/commit/8412bb94ed0f1c069797c67e1c2ddfa5294bb066))
+
 ## [0.19.1](https://github.com/OpenReliant/openreliant/compare/v0.19.0...v0.19.1) (2026-10-17)
 
 
