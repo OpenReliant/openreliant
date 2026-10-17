@@ -476,6 +476,11 @@ pub const Backdrop = struct {
     /// visibility for the frame. Between the lights and the star fields the game adds the
     /// environment's effects, which `main.drawFrame` adds before the lights, the lights keeping a
     /// list of their own (`environfx.Environment.frame`).
+    ///
+    /// **Fix:** the game places the flares along the sun's direction as long as it is. A mission
+    /// with no sun marker that asks for its environment again (`place`) leaves the direction a unit
+    /// long, so the flares stand within the near plane and are never drawn from then on.
+    /// OpenReliant places them `sun_distance` along it, as a sun marker leaves it.
     pub fn frame(backdrop: *Backdrop, gpa: Allocator, scene: *srcore.Scene, context: *srapi.Context, view: camera.View, cockpit_mode: camera.CockpitMode) Allocator.Error!void {
         // The records are loaded after the backdrop is made, and a game mode's records can change
         // between missions, so the planets' light takes their colour as it's drawn.
@@ -515,8 +520,9 @@ pub const Backdrop = struct {
                 sun3.sprites[0].colour = @splat(SunLayer.sunlayer3.grey(brightness) * glow);
                 try xtrabits.sceneAdd(gpa, scene, .{ .sprites = sun2 }, .background);
                 const sets = backdrop.sun[first_flare..][0..flares.len];
+                const far = toward * @as(Vector, @splat(sun_distance / math.length(toward)));
                 for (flares, sets) |flare, *set| {
-                    set.sprites[0].offset = .{ toward[0] * flare.along, toward[1] * flare.along, toward[2] };
+                    set.sprites[0].offset = .{ far[0] * flare.along, far[1] * flare.along, far[2] };
                 }
                 if (flaresShown(view, cockpit_mode, visibility)) {
                     for (sets) |*set| {
@@ -749,6 +755,20 @@ test "Backdrop.place" {
     try std.testing.expectEqual(sun_direction, backdrop.sun_direction);
     try std.testing.expectEqual(built, backdrop.sun[SunLayer.sunlayer1.sprite()].sprites[0].offset);
     try std.testing.expectEqual(math.identity, sky.dome.orientation);
+    // The lens flares still stand beyond the near plane, and are drawn.
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    var context: srapi.Context = .{
+        .camera = .{ .position = @splat(0), .orientation = math.lookAt(sun_direction) },
+        .projection = .init(640, 480, srapi.full_screen, .{ 0.6, 0.8 }),
+        .sun_visibility = max_visibility,
+    };
+    try backdrop.frame(gpa, &scene, &context, .chase, .open);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    for (backdrop.sun[first_flare..][0..flares.len]) |*set| {
+        try std.testing.expect(try @import("../surrender/surrenderlib/srbmo.zig").project(arena.allocator(), &context, set) != null);
+    }
 
     // A sun marker facing +X puts the sun at -X; a nebula marker facing +Y aims the nebula up the
     // screen's Y. The markers lie among the mission's ships, past the objects in use.

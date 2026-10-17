@@ -245,6 +245,8 @@ A light reaches an object unless their masks share a bit. A part's object has ma
 
 Without a sun marker the sun's direction stays a unit long, and the sun's sprites, the key lights and the dome keep what the last sun marker gave them; without a nebula marker the fill lights and the patches keep theirs. The lens flares follow the sun's direction.
 
+**Fix:** the game places the lens flares along the sun's direction as long as it is. After `backdrop_place` without a sun marker, which most missions' scripts ask for, they stand within a unit of the camera, inside the near plane, so they are never drawn again in that mission. OpenReliant places them 1000 along the sun's direction, as a sun marker leaves it, so they show in every mission.
+
 ## Environment effects
 
 A mission's script turns environment effects on and off by number (`SetEnvironmentFX`,
