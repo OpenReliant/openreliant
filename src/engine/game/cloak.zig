@@ -406,6 +406,20 @@ pub const PartCloak = struct {
         };
     }
 
+    /// OpenReliant's: points the cloak of a part, copied with the part (`objects.Model.copy`), at
+    /// copies of its colours and texture coordinates made in `arena`, and the part's `object` at
+    /// the hull's.
+    pub fn copyOwn(effect: *PartCloak, arena: Allocator, object: *srapiext.MeshObject) Allocator.Error!void {
+        const hull = try arena.alloc([][4]f32, effect.hull_colours.len);
+        for (hull, effect.hull_colours) |*colours, from| colours.* = try arena.dupe([4]f32, from);
+        effect.hull_colours = hull;
+        effect.shimmer_colours = try arena.dupe([4]f32, effect.shimmer_colours);
+        effect.shimmer_uv = try arena.dupe([2]f32, effect.shimmer_uv);
+        effect.shimmer.baked = effect.shimmer_colours;
+        effect.shimmer.own_uv[0] = effect.shimmer_uv;
+        object.baked_levels = effect.hull_colours;
+    }
+
     pub fn deinit(effect: PartCloak, gpa: Allocator) void {
         for (effect.hull_colours) |colours| gpa.free(colours);
         gpa.free(effect.hull_colours);

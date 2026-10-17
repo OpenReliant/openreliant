@@ -1025,154 +1025,6 @@ test "Model.partBounds" {
     try std.testing.expectEqual(null, live.partBounds(1));
 }
 
-test KeptFrames {
-    const gpa = std.testing.allocator;
-    var model: create.testing.Model = undefined;
-    try model.init(gpa);
-    defer model.deinit(gpa);
-    var slot: create.Slot = .{ .object = gameobj.testing.object(), .model = try Model.create(gpa, &model.source, &model.loaded, .{}) };
-    const live = &slot.model.?;
-    defer live.deinit(gpa);
-    gameobj.linkParts(live, &model.source);
-    // Through the step the object goes from 0 to 100, and its part rises 10 in the model.
-    const root = &slot.object.root;
-    root.flags.committed = true;
-    root.next_position = .{ .x = 100, .y = 0, .z = 0 };
-    const part = &live.parts[0];
-    part.animation.committed = true;
-    part.animation.next.place.position = part.animation.now.place.position + Vector{ 0, 10, 0 };
-    frameTree(root, live, &slot.drawn, 0.5, null);
-    root.flags.unframed = true;
-    const drawn = slot.drawn;
-    const origin = part.origin;
-    const placed = part.drawn();
-
-    var kept: KeptFrames = .{};
-    defer kept.deinit(gpa);
-    try kept.keep(gpa, &slot);
-    // Framed further on, then put back, everything framing wrote is as it was.
-    frameTree(root, live, &slot.drawn, 0.75, null);
-    try std.testing.expectEqual(Vector{ 75, 0, 0 }, slot.drawn.position);
-    var cursor: KeptFrames.Cursor = .{};
-    kept.putBack(&cursor, &slot);
-    try std.testing.expectEqual(drawn, slot.drawn);
-    try std.testing.expectEqual(origin, part.origin);
-    try std.testing.expectEqual(placed, part.drawn());
-    try std.testing.expect(root.flags.unframed);
-    try std.testing.expectEqual(KeptFrames.Cursor{ .roots = 1, .models = 1, .parts = 1 }, cursor);
-}
-
-/// OpenReliant's: what framing an object writes, kept so that a drawn frame can frame the object
-/// further on and then put the game frame's frames back (`main.DrawnPlaces`). For each object that
-/// is its root's place now and next (a ship riding a node is held there, `main.frameObjects`), the
-/// root's `unframed` flag, and the frame it is drawn at. For each model, the models its parts carry
-/// included, it is the model's place, and each part's frame in the model, its frame in the world
-/// and its `unframed` flag.
-pub const KeptFrames = struct {
-    roots: std.ArrayList(Root) = .empty,
-    models: std.ArrayList(math.Place) = .empty,
-    parts: std.ArrayList(PartFrame) = .empty,
-
-    const Root = struct {
-        position: shp.Vec3,
-        orientation: math.Matrix,
-        next_position: shp.Vec3,
-        next_orientation: math.Matrix,
-        unframed: bool,
-        drawn: Model.Local,
-    };
-
-    const PartFrame = struct {
-        origin: Vector,
-        turn: math.Matrix,
-        place: math.Place,
-        unframed: bool,
-    };
-
-    /// How far `putBack` has got through each list.
-    pub const Cursor = struct {
-        roots: usize = 0,
-        models: usize = 0,
-        parts: usize = 0,
-    };
-
-    pub fn deinit(kept: *KeptFrames, gpa: Allocator) void {
-        kept.roots.deinit(gpa);
-        kept.models.deinit(gpa);
-        kept.parts.deinit(gpa);
-    }
-
-    pub fn clear(kept: *KeptFrames) void {
-        kept.roots.clearRetainingCapacity();
-        kept.models.clearRetainingCapacity();
-        kept.parts.clearRetainingCapacity();
-    }
-
-    /// Keeps the frames of the object in `slot`. Where it runs out of memory, it keeps none of them.
-    pub fn keep(kept: *KeptFrames, gpa: Allocator, slot: *const create.Slot) Allocator.Error!void {
-        const root = &slot.object.root;
-        const before: Cursor = .{ .roots = kept.roots.items.len, .models = kept.models.items.len, .parts = kept.parts.items.len };
-        errdefer {
-            kept.roots.shrinkRetainingCapacity(before.roots);
-            kept.models.shrinkRetainingCapacity(before.models);
-            kept.parts.shrinkRetainingCapacity(before.parts);
-        }
-        try kept.roots.append(gpa, .{
-            .position = root.position,
-            .orientation = root.orientation,
-            .next_position = root.next_position,
-            .next_orientation = root.next_orientation,
-            .unframed = root.flags.unframed,
-            .drawn = slot.drawn,
-        });
-        if (slot.model) |*model| try kept.keepModel(gpa, model);
-    }
-
-    fn keepModel(kept: *KeptFrames, gpa: Allocator, model: *const Model) Allocator.Error!void {
-        try kept.models.append(gpa, .{ .position = model.position, .orientation = model.orientation });
-        for (model.parts) |*part| try kept.parts.append(gpa, .{
-            .origin = part.origin,
-            .turn = part.turn,
-            .place = part.drawn(),
-            .unframed = part.animation.unframed,
-        });
-        var each = model.carried();
-        while (each.next()) |mount| try kept.keepModel(gpa, &mount.model);
-    }
-
-    /// Puts back the frames `keep` kept of the same object, from `cursor` on, and moves the cursor
-    /// past them. The objects go back in the order they were kept.
-    pub fn putBack(kept: *const KeptFrames, cursor: *Cursor, slot: *create.Slot) void {
-        const root = &slot.object.root;
-        const was = kept.roots.items[cursor.roots];
-        cursor.roots += 1;
-        root.position = was.position;
-        root.orientation = was.orientation;
-        root.next_position = was.next_position;
-        root.next_orientation = was.next_orientation;
-        root.flags.unframed = was.unframed;
-        slot.drawn = was.drawn;
-        if (slot.model) |*model| kept.putBackModel(cursor, model);
-    }
-
-    fn putBackModel(kept: *const KeptFrames, cursor: *Cursor, model: *Model) void {
-        const place = kept.models.items[cursor.models];
-        cursor.models += 1;
-        model.position = place.position;
-        model.orientation = place.orientation;
-        for (model.parts, kept.parts.items[cursor.parts..][0..model.parts.len]) |*part, was| {
-            part.origin = was.origin;
-            part.turn = was.turn;
-            part.object.position = was.place.position;
-            part.object.orientation = was.place.orientation;
-            part.animation.unframed = was.unframed;
-        }
-        cursor.parts += model.parts.len;
-        var each = model.carried();
-        while (each.next()) |mount| kept.putBackModel(cursor, &mount.model);
-    }
-};
-
 /// Destroys `component`, one of `model`'s parts, the same way a hit that takes its last armour
 /// does (`component_damage`): it sets the armour of the part that takes the component's hits
 /// (`Model.hitPart`) below zero, and flags the model's root as `destroyed`. The objects' next pass
@@ -1414,6 +1266,13 @@ pub const Model = struct {
             pub const flare = 0;
             pub const lamp_sprite = 1;
 
+            /// Points the set at its sprites and the lamp at its material, which the light holds:
+            /// as the light is made, and again in a copy (`Model.copy`).
+            fn link(sprites: *Sprites) void {
+                sprites.sprite[lamp_sprite].surface = &sprites.lamp;
+                sprites.set.sprites = &sprites.sprite;
+            }
+
             /// Sizes and colours the sprites for a light `blink` bright in its blink, seen from
             /// `away` (`node_draw`).
             fn show(sprites: *Sprites, blink: f32, away: f32) void {
@@ -1495,6 +1354,12 @@ pub const Model = struct {
         /// The one mesh it draws, which every glow of its kind shares.
         level: [1]srapiext.Level,
         object: srapiext.MeshObject,
+
+        /// Points its object at the one mesh it holds: as it is made, and again in a copy
+        /// (`Model.copy`).
+        fn link(glow: *Glow) void {
+            glow.object.levels = glow.level[0..1];
+        }
 
         /// How far along its length the plume burns, or null while it burns nothing. Every glow but
         /// a steady one flickers a little each frame (`node_draw`).
@@ -2217,8 +2082,7 @@ pub const Model = struct {
                 };
                 // The set and its lamp point into the light itself, which does not move again.
                 const sprites = &light.sprites.?;
-                sprites.sprite[Light.Sprites.lamp_sprite].surface = &sprites.lamp;
-                sprites.set.sprites = &sprites.sprite;
+                sprites.link();
                 // A sprite whose image the game lacks is left out.
                 sprites.sprite[Light.Sprites.flare].hidden = images.flare == null;
                 sprites.sprite[Light.Sprites.lamp_sprite].hidden = images.lamp == null;
@@ -2296,7 +2160,7 @@ pub const Model = struct {
                 },
             };
             // The object shows the one mesh its kind shares, which does not change again.
-            glow.object.levels = glow.level[0..1];
+            glow.link();
         }
         return made;
     }
@@ -2367,6 +2231,46 @@ pub const Model = struct {
         gpa.free(model.lights);
         gpa.free(model.glows);
         gpa.free(model.flashes);
+    }
+
+    /// OpenReliant's: a copy of the model for drawing to work on (`main.Drawn`), made in `arena`.
+    /// The copy has its own parts, with their cloaks' colours and texture coordinates, its own
+    /// lights, engine glows and muzzle flashes, and copies of the models it carries, each pointing
+    /// into the copy. It shares what doesn't change once the model is made: the meshes and the
+    /// order of its parts.
+    pub fn copy(model: *const Model, arena: Allocator) Allocator.Error!Model {
+        var copied = model.*;
+        copied.parts = try arena.dupe(Part, model.parts);
+        for (copied.parts) |*part| if (part.cloak) |*effect| try effect.copyOwn(arena, &part.object);
+        copied.lights = try arena.dupe(Light, model.lights);
+        for (copied.lights) |*light| if (light.sprites) |*sprites| sprites.link();
+        copied.glows = try arena.dupe(Glow, model.glows);
+        for (copied.glows) |*glow| glow.link();
+        copied.flashes = try arena.dupe(flash.Flash, model.flashes);
+        for (copied.flashes) |*lit| lit.link();
+        copied.mounts = try arena.dupe(Mount, model.mounts);
+        copied.hung = try arena.dupe(?Mount, model.hung);
+        var each = copied.carried();
+        while (each.next()) |mount| {
+            const original = mount.model;
+            mount.model = try original.copy(arena);
+        }
+        return copied;
+    }
+
+    /// The part of `copied`, a copy of the model (`copy`), that stands where `part` stands among
+    /// the model's parts or those of the models it carries; null for a part of neither.
+    pub fn counterpart(model: *const Model, copied: *Model, part: *const Part) ?*Part {
+        const offset = @intFromPtr(part) -% @intFromPtr(model.parts.ptr);
+        const index = offset / @sizeOf(Part);
+        if (index < model.parts.len and offset % @sizeOf(Part) == 0) return &copied.parts[index];
+        var each = model.carried();
+        var copies = copied.carried();
+        while (each.next()) |mount| {
+            const copy_mount = copies.next().?;
+            if (mount.model.counterpart(&copy_mount.model, part)) |found| return found;
+        }
+        return null;
     }
 
     /// The model each gun and pod attachment holds, mounted on the part that carries it
@@ -3195,6 +3099,80 @@ pub const testing = struct {
     };
 };
 
+test "Model.copy" {
+    const gpa = std.testing.allocator;
+    var gun: create.testing.Model = undefined;
+    try gun.init(gpa);
+    defer gun.deinit(gpa);
+    var image: srtexture.Image = .{ .levels = &.{} };
+    try gun.withCloak(gpa, &image);
+    var carrier: testing.Carrier = undefined;
+    carrier.init(.{ 0, 0, 10 });
+    var live = try carrier.build(gpa, &gun);
+    defer live.deinit(gpa);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    var copied = try live.copy(arena.allocator());
+
+    // Its parts and the gun it carries are its own, and a part of either has its counterpart.
+    try std.testing.expect(copied.parts.ptr != live.parts.ptr);
+    const mounted = &live.mounts[0].model.parts[0];
+    const copy_mounted = &copied.mounts[0].model.parts[0];
+    try std.testing.expect(copy_mounted != mounted);
+    try std.testing.expectEqual(&copied.parts[0], live.counterpart(&copied, &live.parts[0]).?);
+    try std.testing.expectEqual(copy_mounted, live.counterpart(&copied, mounted).?);
+    const stray = live.parts[0];
+    try std.testing.expectEqual(null, live.counterpart(&copied, &stray));
+    // The gun's cloak has colours and texture coordinates of its own, which its part and its
+    // shimmer draw.
+    const effect = &copy_mounted.cloak.?;
+    try std.testing.expect(effect.hull_colours[0].ptr != mounted.cloak.?.hull_colours[0].ptr);
+    try std.testing.expectEqual(effect.hull_colours.ptr, copy_mounted.object.baked_levels.?.ptr);
+    try std.testing.expectEqual(effect.shimmer_uv.ptr, effect.shimmer.own_uv[0].?.ptr);
+    try std.testing.expectEqual(@as([*]const [4]f32, effect.shimmer_colours.ptr), effect.shimmer.baked.?.ptr);
+}
+
+test "a copy's lights and engine glows point into the copy" {
+    const gpa = std.testing.allocator;
+    const srmesh = @import("../surrender/surrenderlib/srmesh.zig");
+    const mesh = try srmesh.testing.square(gpa);
+    defer mesh.deinit(gpa);
+    var lights = [_]Model.Light{.{
+        .part = 0,
+        .origin = @splat(0),
+        .blink = .{},
+        .sprites = .{
+            .colour = @splat(1),
+            .lamp_colour = @splat(1),
+            .size = 1,
+            .set = .{ .sprites = &.{} },
+            .sprite = @splat(.{}),
+            .lamp = srapiext.Surface.glow(null),
+        },
+        .cast = null,
+    }};
+    lights[0].sprites.?.link();
+    var glows = [_]Model.Glow{.{
+        .part = 0,
+        .origin = @splat(0),
+        .orientation = math.identity,
+        .size = @splat(1),
+        .retro = false,
+        .steady = false,
+        .level = .{.{ .mesh = &mesh, .until = std.math.inf(f32) }},
+        .object = .{ .flags = .{}, .position = @splat(0), .radius = 1, .levels = &.{} },
+    }};
+    glows[0].link();
+    const model: Model = .{ .parts = &.{}, .order = &.{}, .lights = &lights, .glows = &glows, .mounts = &.{} };
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const copied = try model.copy(arena.allocator());
+    const sprites = &copied.lights[0].sprites.?;
+    try std.testing.expectEqual(@as([*]srapiext.Sprite, &sprites.sprite), sprites.set.sprites.ptr);
+    try std.testing.expectEqual(sprites.sprite[Model.Light.Sprites.lamp_sprite].surface.?, &sprites.lamp);
+    try std.testing.expectEqual(@as([*]const srapiext.Level, &copied.glows[0].level), copied.glows[0].object.levels.ptr);
+}
+
 test "Node.commitNext" {
     var node: Node = std.mem.zeroes(Node);
     node.next_position = .{ .x = 1, .y = 2, .z = 3 };
@@ -3280,7 +3258,7 @@ test Model {
         },
         .cast = null,
     }};
-    lights[0].sprites.?.set.sprites = &lights[0].sprites.?.sprite;
+    lights[0].sprites.?.link();
     var model: Model = .{ .parts = &parts, .order = &.{0}, .lights = &lights, .glows = &.{}, .mounts = &.{} };
     // A part hangs at its origin, turned with the root.
     model.place(.{ 1000, 0, 0 }, math.rotation(.y, std.math.pi / 2.0));

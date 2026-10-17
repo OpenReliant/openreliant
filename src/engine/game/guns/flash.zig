@@ -363,9 +363,21 @@ pub const Flash = struct {
                 .none => null,
             },
         };
+        flash.link();
+    }
+
+    /// Points the flash's object at its mesh, its texture coordinates and, for a turret's look,
+    /// its colours, which it holds: as it is made, as its look changes, and again in a copy
+    /// (`objects.Model.copy`).
+    pub fn link(flash: *Flash) void {
         flash.object.levels = &flash.level;
         flash.object.own_uv[0] = &flash.uv;
-        if (look == .turret) flash.object.baked = &flash.colours;
+        flash.object.baked = if (flash.shown() == .turret) &flash.colours else null;
+    }
+
+    /// The look it is drawn with: a mod gun's own flash is drawn as the flare.
+    fn shown(flash: *const Flash) Look {
+        return if (flash.own != null) .flare else flash.look;
     }
 
     /// `bullet_fire`'s: lights the flash for a shot of `kind` fired at `now`, to go out once the
@@ -391,12 +403,11 @@ pub const Flash = struct {
     fn drawAs(flash: *Flash, own: ?*const Looks.Own) void {
         if (own == flash.own) return;
         flash.own = own;
-        const shown: Look = if (own != null) .flare else flash.look;
         const mesh = if (own) |made| &made.mesh else flash.looks.meshes.getPtrConst(flash.look);
         flash.level[0].mesh = mesh;
         flash.object.radius = mesh.radius;
-        flash.object.flags = shown.flags();
-        flash.object.baked = if (shown == .turret) &flash.colours else null;
+        flash.object.flags = flash.shown().flags();
+        flash.link();
         if (flash.light) |*light| {
             light.colour = if (own) |made| made.colour else flash.looks.colours.get(flash.look);
             light.kind.point.range = reach_per_length * if (own) |made| made.length else flash.look.size()[2];
@@ -648,6 +659,13 @@ test "a turret's flash takes its shot's colour" {
     try std.testing.expectEqual([3]f32{ 1, 0.5, 0 }, flash.light.?.colour);
     try std.testing.expect(flash.show(10, .{}));
     try std.testing.expectEqual(1, flash.object.scale);
+
+    // A copy, linked, draws its own mesh, texture coordinates and colours.
+    var copy = flash;
+    copy.link();
+    try std.testing.expectEqual(@as([*]const srapiext.Level, &copy.level), copy.object.levels.ptr);
+    try std.testing.expectEqual(@as([*][2]f32, &copy.uv), copy.object.own_uv[0].?.ptr);
+    try std.testing.expectEqual(@as([*]const [4]f32, &copy.colours), copy.object.baked.?.ptr);
 }
 
 test "a flash of a gun type that lasts no time shows at no size" {

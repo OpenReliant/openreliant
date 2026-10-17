@@ -366,6 +366,11 @@ the colour's four values. OpenReliant keeps and gives back each part's own. Wher
 its slot by the time they are put back, the game would write into what took its place; OpenReliant
 only lets the copies go.
 
+A drawn frame draws a copy of the objects ([The game loop](loop.md#game-frames-and-drawn-frames)),
+which may still show the parts' copies after a mod's script switches the view and puts the parts
+back. So from the moment the frame takes its copy until it is drawn, the copies of the parts put
+back are kept, and they go once the frame is drawn (`Subtarget.hold`, `letGo`).
+
 [`hud/subtarget.zig`](../../src/engine/game/hud/subtarget.zig) ports both.
 
 `player_subtarget_cycle` first gives both forms of the target display their full time again. For a
