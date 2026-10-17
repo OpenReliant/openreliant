@@ -133,6 +133,10 @@ with the definition's loop count, cone and distances, at 22,050 Hz; the two expl
 `18050 + 7000 × rand() / 32767`. Miles's `y` points up where the camera's points down, so every
 place, direction and velocity goes over with `y` negated.
 
+**Improvement:** the explosions' rate takes the effects' own random numbers
+(`gameobj.World.effectsRandom`). The game draws it from its own, but only for a sound that plays,
+so a game that hears nothing would go on from other numbers ([Random numbers](loop.md#random-numbers)).
+
 **Fix:** a sound that follows a shot, a missile or an object is placed by the owner's record, which
 the game reads for an owner of -1 too, before the table. OpenReliant plays nothing without an
 owner, or with one past its table.

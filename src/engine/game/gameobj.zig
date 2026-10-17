@@ -1951,11 +1951,11 @@ pub const World = struct {
     /// The game's random numbers (`Random`), from which the guns' step draws a damaged gun's
     /// misfire.
     random: *Random,
-    /// **Improvement:** the random numbers of the effects only drawn, the particles, the
-    /// explosions' fireballs and bits, the sparks and the rays, apart from the game's. The game
-    /// draws those from its own numbers, but only where the effects are there, so a world that
-    /// draws nothing would go on from different numbers. Null where nothing is drawn, as in a test
-    /// (`effectsRandom`).
+    /// **Improvement:** the random numbers of the effects only drawn or heard, the particles, the
+    /// explosions' fireballs, bits and sounds' pitch, the sparks and the rays, apart from the
+    /// game's. The game draws those from its own numbers, but only where the effects are drawn or
+    /// heard, so a world that draws or hears nothing would go on from different numbers. Null where
+    /// nothing is drawn, as in a test (`effectsRandom`).
     effects_random: ?*Random = null,
     /// The sound the objects are heard through, and where from; null where nothing is heard.
     hearing: ?@import("hog_snd.zig").Hearing = null,
