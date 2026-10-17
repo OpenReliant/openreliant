@@ -306,20 +306,22 @@ fn behindKey(key: PipelineKey) PipelineKey {
 
 /// The pipelines the device makes as it starts (`Gpu.prepare`): the scene's, for each layer and
 /// blend mode in each topology, and those that test no depth again for what is drawn over the
-/// finished frame and into what lies behind, which have no depth buffer. Each once, though layers
-/// and modes share them.
+/// finished frame, into the reflections and into what lies behind, which have no depth buffer.
+/// Each once, though layers and modes share them.
 const prepared = keys: {
     const layers = std.enums.values(srd3d.Layer);
     const modes = std.enums.values(srapiext.Material.Blend);
     const topologies = std.enums.values(Topology);
-    var found: [layers.len * modes.len * topologies.len * 3]PipelineKey = undefined;
+    var found: [layers.len * modes.len * topologies.len * 4]PipelineKey = undefined;
     var count: usize = 0;
-    @setEvalBranchQuota(20_000);
+    @setEvalBranchQuota(40_000);
     for (layers) |layer| for (modes) |mode| for (topologies) |drawn| {
         const scene: PipelineKey = .{ .topology = drawn, .depth = srd3d.depth(layer, mode), .blend = srd3d.factors(mode) };
         var over = scene;
         over.into = .finished;
-        for ([_]PipelineKey{ scene, over, behindKey(scene) }) |key| {
+        var reflected = scene;
+        reflected.into = .reflections;
+        for ([_]PipelineKey{ scene, over, reflected, behindKey(scene) }) |key| {
             if (key.into != .scene and key.depth.testing) continue;
             const known = for (found[0..count]) |seen| {
                 if (std.meta.eql(seen, key)) break true;
@@ -915,11 +917,15 @@ pub const Gpu = struct {
     /// quarter of a second the first time, and would hold up the frame in which an effect first
     /// shows. One the system refuses is tried again, and the failure logged, as it is drawn.
     fn prepare(gpu: *Gpu) void {
-        for (prepared) |key| {
-            var drawn = key;
-            if (gpu.holds_bloom) drawn.held_bloom = .of(key.into, key.blend, key.variant);
-            _ = gpu.pipeline(drawn) catch continue;
-        }
+        for (prepared) |key| _ = gpu.pipeline(gpu.withHeldBloom(key)) catch continue;
+    }
+
+    /// `key` with how its draws keep the light that mustn't bloom: as `HeldBloom.of` says while
+    /// the scene's alpha keeps it (`holds_bloom`), else `.left`.
+    fn withHeldBloom(gpu: *const Gpu, key: PipelineKey) PipelineKey {
+        var drawn = key;
+        drawn.held_bloom = if (gpu.holds_bloom) .of(key.into, key.blend, key.variant) else .left;
+        return drawn;
     }
 
     /// Floats for a frame that keeps what is stacked past white: 32 bits a pixel where the GPU
@@ -1148,14 +1154,13 @@ pub const Gpu = struct {
         const into: Into = if (gpu.face != null) .reflections else if (gpu.overlay_from == null) .scene else .finished;
         const lit = into != .finished and vertices.len > 0 and vertices[0].light_mask != device.no_lights;
         const picked: variants.Picked = if (gpu.mod_effects) gpu.mod_shaders.pick(state.surface, if (state.texture) |image| image.surface else null, lit) else .{};
-        const key: PipelineKey = .{
+        const key = gpu.withHeldBloom(.{
             .topology = topology(primitive),
             .depth = state.depth,
             .blend = state.blend,
             .into = into,
             .variant = picked.variant,
-            .held_bloom = if (gpu.holds_bloom) .of(into, state.blend, picked.variant) else .left,
-        };
+        });
         var shading: Shading = .of(state, gpu.shadesMaterials());
         shading.held_bloom = key.held_bloom;
         shading.premultiplies = key.held_bloom == .added and state.blend.?.source == .source_alpha;
@@ -1219,6 +1224,19 @@ pub const Gpu = struct {
         image.texture = .{ .handle = slot.asHandle(), .holder = gpu.holder() };
         image.changed = false;
         return slot;
+    }
+
+    /// Sends `image`'s texture up with the next frame, as drawing it would (`slotOf`), so that the
+    /// frame that first draws it isn't held up by the upload: a large texture with its maps takes
+    /// tens of milliseconds. A mission's loading sends up every texture it loaded this way.
+    pub fn sendAhead(gpu: *Gpu, image: *srtexture.Image) void {
+        _ = gpu.slotOf(image) catch |err| log.warn("can't send a {d}x{d} texture up ahead: {t}", .{ image.width(), image.height(), err });
+    }
+
+    /// Waits until the GPU has done all it was sent, such as the textures sent up ahead, so that the
+    /// next frame doesn't wait for them.
+    pub fn finishSending(gpu: *Gpu) void {
+        _ = c.SDL_WaitForGPUIdle(gpu.handle);
     }
 
     /// Says in the log, the first time, that an image whose pixels were let go of is drawn again
@@ -1504,13 +1522,17 @@ pub const Gpu = struct {
     }
 
     /// Makes `variant`, above 0, a variant of the device's fragment shader compiled for both kinds
-    /// of device (`gpu/variants.zig`), in place of what it was.
+    /// of device (`gpu/variants.zig`), in place of what it was. Its pipeline for a solid model in
+    /// the world is made with it: the system compiles the variant as its first pipeline is made,
+    /// which can take a quarter of a second, and would hold up the frame that first draws with it.
+    /// The variant's other pipelines take little after that.
     pub fn setVariant(gpu: *Gpu, variant: u16, spirv_words: []const u32, metal: []const u8) Error!void {
         std.debug.assert(variant != 0);
         try gpu.mod_shaders.shaders.ensureUnusedCapacity(gpu.gpa, 1);
         const made = try shader(gpu.handle, gpu.spirv, c.SDL_GPU_SHADERSTAGE_FRAGMENT, if (gpu.spirv) std.mem.sliceAsBytes(spirv_words) else metal, fragment_samplers, fragment_uniforms);
         gpu.removeVariant(variant);
         gpu.mod_shaders.shaders.putAssumeCapacity(variant, made);
+        _ = gpu.pipeline(gpu.withHeldBloom(.{ .topology = .triangles, .depth = srd3d.depth(.world, .off), .blend = null, .variant = variant })) catch {};
     }
 
     /// Removes `variant` and the pipelines that draw with it, including any made with
@@ -2372,19 +2394,20 @@ test join {
 
 test prepared {
     // The scene's ten sets of states in three topologies, and the five that test no depth again
-    // over the finished frame and into what lies behind.
-    try std.testing.expectEqual(60, prepared.len);
+    // over the finished frame, into the reflections and into what lies behind.
+    try std.testing.expectEqual(75, prepared.len);
     for (prepared, 0..) |key, index| {
-        // The finished frame and what lies behind have no depth to test.
+        // The finished frame, the reflections and what lies behind have no depth to test.
         try std.testing.expect(key.into == .scene or !key.depth.testing);
         for (prepared[index + 1 ..]) |other| try std.testing.expect(!std.meta.eql(key, other));
     }
-    // Among them, a blended effect's in the world, the display's over the finished frame, and the
-    // sun's glow's into what lies behind.
+    // Among them, a blended effect's in the world, the display's over the finished frame, a solid
+    // model's in the reflections, and the sun's glow's into what lies behind.
     const effect: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.world, .premultiplied), .blend = srd3d.factors(.premultiplied) };
     const display: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.overlay, .alpha), .blend = srd3d.factors(.alpha), .into = .finished };
+    const reflected: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.background, .off), .blend = null, .into = .reflections };
     const glow: PipelineKey = .{ .topology = .triangles, .depth = srd3d.depth(.background, .add_alpha), .blend = srd3d.factors(.add_alpha), .into = .behind };
-    for ([_]PipelineKey{ effect, display, glow }) |wanted| {
+    for ([_]PipelineKey{ effect, display, reflected, glow }) |wanted| {
         const found = for (prepared) |key| {
             if (std.meta.eql(key, wanted)) break true;
         } else false;

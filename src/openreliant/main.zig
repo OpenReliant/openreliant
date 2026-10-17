@@ -2241,9 +2241,11 @@ const Play = struct {
     fn start(play: *Play, orders: game.aigeneric.Context) !void {
         play.end();
         play.over = false;
+        var last_frame: ?game.xtrabits.loading.Frame = null;
         if (play.loading) |loading| {
             const frames = game.xtrabits.loading.missionFrames(loading.splash, loading.size()[0], orders.world.objects.simulator.mode);
             for (frames) |frame| try loading.show(frame);
+            if (frames.len > 0) last_frame = frames[frames.len - 1];
         }
         play.loaded = try game.main.startMission(play.gpa, .{
             .orders = orders,
@@ -2261,6 +2263,16 @@ const Play = struct {
             .seed = play.seed orelse clockSeed(play.io),
             .editor = play.editor,
         }, try play.gpa.dupe(u8, play.file), play.number);
+        // The textures the mission loaded go up to the GPU while the loading screen's last frame
+        // shows again, and the GPU finishes with them, so that none holds up a frame of the mission.
+        // Their pixels are let go of here too: with large textures, that takes a while.
+        if (play.loading) |loading| if (last_frame) |frame| {
+            const gpu = loading.presenter.gpu;
+            for (play.types.textures.waiting()) |image| gpu.sendAhead(image);
+            try loading.show(frame);
+            gpu.finishSending();
+            play.types.textures.releaseHeld();
+        };
         // The game's ticks count from here, as `mission_run` counts them from where they stand as
         // its loop begins, so that the time the start took, the editor's holds in it among it,
         // passes with none.

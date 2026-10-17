@@ -31,10 +31,10 @@ The original also has a software renderer, which runs when no Direct3D device is
 
 The GPU device draws what the driver hands over with SDL's GPU interface: Metal on macOS, Vulkan elsewhere. The driver draws a strip, a fan or a single blended polygon at a time, and the game's textures are small, so the device gathers a frame before drawing it:
 
-- Each texture is a layer of a texture array holding the textures of its width, height and number of levels, up to 256 layers, the fewest Vulkan guarantees. A texture goes up to the GPU, every level, the first time it is drawn, and the image keeps its array and layer as its texture, with the device that holds it (`srtexture.Image.texture`), as the driver's `texture_upload` keeps the device texture it makes.
+- Each texture is a layer of a texture array holding the textures of its width, height and number of levels, up to 256 layers, the fewest Vulkan guarantees. A texture goes up to the GPU, every level, the first time it is drawn or as the mission that loaded it starts (below), and the image keeps its array and layer as its texture, with the device that holds it (`srtexture.Image.texture`), as the driver's `texture_upload` keeps the device texture it makes.
 - Freeing an image hands its texture back to the device, as the original's `texture_release` (`0x004CA2B0`) hands it to the driver's release (`sr + 0x4C`). This covers a screen's shapes, a font's glyphs, a movie's or a loading screen's picture, a script's picture that the cache takes out, and an outline font's atlas that outgrew its texture. An image whose pixels are freed with an arena, or belong to something else, such as a face film's frame, hands its texture back itself (`Image.releaseTexture`). Its pixels no longer go up to the GPU. From the next frame on, since the current frame may still draw from it, its layer goes to the next texture of its shape before the array grows. When `openreliant` quits, the texture table's images are freed after the GPU device closes, and the device ignores the textures they hand back: `openreliant` makes it in the arena that lasts the whole run, so its memory outlasts them.
 - Each vertex names its texture's layer, or none. Strips and fans become lists of triangles, and consecutive draws with the same primitive and render states, whose textures share an array, go to the GPU as one draw.
-- A pipeline is made for each primitive and set of render states the driver draws with, every layer's and blend mode's, and the background layer's again for what lies behind a mod's atmosphere ([Surface and lighting functions](#surface-and-lighting-functions)), as the device starts: the depth test greater or equal, depth being reversed, and the driver's blend factors. The system compiles a pipeline's shaders for its states, which can take a quarter of a second the first time, so that one made as an effect first shows would hold up its frame. Depth is clamped rather than clipped, as Direct3D 7 did not clip transformed vertices in depth, and the pipelines write colour only, as the original's back buffer kept no alpha.
+- A pipeline is made as the device starts for each primitive and set of render states the driver draws with: every layer's and blend mode's in the scene, and again those that test no depth for what is drawn over the finished frame, into the [reflections](#improvements) and into what lies behind a mod's atmosphere ([Surface and lighting functions](#surface-and-lighting-functions)). The depth test is greater or equal, depth being reversed, and the blend factors are the driver's. The system compiles a pipeline's shaders for its states, which can take a quarter of a second the first time, so a pipeline made when an effect first shows would hold up its frame. Depth is clamped rather than clipped, as Direct3D 7 did not clip transformed vertices in depth, and the pipelines write colour only, as the original's back buffer kept no alpha.
 - Textures wrap, as Direct3D 7's did by default, which the meshes' texture coordinates rely on. What is drawn over the finished frame, the display's and the menus' images, is read held at its edges instead: the original drew those with VFX, unfiltered, and a filter at the edge of an image that wraps reads the texels of its far side, which showed as thin lines along the edges.
 
 The brightness ([Video](../engine/front-end.md#video)) is the display's gamma ramp, which the original's driver set (`set_gamma`, `0x10005270`): the driver hands it to the device as each frame begins. Where it is other than 1, the GPU device puts the finished frame on the window through it, in a last pass of [`bloom.glsl`](../../src/platform/shaders/bloom.glsl), each channel at its power 1 over the brightness, so that the ramp takes in the display and the menus as the original's did; a screenshot keeps the frame as drawn, as the original's did.
@@ -86,6 +86,12 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
   (`Image.holdsPixels`, `Gpu.slotOf`): it keeps the texture it has, or draws without a texture,
   and the log says so once. Sending it would copy whatever else lies in the transfer buffer into
   its texture.
+- The textures a mission loaded go up to the GPU as its loading ends, while the loading screen's
+  last frame shows again (`Table.waiting`, `Gpu.sendAhead`). The game then waits for the GPU to
+  finish with them (`Gpu.finishSending`) and lets go of their pixels, before the mission's first
+  frame. A large mod texture with its maps takes tens of milliseconds to go up, and letting go of
+  the pixels of many takes a while too, so these would otherwise hold up the frames that first show
+  them.
 - A frame goes to the GPU whatever fails as it is recorded, as SDL wants once a swapchain texture
   is acquired, so the copies it recorded still run; where the frame couldn't be put on the swapchain
   texture, that texture is cleared. The textures waiting to go up are copied all together, after
@@ -236,6 +242,9 @@ the files it includes, cut into parts where it includes them (`scripting/glsl.zi
   a surface function has the lighting function's. The driver compiles each with the lighting
   function that draws, and again when that changes (`mod_shaders.zig`). Replacing or removing a
   variant releases its pipelines (`Gpu.removeVariant`).
+- A variant's pipeline for a solid model in the world is made with the variant (`Gpu.setVariant`).
+  The system compiles the variant as its first pipeline is made, which can take a quarter of a
+  second. Its other pipelines are made the first time they draw, and take little after that.
 - A variant that compiled but that the GPU refuses to make a pipeline with is left out, like one
   that doesn't compile, and the log says so (`Gpu.pipeline`). The draws that asked for that
   pipeline use OpenReliant's own fragment shader, and later draws no longer pick the variant. A
