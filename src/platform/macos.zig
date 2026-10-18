@@ -1,6 +1,7 @@
 //! What the platform layer does for macOS around SDL: what it asks of AppKit, and of Core Audio.
 
 const std = @import("std");
+const assert = std.debug.assert;
 
 extern "objc" fn objc_getClass(name: [*:0]const u8) ?*anyopaque;
 extern "objc" fn sel_registerName(name: [*:0]const u8) *anyopaque;
@@ -8,7 +9,7 @@ extern "objc" fn objc_msgSend() void;
 extern "objc" fn objc_autoreleasePoolPush() ?*anyopaque;
 extern "objc" fn objc_autoreleasePoolPop(pool: ?*anyopaque) void;
 extern "c" fn CGEventCreateKeyboardEvent(source: ?*anyopaque, key: u16, down: bool) ?*anyopaque;
-extern "c" fn CGEventSetFlags(event: ?*anyopaque, flags: u64) void;
+extern "c" fn CGEventSetFlags(event: ?*anyopaque, flags: EventFlags) void;
 extern "c" fn CFRelease(object: ?*anyopaque) void;
 
 const Id = ?*anyopaque;
@@ -55,24 +56,42 @@ pub fn ignoreSavedState() void {
     send.register(defaults, send.pair(send.yes(), send.string("ApplePersistenceIgnoreState")));
 }
 
-/// Has AppKit fill in the menu bar's menus as the window opens, rather than at the first keys
-/// pressed in the game. AppKit fills a menu in the first time it looks through it for a key's
-/// shortcut, which it does for each key pressed: the Apple menu, the Window menu's items for moving
-/// and resizing windows, whose symbols it loads, and the Services menu, whose services it reads
-/// from their bundles. That took tens of milliseconds, which held up the frame of the first key
-/// pressed in flight. F19 going down and up, alone and with every modifier held, which no menu item
-/// takes, has it look through them all. The keys are made as the keyboard's are, from Core
-/// Graphics events, since AppKit fills its menus in only for those. SDL sees them as F19 pressed
-/// and released, which the game leaves alone.
+/// Core Graphics' `CGEventFlags`: the modifier keys held for an event.
+const EventFlags = packed struct(u64) {
+    /// The keys' sides and the flags that aren't modifiers.
+    _others: u16 = 0,
+    alpha_shift: bool = false,
+    shift: bool = false,
+    control: bool = false,
+    alternate: bool = false,
+    command: bool = false,
+    /// The numeric keypad, Help, Fn and the bits not used.
+    _rest: u43 = 0,
+};
+
+comptime {
+    // `kCGEventFlagMaskShift` and `kCGEventFlagMaskCommand`.
+    assert(@as(u64, @bitCast(EventFlags{ .shift = true })) == 0x20000);
+    assert(@as(u64, @bitCast(EventFlags{ .command = true })) == 0x100000);
+}
+
+/// Has AppKit fill in the menu bar's menus as the window opens, rather than at the first key
+/// pressed in the game. AppKit fills in a menu the first time it looks through it for a key's
+/// shortcut, which it does for every key pressed: the Apple menu, the Window menu's items for
+/// moving and resizing windows, whose symbols it loads, and the Services menu, whose services it
+/// reads from their bundles. That takes long enough to hold up the frame of the first key pressed
+/// in flight. F19 going down and up, alone and with every modifier held, has AppKit look through
+/// them all, since no menu item takes it. The key events are made from Core Graphics events, as the
+/// keyboard's are, since AppKit fills in its menus only for those. SDL passes on F19 pressed and
+/// released, which leaves the game's keys as they were.
 pub fn fillMenus() void {
     const pool = objc_autoreleasePoolPush();
     defer objc_autoreleasePoolPop(pool);
     const application = send.object(objc_getClass("NSApplication"), "sharedApplication") orelse return;
     // `kVK_F19`.
     const f19_code = 80;
-    // Shift, Control, Option and Command (`CGEventFlags`).
-    const every_modifier: u64 = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20);
-    for ([_]u64{ 0, every_modifier }) |modifiers| {
+    const every_modifier: EventFlags = .{ .shift = true, .control = true, .alternate = true, .command = true };
+    for ([_]EventFlags{ .{}, every_modifier }) |modifiers| {
         for ([_]bool{ true, false }) |down| {
             const made = CGEventCreateKeyboardEvent(null, f19_code, down) orelse continue;
             defer CFRelease(made);
