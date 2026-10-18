@@ -1101,15 +1101,20 @@ pub const CapitalShown = struct {
         gpa.destroy(shown);
     }
 
-    /// Makes the strikes of `shield` it hasn't yet into its hits, in the order they came, each once
-    /// its hits have faded in `ramp` to the tick it struck at, as the game makes each as it strikes
-    /// (`capshield_flare`) and fades them as each frame draws. Fading in steps comes to the same as
-    /// fading at once, so the hits come out as the game's at any frame rate.
+    /// Makes the strikes of `shield` it hasn't yet into its hits, in the order they came, as the
+    /// game makes each as it strikes (`capshield_flare`), its hits first fading in `ramp` to the
+    /// tick before each. The game fades them as each frame draws, after the frame's strikes, so a
+    /// hit on a shield already showing fades a tick in the frame that strikes it, and the hit that
+    /// makes the shield fades from the frame after. Fading in steps comes to the same as fading at
+    /// once, so the hits come out as the game's at any frame rate.
     fn takeUp(shown: *CapitalShown, shield: *const CapitalShield, ramp: *const Ramp) void {
         var strikes = shield.strikes.since(shown.seen);
         while (strikes.next()) |hit| {
-            shown.fade(ramp, @floatFromInt(hit.now -% shown.moved));
-            shown.moved = hit.now;
+            const before = hit.now -% 1;
+            if (before -% shown.moved > 0) {
+                shown.fade(ramp, @floatFromInt(before -% shown.moved));
+                shown.moved = before;
+            }
             shown.strike(hit.polygon);
         }
         shown.seen = shield.strikes.count;
@@ -1584,8 +1589,8 @@ test "capital shields" {
     try std.testing.expectEqual(0, shown.colours[3][2]);
 
     // Struck again on the far one a tick later: the same shield shows longer, and the next new one
-    // still takes the next slot. Drawn, its copy takes the hit once the first has faded a tick, and
-    // both triangles are drawn.
+    // still takes the next slot. Drawn, its copy takes the hit, which fades a tick along with the
+    // first, as the game fades it in the frame it strikes; both triangles are drawn.
     mission.clock.frame_start = 101;
     flareCapital(world, index, hull, 1);
     try std.testing.expectEqual(301, shield.until);
@@ -1594,7 +1599,8 @@ test "capital shields" {
     try capital.draw(shields, gpa, &scene, mission.objects, look);
     try std.testing.expectEqual(shown, capital.shown[0].?);
     try std.testing.expectApproxEqAbs(0.575, shown.strengths[6][0], 1e-4);
-    try std.testing.expect(shown.strengths[3][1] > 0);
+    const reach = math.length(mesh.bounds[1]) * capital_reach_share;
+    try std.testing.expectApproxEqAbs(math.distance(Vector{ 1000, 0, 0 }, .{ 990, 10, 0 }) / reach * 2 - fade_per_tick, shown.strengths[3][1], 1e-4);
     try std.testing.expect(!shown.mesh.face_flags.?[0].cap and !shown.mesh.face_flags.?[1].cap);
 
     // Ten ticks on, the texture swirls about its middle, each coordinate keeping its distance from

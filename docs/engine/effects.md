@@ -776,6 +776,8 @@ Once a frame after the bubbles, `capshields_draw` (`0x0049F950`) lets go of each
 
 The game hands `capshield_create` the object's side but never stores it, so every capital shield glows in the friendly ramp. When a capital ship loses its hull, `force_field_mark` (`0x0049FCD0`) hides its force fields ([Splits](#splits)).
 
+OpenReliant lets the capital shields go in the game frames, where `capshields_draw` does (`Capital.frame`), and the game keeps each shield's part, until when it shows, and its strikes. Drawing keeps what each shows (`CapitalShown`): the copy, its hits and its colours, made as it first draws the shield, taking up each strike from the tick it struck at. A force field's coordinates jump once a tick, so they move at the same pace at any frame rate and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
+
 **Fixes:**
 
 - When the game finds a part already glowing, it makes that slot the next one in turn, so the next part struck replaces the glow struck last while other slots are free. OpenReliant leaves the next slot where it was.
