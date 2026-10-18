@@ -372,11 +372,14 @@ pub const PartRef = struct {
         return srofiles.polygonOf(found.meshes[0].faces, face);
     }
 
-    /// Whether it still names a part of the model of the object in `slot`, or of a model that
-    /// model carries. The models it may name go with their object, so only then may it be read.
-    pub fn livesIn(ref: PartRef, slot: *const create.Slot) bool {
-        const model = if (slot.model) |*live| live else return false;
-        return model.holds(ref.model) and ref.index < ref.model.parts.len;
+    /// Its part in the model of the object in `slot`, or in a model that model carries, while it
+    /// still names one: the part itself, or its copy where `slot` is a copy that drawing works on
+    /// (`create.Objects.copyInto`). The models it may name go with their object, so only then may
+    /// it be read.
+    pub fn partIn(ref: PartRef, slot: *const create.Slot) ?*Model.Part {
+        const model = if (slot.model) |*held| held else return null;
+        const holder = model.holderOf(ref.model) orelse return null;
+        return if (ref.index < holder.parts.len) &holder.parts[ref.index] else null;
     }
 
     /// Its part's record where it has a collision tree over a mesh to test.
@@ -414,9 +417,10 @@ pub const PartOf = struct {
     object: u16,
     part: PartRef,
 
-    /// The part, while it still belongs to its object (`PartRef.livesIn`).
+    /// The part, while it still belongs to its object (`PartRef.partIn`): in the object's model in
+    /// `all`, or its copy where `all` is the copy of the objects that drawing works on.
     pub fn live(on: PartOf, all: *const create.Objects) ?*Model.Part {
-        return if (on.part.livesIn(&all.slots[on.object])) on.part.part() else null;
+        return on.part.partIn(&all.slots[on.object]);
     }
 };
 
@@ -1222,6 +1226,9 @@ pub const Model = struct {
     /// (`GameObject.visibility`): 1, but for an asteroid's fragments (`create.Slot.shrink`).
     visibility: f32 = 1,
     bounds: [2]Vector = .{ @splat(0), @splat(0) },
+    /// OpenReliant's: for a copy that drawing works on (`copy`), the model it was copied from. An
+    /// effect that hangs from a part of that model finds the part's copy by it (`PartOf.live`).
+    copied_from: ?*const Model = null,
 
     /// A light a model carries: what `node_mount_light` (`0x00499730`) makes of an attachment of
     /// kind `light`, which `node_draw` draws for node kinds 3 and 5. Its sprites are a flare that
@@ -2237,9 +2244,11 @@ pub const Model = struct {
     /// The copy has its own parts, with their cloaks' colours and texture coordinates, its own
     /// lights, engine glows and muzzle flashes, and copies of the models it carries, each pointing
     /// into the copy. It shares what doesn't change once the model is made: the meshes and the
-    /// order of its parts.
+    /// order of its parts. The copy and each of the copies it carries keep the model they were
+    /// copied from (`copied_from`).
     pub fn copy(model: *const Model, arena: Allocator) Allocator.Error!Model {
         var copied = model.*;
+        copied.copied_from = model;
         copied.parts = try arena.dupe(Part, model.parts);
         for (copied.parts) |*part| if (part.cloak) |*effect| try effect.copyOwn(arena, &part.object);
         copied.lights = try arena.dupe(Light, model.lights);
@@ -2251,10 +2260,8 @@ pub const Model = struct {
         copied.mounts = try arena.dupe(Mount, model.mounts);
         copied.hung = try arena.dupe(?Mount, model.hung);
         var each = copied.carried();
-        while (each.next()) |mount| {
-            const original = mount.model;
-            mount.model = try original.copy(arena);
-        }
+        var originals = model.carried();
+        while (each.next()) |mount| mount.model = try originals.next().?.model.copy(arena);
         return copied;
     }
 
@@ -2458,14 +2465,15 @@ pub const Model = struct {
         if (model.partNamed(name)) |ref| ref.part().hidden = true;
     }
 
-    /// Whether `other` is this model or one it carries, however deep.
-    pub fn holds(model: *const Model, other: *const Model) bool {
-        if (model == other) return true;
+    /// Where `wanted` is among this model and the models it carries, however deep: the model that
+    /// is `wanted`, or the one copied from it where this is a copy (`copy`); null for neither.
+    pub fn holderOf(model: *const Model, wanted: *const Model) ?*const Model {
+        if (model == wanted or model.copied_from == wanted) return model;
         var each = model.carried();
         while (each.next()) |mount| {
-            if (mount.model.holds(other)) return true;
+            if (mount.model.holderOf(wanted)) |found| return found;
         }
-        return false;
+        return null;
     }
 
     /// The part a hit on part `index` counts against for the mission's events (`component_damage`,
@@ -3123,6 +3131,12 @@ test "Model.copy" {
     try std.testing.expectEqual(copy_mounted, live.counterpart(&copied, mounted).?);
     const stray = live.parts[0];
     try std.testing.expectEqual(null, live.counterpart(&copied, &stray));
+    // The copy and the gun's copy keep the models they were copied from, so a model found in the
+    // live model is found as its copy in the copy, and only there.
+    try std.testing.expectEqual(&live, copied.copied_from.?);
+    try std.testing.expectEqual(&copied.mounts[0].model, copied.holderOf(&live.mounts[0].model).?);
+    try std.testing.expectEqual(&live.mounts[0].model, live.holderOf(&live.mounts[0].model).?);
+    try std.testing.expectEqual(null, live.holderOf(&copied.mounts[0].model));
     // The gun's cloak has colours and texture coordinates of its own, which its part and its
     // shimmer draw.
     const effect = &copy_mounted.cloak.?;

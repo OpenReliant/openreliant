@@ -532,10 +532,10 @@ pub const Slot = struct {
         slot.extra = null;
     }
 
-    /// OpenReliant's: points the slot, a copy of another, at a copy of its model made in `arena`
-    /// (`objects.Model.copy`), its components among the copy's parts.
-    pub fn copyModel(slot: *Slot, arena: Allocator) Allocator.Error!void {
-        const original = if (slot.model) |*held| held.* else return;
+    /// OpenReliant's: points the slot, a copy of `from`, at a copy of `from`'s model made in
+    /// `arena` (`objects.Model.copy`), its components among the copy's parts.
+    pub fn copyModel(slot: *Slot, arena: Allocator, from: *const Slot) Allocator.Error!void {
+        const original = if (from.model) |*held| held else return;
         const copied = &slot.model.?;
         copied.* = try original.copy(arena);
         for (slot.components[0..slot.listed().len]) |*entry| {
@@ -806,8 +806,10 @@ pub const Objects = struct {
     pub fn copyInto(all: *const Objects, drawn: *Objects, arena: Allocator) Allocator.Error!void {
         drawn.* = all.*;
         drawn.scripts = null;
-        for (&drawn.slots) |*slot| try slot.copyModel(arena);
-        for (&drawn.missiles.records) |*record| if (record.*) |*missile| try missile.slot.copyModel(arena);
+        for (&drawn.slots, &all.slots) |*slot, *live| try slot.copyModel(arena, live);
+        for (&drawn.missiles.records, &all.missiles.records) |*record, *live| {
+            if (record.*) |*missile| try missile.slot.copyModel(arena, &live.*.?.slot);
+        }
     }
 
     /// `objects_reset` (`0x00466630`), as a mission starts: every slot gets a new stand-in, of
@@ -2281,6 +2283,12 @@ test "Objects.copyInto" {
     try std.testing.expectEqual(&slot.model.?.parts[0], slot.component(0).?);
     try std.testing.expectEqual(&copy.model.?.parts[0], copy.component(0).?);
     try std.testing.expectEqual(null, drawn.scripts);
+
+    // An effect that hangs from a part of the model finds the part in the objects, and its copy in
+    // the copy of them.
+    const on: objects.PartOf = .{ .object = index, .part = .{ .model = &slot.model.?, .index = 0 } };
+    try std.testing.expectEqual(&slot.model.?.parts[0], on.live(mission.objects).?);
+    try std.testing.expectEqual(&copy.model.?.parts[0], on.live(drawn).?);
 }
 
 test "Objects.slotType" {
