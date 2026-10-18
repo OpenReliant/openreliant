@@ -2245,7 +2245,7 @@ pub const Model = struct {
     /// lights, engine glows and muzzle flashes, and copies of the models it carries, each pointing
     /// into the copy. It shares what doesn't change once the model is made: the meshes and the
     /// order of its parts. The copy and each of the copies it carries keep the model they were
-    /// copied from (`copied_from`).
+    /// copied from (`copied_from`), so `model` has to be the model itself, not a copy of it.
     pub fn copy(model: *const Model, arena: Allocator) Allocator.Error!Model {
         var copied = model.*;
         copied.copied_from = model;

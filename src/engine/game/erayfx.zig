@@ -153,8 +153,8 @@ pub const Ray = struct {
     /// OpenReliant's: the number `Rays.add` made it with, which tells it from a ray made later in
     /// its slot (`Rays.Kept`).
     serial: u32 = 0,
-    /// OpenReliant's: the tick its strands last strayed at (`draw`), and where its light stood then,
-    /// in the frame of what it hangs from. Only drawing reads and writes them.
+    /// OpenReliant's: the tick its strands last strayed at (`draw`), and where its light stood
+    /// then, in the frame of what it hangs from. Only drawing reads and writes them.
     strayed: ?i32 = null,
     light_at: Vector = @splat(0),
 
@@ -316,9 +316,9 @@ pub const Ray = struct {
 
     /// The drawing part of `0x0046AF40`, while it shows: each strand through its ends, its middles
     /// strayed at random, as bright as the ray, where what it hangs from stands; then its light.
-    /// The strands stray afresh in the first frame drawn at each tick `now`, as the game strays them
-    /// once a game frame, so the frames drawn between two ticks show them as they are, and so do
-    /// the frames drawn while the game is paused.
+    /// The strands stray afresh in the first frame drawn at each tick `now`, as the game strays
+    /// them once a game frame, so the frames drawn between two ticks show them as they are, and so
+    /// do the frames drawn while the game is paused.
     ///
     /// **Fix:** a ray hanging from a part that a split's portal cuts is cut by it too, so it shows
     /// only on what the sweep has laid bare; the game cuts the part alone, and its rays crackle
