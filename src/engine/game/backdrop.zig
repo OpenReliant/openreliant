@@ -264,7 +264,7 @@ const least_glow: f32 = 0.5;
 const sun_textures = 7;
 
 /// A texture drawn again finer, and the name of the one it was drawn from.
-const Redrawn = struct {
+pub const Redrawn = struct {
     name: []const u8,
     image: srtexture.Image,
 };
@@ -290,7 +290,7 @@ pub const Backdrop = struct {
     texels: [sun_sprite_count][2]f32,
     /// How the sun and the flares are drawn.
     style: Sun,
-    /// The sun's textures drawn again (`Sun.smooth`), made in `gpa`.
+    /// The sun's textures drawn again (`Sun.smooth`), made in `gpa` (`redrawnTextures`).
     redrawn: [sun_textures]Redrawn,
     redrawn_count: usize,
     /// Every field's stars, field after field.
@@ -305,7 +305,7 @@ pub const Backdrop = struct {
         errdefer gpa.destroy(backdrop);
         backdrop.style = sun;
         backdrop.redrawn_count = 0;
-        errdefer for (backdrop.redrawn[0..backdrop.redrawn_count]) |made| rings.free(gpa, made.image);
+        errdefer for (backdrop.redrawnTextures()) |made| rings.free(gpa, made.image);
 
         var count: usize = 0;
         for (0..star_map_size) |y| {
@@ -368,9 +368,15 @@ pub const Backdrop = struct {
     }
 
     pub fn destroy(backdrop: *Backdrop, gpa: Allocator) void {
-        for (backdrop.redrawn[0..backdrop.redrawn_count]) |made| rings.free(gpa, made.image);
+        for (backdrop.redrawnTextures()) |made| rings.free(gpa, made.image);
         gpa.free(backdrop.stars);
         gpa.destroy(backdrop);
+    }
+
+    /// The sun's textures it has drawn again (`drawn`), which it holds itself, outside the texture
+    /// table.
+    pub fn redrawnTextures(backdrop: *Backdrop) []Redrawn {
+        return backdrop.redrawn[0..backdrop.redrawn_count];
     }
 
     /// The image a sun set draws of the texture `name`, `image`: drawn again finer, once for every
@@ -378,7 +384,7 @@ pub const Backdrop = struct {
     /// can't be read, such as a mod's picture compressed for the GPU.
     fn drawn(backdrop: *Backdrop, gpa: Allocator, image: *srtexture.Image, name: []const u8, detail: rings.Detail, sun: Sun) Allocator.Error!*srtexture.Image {
         if (sun == .original or !image.readable()) return image;
-        for (backdrop.redrawn[0..backdrop.redrawn_count]) |*made| {
+        for (backdrop.redrawnTextures()) |*made| {
             if (std.mem.eql(u8, made.name, name)) return &made.image;
         }
         const made = &backdrop.redrawn[backdrop.redrawn_count];
@@ -668,6 +674,28 @@ test Backdrop {
 
     const wrong: tga.Image = .{ .width = 1, .height = 1, .rgb = rgb[0..3] };
     try std.testing.expectError(error.WrongSize, Backdrop.create(gpa, &textures.table, wrong, &rand, 100, .original));
+}
+
+test "Backdrop.redrawnTextures" {
+    const gpa = std.testing.allocator;
+    const textures = try srtexture.testing.Textures.init(gpa, testing.names);
+    defer textures.deinit(gpa);
+    const rgb = try gpa.alloc(u8, star_map_size * star_map_size * 3);
+    defer gpa.free(rgb);
+    @memset(rgb, 0);
+    const map: tga.Image = .{ .width = star_map_size, .height = star_map_size, .rgb = rgb };
+    var rand: Random = .{};
+
+    // The game's sun draws its textures as they are.
+    const original = try Backdrop.create(gpa, &textures.table, map, &rand, 100, .original);
+    defer original.destroy(gpa);
+    try std.testing.expectEqual(0, original.redrawnTextures().len);
+
+    // OpenReliant's draws each of them again once, though two flares share theirs with another.
+    const smooth = try Backdrop.create(gpa, &textures.table, map, &rand, 100, .smooth);
+    defer smooth.destroy(gpa);
+    try std.testing.expectEqual(sun_textures, smooth.redrawnTextures().len);
+    for (smooth.redrawnTextures()) |made| try std.testing.expect(made.image.levels.len > 1);
 }
 
 test "Backdrop.frame" {

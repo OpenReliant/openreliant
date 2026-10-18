@@ -516,6 +516,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // they are.
     var drawn_random: engine.random.Random = .{};
     const space = try game.backdrop.Backdrop.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.backdrop.star_map_name), &rand, context.projection.near, options.sun);
+    // The sun's textures that the backdrop drew again go up to the GPU with the next loading frame,
+    // not in the frame that first shows the sun: the texture table doesn't hold them, so a
+    // mission's loading doesn't send them up (`Play.start`).
+    for (space.redrawnTextures()) |*made| gpu.sendAhead(&made.image);
     const sky = try game.nebula.Sky.create(arena, &textures, try game.matmanager.readPixels(arena, resources, game.nebula.dome_image_name));
     try sky.select(&textures, game.nebula.default_nebula, &space.lights);
     // What the mission's script asks of its space: the nebula it shows, and the effects it turns
