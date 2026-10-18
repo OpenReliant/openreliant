@@ -705,6 +705,8 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
         if (variables.mission_over != 0) return .over;
         if (playing.script.editor.leavesFrame()) {
             playing.leaveFrame(orders.world);
+            // The frame is still drawn, which moves the gates' time on.
+            if (orders.world.gates) |gates| gates.endFrame(orders.world.clock.frame_start);
             return .left_out;
         }
     }
@@ -723,7 +725,12 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
             playing.process(orders);
         }
     }
+    // Nothing an order showed in the last frame shows until the order shows it again.
     if (orders.world.jump_effects) |effects| effects.beginFrame();
+    if (orders.world.tractors) |tractors| tractors.beginFrame();
+    if (orders.world.rippers) |rippers| rippers.beginFrame();
+    if (orders.world.ion_cannons) |cannons| cannons.beginFrame();
+    if (orders.world.gates) |gates| gates.beginFrame();
     aigeneric.ordersUpdate(orders);
     if (orders.world.objects.scripts) |scripts| if (orders.world.clock.frameTicks() > 0) {
         scripts.update(@as(f32, @floatFromInt(orders.world.clock.frameTicks())) / ticks_per_second);
@@ -756,6 +763,7 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     }
     camera.gameFrame(orders.world);
     player.viewing.last = player.viewing.view;
+    if (orders.world.gates) |gates| gates.endFrame(orders.world.clock.frame_start);
     return if (over or player.terminated != 0) .over else .played;
 }
 

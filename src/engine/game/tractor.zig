@@ -59,6 +59,14 @@ pub const Tractors = struct {
         tractors.reset();
     }
 
+    /// Before the frame's orders: no tractor shows until Scoop Up shows it again this frame
+    /// (`Tractor.show`), so that drawing only reads it.
+    pub fn beginFrame(tractors: *Tractors) void {
+        for (tractors.slots) |held| if (held) |tractor| {
+            tractor.shown = false;
+        };
+    }
+
     /// `tractor_create` (`0x0041D090`): the first tractor free, for a ship to take in the object in
     /// slot `pod`, with its light; null where all are in use or it can't be made.
     fn take(tractors: *Tractors, pod: u16) ?usize {
@@ -78,15 +86,14 @@ pub const Tractors = struct {
         tractors.slots[index] = null;
     }
 
-    /// OpenReliant's: what each tractor shows this frame goes into `scene`, where its ship and its
-    /// pod are drawn: its beams, aimed at the pod (`tractor_beam_aim`) where Scoop Up aims them and
-    /// otherwise hanging from their part as they were last aimed, its light on the pod, and its
-    /// bubble round it. The game adds them to the scene as Scoop Up runs.
+    /// OpenReliant's: what each tractor showed in the last game frame goes into `scene`, where its
+    /// ship and its pod are drawn: its beams, aimed at the pod (`tractor_beam_aim`) where Scoop Up
+    /// aims them and otherwise hanging from their part as they were last aimed, its light on the
+    /// pod, and its bubble round it. The game adds them to the scene as Scoop Up runs.
     pub fn draw(tractors: *Tractors, gpa: Allocator, scene: *srcore.Scene, all: *create.Objects) Allocator.Error!void {
         for (tractors.slots) |held| {
             const tractor = held orelse continue;
             if (!tractor.shown) continue;
-            tractor.shown = false;
             const pod = all.slots[tractor.pod].drawn;
             for (tractor.beams) |made| if (made) |beam| {
                 const model = if (all.slots[beam.ship].model) |*live| live else continue;
@@ -120,8 +127,9 @@ pub const Tractor = struct {
         .kind = .{ .point = .{ .position = @splat(0), .range = light_reach } },
     },
     pod: u16,
-    /// OpenReliant's: whether Scoop Up showed it this frame, which the game does by adding its
-    /// beams, its light and its bubble to the scene, and whether it aimed the beams.
+    /// OpenReliant's: whether Scoop Up showed it this game frame, which the game does by adding its
+    /// beams, its light and its bubble to the scene (`Tractors.beginFrame`), and whether it aimed
+    /// the beams.
     shown: bool = false,
     aimed: bool = false,
 
@@ -863,12 +871,14 @@ test "Tractors.draw" {
     // Not shown this frame, it draws nothing.
     try tractors.draw(gpa, &scene, scoop.mission.objects);
     try std.testing.expectEqual(0, scene.lights.items.len);
-    // Shown, its light stands on the pod, for the one frame.
+    // Shown, its light stands on the pod, in each frame drawn until the next game frame begins.
     tractor.show(light_reach, .held);
     try tractors.draw(gpa, &scene, scoop.mission.objects);
     try std.testing.expectEqual(1, scene.lights.items.len);
     try std.testing.expectEqual([3]f32{ 0, 0, 300 }, scene.lights.items[0].kind.point.position);
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
+    try std.testing.expect(tractor.shown);
+    tractors.beginFrame();
     try std.testing.expect(!tractor.shown);
     scene.clear();
     try tractors.draw(gpa, &scene, scoop.mission.objects);

@@ -59,6 +59,12 @@ hundredth of a second, so that a rate of 1 runs from 0 to 1 in 10 seconds. Open 
 from the tunnel's last frame (`+0x0C`), the jumps from the order's last update (`+0x08`). The
 ticks since a record's tick are taken unsigned, those since an order's update signed.
 
+The game marks a tunnel's frame as it draws it. OpenReliant marks it as each game frame ends
+(`Gates.endFrame`), so a tunnel opens and closes at the same pace however often the screen is
+drawn. Likewise, the game frame clears what Jump In and Jump Out show, the flashes and the worm,
+before its orders (`Gates.beginFrame`), where the game's drawing clears them as it draws them.
+Each frame drawn until the next game frame shows them.
+
 ## The records
 
 `0x0051D1A4` holds 32 records, each flagged in use in `0x0051D224` and allocated `0x88` bytes by

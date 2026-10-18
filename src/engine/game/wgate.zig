@@ -115,7 +115,8 @@ pub const Gates = struct {
     krasny_caught: bool = false,
     /// `0x0051D19C`: the worm the player's ship rides between gates.
     worm: ?*Worm = null,
-    /// Whether the worm is in this frame's scene, as Jump Out puts it for the player's ship.
+    /// Whether the worm is in this game frame's scene, as Jump Out puts it for the player's ship
+    /// (`beginFrame`).
     worm_shown: bool = false,
     /// The Boridin breakaway's warp projection (`0x0051D140` to `0x0051D190`), from its first Start
     /// warp projection from Boridin on.
@@ -155,6 +156,27 @@ pub const Gates = struct {
         gates.riding = false;
         gates.krasny_in_time = true;
         gates.krasny_caught = false;
+    }
+
+    /// OpenReliant's: before the frame's orders, neither the worm nor a gate's flashes show until
+    /// Jump Out or Jump In shows them again this frame, so that drawing only reads them.
+    pub fn beginFrame(gates: *Gates) void {
+        gates.worm_shown = false;
+        for (gates.records) |held| if (held) |record| {
+            record.squares_shown = false;
+        };
+    }
+
+    /// OpenReliant's: as the frame's work ends, each tunnel the frame draws counts as drawn at
+    /// `frame_start` (`Record.drawn_at`): every one but a warp tunnel its orders don't show. The
+    /// game marks a tunnel as it draws it, which is once a frame, so that Open, Close and Collapse
+    /// move it on by the ticks since the last frame. OpenReliant marks it here, once a game frame,
+    /// however often the screen is drawn.
+    pub fn endFrame(gates: *Gates, frame_start: i32) void {
+        for (gates.records) |held| if (held) |record| {
+            if (record.kind == .warp and !record.warp_shown) continue;
+            record.drawn_at = frame_start;
+        };
     }
 
     pub fn deinit(gates: *Gates) void {
@@ -261,7 +283,6 @@ pub const Gates = struct {
         for (gates.records) |held| {
             const record = held orelse continue;
             if (record.kind == .warp and !record.warp_shown) continue;
-            record.drawn_at = frame_start;
             if (record.kind == .warp)
                 record.tunnel.reshapeWarp(frame_start, record.deeper)
             else
@@ -273,7 +294,6 @@ pub const Gates = struct {
             record.portal.orientation = place.orientation;
             record.scroll(frame_start);
             if (record.squares_shown) {
-                record.squares_shown = false;
                 for (&record.squares) |*square| {
                     square.object.position = place.point(.{ 0, 0, square.depth });
                     square.object.orientation = place.orientation;
@@ -285,7 +305,6 @@ pub const Gates = struct {
             if (!gates.riding) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &record.tunnel.object }, .world);
         }
         if (gates.worm_shown) if (gates.worm) |tube| {
-            gates.worm_shown = false;
             try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &tube.object }, .world);
         };
         if (gates.projection) |shown| try shown.draw(gpa, scene);
@@ -378,7 +397,8 @@ pub const Record = struct {
     /// The object it stands at (`+0x14`).
     slot: u16,
     /// The frame's tick it was made on (`+0x08`), and the tick of the last frame that drew it
-    /// (`+0x0C`), which Open, Close and Collapse count their time from.
+    /// (`+0x0C`), which Open, Close and Collapse count their time from: in OpenReliant, the last
+    /// game frame (`Gates.endFrame`).
     made_at: i32,
     drawn_at: i32,
     /// The tick of the last frame that scrolled its texture (`+0x10`), 0 until one has.
@@ -392,7 +412,8 @@ pub const Record = struct {
     at: Vector,
     tunnel: Tunnel,
     /// `+0x70`: what cuts a ship jumping through it, where it stands in the tunnel's frame
-    /// (`portalSetUp`), and whether its flashes are in this frame's scene (`+0x74`, `+0x78`).
+    /// (`portalSetUp`), and whether its flashes are in this game frame's scene (`+0x74`, `+0x78`,
+    /// `Gates.beginFrame`).
     portal: srapiext.Portal = .{},
     portal_at: Vector = @splat(0),
     squares: [2]Square,
@@ -1482,16 +1503,22 @@ test "a tunnel opens at an object and closes again" {
     aigeneric.objectOrders(ctx, point);
     const record = run.built.gates.of(point).?;
     try std.testing.expectEqual(Kind.proto, record.kind);
-    // Over a ninth of a thousand ticks it grows to its full size, drawn each frame, and the order
-    // ends.
+    // Over a ninth of a thousand ticks it grows to its full size, a tick each game frame, and the
+    // order ends.
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     for (0..120) |_| {
         mission.ordersAfter(ctx, point, 1);
-        scene.clear();
-        try run.built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
+        run.built.gates.endFrame(mission.clock.frame_start);
     }
+    try run.built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
     try std.testing.expectApproxEqAbs(1, record.tunnel.object.scale, 1e-3);
+    // Drawing leaves the time it counts from to the game frames.
+    const marked = record.drawn_at;
+    try run.built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start + 50);
+    try std.testing.expectEqual(marked, record.drawn_at);
+    scene.clear();
+    try run.built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
     try std.testing.expectEqual(0, mission.slot(point).object.order_count);
     // Drawn, its portal and its tunnel are in the world's layer.
     try std.testing.expectEqual(1, scene.portals.items.len);
@@ -1500,7 +1527,7 @@ test "a tunnel opens at an object and closes again" {
     _ = try aigeneric.push(ctx, point, .fixed_gate_close, .none);
     for (0..120) |_| {
         mission.ordersAfter(ctx, point, 1);
-        if (run.built.gates.of(point) != null) try run.built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
+        run.built.gates.endFrame(mission.clock.frame_start);
     }
     try std.testing.expectEqual(null, run.built.gates.of(point));
     try std.testing.expectEqual(0, mission.slot(point).object.order_count);
@@ -1537,6 +1564,9 @@ test "a ship comes in through a gate" {
     mission.ordersAfter(ctx, ship, 50);
     try std.testing.expect(record.squares_shown);
     try std.testing.expectEqual(slot.state.gate.progress * flash_pace, record.squares[0].colours[0][0]);
+    // The next game frame shows them only as Jump In shows them again.
+    run.built.gates.beginFrame();
+    try std.testing.expect(!record.squares_shown);
     for (0..25) |_| mission.ordersAfter(ctx, ship, 10);
     try std.testing.expect(!record.busy);
     // Through, it is free, and the order ends.

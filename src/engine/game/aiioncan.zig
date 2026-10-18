@@ -352,13 +352,18 @@ pub const Cannons = struct {
         }
     }
 
-    /// The effects the cannons' updates showed this frame, into the scene (`scene_add` in
-    /// `order_fire_ion_cannon`), where the parts they hang from stand as drawn: the laser from
-    /// the focus, the glow, the rings and the lights from the cannon. Then none shows until the
-    /// next update. A cannon whose object no longer fires shows nothing.
+    /// Before the frame's orders: none of the cannons' effects shows until an update shows it again
+    /// this frame, so that drawing only reads them.
+    pub fn beginFrame(cannons: *Cannons) void {
+        for (cannons.records.items) |record| record.shown = .{};
+    }
+
+    /// The effects the cannons' updates showed in the last game frame, into the scene (`scene_add`
+    /// in `order_fire_ion_cannon`), where the parts they hang from stand as drawn: the laser from
+    /// the focus, the glow, the rings and the lights from the cannon. A cannon whose object no
+    /// longer fires shows nothing.
     pub fn draw(cannons: *Cannons, gpa: Allocator, scene: *srcore.Scene, all: *create.Objects) Allocator.Error!void {
         for (cannons.records.items) |record| {
-            defer record.shown = .{};
             const slot = &all.slots[record.slot];
             if (slot.running(.fire_ion_cannon) == null) continue;
             const cannon = slot.partPlace(record.cannon.live(all) orelse continue) orelse continue;
@@ -410,7 +415,8 @@ pub const Record = struct {
     /// What this frame shows.
     shown: Shown = .{},
 
-    /// What the update shows this frame (`scene_add`), which `Cannons.draw` draws.
+    /// What the update shows this game frame (`scene_add`, `Cannons.beginFrame`), which
+    /// `Cannons.draw` draws.
     const Shown = struct {
         laser: bool = false,
         glow: bool = false,
@@ -1022,7 +1028,9 @@ test "the Boridin's cannon charges, fires and destroys a ship" {
     mission.ordersAfter(ctx, boridin, 0);
     try std.testing.expect(record.shown.lights.isSet(0));
     try std.testing.expectEqual(0, record.last_light);
-    record.shown = .{};
+    // The next game frame shows only what the update shows again.
+    cannons.beginFrame();
+    try std.testing.expectEqual(0, record.shown.lights.count());
     mission.ordersAfter(ctx, boridin, 60);
     try std.testing.expect(record.shown.lights.isSet(1) and !record.shown.lights.isSet(0));
     mission.ordersAfter(ctx, boridin, 240);
