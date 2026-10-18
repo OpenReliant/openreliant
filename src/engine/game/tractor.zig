@@ -61,13 +61,7 @@ pub const Tractors = struct {
 
     pub fn deinit(tractors: *Tractors) void {
         tractors.reset();
-        for (&tractors.shown) |*held| tractors.letGo(held);
-    }
-
-    /// Lets go of what drawing keeps in `held`.
-    fn letGo(tractors: *Tractors, held: *?*Shown) void {
-        if (held.*) |shown| shown.destroy(tractors.gpa);
-        held.* = null;
+        for (&tractors.shown) |*held| table.letGo(Shown, tractors.gpa, held);
     }
 
     /// Before the frame's orders: no tractor shows until Scoop Up shows it again this frame
@@ -106,12 +100,11 @@ pub const Tractors = struct {
     pub fn draw(tractors: *Tractors, gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, shields: ?*const shield.Shields) Allocator.Error!void {
         for (tractors.slots, &tractors.shown) |held, *kept| {
             const tractor = held orelse {
-                tractors.letGo(kept);
+                table.letGo(Shown, tractors.gpa, kept);
                 continue;
             };
             if (!tractor.shown) continue;
-            if (kept.*) |shown| if (shown.serial != tractor.serial) tractors.letGo(kept);
-            const shown = kept.* orelse made: {
+            const shown = table.keptFor(Shown, tractors.gpa, kept, tractor.serial) orelse made: {
                 const made = try tractors.gpa.create(Shown);
                 made.* = .{ .serial = tractor.serial };
                 kept.* = made;
@@ -214,7 +207,7 @@ pub const Shown = struct {
         .kind = .{ .point = .{ .position = @splat(0), .range = light_reach } },
     },
 
-    fn destroy(shown: *Shown, gpa: Allocator) void {
+    pub fn destroy(shown: *Shown, gpa: Allocator) void {
         destroyAll(&shown.beams, gpa);
         if (shown.bubble) |bubble| bubble.destroy(gpa);
         gpa.destroy(shown);

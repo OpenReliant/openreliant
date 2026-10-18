@@ -33,6 +33,7 @@ const motion = @import("motion.zig");
 const objects = @import("objects.zig");
 const particles = @import("particles.zig");
 const sound3d = @import("sound3d.zig");
+const table = @import("table.zig");
 const tractor = @import("tractor.zig");
 const xtrabits = @import("xtrabits.zig");
 const shp = @import("../../formats/shp.zig");
@@ -69,7 +70,7 @@ pub const Rippers = struct {
     /// `airipper_init` (`0x0040FC90`), as a mission loads: nothing carried, no beams, and `laser2`
     /// (`tractor.Look.init`) from `textures`, where there are textures to draw with.
     pub fn init(gpa: Allocator, textures: ?*srtexture.Table) matmanager.Error!Rippers {
-        return .{ .gpa = gpa, .look = if (textures) |table| try .init(table) else null };
+        return .{ .gpa = gpa, .look = if (textures) |held| try .init(held) else null };
     }
 
     /// `airipper_free` (`0x0040FCF0`), as a mission ends, then the tables as a mission loads:
@@ -83,16 +84,7 @@ pub const Rippers = struct {
 
     pub fn deinit(rippers: *Rippers) void {
         rippers.reset();
-        for (&rippers.shown) |*held| rippers.letGo(held);
-    }
-
-    /// Lets go of what drawing keeps in `held`.
-    fn letGo(rippers: *Rippers, held: *?*GripShown) void {
-        if (held.*) |shown| {
-            tractor.destroyAll(&shown.beams, rippers.gpa);
-            rippers.gpa.destroy(shown);
-        }
-        held.* = null;
+        for (&rippers.shown) |*held| table.letGo(GripShown, rippers.gpa, held);
     }
 
     /// `airipper_fx_take` (`0x00412140`), with `airipper_fx_pincers` (`0x00412390`): the next set
@@ -161,13 +153,12 @@ pub const Rippers = struct {
     pub fn draw(rippers: *Rippers, gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects) Allocator.Error!void {
         for (rippers.grips, &rippers.shown) |held, *kept| {
             const grip = held orelse {
-                rippers.letGo(kept);
+                table.letGo(GripShown, rippers.gpa, kept);
                 continue;
             };
             if (!grip.shown) continue;
             const look = rippers.look orelse continue;
-            if (kept.*) |shown| if (shown.serial != grip.serial) rippers.letGo(kept);
-            const shown = kept.* orelse made: {
+            const shown = table.keptFor(GripShown, rippers.gpa, kept, grip.serial) orelse made: {
                 const made = try rippers.gpa.create(GripShown);
                 made.* = .{ .serial = grip.serial };
                 kept.* = made;
@@ -305,6 +296,11 @@ pub const Grip = struct {
 pub const GripShown = struct {
     serial: u32,
     beams: [pincers.len]?*tractor.Beam = @splat(null),
+
+    pub fn destroy(shown: *GripShown, gpa: Allocator) void {
+        tractor.destroyAll(&shown.beams, gpa);
+        gpa.destroy(shown);
+    }
 };
 
 /// Where a beam reaches: a point on a part of an object.

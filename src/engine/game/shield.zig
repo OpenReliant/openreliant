@@ -900,14 +900,8 @@ pub const Capital = struct {
 
     /// Lets every one go (`shields_deinit`).
     pub fn deinit(capital: *Capital) void {
-        for (&capital.shown) |*held| capital.letGo(held);
+        for (&capital.shown) |*held| table.letGo(CapitalShown, capital.gpa, held);
         capital.slots = @splat(null);
-    }
-
-    /// Lets go of what drawing keeps in `held`.
-    fn letGo(capital: *Capital, held: *?*CapitalShown) void {
-        if (held.*) |shown| shown.destroy(capital.gpa);
-        held.* = null;
     }
 
     /// The one showing on part `ref`, where its node names one.
@@ -971,13 +965,12 @@ pub const Capital = struct {
     fn draw(capital: *Capital, shields: *const Shields, gpa: Allocator, scene: *srcore.Scene, all: *const Objects, look: Shields.Look) Allocator.Error!void {
         for (capital.slots, &capital.shown, 0..) |held, *kept, index| {
             const shield = held orelse {
-                capital.letGo(kept);
+                table.letGo(CapitalShown, capital.gpa, kept);
                 continue;
             };
             const part = shield.standing(all, @intCast(index)) orelse continue;
-            if (kept.*) |shown| if (shown.serial != shield.serial) capital.letGo(kept);
-            const shown = kept.* orelse made: {
-                const made = try CapitalShown.create(gpa, shields, &shield, part);
+            const shown = table.keptFor(CapitalShown, capital.gpa, kept, shield.serial) orelse made: {
+                const made = try CapitalShown.create(capital.gpa, shields, &shield, part);
                 kept.* = made;
                 break :made made;
             };
@@ -1111,7 +1104,7 @@ pub const CapitalShown = struct {
         return shown;
     }
 
-    fn destroy(shown: *CapitalShown, gpa: Allocator) void {
+    pub fn destroy(shown: *CapitalShown, gpa: Allocator) void {
         shown.mesh.deinit(gpa);
         gpa.free(shown.colours);
         gpa.free(shown.strengths);
@@ -1607,10 +1600,15 @@ test "capital shields" {
     // Drawn where its part stands: a copy of the part, over the shield's texture, lit round the
     // triangle's middle and dark at the far one, which isn't drawn. The vertex at 0.6 glows three
     // times its ramp's brightest.
+    // Drawn with an allocator of the frame's own, as the driver draws: what drawing keeps of a
+    // shield is the capital shields' own, made and let go of in theirs.
+    var frame: std.heap.ArenaAllocator = .init(gpa);
+    defer frame.deinit();
+    const drawing = frame.allocator();
     var scene: srcore.Scene = .{};
-    defer scene.deinit(gpa);
+    defer scene.deinit(drawing);
     var look: Shields.Look = .{ .camera = @splat(0), .inside = false, .frame_start = 100, .random = null };
-    try capital.draw(shields, gpa, &scene, mission.objects, look);
+    try capital.draw(shields, drawing, &scene, mission.objects, look);
     const shown = capital.shown[0].?;
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, 500 }), shown.object.position);
@@ -1632,7 +1630,7 @@ test "capital shields" {
     try std.testing.expectEqual(301, shield.until);
     try std.testing.expectEqual(1, capital.next);
     look.frame_start = 101;
-    try capital.draw(shields, gpa, &scene, mission.objects, look);
+    try capital.draw(shields, drawing, &scene, mission.objects, look);
     try std.testing.expectEqual(shown, capital.shown[0].?);
     try std.testing.expectApproxEqAbs(0.575, shown.strengths[6][0], 1e-4);
     const reach = math.length(mesh.bounds[1]) * capital_reach_share;
@@ -1643,7 +1641,7 @@ test "capital shields" {
     // there, and its strengths have faded ten ticks' worth.
     const before = shown.mesh.uv[0].?[1];
     look.frame_start = 111;
-    try capital.draw(shields, gpa, &scene, mission.objects, look);
+    try capital.draw(shields, drawing, &scene, mission.objects, look);
     const after = shown.mesh.uv[0].?[1];
     try std.testing.expect(!std.meta.eql(before, after));
     const from = [2]f32{ before[0] - 0.5, before[1] - 0.5 };
@@ -1654,12 +1652,12 @@ test "capital shields" {
     // Once its time is up, drawing leaves it be; the game frame lets it go, and its part shows
     // none. Then drawing lets go of what it showed.
     look.frame_start = 301;
-    try capital.draw(shields, gpa, &scene, mission.objects, look);
+    try capital.draw(shields, drawing, &scene, mission.objects, look);
     try std.testing.expect(capital.slots[0] != null);
     capital.frame(mission.objects, 301);
     try std.testing.expectEqual(null, capital.slots[0]);
     try std.testing.expectEqual(null, parts[0].capshield);
-    try capital.draw(shields, gpa, &scene, mission.objects, look);
+    try capital.draw(shields, drawing, &scene, mission.objects, look);
     try std.testing.expectEqual(null, capital.shown[0]);
 
     // A force field glows whole over its own texture, and its colours come out blue. Its texture
@@ -1672,15 +1670,15 @@ test "capital shields" {
     try std.testing.expectEqual(0, capital.next);
     var random: Random = .{};
     look.random = &random;
-    try capital.draw(shields, gpa, &scene, mission.objects, look);
+    try capital.draw(shields, drawing, &scene, mission.objects, look);
     const glowing = capital.shown[capital_slots - 1].?;
     try std.testing.expectEqual(shields.field, glowing.mesh.surfaces[0].textures[0].image);
     for (glowing.strengths) |hits| try std.testing.expectEqual(1, hits[0]);
     const jumped = glowing.mesh.uv[0].?[1];
-    try capital.draw(shields, gpa, &scene, mission.objects, look);
+    try capital.draw(shields, drawing, &scene, mission.objects, look);
     try std.testing.expectEqual(jumped, glowing.mesh.uv[0].?[1]);
     look.frame_start = 311;
-    try capital.draw(shields, gpa, &scene, mission.objects, look);
+    try capital.draw(shields, drawing, &scene, mission.objects, look);
     try std.testing.expect(!std.meta.eql(jumped, glowing.mesh.uv[0].?[1]));
     try std.testing.expectEqual(0, glowing.colours[0][1]);
     try std.testing.expect(glowing.colours[0][2] > 0);

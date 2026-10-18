@@ -1,8 +1,10 @@
 //! The fixed tables the game keeps its effects in, as OpenReliant holds them. Not from any file of
 //! the original: its tables find a slot for a new record in one of two ways, which these share.
-//! OpenReliant's own `Latest` keeps what the game records for drawing to take up.
+//! OpenReliant's own `Latest` keeps what the game records for drawing to take up, and `keptFor`
+//! finds what drawing keeps of the game's records.
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 /// A table of `capacity` records where each new one takes the slot after the last, round the
 /// first so many, in the place of whatever was there: the explosions' bits and pieces, and the
@@ -61,6 +63,22 @@ pub fn Latest(comptime T: type, comptime capacity: usize) type {
             }
         };
     };
+}
+
+/// OpenReliant's: what drawing keeps in `held` of the game's record numbered `serial`: what is
+/// there, where it was made for that record; else nothing, and what was made for an earlier record
+/// in the slot goes (`letGo`). `T` has the record's number as `serial`, and `destroy`.
+pub fn keptFor(comptime T: type, gpa: Allocator, held: *?*T, serial: u32) ?*T {
+    const kept = held.* orelse return null;
+    if (kept.serial == serial) return kept;
+    letGo(T, gpa, held);
+    return null;
+}
+
+/// OpenReliant's: lets go of what drawing keeps in `held` (`T.destroy`), where it keeps anything.
+pub fn letGo(comptime T: type, gpa: Allocator, held: *?*T) void {
+    if (held.*) |kept| kept.destroy(gpa);
+    held.* = null;
 }
 
 /// The first free slot of `slots`, or null where every one is taken: the fireballs and the
@@ -243,4 +261,28 @@ test Linked {
     list.reset(std.testing.allocator);
     try std.testing.expectEqual(null, list.newest);
     try std.testing.expectEqualSlices(u32, &.{ 1, 2, 1 }, &list.reuses);
+}
+
+test keptFor {
+    const gpa = std.testing.allocator;
+    const Record = struct {
+        serial: u32,
+
+        pub fn destroy(record: *@This(), allocator: Allocator) void {
+            allocator.destroy(record);
+        }
+    };
+    var held: ?*Record = null;
+    // Nothing kept, nothing is found.
+    try std.testing.expectEqual(null, keptFor(Record, gpa, &held, 1));
+    // What was made for the record is found again; one made for an earlier record goes.
+    const made = try gpa.create(Record);
+    made.* = .{ .serial = 1 };
+    held = made;
+    try std.testing.expectEqual(made, keptFor(Record, gpa, &held, 1).?);
+    try std.testing.expectEqual(null, keptFor(Record, gpa, &held, 2));
+    try std.testing.expectEqual(null, held);
+    // Letting go of nothing leaves nothing.
+    letGo(Record, gpa, &held);
+    try std.testing.expectEqual(null, held);
 }
