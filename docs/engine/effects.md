@@ -718,7 +718,9 @@ game leaves the centre off the coordinates it turns, so the texture wanders.
 
 A shockwave of kind 6 makes a bubble flicker as a force field for 100 ticks: drawn over `ffield`,
 set on the level's mesh that every bubble at that level shares, it is lit a random grey one frame
-in four and dark on the rest, and its hits wait.
+in four and dark on the rest, and its hits wait. OpenReliant draws the flicker in the first frame
+drawn at each tick and keeps it, as the game draws one each game frame, so it flickers at the same
+pace at any frame rate and stands still while the game is paused.
 
 **Improvements:** the sparks fly out from the ship's centre through the point struck, where the game
 takes the point itself as their direction, so they fly toward the world's origin; and a bubble past

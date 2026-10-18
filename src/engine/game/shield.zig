@@ -458,7 +458,7 @@ pub const Shields = struct {
                     const vertices = mesh.positions.len;
                     if (!look.paused) {
                         const ticks: f32 = @floatFromInt(if (kept.updated) |updated| look.frame_start -% updated else 0);
-                        if (!shown.flickers(bubble, shields, mesh, look.frame_start, kept.colours[0..vertices], look.random)) kept.fade(ramp, vertices, ticks);
+                        if (!try shown.flickers(shields.gpa, bubble, shields, mesh, look.frame_start, kept.colours[0..vertices], look.random)) kept.fade(ramp, vertices, ticks);
                         kept.swirl(vertices, ticks);
                         kept.updated = look.frame_start;
                     }
@@ -469,7 +469,7 @@ pub const Shields = struct {
                     const now = @as(f32, @floatFromInt(look.frame_start)) + look.ahead;
                     const colours = try arena.alloc([4]f32, mesh.positions.len);
                     const uv = try arena.alloc([2]f32, mesh.positions.len);
-                    if (!shown.flickers(bubble, shields, mesh, look.frame_start, colours, look.random)) recent.colour(ramp, mesh, now, colours);
+                    if (!try shown.flickers(shields.gpa, bubble, shields, mesh, look.frame_start, colours, look.random)) recent.colour(ramp, mesh, now, colours);
                     recent.swirl(mesh, now, uv);
                     shown.object.own_uv = .{ uv, null };
                     shown.object.baked = colours;
@@ -597,6 +597,11 @@ pub const Shown = struct {
     /// The flicker it has seen out (`Bubble.flicker_until`), which the game sets back to null as
     /// it ends.
     flicker_done: ?i32 = null,
+    /// OpenReliant's: the tick its flicker was last drawn at (`flickers`), whether it was lit then,
+    /// and each vertex's grey, which every frame drawn at that tick shows.
+    flickered: ?i32 = null,
+    lit: bool = false,
+    greys: []f32 = &.{},
 
     pub const Hits = union(Style) {
         original: *Kept,
@@ -623,6 +628,7 @@ pub const Shown = struct {
             .original => |kept| gpa.destroy(kept),
             .smooth => {},
         }
+        gpa.free(shown.greys);
         gpa.destroy(shown);
     }
 
@@ -642,21 +648,32 @@ pub const Shown = struct {
     /// one frame in `flicker_odds` and dark on the rest. The texture is set on the level's mesh,
     /// which every bubble at that level shares, as the game sets it. The game sets the flicker back
     /// to null as it ends; drawing keeps which it has seen out.
-    fn flickers(shown: *Shown, bubble: *const Bubble, shields: *const Shields, mesh: *srapiext.Mesh, now: i32, colours: [][4]f32, random: ?*Random) bool {
+    ///
+    /// The game draws a flicker once a game frame. OpenReliant draws one in the first frame drawn
+    /// at each tick, with `random`, and keeps it, made in `gpa`, so that the frames drawn between
+    /// two ticks show the same flicker, as do the frames drawn while the game is paused.
+    fn flickers(shown: *Shown, gpa: Allocator, bubble: *const Bubble, shields: *const Shields, mesh: *srapiext.Mesh, now: i32, colours: [][4]f32, random: ?*Random) Allocator.Error!bool {
         const until = bubble.flicker_until orelse return false;
-        if (shown.flicker_done == until) return false;
+        if (shown.flicker_done == until and shown.flickered != now) return false;
         const over = until < now;
         mesh.surfaces[0].textures[0] = .{ .image = if (over) shields.texture else shields.field };
         if (over) shown.flicker_done = until;
+        const fresh = shown.flickered != now or shown.greys.len != colours.len;
+        shown.flickered = now;
         const numbers = random orelse {
             @memset(colours, @splat(0));
             return true;
         };
-        const lit = numbers.oneIn(flicker_odds);
-        for (colours) |*colour| {
-            const grey = numbers.fraction();
-            colour.* = if (lit) .{ grey, grey, grey, 0 } else @splat(0);
+        if (fresh) {
+            if (shown.greys.len != colours.len) {
+                gpa.free(shown.greys);
+                shown.greys = &.{};
+                shown.greys = try gpa.alloc(f32, colours.len);
+            }
+            shown.lit = numbers.oneIn(flicker_odds);
+            for (shown.greys) |*grey| grey.* = numbers.fraction();
         }
+        for (colours, shown.greys) |*colour, grey| colour.* = if (shown.lit) .{ grey, grey, grey, 0 } else @splat(0);
         return true;
     }
 };
@@ -1358,17 +1375,36 @@ test "a hit ripples out from where it struck" {
     // Meanwhile the texture has swirled.
     try std.testing.expect(!std.meta.eql(before, kept.uv[near]));
 
-    // A flicker as a force field swaps the texture while it lasts, and back after.
+    // A flicker as a force field swaps the texture while it lasts, and back after. The tick it ends
+    // flickers still, in every frame drawn at it.
     bubble.flicker(30);
-    try std.testing.expect(shown.flickers(bubble, shields, mesh, 40, kept.colours[0..vertices], null));
+    try std.testing.expect(try shown.flickers(gpa, bubble, shields, mesh, 40, kept.colours[0..vertices], null));
     try std.testing.expectEqual(shields.field, mesh.surfaces[0].textures[0].image);
-    try std.testing.expect(shown.flickers(bubble, shields, mesh, 140, kept.colours[0..vertices], null));
+    try std.testing.expect(try shown.flickers(gpa, bubble, shields, mesh, 140, kept.colours[0..vertices], null));
     try std.testing.expectEqual(shields.texture, mesh.surfaces[0].textures[0].image);
-    try std.testing.expect(!shown.flickers(bubble, shields, mesh, 150, kept.colours[0..vertices], null));
+    try std.testing.expect(try shown.flickers(gpa, bubble, shields, mesh, 140, kept.colours[0..vertices], null));
+    try std.testing.expect(!try shown.flickers(gpa, bubble, shields, mesh, 150, kept.colours[0..vertices], null));
     // Drawing leaves the bubble's flicker as the game set it, and a new one flickers again.
     try std.testing.expectEqual(130, bubble.flicker_until);
     bubble.flicker(200);
-    try std.testing.expect(shown.flickers(bubble, shields, mesh, 210, kept.colours[0..vertices], null));
+    try std.testing.expect(try shown.flickers(gpa, bubble, shields, mesh, 210, kept.colours[0..vertices], null));
+
+    // With random numbers, a flicker is drawn once a tick: the frames drawn at a tick show the
+    // same greys, and the next tick draws new ones.
+    var random: Random = .{};
+    var first: [3][4]f32 = undefined;
+    var again: [3][4]f32 = undefined;
+    var next: [3][4]f32 = undefined;
+    // Lit at least once in a few ticks, one frame in four.
+    var tick: i32 = 211;
+    while (tick < 250) : (tick += 1) {
+        _ = try shown.flickers(gpa, bubble, shields, mesh, tick, &first, &random);
+        if (first[0][0] > 0) break;
+    }
+    _ = try shown.flickers(gpa, bubble, shields, mesh, tick, &again, &random);
+    try std.testing.expectEqual(first, again);
+    _ = try shown.flickers(gpa, bubble, shields, mesh, tick + 1, &next, &random);
+    try std.testing.expect(!std.meta.eql(first, next));
 }
 
 test flare {
