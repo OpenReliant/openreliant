@@ -517,6 +517,8 @@ Once a frame, `erays_update` (`0x0046AC30`) runs `eray_update` (`0x0046AF40`) fo
 
 The game leaves unset when a ray last changed and how long it stays lit. OpenReliant starts both at nothing, so a flickering ray goes dark on its first frame, fading if it fades. The game also makes a 17th segment for each strand that it never places or lights. OpenReliant leaves it out, and draws each strand as a single mesh.
 
+OpenReliant moves the rays on and lets them go in the game frames (`Rays.frame`), and drawing strays the strands in the first frame drawn at each tick (`Rays.draw`). So the rays crackle at the same pace at any frame rate, and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
+
 **Fix:** a ray hanging from a part that a split's portal cuts is cut by it too, so it shows only on what the sweep has laid bare. The game cuts the part alone, and its rays crackle over the stretch of the ship still whole.
 
 [`erayfx.zig`](../../src/engine/game/erayfx.zig) ports the rays.
