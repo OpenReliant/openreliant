@@ -754,6 +754,7 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     followCarrier(orders.world);
     if (orders.world.forces) |forces| forces.pushFrame(orders.world.clock.frame_start);
     if (orders.world.rays) |rays| rays.frame(orders.world.objects, orders.world.clock.frame_start, orders.world.effectsRandom());
+    if (orders.world.shields) |shields| shields.capital.frame(orders.world.objects, orders.world.clock.frame_start);
     orders.world.objects.exhaust.burn(orders.world);
     if (orders.world.explosions) |explosions| explosions.frame(orders.world);
     if (orders.world.countermeasures) |dropped| dropped.frame(orders.world);
