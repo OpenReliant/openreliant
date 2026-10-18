@@ -2,10 +2,10 @@
 //! crackle over a wreck (`explode.burnPart`) or a disrupted ship (`aifuncs.disruptedInit`). The
 //! code after this file's known end, up to `0x0046AF40`, is the rays' too.
 //!
-//! Each strand runs through 17 points, its ends and 15 between, which stray at random each frame
-//! the ray is drawn (`jitter`). Each of the 16 segments between them is a glowing cap and two quads
-//! crossed along it. A ray lights the space round it with a point light at the middle of its first
-//! strand.
+//! Each strand runs through 17 points, its ends and 15 between, which stray at random once a game
+//! frame while the ray shows (`jitter`). Each of the 16 segments between them is a glowing cap and
+//! two quads crossed along it. A ray lights the space round it with a point light at the middle of
+//! its first strand.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -81,6 +81,14 @@ pub const Parent = union(enum) {
     object: u16,
     part: objects.PartOf,
 
+    /// Whether it has gone: a part that no longer belongs to its object.
+    fn gone(parent: Parent, all: *const Objects) bool {
+        return switch (parent) {
+            .world, .object => false,
+            .part => |on| on.live(all) == null,
+        };
+    }
+
     /// Where it stands as drawn, and the portal that cuts it, or null where it is gone.
     fn standing(parent: Parent, all: *const Objects) ?Standing {
         return switch (parent) {
@@ -145,6 +153,10 @@ pub const Ray = struct {
     /// OpenReliant's: the number `Rays.add` made it with, which tells it from a ray made later in
     /// its slot (`Rays.Kept`).
     serial: u32 = 0,
+    /// OpenReliant's: the tick its strands last strayed at (`draw`), and where its light stood
+    /// then, in the frame of what it hangs from. Only drawing reads and writes them.
+    strayed: ?i32 = null,
+    light_at: Vector = @splat(0),
 
     /// A strand: the game's 17 meshes, one a segment and one more it never places or lights;
     /// OpenReliant's one mesh of all 16 segments in the frame of what the ray hangs from, with its
@@ -304,25 +316,33 @@ pub const Ray = struct {
 
     /// The drawing part of `0x0046AF40`, while it shows: each strand through its ends, its middles
     /// strayed at random, as bright as the ray, where what it hangs from stands; then its light.
+    /// The strands stray afresh in the first frame drawn at each tick `now`, as the game strays
+    /// them once a game frame, so the frames drawn between two ticks show them as they are, and so
+    /// do the frames drawn while the game is paused.
     ///
     /// **Fix:** a ray hanging from a part that a split's portal cuts is cut by it too, so it shows
     /// only on what the sweep has laid bare; the game cuts the part alone, and its rays crackle
     /// over the stretch of the ship still whole.
-    fn draw(ray: *Ray, gpa: Allocator, scene: *srcore.Scene, standing: Parent.Standing, random: *Random) Allocator.Error!void {
+    fn draw(ray: *Ray, gpa: Allocator, scene: *srcore.Scene, standing: Parent.Standing, now: i32, random: *Random) Allocator.Error!void {
         const place = standing.place;
+        const strays = ray.strayed != now;
+        ray.strayed = now;
         for (ray.strands, 0..) |*strand, index| {
-            var at: [points]Vector = undefined;
-            at[0] = ray.from;
-            at[segments] = ray.to;
-            jitter(&at, 0, segments, ray.jitter, jitter_depth, random);
-            strand.shape(&at, strand.alpha * ray.brightness);
+            if (strays) {
+                var at: [points]Vector = undefined;
+                at[0] = ray.from;
+                at[segments] = ray.to;
+                jitter(&at, 0, segments, ray.jitter, jitter_depth, random);
+                strand.shape(&at, strand.alpha * ray.brightness);
+                if (index == 0) ray.light_at = at[light_segment];
+            }
             strand.object.position = place.position;
             strand.object.orientation = place.orientation;
             strand.object.portal = standing.portal;
             strand.object.flags.portal_clipped = standing.portal != null;
             try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &strand.object }, .world);
-            if (index == 0) ray.light.kind.point.position = place.point(at[light_segment]);
         }
+        ray.light.kind.point.position = place.point(ray.light_at);
         ray.light.intensity = 1;
         try xtrabits.sceneAdd(gpa, scene, .{ .light = &ray.light }, .world);
     }
@@ -431,21 +451,25 @@ pub const Rays = struct {
         }
     }
 
-    /// `0x0046AC30`, once a frame (`mission_frame`): each ray moves on at tick `now`
-    /// (`Ray.update`) and, while it is bright and what it hangs from stands in `all`, is drawn.
-    /// A ray whose part has gone goes with it.
+    /// `erays_update` (`0x0046AC30`), once a game frame (`mission_frame`): each ray moves on at
+    /// tick `now` (`Ray.update`), and goes once its time is up, its owner has gone, or the part it
+    /// hangs from has gone from `all`.
+    pub fn frame(rays: *Rays, all: *const Objects, now: i32, random: *Random) void {
+        for (rays.slots) |maybe| {
+            const ray = maybe orelse continue;
+            if (!ray.update(all, now, random) or ray.parent.gone(all)) rays.remove(ray);
+        }
+    }
+
+    /// The drawing part of `erays_update`, once a drawn frame: each ray that is bright, where what
+    /// it hangs from stands in `all`, at tick `now` (`Ray.draw`). The rays move on and go in the
+    /// game frames alone (`frame`).
     pub fn draw(rays: *Rays, gpa: Allocator, scene: *srcore.Scene, all: *const Objects, now: i32, random: *Random) Allocator.Error!void {
         for (rays.slots) |maybe| {
             const ray = maybe orelse continue;
-            if (!ray.update(all, now, random)) {
-                rays.remove(ray);
-                continue;
-            }
-            const standing = ray.parent.standing(all) orelse {
-                rays.remove(ray);
-                continue;
-            };
-            if (ray.brightness != 0) try ray.draw(gpa, scene, standing, random);
+            if (ray.brightness == 0) continue;
+            const standing = ray.parent.standing(all) orelse continue;
+            try ray.draw(gpa, scene, standing, now, random);
         }
     }
 };
@@ -568,6 +592,49 @@ test Rays {
     try std.testing.expectApproxEqAbs(100, strand.mesh.positions[5][2], 1e-3);
     try std.testing.expectEqual(strand_alpha, strand.colours[0][3]);
     try std.testing.expectEqual(0.6, strand.colours[0][0]);
+
+    // The strands stray afresh once a tick: drawn again at the same tick, they stand as they were.
+    ray.jitter = 0.2;
+    try rays.draw(gpa, &scene, mission.objects, 1, &random);
+    const strayed = strand.mesh.positions[5];
+    try rays.draw(gpa, &scene, mission.objects, 1, &random);
+    try std.testing.expectEqual(strayed, strand.mesh.positions[5]);
+    try rays.draw(gpa, &scene, mission.objects, 2, &random);
+    try std.testing.expect(@reduce(.Or, strayed != strand.mesh.positions[5]));
+}
+
+test "Rays.frame" {
+    const gpa = std.testing.allocator;
+    var built: testing.Built = try .init(gpa);
+    defer built.deinit(gpa);
+    const rays = &built.rays;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var random: Random = .{};
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+
+    // A ray goes once its time is up, in a game frame; drawing leaves it be.
+    const timed = try rays.add(.{ .life = 10, .jitter = 0.2, .width = 10, .flags = .{ .timed = true } }, &random);
+    rays.frame(mission.objects, 1, &random);
+    try rays.draw(gpa, &scene, mission.objects, 20, &random);
+    try std.testing.expectEqual(timed, rays.slots[0].?);
+    rays.frame(mission.objects, 20, &random);
+    try std.testing.expectEqual(null, rays.slots[0]);
+
+    // One whose part has gone goes too: a ship with no model has none of the part's. Drawing
+    // passes over it.
+    const ship = try mission.add(.of(.predator), @splat(0));
+    var model: objects.Model = undefined;
+    const hung = try rays.add(.{ .life = 0, .jitter = 0.2, .width = 10, .flags = .{} }, &random);
+    hung.hang(.{ .part = .{ .object = ship, .part = .{ .model = &model, .index = 0 } } });
+    const lights = scene.lights.items.len;
+    try rays.draw(gpa, &scene, mission.objects, 21, &random);
+    try std.testing.expectEqual(lights, scene.lights.items.len);
+    try std.testing.expectEqual(hung, rays.slots[0].?);
+    rays.frame(mission.objects, 21, &random);
+    try std.testing.expectEqual(null, rays.slots[0]);
 }
 
 test "Rays.Kept" {

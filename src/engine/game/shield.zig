@@ -896,7 +896,7 @@ pub const Capital = struct {
     /// `all`, shows none.
     fn free(capital: *Capital, all: *Objects, at: CapitalSlot) void {
         const shown = capital.slots[at] orelse return;
-        if (shown.stands(all, at)) shown.on.part.part().capshield = null;
+        if (shown.standing(all, at)) |part| part.capshield = null;
         shown.destroy(capital.gpa);
         capital.slots[at] = null;
     }
@@ -931,11 +931,10 @@ pub const Capital = struct {
         for (capital.slots, 0..) |maybe, index| {
             const shown = maybe orelse continue;
             const at: CapitalSlot = @intCast(index);
-            if (!(look.frame_start < shown.until) or !shown.stands(all, at)) {
+            const part = (if (look.frame_start < shown.until) shown.standing(all, at) else null) orelse {
                 capital.free(all, at);
                 continue;
-            }
-            const part = shown.on.part.part();
+            };
             shown.object.position = part.object.position;
             shown.object.orientation = part.object.orientation;
             const ticks: f32 = @floatFromInt(look.frame_start -% shown.moved);
@@ -1019,11 +1018,12 @@ pub const CapitalShield = struct {
         gpa.destroy(shown);
     }
 
-    /// Whether its part still stands in `all` and names slot `at`: its object's model holds the
-    /// part's, the part is not taken out, and its node names the slot. Only then is the part read.
-    fn stands(shown: *const CapitalShield, all: *const Objects, at: CapitalSlot) bool {
-        const part = shown.on.live(all) orelse return false;
-        return !part.removed and part.capshield == at;
+    /// Its part in `all`, while it still stands there and names slot `at`: its object's model holds
+    /// the part's, the part is not taken out, and its node names the slot. Only then is the part
+    /// read.
+    fn standing(shown: *const CapitalShield, all: *const Objects, at: CapitalSlot) ?*objects.Model.Part {
+        const part = shown.on.live(all) orelse return null;
+        return if (!part.removed and part.capshield == at) part else null;
     }
 
     /// The hit part of `capshield_flare`, into the next of its hits: a force field's every vertex

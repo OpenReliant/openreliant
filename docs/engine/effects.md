@@ -417,7 +417,7 @@ Making a wreck type sets one of its parts burning (`create_object`):
 | `0x76` | The Badanov's front | `BAD dead frnt`, shown first |
 | `0x77` | The Kurgan's | `Box07` |
 
-A split makes these as its other half, so they burn from the moment it starts.
+A split makes these as its other half, so they burn from the moment it starts, and a wreck that a mission places burns as the mission makes it (`executor.createShip`).
 
 `explode_part_burn` (`0x00471290`) sets a part burning, for good or for 5000 ticks, flickering or not, with or without lights. The wrecks burn for good, flickering, with lights. Where the part has a list of ray points:
 
@@ -516,6 +516,8 @@ Once a frame, `erays_update` (`0x0046AC30`) runs `eray_update` (`0x0046AF40`) fo
 - While it is brighter than nothing, each strand runs from the ray's start to its end through 15 points between, which stray at random each frame (`eray_jitter`, `0x0046AA70`). The middle of each stretch moves by up to the ray's jitter times the stretch's length, in a random direction, halving the stretch four times over. The strand's alpha is 0.5 times the ray's brightness, and the light shines at full strength.
 
 The game leaves unset when a ray last changed and how long it stays lit. OpenReliant starts both at nothing, so a flickering ray goes dark on its first frame, fading if it fades. The game also makes a 17th segment for each strand that it never places or lights. OpenReliant leaves it out, and draws each strand as a single mesh.
+
+OpenReliant moves the rays on and lets them go in the game frames (`Rays.frame`), and drawing strays the strands in the first frame drawn at each tick (`Rays.draw`). So the rays crackle at the same pace at any frame rate, and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
 
 **Fix:** a ray hanging from a part that a split's portal cuts is cut by it too, so it shows only on what the sweep has laid bare. The game cuts the part alone, and its rays crackle over the stretch of the ship still whole.
 
