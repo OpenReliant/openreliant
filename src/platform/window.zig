@@ -70,6 +70,7 @@ pub const Window = struct {
         if (fullscreen) flags |= c.SDL_WINDOW_FULLSCREEN;
         const handle = c.SDL_CreateWindow(title, @intCast(width), @intCast(height), flags) orelse return fail("SDL_CreateWindow");
         errdefer c.SDL_DestroyWindow(handle);
+        if (builtin.target.os.tag == .macos) macos.fillMenus();
         // The formats the game's shader comes in: Vulkan's everywhere it runs, Metal's on Apple's
         // systems.
         const formats = c.SDL_GPU_SHADERFORMAT_SPIRV | c.SDL_GPU_SHADERFORMAT_MSL;

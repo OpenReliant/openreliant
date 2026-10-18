@@ -1228,7 +1228,8 @@ pub const Gpu = struct {
 
     /// Sends `image`'s texture up with the next frame, as drawing it would (`slotOf`), so that the
     /// frame that first draws it isn't held up by the upload: a large texture with its maps takes
-    /// tens of milliseconds. A mission's loading sends up every texture it loaded this way.
+    /// tens of milliseconds. A mission's loading sends up every texture it loaded this way, and the
+    /// game's start sends up the sun's redrawn textures.
     pub fn sendAhead(gpu: *Gpu, image: *srtexture.Image) void {
         _ = gpu.slotOf(image) catch |err| log.warn("can't send a {d}x{d} texture up ahead: {t}", .{ image.width(), image.height(), err });
     }

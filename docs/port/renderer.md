@@ -91,7 +91,10 @@ The device's shader, [`device.glsl`](../../src/platform/shaders/device.glsl), ta
   finish with them (`Gpu.finishSending`) and lets go of their pixels, before the mission's first
   frame. A large mod texture with its maps takes tens of milliseconds to go up, and letting go of
   the pixels of many takes a while too, so these would otherwise hold up the frames that first show
-  them.
+  them. The sun's textures that the backdrop draws again
+  ([OpenReliant's sun](../engine/backdrop.md#openreliants-sun)) aren't in the texture table, so
+  they go up as the game starts instead, with the loading frame after the backdrop is built
+  (`Backdrop.redrawnTextures`).
 - A frame goes to the GPU whatever fails as it is recorded, as SDL wants once a swapchain texture
   is acquired, so the copies it recorded still run; where the frame couldn't be put on the swapchain
   texture, that texture is cleared. The textures waiting to go up are copied all together, after

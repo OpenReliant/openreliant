@@ -12,7 +12,7 @@ The `openreliant` executable runs the game on SDL3, which stands in for everythi
 | [`platform/openal.zig`](../../src/platform/openal.zig) | Miles's 3D providers: the game's sound calls played by OpenAL Soft ([Sound](sound.md#openal-soft)) |
 | [`platform/video.zig`](../../src/platform/video.zig) | FFmpeg's decoders of Bink, MP3, FLAC, Vorbis and Opus: the movies' packets, the crew's lines, and mods' music, lines and sounds ([Movies](#movies)) |
 | [`platform/fonts.zig`](../../src/platform/fonts.zig) | Nothing: the outline fonts' glyphs, drawn by FreeType ([Fonts](#fonts)) |
-| [`platform/macos.zig`](../../src/platform/macos.zig) | Nothing: what macOS needs before SDL starts |
+| [`platform/macos.zig`](../../src/platform/macos.zig) | Nothing: what macOS needs around SDL ([macOS](#macos)) |
 | [`openreliant/main.zig`](../../src/openreliant/main.zig) | `WinMain`: opening the game's files and running the frame loop |
 | [`openreliant/install.zig`](../../src/openreliant/install.zig) | The installer on disc 1, `SETUP.EXE`: unpacking `LANCER.CAB` and copying the disc's `GAME/CAB` files |
 
@@ -217,3 +217,5 @@ SDL's GPU interface runs on Metal on macOS and on Vulkan on Linux and Windows: t
 ## macOS
 
 Launched, AppKit looks for windows of an earlier run to restore before SDL's own setting against it takes effect, which can hold the first frame back by seconds. `macos.zig` registers `ApplePersistenceIgnoreState` for the run before SDL starts, as SDL itself does later.
+
+AppKit fills in the menu bar's menus the first time it looks through them for a key's shortcut, which it does for every key pressed: the Apple menu, the Window menu's items for moving and resizing windows, and the Services menu. That takes long enough to hold up the frame of the first key pressed in flight, so `macos.fillMenus` has AppKit do it as the window opens. It sends AppKit F19 going down and up, alone and with every modifier held, a key that no menu item takes. The events are made from Core Graphics events, as the keyboard's are, since AppKit fills in its menus only for those. The game sees F19 pressed and released, which leaves its keys as they were.
