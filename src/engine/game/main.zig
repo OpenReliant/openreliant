@@ -1169,7 +1169,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     attachments.paused = frame.paused;
     const riding = wgate.ridingWorm(frame.gates);
     if (!riding) try drawObjects(gpa, arena, scene, frame.objects, attachments, frame.seat, if (frame.explosions) |explosions| &explosions.splits else null, frame.shown, frame.environment);
-    if (frame.tractors) |tractors| try tractors.draw(gpa, scene, frame.objects);
+    if (frame.tractors) |tractors| try tractors.draw(gpa, scene, frame.objects, frame.shields);
     if (frame.rippers) |rippers| try rippers.draw(gpa, scene, frame.objects);
     if (frame.jump_effects) |effects| try effects.draw(gpa, scene, frame.objects);
     try missiles.draw(frame.objects, gpa, scene, attachments);
