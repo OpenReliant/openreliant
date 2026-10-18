@@ -417,7 +417,7 @@ Making a wreck type sets one of its parts burning (`create_object`):
 | `0x76` | The Badanov's front | `BAD dead frnt`, shown first |
 | `0x77` | The Kurgan's | `Box07` |
 
-A split makes these as its other half, so they burn from the moment it starts.
+A split makes these as its other half, so they burn from the moment it starts, and a wreck that a mission places burns as the mission makes it (`executor.createShip`).
 
 `explode_part_burn` (`0x00471290`) sets a part burning, for good or for 5000 ticks, flickering or not, with or without lights. The wrecks burn for good, flickering, with lights. Where the part has a list of ray points:
 

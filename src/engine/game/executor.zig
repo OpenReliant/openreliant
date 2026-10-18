@@ -350,8 +350,9 @@ fn createFlightGroup(call: Call, game: aigeneric.Context) void {
 ///
 /// Any other ship is made as an object of its kind (`shipType`), fitted by its loadout tier, at its
 /// place. A planet gets its atmosphere and its turn (`atmosphere.Atmospheres.made`) and is set up as
-/// a planet (`create.planetMade`), a gate is set up as a gate (`create.gateMade`), and the Dark
-/// Reign gets its hat (`create.extra.hatMade`). Each ship gets its first order: Player Control for
+/// a planet (`create.planetMade`), a gate is set up as a gate (`create.gateMade`), a wreck burns
+/// (`create.wreckMade`), and the Dark Reign gets its hat (`create.extra.hatMade`). Each ship gets
+/// its first order: Player Control for
 /// the player's ship, whose view the camera takes (view 0), Multiplayer Control for another
 /// player's, and Do Nothing for the rest. A ship that launches gets a Launch order, which starts at
 /// once, through the gate it names on the first of the mission's ships of the kind it launches from
@@ -377,6 +378,7 @@ pub fn createShip(game: aigeneric.Context, bound: *const mission.Mission, index:
     if (game.world.atmospheres) |atmospheres| atmospheres.made(all, made);
     create.planetMade(all, made);
     create.gateMade(game.world, made);
+    create.wreckMade(game.world, made);
     create.extra.hatMade(game.world, made);
     const first: Order = if (made >= all.players) .do_nothing else if (made == all.player) .player_control else .multiplayer_control;
     _ = aigeneric.give(game, made, first, .none);
@@ -1718,6 +1720,53 @@ test "a mission's start part makes its ships and gives them their orders" {
     try std.testing.expectEqual(.player, all.slots[1].object.wing);
     try std.testing.expectEqual(.none, all.slots[2].object.wing);
     try std.testing.expectEqual(@import("aieject.zig").RescueOdds{ .rescued = 33, .captured = 33, .killed = 34 }, world.player.rescue_odds);
+}
+
+test "a wreck that a mission places burns as it is made" {
+    const gpa = std.testing.allocator;
+    const shp = @import("../../formats/shp.zig");
+    var routine: Routine = .init(gpa);
+    defer routine.deinit();
+    try createFlightGroups(&routine, &.{ 0, 1 });
+    const code = try finishPart(&routine);
+    defer gpa.free(code);
+
+    var ships = [_]dte.Ship{
+        shipRecord(0, 0, @backingInt(gameobj.GameType.predator)),
+        shipRecord(1, 1, @backingInt(gameobj.GameType.kurgan_wreck)),
+    };
+    var game: vm.machine.testing.Game = undefined;
+    try game.init(gpa, &.{.{ .code = code, .start = true }}, .{
+        .ships = &ships,
+        .flight_groups = &.{ groupRecord(2, .player), groupRecord(3, .none) },
+    });
+    defer game.deinit();
+    // Every ship is of one part, named as the part the Kurgan's wreck burns, with the two points of
+    // a ray.
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    const part = "Box07";
+    @memcpy(model.data[0].part.name_bytes[0..part.len], part);
+    var ends = [_]shp.Point{
+        .{ ._unknown_00 = 0, .vertex = 0, .position = .{ .x = 0, .y = 0, .z = 0 } },
+        .{ ._unknown_00 = 0, .vertex = 1, .position = .{ .x = 0, .y = 0, .z = 100 } },
+    };
+    var lists = [_]shp.PointList{.{ .kind = .rays, .points = &ends }};
+    model.data[0].point_lists = &lists;
+    var rays: @import("erayfx.zig").testing.Built = try .init(gpa);
+    defer rays.deinit(gpa);
+    var on = game.orders();
+    on.world.spawn = game.mission.spawn(model.types());
+    on.world.rays = &rays.rays;
+    try game.start(on);
+
+    // The wreck's part burns for good, its ray flickering over the wreck; the player's ship burns
+    // nothing.
+    const ray = rays.rays.slots[0].?;
+    try std.testing.expect(ray.flags.flickers and !ray.flags.timed);
+    try std.testing.expectEqual(1, ray.owner);
+    try std.testing.expectEqual(null, rays.rays.slots[1]);
 }
 
 test "an order SetAI aims past the last slot finds no ship there" {

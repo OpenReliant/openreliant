@@ -1154,9 +1154,9 @@ fn standStill(object: *GameObject) void {
 const saladin_spin = "middle spin";
 
 /// The part of `create_object` for a wreck, once it is made where the world can see it: its part
-/// burns for good, its rays flickering, with its burn lights and smoke (`explode.burnPart`). The
-/// port does it once the object is made, as the split makes the wreck (`explode.split`).
-///
+/// burns for good, its rays flickering, with its burn lights and smoke (`explode.burnPart`).
+/// OpenReliant does it once the object is made, whether a mission places it
+/// (`executor.createShip`) or a split makes it (`explode.split`).
 pub fn wreckMade(world: gameobj.World, index: u16) void {
     const slot = &world.objects.slots[index];
     const wreck = wreckOf(slot.object.type) orelse return;
