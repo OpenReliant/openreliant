@@ -42,6 +42,10 @@ pub const Tractors = struct {
     gpa: Allocator,
     slots: [capacity]?*Tractor = @splat(null),
     look: Look,
+    /// OpenReliant's: how many tractors it has made, which numbers the next (`Tractor.serial`).
+    made: u32 = 0,
+    /// What drawing keeps of each tractor (`Shown`), made in `gpa` as it is first drawn.
+    shown: [capacity]?*Shown = @splat(null),
 
     pub const capacity = 5;
 
@@ -57,6 +61,7 @@ pub const Tractors = struct {
 
     pub fn deinit(tractors: *Tractors) void {
         tractors.reset();
+        for (&tractors.shown) |*held| table.letGo(Shown, tractors.gpa, held);
     }
 
     /// Before the frame's orders: no tractor shows until Scoop Up shows it again this frame
@@ -72,7 +77,8 @@ pub const Tractors = struct {
     fn take(tractors: *Tractors, pod: u16) ?usize {
         const index = table.firstFreeIndex(*Tractor, &tractors.slots) orelse return null;
         const tractor = tractors.gpa.create(Tractor) catch return null;
-        tractor.* = .{ .pod = pod };
+        tractor.* = .{ .pod = pod, .serial = tractors.made };
+        tractors.made +%= 1;
         tractors.slots[index] = tractor;
         return index;
     }
@@ -80,34 +86,58 @@ pub const Tractors = struct {
     /// `tractor_free` (`0x0041D1A0`): tractor `index` let go, with its beams and its bubble.
     fn free(tractors: *Tractors, index: usize) void {
         const tractor = tractors.slots[index] orelse return;
-        destroyAll(&tractor.beams, tractors.gpa);
-        if (tractor.bubble) |bubble| bubble.destroy(tractors.gpa);
         tractors.gpa.destroy(tractor);
         tractors.slots[index] = null;
     }
 
     /// OpenReliant's: what each tractor showed in the last game frame goes into `scene`, where its
-    /// ship and its pod are drawn: its beams, aimed at the pod (`tractor_beam_aim`) where Scoop Up
-    /// aims them and otherwise hanging from their part as they were last aimed, its light on the
-    /// pod, and its bubble round it. The game adds them to the scene as Scoop Up runs.
-    pub fn draw(tractors: *Tractors, gpa: Allocator, scene: *srcore.Scene, all: *create.Objects) Allocator.Error!void {
-        for (tractors.slots) |held| {
-            const tractor = held orelse continue;
+    /// ship and its pod are drawn in `all`: its beams, as solid as Scoop Up made them, aimed at the
+    /// pod (`tractor_beam_aim`) where it aims them and otherwise hanging from their part as they
+    /// were last aimed; its light on the pod, reaching as far as Scoop Up has it; and its bubble
+    /// round the pod, glowing as Scoop Up has it, on `shields`' finest sphere. What drawing keeps
+    /// of a tractor is made the first time it draws it (`Shown`), and its beams and bubble as the
+    /// tractor first has them. The game adds them to the scene as Scoop Up runs.
+    pub fn draw(tractors: *Tractors, gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, shields: ?*const shield.Shields) Allocator.Error!void {
+        for (tractors.slots, &tractors.shown) |held, *kept| {
+            const tractor = held orelse {
+                table.letGo(Shown, tractors.gpa, kept);
+                continue;
+            };
             if (!tractor.shown) continue;
+            const shown = table.keptFor(Shown, tractors.gpa, kept, tractor.serial) orelse made: {
+                const made = try tractors.gpa.create(Shown);
+                made.* = .{ .serial = tractor.serial };
+                kept.* = made;
+                break :made made;
+            };
             const pod = all.slots[tractor.pod].drawn;
-            for (tractor.beams) |made| if (made) |beam| {
-                const model = if (all.slots[beam.ship].model) |*live| live else continue;
-                const part = model.rootChild(beam.part) orelse continue;
+            for (tractor.beams, &shown.beams, tractor.solid) |from, *made, solid| {
+                const emitter = from orelse continue;
+                const model = if (all.slots[emitter.ship].model) |*live| live else continue;
+                const part = model.rootChild(emitter.part) orelse continue;
+                const beam = made.* orelse beam: {
+                    const beam = try Beam.create(tractors.gpa, tractors.look, emitter);
+                    made.* = beam;
+                    break :beam beam;
+                };
+                beam.fade(solid);
                 if (tractor.aimed) beam.aim(part.drawn(), pod.position) else beam.hang(part.drawn());
                 try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &beam.object }, .world);
-            };
-            tractor.light.kind.point.position = pod.position;
-            try xtrabits.sceneAdd(gpa, scene, .{ .light = &tractor.light }, .world);
-            if (tractor.bubble) |bubble| {
+            }
+            shown.light.kind.point.range = tractor.reach;
+            shown.light.kind.point.position = pod.position;
+            try xtrabits.sceneAdd(gpa, scene, .{ .light = &shown.light }, .world);
+            if (tractor.bubble) |waves| if (shields) |spheres| {
+                const bubble = shown.bubble orelse bubble: {
+                    const bubble = try Bubble.create(tractors.gpa, spheres, waves.scale);
+                    shown.bubble = bubble;
+                    break :bubble bubble;
+                };
+                bubble.glow(waves.brightness, waves.time);
                 bubble.object.position = pod.position;
                 bubble.object.orientation = pod.orientation;
                 try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &bubble.object }, .world);
-            }
+            };
         }
     }
 };
@@ -115,8 +145,58 @@ pub const Tractors = struct {
 /// How far a tractor's light reaches at its full (`0x0041D177`, `0x0041C373`, `0x004DC43C`).
 const light_reach: f32 = 10000;
 
-/// A tractor (0x10 bytes): two beams, a bubble and a light, and the object they hold.
+/// A tractor (0x10 bytes): two beams, a bubble and a light, and the object they hold: what the
+/// game keeps of it. What it shows, drawing keeps (`Shown`).
 pub const Tractor = struct {
+    /// Where its beams come from, as Scoop Up makes them (`makeBeams`), and how solid each is
+    /// (`Beam.fade`).
+    beams: [2]?Emitter = .{ null, null },
+    solid: [2]f32 = .{ 0, 0 },
+    /// Its bubble round the pod, as Scoop Up makes it: its size, and how it glows.
+    bubble: ?Waves = null,
+    /// How far its light reaches (`Tractor Light`).
+    reach: f32 = light_reach,
+    pod: u16,
+    /// OpenReliant's: the number `Tractors.take` made it with, which tells it from a later tractor
+    /// in its slot.
+    serial: u32,
+    /// OpenReliant's: whether Scoop Up showed it this game frame, which the game does by adding its
+    /// beams, its light and its bubble to the scene (`Tractors.beginFrame`), and whether it aimed
+    /// the beams.
+    shown: bool = false,
+    aimed: bool = false,
+
+    /// Shown this frame, its light reaching `reach`, its beams aimed at the pod or not.
+    fn show(tractor: *Tractor, reach: f32, beams: Aiming) void {
+        tractor.reach = reach;
+        tractor.shown = true;
+        tractor.aimed = beams == .aimed;
+    }
+
+    const Aiming = enum { aimed, held };
+};
+
+/// How the bubble round what a tractor holds glows: its size, and its waves' brightness and time
+/// (`Bubble.glow`).
+pub const Waves = struct {
+    scale: f32,
+    brightness: f32 = 0,
+    time: f32 = 0,
+
+    /// `tractor_bubble_glow` (`0x0041CF80`), as the game keeps it: the waves at `time`, their
+    /// crests `brightness` of the crest, which drawing shows (`Bubble.glow`).
+    fn glow(waves: *Waves, brightness: f32, time: f32) void {
+        waves.brightness = brightness;
+        waves.time = time;
+    }
+};
+
+/// What a tractor (`Tractor`) shows, which drawing keeps from the first time it draws it: its
+/// beams, its bubble and its light. The game keeps them in the tractor (`tractors`). OpenReliant
+/// keeps them apart, for each tractor a slot holds (`Tractor.serial`), so that drawing writes
+/// nothing into the tractors.
+pub const Shown = struct {
+    serial: u32,
     beams: [2]?*Beam = .{ null, null },
     bubble: ?*Bubble = null,
     /// `Tractor Light`: a green point light on the pod, which reaches every object.
@@ -126,21 +206,12 @@ pub const Tractor = struct {
         .colour = .{ 0, 1, 0 },
         .kind = .{ .point = .{ .position = @splat(0), .range = light_reach } },
     },
-    pod: u16,
-    /// OpenReliant's: whether Scoop Up showed it this game frame, which the game does by adding its
-    /// beams, its light and its bubble to the scene (`Tractors.beginFrame`), and whether it aimed
-    /// the beams.
-    shown: bool = false,
-    aimed: bool = false,
 
-    /// Shown this frame, its light reaching `reach`, its beams aimed at the pod or not.
-    fn show(tractor: *Tractor, reach: f32, beams: Aiming) void {
-        tractor.light.kind.point.range = reach;
-        tractor.shown = true;
-        tractor.aimed = beams == .aimed;
+    pub fn destroy(shown: *Shown, gpa: Allocator) void {
+        destroyAll(&shown.beams, gpa);
+        if (shown.bubble) |bubble| bubble.destroy(gpa);
+        gpa.destroy(shown);
     }
-
-    const Aiming = enum { aimed, held };
 };
 
 /// How wide a beam is either side of its axis, how many ribbons cross on it, how long they are
@@ -190,15 +261,14 @@ pub const Look = struct {
     }
 };
 
-/// Each of `beams` there is as solid as `alpha` (`Beam.fade`).
-pub fn fadeAll(beams: []const ?*Beam, alpha: f32) void {
-    for (beams) |held| if (held) |beam| beam.fade(alpha);
-}
-
 /// Each of `beams` there is let go.
 pub fn destroyAll(beams: []const ?*Beam, gpa: Allocator) void {
     for (beams) |held| if (held) |beam| beam.destroy(gpa);
 }
+
+/// Where a beam comes from: its ship, the part of the ship's model it hangs from, and where on the
+/// part it stands.
+pub const Emitter = struct { ship: u16, part: usize, point: Vector };
 
 /// A tractor's beam (`tractor_beam_mesh`, `0x0041CBC0`, "TractorBeam_Mesh"): a square across its
 /// emitter and three ribbons crossing on its axis, a star's blades (`guns.blade`), over `laser2`,
@@ -211,17 +281,15 @@ pub const Beam = struct {
     /// How many quads it has (`Glow.quads`), whose corners' colours `colours` begins with.
     quads: usize,
     colours: [most_corners][4]f32 = @splat(@splat(0)),
-    /// The ship it comes from, the part it hangs from, and where on the part it stands.
-    ship: u16,
-    part: usize,
-    point: Vector,
+    /// Where it comes from.
+    from: Emitter,
     /// How it is turned in the part's frame, as it was last aimed.
     turn: math.Matrix = math.identity,
 
     /// The game draws the square in one group of polygons and the ribbons in another, with the
     /// same material. OpenReliant draws them in one group, over `look`'s texture, with the glow's
     /// ribbons where its `glow` has them.
-    pub fn create(gpa: Allocator, look: Look, ship: u16, part: usize, point: Vector) Allocator.Error!*Beam {
+    pub fn create(gpa: Allocator, look: Look, from: Emitter) Allocator.Error!*Beam {
         var corners: [most_corners]Vector = undefined;
         corners[0..guns.blade_corners].* = .{
             .{ -beam_half, -beam_half, 0 }, .{ beam_half, -beam_half, 0 },
@@ -248,9 +316,7 @@ pub const Beam = struct {
             .level = undefined,
             .object = undefined,
             .quads = quads,
-            .ship = ship,
-            .part = part,
-            .point = point,
+            .from = from,
         };
         beam.level = .{.{ .mesh = &beam.mesh, .until = std.math.inf(f32) }};
         beam.object = .{
@@ -284,7 +350,7 @@ pub const Beam = struct {
     /// turned to `pod` and reaching it: the ribbons' far corners (`guns.blade_far`) as far out as
     /// the pod is.
     pub fn aim(beam: *Beam, part: math.Place, pod: Vector) void {
-        const from = part.point(beam.point);
+        const from = part.point(beam.from.point);
         const orientation = math.lookAt(pod - from);
         beam.turn = math.product(math.transpose(part.orientation), orientation);
         beam.object.position = from;
@@ -300,7 +366,7 @@ pub const Beam = struct {
     /// The beam hanging from its point on a part standing at `part`, turned and as long as it was
     /// last aimed.
     fn hang(beam: *Beam, part: math.Place) void {
-        const place = (math.Place{ .position = beam.point, .orientation = beam.turn }).within(part);
+        const place = (math.Place{ .position = beam.from.point, .orientation = beam.turn }).within(part);
         beam.object.position = place.position;
         beam.object.orientation = place.orientation;
     }
@@ -600,9 +666,9 @@ pub fn scoopUp(ctx: Context, index: u16) void {
             const t = state.through(now);
             if (t < 1) {
                 if (tractor) |held| {
-                    if (held.beams[0]) |first| first.fade(t);
-                    if (state.lag < t) if (held.beams[1]) |second| second.fade((t - state.lag) / (1 - state.lag));
-                    if (held.bubble) |bubble| bubble.glow(if (t >= bubble_turn) 1 else t / bubble_turn, t);
+                    held.solid[0] = t;
+                    if (state.lag < t) held.solid[1] = (t - state.lag) / (1 - state.lag);
+                    if (held.bubble) |*waves| waves.glow(if (t >= bubble_turn) 1 else t / bubble_turn, t);
                 }
             } else {
                 pod.object.flags.frozen = true;
@@ -628,7 +694,7 @@ pub fn scoopUp(ctx: Context, index: u16) void {
             objects.setPosition(&pod.object, &pod.drawn, was + way * @as(Vector, @splat(speed * seconds)));
             pod.glide = way * @as(Vector, @splat(speed * tick_seconds));
             if (tractor) |held| {
-                if (held.bubble) |bubble| bubble.glow(1, inSeconds(now - state.since));
+                if (held.bubble) |*waves| waves.glow(1, inSeconds(now - state.since));
                 held.show(light_reach, .aimed);
             }
             if (pulling and reach < pulled) {
@@ -643,8 +709,8 @@ pub fn scoopUp(ctx: Context, index: u16) void {
         .fading => {
             const t = state.through(now);
             if (tractor) |held| {
-                fadeAll(&held.beams, 1 - t);
-                if (held.bubble) |bubble| bubble.glow(if (t >= bubble_turn) 0 else (bubble_turn - t) / bubble_turn, t);
+                held.solid = @splat(1 - t);
+                if (held.bubble) |*waves| waves.glow(if (t >= bubble_turn) 0 else (bubble_turn - t) / bubble_turn, t);
                 held.show((1 - t) * light_reach, .held);
             }
             if (t >= 1) {
@@ -707,15 +773,13 @@ const Scooper = struct {
 fn makeBeams(world: gameobj.World, index: u16, pod: u16, tractor: *Tractor) void {
     const all = world.objects;
     const slot = &all.slots[index];
-    const tractors = world.tractors orelse return;
     const model = if (slot.model) |*live| live else return;
     const hull = model.partNamed(Scooper.of(slot.object.type).hull) orelse return;
     const points = (hull.data() orelse return).pointList(.tractor) orelse return;
     for (&tractor.beams, points.points[0..@min(points.points.len, tractor.beams.len)]) |*beam, point| {
-        beam.* = Beam.create(tractors.gpa, tractors.look, index, hull.index, point.position.vector()) catch null;
+        beam.* = .{ .ship = index, .part = hull.index, .point = point.position.vector() };
     }
-    const shields = world.shields orelse return;
-    tractor.bubble = Bubble.create(tractors.gpa, shields, all.slots[pod].object.radius * bubble_scale) catch null;
+    tractor.bubble = .{ .scale = all.slots[pod].object.radius * bubble_scale };
 }
 
 /// Where the ship in `slot`, of `scooper`'s parts, takes the pod in, as last drawn: its door
@@ -843,11 +907,12 @@ test Tractors {
     // Five can be in use at once, each with its green light at its full.
     for (0..Tractors.capacity) |n| try std.testing.expectEqual(n, tractors.take(@intCast(n)).?);
     try std.testing.expectEqual(null, tractors.take(9));
-    try std.testing.expectEqual(light_reach, tractors.slots[0].?.light.kind.point.range);
-    // One let go frees its place, with its beams.
-    tractors.slots[2].?.beams[0] = try Beam.create(gpa, tractors.look, 0, 0, @splat(0));
+    try std.testing.expectEqual(light_reach, tractors.slots[0].?.reach);
+    // One let go frees its place, and the next in it is numbered anew.
+    const serial = tractors.slots[2].?.serial;
     tractors.free(2);
     try std.testing.expectEqual(2, tractors.take(7).?);
+    try std.testing.expect(tractors.slots[2].?.serial != serial);
     tractors.reset();
     for (tractors.slots) |slot| try std.testing.expectEqual(null, slot);
 }
@@ -860,29 +925,45 @@ test "Tractors.draw" {
     const pod = scoop.mission.slot(scoop.pod);
     objects.setPosition(&pod.object, &pod.drawn, .{ 0, 0, 300 });
     const tractors = &scoop.built.tractors;
+    const shields = &scoop.shields.shields;
     const tractor = tractors.slots[0].?;
     // A beam from a ship with no model to hang it from, which is left out, and one hanging from
-    // the nanny ship's hull.
-    tractor.beams[0] = try Beam.create(gpa, tractors.look, scoop.pod, 0, @splat(0));
-    tractor.beams[1] = try Beam.create(gpa, tractors.look, scoop.nanny, 0, @splat(0));
+    // the nanny ship's hull, half solid; and the bubble round the pod.
+    tractor.beams[0] = .{ .ship = scoop.pod, .part = 0, .point = @splat(0) };
+    tractor.beams[1] = .{ .ship = scoop.nanny, .part = 0, .point = @splat(0) };
+    tractor.solid[1] = 0.5;
+    tractor.bubble = .{ .scale = 300, .brightness = 1, .time = 0.5 };
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
 
     // Not shown this frame, it draws nothing.
-    try tractors.draw(gpa, &scene, scoop.mission.objects);
+    try tractors.draw(gpa, &scene, scoop.mission.objects, shields);
     try std.testing.expectEqual(0, scene.lights.items.len);
-    // Shown, its light stands on the pod, in each frame drawn until the next game frame begins.
-    tractor.show(light_reach, .held);
-    try tractors.draw(gpa, &scene, scoop.mission.objects);
+    try std.testing.expectEqual(null, tractors.shown[0]);
+    // Shown, its light stands on the pod, reaching as far as the game has it, in each frame drawn
+    // until the next game frame begins. Drawing makes the beam, as solid as the game has it, and
+    // the bubble, as wide and glowing.
+    tractor.show(light_reach / 2, .held);
+    try tractors.draw(gpa, &scene, scoop.mission.objects, shields);
     try std.testing.expectEqual(1, scene.lights.items.len);
     try std.testing.expectEqual([3]f32{ 0, 0, 300 }, scene.lights.items[0].kind.point.position);
-    try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
+    try std.testing.expectEqual(light_reach / 2, scene.lights.items[0].kind.point.range);
+    try std.testing.expectEqual(2, scene.layers.get(.world).items.len);
+    const shown = tractors.shown[0].?;
+    try std.testing.expectEqual(null, shown.beams[0]);
+    try std.testing.expectEqual(0.5, shown.beams[1].?.colours[guns.blade_far[0]][3]);
+    try std.testing.expectEqual(300, shown.bubble.?.object.scale);
+    try std.testing.expectEqual(1, shown.bubble.?.colours[0][3]);
     try std.testing.expect(tractor.shown);
     tractors.beginFrame();
     try std.testing.expect(!tractor.shown);
     scene.clear();
-    try tractors.draw(gpa, &scene, scoop.mission.objects);
+    try tractors.draw(gpa, &scene, scoop.mission.objects, shields);
     try std.testing.expectEqual(0, scene.lights.items.len);
+    // Once the game lets the tractor go, drawing lets go of what it showed.
+    tractors.free(0);
+    try tractors.draw(gpa, &scene, scoop.mission.objects, shields);
+    try std.testing.expectEqual(null, tractors.shown[0]);
 }
 
 test Look {
@@ -895,24 +976,11 @@ test Look {
     try std.testing.expectEqual(Glow.halo, look.glow);
 }
 
-test fadeAll {
-    const gpa = std.testing.allocator;
-    var built: testing.Built = try .init(gpa);
-    defer built.deinit(gpa);
-    // Each beam there fades, and is let go; none is passed over.
-    var beams: [3]?*Beam = .{ null, null, null };
-    defer destroyAll(&beams, gpa);
-    beams[0] = try Beam.create(gpa, built.tractors.look, 0, 0, @splat(0));
-    beams[2] = try Beam.create(gpa, built.tractors.look, 0, 0, @splat(0));
-    fadeAll(&beams, 0.5);
-    for ([_]usize{ 0, 2 }) |n| try std.testing.expectEqual(0.5, beams[n].?.colours[guns.blade_far[0]][3]);
-}
-
 test Beam {
     const gpa = std.testing.allocator;
     var built: testing.Built = try .init(gpa);
     defer built.deinit(gpa);
-    const beam = try Beam.create(gpa, .{ .image = built.tractors.look.image, .glow = .none }, 3, 1, .{ 0, 10, 0 });
+    const beam = try Beam.create(gpa, .{ .image = built.tractors.look.image, .glow = .none }, .{ .ship = 3, .part = 1, .point = .{ 0, 10, 0 } });
     defer beam.destroy(gpa);
     // A square across the emitter and three ribbons along its axis.
     const far = guns.blade_far[0];
@@ -939,14 +1007,14 @@ test Beam {
     const moved: math.Place = .{ .position = part.position + Vector{ 0, 0, 50 }, .orientation = part.orientation };
     beam.hang(moved);
     try std.testing.expect(math.dot(math.forward(beam.object.orientation), along) > 0.9999);
-    try std.testing.expectApproxEqAbs(50, beam.object.position[2] - part.point(beam.point)[2], 1e-3);
+    try std.testing.expectApproxEqAbs(50, beam.object.position[2] - part.point(beam.from.point)[2], 1e-3);
 }
 
 test "a beam's glow" {
     const gpa = std.testing.allocator;
     var built: testing.Built = try .init(gpa);
     defer built.deinit(gpa);
-    const beam = try Beam.create(gpa, built.tractors.look, 3, 1, @splat(0));
+    const beam = try Beam.create(gpa, built.tractors.look, .{ .ship = 3, .part = 1, .point = @splat(0) });
     defer beam.destroy(gpa);
     // Three more ribbons, three times as wide, halfway round between the beam's.
     const first_glow = beam_quads * guns.blade_corners;
@@ -1084,14 +1152,14 @@ test scoopUp {
         try std.testing.expectEqual(point, beam.?.point);
         try std.testing.expectEqual(0, beam.?.part);
     }
-    try std.testing.expectEqual(300, tractor.bubble.?.object.scale);
+    try std.testing.expectEqual(300, tractor.bubble.?.scale);
     const door = &slot.model.?.parts[sounding_door].animation;
     try std.testing.expectEqual(opening, door.speed);
     // Its beams come on over a second, the pod then held still.
     mission.clock.frame_start = 60;
     scoopUp(ctx, nanny);
     try std.testing.expect(tractor.shown and tractor.aimed);
-    try std.testing.expectEqual(0.5, tractor.beams[0].?.colours[guns.blade_far[0]][3]);
+    try std.testing.expectEqual(0.5, tractor.solid[0]);
     mission.clock.frame_start = 110;
     scoopUp(ctx, nanny);
     try std.testing.expectEqual(.pulling, state.stage);
@@ -1129,7 +1197,7 @@ test scoopUp {
     // Going out, its light dims and its beams hang as they were.
     mission.clock.frame_start = 185;
     scoopUp(ctx, nanny);
-    try std.testing.expectApproxEqAbs(light_reach / 2, tractor.light.kind.point.range, 1e-2);
+    try std.testing.expectApproxEqAbs(light_reach / 2, tractor.reach, 1e-2);
     try std.testing.expect(!tractor.aimed);
     mission.clock.frame_start = 210;
     scoopUp(ctx, nanny);

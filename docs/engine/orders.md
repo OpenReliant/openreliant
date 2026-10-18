@@ -868,7 +868,9 @@ last two for that of its second ([SHP](../formats/shp.md)). An order shows them 
 (`0x00412200`), aimed and faded as a tractor's beams are: each from its pincer's point in the
 pincer's frame, to the middle of its pair of the pod's points taken in the frame the pod's
 `Cargo pod` part hangs from (the frame's parent, `+0x10`), which for the shipped pods is the pod's
-own place, so the beams stay on a pod that is disabled and not framed.
+own place, so the beams stay on a pod that is disabled and not framed. In OpenReliant, a set keeps
+where its beams come from and how solid they are, and drawing makes the beams as it first draws
+the set (`airipper.GripShown`).
 
 The Ripper's tracks play on every part of it that has them (`0x0049A400`): `ready to grab`, its
 forearms reaching out; `grab pod`, its pincers closing; and `cabin turn`. A step that waits for

@@ -718,7 +718,9 @@ game leaves the centre off the coordinates it turns, so the texture wanders.
 
 A shockwave of kind 6 makes a bubble flicker as a force field for 100 ticks: drawn over `ffield`,
 set on the level's mesh that every bubble at that level shares, it is lit a random grey one frame
-in four and dark on the rest, and its hits wait.
+in four and dark on the rest, and its hits wait. OpenReliant draws the flicker in the first frame
+drawn at each tick and keeps it, as the game draws one each game frame, so it flickers at the same
+pace at any frame rate and stands still while the game is paused.
 
 **Improvements:** the sparks fly out from the ship's centre through the point struck, where the game
 takes the point itself as their direction, so they fly toward the world's origin; and a bubble past
@@ -775,6 +777,8 @@ Once a frame after the bubbles, `capshields_draw` (`0x0049F950`) lets go of each
 - A force field's coordinates are thrown anywhere at random every frame, and its green is added to its blue.
 
 The game hands `capshield_create` the object's side but never stores it, so every capital shield glows in the friendly ramp. When a capital ship loses its hull, `force_field_mark` (`0x0049FCD0`) hides its force fields ([Splits](#splits)).
+
+OpenReliant lets the capital shields go in the game frames, where `capshields_draw` does (`Capital.frame`), and the game keeps each shield's part, until when it shows, and its strikes. Drawing keeps what each shows (`CapitalShown`): the copy, its hits and its colours, made as it first draws the shield, taking up each strike from the tick it struck at. A force field's coordinates jump once a tick, so they move at the same pace at any frame rate and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
 
 **Fixes:**
 

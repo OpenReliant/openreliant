@@ -754,6 +754,7 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     followCarrier(orders.world);
     if (orders.world.forces) |forces| forces.pushFrame(orders.world.clock.frame_start);
     if (orders.world.rays) |rays| rays.frame(orders.world.objects, orders.world.clock.frame_start, orders.world.effectsRandom());
+    if (orders.world.shields) |shields| shields.capital.frame(orders.world.objects, orders.world.clock.frame_start);
     orders.world.objects.exhaust.burn(orders.world);
     if (orders.world.explosions) |explosions| explosions.frame(orders.world);
     if (orders.world.countermeasures) |dropped| dropped.frame(orders.world);
@@ -1168,7 +1169,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     attachments.paused = frame.paused;
     const riding = wgate.ridingWorm(frame.gates);
     if (!riding) try drawObjects(gpa, arena, scene, frame.objects, attachments, frame.seat, if (frame.explosions) |explosions| &explosions.splits else null, frame.shown, frame.environment);
-    if (frame.tractors) |tractors| try tractors.draw(gpa, scene, frame.objects);
+    if (frame.tractors) |tractors| try tractors.draw(gpa, scene, frame.objects, frame.shields);
     if (frame.rippers) |rippers| try rippers.draw(gpa, scene, frame.objects);
     if (frame.jump_effects) |effects| try effects.draw(gpa, scene, frame.objects);
     try missiles.draw(frame.objects, gpa, scene, attachments);

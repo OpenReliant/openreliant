@@ -167,6 +167,11 @@ own, its texture laid on by each vertex's X and Y, hanging from the pod. `tracto
 brightness, 0 to 1, times 0.05, solid. In stages 4 and 5 it glows at its full, `t` being the seconds
 the stage has run. Each stage from 3 to 6 adds the beams, the bubble and the light to the scene.
 
+In OpenReliant, the tractor keeps where its beams come from and how solid each is, how its bubble
+glows, and how far its light reaches. Drawing makes the beams, the bubble and the light as it first
+draws the tractor (`tractor.Shown`), and aims, fades and glows them as Scoop Up has them
+([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
+
 ### Eject Fighter Attack
 
 `order_eject_fighter_attack` (`0x004161F0`) flies the Sabre at the pod, its target, and sets the
