@@ -5,7 +5,9 @@
 //! (`0x0048B590`) start one opening or closing, for a key, the game or a mission's script
 //! (`OpenInstrument` and `CloseInstrument`, which call a window an instrument); `hud_draw` moves
 //! each on once a frame and draws it with `hud_window_draw` (`0x00486830`): sliding and shrinking
-//! into place as it opens, the reverse as it closes, and in place while it is open.
+//! into place as it opens, the reverse as it closes, and in place while it is open. OpenReliant
+//! moves them on in the game frame (`hud.State.gameFrame`) and draws them as they stand
+//! (`Windows.draw`).
 //!
 //! Ported so far: the windows' phases and times, their frames, how they open and close with the
 //! display's sounds (`hud_beep` 1 and 2), and what windows 0, 1, 2, 3, 4, 7, 8, 10, 11 and 13 show
@@ -167,6 +169,22 @@ pub const Status = struct {
         const step: f32 = 1.0 / @as(f32, @floatFromInt(opening_ticks));
         return @as(f32, @floatFromInt(status.progress)) * step;
     }
+
+    /// How the window is drawn after the game frame has moved it on (`Windows.step`), or null for
+    /// one that is shut. A window that is opening or closing is drawn as far as it has opened,
+    /// through the pane. A window at its full size is drawn in place: an open one, and one whose
+    /// time has just run out, which the game draws in place once more as it starts closing. Any
+    /// other closing window has moved below its full size by the time it's drawn.
+    pub fn shown(status: Status) ?Shown {
+        return switch (status.phase) {
+            .shut => null,
+            .open => in_place,
+            .opening, .closing => if (status.progress == opening_ticks) in_place else .{
+                .scale = openingScale(status.opened()),
+                .buffered = true,
+            },
+        };
+    }
 };
 
 /// How a window is drawn this frame.
@@ -179,10 +197,13 @@ pub const Shown = struct {
     buffered: bool,
 };
 
+/// How an open window is drawn: at its own size, in place.
+const in_place: Shown = .{ .scale = 1, .buffered = false };
+
 pub const Windows = struct {
     status: std.EnumArray(Window, Status) = .initFill(.{}),
-    /// The display's sounds for the windows that have started opening and closing, which
-    /// `hud.draw` plays this frame.
+    /// The display's sounds for the windows that have started opening or closing, which the game
+    /// frame plays at the end of the display's work (`hud.State.gameFrame`).
     beeps: hud.Beeps = .{},
 
     /// `hud_window_open` (`0x0048B510`): starts `window` opening, with the display's sound, and
@@ -237,10 +258,9 @@ pub const Windows = struct {
     }
 
     /// One window's turn of `hud_draw`'s loop (`0x004863F3`): an opening or closing window moves on
-    /// by `frame_duration` ticks; an open one counts its time down and, once that has run out and
-    /// nothing holds it, starts closing, though it is drawn in place once more. Returns how the
-    /// window is drawn, or null for one that is shut.
-    pub fn step(windows: *Windows, window: Window, frame_duration: i32) ?Shown {
+    /// by `frame_duration` ticks. An open one counts its time down, and once that has run out and
+    /// nothing holds it, starts closing; it's still drawn in place once more (`Status.shown`).
+    pub fn step(windows: *Windows, window: Window, frame_duration: i32) void {
         const status = windows.status.getPtr(window);
         switch (status.phase) {
             .opening => {
@@ -259,35 +279,39 @@ pub const Windows = struct {
             },
             .shut, .open => {},
         }
-        switch (status.phase) {
-            .shut => return null,
-            .opening, .closing => return .{ .scale = openingScale(status.opened()), .buffered = true },
-            .open => {
-                if (status.left < 0 and !status.held) {
-                    status.left = 0;
-                    windows.close(window);
-                } else {
-                    // The time counts down by the frame's ticks as a halfword.
-                    status.left -= @as(i16, @truncate(frame_duration));
-                }
-                return .{ .scale = 1, .buffered = false };
-            },
+        if (status.phase != .open) return;
+        if (status.left < 0 and !status.held) {
+            status.left = 0;
+            windows.close(window);
+        } else {
+            // The time counts down by the frame's ticks as a halfword.
+            status.left -= @as(i16, @truncate(frame_duration));
         }
     }
 
-    /// `hud_draw`'s loop over the windows, which it runs in every view: each moves on, and in the
-    /// view ahead from the cockpit is drawn over the display, with what it shows where OpenReliant
-    /// draws that. The radio's window follows its line in every view (`hud.radio.frame`). In
-    /// mission 25's first part (`kamov`), the windows the Kamov lacks stand still, unseen
-    /// (`Window.kamovLacks`, `0x00486408`). Each window draws through its instrument's placing
-    /// (`hud.Placings`), which a mod's display may move or stand in for.
-    pub fn frame(windows: *Windows, pen: hud.Pen, placing: *hud.Placings, last_view: camera.View, frame_duration: i32, contents: Contents, kamov: bool) Canvas.Error!void {
+    /// The game's half of `hud_draw`'s loop over the windows, which runs in every view: each window
+    /// moves on by `frame_duration` ticks. In mission 25's first part (`kamov`), the windows the
+    /// Kamov lacks stand still (`Window.kamovLacks`, `0x00486408`).
+    pub fn run(windows: *Windows, frame_duration: i32, kamov: bool) void {
+        for (std.enums.values(Window)) |window| {
+            if (kamov and window.kamovLacks()) continue;
+            windows.step(window, frame_duration);
+        }
+    }
+
+    /// The drawing half of `hud_draw`'s loop over the windows: each window that isn't shut is drawn
+    /// as the game frame left it (`Status.shown`). In the view ahead from the cockpit, the windows
+    /// are drawn over the display, with what each shows for the windows whose contents are ported.
+    /// The radio's window is drawn in every view (`hud.radio.frame`). In mission 25's first part
+    /// (`kamov`), the windows the Kamov lacks aren't drawn. Each window is drawn through its
+    /// instrument's placing (`hud.Placings`), which a mod's display can move or replace.
+    pub fn draw(windows: *const Windows, pen: hud.Pen, placing: *hud.Placings, last_view: camera.View, contents: Contents, kamov: bool) Canvas.Error!void {
         const ahead = hud.instrumented(last_view);
         for (std.enums.values(Window)) |window| {
             if (kamov and window.kamovLacks()) continue;
-            const shown = windows.step(window, frame_duration) orelse continue;
+            const shown = windows.status.get(window).shown() orelse continue;
             const placed = if (hud.Instrument.ofWindow(window)) |instrument| placing.pen(pen, instrument) else pen;
-            try draw(windows, placed, window, shown, ahead, contents);
+            try drawWindow(windows, placed, window, shown, ahead, contents);
         }
     }
 };
@@ -475,7 +499,7 @@ test unlitRows {
 /// `hud_window_draw` (`0x00486830`): in the view ahead (`ahead`), each piece of the window's frame,
 /// from where its place stands, then what the window shows; the radio's window, which follows its
 /// line in every view, whatever the view.
-fn draw(windows: *Windows, pen: hud.Pen, window: Window, shown: Shown, ahead: bool, contents: Contents) Canvas.Error!void {
+fn drawWindow(windows: *const Windows, pen: hud.Pen, window: Window, shown: Shown, ahead: bool, contents: Contents) Canvas.Error!void {
     const at = anchor(pen.screen, window, shown, pen.scale);
     const size = pen.scale * shown.scale;
     const clip: ?hud.Clip = if (shown.buffered) bufferClip(window, at, size) else null;
@@ -503,10 +527,18 @@ fn draw(windows: *Windows, pen: hud.Pen, window: Window, shown: Shown, ahead: bo
         .objectives => if (contents.objectives) |objectives| try hud.objectives_window.draw(objectives, canvas),
         .comms => if (contents.comms) |comms| try radio_module.menu.draw(comms, canvas, radio_module.menu.window_at),
         .wing_status => if (contents.wing_status) |wing| try hud.wing_status.draw(wing, canvas),
+        // A form shows what it shows now while it's in place, and what it last showed as it
+        // shrinks away closing.
         else => if (hud.target_display.Form.of(window)) |form| if (contents.target_display) |scene| {
-            try scene.draw(form, phase == .closing, canvas);
+            try scene.draw(form, phase == .closing and shown.buffered, canvas);
         },
     }
+}
+
+/// Moves `window` on by `frame_duration` ticks, and returns how it's then drawn.
+fn stepShown(windows: *Windows, window: Window, frame_duration: i32) ?Shown {
+    windows.step(window, frame_duration);
+    return windows.status.get(window).shown();
 }
 
 test "a window sounds as it starts opening and as it starts closing" {
@@ -518,6 +550,17 @@ test "a window sounds as it starts opening and as it starts closing" {
     windows.close(.damage);
     windows.close(.gunnery);
     try std.testing.expectEqualSlices(hud.Beep, &.{ .opens, .closes }, windows.beeps.slice());
+}
+
+test "in mission 25's first part, the windows the Kamov lacks stand still" {
+    var windows: Windows = .{};
+    _ = windows.open(.gunnery, false);
+    _ = windows.open(.damage, false);
+    windows.run(10, true);
+    try std.testing.expectEqual(0, windows.status.get(.gunnery).progress);
+    try std.testing.expectEqual(10, windows.status.get(.damage).progress);
+    windows.run(10, false);
+    try std.testing.expectEqual(10, windows.status.get(.gunnery).progress);
 }
 
 test "Window.kamovLacks" {
@@ -533,21 +576,21 @@ test "a window opens, stays its time and closes" {
     try std.testing.expect(windows.open(.damage, false));
     try std.testing.expectEqual(Phase.opening, windows.status.get(.damage).phase);
     // Half open, it is drawn one and a half times its size; open, its own.
-    try std.testing.expectApproxEqAbs(1.5, windows.step(.damage, 30).?.scale, 1e-5);
+    try std.testing.expectApproxEqAbs(1.5, stepShown(&windows, .damage, 30).?.scale, 1e-5);
     try std.testing.expectApproxEqAbs(0.5, windows.status.get(.damage).opened(), 1e-6);
-    try std.testing.expectEqual(Shown{ .scale = 1, .buffered = false }, windows.step(.damage, 30).?);
+    try std.testing.expectEqual(Shown{ .scale = 1, .buffered = false }, stepShown(&windows, .damage, 30).?);
     try std.testing.expectEqual(Phase.open, windows.status.get(.damage).phase);
     try std.testing.expectEqual(1, windows.status.get(.damage).opened());
     // It stays its 1000 ticks, counted from the frame it opened in.
-    _ = windows.step(.damage, 969);
+    windows.step(.damage, 969);
     try std.testing.expectEqual(1, windows.status.get(.damage).left);
-    _ = windows.step(.damage, 2);
+    windows.step(.damage, 2);
     try std.testing.expectEqual(Phase.open, windows.status.get(.damage).phase);
     // Past them it starts closing, drawn in place that once more.
-    try std.testing.expectEqual(Shown{ .scale = 1, .buffered = false }, windows.step(.damage, 1).?);
+    try std.testing.expectEqual(Shown{ .scale = 1, .buffered = false }, stepShown(&windows, .damage, 1).?);
     try std.testing.expectEqual(Phase.closing, windows.status.get(.damage).phase);
-    try std.testing.expectApproxEqAbs(1.5, windows.step(.damage, 30).?.scale, 1e-5);
-    try std.testing.expectEqual(null, windows.step(.damage, 30));
+    try std.testing.expectApproxEqAbs(1.5, stepShown(&windows, .damage, 30).?.scale, 1e-5);
+    try std.testing.expectEqual(null, stepShown(&windows, .damage, 30));
     try std.testing.expectEqual(Phase.shut, windows.status.get(.damage).phase);
 }
 
@@ -555,8 +598,8 @@ test "a held window stays open" {
     var windows: Windows = .{};
     _ = windows.open(.gunnery, false);
     windows.status.getPtr(.gunnery).held = true;
-    _ = windows.step(.gunnery, 60);
-    for (0..10) |_| _ = windows.step(.gunnery, 1000);
+    windows.step(.gunnery, 60);
+    for (0..10) |_| windows.step(.gunnery, 1000);
     try std.testing.expectEqual(Phase.open, windows.status.get(.gunnery).phase);
     // Closing lets go of it.
     windows.close(.gunnery);
@@ -568,7 +611,7 @@ test "opening a closing window only gives it its time" {
     var windows: Windows = .{};
     _ = windows.open(.power, false);
     // Closed while still opening, it closes from its full size.
-    _ = windows.step(.power, 20);
+    windows.step(.power, 20);
     windows.close(.power);
     try std.testing.expectEqual(opening_ticks, windows.status.get(.power).progress);
     try std.testing.expect(!windows.up(.power));
@@ -584,13 +627,13 @@ test "the radio holds its window open without a sound" {
     try std.testing.expect(windows.status.get(.radio).held);
     try std.testing.expectEqual(0, windows.beeps.slice().len);
     // Held again as it closes, it opens again from however far it had closed.
-    _ = windows.step(.radio, opening_ticks);
+    windows.step(.radio, opening_ticks);
     windows.close(.radio);
-    _ = windows.step(.radio, 20);
+    windows.step(.radio, 20);
     windows.hold(.radio);
     try std.testing.expectEqual(Phase.opening, windows.status.get(.radio).phase);
     try std.testing.expectEqual(opening_ticks - 20, windows.status.get(.radio).progress);
-    for (0..10) |_| _ = windows.step(.radio, 1000);
+    for (0..10) |_| windows.step(.radio, 1000);
     try std.testing.expectEqual(Phase.open, windows.status.get(.radio).phase);
 }
 

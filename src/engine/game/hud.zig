@@ -2368,12 +2368,11 @@ pub const Frame = struct {
     hit_shake: f32,
     random: *Random,
     /// What the mission has ready for JUMP DRIVE.
-    ready: *Readiness,
+    ready: *const Readiness,
     edge_line: EdgeLine,
     multiplayer: bool = false,
-    /// The view this frame (`camera_view`), and the sound the locked tone plays through; none
-    /// where nothing is heard.
-    view: camera.View = .cockpit,
+    /// The sound the enemy lock's warning plays through (`State.warnOfLock`); none where nothing
+    /// is heard.
     sound: ?*hog_snd.Sound = null,
     /// The radio, whose window shows the speaker's face; none where nothing is heard.
     radio: ?*radio_module.Radio = null,
@@ -2586,18 +2585,21 @@ pub const Instrument = enum {
     }
 };
 
-/// `hud_draw` (`0x004843B0`): the display for a drawn frame, in its order, timed by the ticks the
-/// drawn frame spans (`main.Clock.drawnTicks`). First it takes the player's target and plays or
-/// ends the missile lock's tone (`missile_lock.Lock.sound`), in every view, and draws the launch's
-/// caption and `WaitForKey`'s prompt. In the view ahead from the cockpit it then draws the jump
-/// prompt, the target, the eject marker, the scanner and the status lights. In the views but the
-/// one ahead the view's name follows, and in the director's view the subtitle. The game also runs
-/// the devices' charges here, and the radio's wait for its window and its closes, which OpenReliant
-/// runs in the game frame (`State.runCharges`, `radio.Radio.step`).
-/// Then, in the view ahead, the instruments: the readouts, the ship status indicator, the
-/// targeting cluster, the radar, the reticle and the clock. Last, in every view, the windows move
-/// on, and in the view ahead are drawn.
-pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
+/// `hud_draw` (`0x004843B0`): draws the display for a drawn frame, in the game's order, timed by
+/// the ticks the drawn frame spans (`main.Clock.drawnTicks`). First come the launch's caption and
+/// `WaitForKey`'s prompt. In the view ahead from the cockpit, the jump prompt, the target, the
+/// eject marker, the scanner and the status lights follow. Other views show their name, and the
+/// director's view its subtitle. Then come the message lines, and in the view ahead the
+/// instruments: the readouts, the ship status indicator, the targeting cluster, the radar, the
+/// reticle and the clock. The windows come last, as the game frame left them
+/// (`windows.Windows.draw`). `drawing` holds what drawing keeps from one frame to the next.
+///
+/// The game also does its own work in `hud_draw`, which OpenReliant does in the game frame:
+/// following the player's target, the missile lock's tone, bringing up the jump prompt, the
+/// devices' charges, moving the windows on and playing their sounds (`State.gameFrame`), the
+/// radar's zoom (`State.zoomRadar`), and the radio's wait for its window and its closes
+/// (`radio.Radio.step`).
+pub fn draw(state: *State, drawing: *Drawing, resources: *Resources, frame: Frame) Error!void {
     const slot = &frame.all.slots[frame.all.player];
     const live = &slot.object;
     const frame_duration = frame.clock.drawn_duration;
@@ -2620,8 +2622,6 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
     defer placing.keep(state);
     state.flashes = .{};
     state.messages.expire(frame.clock.frame_start);
-    state.followTarget(frame.all, frame.multiplayer);
-    if (frame.sound) |sound| state.lock.sound(sound, frame.view);
     try state.caption.draw(placing.pen(pen, .caption), frame.all.mission_number, frame.clock.game_ticks);
     try state.key_prompt.draw(placing.pen(pen, .key_prompt), frame.devices);
     // Where the lead cursor stands, which the reticle closes on, and whether the enemy lock's
@@ -2630,7 +2630,7 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
     var lock_lit = false;
     const speaker = if (frame.radio) |on_air| on_air.speakingShip(&state.windows, frame.all) else null;
     if (ahead) {
-        try state.drawJumpPrompt(frame.ready, placing.pen(pen, .jump_prompt), frame_duration);
+        try drawing.drawJumpPrompt(state.prompts, frame.ready, placing.pen(pen, .jump_prompt), frame_duration);
         if (frame.sight) |sight| {
             const scene: TargetScene = .{ .sight = sight, .all = frame.all, .mode = frame.mode, .speaker = speaker };
             lead = try drawTarget(state, placing.pen(pen, .target_markers), &resources.target_fonts, scene, frame.edge_line);
@@ -2657,8 +2657,7 @@ pub fn draw(state: *State, resources: *Resources, frame: Frame) Error!void {
         .comms = .{ .menu = &frame.player.menu, .font = &resources.target_fonts.new },
         .wing_status = .{ .all = frame.all },
     };
-    try state.windows.frame(pen, &placing, frame.last_view, frame_duration, contents, frame.all.kamovPart());
-    state.windows.beeps.play(frame.sound, frame.view);
+    try state.windows.draw(pen, &placing, frame.last_view, contents, frame.all.kamovPart());
 }
 
 /// The first gun of the group the ship has chosen (`GunMode.group`), which blind fire and the
@@ -3732,8 +3731,9 @@ pub const State = struct {
     /// The count the eject marker flashes by (`0x00569938`), which the Eject Player order starts
     /// again.
     eject_ticks: i32 = 0,
-    /// The count the jump prompt flashes by (`0x00566790`).
-    prompt_ticks: i32 = 0,
+    /// How many times the jump prompt has come up (`readyPrompt`). Each time restarts its flash
+    /// where it's drawn (`Drawing.jumpPrompt`).
+    prompts: u32 = 0,
     /// The scanner's frame (`0x0057BC34`), 0 to 4, and the tick it next moves on at
     /// (`0x005667B0`).
     scanner_frame: u8 = 0,
@@ -3817,14 +3817,47 @@ pub const State = struct {
         state.missiles.name_voice = null;
     }
 
-    /// `hud_draw`'s work on the devices' charges for a frame of `frame_duration` ticks, which it
-    /// does in every view: a device that runs dry is turned off, and the player's ship uncloaks as
-    /// the cloak's runs dry (`input.setCloak`). The cloak's charge runs only outside a multiplayer
-    /// game.
+    /// The game's own work in `hud_draw`, which OpenReliant does in the game frame
+    /// (`main.missionFrame`), in `hud_draw`'s order. The display follows the player's target
+    /// (`followTarget`) and plays or ends the missile lock's tone (`missile_lock.Lock.sound`). In
+    /// the view ahead from the cockpit, a jump or warp the mission has newly readied (`ready`)
+    /// brings up the jump prompt (`readyPrompt`). Then the devices' charges run (`runCharges`), the
+    /// windows move on (`windows.Windows.run`), and last, the windows' sounds play.
     ///
-    /// **Improvement:** the game runs the charges as it draws the display, over the drawn frame's
-    /// ticks; OpenReliant runs them in the game frame (`main.missionFrame`), once a tick, so how
-    /// long a device lasts doesn't depend on what is drawn.
+    /// **Improvement:** the game does this as it draws the display, over the drawn frame's ticks.
+    /// OpenReliant does it once a tick, so the devices drain and the windows open and close at the
+    /// same pace at any frame rate, and none of it depends on drawing.
+    pub fn gameFrame(state: *State, world: gameobj.World, ready: ?*Readiness) void {
+        const all = world.objects;
+        const frame_duration = world.clock.frame_duration;
+        const ahead = instrumented(world.player.viewing.last);
+        const sound = if (world.hearing) |hearing| hearing.sound else null;
+        state.followTarget(all, false);
+        if (sound) |heard| state.lock.sound(heard, world.view());
+        if (ahead) if (ready) |set| state.readyPrompt(set);
+        state.runCharges(world, frame_duration, false);
+        state.windows.run(frame_duration, all.kamovPart());
+        state.windows.beeps.play(sound, world.view());
+    }
+
+    /// `hud_radar_zoom` (`0x004892F0`), which `hud_draw` runs after it draws the radar: in the view
+    /// ahead from the cockpit, on a ship with the targeting cluster's gauges, the rings step on
+    /// while they move (`stepRadarZoom`). OpenReliant runs it at the start of the next game frame,
+    /// before the controls (`main.missionFrame`), so the rings drawn after a game frame are the
+    /// ones the game draws in it.
+    ///
+    /// **Improvement:** the game steps the rings once a drawn frame. OpenReliant steps them once a
+    /// tick, so the zoom takes the same time at any frame rate.
+    pub fn zoomRadar(state: *State, world: gameobj.World) void {
+        if (!instrumented(world.player.viewing.last)) return;
+        if (Cluster.Gauges.of(&world.objects.slots[world.objects.player]) == null) return;
+        stepRadarZoom(state, world.clock.game_ticks);
+    }
+
+    /// `hud_draw`'s work on the devices' charges for a frame of `frame_duration` ticks, which it
+    /// does in every view (`gameFrame`): a device that runs dry is turned off, and the player's
+    /// ship uncloaks as the cloak's runs dry (`input.setCloak`). The cloak's charge runs only
+    /// outside a multiplayer game.
     pub fn runCharges(state: *State, world: gameobj.World, frame_duration: i32, multiplayer: bool) void {
         const object = &world.objects.slots[world.objects.player].object;
         if (state.devices.getPtr(.ecm).run(.ecm, frame_duration)) input.setEcm(state, object, false);
@@ -3978,29 +4011,14 @@ pub const State = struct {
         }
     }
 
-    /// The prompt for JUMP DRIVE (`hud_jump_prompt`, `0x00482FA0`): the shape it draws in a frame
-    /// of `frame_duration`, if any. A warp the mission has ready comes before a jump. The frame one
-    /// becomes ready the prompt starts its flash and draws nothing.
-    pub fn jumpPrompt(state: *State, ready: *Readiness, frame_duration: i32) ?u16 {
-        const which: *Ready, const shape: u16 = switch (JumpPrompt.Kind.of(ready.*)) {
-            .warp => .{ &ready.warp, JumpPrompt.warp_shape },
-            .jump => .{ &ready.jump, JumpPrompt.jump_shape },
-        };
-        switch (which.*) {
-            .newly => {
-                state.prompt_ticks = 0;
-                which.* = .shown;
-                return null;
-            },
-            .shown => return if (Flash.slow.step(&state.prompt_ticks, frame_duration)) shape else null,
-            else => return null,
-        }
-    }
-
-    /// Draws the jump prompt, flashing above the middle of the screen.
-    pub fn drawJumpPrompt(state: *State, ready: *Readiness, pen: Pen, frame_duration: i32) Error!void {
-        const shape = state.jumpPrompt(ready, frame_duration) orelse return;
-        try pen.shape(shape, pen.placed(JumpPrompt.offset, 0.5, 0.5));
+    /// `hud_jump_prompt`'s work on what the mission has ready (`0x00482FA0`): if the prompt it
+    /// picks, a warp's before a jump's, is newly ready, it's marked as shown and the prompt comes
+    /// up, which starts its flash (`Drawing.jumpPrompt`).
+    pub fn readyPrompt(state: *State, ready: *Readiness) void {
+        const which = ready.of(JumpPrompt.Kind.of(ready.*));
+        if (which.* != .newly) return;
+        which.* = .shown;
+        state.prompts +%= 1;
     }
 
     /// The eject marker (`hud_eject_marker`, `0x004830B0`): the pilot rising out of the ship,
@@ -4039,7 +4057,6 @@ pub const State = struct {
         try ShipStatus.draw(status, .player, status_pen, status_pen.placed(ShipStatus.offset, ShipStatus.across, ShipStatus.down), null);
         try drawCluster(placing.pen(pen, .gauges), gauges);
         try drawRadar(placing.pen(pen, .radar), state, frame.all, speaker);
-        stepRadarZoom(state, frame.clock.game_ticks);
         state.blind_fire_aims = try drawReticle(state, placing.pen(pen, .reticle), frame.mode, lead, blindFire(state, slot), frame_duration);
         const time = clockTime(frame.all, frame.clock.play, frame.variables);
         try drawClock(placing.pen(pen, .clock), time[0], time[1]);
@@ -4081,11 +4098,49 @@ test "State.reset" {
     try std.testing.expect(state.smart_targeting);
 }
 
+/// What drawing keeps of the display from one drawn frame to the next, apart from the display's
+/// state in the game (`State`).
+pub const Drawing = struct {
+    /// The count the jump prompt flashes by (`0x00566790`).
+    prompt_ticks: i32 = 0,
+    /// How many times the jump prompt had come up when it was last drawn (`State.prompts`).
+    prompts_seen: u32 = 0,
+
+    /// The prompt for JUMP DRIVE (`hud_jump_prompt`, `0x00482FA0`): the shape it draws for what
+    /// the mission has `ready` in a frame of `frame_duration`, if any. The first frame drawn after
+    /// the prompt comes up (`prompts`, `State.readyPrompt`) starts its flash and draws nothing.
+    pub fn jumpPrompt(drawing: *Drawing, prompts: u32, ready: *const Readiness, frame_duration: i32) ?u16 {
+        const kind: JumpPrompt.Kind = .of(ready.*);
+        if (ready.of(kind).* != .shown) return null;
+        if (drawing.prompts_seen != prompts) {
+            drawing.prompts_seen = prompts;
+            drawing.prompt_ticks = 0;
+            return null;
+        }
+        return if (Flash.slow.step(&drawing.prompt_ticks, frame_duration)) kind.shape() else null;
+    }
+
+    /// Draws the jump prompt, flashing above the middle of the screen.
+    pub fn drawJumpPrompt(drawing: *Drawing, prompts: u32, ready: *const Readiness, pen: Pen, frame_duration: i32) Error!void {
+        const shape = drawing.jumpPrompt(prompts, ready, frame_duration) orelse return;
+        try pen.shape(shape, pen.placed(JumpPrompt.offset, 0.5, 0.5));
+    }
+};
+
 /// What the mission has ready for JUMP DRIVE: the first two of the game's variables a script sets
 /// (`vm.Variables`).
 pub const Readiness = extern struct {
     jump: Ready = .no,
     warp: Ready = .no,
+
+    /// Points to the readiness of `kind`, the jump's or the warp's. `readiness` may be a const
+    /// pointer, and then so is the result.
+    pub fn of(readiness: anytype, kind: JumpPrompt.Kind) @TypeOf(&readiness.jump) {
+        return switch (kind) {
+            .jump => &readiness.jump,
+            .warp => &readiness.warp,
+        };
+    }
 
     comptime {
         assert(@sizeOf(Readiness) == 8);
@@ -4107,16 +4162,25 @@ pub const JumpPrompt = struct {
         /// The name scripts know these by.
         pub const script_name = "HudJumpPrompt";
 
-        /// The prompt `ready` picks (`jumpPrompt`).
+        /// The prompt `ready` picks (`State.readyPrompt`, `Drawing.jumpPrompt`).
         pub fn of(ready: Readiness) Kind {
             return if (ready.warp != .no) .warp else .jump;
         }
+
+        /// The shape the prompt flashes.
+        pub fn shape(kind: Kind) u16 {
+            return switch (kind) {
+                .jump => jump_shape,
+                .warp => warp_shape,
+            };
+        }
     };
 
-    /// The prompt that is up for `ready`, flashing, as `jumpPrompt` draws it; null for none.
+    /// The prompt that is up for `ready`, flashing, as `Drawing.jumpPrompt` draws it; null for
+    /// none.
     pub fn shown(ready: Readiness) ?Kind {
         const kind: Kind = .of(ready);
-        return switch (if (kind == .warp) ready.warp else ready.jump) {
+        return switch (Readiness.of(&ready, kind).*) {
             .newly, .shown => kind,
             else => null,
         };
@@ -4625,6 +4689,44 @@ test Sight {
     try std.testing.expectEqual(sight.middle(), sight.pixel(sight.view(.{ 0, 0, 1000 })).?);
 }
 
+test "State.gameFrame" {
+    var t: TargetingTest = undefined;
+    try t.init();
+    defer t.deinit();
+    const all = t.mission.objects;
+    const sabre = try t.add(.of(.sabre), .{ 0, 0, 5000 });
+    all.slots[all.player].orders[0].target = .at(sabre, null);
+    t.mission.clock.frame_duration = 1;
+    _ = t.state.windows.open(.damage, false);
+    var ready: Readiness = .{ .jump = .newly };
+    // In any view, the display follows the player's target, and the windows move on and play
+    // their sounds.
+    t.state.gameFrame(t.mission.world(), &ready);
+    try std.testing.expectEqual(sabre, t.state.target.?.slot);
+    try std.testing.expectEqual(1, t.state.windows.status.get(.damage).progress);
+    try std.testing.expectEqual(0, t.state.windows.beeps.slice().len);
+    // The jump prompt comes up only in the view ahead.
+    try std.testing.expectEqual(.newly, ready.jump);
+    t.mission.player.viewing.last = .cockpit;
+    t.state.gameFrame(t.mission.world(), &ready);
+    try std.testing.expectEqual(.shown, ready.jump);
+    try std.testing.expectEqual(1, t.state.prompts);
+}
+
+test "State.zoomRadar" {
+    var t: TargetingTest = undefined;
+    try t.init();
+    defer t.deinit();
+    t.mission.player.viewing.last = .cockpit;
+    try std.testing.expect(nextRadarRange(&t.state, .cockpit, 0));
+    // The rings step on in the view ahead, and stand still in the others.
+    t.state.zoomRadar(t.mission.world());
+    try std.testing.expectEqual(Radar.first_rings - 1, t.state.radar_rings);
+    t.mission.player.viewing.last = .chase;
+    t.state.zoomRadar(t.mission.world());
+    try std.testing.expectEqual(Radar.first_rings - 1, t.state.radar_rings);
+}
+
 test "the display follows the player's target" {
     var t: TargetingTest = undefined;
     try t.init();
@@ -4875,20 +4977,31 @@ test "the countermeasures readout flashes with its icon" {
 }
 
 test "the jump prompt waits a frame, and a warp comes first" {
-    var state: State = .{ .prompt_ticks = 70 };
+    var state: State = .{};
+    var drawing: Drawing = .{ .prompt_ticks = 70 };
     var ready: Readiness = .{ .jump = .newly, .warp = .newly };
-    // The first frame starts the warp's flash and draws nothing; the jump waits its turn.
-    try std.testing.expectEqual(null, state.jumpPrompt(&ready, 10));
+    // Newly ready, it isn't drawn.
+    try std.testing.expectEqual(null, drawing.jumpPrompt(state.prompts, &ready, 10));
+    // The game brings up the warp's prompt; the jump waits its turn.
+    state.readyPrompt(&ready);
     try std.testing.expectEqual(.shown, ready.warp);
     try std.testing.expectEqual(.newly, ready.jump);
-    try std.testing.expectEqual(0, state.prompt_ticks);
+    // The first frame drawn after that starts its flash and draws nothing.
+    try std.testing.expectEqual(null, drawing.jumpPrompt(state.prompts, &ready, 10));
+    try std.testing.expectEqual(0, drawing.prompt_ticks);
     // Then the warp's shape flashes.
-    try std.testing.expectEqual(JumpPrompt.warp_shape, state.jumpPrompt(&ready, 10));
-    try std.testing.expectEqual(null, state.jumpPrompt(&ready, 40));
+    try std.testing.expectEqual(JumpPrompt.warp_shape, drawing.jumpPrompt(state.prompts, &ready, 10));
+    try std.testing.expectEqual(null, drawing.jumpPrompt(state.prompts, &ready, 40));
     // With the warp taken, the jump comes up.
     ready.warp = .no;
-    try std.testing.expectEqual(null, state.jumpPrompt(&ready, 10));
-    try std.testing.expectEqual(JumpPrompt.jump_shape, state.jumpPrompt(&ready, 10));
+    state.readyPrompt(&ready);
+    try std.testing.expectEqual(.shown, ready.jump);
+    try std.testing.expectEqual(null, drawing.jumpPrompt(state.prompts, &ready, 10));
+    try std.testing.expectEqual(JumpPrompt.jump_shape, drawing.jumpPrompt(state.prompts, &ready, 10));
+    // Shown already, it doesn't come up again.
+    const prompts = state.prompts;
+    state.readyPrompt(&ready);
+    try std.testing.expectEqual(prompts, state.prompts);
 }
 
 test "the scanner moves on once 25 ticks have passed" {
@@ -6088,10 +6201,9 @@ pub fn nextRadarRange(state: *State, view: camera.View, game_ticks: u32) bool {
     return true;
 }
 
-/// `hud_radar_zoom` (`0x004892F0`), which `hud_draw` runs after the radar: while the rings are
-/// moving, a step toward the range's. It steps while `game_ticks` is short of the tick it keeps
-/// `zoom_ticks` ahead, and puts that tick ahead again as it steps, so the rings step once each
-/// frame the radar is drawn.
+/// `hud_radar_zoom` (`0x004892F0`): while the rings are moving, steps them once toward the range's
+/// (`State.zoomRadar`). It steps while `game_ticks` is short of the tick it keeps `zoom_ticks`
+/// ahead, and moves that tick ahead again as it steps, so the rings step every time it runs.
 pub fn stepRadarZoom(state: *State, game_ticks: u32) void {
     const zoom = &(state.radar_zoom orelse return);
     if (@as(i32, @bitCast(zoom.next)) <= @as(i32, @bitCast(game_ticks))) return;

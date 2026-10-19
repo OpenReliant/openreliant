@@ -64,7 +64,7 @@ pub const Shown = struct {
 /// **Improvement:** the game writes the name before it draws the film. Where the game puts them
 /// they don't overlap, so the order shows nothing; OpenReliant draws the film first, so that a name
 /// a mod's display moves onto the face stays on top (`hud.parts`).
-pub fn frame(shown: Shown, held: *windows.Windows, canvas: windows.Canvas, ahead: bool) windows.Canvas.Error!void {
+pub fn frame(shown: Shown, held: *const windows.Windows, canvas: windows.Canvas, ahead: bool) windows.Canvas.Error!void {
     const radio = shown.radio;
     const movie = &radio.movie;
     const first = firstShape(radio.side);
