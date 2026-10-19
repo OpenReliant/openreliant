@@ -265,9 +265,17 @@ object's `blind_fire_aim` (`+0x674`) says whether blind fire aims, and the playe
 at the lead cursor's point (`hud_lead_point`, `0x0057C260`).
 
 OpenReliant draws all of it, and aims the player's shots at the lead cursor's point
-([Guns](guns.md#shots)). The display keeps whether blind fire aimed as it last drew the reticle
-(`hud.State.blind_fire_aims`), and the next game frame sets the ship's `blind_fire_aim` from it
-before reading the controls, so that the game reads nothing that drawing writes.
+([Guns](guns.md#shots)). Drawing keeps blind fire's sight (`hud.Drawing.sight`), and hands the
+game whether blind fire aimed as it last drew the reticle, with the object under the reticle
+(`hud.Aim`, [Picking a target](#picking-a-target)). The next game frame sets the ship's
+`blind_fire_aim` from it before reading the controls.
+
+**Improvement:** the game works out the lead cursor's point as it draws the target, and only while
+the target is on the screen. OpenReliant's game frame works it out from the objects as the game
+frame places them (`hud.State.leadTarget`), so blind fire's shots don't depend on what is drawn.
+Blind fire aims only while the lead cursor is near the middle of the screen, so its shots fly at
+the same point. Drawing works out its own, from the scene it draws, for the lead cursor and the
+chase view's mark.
 
 ### The chase view
 
@@ -322,7 +330,9 @@ closes both.
 
 `hud_target_keys` first finds the object under the reticle (`hud_under_reticle`, `0x00566664`): the
 first other than the player's in front of the camera within `0x20` of the middle of the screen
-either way. It then reads, in this order:
+either way. OpenReliant's drawing finds it as it draws the display, in the scene it draws
+(`hud.underReticle`), and hands it to the game with the keys (`hud.State.aim`). The keys are then
+read in this order:
 
 | Key | Does |
 | --- | --- |
