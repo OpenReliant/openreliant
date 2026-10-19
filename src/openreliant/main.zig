@@ -698,6 +698,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .player = &player,
         .view = &view,
         .radio = &radio,
+        .film = .init(gpa),
         .random = &drawn_random,
         .strings = &strings,
         .pause_menu = &pause_menu,
@@ -710,6 +711,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         },
     };
     defer display.resources.deinit(gpa);
+    defer display.film.deinit();
     own.ui_scale = &display.ui_scale;
     world.display = &display.state;
     // A switch of view picks the subtarget's parts out in red or puts them back, and is refused
@@ -2383,7 +2385,9 @@ const Display = struct {
     /// The camera, whose shake shakes the power ball too.
     view: *const camera.Camera,
     /// The radio, whose window shows the speaker's face.
-    radio: *game.radio.Radio,
+    radio: *const game.radio.Radio,
+    /// The speaker's face film as drawing decodes it, following the radio's.
+    film: game.hudmovie.Picture,
     /// The game's random numbers (`Random`), which the camera and the display both draw from.
     random: *engine.random.Random,
     /// The display's own state, `hud.cpp`'s globals.
@@ -2471,6 +2475,7 @@ const Display = struct {
             .hit_shake = display.view.shake_left,
             .sound = display.settings.sound,
             .radio = display.radio,
+            .film = &display.film,
             .random = display.random,
             .ready = if (display.play.loaded) |loaded| &loaded.script.variables.ready else &display.idle,
             .edge_line = display.edge_line,

@@ -1366,7 +1366,10 @@ test Radio {
     try std.testing.expectEqual(pilots.faces[0].name, radio.name.?);
     try std.testing.expectEqual(@as(i32, wingman), radio.object);
     try std.testing.expect(radio.movie.playing and radio.movie.waiting);
-    try std.testing.expectEqual([4]u8{ 0x40, 0x40, 0x40, 0xFF }, radio.movie.rgba[0..4].*);
+    var picture: hudmovie.Picture = .init(gpa);
+    defer picture.deinit();
+    picture.follow(&radio.movie);
+    try std.testing.expectEqual([4]u8{ 0x40, 0x40, 0x40, 0xFF }, picture.rgba[0..4].*);
     try std.testing.expect(!radio.speaking(ctx.frame_start));
     radio.waitForWindow(ctx, speech_delay - 1);
     try std.testing.expect(!radio.speaking(ctx.frame_start));
