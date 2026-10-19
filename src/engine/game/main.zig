@@ -426,8 +426,9 @@ pub const Frame = struct {
     /// (`frame_duration`), which it counts down.
     flash: ?*flash.Flash = null,
     ticks: i32 = 0,
-    /// The display's interference, which the flash shows red in the view ahead and then fades.
-    interference: ?*hud.Interference = null,
+    /// The display's interference as drawing keeps it, which the flash shows red in the view ahead
+    /// and then fades.
+    interference: ?*hud.Interference.Shown = null,
     /// Whether the game is paused, which holds the bubbles' colours still.
     paused: bool = false,
 };
@@ -2272,8 +2273,6 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
         break :marker null;
     };
     start.types.sweep(&all.types, &drawn_types);
-    // The schematics the target display last showed went with the types let go.
-    start.display.target_pictures = .{};
     for (try loaded.bound.ships()) |ship| {
         const kind: gameobj.Type = @fromBackingInt(ship.kind);
         if (kind.hasStats()) _ = types.load(types.context, @intCast(kind.number()));

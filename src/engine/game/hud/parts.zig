@@ -5,7 +5,7 @@
 //! a part without standing in for its instrument, and gives a text part another alignment or
 //! other words (`Placement`). Each part draws through a placing of its own inside its instrument's
 //! (`hud.Pen.partTextIn`, `hud.Pen.partImage`), so it grows from its own place, and where it draws
-//! is kept for the scripts (`hud.State.part_bounds`).
+//! is kept for the scripts (`hud.Drawing.part_bounds`).
 //!
 //! **Improvement:** OpenReliant's, for the mods' displays.
 

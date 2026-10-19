@@ -38,11 +38,18 @@ Each panel but the ship status is one of the display's [windows](#the-windows), 
 
 **Improvement:** `hud_draw` also does work on the game, over the drawn frame's ticks. OpenReliant
 does that work in the game frame, once a tick, and draws the display from what it leaves
-(`hud.draw`). The game frame follows the player's target, plays and ends the missile lock's tone,
-brings up the jump prompt, runs the devices' charges, moves the windows on and plays their sounds
-(`hud.State.gameFrame`), and steps the radar's rings (`hud.State.zoomRadar`). These keep the same
-pace at any frame rate, and none of them depends on drawing. The jump prompt's flash count, which
-only drawing uses, is kept apart from the game's state (`hud.Drawing`).
+(`hud.draw`). The game frame drops the message line whose time is up, follows the player's target,
+plays and ends the missile lock's tone, brings up the jump prompt, runs the devices' charges, moves
+the windows on and plays their sounds (`hud.State.gameFrame`), and steps the radar's rings
+(`hud.State.zoomRadar`). These keep the same pace at any frame rate, and none of them depends on
+drawing.
+
+What only drawing uses, such as the flashes' counts, the caption's typing, the scanner's frame and
+the interference's level, OpenReliant keeps apart from the game's state (`hud.Drawing`). Where the
+game starts one of these again, as an Eject Player order starts the eject marker's flash, it counts
+the event (`hud.Events`), and drawing takes it up as the next drawn frame begins
+(`hud.Drawing.takeUp`), however many game frames have passed. A mission's start counts as one too,
+and drawing then resets its part of what `hud_init` resets.
 
 `mission_frame` itself calls only three of the file's routines: the windows' `hud_window_open` (`0x0048B510`) and `hud_window_close` (`0x0048B590`); the subtarget (`0x0048CC30`), which walks the target's assembly by `link_id`; and `hud_message_add`
 (`0x0048CEB0`), which adds one of the display's message lines.
@@ -173,6 +180,10 @@ no green or blue, in view 0 unless `exhaust_burning` (`0x0054EA7C`) is set, whil
 stands in a capital ship's engine exhaust and the flash shows white instead
 ([Effects](effects.md#engine-exhaust)), and then fades it by 0.005 for each tick since it last did
 (`0x00588728`, `hud_interference_fade`, `0x004948F0`).
+
+OpenReliant's game frame plays the sound and counts the hit (`hud.State.startInterference`).
+Drawing keeps the level: it sets it to 0.3 as it takes the hit up, and fades it once the flash has
+drawn it (`hud.Interference.Shown`).
 
 While it is above 0, the display draws much of what it shows through `hud_blit` (`0x0048C6E0`)
 rather than `VFX_shape_draw`: under the hardware renderers each row of the shape moves right by a
@@ -494,7 +505,8 @@ have no rings.
 `object_armor_damage` marks the quadrant each hit on the armour wears: `ship_status_hits`
 (`0x00563160`) for the player's own ship, `target_status_hits` (`0x005635D4`) for the target of its
 current order. The indicator draws a marked quadrant once, as shape 1 to 4 of the schematic, and
-clears the mark.
+clears the mark. OpenReliant's game counts the hits on each quadrant (`hud.Events`), and the
+indicator draws a quadrant whose count has grown since it last drew it (`hud.NewHits`).
 
 | Mode | Draws | From |
 | --- | --- | --- |
@@ -640,7 +652,9 @@ that runs past 100 carries what it ran over into the next hundred, lit. `hud_dra
 the light's own condition does not already hold, so an icon's flash stands still while it does. The
 display reads icons 0 to 5: 3 is the countermeasures readout, 5 the eject marker. `hud_init` turns
 every icon off as a mission starts. **Fix:** the game writes past the table for an icon of 20 or
-more; OpenReliant leaves such an icon alone.
+more; OpenReliant leaves such an icon alone. OpenReliant keeps each icon's state with the game
+(`hud.Icons`), and its flash count with drawing (`hud.Drawing.icon_ticks`), which starts the count
+again as it takes up each `ShowHudIcon`.
 
 `enemy_lock` is set by `mission_frame` each frame, in its pass that draws the objects, when a ship
 whose order is Fight, against the player, has its missile ready (byte `0x2F` of its fight state,
@@ -762,8 +776,9 @@ object explodes, and at a mission's start.
 OpenReliant draws all three, the jump prompt by the mission script's variables (`vm.Variables`), and
 beeps as the game does ([`main/scanner.zig`](../../src/engine/game/main/scanner.zig)). It sets the
 variable to 2 in the game frame (`hud.State.readyPrompt`), and the first frame drawn after that
-starts the prompt's flash and draws nothing (`hud.Drawing.jumpPrompt`). Mission 0 readies no
-jump and scans nothing.
+starts the prompt's flash and draws nothing (`hud.Drawing.jumpPrompt`). Drawing keeps the eject
+marker's flash and the scanner's frame, which it starts again as it takes up an Eject Player order
+or a `Scanner` command (`hud.Drawing.takeUp`). Mission 0 readies no jump and scans nothing.
 
 ## Art
 
@@ -796,7 +811,8 @@ each, oldest first, which `hud_init` clears by copying the empty string at `0x00
 before anything else, one a frame. The multiplayer kill messages come through them, and in a network
 session one message of `mission_frame`'s, language string `0x558`, once the local player is the
 first player still flying but not the first player slot: nothing adds one in a single-player game.
-OpenReliant keeps the lines and draws them as the game does (`hud.Messages`).
+OpenReliant keeps the lines and draws them as the game does (`hud.Messages`), and drops them in the
+game frame, one a tick (`hud.State.gameFrame`).
 
 **Fix:** the game copies a line whole into its hundred bytes, and so runs into the next line, or
 past the last, with a longer one. OpenReliant keeps a line's first 99 bytes.
@@ -1044,7 +1060,9 @@ foot of the screen, 50 from the left and 30 up, in the display's font and colour
 shows each time the game's ticks pass the time kept at `0x0057BF44`, which then moves 8 on, the
 count kept at `0x005799E0`, and a cursor, `_`, follows the letters until the whole date shows, a
 letter's time after its last. `hud_init` clears it, and the launch's start and end set and clear the
-flag at `0x00569934` that shows it.
+flag at `0x00569934` that shows it. OpenReliant's game keeps the flag and the tick the launch put
+the date on at (`hud.State.startCaption`), and drawing types it out from that tick
+(`hud.Caption.Typing`).
 
 ## The key prompt
 

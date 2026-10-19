@@ -941,10 +941,11 @@ fn bindingHeld(devices: *const input.Devices, binding: input.controls.Binding) b
 }
 
 /// `cmd_ShowHudIcon` (`0x0045A1F0`, command `0x5B`): sets the display's icon the first argument
-/// numbers off, on or flashing, as the second says, its flash from the start (`hud.Icons.show`).
+/// numbers off, on or flashing, as the second says, its flash from the start
+/// (`hud.State.showIcon`).
 fn showHudIcon(call: Call, game: aigeneric.Context) void {
     const display = game.world.display orelse return;
-    display.icons.show(@fromBackingInt(call.args[0]), @fromBackingInt(call.args[1]));
+    display.showIcon(@fromBackingInt(call.args[0]), @fromBackingInt(call.args[1]));
 }
 
 /// `cmd_MultiPlayerSync` (`0x004591E0`, command `0x2D`): the thread yields until it runs next. In a
@@ -2462,15 +2463,14 @@ test "Scanner looks for a ship, and Fire holds its trigger" {
     try guns.testing.fitTo(slot, gpa, &.{guns.testing.barrel(.of(.laser_cannon))});
     slot.object.gun_mode.all = true;
     world.clock.frame_start = 700;
-    // The display's scanner stands at a later frame, which the command starts again.
-    var display: hud.State = .{ .scanner_frame = 3, .scanner_next = 900 };
+    // The command starts the display's scanner again from its first frame.
+    var display: hud.State = .{};
     var ctx = game.orders();
     ctx.world.display = &display;
     try game.start(ctx);
 
     try std.testing.expectEqual(sabre, world.player.scanner.object.?);
-    try std.testing.expectEqual(0, display.scanner_frame);
-    try std.testing.expectEqual(0, display.scanner_next);
+    try std.testing.expectEqual(1, display.events.scans.count);
     try std.testing.expectEqual(1200, slot.guns[0].firing_until);
 }
 

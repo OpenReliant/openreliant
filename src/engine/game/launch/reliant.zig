@@ -309,7 +309,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
             moveOn(state, .open, now);
         },
         .drop => {
-            if (player) if (world.display) |display| display.caption.start(ctx.world.clock.game_ticks);
+            if (player) if (world.display) |display| display.startCaption(ctx.world.clock.game_ticks);
             // The ship leaves the hangar, whose walls throw the beacons' flash on it no more.
             if (player) if (hangarModel(all)) |model| model.endBounce();
             slot.motion = .downward;

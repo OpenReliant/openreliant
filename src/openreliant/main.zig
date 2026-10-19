@@ -1268,6 +1268,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                         .under_way => if (options.skip_launch) {
                             display.device = srd3d.device.unseen;
                             display.screen = size;
+                            display.drawing.takeUp(&display.state);
                             try display.drawDisplay();
                             continue;
                         },
@@ -1279,8 +1280,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             }
         }
         // The camera takes up what the game frames changed of what it shows before the objects are
-        // copied: a switch of view picks the subtarget's parts out of them, or puts them back.
+        // copied: a switch of view picks the subtarget's parts out of them, or puts them back. The
+        // display takes up what they started for it, before the scripts and the frame read it.
         view.notice(&player.viewing);
+        display.drawing.takeUp(&display.state);
         // The frame draws a copy of the objects, which with smooth motion has what moves as far on
         // as the clock has run past the tick, and the camera follows it there. Until the frame is
         // drawn, the subtarget keeps the copies of its parts that the copy may show.
@@ -1320,6 +1323,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 host.scene = hearing.scene(world);
                 host.flight = .{
                     .hud = &display.state,
+                    .drawing = &display.drawing,
                     .player = display.player,
                     .play = display.clock.play,
                     .variables = if (display.play.loaded) |loaded| &loaded.script.variables else null,
@@ -1405,7 +1409,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .atmospheres = &atmospheres,
                 .escort_marker = escort_marker,
                 .flash = &flash,
-                .interference = &display.state.interference,
+                .interference = &display.drawing.interference,
                 .ticks = @intCast(clock.drawnTicks()),
                 .paused = clock.paused,
                 .attachments = .{

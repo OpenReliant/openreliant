@@ -1,7 +1,7 @@
 //! The fixed tables the game keeps its effects in, as OpenReliant holds them. Not from any file of
 //! the original: its tables find a slot for a new record in one of two ways, which these share.
-//! OpenReliant's own `Latest` keeps what the game records for drawing to take up, and `keptFor`
-//! finds what drawing keeps of the game's records.
+//! OpenReliant's own `Latest` and `Event` keep what the game does for drawing to take up, and
+//! `keptFor` finds what drawing keeps of the game's records.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -63,6 +63,41 @@ pub fn Latest(comptime T: type, comptime capacity: usize) type {
             }
         };
     };
+}
+
+/// OpenReliant's: how many times the game has done something that drawing follows, where the game
+/// keeps no record of it, such as bringing up the jump prompt. Drawing keeps the count it has taken
+/// up (`Seen`), so it notices that it happened however many game frames pass between two drawn
+/// frames, without writing into the game's state.
+pub const Event = struct {
+    count: u32 = 0,
+
+    pub fn happen(event: *Event) void {
+        event.count +%= 1;
+    }
+
+    /// The count of an `Event` that drawing has taken up.
+    pub const Seen = struct {
+        count: u32 = 0,
+
+        /// Whether `event` has happened since drawing last took it up, which it now has.
+        pub fn takeUp(seen: *Seen, event: Event) bool {
+            if (seen.count == event.count) return false;
+            seen.count = event.count;
+            return true;
+        }
+    };
+};
+
+test Event {
+    var event: Event = .{};
+    var seen: Event.Seen = .{};
+    try std.testing.expect(!seen.takeUp(event));
+    // Taken up once, however many times it happened since.
+    event.happen();
+    event.happen();
+    try std.testing.expect(seen.takeUp(event));
+    try std.testing.expect(!seen.takeUp(event));
 }
 
 /// OpenReliant's: what drawing keeps in `held` of the game's record numbered `serial`: what is
