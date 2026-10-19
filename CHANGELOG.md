@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.19.4](https://github.com/OpenReliant/openreliant/compare/v0.19.3...v0.19.4) (2026-10-19)
+
+
+### Fixes
+
+* effects on ships' parts show again, and wrecks that missions place burn ([#1273](https://github.com/OpenReliant/openreliant/issues/1273)) ([6970de0](https://github.com/OpenReliant/openreliant/commit/6970de0bac52b06715e1e73323aa87008eac0e3a)), closes [#1270](https://github.com/OpenReliant/openreliant/issues/1270) [#1271](https://github.com/OpenReliant/openreliant/issues/1271) [#1272](https://github.com/OpenReliant/openreliant/issues/1272)
+* force fields flicker at the game's pace at any frame rate ([#1275](https://github.com/OpenReliant/openreliant/issues/1275)) ([52a8812](https://github.com/OpenReliant/openreliant/commit/52a8812d4ad8a5aa1493f93d4798593a2ccd0812)), closes [#1274](https://github.com/OpenReliant/openreliant/issues/1274)
+* the first key press and the first sight of the sun no longer hold up a frame ([#1269](https://github.com/OpenReliant/openreliant/issues/1269)) ([91b7fe0](https://github.com/OpenReliant/openreliant/commit/91b7fe0f0c2c3e252468b2651d95a85516621489)), closes [#1267](https://github.com/OpenReliant/openreliant/issues/1267)
+* tractor beams, ion cannons and gates stay steady at any frame rate ([#1266](https://github.com/OpenReliant/openreliant/issues/1266)) ([7aebe6d](https://github.com/OpenReliant/openreliant/commit/7aebe6df398089db7a17f420ba86648cbadb708c)), closes [#1265](https://github.com/OpenReliant/openreliant/issues/1265)
+
 ## [0.19.3](https://github.com/OpenReliant/openreliant/compare/v0.19.2...v0.19.3) (2026-10-17)
 
 
