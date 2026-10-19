@@ -36,6 +36,14 @@ Each panel but the ship status is one of the display's [windows](#the-windows), 
 
 `hud_draw` (`0x004843B0`) draws the display once a frame. `mission_run` puts it in `sr + 0x88` and Surrender calls it while it renders, so no call reaches it in the listing and Ghidra does not find it without being told; `make ghidra-run SCRIPT=DefineFunctions.java ARGS="0x004843b0"` does that. `hud_init` (`0x00483150`) sets the display up as each mission loads (`mission_load`, `0x004AD0A0`), a restart included: each mission's end frees the display (`mission_free` calls `hud_free`, `0x00484260`), which lets `hud_init` run again. It clears the display's message lines (`hud_messages`, `0x0057BC5C`), allocates the file's work buffer, takes `oldpalette.tga` and `powerball.tga`, and works out the tables the [power ball](#the-power-distribution) is drawn from. Then it resets the display's state, among other things the radar's range, the [devices](#the-devices), blind fire and the icons, and empties the shield reserves. OpenReliant does this in `hud.State.reset` and the mission's start.
 
+**Improvement:** `hud_draw` also does work on the game, over the drawn frame's ticks. OpenReliant
+does that work in the game frame, once a tick, and draws the display from what it leaves
+(`hud.draw`). The game frame follows the player's target, plays and ends the missile lock's tone,
+brings up the jump prompt, runs the devices' charges, moves the windows on and plays their sounds
+(`hud.State.gameFrame`), and steps the radar's rings (`hud.State.zoomRadar`). These keep the same
+pace at any frame rate, and none of them depends on drawing. The jump prompt's flash count, which
+only drawing uses, is kept apart from the game's state (`hud.Drawing`).
+
 `mission_frame` itself calls only three of the file's routines: the windows' `hud_window_open` (`0x0048B510`) and `hud_window_close` (`0x0048B590`); the subtarget (`0x0048CC30`), which walks the target's assembly by `link_id`; and `hud_message_add`
 (`0x0048CEB0`), which adds one of the display's message lines.
 
@@ -506,7 +514,7 @@ All of their text is in the display's font.
 
 | Form | Draws, from the window's place |
 | --- | --- |
-| Small, window 3 | the target's ship status, mode 1, at `(-4, -0x2C)`; its type's name at `(0x37, -0x43)`; its pilot's name at `(0x37, -0x37)`; its range, `%dk`, at `(0x37, -0x2B)`; its speed, `%d kps`, at `(0x37, -0x1F)`; all left-aligned. A cloaked hostile target closes it |
+| Small, window 3 | the target's ship status, mode 1, at `(-4, -0x2C)`; its type's name at `(0x37, -0x43)`; its pilot's name at `(0x37, -0x37)`; its range, `%dk`, at `(0x37, -0x2B)`; its speed, `%d kps`, at `(0x37, -0x1F)`; all left-aligned. A cloaked hostile target would show nothing and close it, but the display only keeps targets the player can aim at ([The target](#the-target)) |
 | Large, window 8 | the type's own picture, its sprite's first shape, at `(-0xD0, -0x80)`; its name, right-aligned at `(-2, -0x9D)`; the subtarget; the hull's bar; the range and the speed, right-aligned at `(-3, -0x1D)` and `(-3, -0x11)` |
 
 The large form's subtarget is the component the player's current order names, for any type but
@@ -598,7 +606,8 @@ the shape they stop at, and `0x005656AC` whether they step down toward it, which
 range 0. `hud_radar_zoom` (`0x004892F0`), which `hud_draw` runs after the radar, steps them a shape.
 It steps while `game_ticks` is short of the tick at `0x005656A0`, which RADAR RANGES and each step
 put 50 ahead of it, so the rings step once each frame the radar is drawn, and never wait the 50
-ticks.
+ticks. OpenReliant steps them at the start of each game frame, before the controls
+(`hud.State.zoomRadar`), so the rings drawn after a game frame are the ones the game draws in it.
 
 In the cockpit's view the radar stands on a dark backing, which `mission_frame` draws with the
 cockpit's model rather than `hud_radar` ([`rendering.md`](rendering.md#the-cockpit)).
@@ -713,8 +722,8 @@ of 60, looped, and plays it again whenever voice 1 has finished or was stopped; 
 at `enemy_lock_voice` (`0x0057BF50`). Once the light is out and no missile homes on the ship, it
 ends the voice if it is still playing.
 
-OpenReliant queues the windows' sounds as they open and close, and plays them later in the same
-frame (`hud.Beeps`).
+OpenReliant queues the windows' sounds as they open and close, and plays them as the game frame
+ends (`hud.Beeps`, `hud.State.gameFrame`).
 
 **Fix:** the game plays a power key's sound every frame the key is held, a new sound each frame;
 OpenReliant plays it as the key is pressed.
@@ -751,8 +760,10 @@ times as long behind as ahead, kept from 10 to 200. At 10 it loops on a voice of
 object explodes, and at a mission's start.
 
 OpenReliant draws all three, the jump prompt by the mission script's variables (`vm.Variables`), and
-beeps as the game does ([`main/scanner.zig`](../../src/engine/game/main/scanner.zig)). Mission 0
-readies no jump and scans nothing.
+beeps as the game does ([`main/scanner.zig`](../../src/engine/game/main/scanner.zig)). It sets the
+variable to 2 in the game frame (`hud.State.readyPrompt`), and the first frame drawn after that
+starts the prompt's flash and draws nothing (`hud.Drawing.jumpPrompt`). Mission 0 readies no
+jump and scans nothing.
 
 ## Art
 
@@ -853,6 +864,11 @@ from the window's place, the record's floats cut down to whole numbers, and a mo
 grids, the walls of the corner or edge the window stands in.
 
 In mission 25, until `0x00587CDC` is set, windows 1, 2 and 13 neither move on nor are drawn.
+
+OpenReliant moves the windows on in the game frame, once a tick (`hud.windows.Windows.run`), and
+draws each as the game frame left it (`hud.windows.Windows.draw`). A window at its full size is
+drawn in place: an open one, and one whose time ran out in the last game frame, which has just
+started closing.
 
 The keys, which `frame_controls` and `hud_target_keys` read:
 

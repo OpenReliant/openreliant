@@ -2678,7 +2678,7 @@ test "the window keys" {
     // The locked form of GUNNERY WINDOW holds its window, and once it is open closes it.
     press.once(.gunnery_window_locked);
     try std.testing.expect(windows.status.get(.gunnery).held);
-    _ = windows.step(.gunnery, hud.windows.opening_ticks);
+    windows.step(.gunnery, hud.windows.opening_ticks);
     press.once(.gunnery_window_locked);
     try std.testing.expectEqual(.closing, windows.status.get(.gunnery).phase);
 
@@ -2692,9 +2692,9 @@ test "the window keys" {
     // Pressed on the open objectives, it pages to the next objective shown, and they stay their
     // full time again.
     display.objectives.reset(1, false, null);
-    _ = windows.step(.objectives, hud.windows.opening_ticks);
+    windows.step(.objectives, hud.windows.opening_ticks);
     _ = windows.open(.objectives, false);
-    _ = windows.step(.objectives, hud.windows.opening_ticks);
+    windows.step(.objectives, hud.windows.opening_ticks);
     try std.testing.expectEqual(.open, windows.status.get(.objectives).phase);
     windows.status.getPtr(.objectives).left = 10;
     press.once(.objectives_window);
@@ -2709,7 +2709,7 @@ test "the window keys" {
     const combat = std.mem.zeroInit(create.ShipCombat, .{ .gun_groups = 2 });
     slot.combat = &combat;
     windows.close(.gunnery);
-    _ = windows.step(.gunnery, hud.windows.opening_ticks);
+    windows.step(.gunnery, hud.windows.opening_ticks);
     press.once(.gunnery_window);
     try std.testing.expectEqual(.opening, windows.status.get(.gunnery).phase);
     try std.testing.expectEqual(1, object.gun_mode.group);
@@ -2718,7 +2718,7 @@ test "the window keys" {
 
     // FULL GUNS flips firing them all, opening the gunnery window.
     windows.close(.gunnery);
-    _ = windows.step(.gunnery, hud.windows.opening_ticks);
+    windows.step(.gunnery, hud.windows.opening_ticks);
     press.once(.full_guns);
     try std.testing.expect(object.gun_mode.all);
     try std.testing.expectEqual(.opening, windows.status.get(.gunnery).phase);
@@ -2734,15 +2734,15 @@ test "the window keys" {
     try std.testing.expectEqual(1, object.power_setting.x);
 
     // Once it is shut again, a power key puts the power at its preset and opens the power window.
-    _ = windows.step(.comms, hud.windows.opening_ticks);
+    windows.step(.comms, hud.windows.opening_ticks);
     press.once(.comms_window);
-    _ = windows.step(.comms, hud.windows.opening_ticks);
+    windows.step(.comms, hud.windows.opening_ticks);
     press.once(.full_power_to_engines);
     try std.testing.expectEqual(power.presets.get(.engines)[0], object.power_setting.x);
     try std.testing.expect(object.speed_factor > 1.45);
     try std.testing.expectEqual(.opening, windows.status.get(.power).phase);
     windows.close(.power);
-    _ = windows.step(.power, hud.windows.opening_ticks);
+    windows.step(.power, hud.windows.opening_ticks);
 
     // SHIELD BALANCING lets the stick shift the shields for as long as it is held.
     press.once(.shield_balancing);

@@ -658,23 +658,24 @@ pub fn viewFrame(drawing: Drawing) void {
     devices.joystick.rumble(drawing.forces.motors(clock.frame_start));
 }
 
-/// `mission_frame` (`0x004924B0`), as far as the objects go: the controls (`controlsFrame`), then
-/// the radio (`radio.Radio.step`) and its remarks (`radio.remarksFrame`), then the player's ship
-/// pointed to the flyback marker it has strayed from (`input.nextNavPoint`), then every object's
-/// orders, which fly the ships and read the player's controls, then the player's ship sent
-/// home where it destroyed a friend (`friendly_fire.sendHome`), then the scanner's beep
-/// (`scanner.Scanner.frame`), then the frames they are drawn at,
-/// then the missiles (`missiles.frame`) and the shots in flight (`guns.bulletsFrame`),
-/// then the sparks (`sparks.Sparks.frame`) and the particles (`particles.Pool.frame`,
-/// `smoke.Pools.frame`, `guns.effects.Pools.frame`), which `particles_frame` runs together, the
-/// damaged ships' smoke (`smoke.frame`), the explosions (`explode.Explosions.frame`), the
-/// countermeasures (`cloak.Countermeasures.frame`) and the shockwaves
-/// (`shockwave.Shockwaves.frame`). Between them the frame's hits on the player's ship push its
-/// controller (`input.force.Forces.pushFrame`). Last, where there is a display, the missile lock
-/// (`runLock`) and the devices' charges, which the game runs as it draws the display
-/// (`hud.State.runCharges`); then the camera's part in the game (`camera.gameFrame`), and the view
-/// kept as the last frame's (`camera.Viewing.last`, `0x0049346C`). A mission and the sandbox alike
-/// run this once a game tick (`gameFrames`), before the drawn frame's camera and anything drawn.
+/// `mission_frame` (`0x004924B0`), as far as the objects go: where there is a display, the radar's
+/// rings, which the game steps on after it draws them (`hud.State.zoomRadar`); then the controls
+/// (`controlsFrame`), the radio (`radio.Radio.step`) and its remarks (`radio.remarksFrame`), then
+/// the player's ship pointed to the flyback marker it has strayed from (`input.nextNavPoint`), then
+/// every object's orders, which fly the ships and read the player's controls, then the player's
+/// ship sent home where it destroyed a friend (`friendly_fire.sendHome`), then the scanner's beep
+/// (`scanner.Scanner.frame`), then the frames they are drawn at, then the missiles
+/// (`missiles.frame`) and the shots in flight (`guns.bulletsFrame`), then the sparks
+/// (`sparks.Sparks.frame`) and the particles (`particles.Pool.frame`, `smoke.Pools.frame`,
+/// `guns.effects.Pools.frame`), which `particles_frame` runs together, the damaged ships' smoke
+/// (`smoke.frame`), the explosions (`explode.Explosions.frame`), the countermeasures
+/// (`cloak.Countermeasures.frame`) and the shockwaves (`shockwave.Shockwaves.frame`). Between them
+/// the frame's hits on the player's ship push its controller (`input.force.Forces.pushFrame`).
+/// Last, where there is a display, the missile lock (`runLock`); then the camera's part in the
+/// game (`camera.gameFrame`), the view kept as the last frame's (`camera.Viewing.last`,
+/// `0x0049346C`), and the display's work on the game, which the game does as it draws the display
+/// (`hud.State.gameFrame`). A mission and the sandbox alike run this once a game tick
+/// (`gameFrames`), before the drawn frame's camera and anything drawn.
 ///
 /// As the frame begins, mods' scripts take the world as the frame has it, which the orders they
 /// give run against (`hooks.Scripts.frame`).
@@ -710,7 +711,9 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
             return .left_out;
         }
     }
-    // `mission_frame` reads the controls, then runs the radio, then its remarks.
+    // The radar's rings step on, which the game does after drawing them. Then `mission_frame`
+    // reads the controls, runs the radio, then its remarks.
+    if (orders.world.display) |display| display.zoomRadar(orders.world);
     controlsFrame(orders);
     if (radio_module.onAir(orders.world)) |on_air| {
         const radio, const ctx = on_air;
@@ -759,12 +762,10 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     if (orders.world.explosions) |explosions| explosions.frame(orders.world);
     if (orders.world.countermeasures) |dropped| dropped.frame(orders.world);
     if (orders.world.shockwaves) |waves| waves.frame(orders.world);
-    if (orders.world.display) |display| {
-        runLock(orders.world, display);
-        display.runCharges(orders.world, orders.world.clock.frame_duration, false);
-    }
+    if (orders.world.display) |display| runLock(orders.world, display);
     camera.gameFrame(orders.world);
     player.viewing.last = player.viewing.view;
+    if (orders.world.display) |display| display.gameFrame(orders.world, if (loaded) |playing| &playing.script.variables.ready else null);
     if (orders.world.gates) |gates| gates.endFrame(orders.world.clock.frame_start);
     return if (over or player.terminated != 0) .over else .played;
 }

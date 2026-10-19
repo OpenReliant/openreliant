@@ -50,7 +50,8 @@ pub const Scene = struct {
     state: *hud.State,
     all: *const create.Objects,
 
-    /// Draws `form`: what it shows now, and while it closes what it last showed.
+    /// Draws `form`: what it shows now, and what it last showed as it shrinks away closing
+    /// (`closing`).
     pub fn draw(scene: Scene, form: Form, closing: bool, canvas: windows.Canvas) windows.Canvas.Error!void {
         const context: Context = .{ .canvas = canvas };
         switch (form) {
@@ -63,14 +64,11 @@ pub const Scene = struct {
         }
     }
 
-    /// What the small form shows now. A target it hides closes it.
+    /// What the small form shows now: nothing for a target it hides (`hidden`).
     pub fn small(scene: Scene) ?Small {
         const index = (scene.state.target orelse return null).slot;
         const slot = &scene.all.slots[index];
-        if (hidden(slot)) {
-            scene.state.windows.close(.target);
-            return null;
-        }
+        if (hidden(slot)) return null;
         const status = hud.ShipStatus.ofTarget(slot, &scene.state.target_hits);
         scene.state.flashes.target_hits = status.hits;
         return .{ .status = status, .facts = .of(scene.all, index), .pilot = pilotName(scene.all, slot) };
@@ -98,7 +96,9 @@ pub fn showsSubtarget(slot: *const create.Slot) bool {
     };
 }
 
-/// Whether the small form hides the target of `slot`, closing as it does: a cloaked hostile one.
+/// Whether the small form hides the target of `slot`: a cloaked hostile one. The game also closes
+/// the form then (`0x00487BBB`), but that never happens: the display only keeps a target the
+/// player can aim at (`hud.State.followTarget`), which a cloaked hostile isn't.
 pub fn hidden(slot: *const create.Slot) bool {
     return slot.object.flags.cloaked and slot.object.side == .hostile;
 }
@@ -381,11 +381,9 @@ test "the forms show the target" {
     pilots.setPilot(&slot.object, 1);
     try std.testing.expectEqual(pilots.faces[1].name, scene.small().?.pilot.?);
 
-    // A cloaked hostile target closes the small form.
-    _ = state.windows.open(.target, false);
+    // A cloaked hostile target shows nothing.
     slot.object.flags.cloaked = true;
     try std.testing.expectEqual(null, scene.small());
-    try std.testing.expectEqual(windows.Phase.closing, state.windows.status.get(.target).phase);
     slot.object.flags.cloaked = false;
 
     // The large form shows the subtarget the player's order names, with its armour's bar.

@@ -1262,9 +1262,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     }
                     const launch_step = player_launch.step(slot, clock.mission_ticks);
                     switch (launch_step) {
-                        // The skipped frame isn't drawn, but the display's frame still runs,
-                        // unseen: the radio's lines start and end in it (`hud_draw`), and a
-                        // mission's script may wait for a line to end before the player launches.
+                        // The skipped frame isn't drawn, but the display still is, unseen, so
+                        // that what drawing keeps from one frame to the next, such as the flashes'
+                        // counts and blind fire's aim, moves on as it would.
                         .under_way => if (options.skip_launch) {
                             display.device = srd3d.device.unseen;
                             display.screen = size;
@@ -2384,6 +2384,8 @@ const Display = struct {
     random: *engine.random.Random,
     /// The display's own state, `hud.cpp`'s globals.
     state: game.hud.State = .{},
+    /// What drawing keeps of the display from one frame to the next.
+    drawing: game.hud.Drawing = .{},
     /// What the display shows ready for JUMP DRIVE while no mission is loaded: nothing.
     idle: game.hud.Readiness = .{},
     /// The game's strings, which the views without the instruments are named by.
@@ -2451,7 +2453,7 @@ const Display = struct {
     }
 
     fn drawDisplay(display: *Display) !void {
-        try game.hud.draw(&display.state, &display.resources, .{
+        try game.hud.draw(&display.state, &display.drawing, &display.resources, .{
             .gpa = display.gpa,
             .device = display.device,
             .screen = display.screen,
@@ -2464,7 +2466,6 @@ const Display = struct {
             .mode = display.cockpit_mode,
             .strings = display.strings,
             .hit_shake = display.view.shake_left,
-            .view = display.player.viewing.view,
             .sound = display.settings.sound,
             .radio = display.radio,
             .random = display.random,
