@@ -397,10 +397,10 @@ pub const Frame = struct {
     /// while the last frame's view is one of the cockpit's or the chase view (`runLock`).
     lock: ?*const lock.Lock = null,
     lock_rings: ?*lock.Rings = null,
-    /// The chase view's objects, and the display whose reticle, pointer and lead point they
-    /// follow.
+    /// The chase view's objects, and what drawing keeps of the display, whose reticle, pointers and
+    /// lead point they follow.
     chase: ?*hud.chase.Chase = null,
-    display: ?*const hud.State = null,
+    display: ?*const hud.Drawing = null,
     /// The shields' bubbles, which go into the world's layer after the objects.
     shields: ?*shield.Shields = null,
     /// The gates' tunnels, which go into the world's layer before the shields' bubbles.
@@ -563,14 +563,14 @@ pub const Drawing = struct {
 /// `frame_controls` (`0x00414060`), once a game frame where there are devices to read and a
 /// display: the camera's keys (`camera.Viewing.frameControls`), then the targeting keys
 /// (`hud.targetKeys`), then its own (`input.frameKeys`). A key pressed between game frames is read
-/// in the next. First, the player's ship takes blind fire's aim from the reticle the display last
-/// drew (`hud.State.blind_fire_aims`).
+/// in the next. First, the player's ship takes blind fire's aim from what the player aimed at as
+/// the display was last drawn (`hud.State.aim`).
 fn controlsFrame(orders: aigeneric.Context) void {
     const devices = orders.devices orelse return;
     const world = orders.world;
     const display = world.display orelse return;
     const all = world.objects;
-    all.slots[all.player].object.blind_fire_aim = @intFromBool(display.blind_fire_aims);
+    all.slots[all.player].object.blind_fire_aim = @intFromBool(display.aim.blind_fire);
     const viewing = &world.player.viewing;
     // What the target and external views go round: the display's target, or the player's ship.
     const orbited: ?f32 = switch (viewing.view) {
@@ -1182,7 +1182,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     };
     if (frame.chase) |seen_behind| if (frame.display) |display| if (frame.view == .cockpit and frame.cockpit_mode == .chase and !riding) {
         const ship = &frame.objects.slots[frame.objects.player];
-        const aim: ?math.Vector = if (display.blind_fire_aims) display.lead_point else null;
+        const aim: ?math.Vector = if (display.aim.blind_fire) display.lead_point else null;
         try seen_behind.draw(gpa, scene, ship.drawn, display.reticle_bright, aim, display.chase_pointer, display.chase_nav_roll);
     };
     if (frame.gates) |gates| try gates.draw(gpa, scene, frame.objects, attachments.frame_start);
@@ -2578,11 +2578,11 @@ test "the controls are read in the game frame" {
     _ = missionFrame(seen, .{}, null);
     try std.testing.expectEqual(camera.View.external, mission.player.viewing.view);
     keyboard.* = .{};
-    // Blind fire aims as the reticle was last drawn.
-    display.blind_fire_aims = true;
+    // Blind fire aims as the player aimed when the display was last drawn.
+    display.aim.blind_fire = true;
     _ = missionFrame(orders, .{}, null);
     try std.testing.expectEqual(1, mission.objects.slots[0].object.blind_fire_aim);
-    display.blind_fire_aims = false;
+    display.aim.blind_fire = false;
     _ = missionFrame(orders, .{}, null);
     try std.testing.expectEqual(0, mission.objects.slots[0].object.blind_fire_aim);
 }

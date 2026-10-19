@@ -1363,7 +1363,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             backing.place(context.projection, view.place, display.ui_scale.of(size), display.placements.get(.radar));
             display.device = gpu.interface();
             display.screen = size;
-            display.state.reticle = .{ .sight = .{ .place = view.place, .projection = context.projection }, .scale = display.ui_scale.of(size) };
+            display.sight = .{ .place = view.place, .projection = context.projection };
             display.cockpit_mode = player.viewing.cockpit_mode;
             // The display draws the copy too, and the game's objects again once the frame is drawn.
             display.objects = copy;
@@ -1399,7 +1399,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .lock = &display.state.lock,
                 .lock_rings = lock_rings,
                 .chase = chase_objects,
-                .display = &display.state,
+                .display = &display.drawing,
                 .shields = &shields,
                 .rays = &rays,
                 .ion_cannons = &ion_cannons,
@@ -2390,6 +2390,9 @@ const Display = struct {
     state: game.hud.State = .{},
     /// What drawing keeps of the display from one frame to the next.
     drawing: game.hud.Drawing = .{},
+    /// The scene as it was last drawn, which the target is drawn over and the object under the
+    /// reticle is found in; null until the first frame.
+    sight: ?game.hud.Sight = null,
     /// What the display shows ready for JUMP DRIVE while no mission is loaded: nothing.
     idle: game.hud.Readiness = .{},
     /// The game's strings, which the views without the instruments are named by.
@@ -2430,7 +2433,7 @@ const Display = struct {
         }
         try display.drawDisplay();
         if (display.presentation) |scripts| {
-            try scripts.draw(.hud, display.device, display.sight());
+            try scripts.draw(.hud, display.device, display.sight);
             if (scripts.runtime.registries.selected_screen != null) try scripts.draw(.ui, display.device, null);
         }
     }
@@ -2450,19 +2453,15 @@ const Display = struct {
         });
     }
 
-    /// The scene as it was last drawn, which the target is drawn over; null until the first frame
-    /// (`game.hud.State.reticle`).
-    fn sight(display: *const Display) ?game.hud.Sight {
-        return if (display.state.reticle) |reticle| reticle.sight else null;
-    }
-
+    /// Draws the display, then hands the game what the player aimed at as it was drawn, which the
+    /// game frames take as input with the keys (`game.hud.State.aim`).
     fn drawDisplay(display: *Display) !void {
         try game.hud.draw(&display.state, &display.drawing, &display.resources, .{
             .gpa = display.gpa,
             .device = display.device,
             .screen = display.screen,
             .ui_scale = display.ui_scale,
-            .sight = display.sight(),
+            .sight = display.sight,
             .all = display.objects,
             .player = display.player,
             .clock = display.clock,
@@ -2480,6 +2479,7 @@ const Display = struct {
             .parts = display.parts,
             .devices = display.devices,
         });
+        display.state.aim = display.drawing.aim;
     }
 };
 

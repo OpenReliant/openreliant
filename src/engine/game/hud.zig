@@ -2597,7 +2597,9 @@ pub const Instrument = enum {
 /// director's view its subtitle. Then come the message lines, and in the view ahead the
 /// instruments: the readouts, the ship status indicator, the targeting cluster, the radar, the
 /// reticle and the clock. The windows come last, as the game frame left them
-/// (`windows.Windows.draw`). `drawing` holds what drawing keeps from one frame to the next.
+/// (`windows.Windows.draw`). `drawing` holds what drawing keeps from one frame to the next, and
+/// what the player aims at as the display is drawn, which the game takes as input (`Drawing.aim`):
+/// the object under the reticle (`underReticle`) and whether blind fire aims (`drawReticle`).
 ///
 /// The game also does its own work in `hud_draw`, which OpenReliant does in the game frame: the
 /// message lines going, following the player's target, the missile lock's tone, bringing up the
@@ -2605,7 +2607,7 @@ pub const Instrument = enum {
 /// (`State.gameFrame`), the radar's zoom (`State.zoomRadar`), and the radio's wait for its window
 /// and its closes (`radio.Radio.step`). Drawing takes up what the game has started for it as each
 /// drawn frame begins (`Drawing.takeUp`).
-pub fn draw(state: *State, drawing: *Drawing, resources: *Resources, frame: Frame) Error!void {
+pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame: Frame) Error!void {
     const slot = &frame.all.slots[frame.all.player];
     const live = &slot.object;
     const frame_duration = frame.clock.drawn_duration;
@@ -2638,7 +2640,7 @@ pub fn draw(state: *State, drawing: *Drawing, resources: *Resources, frame: Fram
         try drawing.drawJumpPrompt(state, frame.ready, placing.pen(pen, .jump_prompt), frame_duration);
         if (frame.sight) |sight| {
             const scene: TargetScene = .{ .sight = sight, .all = frame.all, .mode = frame.mode, .speaker = speaker };
-            lead = try drawTarget(state, placing.pen(pen, .target_markers), &resources.target_fonts, scene, frame.edge_line);
+            lead = try drawTarget(drawing, state, placing.pen(pen, .target_markers), &resources.target_fonts, scene, frame.edge_line);
         }
         try drawing.drawEjectMarker(state, placing.pen(pen, .eject_marker), frame_duration);
         try drawing.drawScanner(frame.player.scanner.object != null, frame.clock.game_ticks, placing.pen(pen, .scanner));
@@ -2663,6 +2665,7 @@ pub fn draw(state: *State, drawing: *Drawing, resources: *Resources, frame: Fram
         .wing_status = .{ .all = frame.all },
     };
     try state.windows.draw(pen, &placing, frame.last_view, contents, frame.all.kamovPart());
+    drawing.aim.under_reticle = if (frame.sight) |sight| underReticle(frame.all, .{ .sight = sight, .scale = pen.scale }) else null;
 }
 
 /// The first gun of the group the ship has chosen (`GunMode.group`), which blind fire and the
@@ -3693,32 +3696,17 @@ pub const State = struct {
     messages: Messages = .{},
     /// The mission's objectives.
     objectives: Objectives = .{},
-    /// `target_under_reticle` (`0x00566550`): whether the reticle was drawn bright, a target under
-    /// it or blind fire aiming at it, which the chase view's sight shows (`chase.Chase`).
-    reticle_bright: bool = false,
-    /// The chase view's pointer to the target this frame, where `drawTarget` has found it out of
-    /// sight in the chase view; null where it doesn't show.
-    chase_pointer: ?chase.Pointer = null,
-    /// How the chase view's pointer to the player's nav point is rolled this frame, where
-    /// `drawTarget` has found one in the chase view; null where it doesn't show.
-    chase_nav_roll: ?f32 = null,
     /// `player_ejected` (`0x00579986`), which the Eject Player order sets.
     ejected: bool = false,
     icons: Icons = .{},
-    /// Where blind fire's sight stands (`0x00566628`, `0x0056662C`), which `hud_init` puts at
-    /// the middle of the screen; null until OpenReliant first draws it there.
-    sight: ?[2]i32 = null,
     /// Set by `PlayFostersLastStand` (`0x00566630`) until the targeting keys play Foster's last
     /// stand (`fosters_last_stand_movie`, `MovieHold`), which OpenReliant's driver does once the
     /// frame's controls have run. A mission's start clears it, as `hud_init` does (`0x00483F00`).
     fosters_last_stand: bool = false,
-    /// Where the lead cursor last stood in the scene (`hud_lead_point`, `0x0057C260`), which blind
-    /// fire aims the player's shots at (`guns.shoot`).
+    /// Where the lead cursor stands in the scene for the player's target (`hud_lead_point`,
+    /// `0x0057C260`), which blind fire aims the player's shots at (`guns.shoot`). The game frame
+    /// works it out (`gameFrame`).
     lead_point: Vector = @splat(0),
-    /// Whether blind fire aimed at the lead cursor as the reticle was last drawn (`drawReticle`).
-    /// The game sets the player's ship's `blind_fire_aim` there; OpenReliant's game frame hands it
-    /// to the ship (`main.controlsFrame`), so that the game reads nothing drawing writes.
-    blind_fire_aims: bool = false,
     /// The radar's rings (`0x0057BC50`).
     radar_rings: u16 = Radar.first_rings,
     /// The radar's range (`radar_range`, `0x0057BE00`), 0 the closest.
@@ -3734,13 +3722,9 @@ pub const State = struct {
     /// The object the display draws as the target (`0x00569940`): the shown one, with its slot,
     /// while the player can aim at it.
     target: ?ai.ValidTarget = null,
-    /// The object that stood under the reticle as the targeting keys were last read
-    /// (`0x00566664`), which TARGET UNDER RETICULE takes.
-    under_reticle: ?u16 = null,
-    /// Where the reticle looks as the last frame was drawn, which the targeting keys find the
-    /// object under the reticle by (`Reticle`); null before the first frame, and where nothing is
-    /// drawn.
-    reticle: ?Reticle = null,
+    /// What the player aimed at as the display was last drawn, which the driver hands the game as
+    /// input (`Drawing.aim`).
+    aim: Aim = .{},
     /// The player's missile lock (`main.cpp`'s), whose count dims the target's brackets and
     /// shortens the lead cursor's line by `lock_shortening` for each short of 100.
     lock: missile_lock.Lock = .{},
@@ -3759,7 +3743,9 @@ pub const State = struct {
     /// that the armed missile has run out (`game_ticks`). The mission's start empties the shield
     /// reserves with it, and then fits the devices to the player's ship (`main.fitDevices`).
     ///
-    /// Drawing resets what it keeps as it takes the mission's start up (`Drawing.reset`).
+    /// Drawing resets what it keeps as it takes the mission's start up (`Drawing.reset`), blind
+    /// fire's sight among it. OpenReliant also drops the aim drawing last handed the game (`aim`),
+    /// which was the mission before's.
     ///
     /// **Fix:** the game sets the voice of the missile name Betty said last to 0, so the first
     /// name she says in a mission ends whatever plays on voice 0. OpenReliant keeps no voice.
@@ -3768,7 +3754,7 @@ pub const State = struct {
         inline for (.{
             "messages",   "icons",   "enemy_lock", "fosters_last_stand", "radar_range", "radar_rings",
             "radar_zoom", "devices", "ejected",    "key_prompt",         "caption",     "blind_fire",
-            "sight",
+            "aim",
         }) |name| @field(state, name) = @field(fresh, name);
         state.missiles.empty_warned_until = game_ticks;
         state.missiles.name_voice = null;
@@ -3780,8 +3766,9 @@ pub const State = struct {
     /// up (`Messages.expire`). The display follows the player's target (`followTarget`) and plays
     /// or ends the missile lock's tone (`missile_lock.Lock.sound`). In the view ahead from the
     /// cockpit, a jump or warp the mission has newly readied (`ready`) brings up the jump prompt
-    /// (`readyPrompt`). Then the devices' charges run (`runCharges`), the windows move on
-    /// (`windows.Windows.run`), and last, the windows' sounds play.
+    /// (`readyPrompt`), and the lead point follows the target (`leadTarget`). Then the devices'
+    /// charges run (`runCharges`), the windows move on (`windows.Windows.run`), and last, the
+    /// windows' sounds play.
     ///
     /// **Improvement:** the game does this as it draws the display, over the drawn frame's ticks.
     /// OpenReliant does it once a tick, so the devices drain, the windows open and close and the
@@ -3794,7 +3781,10 @@ pub const State = struct {
         state.messages.expire(world.clock.frame_start);
         state.followTarget(all, false);
         if (sound) |heard| state.lock.sound(heard, world.view());
-        if (ahead) if (ready) |set| state.readyPrompt(set);
+        if (ahead) {
+            if (ready) |set| state.readyPrompt(set);
+            state.leadTarget(all);
+        }
         state.runCharges(world, frame_duration, false);
         state.windows.run(frame_duration, all.kamovPart());
         state.windows.beeps.play(sound, world.view());
@@ -3812,6 +3802,20 @@ pub const State = struct {
         if (!instrumented(world.player.viewing.last)) return;
         if (Cluster.Gauges.of(&world.objects.slots[world.objects.player]) == null) return;
         stepRadarZoom(state, world.clock.game_ticks);
+    }
+
+    /// `hud_target`'s work on the game (`drawTarget`): where the lead cursor stands for the
+    /// player's target (`leadPoint`), which blind fire aims the player's shots at (`lead_point`).
+    /// Where there is none, the point stays where it was.
+    ///
+    /// **Improvement:** the game works the point out as it draws the target, and only while the
+    /// target is on the screen. OpenReliant works it out in the game frame, from the objects as the
+    /// game frame places them, so blind fire's shots don't depend on what is drawn. Blind fire aims
+    /// only while the lead cursor is near the middle of the screen (`drawReticle`), so its shots
+    /// fly at the same point.
+    fn leadTarget(state: *State, all: *const create.Objects) void {
+        const aimed = state.target orelse return;
+        state.lead_point = leadPoint(all, aimed) orelse return;
     }
 
     /// `hud_draw`'s work on the devices' charges for a frame of `frame_duration` ticks, which it
@@ -3949,7 +3953,7 @@ pub const State = struct {
 
     /// What `hud_draw` draws only in the view ahead from the cockpit, after the view's name, with
     /// the ship whose line the radio's window names, where it shows (`speaker`).
-    fn drawInstruments(state: *State, drawing: *Drawing, pen: Pen, placing: *Placings, frame: Frame, lead: Cursor, speaker: ?u16) Error!void {
+    fn drawInstruments(state: *const State, drawing: *Drawing, pen: Pen, placing: *Placings, frame: Frame, lead: Cursor, speaker: ?u16) Error!void {
         const frame_duration = frame.clock.drawn_duration;
         const slot = &frame.all.slots[frame.all.player];
         const gauges = Cluster.Gauges.of(slot) orelse return;
@@ -3967,7 +3971,7 @@ pub const State = struct {
         try ShipStatus.draw(status, .player, status_pen, status_pen.placed(ShipStatus.offset, ShipStatus.across, ShipStatus.down), null);
         try drawCluster(placing.pen(pen, .gauges), gauges);
         try drawRadar(placing.pen(pen, .radar), state, frame.all, speaker);
-        state.blind_fire_aims = try drawReticle(state, placing.pen(pen, .reticle), frame.mode, lead, blindFire(state, slot), frame_duration);
+        drawing.aim.blind_fire = try drawReticle(drawing, placing.pen(pen, .reticle), frame.mode, lead, blindFire(state, slot), frame_duration);
         const time = clockTime(frame.all, frame.clock.play, frame.variables);
         try drawClock(placing.pen(pen, .clock), time[0], time[1]);
     }
@@ -3996,6 +4000,18 @@ test "State.reset" {
     // The player's own settings stay.
     try std.testing.expect(state.smart_targeting);
 }
+
+/// What the player aims at on the screen: drawing finds it as it draws the display (`Drawing.aim`),
+/// and the driver hands it to the game, which takes it as input like the keys (`State.aim`). What
+/// the player sees decides both.
+pub const Aim = struct {
+    /// The object under the reticle (`0x00566664`, `underReticle`), which TARGET UNDER RETICULE
+    /// takes.
+    under_reticle: ?u16 = null,
+    /// Whether blind fire aims the guns at the lead cursor (`drawReticle`), which the game frame
+    /// hands to the player's ship (`GameObject.blind_fire_aim`, `main.controlsFrame`).
+    blind_fire: bool = false,
+};
 
 /// What the game has done that drawing follows (`Event`), counted so that drawing notices each of
 /// them however many game frames pass between two drawn frames. None of them is ever set back: a
@@ -4069,6 +4085,24 @@ pub const Drawing = struct {
     bounds: std.EnumArray(Instrument, ?Clip) = .initFill(null),
     /// Where each part of the instruments last drew, as `bounds` (`parts`).
     part_bounds: std.EnumArray(parts.Part, ?Clip) = .initFill(null),
+    /// Where blind fire's sight stands (`0x00566628`, `0x0056662C`), which `hud_init` puts back at
+    /// the middle of the screen (`reset`); null until it's first drawn there.
+    sight: ?[2]i32 = null,
+    /// `target_under_reticle` (`0x00566550`): whether the reticle was drawn bright, a target under
+    /// it or blind fire aiming at it, which the chase view's sight shows (`chase.Chase`).
+    reticle_bright: bool = false,
+    /// The chase view's pointer to the target this frame, where `drawTarget` has found it out of
+    /// sight in the chase view; null where it doesn't show.
+    chase_pointer: ?chase.Pointer = null,
+    /// How the chase view's pointer to the player's nav point is rolled this frame, where
+    /// `drawTarget` has found one in the chase view; null where it doesn't show.
+    chase_nav_roll: ?f32 = null,
+    /// Where the lead cursor last stood in the scene as it was drawn (`drawTarget`), which the
+    /// chase view marks while blind fire aims at it.
+    lead_point: Vector = @splat(0),
+    /// What the player aims at as the display is drawn, which the driver hands the game
+    /// (`State.aim`).
+    aim: Aim = .{},
     missions: Event.Seen = .{},
 
     comptime {
@@ -4099,12 +4133,13 @@ pub const Drawing = struct {
     }
 
     /// What a mission's start resets of what drawing keeps, as `hud_init` resets the display
-    /// (`State.reset`): the warnings, the eject marker and the icons flash from the start, and the
-    /// interference is out. The target display's pictures go too: they show the types of the
-    /// mission before, which the mission's start lets go of (`main.startMission`).
+    /// (`State.reset`): the warnings, the eject marker and the icons flash from the start, the
+    /// interference is out, and blind fire's sight is back in the middle of the screen. The target
+    /// display's pictures go too: they show the types of the mission before, which the mission's
+    /// start lets go of (`main.startMission`). So does what the player aimed at in it (`aim`).
     fn reset(drawing: *Drawing) void {
         const fresh: Drawing = .{};
-        inline for (.{ "warning_ticks", "eject_ticks", "icon_ticks", "interference", "target_pictures" }) |name| {
+        inline for (.{ "warning_ticks", "eject_ticks", "icon_ticks", "interference", "target_pictures", "sight", "aim" }) |name| {
             @field(drawing, name) = @field(fresh, name);
         }
     }
@@ -4482,7 +4517,9 @@ pub const Keys = struct {
 };
 
 /// `hud_target_keys` (`0x0048B6B0`), which `frame_controls` runs after the camera's keys. It
-/// first finds the object under the reticle, then reads, in its order:
+/// first finds the object under the reticle in the scene as it was last drawn. OpenReliant's
+/// drawing finds it as it draws that scene (`underReticle`), and hands it to the game with the
+/// keys (`State.aim`). Then the keys are read, in their order:
 ///
 /// - TARGET TORPEDO steps the player's target to the next hostile Russian torpedo, Kamov or
 ///   Scimitar within `pick_reach`, and leaves it be if there is none.
@@ -4510,8 +4547,8 @@ pub const Keys = struct {
 /// components that is not friendly, TARGET UNDER RETICULE with nothing there to aim at. SMART
 /// TARGET sounds `on` or `off`, MISSILE WINDOW `done`.
 ///
-/// Between the search under the reticle and the keys, while the radio's window is open, the
-/// radio's menu runs (`radio.menu.Menu.run`).
+/// Before the keys, while the radio's window is open, the radio's menu runs
+/// (`radio.menu.Menu.run`).
 ///
 /// Not yet ported: what the game does while a multiplayer game's chat line is typed
 /// (`chat_typing`, `0x00529FB8`), which leaves out every key after the radio's menu
@@ -4519,7 +4556,6 @@ pub const Keys = struct {
 pub fn targetKeys(state: *State, keys: Keys) void {
     const all = keys.all;
     const devices = keys.devices;
-    state.under_reticle = if (state.reticle) |reticle| underReticle(all, reticle) else null;
     if (state.windows.status.get(.comms).phase == .open) if (keys.world) |world| {
         keys.player.menu.run(.{ .world = world, .devices = devices });
     };
@@ -4557,8 +4593,8 @@ pub fn targetKeys(state: *State, keys: Keys) void {
         beep(keys.world, if (found) .done else .refused);
     }
     if (devices.active(.target_under_reticule, true)) {
-        const under: aigeneric.Target = if (state.under_reticle) |index| .at(index, null) else .none;
-        const aimed = if (ai.targetValid(all, under, .{})) state.under_reticle else null;
+        const under: aigeneric.Target = if (state.aim.under_reticle) |index| .at(index, null) else .none;
+        const aimed = if (ai.targetValid(all, under, .{})) state.aim.under_reticle else null;
         if (aimed) |index| {
             beep(keys.world, .done);
             if (controlled) {
@@ -4758,7 +4794,8 @@ const TargetingTest = struct {
         };
     }
 
-    /// Presses `action`'s key, with its modifier, for one reading of the targeting keys.
+    /// Presses `action`'s key, with its modifier, for one reading of the targeting keys, with what
+    /// was under the reticle in the scene as `sight` drew it.
     fn tap(test_: *TargetingTest, action: input.controls.Action, sight: ?Sight) void {
         const keyboard = &test_.devices.keyboard;
         const bound = input.controls.binding(action);
@@ -4770,7 +4807,7 @@ const TargetingTest = struct {
         };
         keyboard.down[bound.key] = true;
         if (modifier) |held| keyboard.down[held] = true;
-        test_.state.reticle = if (sight) |drawn| .{ .sight = drawn, .scale = 1 } else null;
+        test_.state.aim.under_reticle = if (sight) |drawn| underReticle(test_.mission.objects, .{ .sight = drawn, .scale = 1 }) else null;
         targetKeys(&test_.state, test_.keys());
         keyboard.down[bound.key] = false;
         if (modifier) |held| keyboard.down[held] = false;
@@ -4924,7 +4961,7 @@ test targetKeys {
 
     // The Sabre dead ahead stands under the reticle; the near one stands off to the side.
     t.tap(.target_under_reticule, testSight());
-    try std.testing.expectEqual(ahead, t.state.under_reticle.?);
+    try std.testing.expectEqual(ahead, t.state.aim.under_reticle.?);
     try std.testing.expectEqual(@as(i32, ahead), current.index);
 
     // Stepping from a lone target that the player cannot aim at leaves none.
@@ -5747,10 +5784,10 @@ pub const Cursor = union(enum) {
 };
 
 /// Draws the reticle as `hud_draw` does in view 0, for the target's lead cursor `target_at`, and
-/// says whether blind fire aims at it (`State.blind_fire_aims`). The chase view draws neither the
-/// reticle nor the sight.
+/// says whether blind fire aims at it (`Aim.blind_fire`). The chase view draws neither the reticle
+/// nor the sight.
 pub fn drawReticle(
-    state: *State,
+    drawing: *Drawing,
     pen: Pen,
     mode: camera.CockpitMode,
     target_at: Cursor,
@@ -5763,7 +5800,7 @@ pub fn drawReticle(
     const found: ?[2]i32 = switch (target_at) {
         .none => {
             if (drawn) try pen.shaky(reticle_shape, middle);
-            state.reticle_bright = false;
+            drawing.reticle_bright = false;
             return false;
         },
         .beyond => null,
@@ -5785,11 +5822,11 @@ pub fn drawReticle(
     const within = taken != null;
     if (within and blind_fire == .on) {
         at = taken.?;
-        state.sight = taken.?;
+        drawing.sight = taken.?;
         aims = true;
         bright = true;
     } else if (!(within and blind_fire == .excluded)) {
-        var sight = state.sight orelse middle;
+        var sight = drawing.sight orelse middle;
         const rest = pen.span(sight_rest);
         const glide = pen.span(frame_duration);
         for (0..2) |axis| {
@@ -5801,10 +5838,10 @@ pub fn drawReticle(
                 at[axis] = sight[axis];
             }
         }
-        state.sight = sight;
+        drawing.sight = sight;
     }
     if (drawn) try pen.shaky(if (bright) sight_shape else reticle_shape, at);
-    state.reticle_bright = bright;
+    drawing.reticle_bright = bright;
     return aims;
 }
 
@@ -5944,25 +5981,25 @@ pub fn pointerDirection(ship: math.Place, at: Vector) [2]f32 {
 ///
 /// A target whose node (`ai.targetPart`) stands off the screen or behind the camera gets an arrow
 /// from the middle of the screen pointing its way, red for a hostile one and green for the rest,
-/// or in the chase view the pointer in the scene (`State.chase_pointer`, `chase.Chase`), and a
+/// or in the chase view the pointer in the scene (`Drawing.chase_pointer`, `chase.Chase`), and a
 /// marker where a line its way leaves the screen, with the range in kilometres. One on the
 /// screen gets four brackets at the corners of its box, the component's for a subtarget, as the
 /// camera sees it, with the range under them; and, if it lists no components and is not friendly,
-/// the lead cursor where to aim with the guns (`ai.leadAim`), which it keeps (`State.lead_point`),
+/// the lead cursor where to aim with the guns (`leadPoint`), which it keeps (`Drawing.lead_point`),
 /// and a line from it toward the target, in red.
 ///
 /// First, where the player's ship points to a nav point (`GameObject.nav_point`), it draws the
 /// same arrow its way in `nav_colour`, whether the nav point is in sight or not, or in the chase
-/// view turns its pointer in the scene (`State.chase_nav_roll`).
+/// view turns its pointer in the scene (`Drawing.chase_nav_roll`).
 ///
 /// Before all of it, the corners it marks on the ship whose line the radio's window names
 /// (`drawCommsMarker`).
 ///
 /// Not yet ported: the players' names over their ships in a multiplayer game
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-pub fn drawTarget(state: *State, pen: Pen, fonts: *TargetFonts, scene: TargetScene, edge_line: EdgeLine) Error!Cursor {
-    state.chase_pointer = null;
-    state.chase_nav_roll = null;
+pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *TargetFonts, scene: TargetScene, edge_line: EdgeLine) Error!Cursor {
+    drawing.chase_pointer = null;
+    drawing.chase_nav_roll = null;
     const all = scene.all;
     const sight = scene.sight;
     if (scene.speaker) |ship| try drawCommsMarker(pen, sight, all, ship);
@@ -5970,7 +6007,7 @@ pub fn drawTarget(state: *State, pen: Pen, fonts: *TargetFonts, scene: TargetSce
     if (ship.object.nav_point.index()) |nav| if (nav < all.slots.len) {
         const way = pointerDirection(ship.drawn, all.slots[nav].drawn.position);
         if (scene.mode == .chase) {
-            state.chase_nav_roll = chase.Pointer.rollToward(way);
+            drawing.chase_nav_roll = chase.Pointer.rollToward(way);
         } else {
             drawArrow(pen, sight, way, pen.art.paletteColour(nav_colour));
         }
@@ -5988,7 +6025,7 @@ pub fn drawTarget(state: *State, pen: Pen, fonts: *TargetFonts, scene: TargetSce
     const on_screen = if (sight.pixel(seen)) |at| sight.onScreen(at) else false;
     if (!on_screen or seen[2] < 0) {
         const way = pointerDirection(ship.drawn, node.position);
-        if (scene.mode == .chase) state.chase_pointer = .toward(way, hostile);
+        if (scene.mode == .chase) drawing.chase_pointer = .toward(way, hostile);
         try drawOffScreen(pen, &fonts.small, sight, way, hostile, range, scene.mode, edge_line);
         return .none;
     }
@@ -6008,9 +6045,8 @@ pub fn drawTarget(state: *State, pen: Pen, fonts: *TargetFonts, scene: TargetSce
         _ = try pen.partTextIn(.target_markers_range, &fonts.new, .{ corner[0] + round(offset[0]), round(high[1] + offset[1]) }, range, .right);
     }
 
-    if (struck.object.flags.components or struck.object.side == .friendly) return .none;
-    const lead = ai.leadAim(all, all.player, aimed, 1) orelse return .none;
-    state.lead_point = lead;
+    const lead = leadPoint(all, aimed) orelse return .none;
+    drawing.lead_point = lead;
     const aim: Point = sight.projection.project(sight.view(lead));
     const cursor: Cursor = if (pixelOf(aim)) |at| .{ .at = at } else .beyond;
     if (cursor == .at) try pen.shape(lead_shape, cursor.at);
@@ -6019,6 +6055,15 @@ pub fn drawTarget(state: *State, pen: Pen, fonts: *TargetFonts, scene: TargetSce
         pen.line(whole(line[0]), whole(line[1]), pen.art.paletteColour(line_colour.hostile));
     }
     return cursor;
+}
+
+/// Where the lead cursor stands for the player's target `aimed`, as `hud_target` works it out
+/// (`ai.leadAim`): none for a target that lists components or is friendly, nor where a shot takes
+/// too long to meet it.
+fn leadPoint(all: *const create.Objects, aimed: ai.ValidTarget) ?Vector {
+    const struck = &all.slots[aimed.slot].object;
+    if (struck.flags.components or struck.side == .friendly) return null;
+    return ai.leadAim(all, all.player, aimed, 1);
 }
 
 /// The shapes `hud_comms_marker` marks the corners of a ship with, the first of four as the
@@ -6446,6 +6491,8 @@ const TargetDrawing = struct {
     recorder: device.testing.Recorder,
     art: Art,
     fonts: TargetFonts,
+    /// What drawing keeps of the display.
+    kept: Drawing = .{},
 
     fn init(drawing: *TargetDrawing, gpa: Allocator) !void {
         const empty = comptime std.mem.toBytes(spr.Header{ .version = spr.magic.*, .shape_count = 0 });
@@ -6465,8 +6512,8 @@ const TargetDrawing = struct {
     }
 
     /// Draws `state`'s target in `scene`, and says where the lead cursor stands.
-    fn draw(drawing: *TargetDrawing, gpa: Allocator, state: *State, scene: TargetScene) !Cursor {
-        return drawTarget(state, testing.pen(&drawing.art, gpa, drawing.recorder.interface()), &drawing.fonts, scene, .from_tip);
+    fn draw(drawing: *TargetDrawing, gpa: Allocator, state: *const State, scene: TargetScene) !Cursor {
+        return drawTarget(&drawing.kept, state, testing.pen(&drawing.art, gpa, drawing.recorder.interface()), &drawing.fonts, scene, .from_tip);
     }
 
     /// How many lines it has drawn, which are what it draws untextured.
@@ -6539,7 +6586,16 @@ test "a hostile target ahead gets the lead cursor, whose point blind fire aims a
 
     const scene: TargetScene = .{ .sight = testSight(), .all = all, .mode = .cockpit };
     try std.testing.expect(try drawing.draw(gpa, &t.state, scene) == .at);
-    try std.testing.expectEqual(ai.leadAim(all, all.player, t.state.target.?, 1).?, t.state.lead_point);
+    const lead = ai.leadAim(all, all.player, t.state.target.?, 1).?;
+    try std.testing.expectEqual(lead, drawing.kept.lead_point);
+    // The game frame works out the same point for blind fire's shots.
+    t.state.leadTarget(all);
+    try std.testing.expectEqual(lead, t.state.lead_point);
+    // A friendly target gets none, and the point stays where it was.
+    all.slots[ahead].object.side = .friendly;
+    t.state.lead_point = @splat(0);
+    t.state.leadTarget(all);
+    try std.testing.expectEqual(@as(Vector, @splat(0)), t.state.lead_point);
 }
 
 test "a target whose box reaches behind the camera loses its range, not the game" {
@@ -6673,26 +6729,26 @@ test "the arcs part as the screen widens" {
 }
 
 test "the sight glides back to the middle" {
-    var state: State = .{ .sight = .{ 300, 250 } };
+    var drawing: Drawing = .{ .sight = .{ 300, 250 } };
     // With a target off the reach of blind fire, the sight moves a pixel a tick toward the
     // middle, and rests within two of it.
     var recorder: device.testing.Recorder = .{ .gpa = std.testing.allocator };
     defer recorder.deinit();
     var art: Art = .{ .set = undefined, .images = &.{}, .pictured = &.{}, .zero_drawn = &.{} };
     const pen = testing.pen(&art, std.testing.allocator, recorder.interface());
-    const aims = try drawReticle(&state, pen, .chase, .{ .at = .{ 600, 400 } }, .on, 10);
+    const aims = try drawReticle(&drawing, pen, .chase, .{ .at = .{ 600, 400 } }, .on, 10);
     try std.testing.expect(!aims);
-    try std.testing.expectEqual([2]i32{ 310, 240 }, state.sight.?);
+    try std.testing.expectEqual([2]i32{ 310, 240 }, drawing.sight.?);
     // Within its reach, blind fire takes the target.
-    try std.testing.expect(try drawReticle(&state, pen, .chase, .{ .at = .{ 350, 260 } }, .on, 10));
-    try std.testing.expectEqual([2]i32{ 350, 260 }, state.sight.?);
+    try std.testing.expect(try drawReticle(&drawing, pen, .chase, .{ .at = .{ 350, 260 } }, .on, 10));
+    try std.testing.expectEqual([2]i32{ 350, 260 }, drawing.sight.?);
     // A gun it does not aim leaves the sight where it is.
-    _ = try drawReticle(&state, pen, .chase, .{ .at = .{ 350, 260 } }, .excluded, 10);
-    try std.testing.expectEqual([2]i32{ 350, 260 }, state.sight.?);
+    _ = try drawReticle(&drawing, pen, .chase, .{ .at = .{ 350, 260 } }, .excluded, 10);
+    try std.testing.expectEqual([2]i32{ 350, 260 }, drawing.sight.?);
     // A cursor beyond the screen's reach is as far as can be: the sight glides back.
-    try std.testing.expect(!try drawReticle(&state, pen, .chase, .beyond, .on, 10));
-    try std.testing.expectEqual([2]i32{ 340, 250 }, state.sight.?);
-    try std.testing.expect(!state.reticle_bright);
+    try std.testing.expect(!try drawReticle(&drawing, pen, .chase, .beyond, .on, 10));
+    try std.testing.expectEqual([2]i32{ 340, 250 }, drawing.sight.?);
+    try std.testing.expect(!drawing.reticle_bright);
 }
 
 test pixelOf {

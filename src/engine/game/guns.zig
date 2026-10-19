@@ -1525,7 +1525,7 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
 
 /// `bullet_place`'s aim for a shot of type `kind` from the ship in slot `owner`, while the ship
 /// aims blind (`GameObject.blind_fire_aim`, which the display sets as it draws the reticle): a
-/// shot of the player's flies at the point the lead cursor last stood on
+/// shot of the player's flies at the lead cursor's point, which the game frame works out
 /// (`hud.State.lead_point`). Null for a shot that flies along its muzzle: from a ship not aiming
 /// blind, or of the Nova Cannon or a turret's gun.
 ///
