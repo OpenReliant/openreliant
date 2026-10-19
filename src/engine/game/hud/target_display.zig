@@ -45,9 +45,11 @@ pub const Form = enum {
 
 /// What the two forms read of the game for a frame.
 pub const Scene = struct {
-    /// The display's own state: the target, the hits on it, the windows and what each form last
-    /// showed.
-    state: *hud.State,
+    /// The display's state in the game: the target and the hits on it.
+    state: *const hud.State,
+    /// What drawing keeps of the display: the hits on the target it has drawn, and what each form
+    /// last showed.
+    drawing: *hud.Drawing,
     all: *const create.Objects,
 
     /// Draws `form`: what it shows now, and what it last showed as it shrinks away closing
@@ -57,7 +59,7 @@ pub const Scene = struct {
         switch (form) {
             inline else => |which| {
                 const name = @tagName(which);
-                const kept = &@field(scene.state.target_pictures, name);
+                const kept = &@field(scene.drawing.target_pictures, name);
                 if (!closing) kept.* = @field(Scene, name)(scene);
                 if (kept.*) |shown| try shown.draw(context);
             },
@@ -69,8 +71,8 @@ pub const Scene = struct {
         const index = (scene.state.target orelse return null).slot;
         const slot = &scene.all.slots[index];
         if (hidden(slot)) return null;
-        const status = hud.ShipStatus.ofTarget(slot, &scene.state.target_hits);
-        scene.state.flashes.target_hits = status.hits;
+        const status = hud.ShipStatus.ofTarget(slot, .{ .counts = &scene.state.events.target_hits, .seen = &scene.drawing.target_hits });
+        scene.drawing.flashes.target_hits = status.hits;
         return .{ .status = status, .facts = .of(scene.all, index), .pilot = pilotName(scene.all, slot) };
     }
 
@@ -369,7 +371,8 @@ test "the forms show the target" {
     const slot = mission.slot(sabre);
     slot.object.speed = 212.6;
     var state: hud.State = .{ .target = .{ .target = .at(sabre, null), .slot = sabre } };
-    const scene: Scene = .{ .state = &state, .all = all };
+    var drawing: hud.Drawing = .{};
+    const scene: Scene = .{ .state = &state, .drawing = &drawing, .all = all };
 
     // Its type's name, its range in whole kilometres and its speed.
     const facts = scene.small().?.facts;

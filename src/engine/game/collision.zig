@@ -360,8 +360,8 @@ pub fn byDifficulty(world: gameobj.World, index: u16, kind: Kind, value: f32) f3
 ///
 /// With smart targeting on, a blow the player's ship deals, but by colliding, makes what it
 /// struck the player's target (`input.setPlayerTarget`). A blow the player's ship takes shakes it
-/// and its controller (`feedback`), and the display (`hud.Interference.start`). Last, the object's
-/// ShotAt is posted (`shotAt`).
+/// and its controller (`feedback`), and the display (`hud.State.startInterference`). Last, the
+/// object's ShotAt is posted (`shotAt`).
 ///
 /// Not ported: what a multiplayer game adds, the damage a network session keeps for the other
 /// players among it (`net_quadrant_damage`, `0x004BA9F0`)
@@ -396,16 +396,16 @@ fn holdShots(world: gameobj.World, held: bool) void {
 
 /// What `object_damage` and `object_armor_damage` both do first: a jumping object takes nothing,
 /// and nor does debris, though a blow to the player's ship starts the display's interference
-/// (`hud.Interference.start`) before that is known. Otherwise the blow, `value` as the difficulty
-/// scales it, of a kind that counts, to the player's ship draws the attacker's taunt on the radio
-/// (`radio.enemyTaunt`); it shakes the player's ship and its controller (`feedback`, where
-/// `shielded` says whether the shields took it), and counts toward what the object has taken lately
-/// where its kind does. Returns the scaled blow, or null where the object takes nothing.
+/// (`hud.State.startInterference`) before that is known. Otherwise the blow, `value` as the
+/// difficulty scales it, of a kind that counts, to the player's ship draws the attacker's taunt on
+/// the radio (`radio.enemyTaunt`); it shakes the player's ship and its controller (`feedback`,
+/// where `shielded` says whether the shields took it), and counts toward what the object has taken
+/// lately where its kind does. Returns the scaled blow, or null where the object takes nothing.
 fn scaledBlow(world: gameobj.World, index: u16, struck: Quadrant, value: f32, attacker: u16, kind: Kind, shielded: bool) ?f32 {
     const all = world.objects;
     const slot = &all.slots[index];
     if (slot.object.flags.jumping) return null;
-    if (index == all.player) if (world.display) |display| display.interference.start(world);
+    if (index == all.player) if (world.display) |display| display.startInterference(world);
     if (slot.combat) |combat| if (combat.class == .debris) return null;
     const scaled = byDifficulty(world, index, kind, value);
     if (index == all.player and counted(kind)) radio.enemyTaunt(world, attacker);
@@ -433,11 +433,11 @@ fn smartTargeting(world: gameobj.World, attacker: u16, kind: Kind) ?*hud.State {
 /// no time to eject. Smart targeting makes what the player's ship struck, but by colliding, the
 /// target of its current order. A hit on that target brings up its form of the target display,
 /// and a hit on it or on the player's ship marks the quadrant struck for the ship status indicator
-/// to flash (`hud.State.target_hits`, `ship_hits`). A blow the player's ship takes shakes it and
-/// its controller (`feedback`), and the display (`hud.Interference.start`). The player's blow on a
-/// friend not exploding mounts toward Moose's warning (`friendly_fire.warn`), and one that destroys
-/// it has the player sent home (`friendly_fire.friendDestroyed`). Last, the object's ShotAt is
-/// posted (`shotAt`); a shot's on an object listing components, at once, and even while a
+/// to flash (`hud.Events.target_hits`, `ship_hits`). A blow the player's ship takes shakes it and
+/// its controller (`feedback`), and the display (`hud.State.startInterference`). The player's blow
+/// on a friend not exploding mounts toward Moose's warning (`friendly_fire.warn`), and one that
+/// destroys it has the player sent home (`friendly_fire.friendDestroyed`). Last, the object's
+/// ShotAt is posted (`shotAt`); a shot's on an object listing components, at once, and even while a
 /// collision's test against a hull runs again.
 pub fn armorDamage(world: gameobj.World, index: u16, struck: Quadrant, value: f32, attacker: u16, kind: Kind) void {
     if (hooks.enter(.object_armor_damage, armorDamage, .{ world, index, struck, value, attacker, kind })) |done| return done;
@@ -470,9 +470,9 @@ pub fn armorDamage(world: gameobj.World, index: u16, struck: Quadrant, value: f3
     if (world.display) |display| {
         if (current.slot() == index) {
             _ = display.bringUp(hud.targetWindow(slot), false);
-            display.target_hits.insert(struck);
+            display.events.target_hits.getPtr(struck).happen();
         }
-        if (index == all.player) display.ship_hits.insert(struck);
+        if (index == all.player) display.events.ship_hits.getPtr(struck).happen();
     }
     shotAt(world, index, attacker);
 }
@@ -1120,11 +1120,11 @@ test "smart targeting takes what the player's ship hits" {
     // Past its shields, a hit on the target marks the quadrant it wore, for the target display;
     // one on the player's ship marks the player's.
     armorDamage(world, index, .left, 1, player, .bullet);
-    try std.testing.expect(display.target_hits.contains(.left));
-    try std.testing.expect(!display.target_hits.contains(.fore));
+    try std.testing.expectEqual(1, display.events.target_hits.get(.left).count);
+    try std.testing.expectEqual(0, display.events.target_hits.get(.fore).count);
     all.slots[player].object.armor = .all(100);
     armorDamage(world, player, .aft, 1, index, .bullet);
-    try std.testing.expect(display.ship_hits.contains(.aft));
+    try std.testing.expectEqual(1, display.events.ship_hits.get(.aft).count);
 }
 
 test knockDamage {

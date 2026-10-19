@@ -105,6 +105,9 @@ pub const Host = struct {
 
     pub const Flight = struct {
         hud: *const hud.State,
+        /// What drawing keeps of the display, as it last drew it: what flashed, where each
+        /// instrument drew, and how far the launch's caption has typed.
+        drawing: *const hud.Drawing,
         player: *const input.Player,
         /// What the display's frame draws the clock, the view's name, the caption and the status
         /// lights from (`hud.Frame`): the time played, the game's variables, last frame's view, the
@@ -669,21 +672,22 @@ test "a display stands in for the game's instruments and reads what they show" {
     defer fixture.deinit();
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     var state: hud.State = .{};
+    var hud_drawing: hud.Drawing = .{};
     state.radar_range = 1;
     state.missiles.entries[0] = .{ .count = 2, .type = .of(.screamer) };
     state.missiles.entries[1] = .{ .count = 4, .type = .of(.raptor) };
     state.missiles.armed = 1;
     state.windows.status.getPtr(.gunnery).phase = .open;
     state.target = .{ .target = .at(0, 3), .slot = 0 };
-    state.bounds.set(.radar, .{ .left = 1, .top = 2, .right = 30, .bottom = 40 });
-    state.part_bounds.set(.radio_speaker, .{ .left = 5, .top = 6, .right = 50, .bottom = 16 });
+    hud_drawing.bounds.set(.radar, .{ .left = 1, .top = 2, .right = 30, .bottom = 40 });
+    hud_drawing.part_bounds.set(.radio_speaker, .{ .left = 5, .top = 6, .right = 50, .bottom = 16 });
     var player: input.Player = .{};
     player.kills.count = 7;
     var view: engine.game.camera.Camera = .{};
     var viewing: engine.game.camera.Viewing = .{};
     var strings_table: [2][]const u8 = .{ "", "Moose" };
     const strings: engine.game.language.Language = .{ .strings = &strings_table };
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player, .strings = &strings, .speaker_name = 2 } };
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .drawing = &hud_drawing, .player = &player, .strings = &strings, .speaker_name = 2 } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     // The scripts read the replaced instruments in the game's order, as the display has them.
@@ -756,10 +760,12 @@ test "a display reads the cockpit's instruments in any view" {
     player.matching_speed = true;
     player.shield_reserves = .{ .fore = 5 * @as(f32, @floatFromInt(combat.shield_power)) };
     var state: hud.State = .{};
+    var hud_drawing: hud.Drawing = .{};
     state.smart_targeting = true;
-    state.icons.show(.ecm, .flash);
+    state.showIcon(.ecm, .flash);
     state.devices.getPtr(.cloak).setting = .absent;
-    state.caption = .{ .on = true, .shown = 6 };
+    state.caption = .{ .on = true };
+    hud_drawing.caption = .{ .shown = 6 };
     // The strings for the date of mission 1 and the name of the chase view.
     var strings_table: [1000][]const u8 = @splat(" ");
     strings_table[hud.Caption.date(1).? - 1] = "Mai 3\xE9";
@@ -771,6 +777,7 @@ test "a display reads the cockpit's instruments in any view" {
     viewing.view = .chase;
     var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{
         .hud = &state,
+        .drawing = &hud_drawing,
         .player = &player,
         .play = .{ .minutes = 3, .seconds = 7 },
         .last_view = .chase,
@@ -833,13 +840,14 @@ test "a display reads the radar's contacts and the target display" {
     strings_table[hud.target_display.pilotName(all, slot).? - 1] = "Ace";
     const strings: engine.game.language.Language = .{ .strings = &strings_table };
     var state: hud.State = .{};
+    var hud_drawing: hud.Drawing = .{};
     state.target = .{ .target = .at(sabre, null), .slot = sabre };
     // Its fore quadrant flashes on its schematic.
-    state.flashes.target_hits = .initOne(.fore);
+    hud_drawing.flashes.target_hits = .initOne(.fore);
     var player: input.Player = .{};
     var view: engine.game.camera.Camera = .{};
     var viewing: engine.game.camera.Viewing = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player, .strings = &strings } };
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .drawing = &hud_drawing, .player = &player, .strings = &strings } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     // The radar shows the Sabre alone, as the target, up the screen; the target display its name,
@@ -898,6 +906,7 @@ test "a display reads the windows and the display's text" {
     // Objectives: the first current, the second listed with no name, the rest hidden; the window
     // shows the second.
     var state: hud.State = .{};
+    const hud_drawing: hud.Drawing = .{};
     const names: hud.Objectives.Names = .{ "Patrol", null, null, null, null, null, null, null, null, null };
     state.objectives.own = &names;
     state.objectives.states[0] = .current;
@@ -919,6 +928,7 @@ test "a display reads the windows and the display's text" {
     var viewing: engine.game.camera.Viewing = .{};
     var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{
         .hud = &state,
+        .drawing = &hud_drawing,
         .player = &player,
         .variables = &variables,
         .strings = &strings,
@@ -989,7 +999,8 @@ test "a display reads what flashes, the charges, and how far the windows and the
     // The lock warning lit and the ECM's light, the countermeasures lit, and hits on the left and
     // aft; the ECM half charged, no cloak, and the spectral shields full.
     var state: hud.State = .{};
-    state.flashes = .{ .lights = .{ .enemy_lock = true, .ecm = true }, .countermeasures = true, .hits = .initMany(&.{ .left, .aft }) };
+    var hud_drawing: hud.Drawing = .{};
+    hud_drawing.flashes = .{ .lights = .{ .enemy_lock = true, .ecm = true }, .countermeasures = true, .hits = .initMany(&.{ .left, .aft }) };
     state.devices.getPtr(.ecm).ticks = @divExact(hud.Device.ecm.spec().full, 2);
     state.devices.getPtr(.cloak).setting = .absent;
     // The radar's rings two steps out from the closest range's.
@@ -1004,7 +1015,7 @@ test "a display reads what flashes, the charges, and how far the windows and the
     var player: input.Player = .{};
     var view: engine.game.camera.Camera = .{};
     var viewing: engine.game.camera.Viewing = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player } };
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .drawing = &hud_drawing, .player = &player } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     var expected: [256]u8 = undefined;
@@ -1143,11 +1154,12 @@ test "the hud-layout example stands in for the radar and places the cluster and 
     try fixture.shown.startGame(null, fixture.mission.objects, false);
     defer fixture.shown.endGame();
     var state: hud.State = .{};
-    state.bounds.set(.radar, .{ .left = 270, .top = 380, .right = 370, .bottom = 470 });
+    var hud_drawing: hud.Drawing = .{};
+    hud_drawing.bounds.set(.radar, .{ .left = 270, .top = 380, .right = 370, .bottom = 470 });
     var player: input.Player = .{};
     var view: engine.game.camera.Camera = .{};
     var viewing: engine.game.camera.Viewing = .{};
-    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .player = &player } };
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 }, .flight = .{ .hud = &state, .drawing = &hud_drawing, .player = &player } };
     host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
     fixture.shown.frame(host);
     const placed = fixture.shown.instrumentPlacements();

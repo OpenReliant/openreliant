@@ -49,6 +49,7 @@ const guns = @import("guns.zig");
 const objects = @import("objects.zig");
 const Random = @import("../random.zig").Random;
 const collision = @import("collision.zig");
+const Event = @import("table.zig").Event;
 const sound3d = @import("sound3d.zig");
 const main = @import("main.zig");
 const vm = @import("../vm.zig");
@@ -780,11 +781,10 @@ const row_reach = 10;
 
 /// The display's interference as the player's ship is hit (`hud_interference`, `0x00588700`):
 /// while it lasts the display shakes (`Shake`) and, in the view ahead, the screen's flash shows red
-/// at it (`main.flash`).
+/// at it (`main.flash`). The game starts it as a hit lands (`State.startInterference`), and
+/// drawing keeps its level and fades it (`Shown`).
 pub const Interference = struct {
-    level: f32 = 0,
-    /// The tick it last faded at (`0x00588728`), and last sounded at (`0x00587CD0`).
-    faded_at: i32 = 0,
+    /// The tick its sound last played at (`0x00587CD0`).
     sounded_at: i32 = 0,
 
     /// What a hit sets it to, how far it fades a tick (`0x004DC4D0`), the buffered sound it plays
@@ -796,10 +796,9 @@ pub const Interference = struct {
     const loudness: f32 = 10000;
     const sound_gap = 15;
 
-    /// `hud_interference_start` (`0x00494890`), as `object_damage` and `object_armor_damage` hit
-    /// the player's ship: the interference at `hit_level`, and its sound at the ship once more than
+    /// `hud_interference_start`'s sound (`0x00494890`): at the player's ship, once more than
     /// `sound_gap` ticks and a random share of as many more have passed since the last.
-    pub fn start(interference: *Interference, world: gameobj.World) void {
+    fn play(interference: *Interference, world: gameobj.World) void {
         const frame_start = world.clock.frame_start;
         const gap = world.random.below(sound_gap) + sound_gap;
         if (gap < frame_start - interference.sounded_at) {
@@ -809,23 +808,29 @@ pub const Interference = struct {
                 hearing.sound.bufferAt(sound, ship.drawn.position, hearing.camera.*, loudness);
             }
         }
-        interference.level = hit_level;
     }
 
-    /// `hud_interference_fade` (`0x004948F0`), once a frame at `frame_start`: `fade_per_tick` less
-    /// for each tick since it last faded, to nothing.
-    pub fn fade(interference: *Interference, frame_start: i32) void {
-        const ticks: f32 = @floatFromInt(frame_start - interference.faded_at);
-        interference.level = @max(interference.level - ticks * fade_per_tick, 0);
-        interference.faded_at = frame_start;
-    }
+    /// What drawing keeps of the interference: its level, which each hit sets to `hit_level`
+    /// (`Drawing.takeUp`), and the tick it last faded at (`0x00588728`).
+    pub const Shown = struct {
+        level: f32 = 0,
+        faded_at: i32 = 0,
 
-    /// How the display shakes this frame, `hit_shake` the camera's shake: not at all while the
-    /// interference is out.
-    pub fn shake(interference: Interference, hit_shake: f32, random: *Random) ?Shake {
-        if (!(interference.level > 0)) return null;
-        return .{ .hit_shake = hit_shake, .interference = interference.level, .random = random };
-    }
+        /// `hud_interference_fade` (`0x004948F0`), once a frame at `frame_start`: `fade_per_tick`
+        /// less for each tick since it last faded, to nothing.
+        pub fn fade(shown: *Shown, frame_start: i32) void {
+            const ticks: f32 = @floatFromInt(frame_start - shown.faded_at);
+            shown.level = @max(shown.level - ticks * fade_per_tick, 0);
+            shown.faded_at = frame_start;
+        }
+
+        /// How the display shakes this frame, `hit_shake` the camera's shake: not at all while the
+        /// interference is out.
+        pub fn shake(shown: Shown, hit_shake: f32, random: *Random) ?Shake {
+            if (!(shown.level > 0)) return null;
+            return .{ .hit_shake = hit_shake, .interference = shown.level, .random = random };
+        }
+    };
 };
 
 /// Which ways `VFX_shape_draw_mirrored` flips a shape, the two low bits of its mode: 1 across, 2
@@ -843,7 +848,7 @@ pub const Mirror = packed struct(u2) {
 /// A rectangle of the screen in its pixels: its left and top edges inside it, its right and
 /// bottom ones not.
 pub const Clip = struct {
-    /// The name scripts know it by, as where an instrument draws (`State.bounds`).
+    /// The name scripts know it by, as where an instrument draws (`Drawing.bounds`).
     pub const script_name = "HudBounds";
 
     left: f32,
@@ -2211,7 +2216,7 @@ pub const Pen = struct {
     colour: [4]f32,
     /// How many of the screen's pixels each of the display's own spans (`UiScale.of`).
     scale: f32,
-    /// How the display shakes this frame (`Interference.shake`); null while it stands still.
+    /// How the display shakes this frame (`Interference.Shown.shake`); null while it stands still.
     shake: ?Shake = null,
     /// Where the mods' displays put the instruments' parts, and where each draws (`partText`);
     /// null to draw them as the game does.
@@ -2371,7 +2376,7 @@ pub const Frame = struct {
     ready: *const Readiness,
     edge_line: EdgeLine,
     multiplayer: bool = false,
-    /// The sound the enemy lock's warning plays through (`State.warnOfLock`); none where nothing
+    /// The sound the enemy lock's warning plays through (`Drawing.warnOfLock`); none where nothing
     /// is heard.
     sound: ?*hog_snd.Sound = null,
     /// The radio, whose window shows the speaker's face; none where nothing is heard.
@@ -2500,14 +2505,14 @@ pub const Placings = struct {
         return other;
     }
 
-    /// Keeps in `state` where each instrument and each part drew this frame (`State.bounds`,
-    /// `State.part_bounds`).
-    fn keep(placings: *const Placings, state: *State) void {
+    /// Keeps in `drawing` where each instrument and each part drew this frame (`Drawing.bounds`,
+    /// `Drawing.part_bounds`).
+    fn keep(placings: *const Placings, drawing: *Drawing) void {
         for (std.enums.values(Instrument)) |instrument| {
-            if (placings.each.get(instrument).drawn) |box| state.bounds.set(instrument, box);
+            if (placings.each.get(instrument).drawn) |box| drawing.bounds.set(instrument, box);
         }
         for (std.enums.values(parts.Part)) |part| {
-            if (placings.parts.drawn.get(part)) |box| state.part_bounds.set(part, box);
+            if (placings.parts.drawn.get(part)) |box| drawing.part_bounds.set(part, box);
         }
     }
 };
@@ -2594,11 +2599,12 @@ pub const Instrument = enum {
 /// reticle and the clock. The windows come last, as the game frame left them
 /// (`windows.Windows.draw`). `drawing` holds what drawing keeps from one frame to the next.
 ///
-/// The game also does its own work in `hud_draw`, which OpenReliant does in the game frame:
-/// following the player's target, the missile lock's tone, bringing up the jump prompt, the
-/// devices' charges, moving the windows on and playing their sounds (`State.gameFrame`), the
-/// radar's zoom (`State.zoomRadar`), and the radio's wait for its window and its closes
-/// (`radio.Radio.step`).
+/// The game also does its own work in `hud_draw`, which OpenReliant does in the game frame: the
+/// message lines going, following the player's target, the missile lock's tone, bringing up the
+/// jump prompt, the devices' charges, moving the windows on and playing their sounds
+/// (`State.gameFrame`), the radar's zoom (`State.zoomRadar`), and the radio's wait for its window
+/// and its closes (`radio.Radio.step`). Drawing takes up what the game has started for it as each
+/// drawn frame begins (`Drawing.takeUp`).
 pub fn draw(state: *State, drawing: *Drawing, resources: *Resources, frame: Frame) Error!void {
     const slot = &frame.all.slots[frame.all.player];
     const live = &slot.object;
@@ -2614,15 +2620,14 @@ pub fn draw(state: *State, drawing: *Drawing, resources: *Resources, frame: Fram
         .screen = frame.screen,
         .colour = untinted,
         .scale = frame.ui_scale.of(frame.screen),
-        .shake = state.interference.shake(frame.hit_shake, frame.random),
+        .shake = drawing.interference.shake(frame.hit_shake, frame.random),
     };
     // Each instrument draws through its own placing, which the mods' displays may move or stand
     // in for, and which notes where it drew.
     var placing: Placings = .init(frame, pen.scale);
-    defer placing.keep(state);
-    state.flashes = .{};
-    state.messages.expire(frame.clock.frame_start);
-    try state.caption.draw(placing.pen(pen, .caption), frame.all.mission_number, frame.clock.game_ticks);
+    defer placing.keep(drawing);
+    drawing.flashes = .{};
+    try state.caption.draw(&drawing.caption, placing.pen(pen, .caption), frame.all.mission_number, frame.clock.game_ticks);
     try state.key_prompt.draw(placing.pen(pen, .key_prompt), frame.devices);
     // Where the lead cursor stands, which the reticle closes on, and whether the enemy lock's
     // light shows.
@@ -2630,29 +2635,29 @@ pub fn draw(state: *State, drawing: *Drawing, resources: *Resources, frame: Fram
     var lock_lit = false;
     const speaker = if (frame.radio) |on_air| on_air.speakingShip(&state.windows, frame.all) else null;
     if (ahead) {
-        try drawing.drawJumpPrompt(state.prompts, frame.ready, placing.pen(pen, .jump_prompt), frame_duration);
+        try drawing.drawJumpPrompt(state, frame.ready, placing.pen(pen, .jump_prompt), frame_duration);
         if (frame.sight) |sight| {
             const scene: TargetScene = .{ .sight = sight, .all = frame.all, .mode = frame.mode, .speaker = speaker };
             lead = try drawTarget(state, placing.pen(pen, .target_markers), &resources.target_fonts, scene, frame.edge_line);
         }
-        try state.drawEjectMarker(placing.pen(pen, .eject_marker), frame_duration);
-        try state.drawScanner(frame.player.scanner.object != null, frame.clock.game_ticks, placing.pen(pen, .scanner));
-        const lit = state.lit(live, frame.player.matching_speed, frame.multiplayer, frame_duration);
-        try state.drawLights(placing.pen(pen, .lights), lit, frame_duration);
+        try drawing.drawEjectMarker(state, placing.pen(pen, .eject_marker), frame_duration);
+        try drawing.drawScanner(frame.player.scanner.object != null, frame.clock.game_ticks, placing.pen(pen, .scanner));
+        const lit = drawing.lit(state, live, frame.player.matching_speed, frame.multiplayer, frame_duration);
+        try drawing.drawLights(state, placing.pen(pen, .lights), lit, frame_duration);
         lock_lit = lit.enemy_lock;
     }
-    if (frame.sound) |sound| state.warnOfLock(sound, lock_lit, live.missile_homing != 0);
+    if (frame.sound) |sound| drawing.warnOfLock(sound, lock_lit, live.missile_homing != 0);
     try drawViewName(placing.pen(pen, .view_name), frame.last_view);
     try state.subtitle.draw(placing.pen(pen, .subtitle), frame.last_view);
     try state.messages.draw(placing.pen(pen, .messages), &resources.target_fonts.new);
-    if (ahead) try state.drawInstruments(pen, &placing, frame, lead, speaker);
+    if (ahead) try state.drawInstruments(drawing, pen, &placing, frame, lead, speaker);
     const contents: windows.Contents = .{
         .radio = if (frame.radio) |on_air| .{ .radio = on_air, .hit_shake = frame.hit_shake, .random = frame.random } else null,
         .gunnery = .{ .slot = slot, .wire_frame = state.wire_frame },
         .damage = .{ .object = live },
         .missiles = .{ .ring = &state.missiles },
         .power = .{ .ball = resources.ball, .object = live, .hit_shake = frame.hit_shake, .random = frame.random },
-        .target_display = .{ .state = state, .all = frame.all },
+        .target_display = .{ .state = state, .drawing = drawing, .all = frame.all },
         .objectives = .{ .objectives = &state.objectives },
         .comms = .{ .menu = &frame.player.menu, .font = &resources.target_fonts.new },
         .wing_status = .{ .all = frame.all },
@@ -2707,11 +2712,11 @@ test "the mods' displays move, scale and stand in for instruments" {
     try std.testing.expectEqual(1, recorder.draws.items.len);
     try std.testing.expectEqual(21, recorder.last()[0].x);
     try std.testing.expectEqual(-8, recorder.last()[0].y);
-    var state: State = .{};
-    placing.keep(&state);
-    try std.testing.expectEqual(Clip{ .left = 21, .top = -8, .right = 23, .bottom = -6 }, state.bounds.get(.clock).?);
-    try std.testing.expect(state.bounds.get(.radar) != null);
-    try std.testing.expectEqual(null, state.bounds.get(.reticle));
+    var drawing: Drawing = .{};
+    placing.keep(&drawing);
+    try std.testing.expectEqual(Clip{ .left = 21, .top = -8, .right = 23, .bottom = -6 }, drawing.bounds.get(.clock).?);
+    try std.testing.expect(drawing.bounds.get(.radar) != null);
+    try std.testing.expectEqual(null, drawing.bounds.get(.reticle));
     // Each window that shows something is an instrument; the readouts are too.
     try std.testing.expectEqual(.target_display, Instrument.ofWindow(.target).?);
     try std.testing.expectEqual(null, Instrument.ofWindow(._unknown_5));
@@ -2766,7 +2771,7 @@ pub const Readout = enum {
     /// under a skull and crossbones.
     skull,
     /// The countermeasures left, the object's `countermeasures`, under a coil. `ShowHudIcon` can
-    /// flash it (`State.shows`).
+    /// flash it (`Drawing.shows`).
     coil,
 
     /// Where a readout stands and what it draws there.
@@ -2975,8 +2980,8 @@ pub const Messages = struct {
         messages.count -= 1;
     }
 
-    /// `hud_messages_expire` (`0x0048D010`), as the display is drawn: drops the oldest once its
-    /// time is up, one a frame.
+    /// `hud_messages_expire` (`0x0048D010`), which `hud_draw` runs, and OpenReliant runs in the
+    /// game frame (`State.gameFrame`): drops the oldest once its time is up, one a frame.
     pub fn expire(messages: *Messages, frame_start: i32) void {
         if (messages.count != 0 and messages.until[0] < frame_start) messages.drop();
     }
@@ -3029,16 +3034,13 @@ test Messages {
 /// The launch's caption (`hud_draw`, `0x00484601`): while it is on, the date of the mission being
 /// flown, typed out at the foot of the screen a letter more each time `letter_ticks` of the game's
 /// ticks have passed, with a cursor after it until the whole date shows. The Reliant's launch puts
-/// it on as the player's ship drops out (`launch.reliant`), and off as the launch ends. It shows in
-/// every view.
+/// it on as the player's ship drops out (`launch.reliant`, `State.startCaption`), and off as the
+/// launch ends. It shows in every view. Drawing keeps how far it has typed (`Typing`).
 pub const Caption = struct {
     /// `launch_caption_on` (`0x00569934`).
     on: bool = false,
-    /// `launch_caption_due` (`0x0057BF44`): the game's tick past which the next letter shows.
-    due: u32 = 0,
-    /// `launch_caption_shown` (`0x005799E0`): how many of the date's letters show, one past them
-    /// all once it is whole.
-    shown: usize = 0,
+    /// The game's tick it was put on at, from which it types.
+    started_at: u32 = 0,
 
     /// How often a letter more shows, in the game's ticks (`0x00484665`).
     const letter_ticks = 8;
@@ -3049,38 +3051,44 @@ pub const Caption = struct {
     /// The cursor after the typed letters (`0x004E86E0`).
     const cursor = "_";
 
-    pub fn start(caption: *Caption, game_ticks: u32) void {
-        caption.* = .{ .on = true, .due = game_ticks };
-    }
-
     pub fn stop(caption: *Caption) void {
         caption.on = false;
     }
 
-    /// Types on through `text` at `game_ticks`: what shows of it, and whether the cursor does.
-    pub fn typed(caption: *Caption, text: []const u8, game_ticks: u32) struct { []const u8, bool } {
-        if (game_ticks > caption.due) {
-            caption.due = game_ticks + letter_ticks;
-            if (caption.shown < text.len + 1) caption.shown += 1;
-        }
-        return caption.showing(text);
-    }
+    /// How far drawing has typed the caption, from the tick the game put it on at
+    /// (`Drawing.takeUp`).
+    pub const Typing = struct {
+        /// `launch_caption_due` (`0x0057BF44`): the game's tick past which the next letter shows.
+        due: u32 = 0,
+        /// `launch_caption_shown` (`0x005799E0`): how many of the date's letters show, one past
+        /// them all once it is whole.
+        shown: usize = 0,
 
-    /// What shows of `text` as the caption stands: the letters typed so far, and whether the
-    /// cursor follows them.
-    pub fn showing(caption: Caption, text: []const u8) struct { []const u8, bool } {
-        return .{ text[0..@min(caption.shown, text.len)], caption.shown < text.len + 1 };
-    }
+        /// Types on through `text` at `game_ticks`: what shows of it, and whether the cursor does.
+        pub fn typed(typing: *Typing, text: []const u8, game_ticks: u32) struct { []const u8, bool } {
+            if (game_ticks > typing.due) {
+                typing.due = game_ticks + letter_ticks;
+                if (typing.shown < text.len + 1) typing.shown += 1;
+            }
+            return typing.showing(text);
+        }
+
+        /// What shows of `text` as far as it has typed: the letters typed so far, and whether the
+        /// cursor follows them.
+        pub fn showing(typing: Typing, text: []const u8) struct { []const u8, bool } {
+            return .{ text[0..@min(typing.shown, text.len)], typing.shown < text.len + 1 };
+        }
+    };
 
     /// Draws the caption where `hud_draw` does, where it is on: the date of mission `mission` out of
-    /// the pen's strings, typed on at `game_ticks`.
-    pub fn draw(caption: *Caption, pen: Pen, mission: u16, game_ticks: u32) Allocator.Error!void {
+    /// the pen's strings, typed on at `game_ticks` (`typing`).
+    pub fn draw(caption: Caption, typing: *Typing, pen: Pen, mission: u16, game_ticks: u32) Allocator.Error!void {
         if (!caption.on) return;
         const text = pen.strings.string(date(mission) orelse return) orelse return;
-        const shows, const typing = caption.typed(text, game_ticks);
+        const shows, const with_cursor = typing.typed(text, game_ticks);
         const at: [2]i32 = .{ pen.span(left), pen.fromFoot(up) };
         const end = try pen.partText(.caption_text, at, shows, .left);
-        if (typing) _ = try pen.partText(.caption_cursor, .{ end, at[1] }, cursor, .left);
+        if (with_cursor) _ = try pen.partText(.caption_cursor, .{ end, at[1] }, cursor, .left);
     }
 
     /// The language string of mission `mission`'s date (`mission_dates`, `0x005023D6`): the table
@@ -3281,15 +3289,23 @@ test drawClock {
 }
 
 test Caption {
-    var caption: Caption = .{};
-    caption.start(100);
+    var state: State = .{};
+    var drawing: Drawing = .{};
+    state.startCaption(100);
+    drawing.takeUp(&state);
+    try std.testing.expect(state.caption.on);
+    const typing = &drawing.caption;
     // A letter more each time eight ticks have passed, the cursor after them until all show.
-    try std.testing.expectEqualDeep(.{ "", true }, caption.typed("June", 100));
-    try std.testing.expectEqualDeep(.{ "J", true }, caption.typed("June", 101));
-    try std.testing.expectEqualDeep(.{ "J", true }, caption.typed("June", 109));
-    try std.testing.expectEqualDeep(.{ "Ju", true }, caption.typed("June", 110));
-    for (0..3) |n| _ = caption.typed("June", @intCast(120 + 10 * n));
-    try std.testing.expectEqualDeep(.{ "June", false }, caption.typed("June", 150));
+    try std.testing.expectEqualDeep(.{ "", true }, typing.typed("June", 100));
+    try std.testing.expectEqualDeep(.{ "J", true }, typing.typed("June", 101));
+    try std.testing.expectEqualDeep(.{ "J", true }, typing.typed("June", 109));
+    try std.testing.expectEqualDeep(.{ "Ju", true }, typing.typed("June", 110));
+    for (0..3) |n| _ = typing.typed("June", @intCast(120 + 10 * n));
+    try std.testing.expectEqualDeep(.{ "June", false }, typing.typed("June", 150));
+    // Put on again, it types from the first letter.
+    state.startCaption(200);
+    drawing.takeUp(&state);
+    try std.testing.expectEqualDeep(.{ "", true }, typing.typed("June", 200));
     // Missions 1 to 28 have dates, in order.
     try std.testing.expectEqual(978, Caption.date(1));
     try std.testing.expectEqual(1005, Caption.date(28));
@@ -3463,14 +3479,15 @@ pub const Lit = packed struct(u9) {
 };
 
 /// What flashes in the display this frame, as `hud_draw` moves the flashes on, kept for the mods'
-/// displays (`State.flashes`). All dark outside the view ahead from the cockpit, where none of it
+/// displays (`Drawing.flashes`). All dark outside the view ahead from the cockpit, where none of it
 /// draws.
 ///
 /// **Improvement:** OpenReliant's, for the scripts.
 pub const Flashes = struct {
-    /// The lights lit: those that show, but a flashing one only while it's lit (`State.drawLights`).
+    /// The lights lit: those that show, but a flashing one only while it's lit
+    /// (`Drawing.drawLights`).
     lights: Lit = .{},
-    /// Whether the countermeasures readout is lit, which `ShowHudIcon` can flash (`State.shows`).
+    /// Whether the countermeasures readout is lit, which `ShowHudIcon` can flash (`Drawing.shows`).
     countermeasures: bool = false,
     /// The quadrants that flash on the player's schematic, and on the target's in the target
     /// display's small form (`ShipStatus.Shown.hits`).
@@ -3520,66 +3537,30 @@ pub const IconState = enum(u32) {
     _,
 };
 
-/// The icons `ShowHudIcon` sets (`0x00566558`), which `hud_init` turns off. The table holds
-/// twenty; the display reads the six `Icon` names.
+/// The icons `ShowHudIcon` sets (`0x00566558`), which `hud_init` turns off. The game's table holds
+/// twenty, each an icon's state and the count its flash is at, 8 bytes apart up to `ecm_charge`
+/// (`0x005665F8`); the display reads the six `Icon` names. OpenReliant keeps the states here, and
+/// the flash counts with drawing (`Drawing.icon_ticks`).
 pub const Icons = struct {
     pub const count = 20;
+    /// The bytes each of the game's entries takes.
+    const entry_size = 8;
 
-    /// An icon's state and the count its flash is at.
-    pub const Slot = extern struct {
-        state: IconState = .off,
-        ticks: i32 = 0,
+    states: [count]IconState = @splat(.off),
 
-        comptime {
-            // Twenty of them run from `0x00566558` up to `ecm_charge` (`0x005665F8`).
-            assert(@offsetOf(Slot, "ticks") == 4);
-            assert(@sizeOf(Slot) == 8);
-            assert(0x00566558 + count * @sizeOf(Slot) == 0x005665F8);
-        }
-    };
-
-    slots: [count]Slot = @splat(.{}),
-
-    /// Sets an icon as `ShowHudIcon` does, its flash starting from the beginning.
-    ///
-    /// **Fix:** the game writes past the table for an icon of 20 or more; OpenReliant leaves such
-    /// an icon alone.
-    pub fn show(icons: *Icons, icon: Icon, state: IconState) void {
-        const slot = icons.slotOf(icon) orelse return;
-        slot.* = .{ .state = state };
+    comptime {
+        assert(0x00566558 + count * entry_size == 0x005665F8);
     }
 
     /// What `icon` is set to; off for one past the table.
     pub fn stateOf(icons: *const Icons, icon: Icon) IconState {
-        const slot = icons.slotOf(icon) orelse return .off;
-        return slot.state;
+        return icons.states[indexOf(icon) orelse return .off];
     }
 
-    /// The table's entry for `icon`, through `icons`, a pointer to the table that may be const;
-    /// null past the table.
-    fn slotOf(icons: anytype, icon: Icon) ?@TypeOf(&icons.slots[0]) {
+    /// Where `icon` stands in the table; null past it.
+    pub fn indexOf(icon: Icon) ?usize {
         const at = @backingInt(icon);
-        return if (at < count) &icons.slots[at] else null;
-    }
-
-    /// Whether `icon` is lit in a frame of `frame_duration` (`hud_icon_lit`, `0x00482F50`): always
-    /// when on, and when flashing for the first 50 ticks of every 100. Unlike the display's other
-    /// flashes, one that runs past 100 carries what it ran over into the next and is lit.
-    pub fn lit(icons: *Icons, icon: Icon, frame_duration: i32) bool {
-        const slot = icons.slotOf(icon) orelse return false;
-        switch (slot.state) {
-            .on => return true,
-            .flash => {
-                slot.ticks += frame_duration;
-                if (slot.ticks < Flash.slow.on) return true;
-                if (slot.ticks > Flash.slow.period) {
-                    slot.ticks -= Flash.slow.period;
-                    return true;
-                }
-                return false;
-            },
-            else => return false,
-        }
+        return if (at < count) at else null;
     }
 };
 
@@ -3699,10 +3680,8 @@ pub const State = struct {
     /// `mission_frame` sets it each frame when a ship whose order is Fight, against the player,
     /// has its missile ready (`aifight.FightState.missile_ready`).
     enemy_lock: bool = false,
-    /// The voice the enemy lock's warning plays on (`enemy_lock_voice`, `0x0057BF50`) while it
-    /// plays (`warnOfLock`).
-    lock_warning: ?u8 = null,
-    /// The display's interference as the player's ship is hit.
+    /// The display's interference as the player's ship is hit: when its sound last played. Drawing
+    /// keeps its level (`Drawing.interference`).
     interference: Interference = .{},
     /// The date the player's launch types out.
     caption: Caption = .{},
@@ -3726,18 +3705,6 @@ pub const State = struct {
     /// `player_ejected` (`0x00579986`), which the Eject Player order sets.
     ejected: bool = false,
     icons: Icons = .{},
-    /// The count the lock and missile warnings flash by (`0x0057BC44`), which the two share.
-    warning_ticks: i32 = 0,
-    /// The count the eject marker flashes by (`0x00569938`), which the Eject Player order starts
-    /// again.
-    eject_ticks: i32 = 0,
-    /// How many times the jump prompt has come up (`readyPrompt`). Each time restarts its flash
-    /// where it's drawn (`Drawing.jumpPrompt`).
-    prompts: u32 = 0,
-    /// The scanner's frame (`0x0057BC34`), 0 to 4, and the tick it next moves on at
-    /// (`0x005667B0`).
-    scanner_frame: u8 = 0,
-    scanner_next: u32 = 0,
     /// Where blind fire's sight stands (`0x00566628`, `0x0056662C`), which `hud_init` puts at
     /// the middle of the screen; null until OpenReliant first draws it there.
     sight: ?[2]i32 = null,
@@ -3767,13 +3734,6 @@ pub const State = struct {
     /// The object the display draws as the target (`0x00569940`): the shown one, with its slot,
     /// while the player can aim at it.
     target: ?ai.ValidTarget = null,
-    /// What each form of the target display last showed, which it closes with.
-    target_pictures: target_display.Pictures = .{},
-    /// The quadrants of the player's ship, and of its target, whose armour hits have worn since
-    /// the ship status indicator last drew each (`ship_status_hits`, `0x00563160`, and
-    /// `target_status_hits`, `0x005635D4`).
-    ship_hits: Hits = .empty,
-    target_hits: Hits = .empty,
     /// The object that stood under the reticle as the targeting keys were last read
     /// (`0x00566664`), which TARGET UNDER RETICULE takes.
     under_reticle: ?u16 = null,
@@ -3786,13 +3746,8 @@ pub const State = struct {
     lock: missile_lock.Lock = .{},
     /// The missile display's ring of the player's missiles.
     missiles: missile_display.Ring = .{},
-    /// Where each instrument last drew, in the window's pixels, as the mods' displays place it
-    /// (`Placings`); null for one that hasn't drawn yet. Kept for the scripts.
-    bounds: std.EnumArray(Instrument, ?Clip) = .initFill(null),
-    /// Where each part of the instruments last drew, as `bounds` (`parts`).
-    part_bounds: std.EnumArray(parts.Part, ?Clip) = .initFill(null),
-    /// What flashes this frame. Kept for the scripts.
-    flashes: Flashes = .{},
+    /// What the game has done that drawing follows, which a mission's start leaves as it is.
+    events: Events = .{},
 
     /// What `hud_init` sets the display's state to (`0x00483EF4` to `0x0048403A`). It runs as each
     /// mission loads (`mission_load`, at `0x004AD1B6`), a restart's too, since every mission's end
@@ -3804,34 +3759,39 @@ pub const State = struct {
     /// that the armed missile has run out (`game_ticks`). The mission's start empties the shield
     /// reserves with it, and then fits the devices to the player's ship (`main.fitDevices`).
     ///
+    /// Drawing resets what it keeps as it takes the mission's start up (`Drawing.reset`).
+    ///
     /// **Fix:** the game sets the voice of the missile name Betty said last to 0, so the first
     /// name she says in a mission ends whatever plays on voice 0. OpenReliant keeps no voice.
     pub fn reset(state: *State, game_ticks: u32) void {
         const fresh: State = .{};
         inline for (.{
-            "messages",    "icons",      "enemy_lock", "warning_ticks", "fosters_last_stand", "radar_range",
-            "radar_rings", "radar_zoom", "devices",    "ejected",       "eject_ticks",        "key_prompt",
-            "caption",     "blind_fire", "sight",
+            "messages",   "icons",   "enemy_lock", "fosters_last_stand", "radar_range", "radar_rings",
+            "radar_zoom", "devices", "ejected",    "key_prompt",         "caption",     "blind_fire",
+            "sight",
         }) |name| @field(state, name) = @field(fresh, name);
         state.missiles.empty_warned_until = game_ticks;
         state.missiles.name_voice = null;
+        state.events.missions.happen();
     }
 
     /// The game's own work in `hud_draw`, which OpenReliant does in the game frame
-    /// (`main.missionFrame`), in `hud_draw`'s order. The display follows the player's target
-    /// (`followTarget`) and plays or ends the missile lock's tone (`missile_lock.Lock.sound`). In
-    /// the view ahead from the cockpit, a jump or warp the mission has newly readied (`ready`)
-    /// brings up the jump prompt (`readyPrompt`). Then the devices' charges run (`runCharges`), the
-    /// windows move on (`windows.Windows.run`), and last, the windows' sounds play.
+    /// (`main.missionFrame`), in `hud_draw`'s order. The oldest message line goes once its time is
+    /// up (`Messages.expire`). The display follows the player's target (`followTarget`) and plays
+    /// or ends the missile lock's tone (`missile_lock.Lock.sound`). In the view ahead from the
+    /// cockpit, a jump or warp the mission has newly readied (`ready`) brings up the jump prompt
+    /// (`readyPrompt`). Then the devices' charges run (`runCharges`), the windows move on
+    /// (`windows.Windows.run`), and last, the windows' sounds play.
     ///
     /// **Improvement:** the game does this as it draws the display, over the drawn frame's ticks.
-    /// OpenReliant does it once a tick, so the devices drain and the windows open and close at the
-    /// same pace at any frame rate, and none of it depends on drawing.
+    /// OpenReliant does it once a tick, so the devices drain, the windows open and close and the
+    /// message lines go at the same pace at any frame rate, and none of it depends on drawing.
     pub fn gameFrame(state: *State, world: gameobj.World, ready: ?*Readiness) void {
         const all = world.objects;
         const frame_duration = world.clock.frame_duration;
         const ahead = instrumented(world.player.viewing.last);
         const sound = if (world.hearing) |hearing| hearing.sound else null;
+        state.messages.expire(world.clock.frame_start);
         state.followTarget(all, false);
         if (sound) |heard| state.lock.sound(heard, world.view());
         if (ahead) if (ready) |set| state.readyPrompt(set);
@@ -3867,48 +3827,21 @@ pub const State = struct {
         }
     }
 
-    /// `hud_draw`'s warning with the enemy lock's light, `showing` this frame: while it shows, the
-    /// warning plays on voice 1, started again whenever that voice has finished or was stopped.
-    /// Once it is out and no missile homes on the ship (`homing`), a warning still playing ends.
-    ///
-    /// **Fix:** the game does this only in the view ahead, as it draws the lights, so a warning
-    /// playing as the view changes loops until the player looks ahead again. OpenReliant runs it in
-    /// every view, the light counting as out in the others.
-    pub fn warnOfLock(state: *State, sound: *hog_snd.Sound, showing: bool, homing: bool) void {
-        if (showing) {
-            if (!sound.voiceIdle(lock_warning_voice)) return;
-            const bank = sound.stdsmp orelse return;
-            sound.playOn(lock_warning_voice, bank, lock_warning_sample, Beep.volume, hog_snd.forever, hog_snd.centre, hog_snd.own_pitch);
-            state.lock_warning = lock_warning_voice;
-        } else if (state.lock_warning) |voice| {
-            if (homing or sound.voiceIdle(lock_warning_voice)) return;
-            sound.endVoice(voice);
-            state.lock_warning = null;
-        }
-    }
-
-    /// Which lights' conditions hold for the player's `object`, tested as `hud_draw` tests them,
-    /// in its order: an icon's flash moves on only when `hud_draw` asks for it. `matching` is
-    /// `matching_speed`.
-    pub fn lit(state: *State, object: *const gameobj.GameObject, matching: bool, multiplayer: bool, frame_duration: i32) Lit {
-        return state.lightsWith(object, matching, multiplayer, .{ .step = .{ .icons = &state.icons, .frame_duration = frame_duration } });
-    }
-
-    /// Which lights show for the player's `object`, steady or flashing, as `lit` tests them but
-    /// with every icon `ShowHudIcon` sets counted as lit, and no flash moved on.
+    /// Which lights show for the player's `object`, steady or flashing, as `Drawing.lit` tests them
+    /// but with every icon `ShowHudIcon` sets counted as lit, and no flash moved on.
     pub fn lightsShown(state: *const State, object: *const gameobj.GameObject, matching: bool, multiplayer: bool) Lit {
         return state.lightsWith(object, matching, multiplayer, .{ .set = &state.icons });
     }
 
-    /// How a test of the lights reads `ShowHudIcon`'s icons: moving their flashes on by a frame of
-    /// `frame_duration`, as `hud_draw` does, or taking each that is set at all as lit.
+    /// How a test of the lights reads `ShowHudIcon`'s icons: moving drawing's flashes on by a frame
+    /// of `frame_duration`, as `hud_draw` does, or taking each that is set at all as lit.
     const IconTest = union(enum) {
-        step: struct { icons: *Icons, frame_duration: i32 },
+        step: struct { drawing: *Drawing, icons: *const Icons, frame_duration: i32 },
         set: *const Icons,
 
         fn lit(icon_test: IconTest, icon: Icon) bool {
             return switch (icon_test) {
-                .step => |step| step.icons.lit(icon, step.frame_duration),
+                .step => |step| step.drawing.iconLit(step.icons, icon, step.frame_duration),
                 .set => |icons| icons.stateOf(icon) != .off,
             };
         }
@@ -3978,39 +3911,6 @@ pub const State = struct {
         return state.windows.open(window, multiplayer);
     }
 
-    /// Whether `hud_draw` draws `readout` in a frame of `frame_duration`: the countermeasures only
-    /// while their icon is not flashing them dark.
-    pub fn shows(state: *State, readout: Readout, frame_duration: i32) bool {
-        return switch (readout) {
-            .coil => state.icons.stateOf(.countermeasures) == .off or state.icons.lit(.countermeasures, frame_duration),
-            else => true,
-        };
-    }
-
-    /// Draws the lights `lit` has, each in the next place of the grid, the warnings flashing and
-    /// the devices' charges as bars under their lights.
-    pub fn drawLights(state: *State, pen: Pen, shown: Lit, frame_duration: i32) Error!void {
-        var index: i32 = 0;
-        inline for (comptime std.enums.values(Light)) |light| {
-            if (@field(shown, @tagName(light))) {
-                const at = gridPlace(pen.screen, index, pen.scale);
-                index += 1;
-                const drawn = switch (light) {
-                    .enemy_lock => Flash.slow.step(&state.warning_ticks, frame_duration),
-                    .missile_incoming => Flash.fast.step(&state.warning_ticks, frame_duration),
-                    else => true,
-                };
-                @field(state.flashes.lights, @tagName(light)) = drawn;
-                // Every light shakes but reverse thrust's.
-                const how: Draw = .{ .shake = if (light == .reverse_thrust) null else pen.shake };
-                if (drawn) try pen.shapeWith(@backingInt(light), at, how);
-                if (comptime light.charged()) |kind| {
-                    drawBar(pen, at, kind.spec().bar_down, state.devices.get(kind).bar(kind));
-                }
-            }
-        }
-    }
-
     /// `hud_jump_prompt`'s work on what the mission has ready (`0x00482FA0`): if the prompt it
     /// picks, a warp's before a jump's, is newly ready, it's marked as shown and the prompt comes
     /// up, which starts its flash (`Drawing.jumpPrompt`).
@@ -4018,41 +3918,51 @@ pub const State = struct {
         const which = ready.of(JumpPrompt.Kind.of(ready.*));
         if (which.* != .newly) return;
         which.* = .shown;
-        state.prompts +%= 1;
+        state.events.prompts.happen();
     }
 
-    /// The eject marker (`hud_eject_marker`, `0x004830B0`): the pilot rising out of the ship,
-    /// flashing under the middle of the screen once the player has ejected, or while its icon is
-    /// lit.
-    pub fn drawEjectMarker(state: *State, pen: Pen, frame_duration: i32) Error!void {
-        if (!state.ejected and !state.icons.lit(.ejected, frame_duration)) return;
-        const at = pen.moved(pen.placed(marker_offset, 0.5, 0.5), eject_drop);
-        if (Flash.slow.step(&state.eject_ticks, frame_duration)) try pen.shape(eject_shape, at);
+    /// Sets `icon` to `icon_state`, as `ShowHudIcon` does, its flash starting again from the
+    /// beginning once drawing takes it up (`Drawing.takeUp`).
+    ///
+    /// **Fix:** the game writes past the table for an icon of 20 or more; OpenReliant leaves such
+    /// an icon alone.
+    pub fn showIcon(state: *State, icon: Icon, icon_state: IconState) void {
+        const at = Icons.indexOf(icon) orelse return;
+        state.icons.states[at] = icon_state;
+        state.events.icons[at].happen();
     }
 
-    /// The scanner (`hud_scanner`, `0x00489250`): while the `Scanner` mission command has the
-    /// player look for an object, a hand and the rings it sends out, drawn over the middle of the
-    /// screen in five frames.
-    pub fn drawScanner(state: *State, scanning: bool, game_ticks: u32, pen: Pen) Error!void {
-        if (!scanning) return;
-        try pen.shape(scanner_shape + state.scannerFrame(game_ticks), pen.placed(marker_offset, 0.5, 0.5));
+    /// Puts the launch's caption on at `game_ticks`, typing from its first letter
+    /// (`Drawing.takeUp`).
+    pub fn startCaption(state: *State, game_ticks: u32) void {
+        state.caption = .{ .on = true, .started_at = game_ticks };
+        state.events.captions.happen();
+    }
+
+    /// `hud_interference_start` (`0x00494890`), as `object_damage` and `object_armor_damage` hit
+    /// the player's ship: the interference at its hit level, which drawing takes up
+    /// (`Drawing.takeUp`), and its sound (`Interference.play`).
+    pub fn startInterference(state: *State, world: gameobj.World) void {
+        state.interference.play(world);
+        state.events.interference_hits.happen();
     }
 
     /// What `hud_draw` draws only in the view ahead from the cockpit, after the view's name, with
     /// the ship whose line the radio's window names, where it shows (`speaker`).
-    fn drawInstruments(state: *State, pen: Pen, placing: *Placings, frame: Frame, lead: Cursor, speaker: ?u16) Error!void {
+    fn drawInstruments(state: *State, drawing: *Drawing, pen: Pen, placing: *Placings, frame: Frame, lead: Cursor, speaker: ?u16) Error!void {
         const frame_duration = frame.clock.drawn_duration;
         const slot = &frame.all.slots[frame.all.player];
         const gauges = Cluster.Gauges.of(slot) orelse return;
         if (frame.sight) |sight| try drawNavMarker(placing.pen(pen, .nav_marker), sight, frame.all);
         for (std.enums.values(Readout)) |readout| {
-            const shown = state.shows(readout, frame_duration);
-            if (readout == .coil) state.flashes.countermeasures = shown;
+            const shown = drawing.shows(state, readout, frame_duration);
+            if (readout == .coil) drawing.flashes.countermeasures = shown;
             if (!shown) continue;
             try readout.draw(placing.pen(pen, readout.instrument()), readout.value(slot, frame.player));
         }
-        const status = ShipStatus.ofPlayer(slot, frame.all.rules().kamov_wing, &state.ship_hits, frame.player.shield_reserves);
-        state.flashes.hits = status.hits;
+        const hits: NewHits = .{ .counts = &state.events.ship_hits, .seen = &drawing.ship_hits };
+        const status = ShipStatus.ofPlayer(slot, frame.all.rules().kamov_wing, hits, frame.player.shield_reserves);
+        drawing.flashes.hits = status.hits;
         const status_pen = placing.pen(pen, .ship_status);
         try ShipStatus.draw(status, .player, status_pen, status_pen.placed(ShipStatus.offset, ShipStatus.across, ShipStatus.down), null);
         try drawCluster(placing.pen(pen, .gauges), gauges);
@@ -4063,20 +3973,9 @@ pub const State = struct {
     }
 
     /// The scanner from its first frame, as the `Scanner` command starts it (`cmd_Scanner`,
-    /// `0x00459CD9`).
+    /// `0x00459CD9`, `Drawing.takeUp`).
     pub fn restartScanner(state: *State) void {
-        state.scanner_frame = 0;
-        state.scanner_next = 0;
-    }
-
-    /// The scanner's frame at `game_ticks`: the next, going round, once `game_ticks` is past the
-    /// tick it waits for, which is then 25 on.
-    pub fn scannerFrame(state: *State, game_ticks: u32) u8 {
-        if (state.scanner_next < game_ticks) {
-            state.scanner_next = game_ticks + scanner_step;
-            state.scanner_frame = if (state.scanner_frame >= scanner_frames - 1) 0 else state.scanner_frame + 1;
-        }
-        return state.scanner_frame;
+        state.events.scans.happen();
     }
 };
 
@@ -4098,22 +3997,125 @@ test "State.reset" {
     try std.testing.expect(state.smart_targeting);
 }
 
+/// What the game has done that drawing follows (`Event`), counted so that drawing notices each of
+/// them however many game frames pass between two drawn frames. None of them is ever set back: a
+/// mission's start counts as one more (`missions`).
+pub const Events = struct {
+    /// The missions started (`State.reset`), each of which resets what drawing keeps
+    /// (`Drawing.reset`).
+    missions: Event = .{},
+    /// The times the jump prompt has come up (`State.readyPrompt`), each of which starts its
+    /// flash.
+    prompts: Event = .{},
+    /// The Eject Player orders (`aieject.playerInit`), each of which starts the eject marker's
+    /// flash again.
+    ejections: Event = .{},
+    /// The times `ShowHudIcon` has set each icon (`State.showIcon`), each of which starts its flash
+    /// again.
+    icons: [Icons.count]Event = @splat(.{}),
+    /// The times the launch's caption has been put on (`State.startCaption`), each of which types
+    /// it from its first letter.
+    captions: Event = .{},
+    /// The times the `Scanner` command has started the scanner (`State.restartScanner`), each of
+    /// which starts it from its first frame.
+    scans: Event = .{},
+    /// The hits that set the interference going (`State.startInterference`).
+    interference_hits: Event = .{},
+    /// The armour hits on each quadrant of the player's ship, and of its target
+    /// (`object_armor_damage`), which the ship status indicator flashes.
+    ship_hits: HitCounts = .initFill(.{}),
+    target_hits: HitCounts = .initFill(.{}),
+};
+
 /// What drawing keeps of the display from one drawn frame to the next, apart from the display's
-/// state in the game (`State`).
+/// state in the game (`State`). For each of the game's events, it keeps how many it has taken up
+/// under the same name.
 pub const Drawing = struct {
     /// The count the jump prompt flashes by (`0x00566790`).
     prompt_ticks: i32 = 0,
-    /// How many times the jump prompt had come up when it was last drawn (`State.prompts`).
-    prompts_seen: u32 = 0,
+    prompts: Event.Seen = .{},
+    /// The count the lock and missile warnings flash by (`0x0057BC44`), which the two share.
+    warning_ticks: i32 = 0,
+    /// The count the eject marker flashes by (`0x00569938`).
+    eject_ticks: i32 = 0,
+    ejections: Event.Seen = .{},
+    /// The count each of `ShowHudIcon`'s icons flashes by, the second word of each of the game's
+    /// entries (`hud_icons`, `0x00566558`).
+    icon_ticks: [Icons.count]i32 = @splat(0),
+    icons: [Icons.count]Event.Seen = @splat(.{}),
+    /// How far the launch's caption has typed.
+    caption: Caption.Typing = .{},
+    captions: Event.Seen = .{},
+    /// The scanner's frame (`0x0057BC34`), 0 to 4, and the tick it next moves on at
+    /// (`0x005667B0`).
+    scanner_frame: u8 = 0,
+    scanner_next: u32 = 0,
+    scans: Event.Seen = .{},
+    /// The display's interference as the player's ship is hit.
+    interference: Interference.Shown = .{},
+    interference_hits: Event.Seen = .{},
+    /// The hits on the player's ship, and on its target, that the ship status indicator has drawn.
+    ship_hits: HitsSeen = .initFill(.{}),
+    target_hits: HitsSeen = .initFill(.{}),
+    /// The voice the enemy lock's warning plays on (`enemy_lock_voice`, `0x0057BF50`) while it
+    /// plays (`warnOfLock`).
+    lock_warning: ?u8 = null,
+    /// What each form of the target display last showed, which it closes with.
+    target_pictures: target_display.Pictures = .{},
+    /// What flashes this frame. Kept for the scripts.
+    flashes: Flashes = .{},
+    /// Where each instrument last drew, in the window's pixels, as the mods' displays place it
+    /// (`Placings`); null for one that hasn't drawn yet. Kept for the scripts.
+    bounds: std.EnumArray(Instrument, ?Clip) = .initFill(null),
+    /// Where each part of the instruments last drew, as `bounds` (`parts`).
+    part_bounds: std.EnumArray(parts.Part, ?Clip) = .initFill(null),
+    missions: Event.Seen = .{},
+
+    comptime {
+        for (@typeInfo(Events).@"struct".field_names) |name| assert(@hasField(Drawing, name));
+    }
+
+    /// Takes up what the game has done since the last drawn frame (`State.events`): a mission's
+    /// start resets what drawing keeps (`reset`), an Eject Player order starts the eject marker's
+    /// flash again, `ShowHudIcon` an icon's, the launch's caption types from its first letter, the
+    /// `Scanner` command starts the scanner from its first frame, and a hit sets the interference
+    /// to its hit level. The driver has drawing take
+    /// them up as each drawn frame begins, before anything is drawn. A mission's start comes first,
+    /// so what the game starts after it shows. The jump prompt and the ship status indicator take
+    /// up theirs as they're drawn (`jumpPrompt`, `NewHits`).
+    pub fn takeUp(drawing: *Drawing, state: *const State) void {
+        const events = &state.events;
+        if (drawing.missions.takeUp(events.missions)) drawing.reset();
+        if (drawing.ejections.takeUp(events.ejections)) drawing.eject_ticks = 0;
+        for (&drawing.icons, &drawing.icon_ticks, events.icons) |*seen, *ticks, event| {
+            if (seen.takeUp(event)) ticks.* = 0;
+        }
+        if (drawing.captions.takeUp(events.captions)) drawing.caption = .{ .due = state.caption.started_at };
+        if (drawing.scans.takeUp(events.scans)) {
+            drawing.scanner_frame = 0;
+            drawing.scanner_next = 0;
+        }
+        if (drawing.interference_hits.takeUp(events.interference_hits)) drawing.interference.level = Interference.hit_level;
+    }
+
+    /// What a mission's start resets of what drawing keeps, as `hud_init` resets the display
+    /// (`State.reset`): the warnings, the eject marker and the icons flash from the start, and the
+    /// interference is out. The target display's pictures go too: they show the types of the
+    /// mission before, which the mission's start lets go of (`main.startMission`).
+    fn reset(drawing: *Drawing) void {
+        const fresh: Drawing = .{};
+        inline for (.{ "warning_ticks", "eject_ticks", "icon_ticks", "interference", "target_pictures" }) |name| {
+            @field(drawing, name) = @field(fresh, name);
+        }
+    }
 
     /// The prompt for JUMP DRIVE (`hud_jump_prompt`, `0x00482FA0`): the shape it draws for what
     /// the mission has `ready` in a frame of `frame_duration`, if any. The first frame drawn after
-    /// the prompt comes up (`prompts`, `State.readyPrompt`) starts its flash and draws nothing.
-    pub fn jumpPrompt(drawing: *Drawing, prompts: u32, ready: *const Readiness, frame_duration: i32) ?u16 {
+    /// the prompt comes up (`State.readyPrompt`) starts its flash and draws nothing.
+    pub fn jumpPrompt(drawing: *Drawing, state: *const State, ready: *const Readiness, frame_duration: i32) ?u16 {
         const kind: JumpPrompt.Kind = .of(ready.*);
         if (ready.of(kind).* != .shown) return null;
-        if (drawing.prompts_seen != prompts) {
-            drawing.prompts_seen = prompts;
+        if (drawing.prompts.takeUp(state.events.prompts)) {
             drawing.prompt_ticks = 0;
             return null;
         }
@@ -4121,9 +4123,117 @@ pub const Drawing = struct {
     }
 
     /// Draws the jump prompt, flashing above the middle of the screen.
-    pub fn drawJumpPrompt(drawing: *Drawing, prompts: u32, ready: *const Readiness, pen: Pen, frame_duration: i32) Error!void {
-        const shape = drawing.jumpPrompt(prompts, ready, frame_duration) orelse return;
+    pub fn drawJumpPrompt(drawing: *Drawing, state: *const State, ready: *const Readiness, pen: Pen, frame_duration: i32) Error!void {
+        const shape = drawing.jumpPrompt(state, ready, frame_duration) orelse return;
         try pen.shape(shape, pen.placed(JumpPrompt.offset, 0.5, 0.5));
+    }
+
+    /// `hud_draw`'s warning with the enemy lock's light, `showing` this frame: while it shows, the
+    /// warning plays on voice 1, started again whenever that voice has finished or was stopped.
+    /// Once it is out and no missile homes on the ship (`homing`), a warning still playing ends.
+    ///
+    /// **Fix:** the game does this only in the view ahead, as it draws the lights, so a warning
+    /// playing as the view changes loops until the player looks ahead again. OpenReliant runs it in
+    /// every view, the light counting as out in the others.
+    pub fn warnOfLock(drawing: *Drawing, sound: *hog_snd.Sound, showing: bool, homing: bool) void {
+        if (showing) {
+            if (!sound.voiceIdle(lock_warning_voice)) return;
+            const bank = sound.stdsmp orelse return;
+            sound.playOn(lock_warning_voice, bank, lock_warning_sample, Beep.volume, hog_snd.forever, hog_snd.centre, hog_snd.own_pitch);
+            drawing.lock_warning = lock_warning_voice;
+        } else if (drawing.lock_warning) |voice| {
+            if (homing or sound.voiceIdle(lock_warning_voice)) return;
+            sound.endVoice(voice);
+            drawing.lock_warning = null;
+        }
+    }
+
+    /// Which lights' conditions hold for the player's `object`, tested as `hud_draw` tests them,
+    /// in its order: an icon's flash moves on only when `hud_draw` asks for it. `matching` is
+    /// `matching_speed`.
+    pub fn lit(drawing: *Drawing, state: *const State, object: *const gameobj.GameObject, matching: bool, multiplayer: bool, frame_duration: i32) Lit {
+        return state.lightsWith(object, matching, multiplayer, .{ .step = .{ .drawing = drawing, .icons = &state.icons, .frame_duration = frame_duration } });
+    }
+
+    /// Whether `icon` is lit in a frame of `frame_duration` (`hud_icon_lit`, `0x00482F50`): always
+    /// when on, and when flashing for the first 50 ticks of every 100. Unlike the display's other
+    /// flashes, one that runs past 100 carries what it ran over into the next and is lit.
+    pub fn iconLit(drawing: *Drawing, icons: *const Icons, icon: Icon, frame_duration: i32) bool {
+        const at = Icons.indexOf(icon) orelse return false;
+        switch (icons.states[at]) {
+            .on => return true,
+            .flash => {
+                const ticks = &drawing.icon_ticks[at];
+                ticks.* += frame_duration;
+                if (ticks.* < Flash.slow.on) return true;
+                if (ticks.* > Flash.slow.period) {
+                    ticks.* -= Flash.slow.period;
+                    return true;
+                }
+                return false;
+            },
+            else => return false,
+        }
+    }
+
+    /// Whether `hud_draw` draws `readout` in a frame of `frame_duration`: the countermeasures only
+    /// while their icon is not flashing them dark.
+    pub fn shows(drawing: *Drawing, state: *const State, readout: Readout, frame_duration: i32) bool {
+        return switch (readout) {
+            .coil => state.icons.stateOf(.countermeasures) == .off or drawing.iconLit(&state.icons, .countermeasures, frame_duration),
+            else => true,
+        };
+    }
+
+    /// Draws the lights `lit` has, each in the next place of the grid, the warnings flashing and
+    /// the devices' charges as bars under their lights.
+    pub fn drawLights(drawing: *Drawing, state: *const State, pen: Pen, shown: Lit, frame_duration: i32) Error!void {
+        var index: i32 = 0;
+        inline for (comptime std.enums.values(Light)) |light| {
+            if (@field(shown, @tagName(light))) {
+                const at = gridPlace(pen.screen, index, pen.scale);
+                index += 1;
+                const drawn = switch (light) {
+                    .enemy_lock => Flash.slow.step(&drawing.warning_ticks, frame_duration),
+                    .missile_incoming => Flash.fast.step(&drawing.warning_ticks, frame_duration),
+                    else => true,
+                };
+                @field(drawing.flashes.lights, @tagName(light)) = drawn;
+                // Every light shakes but reverse thrust's.
+                const how: Draw = .{ .shake = if (light == .reverse_thrust) null else pen.shake };
+                if (drawn) try pen.shapeWith(@backingInt(light), at, how);
+                if (comptime light.charged()) |kind| {
+                    drawBar(pen, at, kind.spec().bar_down, state.devices.get(kind).bar(kind));
+                }
+            }
+        }
+    }
+
+    /// The eject marker (`hud_eject_marker`, `0x004830B0`): the pilot rising out of the ship,
+    /// flashing under the middle of the screen once the player has ejected, or while its icon is
+    /// lit.
+    pub fn drawEjectMarker(drawing: *Drawing, state: *const State, pen: Pen, frame_duration: i32) Error!void {
+        if (!state.ejected and !drawing.iconLit(&state.icons, .ejected, frame_duration)) return;
+        const at = pen.moved(pen.placed(marker_offset, 0.5, 0.5), eject_drop);
+        if (Flash.slow.step(&drawing.eject_ticks, frame_duration)) try pen.shape(eject_shape, at);
+    }
+
+    /// The scanner (`hud_scanner`, `0x00489250`): while the `Scanner` mission command has the
+    /// player look for an object, a hand and the rings it sends out, drawn over the middle of the
+    /// screen in five frames.
+    pub fn drawScanner(drawing: *Drawing, scanning: bool, game_ticks: u32, pen: Pen) Error!void {
+        if (!scanning) return;
+        try pen.shape(scanner_shape + drawing.scannerFrame(game_ticks), pen.placed(marker_offset, 0.5, 0.5));
+    }
+
+    /// The scanner's frame at `game_ticks`: the next, going round, once `game_ticks` is past the
+    /// tick it waits for, which is then 25 on.
+    pub fn scannerFrame(drawing: *Drawing, game_ticks: u32) u8 {
+        if (drawing.scanner_next < game_ticks) {
+            drawing.scanner_next = game_ticks + scanner_step;
+            drawing.scanner_frame = if (drawing.scanner_frame >= scanner_frames - 1) 0 else drawing.scanner_frame + 1;
+        }
+        return drawing.scanner_frame;
     }
 };
 
@@ -4698,10 +4808,12 @@ test "State.gameFrame" {
     all.slots[all.player].orders[0].target = .at(sabre, null);
     t.mission.clock.frame_duration = 1;
     _ = t.state.windows.open(.damage, false);
+    t.state.messages.add("gone", t.mission.clock.frame_start - Messages.shown_for - 1);
     var ready: Readiness = .{ .jump = .newly };
-    // In any view, the display follows the player's target, and the windows move on and play
-    // their sounds.
+    // In any view, the message line whose time is up goes, the display follows the player's
+    // target, and the windows move on and play their sounds.
     t.state.gameFrame(t.mission.world(), &ready);
+    try std.testing.expectEqual(0, t.state.messages.count);
     try std.testing.expectEqual(sabre, t.state.target.?.slot);
     try std.testing.expectEqual(1, t.state.windows.status.get(.damage).progress);
     try std.testing.expectEqual(0, t.state.windows.beeps.slice().len);
@@ -4710,7 +4822,7 @@ test "State.gameFrame" {
     t.mission.player.viewing.last = .cockpit;
     t.state.gameFrame(t.mission.world(), &ready);
     try std.testing.expectEqual(.shown, ready.jump);
-    try std.testing.expectEqual(1, t.state.prompts);
+    try std.testing.expectEqual(1, t.state.events.prompts.count);
 }
 
 test "State.zoomRadar" {
@@ -4838,25 +4950,31 @@ test Flash {
 }
 
 test Icons {
-    var icons: Icons = .{};
+    var state: State = .{};
+    var drawing: Drawing = .{};
+    const icons = &state.icons;
     // Off, an icon is dark; on, it is lit and its count stands still.
-    try std.testing.expect(!icons.lit(.ecm, 10));
-    icons.show(.ecm, .on);
-    try std.testing.expect(icons.lit(.ecm, 10));
-    try std.testing.expectEqual(0, icons.slots[2].ticks);
+    try std.testing.expect(!drawing.iconLit(icons, .ecm, 10));
+    state.showIcon(.ecm, .on);
+    drawing.takeUp(&state);
+    try std.testing.expect(drawing.iconLit(icons, .ecm, 10));
+    try std.testing.expectEqual(0, drawing.icon_ticks[2]);
     // Flashing, it is lit to 50 and dark to 100, and what runs past 100 carries over, lit.
-    icons.show(.ecm, .flash);
-    try std.testing.expect(icons.lit(.ecm, 49));
-    try std.testing.expect(!icons.lit(.ecm, 1));
-    try std.testing.expect(icons.lit(.ecm, 60));
-    try std.testing.expectEqual(10, icons.slots[2].ticks);
-    // Setting it again starts the flash over.
-    icons.show(.ecm, .flash);
-    try std.testing.expectEqual(0, icons.slots[2].ticks);
+    state.showIcon(.ecm, .flash);
+    drawing.takeUp(&state);
+    try std.testing.expect(drawing.iconLit(icons, .ecm, 49));
+    try std.testing.expect(!drawing.iconLit(icons, .ecm, 1));
+    try std.testing.expect(drawing.iconLit(icons, .ecm, 60));
+    try std.testing.expectEqual(10, drawing.icon_ticks[2]);
+    // Setting it again starts the flash over, once drawing takes it up.
+    state.showIcon(.ecm, .flash);
+    try std.testing.expectEqual(10, drawing.icon_ticks[2]);
+    drawing.takeUp(&state);
+    try std.testing.expectEqual(0, drawing.icon_ticks[2]);
     try std.testing.expectEqual(.flash, icons.stateOf(.ecm));
     // Past the table, an icon is left alone, and off.
-    icons.show(@fromBackingInt(25), .on);
-    try std.testing.expect(!icons.lit(@fromBackingInt(25), 1));
+    state.showIcon(@fromBackingInt(25), .on);
+    try std.testing.expect(!drawing.iconLit(icons, @fromBackingInt(25), 1));
     try std.testing.expectEqual(.off, icons.stateOf(@fromBackingInt(25)));
 }
 
@@ -4914,66 +5032,70 @@ test "drawLights notes the lights it lights" {
     var recorder: device.testing.Recorder = .{ .gpa = gpa };
     defer recorder.deinit();
     const pen = testing.pen(&art, gpa, recorder.interface());
-    var state: State = .{};
+    const state: State = .{};
+    var drawing: Drawing = .{};
     // The lock warning is lit for the first 50 ticks of its flash, and the ECM's light steady.
     const shown: Lit = .{ .enemy_lock = true, .ecm = true };
-    try state.drawLights(pen, shown, 10);
-    try std.testing.expectEqual(shown, state.flashes.lights);
+    try drawing.drawLights(&state, pen, shown, 10);
+    try std.testing.expectEqual(shown, drawing.flashes.lights);
     // Past them, the warning is dark, though it keeps its place.
-    try state.drawLights(pen, shown, 50);
-    try std.testing.expectEqual(Lit{ .ecm = true }, state.flashes.lights);
+    try drawing.drawLights(&state, pen, shown, 50);
+    try std.testing.expectEqual(Lit{ .ecm = true }, drawing.flashes.lights);
 }
 
 test "the lights hold as hud_draw tests them" {
     var state: State = .{};
+    var drawing: Drawing = .{};
     var object: gameobj.GameObject = std.mem.zeroes(gameobj.GameObject);
     // A ship that carries every device but has none on shows only its cloak.
-    try std.testing.expectEqual(Lit{ .cloak = true }, state.lit(&object, false, false, 1));
+    try std.testing.expectEqual(Lit{ .cloak = true }, drawing.lit(&state, &object, false, false, 1));
     // ... and not even that in a multiplayer game.
-    try std.testing.expectEqual(Lit{}, state.lit(&object, false, true, 1));
+    try std.testing.expectEqual(Lit{}, drawing.lit(&state, &object, false, true, 1));
 
     // Blind fire, carried and on, shows while the guns are not all firing.
     state.blind_fire_fitted = true;
-    try std.testing.expect(state.lit(&object, false, true, 1).blind_fire);
+    try std.testing.expect(drawing.lit(&state, &object, false, true, 1).blind_fire);
     object.gun_mode.all = true;
-    try std.testing.expect(!state.lit(&object, false, true, 1).blind_fire);
+    try std.testing.expect(!drawing.lit(&state, &object, false, true, 1).blind_fire);
 
     // A missile homing on the ship takes the lock warning's place.
     state.enemy_lock = true;
-    try std.testing.expect(state.lit(&object, false, true, 1).enemy_lock);
+    try std.testing.expect(drawing.lit(&state, &object, false, true, 1).enemy_lock);
     object.missile_homing = 1;
-    const both = state.lit(&object, false, true, 1);
+    const both = drawing.lit(&state, &object, false, true, 1);
     try std.testing.expect(!both.enemy_lock and both.missile_incoming);
 
     // The spectral shields show only while on; an icon lights the ECM's light without it.
     state.devices.getPtr(.spectral_shields).setting = .on;
-    try std.testing.expect(state.lit(&object, false, true, 1).spectral_shields);
-    try std.testing.expect(!state.lit(&object, false, true, 1).ecm);
-    state.icons.show(.ecm, .on);
-    try std.testing.expect(state.lit(&object, false, true, 1).ecm);
+    try std.testing.expect(drawing.lit(&state, &object, false, true, 1).spectral_shields);
+    try std.testing.expect(!drawing.lit(&state, &object, false, true, 1).ecm);
+    state.showIcon(.ecm, .on);
+    try std.testing.expect(drawing.lit(&state, &object, false, true, 1).ecm);
 }
 
 test "an icon flashes only as it is asked for" {
     // `hud_draw` asks for the smart targeting icon only while smart targeting is off.
     var state: State = .{};
+    var drawing: Drawing = .{};
     const object: gameobj.GameObject = std.mem.zeroes(gameobj.GameObject);
-    state.icons.show(.smart_targeting, .flash);
+    state.showIcon(.smart_targeting, .flash);
     state.smart_targeting = true;
-    _ = state.lit(&object, false, false, 30);
-    try std.testing.expectEqual(0, state.icons.slots[4].ticks);
+    _ = drawing.lit(&state, &object, false, false, 30);
+    try std.testing.expectEqual(0, drawing.icon_ticks[4]);
     state.smart_targeting = false;
-    _ = state.lit(&object, false, false, 30);
-    try std.testing.expectEqual(30, state.icons.slots[4].ticks);
+    _ = drawing.lit(&state, &object, false, false, 30);
+    try std.testing.expectEqual(30, drawing.icon_ticks[4]);
 }
 
 test "the countermeasures readout flashes with its icon" {
     var state: State = .{};
-    try std.testing.expect(state.shows(.coil, 10));
-    state.icons.show(.countermeasures, .flash);
-    try std.testing.expect(state.shows(.coil, 49));
-    try std.testing.expect(!state.shows(.coil, 1));
+    var drawing: Drawing = .{};
+    try std.testing.expect(drawing.shows(&state, .coil, 10));
+    state.showIcon(.countermeasures, .flash);
+    try std.testing.expect(drawing.shows(&state, .coil, 49));
+    try std.testing.expect(!drawing.shows(&state, .coil, 1));
     // The other readouts have no icon.
-    try std.testing.expect(state.shows(.fuel, 1));
+    try std.testing.expect(drawing.shows(&state, .fuel, 1));
 }
 
 test "the jump prompt waits a frame, and a warp comes first" {
@@ -4981,43 +5103,72 @@ test "the jump prompt waits a frame, and a warp comes first" {
     var drawing: Drawing = .{ .prompt_ticks = 70 };
     var ready: Readiness = .{ .jump = .newly, .warp = .newly };
     // Newly ready, it isn't drawn.
-    try std.testing.expectEqual(null, drawing.jumpPrompt(state.prompts, &ready, 10));
+    try std.testing.expectEqual(null, drawing.jumpPrompt(&state, &ready, 10));
     // The game brings up the warp's prompt; the jump waits its turn.
     state.readyPrompt(&ready);
     try std.testing.expectEqual(.shown, ready.warp);
     try std.testing.expectEqual(.newly, ready.jump);
     // The first frame drawn after that starts its flash and draws nothing.
-    try std.testing.expectEqual(null, drawing.jumpPrompt(state.prompts, &ready, 10));
+    try std.testing.expectEqual(null, drawing.jumpPrompt(&state, &ready, 10));
     try std.testing.expectEqual(0, drawing.prompt_ticks);
     // Then the warp's shape flashes.
-    try std.testing.expectEqual(JumpPrompt.warp_shape, drawing.jumpPrompt(state.prompts, &ready, 10));
-    try std.testing.expectEqual(null, drawing.jumpPrompt(state.prompts, &ready, 40));
+    try std.testing.expectEqual(JumpPrompt.warp_shape, drawing.jumpPrompt(&state, &ready, 10));
+    try std.testing.expectEqual(null, drawing.jumpPrompt(&state, &ready, 40));
     // With the warp taken, the jump comes up.
     ready.warp = .no;
     state.readyPrompt(&ready);
     try std.testing.expectEqual(.shown, ready.jump);
-    try std.testing.expectEqual(null, drawing.jumpPrompt(state.prompts, &ready, 10));
-    try std.testing.expectEqual(JumpPrompt.jump_shape, drawing.jumpPrompt(state.prompts, &ready, 10));
+    try std.testing.expectEqual(null, drawing.jumpPrompt(&state, &ready, 10));
+    try std.testing.expectEqual(JumpPrompt.jump_shape, drawing.jumpPrompt(&state, &ready, 10));
     // Shown already, it doesn't come up again.
-    const prompts = state.prompts;
+    const prompts = state.events.prompts;
     state.readyPrompt(&ready);
-    try std.testing.expectEqual(prompts, state.prompts);
+    try std.testing.expectEqual(prompts, state.events.prompts);
 }
 
 test "the scanner moves on once 25 ticks have passed" {
     var state: State = .{};
+    var drawing: Drawing = .{};
     // It moves on at the first tick past the one it waits for, so a frame lasts 26 ticks.
     var frames: [7]u8 = undefined;
-    for (&frames, 0..) |*frame, step| frame.* = state.scannerFrame(@intCast(1 + step * (scanner_step + 1)));
+    for (&frames, 0..) |*frame, step| frame.* = drawing.scannerFrame(@intCast(1 + step * (scanner_step + 1)));
     try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 0, 1, 2 }, &frames);
-    try std.testing.expectEqual(2, state.scannerFrame(state.scanner_next));
-    try std.testing.expectEqual(3, state.scannerFrame(state.scanner_next + 1));
+    try std.testing.expectEqual(2, drawing.scannerFrame(drawing.scanner_next));
+    try std.testing.expectEqual(3, drawing.scannerFrame(drawing.scanner_next + 1));
+    // The `Scanner` command starts it from its first frame, once drawing takes that up.
+    state.restartScanner();
+    drawing.takeUp(&state);
+    try std.testing.expectEqual(1, drawing.scannerFrame(1));
 }
 
-/// The quadrants of a ship whose armour hits have worn since the ship status indicator last drew
-/// it (`object_armor_damage`): `ship_status_hits` (`0x00563160`) for the player's own ship and
-/// `target_status_hits` (`0x005635D4`) for its target.
+/// The quadrants of a ship that armour hits have worn, which the ship status indicator flashes
+/// (`ShipStatus.Shown.hits`).
 pub const Hits = std.EnumSet(collision.Quadrant);
+
+/// The armour hits on each quadrant of a ship (`object_armor_damage`), as the game counts them for
+/// the ship status indicator (`State.events`): `ship_status_hits` (`0x00563160`) for the player's
+/// own ship and `target_status_hits` (`0x005635D4`) for its target, which the game keeps as the
+/// quadrants hit since the indicator last drew each.
+pub const HitCounts = std.EnumArray(collision.Quadrant, Event);
+
+/// The hits of each quadrant drawing has taken up (`Drawing`).
+pub const HitsSeen = std.EnumArray(collision.Quadrant, Event.Seen);
+
+/// The hits on a ship the ship status indicator hasn't drawn yet: those the game counted past those
+/// drawing has taken up.
+pub const NewHits = struct {
+    counts: *const HitCounts,
+    seen: *HitsSeen,
+
+    /// The quadrants hit since the indicator last drew them, which it now has.
+    fn take(new: NewHits) Hits {
+        var taken: Hits = .empty;
+        for (std.enums.values(collision.Quadrant)) |quadrant| {
+            if (new.seen.getPtr(quadrant).takeUp(new.counts.get(quadrant))) taken.insert(quadrant);
+        }
+        return taken;
+    }
+};
 
 /// The ship status indicator (`hud_ship_status`, `0x00489350`): a ship's schematic, with the
 /// quadrants hits have worn flashing on it, and round it its shields and its armour as two rings of
@@ -5151,25 +5302,25 @@ pub const ShipStatus = struct {
         return .{ found, .{ level(reserves.fore, combat.shield_power), level(reserves.aft, combat.shield_power) } };
     }
 
-    /// Mode 0 for the player's ship of `slot`, in mission `mission`: its schematic, the hits taken
-    /// out of `hits` for a type the target display shows in its small form, its rings, and what
-    /// SHIELD BALANCING has shifted. Where the player's wing flies Kamovs, `kamov_wing`, a Kamov's
-    /// schematic is drawn mirrored across, but not its hits (`0x004895BE`, `0x00489600`).
-    pub fn ofPlayer(slot: *const create.Slot, kamov_wing: bool, hits: *Hits, reserves: gameobj.ShieldReserves) Shown {
+    /// Mode 0 for the player's ship of `slot`, in mission `mission`: its schematic, the new hits it
+    /// takes up (`hits`) for a type the target display shows in its small form, its rings, and
+    /// what SHIELD BALANCING has shifted. Where the player's wing flies Kamovs, `kamov_wing`, a
+    /// Kamov's schematic is drawn mirrored across, but not its hits (`0x004895BE`, `0x00489600`).
+    pub fn ofPlayer(slot: *const create.Slot, kamov_wing: bool, hits: NewHits, reserves: gameobj.ShieldReserves) Shown {
         const found, const shifted = playerRings(slot, reserves);
         var shown: Shown = .{ .rings = found, .reserves = shifted };
         const loaded = slot.type orelse return shown;
         shown.schematic = loaded.schematic orelse return shown;
         shown.schematic_mirrored = kamov_wing and slot.object.type.base() == .kamov;
         const small = if (slot.combat) |combat| combat.display == .small else false;
-        if (small) shown.hits = take(hits);
+        if (small) shown.hits = hits.take();
         return shown;
     }
 
     /// Mode 1 for the target of `slot`: for a type the target display shows in its small form, its
-    /// schematic, turned to face the player unless the type is hostile, and the hits taken out of
-    /// `hits`, which a comms relay or a deathmatch beacon turned about leaves; then its rings.
-    pub fn ofTarget(slot: *const create.Slot, hits: *Hits) Shown {
+    /// schematic, turned to face the player unless the type is hostile, and the new hits it takes
+    /// up (`hits`), which a comms relay or a deathmatch beacon turned about leaves; then its rings.
+    pub fn ofTarget(slot: *const create.Slot, hits: NewHits) Shown {
         var shown: Shown = .{ .rings = rings(slot) };
         const combat = slot.combat orelse return shown;
         if (combat.display != .small) return shown;
@@ -5178,13 +5329,8 @@ pub const ShipStatus = struct {
         const mirrored = combat.side != .hostile;
         shown.schematic_mirrored = mirrored;
         shown.hits_mirrored = mirrored;
-        if (!mirrored or shown.rings != null) shown.hits = take(hits);
+        if (!mirrored or shown.rings != null) shown.hits = hits.take();
         return shown;
-    }
-
-    fn take(hits: *Hits) Hits {
-        defer hits.* = .empty;
-        return hits.*;
     }
 
     /// Draws what `shown` holds in `mode`, from `point`, at the pen's size and cut to `clip`; the
@@ -5293,13 +5439,13 @@ test "what the instruments show, worked out without drawing" {
     try std.testing.expectEqual(null, viewName(.cockpit));
     try std.testing.expectEqual(camera.View.chase.name(), viewName(.chase));
     // The caption's letters typed so far, with the cursor until the whole date shows.
-    const caption: Caption = .{ .on = true, .shown = 2 };
-    const shows, const typing = caption.showing("abc");
+    const typing: Caption.Typing = .{ .shown = 2 };
+    const shows, const with_cursor = typing.showing("abc");
     try std.testing.expectEqualStrings("ab", shows);
-    try std.testing.expect(typing);
+    try std.testing.expect(with_cursor);
     // A light `ShowHudIcon` flashes shows, and reading it moves no flash on.
     var state: State = .{};
-    state.icons.show(.ecm, .flash);
+    state.showIcon(.ecm, .flash);
     const before = state.icons;
     try std.testing.expect(state.lightsShown(&slot.object, false, false).ecm);
     try std.testing.expectEqual(before, state.icons);
@@ -5314,13 +5460,15 @@ test "in mission 25, a Kamov's schematic is drawn mirrored, but not its hits" {
     var loaded: create.Type = undefined;
     loaded.schematic = .{ .art = undefined, .gpa = std.testing.allocator };
     slot.type = &loaded;
-    var hits: Hits = .empty;
-    const shown = ShipStatus.ofPlayer(slot, true, &hits, .{});
+    const counts: HitCounts = .initFill(.{});
+    var seen: HitsSeen = .initFill(.{});
+    const hits: NewHits = .{ .counts = &counts, .seen = &seen };
+    const shown = ShipStatus.ofPlayer(slot, true, hits, .{});
     try std.testing.expect(shown.schematic_mirrored and !shown.hits_mirrored);
     // In another mission, or in another ship, it is drawn as it is.
-    try std.testing.expect(!ShipStatus.ofPlayer(slot, false, &hits, .{}).schematic_mirrored);
+    try std.testing.expect(!ShipStatus.ofPlayer(slot, false, hits, .{}).schematic_mirrored);
     slot.object.type = .of(.sabre);
-    try std.testing.expect(!ShipStatus.ofPlayer(slot, true, &hits, .{}).schematic_mirrored);
+    try std.testing.expect(!ShipStatus.ofPlayer(slot, true, hits, .{}).schematic_mirrored);
 }
 
 test "the rings follow the shields and the armour" {
@@ -5345,27 +5493,32 @@ test "the rings follow the shields and the armour" {
     // A comms relay has no rings, and so nothing shifted for mode 0 to show.
     slot.object.type = .of(.comms_relay);
     try std.testing.expectEqual(null, ShipStatus.rings(slot));
-    var own_hits: Hits = .empty;
+    var own_counts: HitCounts = .initFill(.{});
+    var own_seen: HitsSeen = .initFill(.{});
+    const own_hits: NewHits = .{ .counts = &own_counts, .seen = &own_seen };
     const shield_power: f32 = @floatFromInt(combat.shield_power);
-    try std.testing.expectEqual(null, ShipStatus.ofPlayer(slot, false, &own_hits, .{ .fore = 5 * shield_power }).reserves);
+    try std.testing.expectEqual(null, ShipStatus.ofPlayer(slot, false, own_hits, .{ .fore = 5 * shield_power }).reserves);
 
     // Mode 0 shows what SHIELD BALANCING shifted as levels of the shield power.
     slot.object.type = .of(.sabre);
-    own_hits.insert(.aft);
-    const player = ShipStatus.ofPlayer(slot, false, &own_hits, .{ .fore = 5 * shield_power, .aft = 0 });
+    own_counts.getPtr(.aft).happen();
+    const player = ShipStatus.ofPlayer(slot, false, own_hits, .{ .fore = 5 * shield_power, .aft = 0 });
     try std.testing.expectEqual([2]i32{ 4, -1 }, player.reserves.?);
     try std.testing.expect(player.rings != null);
     // With no schematic loaded, the hits stay for the next time.
     try std.testing.expectEqual(null, player.schematic);
-    try std.testing.expect(own_hits.contains(.aft));
+    try std.testing.expect(own_hits.take().contains(.aft));
 
     // Mode 1 takes the hits and leaves none behind, for a hostile target of the small form.
-    var hits: Hits = .empty;
-    hits.insert(.fore);
-    const without = ShipStatus.ofTarget(slot, &hits);
+    var counts: HitCounts = .initFill(.{});
+    var seen: HitsSeen = .initFill(.{});
+    const hits: NewHits = .{ .counts = &counts, .seen = &seen };
+    counts.getPtr(.fore).happen();
+    const without = ShipStatus.ofTarget(slot, hits);
     // With no schematic, the hits stay for the next time.
     try std.testing.expectEqual(null, without.schematic);
-    try std.testing.expect(hits.contains(.fore));
+    try std.testing.expect(hits.take().contains(.fore));
+    try std.testing.expect(hits.take().count() == 0);
 }
 
 // --- The targeting cluster -------------------------------------------------------------------
@@ -6590,18 +6743,18 @@ test "the enemy lock's warning" {
     const bank = comptime hog_snd.testing.bank(1);
     try heard.init(2, &bank);
     const sound = &heard.sound;
-    var state: State = .{};
+    var drawing: Drawing = .{};
 
     // With the light, the warning plays on its voice.
-    state.warnOfLock(sound, true, false);
+    drawing.warnOfLock(sound, true, false);
     try std.testing.expect(sound.voicePlaying(lock_warning_voice));
-    try std.testing.expectEqual(lock_warning_voice, state.lock_warning.?);
+    try std.testing.expectEqual(lock_warning_voice, drawing.lock_warning.?);
     // A missile homing keeps it going as the light goes out; without one it ends.
-    state.warnOfLock(sound, false, true);
+    drawing.warnOfLock(sound, false, true);
     try std.testing.expect(sound.voicePlaying(lock_warning_voice));
-    state.warnOfLock(sound, false, false);
+    drawing.warnOfLock(sound, false, false);
     try std.testing.expect(!sound.voicePlaying(lock_warning_voice));
-    try std.testing.expectEqual(null, state.lock_warning);
+    try std.testing.expectEqual(null, drawing.lock_warning);
 }
 
 test Interference {
@@ -6610,20 +6763,34 @@ test Interference {
     defer mission.deinit();
     _ = try mission.add(.of(.predator), @splat(0));
     const world = mission.world();
-    var interference: Interference = .{};
+    var state: State = .{};
+    var drawing: Drawing = .{};
+    const shown = &drawing.interference;
 
-    // Still, the display doesn't shake; a hit shakes it.
-    try std.testing.expectEqual(null, interference.shake(1, &mission.random));
+    // Still, the display doesn't shake; a hit shakes it, once drawing takes it up.
+    try std.testing.expectEqual(null, shown.shake(1, &mission.random));
     mission.clock.frame_start = 100;
-    interference.start(world);
-    try std.testing.expectEqual(Interference.hit_level, interference.level);
-    try std.testing.expect(interference.shake(1, &mission.random) != null);
+    state.startInterference(world);
+    try std.testing.expectEqual(0, shown.level);
+    drawing.takeUp(&state);
+    try std.testing.expectEqual(Interference.hit_level, shown.level);
+    try std.testing.expect(shown.shake(1, &mission.random) != null);
     // It fades by `fade_per_tick` a tick since it last faded, to nothing.
-    interference.faded_at = 100;
-    interference.fade(120);
-    try std.testing.expectApproxEqAbs(Interference.hit_level - 20 * Interference.fade_per_tick, interference.level, 1e-6);
-    interference.fade(1000);
-    try std.testing.expectEqual(0, interference.level);
+    shown.faded_at = 100;
+    shown.fade(120);
+    try std.testing.expectApproxEqAbs(Interference.hit_level - 20 * Interference.fade_per_tick, shown.level, 1e-6);
+    shown.fade(1000);
+    try std.testing.expectEqual(0, shown.level);
+    // A mission's start puts it out, and a hit after the start sets it going again.
+    state.startInterference(world);
+    drawing.takeUp(&state);
+    state.reset(0);
+    drawing.takeUp(&state);
+    try std.testing.expectEqual(0, shown.level);
+    state.reset(0);
+    state.startInterference(world);
+    drawing.takeUp(&state);
+    try std.testing.expectEqual(Interference.hit_level, shown.level);
 }
 
 test rowShift {

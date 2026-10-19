@@ -55,7 +55,8 @@ pub const Flash = struct {
     /// `ticks`; while `red`, the display's interference in the view ahead, is above zero, the
     /// sprite is red at it instead. Either way the sprite goes into the overlay's layer, just
     /// beyond the near plane of the camera at `camera`, reaching the width and the height of the
-    /// view there either side. The caller fades the interference after (`hud.Interference.fade`).
+    /// view there either side. The caller fades the interference after
+    /// (`hud.Interference.Shown.fade`).
     pub fn draw(flash: *Flash, gpa: Allocator, scene: *srcore.Scene, camera: math.Place, projection: srapi.Projection, ticks: i32, red: f32) Allocator.Error!void {
         const flashing = flash.left > 0;
         if (flashing) {

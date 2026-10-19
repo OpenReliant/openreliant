@@ -386,14 +386,14 @@ pub const replaced = api.Field(Instruments, "The game's instruments the mods' di
 pub const bounds = api.Function("Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission.", &.{"instrument"}, struct {
     fn get(call: Call, instrument: hud.Instrument) ?hud.Clip {
         const flight, _ = flightOf(call) orelse return null;
-        return flight.hud.bounds.get(instrument);
+        return flight.drawing.bounds.get(instrument);
     }
 }.get);
 
 pub const part_bounds = api.Function("Where the part `part` of the game's instruments last drew, in the window's pixels, as the mods' displays place it, and even while one hides it; nil before it first draws, or outside a mission.", &.{"part"}, struct {
     fn get(call: Call, part: parts.Part) ?hud.Clip {
         const flight, _ = flightOf(call) orelse return null;
-        return flight.hud.part_bounds.get(part);
+        return flight.drawing.part_bounds.get(part);
     }
 }.get);
 
@@ -495,7 +495,7 @@ pub const target_display = api.Field(?TargetDisplay, "What the target display sh
             .speed = facts.speed,
             .shields = if (rings) |found| .of(found.shields) else null,
             .armor = if (rings) |found| .of(found.armor) else null,
-            .hits = hitsOf(flight.hud.flashes.target_hits),
+            .hits = hitsOf(flight.drawing.flashes.target_hits),
             .subtarget_class = if (part) |found| found.class else null,
             .subtarget = if (part) |found| stringOf(flight.strings, found.named.name) else null,
             .subtarget_armor = if (part) |found| if (found.unlit) |unlit| hud.windows.litShare(unlit, target_forms.armor_bar.rows) else null else null,
@@ -557,7 +557,7 @@ pub const ship_status = api.Field(?ShipStatus, "The ship status indicator, as it
             .armor = .of(rings.armor),
             .reserve_fore = shownArcs(reserves[0]),
             .reserve_aft = shownArcs(reserves[1]),
-            .hits = hitsOf(flight.hud.flashes.hits),
+            .hits = hitsOf(flight.drawing.flashes.hits),
         };
     }
 });
@@ -572,7 +572,7 @@ pub const lights = api.Field(Lights, "The status lights that show, steady or fla
 pub const lights_lit = api.Field(Lights, "The status lights lit as the display last drew them, in the order it packs them: those of `lights`, but a flashing one only while it's lit. A warning that flashes keeps its place in the grid while it's dark; a light that `ShowHudIcon` flashes gives its place up. None outside the view ahead from the cockpit, where the display draws no lights, and outside a mission.", struct {
     pub fn get(call: Call) Lights {
         const flight, _ = flightOf(call) orelse return .{};
-        return lightsOf(flight.hud.flashes.lights);
+        return lightsOf(flight.drawing.flashes.lights);
     }
 });
 
@@ -612,7 +612,7 @@ fn chargeOf(state: *const hud.State, kind: hud.Device) ?f32 {
 pub const countermeasures_lit = api.Field(bool, "Whether the countermeasures readout was lit as the display last drew it: always in the view ahead from the cockpit, except while it's dark in a flash that `ShowHudIcon` sets; false outside the view ahead, and outside a mission.", struct {
     pub fn get(call: Call) bool {
         const flight, _ = flightOf(call) orelse return false;
-        return flight.hud.flashes.countermeasures;
+        return flight.drawing.flashes.countermeasures;
     }
 });
 
@@ -741,12 +741,11 @@ pub const view_name = api.Field(?Text, "The view's name the display writes at th
 pub const caption = api.Field(?Text, "The date the launch types out at the foot of the screen, as far as it has typed it; nil while it isn't shown, and outside a mission.", struct {
     pub fn get(call: Call) ?Text {
         const flight, _ = flightOf(call) orelse return null;
-        const typed = flight.hud.caption;
-        if (!typed.on) return null;
+        if (!flight.hud.caption.on) return null;
         const all = call.runtime().objects orelse return null;
         const strings = flight.strings orelse return null;
         const date = strings.string(hud.Caption.date(all.mission_number) orelse return null) orelse return null;
-        const shows, _ = typed.showing(date);
+        const shows, _ = flight.drawing.caption.showing(date);
         return textOf(shows);
     }
 });

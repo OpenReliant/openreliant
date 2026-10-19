@@ -511,7 +511,7 @@ pub fn playerInit(ctx: Context, index: u16) void {
     ctx.world.player.ending = .ejecting;
     if (ctx.world.display) |display| {
         display.ejected = true;
-        display.eject_ticks = 0;
+        display.events.ejections.happen();
     }
     if (ctx.world.cockpit) |cockpit| main.cockpit.lightEmergency(cockpit);
     radio.mooseSaysOneOf(ctx.world, &eject_calls);
