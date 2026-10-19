@@ -54,6 +54,7 @@ const sound3d = @import("sound3d.zig");
 const main = @import("main.zig");
 const vm = @import("../vm.zig");
 const radio_module = @import("radio.zig");
+const hudmovie = @import("hudmovie.zig");
 const winmain = @import("winmain.zig");
 const Clock = main.Clock;
 const Vector = math.Vector;
@@ -2380,7 +2381,10 @@ pub const Frame = struct {
     /// is heard.
     sound: ?*hog_snd.Sound = null,
     /// The radio, whose window shows the speaker's face; none where nothing is heard.
-    radio: ?*radio_module.Radio = null,
+    radio: ?*const radio_module.Radio = null,
+    /// The speaker's face film as drawing decodes it, which follows the radio's film
+    /// (`hudmovie.Picture.follow`); none where nothing draws it.
+    film: ?*hudmovie.Picture = null,
     /// The game's variables, whose countdown the clock shows where the mission counts down.
     variables: ?*const vm.Variables = null,
     /// Where the mods' displays put each instrument this frame, and which they stand in for.
@@ -2600,6 +2604,8 @@ pub const Instrument = enum {
 /// (`windows.Windows.draw`). `drawing` holds what drawing keeps from one frame to the next, and
 /// what the player aims at as the display is drawn, which the game takes as input (`Drawing.aim`):
 /// the object under the reticle (`underReticle`) and whether blind fire aims (`drawReticle`).
+/// Before any of it, the speaker's face film is decoded as far as the radio's timer has come
+/// (`hudmovie.Picture.follow`).
 ///
 /// The game also does its own work in `hud_draw`, which OpenReliant does in the game frame: the
 /// message lines going, following the player's target, the missile lock's tone, bringing up the
@@ -2608,6 +2614,7 @@ pub const Instrument = enum {
 /// and its closes (`radio.Radio.step`). Drawing takes up what the game has started for it as each
 /// drawn frame begins (`Drawing.takeUp`).
 pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame: Frame) Error!void {
+    if (frame.film) |film| if (frame.radio) |on_air| film.follow(&on_air.movie);
     const slot = &frame.all.slots[frame.all.player];
     const live = &slot.object;
     const frame_duration = frame.clock.drawn_duration;
@@ -2654,7 +2661,12 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
     try state.messages.draw(placing.pen(pen, .messages), &resources.target_fonts.new);
     if (ahead) try state.drawInstruments(drawing, pen, &placing, frame, lead, speaker);
     const contents: windows.Contents = .{
-        .radio = if (frame.radio) |on_air| .{ .radio = on_air, .hit_shake = frame.hit_shake, .random = frame.random } else null,
+        .radio = if (frame.radio) |on_air| .{
+            .radio = on_air,
+            .picture = if (frame.film) |film| &film.picture else null,
+            .hit_shake = frame.hit_shake,
+            .random = frame.random,
+        } else null,
         .gunnery = .{ .slot = slot, .wire_frame = state.wire_frame },
         .damage = .{ .object = live },
         .missiles = .{ .ring = &state.missiles },

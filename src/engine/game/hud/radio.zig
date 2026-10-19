@@ -47,7 +47,10 @@ pub fn firstShape(side: gameobj.Side(u16)) u16 {
 
 /// What window 0 shows from.
 pub const Shown = struct {
-    radio: *radio_module.Radio,
+    radio: *const radio_module.Radio,
+    /// The frame of the speaker's film as drawing decodes it (`hudmovie.Picture`); none where
+    /// nothing decodes it.
+    picture: ?*srtexture.Image = null,
     /// The camera's shake, which shakes the film a row at a time, and the game's random numbers
     /// (`Random`), which it draws from.
     hit_shake: f32,
@@ -73,7 +76,7 @@ pub fn frame(shown: Shown, held: *const windows.Windows, canvas: windows.Canvas,
     if (!movie.waiting) {
         if (!ahead) return;
         const shake: ?hud.Shake = if (shown.hit_shake > 0) .{ .hit_shake = shown.hit_shake, .interference = 0, .random = shown.random } else null;
-        canvas.image(.radio_face, &movie.picture, film_size, picture_at, shake);
+        if (shown.picture) |picture| canvas.image(.radio_face, picture, film_size, picture_at, shake);
         if (radio.shownName()) |name| try canvas.string(.radio_speaker, name, name_at, .left);
         return;
     }

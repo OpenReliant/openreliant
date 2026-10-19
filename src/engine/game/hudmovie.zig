@@ -1,6 +1,7 @@
 //! `C:\lancer\game\hudmovie.cpp`: the face films the radio's window plays as a line is said
 //! (`Movie`), from `pilots\pilots.hog`, decoded by [`talkie.zig`](talkie.zig) as a timer asks for
-//! their frames ([face films](../../../docs/formats/fm8.md)).
+//! their frames ([face films](../../../docs/formats/fm8.md)). OpenReliant's game keeps the film
+//! and its timer, and drawing decodes its frames as far as the timer has come (`Picture`).
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -12,6 +13,7 @@ const hog = @import("../../formats/hog.zig");
 const bigfile = @import("bigfile.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const talkie = @import("talkie.zig");
+const Event = @import("table.zig").Event;
 const ticks_per_second = @import("main.zig").ticks_per_second;
 
 /// Where the films come from (`hudmovie_init`, `0x0048D030`): `pilots\pilots.hog`, whose members
@@ -96,7 +98,8 @@ pub fn memberName(path: []const u8) []const u8 {
     return path[at + 1 ..];
 }
 
-/// The film the radio's window plays: `hudmovie.cpp`'s globals.
+/// The film the radio's window plays: `hudmovie.cpp`'s globals, as far as the game keeps them. The
+/// game decodes each frame as its timer comes to it; OpenReliant's drawing does (`Picture`).
 pub const Movie = struct {
     gpa: Allocator,
     /// `pilots_hog` (`0x0057C3B4`); null if it can't be opened, which leaves the window without
@@ -106,13 +109,15 @@ pub const Movie = struct {
     /// (`bigfile.Mods`).
     mods: *const bigfile.Mods = &bigfile.Mods.none,
     /// The film playing, as `pilots.hog` holds it, its chunks unscrambled once as it starts, and
-    /// which of them the timer decodes next; the game reads each from the archive as it comes
+    /// which of them the timer comes to next; the game reads each from the archive as it comes
     /// (`hudmovie_file`, `0x0057C290`, from `hudmovie_start`, `0x0057C27C`).
     bytes: []u8 = &.{},
     chunks: std.ArrayList(talkie.Chunk) = .empty,
     next: usize = 0,
-    /// Its decoder (`hudmovie_state`, `0x0057C280`).
-    film: talkie.Film,
+    /// The films played (`play`), and the times a film has looped (`turn`), after each of which
+    /// drawing decodes the film from its first chunk again (`Picture.follow`).
+    plays: Event = .{},
+    loops: Event = .{},
     flags: Flags = .{},
     /// `hudmovie_playing` (`0x0057C3A8`).
     playing: bool = false,
@@ -123,13 +128,6 @@ pub const Movie = struct {
     waited: i32 = 0,
     /// The timer's time toward its next turn, in the game's ticks times `talkie.frames_per_second`.
     timer: u32 = 0,
-    /// Whether a film has failed to decode since it started, which is told once.
-    failed: bool = false,
-    /// The frame the window draws (`hudmovie_image`, `0x0057C3BC`), in the film's colours, and its
-    /// image.
-    rgba: []u8 = &.{},
-    level: [1]srtexture.Level = undefined,
-    picture: srtexture.Image = .{ .levels = &.{} },
 
     /// `hudmovie_init` (`0x0048D030`): the films from `archive_path` in `dir`, or none where it
     /// cannot be opened.
@@ -146,21 +144,19 @@ pub const Movie = struct {
             log.warn("the radio's films are left out: {s} cannot be opened: {s}", .{ path, @errorName(err) });
             break :none null;
         };
-        return .{ .gpa = gpa, .archive = archive, .film = .init(gpa) };
+        return .{ .gpa = gpa, .archive = archive };
     }
 
     /// `hudmovie_shutdown` (`0x0048D0C0`).
     pub fn deinit(movie: *Movie) void {
         movie.stop();
-        movie.picture.releaseTexture();
         movie.chunks.deinit(movie.gpa);
         if (movie.archive) |*archive| archive.close(movie.gpa);
-        movie.gpa.free(movie.rgba);
-        movie.* = .{ .gpa = movie.gpa, .film = .init(movie.gpa) };
+        movie.* = .{ .gpa = movie.gpa };
     }
 
     /// `hudmovie_play` (`0x0048D120`): plays the film at `path` (`pilots\<film>.fm8`) as `flags`
-    /// say, in the version for the squadron's name, `squadron` (`squadronFilm`), and decodes its
+    /// say, in the version for the squadron's name, `squadron` (`squadronFilm`), and comes to its
     /// first frame. Returns whether the line spoken with it starts at once, which it does when a
     /// film was already playing, unless `flags.silent`. Otherwise the line waits for the window to
     /// open (`waiting`).
@@ -186,8 +182,8 @@ pub const Movie = struct {
                 return now;
             };
         };
-        movie.failed = false;
         movie.next = 0;
+        movie.plays.happen();
         _ = movie.advance();
         movie.playing = true;
         return now;
@@ -230,47 +226,19 @@ pub const Movie = struct {
         movie.next = 0;
     }
 
-    /// `hudmovie_stop` (`0x0048D420`): the film stops, its decoder and its frames let go of.
+    /// `hudmovie_stop` (`0x0048D420`): the film stops, and its chunks are let go of. The game lets
+    /// go of its decoder and its frames too, which OpenReliant's drawing keeps (`Picture`).
     pub fn stop(movie: *Movie) void {
         movie.playing = false;
-        movie.film.deinit();
         movie.release();
     }
 
-    /// The next chunk decoded, and a frame it gives copied into the window's (`picture`); false at
-    /// the film's end.
+    /// The timer on to the next chunk, which the game decodes as it comes to it (`Picture`); false
+    /// at the film's end.
     fn advance(movie: *Movie) bool {
         if (movie.next >= movie.chunks.items.len) return false;
-        const chunk = movie.chunks.items[movie.next];
         movie.next += 1;
-        const decoded = movie.film.decode(chunk) catch |err| {
-            if (!movie.failed) log.warn("a frame of the radio's film cannot be decoded: {s}", .{@errorName(err)});
-            movie.failed = true;
-            return true;
-        };
-        if (decoded) movie.show() catch |err| log.warn("the radio's film cannot be shown: {s}", .{@errorName(err)});
         return true;
-    }
-
-    /// The frame decoded last, in the film's palette, into `picture`, which is made again for a
-    /// frame of another size, its old texture handed back to the device. Every pixel is drawn, the
-    /// see-through colour among them, as the game draws them.
-    fn show(movie: *Movie) Allocator.Error!void {
-        const pixels = movie.film.frame();
-        const width: u32 = @intCast(movie.film.width);
-        const height: u32 = @intCast(movie.film.height);
-        const resized = movie.rgba.len != pixels.len * 4;
-        if (resized or movie.level[0].width != width) {
-            movie.picture.releaseTexture();
-            if (resized) movie.rgba = try movie.gpa.realloc(movie.rgba, pixels.len * 4);
-            movie.level = .{.{ .width = width, .height = height, .texels = movie.rgba }};
-            movie.picture = .{ .levels = &movie.level };
-        }
-        for (pixels, 0..) |index, at| {
-            const colour = movie.film.palette[@as(usize, index) * 3 ..][0..3];
-            movie.rgba[at * 4 ..][0..4].* = .{ colour[0], colour[1], colour[2], 0xFF };
-        }
-        movie.picture.changed = true;
     }
 
     /// What a turn of the timer comes to.
@@ -282,10 +250,10 @@ pub const Movie = struct {
     };
 
     /// `hudmovie_timer` (`0x0048D460`), a turn of the film's timer while the game is not paused and
-    /// a film plays whose line is not waiting for the window: the next frame decoded. At the
-    /// film's end, a film that holds for its line stops where the line is over (`Turn.over`), or
-    /// gives way to the dead channel's film where it is not; one that loops, the dead channel's
-    /// among them, plays again from its first frame.
+    /// a film plays whose line is not waiting for the window: on to the next frame. At the film's
+    /// end, a film that holds for its line stops where the line is over (`Turn.over`), or gives way
+    /// to the dead channel's film where it is not; one that loops, the dead channel's among them,
+    /// plays again from its first frame.
     ///
     /// **Fix:** the game frees the film and then reads on from it where one both holds and loops,
     /// which none does; OpenReliant stops it.
@@ -301,6 +269,7 @@ pub const Movie = struct {
         }
         if (!movie.flags.loop) return .shown;
         movie.next = 0;
+        movie.loops.happen();
         _ = movie.advance();
         return .shown;
     }
@@ -316,6 +285,84 @@ pub const Movie = struct {
             if (movie.turn(speaking, squadron) == .over) over = true;
         }
         return over;
+    }
+};
+
+/// The radio's face film as drawing decodes it, with a decoder of its own: it follows the game's
+/// film (`Movie`) as far as the game's timer has come, and keeps the frame the window draws
+/// (`picture`).
+pub const Picture = struct {
+    gpa: Allocator,
+    /// The decoder (`hudmovie_state`, `0x0057C280`).
+    film: talkie.Film,
+    /// The films played and the loops it has taken up (`Movie.plays`, `Movie.loops`), and how many
+    /// of the film's chunks it has decoded since.
+    plays: Event.Seen = .{},
+    loops: Event.Seen = .{},
+    decoded: usize = 0,
+    /// Whether a frame has failed to decode since the film was played, which is told once.
+    failed: bool = false,
+    /// The frame the window draws (`hudmovie_image`, `0x0057C3BC`), in the film's colours, and its
+    /// image.
+    rgba: []u8 = &.{},
+    level: [1]srtexture.Level = .{.{ .width = 0, .height = 0, .texels = &.{} }},
+    picture: srtexture.Image = .{ .levels = &.{} },
+
+    pub fn init(gpa: Allocator) Picture {
+        return .{ .gpa = gpa, .film = .init(gpa) };
+    }
+
+    /// Lets go of the decoder and the frame, and hands its texture back to the device.
+    pub fn deinit(picture: *Picture) void {
+        picture.picture.releaseTexture();
+        picture.film.deinit();
+        picture.gpa.free(picture.rgba);
+        picture.* = .init(picture.gpa);
+    }
+
+    /// Decodes the game's film from where drawing left it up to the chunk the game's timer has come
+    /// to (`Movie.next`), and shows the last frame decoded. A film played or looped since is
+    /// decoded from its first chunk, which is a key frame in every film, so the frame is the one
+    /// the game decodes.
+    pub fn follow(picture: *Picture, movie: *const Movie) void {
+        const played = picture.plays.takeUp(movie.plays);
+        const looped = picture.loops.takeUp(movie.loops);
+        if (played) picture.failed = false;
+        if (played or looped) picture.decoded = 0;
+        if (!movie.playing) return;
+        const chunks = movie.chunks.items;
+        var shown = false;
+        while (picture.decoded < @min(movie.next, chunks.len)) : (picture.decoded += 1) {
+            const made = picture.film.decode(chunks[picture.decoded]) catch |err| {
+                if (!picture.failed) log.warn("a frame of the radio's film cannot be decoded: {s}", .{@errorName(err)});
+                picture.failed = true;
+                continue;
+            };
+            shown = shown or made;
+        }
+        if (shown) picture.show() catch |err| log.warn("the radio's film cannot be shown: {s}", .{@errorName(err)});
+    }
+
+    /// The frame decoded last, in the film's palette, into `picture`, which is made again for a
+    /// frame of another size, its old texture handed back to the device. Every pixel is drawn, the
+    /// see-through colour among them, as the game draws them.
+    fn show(picture: *Picture) Allocator.Error!void {
+        const film = &picture.film;
+        const pixels = film.frame();
+        const width: u32 = @intCast(film.width);
+        const height: u32 = @intCast(film.height);
+        const resized = picture.rgba.len != pixels.len * 4;
+        if (resized or picture.level[0].width != width) {
+            picture.picture.releaseTexture();
+            if (resized) picture.rgba = try picture.gpa.realloc(picture.rgba, pixels.len * 4);
+            picture.level = .{.{ .width = width, .height = height, .texels = picture.rgba }};
+            picture.picture = .{ .levels = &picture.level };
+        }
+        for (pixels, 0..) |index, at| {
+            const colour = film.palette[@as(usize, index) * 3 ..][0..3];
+            picture.rgba[at * 4 ..][0..4].* = .{ colour[0], colour[1], colour[2], 0xFF };
+        }
+        picture.picture.changed = true;
     }
 };
 
@@ -387,8 +434,7 @@ test Movie {
     try std.testing.expect(!movie.play("pilots\\BUCC.fm8", .once, .volunteers));
     try std.testing.expect(movie.playing and movie.waiting);
     try std.testing.expectEqual(1, movie.next);
-    try std.testing.expectEqual([4]u8{ 0x40, 0x40, 0x40, 0xFF }, movie.rgba[0..4].*);
-    try std.testing.expect(movie.picture.changed);
+    try std.testing.expectEqual(1, movie.plays.count);
     // It stands still while it waits.
     try std.testing.expect(!movie.run(100, true, .volunteers));
     try std.testing.expectEqual(1, movie.next);
@@ -402,9 +448,10 @@ test Movie {
     // Once over, while its line goes on, the dead channel's film plays in its place, and loops.
     _ = movie.run(14, true, .volunteers);
     try std.testing.expectEqual(Flags.static, movie.flags);
-    try std.testing.expectEqual([4]u8{ 0x80, 0x80, 0x80, 0xFF }, movie.rgba[0..4].*);
+    try std.testing.expectEqual(2, movie.plays.count);
     _ = movie.run(40, true, .volunteers);
     try std.testing.expect(movie.playing);
+    try std.testing.expectEqual(4, movie.loops.count);
     // Another film said now, with one playing, starts its line at once.
     try std.testing.expect(movie.play("pilots\\BUCC.fm8", .once, .volunteers));
     try std.testing.expect(!movie.waiting);
@@ -415,9 +462,45 @@ test Movie {
     // A film the archive lacks plays as the dead channel's.
     _ = movie.play("pilots\\nobody.fm8", .looping, .volunteers);
     try std.testing.expect(movie.playing);
-    try std.testing.expectEqual([4]u8{ 0x80, 0x80, 0x80, 0xFF }, movie.rgba[0..4].*);
+    try std.testing.expectEqual(2, movie.chunks.items.len);
     movie.stop();
     try std.testing.expect(!movie.playing);
+}
+
+test Picture {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try testing.write(gpa, io, tmp.dir, "pilots.hog", &.{
+        .{ .name = "BUCC.fm8", .frames = 3, .colour = 0x40 },
+        .{ .name = "static.fm8", .frames = 2, .colour = 0x80 },
+    });
+    var movie: Movie = .openAt(gpa, io, tmp.dir, "pilots.hog");
+    defer movie.deinit();
+    var picture: Picture = .init(gpa);
+    defer picture.deinit();
+
+    // Drawing decodes the film's first frame once the game plays it.
+    _ = movie.play("pilots\\BUCC.fm8", .once, .volunteers);
+    picture.follow(&movie);
+    try std.testing.expectEqual(1, picture.decoded);
+    try std.testing.expectEqual([4]u8{ 0x40, 0x40, 0x40, 0xFF }, picture.rgba[0..4].*);
+    try std.testing.expect(picture.picture.changed);
+    // It catches up with however many frames the timer has come on since.
+    movie.waiting = false;
+    _ = movie.run(14, true, .volunteers);
+    picture.follow(&movie);
+    try std.testing.expectEqual(3, picture.decoded);
+    // The dead channel's film, played and looped in its place, is decoded from its first frame.
+    _ = movie.run(14, true, .volunteers);
+    picture.follow(&movie);
+    try std.testing.expectEqual(movie.next, picture.decoded);
+    try std.testing.expectEqual([4]u8{ 0x80, 0x80, 0x80, 0xFF }, picture.rgba[0..4].*);
+    // A film that has stopped is left where it was.
+    movie.stop();
+    picture.follow(&movie);
+    try std.testing.expectEqual([4]u8{ 0x80, 0x80, 0x80, 0xFF }, picture.rgba[0..4].*);
 }
 
 test "a film of another size hands its texture back" {
@@ -433,16 +516,21 @@ test "a film of another size hands its texture back" {
     {
         var movie: Movie = .openAt(gpa, io, tmp.dir, "pilots.hog");
         defer movie.deinit();
+        var picture: Picture = .init(gpa);
+        defer picture.deinit();
         // The window draws the film, which the device makes a texture of.
         _ = movie.play("pilots\\small.fm8", .once, .volunteers);
-        drawn.make(&movie.picture);
+        picture.follow(&movie);
+        drawn.make(&picture.picture);
         // Another film of its size keeps the texture; one of another size hands it back.
         _ = movie.play("pilots\\small.fm8", .once, .volunteers);
+        picture.follow(&movie);
         try std.testing.expectEqual(0, drawn.released);
         _ = movie.play("pilots\\large.fm8", .once, .volunteers);
+        picture.follow(&movie);
         try std.testing.expectEqual(1, drawn.released);
-        try std.testing.expectEqual(8, movie.picture.width());
-        drawn.make(&movie.picture);
+        try std.testing.expectEqual(8, picture.picture.width());
+        drawn.make(&picture.picture);
     }
     // Shut down, it hands back the texture it holds.
     try std.testing.expectEqual(0, drawn.held());

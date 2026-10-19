@@ -89,6 +89,13 @@ The script's `CommsFromShip` and `CommsFromPilot`, and the radio's own reports, 
 film looping while the line plays; the `Once` forms with 6, once and then the dead channel's film;
 the dead channel's film plays with 13 (`0xD`).
 
+The film's timer (`hudmovie_timer`, `0x0048D460`) turns 15 times a second and decodes the film's
+next chunk at each turn, which the window then draws. OpenReliant's game frame turns the timer
+(`hudmovie.Movie`), and drawing decodes the film itself as far as the timer has come, as it draws
+the display (`hudmovie.Picture`). After the film is played or loops, drawing decodes it from its
+first chunk again, which is a key frame in every film, so the frame drawn is the one the game
+decodes.
+
 `hud_window_draw`'s case for window 0 (`0x00488035`), from the window's place `(x, y)`:
 
 - In the view ahead while the window closes, the last of its shapes, the emblem.
