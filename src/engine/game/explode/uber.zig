@@ -560,17 +560,18 @@ pub const Uber = struct {
     }
 
     /// The blast's objects, in the world's layer, where it shows: the halves until `faded`, with
-    /// its light in the fuller style, and the ball and its glow from `opened`.
-    pub fn draw(uber: *Uber, gpa: Allocator, scene: *srcore.Scene) Allocator.Error!void {
+    /// its light in the fuller style, and the ball and its glow from `opened`. They're drawn from
+    /// copies made in `arena`, which lasts until the frame is drawn (`xtrabits.sceneAddCopy`).
+    pub fn draw(uber: *const Uber, gpa: Allocator, arena: Allocator, scene: *srcore.Scene) Allocator.Error!void {
         const blast = &(uber.blast orelse return);
         const shown = &(blast.shown orelse return);
         if (blast.done < faded) {
-            for (&shown.halves) |*half| try xtrabits.sceneAdd(gpa, scene, .{ .mesh = half }, .world);
+            for (shown.halves) |half| try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = half }, .world);
             if (shown.style == .fuller) try xtrabits.sceneAdd(gpa, scene, .{ .light = &shown.light }, .world);
         }
         if (blast.done > opened) {
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &shown.ball }, .world);
-            try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &shown.glow }, .world);
+            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown.ball }, .world);
+            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .sprites = shown.glow }, .world);
         }
     }
 };
@@ -744,7 +745,9 @@ test Uber {
     try std.testing.expectEqual([4]f32{ 0, 0, 0, 0 }, shown.half_colours[rim]);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try uber.draw(gpa, &scene);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    try uber.draw(gpa, arena.allocator(), &scene);
     try std.testing.expectEqual(2, scene.layers.get(.world).items.len);
     try std.testing.expectEqual(0, scene.lights.items.len);
 
@@ -794,7 +797,9 @@ test "the fuller style" {
     try std.testing.expectEqual(light_intensity, shown.light.intensity);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try uber.draw(gpa, &scene);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    try uber.draw(gpa, arena.allocator(), &scene);
     try std.testing.expectEqual(1, scene.lights.items.len);
 
     // The ball flickers the first frame it shows, even between steps.

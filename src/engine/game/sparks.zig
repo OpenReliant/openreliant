@@ -259,14 +259,16 @@ pub const Sparks = struct {
     }
 
     /// Each spark, into the world's layer, `ahead` of a tick along from where it was at the
-    /// frame's tick.
+    /// frame's tick: a copy of its object made in `arena`, which lasts until the frame is drawn
+    /// (`xtrabits.sceneAddCopy`).
     ///
     /// **Improvement:** the game draws it where the tick left it (`particles.Pool.draw`).
-    pub fn draw(all: *Sparks, gpa: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
+    pub fn draw(all: *const Sparks, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
         for (&all.sparks.slots) |*slot| {
             const spark = &(slot.* orelse continue);
-            spark.object.position = spark.at + (spark.velocity + spark.carried) * @as(Vector, @splat(ahead));
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &spark.object }, .world);
+            var shown = spark.object;
+            shown.position = spark.at + (spark.velocity + spark.carried) * @as(Vector, @splat(ahead));
+            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown }, .world);
         }
     }
 };
@@ -335,8 +337,11 @@ test Sparks {
     try std.testing.expect(math.distance(spark.at, .{ 50, 0, 500 }) < 1e-3);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try all.draw(gpa, &scene, 0.5);
-    try std.testing.expect(math.distance(spark.object.position, spark.at + (spark.velocity + spark.carried) * @as(Vector, @splat(0.5))) < 1e-4);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    try all.draw(gpa, arena.allocator(), &scene, 0.5);
+    const drawn = scene.layers.get(.world).items[0].mesh;
+    try std.testing.expect(math.distance(drawn.position, spark.at + (spark.velocity + spark.carried) * @as(Vector, @splat(0.5))) < 1e-4);
     try std.testing.expectApproxEqAbs(10 * std.math.pow(f32, 0.995, 50), spark.velocity[2], 1e-3);
     try std.testing.expectApproxEqAbs(0.5, spark.colours[3][0], 1e-6);
     clock.frame_start = 101;

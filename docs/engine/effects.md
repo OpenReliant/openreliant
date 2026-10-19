@@ -8,6 +8,12 @@ The game moves its effects on by the ticks, a hundred a second, and draws each w
 
 **Improvement:** each is drawn as far past its tick as the frame is, the share of a tick the clock keeps (`objects.pastTick`): a particle, a spark, a bit, a chunk of rock, a fireball and its light, a piece of the break-up and a shockwave all that much further along by their velocities, a piece and a chunk turned that much further by their spin, and a shockwave's ring spread that much further. What they do stays on the ticks. `--no-smooth-motion` and `--original` draw them where the ticks leave them.
 
+The game keeps the effects' records and moves them on in the game frames. Drawing draws each from a
+copy it makes in the frame's arena, standing where the frame draws it (`xtrabits.sceneAddCopy`), so
+neither drawing nor the pipeline, as it picks a mesh's level, writes into the game's records. The
+capital ships' splits are the exception: their portals are their own, since the pipeline puts them
+in the camera's frame and the splitting parts are clipped by them.
+
 ## Where nothing is drawn
 
 Where nothing is drawn, as on a server, the explosions keep only their part in the game: the

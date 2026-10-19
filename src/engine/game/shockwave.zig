@@ -288,8 +288,6 @@ const imp_drain: f32 = 50;
 /// The shockwaves spreading, and the rings they show.
 pub const Shockwaves = struct {
     meshes: std.EnumArray(Ring, srapiext.Mesh),
-    /// Each ring as a single level of detail, which the rings drawn point at.
-    levels: std.EnumArray(Ring, [1]srapiext.Level) = .initUndefined(),
     waves: [max_shockwaves]?Shockwave = @splat(null),
 
     /// `shockwave_init` (`0x004A0D90`): the rings' meshes, over their textures. The game also
@@ -371,20 +369,25 @@ pub const Shockwaves = struct {
     }
 
     /// Each shockwave's ring, into the world's layer, save kind 7's, which is unseen: `ahead` of a
-    /// tick along from where it stood and how far it had spread at the frame's tick.
+    /// tick along from where it stood and how far it had spread at the frame's tick. The rings are
+    /// drawn from copies made in `arena`, which lasts until the frame is drawn
+    /// (`xtrabits.sceneAddCopy`), each ring's mesh as a single level of detail, and the shockwaves
+    /// are left as they are.
     ///
     /// **Improvement:** the game draws it as the tick left it (`particles.Pool.draw`).
-    pub fn draw(waves: *Shockwaves, gpa: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
-        for (std.enums.values(Ring)) |ring| waves.levels.set(ring, .{.{ .mesh = waves.meshes.getPtrConst(ring), .until = std.math.inf(f32) }});
+    pub fn draw(waves: *const Shockwaves, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
+        const levels = try arena.create(std.EnumArray(Ring, [1]srapiext.Level));
+        for (std.enums.values(Ring)) |ring| levels.set(ring, .{.{ .mesh = waves.meshes.getPtrConst(ring), .until = std.math.inf(f32) }});
         for (&waves.waves) |*slot| {
             const wave = &(slot.* orelse continue);
             if (wave.kind == .split) continue;
-            wave.object.levels = waves.levels.getPtrConst(wave.kind.ring());
-            wave.object.baked = &wave.colours;
-            wave.object.position = wave.at + wave.velocity * @as(Vector, @splat(ahead));
+            var shown = wave.object;
+            shown.levels = levels.getPtrConst(wave.kind.ring());
+            shown.baked = &wave.colours;
+            shown.position = wave.at + wave.velocity * @as(Vector, @splat(ahead));
             const done = @min(wave.done + ahead / @as(f32, @floatFromInt(wave.life)), 1);
-            wave.object.scale = done * wave.size;
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &wave.object }, .world);
+            shown.scale = done * wave.size;
+            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown }, .world);
         }
     }
 };
@@ -508,9 +511,12 @@ test Shockwaves {
     // Drawn half a tick on, it has drifted and spread half a tick more.
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try built.waves.draw(gpa, &scene, 0.5);
-    try std.testing.expectEqual(Vector{ 10.5, 0, 0 }, wave.object.position);
-    try std.testing.expectEqual(1050, wave.object.scale);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    try built.waves.draw(gpa, arena.allocator(), &scene, 0.5);
+    const drawn = scene.layers.get(.world).items[0].mesh;
+    try std.testing.expectEqual(Vector{ 10.5, 0, 0 }, drawn.position);
+    try std.testing.expectEqual(1050, drawn.scale);
     try std.testing.expectEqual(1, mission.shake);
 
     // Once its life is over it is gone.

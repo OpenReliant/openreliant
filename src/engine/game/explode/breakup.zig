@@ -76,18 +76,26 @@ pub const burst_trail: particles.Template = .{
 pub const Piece = struct {
     mesh: srapiext.Mesh,
     object: srapiext.MeshObject,
-    level: [1]srapiext.Level = undefined,
 
     pub fn deinit(piece: *Piece, gpa: Allocator) void {
         piece.mesh.deinit(gpa);
     }
 
-    /// Its object, pointed at its own mesh, which moving the piece leaves behind.
-    fn shown(piece: *Piece) *srapiext.MeshObject {
-        piece.level = .{.{ .mesh = &piece.mesh, .until = std.math.inf(f32) }};
-        piece.object.levels = &piece.level;
-        return &piece.object;
+    /// Its object as a frame draws it, at `at`, made in `arena`, which lasts until the frame is
+    /// drawn: pointed at the piece's own mesh, which moving the piece leaves behind. The piece
+    /// itself is left as it is.
+    fn drawn(piece: *const Piece, arena: Allocator, at: math.Place) Allocator.Error!*srapiext.MeshObject {
+        const shown = try arena.create(Shown);
+        shown.level = .{.{ .mesh = &piece.mesh, .until = std.math.inf(f32) }};
+        shown.object = piece.object;
+        shown.object.levels = &shown.level;
+        shown.object.position = at.position;
+        shown.object.orientation = at.orientation;
+        return &shown.object;
     }
+
+    /// A piece's object as a frame draws it (`drawn`), and its one level.
+    const Shown = struct { object: srapiext.MeshObject, level: [1]srapiext.Level };
 
     fn place(piece: *const Piece) math.Place {
         return .{ .position = piece.object.position, .orientation = piece.object.orientation };
@@ -372,12 +380,13 @@ pub const Pieces = struct {
     /// how it was turned at the frame's tick.
     ///
     /// **Improvement:** the game draws it as the tick left it (`particles.Pool.draw`).
-    pub fn draw(pieces: *Pieces, gpa: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
+    pub fn draw(pieces: *const Pieces, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
         for (&pieces.flights.slots) |*slot| {
             const flight = &(slot.* orelse continue);
-            const object = flight.piece.shown();
-            object.position = flight.place.position + flight.velocity * @as(Vector, @splat(ahead));
-            object.orientation = math.product(flight.place.orientation, math.fromAngleVector(flight.tumble * @as(Vector, @splat(ahead))));
+            const object = try flight.piece.drawn(arena, .{
+                .position = flight.place.position + flight.velocity * @as(Vector, @splat(ahead)),
+                .orientation = math.product(flight.place.orientation, math.fromAngleVector(flight.tumble * @as(Vector, @splat(ahead)))),
+            });
             try xtrabits.sceneAdd(gpa, scene, .{ .mesh = object }, .world);
         }
     }
@@ -668,9 +677,14 @@ test Pieces {
     // Drawn half a tick on, it has moved and turned half a tick more.
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try pieces.draw(gpa, &scene, 0.5);
-    try std.testing.expectEqual(from + Vector{ 2.5, 0, 0 }, flight.piece.object.position);
-    try std.testing.expect(math.distance(math.angles(flight.piece.object.orientation), .{ 0, 0, 0.25 }) < 1e-5);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    try pieces.draw(gpa, arena.allocator(), &scene, 0.5);
+    const drawn = scene.layers.get(.world).items[0].mesh;
+    try std.testing.expectEqual(from + Vector{ 2.5, 0, 0 }, drawn.position);
+    try std.testing.expect(math.distance(math.angles(drawn.orientation), .{ 0, 0, 0.25 }) < 1e-5);
+    // The piece's own object is left as it is.
+    try std.testing.expectEqual(from, flight.piece.object.position);
 
     // Its time up, it goes up in a fireball of the sheet's, and is gone a little later.
     clock.frame_start = 11;

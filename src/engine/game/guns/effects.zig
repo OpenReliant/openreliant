@@ -55,9 +55,10 @@ pub const Pools = struct {
         pools.cases.frame(clock);
     }
 
-    pub fn draw(pools: *Pools, gpa: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
-        try pools.flak.draw(gpa, scene, ahead);
-        try pools.cases.draw(gpa, scene, ahead);
+    /// The rest of `particles_frame` (`particles.Pool.draw`).
+    pub fn draw(pools: *const Pools, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
+        try pools.flak.draw(gpa, arena, scene, ahead);
+        try pools.cases.draw(gpa, arena, scene, ahead);
     }
 };
 

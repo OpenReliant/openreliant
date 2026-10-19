@@ -150,12 +150,11 @@ pub const Hanging = struct {
         hanging.object = .{ .flags = flags, .position = @splat(0), .radius = hanging.mesh.radius, .levels = &hanging.level };
     }
 
-    /// Its object as a frame draws it, made in `arena`, which lasts until the frame is drawn:
-    /// standing where its part, at `part`, puts it. The object itself is left as it is.
-    pub fn drawn(hanging: *const Hanging, arena: Allocator, part: math.Place) Allocator.Error!*srapiext.MeshObject {
+    /// Its object as a frame draws it, standing where its part, at `part`, puts it. A frame draws
+    /// a copy of it (`xtrabits.sceneAddCopy`), and the object itself is left as it is.
+    pub fn placed(hanging: *const Hanging, part: math.Place) srapiext.MeshObject {
         const at = hanging.place.within(part);
-        const shown = try arena.create(srapiext.MeshObject);
-        shown.* = hanging.object;
+        var shown = hanging.object;
         shown.position = at.position;
         shown.orientation = at.orientation;
         return shown;

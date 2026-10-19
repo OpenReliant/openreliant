@@ -70,13 +70,14 @@ pub const Chunks = struct {
     ///
     /// **Improvement:** the game draws a chunk where the frame's tick leaves it; OpenReliant draws
     /// it that much further along and turned (`objects.pastTick`).
-    pub fn draw(chunks: *Chunks, gpa: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
+    pub fn draw(chunks: *const Chunks, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
         for (&chunks.ring.slots) |*slot| {
             const chunk = &(slot.* orelse continue);
-            const shown = chunk.moved(ahead);
-            chunk.object.position = shown.position;
-            chunk.object.orientation = shown.orientation;
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &chunk.object }, .world);
+            const place = chunk.moved(ahead);
+            var shown = chunk.object;
+            shown.position = place.position;
+            shown.orientation = place.orientation;
+            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown }, .world);
         }
     }
 };
@@ -177,8 +178,10 @@ test throw {
     try math.testing.expectVectorWithin(chunk.place.position + chunk.velocity * @as(Vector, @splat(10)), moved, 1e-3);
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try explosions.chunks.draw(gpa, &scene, 0.5);
-    const drawn = explosions.chunks.ring.slots[0].?.object.position;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    try explosions.chunks.draw(gpa, arena.allocator(), &scene, 0.5);
+    const drawn = scene.layers.get(.world).items[0].mesh.position;
     try math.testing.expectVectorWithin(moved + chunk.velocity * @as(Vector, @splat(0.5)), drawn, 1e-3);
 
     // It goes once its time is past.
