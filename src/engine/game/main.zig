@@ -1195,11 +1195,11 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
         .random = attachments.random,
     });
     try guns.drawBullets(gpa, scene, &frame.objects.bullets);
-    if (frame.sparks) |thrown| try thrown.draw(gpa, scene, frame.ahead);
-    if (frame.particles) |pool| try pool.draw(gpa, scene, frame.ahead);
-    if (frame.smoke) |pools| try pools.draw(gpa, scene, frame.ahead);
-    if (frame.gun_particles) |pools| try pools.draw(gpa, scene, frame.ahead);
-    if (frame.explosions) |explosions| try explosions.draw(gpa, scene, frame.ahead);
+    if (frame.sparks) |thrown| try thrown.draw(gpa, arena, scene, frame.ahead);
+    if (frame.particles) |pool| try pool.draw(gpa, arena, scene, frame.ahead);
+    if (frame.smoke) |pools| try pools.draw(gpa, arena, scene, frame.ahead);
+    if (frame.gun_particles) |pools| try pools.draw(gpa, arena, scene, frame.ahead);
+    if (frame.explosions) |explosions| try explosions.draw(gpa, arena, scene, frame.ahead);
     if (frame.rays) |rays| if (attachments.random) |random| try rays.draw(gpa, scene, frame.objects, attachments.frame_start, random);
     if (frame.ion_cannons) |cannons| try cannons.draw(gpa, scene, frame.objects);
     if (frame.flash) |lit| if (!frame.paused) {
@@ -1209,7 +1209,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
         try lit.draw(gpa, scene, .{ .position = context.camera.position, .orientation = context.camera.orientation }, context.projection, frame.ticks, red);
         if (shaken) |interference| interference.fade(attachments.frame_start);
     };
-    if (frame.shockwaves) |waves| try waves.draw(gpa, scene, frame.ahead);
+    if (frame.shockwaves) |waves| try waves.draw(gpa, arena, scene, frame.ahead);
     frame.space.shortenDust(frame.jumping_in);
     if (frame.environment) |environment| try environment.frame(gpa, scene, context.camera, attachments.frame_start);
     try frame.space.frame(gpa, scene, context, frame.view, frame.cockpit_mode);
@@ -1366,7 +1366,7 @@ fn drawExtra(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: *const
             if (object.flags.exploding) return;
             const coil = hat.coil.live(all) orelse return;
             for ([_]*const create.extra.Hanging{ &hat.band, &hat.star }) |hanging| {
-                try xtrabits.sceneAdd(gpa, scene, .{ .mesh = try hanging.drawn(arena, coil.drawn()) }, .world);
+                try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = hanging.placed(coil.drawn()) }, .world);
             }
         },
     }

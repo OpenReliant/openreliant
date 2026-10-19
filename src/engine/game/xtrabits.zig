@@ -94,6 +94,31 @@ pub fn sceneAdd(gpa: Allocator, scene: *srcore.Scene, object: Object, layer: src
     }
 }
 
+/// What `sceneAddCopy` puts in the scene: a mesh object or a set of sprites as a frame draws it.
+pub const Copied = union(enum) {
+    mesh: srapiext.MeshObject,
+    sprites: srapiext.SpriteSet,
+};
+
+/// Puts a copy of `copied` in the scene for the frame (`sceneAdd`). The copy is made in `arena`,
+/// which lasts until the frame is drawn, so neither drawing nor the pipeline, as it picks a mesh
+/// object's level, writes into the original. The effects draw with it: each copy stands where the
+/// frame draws it, and the effect's own record is left as it is.
+pub fn sceneAddCopy(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, copied: Copied, layer: srcore.Layer) Allocator.Error!void {
+    switch (copied) {
+        .mesh => |mesh| {
+            const copy = try arena.create(srapiext.MeshObject);
+            copy.* = mesh;
+            try sceneAdd(gpa, scene, .{ .mesh = copy }, layer);
+        },
+        .sprites => |set| {
+            const copy = try arena.create(srapiext.SpriteSet);
+            copy.* = set;
+            try sceneAdd(gpa, scene, .{ .sprites = copy }, layer);
+        },
+    }
+}
+
 /// Clips part `index` of `model`, and every part of each model it carries however deep, by
 /// `portal`. A null portal clears the portal but leaves the flag as it was (`node_tree_clip`,
 /// `0x004ADEE0`; `node_tree_unclip`, `0x004ADF40`).
@@ -147,6 +172,31 @@ test sceneAdd {
     try sceneAdd(gpa, &scene, .{ .portal = &portal }, .world);
     try std.testing.expectEqual(1, scene.portals.items.len);
     try std.testing.expectEqual(0, scene.layers.get(.world).items.len);
+}
+
+test sceneAddCopy {
+    const gpa = std.testing.allocator;
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const mesh = try @import("../surrender/surrenderlib/srmesh.zig").testing.square(gpa);
+    defer mesh.deinit(gpa);
+
+    // The scene holds a copy, so changing the original afterwards leaves the copy as it was.
+    const levels = [_]srapiext.Level{.{ .mesh = &mesh, .until = std.math.inf(f32) }};
+    var object: srapiext.MeshObject = .{ .flags = .{}, .position = .{ 1, 2, 3 }, .radius = 100, .levels = &levels };
+    try sceneAddCopy(gpa, arena.allocator(), &scene, .{ .mesh = object }, .world);
+    object.position = @splat(0);
+    try std.testing.expectEqual(@Vector(3, f32){ 1, 2, 3 }, scene.layers.get(.world).items[0].mesh.position);
+
+    // A set of sprites likewise, and a hidden one is left out, as `sceneAdd` leaves it out.
+    var set: srapiext.SpriteSet = .{ .sprites = &.{} };
+    try sceneAddCopy(gpa, arena.allocator(), &scene, .{ .sprites = set }, .overlay);
+    set.flags.hidden = true;
+    try std.testing.expect(!scene.layers.get(.overlay).items[0].sprites.flags.hidden);
+    try sceneAddCopy(gpa, arena.allocator(), &scene, .{ .sprites = set }, .overlay);
+    try std.testing.expectEqual(1, scene.layers.get(.overlay).items.len);
 }
 
 /// What `object_random15` (`0x004ADCE0`) multiplies an object's seed by, the same step as the C

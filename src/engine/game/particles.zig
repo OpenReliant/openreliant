@@ -426,17 +426,22 @@ pub const Pool = struct {
     }
 
     /// The rest of `particles_frame`: the set goes into the world's layer, each particle `ahead`
-    /// of a tick along from where it was at the frame's tick.
+    /// of a tick along from where it was at the frame's tick. The set drawn is a copy made in
+    /// `arena`, which lasts until the frame is drawn (`xtrabits.sceneAddCopy`), and the pool is
+    /// left as it is.
     ///
     /// **Improvement:** the game draws them where the tick left them, which moves them on in
     /// hundredths of a second that a display's frames fall between unevenly.
-    pub fn draw(pool: *Pool, gpa: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
+    pub fn draw(pool: *const Pool, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
         if (pool.used == 0) return;
         const past: Vector = @splat(ahead);
-        for (pool.particles[0..pool.used], pool.sprites[0..pool.used]) |particle, *sprite| {
+        const sprites = try arena.dupe(srapiext.Sprite, pool.sprites[0..pool.used]);
+        for (pool.particles[0..pool.used], sprites) |particle, *sprite| {
             if (!sprite.hidden) sprite.offset = particle.at + particle.velocity * past;
         }
-        try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &pool.set }, .world);
+        var set = pool.set;
+        set.sprites = sprites;
+        try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .sprites = set }, .world);
     }
 };
 
@@ -546,8 +551,10 @@ test "Pool.frame" {
     // Drawn a quarter of a tick past the frame's, its sprite is that much further along.
     var scene: srcore.Scene = .{};
     defer scene.deinit(std.testing.allocator);
-    try pool.draw(std.testing.allocator, &scene, 0.25);
-    try std.testing.expectEqual(Vector{ 50.25, 0, 0 }, pool.sprites[0].offset);
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    try pool.draw(std.testing.allocator, arena.allocator(), &scene, 0.25);
+    try std.testing.expectEqual(Vector{ 50.25, 0, 0 }, scene.layers.get(.world).items[0].sprites.sprites[0].offset);
 
     // Past it, both are hidden and the set drawn shrinks to one.
     clock.frame_start = 200;

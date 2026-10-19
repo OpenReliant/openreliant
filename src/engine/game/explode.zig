@@ -190,18 +190,23 @@ pub const Explosions = struct {
 
     /// The rest of `explosions_update`: the Uber Explode's objects, the bits and the pieces go into
     /// the world's layer, the burning wrecks' lights among the lights, and each fireball showing,
-    /// with its light among the lights, `ahead` of a tick past the frame's tick.
-    pub fn draw(explosions: *Explosions, gpa: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
+    /// with its light among the lights, `ahead` of a tick past the frame's tick. What moves is
+    /// drawn from copies made in `arena`, which lasts until the frame is drawn
+    /// (`xtrabits.sceneAddCopy`), and is left as it is. The splits' portals are their own, which the
+    /// pipeline puts in the camera's frame and the splitting parts are clipped by
+    /// (`split.Splits.draw`).
+    pub fn draw(explosions: *Explosions, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
         const images = explosions.images orelse return;
-        try explosions.uber.draw(gpa, scene);
+        try explosions.uber.draw(gpa, arena, scene);
         for (&explosions.bits.slots) |*slot| {
             const bit = &(slot.* orelse continue);
-            bit.object.position = bit.at + bit.velocity * @as(Vector, @splat(ahead * Bit.per_tick));
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &bit.object }, .world);
+            var shown = bit.object;
+            shown.position = bit.at + bit.velocity * @as(Vector, @splat(ahead * Bit.per_tick));
+            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown }, .world);
         }
-        try explosions.pieces.draw(gpa, scene, ahead);
+        try explosions.pieces.draw(gpa, arena, scene, ahead);
         try explosions.splits.draw(gpa, scene);
-        try explosions.chunks.draw(gpa, scene, ahead);
+        try explosions.chunks.draw(gpa, arena, scene, ahead);
         for (&explosions.burn_lights) |*slot| {
             const burning = &(slot.* orelse continue);
             try xtrabits.sceneAdd(gpa, scene, .{ .light = &burning.light }, .world);
@@ -209,9 +214,9 @@ pub const Explosions = struct {
         for (&explosions.fireballs) |*slot| {
             const fireball = &(slot.* orelse continue);
             if (!fireball.showing) continue;
-            fireball.show(images, ahead);
-            try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &fireball.set }, .world);
-            if (fireball.light) |*light| try xtrabits.sceneAdd(gpa, scene, .{ .light = light }, .background);
+            const shown = try fireball.drawn(arena, images, ahead);
+            try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &shown.set }, .world);
+            if (shown.light) |*light| try xtrabits.sceneAdd(gpa, scene, .{ .light = light }, .background);
         }
     }
 
@@ -641,10 +646,9 @@ pub const Bit = struct {
 pub const Fireball = struct {
     /// Its sprite, and the set that draws it (`ExplodeParticle BMO`); its light
     /// (`ExplodeParticle Light`). A second sprite shows the next frame of its animation, which the
-    /// first fades into, over the bang's next texture (`fading`).
+    /// first fades into (`drawn`).
     sprite: [2]srapiext.Sprite,
     set: srapiext.SpriteSet,
-    fading: srapiext.Surface,
     light: ?srlight.Light,
     /// Where it is at the frame's tick, which the game keeps in its sprite, and how far it drifts
     /// a tick (`+0x08`). How long it had played at the frame's tick.
@@ -676,10 +680,10 @@ pub const Fireball = struct {
         bang: bool,
         _: u29 = 0,
 
-        /// The look of a fireball of `kind`, mirrored by the two lowest bits of `drawn`, a draw
+        /// The look of a fireball of `kind`, mirrored by the two lowest bits of `roll`, a draw
         /// of `rand` (`explosion_fireball`).
-        fn of(kind: Kind, drawn: u15) Look {
-            var look: Look = @bitCast(@as(u32, @as(u2, @truncate(drawn))));
+        fn of(kind: Kind, roll: u15) Look {
+            var look: Look = @bitCast(@as(u32, @as(u2, @truncate(roll))));
             look.bang = kind == .bang;
             return look;
         }
@@ -757,7 +761,6 @@ pub const Fireball = struct {
         return .{
             .sprite = .{ sprite, sprite },
             .set = set,
-            .fading = set.surface,
             .light = if (spec.light) .{
                 .mask = 0,
                 .intensity = style.peak(),
@@ -791,12 +794,15 @@ pub const Fireball = struct {
 
     /// How it shows, `ahead` of a tick past the frame's tick: the frame of its animation this far
     /// through its life, where it has drifted to, its colour where it is lit, and its light's fade.
+    /// Made in `arena`, which lasts until the frame is drawn, and the fireball is left as it is.
     ///
     /// **Improvement:** with the `fuller` style, each frame of its animation fades into the next,
     /// where the game flips from one to the next: sixteen or nine over a second and a half. It
     /// fades out as its last frames play, where the game's vanishes after the last. It is drawn
     /// further along between the ticks as well (`particles.Pool.draw`).
-    fn show(fireball: *Fireball, images: Explosions.Images, ahead: f32) void {
+    fn drawn(fireball: *const Fireball, arena: Allocator, images: Explosions.Images, ahead: f32) Allocator.Error!*Shown {
+        const shown = try arena.create(Shown);
+        shown.* = .{ .sprite = fireball.sprite, .set = fireball.set, .fading = fireball.set.surface, .light = fireball.light };
         const bang_images = fireball.look.bang and !fireball.special;
         const frames: u32 = if (bang_images) images.bang.len else grid_side * grid_side;
         const life: f32 = @floatFromInt(fireball.life);
@@ -807,7 +813,7 @@ pub const Fireball = struct {
         const fade: f32 = if (fireball.style == .fuller and next > first) step - @as(f32, @floatFromInt(first)) else 0;
         const kept = fireball.left(ahead);
         const offset = fireball.at + fireball.velocity * @as(Vector, @splat(ahead));
-        for (&fireball.sprite, [2]u32{ first, next }, [2]f32{ 1 - fade, fade }) |*sprite, cell, share| {
+        for (&shown.sprite, [2]u32{ first, next }, [2]f32{ 1 - fade, fade }) |*sprite, cell, share| {
             sprite.offset = offset;
             sprite.fade = share * kept;
             if (fireball.lit) sprite.colour = @splat(played);
@@ -818,17 +824,28 @@ pub const Fireball = struct {
             }
         }
         if (bang_images) {
-            fireball.set.surface.textures[0].image = images.bang[first];
-            fireball.fading = fireball.set.surface;
-            fireball.fading.textures[0].image = images.bang[next];
-            fireball.sprite[1].surface = &fireball.fading;
+            shown.set.surface.textures[0].image = images.bang[first];
+            shown.fading = shown.set.surface;
+            shown.fading.textures[0].image = images.bang[next];
+            shown.sprite[1].surface = &shown.fading;
         }
-        fireball.set.sprites = fireball.sprite[0..if (fade > 0) 2 else 1];
-        if (fireball.light) |*light| {
+        shown.set.sprites = shown.sprite[0..if (fade > 0) 2 else 1];
+        if (shown.light) |*light| {
             light.intensity = fireball.style.peak() * (1 - played);
             if (fireball.style == .fuller) light.kind.point.position = offset;
         }
+        return shown;
     }
+
+    /// A fireball as a frame draws it (`drawn`): its sprites, the set that draws them and its
+    /// light. With the bang's images, the second sprite shows the next frame through `fading`, a
+    /// copy of the set's surface with the next texture.
+    const Shown = struct {
+        sprite: [2]srapiext.Sprite,
+        set: srapiext.SpriteSet,
+        fading: srapiext.Surface,
+        light: ?srlight.Light,
+    };
 
     /// How much of it shows `ahead` of a tick past the frame's tick: all of it until its style
     /// fades it out, then less and less, to nothing as its life ends.
@@ -1687,6 +1704,9 @@ test Fireball {
     const explosions = &stage.explosions;
     const clock = &stage.mission.clock;
     var random: Random = .{};
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     explosions.setOff(.{ 0, 0, 100 }, .{ .size = 40, .light = true, .delay = 10, .velocity = .{ 1, 0, 0 } }, clock, &random);
     const bang = &explosions.fireballs[0].?;
     try std.testing.expectEqual(-40, bang.sprite[0].bias);
@@ -1702,31 +1722,32 @@ test Fireball {
     clock.frame_duration = 20;
     explosions.frame(stage.world());
     try std.testing.expect(bang.showing);
-    bang.show(testing.images(), 0);
-    try std.testing.expectEqual(&testing.bang[8], bang.set.surface.textures[0].image);
-    try std.testing.expectEqual(1, bang.set.sprites.len);
-    try std.testing.expectEqual(Vector{ 20, 0, 100 }, bang.sprite[0].offset);
-    try std.testing.expectApproxEqAbs(Fireballs.fuller.peak() / 2, bang.light.?.intensity, 1e-6);
-    try std.testing.expectEqual([3]f32{ 20, 0, 100 }, bang.light.?.kind.point.position);
+    var shown = try bang.drawn(arena, testing.images(), 0);
+    try std.testing.expectEqual(&testing.bang[8], shown.set.surface.textures[0].image);
+    try std.testing.expectEqual(1, shown.set.sprites.len);
+    try std.testing.expectEqual(Vector{ 20, 0, 100 }, shown.sprite[0].offset);
+    try std.testing.expectApproxEqAbs(Fireballs.fuller.peak() / 2, shown.light.?.intensity, 1e-6);
+    try std.testing.expectEqual([3]f32{ 20, 0, 100 }, shown.light.?.kind.point.position);
+    // The fireball itself is left as it is.
+    try std.testing.expectEqual([3]f32{ 0, 0, 100 }, bang.light.?.kind.point.position);
 
     // Drawn half a tick on, it has drifted on half a tick more and begun to fade into the next.
-    bang.show(testing.images(), 0.5);
-    try std.testing.expectEqual(Vector{ 20.5, 0, 100 }, bang.sprite[0].offset);
-    try std.testing.expectEqual(2, bang.set.sprites.len);
-    try std.testing.expectEqual(&testing.bang[9], bang.sprite[1].surface.?.textures[0].image);
+    shown = try bang.drawn(arena, testing.images(), 0.5);
+    try std.testing.expectEqual(Vector{ 20.5, 0, 100 }, shown.sprite[0].offset);
+    try std.testing.expectEqual(2, shown.set.sprites.len);
+    try std.testing.expectEqual(&testing.bang[9], shown.sprite[1].surface.?.textures[0].image);
     const fade = 0.5 * 16.0 / 150.0;
-    try std.testing.expectApproxEqAbs(fade, bang.sprite[1].fade, 1e-5);
-    try std.testing.expectApproxEqAbs(1 - fade, bang.sprite[0].fade, 1e-5);
+    try std.testing.expectApproxEqAbs(fade, shown.sprite[1].fade, 1e-5);
+    try std.testing.expectApproxEqAbs(1 - fade, shown.sprite[0].fade, 1e-5);
 
     // The original's flips from frame to frame, is dimmer, and its light stays where it went off.
     bang.style = .original;
-    bang.light.?.kind.point.position = .{ 0, 0, 100 };
-    bang.show(testing.images(), 0.5);
-    try std.testing.expectEqual(1, bang.set.sprites.len);
-    try std.testing.expectEqual(1, bang.sprite[0].fade);
-    try std.testing.expectEqual([3]f32{ 0, 0, 100 }, bang.light.?.kind.point.position);
-    bang.show(testing.images(), 0);
-    try std.testing.expectApproxEqAbs(Fireballs.original.peak() / 2, bang.light.?.intensity, 1e-6);
+    shown = try bang.drawn(arena, testing.images(), 0.5);
+    try std.testing.expectEqual(1, shown.set.sprites.len);
+    try std.testing.expectEqual(1, shown.sprite[0].fade);
+    try std.testing.expectEqual([3]f32{ 0, 0, 100 }, shown.light.?.kind.point.position);
+    shown = try bang.drawn(arena, testing.images(), 0);
+    try std.testing.expectApproxEqAbs(Fireballs.original.peak() / 2, shown.light.?.intensity, 1e-6);
 
     // The sheet steps through its cells, mirrored as its look says.
     explosions.setOff(@splat(0), .{ .kind = .sheet, .size = 10, .life = 90 }, clock, &random);
@@ -1735,10 +1756,10 @@ test Fireball {
     sheet.look.mirror_v = false;
     clock.frame_start += 50;
     explosions.frame(stage.world());
-    sheet.show(testing.images(), 0);
+    shown = try sheet.drawn(arena, testing.images(), 0);
     const u = 2 * Fireball.sheet_step;
     const v = 1 * Fireball.sheet_step;
-    try std.testing.expectEqual([4]f32{ u + Fireball.sheet_cell, u, v, v + Fireball.sheet_cell }, sheet.sprite[0].uv);
+    try std.testing.expectEqual([4]f32{ u + Fireball.sheet_cell, u, v, v + Fireball.sheet_cell }, shown.sprite[0].uv);
 
     // Done, it is gone.
     clock.frame_start += 200;
@@ -1784,19 +1805,22 @@ test burst {
 test "a fireball's fade" {
     var clock: Clock = .{};
     var random: Random = .{};
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     const spec: Fireball.Spec = .{ .size = 100 };
 
     // The fuller style fades it out over the last fifth of its life as it plays on.
     var fireball: Fireball = .init(testing.images(), @splat(0), spec, .fuller, &clock, &random);
     clock.frame_start = 120;
     try std.testing.expect(fireball.frame(&clock));
-    fireball.show(testing.images(), 0);
-    try std.testing.expectApproxEqAbs(1, fireball.sprite[0].fade + fireball.sprite[1].fade, 1e-6);
+    var shown = try fireball.drawn(arena, testing.images(), 0);
+    try std.testing.expectApproxEqAbs(1, shown.sprite[0].fade + shown.sprite[1].fade, 1e-6);
     clock.frame_start = 135;
     try std.testing.expect(fireball.frame(&clock));
-    fireball.show(testing.images(), 0);
-    try std.testing.expectApproxEqAbs(0.5, fireball.sprite[0].fade + fireball.sprite[1].fade, 1e-6);
-    try std.testing.expectEqual(2, fireball.set.sprites.len);
+    shown = try fireball.drawn(arena, testing.images(), 0);
+    try std.testing.expectApproxEqAbs(0.5, shown.sprite[0].fade + shown.sprite[1].fade, 1e-6);
+    try std.testing.expectEqual(2, shown.set.sprites.len);
     clock.frame_start = 150;
     try std.testing.expect(!fireball.frame(&clock));
 
@@ -1804,8 +1828,8 @@ test "a fireball's fade" {
     fireball = .init(testing.images(), @splat(0), spec, .original, &clock, &random);
     clock.frame_start += 149;
     try std.testing.expect(fireball.frame(&clock));
-    fireball.show(testing.images(), 0.5);
-    try std.testing.expectEqual(1, fireball.sprite[0].fade);
+    shown = try fireball.drawn(arena, testing.images(), 0.5);
+    try std.testing.expectEqual(1, shown.sprite[0].fade);
 }
 
 test blast {

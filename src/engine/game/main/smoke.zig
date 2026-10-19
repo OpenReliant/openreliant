@@ -141,8 +141,8 @@ pub const Pools = struct {
     }
 
     /// The rest of `particles_frame` (`particles.Pool.draw`).
-    pub fn draw(pools: *Pools, gpa: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
-        for (&pools.by_level.values) |*slot| if (slot.*) |*pool| try pool.draw(gpa, scene, ahead);
+    pub fn draw(pools: *const Pools, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
+        for (&pools.by_level.values) |*slot| if (slot.*) |*pool| try pool.draw(gpa, arena, scene, ahead);
     }
 
     fn get(pools: *Pools, level: Level) ?*particles.Pool {
