@@ -31,13 +31,10 @@ const near_radii: f32 = 5;
 /// (`0x004DC404`, at `0x00493C97`).
 const beyond_near: f32 = 1;
 
-/// The flash: how many ticks it has left (`0x00587CC8`), and the sprite that covers the view
-/// (`0x00587CCC`), made as a mission starts (`0x00493CA8`): untextured, coloured by its own colour,
-/// and added to what is drawn.
+/// The flash: how many ticks it has left (`0x00587CC8`). The game lights it and counts it down,
+/// and drawing only reads it (`draw`).
 pub const Flash = struct {
     left: i32 = 0,
-    sprite: [1]srapiext.Sprite = .{.{}},
-    set: srapiext.SpriteSet = .{ .surface = .{ .material = .onePass(.{ .coordinates = .none, .lit = true, .blend = .add }) }, .sprites = &.{} },
 
     /// Lights the view for `flash_ticks`.
     pub fn start(flash: *Flash) void {
@@ -50,29 +47,47 @@ pub const Flash = struct {
         if (math.distance(object.position(), camera) < object.radius * near_radii) flash.start();
     }
 
-    /// `screen_flash_draw` (`0x00494940`), once a frame but while paused: while the flash lasts,
-    /// the sprite is white, as bright as its ticks left give it, and it counts down the frame's
-    /// `ticks`; while `red`, the display's interference in the view ahead, is above zero, the
-    /// sprite is red at it instead. Either way the sprite goes into the overlay's layer, just
-    /// beyond the near plane of the camera at `camera`, reaching the width and the height of the
-    /// view there either side. The caller fades the interference after
-    /// (`hud.Interference.Shown.fade`).
-    pub fn draw(flash: *Flash, gpa: Allocator, scene: *srcore.Scene, camera: math.Place, projection: srapi.Projection, ticks: i32, red: f32) Allocator.Error!void {
-        const flashing = flash.left > 0;
-        if (flashing) {
-            const bright = @min(@as(f32, @floatFromInt(flash.left)) * per_tick, 1);
-            flash.sprite[0].colour = .{ bright, bright, bright };
-            flash.left -= ticks;
-        }
-        if (red > 0) flash.sprite[0].colour = .{ red, 0, 0 };
-        if (!flashing and !(red > 0)) return;
+    /// `screen_flash_draw`'s countdown (`0x00494940`): while the flash lasts, it counts down the
+    /// frame's `ticks`. The game counts it down right after it draws it, in each frame that isn't
+    /// paused. OpenReliant counts it down at the start of the next game frame
+    /// (`main.missionFrame`), so the flash drawn after a game frame is the one the game draws in
+    /// it.
+    pub fn countDown(flash: *Flash, ticks: i32) void {
+        if (flash.left > 0) flash.left -= ticks;
+    }
+
+    /// How bright it shows: `per_tick` for each tick left, no more than one.
+    fn brightness(flash: Flash) f32 {
+        return @min(@as(f32, @floatFromInt(flash.left)) * per_tick, 1);
+    }
+
+    /// The rest of `screen_flash_draw`: while the flash lasts, the sprite is white, as bright as
+    /// its ticks left make it. While `red`, the display's interference in the view ahead, is
+    /// above zero, the sprite is red at that level instead. Either way the sprite goes into the
+    /// overlay's layer, just beyond the near plane of the camera at `camera`, and reaches the width
+    /// and the height of the view there on either side. It is drawn from a copy of `cover` made in
+    /// `arena`, which lasts until the frame is drawn (`xtrabits.sceneAddCopy`). The caller fades
+    /// the interference afterwards (`hud.Interference.Shown.fade`).
+    pub fn draw(flash: *const Flash, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, camera: math.Place, projection: srapi.Projection, red: f32) Allocator.Error!void {
+        const colour: [3]f32 = if (red > 0) .{ red, 0, 0 } else if (flash.left > 0) @splat(flash.brightness()) else return;
         const distance = projection.near + beyond_near;
         const bounds = projection.bounds;
-        flash.sprite[0].half_size = .{ (bounds[2] - bounds[0]) * distance, (bounds[3] - bounds[1]) * distance };
-        flash.set.sprites = &flash.sprite;
-        flash.set.position = camera.ahead(distance);
-        try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &flash.set }, .overlay);
+        const sprite: srapiext.Sprite = .{
+            .colour = colour,
+            .half_size = .{ (bounds[2] - bounds[0]) * distance, (bounds[3] - bounds[1]) * distance },
+        };
+        var set = cover;
+        set.sprites = try arena.dupe(srapiext.Sprite, &.{sprite});
+        set.position = camera.ahead(distance);
+        try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .sprites = set }, .overlay);
     }
+};
+
+/// The set with the sprite that covers the view (`0x00587CCC`), as the mission's start makes it
+/// (`0x00493CA8`): untextured, coloured by its sprite's colour, and added to what is drawn.
+const cover: srapiext.SpriteSet = .{
+    .surface = .{ .material = .onePass(.{ .coordinates = .none, .lit = true, .blend = .add }) },
+    .sprites = &.{},
 };
 
 test Flash {
@@ -80,11 +95,15 @@ test Flash {
     var flash: Flash = .{};
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     const projection: srapi.Projection = .init(640, 480, .{ 0, 0, 1, 1 }, .{ 1, 1 });
+    const drawn = scene.layers.getPtr(.overlay);
 
     // Nothing shows until it is lit.
-    try flash.draw(gpa, &scene, .{}, projection, 1, 0);
-    try std.testing.expectEqual(0, scene.layers.get(.overlay).items.len);
+    try flash.draw(gpa, arena, &scene, .{}, projection, 0);
+    try std.testing.expectEqual(0, drawn.items.len);
 
     // A ship coming apart within five of its radii of the camera lights it; further off, not.
     var object = std.mem.zeroes(gameobj.GameObject);
@@ -96,20 +115,31 @@ test Flash {
     flash.near(&object, @splat(0));
     try std.testing.expectEqual(flash_ticks, flash.left);
 
-    // White at first, in front of the camera over the whole view, counting down the frame's ticks.
-    try flash.draw(gpa, &scene, .{}, projection, 50, 0);
-    try std.testing.expectEqual(1, scene.layers.get(.overlay).items.len);
-    try std.testing.expectEqual([3]f32{ 1, 1, 1 }, flash.sprite[0].colour);
-    try std.testing.expect(flash.set.position[2] > projection.near);
+    // White at first, in front of the camera over the whole view.
+    try flash.draw(gpa, arena, &scene, .{}, projection, 0);
+    try std.testing.expectEqual(1, drawn.items.len);
+    const white = drawn.items[0].sprites;
+    try std.testing.expectEqual([3]f32{ 1, 1, 1 }, white.sprites[0].colour);
+    try std.testing.expect(white.position[2] > projection.near);
+    // Then it fades as the game counts down the frames' ticks.
+    flash.countDown(50);
     try std.testing.expectEqual(50, flash.left);
-    // Then fading.
-    try flash.draw(gpa, &scene, .{}, projection, 50, 0);
-    try std.testing.expectApproxEqAbs(0.6, flash.sprite[0].colour[0], 1e-5);
-    try std.testing.expectEqual(0, flash.left);
-
-    // A hit's interference shows it red at its level, over the white.
     scene.clear();
-    try flash.draw(gpa, &scene, .{}, projection, 1, 0.3);
-    try std.testing.expectEqual(1, scene.layers.get(.overlay).items.len);
-    try std.testing.expectEqual([3]f32{ 0.3, 0, 0 }, flash.sprite[0].colour);
+    try flash.draw(gpa, arena, &scene, .{}, projection, 0);
+    try std.testing.expectApproxEqAbs(0.6, drawn.items[0].sprites.sprites[0].colour[0], 1e-5);
+    // Once its ticks are gone, it counts down no further and shows no more.
+    flash.countDown(50);
+    flash.countDown(50);
+    try std.testing.expectEqual(0, flash.left);
+    scene.clear();
+    try flash.draw(gpa, arena, &scene, .{}, projection, 0);
+    try std.testing.expectEqual(0, drawn.items.len);
+
+    // A hit's interference shows it red at its level, over the white. Drawing leaves the ticks
+    // left as they are.
+    flash.start();
+    try flash.draw(gpa, arena, &scene, .{}, projection, 0.3);
+    try std.testing.expectEqual(1, drawn.items.len);
+    try std.testing.expectEqual([3]f32{ 0.3, 0, 0 }, drawn.items[0].sprites.sprites[0].colour);
+    try std.testing.expectEqual(flash_ticks, flash.left);
 }
