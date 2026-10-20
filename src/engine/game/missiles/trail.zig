@@ -18,6 +18,7 @@ const Slot = @import("../create.zig").Slot;
 const gameobj = @import("../gameobj.zig");
 const GameObject = gameobj.GameObject;
 const matmanager = @import("../matmanager.zig");
+const cues = @import("../main/cues.zig");
 const missiles = @import("../missiles.zig");
 const table = @import("../table.zig");
 const xtrabits = @import("../xtrabits.zig");
@@ -132,6 +133,9 @@ pub const Trail = struct {
     /// The trails' list, newest first (`+0x40`, `+0x44`).
     newer: ?u8 = null,
     older: ?u8 = null,
+    /// OpenReliant's: the number the game frames gave it as it started (`Start`), by which they
+    /// tell drawing that its missile has ended (`Trails.leave`).
+    number: u32 = 0,
 
     fn looked(trail: *const Trail) *const Look {
         return &looks[trail.type.baseIndex().?];
@@ -190,8 +194,28 @@ pub const Trail = struct {
     }
 };
 
+/// How a trail starts (`Trails.start`), as the game frame that starts it has it: the number the
+/// game frames give it (`main.cues.Cues.trailNumber`), the missile type whose look it takes, what
+/// it follows, the frame's tick, and where the first corner of the tail it follows stands, where
+/// there is one.
+pub const Start = struct {
+    number: u32,
+    type: missiles.Type,
+    follows: Follows,
+    scrolled: i32,
+    at: ?Vector,
+
+    /// The start of the trail numbered `number`, of `missile_type`'s look, following `follows`,
+    /// in `world` as it stands now.
+    pub fn of(world: gameobj.World, number: u32, follows: Follows, missile_type: missiles.Type) Start {
+        const at: ?Vector = if (followedBy(follows, world.objects)) |slot| slot.drawn.point(tailCorners(&slot.object)[0]) else null;
+        return .{ .number = number, .type = missile_type, .follows = follows, .scrolled = world.clock.frame_start, .at = at };
+    }
+};
+
 /// The trails, and the textures they are drawn with, which `missiles_init` (`0x00494CB0`) and the
-/// pieces' makers require.
+/// pieces' makers require. Drawing keeps them: the game frames start them and let their missiles
+/// go by cues (`main.cues`).
 pub const Trails = struct {
     gpa: Allocator,
     /// The trails, the newest first (`missile_trail_list`, `0x005887F8`).
@@ -232,21 +256,30 @@ pub const Trails = struct {
         return trails.list.get(index);
     }
 
-    /// `missile_trail_create` (`0x00494E40`): a trail of `missile_type`'s look following `follows`,
-    /// laid where it stands, at the head of the list; null where every trail is taken. Its side
-    /// ribbons start at full strength, black, and its ribbon at nothing.
+    /// The trail the game frames numbered `number` (`Start`), while there is one.
+    pub fn numbered(trails: *Trails, number: u32) ?*Trail {
+        var walk = trails.list.walk();
+        while (walk.next()) |index| {
+            const trail = trails.get(index).?;
+            if (trail.number == number) return trail;
+        }
+        return null;
+    }
+
+    /// `missile_trail_create` (`0x00494E40`): a trail as `from` starts it, of its missile type's
+    /// look, at the head of the list; null where every trail is taken. Its pieces are laid where
+    /// the tail it follows stood, its side ribbons at full strength, black, and its ribbon at
+    /// nothing.
     ///
     /// **Fix:** with every trail taken, the game takes the record past the last, and writes past
     /// its pool; OpenReliant leaves the missile without a trail.
-    pub fn start(trails: *Trails, world: gameobj.World, follows: Follows, missile_type: missiles.Type) Allocator.Error!?u8 {
-        const style = &looks[missile_type.baseIndex() orelse return null];
-        const at = trails.list.add(.{ .type = missile_type, .follows = follows, .scrolled = world.clock.frame_start }) orelse return null;
+    pub fn start(trails: *Trails, from: Start) Allocator.Error!?u8 {
+        const style = &looks[from.type.baseIndex() orelse return null];
+        const at = trails.list.add(.{ .type = from.type, .follows = from.follows, .scrolled = from.scrolled, .number = from.number }) orelse return null;
         const trail = trails.get(at).?;
         errdefer trails.list.remove(trails.gpa, at);
 
-        const slot = followed(trail, world.objects) orelse return at;
-        const tail = tailCorners(&slot.object);
-        const start_at = slot.drawn.point(tail[0]);
+        const start_at = from.at orelse return at;
         if (style.pieces.sides) {
             for (trail.sides[0..sideCount(style)]) |*side| {
                 side.* = try .create(trails.gpa, @intCast(style.side_segments), trails.images.ribbon, start_at, 1);
@@ -260,6 +293,13 @@ pub const Trails = struct {
             trail.glow = glow;
         }
         return at;
+    }
+
+    /// What `missile_end` does to the trail numbered `number`, as the game frames tell it
+    /// (`main.cues`): it follows nothing any more, and fades out.
+    pub fn leave(trails: *Trails, number: u32) void {
+        const trail = trails.numbered(number) orelse return;
+        trail.follows = .nothing;
     }
 
     /// `missile_trail_free` (`0x00495200`): the trail's pieces let go, and its record freed.
@@ -400,7 +440,12 @@ const hostile_torpedo: [3]f32 = .{ 227.0 / 255.0, 199.0 / 255.0, 139.0 / 255.0 }
 /// The slot a trail follows, the missile's own for a missile, while it still does: not a torpedo
 /// that is gone.
 fn followed(trail: *const Trail, all: *Objects) ?*const Slot {
-    return switch (trail.follows) {
+    return followedBy(trail.follows, all);
+}
+
+/// The slot `follows` names in `all`, as `followed` finds it.
+fn followedBy(follows: Follows, all: *Objects) ?*const Slot {
+    return switch (follows) {
         .missile => |at| if (all.missiles.get(at)) |missile| &missile.slot else null,
         .object => |slot| if (all.slots[slot].object.type.base() == .stand_in) null else &all.slots[slot],
         .nothing => null,
@@ -679,11 +724,13 @@ const glow_behind: f32 = 50;
 const glow_flicker: f32 = 1.0 / 6.0;
 
 const testing = struct {
-    /// Trails over small textures of their own names, in an armed mission.
+    /// Trails over small textures of their own names, in an armed mission, and the cues its game
+    /// frames give drawing.
     const Stage = struct {
         armed: missiles.testing.Armed,
         textures: *@import("../../surrender/surrenderlib/srtexture.zig").testing.Textures,
         trails: Trails,
+        cues: cues.Cues,
 
         fn init(stage: *Stage) !void {
             const gpa = std.testing.allocator;
@@ -691,10 +738,12 @@ const testing = struct {
             errdefer stage.armed.deinit();
             stage.textures = try .init(gpa, &.{ "mtrail2", "shield128", "partic6" });
             stage.trails = .init(gpa, try .load(&stage.textures.table));
+            stage.cues = .{ .gpa = gpa };
             stage.armed.mission.clock.drawn_duration = 1;
         }
 
         fn deinit(stage: *Stage) void {
+            stage.cues.deinit();
             stage.trails.deinit();
             stage.textures.deinit(std.testing.allocator);
             stage.armed.deinit();
@@ -702,8 +751,13 @@ const testing = struct {
 
         fn world(stage: *Stage) gameobj.World {
             var reached = stage.armed.mission.world();
-            reached.trails = &stage.trails;
+            reached.cues = &stage.cues;
             return reached;
+        }
+
+        /// What a drawn frame does first: it takes up the cues into the trails.
+        fn takeUp(stage: *Stage) void {
+            stage.cues.takeUp(.{ .objects = stage.armed.mission.objects, .trails = &stage.trails });
         }
     };
 };
@@ -717,7 +771,8 @@ test "a trail's pieces" {
 
     // A Raptor's: a ribbon of 5 rings and three side ribbons, every corner at the tail's first.
     missiles.launch(world, ship, 0, .none);
-    const raptor = stage.trails.get(stage.armed.missile(0).trail.?).?;
+    stage.takeUp();
+    const raptor = stage.trails.numbered(stage.armed.missile(0).trail.?).?;
     const ribbon = raptor.ribbon.?;
     try std.testing.expectEqual(15, ribbon.mesh.polygons.len);
     try std.testing.expectEqual(20, ribbon.mesh.positions.len);
@@ -731,7 +786,8 @@ test "a trail's pieces" {
 
     // A Havoc's: a ribbon and a plume, of six rings, the last 630 behind and 210 across.
     missiles.launch(world, ship, 1, .none);
-    const havoc = stage.trails.get(stage.armed.missile(1).trail.?).?;
+    stage.takeUp();
+    const havoc = stage.trails.numbered(stage.armed.missile(1).trail.?).?;
     const plume = havoc.plume.?;
     try std.testing.expectEqual(90, plume.mesh.polygons.len);
     try std.testing.expectApproxEqAbs(-630, plume.mesh.positions[54][2], 1e-3);
@@ -751,8 +807,8 @@ test "Trails.frame" {
     const clock = &stage.armed.mission.clock;
     const ship = try stage.armed.add(.friendly, @splat(0));
     missiles.launch(world, ship, 0, .none);
-    const at = stage.armed.missile(0).trail.?;
-    const trail = stage.trails.get(at).?;
+    stage.takeUp();
+    const trail = stage.trails.numbered(stage.armed.missile(0).trail.?).?;
     const ribbon = trail.ribbon.?;
 
     // Each drawn frame, after the missiles' game frame, lays the newest ring at the tail, burning
@@ -774,6 +830,7 @@ test "Trails.frame" {
     try std.testing.expectEqual(2, trail.cursor);
     // Its missile ended, it fades out, a ring over five rings over 0.375 ticks, and is freed.
     missiles.end(world, 0);
+    stage.takeUp();
     try std.testing.expectEqual(Follows.nothing, trail.follows);
     for (0..20) |_| stage.trails.frame(world);
     try std.testing.expectEqual(null, stage.trails.list.newest);
@@ -785,10 +842,11 @@ test "Trails.start" {
     defer stage.deinit();
     const world = stage.world();
     const ship = try stage.armed.add(.friendly, @splat(0));
-    // With every trail taken, a missile flies without one.
-    for (&stage.trails.list.records) |*record| record.* = .{ .type = .none, .follows = .nothing, .scrolled = 0 };
+    // With every trail taken, drawing makes none for a missile.
+    for (&stage.trails.list.records) |*record| record.* = .{ .type = .none, .follows = .nothing, .scrolled = 0, .number = std.math.maxInt(u32) };
     missiles.launch(world, ship, 1, .none);
-    try std.testing.expectEqual(null, stage.armed.missile(0).trail);
+    stage.takeUp();
+    try std.testing.expectEqual(null, stage.trails.numbered(stage.armed.missile(0).trail.?));
     for (&stage.trails.list.records) |*record| record.* = null;
 }
 

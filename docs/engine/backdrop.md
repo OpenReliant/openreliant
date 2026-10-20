@@ -182,6 +182,11 @@ round into its night side, where each pixel is lit ([Renderer](../port/renderer.
 `--original` makes the ring of 20 quads, as large as built, only as solid as the flares are bright,
 and keeps the terminator hard.
 
+In OpenReliant, drawing keeps the atmospheres' table. The mission gives it a cue as it makes a
+planet and as it destroys the planet's flight group, and drawing makes or lets go of the planet's
+entry from the copy of the objects it draws, softening the terminator of the planet it draws
+([Cues](loop.md#game-frames-and-drawn-frames)).
+
 **Fix:** a fifth atmosphere would write past the end of the table. **Improvement:** OpenReliant's
 table holds 64 planets, counting every planet that turns, leans or has an atmosphere. Past that it
 makes no more. With the sun square to the view, the game leaves the flares' brightness unset for
@@ -270,6 +275,8 @@ The renderer's start clears the effects and drops what was asked of the objects
 
 **Fix:** since nothing else clears them, an effect one mission leaves on shows in the next, the ice
 field of Instant Action's last wave among them; OpenReliant clears them as each mission starts.
+Drawing sets Planet Bombard's flashes waiting again as it takes up the mission's start
+([Cues](loop.md#game-frames-and-drawn-frames)).
 
 ### Planet Bombard
 

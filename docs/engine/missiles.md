@@ -262,6 +262,11 @@ at `0x0041A390`). `missile_trails` (`0x005887EC`) holds 200 records of `0x48` by
 1) or an object's slot (kind 2); `missile_end` detaches a missile's, which then fades out.
 [`missiles/trail.zig`](../../src/engine/game/missiles/trail.zig) ports them.
 
+In OpenReliant, drawing keeps the trails. The game frame that starts one gives drawing a cue with
+the trail's number, its look, what it follows and where the first corner of the tail stood
+(`trail.Start`), and the missile keeps the number; its end gives another cue with the number. Drawing
+takes them up as the next drawn frame begins ([Cues](loop.md#game-frames-and-drawn-frames)).
+
 | Offset | Field |
 |---|---|
 | `0x00` | Its type, whose look it takes |

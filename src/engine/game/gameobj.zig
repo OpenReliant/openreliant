@@ -1975,8 +1975,10 @@ pub const World = struct {
     particles: ?*@import("particles.zig").Pool = null,
     /// The shockwaves spreading (`shockwave.cpp`); null where none spread.
     shockwaves: ?*@import("shockwave.zig").Shockwaves = null,
-    /// The missiles' and torpedoes' trails; null where none are left.
-    trails: ?*missiles.trail.Trails = null,
+    /// What the game frames ask of drawing, such as a missile's trail or a planet's atmosphere,
+    /// which drawing takes up as the next drawn frame begins (`main.cues`); null where nothing is
+    /// drawn.
+    cues: ?*@import("main/cues.zig").Cues = null,
     /// The countermeasures in flight (`cloak.cpp`); null where none are dropped.
     countermeasures: ?*@import("cloak.zig").Countermeasures = null,
     /// The shields' bubbles' meshes and colours (`shield.cpp`); null where none are drawn.
@@ -1993,13 +1995,9 @@ pub const World = struct {
     gates: ?*@import("wgate.zig").Gates = null,
     /// The ion cannons firing (`aiioncan.cpp`); null where none fire.
     ion_cannons: ?*@import("aiioncan.zig").Cannons = null,
-    /// The planets' atmospheres (`create.atmosphere`); null where no planet has one drawn.
-    atmospheres: ?*@import("create/atmosphere.zig").Atmospheres = null,
     /// The textures a few types' extras are drawn over (`create.extra`), such as the Dark Reign's
     /// hat; null where no type has one made.
     extras: ?*const @import("create/extra.zig").Images = null,
-    /// The escort point's marker (`create.escort`), whose pulse each mission starts again.
-    escort_marker: ?*@import("create/escort.zig").Marker = null,
     /// The screen's flash (`main.cpp`); null where nothing flashes.
     flash: ?*@import("main/flash.zig").Flash = null,
     /// The force feedback the player's controller plays; null where it plays none.

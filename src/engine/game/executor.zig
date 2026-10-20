@@ -375,7 +375,7 @@ pub fn createShip(game: aigeneric.Context, bound: *const mission.Mission, index:
     const slot = &all.slots[made];
     const turn = mission.recordOrientation(ship);
     if (marker) return objects.setOrientation(&slot.object, &slot.drawn, turn);
-    if (game.world.atmospheres) |atmospheres| atmospheres.made(all, made);
+    if (game.world.cues) |cues| cues.add(.{ .planet_made = .of(all, made) });
     create.planetMade(all, made);
     create.gateMade(game.world, made);
     create.wreckMade(game.world, made);
@@ -998,7 +998,7 @@ fn destroyFlightGroup(call: Call, game: aigeneric.Context) void {
     const all = game.world.objects;
     for (machine.mission.groupShips(group.*)) |ship| {
         if (ship >= all.slots.len) continue;
-        if (game.world.atmospheres) |atmospheres| atmospheres.release(ship);
+        if (game.world.cues) |cues| cues.add(.{ .planet_gone = ship });
         create.retire(game, ship);
     }
 }

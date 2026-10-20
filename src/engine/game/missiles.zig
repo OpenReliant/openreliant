@@ -363,8 +363,9 @@ pub const Missile = struct {
     ending: bool = false,
     /// The countermeasure it chases (`+0x0C`), or null.
     decoy: ?u8 = null,
-    /// Its trail (`+0x10`), where it has one.
-    trail: ?u8 = null,
+    /// Its trail (`+0x10`), where it has one: in OpenReliant, the number the game frames gave it
+    /// (`trail.Start`), as drawing keeps the trail itself.
+    trail: ?u32 = null,
     type: Type,
     /// Its order, and what it flies at: the one entry of its object's order stack
     /// (`GameObject + 0x684`), whose target is at `+0x04` and its component at `+0x06`.
@@ -544,12 +545,16 @@ fn homesAtLaunch(all: *const create.Objects, kind: Type, launcher: u16) bool {
     return kind.base() != .screamer or launcher >= all.players;
 }
 
-/// `missile_trail_create` for the missile at `at`, where it is still flying and the world has
-/// trails.
+/// `missile_trail_create` for the missile at `at`, where it is still flying, its type has a
+/// trail's look, and something draws the world: the game frame tells drawing, which makes the trail
+/// (`main.cues`).
 fn startTrail(world: gameobj.World, at: u8) void {
-    const trails = world.trails orelse return;
+    const cues = world.cues orelse return;
     const missile = world.objects.missiles.get(at) orelse return;
-    missile.trail = trails.start(world, .{ .missile = at }, missile.type) catch null;
+    if (missile.type.baseIndex() == null) return;
+    const number = cues.trailNumber();
+    cues.add(.{ .trail_started = .of(world, number, .{ .missile = at }, missile.type) });
+    missile.trail = number;
 }
 
 /// Where the pod or missile a rack holds stands.
@@ -929,9 +934,7 @@ pub fn end(world: gameobj.World, at: u8) void {
         .side = all.slots[missile.launcher].object.side,
     });
     explode.missileBlast(world, missile.slot.drawn.position, object.velocity.vector(), object.radius);
-    if (missile.trail) |left| if (world.trails) |trails| if (trails.get(left)) |fading| {
-        fading.follows = .nothing;
-    };
+    if (missile.trail) |number| if (world.cues) |cues| cues.add(.{ .trail_left = number });
     all.missiles.remove(all.gpa, at);
 }
 

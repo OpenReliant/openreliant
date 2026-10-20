@@ -122,12 +122,12 @@ pub const Environment = struct {
     /// **Fix:** the game does this only as its renderer starts (`backdrop_create`), which it does
     /// as it starts and as the display's settings change, so that an effect one mission leaves on
     /// shows in the next, the ice field of Instant Action's last wave among them. OpenReliant does
-    /// it for each mission.
+    /// it for each mission. Drawing sets Planet Bombard's flashes waiting again as the mission's
+    /// start tells it (`main.cues`).
     pub fn resetEffects(environment: *Environment) void {
         environment.effects = .{};
         environment.asked = .{};
         environment.next_jump = @splat(.none);
-        if (environment.flashes) |flashes| flashes.reset();
     }
 
     /// `bombard_hook` (`0x0046A300`), which the last part of the Titan in `slot` runs as the objects
@@ -726,9 +726,15 @@ test "Titan moves Planet Bombard's flashes on as it is drawn, while effect 2 is 
         try std.testing.expect(flash.showing);
         try std.testing.expectApproxEqAbs(1000, math.length(flash.object.position - slot.drawn.position), 1e-2);
     }
-    // A mission's start turns the effect off and sets them waiting again.
+    // A mission's start turns the effect off, and drawing sets them waiting again as it takes the
+    // start up.
     environment.resetEffects();
-    try std.testing.expect(!environment.effects.bombard_flashes and !flashes.flashes[0].showing);
+    try std.testing.expect(!environment.effects.bombard_flashes);
+    var cues: @import("main/cues.zig").Cues = .{ .gpa = gpa };
+    defer cues.deinit();
+    cues.add(.mission_started);
+    cues.takeUp(.{ .objects = mission.objects, .flashes = flashes });
+    try std.testing.expect(!flashes.flashes[0].showing);
 }
 
 test "Environment.changeObjects" {

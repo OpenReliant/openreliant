@@ -676,8 +676,11 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The copy of the objects each drawn frame draws, placed for smooth motion.
     var drawn: game.main.Drawn = try .init(gpa);
     defer drawn.deinit();
+    // What the game frames ask of drawing, which each drawn frame takes up.
+    var cues: game.main.cues.Cues = .{ .gpa = gpa };
+    defer cues.deinit();
     // What the objects run in, the camera's view brought up to date each frame.
-    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .shake = &hit_shake, .random = &rand, .effects_random = &drawn_random, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .trails = &trails, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .atmospheres = &atmospheres, .extras = &extra_images, .escort_marker = escort_marker, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
+    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .shake = &hit_shake, .random = &rand, .effects_random = &drawn_random, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .cues = &cues, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .extras = &extra_images, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
 
     world.launch_steam = options.launch_steam;
 
@@ -1294,6 +1297,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         if (drawn_objects) |copy| {
             drawn_world.objects = copy;
             display.state.subtarget.hold();
+            // Drawing takes up what the game frames asked of it since the last drawn frame.
+            cues.takeUp(.{ .objects = copy, .trails = &trails, .atmospheres = &atmospheres, .escort_marker = escort_marker, .flashes = environment.flashes });
         }
         if (viewed) |launch_step| {
             game.main.viewFrame(.{
@@ -1306,6 +1311,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .forces = &force_feedback,
                 .random = &drawn_random,
                 .smooth_motion = smooth_motion,
+                .trails = &trails,
             });
             if (launch_step != .under_way) watch.frame(drawn_world);
         }
