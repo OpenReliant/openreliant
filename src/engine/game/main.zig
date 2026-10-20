@@ -422,10 +422,11 @@ pub const Frame = struct {
     /// The escort point's marker, which goes into the world's layer after the backdrop and before
     /// the sky, from the cockpit's views, while the player's ship has an escort point.
     escort_marker: ?*create.escort.Marker = null,
-    /// The screen's flash, which goes into the overlay's layer, and the ticks the frame spans
-    /// (`frame_duration`), which it counts down.
-    flash: ?*flash.Flash = null,
+    /// The ticks since the drawn frame before (`Clock.drawnTicks`), which the escort point's marker
+    /// pulses by.
     ticks: i32 = 0,
+    /// The screen's flash, which goes into the overlay's layer.
+    flash: ?*const flash.Flash = null,
     /// The display's interference as drawing keeps it, which the flash shows red in the view ahead
     /// and then fades.
     interference: ?*hud.Interference.Shown = null,
@@ -659,8 +660,9 @@ pub fn viewFrame(drawing: Drawing) void {
     devices.joystick.rumble(drawing.forces.motors(clock.frame_start));
 }
 
-/// `mission_frame` (`0x004924B0`), as far as the objects go: where there is a display, the radar's
-/// rings, which the game steps on after it draws them (`hud.State.zoomRadar`); then the controls
+/// `mission_frame` (`0x004924B0`), as far as the objects go: first what the game does after it
+/// draws a frame, the radar's rings stepping on where there is a display (`hud.State.zoomRadar`)
+/// and the screen's flash counting down (`flash.Flash.countDown`); then the controls
 /// (`controlsFrame`), the radio (`radio.Radio.step`) and its remarks (`radio.remarksFrame`), then
 /// the player's ship pointed to the flyback marker it has strayed from (`input.nextNavPoint`), then
 /// every object's orders, which fly the ships and read the player's controls, then the player's
@@ -712,9 +714,10 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
             return .left_out;
         }
     }
-    // The radar's rings step on, which the game does after drawing them. Then `mission_frame`
-    // reads the controls, runs the radio, then its remarks.
+    // The radar's rings step on and the screen's flash counts down, which the game does after
+    // drawing them. Then `mission_frame` reads the controls, runs the radio, then its remarks.
     if (orders.world.display) |display| display.zoomRadar(orders.world);
+    if (orders.world.flash) |lit| lit.countDown(orders.world.clock.frame_duration);
     controlsFrame(orders);
     if (radio_module.onAir(orders.world)) |on_air| {
         const radio, const ctx = on_air;
@@ -1206,7 +1209,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
         const shaken = frame.interference;
         // In a capital ship's exhaust the flash is white alone (`exhaust_burning`).
         const red = if (shaken != null and frame.view == .cockpit and !frame.objects.exhaust.burning) shaken.?.level else 0;
-        try lit.draw(gpa, scene, .{ .position = context.camera.position, .orientation = context.camera.orientation }, context.projection, frame.ticks, red);
+        try lit.draw(gpa, arena, scene, .{ .position = context.camera.position, .orientation = context.camera.orientation }, context.projection, red);
         if (shaken) |interference| interference.fade(attachments.frame_start);
     };
     if (frame.shockwaves) |waves| try waves.draw(gpa, arena, scene, frame.ahead);

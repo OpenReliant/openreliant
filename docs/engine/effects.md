@@ -362,7 +362,7 @@ When the time is up, the split ends once (`GameObject` `0x610` bit 1) and the po
 - A burst with no points is skipped, where the game divides by zero, and the end reads only as many fireball points as the hull has.
 - When all ten slots are taken, the split whose slot is reused is stopped first, so its parts are no longer cut.
 
-The flash (`0x00587CC8`) lasts 100 ticks. Once a frame, `mission_frame` draws it and counts it down by the frame's ticks (`0x00494940`): a sprite over the whole view, just beyond the near plane in the overlay's layer, untextured and added to what is drawn, white at 0.012 for each tick left, at most 1. So it holds white for 17 ticks and fades out over the rest. The same sprite shows red while the player's display is shaken by a hit ([The interference](hud.md#the-interference)).
+The flash (`0x00587CC8`) lasts 100 ticks. Once a frame, `mission_frame` draws it and counts it down by the frame's ticks (`0x00494940`): a sprite over the whole view, just beyond the near plane in the overlay's layer, untextured and added to what is drawn, white at 0.012 for each tick left, at most 1. So it holds white for 17 ticks and fades out over the rest. The same sprite shows red while the player's display is shaken by a hit ([The interference](hud.md#the-interference)). OpenReliant counts the flash down at the start of the next game frame (`flash.Flash.countDown`). Drawing only reads it, and draws the sprite from a copy in the frame's arena.
 
 A split puts out the Dark Reign's hat and the Boridin breakaway's core as it starts ([Extras](#extras)).
 
