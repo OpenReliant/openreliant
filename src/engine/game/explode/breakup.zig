@@ -81,21 +81,14 @@ pub const Piece = struct {
         piece.mesh.deinit(gpa);
     }
 
-    /// Its object as a frame draws it, at `at`, made in `arena`, which lasts until the frame is
-    /// drawn: pointed at the piece's own mesh, which moving the piece leaves behind. The piece
-    /// itself is left as it is.
-    fn drawn(piece: *const Piece, arena: Allocator, at: math.Place) Allocator.Error!*srapiext.MeshObject {
-        const shown = try arena.create(Shown);
-        shown.level = .{.{ .mesh = &piece.mesh, .until = std.math.inf(f32) }};
-        shown.object = piece.object;
-        shown.object.levels = &shown.level;
-        shown.object.position = at.position;
-        shown.object.orientation = at.orientation;
-        return &shown.object;
+    /// Its object as a frame draws it, at `at`, drawing the piece's own mesh, which moving the
+    /// piece leaves behind (`xtrabits.OwnMesh`).
+    fn drawn(piece: *const Piece, at: math.Place) xtrabits.OwnMesh {
+        var object = piece.object;
+        object.position = at.position;
+        object.orientation = at.orientation;
+        return .{ .object = object, .mesh = &piece.mesh };
     }
-
-    /// A piece's object as a frame draws it (`drawn`), and its one level.
-    const Shown = struct { object: srapiext.MeshObject, level: [1]srapiext.Level };
 
     fn place(piece: *const Piece) math.Place {
         return .{ .position = piece.object.position, .orientation = piece.object.orientation };
@@ -383,11 +376,11 @@ pub const Pieces = struct {
     pub fn draw(pieces: *const Pieces, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
         for (&pieces.flights.slots) |*slot| {
             const flight = &(slot.* orelse continue);
-            const object = try flight.piece.drawn(arena, .{
+            const shown = flight.piece.drawn(.{
                 .position = flight.place.position + flight.velocity * @as(Vector, @splat(ahead)),
                 .orientation = math.product(flight.place.orientation, math.fromAngleVector(flight.tumble * @as(Vector, @splat(ahead)))),
             });
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = object }, .world);
+            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .own_mesh = shown }, .world);
         }
     }
 };

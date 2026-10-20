@@ -351,6 +351,8 @@ pub const Clock = struct {
 pub const Frame = struct {
     /// The live objects, each drawn by its model's nodes.
     objects: *create.Objects,
+    /// Drawing's portals, which stand in for the game's that cut the objects (`Drawn.portals`).
+    portals: *xtrabits.Portals,
     /// The object the camera sits in (`camera.Camera.inside`), which is not drawn but still casts
     /// its shadow.
     seat: ?u16 = null,
@@ -382,17 +384,17 @@ pub const Frame = struct {
     kills_shown: bool = false,
     /// The sparks and the particles, the smoke's among them, which go into the world's layer
     /// after the shots, the explosions' bits, pieces and fireballs, and the shockwaves.
-    sparks: ?*sparks.Sparks = null,
-    particles: ?*particles.Pool = null,
-    smoke: ?*smoke.Pools = null,
-    gun_particles: ?*guns.effects.Pools = null,
+    sparks: ?*const sparks.Sparks = null,
+    particles: ?*const particles.Pool = null,
+    smoke: ?*const smoke.Pools = null,
+    gun_particles: ?*const guns.effects.Pools = null,
     /// How far past the frame's tick the effects are drawn, as a share of a tick
     /// (`objects.pastTick`).
     ahead: f32 = 0,
-    explosions: ?*explode.Explosions = null,
-    shockwaves: ?*shockwave.Shockwaves = null,
+    explosions: ?*const explode.Explosions = null,
+    shockwaves: ?*const shockwave.Shockwaves = null,
     trails: ?*missiles.trail.Trails = null,
-    countermeasures: ?*cloak.Countermeasures = null,
+    countermeasures: ?*const cloak.Countermeasures = null,
     /// The player's missile lock and its rings, which go into the overlay's layer while it builds,
     /// while the last frame's view is one of the cockpit's or the chase view (`runLock`).
     lock: ?*const lock.Lock = null,
@@ -404,12 +406,12 @@ pub const Frame = struct {
     /// The shields' bubbles, which go into the world's layer after the objects.
     shields: ?*shield.Shields = null,
     /// The gates' tunnels, which go into the world's layer before the shields' bubbles.
-    gates: ?*wgate.Gates = null,
+    gates: ?*const wgate.Gates = null,
     /// The electric rays, which go into the world's layer after the explosions.
     rays: ?*erayfx.Rays = null,
     /// The ion cannons' lasers, glows, rings and lights, which go into the world's layer after the
     /// rays.
-    ion_cannons: ?*aiioncan.Cannons = null,
+    ion_cannons: ?*const aiioncan.Cannons = null,
     /// The tractors, which go into the world's layer after the objects.
     tractors: ?*tractor.Tractors = null,
     /// The Rippers' beams, which go into the world's layer after the objects.
@@ -709,8 +711,11 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
         if (variables.mission_over != 0) return .over;
         if (playing.script.editor.leavesFrame()) {
             playing.leaveFrame(orders.world);
-            // The frame is still drawn, which moves the gates' time on.
-            if (orders.world.gates) |gates| gates.endFrame(orders.world.clock.frame_start);
+            // The frame is still drawn, which shapes the gates' tunnels and moves their time on.
+            if (orders.world.gates) |gates| {
+                gates.frame(orders.world.clock.frame_start);
+                gates.endFrame(orders.world.clock.frame_start);
+            }
             return .left_out;
         }
     }
@@ -761,6 +766,7 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     followCarrier(orders.world);
     if (orders.world.forces) |forces| forces.pushFrame(orders.world.clock.frame_start);
     if (orders.world.rays) |rays| rays.frame(orders.world.objects, orders.world.clock.frame_start, orders.world.effectsRandom());
+    if (orders.world.gates) |gates| gates.frame(orders.world.clock.frame_start);
     if (orders.world.shields) |shields| shields.capital.frame(orders.world.objects, orders.world.clock.frame_start);
     orders.world.objects.exhaust.burn(orders.world);
     if (orders.world.explosions) |explosions| explosions.frame(orders.world);
@@ -1123,6 +1129,19 @@ pub const Drawn = struct {
     objects: *create.Objects,
     /// What the copy's models are made in, from one drawn frame to the next.
     arena: std.heap.ArenaAllocator,
+    /// The portals the copy's parts are cut by: drawing's own, which stand in for the game's from
+    /// one drawn frame to the next (`xtrabits.Portals`).
+    portals: xtrabits.Portals = .{},
+
+    /// What cuts the objects by portals of the game's: the splits and the gates.
+    pub const Cutting = struct {
+        splits: ?*const explode.split.Splits = null,
+        gates: ?*const wgate.Gates = null,
+    };
+
+    comptime {
+        std.debug.assert(xtrabits.Portals.capacity >= 2 * explode.split.Splits.max + wgate.max_records);
+    }
 
     pub fn init(gpa: Allocator) Allocator.Error!Drawn {
         return .{ .gpa = gpa, .objects = try gpa.create(create.Objects), .arena = .init(gpa) };
@@ -1137,22 +1156,31 @@ pub const Drawn = struct {
     /// Copies `all` for the drawn frame and returns the copy. Where there is time past the tick,
     /// every object and missile the game frame framed is framed `timing` of the way through the
     /// step in the copy, as the game frame frames them (`frameObjects`, `missiles.frame`), with
-    /// nothing else the game frame does to them.
-    pub fn take(drawn: *Drawn, all: *const create.Objects, timing: objects.Timing, now: i32) Allocator.Error!*create.Objects {
+    /// nothing else the game frame does to them. Then drawing's portals stand in for those of
+    /// `cutting` (`explode.split.Splits.standPortals`, `wgate.Gates.standPortals`), and the copy's
+    /// parts that the game's cut are pointed at them (`xtrabits.Portals.cut`).
+    pub fn take(drawn: *Drawn, all: *const create.Objects, timing: objects.Timing, now: i32, cutting: Cutting) Allocator.Error!*create.Objects {
         _ = drawn.arena.reset(.retain_capacity);
         const copy = drawn.objects;
         try all.copyInto(copy, drawn.arena.allocator());
-        if (timing.ahead == 0) return copy;
+        if (timing.ahead > 0) {
+            var walk = copy.walk();
+            while (walk.next()) |index| {
+                if (!copy.slots[index].object.flags.outOfFrame()) placeObject(copy, index, timing, now);
+            }
+            holdRiders(copy, timing, now);
+            var missiles_walk = copy.missiles.walk();
+            while (missiles_walk.next()) |index| {
+                const missile = copy.missiles.get(index) orelse continue;
+                if (missile.shown) missile.frameAt(timing.fraction);
+            }
+        }
+        drawn.portals.begin();
+        if (cutting.splits) |splits| splits.standPortals(&drawn.portals);
+        if (cutting.gates) |gates| gates.standPortals(&drawn.portals, copy);
+        drawn.portals.end();
         var walk = copy.walk();
-        while (walk.next()) |index| {
-            if (!copy.slots[index].object.flags.outOfFrame()) placeObject(copy, index, timing, now);
-        }
-        holdRiders(copy, timing, now);
-        var missiles_walk = copy.missiles.walk();
-        while (missiles_walk.next()) |index| {
-            const missile = copy.missiles.get(index) orelse continue;
-            if (missile.shown) missile.frameAt(timing.fraction);
-        }
+        while (walk.next()) |index| if (copy.slots[index].model) |*model| drawn.portals.cut(model);
         return copy;
     }
 };
@@ -1176,10 +1204,10 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     if (!riding) try drawObjects(gpa, arena, scene, frame.objects, attachments, frame.seat, if (frame.explosions) |explosions| &explosions.splits else null, frame.shown, frame.environment);
     if (frame.tractors) |tractors| try tractors.draw(gpa, scene, frame.objects, frame.shields);
     if (frame.rippers) |rippers| try rippers.draw(gpa, scene, frame.objects);
-    if (frame.jump_effects) |effects| try effects.draw(gpa, scene, frame.objects);
+    if (frame.jump_effects) |effects| try effects.draw(gpa, arena, scene, frame.objects);
     try missiles.draw(frame.objects, gpa, scene, attachments);
     if (frame.trails) |trails| try trails.draw(gpa, scene);
-    if (frame.countermeasures) |dropped| try dropped.draw(gpa, scene, attachments);
+    if (frame.countermeasures) |dropped| try dropped.draw(gpa, arena, scene, attachments);
     if (frame.lock_rings) |rings| if (frame.lock) |held| if (frame.last_view.showsLock() and !riding) {
         try rings.draw(gpa, scene, held, .{ .position = context.camera.position, .orientation = context.camera.orientation }, context.projection);
     };
@@ -1188,7 +1216,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
         const aim: ?math.Vector = if (display.aim.blind_fire) display.lead_point else null;
         try seen_behind.draw(gpa, scene, ship.drawn, display.reticle_bright, aim, display.chase_pointer, display.chase_nav_roll);
     };
-    if (frame.gates) |gates| try gates.draw(gpa, scene, frame.objects, attachments.frame_start);
+    if (frame.gates) |gates| try gates.draw(gpa, arena, scene, frame.objects, frame.portals);
     if (frame.shields) |bubbles| try bubbles.draw(gpa, arena, scene, frame.objects, .{
         .camera = attachments.camera,
         .inside = camera.inCockpit(frame.view, frame.cockpit_mode),
@@ -1202,9 +1230,12 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     if (frame.particles) |pool| try pool.draw(gpa, arena, scene, frame.ahead);
     if (frame.smoke) |pools| try pools.draw(gpa, arena, scene, frame.ahead);
     if (frame.gun_particles) |pools| try pools.draw(gpa, arena, scene, frame.ahead);
-    if (frame.explosions) |explosions| try explosions.draw(gpa, arena, scene, frame.ahead);
+    if (frame.explosions) |explosions| {
+        try explosions.draw(gpa, arena, scene, frame.ahead);
+        try explosions.splits.draw(gpa, scene, frame.portals);
+    }
     if (frame.rays) |rays| if (attachments.random) |random| try rays.draw(gpa, scene, frame.objects, attachments.frame_start, random);
-    if (frame.ion_cannons) |cannons| try cannons.draw(gpa, scene, frame.objects);
+    if (frame.ion_cannons) |cannons| try cannons.draw(gpa, arena, scene, frame.objects);
     if (frame.flash) |lit| if (!frame.paused) {
         const shaken = frame.interference;
         // In a capital ship's exhaust the flash is white alone (`exhaust_burning`).
@@ -1675,8 +1706,10 @@ test drawFrame {
     var idle: IdleDriver = .{};
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
+    var portals: xtrabits.Portals = .{};
     var frame: Frame = .{
         .objects = mission.objects,
+        .portals = &portals,
         .space = space,
         .sky = sky,
         .view = .chase,
@@ -2647,7 +2680,7 @@ test Drawn {
     // Half a tick past the tick, the drawn frame draws it an eighth of the step further on, and
     // the game's ship stays where the game frame framed it.
     mission.clock.past_tick = 0.5;
-    const copy = try copies.take(mission.objects, .of(&mission.clock, true, .together), 0);
+    const copy = try copies.take(mission.objects, .of(&mission.clock, true, .together), 0, .{});
     try std.testing.expectEqual(math.Vector{ 62.5, 0, 0 }, copy.slots[ship].drawn.position);
     try std.testing.expectEqual(drawn, slot.drawn);
     try std.testing.expectEqualSlices(u8, std.mem.asBytes(&framed), std.mem.asBytes(&slot.object));
@@ -2658,7 +2691,7 @@ test Drawn {
     try std.testing.expect(!std.meta.eql(part.object.position, slot.model.?.parts[0].object.position));
     // With no time past the tick, the copy stands where the game frame framed it.
     mission.clock.past_tick = 0;
-    try std.testing.expectEqual(drawn, (try copies.take(mission.objects, .of(&mission.clock, true, .together), 0)).slots[ship].drawn);
+    try std.testing.expectEqual(drawn, (try copies.take(mission.objects, .of(&mission.clock, true, .together), 0, .{})).slots[ship].drawn);
 }
 
 test "a mission plays the same way however often it is drawn" {
@@ -2679,7 +2712,7 @@ test "a mission plays the same way however often it is drawn" {
         _ = gameFrames(&mission.clock, &devices, mission.world(), .together, null);
         if (which > 0) continue;
         mission.clock.past_tick = 0.6;
-        _ = try copies.take(mission.objects, .of(&mission.clock, true, .together), mission.clock.frame_start);
+        _ = try copies.take(mission.objects, .of(&mission.clock, true, .together), mission.clock.frame_start, .{});
     };
     const drawn = missions[0].slot(1);
     const undrawn = missions[1].slot(1);

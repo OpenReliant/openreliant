@@ -77,10 +77,7 @@ pub const beam_particles: particles.Template = .{
 /// Four projector beams and emitters (`warp_beam_build`, `0x0041D2B0`).
 pub const Effect = struct {
     meshes: [beam_count]srapiext.Mesh,
-    levels: [beam_count][1]srapiext.Level,
     emitters: [beam_count]particles.Emitter,
-    objects: [beam_count]srapiext.MeshObject = undefined,
-    colours: [beam_count][beam_corners][4]f32 = undefined,
     angle: f32 = 0,
     spin: f32 = 0,
     brightness: f32 = beam_bright,
@@ -90,7 +87,6 @@ pub const Effect = struct {
     pub fn init(gpa: std.mem.Allocator, image: *srtexture.Image, now: i32) !Effect {
         var result: Effect = .{
             .meshes = undefined,
-            .levels = undefined,
             .emitters = @splat(.{ .born = now, .life = emitter_life, .template = &beam_particles, .direction = .{ 0, 0, -1 }, .spread = @splat(emitter_spread), .speed = emitter_speed, .speed_range = emitter_speed_range }),
         };
         var made: usize = 0;
@@ -113,32 +109,34 @@ pub const Effect = struct {
     /// Adds the beams to `scene` while the ship of `record` opens its tunnel under Warp Out
     /// (`warp_projector_beams`, `0x0041D510`): each from its projector point (`projectorSources`)
     /// to its emitter's place in the warp's frame, red, clear at the projector and as bright as the
-    /// effect at the far end.
-    pub fn draw(effect: *Effect, gpa: std.mem.Allocator, scene: *srcore.Scene, record: *wgate.Record, all: *const create.Objects) !void {
+    /// effect at the far end. Each is drawn from a copy of its mesh made in `arena`, which lasts
+    /// until the frame is drawn (`srapiext.Mesh.copy`), stretched to its length.
+    pub fn draw(effect: *const Effect, gpa: std.mem.Allocator, arena: std.mem.Allocator, scene: *srcore.Scene, record: *const wgate.Record, all: *const create.Objects) !void {
         const slot = &all.slots[record.slot];
         if (slot.running(.warp_out) == null or slot.state.warp.step != @backingInt(OutStep.open)) return;
         const sources = projectorSources(slot);
-        for (effect.emitters, &effect.objects, &effect.meshes, &effect.levels, &effect.colours, sources) |emitter, *object, *mesh, *level, *colours, source| {
+        for (effect.emitters, &effect.meshes, sources) |emitter, *built, source| {
             const target = record.warp_place.point(emitter.place.position);
             const distance = math.distance(source, target);
+            const mesh = try arena.create(srapiext.Mesh);
+            mesh.* = try built.copy(arena, false);
             for (mesh.positions[4..], 0..) |*position, n| if (n % 4 == 1 or n % 4 == 2) {
                 position[2] = distance;
             };
             // Red, clear at the projector and as bright as the effect at the far end.
+            const colours = try arena.alloc([4]f32, beam_corners);
             for (colours, 0..) |*colour, n| colour.* = .{ 1, 0, 0, if (n % 4 == 1 or n % 4 == 2) @max(effect.brightness, 0) else 0 };
             srapi.calcPolyNormals(mesh);
             srapi.calcVertexNormals(mesh);
             srapi.findBoundingBox(mesh);
-            level.* = .{.{ .mesh = mesh, .until = std.math.inf(f32) }};
-            object.* = .{
+            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .own_mesh = .{ .object = .{
                 .flags = .{ .not_culled = true, .baked_object = true },
                 .position = source,
                 .orientation = math.lookAt(target - source),
                 .radius = distance,
-                .levels = level,
+                .levels = &.{},
                 .baked = colours,
-            };
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = object }, .world);
+            }, .mesh = mesh } }, .world);
         }
     }
 

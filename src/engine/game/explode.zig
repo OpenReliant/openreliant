@@ -192,10 +192,9 @@ pub const Explosions = struct {
     /// the world's layer, the burning wrecks' lights among the lights, and each fireball showing,
     /// with its light among the lights, `ahead` of a tick past the frame's tick. What moves is
     /// drawn from copies made in `arena`, which lasts until the frame is drawn
-    /// (`xtrabits.sceneAddCopy`), and is left as it is. The splits' portals are their own, which the
-    /// pipeline puts in the camera's frame and the splitting parts are clipped by
-    /// (`split.Splits.draw`).
-    pub fn draw(explosions: *Explosions, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
+    /// (`xtrabits.sceneAddCopy`), and is left as it is. The splits' portals go into the scene
+    /// separately (`split.Splits.draw`).
+    pub fn draw(explosions: *const Explosions, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
         const images = explosions.images orelse return;
         try explosions.uber.draw(gpa, arena, scene);
         for (&explosions.bits.slots) |*slot| {
@@ -205,7 +204,6 @@ pub const Explosions = struct {
             try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown }, .world);
         }
         try explosions.pieces.draw(gpa, arena, scene, ahead);
-        try explosions.splits.draw(gpa, scene);
         try explosions.chunks.draw(gpa, arena, scene, ahead);
         for (&explosions.burn_lights) |*slot| {
             const burning = &(slot.* orelse continue);

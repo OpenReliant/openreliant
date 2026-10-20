@@ -369,25 +369,21 @@ pub const Shockwaves = struct {
     }
 
     /// Each shockwave's ring, into the world's layer, save kind 7's, which is unseen: `ahead` of a
-    /// tick along from where it stood and how far it had spread at the frame's tick. The rings are
-    /// drawn from copies made in `arena`, which lasts until the frame is drawn
-    /// (`xtrabits.sceneAddCopy`), each ring's mesh as a single level of detail, and the shockwaves
-    /// are left as they are.
+    /// tick along from where it stood and how far it had spread at the frame's tick. Each ring is
+    /// drawn from a copy made in `arena`, which lasts until the frame is drawn, drawing its ring's
+    /// mesh at every distance (`xtrabits.OwnMesh`), and the shockwaves are left as they are.
     ///
     /// **Improvement:** the game draws it as the tick left it (`particles.Pool.draw`).
     pub fn draw(waves: *const Shockwaves, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
-        const levels = try arena.create(std.EnumArray(Ring, [1]srapiext.Level));
-        for (std.enums.values(Ring)) |ring| levels.set(ring, .{.{ .mesh = waves.meshes.getPtrConst(ring), .until = std.math.inf(f32) }});
         for (&waves.waves) |*slot| {
             const wave = &(slot.* orelse continue);
             if (wave.kind == .split) continue;
             var shown = wave.object;
-            shown.levels = levels.getPtrConst(wave.kind.ring());
             shown.baked = &wave.colours;
             shown.position = wave.at + wave.velocity * @as(Vector, @splat(ahead));
             const done = @min(wave.done + ahead / @as(f32, @floatFromInt(wave.life)), 1);
             shown.scale = done * wave.size;
-            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown }, .world);
+            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .own_mesh = .{ .object = shown, .mesh = waves.meshes.getPtrConst(wave.kind.ring()) } }, .world);
         }
     }
 };

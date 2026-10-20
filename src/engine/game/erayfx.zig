@@ -121,7 +121,8 @@ pub const Spec = struct {
     flags: Flags,
 };
 
-/// An electric ray (`eray_create`, `0x0046ACE0`, 0x1B0 bytes).
+/// An electric ray (`eray_create`, `0x0046ACE0`, 0x1B0 bytes), as the game keeps it. What it shows,
+/// drawing keeps (`Shown`).
 pub const Ray = struct {
     flags: Flags,
     /// `+0x04`.
@@ -146,89 +147,23 @@ pub const Ray = struct {
     /// Whether it is lit (`+0x3C`).
     lit: bool = true,
     parent: Parent = .world,
-    /// Its light (`+0x40`, `Eray Light`).
+    /// Its light (`+0x40`, `Eray Light`): its colour and how far it reaches, which drawing places.
     light: srlight.Light = .{ .mask = 0, .intensity = 1, .colour = .{ 0, 0, 0 }, .kind = .{ .point = .{ .position = .{ 0, 0, 0 }, .range = light_range } } },
     /// Its strands (`+0x44`, 0x48 bytes each; their count at `+0x1AC`).
     strands: []Strand,
     /// OpenReliant's: the number `Rays.add` made it with, which tells it from a ray made later in
     /// its slot (`Rays.Kept`).
     serial: u32 = 0,
-    /// OpenReliant's: the tick its strands last strayed at (`draw`), and where its light stood
-    /// then, in the frame of what it hangs from. Only drawing reads and writes them.
-    strayed: ?i32 = null,
-    light_at: Vector = @splat(0),
 
-    /// A strand: the game's 17 meshes, one a segment and one more it never places or lights;
-    /// OpenReliant's one mesh of all 16 segments in the frame of what the ray hangs from, with its
-    /// colours; and its alpha (`+0x44`).
+    /// A strand as the game keeps it: its colour, its alpha (`+0x44`), how wide it is, and what its
+    /// quads are drawn over. Its mesh, drawing keeps (`Shown.Strand`).
     pub const Strand = struct {
-        mesh: srapiext.Mesh,
-        level: [1]srapiext.Level = undefined,
-        object: srapiext.MeshObject = undefined,
-        colours: [][4]f32,
+        colour: [3]f32 = .{ 0, 0, 0 },
         alpha: f32 = strand_alpha,
         /// Half the width of each segment's cap and quads.
         width: f32,
-
-        /// Its mesh (`0x0046A850`, one a segment in the game): every segment's cap, a square
-        /// `width` either way across the segment's start, then its two quads, `width` either way
-        /// of the segment and crossed along it, each over the whole of its texture. Its colours
-        /// start black.
-        fn create(gpa: Allocator, width: f32, laser: *srtexture.Image) Allocator.Error!Strand {
-            const quads = segments * 3;
-            var mesh: srapiext.Mesh = try .create(gpa, .{ .polygons = quads, .vertices = segments * segment_vertices, .indices = quads * 4, .surfaces = 2 });
-            errdefer mesh.deinit(gpa);
-            const uv = try mesh.addCoordinates(gpa);
-            // The caps come first, then the quads, so each run is a surface of its own.
-            for (0..segments) |segment| {
-                const first = segment * segment_vertices;
-                const order = [3]usize{ segment, segments + 2 * segment, segments + 2 * segment + 1 };
-                for (order, 0..) |polygon, quad| {
-                    mesh.polygons[polygon] = .{ .kind = .triangle, .continues = 0, .first = @intCast(polygon * 4), .count = 4 };
-                    for (0..4) |corner| {
-                        mesh.indices[polygon * 4 + corner] = @intCast(first + quad * 4 + corner);
-                        uv[polygon * 4 + corner] = corner_uv[corner];
-                    }
-                }
-            }
-            mesh.surfaces[0] = .{ .polygons = segments, .material = cap_material, .textures = .{ .{ .highlight = 0 }, .none } };
-            mesh.surfaces[1] = .{ .polygons = segments * 2, .material = quad_material, .textures = .{ .{ .image = laser }, .none } };
-            for (0..segments) |segment| shapeSegment(mesh.positions[segment * segment_vertices ..][0..segment_vertices], width, .{}, 0);
-            const colours = try gpa.alloc([4]f32, mesh.positions.len);
-            @memset(colours, @splat(0));
-            return .{ .mesh = mesh, .colours = colours, .width = width };
-        }
-
-        fn deinit(strand: Strand, gpa: Allocator) void {
-            strand.mesh.deinit(gpa);
-            gpa.free(strand.colours);
-        }
-
-        /// Its object, once it stands where it stays (`mesh_object_create`'s flags `0x84800`):
-        /// never culled, its mesh its own, coloured by its own colours.
-        fn place(strand: *Strand) void {
-            strand.level = .{.{ .mesh = &strand.mesh, .until = std.math.inf(f32) }};
-            strand.object = .{
-                .flags = .{ .not_culled = true, .owns_mesh = true, .baked_object = true },
-                .position = @splat(0),
-                .radius = 0,
-                .levels = &strand.level,
-                .baked = strand.colours,
-            };
-        }
-
-        /// Each segment from one of `at` to the next, as the game turns and stretches its own
-        /// (`mat3_look_at`), at `alpha`.
-        fn shape(strand: *Strand, at: *const [points]Vector, alpha: f32) void {
-            for (0..segments) |segment| {
-                const along = at[segment + 1] - at[segment];
-                const frame: math.Place = .{ .position = at[segment], .orientation = math.lookAt(along) };
-                shapeSegment(strand.mesh.positions[segment * segment_vertices ..][0..segment_vertices], strand.width, frame, math.length(along));
-            }
-            for (strand.colours) |*vertex| vertex[3] = alpha;
-            srapi.findBoundingBox(&strand.mesh);
-            strand.object.radius = strand.mesh.radius;
-        }
+        /// `laser2`, or what `quadsOver` gave it.
+        quads: *srtexture.Image,
     };
 
     /// `eray_create` (`0x0046ACE0`): a ray of `spec` over `laser2`, lit, with the time it first
@@ -237,13 +172,7 @@ pub const Ray = struct {
         const ray = try gpa.create(Ray);
         errdefer gpa.destroy(ray);
         const strands = try gpa.alloc(Strand, spec.strands);
-        errdefer gpa.free(strands);
-        var made: usize = 0;
-        errdefer for (strands[0..made]) |strand| strand.deinit(gpa);
-        for (strands) |*strand| {
-            strand.* = try .create(gpa, spec.width, laser);
-            made += 1;
-        }
+        @memset(strands, .{ .width = spec.width, .quads = laser });
         ray.* = .{
             .flags = spec.flags,
             .jitter = spec.jitter,
@@ -251,13 +180,11 @@ pub const Ray = struct {
             .life = spec.life,
             .strands = strands,
         };
-        for (ray.strands) |*strand| strand.place();
         return ray;
     }
 
     /// `0x0046ADF0`.
     fn destroy(ray: *Ray, gpa: Allocator) void {
-        for (ray.strands) |strand| strand.deinit(gpa);
         gpa.free(ray.strands);
         gpa.destroy(ray);
     }
@@ -269,15 +196,14 @@ pub const Ray = struct {
 
     /// `0x0046AEA0`: strand `index` coloured `colour`, and the light too for the first.
     pub fn colour(ray: *Ray, index: usize, rgb: [3]f32) void {
-        const strand = &ray.strands[index];
-        for (strand.colours) |*vertex| vertex.* = .{ rgb[0], rgb[1], rgb[2], vertex[3] };
+        ray.strands[index].colour = rgb;
         if (index == 0) ray.light.colour = rgb;
     }
 
     /// Strand `index`'s quads drawn over `image` rather than `laser2`, as the ion cannon draws its
     /// beam's first strand (`0x0040E00D`).
     pub fn quadsOver(ray: *Ray, index: usize, image: *srtexture.Image) void {
-        ray.strands[index].mesh.surfaces[1].textures[0] = .{ .image = image };
+        ray.strands[index].quads = image;
     }
 
     /// The timing part of `0x0046AF40`, at `now`: whether it lives on. A timed ray loses the ticks
@@ -313,28 +239,136 @@ pub const Ray = struct {
         }
         return true;
     }
+};
 
-    /// The drawing part of `0x0046AF40`, while it shows: each strand through its ends, its middles
-    /// strayed at random, as bright as the ray, where what it hangs from stands; then its light.
-    /// The strands stray afresh in the first frame drawn at each tick `now`, as the game strays
-    /// them once a game frame, so the frames drawn between two ticks show them as they are, and so
-    /// do the frames drawn while the game is paused.
+/// OpenReliant's: what drawing keeps of a ray from one frame to the next (`Rays.draw`): its strands'
+/// meshes, the tick they last strayed at, and where its light stood then, in the frame of what the
+/// ray hangs from.
+pub const Shown = struct {
+    serial: u32,
+    strands: []Strand,
+    strayed: ?i32 = null,
+    light_at: Vector = @splat(0),
+
+    /// A strand as drawing keeps it: the game's 17 meshes, one a segment and one more it never
+    /// places or lights; OpenReliant's one mesh of all 16 segments in the frame of what the ray
+    /// hangs from, with its colours, and the object that draws it.
+    pub const Strand = struct {
+        mesh: srapiext.Mesh,
+        level: [1]srapiext.Level,
+        object: srapiext.MeshObject,
+        colours: [][4]f32,
+
+        /// Its mesh for the game's strand `look` (`0x0046A850`, one a segment in the game): every
+        /// segment's cap, a square as wide as the strand either way across the segment's start,
+        /// then its two quads, as wide either way of the segment and crossed along it, each over
+        /// the whole of its texture. Its colours start black. Its object, once it stands where it
+        /// stays (`mesh_object_create`'s flags `0x84800`), is never culled, its mesh its own,
+        /// coloured by its own colours.
+        fn init(strand: *Strand, gpa: Allocator, look: Ray.Strand) Allocator.Error!void {
+            const quads = segments * 3;
+            var mesh: srapiext.Mesh = try .create(gpa, .{ .polygons = quads, .vertices = segments * segment_vertices, .indices = quads * 4, .surfaces = 2 });
+            errdefer mesh.deinit(gpa);
+            const uv = try mesh.addCoordinates(gpa);
+            // The caps come first, then the quads, so each run is a surface of its own.
+            for (0..segments) |segment| {
+                const first = segment * segment_vertices;
+                const order = [3]usize{ segment, segments + 2 * segment, segments + 2 * segment + 1 };
+                for (order, 0..) |polygon, quad| {
+                    mesh.polygons[polygon] = .{ .kind = .triangle, .continues = 0, .first = @intCast(polygon * 4), .count = 4 };
+                    for (0..4) |corner| {
+                        mesh.indices[polygon * 4 + corner] = @intCast(first + quad * 4 + corner);
+                        uv[polygon * 4 + corner] = corner_uv[corner];
+                    }
+                }
+            }
+            mesh.surfaces[0] = .{ .polygons = segments, .material = cap_material, .textures = .{ .{ .highlight = 0 }, .none } };
+            mesh.surfaces[1] = .{ .polygons = segments * 2, .material = quad_material, .textures = .{ .{ .image = look.quads }, .none } };
+            for (0..segments) |segment| shapeSegment(mesh.positions[segment * segment_vertices ..][0..segment_vertices], look.width, .{}, 0);
+            const colours = try gpa.alloc([4]f32, mesh.positions.len);
+            @memset(colours, @splat(0));
+            strand.mesh = mesh;
+            strand.colours = colours;
+            strand.level = .{.{ .mesh = &strand.mesh, .until = std.math.inf(f32) }};
+            strand.object = .{
+                .flags = .{ .not_culled = true, .owns_mesh = true, .baked_object = true },
+                .position = @splat(0),
+                .radius = 0,
+                .levels = &strand.level,
+                .baked = strand.colours,
+            };
+        }
+
+        fn deinit(strand: Strand, gpa: Allocator) void {
+            strand.mesh.deinit(gpa);
+            gpa.free(strand.colours);
+        }
+
+        /// Takes up the game's strand `look`: its colour, which keeps the alpha the strand was last
+        /// shaped at, and what its quads are drawn over.
+        fn takeUp(strand: *Strand, look: Ray.Strand) void {
+            for (strand.colours) |*vertex| vertex.* = .{ look.colour[0], look.colour[1], look.colour[2], vertex[3] };
+            strand.mesh.surfaces[1].textures[0] = .{ .image = look.quads };
+        }
+
+        /// Each segment from one of `at` to the next, `width` either way, as the game turns and
+        /// stretches its own (`mat3_look_at`), at `alpha`.
+        fn shape(strand: *Strand, at: *const [points]Vector, width: f32, alpha: f32) void {
+            for (0..segments) |segment| {
+                const along = at[segment + 1] - at[segment];
+                const frame: math.Place = .{ .position = at[segment], .orientation = math.lookAt(along) };
+                shapeSegment(strand.mesh.positions[segment * segment_vertices ..][0..segment_vertices], width, frame, math.length(along));
+            }
+            for (strand.colours) |*vertex| vertex[3] = alpha;
+            srapi.findBoundingBox(&strand.mesh);
+            strand.object.radius = strand.mesh.radius;
+        }
+    };
+
+    /// What drawing keeps of `ray`, made in `gpa` as it first draws it: a mesh for each strand.
+    fn create(gpa: Allocator, ray: *const Ray) Allocator.Error!*Shown {
+        const shown = try gpa.create(Shown);
+        errdefer gpa.destroy(shown);
+        const strands = try gpa.alloc(Strand, ray.strands.len);
+        errdefer gpa.free(strands);
+        var made: usize = 0;
+        errdefer for (strands[0..made]) |strand| strand.deinit(gpa);
+        for (strands, ray.strands) |*strand, look| {
+            try strand.init(gpa, look);
+            made += 1;
+        }
+        shown.* = .{ .serial = ray.serial, .strands = strands };
+        return shown;
+    }
+
+    pub fn destroy(shown: *Shown, gpa: Allocator) void {
+        for (shown.strands) |strand| strand.deinit(gpa);
+        gpa.free(shown.strands);
+        gpa.destroy(shown);
+    }
+
+    /// The drawing part of `0x0046AF40`, while `ray` shows: each strand through its ends, its
+    /// middles strayed at random, as bright as the ray, where what it hangs from stands; then its
+    /// light. The strands stray afresh in the first frame drawn at each tick `now`, as the game
+    /// strays them once a game frame, so the frames drawn between two ticks show them as they are,
+    /// and so do the frames drawn while the game is paused.
     ///
     /// **Fix:** a ray hanging from a part that a split's portal cuts is cut by it too, so it shows
     /// only on what the sweep has laid bare; the game cuts the part alone, and its rays crackle
     /// over the stretch of the ship still whole.
-    fn draw(ray: *Ray, gpa: Allocator, scene: *srcore.Scene, standing: Parent.Standing, now: i32, random: *Random) Allocator.Error!void {
+    fn draw(shown: *Shown, ray: *const Ray, gpa: Allocator, scene: *srcore.Scene, standing: Parent.Standing, now: i32, random: *Random) Allocator.Error!void {
         const place = standing.place;
-        const strays = ray.strayed != now;
-        ray.strayed = now;
-        for (ray.strands, 0..) |*strand, index| {
+        const strays = shown.strayed != now;
+        shown.strayed = now;
+        for (shown.strands, ray.strands, 0..) |*strand, look, index| {
+            strand.takeUp(look);
             if (strays) {
                 var at: [points]Vector = undefined;
                 at[0] = ray.from;
                 at[segments] = ray.to;
                 jitter(&at, 0, segments, ray.jitter, jitter_depth, random);
-                strand.shape(&at, strand.alpha * ray.brightness);
-                if (index == 0) ray.light_at = at[light_segment];
+                strand.shape(&at, look.width, look.alpha * ray.brightness);
+                if (index == 0) shown.light_at = at[light_segment];
             }
             strand.object.position = place.position;
             strand.object.orientation = place.orientation;
@@ -342,9 +376,10 @@ pub const Ray = struct {
             strand.object.flags.portal_clipped = standing.portal != null;
             try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &strand.object }, .world);
         }
-        ray.light.kind.point.position = place.point(ray.light_at);
-        ray.light.intensity = 1;
-        try xtrabits.sceneAdd(gpa, scene, .{ .light = &ray.light }, .world);
+        var light = ray.light;
+        light.kind.point.position = place.point(shown.light_at);
+        light.intensity = 1;
+        try xtrabits.sceneAdd(gpa, scene, .{ .light = &light }, .world);
     }
 };
 
@@ -385,6 +420,8 @@ pub const Rays = struct {
     laser: *srtexture.Image,
     /// OpenReliant's: how many rays it has made, which numbers the next (`Ray.serial`).
     made: u32 = 0,
+    /// What drawing keeps of each ray (`Shown`), made in `gpa` as it is first drawn.
+    shown: [max_rays]?*Shown = @splat(null),
 
     /// OpenReliant's: a ray kept from one frame to the next, as the ion cannon keeps its own: its
     /// slot and its number (`Ray.serial`). The rays let a ray go on their own, as its owner goes or
@@ -426,6 +463,7 @@ pub const Rays = struct {
 
     pub fn deinit(rays: *Rays) void {
         rays.reset();
+        for (&rays.shown) |*held| table.letGo(Shown, rays.gpa, held);
     }
 
     /// `eray_add` (`0x0046AC50`): a ray of `spec` in the first free slot, or in the first where
@@ -462,14 +500,23 @@ pub const Rays = struct {
     }
 
     /// The drawing part of `erays_update`, once a drawn frame: each ray that is bright, where what
-    /// it hangs from stands in `all`, at tick `now` (`Ray.draw`). The rays move on and go in the
-    /// game frames alone (`frame`).
+    /// it hangs from stands in `all`, at tick `now` (`Shown.draw`). What drawing keeps of a ray is
+    /// made the first time it draws it (`Shown`). The rays move on and go in the game frames alone
+    /// (`frame`).
     pub fn draw(rays: *Rays, gpa: Allocator, scene: *srcore.Scene, all: *const Objects, now: i32, random: *Random) Allocator.Error!void {
-        for (rays.slots) |maybe| {
-            const ray = maybe orelse continue;
+        for (rays.slots, &rays.shown) |held, *record| {
+            const ray = held orelse {
+                table.letGo(Shown, rays.gpa, record);
+                continue;
+            };
             if (ray.brightness == 0) continue;
             const standing = ray.parent.standing(all) orelse continue;
-            try ray.draw(gpa, scene, standing, now, random);
+            const shown = table.keptFor(Shown, rays.gpa, record, ray.serial) orelse made: {
+                const made = try Shown.create(rays.gpa, ray);
+                record.* = made;
+                break :made made;
+            };
+            try shown.draw(ray, gpa, scene, standing, now, random);
         }
     }
 };
@@ -585,8 +632,9 @@ test Rays {
     try std.testing.expectEqual([3]f32{ 0.6, 1, 1 }, scene.lights.items[0].colour);
     try std.testing.expectApproxEqAbs(5800, scene.lights.items[0].kind.point.position[2], 1e-3);
 
-    // Each segment runs from one point to the next, its alpha the strand's.
-    const strand = &ray.strands[0];
+    // Drawing keeps each strand's mesh, whose segments run from one point to the next, its alpha
+    // the strand's, and its colour the ray's.
+    const strand = &rays.shown[0].?.strands[0];
     try std.testing.expectEqual(segments * 3, strand.mesh.polygons.len);
     try std.testing.expectEqual(segments * 2, strand.mesh.surfaces[1].polygons);
     try std.testing.expectApproxEqAbs(100, strand.mesh.positions[5][2], 1e-3);

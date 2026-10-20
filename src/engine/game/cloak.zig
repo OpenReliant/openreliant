@@ -961,11 +961,15 @@ pub const Countermeasures = struct {
         countermeasures.records[at] = null;
     }
 
-    /// Adds each countermeasure's model to the world's layer.
-    pub fn draw(countermeasures: *Countermeasures, gpa: Allocator, scene: *srcore.Scene, view: objects.View) Allocator.Error!void {
+    /// Adds each countermeasure's model to the world's layer: a copy of it made in `arena`, which
+    /// lasts until the frame is drawn (`objects.Model.copy`), so that drawing writes nothing into
+    /// the countermeasures.
+    pub fn draw(countermeasures: *const Countermeasures, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, view: objects.View) Allocator.Error!void {
         for (&countermeasures.records) |*record| {
             const countermeasure = &(record.* orelse continue);
-            try countermeasure.model.draw(gpa, scene, .world, view);
+            const shown = try arena.create(objects.Model);
+            shown.* = try countermeasure.model.copy(arena);
+            try shown.draw(gpa, scene, .world, view);
         }
     }
 };
@@ -1066,6 +1070,26 @@ test "Countermeasures.frame" {
     stage.dropped.frame(world);
     try std.testing.expectEqual(null, stage.dropped.get(0));
     try std.testing.expectEqual(null, stage.armed.missile(0).decoy);
+}
+
+test "Countermeasures.draw" {
+    const gpa = std.testing.allocator;
+    var stage: testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    const player = try stage.armed.add(.friendly, @splat(0));
+    stage.dropped.spend(stage.world(), player);
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    // Each is drawn from a copy of its model, so none of its own parts goes into the scene.
+    try stage.dropped.draw(gpa, arena.allocator(), &scene, .{});
+    const drawn = scene.layers.get(.world).items;
+    try std.testing.expect(drawn.len > 0);
+    for (drawn) |item| for (stage.dropped.get(0).?.model.parts) |*part| {
+        try std.testing.expect(item.mesh != &part.object);
+    };
 }
 
 test "a missile drawn away catches its countermeasure" {

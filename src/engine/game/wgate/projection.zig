@@ -182,16 +182,20 @@ pub const Projection = struct {
         tube.lay();
     }
 
-    /// The beams and the tunnel this frame's update showed, into the world's layer (`scene_add` in
-    /// `order_start_warp_projection_from_boridin`); then none shows until the next update.
-    pub fn draw(projection: *Projection, gpa: Allocator, scene: *srcore.Scene) Allocator.Error!void {
-        defer {
-            projection.shown_beams = .empty;
-            projection.shown_tunnel = false;
-        }
+    /// The beams and the tunnel the last game frame's update showed, into the world's layer
+    /// (`scene_add` in `order_start_warp_projection_from_boridin`), each from a copy made in
+    /// `arena`, which lasts until the frame is drawn (`xtrabits.sceneAddCopy`).
+    pub fn draw(projection: *const Projection, gpa: Allocator, arena: Allocator, scene: *srcore.Scene) Allocator.Error!void {
         var shown = projection.shown_beams.iterator(.{});
-        while (shown.next()) |n| try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &projection.beams[n].object }, .world);
-        if (projection.shown_tunnel) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &projection.tunnel.object }, .world);
+        while (shown.next()) |n| try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = projection.beams[n].object }, .world);
+        if (projection.shown_tunnel) try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = projection.tunnel.object }, .world);
+    }
+
+    /// Before the game frame's orders, nothing of it shows until its update shows it again
+    /// (`wgate.Gates.beginFrame`).
+    pub fn hide(projection: *Projection) void {
+        projection.shown_beams = .empty;
+        projection.shown_tunnel = false;
     }
 };
 
@@ -363,13 +367,18 @@ test "the Boridin breakaway projects its beams and its tunnel" {
         try std.testing.expectApproxEqAbs(unlit[vertex][0] * share, tube.colours[vertex][0], 1e-6);
     };
     try std.testing.expect(lit > 0);
-    // Each frame the beams and the tunnel show or not, and drawing puts them in the scene.
+    // Each game frame the beams and the tunnel show or not, and drawing puts copies of them in the
+    // scene, in every frame it draws until the next game frame begins.
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
     const beams = projection.shown_beams.count();
     const tunnels: usize = @intFromBool(projection.shown_tunnel);
-    try projection.draw(gpa, &scene);
+    try projection.draw(gpa, arena.allocator(), &scene);
     try std.testing.expectEqual(beams + tunnels, scene.layers.get(.world).items.len);
+    try std.testing.expectEqual(beams, projection.shown_beams.count());
+    t.run.built.gates.beginFrame();
     try std.testing.expectEqual(0, projection.shown_beams.count());
 }
 

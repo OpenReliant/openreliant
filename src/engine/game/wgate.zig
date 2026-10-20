@@ -159,12 +159,14 @@ pub const Gates = struct {
     }
 
     /// OpenReliant's: before the frame's orders, neither the worm nor a gate's flashes show until
-    /// Jump Out or Jump In shows them again this frame, so that drawing only reads them.
+    /// Jump Out or Jump In shows them again this frame, and nothing of the Boridin breakaway's
+    /// projection until its order shows it again, so that drawing only reads them.
     pub fn beginFrame(gates: *Gates) void {
         gates.worm_shown = false;
         for (gates.records) |held| if (held) |record| {
             record.squares_shown = false;
         };
+        if (gates.projection) |shown| shown.hide();
     }
 
     /// OpenReliant's: as the frame's work ends, each tunnel the frame draws counts as drawn at
@@ -266,20 +268,16 @@ pub const Gates = struct {
         return rumbled;
     }
 
-    /// The gates' frame (`0x00420A00`), which `shield_bubbles_draw` runs before the bubbles, for
-    /// each record of a fixed gate in turn: its tunnel's rings sway by its time since it was made
-    /// (`recordTime`), a radian every 10 seconds, and the tunnel takes its shape, its lighting and
-    /// its bounds from them (`tunnel.Tunnel.reshape`). Its portal goes into the world's layer, and
-    /// its tunnel too unless the player's ship rides the worm. Before them go the flashes a ship
-    /// jumping in shows (`jumpIn`), and after them the worm while the player's ship rides it
-    /// (`jumpOut`).
+    /// The game's part of the gates' frame (`0x00420A00`), which `shield_bubbles_draw` runs before
+    /// the bubbles, at tick `frame_start`. For each record of a fixed gate in turn, its tunnel's
+    /// rings sway by its time since it was made (`recordTime`), a radian every 10 seconds, and the
+    /// tunnel takes its shape, its lighting and its bounds from them (`tunnel.Tunnel.reshape`); a
+    /// warp tunnel its orders show takes the shape they gave its rings
+    /// (`tunnel.Tunnel.reshapeWarp`). Drawing then places and draws them (`draw`).
     ///
-    /// Where the game has the tunnel's frame hang from the object's and its portal's from the
-    /// tunnel's, OpenReliant places them from where the object is drawn. The game scrolls the
-    /// tunnel's texture as it draws it (`0x00420950`), which OpenReliant does here
-    /// (`Record.scroll`). The game also has each ship in a list at `+0x80` dent the tunnel as it
-    /// passes (`wgate_tunnel_dent`, `0x00422540`), and nothing fills the list.
-    pub fn draw(gates: *Gates, gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, frame_start: i32) Allocator.Error!void {
+    /// The game scrolls the tunnel's texture as it draws it (`0x00420950`), which OpenReliant does
+    /// here once a game frame (`Record.scroll`).
+    pub fn frame(gates: *Gates, frame_start: i32) void {
         for (gates.records) |held| {
             const record = held orelse continue;
             if (record.kind == .warp and !record.warp_shown) continue;
@@ -287,27 +285,64 @@ pub const Gates = struct {
                 record.tunnel.reshapeWarp(frame_start, record.deeper)
             else
                 record.tunnel.reshape(record.kind, recordTime(record.made_at, frame_start), frame_start, record.deeper);
-            const place = record.tunnelPlace(all);
-            record.tunnel.object.position = place.position;
-            record.tunnel.object.orientation = place.orientation;
-            record.portal.position = place.point(record.portal_at);
-            record.portal.orientation = place.orientation;
             record.scroll(frame_start);
+        }
+    }
+
+    /// The rest of the gates' frame, once a drawn frame: for each record of a fixed gate, and each
+    /// warp tunnel its orders show, its portal goes into the world's layer, and its tunnel too
+    /// unless the player's ship rides the worm. Before them go the flashes a ship jumping in shows
+    /// (`jumpIn`), and after them the worm while the player's ship rides it (`jumpOut`). Each is
+    /// drawn from a copy made in `arena`, which lasts until the frame is drawn
+    /// (`xtrabits.sceneAddCopy`), and each portal is drawing's own (`standPortals`), so drawing
+    /// writes nothing into the gates.
+    ///
+    /// Where the game has the tunnel's frame hang from the object's and its portal's from the
+    /// tunnel's, OpenReliant places them from where the object is drawn in `all`. The game also
+    /// has each ship in a list at `+0x80` dent the tunnel as it passes (`wgate_tunnel_dent`,
+    /// `0x00422540`), and nothing fills the list.
+    pub fn draw(gates: *const Gates, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: *const create.Objects, portals: *xtrabits.Portals) Allocator.Error!void {
+        for (gates.records) |held| {
+            const record: *const Record = held orelse continue;
+            if (record.kind == .warp and !record.warp_shown) continue;
+            const place = record.tunnelPlace(all);
             if (record.squares_shown) {
                 for (&record.squares) |*square| {
-                    square.object.position = place.point(.{ 0, 0, square.depth });
-                    square.object.orientation = place.orientation;
-                    try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &square.object }, .world);
+                    var shown = square.object;
+                    shown.position = place.point(.{ 0, 0, square.depth });
+                    shown.orientation = place.orientation;
+                    try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown }, .world);
                 }
             }
-            try xtrabits.sceneAdd(gpa, scene, .{ .portal = &record.portal }, .world);
-            if (record.warp_effect) |*effect| try effect.draw(gpa, scene, record, all);
-            if (!gates.riding) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &record.tunnel.object }, .world);
+            if (portals.of(&record.portal)) |portal| try xtrabits.sceneAdd(gpa, scene, .{ .portal = portal }, .world);
+            if (record.warp_effect) |*effect| try effect.draw(gpa, arena, scene, record, all);
+            if (!gates.riding) {
+                var shown = record.tunnel.object;
+                shown.position = place.position;
+                shown.orientation = place.orientation;
+                try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown }, .world);
+            }
         }
         if (gates.worm_shown) if (gates.worm) |tube| {
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &tube.object }, .world);
+            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = tube.object }, .world);
         };
-        if (gates.projection) |shown| try shown.draw(gpa, scene);
+        if (gates.projection) |shown| try shown.draw(gpa, arena, scene);
+    }
+
+    /// Stands drawing's portal for each record's (`xtrabits.Portals.stand`), facing as the game's
+    /// faces. For each record of a fixed gate, and each warp tunnel its orders show, it stands at
+    /// the throat (`Record.portalSetUp`), where the object is drawn in `all`; that of a warp tunnel
+    /// its orders don't show stays where it stood.
+    pub fn standPortals(gates: *const Gates, portals: *xtrabits.Portals, all: *const create.Objects) void {
+        for (gates.records) |held| {
+            const record: *const Record = held orelse continue;
+            const portal = portals.stand(&record.portal, record.made_at) orelse continue;
+            portal.normal = record.portal.normal;
+            if (record.kind == .warp and !record.warp_shown) continue;
+            const place = record.tunnelPlace(all);
+            portal.position = place.point(record.portal_at);
+            portal.orientation = place.orientation;
+        }
     }
 
     /// `order_start_warp_projection_from_boridin_init`'s projection (`0x004230A0`), made anew at
@@ -413,7 +448,8 @@ pub const Record = struct {
     tunnel: Tunnel,
     /// `+0x70`: what cuts a ship jumping through it, where it stands in the tunnel's frame
     /// (`portalSetUp`), and whether its flashes are in this game frame's scene (`+0x74`, `+0x78`,
-    /// `Gates.beginFrame`).
+    /// `Gates.beginFrame`). The game's portal keeps only how it faces; drawing places its own
+    /// (`Gates.standPortals`).
     portal: srapiext.Portal = .{},
     portal_at: Vector = @splat(0),
     squares: [2]Square,
@@ -1365,6 +1401,34 @@ pub const testing = struct {
             return ctx;
         }
     };
+
+    /// What a drawn frame draws the gates into: a scene, the arena the copies are made in, and
+    /// drawing's portals.
+    pub const Drawn = struct {
+        gpa: Allocator,
+        scene: srcore.Scene = .{},
+        arena: std.heap.ArenaAllocator,
+        portals: xtrabits.Portals = .{},
+
+        pub fn init(gpa: Allocator) Drawn {
+            return .{ .gpa = gpa, .arena = .init(gpa) };
+        }
+
+        pub fn deinit(drawn: *Drawn) void {
+            drawn.scene.deinit(drawn.gpa);
+            drawn.arena.deinit();
+        }
+
+        /// A drawn frame of `gates`, its objects as `all` has them: drawing's portals stood for the
+        /// gates' (`Gates.standPortals`), then the gates drawn into an empty scene.
+        pub fn draw(drawn: *Drawn, gates: *const Gates, all: *const create.Objects) Allocator.Error!void {
+            drawn.scene.clear();
+            drawn.portals.begin();
+            gates.standPortals(&drawn.portals, all);
+            drawn.portals.end();
+            try gates.draw(drawn.gpa, drawn.arena.allocator(), &drawn.scene, all, &drawn.portals);
+        }
+    };
 };
 
 test ridingWorm {
@@ -1452,12 +1516,10 @@ test "a tunnel at a Yamato stands deeper than one at a nav point" {
     const at_yamato = (try run.built.gates.make(world, yamato, .proto, @splat(0))).?;
     try std.testing.expectEqual(depthOf(.of(.yamato)), at_yamato.deeper);
 
-    // Drawn at the same tick, every vertex of the Yamato's stands 100000 deeper, its throat, its
+    // Shaped at the same tick, every vertex of the Yamato's stands 100000 deeper, its throat, its
     // portal and the flashes there with it.
-    var scene: srcore.Scene = .{};
-    defer scene.deinit(gpa);
     run.mission.clock.frame_start += 10;
-    try run.built.gates.draw(gpa, &scene, run.mission.objects, run.mission.clock.frame_start);
+    run.built.gates.frame(run.mission.clock.frame_start);
     try std.testing.expectApproxEqAbs(100000, at_yamato.tunnel.throat()[2] - at_point.tunnel.throat()[2], 0.05);
     at_point.portalSetUp();
     at_yamato.portalSetUp();
@@ -1505,24 +1567,26 @@ test "a tunnel opens at an object and closes again" {
     try std.testing.expectEqual(Kind.proto, record.kind);
     // Over a ninth of a thousand ticks it grows to its full size, a tick each game frame, and the
     // order ends.
-    var scene: srcore.Scene = .{};
-    defer scene.deinit(gpa);
+    var drawn: testing.Drawn = .init(gpa);
+    defer drawn.deinit();
     for (0..120) |_| {
         mission.ordersAfter(ctx, point, 1);
         run.built.gates.endFrame(mission.clock.frame_start);
     }
-    try run.built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
+    try drawn.draw(&run.built.gates, mission.objects);
     try std.testing.expectApproxEqAbs(1, record.tunnel.object.scale, 1e-3);
     // Drawing leaves the time it counts from to the game frames.
     const marked = record.drawn_at;
-    try run.built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start + 50);
+    try drawn.draw(&run.built.gates, mission.objects);
     try std.testing.expectEqual(marked, record.drawn_at);
-    scene.clear();
-    try run.built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
     try std.testing.expectEqual(0, mission.slot(point).object.order_count);
-    // Drawn, its portal and its tunnel are in the world's layer.
-    try std.testing.expectEqual(1, scene.portals.items.len);
-    try std.testing.expectEqual(&record.tunnel.object, scene.layers.get(.world).items[0].mesh);
+    // Drawn, its portal and a copy of its tunnel's object are in the world's layer: the portal
+    // drawing's own, and the copy drawing the tunnel's mesh.
+    try std.testing.expectEqual(1, drawn.scene.portals.items.len);
+    try std.testing.expect(drawn.scene.portals.items[0] != &record.portal);
+    const tube = drawn.scene.layers.get(.world).items[0].mesh;
+    try std.testing.expect(tube != &record.tunnel.object);
+    try std.testing.expectEqual(record.tunnel.object.levels.ptr, tube.levels.ptr);
 
     _ = try aigeneric.push(ctx, point, .fixed_gate_close, .none);
     for (0..120) |_| {
@@ -1603,11 +1667,11 @@ test "the player's ship goes out through the nearest gate and rides the worm" {
     try std.testing.expectEqual(math.Vector{ 0, 0, away_depth }, slot.object.position());
     // While it rides, the tunnels are left out of the scene and the worm is in it.
     mission.ordersAfter(ctx, player, 1);
-    var scene: srcore.Scene = .{};
-    defer scene.deinit(gpa);
-    try built.gates.draw(gpa, &scene, mission.objects, mission.clock.frame_start);
-    try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
-    try std.testing.expectEqual(2, scene.portals.items.len);
+    var drawn: testing.Drawn = .init(gpa);
+    defer drawn.deinit();
+    try drawn.draw(&built.gates, mission.objects);
+    try std.testing.expectEqual(1, drawn.scene.layers.get(.world).items.len);
+    try std.testing.expectEqual(2, drawn.scene.portals.items.len);
     // After the ride, it comes in through the gate its order names.
     for (0..420) |_| mission.ordersAfter(ctx, player, 1);
     try std.testing.expect(!built.gates.riding and !built.gates.exiting);

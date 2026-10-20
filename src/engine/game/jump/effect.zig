@@ -200,39 +200,44 @@ pub const Effects = struct {
     }
 
     /// Each record's trails, lights, burst and flare that its jump's update added to the scene this
-    /// frame, into the world's layer: all but the flare hang from the ship where it is drawn.
-    pub fn draw(effects: *Effects, gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects) Allocator.Error!void {
+    /// frame, into the world's layer: all but the flare hang from the ship where it is drawn. Each
+    /// is drawn from a copy made in `arena`, which lasts until the frame is drawn
+    /// (`xtrabits.sceneAddCopy`), so drawing writes nothing into the records.
+    pub fn draw(effects: *const Effects, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: *const create.Objects) Allocator.Error!void {
         for (effects.records) |record| {
-            const effect = record orelse continue;
+            const effect: *const Effect = record orelse continue;
             if (effect.owner >= all.slots.len) continue;
             const ship = all.slots[effect.owner].drawn;
             if (effect.shown.trails) for (&effect.trails) |*held| if (held.*) |*trail| {
                 const place = trail.place.within(ship);
-                trail.object.position = place.position;
-                trail.object.orientation = place.orientation;
-                try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &trail.object }, .world);
+                var shown = trail.object;
+                shown.position = place.position;
+                shown.orientation = place.orientation;
+                try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown }, .world);
             };
             if (effect.shown.lights) for (&effect.lights) |*held| if (held.*) |*light| {
-                light.set.position = ship.point(light.at);
-                light.set.sprites = &light.sprite;
-                try xtrabits.sceneAdd(gpa, scene, .{ .sprites = &light.set }, .world);
+                var set = light.set;
+                set.position = ship.point(light.at);
+                set.sprites = try arena.dupe(srapiext.Sprite, &light.sprite);
+                try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .sprites = set }, .world);
             };
             if (effect.shown.burst) if (effect.burst) |*burst| {
                 const place = (math.Place{ .position = burst_at }).within(ship);
-                burst.object.position = place.position;
-                burst.object.orientation = place.orientation;
-                try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &burst.object }, .world);
+                var shown = burst.object;
+                shown.position = place.position;
+                shown.orientation = place.orientation;
+                try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown }, .world);
             };
             if (effect.shown.flare) if (effect.flare) |*flare| {
-                try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &flare.object }, .world);
+                try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = flare.object }, .world);
                 if (effects.lighting == .flare and flare.share > 0) {
-                    flare.light = .{
+                    const light: srlight.Light = .{
                         .mask = 0,
                         .intensity = flare.share,
                         .colour = effects.flare_colour,
                         .kind = .{ .point = .{ .position = flare.object.position, .range = flare.width * flare_reach } },
                     };
-                    try xtrabits.sceneAdd(gpa, scene, .{ .light = &flare.light }, .world);
+                    try xtrabits.sceneAdd(gpa, scene, .{ .light = &light }, .world);
                 }
             };
         }
@@ -449,7 +454,6 @@ pub const Flare = struct {
     /// its light is as bright as (`Lighting.flare`).
     width: f32,
     share: f32 = 0,
-    light: srlight.Light = undefined,
 
     /// Scaled to `share` of the ship's width across, and as much of it shows.
     pub fn grow(flare: *Flare, share: f32) void {
@@ -788,8 +792,11 @@ test "the flare lights what stands round it as it shows" {
     record.shown = .{ .flare = true };
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     // Half of it shows, 25 across, its light half as bright and reaching ten times the ship's width.
-    try effects.draw(gpa, &scene, mission.objects);
+    try effects.draw(gpa, arena, &scene, mission.objects);
     try std.testing.expectEqual(25, record.flare.?.object.scale);
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
     try std.testing.expectEqual(1, scene.lights.items.len);
@@ -798,12 +805,12 @@ test "the flare lights what stands round it as it shows" {
     // As the original, it lights nothing.
     scene.clear();
     effects.lighting = .none;
-    try effects.draw(gpa, &scene, mission.objects);
+    try effects.draw(gpa, arena, &scene, mission.objects);
     try std.testing.expectEqual(0, scene.lights.items.len);
     // Nothing is shown until an update says so again.
     effects.beginFrame();
     scene.clear();
-    try effects.draw(gpa, &scene, mission.objects);
+    try effects.draw(gpa, arena, &scene, mission.objects);
     try std.testing.expectEqual(0, scene.layers.get(.world).items.len);
 }
 
