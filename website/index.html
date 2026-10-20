@@ -22,6 +22,7 @@
     <a href="#start">How to start</a>
     <a href="docs/">Docs</a>
     <a class="keep" href="https://openreliant.github.io/openreliant-mods/">Mods</a>
+    <a href="#editor">Editor</a>
     <a href="contribute/">Contribute</a>
     <a href="https://github.com/OpenReliant/openreliant">GitHub</a>
   </div>
@@ -69,7 +70,7 @@
   <p class="intro">What works today, and what's coming next, in order. New features arrive in small releases, one after another, and 1.0 and 2.0 mark the two big steps.</p>
   <div class="timeline">
     <div class="panel today"><div class="when">Today</div><h3>Beta</h3><p>The whole campaign is playable, from the first mission to the end: the menus, the Reliant's and the Yamato's rooms, the briefings and loadout, the ITAC and saved games. Games you saved in the original carry on.</p><p>Mods work too: new ships, weapons and pilots, high-resolution textures and models, scripts that change how the game plays, and new missions for the campaign, or cut ones brought back, such as the <a href="https://openreliant.github.io/openreliant-mods/mods/cut-dreamcast-missions/">Cut Dreamcast Missions</a>.</p></div>
-    <div class="panel" data-milestone="v0."><div class="when">Next</div><h3>Mission editor</h3><p>Make your own missions with OpenReliant's tools: a visual builder, live editing and script debugging, saved as standard mission files that even the original plays. It arrives piece by piece over the next releases.</p></div>
+    <div class="panel" data-milestone="v0."><div class="when">Next</div><h3>Mission editor</h3><p>Make your own missions with OpenReliant Editor: a visual builder, live editing and script debugging, saved as standard mission files that even the original plays. Its first parts are out as a preview (<a href="#editor">see below</a>), and the rest arrive over the next releases.</p></div>
     <div class="panel" data-milestone="Release"><div class="when">Then · 1.0</div><h3>The release</h3><p>The beta and the mission editor, polished with your feedback, and the whole campaign played through from start to finish.</p></div>
     <div class="panel" data-milestone="Multiplayer"><div class="when">Later</div><h3>Multiplayer</h3><p>Multiplayer with the original game modes, and a public matchmaking server to find games. Join without port forwarding, or run your own dedicated server.</p></div>
     <div class="panel" data-milestone="Data-driven types"><div class="when">Later</div><h3>New kinds of ships</h3><p>How ships, guns and missiles behave read from data, so mods can add whole new kinds of ships and weapons, not only variants of the original's.</p></div>
@@ -132,6 +133,30 @@
     <a class="button" href="docs/guide/modding/">Make a mod</a>
   </div>
   <p class="small">The scripting for mods is stable from 0.8 on: new versions add to it, and anything that has to change is deprecated well ahead. <a href="docs/guide/what-mods-can-do/">See everything mods can do</a>.</p>
+</section>
+
+<section id="editor">
+  <h2>Mission <span>editor</span></h2>
+  <p class="intro">OpenReliant Editor is a mission editor and script debugger that works with the game: it builds your mission, plays it in OpenReliant, and steps through its script while you fly. It's an early preview for Windows, macOS and Linux, and it needs OpenReliant with your copy of StarLancer.</p>
+  <div class="three">
+    <div class="panel">
+      <h3>Script</h3>
+      <p>Write a mission as text, or open one of the game's own. The editor checks it as you type, completes and explains the game's commands, and plays it from its start or from any part.</p>
+    </div>
+    <div class="panel">
+      <h3>Scene</h3>
+      <p>See the mission's ships, nav points, ranges and routes on a map, and move them there. Edit its ships, nav points and triggers in forms, or add new ones.</p>
+    </div>
+    <div class="panel">
+      <h3>Debugger</h3>
+      <p>Stop the mission's script at breakpoints while the game plays it, step through it, and see its threads and values.</p>
+    </div>
+  </div>
+  <div class="actions" style="margin-top: 20px">
+    <a class="button primary" href="https://github.com/OpenReliant/openreliant-editor/releases/latest">Download the editor</a>
+    <a class="button" href="https://github.com/OpenReliant/openreliant-editor">Read more</a>
+  </div>
+  <p class="small">Still to come: a visual builder for missions and their scripts, changes that show in the running game as you make them, a guided first mission, and a mode for editing whole mods. Prefer a text editor? <a href="docs/guide/missions/">Write a mission as source</a> and build it with <code>sltool</code>.</p>
 </section>
 
 <section id="about" class="panel">

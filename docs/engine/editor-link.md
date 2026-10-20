@@ -375,8 +375,9 @@ original's tags can carry goes through them, such as an editor's live changes to
 ## Clients
 
 `openreliant debug` is a small client that shows what the link does
-([Debugging mission scripts](../guide/debugging.md)). A full mission editor and script debugger is a
-project of its own, which builds on this page.
+([Debugging mission scripts](../guide/debugging.md)).
+[OpenReliant Editor](https://github.com/OpenReliant/openreliant-editor), a full mission editor and
+script debugger, is a project of its own, which builds on this page.
 
 The editor the original talks to was the game team's own. Paul Hughes, one of StarLancer's lead
 programmers at Warthog, called "the mission system and editor on SL" a monster

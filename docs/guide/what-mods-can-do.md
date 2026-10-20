@@ -107,6 +107,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 |---|---|
 | `sltool`, which extracts the game's files, and builds models, face films, lines and archives | [Tools](modding.md#tools) |
 | Starting and checking a mission from the command line | [Checking a mission](modding.md#checking-a-mission) |
+| OpenReliant Editor, an early preview of the mission editor and script debugger | [OpenReliant Editor](https://github.com/OpenReliant/openreliant-editor), [Writing missions](missions.md) |
 | A console in the game, and scripts that reload as they're saved | [The console](scripting.md#the-console), [Reloading](scripting.md#reloading) |
 | Completion and type checks in an editor | [Editors](scripting.md#editors) |
 | Lines and text drawn in the world, to see what a script does | [Debug drawing](scripting.md#debug-drawing) |
@@ -127,7 +128,7 @@ These are planned, each in an issue:
   ([#520](https://github.com/OpenReliant/openreliant/issues/520))
 - The game's models exported with all their detail levels and parts
   ([#697](https://github.com/OpenReliant/openreliant/issues/697))
-- A mission editor, with a visual mission and script builder
+- The mission editor's visual mission and script builder
   ([#1126](https://github.com/OpenReliant/openreliant/issues/1126),
   [#360](https://github.com/OpenReliant/openreliant/issues/360))
 - Starting a mission partway with the state its earlier parts set

@@ -1215,8 +1215,9 @@ mission.debriefing = debriefing
   ([Kinds of scripts](scripting.md#kinds-of-scripts)).
 - `sltool dte` lists a mission's ships, triggers and script parts, and disassembles its script
   ([Tools](#tools)).
-- OpenReliant has no mission editor yet
-  ([#1126](https://github.com/OpenReliant/openreliant/issues/1126)), but a mission can be written
+- [OpenReliant Editor](https://github.com/OpenReliant/openreliant-editor), a mission editor and
+  script debugger, is out as an early preview
+  ([#1126](https://github.com/OpenReliant/openreliant/issues/1126)). A mission can also be written
   as Luau source in any text editor, which `sltool dte build` compiles, and `sltool dte decompile`
   writes any mission as source ([Writing missions](missions.md)).
   [StarLancerEditor](https://src.ug.gg/mini/starlancereditor), a community project, turns missions

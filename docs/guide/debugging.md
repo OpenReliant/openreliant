@@ -6,9 +6,9 @@ link the original kept with its own mission editor and script debugger, which Wa
 game and never released ([The editor link](../engine/editor-link.md)), so the game has to be started
 with `--editor-link`.
 
-It's a small debugger that shows what the link can do. A full mission editor and debugger is a
-project of its own, which talks to the game over the same link
-([Clients](../engine/editor-link.md#clients)).
+It's a small debugger that shows what the link can do.
+[OpenReliant Editor](https://github.com/OpenReliant/openreliant-editor), a full mission editor and
+debugger, talks to the game over the same link ([Clients](../engine/editor-link.md#clients)).
 
 ## Starting it
 
