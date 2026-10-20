@@ -807,14 +807,22 @@ pub const FrameEnd = enum {
 /// the frame's game work runs once a tick, as the game runs it on a screen drawn 100 times a
 /// second, whatever the screen's rate; the drawn frame places and draws a copy of the objects
 /// (`Drawn`). So the game frames' work plays the same way at any frame rate.
-pub fn gameFrames(clock: *Clock, devices: *input.Devices, world: gameobj.World, riders: objects.Riders, loaded: ?*Loaded) FrameEnd {
+///
+/// The game frames read devices of their own (`devices`), which take up what the main thread last
+/// read of its devices (`reading`) before each tick (`input.Devices.takeUp`). While the
+/// communications window is open, the keys 1 to 8 are its menu's (`hud.State.commsOpen`).
+pub fn gameFrames(clock: *Clock, devices: *input.Devices, reading: ?*input.Reading, world: gameobj.World, riders: objects.Riders, loaded: ?*Loaded) FrameEnd {
     const orders: aigeneric.Context = .{ .world = world, .devices = devices };
     var ended: FrameEnd = .played;
     var ran = false;
     while (true) {
-        // The shake from hits dies away a tick, as `camera_frame` has it do once each frame is
-        // drawn, before the tick's step and its game frame raise it again.
-        if (clock.owesTick() and !clock.paused) world.shake.* = camera.Cockpit.faded(world.shake.*);
+        if (clock.owesTick() and !clock.paused) {
+            // The shake from hits dies away a tick, as `camera_frame` has it do once each frame is
+            // drawn, before the tick's step and its game frame raise it again.
+            world.shake.* = camera.Cockpit.faded(world.shake.*);
+            if (reading) |handed| devices.takeUp(handed);
+            devices.keyboard.numbers_taken = if (world.display) |display| display.commsOpen() else false;
+        }
         _ = clock.nextTick(devices, world) orelse break;
         if (clock.paused) continue;
         clock.frameBegin();
@@ -2639,7 +2647,7 @@ test gameFrames {
     // before each.
     mission.shake = 1;
     clock.advanceTimer(3);
-    try std.testing.expectEqual(.played, gameFrames(clock, &devices, mission.world(), .together, null));
+    try std.testing.expectEqual(.played, gameFrames(clock, &devices, null, mission.world(), .together, null));
     try std.testing.expectEqual(3, clock.frame_start);
     try std.testing.expectEqual(1, clock.frame_duration);
     try std.testing.expectApproxEqAbs(1 - 3 * camera.Cockpit.shake_fade, mission.shake, 1e-6);
@@ -2647,16 +2655,30 @@ test gameFrames {
     clock.drawBegin();
     try std.testing.expectEqual(3, clock.drawnTicks());
     // A pass that owes no tick runs no game frame, and its drawn frame spans none.
-    try std.testing.expectEqual(.played, gameFrames(clock, &devices, mission.world(), .together, null));
+    try std.testing.expectEqual(.played, gameFrames(clock, &devices, null, mission.world(), .together, null));
     try std.testing.expectEqual(3, clock.frame_start);
     clock.drawBegin();
     try std.testing.expectEqual(0, clock.drawnTicks());
     // While the game is paused, no game frame runs, and the shake holds.
     clock.paused = true;
     clock.advanceTimer(2);
-    _ = gameFrames(clock, &devices, mission.world(), .together, null);
+    _ = gameFrames(clock, &devices, null, mission.world(), .together, null);
     try std.testing.expectEqual(3, clock.frame_start);
     try std.testing.expectApproxEqAbs(1 - 3 * camera.Cockpit.shake_fade, mission.shake, 1e-6);
+
+    // The game frames' devices take up what the main thread handed over as each tick runs, and
+    // not while the game is paused.
+    var reading: input.Reading = .{};
+    reading.keyboard.down[input.scan.up] = true;
+    clock.advanceTimer(1);
+    _ = gameFrames(clock, &devices, &reading, mission.world(), .together, null);
+    try std.testing.expect(!devices.keyboard.down[input.scan.up]);
+    clock.paused = false;
+    _ = gameFrames(clock, &devices, &reading, mission.world(), .together, null);
+    try std.testing.expect(!devices.keyboard.down[input.scan.up]);
+    clock.advanceTimer(1);
+    _ = gameFrames(clock, &devices, &reading, mission.world(), .together, null);
+    try std.testing.expect(devices.keyboard.down[input.scan.up]);
 }
 
 test Drawn {
@@ -2712,7 +2734,7 @@ test "a mission plays the same way however often it is drawn" {
     // The first is drawn after each tick, part of a tick past it; the second is never drawn.
     for (0..40) |_| for (&missions, 0..) |*mission, which| {
         mission.clock.advanceTimer(1);
-        _ = gameFrames(&mission.clock, &devices, mission.world(), .together, null);
+        _ = gameFrames(&mission.clock, &devices, null, mission.world(), .together, null);
         if (which > 0) continue;
         mission.clock.past_tick = 0.6;
         _ = try copies.take(mission.objects, .of(&mission.clock, true, .together), mission.clock.frame_start, .{});

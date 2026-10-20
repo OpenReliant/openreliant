@@ -174,6 +174,13 @@ pub const Joystick = struct {
     /// Whether the device rumbles (`force_feedback`, `0x0050E1A4`, for OpenReliant's rumble).
     rumbles: bool = false,
     latched: [JoystickState.max_buttons]bool = @splat(false),
+    /// OpenReliant's: the presses of the buttons that the other side has taken, which count as
+    /// taken here too (`Keyboard.taken`).
+    taken: [JoystickState.max_buttons]bool = @splat(false),
+    /// OpenReliant's: the state the main thread last polled, while a joystick is attached, for the
+    /// game frames' joystick, which has no device of its own (`Devices.takeUp`). A read takes it in
+    /// place of polling. Null for the main thread's joystick, which polls its device.
+    handed: ?JoystickState = null,
 
     /// The state when there is no device: all zero, as `read_joystick` leaves it.
     const idle = std.mem.zeroes(JoystickState);
@@ -210,17 +217,32 @@ pub const Joystick = struct {
     }
 
     /// `read_joystick` (`0x004BD300`): reads the device's state (all zero without a device), then
-    /// clears the latch of each released button. A disconnected device is closed.
+    /// clears the latches of the released buttons, its own and those the other side took
+    /// (`taken`). A disconnected device is closed. The game frames' joystick takes the state the
+    /// main thread handed over instead (`handed`).
     pub fn read(joystick: *Joystick) void {
-        joystick.state = idle;
-        const device = joystick.device orelse return;
-        device.poll(&joystick.state) catch {
-            joystick.close();
-            return;
-        };
-        for (joystick.latched[0..joystick.buttons], joystick.state.buttons[0..joystick.buttons]) |*latched, state| {
-            if (state == 0) latched.* = false;
+        if (joystick.handed) |polled| {
+            joystick.state = polled;
+        } else {
+            joystick.state = idle;
+            const device = joystick.device orelse return;
+            device.poll(&joystick.state) catch {
+                joystick.close();
+                return;
+            };
         }
+        const count = joystick.buttons;
+        for (joystick.latched[0..count], joystick.taken[0..count], joystick.state.buttons[0..count]) |*latched, *taken, state| {
+            if (state != 0) continue;
+            latched.* = false;
+            taken.* = false;
+        }
+    }
+
+    /// Whether a joystick is attached: the device itself, or for the game frames' joystick the
+    /// state handed over with it.
+    pub fn attached(joystick: Joystick) bool {
+        return joystick.device != null or joystick.handed != null;
     }
 
     /// Turns the motors of a device that rumbles as hard as `motors` says.
@@ -582,19 +604,61 @@ pub const Keyboard = struct {
     control_latched: bool = false,
     alt_latched: bool = false,
     /// Whether the keys 1 to 8 are the radio menu's, so that no action bound to them counts: while
-    /// the display's communications window is open, which `control_active` tests at `0x00501EE8`,
-    /// that window's phase. OpenReliant sets it as each frame starts.
+    /// the communications window is open (`hud.State.commsOpen`). OpenReliant sets it before each
+    /// tick for the game frames (`main.gameFrames`), and before them for the main thread.
     numbers_taken: bool = false,
+    /// OpenReliant's: the presses the other side has taken, which count as taken here too: in the
+    /// game frames' keyboard the main thread's, and in the main thread's the game frames', as each
+    /// last handed them over (`Devices.takeUp`, `Devices.takePresses`). Like a latch, each is let
+    /// go here once its key is up.
+    taken: Latches = .{},
 
-    /// What `read_keyboard` (`0x004BD490`) does once it has the keys: frees the latch of each key
-    /// that is up, and of each modifier with both its keys up.
+    /// A keyboard's latches: the presses it has taken (`latches`).
+    pub const Latches = struct {
+        keys: [256]bool = @splat(false),
+        shift: bool = false,
+        control: bool = false,
+        alt: bool = false,
+    };
+
+    /// What `read_keyboard` (`0x004BD490`) does once it has the keys: frees the latches of the keys
+    /// that are up, and of each modifier with both its keys up, its own and those the other side
+    /// took (`taken`).
     pub fn read(keyboard: *Keyboard) void {
-        for (&keyboard.latched, keyboard.down) |*latched, down| {
-            if (latched.* and !down) latched.* = false;
+        for (&keyboard.latched, &keyboard.taken.keys, keyboard.down) |*latched, *taken, down| {
+            if (down) continue;
+            latched.* = false;
+            taken.* = false;
         }
-        if (keyboard.shift_latched and !keyboard.shift()) keyboard.shift_latched = false;
-        if (keyboard.control_latched and !keyboard.control()) keyboard.control_latched = false;
-        if (keyboard.alt_latched and !keyboard.alt()) keyboard.alt_latched = false;
+        if (!keyboard.shift()) {
+            keyboard.shift_latched = false;
+            keyboard.taken.shift = false;
+        }
+        if (!keyboard.control()) {
+            keyboard.control_latched = false;
+            keyboard.taken.control = false;
+        }
+        if (!keyboard.alt()) {
+            keyboard.alt_latched = false;
+            keyboard.taken.alt = false;
+        }
+    }
+
+    /// The presses this keyboard has taken itself, which the other side counts as taken (`taken`).
+    pub fn latches(keyboard: *const Keyboard) Latches {
+        return .{
+            .keys = keyboard.latched,
+            .shift = keyboard.shift_latched,
+            .control = keyboard.control_latched,
+            .alt = keyboard.alt_latched,
+        };
+    }
+
+    /// Whether a modifier is latched, here or by the other side.
+    fn modifierLatched(keyboard: Keyboard) bool {
+        const own = keyboard.shift_latched or keyboard.control_latched or keyboard.alt_latched;
+        const taken = keyboard.taken;
+        return own or taken.shift or taken.control or taken.alt;
     }
 
     fn shift(keyboard: Keyboard) bool {
@@ -612,12 +676,13 @@ pub const Keyboard = struct {
     /// Whether `key` is down with `modifier` (`key_pressed`, `0x004BD570`). With `once`, only once
     /// for each press, and with no modifier, only while no modifier key is down; it latches the
     /// key and the modifier. Without it, with no modifier, only while no modifier is latched; it
-    /// frees the key's latch and the modifier's.
+    /// frees the key's latch and the modifier's. What the other side has taken counts as latched
+    /// (`taken`).
     pub fn pressed(keyboard: *Keyboard, key: u8, modifier: ControlBinding.Modifier, once: bool) bool {
         if (!keyboard.down[key]) return false;
         if (!once) {
             switch (modifier) {
-                .none => if (keyboard.shift_latched or keyboard.control_latched or keyboard.alt_latched) return false,
+                .none => if (keyboard.modifierLatched()) return false,
                 .shift => if (keyboard.shift()) {
                     keyboard.shift_latched = false;
                 } else return false,
@@ -632,7 +697,7 @@ pub const Keyboard = struct {
             keyboard.latched[key] = false;
             return true;
         }
-        if (keyboard.latched[key]) return false;
+        if (keyboard.latched[key] or keyboard.taken.keys[key]) return false;
         switch (modifier) {
             .none => if (keyboard.shift() or keyboard.control() or keyboard.alt()) return false,
             .shift => if (keyboard.shift()) {
@@ -870,8 +935,26 @@ pub const Mouse = struct {
     };
 };
 
+/// OpenReliant's: what the main thread has read of the devices for the game frames
+/// (`Devices.handOver`), which they take up before each tick (`Devices.takeUp`). The game frames
+/// keep devices of their own, so they never read the main thread's.
+pub const Reading = struct {
+    /// The keys down, and the presses the main thread has taken.
+    keyboard: Keyboard = .{},
+    /// The joystick without its device: what it can do, the state last polled while it is
+    /// attached (`Joystick.handed`), and the presses the main thread has taken.
+    joystick: Joystick = .{},
+    /// The mouse's movement that the game frames haven't taken up yet, in the mouse's counts.
+    motion: [2]f32 = .{ 0, 0 },
+    /// The mouse's buttons down.
+    buttons: Mouse.Buttons = .{},
+    bindings: Bindings = defaultBindings(.joystick),
+    settings: Settings = .{},
+};
+
 /// The input state the game keeps in globals: the keyboard, joystick and mouse states, the
-/// bindings and the input settings.
+/// bindings and the input settings. The main thread has one set, which the platform fills; the
+/// game frames have their own, which take up what the main thread has read (`Reading`).
 pub const Devices = struct {
     keyboard: Keyboard = .{},
     joystick: Joystick = .{},
@@ -895,7 +978,7 @@ pub const Devices = struct {
     /// game after. OpenReliant keeps the choice, and steers with the joystick as soon as one is
     /// attached.
     pub fn controlMode(devices: Devices) ControlMode {
-        if (devices.settings.control_mode == .joystick and devices.joystick.device == null) return .keyboard;
+        if (devices.settings.control_mode == .joystick and !devices.joystick.attached()) return .keyboard;
         return devices.settings.control_mode;
     }
 
@@ -913,11 +996,64 @@ pub const Devices = struct {
         devices.mouse.read();
     }
 
+    /// OpenReliant's: the main thread reads its devices for the game frames, once a pass while the
+    /// game plays: it lets go of the latches of the keys and the buttons that are up and polls the
+    /// joystick. Then it hands over what the game frames read in `reading`, which they take up
+    /// before each tick (`takeUp`). The mouse's movement moves into `reading`, so that it counts
+    /// once.
+    ///
+    /// **Improvement:** the game reads its devices only at each step. The main thread reads them
+    /// each pass, so the keys and buttons it reads itself, such as Escape and 0, can count a new
+    /// press up to three ticks sooner.
+    pub fn handOver(devices: *Devices, reading: *Reading) void {
+        devices.keyboard.read();
+        devices.joystick.read();
+        reading.keyboard = devices.keyboard;
+        reading.joystick = devices.joystick;
+        reading.joystick.device = null;
+        reading.joystick.handed = if (devices.joystick.device != null) devices.joystick.state else null;
+        reading.motion = @as(@Vector(2, f32), reading.motion) + devices.mouse.motion;
+        devices.mouse.motion = .{ 0, 0 };
+        reading.buttons = devices.mouse.buttons;
+        reading.bindings = devices.bindings;
+        reading.settings = devices.settings;
+    }
+
+    /// OpenReliant's: the game frames' devices take up what the main thread handed over in
+    /// `reading` (`handOver`), before each tick: the keys down, the joystick, the mouse's movement
+    /// and buttons, the bindings and the settings. The joystick's state waits for the next read,
+    /// which takes it in place of a poll, and the mouse's movement moves over, so that it counts
+    /// once. The presses the main thread has taken count as taken here too, so that the press that
+    /// closed a screen or the pause menu does nothing in the game.
+    pub fn takeUp(devices: *Devices, reading: *Reading) void {
+        devices.keyboard.down = reading.keyboard.down;
+        devices.keyboard.taken = reading.keyboard.latches();
+        const own = devices.joystick;
+        devices.joystick = reading.joystick;
+        devices.joystick.state = own.state;
+        devices.joystick.latched = own.latched;
+        devices.joystick.taken = reading.joystick.latched;
+        devices.mouse.motion = @as(@Vector(2, f32), devices.mouse.motion) + reading.motion;
+        reading.motion = .{ 0, 0 };
+        devices.mouse.buttons = reading.buttons;
+        devices.bindings = reading.bindings;
+        devices.settings = reading.settings;
+    }
+
+    /// OpenReliant's: the presses the game frames' devices (`other`) have taken count as taken on
+    /// the main thread's too, after game frames have run. So a press counts once whichever side
+    /// reads it, as it does when both sides read one keyboard.
+    pub fn takePresses(devices: *Devices, other: *const Devices) void {
+        devices.keyboard.taken = other.keyboard.latches();
+        devices.joystick.taken = other.joystick.latched;
+    }
+
     /// `control_active` (`0x00412630`): whether `action` is active because its joystick button is
     /// pressed, or its key is pressed with its modifier (or, without a modifier, with neither Shift
     /// nor Ctrl held). With `once`, each press counts only once: a button counts while it isn't
-    /// latched and is then latched, and a key is checked with `key_pressed`. While the keyboard's
-    /// `numbers_taken` is set, the keys 1 to 8 are ignored.
+    /// latched, nor taken by the other side (`Joystick.taken`), and is then latched, and a key is
+    /// checked with `key_pressed`. While the keyboard's `numbers_taken` is set, the keys 1 to 8 are
+    /// ignored.
     pub fn active(devices: *Devices, action: controls.Action, once: bool) bool {
         return devices.bindingActive(devices.bindings.get(action), once);
     }
@@ -928,7 +1064,7 @@ pub const Devices = struct {
         if (binding.button) |button| {
             if (devices.joystick.down(button)) {
                 if (!once) return true;
-                if (!devices.joystick.latched[button]) {
+                if (!devices.joystick.latched[button] and !devices.joystick.taken[button]) {
                     devices.joystick.latched[button] = true;
                     return true;
                 }
@@ -1194,6 +1330,80 @@ test "Devices.active with the joystick's buttons" {
     devices.read();
     devices.keyboard.down[controls.binding(.fire_lasers).key] = true;
     try std.testing.expect(devices.active(.fire_lasers, false));
+}
+
+test "the game frames' devices" {
+    var stick = testStick();
+    var devices: Devices = .{};
+    var reading: Reading = .{};
+    var game: Devices = .{};
+    const key: u8 = @intCast(controls.binding(.launch_missile).key);
+
+    // A press the main thread took, such as the one that closed the pause menu, does nothing in
+    // the game frames until the key comes up and is pressed again.
+    devices.keyboard.down[key] = true;
+    try std.testing.expect(devices.keyboard.pressed(key, .none, true));
+    devices.handOver(&reading);
+    game.takeUp(&reading);
+    try std.testing.expect(game.keyboard.down[key]);
+    try std.testing.expect(!game.active(.launch_missile, true));
+    devices.keyboard.down[key] = false;
+    devices.handOver(&reading);
+    game.takeUp(&reading);
+    game.read();
+    devices.keyboard.down[key] = true;
+    devices.handOver(&reading);
+    game.takeUp(&reading);
+    try std.testing.expect(game.active(.launch_missile, true));
+    // And the press the game frames took doesn't count again on the main thread.
+    devices.takePresses(&game);
+    try std.testing.expect(!devices.keyboard.pressed(key, .none, true));
+
+    // A modifier the game frames latched, and then freed with a held key as the orbiting views do,
+    // stays free.
+    devices.keyboard.down[scan.left_shift] = true;
+    devices.keyboard.down[scan.up] = true;
+    devices.handOver(&reading);
+    game.takeUp(&reading);
+    try std.testing.expect(game.keyboard.pressed(scan.up, .shift, true));
+    devices.takePresses(&game);
+    devices.handOver(&reading);
+    game.takeUp(&reading);
+    try std.testing.expect(!game.keyboard.pressed(scan.up, .none, false));
+    try std.testing.expect(game.keyboard.pressed(scan.up, .shift, false));
+    devices.takePresses(&game);
+    devices.handOver(&reading);
+    game.takeUp(&reading);
+    try std.testing.expect(game.keyboard.pressed(scan.up, .none, false));
+
+    // The joystick steers in the game frames while the main thread's is attached; its state
+    // reaches them as they read it, as a poll would.
+    devices.settings.control_mode = .joystick;
+    devices.joystick.open(stick.device(), default_dead_zone);
+    stick.state.x = 250;
+    devices.handOver(&reading);
+    game.takeUp(&reading);
+    try std.testing.expectEqual(ControlMode.joystick, game.controlMode());
+    try std.testing.expectEqual(null, game.joystick.device);
+    try std.testing.expectEqual(0, game.joystick.state.x);
+    game.read();
+    try std.testing.expectEqual(250, game.joystick.state.x);
+    stick.unplugged = true;
+    devices.handOver(&reading);
+    game.takeUp(&reading);
+    game.read();
+    try std.testing.expectEqual(ControlMode.keyboard, game.controlMode());
+    try std.testing.expectEqual(0, game.joystick.state.x);
+
+    // The mouse's movement counts once, however often it's handed over and taken up.
+    devices.mouse.motion = .{ 3, 0 };
+    devices.handOver(&reading);
+    devices.mouse.motion = .{ 2, 1 };
+    devices.handOver(&reading);
+    game.takeUp(&reading);
+    game.takeUp(&reading);
+    game.read();
+    try std.testing.expectEqual([2]i32{ 5, 1 }, game.mouse.state.moved);
 }
 
 test KeyNames {
