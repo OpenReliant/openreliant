@@ -217,6 +217,9 @@ band's middle, to 0.25 at least. The band reaches the next ring or place of chev
 50 ticks later, 320 farther on. The marker is drawn along the line from the camera no farther than
 50000, and only in the views from the cockpit, 0 to 3.
 
+OpenReliant builds the marker once for the run. Drawing keeps it, and starts its clock again as it
+takes up each mission's start ([Cues](loop.md#game-frames-and-drawn-frames)).
+
 ## Rules by mission number
 
 The game singles some missions out by their numbers:

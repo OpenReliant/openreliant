@@ -351,16 +351,17 @@ pub const Atmospheres = struct {
 
     /// The part of `create_object` for a planet, run once the object in slot `index` is made. A
     /// planet that turns, leans or has an atmosphere (`planets.of`) gets an entry, and its
-    /// atmosphere's ring, as wide as its model's first part, or the shell a mod's surface function
-    /// draws it on (`Shell`) where the planet names one that a mod registered. With the haze style,
-    /// the planet's terminator is softened where it has a ring.
+    /// atmosphere's ring, as wide as `radius`, the radius of its model's first part as the planet
+    /// was made, or the shell a mod's surface function draws it on (`Shell`) where the planet names
+    /// one that a mod registered. Drawing makes it as the game frames tell it (`main.cues`), from
+    /// the copy of the objects it draws.
     ///
     /// **Fix:** the game assumes at most `original_capacity` atmospheres, and a fifth would write
     /// past the end of its table. **Improvement:** OpenReliant's table holds up to `planets.most`
     /// planets, as many as the planets' table can list, so that the planets a mod adds turn and
     /// keep their atmospheres. Past that it logs a warning and makes no more. A planet whose ring
     /// can't be made still turns.
-    pub fn made(atmospheres: *Atmospheres, all: *create.Objects, index: u16) void {
+    pub fn made(atmospheres: *Atmospheres, all: *create.Objects, index: u16, radius: f32) void {
         const slot = &all.slots[index];
         const planet = planets.of(slot.object.type) orelse return;
         const look = planet.look();
@@ -384,16 +385,13 @@ pub const Atmospheres = struct {
         const ring: ?*Ring = ring: {
             if (shell != null) break :ring null;
             const each = look orelse break :ring null;
-            break :ring Ring.create(atmospheres.gpa, atmospheres.image, model.parts[0].object.radius, each, atmospheres.style.quads()) catch |err| {
+            break :ring Ring.create(atmospheres.gpa, atmospheres.image, radius, each, atmospheres.style.quads()) catch |err| {
                 log.warn("planet {d} has no atmosphere: {s}", .{ index, @errorName(err) });
                 break :ring null;
             };
         };
         atmospheres.entries[atmospheres.count] = .{ .ring = ring, .shell = shell, .turn = planet.turnPerTick(), .lean = planet.lean(), .planet = index };
         atmospheres.count += 1;
-        if (ring != null and atmospheres.style == .haze) {
-            for (model.parts) |*each| each.object.soft_terminator = true;
-        }
     }
 
     /// The surface function that draws `planet`'s atmosphere, reading the planet's parameters,
@@ -417,7 +415,7 @@ pub const Atmospheres = struct {
     /// along `sun`, and added to the background layer; a mod's shell is placed for the camera
     /// (`Shell.place`) and added there. The original's software renderer draws no atmosphere. A
     /// planet's parts sit at its origin (`create.planetMade`), so it turns in place, and the ring
-    /// stays round it.
+    /// stays round it. With the haze style, the terminator of a planet with a ring is softened.
     ///
     /// **Improvement:** the game turns the drawn planet a little further each frame. OpenReliant
     /// keeps the total angle instead, and each frame turns the planet from its orientation in the
@@ -432,7 +430,12 @@ pub const Atmospheres = struct {
             const planet = &all.slots[entry.planet];
             entry.turned = @mod(entry.turned + ticks * entry.turn, std.math.tau);
             planet.drawn.orientation = math.turned(math.product(planet.object.root.orientation, entry.lean), .y, entry.turned);
-            if (planet.model) |*model| model.place(planet.drawn.position, planet.drawn.orientation);
+            if (planet.model) |*model| {
+                model.place(planet.drawn.position, planet.drawn.orientation);
+                if (entry.ring != null and atmospheres.style == .haze) {
+                    for (model.parts) |*each| each.object.soft_terminator = true;
+                }
+            }
             if (planet.object.flags.disabled) continue;
             if (entry.shell) |shell| {
                 if (shell.place(planet.drawn.position, planet.drawn.orientation, camera)) try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &shell.object }, .background);
@@ -466,6 +469,12 @@ pub const Atmospheres = struct {
         }
     }
 };
+
+/// `Atmospheres.made` for the planet in slot `index`, as the mission's cue gives it
+/// (`main.cues.Cue.Made`).
+fn madeAsBuilt(atmospheres: *Atmospheres, all: *create.Objects, index: u16) void {
+    atmospheres.made(all, index, @import("../main/cues.zig").Cue.Made.of(all, index).radius);
+}
 
 test hazeAt {
     const sun: Vector = .{ 1, 0, 0 };
@@ -535,9 +544,9 @@ test Atmospheres {
     const ship = try mission.addWith(model.types(), .of(.predator), @splat(0));
 
     // Each Neptune gets its atmosphere, the fifth too, and Saturn and the ship get nothing.
-    atmospheres.made(all, ship);
-    atmospheres.made(all, saturn);
-    for (neptunes) |planet| atmospheres.made(all, planet);
+    madeAsBuilt(&atmospheres, all, ship);
+    madeAsBuilt(&atmospheres, all, saturn);
+    for (neptunes) |planet| madeAsBuilt(&atmospheres, all, planet);
     try std.testing.expectEqual(neptunes.len, atmospheres.count);
     try std.testing.expectEqual(neptunes[0], atmospheres.entries[0].planet);
 
@@ -591,7 +600,7 @@ test "a planet from the table turns and leans as it says, with no atmosphere" {
     planets.install(&table);
     const earth = try mission.addWith(model.types(), .of(.predator), @splat(0));
     all.slots[earth].object.type = .of(.earth);
-    atmospheres.made(all, earth);
+    madeAsBuilt(&atmospheres, all, earth);
     try std.testing.expectEqual(1, atmospheres.count);
     try std.testing.expectEqual(null, atmospheres.entries[0].ring);
 
@@ -628,7 +637,7 @@ test "an atmosphere round its planet, turning in place" {
     const all = mission.objects;
     const planet = try mission.addWith(model.types(), .of(.predator), .{ 1000, 0, 0 });
     all.slots[planet].object.type = .of(.uranus_lo);
-    atmospheres.made(all, planet);
+    madeAsBuilt(&atmospheres, all, planet);
     try std.testing.expectEqual(2 * round_segments, atmospheres.entries[0].ring.?.mesh.positions.len);
 
     // Turning, the planet stays where it stands, turned about its own Y, and the ring stands round
@@ -684,8 +693,8 @@ test "a mod's surface function draws a planet's atmosphere" {
     all.slots[earth].object.type = .of(.earth);
     const venus = try mission.addWith(model.types(), .of(.predator), .{ 0, 0, 1e7 });
     all.slots[venus].object.type = .of(.venus_hi);
-    atmospheres.made(all, earth);
-    atmospheres.made(all, venus);
+    madeAsBuilt(&atmospheres, all, earth);
+    madeAsBuilt(&atmospheres, all, venus);
 
     // Earth's is a shell the function draws, reading Earth's numbers, and no band.
     const shell = atmospheres.entries[0].shell.?;
@@ -761,16 +770,17 @@ test "a haze, brighter toward the sun" {
     const planet = try mission.addWith(model.types(), .of(.predator), @splat(0));
     all.slots[planet].object.type = .of(.jupiter_hi);
     all.slots[planet].model.?.parts[0].object.radius = 1000;
-    atmospheres.made(all, planet);
-    // The planet's terminator softened.
-    for (all.slots[planet].model.?.parts) |part| try std.testing.expect(part.object.soft_terminator);
+    madeAsBuilt(&atmospheres, all, planet);
+    try std.testing.expect(!all.slots[planet].model.?.parts[0].object.soft_terminator);
 
     // Seen with the sun square to the view, the ring is as solid as a haze's day on the side
-    // toward the sun, and as its night on the side away, its outer circle as its inner.
+    // toward the sun, and as its night on the side away, its outer circle as its inner. The
+    // planet the frame draws has its terminator softened.
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
     const sphere = all.slots[planet].drawn.position;
     try atmospheres.frame(gpa, &scene, all, sphere + Vector{ 0, 0, -5000 }, .{ 3, 0, 0 }, 0, 0);
+    for (all.slots[planet].model.?.parts) |part| try std.testing.expect(part.object.soft_terminator);
     const colours = &atmospheres.entries[0].ring.?.colours;
     var least: f32 = 1;
     var most: f32 = 0;

@@ -45,6 +45,7 @@ const erayfx = @import("erayfx.zig");
 const tractor = @import("tractor.zig");
 const airipper = @import("airipper.zig");
 const jump = @import("jump.zig");
+pub const cues = @import("main/cues.zig");
 pub const flash = @import("main/flash.zig");
 pub const scanner = @import("main/scanner.zig");
 pub const cockpit = @import("main/cockpit.zig");
@@ -561,6 +562,8 @@ pub const Drawing = struct {
     random: *Random,
     /// Whether what moves is drawn between the game's ticks (`objects.pastTick`).
     smooth_motion: bool,
+    /// The missiles' and torpedoes' trails, which run here (`missiles.trail.Trails.frame`).
+    trails: ?*missiles.trail.Trails = null,
 };
 
 /// `frame_controls` (`0x00414060`), once a game frame where there are devices to read and a
@@ -624,7 +627,7 @@ pub fn viewFrame(drawing: Drawing) void {
     const ticks = clock.drawnTicks();
     const at = clock.viewTime();
     const slot = &all.slots[all.player];
-    if (world.trails) |trails| {
+    if (drawing.trails) |trails| {
         var drawn = shown;
         drawn.random = drawing.random;
         trails.frame(drawn);
@@ -2237,13 +2240,13 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     if (world.smoke) |pools| pools.reset();
     if (world.gun_particles) |pools| pools.reset();
     all.missiles.reset(all.gpa);
-    if (world.trails) |trails| trails.reset();
+    // Drawing lets go of the last mission's trails and atmospheres, and starts the escort marker's
+    // pulse and Planet Bombard's flashes again.
+    if (world.cues) |told| told.add(.mission_started);
     if (world.rays) |rays| rays.reset();
     if (world.tractors) |tractors| tractors.reset();
     if (world.rippers) |rippers| rippers.reset();
     if (world.jump_effects) |effects| effects.reset();
-    if (world.atmospheres) |atmospheres| atmospheres.reset();
-    if (world.escort_marker) |marker| marker.reset();
     if (world.radio) |radio| radio.reset(if (world.hearing) |hearing| hearing.sound else null);
     world.player.remarks = .{};
     world.player.friendly_fire = .{};

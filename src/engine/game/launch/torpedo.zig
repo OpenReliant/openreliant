@@ -3,7 +3,6 @@
 //! at throttle 2 trailing smoke, and then flies itself.
 
 const std = @import("std");
-const log = std.log.scoped(.launch);
 
 const aigeneric = @import("../aigeneric.zig");
 const gameobj = @import("../gameobj.zig");
@@ -60,9 +59,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
             object.throttle = boost_throttle;
             slot.motion = .plain;
             if (slot.orders[0].target.slotIn(all)) |carrier| object.velocity = all.slots[carrier].object.velocity;
-            if (world.trails) |trails| _ = trails.start(world, .{ .object = index }, trail_look) catch |err| {
-                log.warn("a torpedo's trail is left out: {s}", .{@errorName(err)});
-            };
+            if (world.cues) |cues| cues.add(.{ .trail_started = .of(world, cues.trailNumber(), .{ .object = index }, trail_look) });
         },
         .boost => if (state.due <= now) {
             slot.motion = .forward;
