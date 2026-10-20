@@ -1289,7 +1289,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // The frame draws a copy of the objects, which with smooth motion has what moves as far on
         // as the clock has run past the tick, and the camera follows it there. Until the frame is
         // drawn, the subtarget keeps the copies of its parts that the copy may show.
-        const drawn_objects: ?*game.create.Objects = if (flow.in_front_end) null else try drawn.take(objects, .of(&clock, smooth_motion, options.riders), clock.frame_start);
+        const drawn_objects: ?*game.create.Objects = if (flow.in_front_end) null else try drawn.take(objects, .of(&clock, smooth_motion, options.riders), clock.frame_start, .{ .splits = &explosions.splits, .gates = &gates });
         var drawn_world = world;
         if (drawn_objects) |copy| {
             drawn_world.objects = copy;
@@ -1372,6 +1372,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             defer display.objects = objects;
             try game.main.drawFrame(arena, frame_arena.allocator(), &scene, &context, .{
                 .objects = copy,
+                .portals = &drawn.portals,
                 .seat = if (copy.slots[copy.player].object.flags.hidden) copy.player else null,
                 .shown = .of(&player),
                 .space = space,

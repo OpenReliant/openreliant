@@ -89,13 +89,32 @@ pub const Splits = struct {
     }
 
     /// The portals of each split cutting this frame, into the scene, which puts them in the
-    /// camera's frame (`scene_add` in each split's frame function).
-    pub fn draw(splits: *Splits, gpa: Allocator, scene: *srcore.Scene) Allocator.Error!void {
+    /// camera's frame (`scene_add` in each split's frame function): drawing's own for them
+    /// (`standPortals`).
+    pub fn draw(splits: *const Splits, gpa: Allocator, scene: *srcore.Scene, portals: *xtrabits.Portals) Allocator.Error!void {
         for (&splits.slots) |*slot| {
             const under_way = &(slot.* orelse continue);
             switch (under_way.*) {
                 inline else => |*split| if (split.cutting) {
-                    for (&split.portals) |*portal| try xtrabits.sceneAdd(gpa, scene, .{ .portal = portal }, .world);
+                    for (&split.portals) |*portal| {
+                        if (portals.of(portal)) |mine| try xtrabits.sceneAdd(gpa, scene, .{ .portal = mine }, .world);
+                    }
+                },
+            }
+        }
+    }
+
+    /// Stands drawing's portals for every split's two (`xtrabits.Portals.stand`), where the split's
+    /// stand and facing as they face.
+    pub fn standPortals(splits: *const Splits, portals: *xtrabits.Portals) void {
+        for (&splits.slots) |*slot| {
+            const under_way = &(slot.* orelse continue);
+            switch (under_way.*) {
+                inline else => |*split| for (&split.portals) |*portal| {
+                    const mine = portals.stand(portal, split.started) orelse continue;
+                    mine.position = portal.position;
+                    mine.orientation = portal.orientation;
+                    mine.normal = portal.normal;
                 },
             }
         }
@@ -816,6 +835,24 @@ test "a capital ship sweeps apart" {
     try std.testing.expect(split.cutting);
     try std.testing.expectEqual(first, split.portals[0].position);
     try std.testing.expect(!half.object.flags.disabled);
+    // Drawing stands its own portals where the split's stand, puts those in the scene, and cuts
+    // the hull's copy by them; the split's own are left as they are.
+    var portals: xtrabits.Portals = .{};
+    portals.begin();
+    splits.standPortals(&portals);
+    portals.end();
+    const mine = portals.of(&split.portals[0]).?;
+    try std.testing.expectEqual(first, mine.position);
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(std.testing.allocator);
+    try splits.draw(std.testing.allocator, &scene, &portals);
+    try std.testing.expectEqual(2, scene.portals.items.len);
+    try std.testing.expectEqual(mine, scene.portals.items[0]);
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var copy = try mission.objects.slots[ship].model.?.copy(arena.allocator());
+    portals.cut(&copy);
+    try std.testing.expect(copy.parts[0].object.portal == mine);
     // Past its time, the halves part: nothing is cut, the hull goes, and the split is over. The
     // camera stands by, so the view flashes.
     mission.clock.frame_start = split.sequence.duration + 1;

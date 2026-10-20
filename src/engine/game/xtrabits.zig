@@ -94,10 +94,19 @@ pub fn sceneAdd(gpa: Allocator, scene: *srcore.Scene, object: Object, layer: src
     }
 }
 
-/// What `sceneAddCopy` puts in the scene: a mesh object or a set of sprites as a frame draws it.
+/// What `sceneAddCopy` puts in the scene: a mesh object, one with a mesh of its own, or a set of
+/// sprites, as a frame draws it.
 pub const Copied = union(enum) {
     mesh: srapiext.MeshObject,
+    own_mesh: OwnMesh,
     sprites: srapiext.SpriteSet,
+};
+
+/// A mesh object that draws a mesh of its own at every distance, as one level of detail, the way
+/// `mesh_object_create` makes one. The copy gets its own level, made with it.
+pub const OwnMesh = struct {
+    object: srapiext.MeshObject,
+    mesh: *const srapiext.Mesh,
 };
 
 /// Puts a copy of `copied` in the scene for the frame (`sceneAdd`). The copy is made in `arena`,
@@ -110,6 +119,13 @@ pub fn sceneAddCopy(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, copi
             const copy = try arena.create(srapiext.MeshObject);
             copy.* = mesh;
             try sceneAdd(gpa, scene, .{ .mesh = copy }, layer);
+        },
+        .own_mesh => |own| {
+            const copy = try arena.create(struct { object: srapiext.MeshObject, level: [1]srapiext.Level });
+            copy.level = .{.{ .mesh = own.mesh, .until = std.math.inf(f32) }};
+            copy.object = own.object;
+            copy.object.levels = &copy.level;
+            try sceneAdd(gpa, scene, .{ .mesh = &copy.object }, layer);
         },
         .sprites => |set| {
             const copy = try arena.create(srapiext.SpriteSet);
@@ -144,6 +160,83 @@ pub fn clipNamed(model: *objects.Model, name: []const u8, portal: ?*const srapie
     object.portal = portal;
     object.flags.portal_clipped = portal != null;
 }
+
+/// OpenReliant's: the portals a drawn frame cuts its copy of the objects with (`main.Drawn`), one
+/// for each portal of the game's that a split or a gate keeps. The owner places each where the
+/// game's stands. Each keeps from one drawn frame to the next the plane the pipeline last gave it
+/// in the camera's frame (`srapiext.Portal.transform`), as the game's own portal keeps it: one
+/// left out of the scene cuts by the plane it last had there, and a new one by none. So neither
+/// drawing nor the pipeline writes into the game's portals.
+pub const Portals = struct {
+    held: [capacity]?Held = @splat(null),
+
+    /// Room for the portals of every split and gate there can be (`main.Drawn`).
+    pub const capacity = 64;
+
+    const Held = struct {
+        /// The game's portal, and the tick its owner made it at, which tells it from a later one
+        /// in its place.
+        game: *const srapiext.Portal,
+        made: i32,
+        portal: srapiext.Portal = .{},
+        /// Whether its owner stood it this drawn frame.
+        stood: bool = true,
+    };
+
+    /// Before the owners stand theirs (`stand`): none stood yet.
+    pub fn begin(portals: *Portals) void {
+        for (&portals.held) |*slot| if (slot.*) |*held| {
+            held.stood = false;
+        };
+    }
+
+    /// Drawing's portal for `game`, which its owner made at tick `made`: the one it had for it the
+    /// frame before, with the plane it last had in the camera's frame, or a new one with none. The
+    /// owner places it. Null where all are taken.
+    pub fn stand(portals: *Portals, game: *const srapiext.Portal, made: i32) ?*srapiext.Portal {
+        var free: ?*?Held = null;
+        for (&portals.held) |*slot| {
+            const held = &(slot.* orelse {
+                if (free == null) free = slot;
+                continue;
+            });
+            if (held.game != game) continue;
+            if (held.made != made) held.* = .{ .game = game, .made = made };
+            held.stood = true;
+            return &held.portal;
+        }
+        const slot = free orelse return null;
+        slot.* = .{ .game = game, .made = made };
+        return &slot.*.?.portal;
+    }
+
+    /// After the owners stood theirs: the ones no owner stood go.
+    pub fn end(portals: *Portals) void {
+        for (&portals.held) |*slot| if (slot.*) |held| {
+            if (!held.stood) slot.* = null;
+        };
+    }
+
+    /// Drawing's portal for `game`, where its owner stood one.
+    pub fn of(portals: *Portals, game: *const srapiext.Portal) ?*srapiext.Portal {
+        for (&portals.held) |*slot| {
+            const held = &(slot.* orelse continue);
+            if (held.game == game) return &held.portal;
+        }
+        return null;
+    }
+
+    /// Points each part of `model`, and of the models it carries however deep, that one of the
+    /// game's portals cuts at drawing's portal for it.
+    pub fn cut(portals: *Portals, model: *objects.Model) void {
+        for (model.parts) |*part| {
+            const game = part.object.portal orelse continue;
+            if (portals.of(game)) |mine| part.object.portal = mine;
+        }
+        var each = model.carried();
+        while (each.next()) |mount| portals.cut(&mount.model);
+    }
+};
 
 test sceneAdd {
     const gpa = std.testing.allocator;
@@ -197,6 +290,54 @@ test sceneAddCopy {
     try std.testing.expect(!scene.layers.get(.overlay).items[0].sprites.flags.hidden);
     try sceneAddCopy(gpa, arena.allocator(), &scene, .{ .sprites = set }, .overlay);
     try std.testing.expectEqual(1, scene.layers.get(.overlay).items.len);
+
+    // An object with a mesh of its own draws it at every distance, through a level made with the
+    // copy.
+    const own: srapiext.MeshObject = .{ .flags = .{}, .position = @splat(0), .radius = 100, .levels = &.{} };
+    try sceneAddCopy(gpa, arena.allocator(), &scene, .{ .own_mesh = .{ .object = own, .mesh = &mesh } }, .background);
+    const drawn = scene.layers.get(.background).items[0].mesh;
+    try std.testing.expectEqual(1, drawn.levels.len);
+    try std.testing.expectEqual(&mesh, drawn.levels[0].mesh);
+    try std.testing.expectEqual(std.math.inf(f32), drawn.levels[0].until);
+}
+
+test Portals {
+    const gpa = std.testing.allocator;
+    var portals: Portals = .{};
+    const game: [2]srapiext.Portal = .{ .{}, .{} };
+
+    // A new portal has no plane in the camera's frame yet, and keeps the one it is given from one
+    // frame to the next.
+    portals.begin();
+    const first = portals.stand(&game[0], 10).?;
+    try std.testing.expectEqual(srapiext.Portal.View{}, first.view);
+    first.view.point = .{ 1, 2, 3 };
+    portals.end();
+    portals.begin();
+    try std.testing.expectEqual(first, portals.stand(&game[0], 10).?);
+    try std.testing.expectEqual(srapiext.Portal.View{ .point = .{ 1, 2, 3 } }, first.view);
+    // One its owner made later in the same place starts again.
+    try std.testing.expectEqual(srapiext.Portal.View{}, portals.stand(&game[0], 20).?.view);
+    portals.end();
+
+    // The parts a game's portal cuts are pointed at drawing's for it; the rest are left alone.
+    var named: objects.testing.NamedParts(2) = undefined;
+    named.init(.{ "Hull", "Top" }, .{ .cut, .cut }, .{ &.{}, &.{} });
+    var model = try named.parts.create(gpa);
+    defer model.deinit(gpa);
+    clipNamed(&model, "Top", &game[0]);
+    clipNamed(&model, "Hull", &game[1]);
+    portals.begin();
+    const mine = portals.stand(&game[0], 20).?;
+    portals.end();
+    portals.cut(&model);
+    try std.testing.expect(model.parts[1].object.portal == mine);
+    try std.testing.expect(model.parts[0].object.portal == &game[1]);
+
+    // Once its owner stands it no more, it goes.
+    portals.begin();
+    portals.end();
+    try std.testing.expectEqual(null, portals.of(&game[0]));
 }
 
 /// What `object_random15` (`0x004ADCE0`) multiplies an object's seed by, the same step as the C

@@ -362,16 +362,16 @@ pub const Cannons = struct {
     /// in `order_fire_ion_cannon`), where the parts they hang from stand as drawn: the laser from
     /// the focus, the glow, the rings and the lights from the cannon. A cannon whose object no
     /// longer fires shows nothing.
-    pub fn draw(cannons: *Cannons, gpa: Allocator, scene: *srcore.Scene, all: *create.Objects) Allocator.Error!void {
+    pub fn draw(cannons: *const Cannons, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: *create.Objects) Allocator.Error!void {
         for (cannons.records.items) |record| {
             const slot = &all.slots[record.slot];
             if (slot.running(.fire_ion_cannon) == null) continue;
             const cannon = slot.partPlace(record.cannon.live(all) orelse continue) orelse continue;
             const focus = slot.partPlace(record.focus.live(all) orelse continue) orelse continue;
             const shown = record.shown;
-            if (shown.laser) if (record.laser) |*laser| try laser.draw(gpa, scene, focus);
-            if (shown.glow) if (record.glow) |*glow| try glow.draw(gpa, scene, cannon);
-            if (shown.rings) if (record.rings) |*rings| try rings.draw(gpa, scene, cannon);
+            if (shown.laser) if (record.laser) |*laser| try laser.draw(gpa, arena, scene, focus);
+            if (shown.glow) if (record.glow) |*glow| try glow.draw(gpa, arena, scene, cannon);
+            if (shown.rings) if (record.rings) |*rings| try rings.draw(gpa, arena, scene, cannon);
             var lit = shown.lights.iterator(.{});
             while (lit.next()) |n| {
                 const light: srlight.Light = .{
@@ -533,7 +533,6 @@ pub const Record = struct {
 /// part of the cannon: the targeting laser and the barrel's glow.
 const Star = struct {
     mesh: srapiext.Mesh,
-    level: [1]srapiext.Level = undefined,
     object: srapiext.MeshObject,
     /// Where it stands in its part's frame.
     place: math.Place,
@@ -577,26 +576,25 @@ const Star = struct {
         }
     }
 
-    /// Into the world's layer, its part standing at `part`.
-    fn draw(star: *Star, gpa: Allocator, scene: *srcore.Scene, part: math.Place) Allocator.Error!void {
+    /// Into the world's layer, its part standing at `part`: a copy of its object made in `arena`,
+    /// which lasts until the frame is drawn, drawing the star's own mesh (`xtrabits.OwnMesh`), and
+    /// coloured by the star's own colours where its object takes them.
+    fn draw(star: *const Star, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, part: math.Place) Allocator.Error!void {
         const stands = star.place.within(part);
-        star.object.position = stands.position;
-        star.object.orientation = stands.orientation;
-        // What the object points into lives in the star itself.
-        star.level = .{.{ .mesh = &star.mesh, .until = std.math.inf(f32) }};
-        star.object.levels = &star.level;
-        if (star.object.flags.baked_object) star.object.baked = star.colours[0..star.mesh.positions.len];
-        try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &star.object }, .world);
+        var shown = star.object;
+        shown.position = stands.position;
+        shown.orientation = stands.orientation;
+        if (shown.flags.baked_object) shown.baked = star.colours[0..star.mesh.positions.len];
+        try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .own_mesh = .{ .object = shown, .mesh = &star.mesh } }, .world);
     }
 };
 
 /// The rings that run up the barrel as it glows: squares `ring_side` across over the whole of
 /// `warpin3`, unlit and added (`loadout.addedSquare`), standing across the barrel. The game builds a
-/// mesh for each; OpenReliant one for them all.
+/// mesh and an object for each; OpenReliant one of each for them all.
 const Rings = struct {
     mesh: srapiext.Mesh,
-    level: [1]srapiext.Level = undefined,
-    objects: [ring_count]srapiext.MeshObject,
+    object: srapiext.MeshObject,
     /// Where each stands along the barrel, in the cannon's frame.
     at: [ring_count]Vector = @splat(@splat(0)),
 
@@ -605,8 +603,7 @@ const Rings = struct {
     fn create(gpa: Allocator, image: *srtexture.Image) Allocator.Error!Rings {
         const mesh = try loadout.addedSquare(gpa, ring_side, ring_side, false, image);
         // `0x4800`: never culled, and its mesh its own, which here the five share.
-        const object: srapiext.MeshObject = .{ .flags = .{ .not_culled = true }, .position = @splat(0), .radius = mesh.radius, .levels = &.{} };
-        return .{ .mesh = mesh, .objects = @splat(object) };
+        return .{ .mesh = mesh, .object = .{ .flags = .{ .not_culled = true }, .position = @splat(0), .radius = mesh.radius, .levels = &.{} } };
     }
 
     fn deinit(rings: *Rings, gpa: Allocator) void {
@@ -623,15 +620,16 @@ const Rings = struct {
         }
     }
 
-    /// Into the world's layer, the cannon standing at `cannon`.
-    fn draw(rings: *Rings, gpa: Allocator, scene: *srcore.Scene, cannon: math.Place) Allocator.Error!void {
-        rings.level = .{.{ .mesh = &rings.mesh, .until = std.math.inf(f32) }};
-        for (&rings.objects, rings.at) |*object, at| {
+    /// Into the world's layer, the cannon standing at `cannon`: each a copy of the rings' object
+    /// made in `arena`, which lasts until the frame is drawn, drawing their mesh
+    /// (`xtrabits.OwnMesh`).
+    fn draw(rings: *const Rings, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, cannon: math.Place) Allocator.Error!void {
+        for (rings.at) |at| {
             const stands = (math.Place{ .position = at, .orientation = across_barrel }).within(cannon);
-            object.position = stands.position;
-            object.orientation = stands.orientation;
-            object.levels = &rings.level;
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = object }, .world);
+            var shown = rings.object;
+            shown.position = stands.position;
+            shown.orientation = stands.orientation;
+            try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .own_mesh = .{ .object = shown, .mesh = &rings.mesh } }, .world);
         }
     }
 };
@@ -1045,6 +1043,15 @@ test "the Boridin's cannon charges, fires and destroys a ship" {
     try std.testing.expect(record.shown.glow and record.shown.rings);
     try std.testing.expectApproxEqAbs(ease.in(glow_narrow, glow_width, 0.5), @abs(record.glow.?.mesh.positions[0][1]), 1e-3);
     try std.testing.expectApproxEqAbs(-400, record.rings.?.at[0][1], 1e-3);
+    // Drawing draws copies of them, and leaves the cannon's own objects as they are.
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(std.testing.allocator);
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    try fixture.built.cannons.draw(std.testing.allocator, arena.allocator(), &scene, mission.objects);
+    const drawn = scene.layers.get(.world).items;
+    try std.testing.expect(drawn.len > ring_count);
+    for (drawn) |item| try std.testing.expect(item.mesh != &record.glow.?.object and item.mesh != &record.rings.?.object);
 
     // It fires: the beam runs from where it leaves to the Sabre, and five fireballs go off about
     // it.
@@ -1060,7 +1067,7 @@ test "the Boridin's cannon charges, fires and destroys a ship" {
     // Its end follows the Sabre, and the rays fade.
     mission.ordersAfter(ctx, boridin, 50);
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, 50300 }), beam.to);
-    try std.testing.expectEqual(0.5, rays.kept(record.rays[0].?).?.strands[0].colours[0][2]);
+    try std.testing.expectEqual(0.5, rays.kept(record.rays[0].?).?.strands[0].colour[2]);
 
     // The Sabre is destroyed, and the cannon lets go of its record and its rays.
     mission.ordersAfter(ctx, boridin, 50);
@@ -1221,7 +1228,7 @@ test "the rogue base's cannon fires with no crackle, lights or glow, in its own 
     mission.ordersAfter(ctx, base, 200);
     try std.testing.expectEqual(.fire, state.step);
     const beam = fixture.built.rays.kept(held.beam.?).?;
-    try std.testing.expectEqual([4]f32{ 0.5, 0, 1, beam.strands[0].colours[0][3] }, beam.strands[0].colours[0]);
+    try std.testing.expectEqual([3]f32{ 0.5, 0, 1 }, beam.strands[0].colour);
     held.shown = .{};
     mission.ordersAfter(ctx, base, 10);
     try std.testing.expect(!held.shown.laser);

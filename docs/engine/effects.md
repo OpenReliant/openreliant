@@ -10,9 +10,11 @@ The game moves its effects on by the ticks, a hundred a second, and draws each w
 
 The game keeps the effects' records and moves them on in the game frames. Drawing draws each from a
 copy it makes in the frame's arena, standing where the frame draws it (`xtrabits.sceneAddCopy`), so
-neither drawing nor the pipeline, as it picks a mesh's level, writes into the game's records. The
-capital ships' splits are the exception: their portals are their own, since the pipeline puts them
-in the camera's frame and the splitting parts are clipped by them.
+neither drawing nor the pipeline, as it picks a mesh's level, writes into the game's records. It
+draws the countermeasures, and the effects of the jumps, the ion cannons and the gates, the same way
+([Gates](gates.md)). What drawing keeps from one drawn frame to the next, it keeps in records of its
+own: the electric rays' strands ([Electric rays](#electric-rays)), and the portals that cut the
+capital ships as they split ([Splits](#splits)).
 
 ## Where nothing is drawn
 
@@ -364,6 +366,8 @@ When the time is up, the split ends once (`GameObject` `0x610` bit 1) and the po
 
 The flash (`0x00587CC8`) lasts 100 ticks. Once a frame, `mission_frame` draws it and counts it down by the frame's ticks (`0x00494940`): a sprite over the whole view, just beyond the near plane in the overlay's layer, untextured and added to what is drawn, white at 0.012 for each tick left, at most 1. So it holds white for 17 ticks and fades out over the rest. The same sprite shows red while the player's display is shaken by a hit ([The interference](hud.md#the-interference)). OpenReliant counts the flash down at the start of the next game frame (`flash.Flash.countDown`). Drawing only reads it, and draws the sprite from a copy in the frame's arena.
 
+Drawing cuts its copy of the ship by portals of its own (`xtrabits.Portals`): each stands where one of the split's stands, the copy's parts are pointed at it (`main.Drawn`), and it goes into the scene in the split's place. Each keeps the plane it last had in the camera's frame from one drawn frame to the next, as the game's portal does, and a new split's start with none, so the last step of a sweep, and a Latov's and a bursts split's, which leave their portals out of the scene, cut as the game's do. The pipeline writes nothing into the split.
+
 A split puts out the Dark Reign's hat and the Boridin breakaway's core as it starts ([Extras](#extras)).
 
 [`explode/split.zig`](../../src/engine/game/explode/split.zig) ports the splits, and [`main/flash.zig`](../../src/engine/game/main/flash.zig) the flash.
@@ -523,7 +527,7 @@ Once a frame, `erays_update` (`0x0046AC30`) runs `eray_update` (`0x0046AF40`) fo
 
 The game leaves unset when a ray last changed and how long it stays lit. OpenReliant starts both at nothing, so a flickering ray goes dark on its first frame, fading if it fades. The game also makes a 17th segment for each strand that it never places or lights. OpenReliant leaves it out, and draws each strand as a single mesh.
 
-OpenReliant moves the rays on and lets them go in the game frames (`Rays.frame`), and drawing strays the strands in the first frame drawn at each tick (`Rays.draw`). So the rays crackle at the same pace at any frame rate, and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
+OpenReliant moves the rays on and lets them go in the game frames (`Rays.frame`), and drawing strays the strands in the first frame drawn at each tick (`Rays.draw`). So the rays crackle at the same pace at any frame rate, and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)). The game keeps each strand's colour, alpha, width and texture; drawing keeps its mesh, in a record of its own for each ray, which it makes as it first draws the ray (`erayfx.Shown`).
 
 **Fix:** a ray hanging from a part that a split's portal cuts is cut by it too, so it shows only on what the sweep has laid bare. The game cuts the part alone, and its rays crackle over the stretch of the ship still whole.
 
