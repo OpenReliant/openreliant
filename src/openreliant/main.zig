@@ -422,6 +422,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         std.log.warn("can't read {s}: {s}", .{ game.interface.defaults_name, @errorName(err) });
         break :none null;
     };
+    // The game frames' own devices, and what the main thread hands them of its own each pass.
+    var game_devices: engine.input.Devices = .{};
+    var reading: engine.input.Reading = .{};
     // The characters typed into the window, which its procedure queues (`WM_CHAR`).
     var typed: game.winmain.Typed = .{};
     // Sound: Miles's calls, played by OpenAL Soft or OpenReliant's own mixer through SDL3's audio,
@@ -802,7 +805,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     };
     if (options.mission != null) {
         try game_scripts.start();
-        try play.start(.{ .world = world, .devices = &devices });
+        try play.start(.{ .world = world, .devices = &game_devices });
     }
     // What the front end draws with, and where the game is between it and the missions.
     var front_resources: ?engine.genilib.interf.Resources = null;
@@ -968,7 +971,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 session.clearConsoleLines();
             }
             if (reloading) try game_scripts.reload(if (mission) .{
-                .orders = .{ .world = world, .devices = &devices },
+                .orders = .{ .world = world, .devices = &game_devices },
                 .mission = game.main.scriptMission(&reload_file, objects, play.number, play.file_number),
                 .seed = game.main.scriptSeed(world.random, play.number),
             } else null);
@@ -1174,7 +1177,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             }
             sound.closeMusic();
             clock.start(platform.window.ticks());
-            try play.start(.{ .world = world, .devices = &devices });
+            try play.start(.{ .world = world, .devices = &game_devices });
             flow.in_front_end = false;
             flow.from_front_end = true;
         }
@@ -1185,13 +1188,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         }
         // The window takes text while the front end has a line to type into.
         window.takeText(console_up or (flow.in_front_end and front.takesText()));
-        const orders: game.aigeneric.Context = .{ .world = world, .devices = &devices };
+        const orders: game.aigeneric.Context = .{ .world = world, .devices = &game_devices };
         const slot = &objects.slots[objects.player];
         // Whether the drawn frame's view frame runs this pass, with the step the launch is at.
         var viewed: ?PlayerLaunch.Step = null;
         if (!flow.in_front_end) {
             // The timer's ticks since the last pass, then a game tick for each, as `mission_run` paces
-            // them: the simulation steps on every fourth, reading the keyboard as it goes, and runs the
+            // them: the simulation steps on every fourth, reading the devices as it goes, and runs the
             // objects' updates. A screenshot takes one tick a frame so that the camera settles the same
             // way on every run.
             // While the editor pauses the mission, the timer's ticks pass unrun.
@@ -1203,11 +1206,20 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 clock.advanceBy(now / platform.window.tick_nanoseconds, PlayerLaunch.skip_ticks);
             } else if (frames_left != null) clock.advanceBy(now / platform.window.tick_nanoseconds, 1) else clock.advanceToFine(now, platform.window.tick_nanoseconds);
             // While the communications window is open the keys 1 to 8 are its menu's.
-            devices.keyboard.numbers_taken = display.state.windows.status.get(.comms).phase == .open;
+            devices.keyboard.numbers_taken = display.state.commsOpen();
+            // The main thread reads its devices for the game frames, which take up what it hands
+            // over before each tick.
+            if (!clock.paused) devices.handOver(&reading);
             // A game frame for each tick: the tick, then `mission_frame`'s game work at it. That runs
             // every object's orders, which fly the ships and read the player's controls, and frames
             // every object between its last two places, as far into the step as the tick is.
-            const ended = game.main.gameFrames(&clock, &devices, world, options.riders, play.loaded);
+            const frames_from = clock.frame_start;
+            const ended = game.main.gameFrames(&clock, &game_devices, &reading, world, options.riders, play.loaded);
+            // The presses the game frames took count as taken on the main thread too, once they
+            // have run. They free their latches only as they step, so while they don't run, paused
+            // or held by the editor, the main thread frees the presses it took up from them itself,
+            // as the keys come up.
+            if (clock.frame_start != frames_from) devices.takePresses(&game_devices);
             // Then the drawn frame, over the ticks since the last one.
             clock.drawBegin();
             // `mission_frame` looks for Escape and F1 before its work, and pausing into the menu

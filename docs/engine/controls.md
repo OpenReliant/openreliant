@@ -43,6 +43,27 @@ A dead zone of a tenth of the range applies to the whole device. `joystick_butto
 
 The front-end screens read the keyboard themselves.
 
+In OpenReliant, the game frames read devices of their own (`input.Devices`), apart from the main
+thread's, which the platform fills. Each pass while the game plays, the main thread reads its
+devices: it lets go of the latches of the keys and the buttons that are up and polls the joystick.
+Then it hands over what the game frames read (`input.Reading`, `Devices.handOver`): the keys down,
+the joystick, the mouse's movement and buttons, the bindings and the settings. The game frames take
+it up before each tick (`Devices.takeUp`). Each step then reads their devices as `simulation_step`
+does, and takes the joystick's state as the main thread last polled it. The mouse's movement moves
+on as it is handed over and taken up, so that it counts once.
+
+Each side keeps its own latches ([Whether an action is active](#whether-an-action-is-active)), and
+counts the presses the other side has latched as taken too (`Keyboard.taken`, `Joystick.taken`): the
+game frames take the main thread's up with the reading, and the main thread takes the game frames'
+up after they have run. Each side lets go of the other's presses as their keys and buttons come up,
+and a key read without `once` frees only its own side's latches. So a press counts once wherever it
+is read, as it does when both sides read one keyboard: a press that a screen of the front end or the
+pause menu took doesn't count again in the game.
+
+**Improvement:** the game reads its devices only at each step. The main thread reads them each pass,
+so the keys and buttons it reads itself, such as Escape and 0, can count a new press up to three
+ticks sooner.
+
 ## Bindings
 
 `control_bindings` (`0x4E2380`) holds a `ControlBinding` for each action: a scan code, a modifier
@@ -157,7 +178,8 @@ for as long as its button or key is down; with it, only once for each press.
    `button_latched` (`0x5DDC98`) once the button is up.
 2. **The key.** The keys 1 to 8, scan codes 2 to 9, never count while the word at `0x501EE8` is
    3: that is the phase of the display's window 11, the communications menu, open, whose number
-   keys call the units in range ([`hud.md`](hud.md#the-windows)). Otherwise, without `once`, a key
+   keys call the units in range ([`hud.md`](hud.md#the-windows)). OpenReliant looks at the phase
+   before each tick of the game frames (`hud.State.commsOpen`). Otherwise, without `once`, a key
    bound with no modifier counts while it is down and neither Shift nor Ctrl is; a key with a
    modifier counts while it and either key of the modifier are down. With `once`,
    `control_active` asks `key_pressed`.

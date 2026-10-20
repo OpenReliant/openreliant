@@ -3893,6 +3893,13 @@ pub const State = struct {
         state.show(all, entry.target, multiplayer);
     }
 
+    /// Whether the communications window is open. Its menu then runs (`targetKeys`) and has the
+    /// keys 1 to 8, so that no action bound to them counts (`input.Keyboard.numbers_taken`), as
+    /// `control_active` tests the window's phase at `0x00501EE8`.
+    pub fn commsOpen(state: *const State) bool {
+        return state.windows.status.get(.comms).phase == .open;
+    }
+
     /// `0x0048C580`: follows a change of the player's target. The display shows the target of the
     /// player's Player Control order, and brings up the form of the target display that shows it,
     /// held open, closing the other; with no target it closes both.
@@ -4568,7 +4575,7 @@ pub const Keys = struct {
 pub fn targetKeys(state: *State, keys: Keys) void {
     const all = keys.all;
     const devices = keys.devices;
-    if (state.windows.status.get(.comms).phase == .open) if (keys.world) |world| {
+    if (state.commsOpen()) if (keys.world) |world| {
         keys.player.menu.run(.{ .world = world, .devices = devices });
     };
 
