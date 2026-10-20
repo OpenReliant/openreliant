@@ -564,9 +564,7 @@ test "a ship's end" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    var watching: camera.Camera = .{};
-    var ctx = mission.orders();
-    ctx.world.camera = &watching;
+    const ctx = mission.orders();
     const player = try mission.add(.of(.predator), @splat(0));
     const ship = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     const slots = &mission.objects.slots;
@@ -591,9 +589,7 @@ test "the pod shot down in the ejection's cutaway bursts at once" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    var watching: camera.Camera = .{};
-    var ctx = mission.orders();
-    ctx.world.camera = &watching;
+    const ctx = mission.orders();
     const pod = try mission.add(.of(.predator), @splat(0));
     _ = camera.switchView(ctx.world, .pod_shot, pod, true, true);
     mission.player.showing = .ejection;

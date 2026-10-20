@@ -2606,7 +2606,6 @@ test "the controls are read in the game frame" {
     defer mission.deinit();
     _ = try mission.add(.of(.predator), @splat(0));
     var display: hud.State = .{};
-    var view: camera.Camera = .{};
     var devices: input.Devices = .{};
     var world = mission.world();
     world.display = &display;
@@ -2618,11 +2617,9 @@ test "the controls are read in the game frame" {
     _ = missionFrame(orders, .{}, null);
     try std.testing.expect(display.smart_targeting);
     keyboard.* = .{};
-    // With a camera, the external camera's key switches the game's view.
-    var seen = orders;
-    seen.world.camera = &view;
+    // The external camera's key switches the game's view.
     keyboard.down[input.controls.binding(.external_camera).key] = true;
-    _ = missionFrame(seen, .{}, null);
+    _ = missionFrame(orders, .{}, null);
     try std.testing.expectEqual(camera.View.external, mission.player.viewing.view);
     keyboard.* = .{};
     // Blind fire aims as the player aimed when the display was last drawn.

@@ -314,8 +314,7 @@ pub const Blast = struct {
     /// The burning bits a frame from `faded`: each from a point `bits_ahead` beyond the camera
     /// toward the blast, flying at the camera.
     fn throwBits(blast: *const Blast, world: gameobj.World) void {
-        const seen = world.camera orelse return;
-        const eye = seen.place.position;
+        const eye = (world.seenFrom() orelse return).position;
         const toward = math.lookAt(blast.place.position - eye);
         const random = world.effectsRandom();
         var thrown: i32 = 0;
@@ -703,11 +702,9 @@ test Uber {
     stage.explosions.debris = explode.testing.debris(&mesh);
     var built: shockwave.testing.Built = try .init(gpa);
     defer built.deinit(gpa);
-    var watching: @import("../camera.zig").Camera = .{};
-    watching.place.position = .{ 0, 0, -50000 };
     var world = stage.world();
     world.shockwaves = &built.waves;
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{ .position = .{ 0, 0, -50000 } };
     const all = world.objects;
     const ctx: aigeneric.Context = .of(world);
     const uber = stage.explosions.uber;
@@ -776,10 +773,8 @@ test "the fuller style" {
     var stage: explode.testing.Stage = undefined;
     try stage.init();
     defer stage.deinit();
-    var watching: @import("../camera.zig").Camera = .{};
-    watching.place.position = .{ 0, 0, -50000 };
     var world = stage.world();
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{ .position = .{ 0, 0, -50000 } };
     const uber = stage.explosions.uber;
     stage.mission.clock.frame_start = 1000;
     uber.start(world, 0, .{ .position = @splat(0) }, 1000, 1000, .fuller);

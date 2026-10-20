@@ -738,10 +738,8 @@ test pickUp {
         var mission: gameobj.testing.Mission = undefined;
         try mission.init(std.testing.allocator);
         defer mission.deinit();
-        var watching: camera.Camera = .{};
         var ctx = mission.orders();
         ctx.world.spawn = mission.spawn(create.testing.no_models);
-        ctx.world.camera = &watching;
         const index = try mission.add(.of(.predator), @splat(0));
         const pod = mission.slot(index);
         pod.state.eject = std.mem.zeroes(State);

@@ -1965,9 +1965,6 @@ pub const World = struct {
     effects_random: ?*Random = null,
     /// The sound the objects are heard through, and where from; null where nothing is heard.
     hearing: ?@import("hog_snd.zig").Hearing = null,
-    /// The camera, whose view the game's code switches (`camera_set_view`); null where nothing is
-    /// seen, as in a test.
-    camera: ?*camera.Camera = null,
     /// What the explosions leave for the frames after them (`explode.cpp`); null where nothing
     /// explodes.
     explosions: ?*@import("explode.zig").Explosions = null,
@@ -2040,13 +2037,19 @@ pub const World = struct {
     /// What particles are sent out with, as the camera sees them, their sparks going to the
     /// explosions; null where nothing is seen.
     pub fn sending(world: World) ?@import("particles.zig").Sending {
-        const seen = world.camera orelse return null;
-        return .{ .view = seen.place, .clock = world.clock, .random = world.effectsRandom(), .explosions = @import("explode.zig").drawnIn(world) };
+        const seen = world.seenFrom() orelse return null;
+        return .{ .view = seen, .clock = world.clock, .random = world.effectsRandom(), .explosions = @import("explode.zig").drawnIn(world) };
     }
 
     /// The view the camera shows, as the game keeps it (`input.Player.viewing`).
     pub fn view(world: World) camera.View {
         return world.player.viewing.view;
+    }
+
+    /// Where the camera stood as the last frame was drawn, as the game keeps it
+    /// (`camera.Viewing.seen_from`); null where nothing is drawn.
+    pub fn seenFrom(world: World) ?camera.Place {
+        return world.player.viewing.seen_from;
     }
 
     /// The random numbers the effects only drawn take (`effects_random`), the game's where it has
@@ -2687,6 +2690,18 @@ test "World.missionCurves and World.missionShips" {
     try std.testing.expectEqual(1, world.missionCurves()[0].end.index);
     try std.testing.expectEqual(2, world.missionShips().len);
     try std.testing.expectEqual(1, world.missionShips()[1].object_id);
+}
+
+test "World.sending" {
+    var mission: testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const world = mission.world();
+    // Where nothing is drawn, no particles go out for the camera.
+    try std.testing.expectEqual(null, world.sending());
+    // Once a frame is drawn, they go out as seen from where the camera stood for it.
+    mission.player.viewing.seen_from = .{ .position = .{ 1, 2, 3 } };
+    try std.testing.expectEqual(math.Vector{ 1, 2, 3 }, world.sending().?.view.position);
 }
 
 test Quadrants {

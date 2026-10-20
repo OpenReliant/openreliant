@@ -3278,9 +3278,7 @@ test eject {
     defer mission.deinit();
     const index = try mission.add(.of(.predator), @splat(0));
     const slot = mission.slot(index);
-    var watching: camera.Camera = .{};
-    var world = mission.world();
-    world.camera = &watching;
+    const world = mission.world();
 
     // Only a ship under the player's controls, or waiting to blow up, ejects.
     eject(world, index);

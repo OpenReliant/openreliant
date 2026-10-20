@@ -229,9 +229,7 @@ const TestShot = struct {
     }
 
     fn world(shot: *TestShot) gameobj.World {
-        var seen = shot.game.world();
-        seen.camera = &shot.view;
-        return seen;
+        return shot.game.world();
     }
 
     /// A game frame `ticks` long (`camera.gameFrame`), then a drawn frame (`show`).

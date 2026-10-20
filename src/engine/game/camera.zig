@@ -483,6 +483,12 @@ pub const Viewing = struct {
     /// OpenReliant's: what the game changed of what the camera shows, which the camera takes up as
     /// it next frames (`Camera.notice`).
     changes: Changes = .{},
+    /// OpenReliant's: where the camera stood as the last frame was drawn (`Camera.place`), which
+    /// the driver hands the game as input, like what the player aims at (`hud.State.aim`). The
+    /// effects that depend on the camera go by it: the particles, fewer behind it, the flames
+    /// spread across the view, the sparks and the flak only near it, an Uber's bits thrown at it,
+    /// and the screen's flash near it. Null where nothing is drawn, which leaves them out.
+    seen_from: ?Place = null,
 
     /// What a switch of view goes by: the gates, whose worm the player's ship may be riding, and
     /// the missiles in flight, which the missile view follows; null where there are none.
@@ -2356,8 +2362,7 @@ test "the missile view" {
     const other = try armed.add(.hostile, .{ 0, 0, 50000 });
     const mission = &armed.mission;
     var camera: Camera = .{ .missiles = &mission.objects.missiles };
-    var world = mission.world();
-    world.camera = &camera;
+    const world = mission.world();
     const viewing = &mission.player.viewing;
     // With none of the player's in flight, the view is refused.
     try std.testing.expect(!switchView(world, .missile, player, false, false));

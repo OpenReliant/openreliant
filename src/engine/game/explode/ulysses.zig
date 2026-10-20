@@ -305,10 +305,8 @@ test "the Ulysses throws off its fin, then its top comes away" {
     var world = stage.world();
     world.spawn = mission.spawn(types);
     var lit: flash.Flash = .{};
-    var watching: @import("../camera.zig").Camera = .{};
-    watching.place.position = .{ 0, 0, 5000 };
     world.flash = &lit;
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{ .position = .{ 0, 0, 5000 } };
     const ctx: aigeneric.Context = .of(world);
     const slot = &mission.objects.slots[ship];
     const object = &slot.object;

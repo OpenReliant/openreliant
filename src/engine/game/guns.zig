@@ -2220,10 +2220,9 @@ test "a shot striking a hull throws sparks from where it struck" {
     defer ship.deinit(gpa);
     var built: sparks.testing.Built = try .init(gpa);
     defer built.deinit(gpa);
-    var watching: @import("camera.zig").Camera = .{};
     var world = ship.world();
     world.sparks = &built.sparks;
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{};
     const target = try ship.add(.of(.reaper), .{ 0, 0, 500 });
     const slot = &ship.mission.objects.slots[target];
     slot.drawn = .{ .position = .{ 0, 0, 500 }, .orientation = math.identity };

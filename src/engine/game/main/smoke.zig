@@ -341,11 +341,9 @@ test frame {
     defer pools.deinit();
     for ([_]Level{ .light, .heavy, .burning }) |level| pools.by_level.set(level, try .init(gpa, 64, &image, .add));
     // The camera looks along Z from behind the ship.
-    var seen: @import("../camera.zig").Camera = .{};
-    seen.place.position = .{ 0, 0, -1000 };
     var world = mission.world();
     world.smoke = &pools;
-    world.camera = &seen;
+    world.player.viewing.seen_from = .{ .position = .{ 0, 0, -1000 } };
 
     // Undamaged, it smokes not at all.
     frame(world);
