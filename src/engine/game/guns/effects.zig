@@ -202,8 +202,8 @@ const bang_size_range: f32 = 56;
 /// off, one flash of `flak_far`.
 pub fn flakBurst(world: gameobj.World, index: u8, at: Vector) void {
     sound3d.playIn(world, null, null, index, .flak01, 1, .explosions);
-    const seen = world.camera orelse return;
-    if (math.lengthSquared(seen.place.position - at) >= flak_near * flak_near) return explode.fireballAt(world, at, flak_far);
+    const seen = world.seenFrom() orelse return;
+    if (math.lengthSquared(seen.position - at) >= flak_near * flak_near) return explode.fireballAt(world, at, flak_far);
     const random = world.effectsRandom();
     explode.fireballAt(world, at, flak_flash);
     var after = flak_after;
@@ -309,9 +309,8 @@ test flakBurst {
     var built: testing.Built = undefined;
     try built.init(gpa);
     defer built.deinit();
-    var watching: @import("../camera.zig").Camera = .{};
     var world = stage.world();
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{};
     world.gun_particles = &built.pools;
     stage.mission.clock.frame_start = 100;
 
@@ -363,10 +362,8 @@ test throwCases {
     var built: testing.Built = undefined;
     try built.init(gpa);
     defer built.deinit();
-    var watching: @import("../camera.zig").Camera = .{};
-    watching.place.position = .{ 0, 0, -1000 };
     var world = stage.world();
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{ .position = .{ 0, 0, -1000 } };
     world.gun_particles = &built.pools;
     stage.mission.clock.frame_start = 100;
     const ship = try stage.mission.add(.of(.grendel), @splat(0));

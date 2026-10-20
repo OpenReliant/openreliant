@@ -2240,11 +2240,9 @@ test "the commands of the simulator's training, and those no shipped mission run
     defer game.deinit();
     const fixture = &game.fixture;
     var display: hud.State = .{};
-    var view: camera.Camera = .{};
     var devices: input.Devices = .{};
     var ctx = game.spawning();
     ctx.world.display = &display;
-    ctx.world.camera = &view;
     ctx.devices = &devices;
     try game.start(ctx);
 

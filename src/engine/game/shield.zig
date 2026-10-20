@@ -1410,10 +1410,9 @@ test flare {
     try mission.init(gpa);
     defer mission.deinit();
     var world = mission.world();
-    var watching: @import("camera.zig").Camera = .{};
     world.shields = &built.shields;
     world.sparks = &thrown.sparks;
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{};
     mission.clock.frame_start = 50;
     _ = try mission.add(.of(.predator), @splat(0));
     const index = try mission.add(.of(.sabre), .{ 0, 0, 1000 });

@@ -816,9 +816,7 @@ test "the player's arrival is watched from a cutaway, and ends in the cockpit" {
     const target = try mission.add(.of(.predator), .{ 0, 0, 80000 });
     const slot = mission.slot(player);
     slot.motion = .forward;
-    var view: camera.Camera = .{};
-    var ctx = mission.orders();
-    ctx.world.camera = &view;
+    const ctx = mission.orders();
     _ = try aigeneric.pushShip(ctx, player, .jump_in, target, null);
     nextFrame(&mission, ctx, player);
     try std.testing.expect(switch (mission.player.viewing.view) {

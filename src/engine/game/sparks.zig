@@ -279,8 +279,8 @@ pub const Sparks = struct {
 pub fn spray(world: gameobj.World, kind: Kind, at: Vector, direction: Vector, carried: Vector, how: Spray) void {
     const all = world.sparks orelse return;
     if (kind.nearOnly()) {
-        const watching = world.camera orelse return;
-        if (math.distance(at, watching.place.position) > near_only) return;
+        const seen = world.seenFrom() orelse return;
+        if (math.distance(at, seen.position) > near_only) return;
     }
     const random = world.effectsRandom();
     const aim = math.lookAt(direction);
@@ -361,10 +361,9 @@ test spray {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    var watching: @import("camera.zig").Camera = .{};
     var world = mission.world();
     world.sparks = &built.sparks;
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{};
 
     // Ten, each within the spread of the aim and the range of the speed.
     spray(world, .hull, .{ 0, 0, 1000 }, .{ 0, 0, 1 }, @splat(0), .{ .speed = 10, .speed_range = 5, .spread = 1, .count = 10 });

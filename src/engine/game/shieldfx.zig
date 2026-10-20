@@ -185,10 +185,9 @@ test componentHit {
     var image: @import("../surrender/surrenderlib/srtexture.zig").Image = undefined;
     var pool: particles.Pool = try .init(std.testing.allocator, 100, &image, .add);
     defer pool.deinit();
-    var watching: @import("camera.zig").Camera = .{};
     var world = mission.world();
     world.particles = &pool;
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{};
     mission.clock.frame_start = 10;
     const index = try mission.add(.of(.kamov), .{ 0, 0, 1000 });
     var parts: [1]objects.Model.Part = .{.{ .hidden = false, .parent = null, .origin = @splat(0), .object = .{ .flags = .{}, .position = .{ 0, 0, 1000 }, .radius = 100, .levels = &.{} } }};

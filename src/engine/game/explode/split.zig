@@ -546,8 +546,8 @@ fn flash(world: gameobj.World) void {
 /// `explode_flash_near` (`0x00471D70`) for the ship in slot `index`, as the camera stands.
 pub fn flashNear(world: gameobj.World, index: u16) void {
     const lit = world.flash orelse return;
-    const seen = world.camera orelse return;
-    lit.near(&world.objects.slots[index].object, seen.place.position);
+    const seen = world.seenFrom() orelse return;
+    lit.near(&world.objects.slots[index].object, seen.position);
 }
 
 /// Holds the ship in `slot` at `at`, shaken by `by` along each axis, one way or the other at
@@ -809,10 +809,8 @@ test "a capital ship sweeps apart" {
     var world = stage.world();
     world.spawn = mission.spawn(fixture.types());
     var lit: @import("../main/flash.zig").Flash = .{};
-    var watching: @import("../camera.zig").Camera = .{};
-    watching.place.position = .{ 0, 0, 5000 };
     world.flash = &lit;
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{ .position = .{ 0, 0, 5000 } };
     const splits = &stage.explosions.splits;
 
     // Its points go from the stern; its other half is made, still and disabled, and cut by the

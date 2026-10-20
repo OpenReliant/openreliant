@@ -937,10 +937,11 @@ pub fn streamWithin(world: gameobj.World, emitter: *particles.Emitter, parent: ?
 
 /// A burst of `flame` from a ship at `at`, moving at `velocity`, spreading out mostly across the
 /// view: the emitter stands turned 60 degrees back and a random way about the camera's forward
-/// axis, from the camera's orientation. Returns the emitter, whose place and carried velocity a
-/// blast's shockwave takes; none without a camera.
+/// axis, from the camera's orientation as the last frame was drawn (`World.seenFrom`). Returns
+/// the emitter, whose place and carried velocity a blast's shockwave takes; none where nothing is
+/// drawn.
 fn flames(world: gameobj.World, at: Vector, velocity: Vector, how: Flames) ?particles.Emitter {
-    const view = (world.camera orelse return null).place;
+    const view = world.seenFrom() orelse return null;
     const turn = math.fromAngles(-std.math.pi / 3.0, 0, world.effectsRandom().fraction() * std.math.tau);
     var emitter: particles.Emitter = .{
         .born = world.clock.frame_start,
@@ -1190,7 +1191,7 @@ pub fn componentLost(world: gameobj.World, index: u16, model: *objects.Model, ro
 }
 
 /// The burst of flame a component's loss sends out from `at`, something moving at `velocity` there
-/// (`burst_flames`): its emitter, or none without a camera.
+/// (`burst_flames`): its emitter, or none where nothing is drawn.
 pub fn burstFlames(world: gameobj.World, at: Vector, velocity: Vector) ?particles.Emitter {
     return flames(world, at, velocity, burst_flames);
 }
@@ -1457,7 +1458,6 @@ test burstWithin {
     var image: srtexture.Image = undefined;
     var pool: particles.Pool = try .init(std.testing.allocator, 8, &image, .add);
     defer pool.deinit();
-    var watching: @import("camera.zig").Camera = .{};
     var world = mission.world();
     // A particle is free once its life is before the frame, so none is before the first tick.
     mission.clock.frame_start = 10;
@@ -1466,9 +1466,9 @@ test burstWithin {
     // Without particles, nothing goes out, and a stream lives on.
     burstWithin(world, &emitter, null, 2);
     try std.testing.expect(streamWithin(world, &emitter, null));
-    // With them and a camera, a burst goes out where its parent puts the emitter.
+    // With them, and where the camera stood, a burst goes out where its parent puts the emitter.
     world.particles = &pool;
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{};
     burstWithin(world, &emitter, .{ .position = .{ 100, 0, 0 } }, 2);
     try std.testing.expectEqual(2, particles.testing.sent(&pool));
     try std.testing.expectEqual(Vector{ 100, 0, 10 }, pool.particles[0].at);
@@ -1837,12 +1837,11 @@ test blast {
     var image: @import("../surrender/surrenderlib/srtexture.zig").Image = undefined;
     var pool: particles.Pool = try .init(std.testing.allocator, 1000, &image, .add);
     defer pool.deinit();
-    var watching: @import("camera.zig").Camera = .{};
     var explosions: Explosions = try .init(std.testing.allocator, testing.images());
     defer explosions.deinit();
     var world = mission.world();
     world.particles = &pool;
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{};
     world.explosions = &explosions;
     mission.clock.frame_start = 10;
     _ = try mission.add(.of(.predator), @splat(0));
@@ -2059,9 +2058,8 @@ test "a blast's shockwave" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    var watching: @import("camera.zig").Camera = .{};
     var world = mission.world();
-    world.camera = &watching;
+    world.player.viewing.seen_from = .{};
     world.shockwaves = &built.waves;
     const ship = try mission.add(.of(.sabre), @splat(0));
     mission.objects.slots[ship].object.velocity = .{ .x = 0, .y = 0, .z = 8 };

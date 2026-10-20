@@ -601,11 +601,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     sound.betty = betty.bank;
     sound.open3D(smp3d.bank, smp3d.modded);
 
-    // The camera. The game keeps the options' cockpit setting with what the camera views, which
-    // starts in the cockpit mode the setting picks, as a mission's start does.
+    // The camera. The game keeps the options' cockpit setting with the view, which starts in the
+    // cockpit mode the setting picks, as a mission's start does. Until a frame is drawn, the game
+    // sees from where the camera starts.
     var view: camera.Camera = .{ .missiles = &objects.missiles };
     player.viewing.cockpit_setting = options.cockpit orelse device_settings.view;
     player.viewing.cockpit_mode = player.viewing.cockpit_setting.mode();
+    player.viewing.seen_from = view.place;
     // The game's video settings, which the settings screen's video changes.
     const video_settings: game.interface.settings.Video = .{ .viewing = &player.viewing, .surrender = &context, .gamma = gpu.interface().setsGamma(), .transitions = &movies.transitions };
     // The mission's clocks, which `mission_run` zeroes before it loops.
@@ -682,8 +684,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // What the game frames ask of drawing, which each drawn frame takes up.
     var cues: game.main.cues.Cues = .{ .gpa = gpa };
     defer cues.deinit();
-    // What the objects run in, the camera's view brought up to date each frame.
-    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .shake = &hit_shake, .random = &rand, .effects_random = &drawn_random, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .hearing = hearing, .camera = &view, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .cues = &cues, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .extras = &extra_images, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
+    // What the objects run in.
+    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .shake = &hit_shake, .random = &rand, .effects_random = &drawn_random, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .hearing = hearing, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .cues = &cues, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .extras = &extra_images, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
 
     world.launch_steam = options.launch_steam;
 
@@ -1325,7 +1327,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .smooth_motion = smooth_motion,
                 .trails = &trails,
             });
-            if (launch_step != .under_way) watch.frame(drawn_world);
+            if (launch_step != .under_way) watch.frame(drawn_world, &view);
         }
 
         // The player and menu scripts' frame, before anything is drawn, with what each of their
@@ -1376,6 +1378,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             try srcore.render(frame_arena.allocator(), &context, &scene, driver.interface(), shown.overlay());
         } else {
             const copy = drawn_objects.?;
+            // The game takes where this frame is drawn from as input, for the effects that depend
+            // on the camera (`camera.Viewing.seen_from`).
+            player.viewing.seen_from = view.place;
             context.camera = .{ .position = view.place.position, .orientation = view.place.orientation };
             context.projection = view.projection(player.viewing.view, size[0], size[1], field_of_view);
             // The cockpit's model hangs from the camera, and the radar's backing stands on the radar.
@@ -1622,10 +1627,9 @@ const Watch = struct {
     /// Whether the camera has been set on the ship.
     started: bool = false,
 
-    /// Places `world`'s camera by the ship, where it is one of the world's objects and is there,
-    /// after the camera's own frame.
-    fn frame(watch: *Watch, world: game.gameobj.World) void {
-        const view = world.camera orelse return;
+    /// Places `view` by the ship, where it is one of `world`'s objects and is there, after the
+    /// camera's own frame.
+    fn frame(watch: *Watch, world: game.gameobj.World, view: *camera.Camera) void {
         const all = world.objects;
         const index = watch.slot orelse return;
         if (index >= all.slots.len) return;
@@ -1651,12 +1655,11 @@ test Watch {
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     var view: camera.Camera = .{};
-    var world = mission.world();
-    world.camera = &view;
+    const world = mission.world();
     const viewing = &mission.player.viewing;
     // A ship not made yet is waited for.
     var watch: Watch = .{ .slot = 3, .from = .{ 0, 0, 2 } };
-    watch.frame(world);
+    watch.frame(world, &view);
     try std.testing.expect(!watch.started);
     // Once it is there, the camera watches it from twice its radius ahead, and moves with it.
     const ship = try mission.add(.of(.predator), .{ 100, 0, 0 });
@@ -1664,17 +1667,17 @@ test Watch {
     const slot = mission.slot(ship);
     slot.drawn = .{ .position = .{ 100, 0, 0 }, .orientation = math.identity };
     slot.object.radius = 10;
-    watch.frame(world);
+    watch.frame(world, &view);
     try std.testing.expectEqual(camera.View.watch, viewing.view);
     try std.testing.expectEqual(ship, viewing.object.?);
     try std.testing.expect(viewing.locked and viewing.lasting);
     try std.testing.expectEqual(math.Vector{ 100, 0, 20 }, view.place.position);
     slot.drawn.position = .{ 100, 0, 50 };
-    watch.frame(world);
+    watch.frame(world, &view);
     try std.testing.expectEqual(math.Vector{ 100, 0, 70 }, view.place.position);
     // Once the script takes the camera, it keeps it.
     try std.testing.expect(camera.switchView(world, .director, null, true, true));
-    watch.frame(world);
+    watch.frame(world, &view);
     try std.testing.expectEqual(null, watch.slot);
     try std.testing.expectEqual(camera.View.director, viewing.view);
 }
