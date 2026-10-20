@@ -302,9 +302,7 @@ pub fn release(world: gameobj.World, index: u16) void {
     const fired = ship.object.nova_charge;
     ship.object.nova_charge = 0;
     if (fired < least_charge) return;
-    if (world.hearing) |hearing| {
-        hearing.sound.bufferAt(blast_sound, ship.drawn.position, hearing.camera.*, ship.object.radius * blast_loudness);
-    }
+    if (world.sounds) |asked| asked.add(.{ .buffered = .{ .index = blast_sound, .at = ship.drawn.position, .volume = ship.object.radius * blast_loudness } });
     if (world.forces) |forces| forces.start(.nc, now);
     strike(world, index, fired, charged(ship));
     const looks = all.bullets.looks orelse return;

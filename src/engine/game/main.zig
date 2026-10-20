@@ -564,6 +564,8 @@ pub const Drawing = struct {
     smooth_motion: bool,
     /// The missiles' and torpedoes' trails, which run here (`missiles.trail.Trails.frame`).
     trails: ?*missiles.trail.Trails = null,
+    /// The sound the frame is heard through, and where from; null where nothing is heard.
+    hearing: ?hog_snd.Hearing = null,
 };
 
 /// `frame_controls` (`0x00414060`), once a game frame where there are devices to read and a
@@ -657,7 +659,7 @@ pub fn viewFrame(drawing: Drawing) void {
         .shake = world.shake.*,
     });
     slot.object.flags.hidden = viewing.inside(all.player);
-    if (world.hearing) |hearing| {
+    if (drawing.hearing) |hearing| {
         hearing.sound.timerTick(clock.game_ticks);
         hearing.sound.surround(world.player.showing.surroundings(viewing.view));
         if (hearing.sound.stdsmp) |bank| hearing.sound.frame(bank, hearing.scene(shown));
@@ -1974,16 +1976,17 @@ const least_speed_share: f32 = 0.25;
 
 /// The rest of `object_armor_conditions` (`0x00492370`), for the player's ship: once a quadrant has
 /// lost its shield and `armor_warning_share` of its armour, the cockpit's warning, sound 1 of
-/// `betty.fat`, no more than once in `armor_warning_interval` ticks.
-pub fn armorWarning(hearing: hog_snd.Hearing, object: *const gameobj.GameObject, combat: *const create.ShipCombat) void {
-    const sound = hearing.sound;
-    const frame_start = hearing.clock.frame_start;
-    if (frame_start - sound.armor_warned_at <= armor_warning_interval) return;
+/// `betty.fat`, no more than once in `armor_warning_interval` ticks, where anything is heard in
+/// `world`.
+pub fn armorWarning(world: gameobj.World, object: *const gameobj.GameObject, combat: *const create.ShipCombat) void {
+    if (world.sounds == null) return;
+    const frame_start = world.clock.frame_start;
+    if (frame_start - world.player.armor_warned_at <= armor_warning_interval) return;
     const half = combat.startingArmor() * armor_warning_share;
     for (object.shields.values(), object.armor.values()) |held, armor| {
         if (held > 0 or armor >= half) continue;
-        _ = betty.say(sound, .armor_failing);
-        sound.armor_warned_at = frame_start;
+        betty.sayIn(world, .armor_failing);
+        world.player.armor_warned_at = frame_start;
         return;
     }
 }
@@ -1994,31 +1997,40 @@ const armor_warning_interval = 500;
 const armor_warning_share: f32 = 0.5;
 
 test armorWarning {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(2, null);
-    const sound = &speaker.sound;
+    defer speaker.deinit();
     const bytes = comptime hog_snd.testing.bank(2);
-    sound.betty = try @import("../../formats/fat.zig").Bank.parse(&bytes);
-    var clock: Clock = .{ .frame_start = 1000 };
-    const hearing = speaker.hearing(&clock);
+    speaker.sound.betty = try @import("../../formats/fat.zig").Bank.parse(&bytes);
+    var world = mission.world();
+    speaker.hear(&world);
+    const asked = &speaker.asked;
+    mission.clock.frame_start = 1000;
     const combat = std.mem.zeroInit(create.ShipCombat, .{ .armor_class = 5 });
     var object = gameobj.testing.object();
     object.shields = .all(10);
     object.armor = .all(29);
 
     // Whole, or with its shields up, no warning.
-    armorWarning(hearing, &object, &combat);
+    armorWarning(world, &object, &combat);
     object.armor.left = 10;
-    armorWarning(hearing, &object, &combat);
-    try std.testing.expectEqual(0, sound.armor_warned_at);
+    armorWarning(world, &object, &combat);
+    try std.testing.expectEqual(0, mission.player.armor_warned_at);
+    try std.testing.expectEqual(0, asked.list.items.len);
     // A quadrant with its shield gone and under half its armour warns, and not again for 500
     // ticks.
     object.shields.left = 0;
-    armorWarning(hearing, &object, &combat);
-    try std.testing.expectEqual(1000, sound.armor_warned_at);
-    clock.frame_start = 1400;
-    armorWarning(hearing, &object, &combat);
-    try std.testing.expectEqual(1000, sound.armor_warned_at);
+    armorWarning(world, &object, &combat);
+    try std.testing.expectEqual(1000, mission.player.armor_warned_at);
+    speaker.heard();
+    try std.testing.expect(speaker.playing());
+    mission.clock.frame_start = 1400;
+    armorWarning(world, &object, &combat);
+    try std.testing.expectEqual(1000, mission.player.armor_warned_at);
+    try std.testing.expectEqual(0, asked.list.items.len);
 }
 
 test armorConditions {
@@ -2255,7 +2267,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     if (world.tractors) |tractors| tractors.reset();
     if (world.rippers) |rippers| rippers.reset();
     if (world.jump_effects) |effects| effects.reset();
-    if (world.radio) |radio| radio.reset(if (world.hearing) |hearing| hearing.sound else null);
+    if (world.radio) |radio| radio.reset(world.sounds);
     world.player.remarks = .{};
     world.player.friendly_fire = .{};
     if (world.flash) |lit| lit.* = .{};
@@ -2274,7 +2286,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     if (all.bullets.looks) |looks| looks.loadShell(types, &drawn_types);
     if (explode.drawnIn(world)) |explosions| explosions.debris = .load(types, &drawn_types);
 
-    if (world.hearing) |hearing| sound3d.endAll(hearing.sound);
+    if (world.sounds) |asked| asked.add(.effects_ended);
     world.player.ending = .playing;
     world.player.terminated = 0;
     if (world.environment) |environment| environment.resetEffects();

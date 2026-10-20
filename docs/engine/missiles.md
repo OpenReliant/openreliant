@@ -561,7 +561,8 @@ converts them exactly. It also divides by the 50 ticks where the game multiplies
 Once locked, in the view ahead from the cockpit, `hud_draw` plays the locked tone (`stdsmp`
 `0x15`, twice over) and holds its voice (`missile_lock_tone`, `0x00566644`); out of that view, or
 once the lock is lost, it ends the voice, whatever plays on it by then. The pause menu ends it too.
-OpenReliant plays and ends the tone in the game frame (`hud.State.gameFrame`).
+OpenReliant asks for the tone and its end in the game frame (`hud.State.gameFrame`,
+[Sound](sound.md#the-game-frames-sounds)).
 
 **Fix:** `hud_missile_lock` means to play `stdsmp` 2 while the rings close and end it after, keeping
 the voice at `0x0057DFC0`; but nothing sets that to none first, so the sound never plays, and the

@@ -375,10 +375,9 @@ fn playOnHangar(all: *create.Objects, part: usize, track: []const u8, time: f32,
 
 /// Plays standard sample `index` in the middle, once, where the world is heard. **Improvement:** it
 /// rings in the hangar, as the sounds of the scene do (`hog_snd.Sound.inScene`).
-fn playSample(world: gameobj.World, index: usize) void {
-    const hearing = world.hearing orelse return;
-    const bank = hearing.sound.stdsmp orelse return;
-    _ = hearing.sound.playInScene(bank, index, sample_volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+fn playSample(world: gameobj.World, index: u16) void {
+    const asked = world.sounds orelse return;
+    asked.add(.{ .sample = .{ .bank = .stdsmp, .index = index, .volume = sample_volume, .in_scene = true } });
 }
 
 /// Switches the camera to one of the launch's views, `view`, of the object in slot `object`

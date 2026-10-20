@@ -281,17 +281,17 @@ test "ATTACK MY TARGET" {
     try std.testing.expectEqual(heard.enemy, wingman.current().?.target.slotIn(all).?);
     try expectReply(&heard, replies.full.get(.attack_my_target).done);
     // Named again, it fights it already, and only says so.
-    heard.radio.reset(&heard.speaker.sound);
+    heard.radio.reset(&heard.speaker.asked);
     const orders = wingman.object.order_count;
     give(world, .attack_my_target, .{ .wingman = heard.wingman });
     try std.testing.expectEqual(orders, wingman.object.order_count);
     try expectReply(&heard, replies.full.get(.attack_my_target).done);
     // Not to be disturbed, it says it cannot; and the game picks none that are.
-    heard.radio.reset(&heard.speaker.sound);
+    heard.radio.reset(&heard.speaker.asked);
     wingman.object.flags.do_not_disturb = true;
     give(world, .attack_my_target, .{ .wingman = heard.wingman });
     try expectReply(&heard, replies.full.get(.attack_my_target).busy);
-    heard.radio.reset(&heard.speaker.sound);
+    heard.radio.reset(&heard.speaker.asked);
     give(world, .attack_my_target, .picked);
     try std.testing.expectEqual(null, heard.radio.reports[0]);
 }
@@ -312,7 +312,7 @@ test "BACK OFF" {
     try std.testing.expectEqual(100 + back_off_ticks, wingman.object.set_aside_until);
     try expectReply(&heard, replies.full.get(.back_off).done);
     // With none fighting it, the game picks nobody; one named leaves it be all the same.
-    heard.radio.reset(&heard.speaker.sound);
+    heard.radio.reset(&heard.speaker.asked);
     wingman.object.set_aside = .none;
     give(world, .back_off, .picked);
     try std.testing.expectEqual(null, heard.radio.reports[0]);
@@ -338,12 +338,12 @@ test "HELP ME" {
     try std.testing.expectEqual(attacker, wingman.current().?.target.slotIn(all).?);
     try expectReply(&heard, replies.full.get(.help_me).done);
     // With no attacker, the player's hostile target is one; with neither, nothing is done.
-    heard.radio.reset(&heard.speaker.sound);
+    heard.radio.reset(&heard.speaker.asked);
     _ = aigeneric.pop(heard.mission.orders(), attacker);
     _ = aigeneric.pop(heard.mission.orders(), heard.wingman);
     give(world, .help_me, .picked);
     try std.testing.expectEqual(heard.enemy, wingman.current().?.target.slotIn(all).?);
-    heard.radio.reset(&heard.speaker.sound);
+    heard.radio.reset(&heard.speaker.asked);
     _ = aigeneric.pop(heard.mission.orders(), heard.wingman);
     all.slots[heard.enemy].object.side = .friendly;
     give(world, .help_me, .picked);

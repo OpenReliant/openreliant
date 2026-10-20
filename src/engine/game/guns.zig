@@ -2274,16 +2274,19 @@ test "a heard shot sounds, following it" {
     defer ship.deinit(gpa);
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(4, null);
+    defer speaker.deinit();
     const sound = &speaker.sound;
     const bank = comptime hog_snd.testing.bank(80);
     sound.open3D(try @import("../../formats/fat.zig").Bank.parse(&bank), &.{});
     var world = ship.world();
-    world.hearing = speaker.hearing(&ship.mission.clock);
+    speaker.hear(&world);
 
     // Unheard, nothing plays; heard, the gun type's sound follows the shot.
     ship.guns()[0].turret.fixed.fire(world, ship.index, false);
+    speaker.heard();
     for (sound.voices_3d[0..sound.voice_3d_count]) |voice| try std.testing.expectEqual(-1, voice.owner);
     ship.guns()[1].turret.fixed.fire(world, ship.index, true);
+    speaker.heard();
     const record = testing.gun_type.stats(&ship.mission.objects.gun_stats);
     var found = false;
     for (sound.voices_3d[0..sound.voice_3d_count]) |voice| {

@@ -48,11 +48,12 @@ pub fn say(sound: *hog_snd.Sound, line: Line) ?u8 {
     return sound.play(bank, @backingInt(line), hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
 }
 
-/// Betty says `line` in `world`, where anything is heard there.
+/// Betty says `line` as the game frames ask for it, where anything is heard in `world`
+/// (`hog_snd.commands`).
 pub fn sayIn(world: ?gameobj.World, line: Line) void {
     const heard = world orelse return;
-    const hearing = heard.hearing orelse return;
-    _ = say(hearing.sound, line);
+    const asked = heard.sounds orelse return;
+    asked.add(.{ .sample = .{ .bank = .betty, .index = @backingInt(line) } });
 }
 
 test say {

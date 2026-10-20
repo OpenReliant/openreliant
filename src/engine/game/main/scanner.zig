@@ -20,9 +20,9 @@ pub const Scanner = struct {
     /// `scanner_object` (`0x0057E060`): the slot of the object the player looks for; none while the
     /// scanner is off, as it is from a mission's start (`mission_start`, `0x004935DD`).
     object: ?u16 = null,
-    /// `scanner_voice` (`0x005883C4`): the voice the beep loops on while it comes at its quickest;
-    /// none otherwise, and from a mission's start.
-    voice: ?u8 = null,
+    /// Whether the voice the beep loops on while it comes at its quickest is kept (`scanner_voice`,
+    /// `0x005883C4`, `hog_snd.commands.Kept.scanner`); not otherwise, and from a mission's start.
+    loop_kept: bool = false,
     /// `scanner_beeped_at` (`0x005883C8`): the frame's start the beep last came at.
     beeped_at: i32 = 0,
 
@@ -38,11 +38,13 @@ pub const Scanner = struct {
     /// scanner is off, a loop playing ends. While the object it looks for explodes, it turns off.
     /// Otherwise, once `interval` has passed since the last beep, the beep comes again: at its
     /// quickest it loops on a voice of its own, started where none plays; slower, a loop playing
-    /// ends and the beep plays once. It is heard in every view, through `world.hearing` where there
-    /// is one.
+    /// ends and the beep plays once. It is heard in every view, where anything is heard
+    /// (`gameobj.World.sounds`). Where no voice is free for the loop, the game asks again at the
+    /// next beep; the game frames ask once, and the loop waits for a voice
+    /// (`hog_snd.commands.Sample.waits`).
     pub fn frame(scanner: *Scanner, world: gameobj.World, frame_start: i32) void {
-        const sound: ?*hog_snd.Sound = if (world.hearing) |hearing| hearing.sound else null;
-        const index = scanner.object orelse return scanner.endLoop(sound);
+        const asked = world.sounds;
+        const index = scanner.object orelse return scanner.endLoop(asked);
         const all = world.objects;
         const sought = &all.slots[index].object;
         if (sought.flags.exploding) {
@@ -53,19 +55,22 @@ pub const Scanner = struct {
         const ticks = interval(sought.nextPosition() - ship.nextPosition(), ship.nextHeading());
         if (scanner.beeped_at + ticks >= frame_start) return;
         scanner.beeped_at = frame_start;
+        const heard = asked orelse return;
         if (ticks <= quickest) {
-            if (scanner.voice == null) scanner.voice = beep(sound, hog_snd.forever);
+            if (scanner.loop_kept) return;
+            heard.add(.{ .sample = .{ .bank = .stdsmp, .index = beep_sample, .loops = hog_snd.forever, .kept = .scanner, .waits = true } });
+            scanner.loop_kept = true;
         } else {
-            scanner.endLoop(sound);
-            _ = beep(sound, hog_snd.once);
+            scanner.endLoop(heard);
+            heard.add(.{ .sample = .{ .bank = .stdsmp, .index = beep_sample } });
         }
     }
 
     /// The loop playing, where one is, ended (`sound_voice_end`).
-    fn endLoop(scanner: *Scanner, sound: ?*hog_snd.Sound) void {
-        const voice = scanner.voice orelse return;
-        if (sound) |heard| heard.endVoice(voice);
-        scanner.voice = null;
+    fn endLoop(scanner: *Scanner, asked: ?*hog_snd.commands.Commands) void {
+        if (!scanner.loop_kept) return;
+        if (asked) |heard| heard.add(.{ .ended = .scanner });
+        scanner.loop_kept = false;
     }
 };
 
@@ -92,13 +97,6 @@ pub fn interval(offset: Vector, heading: Vector) i32 {
     return std.math.clamp(math.round((bearing_base - cosine) * distance * ticks_per_unit), quickest, slowest);
 }
 
-/// The beep played `loops` times, `hog_snd.forever` for a loop: its voice, or none where nothing is
-/// heard.
-fn beep(sound: ?*hog_snd.Sound, loops: u32) ?u8 {
-    const heard = sound orelse return null;
-    return heard.playStandard(beep_sample, hog_snd.loudest, loops, hog_snd.centre, hog_snd.own_pitch);
-}
-
 test interval {
     const ahead: Vector = .{ 0, 0, 1 };
     // Dead ahead, a thousandth of the distance; abeam, twice that; behind, three times.
@@ -120,42 +118,51 @@ test "the scanner beeps toward its object, looping at its quickest" {
     var speaker: hog_snd.testing.Speaker = undefined;
     const bank = comptime hog_snd.testing.bank(beep_sample + 1);
     try speaker.init(4, &bank);
+    defer speaker.deinit();
     const sound = &speaker.sound;
-    defer sound.shutdown();
     var world = mission.world();
-    world.hearing = speaker.hearing(&mission.clock);
+    speaker.hear(&world);
+    const kept = &speaker.asked.kept;
     var scanner: Scanner = .{};
 
     // Off, it is silent.
     scanner.frame(world, 100);
+    speaker.heard();
     try std.testing.expectEqual(0, scanner.beeped_at);
     // Near and ahead, the beep loops at once, and comes again only once the interval has passed.
     scanner.set(sought);
     scanner.frame(world, 100);
-    const loop = scanner.voice.?;
+    speaker.heard();
+    const loop = kept.get(.scanner).voice.?;
     try std.testing.expect(sound.voicePlaying(loop));
     try std.testing.expectEqual(100, scanner.beeped_at);
     scanner.frame(world, 110);
+    speaker.heard();
     try std.testing.expectEqual(100, scanner.beeped_at);
     // Further off, the loop goes on until the slower interval has passed; then it ends, and the beep
     // plays once.
     mission.slot(sought).object.root.next_position.z = 100000;
     scanner.frame(world, 200);
+    speaker.heard();
     try std.testing.expect(sound.voicePlaying(loop));
     scanner.frame(world, 201);
-    try std.testing.expectEqual(null, scanner.voice);
+    speaker.heard();
+    try std.testing.expect(!scanner.loop_kept);
     try std.testing.expectEqual(201, scanner.beeped_at);
     scanner.frame(world, 301);
+    speaker.heard();
     try std.testing.expectEqual(201, scanner.beeped_at);
 
     // Near again it loops, and off, the loop ends the next frame.
     mission.slot(sought).object.root.next_position.z = 4000;
     scanner.frame(world, 400);
-    const again = scanner.voice.?;
+    speaker.heard();
+    const again = kept.get(.scanner).voice.?;
     try std.testing.expect(sound.voicePlaying(again));
     scanner.set(null);
     scanner.frame(world, 401);
-    try std.testing.expectEqual(null, scanner.voice);
+    speaker.heard();
+    try std.testing.expect(!scanner.loop_kept);
     try std.testing.expect(!sound.voicePlaying(again));
     // An object that explodes turns the scanner off.
     scanner.set(sought);

@@ -587,7 +587,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The radio's lines, from the game's speech archive, said through the sound's speech sample,
     // and the films of the speakers' faces.
     var radio: game.radio.Radio = .open(gpa, io, directory, &mods);
-    defer radio.deinit(sound);
+    defer radio.deinit();
     radio.style = options.speech;
     radio.recordings.codec = decoders.codec();
     sound.missile_sound = options.missile_sound;
@@ -617,6 +617,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     clock.start(platform.window.ticks());
     movies.timer = .{ .clock = &clock, .sound = sound };
     const hearing: game.hog_snd.Hearing = .{ .sound = sound, .camera = &view.place, .clock = &clock };
+    // What the game frames ask of the sound, which plays it after them, heard from where the
+    // camera stands.
+    var sound_commands: game.hog_snd.commands.Commands = .{ .gpa = gpa };
+    defer sound_commands.deinit(sound);
     try loading.show(game.xtrabits.loading.startup_step);
     // What the explosions leave for the frames after them, and the particles they send out.
     var explosions: game.explode.Explosions = try .init(gpa, try .load(&textures));
@@ -685,7 +689,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var cues: game.main.cues.Cues = .{ .gpa = gpa };
     defer cues.deinit();
     // What the objects run in.
-    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .shake = &hit_shake, .random = &rand, .effects_random = &drawn_random, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .hearing = hearing, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .cues = &cues, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .extras = &extra_images, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
+    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .shake = &hit_shake, .random = &rand, .effects_random = &drawn_random, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .sounds = &sound_commands, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .cues = &cues, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .extras = &extra_images, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
 
     world.launch_steam = options.launch_steam;
 
@@ -793,6 +797,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .pilot_profile = &pilot_profile,
         .presentation = presentation,
         .radio = &radio,
+        .hearing = hearing,
+        .sounds = &sound_commands,
         .seed = options.fixedSeed(),
         .editor = editor,
         .io = io,
@@ -1222,6 +1228,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             // or held by the editor, the main thread frees the presses it took up from them itself,
             // as the keys come up.
             if (clock.frame_start != frames_from) devices.takePresses(&game_devices);
+            // What the game frames asked of the sound plays now, in the order they asked, before a
+            // pause holds the sound still.
+            play.playSounds();
             // Then the drawn frame, over the ticks since the last one.
             clock.drawBegin();
             // `mission_frame` looks for Escape and F1 before its work, and pausing into the menu
@@ -1276,7 +1285,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                     // Foster's last stand, once the script has asked for it, which the game plays
                     // as its targeting keys end: here, after the game frames that read them.
                     if (display.state.fosters_last_stand) {
-                        if (!try movies.fostersLastStand(play.number, &clock, sound, &radio)) return;
+                        if (!try movies.fostersLastStand(play.number, &clock, sound, &sound_commands.line)) return;
                         display.state.fosters_last_stand = false;
                     }
                     const launch_step = player_launch.step(slot, clock.mission_ticks);
@@ -1326,6 +1335,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .random = &drawn_random,
                 .smooth_motion = smooth_motion,
                 .trails = &trails,
+                .hearing = hearing,
             });
             if (launch_step != .under_way) watch.frame(drawn_world, &view);
         }
@@ -1987,7 +1997,8 @@ fn letGo(play: *Play, all: *game.create.Objects, sound: *game.hog_snd.Sound, lan
     sound.endAll();
     sound.closeMusic();
     sound.end3DAll();
-    play.radio.stopSpeech(sound);
+    play.radio.stopSpeech(play.sounds);
+    play.playSounds();
     if (landing) |what| return movies.land(what, resources, sound);
     return true;
 }
@@ -2260,6 +2271,9 @@ const Play = struct {
     presentation: ?*scripting.Presentation = null,
     /// The radio, whose line playing stops as a mission ends (`letGo`).
     radio: *game.radio.Radio,
+    /// The sound, which plays at once what a start or an end asks of it (`sounds`).
+    hearing: game.hog_snd.Hearing,
+    sounds: *game.hog_snd.commands.Commands,
     /// The seed each start gives the game's random numbers (`game.main.Start.seed`): the one the
     /// options fix (`Options.fixedSeed`), or else the clock's at the start, as the game takes the
     /// time.
@@ -2268,6 +2282,11 @@ const Play = struct {
     /// (`--editor-link`); null where no editor can link.
     editor: ?*game.mission.editor.Session = null,
     io: Io,
+
+    /// What the game asked of the sound, played (`game.hog_snd.commands.Commands.play`).
+    fn playSounds(play: *Play) void {
+        play.sounds.play(play.hearing.sound, play.hearing.camera.*);
+    }
 
     /// Starts the mission, letting go of the one before, the loading screen shown first
     /// (`game.xtrabits.loading.missionFrames`).
@@ -2296,6 +2315,9 @@ const Play = struct {
             .seed = play.seed orelse clockSeed(play.io),
             .editor = play.editor,
         }, try play.gpa.dupe(u8, play.file), play.number);
+        // What the mission's start asked of the sound plays at once: the last mission's sounds end,
+        // and a ship that starts in space starts its engine.
+        play.playSounds();
         // The textures the mission loaded go up to the GPU while the loading screen's last frame
         // shows again, and the GPU finishes with them, so that none holds up a frame of the mission.
         // Their pixels are let go of here too: with large textures, that takes a while.

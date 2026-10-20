@@ -358,21 +358,23 @@ test "the player's engine is heard as its ship flies out of a bay" {
     defer bay.deinit();
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(4, null);
-    defer speaker.sound.shutdown();
+    defer speaker.deinit();
     speaker.sound.open3D(try @import("../../../formats/fat.zig").Bank.parse(&testing.bank_bytes), &.{});
     bay.mission.objects.player = bay.first;
     var ctx = bay.mission.orders();
-    ctx.world.hearing = speaker.hearing(&bay.mission.clock);
+    speaker.hear(&ctx.world);
     const engine = &speaker.sound.voices_3d[speaker.sound.engine_voice.?];
 
     // Waiting in the bay, and while its doors open, it isn't heard.
     launch.start(bay.mission.objects, bay.first);
     aigeneric.objectOrders(ctx, bay.first);
     launch.testing.pastDue(&bay.mission, ctx, bay.first);
+    speaker.heard();
     try std.testing.expect(engine.isFree());
     // Once it lets go and flies out, it is.
     launch.testing.pastDue(&bay.mission, ctx, bay.first);
     aigeneric.objectOrders(ctx, bay.first);
+    speaker.heard();
     try std.testing.expect(!bay.mission.slot(bay.first).state.launch.attached);
     try std.testing.expect(!engine.isFree());
 }

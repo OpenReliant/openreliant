@@ -64,9 +64,10 @@ pub const Ring = struct {
     /// `0x00569978`: until when Betty says no more that the armed missile has run out, as a launch
     /// is refused for want of a lock.
     empty_warned_until: u32 = 0,
-    /// The voice Betty last said a missile's name on (`missile_name_voice`, `0x00566660`).
-    /// `0x0057BF3C` counts 150 ticks from then, and nothing reads it.
-    name_voice: ?u8 = null,
+    /// Whether Betty's voice is kept as she last said a missile's name (`missile_name_voice`,
+    /// `0x00566660`, `hog_snd.commands.Kept.missile_name`). `0x0057BF3C` counts 150 ticks from
+    /// then, and nothing reads it.
+    name_kept: bool = false,
 
     /// `hud_missile_ring_build`: an entry for each missile type the ship's racks hold, but the fuel
     /// pod, in the order its racks first come, with the missiles of all its racks; the middle entry
@@ -131,13 +132,14 @@ pub const Ring = struct {
     }
 
     /// After a turn, Betty says the armed missile's name, where it is live, ending what she said
-    /// last (`missile_name_voice`, `0x00566660`).
-    pub fn sayName(ring: *Ring, sound: *hog_snd.Sound) void {
+    /// last (`missile_name_voice`, `0x00566660`), as the game frames ask for it (`asked`).
+    pub fn sayName(ring: *Ring, asked: *hog_snd.commands.Commands) void {
         const armed = ring.armedEntry();
         if (armed.left() == null) return;
         const name = bettyName(armed.type) orelse return;
-        if (ring.name_voice) |voice| sound.endVoice(voice);
-        ring.name_voice = betty.say(sound, name);
+        if (ring.name_kept) asked.add(.{ .ended = .missile_name });
+        asked.add(.{ .sample = .{ .bank = .betty, .index = @backingInt(name), .kept = .missile_name } });
+        ring.name_kept = true;
     }
 };
 

@@ -54,6 +54,7 @@ const sound3d = @import("sound3d.zig");
 const main = @import("main.zig");
 const vm = @import("../vm.zig");
 const radio_module = @import("radio.zig");
+const cbox = @import("cbox.zig");
 const hudmovie = @import("hudmovie.zig");
 const winmain = @import("winmain.zig");
 const Clock = main.Clock;
@@ -101,17 +102,17 @@ pub const Beep = enum(u3) {
 };
 
 /// `hud_beep` (`0x0048CE70`): the display's sound `which`, in the middle, in the four cockpit views
-/// only (`camera.View.fromCockpit`), `view` being this frame's.
-pub fn playBeep(sound: *hog_snd.Sound, view: camera.View, which: Beep) void {
+/// only (`camera.View.fromCockpit`), `view` being this frame's, as the game frames ask for it
+/// (`hog_snd.commands`).
+pub fn playBeep(asked: *hog_snd.commands.Commands, view: camera.View, which: Beep) void {
     if (!view.fromCockpit()) return;
-    _ = sound.playStandard(Beep.first_sample + @as(usize, @backingInt(which)), Beep.volume, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+    asked.add(.{ .sample = .{ .bank = .stdsmp, .index = Beep.first_sample + @as(u16, @backingInt(which)), .volume = Beep.volume } });
 }
 
 /// `playBeep` in `world`, where there is one and anything is heard in it.
 pub fn beep(world: ?gameobj.World, which: Beep) void {
     const heard = world orelse return;
-    const hearing = heard.hearing orelse return;
-    playBeep(hearing.sound, heard.view(), which);
+    playBeep(heard.sounds orelse return, heard.view(), which);
 }
 
 /// The display's sounds asked for where no world is at hand, which `draw` plays later in the same
@@ -129,9 +130,9 @@ pub const Beeps = struct {
         beeps.count += 1;
     }
 
-    /// Each in turn (`playBeep`), where `sound` hears them, and none left after.
-    pub fn play(beeps: *Beeps, sound: ?*hog_snd.Sound, view: camera.View) void {
-        if (sound) |heard| for (beeps.queued[0..beeps.count]) |which| playBeep(heard, view, which);
+    /// Each in turn (`playBeep`), where anything is heard, and none left after.
+    pub fn play(beeps: *Beeps, asked: ?*hog_snd.commands.Commands, view: camera.View) void {
+        if (asked) |heard| for (beeps.queued[0..beeps.count]) |which| playBeep(heard, view, which);
         beeps.count = 0;
     }
 
@@ -804,9 +805,9 @@ pub const Interference = struct {
         const gap = world.random.below(sound_gap) + sound_gap;
         if (gap < frame_start - interference.sounded_at) {
             interference.sounded_at = frame_start;
-            if (world.hearing) |hearing| {
+            if (world.sounds) |asked| {
                 const ship = &world.objects.slots[world.objects.player];
-                hearing.sound.bufferAt(sound, ship.drawn.position, hearing.camera.*, loudness);
+                asked.add(.{ .buffered = .{ .index = sound, .at = ship.drawn.position, .volume = loudness } });
             }
         }
     }
@@ -3769,7 +3770,7 @@ pub const State = struct {
             "aim",
         }) |name| @field(state, name) = @field(fresh, name);
         state.missiles.empty_warned_until = game_ticks;
-        state.missiles.name_voice = null;
+        state.missiles.name_kept = false;
         state.events.missions.happen();
     }
 
@@ -3789,17 +3790,16 @@ pub const State = struct {
         const all = world.objects;
         const frame_duration = world.clock.frame_duration;
         const ahead = instrumented(world.player.viewing.last);
-        const sound = if (world.hearing) |hearing| hearing.sound else null;
         state.messages.expire(world.clock.frame_start);
         state.followTarget(all, false);
-        if (sound) |heard| state.lock.sound(heard, world.view());
+        if (world.sounds) |asked| state.lock.sound(asked, world.view());
         if (ahead) {
             if (ready) |set| state.readyPrompt(set);
             state.leadTarget(all);
         }
         state.runCharges(world, frame_duration, false);
         state.windows.run(frame_duration, all.kamovPart());
-        state.windows.beeps.play(sound, world.view());
+        state.windows.beeps.play(world.sounds, world.view());
     }
 
     /// `hud_radar_zoom` (`0x004892F0`), which `hud_draw` runs after it draws the radar: in the view
@@ -4008,14 +4008,14 @@ test "State.reset" {
     state.devices.getPtr(.cloak).* = .{ .setting = .on, .ticks = @divExact(Charge.full(.cloak).ticks, 2) };
     state.devices.getPtr(.spectral_shields).setting = .absent;
     state.missiles.empty_warned_until = 900;
-    state.missiles.name_voice = 3;
+    state.missiles.name_kept = true;
     state.reset(500);
     // The next one, a restart too, starts with each device off and fully charged.
     for (std.enums.values(Device)) |kind| try std.testing.expectEqual(Charge.full(kind), state.devices.get(kind));
     try std.testing.expect(!state.ejected and state.blind_fire);
     try std.testing.expectEqual(Radar.first_range, state.radar_range);
     try std.testing.expectEqual(500, state.missiles.empty_warned_until);
-    try std.testing.expectEqual(null, state.missiles.name_voice);
+    try std.testing.expect(!state.missiles.name_kept);
     // The player's own settings stay.
     try std.testing.expect(state.smart_targeting);
 }
@@ -4646,7 +4646,7 @@ pub fn targetKeys(state: *State, keys: Keys) void {
         const world = keys.world orelse continue;
         if (turned) sound3d.playIn(world, null, null, all.player, .missileselect, 1, .not_reserved);
         beep(keys.world, if (turned) .done else .refused);
-        if (world.hearing) |hearing| state.missiles.sayName(hearing.sound);
+        if (world.sounds) |asked| state.missiles.sayName(asked);
     }
 }
 
@@ -4677,19 +4677,20 @@ pub const MovieHold = struct {
     /// Whether the radio was saying a line, which then goes on.
     speaking: bool,
 
-    pub fn begin(clock: *main.Clock, sound: *hog_snd.Sound, on_air: ?*radio_module.Radio) MovieHold {
+    /// Holds them still, `line` being the radio's line playing (`hog_snd.commands.Commands.line`).
+    pub fn begin(clock: *main.Clock, sound: *hog_snd.Sound, line: ?*cbox.Player) MovieHold {
         clock.paused = true;
         sound.pauseMusic(true);
         sound.pauseAll();
         sound3d.pause(sound, true);
-        const air = on_air orelse return .{ .speaking = false };
-        const speaking = air.player.playing(sound);
-        if (speaking) air.player.pause(sound, true);
+        const said = line orelse return .{ .speaking = false };
+        const speaking = said.playing(sound);
+        if (speaking) said.pause(sound, true);
         return .{ .speaking = speaking };
     }
 
-    pub fn end(hold: MovieHold, clock: *main.Clock, sound: *hog_snd.Sound, on_air: ?*radio_module.Radio) void {
-        if (hold.speaking) if (on_air) |air| air.player.pause(sound, false);
+    pub fn end(hold: MovieHold, clock: *main.Clock, sound: *hog_snd.Sound, line: ?*cbox.Player) void {
+        if (hold.speaking) if (line) |said| said.pause(sound, false);
         sound3d.pause(sound, false);
         sound.resumeAll();
         sound.pauseMusic(false);
@@ -6796,16 +6797,19 @@ test Beeps {
     var heard: hog_snd.testing.Speaker = undefined;
     const bank = comptime hog_snd.testing.bank(Beep.first_sample + std.enums.values(Beep).len);
     try heard.init(4, &bank);
+    defer heard.deinit();
     var beeps: Beeps = .{};
 
     // Outside the cockpit's views nothing is heard, and the sounds asked for are let go.
     beeps.add(.opens);
-    beeps.play(&heard.sound, .chase);
+    beeps.play(&heard.asked, .chase);
+    heard.heard();
     try std.testing.expect(!heard.playing());
     try std.testing.expectEqual(0, beeps.slice().len);
     // From the cockpit they are.
     beeps.add(.opens);
-    beeps.play(&heard.sound, .cockpit_left);
+    beeps.play(&heard.asked, .cockpit_left);
+    heard.heard();
     try std.testing.expect(heard.playing());
 
     // Past as many as a frame asks for, a sound is left out.
