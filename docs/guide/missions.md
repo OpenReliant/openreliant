@@ -18,6 +18,8 @@ a mission holds. The
   folder that holds `openreliant` and `sltool`, with the game in its `StarLancer` folder.
 - A text editor. With luau-lsp, editors such as VS Code complete and describe the names of mission
   source as you type ([Editors](#editors)).
+  [OpenReliant Editor](https://github.com/OpenReliant/openreliant-editor), an early preview of the
+  mission editor, does this too, and builds, plays and debugs the mission as well.
 
 Mission source uses a small part of Luau, the language of mods' scripts. Nothing in it runs as a
 program, though: `sltool` reads it and builds the mission from it. A few things to know about the
