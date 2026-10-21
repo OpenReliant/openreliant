@@ -258,6 +258,17 @@ pub const Sparks = struct {
         all.moved_at = clock.frame_start;
     }
 
+    /// OpenReliant's: the sparks as a drawn frame copies them (`main.Drawn`), the sparks flying
+    /// copied into `arena`, so that drawing reads the copy while the game frames go on with them.
+    /// The copy owns nothing but what is in `arena`, and shares the shapes, which last as long as
+    /// the sparks.
+    pub fn copy(all: *const Sparks, arena: Allocator) Allocator.Error!Sparks {
+        var copied = all.*;
+        copied.sparks = try arena.create(Flying);
+        copied.sparks.* = all.sparks.*;
+        return copied;
+    }
+
     /// Each spark, into the world's layer, `ahead` of a tick along from where it was at the
     /// frame's tick: a copy of its object made in `arena`, which lasts until the frame is drawn
     /// (`xtrabits.sceneAddCopy`).
@@ -342,11 +353,19 @@ test Sparks {
     try all.draw(gpa, arena.allocator(), &scene, 0.5);
     const drawn = scene.layers.get(.world).items[0].mesh;
     try std.testing.expect(math.distance(drawn.position, spark.at + (spark.velocity + spark.carried) * @as(Vector, @splat(0.5))) < 1e-4);
+    // A drawn frame's copy draws the same.
+    const copied = try all.copy(arena.allocator());
+    var copied_scene: srcore.Scene = .{};
+    defer copied_scene.deinit(gpa);
+    try copied.draw(gpa, arena.allocator(), &copied_scene, 0.5);
+    try std.testing.expectEqual(drawn.position, copied_scene.layers.get(.world).items[0].mesh.position);
     try std.testing.expectApproxEqAbs(10 * std.math.pow(f32, 0.995, 50), spark.velocity[2], 1e-3);
     try std.testing.expectApproxEqAbs(0.5, spark.colours[3][0], 1e-6);
     clock.frame_start = 101;
     all.frame(&clock);
     try std.testing.expectEqual(null, all.sparks.slots[0]);
+    // The copy keeps the spark as it was, while the sparks fly on.
+    try std.testing.expect(copied.sparks.slots[0] != null);
 
     // The next takes the place of the oldest, round the table.
     const before = all.sparks.next;

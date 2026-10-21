@@ -1149,6 +1149,13 @@ pub const Drawn = struct {
     radio: ?radio_module.Radio = null,
     clock: Clock = .{},
     shake: f32 = 0,
+    /// Copies of the game's effects that drawing draws, as the game frames left them (`take`): the
+    /// particles, the smoke, the guns' flak and spent cases, the sparks and the shockwaves.
+    particles: ?particles.Pool = null,
+    smoke: ?smoke.Pools = null,
+    gun_particles: ?guns.effects.Pools = null,
+    sparks: ?sparks.Sparks = null,
+    shockwaves: ?shockwave.Shockwaves = null,
     /// What the copy's models are made in, from one drawn frame to the next.
     arena: std.heap.ArenaAllocator,
     /// The portals the copy's parts are cut by: drawing's own, which stand in for the game's from
@@ -1169,13 +1176,14 @@ pub const Drawn = struct {
         drawn.gpa.destroy(drawn.objects);
     }
 
-    /// Copies the objects of `game`, the game's world, and the records drawing reads besides, for the
-    /// drawn frame, and returns the copy of the objects. Where there is time past the tick, every
-    /// object and missile the game frame framed is framed `timing` of the way through the step in
-    /// the copy, as the game frame frames them (`frameObjects`, `missiles.frame`), with nothing else
-    /// the game frame does to them. Then drawing's portals stand in for those of the splits and the
-    /// gates (`explode.split.Splits.standPortals`, `wgate.Gates.standPortals`), and the copy's parts
-    /// that the game's cut are pointed at them (`xtrabits.Portals.cut`).
+    /// Copies the objects of `game`, the game's world, and the records and the effects drawing
+    /// reads besides, for the drawn frame, and returns the copy of the objects. Where there is time
+    /// past the tick, every object and missile the game frame framed is framed `timing` of the way
+    /// through the step in the copy, as the game frame frames them (`frameObjects`,
+    /// `missiles.frame`), with nothing else the game frame does to them. Then drawing's portals
+    /// stand in for those of the splits and the gates (`explode.split.Splits.standPortals`,
+    /// `wgate.Gates.standPortals`), and the copy's parts that the game's cut are pointed at them
+    /// (`xtrabits.Portals.cut`).
     pub fn take(drawn: *Drawn, game: gameobj.World, timing: objects.Timing) Allocator.Error!*create.Objects {
         _ = drawn.arena.reset(.retain_capacity);
         drawn.player = game.player.*;
@@ -1184,9 +1192,15 @@ pub const Drawn = struct {
         drawn.radio = if (game.radio) |radio| radio.* else null;
         drawn.clock = game.clock.*;
         drawn.shake = game.shake.*;
+        const arena = drawn.arena.allocator();
+        drawn.particles = if (game.particles) |pool| try pool.copy(arena) else null;
+        drawn.smoke = if (game.smoke) |pools| try pools.copy(arena) else null;
+        drawn.gun_particles = if (game.gun_particles) |pools| try pools.copy(arena) else null;
+        drawn.sparks = if (game.sparks) |thrown| try thrown.copy(arena) else null;
+        drawn.shockwaves = if (game.shockwaves) |waves| waves.* else null;
         const now = game.clock.frame_start;
         const copy = drawn.objects;
-        try game.objects.copyInto(copy, drawn.arena.allocator());
+        try game.objects.copyInto(copy, arena);
         if (timing.ahead > 0) {
             var walk = copy.walk();
             while (walk.next()) |index| {
@@ -1209,8 +1223,8 @@ pub const Drawn = struct {
     }
 
     /// `game`, the game's world, as the drawn frame sees it: the objects, the player's record, the
-    /// display's state, the mission's variables, the radio, the clock and the shake from the
-    /// copies (`take`), and the rest as the game keeps it.
+    /// display's state, the mission's variables, the radio, the clock, the shake and the effects
+    /// from the copies (`take`), and the rest as the game keeps it.
     pub fn world(drawn: *Drawn, game: gameobj.World) gameobj.World {
         var shown = game;
         shown.objects = drawn.objects;
@@ -1220,6 +1234,11 @@ pub const Drawn = struct {
         shown.radio = if (drawn.radio) |*radio| radio else null;
         shown.clock = &drawn.clock;
         shown.shake = &drawn.shake;
+        shown.particles = if (drawn.particles) |*pool| pool else null;
+        shown.smoke = if (drawn.smoke) |*pools| pools else null;
+        shown.gun_particles = if (drawn.gun_particles) |*pools| pools else null;
+        shown.sparks = if (drawn.sparks) |*thrown| thrown else null;
+        shown.shockwaves = if (drawn.shockwaves) |*waves| waves else null;
         return shown;
     }
 };
@@ -2780,6 +2799,20 @@ test Drawn {
     // With no time past the tick, the copy stands where the game frame framed it.
     mission.clock.past_tick = 0;
     try std.testing.expectEqual(drawn, (try copies.take(mission.world(), .of(&mission.clock, true, .together))).slots[ship].drawn);
+    // The game's effects are copied too, and the drawn frame's world draws the copies, which stay
+    // as they were while the game's go on.
+    var image: srtexture.Image = undefined;
+    var pool: particles.Pool = try .init(gpa, 4, &image, .add);
+    defer pool.deinit();
+    pool.used = 1;
+    pool.particles[0].at = .{ 1, 2, 3 };
+    var world = mission.world();
+    world.particles = &pool;
+    _ = try copies.take(world, .of(&mission.clock, true, .together));
+    const shown = copies.world(world).particles.?;
+    try std.testing.expect(shown != &pool);
+    pool.particles[0].at = .{ 4, 5, 6 };
+    try std.testing.expectEqual(math.Vector{ 1, 2, 3 }, shown.particles[0].at);
 }
 
 test Handed {

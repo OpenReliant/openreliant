@@ -432,6 +432,18 @@ pub const Pool = struct {
     ///
     /// **Improvement:** the game draws them where the tick left them, which moves them on in
     /// hundredths of a second that a display's frames fall between unevenly.
+    /// OpenReliant's: the pool as a drawn frame copies it (`main.Drawn`), with its live particles
+    /// and their sprites copied into `arena`, so that drawing reads the copy while the game frames
+    /// go on with the pool. The copy owns nothing but what is in `arena`, and is never let go of
+    /// (`deinit`).
+    pub fn copy(pool: *const Pool, arena: Allocator) Allocator.Error!Pool {
+        var copied = pool.*;
+        copied.particles = try arena.dupe(Particle, pool.particles[0..pool.used]);
+        copied.sprites = try arena.dupe(srapiext.Sprite, pool.sprites[0..pool.used]);
+        copied.set.sprites = copied.sprites[0..pool.set.sprites.len];
+        return copied;
+    }
+
     pub fn draw(pool: *const Pool, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
         if (pool.used == 0) return;
         const past: Vector = @splat(ahead);
@@ -562,6 +574,35 @@ test "Pool.frame" {
     try std.testing.expect(pool.sprites[0].hidden and pool.sprites[1].hidden);
     try std.testing.expectEqual(1, pool.used);
     try std.testing.expectEqual(1, pool.set.sprites.len);
+}
+
+test "Pool.copy" {
+    var pool = try testing.pool();
+    defer pool.deinit();
+    var clock: Clock = .{ .frame_start = 1 };
+    var random: Random = .{};
+    var emitter: Emitter = .{ .born = clock.frame_start, .template = &testing.template };
+    pool.burst(&emitter, null, 2, .{ .view = .{ .position = .{ 0, 0, -10 } }, .clock = &clock, .random = &random });
+    pool.particles[0].velocity = .{ 1, 0, 0 };
+    clock.frame_start = 51;
+    clock.frame_duration = 50;
+    pool.frame(&clock);
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    // The copy holds the live particles and their sprites, and draws as the pool does.
+    const copied = try pool.copy(arena.allocator());
+    try std.testing.expectEqual(2, copied.particles.len);
+    try std.testing.expectEqual(pool.set.sprites.len, copied.set.sprites.len);
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(std.testing.allocator);
+    try copied.draw(std.testing.allocator, arena.allocator(), &scene, 0.25);
+    try std.testing.expectEqual(Vector{ 50.25, 0, 0 }, scene.layers.get(.world).items[0].sprites.sprites[0].offset);
+    // It stays as it was while the pool goes on.
+    clock.frame_start = 61;
+    clock.frame_duration = 10;
+    pool.frame(&clock);
+    try std.testing.expectEqual(Vector{ 50, 0, 0 }, copied.particles[0].at);
+    try std.testing.expectEqual(Vector{ 60, 0, 0 }, pool.particles[0].at);
 }
 
 test "Pool.Variety" {
