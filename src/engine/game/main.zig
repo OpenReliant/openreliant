@@ -1161,7 +1161,7 @@ pub const Drawn = struct {
     /// Copies of the game's effects that drawing draws, as the game frames left them (`take`): the
     /// particles, the smoke, the guns' flak and spent cases, the sparks, the shockwaves, the
     /// electric rays, the tractors, the Rippers' beams, the capital shields, the explosions, the
-    /// countermeasures and the screen's flash.
+    /// countermeasures, the screen's flash, the ion cannons and the jumps' effects.
     particles: ?particles.Pool = null,
     smoke: ?smoke.Pools = null,
     gun_particles: ?guns.effects.Pools = null,
@@ -1174,6 +1174,8 @@ pub const Drawn = struct {
     explosions: ?explode.Explosions = null,
     countermeasures: ?cloak.Countermeasures = null,
     flash: ?flash.Flash = null,
+    ion_cannons: ?aiioncan.Cannons = null,
+    jump_effects: ?jump.effect.Effects = null,
     /// What the copy's models are made in, from one drawn frame to the next.
     arena: std.heap.ArenaAllocator,
     /// The portals the copy's parts are cut by: drawing's own, which stand in for the game's from
@@ -1223,6 +1225,8 @@ pub const Drawn = struct {
         drawn.explosions = if (game.explosions) |explosions| try explosions.copy(arena) else null;
         drawn.countermeasures = if (game.countermeasures) |dropped| try dropped.copy(arena) else null;
         drawn.flash = if (game.flash) |lit| lit.* else null;
+        drawn.ion_cannons = if (game.ion_cannons) |cannons| try cannons.copy(arena) else null;
+        drawn.jump_effects = if (game.jump_effects) |effects| try effects.copy(arena) else null;
         const now = game.clock.frame_start;
         const copy = drawn.objects;
         try game.objects.copyInto(copy, arena);
@@ -1271,6 +1275,8 @@ pub const Drawn = struct {
         shown.explosions = if (drawn.explosions) |*explosions| explosions else null;
         shown.countermeasures = if (drawn.countermeasures) |*dropped| dropped else null;
         shown.flash = if (drawn.flash) |*lit| lit else null;
+        shown.ion_cannons = if (drawn.ion_cannons) |*cannons| cannons else null;
+        shown.jump_effects = if (drawn.jump_effects) |*effects| effects else null;
         return shown;
     }
 };

@@ -358,6 +358,25 @@ pub const Cannons = struct {
         for (cannons.records.items) |record| record.shown = .{};
     }
 
+    /// OpenReliant's: the ion cannons as a drawn frame copies them (`main.Drawn`), each cannon's
+    /// record copied into `arena`, so that drawing reads the copy while the game frames go on
+    /// with the cannons. The targeting laser's and the glow's vertices and texture coordinates,
+    /// which the game changes as they aim, widen and scroll, are copied with them (`Star.copied`).
+    /// The copy shares the rest of the meshes with the game, which doesn't change them; it owns
+    /// nothing but what is in `arena`, and is never reset nor let go of.
+    pub fn copy(cannons: *const Cannons, arena: Allocator) Allocator.Error!Cannons {
+        var copied = cannons.*;
+        const records = try arena.alloc(*Record, cannons.records.items.len);
+        for (records, cannons.records.items) |*own, record| {
+            own.* = try arena.create(Record);
+            own.*.* = record.*;
+            if (record.laser) |laser| own.*.laser = try laser.copied(arena);
+            if (record.glow) |glow| own.*.glow = try glow.copied(arena);
+        }
+        copied.records = .fromOwnedSlice(records);
+        return copied;
+    }
+
     /// The effects the cannons' updates showed in the last game frame, into the scene (`scene_add`
     /// in `order_fire_ion_cannon`), where the parts they hang from stand as drawn: the laser from
     /// the focus, the glow, the rings and the lights from the cannon. A cannon whose object no
@@ -550,6 +569,15 @@ const Star = struct {
 
     fn deinit(star: *Star, gpa: Allocator) void {
         star.mesh.deinit(gpa);
+    }
+
+    /// A copy of it for a drawn frame (`Cannons.copy`), its mesh's vertices and texture
+    /// coordinates, which the game changes as it runs, made in `arena`.
+    fn copied(star: Star, arena: Allocator) Allocator.Error!Star {
+        var own = star;
+        own.mesh.positions = try arena.dupe(Vector, star.mesh.positions);
+        if (star.mesh.uv[0]) |uv| own.mesh.uv[0] = try arena.dupe([2]f32, uv);
+        return own;
     }
 
     /// Its blades `width` wide either side of its axis, as long as they were built.
@@ -1077,6 +1105,35 @@ test "the Boridin's cannon charges, fires and destroys a ship" {
     try std.testing.expectEqual(null, cannons.of(boridin));
     for (rays.slots) |held| try std.testing.expectEqual(null, held);
     try std.testing.expectEqual(0, mission.slot(boridin).object.order_count);
+}
+
+test "Cannons.copy" {
+    var fixture: Fixture = undefined;
+    try fixture.init(.of(.boridin));
+    defer fixture.deinit();
+    const mission = &fixture.stage.mission;
+    mission.slot(fixture.sabre).object.flags.targetable = true;
+    const ctx: aigeneric.Context = .of(fixture.world());
+    const cannons = &fixture.built.cannons;
+    try std.testing.expect(try aigeneric.push(ctx, fixture.ship, .fire_ion_cannon, .at(fixture.sabre, null)));
+    mission.ordersAfter(ctx, fixture.ship, 0);
+    mission.ordersAfter(ctx, fixture.ship, 0);
+    mission.ordersAfter(ctx, fixture.ship, 30);
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+
+    // The copy holds a copy of each cannon's record, its laser with vertices of its own, which
+    // stay as they were while the game's laser reaches further.
+    const copied = try cannons.copy(arena.allocator());
+    const record = cannons.of(fixture.ship).?;
+    const seen = copied.records.items[0];
+    try std.testing.expect(seen != record);
+    const laser = &seen.laser.?;
+    try std.testing.expect(laser.mesh.positions.ptr != record.laser.?.mesh.positions.ptr);
+    const reach = laser.mesh.positions[1][2];
+    mission.ordersAfter(ctx, fixture.ship, 30);
+    try std.testing.expect(record.laser.?.mesh.positions[1][2] > reach);
+    try std.testing.expectEqual(reach, laser.mesh.positions[1][2]);
 }
 
 test "the cannon starts again as its ship cloaks, unless the script holds the lock" {
