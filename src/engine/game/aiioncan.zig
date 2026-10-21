@@ -44,6 +44,7 @@ const radio = @import("radio.zig");
 const sound3d = @import("sound3d.zig");
 const table = @import("table.zig");
 const xtrabits = @import("xtrabits.zig");
+const Retired = @import("main/retired.zig").Retired;
 
 const log = std.log.scoped(.aiioncan);
 
@@ -280,6 +281,10 @@ pub const Cannons = struct {
     /// `0x005185C4`: the tick before which Moose doesn't warn the player again.
     warned_until: i32 = 0,
     records: std.ArrayList(*Record) = .empty,
+    /// OpenReliant's: where the records go as the cannons are let go of, since a drawn frame's
+    /// copy of the cannons may still read their meshes (`main.retired.Retired`); null lets them go
+    /// at once.
+    retired: ?*Retired = null,
 
     /// `0x0040CFB0`, which `mission_load` runs: its textures.
     pub fn init(gpa: Allocator, textures: *srtexture.Table) matmanager.Error!Cannons {
@@ -300,7 +305,7 @@ pub const Cannons = struct {
     /// As a mission loads (`0x0040CFB0`): no cannon firing, and Moose free to warn. Their rays have
     /// gone with the mission's (`erayfx.Rays.reset`).
     pub fn reset(cannons: *Cannons) void {
-        for (cannons.records.items) |record| record.destroy(cannons.gpa);
+        for (cannons.records.items) |record| Retired.destroy(cannons.retired, cannons.gpa, record);
         cannons.records.clearRetainingCapacity();
         cannons.warned_until = 0;
     }
@@ -347,7 +352,7 @@ pub const Cannons = struct {
                 }
                 if (record.beam) |kept| if (made.kept(kept)) |ray| made.remove(ray);
             }
-            record.destroy(cannons.gpa);
+            Retired.destroy(cannons.retired, cannons.gpa, record);
             _ = cannons.records.swapRemove(at);
             return;
         }
@@ -442,7 +447,7 @@ pub const Record = struct {
     };
 
     /// Frees the record, its laser, its glow and its rings.
-    fn destroy(record: *Record, gpa: Allocator) void {
+    pub fn destroy(record: *Record, gpa: Allocator) void {
         if (record.laser) |*laser| laser.deinit(gpa);
         if (record.glow) |*glow| glow.deinit(gpa);
         if (record.rings) |*rings| rings.deinit(gpa);
@@ -1105,6 +1110,8 @@ test "the Boridin's cannon charges, fires and destroys a ship" {
 }
 
 test "Cannons.copy" {
+    var retired: Retired = .{ .gpa = std.testing.allocator };
+    defer retired.deinit();
     var fixture: Fixture = undefined;
     try fixture.init(.of(.boridin));
     defer fixture.deinit();
@@ -1131,6 +1138,16 @@ test "Cannons.copy" {
     mission.ordersAfter(ctx, fixture.ship, 30);
     try std.testing.expect(record.laser.?.mesh.positions[1][2] > reach);
     try std.testing.expectEqual(reach, laser.mesh.positions[1][2]);
+
+    // As the cannon goes with its ship, the game lets its record go through `retired`, and the
+    // copy's laser keeps the mesh it shares with it until the next drawn frame begins.
+    cannons.retired = &retired;
+    const indices = try std.testing.allocator.dupe(u16, laser.mesh.indices);
+    defer std.testing.allocator.free(indices);
+    cannons.free(null, fixture.ship);
+    try std.testing.expectEqual(null, cannons.of(fixture.ship));
+    try std.testing.expectEqualSlices(u16, indices, laser.mesh.indices);
+    retired.release();
 }
 
 test "the cannon starts again as its ship cloaks, unless the script holds the lock" {

@@ -15,6 +15,7 @@ const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const talkie = @import("talkie.zig");
 const Event = @import("table.zig").Event;
 const ticks_per_second = @import("main.zig").ticks_per_second;
+const Retired = @import("main.zig").retired.Retired;
 
 /// Where the films come from (`hudmovie_init`, `0x0048D030`): `pilots\pilots.hog`, whose members
 /// are the films under their file names. The game stops with a fatal error where it cannot open it.
@@ -121,6 +122,10 @@ pub const Movie = struct {
     flags: Flags = .{},
     /// `hudmovie_playing` (`0x0057C3A8`).
     playing: bool = false,
+    /// OpenReliant's: where the film's bytes and chunks go as it lets go of them, since a drawn
+    /// frame's copy of the radio may still read them (`main.retired.Retired`); null lets them go at
+    /// once.
+    retired: ?*Retired = null,
     /// Set while the line said with the film waits for the window to open (`0x0057C298`), which
     /// holds the film at its first frame, and the ticks it has waited (`0x0057C3AC`), which the
     /// display counts (`radio.Radio.waitForWindow`).
@@ -217,11 +222,11 @@ pub const Movie = struct {
         return archive.readRaw(movie.gpa, entry);
     }
 
-    /// The film's bytes and chunks let go of.
+    /// Lets go of the film's bytes and chunks, through `retired`.
     fn release(movie: *Movie) void {
-        movie.gpa.free(movie.bytes);
+        Retired.free(movie.retired, movie.gpa, movie.bytes);
         movie.bytes = &.{};
-        movie.chunks.deinit(movie.gpa);
+        Retired.free(movie.retired, movie.gpa, movie.chunks.allocatedSlice());
         movie.chunks = .empty;
         movie.next = 0;
     }
@@ -420,6 +425,8 @@ test memberName {
 test Movie {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
+    var retired: Retired = .{ .gpa = gpa };
+    defer retired.deinit();
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     // The archive is found in any case.
@@ -463,8 +470,19 @@ test Movie {
     _ = movie.play("pilots\\nobody.fm8", .looping, .volunteers);
     try std.testing.expect(movie.playing);
     try std.testing.expectEqual(2, movie.chunks.items.len);
+    // Stopped while a drawn frame may still read it, its bytes and chunks stay as they were until
+    // the next drawn frame begins.
+    movie.retired = &retired;
+    const bytes = movie.bytes;
+    const chunks = movie.chunks.items;
+    const first = chunks[0];
+    const kept = try gpa.dupe(u8, bytes);
+    defer gpa.free(kept);
     movie.stop();
     try std.testing.expect(!movie.playing);
+    try std.testing.expectEqualSlices(u8, kept, bytes);
+    try std.testing.expectEqual(first, chunks[0]);
+    retired.release();
 }
 
 test Picture {

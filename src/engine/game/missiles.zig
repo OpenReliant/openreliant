@@ -394,9 +394,10 @@ pub const Missile = struct {
         objects.frameTree(&missile.object().root, if (missile.slot.model) |*model| model else null, &missile.slot.drawn, fraction, null);
     }
 
-    /// Lets go of its object's model.
+    /// Lets go of its object's model. A missile has no extra to hold back for drawing
+    /// (`create.Slot.release`).
     pub fn release(missile: *Missile, gpa: Allocator) void {
-        missile.slot.release(gpa);
+        missile.slot.release(gpa, null);
     }
 
     fn flight(missile: *const Missile) *const FlightModel {
@@ -533,7 +534,7 @@ fn spawn(world: gameobj.World, launcher: u16, kind: Type, built: objects.Model, 
     object.root.markMoved();
     slot.drawn = places.drawn;
     return all.missiles.add(.{ .slot = slot, .launcher = launcher, .launcher_reuses = all.reuses[launcher], .type = kind, .homes = homesAtLaunch(all, kind, launcher) }) orelse {
-        slot.release(all.gpa);
+        slot.release(all.gpa, null);
         return null;
     };
 }

@@ -2241,15 +2241,17 @@ pub const Model = struct {
     }
 
     /// OpenReliant's: a copy of the model for drawing to work on (`main.Drawn`), made in `arena`.
-    /// The copy has its own parts, with their cloaks' colours and texture coordinates, its own
-    /// lights, engine glows and muzzle flashes, and copies of the models it carries, each pointing
-    /// into the copy. It shares what doesn't change once the model is made: the meshes and the
-    /// order of its parts. The copy and each of the copies it carries keep the model they were
-    /// copied from (`copied_from`), so `model` has to be the model itself, not a copy of it.
+    /// The copy has its own parts, in their order, with their cloaks' colours and texture
+    /// coordinates, its own lights, engine glows and muzzle flashes, and copies of the models it
+    /// carries, each pointing into the copy. It shares only the meshes, which its type keeps for
+    /// the whole mission, so the game can let go of the model while drawing reads the copy. The
+    /// copy and each of the copies it carries keep the model they were copied from
+    /// (`copied_from`), so `model` has to be the model itself, not a copy of it.
     pub fn copy(model: *const Model, arena: Allocator) Allocator.Error!Model {
         var copied = model.*;
         copied.copied_from = model;
         copied.parts = try arena.dupe(Part, model.parts);
+        copied.order = try arena.dupe(usize, model.order);
         for (copied.parts) |*part| if (part.cloak) |*effect| try effect.copyOwn(arena, &part.object);
         copied.lights = try arena.dupe(Light, model.lights);
         for (copied.lights) |*light| if (light.sprites) |*sprites| sprites.link();
@@ -3134,6 +3136,8 @@ test "Model.copy" {
     // The copy and the gun's copy keep the models they were copied from, so a model found in the
     // live model is found as its copy in the copy, and only there.
     try std.testing.expectEqual(&live, copied.copied_from.?);
+    try std.testing.expect(copied.order.ptr != live.order.ptr);
+    try std.testing.expectEqualSlices(usize, live.order, copied.order);
     try std.testing.expectEqual(&copied.mounts[0].model, copied.holderOf(&live.mounts[0].model).?);
     try std.testing.expectEqual(&live.mounts[0].model, live.holderOf(&live.mounts[0].model).?);
     try std.testing.expectEqual(null, live.holderOf(&copied.mounts[0].model));

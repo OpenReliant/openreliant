@@ -170,6 +170,12 @@ pub const Projection = struct {
         projection.tunnel.deinit(gpa);
     }
 
+    /// Frees it, made in `gpa`, with its meshes (`deinit`).
+    pub fn destroy(projection: *Projection, gpa: Allocator) void {
+        projection.deinit(gpa);
+        gpa.destroy(projection);
+    }
+
     /// OpenReliant's: a copy of it for a drawn frame (`wgate.Gates.copy`), made in `arena`, with
     /// its own copies of what the game changes as it runs: its beams' shapes, and its tunnel's
     /// shape and colours.
