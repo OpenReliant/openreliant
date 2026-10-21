@@ -231,15 +231,31 @@ pub const Tunnel = struct {
             .radii = radii,
             .depths = depths,
         };
-        tunnel.level = .{.{ .mesh = &tunnel.mesh, .until = std.math.inf(f32) }};
         tunnel.object = .{
             .flags = .{ .normals_second = true, .not_culled = true, .unbounded = true, .owns_mesh = true, .baked_object = true },
             .position = @splat(0),
             .radius = mesh.radius,
-            .levels = &tunnel.level,
-            .baked = drawn_colours,
+            .levels = &.{},
         };
+        tunnel.point();
         tunnel.colour(kind);
+    }
+
+    /// Points its level at its own mesh, and its object at its level and at the colours it is
+    /// drawn with, as it is built and as a drawn frame copies it.
+    fn point(tunnel: *Tunnel) void {
+        tunnel.level = .{.{ .mesh = &tunnel.mesh, .until = std.math.inf(f32) }};
+        tunnel.object.levels = &tunnel.level;
+        tunnel.object.baked = tunnel.drawn_colours;
+    }
+
+    /// OpenReliant's: makes its mesh's shape and the colours it is drawn with, which the game
+    /// changes as it runs, its own, copied into `arena`, and points its object at them, for a
+    /// drawn frame's copy of it (`wgate.Gates.copy`).
+    pub fn copyIn(tunnel: *Tunnel, arena: Allocator) Allocator.Error!void {
+        try tunnel.mesh.copyShape(arena);
+        tunnel.drawn_colours = try arena.dupe([4]f32, tunnel.drawn_colours);
+        tunnel.point();
     }
 
     pub fn deinit(tunnel: *Tunnel, gpa: Allocator) void {
@@ -682,15 +698,29 @@ pub const Square = struct {
     /// that draws it by its colours.
     pub fn build(square: *Square, gpa: Allocator, image: *srtexture.Image) Allocator.Error!void {
         const mesh = try loadout.addedSquare(gpa, square_side, square_side, true, image);
-        square.* = .{ .mesh = mesh, .level = undefined, .object = undefined };
-        square.level = .{.{ .mesh = &square.mesh, .until = std.math.inf(f32) }};
-        square.object = .{
+        square.* = .{ .mesh = mesh, .level = undefined, .object = .{
             .flags = .{ .not_culled = true, .owns_mesh = true, .baked_object = true },
             .position = @splat(0),
             .radius = mesh.radius,
-            .levels = &square.level,
-            .baked = &square.colours,
-        };
+            .levels = &.{},
+        } };
+        square.point();
+    }
+
+    /// Points its level at its own mesh, and its object at its level and its own colours, as it
+    /// is built and as a drawn frame copies it.
+    fn point(square: *Square) void {
+        square.level = .{.{ .mesh = &square.mesh, .until = std.math.inf(f32) }};
+        square.object.levels = &square.level;
+        square.object.baked = &square.colours;
+    }
+
+    /// OpenReliant's: makes its mesh's shape, which the game sizes as a ship jumps in, its own,
+    /// copied into `arena`, and points its object at it, for a drawn frame's copy of it
+    /// (`wgate.Gates.copy`).
+    pub fn copyIn(square: *Square, arena: Allocator) Allocator.Error!void {
+        try square.mesh.copyShape(arena);
+        square.point();
     }
 
     pub fn deinit(square: *Square, gpa: Allocator) void {

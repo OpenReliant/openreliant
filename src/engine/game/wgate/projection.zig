@@ -118,6 +118,14 @@ pub const Projection = struct {
         object: srapiext.MeshObject,
         colours: [warp.beam_corners][4]f32,
         end: Vector = @splat(0),
+
+        /// Points its level at its own mesh, and its object at its level and its own colours, as
+        /// it is built and as a drawn frame copies it.
+        fn point(beam: *Beam) void {
+            beam.level = .{.{ .mesh = &beam.mesh, .until = std.math.inf(f32) }};
+            beam.object.levels = &beam.level;
+            beam.object.baked = &beam.colours;
+        }
     };
 
     /// `order_start_warp_projection_from_boridin_init`'s set-up (`0x004230A0`), in place: the
@@ -143,15 +151,14 @@ pub const Projection = struct {
         for (&projection.beams) |*beam| {
             beam.* = .{ .mesh = try warp.beamMesh(gpa, gates.beam, beam_width), .object = undefined, .colours = undefined };
             made += 1;
-            beam.level = .{.{ .mesh = &beam.mesh, .until = std.math.inf(f32) }};
             // `0x83800`: never culled, always drawn and unbounded, and coloured by its own colours.
             beam.object = .{
                 .flags = .{ .not_culled = true, .always_drawn = true, .unbounded = true, .baked_object = true },
                 .position = @splat(0),
                 .radius = beam.mesh.radius,
-                .levels = &beam.level,
-                .baked = &beam.colours,
+                .levels = &.{},
             };
+            beam.point();
             for (&beam.colours, 0..) |*colour, corner| colour.* = if (corner % 4 == 0 or corner % 4 == 3) @splat(0) else .{ 1, 0, 0, 1 };
         }
         try projection.tunnel.build(gpa, gates.grid, gates.settings.tunnels.split(), gates.warp, .advanced, tunnel_size);
@@ -160,6 +167,20 @@ pub const Projection = struct {
     pub fn deinit(projection: *Projection, gpa: Allocator) void {
         for (&projection.beams) |*beam| beam.mesh.deinit(gpa);
         projection.tunnel.deinit(gpa);
+    }
+
+    /// OpenReliant's: a copy of it for a drawn frame (`wgate.Gates.copy`), made in `arena`, with
+    /// its beams' shapes and its tunnel's shape and colours, which the game changes as it runs,
+    /// its own.
+    pub fn copy(projection: *const Projection, arena: Allocator) Allocator.Error!*Projection {
+        const own = try arena.create(Projection);
+        own.* = projection.*;
+        for (&own.beams) |*beam| {
+            try beam.mesh.copyShape(arena);
+            beam.point();
+        }
+        try own.tunnel.copyIn(arena);
+        return own;
     }
 
     /// The tunnel's first `lit_rings` rings each lit by its beam's end, and the rings after them

@@ -961,15 +961,27 @@ pub const Countermeasures = struct {
         countermeasures.records[at] = null;
     }
 
-    /// Adds each countermeasure's model to the world's layer: a copy of it made in `arena`, which
-    /// lasts until the frame is drawn (`objects.Model.copy`), so that drawing writes nothing into
-    /// the countermeasures.
-    pub fn draw(countermeasures: *const Countermeasures, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, view: objects.View) Allocator.Error!void {
+    /// OpenReliant's: the countermeasures as a drawn frame copies them (`main.Drawn`), each one's
+    /// model copied into `arena` (`objects.Model.copy`), so that drawing reads the copy, and
+    /// writes into its models as it draws them, while the game frames go on with the
+    /// countermeasures. The copy owns nothing but what is in `arena`, and is never reset nor let
+    /// go of.
+    pub fn copy(countermeasures: *const Countermeasures, arena: Allocator) Allocator.Error!Countermeasures {
+        var copied = countermeasures.*;
+        for (&copied.records) |*record| if (record.*) |*countermeasure| {
+            const model = try countermeasure.model.copy(arena);
+            countermeasure.model = model;
+        };
+        return copied;
+    }
+
+    /// Adds each countermeasure's model to the world's layer. `countermeasures` is a drawn frame's
+    /// copy (`copy`), whose models drawing writes into as it draws them, so that it writes nothing
+    /// into the game's countermeasures.
+    pub fn draw(countermeasures: *Countermeasures, gpa: Allocator, scene: *srcore.Scene, view: objects.View) Allocator.Error!void {
         for (&countermeasures.records) |*record| {
             const countermeasure = &(record.* orelse continue);
-            const shown = try arena.create(objects.Model);
-            shown.* = try countermeasure.model.copy(arena);
-            try shown.draw(gpa, scene, .world, view);
+            try countermeasure.model.draw(gpa, scene, .world, view);
         }
     }
 };
@@ -1083,13 +1095,19 @@ test "Countermeasures.draw" {
     defer scene.deinit(gpa);
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
-    // Each is drawn from a copy of its model, so none of its own parts goes into the scene.
-    try stage.dropped.draw(gpa, arena.allocator(), &scene, .{});
+    // Each is drawn from the drawn frame's copy of its model, so none of its own parts goes into
+    // the scene.
+    var copied = try stage.dropped.copy(arena.allocator());
+    try copied.draw(gpa, &scene, .{});
     const drawn = scene.layers.get(.world).items;
     try std.testing.expect(drawn.len > 0);
     for (drawn) |item| for (stage.dropped.get(0).?.model.parts) |*part| {
         try std.testing.expect(item.mesh != &part.object);
     };
+    // The copy stays where it was while the game's drifts on.
+    const at = copied.get(0).?.model.position;
+    stage.dropped.get(0).?.model.position += .{ 1, 0, 0 };
+    try std.testing.expectEqual(at, copied.get(0).?.model.position);
 }
 
 test "a missile drawn away catches its countermeasure" {

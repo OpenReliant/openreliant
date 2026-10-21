@@ -38,6 +38,7 @@ const gameobj = @import("gameobj.zig");
 const matmanager = @import("matmanager.zig");
 const objects = @import("objects.zig");
 const sound3d = @import("sound3d.zig");
+const table = @import("table.zig");
 const xtrabits = @import("xtrabits.zig");
 
 pub const tunnel = @import("wgate/tunnel.zig");
@@ -287,6 +288,24 @@ pub const Gates = struct {
                 record.tunnel.reshape(record.kind, recordTime(record.made_at, frame_start), frame_start, record.deeper);
             record.scroll(frame_start);
         }
+    }
+
+    /// OpenReliant's: the gates as a drawn frame copies them (`main.Drawn`), so that drawing reads
+    /// the copy while the game frames go on with them: each record, the worm and the projection
+    /// copied into `arena`, with the tunnels', the flashes', the worm's and the beams' shapes and
+    /// the tunnels' colours, which the game changes as it runs, their own, and their objects
+    /// pointed at them. The copy shares the rest of the meshes with the game, which doesn't change
+    /// them; it owns nothing but what is in `arena`, and is never reset nor let go of.
+    pub fn copy(gates: *const Gates, arena: Allocator) Allocator.Error!Gates {
+        var copied = gates.*;
+        try table.copySlots(Record, arena, &copied.records);
+        for (copied.records) |held| if (held) |record| {
+            try record.tunnel.copyIn(arena);
+            for (&record.squares) |*square| try square.copyIn(arena);
+        };
+        if (gates.worm) |tube| copied.worm = try tube.copy(arena);
+        if (gates.projection) |shown| copied.projection = try shown.copy(arena);
+        return copied;
     }
 
     /// The rest of the gates' frame, once a drawn frame: for each record of a fixed gate, and each
@@ -1589,6 +1608,23 @@ test "a tunnel opens at an object and closes again" {
     const tube = drawn.scene.layers.get(.world).items[0].mesh;
     try std.testing.expect(tube != &record.tunnel.object);
     try std.testing.expectEqual(record.tunnel.object.levels.ptr, tube.levels.ptr);
+
+    // A drawn frame's copy of the gates holds a copy of the record, its tunnel's shape and colours
+    // its own and its object pointed at them, which stay as they were while the game's tunnel
+    // sways on.
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const copied = try run.built.gates.copy(arena.allocator());
+    const seen = copied.of(point).?;
+    try std.testing.expect(seen != record);
+    try std.testing.expect(seen.tunnel.mesh.positions.ptr != record.tunnel.mesh.positions.ptr);
+    try std.testing.expectEqual(@intFromPtr(&seen.tunnel.level), @intFromPtr(seen.tunnel.object.levels.ptr));
+    try std.testing.expectEqual(@intFromPtr(&seen.tunnel.mesh), @intFromPtr(seen.tunnel.level[0].mesh));
+    try std.testing.expectEqual(seen.tunnel.drawn_colours.ptr, seen.tunnel.object.baked.?.ptr);
+    const kept = seen.tunnel.mesh.positions[1];
+    run.built.gates.frame(mission.clock.frame_start + 50);
+    try std.testing.expect(!std.meta.eql(kept, record.tunnel.mesh.positions[1]));
+    try std.testing.expectEqual(kept, seen.tunnel.mesh.positions[1]);
 
     _ = try aigeneric.push(ctx, point, .fixed_gate_close, .none);
     for (0..120) |_| {

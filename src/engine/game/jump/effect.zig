@@ -31,6 +31,7 @@ const flash = @import("../guns/flash.zig");
 const gameobj = @import("../gameobj.zig");
 const matmanager = @import("../matmanager.zig");
 const objects = @import("../objects.zig");
+const table = @import("../table.zig");
 const xtrabits = @import("../xtrabits.zig");
 
 const log = std.log.scoped(.jump);
@@ -199,6 +200,18 @@ pub const Effects = struct {
         };
     }
 
+    /// OpenReliant's: the jump effects as a drawn frame copies them (`main.Drawn`), each effect
+    /// copied into `arena` (`table.copySlots`), its objects pointed at the copy's own colours, so
+    /// that drawing reads the copy while the game frames go on with the jumps. The copy shares the
+    /// meshes with the game, which doesn't change them; it owns nothing but what is in `arena`,
+    /// and is never let go of.
+    pub fn copy(effects: *const Effects, arena: Allocator) Allocator.Error!Effects {
+        var copied = effects.*;
+        try table.copySlots(Effect, arena, &copied.records);
+        for (copied.records) |held| if (held) |effect| effect.point();
+        return copied;
+    }
+
     /// Each record's trails, lights, burst and flare that its jump's update added to the scene this
     /// frame, into the world's layer: all but the flare hang from the ship where it is drawn. Each
     /// is drawn from a copy made in `arena`, which lasts until the frame is drawn
@@ -268,8 +281,7 @@ pub const Effects = struct {
                 },
                 .place = .{ .position = at, .orientation = turn },
             };
-            const trail = &effect.trails[n].?;
-            trail.object.baked = &trail.colours;
+            effect.trails[n].?.point();
         }
     }
 
@@ -305,7 +317,7 @@ pub const Effects = struct {
             .levels = &effects.burst_level,
         } };
         const burst = &effect.burst.?;
-        burst.object.baked = &burst.colours;
+        burst.point();
         glowBurst(burst, 1);
     }
 
@@ -321,8 +333,7 @@ pub const Effects = struct {
             .radius = effects.flare_mesh.radius,
             .levels = &effects.flare_level,
         } };
-        const flare = &effect.flare.?;
-        flare.object.baked = &flare.colours;
+        effect.flare.?.point();
         effect.flare_turn = at.orientation;
     }
 
@@ -351,6 +362,14 @@ pub const Effect = struct {
     /// keeps.
     flare_turn: Matrix = math.identity,
     shown: Shown = .{},
+
+    /// Points its trails', burst's and flare's objects at their own colours, as a drawn frame
+    /// copies it.
+    fn point(effect: *Effect) void {
+        for (&effect.trails) |*held| if (held.*) |*trail| trail.point();
+        if (effect.burst) |*burst| burst.point();
+        if (effect.flare) |*flare| flare.point();
+    }
 
     /// `jump_trail_shade` (`0x00418390`) for each trail: its blades glow `trail_colour` times
     /// `trail_share` of `share` along their near edges, fading to nothing at their far ones.
@@ -433,6 +452,11 @@ const Trail = struct {
     colours: [trail_vertices][4]f32 = @splat(.{ 0, 0, 0, 0 }),
     /// Where it stands in the ship's frame, and how it is turned.
     place: math.Place,
+
+    /// Points its object at its own colours, as it is made and as a drawn frame copies it.
+    fn point(trail: *Trail) void {
+        trail.object.baked = &trail.colours;
+    }
 };
 
 const Light = struct {
@@ -445,6 +469,11 @@ const Light = struct {
 const Burst = struct {
     object: srapiext.MeshObject,
     colours: [burst_vertices][4]f32 = @splat(.{ 0, 0, 0, 0 }),
+
+    /// Points its object at its own colours, as it is made and as a drawn frame copies it.
+    fn point(burst: *Burst) void {
+        burst.object.baked = &burst.colours;
+    }
 };
 
 pub const Flare = struct {
@@ -459,6 +488,11 @@ pub const Flare = struct {
     pub fn grow(flare: *Flare, share: f32) void {
         flare.object.scale = flare.width * share;
         flare.share = share;
+    }
+
+    /// Points its object at its own colours, as it is made and as a drawn frame copies it.
+    fn point(flare: *Flare) void {
+        flare.object.baked = &flare.colours;
     }
 };
 
@@ -812,6 +846,15 @@ test "the flare lights what stands round it as it shows" {
     scene.clear();
     try effects.draw(gpa, arena, &scene, mission.objects);
     try std.testing.expectEqual(0, scene.layers.get(.world).items.len);
+
+    // A drawn frame's copy holds a copy of each effect, its flare coloured by the copy's own
+    // colours, which stays as it was while the game's flare grows.
+    var copied = try effects.copy(arena);
+    const seen = copied.get(place).?;
+    try std.testing.expect(seen != record);
+    try std.testing.expectEqual(@intFromPtr(&seen.flare.?.colours), @intFromPtr(seen.flare.?.object.baked.?.ptr));
+    record.flare.?.grow(1);
+    try std.testing.expectEqual(25, seen.flare.?.object.scale);
 }
 
 test {

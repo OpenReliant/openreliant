@@ -242,14 +242,14 @@ pub const Blast = struct {
             .position = place.position,
             .orientation = place.orientation,
             .radius = meshes.hemisphere.radius,
-            .levels = &meshes.levels[0],
+            .levels = &.{},
         };
         blast.shown = .{
             .style = style,
             .meshes = meshes,
             .paced_at = now,
             .halves = .{ half, half },
-            .ball = .{ .flags = half.flags, .position = place.position, .orientation = place.orientation, .radius = 1, .levels = &meshes.levels[1] },
+            .ball = .{ .flags = half.flags, .position = place.position, .orientation = place.orientation, .radius = 1, .levels = &.{} },
             .glow = .{ .position = place.position, .surface = .glow(look.glow), .sprites = &.{} },
             .light = .{
                 .mask = 0,
@@ -266,14 +266,7 @@ pub const Blast = struct {
             colour.* = .{ 0, 0, 0, half_alpha * shape.fade(index) };
             uv.* = .{ at[0] * half_mapping + half_mapping, at[1] * half_mapping + half_mapping };
         }
-        for (&shown.halves) |*drawn| {
-            drawn.baked = shown.half_colours[0..vertices];
-            drawn.own_uv = .{ shown.half_uv[0..vertices], null };
-        }
-        const ball_vertices = shape.ball.vertices();
-        shown.ball.baked = shown.ball_colours[0..ball_vertices];
-        shown.ball.own_uv = .{ shown.ball_uv[0..ball_vertices], null };
-        shown.glow.sprites = &shown.glow_sprite;
+        shown.point(meshes);
     }
 
     /// The ball's part of the frame, `out` of the way to its widest: it spreads out, flickering
@@ -357,6 +350,24 @@ const Shown = struct {
         return .of(shown.style);
     }
 
+    /// Points its objects at `meshes`' levels, and at its own colours, texture coordinates and
+    /// glow sprite, as it shows and as a drawn frame copies it.
+    fn point(shown: *Shown, meshes: *Uber.Meshes) void {
+        const shape = shown.grids();
+        const vertices = shape.hemisphereVertices();
+        shown.meshes = meshes;
+        for (&shown.halves) |*half| {
+            half.levels = &meshes.levels[0];
+            half.baked = shown.half_colours[0..vertices];
+            half.own_uv = .{ shown.half_uv[0..vertices], null };
+        }
+        const ball_vertices = shape.ball.vertices();
+        shown.ball.levels = &meshes.levels[1];
+        shown.ball.baked = shown.ball_colours[0..ball_vertices];
+        shown.ball.own_uv = .{ shown.ball_uv[0..ball_vertices], null };
+        shown.glow.sprites = &shown.glow_sprite;
+    }
+
     /// How many times the blast draws its numbers afresh this frame, at tick `now`: once a frame,
     /// as the game does; or in the fuller style, once for each simulation step since it last did.
     fn rounds(shown: *Shown, now: i32) u32 {
@@ -432,6 +443,12 @@ pub const Uber = struct {
             meshes.hemisphere.deinit(gpa);
             meshes.ball.deinit(gpa);
         }
+
+        /// Points its levels at its own hemisphere and ball, as they are made and as a drawn frame
+        /// copies them.
+        fn point(meshes: *Meshes) void {
+            meshes.levels = .{ .{.{ .mesh = &meshes.hemisphere, .until = std.math.inf(f32) }}, .{.{ .mesh = &meshes.ball, .until = std.math.inf(f32) }} };
+        }
     };
 
     /// As the explosions are set up (`explosions_init`, `0x0046B240`): where there are `images` to
@@ -451,7 +468,7 @@ pub const Uber = struct {
             errdefer half.deinit(gpa);
             const meshes = look.meshes.getPtr(style);
             meshes.* = .{ .hemisphere = half, .ball = try shield.sphereMesh(gpa, shape.ball, textures.ball) };
-            meshes.levels = .{ .{.{ .mesh = &meshes.hemisphere, .until = std.math.inf(f32) }}, .{.{ .mesh = &meshes.ball, .until = std.math.inf(f32) }} };
+            meshes.point();
             made += 1;
         }
         return uber;
@@ -460,6 +477,25 @@ pub const Uber = struct {
     pub fn destroy(uber: *Uber, gpa: Allocator) void {
         if (uber.look) |*look| for (&look.meshes.values) |*meshes| meshes.deinit(gpa);
         gpa.destroy(uber);
+    }
+
+    /// OpenReliant's: the Uber Explode as a drawn frame copies it (`main.Drawn`), into `arena`, so
+    /// that drawing reads the copy while the game frames go on with the blast: the blast going
+    /// off, and where it shows, the hemisphere its halves open out with its vertices where the
+    /// game frames left them, which the game opens further each frame. The copy's objects point at
+    /// its own meshes, colours and texture coordinates. It shares the rest of the meshes with the
+    /// game, which doesn't change them; it owns nothing but what is in `arena`, and is never let
+    /// go of.
+    pub fn copy(uber: *const Uber, arena: Allocator) Allocator.Error!*Uber {
+        const own = try arena.create(Uber);
+        own.* = uber.*;
+        if (own.look) |*look| if (own.blast) |*blast| if (blast.shown) |*shown| {
+            const meshes = look.meshes.getPtr(shown.style);
+            try meshes.hemisphere.copyShape(arena);
+            meshes.point();
+            shown.point(meshes);
+        };
+        return own;
     }
 
     /// `uber_explode_start` (`0x00472AB0`): sets a blast of `size` off at `place` for `owner`, over
@@ -766,6 +802,42 @@ test Uber {
     try std.testing.expectEqual(null, uber.blast);
     try std.testing.expectEqual(.explode, all.slots[near].current().?.order);
     try std.testing.expectEqual(.do_nothing, all.slots[far].current().?.order);
+}
+
+test "Uber.copy" {
+    const gpa = std.testing.allocator;
+    var stage: explode.testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    var world = stage.world();
+    world.player.viewing.seen_from = .{ .position = .{ 0, 0, -50000 } };
+    const uber = stage.explosions.uber;
+    stage.mission.clock.frame_start = 1000;
+    uber.start(world, 0, .{ .position = @splat(0) }, 1000, 1000, .original);
+    stage.mission.clock.frame_start = 1100;
+    uber.frame(world);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    // The copy's halves draw a hemisphere of its own, opened as far as the game's, and its own
+    // colours; the ball and the glow are its own too.
+    const copied = try uber.copy(arena.allocator());
+    const shown = &copied.blast.?.shown.?;
+    const game = &uber.blast.?.shown.?;
+    const hemisphere = shown.halves[0].levels[0].mesh;
+    try std.testing.expect(hemisphere != &game.meshes.hemisphere);
+    try std.testing.expect(hemisphere.positions.ptr != game.meshes.hemisphere.positions.ptr);
+    try std.testing.expectEqualSlices(Vector, game.meshes.hemisphere.positions, hemisphere.positions);
+    try std.testing.expectEqual(@intFromPtr(&shown.half_colours), @intFromPtr(shown.halves[1].baked.?.ptr));
+    try std.testing.expectEqual(@intFromPtr(&shown.ball_colours), @intFromPtr(shown.ball.baked.?.ptr));
+    try std.testing.expectEqual(@intFromPtr(&shown.glow_sprite), @intFromPtr(shown.glow.sprites.ptr));
+
+    // As the game opens its hemisphere further, the copy's stays as it was.
+    const kept = hemisphere.positions[1];
+    stage.mission.clock.frame_start = 1200;
+    uber.frame(world);
+    try std.testing.expect(!std.meta.eql(kept, game.meshes.hemisphere.positions[1]));
+    try std.testing.expectEqual(kept, hemisphere.positions[1]);
 }
 
 test "the fuller style" {

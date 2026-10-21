@@ -317,6 +317,16 @@ pub const Pieces = struct {
         pieces.gpa.destroy(pieces.flights);
     }
 
+    /// OpenReliant's: the pieces as a drawn frame copies them (`main.Drawn`), their flights copied
+    /// into `arena`, so that drawing reads the copy while the game frames go on with them. The copy
+    /// shares each piece's mesh with the game, which leaves it as it was cut; it owns nothing but
+    /// what is in `arena`, and is never reset nor let go of.
+    pub fn copy(pieces: *const Pieces, arena: Allocator) Allocator.Error!Pieces {
+        const flights = try arena.create(Flights);
+        flights.* = pieces.flights.*;
+        return .{ .gpa = pieces.gpa, .flights = flights };
+    }
+
     /// As a mission starts again: none flying.
     pub fn reset(pieces: *Pieces) void {
         for (&pieces.flights.slots) |*slot| pieces.drop(slot);
@@ -687,6 +697,36 @@ test Pieces {
     clock.frame_start = 11 + Flight.lingers + 1;
     pieces.frame(stage.world());
     try std.testing.expectEqual(null, pieces.flights.slots[0]);
+}
+
+test "Pieces.copy" {
+    const gpa = std.testing.allocator;
+    var stage: explode.testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    stage.mission.clock.frame_duration = 1;
+    const pieces = &stage.explosions.pieces;
+    var mesh = try testing.star(gpa);
+    defer mesh.deinit(gpa);
+    var random: Random = .{};
+    var cuts = try cut(gpa, .{}, .{ .mesh = &mesh, .place = .{}, .flags = .{}, .light_mask = 0 }, .one, &random);
+    defer for (cuts[1..]) |*maybe| if (maybe.*) |*piece| piece.deinit(gpa);
+    pieces.add(.{ .until = 10, .piece = cuts[0].?, .velocity = .{ 1, 0, 0 }, .tumble = @splat(0) });
+    cuts[0] = null;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    // The copy's flights are its own, and stay where they were while the game's fly on; each
+    // piece's mesh is the game's.
+    const copied = try pieces.copy(arena.allocator());
+    const flight = &pieces.flights.slots[0].?;
+    const seen = &copied.flights.slots[0].?;
+    try std.testing.expect(copied.flights != pieces.flights);
+    const from = flight.place.position;
+    pieces.frame(stage.world());
+    try std.testing.expect(!std.meta.eql(from, flight.place.position));
+    try std.testing.expectEqual(from, seen.place.position);
+    try std.testing.expectEqual(flight.piece.mesh.positions.ptr, seen.piece.mesh.positions.ptr);
 }
 
 test "a part's burst takes in the models it carries" {
