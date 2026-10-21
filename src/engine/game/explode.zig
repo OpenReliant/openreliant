@@ -188,6 +188,24 @@ pub const Explosions = struct {
         explosions.chunks.frame(clock);
     }
 
+    /// OpenReliant's: the explosions as a drawn frame copies them (`main.Drawn`), so that drawing
+    /// reads the copy while the game frames go on with them: the bits, the pieces' flights, the
+    /// chunks and the Uber Explode copied into `arena` (`breakup.Pieces.copy`, `uber.Uber.copy`),
+    /// and what the record holds itself, the splits, the fireballs and the burning wrecks' lights
+    /// among it. The copy shares the meshes the bits, the pieces and the chunks are drawn with,
+    /// which the game doesn't change; it owns nothing but what is in `arena`, and is never reset
+    /// nor let go of.
+    pub fn copy(explosions: *const Explosions, arena: Allocator) Allocator.Error!Explosions {
+        var copied = explosions.*;
+        copied.bits = try arena.create(Bits);
+        copied.bits.* = explosions.bits.*;
+        copied.pieces = try explosions.pieces.copy(arena);
+        copied.chunks = try arena.create(rocks.Chunks);
+        copied.chunks.* = explosions.chunks.*;
+        copied.uber = try explosions.uber.copy(arena);
+        return copied;
+    }
+
     /// The rest of `explosions_update`: the Uber Explode's objects, the bits and the pieces go into
     /// the world's layer, the burning wrecks' lights among the lights, and each fireball showing,
     /// with its light among the lights, `ahead` of a tick past the frame's tick. What moves is
@@ -1483,6 +1501,30 @@ test "a special fireball plays the flak's cells" {
     const fireball: Fireball = .init(testing.images(), @splat(0), .{ .size = 10, .special = true }, .fuller, &.{}, &random);
     try std.testing.expectEqual(Texture{ .image = &testing.flak }, fireball.set.surface.textures[0]);
     try std.testing.expectEqual(.add, fireball.set.surface.material.blend[0]);
+}
+
+test "Explosions.copy" {
+    const gpa = std.testing.allocator;
+    const mesh = try @import("../surrender/surrenderlib/srmesh.zig").testing.square(gpa);
+    defer mesh.deinit(gpa);
+    var stage: testing.Stage = undefined;
+    try stage.init();
+    defer stage.deinit();
+    const explosions = &stage.explosions;
+    explosions.debris = testing.debris(&mesh);
+    var random: Random = .{};
+    explosions.throwBit(.{ 0, 0, 100 }, .{ 0, 0, 1 }, .{ .size = 0.4, .speed = 0.2 }, &stage.mission.clock, &random);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    // The copy's bits, pieces, chunks and Uber Explode are its own: what the game does to them
+    // next leaves the copy as it is.
+    const copied = try explosions.copy(arena.allocator());
+    try std.testing.expect(copied.bits != explosions.bits and copied.chunks != explosions.chunks and copied.uber != explosions.uber);
+    try std.testing.expect(copied.pieces.flights != explosions.pieces.flights);
+    const at = explosions.bits.slots[0].?.at;
+    explosions.bits.slots[0].?.at = .{ 1, 2, 3 };
+    try std.testing.expectEqual(at, copied.bits.slots[0].?.at);
 }
 
 pub const testing = struct {

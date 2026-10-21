@@ -1446,7 +1446,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .gun_particles = drawn_world.gun_particles,
                 .sparks = drawn_world.sparks,
                 .ahead = game.objects.pastTick(&drawn.clock, smooth_motion),
-                .explosions = &explosions,
+                .explosions = drawn_world.explosions,
                 .shockwaves = drawn_world.shockwaves,
                 .trails = &trails,
                 .countermeasures = &countermeasures,

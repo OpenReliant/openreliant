@@ -1160,7 +1160,7 @@ pub const Drawn = struct {
     shake: f32 = 0,
     /// Copies of the game's effects that drawing draws, as the game frames left them (`take`): the
     /// particles, the smoke, the guns' flak and spent cases, the sparks, the shockwaves, the
-    /// electric rays, the tractors, the Rippers' beams and the capital shields.
+    /// electric rays, the tractors, the Rippers' beams, the capital shields and the explosions.
     particles: ?particles.Pool = null,
     smoke: ?smoke.Pools = null,
     gun_particles: ?guns.effects.Pools = null,
@@ -1170,6 +1170,7 @@ pub const Drawn = struct {
     tractors: ?tractor.Tractors = null,
     rippers: ?airipper.Rippers = null,
     capital_shields: ?shield.Capital = null,
+    explosions: ?explode.Explosions = null,
     /// What the copy's models are made in, from one drawn frame to the next.
     arena: std.heap.ArenaAllocator,
     /// The portals the copy's parts are cut by: drawing's own, which stand in for the game's from
@@ -1216,6 +1217,7 @@ pub const Drawn = struct {
         drawn.tractors = if (game.tractors) |tractors| try tractors.copy(arena) else null;
         drawn.rippers = if (game.rippers) |rippers| try rippers.copy(arena) else null;
         drawn.capital_shields = if (game.capital_shields) |capital| capital.* else null;
+        drawn.explosions = if (game.explosions) |explosions| try explosions.copy(arena) else null;
         const now = game.clock.frame_start;
         const copy = drawn.objects;
         try game.objects.copyInto(copy, arena);
@@ -1261,6 +1263,7 @@ pub const Drawn = struct {
         shown.tractors = if (drawn.tractors) |*tractors| tractors else null;
         shown.rippers = if (drawn.rippers) |*rippers| rippers else null;
         shown.capital_shields = if (drawn.capital_shields) |*capital| capital else null;
+        shown.explosions = if (drawn.explosions) |*explosions| explosions else null;
         return shown;
     }
 };
