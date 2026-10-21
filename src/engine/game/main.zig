@@ -549,6 +549,8 @@ pub const Drawing = struct {
     orders: aigeneric.Context,
     /// The copy of the objects the frame draws (`Drawn`).
     objects: *create.Objects,
+    /// The copy of the view the frame shows (`Drawn.viewing`).
+    viewing: *const camera.Viewing,
     devices: *input.Devices,
     camera: *camera.Camera,
     /// The display, whose target the target view goes round.
@@ -634,7 +636,7 @@ pub fn viewFrame(drawing: Drawing) void {
         drawn.random = drawing.random;
         trails.frame(drawn);
     }
-    const viewing = &world.player.viewing;
+    const viewing = drawing.viewing;
     const cockpit_input = if (drawing.cockpit) |seat| seat.inputFor(slot, viewing.view) else null;
     const subject = camera.Subject.of(slot);
     const seen = if (viewing.object) |object| camera.Subject.of(&all.slots[object]) else subject;
@@ -1140,6 +1142,10 @@ fn frameObject(slot: *create.Slot, timing: objects.Timing, glide: ?math.Vector, 
 pub const Drawn = struct {
     gpa: Allocator,
     objects: *create.Objects,
+    /// The copy of the view the game has the camera show (`input.Player.viewing`), which drawing
+    /// reads. The drawing side's switches of view switch it at once, and the game's as it next
+    /// runs (`camera.Camera.ask`).
+    viewing: camera.Viewing = .{},
     /// What the copy's models are made in, from one drawn frame to the next.
     arena: std.heap.ArenaAllocator,
     /// The portals the copy's parts are cut by: drawing's own, which stand in for the game's from
@@ -1166,14 +1172,16 @@ pub const Drawn = struct {
         drawn.gpa.destroy(drawn.objects);
     }
 
-    /// Copies `all` for the drawn frame and returns the copy. Where there is time past the tick,
-    /// every object and missile the game frame framed is framed `timing` of the way through the
-    /// step in the copy, as the game frame frames them (`frameObjects`, `missiles.frame`), with
-    /// nothing else the game frame does to them. Then drawing's portals stand in for those of
-    /// `cutting` (`explode.split.Splits.standPortals`, `wgate.Gates.standPortals`), and the copy's
-    /// parts that the game's cut are pointed at them (`xtrabits.Portals.cut`).
-    pub fn take(drawn: *Drawn, all: *const create.Objects, timing: objects.Timing, now: i32, cutting: Cutting) Allocator.Error!*create.Objects {
+    /// Copies `all`, and `viewing`, the view, for the drawn frame, and returns the copy of `all`.
+    /// Where there is time past the tick, every object and missile the game frame framed is framed
+    /// `timing` of the way through the step in the copy, as the game frame frames them
+    /// (`frameObjects`, `missiles.frame`), with nothing else the game frame does to them. Then
+    /// drawing's portals stand in for those of `cutting` (`explode.split.Splits.standPortals`,
+    /// `wgate.Gates.standPortals`), and the copy's parts that the game's cut are pointed at them
+    /// (`xtrabits.Portals.cut`).
+    pub fn take(drawn: *Drawn, all: *const create.Objects, viewing: *const camera.Viewing, timing: objects.Timing, now: i32, cutting: Cutting) Allocator.Error!*create.Objects {
         _ = drawn.arena.reset(.retain_capacity);
+        drawn.viewing = viewing.*;
         const copy = drawn.objects;
         try all.copyInto(copy, drawn.arena.allocator());
         if (timing.ahead > 0) {
@@ -2712,10 +2720,12 @@ test Drawn {
     var copies: Drawn = try .init(gpa);
     defer copies.deinit();
     // Half a tick past the tick, the drawn frame draws it an eighth of the step further on, and
-    // the game's ship stays where the game frame framed it.
+    // the game's ship stays where the game frame framed it. The frame shows the game's view.
     mission.clock.past_tick = 0.5;
-    const copy = try copies.take(mission.objects, .of(&mission.clock, true, .together), 0, .{});
+    mission.player.viewing.view = .chase;
+    const copy = try copies.take(mission.objects, &mission.player.viewing, .of(&mission.clock, true, .together), 0, .{});
     try std.testing.expectEqual(math.Vector{ 62.5, 0, 0 }, copy.slots[ship].drawn.position);
+    try std.testing.expectEqual(camera.View.chase, copies.viewing.view);
     try std.testing.expectEqual(drawn, slot.drawn);
     try std.testing.expectEqualSlices(u8, std.mem.asBytes(&framed), std.mem.asBytes(&slot.object));
     // The copy's model is its own: drawing it moves none of the game's parts.
@@ -2725,7 +2735,7 @@ test Drawn {
     try std.testing.expect(!std.meta.eql(part.object.position, slot.model.?.parts[0].object.position));
     // With no time past the tick, the copy stands where the game frame framed it.
     mission.clock.past_tick = 0;
-    try std.testing.expectEqual(drawn, (try copies.take(mission.objects, .of(&mission.clock, true, .together), 0, .{})).slots[ship].drawn);
+    try std.testing.expectEqual(drawn, (try copies.take(mission.objects, &mission.player.viewing, .of(&mission.clock, true, .together), 0, .{})).slots[ship].drawn);
 }
 
 test "a mission plays the same way however often it is drawn" {
@@ -2746,7 +2756,7 @@ test "a mission plays the same way however often it is drawn" {
         _ = gameFrames(&mission.clock, &devices, null, mission.world(), .together, null);
         if (which > 0) continue;
         mission.clock.past_tick = 0.6;
-        _ = try copies.take(mission.objects, .of(&mission.clock, true, .together), mission.clock.frame_start, .{});
+        _ = try copies.take(mission.objects, &mission.player.viewing, .of(&mission.clock, true, .together), mission.clock.frame_start, .{});
     };
     const drawn = missions[0].slot(1);
     const undrawn = missions[1].slot(1);

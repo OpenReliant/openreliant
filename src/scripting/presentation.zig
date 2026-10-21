@@ -126,9 +126,12 @@ pub const Host = struct {
     };
 
     pub const Camera = struct {
+        /// The camera, which cuts to a script's switch of view at once and asks the game for it
+        /// (`camera.Camera.ask`).
         camera: *camera.Camera,
-        /// What the game has the camera view (`input.Player.viewing`), and what a switch of view
-        /// goes by.
+        /// The drawn frame's copy of the view the game has the camera show (`main.Drawn.viewing`),
+        /// which a script's switch of view switches at once, and what the switch goes by in the
+        /// drawn frame.
         viewing: *camera.Viewing,
         bounds: camera.Viewing.Bounds = .{},
         /// The time the camera's views switch by (`main.Clock.viewTime`).

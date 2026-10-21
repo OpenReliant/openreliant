@@ -1986,7 +1986,8 @@ camera.set_view("cockpit")      -- back to the cockpit
   ([Qualified names](#qualified-names)). `camera.view` is the view that shows.
 - A mod's view is an outside view: it draws no cockpit, and `letterbox` adds bars above and below.
 - The game's camera keys and a mission's cutaways override a script's view, and a script can't
-  change the view while the mission holds the camera.
+  change the view while the mission holds the camera. `set_view` switches at most 16 times in one
+  frame, and returns `false` past that.
 - If `frame` fails, or the object leaves the mission, the camera goes back to the cockpit.
 - One run of OpenReliant has room for about 200 views, displays and screens together, counting
   the ones registered before a reload. Registering more is an error.

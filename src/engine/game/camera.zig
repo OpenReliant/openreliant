@@ -489,6 +489,9 @@ pub const Viewing = struct {
     /// spread across the view, the sparks and the flak only near it, an Uber's bits thrown at it,
     /// and the screen's flash near it. Null where nothing is drawn, which leaves them out.
     seen_from: ?Place = null,
+    /// OpenReliant's: how many of the switches of view the drawing side asked for the game has
+    /// made (`Camera.requests`, `takeUp`).
+    requests_seen: u32 = 0,
 
     /// What a switch of view goes by: the gates, whose worm the player's ship may be riding, and
     /// the missiles in flight, which the missile view follows; null where there are none.
@@ -502,36 +505,69 @@ pub const Viewing = struct {
         }
     };
 
-    /// The game's part of `camera_set_view`: switches to `view` at tick `now`, `object` the one it
-    /// shows, `lock` keeping the camera keys off it. Refused while the player's ship rides the worm
-    /// between gates, forced or not (`wgate.ridingWorm`, `0x0045F1B0`), and while the camera is
-    /// locked, unless `force`. The missile view follows the next missile in flight, from the one it
-    /// last followed, that `object` launched; with none, it is refused. Out of the director's view,
-    /// the ships its shot held go (`shots.Held.hold`), and into it, the shot's own are held. The
-    /// target and external views start their orbit again. The camera takes up the switch as it
-    /// next frames (`Camera.cutTo`).
+    /// The game's part of `camera_set_view`: the view's own part (`turn`), then, out of the
+    /// director's view, the ships its shot held go (`shots.Held.hold`), and into it, the shot's own
+    /// are held. The camera takes up the switch as it next frames (`Camera.cutTo`).
     pub fn set(viewing: *Viewing, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Bounds) bool {
-        if (wgate.ridingWorm(by.gates)) return false;
-        if (viewing.locked and !force) return false;
+        const cut = viewing.make(view, object, lock, force, now, by) orelse return false;
+        viewing.changes.add(.{ .cut = cut });
+        return true;
+    }
+
+    /// `set` without the change for the camera: returns the cut, or null where the switch is
+    /// refused.
+    fn make(viewing: *Viewing, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Bounds) ?Cut {
+        const leaving: ?shots.Held = if (viewing.view == .director) viewing.held else null;
+        const cut = viewing.turn(view, object, lock, force, now, by) orelse return null;
+        if (leaving) |held| held.hold(false);
+        if (view == .director) if (viewing.held) |held| held.hold(true);
+        return cut;
+    }
+
+    /// The view's own part of a switch (`set`): switches to `view` at tick `now`, `object` the one
+    /// it shows, `lock` keeping the camera keys off it. Refused while the player's ship rides the
+    /// worm between gates, forced or not (`wgate.ridingWorm`, `0x0045F1B0`), and while the camera
+    /// is locked, unless `force`. The missile view follows the next missile in flight, from the one
+    /// it last followed, that `object` launched; with none, it is refused. The target and external
+    /// views start their orbit again. It leaves the ships the director's shots hold as they are,
+    /// which is how the drawn frame's copy of the view takes a switch (`Camera.ask`). Returns the
+    /// cut for the camera, or null where the switch is refused.
+    pub fn turn(viewing: *Viewing, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Bounds) ?Cut {
+        if (wgate.ridingWorm(by.gates)) return null;
+        if (viewing.locked and !force) return null;
         if (view == .missile) {
-            const records = by.missiles orelse return false;
-            viewing.missile = nextMissile(records, viewing.missile, object orelse return false) orelse return false;
+            const records = by.missiles orelse return null;
+            viewing.missile = nextMissile(records, viewing.missile, object orelse return null) orelse return null;
             viewing.missile_gone = false;
         }
-        if (viewing.view == .director) if (viewing.held) |held| held.hold(false);
         const cut: Cut = .{ .from = viewing.view, .from_object = viewing.object, .view = view, .object = object, .cockpit_mode = viewing.cockpit_mode };
         viewing.view = view;
         viewing.object = object;
         viewing.locked = lock;
         viewing.switched = now;
         viewing.lasting = false;
-        if (view == .director) {
-            viewing.held = viewing.holding;
-            if (viewing.held) |held| held.hold(true);
-        }
+        if (view == .director) viewing.held = viewing.holding;
         if (view == .target or view == .external) viewing.orbit = .{};
-        viewing.changes.add(.{ .cut = cut });
-        return true;
+        return cut;
+    }
+
+    /// OpenReliant's: makes the switches of view the drawing side asked for since the game last
+    /// took them up (`Camera.requests`), in the order they were asked, as `set` makes the game's
+    /// own. The game's view then ends up as it would have if drawing had switched it directly.
+    /// Where the camera cut to a switch as it was asked (`Request.cut_at_once`), `subtarget`
+    /// follows the switch here (`Camera.Subtarget.follow`), and the camera gets no change to take
+    /// up. Otherwise the camera takes the switch up as it next frames, as for the game's own.
+    pub fn takeUp(viewing: *Viewing, requests: *const Requests, by: Bounds, subtarget: ?Camera.Subtarget) void {
+        var asked = requests.since(viewing.requests_seen);
+        while (asked.next()) |request| {
+            const made = if (request.cut_at_once) made: {
+                const cut = viewing.make(request.view, request.object, request.lock, request.force, request.now, by) orelse break :made false;
+                if (subtarget) |sub| sub.follow(cut.view);
+                break :made true;
+            } else viewing.set(request.view, request.object, request.lock, request.force, request.now, by);
+            if (made and request.lasting) viewing.lasting = true;
+        }
+        viewing.requests_seen = requests.count;
     }
 
     /// Whether the view is in `object`'s cockpit, in the cockpit mode: `camera_set_view` then sets
@@ -643,17 +679,41 @@ pub const Cut = struct {
 /// launch; the camera then takes up the latest.
 pub const Changes = table.Latest(Change, 16);
 
+/// OpenReliant's: a switch of view the drawing side asks the game for, as a mod's script and
+/// `--watch` make them (`Camera.ask`), which the game makes before it next runs
+/// (`Viewing.takeUp`).
+pub const Request = struct {
+    view: View,
+    object: ?u16,
+    lock: bool = false,
+    force: bool = false,
+    /// The tick it is asked at (`main.Clock.viewTime`), which the game switches at too.
+    now: u32,
+    /// Whether the view lasts (`Viewing.lasting`), as `--watch` has it.
+    lasting: bool = false,
+    /// Whether the camera cuts to it as it is asked, as for a mod's script, which can read the view
+    /// back straight away. Otherwise, as for `--watch`, the camera cuts as it next frames, once the
+    /// game has made the switch.
+    cut_at_once: bool = true,
+};
+
+/// How many switches of view the drawing side can ask for before the game takes them up
+/// (`Camera.ask`).
+const most_requests = 16;
+
+/// OpenReliant's: the latest switches of view the drawing side asked for (`Request`), which the
+/// game takes up before it next runs (`Viewing.takeUp`).
+pub const Requests = table.Latest(Request, most_requests);
+
 /// Switches the world's view (`camera_set_view`, `Viewing.set`) at the mission's tick.
 pub fn switchView(world: gameobj.World, view: View, object: ?u16, lock: bool, force: bool) bool {
     return world.player.viewing.set(view, object, lock, force, world.clock.viewTime(), .of(world));
 }
 
-/// Switches `viewing` (`Viewing.set`) from the drawing side, as a mod's script does, and `drawn`
-/// with it at once where there is a camera (`Camera.notice`).
-pub fn switchViewing(viewing: *Viewing, drawn: ?*Camera, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Viewing.Bounds) bool {
-    if (!viewing.set(view, object, lock, force, now, by)) return false;
-    if (drawn) |shown| shown.notice(viewing);
-    return true;
+/// Makes the switches of view the drawing side asked the game for through `drawn`, the camera
+/// (`Viewing.takeUp`), in `world`.
+pub fn takeUp(world: gameobj.World, drawn: *const Camera) void {
+    world.player.viewing.takeUp(&drawn.requests, .of(world), drawn.subtarget);
 }
 
 /// Switches to one of the ejection's views, `view`, of `object`, locked and forced
@@ -717,28 +777,40 @@ pub const Camera = struct {
     /// Set as the view switches, which resets the star streaks (`backdrop_reset_streaks`), so that
     /// the frame drawn next draws none, even where the view switches back to what it was.
     cut: bool = false,
-    /// The player's subtarget picked out in red, which a switch of view picks out or puts back,
-    /// with the objects it is picked out of; null where there is no display.
+    /// The player's subtarget picked out in red, which a switch of view picks out or puts back
+    /// (`Subtarget.follow`), with the objects it is picked out of; null where there is no display.
     subtarget: ?Subtarget = null,
     /// OpenReliant's: how many of the game's changes to what it shows it has taken up
     /// (`Viewing.changes`, `notice`).
     seen: u32 = 0,
+    /// OpenReliant's: the switches of view the drawing side asked the game for (`ask`).
+    requests: Requests = .{},
 
     pub const Subtarget = struct {
         shown: *hud.subtarget.Subtarget,
         all: *create.Objects,
+
+        /// The subtarget's part of a switch to `view`: its parts are picked out in view 0 and put
+        /// back in any other (`0x0045F42D`, `0x0045F397`).
+        pub fn follow(subtarget: Subtarget, view: View) void {
+            if (view == .cockpit) subtarget.shown.pick(subtarget.all) else subtarget.shown.clear(subtarget.all);
+        }
     };
 
     /// Bars grow this share of the screen a tick, times their speed (`camera_frame`, `0x004DC418`).
     pub const bar_rate: f32 = 0.001;
 
     /// Takes up the changes the game made to what the camera shows since it last did
-    /// (`Viewing.changes`), in the order the game made them. It does so as it frames, and the
-    /// drawn frame has it do so before it copies the objects, which a cut's subtarget changes.
+    /// (`Viewing.changes`), in the order the game made them, with the subtarget following each
+    /// switch of view. It does so as it frames, and the drawn frame has it do so before it copies
+    /// the objects, which a cut's subtarget changes.
     pub fn notice(camera: *Camera, viewing: *const Viewing) void {
         var changes = viewing.changes.since(camera.seen);
         while (changes.next()) |change| switch (change) {
-            .cut => |cut| camera.cutTo(cut),
+            .cut => |cut| {
+                camera.cutTo(cut);
+                if (camera.subtarget) |sub| sub.follow(cut.view);
+            },
             .chase_mode => camera.chase.distance = Chase.start_distance,
             .cutaway => |placed| camera.placeCutaway(placed.view, placed.seen, placed.pod),
             .launch => |placed| camera.placeLaunch(placed.view, placed.seen, placed.player, placed.even_gate),
@@ -746,6 +818,20 @@ pub const Camera = struct {
             .jump => |placed| camera.placeJump(placed.view, placed.seen, placed.player),
         };
         camera.seen = viewing.changes.count;
+    }
+
+    /// OpenReliant's: a switch of view the drawing side makes, as `request` asks: `viewing`, the
+    /// drawn frame's copy of the view, switches at once (`Viewing.turn`), and the game makes the
+    /// same switch before it next runs (`requests`, `Viewing.takeUp`). Where the request says so,
+    /// the camera cuts to it at once too. Refused where the game would refuse it, and past
+    /// `most_requests` the game hasn't taken up yet. Returns whether it switched.
+    pub fn ask(camera: *Camera, viewing: *Viewing, request: Request, by: Viewing.Bounds) bool {
+        if (camera.requests.count -% viewing.requests_seen >= most_requests) return false;
+        const cut = viewing.turn(request.view, request.object, request.lock, request.force, request.now, by) orelse return false;
+        if (request.lasting) viewing.lasting = true;
+        if (request.cut_at_once) camera.cutTo(cut);
+        camera.requests.add(request);
+        return true;
     }
 
     /// The camera's part of a switch of view (`camera_set_view`, `Viewing.set`): it has the stars
@@ -760,9 +846,6 @@ pub const Camera = struct {
             camera.bars = 0;
             camera.bar_speed = 0;
         }
-        // The subtarget's parts are picked out in view 0 and put back in any other (`0x0045F42D`,
-        // `0x0045F397`).
-        if (camera.subtarget) |sub| if (view == .cockpit) sub.shown.pick(sub.all) else sub.shown.clear(sub.all);
         if (view == .chase and (cut.from != .chase or cut.from_object != cut.object)) {
             camera.chase.distance = Chase.start_distance;
         }
@@ -2043,10 +2126,12 @@ fn expectVector(expected: Vector, actual: Vector) !void {
     return math.testing.expectVectorWithin(expected, actual, 1e-3);
 }
 
-/// For the tests: switches `viewing`, and `drawn` with it, with nothing to refuse it, as
-/// `switchView` does in a game.
+/// For the tests: switches `viewing`, with nothing to refuse it, as `switchView` does in a game,
+/// and `drawn` takes the switch up at once, as the drawn frame does.
 fn testingSwitch(viewing: *Viewing, drawn: *Camera, view: View, object: ?u16, lock: bool, force: bool, now: u32) bool {
-    return switchViewing(viewing, drawn, view, object, lock, force, now, .{});
+    if (!viewing.set(view, object, lock, force, now, .{})) return false;
+    drawn.notice(viewing);
+    return true;
 }
 
 /// For the tests: the camera's keys over a frame `ticks` long, and the switch to the view they pick
@@ -2093,13 +2178,65 @@ test "no switch of view while the player's ship rides the worm" {
     var camera: Camera = .{};
     var viewing: Viewing = .{};
     // Refused, forced or not, and the frame drawn next is no cut.
-    try std.testing.expect(!switchViewing(&viewing, &camera, .external, 0, false, true, 10, .{ .gates = &gates }));
+    const asked: Request = .{ .view = .external, .object = 0, .force = true, .now = 10 };
+    try std.testing.expect(!camera.ask(&viewing, asked, .{ .gates = &gates }));
     try std.testing.expect(!camera.cut);
     try std.testing.expectEqual(View.cockpit, viewing.view);
+    try std.testing.expectEqual(0, camera.requests.count);
     // Out of the worm, it goes ahead.
     gates.riding = false;
-    try std.testing.expect(switchViewing(&viewing, &camera, .external, 0, false, true, 10, .{ .gates = &gates }));
+    try std.testing.expect(camera.ask(&viewing, asked, .{ .gates = &gates }));
     try std.testing.expectEqual(View.external, viewing.view);
+}
+
+test "the drawing side's switches of view are the game's once it takes them up" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const ship = try mission.add(.of(.predator), @splat(0));
+    var game: Viewing = .{};
+    var held: shots.Held = .{ .objects = all };
+    held.ships.set(ship);
+    game.holding = held;
+    var camera: Camera = .{};
+    // A mod's script switches to the director's view: the drawn frame's copy of the view switches,
+    // and the camera cuts to it at once, but the game's view and the ships stay as they were.
+    var copy = game;
+    try std.testing.expect(camera.ask(&copy, .{ .view = .director, .object = null, .now = 10 }, .{}));
+    try std.testing.expectEqual(View.director, copy.view);
+    try std.testing.expect(camera.cut);
+    try std.testing.expectEqual(View.cockpit, game.view);
+    try std.testing.expect(!all.slots[ship].object.flags.jumping);
+    // The game makes the switch as it takes it up, at the tick it was asked at, holding the shot's
+    // ships, with no change for the camera to cut to again.
+    game.takeUp(&camera.requests, .{}, null);
+    try std.testing.expectEqual(View.director, game.view);
+    try std.testing.expectEqual(10, game.switched);
+    try std.testing.expect(all.slots[ship].object.flags.jumping);
+    camera.cut = false;
+    camera.notice(&game);
+    try std.testing.expect(!camera.cut);
+    // `--watch`'s switch lasts, and the camera cuts to it once the game has made it, as it next
+    // frames. Out of the director's view, the shot's ships go.
+    copy = game;
+    try std.testing.expect(camera.ask(&copy, .{ .view = .watch, .object = ship, .lock = true, .force = true, .now = 20, .lasting = true, .cut_at_once = false }, .{}));
+    try std.testing.expect(copy.lasting and !camera.cut);
+    game.takeUp(&camera.requests, .{}, null);
+    try std.testing.expectEqual(View.watch, game.view);
+    try std.testing.expect(game.locked and game.lasting);
+    try std.testing.expect(!all.slots[ship].object.flags.jumping);
+    camera.notice(&game);
+    try std.testing.expect(camera.cut);
+    // A switch is taken up once.
+    game.view = .cockpit;
+    game.takeUp(&camera.requests, .{}, null);
+    try std.testing.expectEqual(View.cockpit, game.view);
+    // Past as many as the game takes up at once, a switch is refused.
+    copy = game;
+    for (0..most_requests) |at| try std.testing.expect(camera.ask(&copy, .{ .view = .chase, .object = ship, .force = true, .now = @intCast(at) }, .{}));
+    try std.testing.expect(!camera.ask(&copy, .{ .view = .external, .object = ship, .force = true, .now = 30 }, .{}));
+    try std.testing.expectEqual(View.chase, copy.view);
 }
 
 test Camera {

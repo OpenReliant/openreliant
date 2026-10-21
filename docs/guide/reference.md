@@ -315,7 +315,7 @@ The camera's view: which it is, switching it, and registering views of the mod's
 |---|---|---|
 | `view` | string \| number, or nil | The view the camera shows: one of the game's (`View`), or a mod's by its qualified name; nil while no mission is shown. |
 | `register_view(name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?})` | string | Registers a camera view, which `name` qualified with the mod's name names. `frame` gives the camera's position and orientation each frame; its axes must be unit length, at right angles and right-handed. A failed `frame` goes back to the cockpit view. Returns the qualified name. |
-| `set_view(view: string \| number, object: Object?)` | boolean | Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it. |
+| `set_view(view: string \| number, object: Object?)` | boolean | Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it, and no more than 16 switches go through in one frame. |
 
 ### `openreliant.audio`
 
@@ -586,7 +586,7 @@ turret, and a turret's own scripts on their turret.
 |---|---|---|
 | `view` | string \| number, or nil | The view the camera shows: one of the game's (`View`), or a mod's by its qualified name; nil while no mission is shown. |
 | `register_view(name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?})` | string | Registers a camera view, which `name` qualified with the mod's name names. `frame` gives the camera's position and orientation each frame; its axes must be unit length, at right angles and right-handed. A failed `frame` goes back to the cockpit view. Returns the qualified name. |
-| `set_view(view: string \| number, object: Object?)` | boolean | Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it. |
+| `set_view(view: string \| number, object: Object?)` | boolean | Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it, and no more than 16 switches go through in one frame. |
 
 ### I.Controls
 
