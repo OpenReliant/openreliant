@@ -870,7 +870,7 @@ pincer's frame, to the middle of its pair of the pod's points taken in the frame
 `Cargo pod` part hangs from (the frame's parent, `+0x10`), which for the shipped pods is the pod's
 own place, so the beams stay on a pod that is disabled and not framed. In OpenReliant, a set keeps
 where its beams come from and how solid they are, and drawing makes the beams as it first draws
-the set (`airipper.GripShown`).
+the set (`airipper.GripShown`) and keeps them apart from the game's sets (`airipper.Drawing`).
 
 The Ripper's tracks play on every part of it that has them (`0x0049A400`): `ready to grab`, its
 forearms reaching out; `grab pod`, its pincers closing; and `cabin turn`. A step that waits for

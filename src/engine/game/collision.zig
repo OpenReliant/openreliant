@@ -1129,13 +1129,10 @@ test "smart targeting takes what the player's ship hits" {
 
 test knockDamage {
     const gpa = std.testing.allocator;
-    var built: shield.testing.Built = try .init(gpa);
-    defer built.deinit(gpa);
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    var world = mission.world();
-    world.shields = &built.shields;
+    const world = mission.world();
     const player = try testing.ship(&mission, @splat(0), 100);
     const other = try testing.ship(&mission, .{ 0, 0, 1000 }, 100);
     const object = &mission.slot(player).object;

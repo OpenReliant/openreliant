@@ -1979,8 +1979,8 @@ pub const World = struct {
     cues: ?*@import("main/cues.zig").Cues = null,
     /// The countermeasures in flight (`cloak.cpp`); null where none are dropped.
     countermeasures: ?*@import("cloak.zig").Countermeasures = null,
-    /// The shields' bubbles' meshes and colours (`shield.cpp`); null where none are drawn.
-    shields: ?*@import("shield.zig").Shields = null,
+    /// The capital ships' shields showing (`shield.cpp`); null where none show.
+    capital_shields: ?*@import("shield.zig").Capital = null,
     /// The electric rays (`erayfx.cpp`); null where none are made.
     rays: ?*@import("erayfx.zig").Rays = null,
     /// The tractors (`tractor.cpp`); null where no ship takes another aboard.

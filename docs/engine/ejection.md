@@ -169,7 +169,8 @@ the stage has run. Each stage from 3 to 6 adds the beams, the bubble and the lig
 
 In OpenReliant, the tractor keeps where its beams come from and how solid each is, how its bubble
 glows, and how far its light reaches. Drawing makes the beams, the bubble and the light as it first
-draws the tractor (`tractor.Shown`), and aims, fades and glows them as Scoop Up has them
+draws the tractor (`tractor.Shown`), keeps them apart from the game's tractors (`tractor.Drawing`),
+and aims, fades and glows them as Scoop Up has them
 ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
 
 ### Eject Fighter Attack
