@@ -25,7 +25,7 @@ pub const package = struct {
         }
     });
 
-    pub const set_view = api.Function("Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it.", &.{ "view", "object" }, setView);
+    pub const set_view = api.Function("Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it, and no more than 16 switches go through in one frame.", &.{ "view", "object" }, setView);
 };
 
 /// `camera.set_view(view, object)`.
@@ -40,7 +40,7 @@ fn setView(call: Call, wanted: Identifier, object: ?Object) bool {
         },
         .number => |number| if (number < engine_camera.views.records.len) @fromBackingInt(@intCast(number)) else return false,
     };
-    if (!engine_camera.switchViewing(held.viewing, held.camera, view, of, false, false, held.now, held.bounds)) return false;
+    if (!held.camera.ask(held.viewing, .{ .view = view, .object = of, .now = held.now }, held.bounds)) return false;
     call.runtime().registries.selected_camera = null;
     call.runtime().registries.camera_subject = null;
     return true;

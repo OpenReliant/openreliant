@@ -792,6 +792,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .pilot = &front.pilot,
         .pilot_profile = &pilot_profile,
         .presentation = presentation,
+        .camera = &view,
         .radio = &radio,
         .seed = options.fixedSeed(),
         .editor = editor,
@@ -944,6 +945,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 devices.mouse.wheel += turned;
             },
         };
+        // The switches of view that drawing asked for since the game last ran, from the mods'
+        // scripts and `--watch`, become the game's before anything else reads or changes its view.
+        camera.takeUp(world, &view);
         // The editor link: an editor connecting or going, and its messages.
         if (editor) |session| {
             session.poll();
@@ -1306,7 +1310,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // The frame draws a copy of the objects, which with smooth motion has what moves as far on
         // as the clock has run past the tick, and the camera follows it there. Until the frame is
         // drawn, the subtarget keeps the copies of its parts that the copy may show.
-        const drawn_objects: ?*game.create.Objects = if (flow.in_front_end) null else try drawn.take(objects, .of(&clock, smooth_motion, options.riders), clock.frame_start, .{ .splits = &explosions.splits, .gates = &gates });
+        const drawn_objects: ?*game.create.Objects = if (flow.in_front_end) null else try drawn.take(objects, &player.viewing, .of(&clock, smooth_motion, options.riders), clock.frame_start, .{ .splits = &explosions.splits, .gates = &gates });
         var drawn_world = world;
         if (drawn_objects) |copy| {
             drawn_world.objects = copy;
@@ -1318,6 +1322,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             game.main.viewFrame(.{
                 .orders = orders,
                 .objects = drawn_objects.?,
+                .viewing = &drawn.viewing,
                 .devices = &devices,
                 .camera = &view,
                 .display = &display.state,
@@ -1327,7 +1332,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .smooth_motion = smooth_motion,
                 .trails = &trails,
             });
-            if (launch_step != .under_way) watch.frame(drawn_world, &view);
+            if (launch_step != .under_way) watch.frame(drawn_world, &view, &drawn.viewing);
         }
 
         // The player and menu scripts' frame, before anything is drawn, with what each of their
@@ -1341,15 +1346,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             } else {
                 const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
                 if (script_font) |*file| frames.show(&host, layer, &file.font, display.ui_scale.of(size), &display.resources.art, display.resources.scripts_ball);
-                host.camera = .{ .camera = &view, .viewing = &player.viewing, .bounds = .of(world), .now = clock.viewTime(), .player = objects.player };
-                host.scene = hearing.scene(world);
+                host.camera = .{ .camera = &view, .viewing = &drawn.viewing, .bounds = .of(drawn_world), .now = clock.viewTime(), .player = objects.player };
+                host.scene = hearing.scene(drawn_world);
                 host.flight = .{
                     .hud = &display.state,
                     .drawing = &display.drawing,
                     .player = display.player,
                     .play = display.clock.play,
                     .variables = if (display.play.loaded) |loaded| &loaded.script.variables else null,
-                    .last_view = player.viewing.last,
+                    .last_view = drawn.viewing.last,
                     .strings = display.strings,
                     .speaker = display.radio.speakingShip(&display.state.windows, objects),
                     .speaker_name = display.radio.shownName(),
@@ -1364,7 +1369,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             display.placements = shown.instrumentPlacements();
             display.parts = shown.partPlacements();
             if (host.camera != null) if (drawn_objects) |copy| {
-                copy.slots[copy.player].object.flags.hidden = player.viewing.inside(copy.player);
+                copy.slots[copy.player].object.flags.hidden = drawn.viewing.inside(copy.player);
             };
         }
 
@@ -1382,14 +1387,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             // on the camera (`camera.Viewing.seen_from`).
             player.viewing.seen_from = view.place;
             context.camera = .{ .position = view.place.position, .orientation = view.place.orientation };
-            context.projection = view.projection(player.viewing.view, size[0], size[1], field_of_view);
+            context.projection = view.projection(drawn.viewing.view, size[0], size[1], field_of_view);
             // The cockpit's model hangs from the camera, and the radar's backing stands on the radar.
             if (cockpit.shown) |*shown| if (view.cockpit_place) |placed| game.main.cockpit.place(&shown.model, view.place, placed);
             backing.place(context.projection, view.place, display.ui_scale.of(size), display.placements.get(.radar));
             display.device = gpu.interface();
             display.screen = size;
             display.sight = .{ .place = view.place, .projection = context.projection };
-            display.cockpit_mode = player.viewing.cockpit_mode;
+            display.cockpit_mode = drawn.viewing.cockpit_mode;
             // The display draws the copy too, and the game's objects again once the frame is drawn.
             display.objects = copy;
             defer display.objects = objects;
@@ -1402,10 +1407,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .sky = sky,
                 .environment = &environment,
                 .gates = &gates,
-                .view = player.viewing.view,
-                .cockpit_mode = player.viewing.cockpit_mode,
+                .view = drawn.viewing.view,
+                .cockpit_mode = drawn.viewing.cockpit_mode,
                 .jumping_in = player.jumping_in,
-                .last_view = player.viewing.last,
+                .last_view = drawn.viewing.last,
                 .cut = view.cut,
                 .overlay = display.overlay(),
                 .cockpit = if (cockpit.shown) |*shown| &shown.model else null,
@@ -1628,17 +1633,18 @@ const Watch = struct {
     started: bool = false,
 
     /// Places `view` by the ship, where it is one of `world`'s objects and is there, after the
-    /// camera's own frame.
-    fn frame(watch: *Watch, world: game.gameobj.World, view: *camera.Camera) void {
+    /// camera's own frame. The first time, it switches `viewing`, the drawn frame's copy of the
+    /// view, and asks the game to switch its own (`camera.Camera.ask`), which the camera then cuts
+    /// to as it next frames.
+    fn frame(watch: *Watch, world: game.gameobj.World, view: *camera.Camera, viewing: *camera.Viewing) void {
         const all = world.objects;
         const index = watch.slot orelse return;
         if (index >= all.slots.len) return;
         const slot = &all.slots[index];
         if (!slot.object.created or slot.object.flags.stand_in) return;
-        const viewing = &world.player.viewing;
         if (!watch.started) {
-            if (!camera.switchView(world, .watch, index, true, true)) return;
-            viewing.lasting = true;
+            const asked: camera.Request = .{ .view = .watch, .object = index, .lock = true, .force = true, .now = world.clock.viewTime(), .lasting = true, .cut_at_once = false };
+            if (!view.ask(viewing, asked, .of(world))) return;
             watch.started = true;
         } else if (viewing.view != .watch or viewing.object != index) {
             watch.slot = null;
@@ -1656,10 +1662,12 @@ test Watch {
     defer mission.deinit();
     var view: camera.Camera = .{};
     const world = mission.world();
-    const viewing = &mission.player.viewing;
+    const game_view = &mission.player.viewing;
+    // The drawn frame's copy of the view.
+    var viewing = game_view.*;
     // A ship not made yet is waited for.
     var watch: Watch = .{ .slot = 3, .from = .{ 0, 0, 2 } };
-    watch.frame(world, &view);
+    watch.frame(world, &view, &viewing);
     try std.testing.expect(!watch.started);
     // Once it is there, the camera watches it from twice its radius ahead, and moves with it.
     const ship = try mission.add(.of(.predator), .{ 100, 0, 0 });
@@ -1667,17 +1675,27 @@ test Watch {
     const slot = mission.slot(ship);
     slot.drawn = .{ .position = .{ 100, 0, 0 }, .orientation = math.identity };
     slot.object.radius = 10;
-    watch.frame(world, &view);
+    watch.frame(world, &view, &viewing);
     try std.testing.expectEqual(camera.View.watch, viewing.view);
     try std.testing.expectEqual(ship, viewing.object.?);
     try std.testing.expect(viewing.locked and viewing.lasting);
     try std.testing.expectEqual(math.Vector{ 100, 0, 20 }, view.place.position);
+    // The game's view switches as the game next runs, and the camera cuts to it as it frames.
+    try std.testing.expect(game_view.view != .watch);
+    camera.takeUp(world, &view);
+    try std.testing.expectEqual(camera.View.watch, game_view.view);
+    try std.testing.expect(game_view.locked and game_view.lasting);
+    try std.testing.expect(!view.cut);
+    view.notice(game_view);
+    try std.testing.expect(view.cut);
+    viewing = game_view.*;
     slot.drawn.position = .{ 100, 0, 50 };
-    watch.frame(world, &view);
+    watch.frame(world, &view, &viewing);
     try std.testing.expectEqual(math.Vector{ 100, 0, 70 }, view.place.position);
     // Once the script takes the camera, it keeps it.
     try std.testing.expect(camera.switchView(world, .director, null, true, true));
-    watch.frame(world, &view);
+    viewing = game_view.*;
+    watch.frame(world, &view, &viewing);
     try std.testing.expectEqual(null, watch.slot);
     try std.testing.expectEqual(camera.View.director, viewing.view);
 }
@@ -2258,6 +2276,9 @@ const Play = struct {
     pilot_profile: *game.gameflow.ProfileFile,
     /// The player and menu scripts, which hear as each mission starts and ends.
     presentation: ?*scripting.Presentation = null,
+    /// The camera, through which drawing asks the game for switches of view (`camera.Camera.ask`).
+    /// A script can ask for one as the mission ends, which the game makes before the next starts.
+    camera: *camera.Camera,
     /// The radio, whose line playing stops as a mission ends (`letGo`).
     radio: *game.radio.Radio,
     /// The seed each start gives the game's random numbers (`game.main.Start.seed`): the one the
@@ -2273,6 +2294,9 @@ const Play = struct {
     /// (`game.xtrabits.loading.missionFrames`).
     fn start(play: *Play, orders: game.aigeneric.Context) !void {
         play.end();
+        // A switch of view the scripts asked for as the mission ended is the game's before the
+        // next mission starts.
+        camera.takeUp(orders.world, play.camera);
         play.over = false;
         var last_frame: ?game.xtrabits.loading.Frame = null;
         if (play.loading) |loading| {

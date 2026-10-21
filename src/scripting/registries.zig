@@ -120,7 +120,7 @@ pub const Registry = struct {
     pub fn resetCamera(registry: *Registry, scripts: *runtime.Runtime) void {
         if (scripts.presentation) |shown| if (shown.host) |host| if (host.camera) |held| {
             if (registry.selected_camera) |index| if (held.viewing.view == viewId(index) and !held.viewing.locked) {
-                _ = camera.switchViewing(held.viewing, held.camera, .cockpit, held.player, false, false, held.now, held.bounds);
+                _ = held.camera.ask(held.viewing, .{ .view = .cockpit, .object = held.player, .now = held.now }, held.bounds);
             };
         };
         registry.selected_camera = null;
@@ -143,7 +143,7 @@ pub const Registry = struct {
     pub fn selectCamera(registry: *Registry, scripts: *runtime.Runtime, index: usize, object: ?engine.hooks.Object) bool {
         const host = scripts.presentation.?.host orelse return false;
         const held = host.camera orelse return false;
-        if (!camera.switchViewing(held.viewing, held.camera, viewId(index), if (object) |ship| ship.slot() else held.player, false, false, held.now, held.bounds)) return false;
+        if (!held.camera.ask(held.viewing, .{ .view = viewId(index), .object = if (object) |ship| ship.slot() else held.player, .now = held.now }, held.bounds)) return false;
         registry.selected_camera = index;
         if (scripts.objects) |all| registry.camera_subject = .of(all, held.viewing.object.?);
         return true;

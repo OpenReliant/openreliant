@@ -950,7 +950,7 @@ export type Camera = {
     view: (string | number)?,
     --- Registers a camera view, which `name` qualified with the mod's name names. `frame` gives the camera's position and orientation each frame; its axes must be unit length, at right angles and right-handed. A failed `frame` goes back to the cockpit view. Returns the qualified name.
     register_view: (name: string, definition: {frame: (object: Object, seconds: number) -> {position: vector, orientation: Orientation}, letterbox: boolean?}) -> string,
-    --- Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it.
+    --- Switches to `view`, looking at `object`, or at the player's ship where it's nil. The view is one of the game's (`View`), the calling mod's by its own name, or any mod's by the qualified one. Returns whether it switched: a mission that holds the camera, or shows a cutaway, keeps it, and no more than 16 switches go through in one frame.
     set_view: (view: string | number, object: Object?) -> boolean,
 }
 
