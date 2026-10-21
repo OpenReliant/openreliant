@@ -241,6 +241,10 @@ the files it includes, cut into parts where it includes them (`scripting/glsl.zi
   (`srapiext.MeshObject.surface`), else its texture's (`srtexture.Image.surface`), else, where it
   is lit for each pixel and drawn into the scene, `Variants.every`'s. A draw without one takes
   `Variants.base`, the variant with the lighting function where one draws (`Variants.pick`).
+- The surface functions player scripts give objects (`object:set_surface`) are kept with the
+  scripts, by the object's slot and the slot's reuse count, and each drawn frame puts them on its
+  copy of the objects after the scripts' frame (`shaders.Registry.dress`). The game's objects never
+  hold them.
 - A surface function's variant has the function's id, and the lighting function's variant without
   a surface function has the lighting function's. The driver compiles each with the lighting
   function that draws, and again when that changes (`mod_shaders.zig`). Replacing or removing a
