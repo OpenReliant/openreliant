@@ -1,7 +1,8 @@
 //! The fixed tables the game keeps its effects in, as OpenReliant holds them. Not from any file of
 //! the original: its tables find a slot for a new record in one of two ways, which these share.
-//! OpenReliant's own `Latest` and `Event` keep what the game does for drawing to take up, and
-//! `keptFor` finds what drawing keeps of the game's records.
+//! OpenReliant's own `Latest` and `Event` keep what the game does for drawing to take up,
+//! `keptFor` finds what drawing keeps of the game's records, and `copySlots` copies a table's
+//! records for a drawn frame.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -114,6 +115,31 @@ pub fn keptFor(comptime T: type, gpa: Allocator, held: *?*T, serial: u32) ?*T {
 pub fn letGo(comptime T: type, gpa: Allocator, held: *?*T) void {
     if (held.*) |kept| kept.destroy(gpa);
     held.* = null;
+}
+
+/// OpenReliant's: points each of `slots` that holds a record at a copy of the record made in
+/// `arena`, for a drawn frame's copy of a table (`main.Drawn`): the rays, the tractors and the
+/// Rippers' beams.
+pub fn copySlots(comptime T: type, arena: Allocator, slots: []?*T) Allocator.Error!void {
+    for (slots) |*slot| if (slot.*) |record| {
+        const own = try arena.create(T);
+        own.* = record.*;
+        slot.* = own;
+    };
+}
+
+test copySlots {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var first: u32 = 1;
+    var slots = [_]?*u32{ &first, null };
+    // The slot that holds a record holds a copy of it, which stays as it was; the free one stays
+    // free.
+    try copySlots(u32, arena.allocator(), &slots);
+    try std.testing.expect(slots[0].? != &first);
+    first = 2;
+    try std.testing.expectEqual(1, slots[0].?.*);
+    try std.testing.expectEqual(null, slots[1]);
 }
 
 /// The first free slot of `slots`, or null where every one is taken: the fireballs and the

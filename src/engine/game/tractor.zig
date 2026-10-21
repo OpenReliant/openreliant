@@ -61,6 +61,16 @@ pub const Tractors = struct {
         tractors.reset();
     }
 
+    /// OpenReliant's: the tractors as a drawn frame copies them (`main.Drawn`), each tractor
+    /// copied into `arena` (`table.copySlots`), so that drawing reads the copy while the game
+    /// frames go on with the tractors. The copy owns nothing but what is in `arena`, and is never
+    /// reset nor let go of.
+    pub fn copy(tractors: *const Tractors, arena: Allocator) Allocator.Error!Tractors {
+        var copied = tractors.*;
+        try table.copySlots(Tractor, arena, &copied.slots);
+        return copied;
+    }
+
     /// Before the frame's orders: no tractor shows until Scoop Up shows it again this frame
     /// (`Tractor.show`), so that drawing only reads it.
     pub fn beginFrame(tractors: *Tractors) void {
@@ -923,6 +933,26 @@ test Tractors {
     try std.testing.expect(tractors.slots[2].?.serial != serial);
     tractors.reset();
     for (tractors.slots) |slot| try std.testing.expectEqual(null, slot);
+}
+
+test "Tractors.copy" {
+    const gpa = std.testing.allocator;
+    var built: testing.Built = try .init(gpa);
+    defer built.deinit(gpa);
+    const tractors = &built.tractors;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const tractor = tractors.slots[tractors.take(3).?].?;
+    tractor.show(light_reach / 2, .aimed);
+
+    // The copy holds a copy of each tractor, which stays as it was while the game's goes on.
+    const copied = try tractors.copy(arena.allocator());
+    const seen = copied.slots[0].?;
+    try std.testing.expect(seen != tractor);
+    tractors.beginFrame();
+    try std.testing.expect(seen.shown and seen.aimed);
+    try std.testing.expectEqual(light_reach / 2, seen.reach);
+    try std.testing.expectEqual(3, seen.pod);
 }
 
 test Drawing {

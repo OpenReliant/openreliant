@@ -1158,12 +1158,17 @@ pub const Drawn = struct {
     clock: Clock = .{},
     shake: f32 = 0,
     /// Copies of the game's effects that drawing draws, as the game frames left them (`take`): the
-    /// particles, the smoke, the guns' flak and spent cases, the sparks and the shockwaves.
+    /// particles, the smoke, the guns' flak and spent cases, the sparks, the shockwaves, the
+    /// electric rays, the tractors, the Rippers' beams and the capital shields.
     particles: ?particles.Pool = null,
     smoke: ?smoke.Pools = null,
     gun_particles: ?guns.effects.Pools = null,
     sparks: ?sparks.Sparks = null,
     shockwaves: ?shockwave.Shockwaves = null,
+    rays: ?erayfx.Rays = null,
+    tractors: ?tractor.Tractors = null,
+    rippers: ?airipper.Rippers = null,
+    capital_shields: ?shield.Capital = null,
     /// What the copy's models are made in, from one drawn frame to the next.
     arena: std.heap.ArenaAllocator,
     /// The portals the copy's parts are cut by: drawing's own, which stand in for the game's from
@@ -1206,6 +1211,10 @@ pub const Drawn = struct {
         drawn.gun_particles = if (game.gun_particles) |pools| try pools.copy(arena) else null;
         drawn.sparks = if (game.sparks) |thrown| try thrown.copy(arena) else null;
         drawn.shockwaves = if (game.shockwaves) |waves| waves.* else null;
+        drawn.rays = if (game.rays) |rays| try rays.copy(arena) else null;
+        drawn.tractors = if (game.tractors) |tractors| try tractors.copy(arena) else null;
+        drawn.rippers = if (game.rippers) |rippers| try rippers.copy(arena) else null;
+        drawn.capital_shields = if (game.capital_shields) |capital| capital.* else null;
         const now = game.clock.frame_start;
         const copy = drawn.objects;
         try game.objects.copyInto(copy, arena);
@@ -1247,6 +1256,10 @@ pub const Drawn = struct {
         shown.gun_particles = if (drawn.gun_particles) |*pools| pools else null;
         shown.sparks = if (drawn.sparks) |*thrown| thrown else null;
         shown.shockwaves = if (drawn.shockwaves) |*waves| waves else null;
+        shown.rays = if (drawn.rays) |*rays| rays else null;
+        shown.tractors = if (drawn.tractors) |*tractors| tractors else null;
+        shown.rippers = if (drawn.rippers) |*rippers| rippers else null;
+        shown.capital_shields = if (drawn.capital_shields) |*capital| capital else null;
         return shown;
     }
 };
@@ -2816,11 +2829,18 @@ test Drawn {
     pool.particles[0].at = .{ 1, 2, 3 };
     var world = mission.world();
     world.particles = &pool;
+    var capital: shield.Capital = .{};
+    capital.next = 3;
+    world.capital_shields = &capital;
     _ = try copies.take(world, .of(&mission.clock, true, .together));
-    const shown = copies.world(world).particles.?;
+    const drawn_world = copies.world(world);
+    const shown = drawn_world.particles.?;
     try std.testing.expect(shown != &pool);
     pool.particles[0].at = .{ 4, 5, 6 };
     try std.testing.expectEqual(math.Vector{ 1, 2, 3 }, shown.particles[0].at);
+    try std.testing.expect(drawn_world.capital_shields.? != &capital);
+    capital.next = 4;
+    try std.testing.expectEqual(3, drawn_world.capital_shields.?.next);
 }
 
 test Handed {
