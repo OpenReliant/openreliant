@@ -364,10 +364,10 @@ shots and missiles test what they strike against them.
 **Improvement:** OpenReliant runs `mission_frame`'s game work once a tick
 ([The game loop](loop.md#game-frames-and-drawn-frames)), so the frames the game reads are always
 `simulation_counter / 4` of the way through the step. Each drawn frame draws a copy of the objects
-and the missiles (`main.Drawn`), their models included. With smooth motion it places the copy
-further on, by how far the platform's clock has run past the tick. Whatever drawing changes, such
-as the planets the atmospheres turn or the level of detail each part is drawn at, changes only the
-copy, so drawing changes nothing the game goes on from.
+and the missiles (`main.Drawn`), their models, guns and shield bubbles included. With smooth motion
+it places the copy further on, by how far the platform's clock has run past the tick. Whatever
+drawing changes, such as the planets the atmospheres turn or the level of detail each part is drawn
+at, changes only the copy, so drawing changes nothing the game goes on from.
 
 In a multiplayer game another player's ship is drawn between the places its last two messages gave
 it (`+0x768`, `+0x798`) instead.

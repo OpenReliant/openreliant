@@ -532,9 +532,16 @@ pub const Slot = struct {
         slot.extra = null;
     }
 
-    /// OpenReliant's: points the slot, a copy of `from`, at a copy of `from`'s model made in
-    /// `arena` (`objects.Model.copy`), its components among the copy's parts.
-    pub fn copyModel(slot: *Slot, arena: Allocator, from: *const Slot) Allocator.Error!void {
+    /// OpenReliant's: points the slot, a copy of `from`, at copies made in `arena` of the records
+    /// `from` holds that the game changes as it runs: its guns, its shield bubble, and its model
+    /// (`objects.Model.copy`), its components among the copy's parts.
+    pub fn copyRecords(slot: *Slot, arena: Allocator, from: *const Slot) Allocator.Error!void {
+        slot.guns = try arena.dupe(guns.Fitted, from.guns);
+        if (from.shield) |bubble| {
+            const own = try arena.create(shield.Bubble);
+            own.* = bubble.*;
+            slot.shield = own;
+        }
         const original = if (from.model) |*held| held else return;
         const copied = &slot.model.?;
         copied.* = try original.copy(arena);
@@ -798,17 +805,17 @@ pub const Objects = struct {
     }
 
     /// OpenReliant's: makes `drawn` a copy of the objects for drawing to work on (`main.Drawn`),
-    /// with the models of the objects and the missiles copied into `arena` (`Slot.copyModel`). The
-    /// copy runs no scripts, so nothing drawing calls runs a mod's hook. It shares the objects'
-    /// guns, shield bubbles and extras with the game, which drawing only reads: it keeps what a
-    /// bubble shows itself (`shield.Shown`), and makes what an extra shows for each frame
-    /// (`extra.Glow.drawn`, `extra.Hanging.drawn`).
+    /// with the models, the guns and the shield bubbles of the objects and the missiles copied into
+    /// `arena` (`Slot.copyRecords`). The copy runs no scripts, so nothing drawing calls runs a mod's
+    /// hook. It shares the objects' extras with the game, which leaves them as they were made and
+    /// which drawing only reads: it makes what an extra shows for each frame (`extra.Glow.drawn`,
+    /// `extra.Hanging.placed`).
     pub fn copyInto(all: *const Objects, drawn: *Objects, arena: Allocator) Allocator.Error!void {
         drawn.* = all.*;
         drawn.scripts = null;
-        for (&drawn.slots, &all.slots) |*slot, *live| try slot.copyModel(arena, live);
+        for (&drawn.slots, &all.slots) |*slot, *live| try slot.copyRecords(arena, live);
         for (&drawn.missiles.records, &all.missiles.records) |*record, *live| {
-            if (record.*) |*missile| try missile.slot.copyModel(arena, &live.*.?.slot);
+            if (record.*) |*missile| try missile.slot.copyRecords(arena, &live.*.?.slot);
         }
     }
 
@@ -2268,6 +2275,11 @@ test "Objects.copyInto" {
     model.withComponent();
     const index = try mission.addWith(model.types(), .of(.predator), @splat(0));
     const slot = mission.slot(index);
+    const ship = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    const armed = mission.slot(ship);
+    armed.guns = try gpa.dupe(guns.Fitted, &.{guns.testing.barrel(.of(.laser_cannon))});
+    armed.object.gun_count = 1;
+    armed.shield.?.struck = 10;
     var scripts: hooks.Scripts = undefined;
     mission.objects.scripts = &scripts;
     defer mission.objects.scripts = null;
@@ -2283,6 +2295,15 @@ test "Objects.copyInto" {
     try std.testing.expectEqual(&slot.model.?.parts[0], slot.component(0).?);
     try std.testing.expectEqual(&copy.model.?.parts[0], copy.component(0).?);
     try std.testing.expectEqual(null, drawn.scripts);
+
+    // A ship's guns and shield bubble are the copy's own, as they were: what the game does to them
+    // next leaves the copy as it is.
+    const copied = &drawn.slots[ship];
+    try std.testing.expect(copied.guns.ptr != armed.guns.ptr and copied.shield.? != armed.shield.?);
+    armed.guns[0].next_shot = 50;
+    armed.shield.?.struck = 20;
+    try std.testing.expectEqual(0, copied.guns[0].next_shot);
+    try std.testing.expectEqual(10, copied.shield.?.struck);
 
     // An effect that hangs from a part of the model finds the part in the objects, and its copy in
     // the copy of them.
