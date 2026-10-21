@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
 const input = @import("../input.zig");
 const Random = @import("../random.zig").Random;
@@ -848,6 +849,16 @@ pub fn gameFrames(clock: *Clock, devices: *input.Devices, reading: ?*input.Readi
 fn runLock(world: gameobj.World, display: *hud.State) void {
     if (wgate.ridingWorm(world.gates)) return;
     if (world.player.viewing.last.showsLock()) display.lock.frame(world, &display.missiles);
+}
+
+/// OpenReliant's: runs the game frames (`gameFrames`) on a thread of their own, and waits for them.
+/// The main thread draws and reads the window, and the game frames run apart from it, though not
+/// yet at the same time: what the two share stays in one thread's hands at a time. Where `io` can't
+/// run them apart, they run on the caller's thread.
+pub fn runGameFrames(io: Io, clock: *Clock, devices: *input.Devices, reading: ?*input.Reading, world: gameobj.World, riders: objects.Riders, loaded: ?*Loaded) FrameEnd {
+    var frames = io.concurrent(gameFrames, .{ clock, devices, reading, world, riders, loaded }) catch
+        return gameFrames(clock, devices, reading, world, riders, loaded);
+    return frames.await(io);
 }
 
 /// `mission_run`'s work once its loop is over (`0x004941FC`): a mission that its script ended
@@ -2885,6 +2896,31 @@ test Handed {
     display.aim = .{};
     handed.takeUp(world);
     try std.testing.expectEqual(hud.Aim{}, display.aim);
+}
+
+test runGameFrames {
+    const gpa = std.testing.allocator;
+    var missions: [2]gameobj.testing.Mission = undefined;
+    for (&missions) |*mission| {
+        try mission.init(gpa);
+        for (0..2) |_| _ = try mission.add(.of(.predator), @splat(0));
+        try std.testing.expect(try aigeneric.push(mission.orders(), 1, .slow_rotate, .none));
+    }
+    defer for (&missions) |*mission| mission.deinit();
+    var devices: [2]input.Devices = .{ .{}, .{} };
+    // The game frames play the same way on a thread of their own as on the caller's.
+    for (0..40) |_| for (&missions, &devices, 0..) |*mission, *mission_devices, which| {
+        mission.clock.advanceTimer(1);
+        const ended = if (which == 0)
+            runGameFrames(std.testing.io, &mission.clock, mission_devices, null, mission.world(), .together, null)
+        else
+            gameFrames(&mission.clock, mission_devices, null, mission.world(), .together, null);
+        try std.testing.expectEqual(.played, ended);
+    };
+    const apart = missions[0].slot(1);
+    const together = missions[1].slot(1);
+    try std.testing.expectEqual(together.drawn, apart.drawn);
+    try std.testing.expectEqualSlices(u8, std.mem.asBytes(&together.object), std.mem.asBytes(&apart.object));
 }
 
 test "a mission plays the same way however often it is drawn" {
