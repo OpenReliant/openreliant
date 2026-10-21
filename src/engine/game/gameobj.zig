@@ -1960,7 +1960,8 @@ pub const World = struct {
     /// **Improvement:** the random numbers of the effects only drawn or heard, the particles, the
     /// explosions' fireballs, bits and sounds' pitch, the sparks and the rays, apart from the
     /// game's. The game draws those from its own numbers, but only where the effects are drawn or
-    /// heard, so a world that draws or hears nothing would go on from different numbers. Null where
+    /// heard, so a world that draws or hears nothing would go on from different numbers. They are
+    /// apart from drawing's numbers too, so that drawing can run beside the game frames. Null where
     /// nothing is drawn, as in a test (`effectsRandom`).
     effects_random: ?*Random = null,
     /// What the game frames ask of the sound, which the main thread plays after them; null where
