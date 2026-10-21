@@ -425,13 +425,6 @@ pub const Pool = struct {
         pool.show(last + 1);
     }
 
-    /// The rest of `particles_frame`: the set goes into the world's layer, each particle `ahead`
-    /// of a tick along from where it was at the frame's tick. The set drawn is a copy made in
-    /// `arena`, which lasts until the frame is drawn (`xtrabits.sceneAddCopy`), and the pool is
-    /// left as it is.
-    ///
-    /// **Improvement:** the game draws them where the tick left them, which moves them on in
-    /// hundredths of a second that a display's frames fall between unevenly.
     /// OpenReliant's: the pool as a drawn frame copies it (`main.Drawn`), with its live particles
     /// and their sprites copied into `arena`, so that drawing reads the copy while the game frames
     /// go on with the pool. The copy owns nothing but what is in `arena`, and is never let go of
@@ -444,6 +437,13 @@ pub const Pool = struct {
         return copied;
     }
 
+    /// The rest of `particles_frame`: the set goes into the world's layer, each particle `ahead`
+    /// of a tick along from where it was at the frame's tick. The set drawn is a copy made in
+    /// `arena`, which lasts until the frame is drawn (`xtrabits.sceneAddCopy`), and the pool is
+    /// left as it is.
+    ///
+    /// **Improvement:** the game draws them where the tick left them, which moves them on in
+    /// hundredths of a second that a display's frames fall between unevenly.
     pub fn draw(pool: *const Pool, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
         if (pool.used == 0) return;
         const past: Vector = @splat(ahead);
