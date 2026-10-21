@@ -354,6 +354,7 @@ pub const Frame = struct {
     /// The live objects, each drawn by its model's nodes.
     objects: *create.Objects,
     /// Drawing's portals, which stand in for the game's that cut the objects (`Drawn.portals`).
+    /// Those the frame shows go into the scene with the gates' tunnels.
     portals: *xtrabits.Portals,
     /// The object the camera sits in (`camera.Camera.inside`), which is not drawn but still casts
     /// its shadow.
@@ -1318,7 +1319,8 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
         const aim: ?math.Vector = if (display.aim.blind_fire) display.lead_point else null;
         try seen_behind.draw(gpa, scene, ship.drawn, display.reticle_bright, aim, display.chase_pointer, display.chase_nav_roll);
     };
-    if (frame.gates) |gates| try gates.draw(gpa, arena, scene, frame.objects, frame.portals);
+    if (frame.gates) |gates| try gates.draw(gpa, arena, scene, frame.objects);
+    try frame.portals.draw(gpa, scene);
     if (frame.shields) |bubbles| try bubbles.draw(gpa, arena, scene, frame.objects, frame.capital_shields, .{
         .camera = attachments.camera,
         .inside = camera.inCockpit(frame.view, frame.cockpit_mode),
@@ -1332,10 +1334,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     if (frame.particles) |pool| try pool.draw(gpa, arena, scene, frame.ahead);
     if (frame.smoke) |pools| try pools.draw(gpa, arena, scene, frame.ahead);
     if (frame.gun_particles) |pools| try pools.draw(gpa, arena, scene, frame.ahead);
-    if (frame.explosions) |explosions| {
-        try explosions.draw(gpa, arena, scene, frame.ahead);
-        try explosions.splits.draw(gpa, scene, frame.portals);
-    }
+    if (frame.explosions) |explosions| try explosions.draw(gpa, arena, scene, frame.ahead);
     if (frame.rays_drawing) |drawing| if (frame.rays) |rays| if (attachments.random) |random| try drawing.draw(rays, gpa, scene, frame.objects, attachments.frame_start, random);
     if (frame.ion_cannons) |cannons| try cannons.draw(gpa, arena, scene, frame.objects);
     if (frame.flash) |lit| if (!frame.paused) {

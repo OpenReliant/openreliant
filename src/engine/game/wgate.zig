@@ -301,7 +301,7 @@ pub const Gates = struct {
     /// tunnel's, OpenReliant places them from where the object is drawn in `all`. The game also
     /// has each ship in a list at `+0x80` dent the tunnel as it passes (`wgate_tunnel_dent`,
     /// `0x00422540`), and nothing fills the list.
-    pub fn draw(gates: *const Gates, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: *const create.Objects, portals: *xtrabits.Portals) Allocator.Error!void {
+    pub fn draw(gates: *const Gates, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: *const create.Objects) Allocator.Error!void {
         for (gates.records) |held| {
             const record: *const Record = held orelse continue;
             if (record.kind == .warp and !record.warp_shown) continue;
@@ -314,7 +314,6 @@ pub const Gates = struct {
                     try xtrabits.sceneAddCopy(gpa, arena, scene, .{ .mesh = shown }, .world);
                 }
             }
-            if (portals.of(&record.portal)) |portal| try xtrabits.sceneAdd(gpa, scene, .{ .portal = portal }, .world);
             if (record.warp_effect) |*effect| try effect.draw(gpa, arena, scene, record, all);
             if (!gates.riding) {
                 var shown = record.tunnel.object;
@@ -331,14 +330,15 @@ pub const Gates = struct {
 
     /// Stands drawing's portal for each record's (`xtrabits.Portals.stand`), facing as the game's
     /// faces. For each record of a fixed gate, and each warp tunnel its orders show, it stands at
-    /// the throat (`Record.portalSetUp`), where the object is drawn in `all`; that of a warp tunnel
-    /// its orders don't show stays where it stood.
+    /// the throat (`Record.portalSetUp`), where the object is drawn in `all`, and the frame shows
+    /// it; that of a warp tunnel its orders don't show stays where it stood, unseen.
     pub fn standPortals(gates: *const Gates, portals: *xtrabits.Portals, all: *const create.Objects) void {
         for (gates.records) |held| {
             const record: *const Record = held orelse continue;
-            const portal = portals.stand(&record.portal, record.made_at) orelse continue;
+            const shown = record.kind != .warp or record.warp_shown;
+            const portal = portals.stand(&record.portal, record.made_at, shown) orelse continue;
             portal.normal = record.portal.normal;
-            if (record.kind == .warp and !record.warp_shown) continue;
+            if (!shown) continue;
             const place = record.tunnelPlace(all);
             portal.position = place.point(record.portal_at);
             portal.orientation = place.orientation;
@@ -1420,13 +1420,15 @@ pub const testing = struct {
         }
 
         /// A drawn frame of `gates`, its objects as `all` has them: drawing's portals stood for the
-        /// gates' (`Gates.standPortals`), then the gates drawn into an empty scene.
+        /// gates' (`Gates.standPortals`), then the gates and the portals shown drawn into an empty
+        /// scene.
         pub fn draw(drawn: *Drawn, gates: *const Gates, all: *const create.Objects) Allocator.Error!void {
             drawn.scene.clear();
             drawn.portals.begin();
             gates.standPortals(&drawn.portals, all);
             drawn.portals.end();
-            try gates.draw(drawn.gpa, drawn.arena.allocator(), &drawn.scene, all, &drawn.portals);
+            try gates.draw(drawn.gpa, drawn.arena.allocator(), &drawn.scene, all);
+            try drawn.portals.draw(drawn.gpa, &drawn.scene);
         }
     };
 };

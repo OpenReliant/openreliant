@@ -88,30 +88,16 @@ pub const Splits = struct {
         }
     }
 
-    /// The portals of each split cutting this frame, into the scene, which puts them in the
-    /// camera's frame (`scene_add` in each split's frame function): drawing's own for them
-    /// (`standPortals`).
-    pub fn draw(splits: *const Splits, gpa: Allocator, scene: *srcore.Scene, portals: *xtrabits.Portals) Allocator.Error!void {
-        for (&splits.slots) |*slot| {
-            const under_way = &(slot.* orelse continue);
-            switch (under_way.*) {
-                inline else => |*split| if (split.cutting) {
-                    for (&split.portals) |*portal| {
-                        if (portals.of(portal)) |mine| try xtrabits.sceneAdd(gpa, scene, .{ .portal = mine }, .world);
-                    }
-                },
-            }
-        }
-    }
-
     /// Stands drawing's portals for every split's two (`xtrabits.Portals.stand`), where the split's
-    /// stand and facing as they face.
+    /// stand and facing as they face. The frame shows those of each split cutting, as each split's
+    /// frame function puts its own in the scene (`scene_add`), which puts them in the camera's
+    /// frame.
     pub fn standPortals(splits: *const Splits, portals: *xtrabits.Portals) void {
         for (&splits.slots) |*slot| {
             const under_way = &(slot.* orelse continue);
             switch (under_way.*) {
                 inline else => |*split| for (&split.portals) |*portal| {
-                    const mine = portals.stand(portal, split.started) orelse continue;
+                    const mine = portals.stand(portal, split.started, split.cutting) orelse continue;
                     mine.position = portal.position;
                     mine.orientation = portal.orientation;
                     mine.normal = portal.normal;
@@ -843,7 +829,7 @@ test "a capital ship sweeps apart" {
     try std.testing.expectEqual(first, mine.position);
     var scene: srcore.Scene = .{};
     defer scene.deinit(std.testing.allocator);
-    try splits.draw(std.testing.allocator, &scene, &portals);
+    try portals.draw(std.testing.allocator, &scene);
     try std.testing.expectEqual(2, scene.portals.items.len);
     try std.testing.expectEqual(mine, scene.portals.items[0]);
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
