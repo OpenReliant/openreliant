@@ -19,6 +19,7 @@ const objects = @import("../objects.zig");
 const particles = @import("../particles.zig");
 const table = @import("../table.zig");
 const xtrabits = @import("../xtrabits.zig");
+const Retired = @import("../main/retired.zig").Retired;
 
 /// Which blast breaks the ship up, which sets how its pieces fly: a ship's blast
 /// (`explode.blast`) or a burst (`explode.burst`). The game passes 0 for the one and a pointer for
@@ -302,6 +303,9 @@ pub const Flight = struct {
 pub const Pieces = struct {
     gpa: Allocator,
     flights: *Flights,
+    /// OpenReliant's: where the pieces' meshes go as their flights end, since a drawn frame's copy
+    /// of the pieces may still read them (`main.retired.Retired`); null lets them go at once.
+    retired: ?*Retired = null,
 
     pub const max = 500;
     const Flights = table.Ring(Flight, max);
@@ -332,7 +336,7 @@ pub const Pieces = struct {
 
     /// `0x00472740`: lets a flight go, its piece and its smoke with it.
     fn drop(pieces: *Pieces, slot: *?Flight) void {
-        if (slot.*) |*flight| flight.piece.deinit(pieces.gpa);
+        if (slot.*) |flight| Retired.drop(pieces.retired, pieces.gpa, flight.piece);
         slot.* = null;
     }
 
@@ -698,6 +702,8 @@ test Pieces {
 
 test "Pieces.copy" {
     const gpa = std.testing.allocator;
+    var retired: Retired = .{ .gpa = gpa };
+    defer retired.deinit();
     var stage: explode.testing.Stage = undefined;
     try stage.init();
     defer stage.deinit();
@@ -724,6 +730,19 @@ test "Pieces.copy" {
     try std.testing.expect(!std.meta.eql(from, flight.place.position));
     try std.testing.expectEqual(from, seen.place.position);
     try std.testing.expectEqual(flight.piece.mesh.positions.ptr, seen.piece.mesh.positions.ptr);
+
+    // As its flight ends, the game lets the piece go through `retired`, and the copy's mesh stays
+    // as it was until the next drawn frame begins.
+    pieces.retired = &retired;
+    const positions = try gpa.dupe(Vector, seen.piece.mesh.positions);
+    defer gpa.free(positions);
+    stage.mission.clock.frame_start = 11;
+    pieces.frame(stage.world());
+    stage.mission.clock.frame_start += Flight.lingers + 1;
+    pieces.frame(stage.world());
+    try std.testing.expectEqual(null, pieces.flights.slots[0]);
+    try std.testing.expectEqualSlices(Vector, positions, seen.piece.mesh.positions);
+    retired.release();
 }
 
 test "a part's burst takes in the models it carries" {

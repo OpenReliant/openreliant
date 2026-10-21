@@ -45,6 +45,7 @@ const explode = @import("explode.zig");
 const smoke = @import("main/smoke.zig");
 const srofiles = @import("srofiles.zig");
 const table = @import("table.zig");
+const Retired = @import("main/retired.zig").Retired;
 const wgate = @import("wgate.zig");
 const xtrabits = @import("xtrabits.zig");
 const additions = @import("additions.zig");
@@ -523,13 +524,14 @@ pub const Slot = struct {
     extra: ?*extra.Extra = null,
 
     /// Lets go of what the slot holds for its object: its cloak (`cloak.drop`), its model, its
-    /// guns, its shield bubble and its extra (`object_free`).
-    pub fn release(slot: *Slot, gpa: Allocator) void {
+    /// guns, its shield bubble and its extra (`object_free`). The extra, which a drawn frame's copy
+    /// shares, goes through `retired`.
+    pub fn release(slot: *Slot, gpa: Allocator, retired: ?*Retired) void {
         cloak.drop(slot);
         if (slot.model) |model| model.deinit(gpa);
         slot.dropGuns(gpa);
         slot.dropShield(gpa);
-        if (slot.extra) |held| held.destroy(gpa);
+        if (slot.extra) |held| Retired.destroy(retired, gpa, held);
         slot.extra = null;
     }
 
@@ -692,6 +694,10 @@ pub const Slot = struct {
 /// (`walk`).
 pub const Objects = struct {
     gpa: Allocator,
+    /// OpenReliant's: where the objects' extras go as the game lets go of them, since a drawn
+    /// frame's copy of the objects may still read them (`main.retired.Retired`); null lets them go
+    /// at once.
+    retired: ?*Retired = null,
     slots: [gameobj.max_objects]Slot,
     /// `game_object_count` (`0x00539AA0`): the slots `create_object` has handed out in turn.
     count: u16 = 0,
@@ -797,7 +803,7 @@ pub const Objects = struct {
 
     pub fn destroy(all: *Objects) void {
         all.missiles.reset(all.gpa);
-        for (&all.slots) |*slot| slot.release(all.gpa);
+        for (&all.slots) |*slot| slot.release(all.gpa, all.retired);
         all.gpa.destroy(all);
     }
 
@@ -805,8 +811,8 @@ pub const Objects = struct {
     /// with the models, the guns and the shield bubbles of the objects and the missiles copied into
     /// `arena` (`Slot.copyRecords`). The copy runs no scripts, so nothing drawing calls runs a mod's
     /// hook. It shares the objects' extras with the game, which leaves them as they were made and
-    /// which drawing only reads: it makes what an extra shows for each frame (`extra.Glow.drawn`,
-    /// `extra.Hanging.placed`).
+    /// lets them go through `retired`: drawing only reads them, and makes what an extra shows for
+    /// each frame (`extra.Glow.drawn`, `extra.Hanging.placed`).
     pub fn copyInto(all: *const Objects, drawn: *Objects, arena: Allocator) Allocator.Error!void {
         drawn.* = all.*;
         drawn.scripts = null;
@@ -825,7 +831,7 @@ pub const Objects = struct {
     /// `atmosphere.Atmospheres`.
     pub fn reset(all: *Objects, random: *Random) void {
         for (&all.slots) |*slot| {
-            slot.release(all.gpa);
+            slot.release(all.gpa, all.retired);
             var object = gameobj.objectAlloc(.of(.stand_in), random);
             object.flags.stand_in = true;
             slot.* = .{ .object = object };
@@ -1958,7 +1964,7 @@ pub fn resetSlot(ctx: aigeneric.Context, index: u16) void {
     const slot = &all.slots[index];
     if (slot.object.type.base() != .stand_in) hooks.tell(ctx, .object_removed, .{ .object = .of(index) });
     aigeneric.popAll(ctx, index);
-    slot.release(all.gpa);
+    slot.release(all.gpa, all.retired);
     var object = gameobj.objectAlloc(.of(.stand_in), ctx.world.random);
     object.flags = .standing_in;
     slot.* = .{ .object = object };

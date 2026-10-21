@@ -556,11 +556,17 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .display_shapes = shapes,
     };
     defer types.deinit();
+    // What the game lets go of while a drawn frame may still read it, kept until the next drawn
+    // frame begins: the objects' extras, the radio film, the break-up pieces, the ion cannons'
+    // and the gates' records, the worm and the warp projection. It goes last, after them all.
+    var retired: game.main.retired.Retired = .{ .gpa = gpa };
+    defer retired.deinit();
     // The objects, every slot standing in until a mission's start makes them, with every gun's,
     // missile's and pilot's figures, loaded from the records with the ship types'; the loadout's
     // ship, where one is chosen.
     const objects = try game.create.Objects.create(gpa, &rand);
     defer objects.destroy();
+    objects.retired = &retired;
     objects.gun_stats.addTypes();
     objects.missile_stats.addTypes();
     mode_records.loadTables(tables, objects, &records);
@@ -588,6 +594,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // and the films of the speakers' faces.
     var radio: game.radio.Radio = .open(gpa, io, directory, &mods);
     defer radio.deinit();
+    radio.movie.retired = &retired;
     radio.style = options.speech;
     radio.recordings.codec = decoders.codec();
     sound.missile_sound = options.missile_sound;
@@ -625,6 +632,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // What the explosions leave for the frames after them, and the particles they send out.
     var explosions: game.explode.Explosions = try .init(gpa, try .load(&textures));
     defer explosions.deinit();
+    explosions.pieces.retired = &retired;
     explosions.settings.detail = details.graphic;
     explosions.settings.debris_lights = options.debris_lights;
     explosions.settings.bit_pool = options.bit_pool;
@@ -686,8 +694,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     environment.flashes = try .create(arena, &textures, options.bombard, &rand, 0);
     var gates: game.wgate.Gates = try .init(gpa, &textures, explosions.settings.detail, options.gates);
     defer gates.deinit();
+    gates.retired = &retired;
     var ion_cannons: game.aiioncan.Cannons = try .init(gpa, &textures);
     defer ion_cannons.deinit();
+    ion_cannons.retired = &retired;
     // The force feedback's effects, and what plays them on the player's controller.
     const forces_library = engine.input.force.load(io, arena, directory, &mods);
     var force_feedback: engine.input.force.Forces = .{ .library = &forces_library, .settings = options.forces };
@@ -923,8 +933,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var player_launch: PlayerLaunch = .{ .under_way = options.mission != null };
     while (true) {
         // The atlases the outline fonts outgrew last frame, which that frame may have drawn, go now,
-        // before this frame lays out any text, and each font keeps the sizes this frame draws.
+        // before this frame lays out any text, and each font keeps the sizes this frame draws. So
+        // does what the game let go of while the last drawn frame could still read it.
         outlines.startFrame();
+        retired.release();
         if (platform.window.nanoseconds() -| storage_written_at >= storage_interval) {
             storage.flush();
             storage_written_at = platform.window.nanoseconds();

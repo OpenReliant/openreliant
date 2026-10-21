@@ -47,6 +47,7 @@ const tractor = @import("tractor.zig");
 const airipper = @import("airipper.zig");
 const jump = @import("jump.zig");
 pub const cues = @import("main/cues.zig");
+pub const retired = @import("main/retired.zig");
 pub const flash = @import("main/flash.zig");
 pub const scanner = @import("main/scanner.zig");
 pub const cockpit = @import("main/cockpit.zig");

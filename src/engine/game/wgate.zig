@@ -40,6 +40,7 @@ const objects = @import("objects.zig");
 const sound3d = @import("sound3d.zig");
 const table = @import("table.zig");
 const xtrabits = @import("xtrabits.zig");
+const Retired = @import("main/retired.zig").Retired;
 
 pub const tunnel = @import("wgate/tunnel.zig");
 pub const worm = @import("wgate/worm.zig");
@@ -91,6 +92,10 @@ pub fn ridingWorm(gates: ?*const Gates) bool {
 /// records, and the worm the player's ship rides between gates.
 pub const Gates = struct {
     gpa: Allocator,
+    /// OpenReliant's: where the records, the worm and the projection go as the gates let go of
+    /// them, since a drawn frame's copy of the gates may still read their meshes
+    /// (`main.retired.Retired`); null lets them go at once.
+    retired: ?*Retired = null,
     /// The tunnels' texture (`0x0051D1A0`): `warp128`, which the original's software renderer swaps
     /// for `ddwarp128`.
     warp: *srtexture.Image,
@@ -149,7 +154,7 @@ pub const Gates = struct {
     /// last one go; OpenReliant lets it go with the rest.
     pub fn reset(gates: *Gates) void {
         for (0..max_records) |index| gates.free(index);
-        if (gates.worm) |tube| tube.destroy(gates.gpa);
+        if (gates.worm) |tube| Retired.destroy(gates.retired, gates.gpa, tube);
         gates.worm = null;
         gates.dropProjection();
         gates.worm_shown = false;
@@ -237,13 +242,10 @@ pub const Gates = struct {
         return record;
     }
 
-    /// `0x00420830`: lets record `index` go, where it is in use.
+    /// `0x00420830`: lets record `index` go, where it is in use (`Record.destroy`, `retired`).
     pub fn free(gates: *Gates, index: usize) void {
         const record = gates.records[index] orelse return;
-        record.tunnel.deinit(gates.gpa);
-        for (&record.squares) |*square| square.deinit(gates.gpa);
-        if (record.warp_effect) |*effect| effect.deinit(gates.gpa);
-        gates.gpa.destroy(record);
+        Retired.destroy(gates.retired, gates.gpa, record);
         gates.records[index] = null;
     }
 
@@ -376,11 +378,10 @@ pub const Gates = struct {
         gates.projection = made;
     }
 
-    /// Lets the projection go, where there is one.
+    /// Lets the projection go, where there is one (`retired`).
     fn dropProjection(gates: *Gates) void {
         const held = gates.projection orelse return;
-        held.deinit(gates.gpa);
-        gates.gpa.destroy(held);
+        Retired.destroy(gates.retired, gates.gpa, held);
         gates.projection = null;
     }
 };
@@ -481,6 +482,14 @@ pub const Record = struct {
     warp_shown: bool = false,
     /// Radius from the shared ship-type warp size table (`+0x18`).
     warp_size: f32 = warp_default_size,
+
+    /// Frees the record, its tunnel, its flashes and its warp effect.
+    pub fn destroy(record: *Record, gpa: Allocator) void {
+        record.tunnel.deinit(gpa);
+        for (&record.squares) |*square| square.deinit(gpa);
+        if (record.warp_effect) |*effect| effect.deinit(gpa);
+        gpa.destroy(record);
+    }
 
     /// Where its tunnel stands in the world: at `at` in its object's frame, as the object is
     /// drawn, turned a half turn about its Y axis.
@@ -898,7 +907,7 @@ pub fn jumpOutInit(ctx: aigeneric.Context, index: u16) void {
     state.to = .of(inTunnel(record, all, .{ 0, 0, if (index == all.player) exit_player else exit_other }));
     record.portalSetUp();
     if (index == all.player) {
-        if (gates.worm) |tube| tube.destroy(gates.gpa);
+        if (gates.worm) |tube| Retired.destroy(gates.retired, gates.gpa, tube);
         gates.worm = Worm.create(gates.gpa, gates.warp) catch |err| made: {
             log.warn("the worm is left out: {s}", .{@errorName(err)});
             break :made null;
@@ -1574,6 +1583,8 @@ test "the ride through the worm draws its rumbles at the pace of the simulation'
 
 test "a tunnel opens at an object and closes again" {
     const gpa = std.testing.allocator;
+    var retired: Retired = .{ .gpa = gpa };
+    defer retired.deinit();
     var run: testing.Run = undefined;
     try run.init(gpa);
     defer run.deinit(gpa);
@@ -1625,6 +1636,11 @@ test "a tunnel opens at an object and closes again" {
     try std.testing.expect(!std.meta.eql(kept, record.tunnel.mesh.positions[1]));
     try std.testing.expectEqual(kept, seen.tunnel.mesh.positions[1]);
 
+    // Closed, the record goes through `retired`, so the copy keeps the tunnel's mesh it shares
+    // with it until the next drawn frame begins.
+    run.built.gates.retired = &retired;
+    const indices = try gpa.dupe(u16, seen.tunnel.mesh.indices);
+    defer gpa.free(indices);
     _ = try aigeneric.push(ctx, point, .fixed_gate_close, .none);
     for (0..120) |_| {
         mission.ordersAfter(ctx, point, 1);
@@ -1632,6 +1648,8 @@ test "a tunnel opens at an object and closes again" {
     }
     try std.testing.expectEqual(null, run.built.gates.of(point));
     try std.testing.expectEqual(0, mission.slot(point).object.order_count);
+    try std.testing.expectEqualSlices(u16, indices, seen.tunnel.mesh.indices);
+    retired.release();
 }
 
 test "a ship comes in through a gate" {
