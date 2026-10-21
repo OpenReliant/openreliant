@@ -1203,11 +1203,12 @@ test "GET MODS opens the catalogue screen when the settings file names a reposit
 test "the mods screen says which mods the catalogue offers an update for" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
-    // The catalogue offers delta, an archive, in a newer version, and alpha, a folder, too.
+    // The catalogue offers delta, an archive, in a newer version, and alpha, a folder, too. The
+    // server answers after a while, so that the read is still going on as the screen is entered.
     const digest = "abababababababababababababababababababababababababababababababab";
     const index = "{\"mods\": [{\"id\": \"delta\", \"version\": \"2.0\", \"size\": 1, \"archive\": \"/delta.hog\", \"sha256\": \"" ++ digest ++ "\"}, {\"id\": \"alpha\", \"version\": \"2.0\", \"size\": 1, \"archive\": \"/alpha.hog\", \"sha256\": \"" ++ digest ++ "\"}]}";
     var server: bigfile.catalogue.testing.Server = undefined;
-    try server.start(io, &.{.{ .path = "/mods.json", .body = index }});
+    try server.start(io, &.{.{ .path = "/mods.json", .body = index, .stall = .fromMilliseconds(500) }});
     defer server.stop(gpa);
     var url: [128]u8 = undefined;
     var text: [256]u8 = undefined;
