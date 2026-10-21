@@ -12,14 +12,16 @@
 //! - They play sounds and music (`audio.zig`). Sounds started by player scripts stop when the game
 //!   ends, and sounds started by menu scripts stop when the menu scripts reload.
 //! - They draw over the flight display and the menus (`drawing.zig`), and change the game only by
-//!   sending events to the global scripts (`core.send_global_event`), whose data is copied into the
-//!   game's state, as it would be sent to another machine.
+//!   sending events to the global scripts (`core.send_global_event`), which wait until the game
+//!   next runs and then have their data copied into the game's state, as it would be sent to
+//!   another machine (`Presentation.sendEvents`).
 //!
 //! If no mod has player or menu scripts, no Luau state is created.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const log = std.log.scoped(.scripts);
 
 const openreliant = @import("openreliant");
 const engine = openreliant.engine;
@@ -52,6 +54,7 @@ const running = @import("running.zig");
 const drawing = @import("drawing.zig");
 const audio = @import("audio.zig");
 const data = @import("data.zig");
+const events = @import("events.zig");
 const api = @import("api.zig");
 const Call = api.Call;
 const load = @import("load.zig");
@@ -164,6 +167,9 @@ pub const Presentation = struct {
     host: ?Host = null,
     /// The game's scripts while a game runs, which the scripts' events go to.
     game: ?*game_module.Game = null,
+    /// The events the scripts sent to the game's scripts since the game last ran, whose data is
+    /// still in this state (`sendEvents`).
+    waiting: events.Events,
     /// The keys held, which presses and releases are told against.
     keys: std.bit_set.Static(key_codes) = .empty,
     /// The actions whose controls were held last frame.
@@ -194,7 +200,7 @@ pub const Presentation = struct {
             gpa.destroy(shown);
             return err;
         };
-        shown.* = .{ .gpa = gpa, .runtime = scripts, .runner = undefined };
+        shown.* = .{ .gpa = gpa, .runtime = scripts, .runner = undefined, .waiting = .{ .gpa = gpa, .runtime = scripts } };
         shown.runner = .init(gpa, scripts, &shown.lists.values);
         errdefer shown.stop();
         const state = scripts.state;
@@ -214,6 +220,7 @@ pub const Presentation = struct {
 
     /// Stops the scripts, as OpenReliant quits.
     pub fn stop(shown: *Presentation) void {
+        shown.waiting.deinit();
         shown.runner.deinit();
         shown.sounds.deinit(shown.gpa);
         for (&shown.layers.values) |*layer| layer.deinit(shown.gpa);
@@ -270,6 +277,7 @@ pub const Presentation = struct {
         shown.sounds.stop(.player);
         shown.runtime.mod_shaders.forgetGiven();
         shown.runtime.dropPlayerSelf();
+        shown.waiting.clear();
         shown.game = null;
         shown.runtime.objects = null;
     }
@@ -435,17 +443,34 @@ pub const Presentation = struct {
         try shown.layers.getPtrConst(which).draw(into, view, sight);
     }
 
-    /// `core.send_global_event` from a player or menu script: the event goes to the game's
-    /// scripts, its data copied into their state. Takes `payload` over.
+    /// `core.send_global_event` from a player or menu script: the event waits until the game
+    /// next runs, when it goes to the game's scripts (`sendEvents`). Takes `payload` over.
     pub fn sendToGame(shown: *Presentation, call: Call, name: []const u8, payload: data.Data) void {
-        const game = shown.game orelse {
+        if (shown.game == null) {
             shown.runtime.release(payload.ref);
             call.raise("events can only be sent while a game runs", .{});
-        };
-        const copied = data.transfer(call.state, payload.ref, game.runtime);
-        shown.runtime.release(payload.ref);
-        const ref = copied orelse call.raise("out of memory", .{});
-        game.runner.events.send(call, .global, name, .{ .ref = ref });
+        }
+        shown.waiting.send(call, .global, name, payload);
+    }
+
+    /// Hands the events the scripts sent since the game last ran over to the game's scripts, in the
+    /// order they were sent, with their data copied into the game's state (`data.transfer`). The
+    /// game's next update delivers them (`events.zig`). The driver calls it before the game runs
+    /// again, so the game's scripts get the events at the same update as if they had gone over at
+    /// once.
+    pub fn sendEvents(shown: *Presentation) void {
+        var sent = shown.waiting.take();
+        defer sent.deinit(shown.gpa);
+        for (sent.items) |event| {
+            defer shown.runtime.release(event.data.ref);
+            const game = shown.game orelse continue;
+            const copied = data.transfer(shown.runtime.state, event.data.ref, game.runtime) orelse {
+                log.warn("out of memory sending the event {s}", .{event.name.slice()});
+                continue;
+            };
+            game.runner.events.add(.{ .to = event.to, .name = event.name, .data = .{ .ref = copied } }) catch
+                log.warn("out of memory sending the event {s}", .{event.name.slice()});
+        }
     }
 };
 
@@ -1215,6 +1240,7 @@ test "the strafe-run example combines registries and built-in interfaces" {
     fixture.devices.keyboard.down[input.scan.left_shift] = true;
     fixture.devices.keyboard.down[@backingInt(input.Key.f12)] = true;
     fixture.shown.frame(host);
+    fixture.shown.sendEvents();
     scripts.scripts.update(0.04);
     try std.testing.expectEqual(scripts.runtime.custom_orders.find("strafe-run:strafe_run").?, fixture.mission.slot(sabre).current().?.order);
     engine.game.aigeneric.objectOrders(fixture.mission.orders(), sabre);
@@ -1248,6 +1274,7 @@ test "the example action sends a game event that starts its custom order" {
     fixture.devices.keyboard.down[@backingInt(input.Key.f12)] = true;
     fixture.devices.keyboard.down[input.scan.left_shift] = true;
     fixture.shown.frame(host);
+    fixture.shown.sendEvents();
     game_scripts.scripts.update(0.04);
     const pulse = game_scripts.runtime.custom_orders.find("custom-order:pulse").?;
     try std.testing.expectEqual(pulse, fixture.mission.slot(sabre).current().?.order);
@@ -1835,9 +1862,12 @@ test "player scripts run with the game, and send it events" {
     try std.testing.expectEqual(1, fixture.shown.lists.get(.menu).items.len);
     try fixture.shown.startGame(game, fixture.mission.objects, false);
     try std.testing.expectEqual(1, fixture.shown.lists.get(.player).items.len);
-    // The player script's event reaches the global script at the game's next update, the Sabre's
-    // handle with it.
+    // The player script's event waits until it goes over to the game's scripts (`sendEvents`),
+    // then reaches the global script at the game's next update, with the Sabre's handle.
     fixture.frame(0.016, .{ 800, 600 });
+    game.scripts.update(0.1);
+    try std.testing.expect(fixture.mission.objects.slots[sabre].object.throttle != 0.5);
+    fixture.shown.sendEvents();
     game.scripts.update(0.1);
     try std.testing.expectEqual(0.5, fixture.mission.objects.slots[sabre].object.throttle);
     // The menu script sees the player script's interface.
@@ -1921,6 +1951,7 @@ test "the wingmen example's panel lists the wingmen nearby, and calls them back"
     fixture.devices.keyboard.down[@backingInt(input.Key.left_shift)] = true;
     fixture.shown.key(.f9, true);
     fixture.shown.frame(host);
+    fixture.shown.sendEvents();
     game.scripts.update(0.1);
     game.scripts.update(0.1);
     try std.testing.expectEqual(.formation, slot.current().?.order);

@@ -954,6 +954,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // The switches of view that drawing asked for since the game last ran, from the mods'
         // scripts and `--watch`, become the game's before anything else reads or changes its view.
         camera.takeUp(world, &view);
+        // The events that the player and menu scripts sent to the global scripts since the game last
+        // ran go over to them before the game runs again.
+        if (presentation) |shown| shown.sendEvents();
         // The editor link: an editor connecting or going, and its messages.
         if (editor) |session| {
             session.poll();
