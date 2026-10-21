@@ -1239,9 +1239,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             if (!clock.paused) devices.handOver(&reading);
             // A game frame for each tick: the tick, then `mission_frame`'s game work at it. That runs
             // every object's orders, which fly the ships and read the player's controls, and frames
-            // every object between its last two places, as far into the step as the tick is.
+            // every object between its last two places, as far into the step as the tick is. They
+            // run on a thread of their own, which this one waits for.
             const frames_from = clock.frame_start;
-            const ended = game.main.gameFrames(&clock, &game_devices, &reading, world, options.riders, play.loaded);
+            const ended = game.main.runGameFrames(io, &clock, &game_devices, &reading, world, options.riders, play.loaded);
             // The presses the game frames took count as taken on the main thread too, once they
             // have run. They free their latches only as they step, so while they don't run, paused
             // or held by the editor, the main thread frees the presses it took up from them itself,
