@@ -179,8 +179,9 @@ pub const Portals = struct {
         game: *const srapiext.Portal,
         made: i32,
         portal: srapiext.Portal = .{},
-        /// Whether its owner stood it this drawn frame.
+        /// Whether its owner stood it this drawn frame, and whether the frame shows it (`draw`).
         stood: bool = true,
+        shown: bool,
     };
 
     /// Before the owners stand theirs (`stand`): none stood yet.
@@ -190,10 +191,10 @@ pub const Portals = struct {
         };
     }
 
-    /// Drawing's portal for `game`, which its owner made at tick `made`: the one it had for it the
-    /// frame before, with the plane it last had in the camera's frame, or a new one with none. The
-    /// owner places it. Null where all are taken.
-    pub fn stand(portals: *Portals, game: *const srapiext.Portal, made: i32) ?*srapiext.Portal {
+    /// Drawing's portal for `game`, which its owner made at tick `made`, and which the frame shows
+    /// where `shown` says so: the one it had for it the frame before, with the plane it last had in
+    /// the camera's frame, or a new one with none. The owner places it. Null where all are taken.
+    pub fn stand(portals: *Portals, game: *const srapiext.Portal, made: i32, shown: bool) ?*srapiext.Portal {
         var free: ?*?Held = null;
         for (&portals.held) |*slot| {
             const held = &(slot.* orelse {
@@ -201,12 +202,13 @@ pub const Portals = struct {
                 continue;
             });
             if (held.game != game) continue;
-            if (held.made != made) held.* = .{ .game = game, .made = made };
+            if (held.made != made) held.* = .{ .game = game, .made = made, .shown = shown };
             held.stood = true;
+            held.shown = shown;
             return &held.portal;
         }
         const slot = free orelse return null;
-        slot.* = .{ .game = game, .made = made };
+        slot.* = .{ .game = game, .made = made, .shown = shown };
         return &slot.*.?.portal;
     }
 
@@ -214,6 +216,15 @@ pub const Portals = struct {
     pub fn end(portals: *Portals) void {
         for (&portals.held) |*slot| if (slot.*) |held| {
             if (!held.stood) slot.* = null;
+        };
+    }
+
+    /// The portals the frame shows go into `scene`, which puts them in the camera's frame
+    /// (`srcore.render`); the rest keep the plane they last had in it. Each portal is put in the
+    /// camera's frame on its own, so the order they go in doesn't matter.
+    pub fn draw(portals: *Portals, gpa: Allocator, scene: *srcore.Scene) Allocator.Error!void {
+        for (&portals.held) |*slot| if (slot.*) |*held| {
+            if (held.shown) try sceneAdd(gpa, scene, .{ .portal = &held.portal }, .world);
         };
     }
 
@@ -309,16 +320,28 @@ test Portals {
     // A new portal has no plane in the camera's frame yet, and keeps the one it is given from one
     // frame to the next.
     portals.begin();
-    const first = portals.stand(&game[0], 10).?;
+    const first = portals.stand(&game[0], 10, true).?;
     try std.testing.expectEqual(srapiext.Portal.View{}, first.view);
     first.view.point = .{ 1, 2, 3 };
     portals.end();
     portals.begin();
-    try std.testing.expectEqual(first, portals.stand(&game[0], 10).?);
+    try std.testing.expectEqual(first, portals.stand(&game[0], 10, true).?);
     try std.testing.expectEqual(srapiext.Portal.View{ .point = .{ 1, 2, 3 } }, first.view);
     // One its owner made later in the same place starts again.
-    try std.testing.expectEqual(srapiext.Portal.View{}, portals.stand(&game[0], 20).?.view);
+    try std.testing.expectEqual(srapiext.Portal.View{}, portals.stand(&game[0], 20, true).?.view);
     portals.end();
+
+    // The frame shows the portals their owners show: one shown goes into the scene, and one stood
+    // but not shown stays out of it.
+    var scene: srcore.Scene = .{};
+    defer scene.deinit(gpa);
+    portals.begin();
+    const shown = portals.stand(&game[0], 20, true).?;
+    _ = portals.stand(&game[1], 20, false).?;
+    portals.end();
+    try portals.draw(gpa, &scene);
+    try std.testing.expectEqual(1, scene.portals.items.len);
+    try std.testing.expectEqual(shown, scene.portals.items[0]);
 
     // The parts a game's portal cuts are pointed at drawing's for it; the rest are left alone.
     var named: objects.testing.NamedParts(2) = undefined;
@@ -328,7 +351,7 @@ test Portals {
     clipNamed(&model, "Top", &game[0]);
     clipNamed(&model, "Hull", &game[1]);
     portals.begin();
-    const mine = portals.stand(&game[0], 20).?;
+    const mine = portals.stand(&game[0], 20, true).?;
     portals.end();
     portals.cut(&model);
     try std.testing.expect(model.parts[1].object.portal == mine);
