@@ -249,10 +249,10 @@ pub const Tunnel = struct {
         tunnel.object.baked = tunnel.drawn_colours;
     }
 
-    /// OpenReliant's: makes its mesh's shape and the colours it is drawn with, which the game
-    /// changes as it runs, its own, copied into `arena`, and points its object at them, for a
-    /// drawn frame's copy of it (`wgate.Gates.copy`).
-    pub fn copyIn(tunnel: *Tunnel, arena: Allocator) Allocator.Error!void {
+    /// OpenReliant's: for a drawn frame's copy of it (`wgate.Gates.copy`), copies into `arena` what
+    /// the game changes as it runs, its mesh's shape and the colours it is drawn with
+    /// (`srapiext.Mesh.copyShape`), and points its object at the copies.
+    pub fn copyShape(tunnel: *Tunnel, arena: Allocator) Allocator.Error!void {
         try tunnel.mesh.copyShape(arena);
         tunnel.drawn_colours = try arena.dupe([4]f32, tunnel.drawn_colours);
         tunnel.point();
@@ -715,10 +715,10 @@ pub const Square = struct {
         square.object.baked = &square.colours;
     }
 
-    /// OpenReliant's: makes its mesh's shape, which the game sizes as a ship jumps in, its own,
-    /// copied into `arena`, and points its object at it, for a drawn frame's copy of it
-    /// (`wgate.Gates.copy`).
-    pub fn copyIn(square: *Square, arena: Allocator) Allocator.Error!void {
+    /// OpenReliant's: for a drawn frame's copy of it (`wgate.Gates.copy`), copies its mesh's shape,
+    /// which the game sizes as a ship jumps in, into `arena` (`srapiext.Mesh.copyShape`), and points
+    /// its object at the copy.
+    pub fn copyShape(square: *Square, arena: Allocator) Allocator.Error!void {
         try square.mesh.copyShape(arena);
         square.point();
     }

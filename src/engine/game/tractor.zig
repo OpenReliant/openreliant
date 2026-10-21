@@ -61,10 +61,8 @@ pub const Tractors = struct {
         tractors.reset();
     }
 
-    /// OpenReliant's: the tractors as a drawn frame copies them (`main.Drawn`), each tractor
-    /// copied into `arena` (`table.copySlots`), so that drawing reads the copy while the game
-    /// frames go on with the tractors. The copy owns nothing but what is in `arena`, and is never
-    /// reset nor let go of.
+    /// OpenReliant's: the tractors as a drawn frame copies them (`main.Drawn.Effects`), each
+    /// tractor copied into `arena` (`table.copySlots`).
     pub fn copy(tractors: *const Tractors, arena: Allocator) Allocator.Error!Tractors {
         var copied = tractors.*;
         try table.copySlots(Tractor, arena, &copied.slots);

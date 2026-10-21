@@ -402,11 +402,11 @@ pub const Mesh = struct {
         return out;
     }
 
-    /// OpenReliant's: makes the arrays that give the mesh its shape its own, copied into `arena`:
-    /// its vertices, their normals and texture coordinates, and its polygons' planes, which an
-    /// effect may change from one game frame to the next. A drawn frame's copy of the effect keeps
-    /// them as they were (`main.Drawn`); the rest of the arrays stay shared with the original.
-    /// Second coordinates that are its first stay so.
+    /// OpenReliant's: copies into `arena` the arrays that give the mesh its shape, which an effect
+    /// may change from one game frame to the next: its vertices, their normals and texture
+    /// coordinates, and its polygons' planes. A drawn frame's copy of the effect keeps them as they
+    /// were (`main.Drawn.Effects`), and shares the rest of the arrays with the original. Where the
+    /// second texture coordinates are the first, as a light map's can be, the copy's are too.
     pub fn copyShape(mesh: *Mesh, arena: Allocator) Allocator.Error!void {
         const first = mesh.uv[0];
         mesh.positions = try arena.dupe(Vector, mesh.positions);

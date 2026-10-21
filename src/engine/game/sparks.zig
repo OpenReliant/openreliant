@@ -258,14 +258,11 @@ pub const Sparks = struct {
         all.moved_at = clock.frame_start;
     }
 
-    /// OpenReliant's: the sparks as a drawn frame copies them (`main.Drawn`), the sparks flying
-    /// copied into `arena`, so that drawing reads the copy while the game frames go on with them.
-    /// The copy owns nothing but what is in `arena`, and shares the shapes, which last as long as
-    /// the sparks.
+    /// OpenReliant's: the sparks as a drawn frame copies them (`main.Drawn.Effects`), the sparks
+    /// flying copied into `arena`. The copy shares the shapes, which last as long as the sparks.
     pub fn copy(all: *const Sparks, arena: Allocator) Allocator.Error!Sparks {
         var copied = all.*;
-        copied.sparks = try arena.create(Flying);
-        copied.sparks.* = all.sparks.*;
+        copied.sparks = try table.copyRecord(Flying, arena, all.sparks);
         return copied;
     }
 

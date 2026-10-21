@@ -42,6 +42,7 @@ const matmanager = @import("matmanager.zig");
 const objects = @import("objects.zig");
 const radio = @import("radio.zig");
 const sound3d = @import("sound3d.zig");
+const table = @import("table.zig");
 const xtrabits = @import("xtrabits.zig");
 
 const log = std.log.scoped(.aiioncan);
@@ -340,11 +341,11 @@ pub const Cannons = struct {
     pub fn free(cannons: *Cannons, rays: ?*erayfx.Rays, index: u16) void {
         for (cannons.records.items, 0..) |record, at| {
             if (record.slot != index) continue;
-            if (rays) |table| {
+            if (rays) |made| {
                 for (record.rays) |held| {
-                    if (held) |kept| if (table.kept(kept)) |ray| table.remove(ray);
+                    if (held) |kept| if (made.kept(kept)) |ray| made.remove(ray);
                 }
-                if (record.beam) |kept| if (table.kept(kept)) |ray| table.remove(ray);
+                if (record.beam) |kept| if (made.kept(kept)) |ray| made.remove(ray);
             }
             record.destroy(cannons.gpa);
             _ = cannons.records.swapRemove(at);
@@ -358,20 +359,17 @@ pub const Cannons = struct {
         for (cannons.records.items) |record| record.shown = .{};
     }
 
-    /// OpenReliant's: the ion cannons as a drawn frame copies them (`main.Drawn`), each cannon's
-    /// record copied into `arena`, so that drawing reads the copy while the game frames go on
-    /// with the cannons. The targeting laser's and the glow's shapes, which the game changes as
-    /// they aim, widen and scroll, are copied with them (`Star.copied`).
-    /// The copy shares the rest of the meshes with the game, which doesn't change them; it owns
-    /// nothing but what is in `arena`, and is never reset nor let go of.
+    /// OpenReliant's: the ion cannons as a drawn frame copies them (`main.Drawn.Effects`), each
+    /// cannon's record copied into `arena` with the targeting laser's and the glow's shapes, which
+    /// the game changes as they aim, widen and scroll (`Star.copy`). The copy shares the rest of
+    /// the meshes with the game, which doesn't change them.
     pub fn copy(cannons: *const Cannons, arena: Allocator) Allocator.Error!Cannons {
         var copied = cannons.*;
         const records = try arena.alloc(*Record, cannons.records.items.len);
         for (records, cannons.records.items) |*own, record| {
-            own.* = try arena.create(Record);
-            own.*.* = record.*;
-            if (record.laser) |laser| own.*.laser = try laser.copied(arena);
-            if (record.glow) |glow| own.*.glow = try glow.copied(arena);
+            own.* = try table.copyRecord(Record, arena, record);
+            if (record.laser) |laser| own.*.laser = try laser.copy(arena);
+            if (record.glow) |glow| own.*.glow = try glow.copy(arena);
         }
         copied.records = .fromOwnedSlice(records);
         return copied;
@@ -571,9 +569,9 @@ const Star = struct {
         star.mesh.deinit(gpa);
     }
 
-    /// A copy of it for a drawn frame (`Cannons.copy`), its mesh's shape, which the game changes
-    /// as it runs, made in `arena` (`srapiext.Mesh.copyShape`).
-    fn copied(star: Star, arena: Allocator) Allocator.Error!Star {
+    /// A copy of it for a drawn frame (`Cannons.copy`), with its mesh's shape, which the game
+    /// changes as it runs, copied into `arena` (`srapiext.Mesh.copyShape`).
+    fn copy(star: Star, arena: Allocator) Allocator.Error!Star {
         var own = star;
         try own.mesh.copyShape(arena);
         return own;

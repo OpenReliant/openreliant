@@ -132,9 +132,8 @@ pub const Host = struct {
         /// The camera, which cuts to a script's switch of view at once and asks the game for it
         /// (`camera.Camera.ask`).
         camera: *camera.Camera,
-        /// The drawn frame's copy of the view the game has the camera show (`main.Drawn.viewing`),
-        /// which a script's switch of view switches at once, and what the switch goes by in the
-        /// drawn frame.
+        /// The drawn frame's copy of the view (`main.Drawn.player`), which a script's switch of view
+        /// switches at once, and which the switch goes by.
         viewing: *camera.Viewing,
         bounds: camera.Viewing.Bounds = .{},
         /// The time the camera's views switch by (`main.Clock.viewTime`).
@@ -464,13 +463,14 @@ pub const Presentation = struct {
         for (sent.items) |event| {
             defer shown.runtime.release(event.data.ref);
             const game = shown.game orelse continue;
-            const copied = data.transfer(shown.runtime.state, event.data.ref, game.runtime) orelse {
-                log.warn("out of memory sending the event {s}", .{event.name.slice()});
-                continue;
-            };
-            game.runner.events.add(.{ .to = event.to, .name = event.name, .data = .{ .ref = copied } }) catch
-                log.warn("out of memory sending the event {s}", .{event.name.slice()});
+            shown.handOver(game, event) catch log.warn("out of memory sending the event {s}", .{event.name.slice()});
         }
+    }
+
+    /// Queues `event` for `game`'s scripts, with its data copied into the game's state.
+    fn handOver(shown: *Presentation, game: *game_module.Game, event: events.Pending) Allocator.Error!void {
+        const copied = data.transfer(shown.runtime.state, event.data.ref, game.runtime) orelse return error.OutOfMemory;
+        try game.runner.events.add(.{ .to = event.to, .name = event.name, .data = .{ .ref = copied } });
     }
 };
 

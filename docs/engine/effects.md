@@ -10,19 +10,21 @@ The game moves its effects on by the ticks, a hundred a second, and draws each w
 
 The game keeps the effects' records and moves them on in the game frames. Drawing draws each from a
 copy it makes in the frame's arena, standing where the frame draws it (`xtrabits.sceneAddCopy`), so
-neither drawing nor the pipeline, as it picks a mesh's level, writes into the game's records. The
-particles, the smoke, the guns' flak and spent cases, the sparks, the shockwaves, the electric rays,
-the tractors, the Rippers' beams, the capital shields, the explosions, the countermeasures, the
-screen's flash, the ion cannons, the jumps' effects and the gates ([Gates](gates.md)) are copied
-whole as the drawn frame begins, with the objects (`main.Drawn`), so that drawing doesn't read them
-either: the copies keep what is alive in them as the game frames left it (`particles.Pool.copy`,
-`sparks.Sparks.copy`, `table.copySlots`, `explode.Explosions.copy`, `cloak.Countermeasures.copy`,
-`aiioncan.Cannons.copy`, `jump.effect.Effects.copy`, `wgate.Gates.copy`). An effect whose meshes the
-game reshapes has their shapes copied with it (`srapiext.Mesh.copyShape`). What drawing keeps from
-one drawn frame to the next, it keeps in records of its own, apart from the game's: the electric
-rays' strands ([Electric rays](#electric-rays)), what the shields' bubbles and the capital shields
-show ([Shields](#shields)), and the portals that cut the capital ships as they split
-([Splits](#splits)).
+neither drawing nor the pipeline, as it picks a mesh's level, writes into the game's records.
+
+As the drawn frame begins, it copies the effects with the objects, so that drawing doesn't read the
+game's records either (`main.Drawn.Effects`): the particles, the smoke, the guns' flak and spent
+cases, the sparks, the shockwaves, the electric rays, the tractors, the Rippers' beams, the capital
+shields, the explosions, the countermeasures, the screen's flash, the ion cannons, the jumps'
+effects and the gates ([Gates](gates.md)). Each copy keeps what is alive in the effect as the game
+frames left it. It has its own copy of whatever the game frames change in place, such as a table's
+records or the shape of a mesh the game reshapes (`srapiext.Mesh.copyShape`), and shares the rest,
+such as the meshes the game never changes.
+
+What drawing keeps from one drawn frame to the next, it keeps in records of its own, apart from the
+game's: the electric rays' strands ([Electric rays](#electric-rays)), what the shields' bubbles and
+the capital shields show ([Shields](#shields)), and the portals that cut the capital ships as they
+split ([Splits](#splits)).
 
 ## Where nothing is drawn
 
@@ -374,7 +376,7 @@ When the time is up, the split ends once (`GameObject` `0x610` bit 1) and the po
 
 The flash (`0x00587CC8`) lasts 100 ticks. Once a frame, `mission_frame` draws it and counts it down by the frame's ticks (`0x00494940`): a sprite over the whole view, just beyond the near plane in the overlay's layer, untextured and added to what is drawn, white at 0.012 for each tick left, at most 1. So it holds white for 17 ticks and fades out over the rest. The same sprite shows red while the player's display is shaken by a hit ([The interference](hud.md#the-interference)). OpenReliant counts the flash down at the start of the next game frame (`flash.Flash.countDown`). Drawing only reads it, and draws the sprite from a copy in the frame's arena.
 
-Drawing cuts its copy of the ship by portals of its own (`xtrabits.Portals`): each stands where one of the split's stands, the copy's parts are pointed at it (`main.Drawn`), and it goes into the scene while the split's would, with drawing's other portals that show (`Portals.draw`). Each keeps the plane it last had in the camera's frame from one drawn frame to the next, as the game's portal does, and a new split's start with none, so the last step of a sweep, and a Latov's and a bursts split's, which leave their portals out of the scene, cut as the game's do. The pipeline writes nothing into the split.
+Drawing cuts its copy of the ship by portals of its own (`xtrabits.Portals`): each stands where one of the split's stands, and the copy's parts are pointed at it (`main.Drawn`). It goes into the scene whenever the split's would, together with drawing's other portals that show (`Portals.draw`). Each keeps the plane it last had in the camera's frame from one drawn frame to the next, as the game's portal does, and a new split's portals start with none. So where the game leaves a split's portals out of the scene, in the last step of a sweep and in a Latov's or a bursts split, drawing's portals cut as the game's do. The pipeline writes nothing into the split.
 
 A split puts out the Dark Reign's hat and the Boridin breakaway's core as it starts ([Extras](#extras)).
 
@@ -801,7 +803,7 @@ Once a frame after the bubbles, `capshields_draw` (`0x0049F950`) lets go of each
 
 The game hands `capshield_create` the object's side but never stores it, so every capital shield glows in the friendly ramp. When a capital ship loses its hull, `force_field_mark` (`0x0049FCD0`) hides its force fields ([Splits](#splits)).
 
-OpenReliant lets the capital shields go in the game frames, where `capshields_draw` does (`Capital.frame`), and the game keeps each shield's part, until when it shows, and its strikes, in a table of their own (`shield.Capital`). Drawing keeps what each shows (`CapitalShown`): the copy, its hits and its colours, made as it first draws the shield, taking up each strike from the tick it struck at. A force field's coordinates jump once a tick, so they move at the same pace at any frame rate and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
+OpenReliant lets the capital shields go in the game frames, where `capshields_draw` does (`Capital.frame`). The game keeps each shield's part, the tick it shows until and its strikes in a table of their own (`shield.Capital`). Drawing keeps what each shows (`CapitalShown`): the copy, its hits and its colours, made as it first draws the shield, taking up each strike from the tick it struck at. A force field's coordinates jump once a tick, so they move at the same pace at any frame rate and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
 
 **Fixes:**
 

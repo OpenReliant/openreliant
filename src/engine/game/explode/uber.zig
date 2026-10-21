@@ -38,6 +38,7 @@ const shockwave = @import("../shockwave.zig");
 const Random = @import("../../random.zig").Random;
 const srlight = @import("../../surrender/surrenderlib/srlight.zig");
 const sound3d = @import("../sound3d.zig");
+const table = @import("../table.zig");
 const xtrabits = @import("../xtrabits.zig");
 
 /// How a blast is shown.
@@ -479,16 +480,13 @@ pub const Uber = struct {
         gpa.destroy(uber);
     }
 
-    /// OpenReliant's: the Uber Explode as a drawn frame copies it (`main.Drawn`), into `arena`, so
-    /// that drawing reads the copy while the game frames go on with the blast: the blast going
-    /// off, and where it shows, the hemisphere its halves open out with its vertices where the
-    /// game frames left them, which the game opens further each frame. The copy's objects point at
-    /// its own meshes, colours and texture coordinates. It shares the rest of the meshes with the
-    /// game, which doesn't change them; it owns nothing but what is in `arena`, and is never let
-    /// go of.
+    /// OpenReliant's: the Uber Explode as a drawn frame copies it (`main.Drawn.Effects`), into
+    /// `arena`: the blast going off and, where it shows, the hemisphere its halves open out with,
+    /// its vertices where the game frames left them, since the game opens it further each frame.
+    /// The copy's objects point at its own meshes, colours and texture coordinates, and it shares
+    /// the rest of the meshes with the game, which doesn't change them.
     pub fn copy(uber: *const Uber, arena: Allocator) Allocator.Error!*Uber {
-        const own = try arena.create(Uber);
-        own.* = uber.*;
+        const own = try table.copyRecord(Uber, arena, uber);
         if (own.look) |*look| if (own.blast) |*blast| if (blast.shown) |*shown| {
             const meshes = look.meshes.getPtr(shown.style);
             try meshes.hemisphere.copyShape(arena);

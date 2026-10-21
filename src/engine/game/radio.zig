@@ -828,7 +828,7 @@ pub const Line = struct {
 
 /// What the radio reaches of the game as a line is said.
 pub const Context = struct {
-    /// What the lines are asked for through; null where nothing is heard, as on a server.
+    /// Where the lines are asked for; null where nothing is heard, as on a server.
     sounds: ?*hog_snd.commands.Commands,
     /// The display's windows, where there is a display: window 0 is the radio's.
     windows: ?*Windows,
@@ -989,8 +989,8 @@ pub const Radio = struct {
     ///
     /// **Fix:** the game leaves a film playing into the next mission, whose first line then starts
     /// before its window has opened; OpenReliant stops it.
-    pub fn reset(radio: *Radio, asked: ?*hog_snd.commands.Commands) void {
-        radio.stopSpeech(asked);
+    pub fn reset(radio: *Radio, sounds: ?*hog_snd.commands.Commands) void {
+        radio.stopSpeech(sounds);
         radio.dropLine();
         radio.movie.stop();
         radio.movie.waiting = false;
@@ -1004,11 +1004,11 @@ pub const Radio = struct {
     }
 
     /// `speech_stop_all` (`0x004620D0`), as a mission ends (`mission_end`, at `0x00494370`): the
-    /// line playing ends, and its sound where anything is heard (`asked`). The queue and the window
-    /// are left as they are, and the next mission's start clears them (`reset`).
-    pub fn stopSpeech(radio: *Radio, asked: ?*hog_snd.commands.Commands) void {
+    /// line playing ends, and so does its sound where anything is heard (`sounds`). The queue and
+    /// the window are left as they are, and the next mission's start clears them (`reset`).
+    pub fn stopSpeech(radio: *Radio, sounds: ?*hog_snd.commands.Commands) void {
         radio.until = null;
-        if (asked) |heard| heard.add(.speech_ended);
+        if (sounds) |asked| asked.add(.speech_ended);
     }
 
     /// `speech_playing` (`0x004620A0`): whether a line plays at the frame's tick `now`.
@@ -1303,10 +1303,10 @@ pub const Radio = struct {
         return readLine(radio.gpa, radio.recordings, radio.archive, speech);
     }
 
-    /// `bytes`, a speech file, lasting its length from the frame's start (`until`), and asked for
-    /// where anything is heard (`hog_snd.commands.Commands.speak`), which plays it as
-    /// `cbox.Player.start` does at the volume every line the game plays takes, the line playing
-    /// ended; one that is not a speech file is left out with a warning.
+    /// Plays `bytes`, a speech file, in place of the line playing: the line lasts its length from
+    /// the frame's start (`until`), and where anything is heard, the game frame asks for it
+    /// (`hog_snd.commands.Commands.speak`), to play as `cbox.Player.start` plays it, at the volume
+    /// of every line the game plays. A file that is not a speech file is left out with a warning.
     fn play(radio: *Radio, ctx: Context, bytes: []u8) void {
         const parsed = cbox.Line.parse(bytes) orelse {
             log.warn("a line of the radio's is not a speech file or a recording", .{});

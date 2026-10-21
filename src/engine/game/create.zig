@@ -44,6 +44,7 @@ const environfx = @import("environfx.zig");
 const explode = @import("explode.zig");
 const smoke = @import("main/smoke.zig");
 const srofiles = @import("srofiles.zig");
+const table = @import("table.zig");
 const wgate = @import("wgate.zig");
 const xtrabits = @import("xtrabits.zig");
 const additions = @import("additions.zig");
@@ -537,11 +538,7 @@ pub const Slot = struct {
     /// (`objects.Model.copy`), its components among the copy's parts.
     pub fn copyRecords(slot: *Slot, arena: Allocator, from: *const Slot) Allocator.Error!void {
         slot.guns = try arena.dupe(guns.Fitted, from.guns);
-        if (from.shield) |bubble| {
-            const own = try arena.create(shield.Bubble);
-            own.* = bubble.*;
-            slot.shield = own;
-        }
+        if (from.shield) |bubble| slot.shield = try table.copyRecord(shield.Bubble, arena, bubble);
         const original = if (from.model) |*held| held else return;
         const copied = &slot.model.?;
         copied.* = try original.copy(arena);

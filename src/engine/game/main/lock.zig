@@ -165,8 +165,8 @@ pub const Lock = struct {
     /// `hud_draw`'s tone (`0x004844E6`): once locked, in the view ahead from the cockpit, the
     /// locked tone plays twice over (`stdsmp` 0x15), its voice held; out of that view, or once the
     /// lock is lost, its voice is ended, whatever plays on it by then. The game asks for it again
-    /// each frame until it gets a voice; the game frames ask once, and it waits for a voice
-    /// (`hog_snd.commands.Sample.waits`).
+    /// each frame until it gets a voice; OpenReliant's game frames ask once, and the tone waits
+    /// for a voice (`hog_snd.commands.Sample.waits`).
     pub fn sound(lock: *Lock, asked: *hog_snd.commands.Commands, view: camera.View) void {
         const ahead = view == .cockpit;
         if (lock.locked()) {

@@ -292,8 +292,9 @@ frames never touch the sound, which plays on the main thread.
   its range from where the camera stands, picks its voice and starts it (`sound3d.startEffect`).
 - **Kept voices.** The voices the game keeps to end later, the missile lock's tone, the scanner's
   beeping and Betty's missile names, are named by what keeps them (`commands.Kept`). Ending one ends
-  whatever plays on its voice by then, as the game's voice numbers do. Where no voice is free, the
-  lock's tone and the scanner's loop wait for one, as the game asks for them again until they play.
+  whatever plays on its voice by then, as ending a voice by its number does in the game. Where no
+  voice is free, the lock's tone and the scanner's loop wait for one, as the game asks for them
+  again until they play.
 - **Speech and music.** The radio's lines go the same way, each with its file, and the main thread
   plays them on the speech sample. So does the script's music (`PlayMusic`).
 - **Timers.** What the sound kept for the game moves to the player: when the armour last warned

@@ -101,9 +101,8 @@ pub const Beep = enum(u3) {
     const volume = 60;
 };
 
-/// `hud_beep` (`0x0048CE70`): the display's sound `which`, in the middle, in the four cockpit views
-/// only (`camera.View.fromCockpit`), `view` being this frame's, as the game frames ask for it
-/// (`hog_snd.commands`).
+/// `hud_beep` (`0x0048CE70`): asks for the display's sound `which`, in the middle, in the four
+/// cockpit views only (`camera.View.fromCockpit`); `view` is this frame's.
 pub fn playBeep(asked: *hog_snd.commands.Commands, view: camera.View, which: Beep) void {
     if (!view.fromCockpit()) return;
     asked.add(.{ .sample = .{ .bank = .stdsmp, .index = Beep.first_sample + @as(u16, @backingInt(which)), .volume = Beep.volume } });
@@ -130,9 +129,9 @@ pub const Beeps = struct {
         beeps.count += 1;
     }
 
-    /// Each in turn (`playBeep`), where anything is heard, and none left after.
-    pub fn play(beeps: *Beeps, asked: ?*hog_snd.commands.Commands, view: camera.View) void {
-        if (asked) |heard| for (beeps.queued[0..beeps.count]) |which| playBeep(heard, view, which);
+    /// Asks for each in turn (`playBeep`), where anything is heard, and empties the queue.
+    pub fn play(beeps: *Beeps, sounds: ?*hog_snd.commands.Commands, view: camera.View) void {
+        if (sounds) |asked| for (beeps.queued[0..beeps.count]) |which| playBeep(asked, view, which);
         beeps.count = 0;
     }
 
@@ -4677,7 +4676,7 @@ pub const MovieHold = struct {
     /// Whether the radio was saying a line, which then goes on.
     speaking: bool,
 
-    /// Holds them still, `line` being the radio's line playing (`hog_snd.commands.Commands.line`).
+    /// Holds them still. `line` plays the radio's lines (`hog_snd.commands.Commands.line`).
     pub fn begin(clock: *main.Clock, sound: *hog_snd.Sound, line: ?*cbox.Player) MovieHold {
         clock.paused = true;
         sound.pauseMusic(true);

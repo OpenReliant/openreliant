@@ -317,14 +317,11 @@ pub const Pieces = struct {
         pieces.gpa.destroy(pieces.flights);
     }
 
-    /// OpenReliant's: the pieces as a drawn frame copies them (`main.Drawn`), their flights copied
-    /// into `arena`, so that drawing reads the copy while the game frames go on with them. The copy
-    /// shares each piece's mesh with the game, which leaves it as it was cut; it owns nothing but
-    /// what is in `arena`, and is never reset nor let go of.
+    /// OpenReliant's: the pieces as a drawn frame copies them (`main.Drawn.Effects`), their flights
+    /// copied into `arena`. The copy shares each piece's mesh with the game, which leaves it as it
+    /// was cut.
     pub fn copy(pieces: *const Pieces, arena: Allocator) Allocator.Error!Pieces {
-        const flights = try arena.create(Flights);
-        flights.* = pieces.flights.*;
-        return .{ .gpa = pieces.gpa, .flights = flights };
+        return .{ .gpa = pieces.gpa, .flights = try table.copyRecord(Flights, arena, pieces.flights) };
     }
 
     /// As a mission starts again: none flying.

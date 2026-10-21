@@ -200,11 +200,9 @@ pub const Effects = struct {
         };
     }
 
-    /// OpenReliant's: the jump effects as a drawn frame copies them (`main.Drawn`), each effect
-    /// copied into `arena` (`table.copySlots`), its objects pointed at the copy's own colours, so
-    /// that drawing reads the copy while the game frames go on with the jumps. The copy shares the
-    /// meshes with the game, which doesn't change them; it owns nothing but what is in `arena`,
-    /// and is never let go of.
+    /// OpenReliant's: the jump effects as a drawn frame copies them (`main.Drawn.Effects`), each
+    /// effect copied into `arena` (`table.copySlots`), its objects pointed at the copy's own
+    /// colours. The copy shares the meshes with the game, which doesn't change them.
     pub fn copy(effects: *const Effects, arena: Allocator) Allocator.Error!Effects {
         var copied = effects.*;
         try table.copySlots(Effect, arena, &copied.records);

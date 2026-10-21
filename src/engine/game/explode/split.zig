@@ -88,9 +88,9 @@ pub const Splits = struct {
         }
     }
 
-    /// Stands drawing's portals for every split's two (`xtrabits.Portals.stand`), where the split's
-    /// stand and facing as they face. The frame shows those of each split cutting, as each split's
-    /// frame function puts its own in the scene (`scene_add`), which puts them in the camera's
+    /// Stands drawing's portals for each split's two (`xtrabits.Portals.stand`), placed and facing
+    /// as the split's are. The frame shows those of each split that is cutting, as each split's
+    /// frame function adds its own to the scene (`scene_add`), which moves them into the camera's
     /// frame.
     pub fn standPortals(splits: *const Splits, portals: *xtrabits.Portals) void {
         for (&splits.slots) |*slot| {
