@@ -397,7 +397,7 @@ pub const Frame = struct {
     explosions: ?*const explode.Explosions = null,
     shockwaves: ?*const shockwave.Shockwaves = null,
     trails: ?*missiles.trail.Trails = null,
-    countermeasures: ?*const cloak.Countermeasures = null,
+    countermeasures: ?*cloak.Countermeasures = null,
     /// The player's missile lock and its rings, which go into the overlay's layer while it builds,
     /// while the last frame's view is one of the cockpit's or the chase view (`runLock`).
     lock: ?*const lock.Lock = null,
@@ -1160,7 +1160,8 @@ pub const Drawn = struct {
     shake: f32 = 0,
     /// Copies of the game's effects that drawing draws, as the game frames left them (`take`): the
     /// particles, the smoke, the guns' flak and spent cases, the sparks, the shockwaves, the
-    /// electric rays, the tractors, the Rippers' beams, the capital shields and the explosions.
+    /// electric rays, the tractors, the Rippers' beams, the capital shields, the explosions, the
+    /// countermeasures and the screen's flash.
     particles: ?particles.Pool = null,
     smoke: ?smoke.Pools = null,
     gun_particles: ?guns.effects.Pools = null,
@@ -1171,6 +1172,8 @@ pub const Drawn = struct {
     rippers: ?airipper.Rippers = null,
     capital_shields: ?shield.Capital = null,
     explosions: ?explode.Explosions = null,
+    countermeasures: ?cloak.Countermeasures = null,
+    flash: ?flash.Flash = null,
     /// What the copy's models are made in, from one drawn frame to the next.
     arena: std.heap.ArenaAllocator,
     /// The portals the copy's parts are cut by: drawing's own, which stand in for the game's from
@@ -1218,6 +1221,8 @@ pub const Drawn = struct {
         drawn.rippers = if (game.rippers) |rippers| try rippers.copy(arena) else null;
         drawn.capital_shields = if (game.capital_shields) |capital| capital.* else null;
         drawn.explosions = if (game.explosions) |explosions| try explosions.copy(arena) else null;
+        drawn.countermeasures = if (game.countermeasures) |dropped| try dropped.copy(arena) else null;
+        drawn.flash = if (game.flash) |lit| lit.* else null;
         const now = game.clock.frame_start;
         const copy = drawn.objects;
         try game.objects.copyInto(copy, arena);
@@ -1264,6 +1269,8 @@ pub const Drawn = struct {
         shown.rippers = if (drawn.rippers) |*rippers| rippers else null;
         shown.capital_shields = if (drawn.capital_shields) |*capital| capital else null;
         shown.explosions = if (drawn.explosions) |*explosions| explosions else null;
+        shown.countermeasures = if (drawn.countermeasures) |*dropped| dropped else null;
+        shown.flash = if (drawn.flash) |*lit| lit else null;
         return shown;
     }
 };
@@ -1313,7 +1320,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     if (frame.jump_effects) |effects| try effects.draw(gpa, arena, scene, frame.objects);
     try missiles.draw(frame.objects, gpa, scene, attachments);
     if (frame.trails) |trails| try trails.draw(gpa, scene);
-    if (frame.countermeasures) |dropped| try dropped.draw(gpa, arena, scene, attachments);
+    if (frame.countermeasures) |dropped| try dropped.draw(gpa, scene, attachments);
     if (frame.lock_rings) |rings| if (frame.lock) |held| if (frame.last_view.showsLock() and !riding) {
         try rings.draw(gpa, scene, held, .{ .position = context.camera.position, .orientation = context.camera.orientation }, context.projection);
     };
