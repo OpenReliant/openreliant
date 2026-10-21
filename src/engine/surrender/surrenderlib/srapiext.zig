@@ -402,6 +402,20 @@ pub const Mesh = struct {
         return out;
     }
 
+    /// OpenReliant's: makes the arrays that give the mesh its shape its own, copied into `arena`:
+    /// its vertices, their normals and texture coordinates, and its polygons' planes, which an
+    /// effect may change from one game frame to the next. A drawn frame's copy of the effect keeps
+    /// them as they were (`main.Drawn`); the rest of the arrays stay shared with the original.
+    /// Second coordinates that are its first stay so.
+    pub fn copyShape(mesh: *Mesh, arena: Allocator) Allocator.Error!void {
+        const first = mesh.uv[0];
+        mesh.positions = try arena.dupe(Vector, mesh.positions);
+        mesh.normals = try arena.dupe(Vector, mesh.normals);
+        mesh.planes = try arena.dupe(Plane, mesh.planes);
+        if (first) |u| mesh.uv[0] = try arena.dupe([2]f32, u);
+        if (mesh.uv[1]) |u| mesh.uv[1] = if (first != null and u.ptr == first.?.ptr) mesh.uv[0] else try arena.dupe([2]f32, u);
+    }
+
     /// Frees what `gpa` allocated for it.
     pub fn deinit(mesh: Mesh, gpa: Allocator) void {
         gpa.free(mesh.positions);
@@ -682,6 +696,28 @@ test "Mesh.copy" {
     // Where it fails part way, it leaves nothing behind.
     var failing: std.testing.FailingAllocator = .init(gpa, .{ .fail_index = 5 });
     try std.testing.expectError(error.OutOfMemory, mesh.copy(failing.allocator(), true));
+}
+
+test "Mesh.copyShape" {
+    const gpa = std.testing.allocator;
+    var mesh: Mesh = try .create(gpa, .{ .polygons = 2, .vertices = 4, .indices = 6 });
+    defer mesh.deinit(gpa);
+    const uv = try mesh.addCoordinates(gpa);
+    mesh.uv[1] = uv;
+    mesh.positions[2] = .{ 1, 2, 3 };
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+
+    // The arrays of its shape are the copy's own, as they were, and a light map's coordinates
+    // still the first pass's; the rest stay shared.
+    var copied = mesh;
+    try copied.copyShape(arena.allocator());
+    try std.testing.expect(copied.positions.ptr != mesh.positions.ptr);
+    try std.testing.expect(copied.normals.ptr != mesh.normals.ptr and copied.planes.ptr != mesh.planes.ptr);
+    try std.testing.expectEqual(@as(Vector, .{ 1, 2, 3 }), copied.positions[2]);
+    try std.testing.expect(copied.uv[0].?.ptr != uv.ptr);
+    try std.testing.expectEqual(copied.uv[0].?.ptr, copied.uv[1].?.ptr);
+    try std.testing.expectEqual(mesh.indices.ptr, copied.indices.ptr);
 }
 
 test {

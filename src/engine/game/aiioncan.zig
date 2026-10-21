@@ -360,8 +360,8 @@ pub const Cannons = struct {
 
     /// OpenReliant's: the ion cannons as a drawn frame copies them (`main.Drawn`), each cannon's
     /// record copied into `arena`, so that drawing reads the copy while the game frames go on
-    /// with the cannons. The targeting laser's and the glow's vertices and texture coordinates,
-    /// which the game changes as they aim, widen and scroll, are copied with them (`Star.copied`).
+    /// with the cannons. The targeting laser's and the glow's shapes, which the game changes as
+    /// they aim, widen and scroll, are copied with them (`Star.copied`).
     /// The copy shares the rest of the meshes with the game, which doesn't change them; it owns
     /// nothing but what is in `arena`, and is never reset nor let go of.
     pub fn copy(cannons: *const Cannons, arena: Allocator) Allocator.Error!Cannons {
@@ -571,12 +571,11 @@ const Star = struct {
         star.mesh.deinit(gpa);
     }
 
-    /// A copy of it for a drawn frame (`Cannons.copy`), its mesh's vertices and texture
-    /// coordinates, which the game changes as it runs, made in `arena`.
+    /// A copy of it for a drawn frame (`Cannons.copy`), its mesh's shape, which the game changes
+    /// as it runs, made in `arena` (`srapiext.Mesh.copyShape`).
     fn copied(star: Star, arena: Allocator) Allocator.Error!Star {
         var own = star;
-        own.mesh.positions = try arena.dupe(Vector, star.mesh.positions);
-        if (star.mesh.uv[0]) |uv| own.mesh.uv[0] = try arena.dupe([2]f32, uv);
+        try own.mesh.copyShape(arena);
         return own;
     }
 

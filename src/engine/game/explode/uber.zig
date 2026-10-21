@@ -491,7 +491,7 @@ pub const Uber = struct {
         own.* = uber.*;
         if (own.look) |*look| if (own.blast) |*blast| if (blast.shown) |*shown| {
             const meshes = look.meshes.getPtr(shown.style);
-            meshes.hemisphere.positions = try arena.dupe(Vector, meshes.hemisphere.positions);
+            try meshes.hemisphere.copyShape(arena);
             meshes.point();
             shown.point(meshes);
         };
