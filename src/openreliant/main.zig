@@ -604,7 +604,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The camera. The game keeps the options' cockpit setting with the view, which starts in the
     // cockpit mode the setting picks, as a mission's start does. Until a frame is drawn, the game
     // sees from where the camera starts.
-    var view: camera.Camera = .{ .missiles = &objects.missiles };
+    var view: camera.Camera = .{};
     player.viewing.cockpit_setting = options.cockpit orelse device_settings.view;
     player.viewing.cockpit_mode = player.viewing.cockpit_setting.mode();
     player.viewing.seen_from = view.place;

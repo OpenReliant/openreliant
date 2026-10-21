@@ -618,3 +618,8 @@ toward its swings a two hundredth of the way each frame, and rolling with a twen
 too. Once the missile ends (`0x00539A7C`), the camera holds still for 150 ticks and goes back to the
 cockpit. A mission's script starts it too (`StartMissileCam`).
 
+**Improvement:** with smooth motion, the camera keeps behind the missile where the frame draws it,
+between the ticks, as the other views follow their objects
+([Drawing between steps](objects.md#drawing-between-steps)). The game keeps behind it where the last
+tick left it, as `--no-smooth-motion` and `--original` do.
+

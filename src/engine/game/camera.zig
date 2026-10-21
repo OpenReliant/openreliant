@@ -385,8 +385,9 @@ pub const World = struct {
     landing: ?Landing = null,
     /// The force feedback the player's controller plays, which the shake from hits shakes too.
     forces: ?*input.force.Forces = null,
-    /// The game's world, through which the director's view flies along the mission's curves; null
-    /// where no game runs, as in a test.
+    /// The game's world as the drawn frame sees it (`main.Drawn.world`), through which the
+    /// director's view flies along the mission's curves and the missile view finds its missile;
+    /// null where no game runs, as in a test.
     game: ?gameobj.World = null,
     /// What the game has the camera view (`input.Player.viewing`).
     viewing: *const Viewing,
@@ -769,8 +770,6 @@ pub const Camera = struct {
     /// Where the cockpit's model stands this frame, in view 0 outside the chase mode; null in the
     /// rest.
     cockpit_place: ?Cockpit.Placed = null,
-    /// The missiles in flight, which the missile view follows one of (`Viewing.missile`).
-    missiles: ?*const missiles.Missiles = null,
     /// Set as the view switches, which resets the star streaks (`backdrop_reset_streaks`), so that
     /// the frame drawn next draws none, even where the view switches back to what it was.
     cut: bool = false,
@@ -916,6 +915,10 @@ pub const Camera = struct {
     /// on the controller too (`force_shake`, `0x004BE000`); moves the bars, then puts the camera
     /// where the view says. Where the view can't go on, it holds still until the game switches it
     /// back (`gameFrame`).
+    ///
+    /// **Improvement:** with smooth motion, the missile view keeps behind its missile where the
+    /// frame draws it, between the ticks, as the other views follow their objects; the game keeps
+    /// behind it where the last tick left it.
     pub fn frame(camera: *Camera, world: World) void {
         camera.notice(world.viewing);
         if (world.forces) |forces| if (world.shake > shake_rumbles) forces.startUnlessPlaying(.shake, @intCast(world.now));
@@ -1047,8 +1050,8 @@ pub const Camera = struct {
             },
             // Once its missile is gone, the view holds still (`gameFrame`).
             .missile => if (!world.viewing.missile_gone and world.object.motion.ship_type.hasStats()) {
-                const records = camera.missiles orelse return;
-                const missile = records.records[world.viewing.missile] orelse return;
+                const game = world.game orelse return;
+                const missile = game.objects.missiles.records[world.viewing.missile] orelse return;
                 const object = &missile.slot.object;
                 camera.place = camera.chase.follow(.{
                     .throttle = object.throttle,
@@ -2499,7 +2502,7 @@ test "the missile view" {
     const player = try armed.add(.friendly, @splat(0));
     const other = try armed.add(.hostile, .{ 0, 0, 50000 });
     const mission = &armed.mission;
-    var camera: Camera = .{ .missiles = &mission.objects.missiles };
+    var camera: Camera = .{};
     const world = mission.world();
     const viewing = &mission.player.viewing;
     // With none of the player's in flight, the view is refused.
@@ -2511,7 +2514,7 @@ test "the missile view" {
     try std.testing.expect(switchView(world, .missile, player, false, false));
     try std.testing.expectEqual(1, viewing.missile);
     const subject: Subject = .{ .position = @splat(0), .orientation = math.identity, .motion = .{ .ship_type = .of(.predator) } };
-    camera.frame(.{ .object = subject, .player = subject, .ticks = 1, .now = 10, .viewing = viewing });
+    camera.frame(.{ .object = subject, .player = subject, .ticks = 1, .now = 10, .game = world, .viewing = viewing });
     const missile = armed.missile(1);
     try std.testing.expectEqual(missile.slot.drawn.position[1] + Chase.missile_height, camera.place.position[1]);
     // Once it ends, the view holds for a second and a half, then the game goes back to the cockpit.
