@@ -311,7 +311,7 @@ pub fn pick(world: gameobj.World, lines: []const []const u8) []const u8 {
 pub fn onAir(world: gameobj.World) ?struct { *Radio, Context } {
     const radio = world.radio orelse return null;
     return .{ radio, .{
-        .sound = if (world.hearing) |hearing| hearing.sound else null,
+        .sounds = world.sounds,
         .windows = if (world.display) |display| &display.windows else null,
         .all = world.objects,
         .frame_start = world.clock.frame_start,
@@ -828,8 +828,8 @@ pub const Line = struct {
 
 /// What the radio reaches of the game as a line is said.
 pub const Context = struct {
-    /// What the lines are heard through; null where nothing is heard, as on a server.
-    sound: ?*hog_snd.Sound,
+    /// What the lines are asked for through; null where nothing is heard, as on a server.
+    sounds: ?*hog_snd.commands.Commands,
     /// The display's windows, where there is a display: window 0 is the radio's.
     windows: ?*Windows,
     all: *const create.Objects,
@@ -930,7 +930,6 @@ pub const Radio = struct {
     /// Added by OpenReliant: the mods, whose lines and recordings of lines take priority over the
     /// archive's, and what decodes those recordings that aren't WAVE files (`readLine`).
     recordings: recordings.Source = .none,
-    player: cbox.Player = .{},
     /// How the lines sound.
     style: cbox.Style = .{},
     /// The films of the speakers' faces (`hudmovie.cpp`).
@@ -977,8 +976,8 @@ pub const Radio = struct {
         return .{ .gpa = gpa, .archive = archive, .movie = .openAt(gpa, io, dir, films) };
     }
 
-    pub fn deinit(radio: *Radio, sound: ?*hog_snd.Sound) void {
-        radio.reset(sound);
+    pub fn deinit(radio: *Radio) void {
+        radio.reset(null);
         radio.movie.deinit();
         if (radio.archive) |*archive| archive.close(radio.gpa);
         radio.archive = null;
@@ -990,8 +989,8 @@ pub const Radio = struct {
     ///
     /// **Fix:** the game leaves a film playing into the next mission, whose first line then starts
     /// before its window has opened; OpenReliant stops it.
-    pub fn reset(radio: *Radio, sound: ?*hog_snd.Sound) void {
-        radio.stopSpeech(sound);
+    pub fn reset(radio: *Radio, asked: ?*hog_snd.commands.Commands) void {
+        radio.stopSpeech(asked);
         radio.dropLine();
         radio.movie.stop();
         radio.movie.waiting = false;
@@ -1005,11 +1004,11 @@ pub const Radio = struct {
     }
 
     /// `speech_stop_all` (`0x004620D0`), as a mission ends (`mission_end`, at `0x00494370`): the
-    /// line playing ends, and its sound where it is heard through `sound`. The queue and the window
+    /// line playing ends, and its sound where anything is heard (`asked`). The queue and the window
     /// are left as they are, and the next mission's start clears them (`reset`).
-    pub fn stopSpeech(radio: *Radio, sound: ?*hog_snd.Sound) void {
+    pub fn stopSpeech(radio: *Radio, asked: ?*hog_snd.commands.Commands) void {
         radio.until = null;
-        if (sound) |heard| radio.player.stop(radio.gpa, heard) else radio.player.deinit(radio.gpa);
+        if (asked) |heard| heard.add(.speech_ended);
     }
 
     /// `speech_playing` (`0x004620A0`): whether a line plays at the frame's tick `now`.
@@ -1059,7 +1058,7 @@ pub const Radio = struct {
     fn sayNow(radio: *Radio, ctx: Context, line: Line) void {
         radio.held = true;
         if (ctx.windows) |windows| if (windows.status.get(.radio).phase != .open) windows.hold(.radio);
-        radio.stopSpeech(ctx.sound);
+        radio.stopSpeech(ctx.sounds);
         radio.name = line.name;
         radio.object = line.object;
         radio.side = sideOf(ctx.all, line.object);
@@ -1232,7 +1231,7 @@ pub const Radio = struct {
     /// window or a film, ending the line playing. The game reads it into a buffer of its own
     /// (`0x005883D0`), so a line waiting for the window keeps its own.
     pub fn playSpeech(radio: *Radio, ctx: Context, speech: []const u8) void {
-        radio.stopSpeech(ctx.sound);
+        radio.stopSpeech(ctx.sounds);
         const bytes = radio.readSpeech(speech) orelse return;
         defer radio.gpa.free(bytes);
         radio.play(ctx, bytes);
@@ -1304,16 +1303,17 @@ pub const Radio = struct {
         return readLine(radio.gpa, radio.recordings, radio.archive, speech);
     }
 
-    /// `bytes`, a speech file, lasting its length from the frame's start (`until`), and played
-    /// where it is heard (`cbox.Player.start`) at the volume every line the game plays takes, the
-    /// line playing ended; one that is not a speech file is left out with a warning.
+    /// `bytes`, a speech file, lasting its length from the frame's start (`until`), and asked for
+    /// where anything is heard (`hog_snd.commands.Commands.speak`), which plays it as
+    /// `cbox.Player.start` does at the volume every line the game plays takes, the line playing
+    /// ended; one that is not a speech file is left out with a warning.
     fn play(radio: *Radio, ctx: Context, bytes: []u8) void {
         const parsed = cbox.Line.parse(bytes) orelse {
             log.warn("a line of the radio's is not a speech file or a recording", .{});
             return;
         };
         radio.until = ctx.frame_start +% @as(i32, @intCast(parsed.ticks()));
-        if (ctx.sound) |heard| _ = radio.player.start(radio.gpa, heard, parsed, hog_snd.loudest, radio.style, null);
+        if (ctx.sounds) |asked| asked.speak(bytes, radio.style);
     }
 };
 
@@ -1351,12 +1351,11 @@ test Radio {
     var radio = archives.radio(gpa, io);
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(2, null);
-    const sound = &speaker.sound;
-    defer sound.shutdown();
-    defer radio.deinit(sound);
+    defer speaker.deinit();
+    defer radio.deinit();
     try std.testing.expect(radio.archive != null and radio.movie.archive != null);
     var windows: Windows = .{};
-    var ctx: Context = .{ .sound = sound, .windows = &windows, .all = mission.objects, .frame_start = 100 };
+    var ctx: Context = .{ .sounds = &speaker.asked, .windows = &windows, .all = mission.objects, .frame_start = 100 };
 
     // A line said at once opens the window held and names its speaker; the line waits for the
     // window, with its film, the 45th Tigers' pilot's as the Volunteers' in mission 1.
@@ -1417,7 +1416,7 @@ test Radio {
     // The queue holds five; a sixth is dropped.
     for (0..queue_size + 1) |_| radio.say(ctx, pilot_line, .queued);
     try std.testing.expectEqual(queue_size, radio.count);
-    radio.reset(sound);
+    radio.reset(&speaker.asked);
     try std.testing.expectEqual(0, radio.count);
     try std.testing.expect(!radio.movie.playing and !radio.held);
 
@@ -1448,11 +1447,12 @@ test "the radio's step times its lines by the game's ticks, heard or not" {
 
     var radio = archives.radio(gpa, io);
     // Without a driver, as with `--no-sound`: nothing is heard.
-    var clock: @import("main.zig").Clock = .{};
-    var sound: hog_snd.Sound = .{ .clock = &clock };
-    defer radio.deinit(&sound);
+    var sound: hog_snd.Sound = .{};
+    var asked: hog_snd.commands.Commands = .{ .gpa = gpa };
+    defer asked.deinit(&sound);
+    defer radio.deinit();
     var windows: Windows = .{};
-    var ctx: Context = .{ .sound = &sound, .windows = &windows, .all = mission.objects, .frame_start = 100 };
+    var ctx: Context = .{ .sounds = &asked, .windows = &windows, .all = mission.objects, .frame_start = 100 };
 
     // Step by step, the line waits for the window, then lasts its 20 ticks while its film loops.
     // Once it is over, the window closes and the film stops, so a script waiting for the film
@@ -1474,9 +1474,9 @@ test "the radio's step times its lines by the game's ticks, heard or not" {
     ctx.frame_start += 10;
     radio.sayShip(ctx, wingman, .squadron, "ms1_ban_001.ut", .now, .looping, no_expiry);
     try std.testing.expect(radio.speaking(ctx.frame_start + 19) and !radio.speaking(ctx.frame_start + 20));
-    radio.stopSpeech(&sound);
+    radio.stopSpeech(&asked);
     try std.testing.expect(!radio.speaking(ctx.frame_start));
-    radio.reset(&sound);
+    radio.reset(&asked);
     try std.testing.expect(!radio.speaking(ctx.frame_start));
 
     // With no sound at all, as on a server, the world's radio is still on air, and a line lasts as
@@ -1484,7 +1484,7 @@ test "the radio's step times its lines by the game's ticks, heard or not" {
     var world = mission.world();
     world.radio = &radio;
     _, var unheard = onAir(world).?;
-    try std.testing.expectEqual(null, unheard.sound);
+    try std.testing.expectEqual(null, unheard.sounds);
     unheard.frame_start = ctx.frame_start;
     radio.sayShip(unheard, wingman, .squadron, "ms1_ban_001.ut", .now, .looping, no_expiry);
     radio.waitForWindow(unheard, speech_delay);
@@ -1584,14 +1584,13 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     var radio = archives.radio(gpa, io);
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(2, null);
-    const sound = &speaker.sound;
-    defer sound.shutdown();
-    defer radio.deinit(sound);
+    defer speaker.deinit();
+    defer radio.deinit();
     var variables: vm.Variables = .{ .landing_cleared = 1, .mission_success = .success };
     var world = mission.world();
     world.variables = &variables;
     world.radio = &radio;
-    world.hearing = speaker.hearing(&mission.clock);
+    speaker.hear(&world);
     mission.player.carrier = reliant;
 
     // The pilot asks at once, and the Reliant's bridge answers in its time, clearing the ship by one
@@ -1606,7 +1605,7 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     try std.testing.expect(std.mem.startsWith(u8, report.speech.slice(), "rel_lnd_00"));
     try std.testing.expectEqual(.land, mission.slot(player).current().?.order);
     var windows: Windows = .{};
-    const ctx: Context = .{ .sound = sound, .windows = &windows, .all = mission.objects, .frame_start = 0 };
+    const ctx: Context = .{ .sounds = &speaker.asked, .windows = &windows, .all = mission.objects, .frame_start = 0 };
     radio.stepReports(ctx, 100 + report_delay);
     try std.testing.expectEqual(0, radio.count);
     radio.stepReports(ctx, 101 + report_delay);
@@ -1616,7 +1615,7 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     try std.testing.expectEqual(bridge_name, radio.queue[radio.read].name.?);
 
     // Not cleared, it refuses; and with the reports all taken, nothing answers and nothing lands.
-    radio.reset(sound);
+    radio.reset(&speaker.asked);
     mission.slot(player).object.order_count = 0;
     variables.landing_cleared = 0;
     permissionToLand(world, 1000);
@@ -1629,7 +1628,7 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     try std.testing.expectEqual(null, radio.freeReport());
 
     // In training, the flight instructor answers.
-    radio.reset(sound);
+    radio.reset(&speaker.asked);
     mission.objects.mission_number = create.training_missions[0];
     mission.player.female = true;
     permissionToLand(world, 3000);
@@ -1638,7 +1637,7 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     try std.testing.expectEqualStrings("pilots\\VirtFlt_Ins.fm8", radio.reports[0].?.film.slice());
     try std.testing.expectEqualStrings(instructor_line, radio.reports[0].?.speech.slice());
     // So does the simulator's training, whatever its mission.
-    radio.reset(sound);
+    radio.reset(&speaker.asked);
     mission.objects.mission_number = 1;
     mission.objects.simulator.mode = .training;
     permissionToLand(world, 4000);
@@ -1756,8 +1755,8 @@ pub const testing = struct {
         }
 
         pub fn deinit(heard: *Heard) void {
-            heard.radio.deinit(&heard.speaker.sound);
-            heard.speaker.sound.shutdown();
+            heard.radio.deinit();
+            heard.speaker.deinit();
             heard.mission.deinit();
             heard.archives.deinit();
         }
@@ -1765,7 +1764,7 @@ pub const testing = struct {
         pub fn world(heard: *Heard) gameobj.World {
             var seen = heard.mission.world();
             seen.radio = &heard.radio;
-            seen.hearing = heard.speaker.hearing(&heard.mission.clock);
+            heard.speaker.hear(&seen);
             seen.variables = &heard.variables;
             return seen;
         }
@@ -1850,7 +1849,7 @@ test "the missile warning and the landing reminder" {
     try std.testing.expectEqual(1, radio.count);
     try heard.expectLine(0, moose_line, &missile_warnings);
     try std.testing.expectEqual(10 + missile_expiry, heard.queued(0).expiry.?);
-    radio.reset(&heard.speaker.sound);
+    radio.reset(&heard.speaker.asked);
     clock.frame_start = 10 + missile_wait;
     remarksFrame(world);
     try std.testing.expectEqual(0, radio.count);
@@ -1882,7 +1881,7 @@ test "the missile warning and the landing reminder" {
     try std.testing.expect(!heard.mission.player.remarks.landing_reminded);
 
     // In training, the flight instructor reminds the pilot once, whatever the script has unsaid.
-    radio.reset(&heard.speaker.sound);
+    radio.reset(&heard.speaker.asked);
     heard.mission.objects.mission_number = create.training_missions[0];
     heard.variables.landing_cleared = 1;
     remarksFrame(world);
@@ -1917,7 +1916,7 @@ test "the jump reminder calls the pilot to jump, then jumps" {
     remarksFrame(world);
     try heard.expectLine(0, moose_line, &jump_lines);
     for (jump_call_lines, 0..) |lines, call| {
-        radio.reset(&heard.speaker.sound);
+        radio.reset(&heard.speaker.asked);
         clock.game_ticks = @intCast(jump_wait * (call + 1) - 1);
         remarksFrame(world);
         try std.testing.expectEqual(0, radio.count);
@@ -1935,11 +1934,11 @@ test "the jump reminder calls the pilot to jump, then jumps" {
     try std.testing.expect(!remarks.jump_reminded);
 
     // A warp's words are a warp's; and in training, the flight instructor's, and no call follows.
-    radio.reset(&heard.speaker.sound);
+    radio.reset(&heard.speaker.asked);
     fixture.machine.variables.ready.warp = .newly;
     remarksFrame(world);
     try heard.expectLine(0, moose_line, &warp_lines);
-    radio.reset(&heard.speaker.sound);
+    radio.reset(&heard.speaker.asked);
     remarks.jump_reminded = false;
     heard.mission.objects.mission_number = create.training_missions[0];
     remarksFrame(world);
@@ -1956,7 +1955,7 @@ test "a kill, a loss, an ejection, a taunt and a launch have their words" {
     const world = heard.world();
     const clock = &heard.mission.clock;
     const radio = &heard.radio;
-    const sound = &heard.speaker.sound;
+    const asked = &heard.speaker.asked;
     const moose_line = pilot_base + volunteers_moose;
     const remarks = &heard.mission.player.remarks;
     const enemy = heard.enemy;
@@ -1970,7 +1969,7 @@ test "a kill, a loss, an ejection, a taunt and a launch have their words" {
     try std.testing.expect(std.mem.startsWith(u8, heard.queued(0).speech.slice(), "rusdth_00"));
     try std.testing.expectEqual(hudmovie.Flags.once, heard.queued(0).flags);
     try heard.expectLine(1, moose_line, &fighter_kill_lines);
-    radio.reset(sound);
+    radio.reset(asked);
     clock.game_ticks += kill_wait;
     killRemark(world, enemy);
     try std.testing.expectEqual(0, radio.count);
@@ -1979,25 +1978,25 @@ test "a kill, a loss, an ejection, a taunt and a launch have their words" {
     clock.game_ticks += 1;
     killRemark(world, enemy);
     try heard.expectLine(0, moose_line, &torpedo_kill_lines);
-    radio.reset(sound);
+    radio.reset(asked);
     heard.mission.slot(enemy).object.flags.ejected = true;
     killRemark(world, enemy);
     try heard.expectLine(0, moose_line, &pod_kill_lines);
     heard.mission.slot(enemy).object.flags.ejected = false;
 
     // A wingman lost: its pilot's last words, and Moose's.
-    radio.reset(sound);
+    radio.reset(asked);
     shipLost(world, wingman);
     try std.testing.expectEqualStrings("bandth_001.ut", heard.queued(0).speech.slice());
     try heard.expectLine(1, moose_line, &lost_lines);
 
     // A wingman's pilot ejecting says so, and a while later the wingman in the wing's last place
     // says the rescue's words; there being none, nothing is said.
-    radio.reset(sound);
+    radio.reset(asked);
     clock.frame_start = 100;
     wingmanEjected(world, wingman);
     try std.testing.expectEqualStrings("banejt_001.ut", heard.queued(0).speech.slice());
-    radio.reset(sound);
+    radio.reset(asked);
     clock.frame_start = 100 + rescue_wait;
     remarksFrame(world);
     try std.testing.expectEqual(wingman, remarks.ejected.?);
@@ -2007,10 +2006,10 @@ test "a kill, a loss, an ejection, a taunt and a launch have their words" {
     try std.testing.expectEqual(null, remarks.ejected);
     try heard.expectLine(0, pilot_base + testing.Heard.bandit, &rescue_lines);
     try std.testing.expect(std.mem.startsWith(u8, heard.queued(0).speech.slice(), "banres_00"));
-    radio.reset(sound);
+    radio.reset(asked);
     wingmanEjected(world, wingman);
     heard.mission.objects.wing[rescuer_place] = null;
-    radio.reset(sound);
+    radio.reset(asked);
     clock.frame_start += rescue_wait + 1;
     remarksFrame(world);
     try std.testing.expectEqual(null, remarks.ejected);
@@ -2021,7 +2020,7 @@ test "a kill, a loss, an ejection, a taunt and a launch have their words" {
     enemyTaunt(world, enemy);
     try heard.expectLine(0, enemy, &taunts);
     try std.testing.expect(std.mem.startsWith(u8, heard.queued(0).speech.slice(), "rustnt_0"));
-    radio.reset(sound);
+    radio.reset(asked);
     clock.frame_start += taunt_wait;
     enemyTaunt(world, enemy);
     try std.testing.expectEqual(0, radio.count);
@@ -2035,7 +2034,7 @@ test "a kill, a loss, an ejection, a taunt and a launch have their words" {
     const reliant = try heard.mission.add(.of(.reliant), .{ 0, 0, 5000 });
     launchLine(world, reliant);
     try heard.expectLine(0, reliant_bridge, &reliant_launch_lines);
-    radio.reset(sound);
+    radio.reset(asked);
     launchLine(world, enemy);
     try std.testing.expectEqual(0, radio.count);
 

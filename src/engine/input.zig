@@ -1494,6 +1494,11 @@ pub const Player = struct {
     balancing_shields: bool = false,
     /// What SHIELD BALANCING has shifted beyond the fore and aft shields' full charge.
     shield_reserves: gameobj.ShieldReserves = .{},
+    /// When the player's armour last warned (`0x00588334`, `main.armorWarning`), and when a shot
+    /// last sounded on the player's hull (`0x00593794`, `shieldfx.hullHit`). A mission's start
+    /// leaves them, as the game leaves its globals.
+    armor_warned_at: i32 = 0,
+    hull_heard_at: i32 = 0,
     /// How the mission is ending, which the player's ship's end decides.
     ending: @import("game/main.zig").Ending = .playing,
     /// `0x00588338`: how many times the script has ended the mission (`TerminateMission`), which
@@ -2155,19 +2160,16 @@ pub fn launchMissile(world: gameobj.World, index: u16) void {
     const ring = &display.missiles;
     const armed = ring.armedEntry();
     const locked = display.lock.locked();
-    const sound = if (world.hearing) |hearing| hearing.sound else null;
     if (armed.type.base().needsLock() and !locked) {
-        if (sound) |player| _ = player.playStandard(refused_sample, hog_snd.loudest, hog_snd.once, hog_snd.centre, hog_snd.own_pitch);
+        if (world.sounds) |asked| asked.add(.{ .sample = .{ .bank = .stdsmp, .index = refused_sample } });
         if (armed.count != 0 or world.clock.game_ticks <= ring.empty_warned_until) return;
-        if (sound) |player| _ = betty.say(player, .missiles_gone);
+        betty.sayIn(world, .missiles_gone);
         ring.empty_warned_until = world.clock.game_ticks + gone_pause;
         return;
     }
     if (ship.flags.cloaked) return setCloak(world, false);
     if (display.windows.open(.missiles, false)) display.windows.status.getPtr(.missiles).held = true;
-    if (armed.count == 0) if (sound) |player| {
-        _ = betty.say(player, .missiles_gone);
-    };
+    if (armed.count == 0) betty.sayIn(world, .missiles_gone);
     for (ship.fittedRacks(), 0..) |rack, at| {
         if (rack.type != armed.type or rack.count < 1) continue;
         const current = if (locked) all.slots[index].current() else null;

@@ -966,7 +966,7 @@ pub fn jumpOut(ctx: aigeneric.Context, index: u16) void {
                 if (gates.rumbles(world.random, ctx.world.clock.frame_start)) {
                     world.shake.* = ride_shake;
                     if (world.flash) |flash| flash.start();
-                    if (world.hearing) |hearing| hearing.sound.bufferAt(ride_sound, slot.drawn.position, hearing.camera.*, slot.object.radius * ride_loudness);
+                    if (world.sounds) |asked| asked.add(.{ .buffered = .{ .index = ride_sound, .at = slot.drawn.position, .volume = slot.object.radius * ride_loudness } });
                 }
             }
             state.progress += elapsed * ride_rate;

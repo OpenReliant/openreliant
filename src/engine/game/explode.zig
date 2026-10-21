@@ -861,8 +861,9 @@ const close: f32 = 20000;
 /// The voice class an explosion at `at` is heard on: sure of a voice close to the camera, one of
 /// the explosions' own further off.
 pub fn soundClass(world: gameobj.World, at: Vector) ?sound3d.Class {
-    const hearing = world.hearing orelse return null;
-    const offset = at - hearing.camera.position;
+    if (world.sounds == null) return null;
+    const seen = world.seenFrom() orelse return null;
+    const offset = at - seen.position;
     return if (math.dot(offset, offset) < close * close) .guaranteed else .explosions;
 }
 

@@ -63,6 +63,8 @@ What the game frames ask of drawing they give as cues, in order, which each draw
 
 The game frames read devices of their own, which take up what the main thread read of its devices before each tick ([Controls](controls.md#reading)). So they never read the main thread's devices, and a press counts once whichever side reads it.
 
+The game frames ask for their sounds too, which the main thread plays right after them ([Sound](sound.md#the-game-frames-sounds)). So they never touch the sound.
+
 So the game frames' work plays the same way at any frame rate. A run paced one tick per drawn frame, as a screenshot is, plays as before.
 
 The director's shots run in the game frames too, so their CameraReached events come at the same
@@ -85,9 +87,10 @@ original's way, because the seed is part of the object's record.
 missiles' trails, draws from random numbers of its own, so that how often the screen is drawn
 leaves the game's numbers as they are ([Game frames and drawn frames](#game-frames-and-drawn-frames)).
 So do the effects the game sets off, the particles, the explosions' fireballs and bits, the sparks,
-the rays, the shots' looks and the explosions' sounds' pitch (`gameobj.World.effects_random`). The
-game draws those from its own numbers only where the effects are drawn or heard, so without this a
-game that draws or hears nothing would go on from other numbers. Where nothing is drawn, the explosions run only their part in the game
+the rays and the shots' looks (`gameobj.World.effects_random`). The game draws those from its own
+numbers only where the effects are drawn, so without this a game that draws nothing would go on from
+other numbers. The explosions' sounds' pitch comes from the sound's own numbers
+([Sound](sound.md#playing)). Where nothing is drawn, the explosions run only their part in the game
 ([Effects](effects.md#where-nothing-is-drawn)).
 
 ## Collisions

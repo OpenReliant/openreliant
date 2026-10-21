@@ -260,7 +260,7 @@ test warn {
     try std.testing.expectEqual(0, kept.damage);
     try std.testing.expectEqual(100 + warn_every, kept.quiet_until);
     // Within the quiet, the damage mounts unsaid; after it, the count holds at one.
-    heard.radio.reset(&heard.speaker.sound);
+    heard.radio.reset(&heard.speaker.asked);
     warn(world, heard.wingman, 0, .screamer, 900);
     try std.testing.expectEqual(0, heard.radio.count);
     heard.mission.clock.game_ticks = 101 + warn_every;
@@ -268,7 +268,7 @@ test warn {
     try std.testing.expectEqual(1, heard.radio.count);
     try std.testing.expectEqual(held_count, kept.count);
     // Nor an enemy's, a missile's, nor another's blow counts.
-    heard.radio.reset(&heard.speaker.sound);
+    heard.radio.reset(&heard.speaker.asked);
     heard.mission.clock.game_ticks += 2 * warn_every;
     warn(world, heard.enemy, 0, .bullet, 1000);
     warn(world, heard.wingman, 0, .missile, 1000);

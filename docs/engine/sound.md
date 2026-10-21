@@ -133,9 +133,10 @@ with the definition's loop count, cone and distances, at 22,050 Hz; the two expl
 `18050 + 7000 × rand() / 32767`. Miles's `y` points up where the camera's points down, so every
 place, direction and velocity goes over with `y` negated.
 
-**Improvement:** the explosions' rate takes the effects' own random numbers
-(`gameobj.World.effectsRandom`). The game draws it from its own, but only for a sound that plays,
-so a game that hears nothing would go on from other numbers ([Random numbers](loop.md#random-numbers)).
+**Improvement:** the explosions' rate takes the sound's own random numbers
+(`hog_snd.Sound.random`). The game draws it from its own, but only for a sound that plays, so a
+game that hears nothing would go on from other numbers. So the effects come out the same whether
+the sound plays or not ([Random numbers](loop.md#random-numbers)).
 
 **Fix:** a sound that follows a shot, a missile or an object is placed by the owner's record, which
 the game reads for an owner of -1 too, before the table. OpenReliant plays nothing without an
@@ -278,6 +279,26 @@ game's clock with sound too ([The radio](radio.md#lines)).
 The crew in the rooms speak their lines on voice 2, an MP3 file each, which Miles's MP3 decoder
 (`MP3DEC.ASI`) plays ([The crew](rooms.md#the-crew)). OpenReliant reads the frames
 ([MP3 files](../formats/mp3.md)), and FFmpeg's MP3 decoder decodes them.
+
+## The game frames' sounds
+
+In OpenReliant the game frames ask for their sounds rather than play them
+(`hog_snd.commands.Commands`, `gameobj.World.sounds`). The main thread plays what they asked for
+right after them each pass, in the order they asked, and right after a mission's start. So the game
+frames never touch the sound, which plays on the main thread.
+
+- **3D sounds.** The game frames place a sound by what it follows in their own objects as they ask
+  for it (`sound3d.place`), so it starts where it would have started then. The main thread checks
+  its range from where the camera stands, picks its voice and starts it (`sound3d.startEffect`).
+- **Kept voices.** The voices the game keeps to end later, the missile lock's tone, the scanner's
+  beeping and Betty's missile names, are named by what keeps them (`commands.Kept`). Ending one ends
+  whatever plays on its voice by then, as the game's voice numbers do. Where no voice is free, the
+  lock's tone and the scanner's loop wait for one, as the game asks for them again until they play.
+- **Speech and music.** The radio's lines go the same way, each with its file, and the main thread
+  plays them on the speech sample. So does the script's music (`PlayMusic`).
+- **Timers.** What the sound kept for the game moves to the player: when the armour last warned
+  and when a shot last sounded on the player's hull (`input.Player.armor_warned_at`,
+  `hull_heard_at`).
 
 ## Where the sounds come from
 

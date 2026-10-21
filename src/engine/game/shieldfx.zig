@@ -133,17 +133,15 @@ const player_hit_pause = 30;
 /// for one in the world, so it is heard from near the world's origin; OpenReliant plays it where
 /// the shot struck.
 pub fn hullHit(world: gameobj.World, index: u16, at: Vector) void {
-    const hearing = world.hearing orelse return;
+    if (world.sounds == null) return;
+    const seen = world.seenFrom() orelse return;
     const all = world.objects;
     const now = world.clock.frame_start;
-    const facing = math.normalize(hearing.camera.position - at);
-    if (index != all.player) {
-        _ = sound3d.play(hearing.sound, hearing.scene(world), at, facing, null, .armour01, 1, .not_reserved);
-        return;
-    }
-    if (now - hearing.sound.player_hit_at < player_hit_pause) return;
-    hearing.sound.player_hit_at = now;
-    _ = sound3d.play(hearing.sound, hearing.scene(world), all.slots[index].drawn.position, facing, index, .playerhit, 1, .guaranteed);
+    const facing = math.normalize(seen.position - at);
+    if (index != all.player) return sound3d.playIn(world, at, facing, null, .armour01, 1, .not_reserved);
+    if (now - world.player.hull_heard_at < player_hit_pause) return;
+    world.player.hull_heard_at = now;
+    sound3d.playIn(world, all.slots[index].drawn.position, facing, index, .playerhit, 1, .guaranteed);
 }
 
 test {
@@ -154,28 +152,30 @@ test hullHit {
     const hog_snd = @import("hog_snd.zig");
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(2, null);
-    const sound = &speaker.sound;
+    defer speaker.deinit();
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     var world = mission.world();
-    world.hearing = speaker.hearing(&mission.clock);
+    speaker.hear(&world);
     const player = try mission.add(.of(.predator), @splat(0));
     const other = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    const heard_at = &mission.player.hull_heard_at;
 
     // The player's hull sounds a hit, then none for thirty ticks.
     mission.clock.frame_start = 100;
     hullHit(world, player, .{ 0, 0, 10 });
-    try std.testing.expectEqual(100, sound.player_hit_at);
+    try std.testing.expectEqual(100, heard_at.*);
     mission.clock.frame_start = 120;
     hullHit(world, player, .{ 0, 0, 10 });
-    try std.testing.expectEqual(100, sound.player_hit_at);
+    try std.testing.expectEqual(100, heard_at.*);
     mission.clock.frame_start = 130;
     hullHit(world, player, .{ 0, 0, 10 });
-    try std.testing.expectEqual(130, sound.player_hit_at);
+    try std.testing.expectEqual(130, heard_at.*);
     // Another ship's hull sounds every hit, and leaves the player's pause alone.
     hullHit(world, other, .{ 0, 0, 990 });
-    try std.testing.expectEqual(130, sound.player_hit_at);
+    try std.testing.expectEqual(130, heard_at.*);
+    try std.testing.expectEqual(3, speaker.asked.list.items.len);
 }
 
 test componentHit {

@@ -458,7 +458,7 @@ pub fn armorDamage(world: gameobj.World, index: u16, struck: Quadrant, value: f3
     const taken = if (blocked) 0 else worn;
     if (slot.combat) |combat| {
         main.armorConditions(object, combat);
-        if (index == all.player) if (world.hearing) |hearing| main.armorWarning(hearing, object, combat);
+        if (index == all.player) main.armorWarning(world, object, combat);
     }
     object.last_attacker = .of(attacker);
     if (armor.* < 0) {

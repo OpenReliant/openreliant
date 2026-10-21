@@ -725,25 +725,33 @@ const music_path_size = 128;
 const music_folder = "music\\";
 
 /// `cmd_PlayMusic` (`0x00458DF0`, command `0x23`): plays the piece named by the first argument from
-/// the game's music folder, looping forever. It starts at once if the second argument is 1, and
-/// otherwise after the current music fades out (`hog_snd.Sound.When.of`, `playPiece`).
+/// the game's music folder, looping forever, as the game frames ask for it (`hog_snd.commands`). It
+/// starts at once if the second argument is 1, and otherwise after the current music fades out
+/// (`hog_snd.Sound.When.of`, `playPiece`).
 fn playMusic(call: Call, game: aigeneric.Context) void {
-    const hearing = game.world.hearing orelse return;
+    const asked = game.world.sounds orelse return;
     const name = argumentText(call, 0) orelse return;
-    playPiece(hearing.sound, name, music_forever, .of(call.args[1], game.world.clock.game_ticks));
+    var buffer: [music_path_size]u8 = undefined;
+    const path = musicPath(&buffer, name) orelse return;
+    asked.add(.{ .music = .{ .piece = .of(path, music_forever, music_level), .when = .of(call.args[1], game.world.clock.game_ticks) } });
 }
 
 /// Plays the piece `name` from the game's music folder `loops` times (0 loops forever), as
 /// `cmd_PlayMusic` does, starting when `when` says.
-///
-/// **Fix:** the game writes a path longer than its buffer past it; OpenReliant plays nothing.
 pub fn playPiece(sound: *hog_snd.Sound, name: []const u8, loops: u32, when: hog_snd.Sound.When) void {
     var buffer: [music_path_size]u8 = undefined;
-    const path = std.mem.print(&buffer, music_folder ++ "{s}", .{name}) catch {
-        log.warn("the music {s} is left out: its path is too long", .{name});
-        return;
-    };
+    const path = musicPath(&buffer, name) orelse return;
     sound.playMusic(path, loops, music_level, when);
+}
+
+/// The path of the piece `name` in the game's music folder, made in `buffer`.
+///
+/// **Fix:** the game writes a path longer than its buffer past it; OpenReliant plays nothing.
+fn musicPath(buffer: *[music_path_size]u8, name: []const u8) ?[]const u8 {
+    return std.mem.print(buffer, music_folder ++ "{s}", .{name}) catch {
+        log.warn("the music {s} is left out: its path is too long", .{name});
+        return null;
+    };
 }
 
 /// Who a comms command's first argument names to speak: a mission's ship, or a pilot of the
@@ -2781,15 +2789,15 @@ const TestRadio = struct {
     }
 
     fn deinit(t: *TestRadio) void {
-        t.radio.deinit(&t.speaker.sound);
-        t.speaker.sound.shutdown();
+        t.radio.deinit();
+        t.speaker.deinit();
         t.archives.deinit();
     }
 
-    /// Puts the radio on the air in `ctx`'s world, heard on `game`'s clock.
-    fn wire(t: *TestRadio, ctx: *aigeneric.Context, game: *vm.machine.testing.Game) void {
+    /// Puts the radio on the air in `ctx`'s world, heard through the speaker.
+    fn wire(t: *TestRadio, ctx: *aigeneric.Context) void {
         ctx.world.radio = &t.radio;
-        ctx.world.hearing = t.speaker.hearing(&game.mission.clock);
+        t.speaker.hear(&ctx.world);
     }
 };
 
@@ -2828,11 +2836,10 @@ test "the radio's commands say lines and wait for their films" {
     try on_air.init();
     defer on_air.deinit();
     const radio = &on_air.radio;
-    const sound = &on_air.speaker.sound;
     var display: hud.State = .{};
     var ctx = game.spawning();
     ctx.world.display = &display;
-    on_air.wire(&ctx, &game);
+    on_air.wire(&ctx);
     try game.start(ctx);
 
     // The line waits for the window, held open, with its film playing once.
@@ -2848,7 +2855,7 @@ test "the radio's commands say lines and wait for their films" {
     try std.testing.expect(radio.speaking(ctx.world.clock.frame_start));
     fixture.second();
     try std.testing.expectEqual(1, fixture.global(0));
-    radio.stopSpeech(sound);
+    radio.stopSpeech(&on_air.speaker.asked);
     fixture.second();
     try std.testing.expectEqual(2, fixture.global(0));
 }
@@ -3022,17 +3029,21 @@ test "PlayMusic plays its piece from the music folder, at once only for 1" {
     defer game.deinit();
     var speaker: @import("hog_snd.zig").testing.Speaker = undefined;
     try speaker.init(2, null);
+    defer speaker.deinit();
     const sound = &speaker.sound;
-    defer sound.shutdown();
     var ctx = game.orders();
-    ctx.world.hearing = speaker.hearing(&game.mission.clock);
+    speaker.hear(&ctx.world);
     try game.start(ctx);
+    speaker.heard();
 
     const queued = sound.music.queued.?;
     try std.testing.expectEqualStrings("music\\theme.wav", queued.pathOf());
     try std.testing.expectEqual(music_forever, queued.loops);
     try std.testing.expectEqual(music_level, queued.level);
-    for (0..2) |_| game.fixture.second();
+    for (0..2) |_| {
+        game.fixture.second();
+        speaker.heard();
+    }
     try std.testing.expectEqual(null, sound.music.queued);
 }
 
@@ -3064,7 +3075,7 @@ test "PlayCommsMovie and CommsFromPilot say their lines on the radio" {
     defer on_air.deinit();
     const radio = &on_air.radio;
     var ctx = game.orders();
-    on_air.wire(&ctx, &game);
+    on_air.wire(&ctx);
     try game.start(ctx);
 
     try std.testing.expectEqual(radio_module.pilot_base, radio.object);

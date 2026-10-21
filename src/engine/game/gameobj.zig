@@ -1963,8 +1963,9 @@ pub const World = struct {
     /// heard, so a world that draws or hears nothing would go on from different numbers. Null where
     /// nothing is drawn, as in a test (`effectsRandom`).
     effects_random: ?*Random = null,
-    /// The sound the objects are heard through, and where from; null where nothing is heard.
-    hearing: ?@import("hog_snd.zig").Hearing = null,
+    /// What the game frames ask of the sound, which the main thread plays after them; null where
+    /// nothing is heard.
+    sounds: ?*@import("hog_snd.zig").commands.Commands = null,
     /// What the explosions leave for the frames after them (`explode.cpp`); null where nothing
     /// explodes.
     explosions: ?*@import("explode.zig").Explosions = null,

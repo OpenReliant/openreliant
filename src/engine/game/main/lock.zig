@@ -66,8 +66,9 @@ pub const Lock = struct {
     type: missiles.Type = .none,
     /// Where the rings close in on (`0x0057DFC8`): the target's node, while the lock holds.
     point: Vector = @splat(0),
-    /// The locked tone's voice (`missile_lock_tone`, `0x00566644`).
-    tone: ?u8 = null,
+    /// Whether the locked tone's voice is kept (`missile_lock_tone`, `0x00566644`,
+    /// `hog_snd.commands.Kept.lock_tone`).
+    tone_kept: bool = false,
 
     /// `lock_rings_init` (`0x004911D0`), as a mission runs: no lock.
     pub fn reset(lock: *Lock) void {
@@ -163,24 +164,25 @@ pub const Lock = struct {
 
     /// `hud_draw`'s tone (`0x004844E6`): once locked, in the view ahead from the cockpit, the
     /// locked tone plays twice over (`stdsmp` 0x15), its voice held; out of that view, or once the
-    /// lock is lost, its voice is ended, whatever plays on it by then.
-    pub fn sound(lock: *Lock, player: *hog_snd.Sound, view: camera.View) void {
+    /// lock is lost, its voice is ended, whatever plays on it by then. The game asks for it again
+    /// each frame until it gets a voice; the game frames ask once, and it waits for a voice
+    /// (`hog_snd.commands.Sample.waits`).
+    pub fn sound(lock: *Lock, asked: *hog_snd.commands.Commands, view: camera.View) void {
         const ahead = view == .cockpit;
         if (lock.locked()) {
-            if (lock.tone) |voice| {
-                if (!ahead) lock.endTone(player, voice);
+            if (lock.tone_kept) {
+                if (!ahead) lock.endTone(asked);
                 return;
             }
             if (!ahead) return;
-            lock.tone = player.playStandard(tone_sample, hog_snd.loudest, tone_plays, hog_snd.centre, hog_snd.own_pitch);
-            if (lock.tone) |voice| player.voices[voice].held = 1;
-        } else if (lock.tone) |voice| lock.endTone(player, voice);
+            asked.add(.{ .sample = .{ .bank = .stdsmp, .index = tone_sample, .loops = tone_plays, .kept = .lock_tone, .held = true, .waits = true } });
+            lock.tone_kept = true;
+        } else if (lock.tone_kept) lock.endTone(asked);
     }
 
-    fn endTone(lock: *Lock, player: *hog_snd.Sound, voice: u8) void {
-        player.endVoice(voice);
-        player.voices[voice].held = 0;
-        lock.tone = null;
+    fn endTone(lock: *Lock, asked: *hog_snd.commands.Commands) void {
+        asked.add(.{ .ended = .lock_tone });
+        lock.tone_kept = false;
     }
 };
 
@@ -434,31 +436,41 @@ test "Lock.sound" {
     var speaker: hog_snd.testing.Speaker = undefined;
     const bytes = comptime hog_snd.testing.bank(tone_sample + 1);
     try speaker.init(2, &bytes);
+    defer speaker.deinit();
     const player = &speaker.sound;
+    const asked = &speaker.asked;
     var lock: Lock = .{};
+    const kept = &asked.kept;
 
     // No tone before the lock, nor once locked in any view but the one ahead.
-    lock.sound(player, .cockpit);
-    try std.testing.expectEqual(null, lock.tone);
+    lock.sound(asked, .cockpit);
+    speaker.heard();
+    try std.testing.expect(!lock.tone_kept);
     lock.phase = .locked;
-    lock.sound(player, .cockpit_left);
-    try std.testing.expectEqual(null, lock.tone);
+    lock.sound(asked, .cockpit_left);
+    speaker.heard();
+    try std.testing.expect(!lock.tone_kept);
     // Locked, from the view ahead, it plays on a voice held for it, and only once.
-    lock.sound(player, .cockpit);
-    const voice = lock.tone.?;
+    lock.sound(asked, .cockpit);
+    speaker.heard();
+    const voice = kept.get(.lock_tone).voice.?;
     try std.testing.expectEqual(1, player.voices[voice].held);
-    lock.sound(player, .cockpit);
-    try std.testing.expectEqual(voice, lock.tone.?);
+    lock.sound(asked, .cockpit);
+    try std.testing.expectEqual(0, asked.list.items.len);
     // Out of that view, its voice is let go.
-    lock.sound(player, .chase);
-    try std.testing.expectEqual(null, lock.tone);
+    lock.sound(asked, .chase);
+    speaker.heard();
+    try std.testing.expect(!lock.tone_kept);
     try std.testing.expectEqual(0, player.voices[voice].held);
     // And likewise once the lock is lost.
-    lock.sound(player, .cockpit);
-    try std.testing.expect(lock.tone != null);
+    lock.sound(asked, .cockpit);
+    speaker.heard();
+    try std.testing.expect(kept.get(.lock_tone).voice != null);
     lock.phase = .lost;
-    lock.sound(player, .cockpit);
-    try std.testing.expectEqual(null, lock.tone);
+    lock.sound(asked, .cockpit);
+    speaker.heard();
+    try std.testing.expect(!lock.tone_kept);
+    try std.testing.expectEqual(null, kept.get(.lock_tone).voice);
 }
 
 test "Rings.draw" {

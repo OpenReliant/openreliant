@@ -10,6 +10,9 @@
 //! radio's speech plays on the sample `sound_init` allocates for it (`speech`), which
 //! [`cbox.zig`](cbox.zig) feeds a line at a time where the game streams it through the sample's
 //! double buffer.
+//!
+//! The game frames don't play their sounds here: they ask for them
+//! ([`hog_snd/commands.zig`](hog_snd/commands.zig)), and the main thread plays what they asked for.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -37,6 +40,7 @@ const missiles = @import("missiles.zig");
 const log = std.log.scoped(.sound);
 
 pub const betty = @import("hog_snd/betty.zig");
+pub const commands = @import("hog_snd/commands.zig");
 
 /// The values `sound_play` takes. The volume runs from 0 to `loudest`. The pan runs from 0 (left)
 /// to `rightmost` (right), with `centre` in the middle. A play count of `forever` repeats the
@@ -474,13 +478,11 @@ pub const Scene = struct {
     camera: camera.Place,
     view: camera.View,
     clock: *const Clock,
-    /// The random numbers that pitch the explosions, the effects' own
-    /// (`gameobj.World.effects_random`).
-    random: *@import("../random.zig").Random,
 };
 
-/// What the game's code reaches the sound through: the sound, the camera it is heard from,
-/// placed each frame (the game reads its camera's frame, `sr + 0x30`), and the mission's clock.
+/// What the main thread hears a world through: the sound, the camera it is heard from, placed each
+/// frame (the game reads its camera's frame, `sr + 0x30`), and the mission's clock. The game
+/// frames ask for their sounds instead (`commands`).
 pub const Hearing = struct {
     sound: *Sound,
     camera: *const camera.Place,
@@ -488,7 +490,7 @@ pub const Hearing = struct {
 
     /// The scene a 3D sound is placed in, for `world`.
     pub fn scene(hearing: Hearing, world: gameobj.World) Scene {
-        return .{ .objects = world.objects, .camera = hearing.camera.*, .view = world.view(), .clock = hearing.clock, .random = world.effectsRandom() };
+        return .{ .objects = world.objects, .camera = hearing.camera.*, .view = world.view(), .clock = hearing.clock };
     }
 };
 
@@ -532,10 +534,8 @@ pub const Sound = struct {
     /// `bank_stdsmp` (`0x005D6CA0`): the display's sounds and the frame's positional ones
     /// (`playStandard`).
     stdsmp: ?fat.Bank = null,
-    /// When the player's armour last warned (`0x00588334`, `main.armorWarning`).
-    armor_warned_at: i32 = 0,
-    /// When a shot last sounded on the player's hull (`0x00593794`, `shieldfx.hullHit`).
-    player_hit_at: i32 = 0,
+    /// Added by OpenReliant: the random numbers that pitch the explosions (`sound3d.start`).
+    random: @import("../random.zig").Random = .{},
     /// Where a missile's sound is heard from.
     missile_sound: sound3d.MissileSound = .follows,
     /// What surrounds the camera, which the reverb plays (`surround`).
@@ -1487,22 +1487,6 @@ pub fn tickTimer(clock: *Clock) void {
     }
 }
 
-test "Hearing.scene" {
-    var mission: gameobj.testing.Mission = undefined;
-    try mission.init(std.testing.allocator);
-    defer mission.deinit();
-    var speaker: testing.Speaker = undefined;
-    try speaker.init(1, null);
-    defer speaker.sound.shutdown();
-    var effects: @import("../random.zig").Random = .init(1);
-    var world = mission.world();
-    // The explosions are pitched from the game's numbers where there are no others, and from the
-    // effects' own where there are, so that hearing them leaves the game's as they were.
-    try std.testing.expect(speaker.hearing(&mission.clock).scene(world).random == &mission.random);
-    world.effects_random = &effects;
-    try std.testing.expect(speaker.hearing(&mission.clock).scene(world).random == &effects);
-}
-
 pub const testing = struct {
     /// A bank of `count` sounds, each four frames of 16-bit PCM, the `n`th at priority `n * 10`.
     pub fn bank(comptime count: usize) [fat.header_size + count * @sizeOf(fat.Entry) + count * sound_file.len]u8 {
@@ -1525,6 +1509,8 @@ pub const testing = struct {
         mixer: mss.Mixer,
         sound: Sound,
         listener: camera.Place,
+        /// What a world asks of the speaker (`hear`), which `heard` plays.
+        asked: commands.Commands,
 
         /// The mixer's frames a second, those of `sound_file`.
         pub const rate = 22050;
@@ -1533,13 +1519,32 @@ pub const testing = struct {
         pub fn init(speaker: *Speaker, voices: u8, stdsmp: ?[]const u8) !void {
             speaker.mixer = .init(rate);
             speaker.listener = .{};
+            speaker.asked = .{ .gpa = std.testing.allocator };
             speaker.sound.init(speaker.mixer.driver(), voices, null);
             if (stdsmp) |bytes| speaker.sound.stdsmp = try fat.Bank.parse(bytes);
         }
 
-        /// How the world hears it, from the origin, on `clock`.
+        /// What plays ended, and what was asked for let go of.
+        pub fn deinit(speaker: *Speaker) void {
+            speaker.asked.deinit(&speaker.sound);
+            speaker.sound.shutdown();
+        }
+
+        /// How the main thread hears a world through it, from the origin, on `clock`.
         pub fn hearing(speaker: *Speaker, clock: *const Clock) Hearing {
             return .{ .sound = &speaker.sound, .camera = &speaker.listener, .clock = clock };
+        }
+
+        /// `world` asks the speaker for its sounds (`gameobj.World.sounds`), and sees from where
+        /// it listens, as the driver's world sees from where the camera stands.
+        pub fn hear(speaker: *Speaker, world: *gameobj.World) void {
+            world.sounds = &speaker.asked;
+            world.player.viewing.seen_from = speaker.listener;
+        }
+
+        /// What the world asked for, played (`commands.Commands.play`).
+        pub fn heard(speaker: *Speaker) void {
+            speaker.asked.play(&speaker.sound, speaker.listener);
         }
 
         /// Whether any of its voices plays.

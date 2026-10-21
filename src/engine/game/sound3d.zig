@@ -1,8 +1,10 @@
 //! The game's sound effects placed in 3D: shots, hits, explosions, the player's engine and the
 //! ships flying past, each a definition of [`sound3d/sounds.zig`](sound3d/sounds.zig) played from
-//! `smp3d.fat` on one of the 3D voices [`hog_snd.zig`](hog_snd.zig) opens. **Unverified:** which
-//! source file this is; its code lies between `pilots.cpp`'s and `shield.cpp`'s (`0x0049D160` to
-//! `0x0049E36F`), after the frame profiler, with no path of its own.
+//! `smp3d.fat` on one of the 3D voices [`hog_snd.zig`](hog_snd.zig) opens. The game frames ask for
+//! theirs (`playIn`), which the main thread starts after them
+//! ([`hog_snd/commands.zig`](hog_snd/commands.zig)). **Unverified:** which source file this is; its
+//! code lies between `pilots.cpp`'s and `shield.cpp`'s (`0x0049D160` to `0x0049E36F`), after the
+//! frame profiler, with no path of its own.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -367,58 +369,106 @@ const Played = union(enum) {
     script: struct { starter: hog_snd.Starter, pitch: f32 },
 };
 
-/// The rest of `sound3d_play`, for the sound that `definition` describes.
+/// Where a 3D sound starts, as `sound3d_play` places it by what its definition follows (`place`).
+/// The game frames find it from their own objects as they ask for the sound, which the main thread
+/// starts later (`hog_snd.commands`).
+pub const Placed = struct {
+    position: Vector,
+    velocity: Vector = @splat(0),
+    direction: ?Vector = null,
+    /// The radius of the model it follows, which the sound spreads over.
+    radius: f32 = 0,
+    /// For a missile's sound, the missile it can follow (`MissileSound.follows`).
+    missile: ?Missile = null,
+
+    pub const Missile = struct {
+        record: u16,
+        /// How often the record had been reused (`create.Objects.missiles`), which tells the
+        /// missile from one launched later in its place.
+        reuse: u32,
+        velocity: Vector,
+    };
+};
+
+/// The first half of `sound3d_play`: where the sound `definition` describes starts, by what it
+/// follows in `objects`: `owner`'s shot, missile or object, or `at` and `facing` for a point. A
+/// missile's sound starts where the missile goes next, facing the way it flies. Null where it
+/// follows nothing there (`play`'s fix).
+pub fn place(objects: *create.Objects, definition: *const Definition, at: ?Vector, facing: ?Vector, owner: ?u16) ?Placed {
+    switch (definition.follows) {
+        .shot => {
+            const fired = owner orelse return null;
+            if (fired >= objects.bullets.pool.len) return null;
+            const shot = &objects.bullets.pool[fired];
+            return .{ .position = shot.at, .direction = math.normalize(shot.velocity) };
+        },
+        .point_facing => return .{ .position = at orelse return null, .direction = facing orelse return null },
+        .point => return .{ .position = at orelse return null },
+        .missile => {
+            const record = owner orelse return null;
+            const missile = objects.missiles.get(record) orelse return null;
+            const velocity = missile.slot.object.velocity.vector();
+            return .{
+                .position = missile.slot.object.nextPosition(),
+                .direction = math.normalize(velocity),
+                .missile = .{ .record = record, .reuse = objects.missiles.reuses[record], .velocity = velocity },
+            };
+        },
+        .none, _ => return null,
+        .object => {
+            const followed = owner orelse return null;
+            if (followed >= objects.slots.len) return null;
+            const slot = &objects.slots[followed];
+            var position = slot.object.nextPosition();
+            if (followed == objects.player) position += math.transform(slot.drawn.orientation, player_sound_offset);
+            return .{
+                .position = position,
+                .velocity = slot.object.velocity.vector(),
+                .direction = math.forward(slot.drawn.orientation),
+                .radius = if (slot.model) |model| model.radius else 0,
+            };
+        },
+    }
+}
+
+/// What a 3D sound is heard against as it starts: where the camera stands, and the tick it starts
+/// at (`Clock.frame_start`).
+const Heard = struct {
+    listener: camera.Place,
+    started: i32,
+};
+
+/// `place`, then the rest of `sound3d_play` (`start`), for the sound `definition` describes, in
+/// `scene`.
 fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Played, at: ?Vector, facing: ?Vector, owner: ?u16, file: ?[]const u8, volume: f32, class: Class) ?u8 {
+    const placed = place(scene.objects, definition, at, facing, owner) orelse return null;
+    return start(sound, .{ .listener = scene.camera, .started = scene.clock.frame_start }, definition, played, placed, owner, file, volume, class);
+}
+
+/// The rest of `sound3d_play`, for the sound `definition` describes, starting at `placed`, heard
+/// as `heard` has it.
+///
+/// **Improvement:** the explosions' rates come from the sound's own random numbers
+/// (`hog_snd.Sound.random`), where the game draws them from its effects' numbers. So the effects
+/// come out the same whether the sound plays or not, and the sound needs nothing of the game's.
+fn start(sound: *Sound, heard: Heard, definition: *const Definition, played: Played, placed: Placed, owner: ?u16, file: ?[]const u8, volume: f32, class: Class) ?u8 {
     const driver = sound.driver orelse return null;
     if (!sound.effects.ready) return null;
     const bank = sound.effects.bank orelse return null;
     const level = sound.volumes.masterShare() * @as(f32, @floatFromInt(sound.volumes.effects)) * definition.volume * volume;
 
-    var position: Vector = @splat(0);
-    var velocity: Vector = @splat(0);
-    var direction: ?Vector = null;
-    var radius: f32 = 0;
-    var followed: ?usize = null;
+    const position = placed.position;
+    const direction = placed.direction;
+    var velocity = placed.velocity;
+    var followed: ?Placed.Missile = null;
     var min_distance = definition.min_distance;
-    switch (definition.follows) {
-        .shot => {
-            const fired = owner orelse return null;
-            if (fired >= scene.objects.bullets.pool.len) return null;
-            const shot = &scene.objects.bullets.pool[fired];
-            position = shot.at;
-            direction = math.normalize(shot.velocity);
-        },
-        .point_facing => {
-            position = at orelse return null;
-            direction = facing orelse return null;
-        },
-        .point => position = at orelse return null,
-        // Where the missile goes next, facing the way it flies, still; or moving with it, and
-        // its voice its own.
-        .missile => {
-            const record = owner orelse return null;
-            const missile = scene.objects.missiles.get(record) orelse return null;
-            position = missile.slot.object.nextPosition();
-            direction = math.normalize(missile.slot.object.velocity.vector());
-            if (sound.missile_sound == .follows) {
-                velocity = missile.slot.object.velocity.vector();
-                followed = record;
-                min_distance *= followed_missile_reach;
-            }
-        },
-        .none, _ => return null,
-        .object => {
-            const followed_at = owner orelse return null;
-            if (followed_at >= scene.objects.slots.len) return null;
-            const slot = &scene.objects.slots[followed_at];
-            position = slot.object.nextPosition();
-            if (followed_at == scene.objects.player) position += math.transform(slot.drawn.orientation, player_sound_offset);
-            velocity = slot.object.velocity.vector();
-            direction = math.forward(slot.drawn.orientation);
-            if (slot.model) |model| radius = model.radius;
-        },
-    }
-    const relative = (position - scene.camera.position) * @as(Vector, @splat(hog_snd.distance_scale));
+    // Moving with the missile, its voice its own; or still where it starts.
+    if (placed.missile) |missile| if (sound.missile_sound == .follows) {
+        velocity = missile.velocity;
+        followed = missile;
+        min_distance *= followed_missile_reach;
+    };
+    const relative = (position - heard.listener.position) * @as(Vector, @splat(hog_snd.distance_scale));
     velocity *= @as(Vector, @splat(hog_snd.velocity_scale));
     const range = definition.max_distance * hog_snd.distance_scale;
     const anywhere = switch (played) {
@@ -452,7 +502,7 @@ fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Pla
         .game => |which| @backingInt(which),
         .script => hog_snd.Voice3D.script_sound,
     };
-    voice.started = scene.clock.frame_start;
+    voice.started = heard.started;
     voice.range = range;
     sound.starters_3d[v] = switch (played) {
         .game => .game,
@@ -461,10 +511,10 @@ fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Pla
     sound.effects.levels[v] = std.math.lossyCast(i32, level);
     sound.effects.nears[v] = min_distance * hog_snd.distance_scale;
 
-    const turned = math.transformTransposed(scene.camera.orientation, relative);
+    const turned = math.transformTransposed(heard.listener.orientation, relative);
     // A sound that faces nowhere faces away from the listener; its cone is whole anyway.
-    const heading = if (direction) |d| math.transformTransposed(scene.camera.orientation, d) else math.normalize(turned);
-    const moving = math.transformTransposed(scene.camera.orientation, velocity);
+    const heading = if (direction) |d| math.transformTransposed(heard.listener.orientation, d) else math.normalize(turned);
+    const moving = math.transformTransposed(heard.listener.orientation, velocity);
     if (!driver.set3DSampleFile(voice.sample, sample)) return null;
     driver.set3DSampleLoopCount(voice.sample, definition.loop_count);
     driver.set3DSampleVolume(voice.sample, switch (played) {
@@ -478,29 +528,68 @@ fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Pla
     driver.set3DSampleDistances(voice.sample, range, min_distance * hog_snd.distance_scale);
     // Added by OpenReliant: the sound spreads over the radius of the model it follows. The
     // software mixer ignores the radius.
-    driver.set3DSampleRadius(voice.sample, radius * hog_snd.distance_scale);
+    driver.set3DSampleRadius(voice.sample, placed.radius * hog_snd.distance_scale);
     const rate: u32 = switch (played) {
         .game => |which| switch (which) {
-            .explosion01, .explosion02 => @intCast(explosion_rate - std.math.lossyCast(i32, scene.random.fraction() * explosion_spread)),
+            .explosion01, .explosion02 => @intCast(explosion_rate - std.math.lossyCast(i32, sound.random.fraction() * explosion_spread)),
             else => sample_rate,
         },
         .script => sample_rate,
     };
     driver.set3DSamplePlaybackRate(voice.sample, scaledRate(rate, sound.effects.rate_scales[v]));
     driver.start3DSample(voice.sample);
-    if (followed) |record| sound.missile_voices[record] = .{ .value = v, .reuse = scene.objects.missiles.reuses[record] };
+    if (followed) |missile| sound.missile_voices[missile.record] = .{ .value = v, .reuse = missile.reuse };
     return v;
 }
 
-/// `play` where `world` is heard, in its scene; nothing where it is not.
+/// A 3D sound the game frames ask for (`playIn`): one of the game's, or a mod's file in its place,
+/// placed as the game frame found it, which the main thread starts (`startEffect`).
+pub const Effect = struct {
+    which: sounds.Sound,
+    file: ?[]const u8 = null,
+    placed: Placed,
+    owner: ?u16,
+    volume: f32,
+    class: Class,
+    /// The tick it starts at (`Clock.frame_start`).
+    started: i32,
+    /// Where it is heard from, where that isn't the camera (`playHeardFrom`).
+    heard_from: ?Vector = null,
+};
+
+/// The effect `which` that `world` asks for, placed in its objects (`place`); null where it
+/// follows nothing there.
+fn effectIn(world: gameobj.World, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, file: ?[]const u8, volume: f32, class: Class) ?Effect {
+    const placed = place(world.objects, &sounds.definitions[@backingInt(which)], at, facing, owner) orelse return null;
+    return .{ .which = which, .file = file, .placed = placed, .owner = owner, .volume = volume, .class = class, .started = world.clock.frame_start };
+}
+
+/// `effect` started through `sound`, heard from `listener`, or from the effect's own place to hear
+/// it from: the voice it plays on, or null.
+pub fn startEffect(sound: *Sound, listener: camera.Place, effect: Effect) ?u8 {
+    var heard: Heard = .{ .listener = listener, .started = effect.started };
+    if (effect.heard_from) |from| heard.listener.position = from;
+    return start(sound, heard, &sounds.definitions[@backingInt(effect.which)], .{ .game = effect.which }, effect.placed, effect.owner, effect.file, effect.volume, effect.class);
+}
+
+/// `play` as the game frames ask for it, where `world` is heard (`gameobj.World.sounds`): placed in
+/// its objects now, and started by the main thread after the game frames (`hog_snd.commands`).
 pub fn playIn(world: gameobj.World, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, volume: f32, class: Class) void {
     playFileIn(world, at, facing, owner, which, null, volume, class);
 }
 
-/// `playFile` where `world` is heard, in its scene; nothing where it is not.
+/// `playFile` as the game frames ask for it (`playIn`).
 pub fn playFileIn(world: gameobj.World, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, file: ?[]const u8, volume: f32, class: Class) void {
-    const hearing = world.hearing orelse return;
-    _ = playFile(hearing.sound, hearing.scene(world), at, facing, owner, which, file, volume, class);
+    const asked = world.sounds orelse return;
+    asked.add(.{ .effect = effectIn(world, at, facing, owner, which, file, volume, class) orelse return });
+}
+
+/// `playIn`, heard from `from` instead of the camera.
+pub fn playHeardFrom(world: gameobj.World, from: Vector, owner: ?u16, which: sounds.Sound, volume: f32, class: Class) void {
+    const asked = world.sounds orelse return;
+    var effect = effectIn(world, null, null, owner, which, null, volume, class) orelse return;
+    effect.heard_from = from;
+    asked.add(.{ .effect = effect });
 }
 
 /// `playIn` of `which` from where `at` stands, facing along its Z axis, owned by nothing, at its
@@ -578,10 +667,17 @@ fn startEngine(sound: *Sound, scene: Scene) void {
     _ = playFile(sound, scene, null, null, all.player, engineSound(ship_type), ownEngineSound(ship_type), 0, .player_engines);
 }
 
-/// `startEngine` where `world` is heard.
+/// `startEngine` as the game frames ask for it (`playIn`).
 pub fn startEngineIn(world: gameobj.World) void {
-    const hearing = world.hearing orelse return;
-    startEngine(hearing.sound, hearing.scene(world));
+    const asked = world.sounds orelse return;
+    asked.add(.{ .effect = engineIn(world) orelse return });
+}
+
+/// The player's engine sound that `world` asks for, as `startEngine` plays it.
+fn engineIn(world: gameobj.World) ?Effect {
+    const all = world.objects;
+    const ship_type = all.slots[all.player].object.type;
+    return effectIn(world, null, null, all.player, engineSound(ship_type), ownEngineSound(ship_type), 0, .player_engines);
 }
 
 /// The player's engine started where `world` is heard, unless it plays already.
@@ -594,11 +690,16 @@ pub fn startEngineIn(world: gameobj.World) void {
 /// mission starts for a ship with no launch (`main.startMission`), as the ship lets go of its
 /// carrier (`launch.update`), and as any other launch ends (`launch.finish`).
 pub fn hearEngine(world: gameobj.World) void {
-    const hearing = world.hearing orelse return;
-    const sound = hearing.sound;
+    const asked = world.sounds orelse return;
+    asked.add(.{ .engine = engineIn(world) orelse return });
+}
+
+/// The player's engine started from `effect` through `sound`, heard from `listener`, unless it
+/// plays already (`hearEngine`).
+pub fn startEngineEffect(sound: *Sound, listener: camera.Place, effect: Effect) void {
     const engine = sound.engine_voice orelse return;
     if (!sound.voices_3d[engine].isFree()) return;
-    startEngine(sound, hearing.scene(world));
+    _ = startEffect(sound, listener, effect);
 }
 
 /// The engine tables' row for the Kamov, their last (an immediate in `sound3d_engine_update`).
@@ -757,7 +858,6 @@ const testing = struct {
             .camera = .{ .position = @splat(0), .orientation = math.identity },
             .view = .chase,
             .clock = &mission.clock,
-            .random = &mission.random,
         };
     }
 };
@@ -818,6 +918,7 @@ test play {
 test playFrom {
     var speaker: hog_snd.testing.Speaker = undefined;
     try testing.open(&speaker);
+    defer speaker.deinit();
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
@@ -829,8 +930,9 @@ test playFrom {
     playFrom(world, door, .dooropen, .not_reserved);
     for (voices) |voice| try std.testing.expect(voice.sound != opening);
     // Heard, it plays from the door, facing along it, owned by nothing.
-    world.hearing = speaker.hearing(&mission.clock);
+    speaker.hear(&world);
     playFrom(world, door, .dooropen, .not_reserved);
+    speaker.heard();
     const voice = for (voices) |voice| {
         if (voice.sound == opening) break voice;
     } else return error.TestUnexpectedResult;
@@ -1091,6 +1193,7 @@ test "Sound.end3DAll ends the player's engine, which loops until it's ended" {
 test hearEngine {
     var speaker: hog_snd.testing.Speaker = undefined;
     try testing.open(&speaker);
+    defer speaker.deinit();
     const sound = &speaker.sound;
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
@@ -1102,12 +1205,14 @@ test hearEngine {
     hearEngine(world);
     try std.testing.expect(engine.isFree());
     // Heard, the player's engine starts with its ship type's sound.
-    world.hearing = speaker.hearing(&mission.clock);
+    speaker.hear(&world);
     hearEngine(world);
+    speaker.heard();
     try std.testing.expectEqual(@backingInt(engineSound(.of(.predator))), engine.sound);
     // Already playing, it isn't started again.
     engine.sound = @backingInt(sounds.Sound.burner01);
     hearEngine(world);
+    speaker.heard();
     try std.testing.expectEqual(@backingInt(sounds.Sound.burner01), engine.sound);
 }
 

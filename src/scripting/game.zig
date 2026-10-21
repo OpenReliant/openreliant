@@ -936,10 +936,10 @@ test "a script stops or changes the radio's lines" {
     defer archives.deinit();
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(2, null);
-    defer speaker.sound.shutdown();
+    defer speaker.deinit();
     var radio = archives.radio(gpa, io);
-    defer radio.deinit(&speaker.sound);
-    const ctx: radio_module.Context = .{ .sound = &speaker.sound, .windows = null, .all = fixture.mission.objects, .frame_start = 0 };
+    defer radio.deinit();
+    const ctx: radio_module.Context = .{ .sounds = &speaker.asked, .windows = null, .all = fixture.mission.objects, .frame_start = 0 };
     var line: radio_module.Line = .{ .film = "pilots\\static.fm8", .speech = "ms_speech\\ms_hudtr_001.ut", .name = null, .object = radio_module.nobody };
 
     // The simulator's line is stopped: nothing waits.
@@ -989,12 +989,12 @@ test "a script says lines on the radio, as the comms commands do" {
     defer archives.deinit();
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(2, null);
-    defer speaker.sound.shutdown();
+    defer speaker.deinit();
     var radio = archives.radio(gpa, io);
-    defer radio.deinit(&speaker.sound);
+    defer radio.deinit();
     var heard = fixture.mission.world();
     heard.radio = &radio;
-    heard.hearing = speaker.hearing(&fixture.mission.clock);
+    speaker.hear(&heard);
     fixture.game.scripts.begin(.of(heard), .{ .number = 22, .file = "mission22.dte" }, 1);
     fixture.game.scripts.started(.{ .number = 22, .file = "mission22.dte" });
 

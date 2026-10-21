@@ -1513,7 +1513,7 @@ test "the audio example chimes as a piece starts, drops a beacon, and fades the 
         .window = .{ 640, 480 },
         .sound = sound,
         .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 },
-        .scene = .{ .objects = fixture.mission.objects, .camera = .{ .position = @splat(0), .orientation = engine.surrender.math.identity }, .view = .chase, .clock = &fixture.mission.clock, .random = &fixture.mission.random },
+        .scene = .{ .objects = fixture.mission.objects, .camera = .{ .position = @splat(0), .orientation = engine.surrender.math.identity }, .view = .chase, .clock = &fixture.mission.clock },
     };
     const layer: drawing.View = .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 };
     host.views.set(.hud, layer);
