@@ -2518,7 +2518,8 @@ A player script can change how surfaces are lit, with GLSL functions from its mo
   `Pred_cp01`, in any case. With `everywhere = true`, it also applies to every lit surface in the
   scene that has no surface function of its own. `object:set_surface(name, parameters)` gives one
   object's whole model a surface function, which wins over the functions on its textures, and
-  `object:set_surface(nil)` takes it away.
+  `object:set_surface(nil)` takes it away. It lasts until the object leaves the mission or the game
+  ends, whichever handler sets it.
 - A **lighting function** changes how much of each light reaches a pixel, on every surface lit for
   each pixel. One draws at a time: the enabled one registered last.
 

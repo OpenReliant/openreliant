@@ -1361,6 +1361,8 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             if (game_objects != null) shown.runtime.objects = drawn_objects orelse game_objects;
             shown.frame(host);
             shown.runtime.objects = game_objects;
+            // The copy is drawn with the surface functions the player scripts gave its objects.
+            if (drawn_objects) |copy| shown.dressObjects(copy);
             display.placements = shown.instrumentPlacements();
             display.parts = shown.partPlacements();
             if (host.camera != null) if (drawn_objects) |copy| {

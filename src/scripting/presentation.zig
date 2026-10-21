@@ -265,6 +265,7 @@ pub const Presentation = struct {
         shown.resetRegisteredCamera();
         shown.runner.stopAll(shown.lists.getPtr(.player));
         shown.sounds.stop(.player);
+        shown.runtime.mod_shaders.forgetGiven();
         shown.runtime.dropPlayerSelf();
         shown.game = null;
         shown.runtime.objects = null;
@@ -292,6 +293,12 @@ pub const Presentation = struct {
     /// (`postprocessing.Registry.setHost`). Call it with null before the host is destroyed.
     pub fn setEffectHost(shown: *Presentation, host: ?postprocessing.EffectHost) void {
         shown.runtime.post_effects.setHost(host);
+    }
+
+    /// Gives the objects of `all`, the drawn frame's copy, the surface functions the player
+    /// scripts gave them (`shaders.Registry.dress`), once the scripts' frame has run.
+    pub fn dressObjects(shown: *Presentation, all: *create.Objects) void {
+        shown.runtime.mod_shaders.dress(all);
     }
 
     /// The menu scripts' screens that stand in for the front end's own, as the front end reaches
@@ -2106,18 +2113,32 @@ test "player scripts register surface and lighting functions, which the host dra
     try std.testing.expectEqual([4]f32{ 4, 0, 0, 0 }, ink.parameters);
     try std.testing.expectEqual(0.25, ink.bloom);
     try std.testing.expectEqualStrings("hull.tga", ink.textures[0]);
-    // The objects take its share of bloom too.
-    for (fixture.mission.slot(0).model.?.parts) |part| {
+    // The function the script gave the player's ship goes on its parts only as a drawn frame's
+    // copy of the objects is dressed (`dressObjects`), here the test's own objects, with the
+    // function's share of bloom.
+    const ship = fixture.mission.slot(0);
+    for (ship.model.?.parts) |part| try std.testing.expectEqual(null, part.object.surface);
+    fixture.shown.dressObjects(fixture.mission.objects);
+    for (ship.model.?.parts) |part| {
         try std.testing.expectEqual(srtexture.ModSurface{ .function = 2, .parameters = .{ 1, 2, 0, 0 }, .bloom = 0.25 }, part.object.surface.?);
     }
+    // The object that takes the slot next doesn't get it.
+    const shaders_registry = &fixture.shown.runtime.mod_shaders;
+    fixture.mission.objects.reuses[0] +%= 1;
+    fixture.shown.dressObjects(fixture.mission.objects);
+    try std.testing.expectEqual(null, shaders_registry.given[0]);
+    fixture.mission.objects.reuses[0] -%= 1;
     // A planet's atmosphere finds a surface function by its qualified name, but no lighting
     // function and no name no mod registered.
     const names = fixture.shown.surfaceNames();
     try std.testing.expectEqual(srtexture.ModSurface{ .function = 2, .bloom = 0.25 }, names.find(names.context, "cel:ink").?);
     try std.testing.expectEqual(null, names.find(names.context, "cel:bands"));
     try std.testing.expectEqual(null, names.find(names.context, "cel:nothing"));
-    // The game's end stops the player scripts, and their functions go.
+    // The game's end stops the player scripts, and their functions go, as do those they gave the
+    // objects.
+    shaders_registry.given[0] = .{ .reuse = 0, .surface = .{ .function = 2 } };
     fixture.shown.endGame();
+    try std.testing.expectEqual(null, shaders_registry.given[0]);
     try std.testing.expectEqual(0, host.drawn.items.len);
     try std.testing.expectEqualSlices(u16, &.{ 3, 1, 2 }, host.removed.items);
 }

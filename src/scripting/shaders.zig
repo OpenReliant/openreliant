@@ -21,7 +21,9 @@ const log = std.log.scoped(.scripts);
 
 const openreliant = @import("openreliant");
 const ModSurface = openreliant.engine.surrender.surrenderlib.srtexture.ModSurface;
-const atmosphere = openreliant.engine.game.create.atmosphere;
+const create = openreliant.engine.game.create;
+const atmosphere = create.atmosphere;
+const max_objects = openreliant.engine.game.gameobj.max_objects;
 const api = @import("api.zig");
 const Call = api.Call;
 const values = @import("values.zig");
@@ -158,6 +160,17 @@ pub const Registry = struct {
     entries: std.ArrayList(Entry) = .empty,
     /// What compiles and draws them, or null if nothing does, such as in a test.
     host: ?ShaderHost = null,
+    /// The surface functions player scripts gave objects (`object:set_surface`), by slot, which
+    /// each drawn frame's copy of the objects takes up (`dress`). The game's objects never get
+    /// them.
+    given: [max_objects]?Given = @splat(null),
+
+    /// A surface function given to the object in a slot, and the slot's reuse count then
+    /// (`create.Objects.reuses`), so that the object that takes the slot next doesn't get it.
+    const Given = struct {
+        reuse: u32,
+        surface: ModSurface,
+    };
 
     pub fn deinit(registry: *Registry, gpa: Allocator) void {
         for (registry.entries.items) |entry| registry.release(gpa, entry);
@@ -214,6 +227,27 @@ pub const Registry = struct {
         if (entry.kind != .surface) return null;
         const function = entry.function orelse return null;
         return entry.surface(function, @splat(0));
+    }
+
+    /// Gives each object of `all`, the drawn frame's copy of the objects, the surface function a
+    /// player script gave it (`object:set_surface`), over every part of its model. A function given
+    /// to an object that has gone since, whose slot another object takes now, is let go.
+    pub fn dress(registry: *Registry, all: *create.Objects) void {
+        for (&registry.given, &all.slots, all.reuses) |*given, *slot, reuse| {
+            const held = given.* orelse continue;
+            if (held.reuse != reuse) {
+                given.* = null;
+                continue;
+            }
+            if (slot.model) |*model| for (model.parts) |*part| {
+                part.object.surface = held.surface;
+            };
+        }
+    }
+
+    /// Lets go of the surface functions given to objects, as the player scripts stop.
+    pub fn forgetGiven(registry: *Registry) void {
+        registry.given = @splat(null);
     }
 
     /// What finds the surface functions the planets name for their atmospheres
@@ -381,6 +415,8 @@ fn setParameters(call: Call, local: []const u8, given: Parameters) bool {
 /// `object:set_surface(name, parameters)`: draws the object with the surface function `name`, the
 /// calling mod's by its own name or any mod's by the qualified one, reading `parameters`; nil
 /// draws it with its textures' again. Returns false if no function of that name is registered.
+/// The function is kept with the registry, and each drawn frame gives it to its copy of the
+/// object (`Registry.dress`), however long the object stays in its slot.
 pub fn setSurface(call: Call, object: Object, name: ?[]const u8, given: ?Parameters) bool {
     if (call.context.family != .player) call.raise("only player scripts can set an object's surface function", .{});
     const all = call.runtime().objects orelse call.raise("objects only exist while a game runs", .{});
@@ -394,9 +430,8 @@ pub fn setSurface(call: Call, object: Object, name: ?[]const u8, given: ?Paramet
         // Without a host the function draws nothing, and the object draws as it is.
         if (entry.function) |function| surface = entry.surface(function, parameters);
     }
-    if (all.slots[object.slot()].model) |*model| for (model.parts) |*part| {
-        part.object.surface = surface;
-    };
+    const slot = object.slot();
+    registryOf(call).given[slot] = if (surface) |chosen| .{ .reuse = all.reuses[slot], .surface = chosen } else null;
     return true;
 }
 
