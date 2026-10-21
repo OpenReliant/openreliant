@@ -1,17 +1,21 @@
 //! OpenReliant's: what the game frames ask of drawing, in the order they ask it, which drawing takes
 //! up as each drawn frame begins (`Cues.takeUp`). Drawing keeps the missiles' trails, the planets'
-//! atmospheres, the escort marker and Planet Bombard's flashes. The game frames only say when one
-//! starts or goes, and when a mission starts, so they write nothing into what drawing keeps. A world
-//! with nothing drawn has no cues, and its game frames give none.
+//! atmospheres, the escort marker, Planet Bombard's flashes, the sky and the backdrop. The game
+//! frames only say when one starts or goes, which nebula to show, when to place the backdrop, and
+//! when a mission starts, so they write nothing into what drawing keeps. A world with nothing drawn
+//! has no cues, and its game frames give none.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
+const backdrop = @import("../backdrop.zig");
 const create = @import("../create.zig");
 const atmosphere = @import("../create/atmosphere.zig");
 const escort = @import("../create/escort.zig");
 const bombard = @import("../environfx/bombard.zig");
 const trail = @import("../missiles/trail.zig");
+const nebula = @import("../nebula.zig");
 
 const log = std.log.scoped(.cues);
 
@@ -29,6 +33,15 @@ pub const Cue = union(enum) {
     planet_made: Made,
     /// The mission lets the planet in this slot go (`atmosphere.Atmospheres.release`).
     planet_gone: u16,
+    /// The space's update asks for this nebula (`environfx.Environment.update`), which the sky
+    /// shows where it shows another (`nebula.Sky.select`).
+    ///
+    /// **Fix:** the game stops with the assertion "Error in script: Invalid nebula" for a nebula
+    /// past the seventh; OpenReliant logs it, and keeps the nebula it shows.
+    nebula_asked: u32,
+    /// The script asks for the backdrop to be placed again (`UpdateEnvironmentFXState`), for a
+    /// mission of this many ships (`backdrop.Backdrop.place`).
+    backdrop_placed: usize,
 
     /// A planet's slot, how often the slot had been reused as the planet was made
     /// (`create.Objects.reuses`), which tells it from an object made later in its place, and the
@@ -78,6 +91,10 @@ pub const Cues = struct {
         atmospheres: ?*atmosphere.Atmospheres = null,
         escort_marker: ?*escort.Marker = null,
         flashes: ?*bombard.Bombard = null,
+        /// The sky, the backdrop, and the textures the sky takes its nebulae from.
+        sky: ?*nebula.Sky = null,
+        space: ?*backdrop.Backdrop = null,
+        textures: ?*srtexture.Table = null,
     };
 
     /// As a drawn frame begins: each cue, in the order the game frames gave it, done to what drawing
@@ -100,6 +117,12 @@ pub const Cues = struct {
                 if (kept.objects.reuses[made.slot] == made.reuses) atmospheres.made(kept.objects, made.slot, made.radius);
             },
             .planet_gone => |slot| if (kept.atmospheres) |atmospheres| atmospheres.release(slot),
+            .nebula_asked => |asked| if (kept.sky) |sky| if (kept.space) |space| if (kept.textures) |textures| {
+                if (sky.nebula != asked) sky.select(textures, asked, &space.lights) catch |err| {
+                    log.warn("nebula {d} is left out: {s}", .{ asked, @errorName(err) });
+                };
+            },
+            .backdrop_placed => |ships| if (kept.sky) |sky| if (kept.space) |space| space.place(sky, kept.objects, ships),
         };
     }
 };
@@ -147,4 +170,40 @@ test Cues {
     // The trails are numbered in turn.
     try std.testing.expectEqual(0, cues.trailNumber());
     try std.testing.expectEqual(1, cues.trailNumber());
+}
+
+test "the nebula and the backdrop, as the game frames ask" {
+    const gpa = std.testing.allocator;
+    const textures = try srtexture.testing.Textures.init(gpa, backdrop.testing.names);
+    defer textures.deinit(gpa);
+    const rgb = try gpa.alloc(u8, backdrop.star_map_size * backdrop.star_map_size * 3);
+    defer gpa.free(rgb);
+    @memset(rgb, 0);
+    var rand: @import("../../random.zig").Random = .{};
+    const space = try backdrop.Backdrop.create(gpa, &textures.table, .{ .width = backdrop.star_map_size, .height = backdrop.star_map_size, .rgb = rgb }, &rand, 100, .original);
+    defer space.destroy(gpa);
+    const sky = try nebula.Sky.create(gpa, &textures.table, .{ .width = nebula.dome_image_size, .height = nebula.dome_image_size, .rgb = rgb[0 .. nebula.dome_image_size * nebula.dome_image_size * 3] });
+    defer sky.destroy(gpa);
+    var mission: @import("../gameobj.zig").testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var cues: Cues = .{ .gpa = gpa };
+    defer cues.deinit();
+    const kept: Cues.Kept = .{ .objects = mission.objects, .sky = sky, .space = space, .textures = &textures.table };
+
+    // The sky shows the nebula asked for once drawing takes the cue up; one past the seventh is
+    // left out, and the sky keeps the one it shows.
+    cues.add(.{ .nebula_asked = nebula.small_patch_nebula });
+    try std.testing.expectEqual(nebula.default_nebula, sky.nebula);
+    cues.takeUp(kept);
+    try std.testing.expectEqual(nebula.small_patch_nebula, sky.nebula);
+    cues.add(.{ .nebula_asked = 99 });
+    cues.takeUp(kept);
+    try std.testing.expectEqual(nebula.small_patch_nebula, sky.nebula);
+
+    // Placed again with no markers, the backdrop's sun goes back to its own direction.
+    space.sun_direction = .{ 1, 2, 3 };
+    cues.add(.{ .backdrop_placed = 0 });
+    cues.takeUp(kept);
+    try std.testing.expectEqual(backdrop.sun_direction, space.sun_direction);
 }

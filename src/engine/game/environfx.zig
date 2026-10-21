@@ -37,12 +37,11 @@ const log = std.log.scoped(.environfx);
 /// (`0x00469D30`) applies: the nebula it asks for, shown on the sky, whose fill lights take the
 /// nebula's colour (`nebula.Sky.select`), the objects it disables or enables at the next jump
 /// (`NextJump`), and the environment effects it turns on (`setEffect`).
+///
+/// In OpenReliant the game keeps what the script asks for, and drawing keeps the sky and the
+/// backdrop: it shows the nebula asked for, and places the backdrop, when the game frames ask it to
+/// (`main.cues`).
 pub const Environment = struct {
-    sky: *nebula.Sky,
-    textures: *srtexture.Table,
-    /// The backdrop, whose fill lights take the nebula's colour and which the markers aim
-    /// (`backdrop.Backdrop.place`).
-    space: *backdrop.Backdrop,
     /// `nebula_requested` (`0x0058A6B8`): the nebula `SetEnvironmentFXNebula` asks for, the
     /// first until one does. A mission's start leaves it as the one before asked.
     requested: u32 = nebula.default_nebula,
@@ -58,23 +57,21 @@ pub const Environment = struct {
     ice_field: ?*IceField = null,
     /// Planet Bombard's flashes, which the renderer's start builds too
     /// (`environment_effects_create`); none leaves them out.
+    ///
+    /// Drawing keeps the rocks and the flashes, and the game frames never touch them.
     flashes: ?*bombard.Bombard = null,
 
     /// `environment_update` (`0x00469D30`), as a fixed gate's jump ends or the script asks
     /// (`UpdateEnvironmentFXState`): the nebula asked for shows where the sky shows another
-    /// (`nebula_select`, `0x00498D00`), then each of `all`'s objects is disabled or enabled as the
-    /// script asked for the next jump (`changeObjects`), then the effects asked for are on, and the
-    /// rest off.
+    /// (`nebula_select`, `0x00498D00`), then each of `world`'s objects is disabled or enabled as
+    /// the script asked for the next jump (`changeObjects`), then the effects asked for are on, and
+    /// the rest off.
     ///
-    /// **Fix:** the game stops with the assertion "Error in script: Invalid nebula" for a nebula
-    /// past the seventh; OpenReliant logs it, and keeps the nebula it shows.
-    pub fn update(environment: *Environment, all: *create.Objects) void {
-        if (environment.sky.nebula != environment.requested) {
-            environment.sky.select(environment.textures, environment.requested, &environment.space.lights) catch |err| {
-                log.warn("nebula {d} is left out: {s}", .{ environment.requested, @errorName(err) });
-            };
-        }
-        environment.changeObjects(all);
+    /// OpenReliant's game frames ask drawing to show the nebula, which it does as the next drawn
+    /// frame begins (`main.cues.Cue.nebula_asked`).
+    pub fn update(environment: *Environment, world: gameobj.World) void {
+        if (world.cues) |cues| cues.add(.{ .nebula_asked = environment.requested });
+        environment.changeObjects(world.objects);
         environment.effects = environment.asked;
     }
 
@@ -673,7 +670,7 @@ fn glowDepth(bounds: [2]Vector, scale: Vector, local: Vector) f32 {
 }
 
 test "Environment.setEffect" {
-    var environment: Environment = .{ .sky = undefined, .textures = undefined, .space = undefined };
+    var environment: Environment = .{};
     // The ice field waits for the update to show.
     environment.setEffect(0, true);
     try std.testing.expect(environment.asked.ice_field and !environment.effects.ice_field);
@@ -704,7 +701,7 @@ test "Titan moves Planet Bombard's flashes on as it is drawn, while effect 2 is 
     const textures = try srtexture.testing.Textures.init(gpa, &.{bombard.texture_name});
     defer textures.deinit(gpa);
     var random: Random = .{};
-    var environment: Environment = .{ .sky = undefined, .textures = undefined, .space = undefined };
+    var environment: Environment = .{};
     const flashes = try bombard.Bombard.create(gpa, &textures.table, .drawn, &random, 0);
     defer flashes.destroy(gpa);
     environment.flashes = flashes;
@@ -737,6 +734,25 @@ test "Titan moves Planet Bombard's flashes on as it is drawn, while effect 2 is 
     try std.testing.expect(!flashes.flashes[0].showing);
 }
 
+test "Environment.update" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var cues: @import("main/cues.zig").Cues = .{ .gpa = gpa };
+    defer cues.deinit();
+    var world = mission.world();
+    world.cues = &cues;
+    var environment: Environment = .{ .requested = 3 };
+    environment.asked.ice_field = true;
+
+    // It asks drawing for the nebula the script asked for, and turns on the effects asked for.
+    environment.update(world);
+    try std.testing.expectEqual(1, cues.list.items.len);
+    try std.testing.expectEqual(3, cues.list.items[0].nebula_asked);
+    try std.testing.expect(environment.effects.ice_field);
+}
+
 test "Environment.changeObjects" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
@@ -745,7 +761,7 @@ test "Environment.changeObjects" {
     const other = try mission.add(.of(.predator), .{ 1000, 0, 0 });
     const all = mission.objects;
     all.slots[other].object.flags.disabled = true;
-    var environment: Environment = .{ .sky = undefined, .textures = undefined, .space = undefined };
+    var environment: Environment = .{};
     environment.next_jump[planet] = .disable;
     environment.next_jump[other] = .enable;
     // Each change asked for is made once, and then nothing is asked.

@@ -16,10 +16,11 @@ As the drawn frame begins, it copies the effects with the objects, so that drawi
 game's records either (`main.Drawn.Effects`): the particles, the smoke, the guns' flak and spent
 cases, the sparks, the shockwaves, the electric rays, the tractors, the Rippers' beams, the capital
 shields, the explosions, the countermeasures, the screen's flash, the ion cannons, the jumps'
-effects and the gates ([Gates](gates.md)). Each copy keeps what is alive in the effect as the game
-frames left it. It has its own copy of whatever the game frames change in place, such as a table's
-records or the shape of a mesh the game reshapes (`srapiext.Mesh.copyShape`), and shares the rest,
-such as the meshes the game never changes.
+effects, the gates ([Gates](gates.md)) and the environment's effects
+([Backdrop](backdrop.md#environment-effects)). Each copy keeps what is alive in the effect as the
+game frames left it. It has its own copy of whatever the game frames change in place, such as a
+table's records or the shape of a mesh the game reshapes (`srapiext.Mesh.copyShape`), and shares the
+rest, such as the meshes the game never changes.
 
 What drawing keeps from one drawn frame to the next, it keeps in records of its own, apart from the
 game's: the electric rays' strands ([Electric rays](#electric-rays)), what the shields' bubbles and

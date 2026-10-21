@@ -1193,6 +1193,7 @@ pub const Drawn = struct {
         ion_cannons: ?aiioncan.Cannons = null,
         jump_effects: ?jump.effect.Effects = null,
         gates: ?wgate.Gates = null,
+        environment: ?environfx.Environment = null,
 
         const names = @typeInfo(Effects).@"struct".field_names;
 
