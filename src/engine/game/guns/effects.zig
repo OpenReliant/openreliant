@@ -60,6 +60,11 @@ pub const Pools = struct {
         try pools.flak.draw(gpa, arena, scene, ahead);
         try pools.cases.draw(gpa, arena, scene, ahead);
     }
+
+    /// The pools as a drawn frame copies them, into `arena` (`particles.Pool.copy`).
+    pub fn copy(pools: *const Pools, arena: Allocator) Allocator.Error!Pools {
+        return .{ .flak = try pools.flak.copy(arena), .cases = try pools.cases.copy(arena) };
+    }
 };
 
 // --- A Huge Gun's trail --------------------------------------------------------------------------

@@ -145,6 +145,15 @@ pub const Pools = struct {
         for (&pools.by_level.values) |*slot| if (slot.*) |*pool| try pool.draw(gpa, arena, scene, ahead);
     }
 
+    /// The pools as a drawn frame copies them, into `arena` (`particles.Pool.copy`).
+    pub fn copy(pools: *const Pools, arena: Allocator) Allocator.Error!Pools {
+        var copied: Pools = .{};
+        for (&pools.by_level.values, &copied.by_level.values) |*slot, *into| {
+            if (slot.*) |*pool| into.* = try pool.copy(arena);
+        }
+        return copied;
+    }
+
     fn get(pools: *Pools, level: Level) ?*particles.Pool {
         return if (pools.by_level.getPtr(level).*) |*pool| pool else null;
     }
