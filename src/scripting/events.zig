@@ -2,9 +2,11 @@
 //! `core.send_global_event(name, data)` sends an event to the global scripts, and
 //! `object:send_event(name, data)` to the scripts of one object. An event carries one value of plain
 //! data (`data.zig`), copied as it's sent. Events wait until the game's next update, which delivers
-//! them in the order they were sent, before the scripts' `on_update` (`game.Game`). Each script
-//! that has a handler for the event in its `event_handlers` gets it, newest mod first; a handler
-//! that returns `false` stops the rest.
+//! them in the order they were sent, before the scripts' `on_update` (`game.Game`). An event a
+//! player or menu script sends first waits in the presentation's state, until it goes over to the
+//! game's before the game runs again (`Presentation.sendEvents`). Each script that has a handler
+//! for the event in its `event_handlers` gets it, newest mod first; a handler that returns `false`
+//! stops the rest.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -39,8 +41,14 @@ pub const Events = struct {
     pending: std.ArrayList(Pending) = .empty,
 
     pub fn deinit(events: *Events) void {
-        for (events.pending.items) |*sent| events.runtime.release(sent.data.ref);
+        events.clear();
         events.pending.deinit(events.gpa);
+    }
+
+    /// Lets go of the events not delivered yet.
+    pub fn clear(events: *Events) void {
+        for (events.pending.items) |*sent| events.runtime.release(sent.data.ref);
+        events.pending.clearRetainingCapacity();
     }
 
     /// Queues the event `name` with `payload` for `to`. Takes `payload` over, and lets it go if the
@@ -50,9 +58,14 @@ pub const Events = struct {
             events.runtime.release(payload.ref);
             call.raise("an event's name has at most {d} bytes", .{runtime_module.max_name});
         };
-        events.pending.append(events.gpa, .{ .to = to, .name = held, .data = payload }) catch {
-            events.runtime.release(payload.ref);
-            call.raise("out of memory sending the event {s}", .{name});
+        events.add(.{ .to = to, .name = held, .data = payload }) catch call.raise("out of memory sending the event {s}", .{name});
+    }
+
+    /// Queues `sent`, taking its data over, and lets the data go if there is no memory to queue it.
+    pub fn add(events: *Events, sent: Pending) Allocator.Error!void {
+        events.pending.append(events.gpa, sent) catch |err| {
+            events.runtime.release(sent.data.ref);
+            return err;
         };
     }
 
