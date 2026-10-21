@@ -1307,12 +1307,15 @@ pub const Radio = struct {
     /// the frame's start (`until`), and where anything is heard, the game frame asks for it
     /// (`hog_snd.commands.Commands.speak`), to play as `cbox.Player.start` plays it, at the volume
     /// of every line the game plays. A file that is not a speech file is left out with a warning.
-    fn play(radio: *Radio, ctx: Context, bytes: []u8) void {
-        const parsed = cbox.Line.parse(bytes) orelse {
+    ///
+    /// The main thread unscrambles the file in place as it parses it to play it, so the game frame
+    /// only reads its length (`cbox.Line.ticksIn`) and hands it over as the archive holds it.
+    fn play(radio: *Radio, ctx: Context, bytes: []const u8) void {
+        const ticks = cbox.Line.ticksIn(bytes) orelse {
             log.warn("a line of the radio's is not a speech file or a recording", .{});
             return;
         };
-        radio.until = ctx.frame_start +% @as(i32, @intCast(parsed.ticks()));
+        radio.until = ctx.frame_start +% @as(i32, @intCast(ticks));
         if (ctx.sounds) |asked| asked.speak(bytes, radio.style);
     }
 };
@@ -1376,6 +1379,12 @@ test Radio {
     try std.testing.expect(!radio.movie.waiting);
     // The line lasts its 20 ticks from the frame it starts in.
     try std.testing.expect(radio.speaking(100) and radio.speaking(119) and !radio.speaking(120));
+    // The game frame asks for the line's file as the archive holds it, still scrambled: the main
+    // thread unscrambles it once, as it parses it to play it.
+    const asked = speaker.asked.list.items;
+    const archived = radio.readSpeech("ms1_ban_001.ut").?;
+    defer gpa.free(archived);
+    try std.testing.expectEqualSlices(u8, archived, asked[asked.len - 1].speech.bytes);
 
     // A line queued waits while the window is held, and until the line playing is over.
     radio.sayShip(ctx, enemy, .talking, "plck_001.ut", .queued, .looping, no_expiry);

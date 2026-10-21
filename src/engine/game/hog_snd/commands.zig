@@ -114,7 +114,9 @@ pub const Commands = struct {
         };
     }
 
-    /// Asks for a line of speech, the speech file `bytes`, which the commands copy.
+    /// Asks for a line of speech, the speech file `bytes` as the archive holds it, which the
+    /// commands copy. The main thread parses the copy as it plays it, which unscrambles it in place
+    /// (`cbox.Line.parse`), so nothing parses it before.
     pub fn speak(commands: *Commands, bytes: []const u8, style: cbox.Style) void {
         const copy = commands.gpa.dupe(u8, bytes) catch {
             log.warn("the sound misses a line of speech: out of memory", .{});

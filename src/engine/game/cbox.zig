@@ -53,6 +53,23 @@ pub const Header = extern struct {
         return std.mem.eql(u8, &header.magic, line_magic) or std.mem.eql(u8, &header.magic, scene_magic);
     }
 
+    /// The header of `bytes`, a speech file, scrambled or not. Null for a file too short for it or
+    /// not tagged as the game's are (`tagged`).
+    pub fn of(bytes: []const u8) ?Header {
+        const header = layout.view(Header, bytes) catch return null;
+        return if (header.tagged()) header.* else null;
+    }
+
+    /// How many samples the speech plays: half its size (`0x00461F20`).
+    pub fn samples(header: Header) usize {
+        return header.size >> 1;
+    }
+
+    /// How many of the game's ticks it plays for at `rate`, rounded up.
+    pub fn ticks(header: Header) u32 {
+        return ticksOf(header.samples(), rate);
+    }
+
     comptime {
         assert(@sizeOf(Header) == 12);
     }
@@ -73,21 +90,9 @@ pub const Speech = struct {
     /// for a file too short for its header or not tagged as the game's are (`Header.tagged`), which
     /// the game does not check, so that what else an archive holds is passed over.
     pub fn parse(bytes: []u8) ?Speech {
-        const header = layout.view(Header, bytes) catch return null;
-        if (!header.tagged()) return null;
-        const kept = header.*;
+        const header = Header.of(bytes) orelse return null;
         unscramble(bytes);
-        return .{ .header = kept, .stream = bytes[@sizeOf(Header)..] };
-    }
-
-    /// How many samples it plays: half its size (`0x00461F20`).
-    pub fn samples(speech: Speech) usize {
-        return speech.header.size >> 1;
-    }
-
-    /// How many of the game's ticks it plays for at `rate`, rounded up.
-    pub fn ticks(speech: Speech) u32 {
-        return ticksOf(speech.samples(), rate);
+        return .{ .header = header, .stream = bytes[@sizeOf(Header)..] };
     }
 };
 
@@ -107,15 +112,35 @@ pub const Line = union(enum) {
     coded: Speech,
     recorded: wave.Wave,
 
-    /// `bytes` as a WAVE file if they start like one, or else as a speech file (`Speech.parse`);
-    /// null for neither, or for a WAVE file the decoder can't read.
+    /// `bytes` as a WAVE file if they start like one, or else as a speech file (`Speech.parse`),
+    /// which unscrambles it in place, so a file is parsed once; null for neither, or for a WAVE
+    /// file the decoder can't read.
     pub fn parse(bytes: []u8) ?Line {
-        if (std.mem.startsWith(u8, bytes, "RIFF")) {
-            const recorded = wave.Wave.parse(bytes) catch return null;
-            _ = wave.Decoder.init(recorded) catch return null;
-            return .{ .recorded = recorded };
-        }
+        if (isRecording(bytes)) return .{ .recorded = readRecording(bytes) orelse return null };
         return .{ .coded = Speech.parse(bytes) orelse return null };
+    }
+
+    /// How many of the game's ticks the line in `bytes` plays for (`ticks`), read without
+    /// unscrambling `bytes`, so that whatever only times a line leaves the file for the player to
+    /// parse; null where `parse` finds no line.
+    pub fn ticksIn(bytes: []const u8) ?u32 {
+        if (isRecording(bytes)) {
+            const line: Line = .{ .recorded = readRecording(bytes) orelse return null };
+            return line.ticks();
+        }
+        const header = Header.of(bytes) orelse return null;
+        return header.ticks();
+    }
+
+    fn isRecording(bytes: []const u8) bool {
+        return std.mem.startsWith(u8, bytes, "RIFF");
+    }
+
+    /// `bytes` as a WAVE file the decoder can read.
+    fn readRecording(bytes: []const u8) ?wave.Wave {
+        const recorded = wave.Wave.parse(bytes) catch return null;
+        _ = wave.Decoder.init(recorded) catch return null;
+        return recorded;
     }
 
     /// Samples a second.
@@ -129,7 +154,7 @@ pub const Line = union(enum) {
     /// How many of the game's ticks it plays for, rounded up.
     pub fn ticks(line: Line) u32 {
         return switch (line) {
-            .coded => |speech| speech.ticks(),
+            .coded => |speech| speech.header.ticks(),
             .recorded => |recorded| ticksOf(recorded.frameCount(), recorded.rate),
         };
     }
@@ -236,7 +261,7 @@ pub fn sample(value: f32, peaks: Style.Peaks) i16 {
 /// (`voice.Decoder.frame`), as `speech_fetch` decodes it as the sample plays, its peaks as
 /// `peaks` has them.
 pub fn decode(gpa: Allocator, speech: Speech, peaks: Style.Peaks) Allocator.Error![]i16 {
-    const out = try gpa.alloc(i16, speech.samples());
+    const out = try gpa.alloc(i16, speech.header.samples());
     var decoder: voice.Decoder = .init(speech.stream);
     var at: usize = voice.frame_samples;
     for (out) |*value| {
@@ -430,19 +455,19 @@ test Speech {
     const file = try testFile(gpa, 1000, 40);
     defer gpa.free(file);
     const speech = Speech.parse(file).?;
-    try std.testing.expectEqual(1000, speech.samples());
+    try std.testing.expectEqual(1000, speech.header.samples());
     try std.testing.expectEqual(40, speech.stream.len);
     try std.testing.expectEqual(0, speech.stream[0]);
     // 1000 samples play for a little over 4.5 ticks, rounded up to 5; a second's samples for 100.
-    try std.testing.expectEqual(5, speech.ticks());
+    try std.testing.expectEqual(5, speech.header.ticks());
     const second = try testFile(gpa, rate, 40);
     defer gpa.free(second);
-    try std.testing.expectEqual(100, Speech.parse(second).?.ticks());
+    try std.testing.expectEqual(100, Speech.parse(second).?.header.ticks());
     // A scene is read alike.
     const scene = try testFile(gpa, 10, 16);
     defer gpa.free(scene);
     scene[4..8].* = Header.scene_magic.*;
-    try std.testing.expectEqual(10, Speech.parse(scene).?.samples());
+    try std.testing.expectEqual(10, Speech.parse(scene).?.header.samples());
     // Not a speech file.
     var other = "RIFF\x00\x00\x00\x00WAVEfmt ".*;
     try std.testing.expectEqual(null, Speech.parse(&other));
@@ -541,9 +566,16 @@ test Line {
     // The game's speech file, at the codec's rate.
     const file = try testFile(gpa, 2000, 400);
     defer gpa.free(file);
+    // Timing it reads its header alone, and leaves the file as the archive holds it, for the
+    // player to unscramble as it parses it.
+    const archived = try gpa.dupe(u8, file);
+    defer gpa.free(archived);
+    const ticks = Line.ticksIn(file).?;
+    try std.testing.expectEqualSlices(u8, archived, file);
     const coded = Line.parse(file).?;
     try std.testing.expectEqual(rate, coded.rate());
-    try std.testing.expectEqual(coded.coded.ticks(), coded.ticks());
+    try std.testing.expectEqual(coded.coded.header.ticks(), coded.ticks());
+    try std.testing.expectEqual(ticks, coded.ticks());
     // A recording of a second at 8000 samples a second, mono, plays for a second of ticks.
     const quiet: [8000]i16 = @splat(0);
     const recording = try wave.pcm16(gpa, 8000, 1, &quiet);
@@ -551,6 +583,7 @@ test Line {
     const recorded = Line.parse(recording).?;
     try std.testing.expectEqual(8000, recorded.rate());
     try std.testing.expectEqual(ticks_per_second, recorded.ticks());
+    try std.testing.expectEqual(ticks_per_second, Line.ticksIn(recording).?);
     // One whose header gives no rate plays for no ticks.
     var rateless = recorded;
     rateless.recorded.rate = 0;
@@ -559,6 +592,7 @@ test Line {
     const wide = try gpa.dupe(u8, comptime wave.testing.file(.{ .format = .pcm, .channels = 1, .rate = 8000, .byte_rate = 24000, .block_align = 3, .bits = 24 }, "", "", "\x00\x00\x00"));
     defer gpa.free(wide);
     try std.testing.expectEqual(null, Line.parse(wide));
+    try std.testing.expectEqual(null, Line.ticksIn(wide));
 }
 
 test "a line nobody hears is timed by the game's clock" {

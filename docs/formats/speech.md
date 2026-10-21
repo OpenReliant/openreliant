@@ -34,10 +34,14 @@ codes for accuracy rather than size, so its files are larger than the game's.
 | 8 | 4 | The speech's size as 16-bit samples, in bytes: twice the samples it plays |
 | 12 | | The stream, to the end of the file |
 
-The game plays a file whatever its tag. The stream is XORed with the key `AB 2D 9A AA`, repeating from its first byte, up to 8 bytes before
-the file's end; the last 8 bytes are plain, in every shipped file. The game unscrambles a file in
-place as it loads it (`speech_unscramble`, `0x00462000`), writes `man` over the length as its mark
-of having done so, and leaves a file so marked, or one beginning `CB`, as it is.
+The game plays a file whatever its tag. The stream is XORed with the key `AB 2D 9A AA`, repeating
+from its first byte, up to 8 bytes before the file's end; the last 8 bytes are plain, in every
+shipped file. The game unscrambles a file in place as it loads it (`speech_unscramble`,
+`0x00462000`), writes `man` over the length as its mark of having done so, and leaves a file so
+marked, or one beginning `CB`, as it is. OpenReliant keeps the length, so it leaves no mark, and
+unscrambles each file once: the game frames read only a line's length from its header
+(`cbox.Line.ticksIn`), and the main thread unscrambles the file as it parses it to play it
+(`cbox.Line.parse`).
 
 **Fix:** the game unscrambles `length - 0x18` bytes, 8 short of what is scrambled, so it reads the
 stream's last 8 bytes scrambled, which end the last frame in noise; OpenReliant unscrambles them.
