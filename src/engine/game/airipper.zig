@@ -127,6 +127,16 @@ pub const Rippers = struct {
         rippers.grips[index] = null;
     }
 
+    /// OpenReliant's: the Rippers' tables as a drawn frame copies them (`main.Drawn`), each set of
+    /// beams copied into `arena` (`table.copySlots`), so that drawing reads the copy while the game
+    /// frames go on with the beams. The copy owns nothing but what is in `arena`, and is never
+    /// reset nor let go of.
+    pub fn copy(rippers: *const Rippers, arena: Allocator) Allocator.Error!Rippers {
+        var copied = rippers.*;
+        try table.copySlots(Grip, arena, &copied.grips);
+        return copied;
+    }
+
     /// Before the frame's orders: no set of beams shows until an order shows it again this frame
     /// (`Grip.show`), so that drawing only reads it.
     pub fn beginFrame(rippers: *Rippers) void {
@@ -1351,6 +1361,29 @@ test "the sets of beams keep their places where nothing is drawn" {
     defer scene.deinit(gpa);
     try drawing.draw(&rippers, gpa, &scene, mission.objects);
     try std.testing.expectEqual(null, drawing.shown[0]);
+}
+
+test "Rippers.copy" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const ripper = try mission.add(.of(.ripper), @splat(0));
+    var rippers: Rippers = try .init(gpa, null);
+    defer rippers.deinit();
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const grip = rippers.gripAt(rippers.takeFor(mission.world(), ripper, null)).?;
+    grip.show(0.5);
+
+    // The copy holds a copy of each set of beams, which stays as it was while the game's goes on.
+    const copied = try rippers.copy(arena.allocator());
+    const seen = copied.grips[0].?;
+    try std.testing.expect(seen != grip);
+    rippers.beginFrame();
+    grip.solid = 1;
+    try std.testing.expect(seen.shown);
+    try std.testing.expectEqual(0.5, seen.solid);
 }
 
 test "a Ripper grabs a pod ahead of it, and stows it aboard" {

@@ -495,6 +495,19 @@ pub const Rays = struct {
             if (!ray.update(all, now, random) or ray.parent.gone(all)) rays.remove(ray);
         }
     }
+
+    /// OpenReliant's: the rays as a drawn frame copies them (`main.Drawn`), each ray and its
+    /// strands copied into `arena` (`table.copySlots`), so that drawing reads the copy while the
+    /// game frames go on with the rays. The copy owns nothing but what is in `arena`, and is never
+    /// reset nor let go of.
+    pub fn copy(rays: *const Rays, arena: Allocator) Allocator.Error!Rays {
+        var copied = rays.*;
+        try table.copySlots(Ray, arena, &copied.slots);
+        for (copied.slots) |held| if (held) |ray| {
+            ray.strands = try arena.dupe(Ray.Strand, ray.strands);
+        };
+        return copied;
+    }
 };
 
 /// OpenReliant's: what drawing keeps of the rays from one drawn frame to the next, apart from the
@@ -708,6 +721,29 @@ test "Rays.frame" {
     try std.testing.expectEqual(hung, rays.slots[0].?);
     rays.frame(mission.objects, 21, &random);
     try std.testing.expectEqual(null, rays.slots[0]);
+}
+
+test "Rays.copy" {
+    const gpa = std.testing.allocator;
+    var built: testing.Built = try .init(gpa);
+    defer built.deinit(gpa);
+    const rays = &built.rays;
+    var random: Random = .{};
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const ray = try rays.add(.{ .strands = 2, .life = 0, .jitter = 0.2, .width = 10, .flags = .{} }, &random);
+    ray.colour(1, .{ 1, 0, 0 });
+
+    // The copy holds a copy of each ray and its strands, which stay as they were while the game's
+    // go on.
+    const copied = try rays.copy(arena.allocator());
+    const seen = copied.slots[0].?;
+    try std.testing.expect(seen != ray and seen.strands.ptr != ray.strands.ptr);
+    ray.brightness = 0.5;
+    ray.colour(1, .{ 0, 1, 0 });
+    try std.testing.expectEqual(1, seen.brightness);
+    try std.testing.expectEqual([3]f32{ 1, 0, 0 }, seen.strands[1].colour);
+    try std.testing.expectEqual(null, copied.slots[1]);
 }
 
 test "Rays.Kept" {
