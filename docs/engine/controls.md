@@ -402,6 +402,11 @@ would ([#244](https://github.com/OpenReliant/openreliant/issues/244)). The game 
 can't read through a debug message that the retail build leaves out (`0x004BFF10`), so it says
 nothing; OpenReliant logs each missing or unreadable file with the reason.
 
+The game frames start and stop the effects, the shake from hits among them, which they start as
+they run the game's part of the camera's frame (`camera.gameFrame`). Each drawn frame works out how
+hard the motors turn from its copy of the force feedback (`main.Drawn`), so drawing writes nothing
+into the game's.
+
 - **Improvement:** any controller that rumbles plays the effects, gamepads among them.
 - **Fix:** the Proton Cannon's shot plays `prc`.
 - **Improvement:** a blow shakes the camera whatever the controller (`input.force.HitShake`).
