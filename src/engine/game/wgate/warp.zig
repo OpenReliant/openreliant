@@ -485,7 +485,7 @@ pub fn inUpdate(ctx: aigeneric.Context, index: u16) void {
             if (index == all.player) _ = camera.switchView(world, .warp_arrive, index, true, true);
             if (index == all.player) {
                 for (all.slots[0..all.count]) |*other| other.object.flags.jumping = false;
-                if (world.environment) |environment| environment.update(all);
+                if (world.environment) |environment| environment.update(world);
             }
             sound3d.playIn(world, null, null, index, .warpin, 1, sound3d.fxClass(all, index));
             slot.object.flags.disabled = false;

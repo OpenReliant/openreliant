@@ -825,13 +825,14 @@ fn remarkFlag(comptime flag: []const u8) vm.GameImplementation {
 /// `cmd_UpdateEnvironmentFXState` (`0x004591A0`, command `0x38`): what the script asks of its
 /// space takes effect at once, rather than at the next jump (`environfx.Environment.update`), and
 /// the mission's markers aim the sun, the lights and the nebula again
-/// (`backdrop.Backdrop.place`).
+/// (`backdrop.Backdrop.place`), which drawing does as the next drawn frame begins
+/// (`main.cues.Cue.backdrop_placed`).
 fn updateEnvironmentFXState(_: Call, game: aigeneric.Context) void {
     const world = game.world;
     const environment = world.environment orelse return;
-    environment.update(world.objects);
+    environment.update(world);
     const ships = if (world.mission) |bound| bound.shipCount() else 0;
-    environment.space.place(environment.sky, world.objects, ships);
+    if (world.cues) |cues| cues.add(.{ .backdrop_placed = ships });
 }
 
 /// `cmd_SetEnvironmentFXNebula` (`0x00459190`, command `0x3C`): asks for the nebula the argument
@@ -1910,7 +1911,7 @@ test "the commands that set ships, the radio, the display and the space" {
     world.objects.mission_number = 1;
     var display: hud.State = .{};
     display.objectives.reset(1, false, null);
-    var environment: @import("environfx.zig").Environment = .{ .sky = undefined, .textures = undefined, .space = undefined };
+    var environment: @import("environfx.zig").Environment = .{};
     var ctx = game.spawning();
     ctx.world.display = &display;
     ctx.world.environment = &environment;
@@ -2164,7 +2165,7 @@ test "the commands of the campaign's later missions" {
     const ships = try game.fixture.mission.ships();
     ships[1].flags.destroyed = true;
     var display: hud.State = .{};
-    var environment: @import("environfx.zig").Environment = .{ .sky = undefined, .textures = undefined, .space = undefined };
+    var environment: @import("environfx.zig").Environment = .{};
     var ctx = game.spawning();
     ctx.world.display = &display;
     ctx.world.environment = &environment;
@@ -2394,7 +2395,7 @@ test "the commands of Instant Action's bosses and its end" {
     const world = &game.mission;
     const player = try world.add(.of(.predator), @splat(0));
     const boss = try world.add(.of(.kurgan), @splat(0));
-    var environment: @import("environfx.zig").Environment = .{ .sky = undefined, .textures = undefined, .space = undefined };
+    var environment: @import("environfx.zig").Environment = .{};
     var ctx = game.orders();
     ctx.world.environment = &environment;
 

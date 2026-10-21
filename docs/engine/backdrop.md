@@ -42,8 +42,9 @@ A script picks the nebula with `SetEnvironmentFXNebula` (0 to 6), which takes ef
 
 Nebula 0 is shown until a script picks another. The nebula asked for (`nebula_requested`,
 `0x0058A6B8`) stays from one mission to the next, as does the one shown. OpenReliant keeps the
-request with the space (`environfx.Environment`) and shows it on `UpdateEnvironmentFXState`; the
-jumps that apply it are not ported yet.
+request with the space (`environfx.Environment`). The jumps and `UpdateEnvironmentFXState` update
+the space, which asks drawing to show the nebula; drawing shows it as the next drawn frame begins
+([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
 
 ## Stars
 
@@ -249,6 +250,8 @@ A light reaches an object unless their masks share a bit. A part's object has ma
 - **A nebula marker** (type `0x3DD`) aims both fill lights along its forward axis, and the nebula's patch shown then takes its orientation. The other patch keeps its own.
 
 Without a sun marker the sun's direction stays a unit long, and the sun's sprites, the key lights and the dome keep what the last sun marker gave them; without a nebula marker the fill lights and the patches keep theirs. The lens flares follow the sun's direction.
+
+OpenReliant's game frames ask drawing to place the backdrop, which it does as the next drawn frame begins, by the markers as its copy of the objects has them ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
 
 **Fix:** the game places the lens flares along the sun's direction as long as it is. After `backdrop_place` without a sun marker, which most missions' scripts ask for, they stand within a unit of the camera, inside the near plane, so they are never drawn again in that mission. OpenReliant places them 1000 along the sun's direction, as a sun marker leaves it, so they show in every mission.
 

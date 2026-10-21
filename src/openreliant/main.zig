@@ -527,7 +527,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     try sky.select(&textures, game.nebula.default_nebula, &space.lights);
     // What the mission's script asks of its space: the nebula it shows, and the effects it turns
     // on.
-    var environment: game.environfx.Environment = .{ .sky = sky, .textures = &textures, .space = space };
+    var environment: game.environfx.Environment = .{};
 
     try loading.show(game.xtrabits.loading.startup_step);
     // The engine glows every ship's thrusters burn, built once and shared by them all.
@@ -1342,7 +1342,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         if (drawn_objects) |copy| {
             game_display.subtarget.hold();
             // Drawing takes up what the game frames asked of it since the last drawn frame.
-            cues.takeUp(.{ .objects = copy, .trails = &trails, .atmospheres = &atmospheres, .escort_marker = escort_marker, .flashes = environment.flashes });
+            cues.takeUp(.{ .objects = copy, .trails = &trails, .atmospheres = &atmospheres, .escort_marker = escort_marker, .flashes = environment.flashes, .sky = sky, .space = space, .textures = &textures });
         }
         if (viewed) |launch_step| {
             game.main.viewFrame(.{
@@ -1428,7 +1428,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .shown = .of(&drawn.player),
                 .space = space,
                 .sky = sky,
-                .environment = &environment,
+                .environment = drawn_world.environment,
                 .gates = drawn_world.gates,
                 .view = drawn.player.viewing.view,
                 .cockpit_mode = drawn.player.viewing.cockpit_mode,
