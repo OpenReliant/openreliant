@@ -188,20 +188,16 @@ pub const Explosions = struct {
         explosions.chunks.frame(clock);
     }
 
-    /// OpenReliant's: the explosions as a drawn frame copies them (`main.Drawn`), so that drawing
-    /// reads the copy while the game frames go on with them: the bits, the pieces' flights, the
-    /// chunks and the Uber Explode copied into `arena` (`breakup.Pieces.copy`, `uber.Uber.copy`),
-    /// and what the record holds itself, the splits, the fireballs and the burning wrecks' lights
-    /// among it. The copy shares the meshes the bits, the pieces and the chunks are drawn with,
-    /// which the game doesn't change; it owns nothing but what is in `arena`, and is never reset
-    /// nor let go of.
+    /// OpenReliant's: the explosions as a drawn frame copies them (`main.Drawn.Effects`): the
+    /// bits, the pieces' flights, the chunks and the Uber Explode copied into `arena`
+    /// (`breakup.Pieces.copy`, `uber.Uber.copy`), and what the record holds itself, such as the
+    /// splits, the fireballs and the burning wrecks' lights. The copy shares the meshes the bits,
+    /// the pieces and the chunks are drawn with, which the game doesn't change.
     pub fn copy(explosions: *const Explosions, arena: Allocator) Allocator.Error!Explosions {
         var copied = explosions.*;
-        copied.bits = try arena.create(Bits);
-        copied.bits.* = explosions.bits.*;
+        copied.bits = try table.copyRecord(Bits, arena, explosions.bits);
         copied.pieces = try explosions.pieces.copy(arena);
-        copied.chunks = try arena.create(rocks.Chunks);
-        copied.chunks.* = explosions.chunks.*;
+        copied.chunks = try table.copyRecord(rocks.Chunks, arena, explosions.chunks);
         copied.uber = try explosions.uber.copy(arena);
         return copied;
     }
@@ -210,8 +206,8 @@ pub const Explosions = struct {
     /// the world's layer, the burning wrecks' lights among the lights, and each fireball showing,
     /// with its light among the lights, `ahead` of a tick past the frame's tick. What moves is
     /// drawn from copies made in `arena`, which lasts until the frame is drawn
-    /// (`xtrabits.sceneAddCopy`), and is left as it is. The splits' portals go into the scene
-    /// separately (`split.Splits.draw`).
+    /// (`xtrabits.sceneAddCopy`), and is left as it is. Drawing's portals for the splits go into
+    /// the scene separately (`xtrabits.Portals.draw`).
     pub fn draw(explosions: *const Explosions, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, ahead: f32) Allocator.Error!void {
         const images = explosions.images orelse return;
         try explosions.uber.draw(gpa, arena, scene);

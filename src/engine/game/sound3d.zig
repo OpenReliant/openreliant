@@ -438,15 +438,15 @@ const Heard = struct {
     started: i32,
 };
 
-/// `place`, then the rest of `sound3d_play` (`start`), for the sound `definition` describes, in
-/// `scene`.
+/// `sound3d_play` in `scene`: places the sound `definition` describes (`place`), then starts it
+/// (`start`).
 fn begin(sound: *Sound, scene: Scene, definition: *const Definition, played: Played, at: ?Vector, facing: ?Vector, owner: ?u16, file: ?[]const u8, volume: f32, class: Class) ?u8 {
     const placed = place(scene.objects, definition, at, facing, owner) orelse return null;
     return start(sound, .{ .listener = scene.camera, .started = scene.clock.frame_start }, definition, played, placed, owner, file, volume, class);
 }
 
-/// The rest of `sound3d_play`, for the sound `definition` describes, starting at `placed`, heard
-/// as `heard` has it.
+/// The rest of `sound3d_play`: starts the sound `definition` describes at `placed`, heard as
+/// `heard` says.
 ///
 /// **Improvement:** the explosions' rates come from the sound's own random numbers
 /// (`hog_snd.Sound.random`), where the game draws them from its effects' numbers. So the effects
@@ -564,16 +564,17 @@ fn effectIn(world: gameobj.World, at: ?Vector, facing: ?Vector, owner: ?u16, whi
     return .{ .which = which, .file = file, .placed = placed, .owner = owner, .volume = volume, .class = class, .started = world.clock.frame_start };
 }
 
-/// `effect` started through `sound`, heard from `listener`, or from the effect's own place to hear
-/// it from: the voice it plays on, or null.
+/// Starts `effect` through `sound`, heard from `listener`, or from where the effect says to hear it
+/// from (`Effect.heard_from`), and returns the voice it plays on, or null.
 pub fn startEffect(sound: *Sound, listener: camera.Place, effect: Effect) ?u8 {
     var heard: Heard = .{ .listener = listener, .started = effect.started };
     if (effect.heard_from) |from| heard.listener.position = from;
     return start(sound, heard, &sounds.definitions[@backingInt(effect.which)], .{ .game = effect.which }, effect.placed, effect.owner, effect.file, effect.volume, effect.class);
 }
 
-/// `play` as the game frames ask for it, where `world` is heard (`gameobj.World.sounds`): placed in
-/// its objects now, and started by the main thread after the game frames (`hog_snd.commands`).
+/// Asks for a 3D sound as `play` plays it, where `world` is heard (`gameobj.World.sounds`): the game
+/// frame places it in its objects now, and the main thread starts it after the game frames
+/// (`hog_snd.commands`).
 pub fn playIn(world: gameobj.World, at: ?Vector, facing: ?Vector, owner: ?u16, which: sounds.Sound, volume: f32, class: Class) void {
     playFileIn(world, at, facing, owner, which, null, volume, class);
 }
@@ -694,8 +695,8 @@ pub fn hearEngine(world: gameobj.World) void {
     asked.add(.{ .engine = engineIn(world) orelse return });
 }
 
-/// The player's engine started from `effect` through `sound`, heard from `listener`, unless it
-/// plays already (`hearEngine`).
+/// Starts the player's engine from `effect` through `sound`, heard from `listener`, unless it plays
+/// already (`hearEngine`).
 pub fn startEngineEffect(sound: *Sound, listener: camera.Place, effect: Effect) void {
     const engine = sound.engine_voice orelse return;
     if (!sound.voices_3d[engine].isFree()) return;

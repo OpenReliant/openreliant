@@ -1494,10 +1494,11 @@ pub const Player = struct {
     balancing_shields: bool = false,
     /// What SHIELD BALANCING has shifted beyond the fore and aft shields' full charge.
     shield_reserves: gameobj.ShieldReserves = .{},
-    /// When the player's armour last warned (`0x00588334`, `main.armorWarning`), and when a shot
-    /// last sounded on the player's hull (`0x00593794`, `shieldfx.hullHit`). A mission's start
-    /// leaves them, as the game leaves its globals.
+    /// When the player's armour last warned (`0x00588334`, `main.armorWarning`). A mission's start
+    /// leaves it, as the game leaves its global.
     armor_warned_at: i32 = 0,
+    /// When a shot last sounded on the player's hull (`0x00593794`, `shieldfx.hullHit`). A
+    /// mission's start leaves it too.
     hull_heard_at: i32 = 0,
     /// How the mission is ending, which the player's ship's end decides.
     ending: @import("game/main.zig").Ending = .playing,

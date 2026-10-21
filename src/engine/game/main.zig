@@ -1139,11 +1139,11 @@ fn frameObject(slot: *create.Slot, timing: objects.Timing, glide: ?math.Vector, 
 }
 
 /// OpenReliant's: the copy of the game that each drawn frame works on: the objects and the missiles
-/// (`create.Objects.copyInto`), and the records drawing reads, so that drawing neither reads nor
-/// changes anything the game goes on from. With smooth motion, the copy of the objects is placed as
-/// far on as the platform's clock has run past the last tick (`objects.pastTick`), so that what
-/// moves moves on every drawn frame. A game frame frames the objects by the step's ticks alone
-/// (`gameFrames`).
+/// (`create.Objects.copyInto`), the records drawing reads and the effects it draws (`Effects`), so
+/// that drawing neither reads nor changes anything the game goes on from. With smooth motion, the
+/// copy of the objects is placed as far on as the platform's clock has run past the last tick
+/// (`objects.pastTick`), so that what moves moves on every drawn frame. A game frame frames the
+/// objects by the step's ticks alone (`gameFrames`).
 pub const Drawn = struct {
     gpa: Allocator,
     objects: *create.Objects,
@@ -1158,26 +1158,9 @@ pub const Drawn = struct {
     radio: ?radio_module.Radio = null,
     clock: Clock = .{},
     shake: f32 = 0,
-    /// Copies of the game's effects that drawing draws, as the game frames left them (`take`): the
-    /// particles, the smoke, the guns' flak and spent cases, the sparks, the shockwaves, the
-    /// electric rays, the tractors, the Rippers' beams, the capital shields, the explosions, the
-    /// countermeasures, the screen's flash, the ion cannons, the jumps' effects and the gates.
-    particles: ?particles.Pool = null,
-    smoke: ?smoke.Pools = null,
-    gun_particles: ?guns.effects.Pools = null,
-    sparks: ?sparks.Sparks = null,
-    shockwaves: ?shockwave.Shockwaves = null,
-    rays: ?erayfx.Rays = null,
-    tractors: ?tractor.Tractors = null,
-    rippers: ?airipper.Rippers = null,
-    capital_shields: ?shield.Capital = null,
-    explosions: ?explode.Explosions = null,
-    countermeasures: ?cloak.Countermeasures = null,
-    flash: ?flash.Flash = null,
-    ion_cannons: ?aiioncan.Cannons = null,
-    jump_effects: ?jump.effect.Effects = null,
-    gates: ?wgate.Gates = null,
-    /// What the copy's models are made in, from one drawn frame to the next.
+    /// Copies of the game's effects, which drawing draws.
+    effects: Effects = .{},
+    /// What the copies are made in, emptied as each drawn frame takes them (`take`).
     arena: std.heap.ArenaAllocator,
     /// The portals the copy's parts are cut by: drawing's own, which stand in for the game's from
     /// one drawn frame to the next (`xtrabits.Portals`).
@@ -1186,6 +1169,53 @@ pub const Drawn = struct {
     comptime {
         std.debug.assert(xtrabits.Portals.capacity >= 2 * explode.split.Splits.max + wgate.max_records);
     }
+
+    /// The game's effects as a drawn frame copies them, as the game frames left them, each under
+    /// its name in the world (`gameobj.World`). An effect's own `copy` copies into the frame's
+    /// arena whatever the game frames change in place, and shares the rest with the game, such as
+    /// the meshes the game never changes, so drawing reads the copy while the game frames go on
+    /// with the effect. A copy owns nothing outside the arena, so nothing ever resets it or lets go
+    /// of it. An effect without a `copy` holds nothing the game frames change in place, and is
+    /// copied whole.
+    pub const Effects = struct {
+        particles: ?particles.Pool = null,
+        smoke: ?smoke.Pools = null,
+        gun_particles: ?guns.effects.Pools = null,
+        sparks: ?sparks.Sparks = null,
+        shockwaves: ?shockwave.Shockwaves = null,
+        rays: ?erayfx.Rays = null,
+        tractors: ?tractor.Tractors = null,
+        rippers: ?airipper.Rippers = null,
+        capital_shields: ?shield.Capital = null,
+        explosions: ?explode.Explosions = null,
+        countermeasures: ?cloak.Countermeasures = null,
+        flash: ?flash.Flash = null,
+        ion_cannons: ?aiioncan.Cannons = null,
+        jump_effects: ?jump.effect.Effects = null,
+        gates: ?wgate.Gates = null,
+
+        const names = @typeInfo(Effects).@"struct".field_names;
+
+        /// Copies each of `game`'s effects into `arena`.
+        fn take(effects: *Effects, game: gameobj.World, arena: Allocator) Allocator.Error!void {
+            inline for (names) |name| {
+                @field(effects, name) = if (@field(game, name)) |live| try copyOf(live, arena) else null;
+            }
+        }
+
+        /// Points each effect of `shown`, the world as the drawn frame sees it, at its copy.
+        fn show(effects: *Effects, shown: *gameobj.World) void {
+            inline for (names) |name| {
+                @field(shown, name) = if (@field(effects, name)) |*copied| copied else null;
+            }
+        }
+
+        /// A copy of `live` for the drawn frame: what its own `copy` makes in `arena`, where it has
+        /// one, or else the whole record.
+        fn copyOf(live: anytype, arena: Allocator) Allocator.Error!@TypeOf(live.*) {
+            return if (@hasDecl(@TypeOf(live.*), "copy")) live.copy(arena) else live.*;
+        }
+    };
 
     pub fn init(gpa: Allocator) Allocator.Error!Drawn {
         return .{ .gpa = gpa, .objects = try gpa.create(create.Objects), .arena = .init(gpa) };
@@ -1214,21 +1244,7 @@ pub const Drawn = struct {
         drawn.clock = game.clock.*;
         drawn.shake = game.shake.*;
         const arena = drawn.arena.allocator();
-        drawn.particles = if (game.particles) |pool| try pool.copy(arena) else null;
-        drawn.smoke = if (game.smoke) |pools| try pools.copy(arena) else null;
-        drawn.gun_particles = if (game.gun_particles) |pools| try pools.copy(arena) else null;
-        drawn.sparks = if (game.sparks) |thrown| try thrown.copy(arena) else null;
-        drawn.shockwaves = if (game.shockwaves) |waves| waves.* else null;
-        drawn.rays = if (game.rays) |rays| try rays.copy(arena) else null;
-        drawn.tractors = if (game.tractors) |tractors| try tractors.copy(arena) else null;
-        drawn.rippers = if (game.rippers) |rippers| try rippers.copy(arena) else null;
-        drawn.capital_shields = if (game.capital_shields) |capital| capital.* else null;
-        drawn.explosions = if (game.explosions) |explosions| try explosions.copy(arena) else null;
-        drawn.countermeasures = if (game.countermeasures) |dropped| try dropped.copy(arena) else null;
-        drawn.flash = if (game.flash) |lit| lit.* else null;
-        drawn.ion_cannons = if (game.ion_cannons) |cannons| try cannons.copy(arena) else null;
-        drawn.jump_effects = if (game.jump_effects) |effects| try effects.copy(arena) else null;
-        drawn.gates = if (game.gates) |gates| try gates.copy(arena) else null;
+        try drawn.effects.take(game, arena);
         const now = game.clock.frame_start;
         const copy = drawn.objects;
         try game.objects.copyInto(copy, arena);
@@ -1265,21 +1281,7 @@ pub const Drawn = struct {
         shown.radio = if (drawn.radio) |*radio| radio else null;
         shown.clock = &drawn.clock;
         shown.shake = &drawn.shake;
-        shown.particles = if (drawn.particles) |*pool| pool else null;
-        shown.smoke = if (drawn.smoke) |*pools| pools else null;
-        shown.gun_particles = if (drawn.gun_particles) |*pools| pools else null;
-        shown.sparks = if (drawn.sparks) |*thrown| thrown else null;
-        shown.shockwaves = if (drawn.shockwaves) |*waves| waves else null;
-        shown.rays = if (drawn.rays) |*rays| rays else null;
-        shown.tractors = if (drawn.tractors) |*tractors| tractors else null;
-        shown.rippers = if (drawn.rippers) |*rippers| rippers else null;
-        shown.capital_shields = if (drawn.capital_shields) |*capital| capital else null;
-        shown.explosions = if (drawn.explosions) |*explosions| explosions else null;
-        shown.countermeasures = if (drawn.countermeasures) |*dropped| dropped else null;
-        shown.flash = if (drawn.flash) |*lit| lit else null;
-        shown.ion_cannons = if (drawn.ion_cannons) |*cannons| cannons else null;
-        shown.jump_effects = if (drawn.jump_effects) |*effects| effects else null;
-        shown.gates = if (drawn.gates) |*gates| gates else null;
+        drawn.effects.show(&shown);
         return shown;
     }
 };
@@ -2878,7 +2880,7 @@ test Handed {
     try std.testing.expectEqual(place.position, mission.player.viewing.seen_from.?.position);
     try std.testing.expectEqual(hud.Aim{ .under_reticle = 4, .blind_fire = true }, display.aim);
     // It is taken up once: with nothing handed over since, the game's records stay as they are,
-    // as they would have had drawing written them itself.
+    // just as they would if drawing had written into them itself.
     display.aim = .{};
     handed.takeUp(world);
     try std.testing.expectEqual(hud.Aim{}, display.aim);

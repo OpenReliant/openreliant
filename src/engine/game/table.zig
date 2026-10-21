@@ -1,7 +1,7 @@
 //! The fixed tables the game keeps its effects in, as OpenReliant holds them. Not from any file of
 //! the original: its tables find a slot for a new record in one of two ways, which these share.
 //! OpenReliant's own `Latest` and `Event` keep what the game does for drawing to take up,
-//! `keptFor` finds what drawing keeps of the game's records, and `copySlots` copies a table's
+//! `keptFor` finds what drawing keeps of the game's records, and `copyRecord` and `copySlots` copy
 //! records for a drawn frame.
 
 const std = @import("std");
@@ -117,14 +117,19 @@ pub fn letGo(comptime T: type, gpa: Allocator, held: *?*T) void {
     held.* = null;
 }
 
+/// OpenReliant's: a copy of `record` made in `arena`, for a drawn frame's copy of the game
+/// (`main.Drawn`).
+pub fn copyRecord(comptime T: type, arena: Allocator, record: *const T) Allocator.Error!*T {
+    const own = try arena.create(T);
+    own.* = record.*;
+    return own;
+}
+
 /// OpenReliant's: points each of `slots` that holds a record at a copy of the record made in
-/// `arena`, for a drawn frame's copy of a table (`main.Drawn`): the rays, the tractors and the
-/// Rippers' beams.
+/// `arena` (`copyRecord`), for a drawn frame's copy of a table.
 pub fn copySlots(comptime T: type, arena: Allocator, slots: []?*T) Allocator.Error!void {
     for (slots) |*slot| if (slot.*) |record| {
-        const own = try arena.create(T);
-        own.* = record.*;
-        slot.* = own;
+        slot.* = try copyRecord(T, arena, record);
     };
 }
 

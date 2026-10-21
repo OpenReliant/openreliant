@@ -17,8 +17,9 @@ const sound3d = @import("../sound3d.zig");
 
 const log = std.log.scoped(.sound);
 
-/// The voices the game frames keep, to end later: one for each of what keeps one. Ending one ends
-/// whatever plays on its voice by then, as the game's own voice numbers do.
+/// The voices the game frames keep so that they can end them later, one for each thing that keeps
+/// one. Ending one ends whatever plays on its voice by then, as ending a voice by its number does
+/// in the game.
 pub const Kept = enum {
     /// The missile lock's tone (`main.lock.Lock.sound`).
     lock_tone,
@@ -163,8 +164,8 @@ pub const Commands = struct {
         }
     }
 
-    /// `sample` played as `Sound.play` plays it, with the reverb of the camera's surroundings where
-    /// it asks for it; kept, held and waiting for a voice as it says.
+    /// Plays `sample` as `Sound.play` plays it, with the reverb of the camera's surroundings where
+    /// it asks for it, and keeps its voice, holds it or waits for one as it says.
     fn playSample(commands: *Commands, sound: *Sound, sample: Sample) void {
         const bank = switch (sample.bank) {
             .stdsmp => sound.stdsmp,
@@ -183,13 +184,11 @@ pub const Commands = struct {
 };
 
 test Commands {
-    const gpa = std.testing.allocator;
     var speaker: hog_snd.testing.Speaker = undefined;
     const bytes = comptime hog_snd.testing.bank(4);
     try speaker.init(2, &bytes);
-    defer speaker.sound.shutdown();
-    var commands: Commands = .{ .gpa = gpa };
-    defer commands.deinit(&speaker.sound);
+    defer speaker.deinit();
+    const commands = &speaker.asked;
     const sound = &speaker.sound;
 
     // Nothing plays until the main thread plays what was asked for, and then it's gone.

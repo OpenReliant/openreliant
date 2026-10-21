@@ -961,14 +961,13 @@ pub const Countermeasures = struct {
         countermeasures.records[at] = null;
     }
 
-    /// OpenReliant's: the countermeasures as a drawn frame copies them (`main.Drawn`), each one's
-    /// model copied into `arena` (`objects.Model.copy`), so that drawing reads the copy, and
-    /// writes into its models as it draws them, while the game frames go on with the
-    /// countermeasures. The copy owns nothing but what is in `arena`, and is never reset nor let
-    /// go of.
+    /// OpenReliant's: the countermeasures as a drawn frame copies them (`main.Drawn.Effects`), each
+    /// one's model copied into `arena` (`objects.Model.copy`), which drawing writes into as it
+    /// draws it (`draw`).
     pub fn copy(countermeasures: *const Countermeasures, arena: Allocator) Allocator.Error!Countermeasures {
         var copied = countermeasures.*;
         for (&copied.records) |*record| if (record.*) |*countermeasure| {
+            // Made apart first, since the copy reads the model it replaces.
             const model = try countermeasure.model.copy(arena);
             countermeasure.model = model;
         };

@@ -127,10 +127,8 @@ pub const Rippers = struct {
         rippers.grips[index] = null;
     }
 
-    /// OpenReliant's: the Rippers' tables as a drawn frame copies them (`main.Drawn`), each set of
-    /// beams copied into `arena` (`table.copySlots`), so that drawing reads the copy while the game
-    /// frames go on with the beams. The copy owns nothing but what is in `arena`, and is never
-    /// reset nor let go of.
+    /// OpenReliant's: the Rippers' tables as a drawn frame copies them (`main.Drawn.Effects`), each
+    /// set of beams copied into `arena` (`table.copySlots`).
     pub fn copy(rippers: *const Rippers, arena: Allocator) Allocator.Error!Rippers {
         var copied = rippers.*;
         try table.copySlots(Grip, arena, &copied.grips);

@@ -2306,9 +2306,9 @@ const Play = struct {
     pilot_profile: *game.gameflow.ProfileFile,
     /// The player and menu scripts, which hear as each mission starts and ends.
     presentation: ?*scripting.Presentation = null,
-    /// What drawing hands the game (`game.main.Handed`), which the game takes up before the next
-    /// mission starts and resets some of it, as it would have found it had drawing written it into
-    /// the game at once: a switch of view a script asks for as the mission ends, among others.
+    /// What drawing hands the game (`game.main.Handed`), such as a switch of view a script asks for
+    /// as the mission ends. The game takes it up before the next mission starts, which resets some
+    /// of it, so the game finds it as it would if drawing had written it into the game at once.
     handed: *game.main.Handed,
     /// The radio, whose line playing stops as a mission ends (`letGo`).
     radio: *game.radio.Radio,
@@ -2324,7 +2324,7 @@ const Play = struct {
     editor: ?*game.mission.editor.Session = null,
     io: Io,
 
-    /// What the game asked of the sound, played (`game.hog_snd.commands.Commands.play`).
+    /// Plays what the game asked of the sound (`game.hog_snd.commands.Commands.play`).
     fn playSounds(play: *Play) void {
         play.sounds.play(play.hearing.sound, play.hearing.camera.*);
     }
@@ -2467,8 +2467,8 @@ const Display = struct {
     /// shows the speaker's face, and the mission's variables, which have what is ready for JUMP
     /// DRIVE (`game.main.Drawn`).
     drawn: *const game.main.Drawn,
-    /// What drawing hands the game, which takes what the player aimed at as the display was drawn
-    /// (`game.main.Handed`).
+    /// What drawing hands the game (`game.main.Handed`), here what the player aimed at as the
+    /// display was drawn.
     handed: *game.main.Handed,
     /// The camera, whose shake shakes the power ball too.
     view: *const camera.Camera,

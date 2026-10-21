@@ -425,10 +425,8 @@ pub const Pool = struct {
         pool.show(last + 1);
     }
 
-    /// OpenReliant's: the pool as a drawn frame copies it (`main.Drawn`), with its live particles
-    /// and their sprites copied into `arena`, so that drawing reads the copy while the game frames
-    /// go on with the pool. The copy owns nothing but what is in `arena`, and is never let go of
-    /// (`deinit`).
+    /// OpenReliant's: the pool as a drawn frame copies it (`main.Drawn.Effects`), its live
+    /// particles and their sprites copied into `arena`.
     pub fn copy(pool: *const Pool, arena: Allocator) Allocator.Error!Pool {
         var copied = pool.*;
         copied.particles = try arena.dupe(Particle, pool.particles[0..pool.used]);

@@ -21,6 +21,7 @@ const explode = @import("../explode.zig");
 const gameobj = @import("../gameobj.zig");
 const objects = @import("../objects.zig");
 const particles = @import("../particles.zig");
+const table = @import("../table.zig");
 const wgate = @import("../wgate.zig");
 const xtrabits = @import("../xtrabits.zig");
 const tunnel = @import("tunnel.zig");
@@ -170,16 +171,15 @@ pub const Projection = struct {
     }
 
     /// OpenReliant's: a copy of it for a drawn frame (`wgate.Gates.copy`), made in `arena`, with
-    /// its beams' shapes and its tunnel's shape and colours, which the game changes as it runs,
-    /// its own.
+    /// its own copies of what the game changes as it runs: its beams' shapes, and its tunnel's
+    /// shape and colours.
     pub fn copy(projection: *const Projection, arena: Allocator) Allocator.Error!*Projection {
-        const own = try arena.create(Projection);
-        own.* = projection.*;
+        const own = try table.copyRecord(Projection, arena, projection);
         for (&own.beams) |*beam| {
             try beam.mesh.copyShape(arena);
             beam.point();
         }
-        try own.tunnel.copyIn(arena);
+        try own.tunnel.copyShape(arena);
         return own;
     }
 

@@ -11,6 +11,7 @@ const Allocator = std.mem.Allocator;
 
 const srapiext = @import("../../surrender/surrenderlib/srapiext.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
+const table = @import("../table.zig");
 const tunnel = @import("tunnel.zig");
 const Grid = tunnel.Grid;
 const Palette = tunnel.Palette;
@@ -70,11 +71,10 @@ pub const Worm = struct {
     }
 
     /// OpenReliant's: a copy of it for a drawn frame (`wgate.Gates.copy`), made in `arena`, with
-    /// its mesh's shape, which the game wobbles and scrolls, its own. It shares its colours, which
-    /// the game leaves as they were made.
+    /// its own copy of its mesh's shape, which the game wobbles and scrolls. It shares its colours,
+    /// which the game leaves as they were made.
     pub fn copy(worm: *const Worm, arena: Allocator) Allocator.Error!*Worm {
-        const own = try arena.create(Worm);
-        own.* = worm.*;
+        const own = try table.copyRecord(Worm, arena, worm);
         try own.mesh.copyShape(arena);
         own.point();
         return own;

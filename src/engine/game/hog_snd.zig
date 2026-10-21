@@ -1524,7 +1524,7 @@ pub const testing = struct {
             if (stdsmp) |bytes| speaker.sound.stdsmp = try fat.Bank.parse(bytes);
         }
 
-        /// What plays ended, and what was asked for let go of.
+        /// Ends what plays, and lets go of what was asked for.
         pub fn deinit(speaker: *Speaker) void {
             speaker.asked.deinit(&speaker.sound);
             speaker.sound.shutdown();
@@ -1535,14 +1535,14 @@ pub const testing = struct {
             return .{ .sound = &speaker.sound, .camera = &speaker.listener, .clock = clock };
         }
 
-        /// `world` asks the speaker for its sounds (`gameobj.World.sounds`), and sees from where
-        /// it listens, as the driver's world sees from where the camera stands.
+        /// Has `world` ask the speaker for its sounds (`gameobj.World.sounds`) and see from where
+        /// the speaker listens, as the driver's world sees from where the camera stands.
         pub fn hear(speaker: *Speaker, world: *gameobj.World) void {
             world.sounds = &speaker.asked;
             world.player.viewing.seen_from = speaker.listener;
         }
 
-        /// What the world asked for, played (`commands.Commands.play`).
+        /// Plays what the world asked for (`commands.Commands.play`).
         pub fn heard(speaker: *Speaker) void {
             speaker.asked.play(&speaker.sound, speaker.listener);
         }

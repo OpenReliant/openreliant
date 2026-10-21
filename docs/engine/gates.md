@@ -147,9 +147,9 @@ OpenReliant shapes the tunnels (steps 1 to 3) and scrolls their textures in the 
 where the last game frame shaped it as they set up the portal (`0x0041FDF0`), however often the
 screen is drawn. Drawing draws copies of the tunnels, the flashes, the worm, the projection and the
 warps' beams, and a portal of its own for each gate's ([Rendering](rendering.md)). The drawn frame
-copies the gates as it begins, with the tunnels', the flashes', the worm's and the beams' shapes
-and the tunnels' colours, which the game frames change, its own (`wgate.Gates.copy`), so drawing
-doesn't read the game's gates either.
+copies the gates as it begins, with its own copies of what the game frames change: the shapes of
+the tunnels, the flashes, the worm and the beams, and the tunnels' colours (`wgate.Gates.copy`). So
+drawing doesn't read the game's gates either.
 
 ## Warps
 

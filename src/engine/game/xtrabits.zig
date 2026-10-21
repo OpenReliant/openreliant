@@ -179,8 +179,9 @@ pub const Portals = struct {
         game: *const srapiext.Portal,
         made: i32,
         portal: srapiext.Portal = .{},
-        /// Whether its owner stood it this drawn frame, and whether the frame shows it (`draw`).
+        /// Whether its owner stood it this drawn frame.
         stood: bool = true,
+        /// Whether the frame shows it (`draw`).
         shown: bool,
     };
 

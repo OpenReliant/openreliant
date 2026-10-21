@@ -20,8 +20,9 @@ pub const Scanner = struct {
     /// `scanner_object` (`0x0057E060`): the slot of the object the player looks for; none while the
     /// scanner is off, as it is from a mission's start (`mission_start`, `0x004935DD`).
     object: ?u16 = null,
-    /// Whether the voice the beep loops on while it comes at its quickest is kept (`scanner_voice`,
-    /// `0x005883C4`, `hog_snd.commands.Kept.scanner`); not otherwise, and from a mission's start.
+    /// Whether the beep loops on a voice kept for it (`scanner_voice`, `0x005883C4`,
+    /// `hog_snd.commands.Kept.scanner`), as it does while it comes at its quickest. It doesn't
+    /// otherwise, or from a mission's start.
     loop_kept: bool = false,
     /// `scanner_beeped_at` (`0x005883C8`): the frame's start the beep last came at.
     beeped_at: i32 = 0,
@@ -40,11 +41,10 @@ pub const Scanner = struct {
     /// quickest it loops on a voice of its own, started where none plays; slower, a loop playing
     /// ends and the beep plays once. It is heard in every view, where anything is heard
     /// (`gameobj.World.sounds`). Where no voice is free for the loop, the game asks again at the
-    /// next beep; the game frames ask once, and the loop waits for a voice
+    /// next beep; OpenReliant's game frames ask once, and the loop waits for a voice
     /// (`hog_snd.commands.Sample.waits`).
     pub fn frame(scanner: *Scanner, world: gameobj.World, frame_start: i32) void {
-        const asked = world.sounds;
-        const index = scanner.object orelse return scanner.endLoop(asked);
+        const index = scanner.object orelse return scanner.endLoop(world.sounds);
         const all = world.objects;
         const sought = &all.slots[index].object;
         if (sought.flags.exploding) {
@@ -55,21 +55,21 @@ pub const Scanner = struct {
         const ticks = interval(sought.nextPosition() - ship.nextPosition(), ship.nextHeading());
         if (scanner.beeped_at + ticks >= frame_start) return;
         scanner.beeped_at = frame_start;
-        const heard = asked orelse return;
+        const asked = world.sounds orelse return;
         if (ticks <= quickest) {
             if (scanner.loop_kept) return;
-            heard.add(.{ .sample = .{ .bank = .stdsmp, .index = beep_sample, .loops = hog_snd.forever, .kept = .scanner, .waits = true } });
+            asked.add(.{ .sample = .{ .bank = .stdsmp, .index = beep_sample, .loops = hog_snd.forever, .kept = .scanner, .waits = true } });
             scanner.loop_kept = true;
         } else {
-            scanner.endLoop(heard);
-            heard.add(.{ .sample = .{ .bank = .stdsmp, .index = beep_sample } });
+            scanner.endLoop(asked);
+            asked.add(.{ .sample = .{ .bank = .stdsmp, .index = beep_sample } });
         }
     }
 
-    /// The loop playing, where one is, ended (`sound_voice_end`).
-    fn endLoop(scanner: *Scanner, asked: ?*hog_snd.commands.Commands) void {
+    /// Ends the loop playing, where one is (`sound_voice_end`).
+    fn endLoop(scanner: *Scanner, sounds: ?*hog_snd.commands.Commands) void {
         if (!scanner.loop_kept) return;
-        if (asked) |heard| heard.add(.{ .ended = .scanner });
+        if (sounds) |asked| asked.add(.{ .ended = .scanner });
         scanner.loop_kept = false;
     }
 };

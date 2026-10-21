@@ -496,10 +496,8 @@ pub const Rays = struct {
         }
     }
 
-    /// OpenReliant's: the rays as a drawn frame copies them (`main.Drawn`), each ray and its
-    /// strands copied into `arena` (`table.copySlots`), so that drawing reads the copy while the
-    /// game frames go on with the rays. The copy owns nothing but what is in `arena`, and is never
-    /// reset nor let go of.
+    /// OpenReliant's: the rays as a drawn frame copies them (`main.Drawn.Effects`), each ray and its
+    /// strands copied into `arena` (`table.copySlots`).
     pub fn copy(rays: *const Rays, arena: Allocator) Allocator.Error!Rays {
         var copied = rays.*;
         try table.copySlots(Ray, arena, &copied.slots);

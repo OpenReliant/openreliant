@@ -1588,8 +1588,8 @@ test "capital shields" {
     // Drawn where its part stands: a copy of the part, over the shield's texture, lit round the
     // triangle's middle and dark at the far one, which isn't drawn. The vertex at 0.6 glows three
     // times its ramp's brightest.
-    // Drawn with an allocator of the frame's own, as the driver draws: what drawing keeps of a
-    // shield is the shields' own, made and let go of in theirs.
+    // Drawn with the frame's own allocator, as the driver draws: what drawing keeps of a shield is
+    // made and let go of in the shields' allocator.
     var frame: std.heap.ArenaAllocator = .init(gpa);
     defer frame.deinit();
     const drawing = frame.allocator();

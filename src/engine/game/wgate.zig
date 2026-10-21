@@ -290,18 +290,17 @@ pub const Gates = struct {
         }
     }
 
-    /// OpenReliant's: the gates as a drawn frame copies them (`main.Drawn`), so that drawing reads
-    /// the copy while the game frames go on with them: each record, the worm and the projection
-    /// copied into `arena`, with the tunnels', the flashes', the worm's and the beams' shapes and
-    /// the tunnels' colours, which the game changes as it runs, their own, and their objects
-    /// pointed at them. The copy shares the rest of the meshes with the game, which doesn't change
-    /// them; it owns nothing but what is in `arena`, and is never reset nor let go of.
+    /// OpenReliant's: the gates as a drawn frame copies them (`main.Drawn.Effects`): each record,
+    /// the worm and the projection copied into `arena`, with their own copies of what the game
+    /// changes as it runs, which their objects point at: the shapes of the tunnels, the flashes,
+    /// the worm and the beams, and the tunnels' colours. The copy shares the rest of the meshes
+    /// with the game, which doesn't change them.
     pub fn copy(gates: *const Gates, arena: Allocator) Allocator.Error!Gates {
         var copied = gates.*;
         try table.copySlots(Record, arena, &copied.records);
         for (copied.records) |held| if (held) |record| {
-            try record.tunnel.copyIn(arena);
-            for (&record.squares) |*square| try square.copyIn(arena);
+            try record.tunnel.copyShape(arena);
+            for (&record.squares) |*square| try square.copyShape(arena);
         };
         if (gates.worm) |tube| copied.worm = try tube.copy(arena);
         if (gates.projection) |shown| copied.projection = try shown.copy(arena);

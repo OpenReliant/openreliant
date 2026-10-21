@@ -64,7 +64,7 @@ pub const Ring = struct {
     /// `0x00569978`: until when Betty says no more that the armed missile has run out, as a launch
     /// is refused for want of a lock.
     empty_warned_until: u32 = 0,
-    /// Whether Betty's voice is kept as she last said a missile's name (`missile_name_voice`,
+    /// Whether the voice Betty last said a missile's name on is kept (`missile_name_voice`,
     /// `0x00566660`, `hog_snd.commands.Kept.missile_name`). `0x0057BF3C` counts 150 ticks from
     /// then, and nothing reads it.
     name_kept: bool = false,
@@ -131,8 +131,8 @@ pub const Ring = struct {
         return turned;
     }
 
-    /// After a turn, Betty says the armed missile's name, where it is live, ending what she said
-    /// last (`missile_name_voice`, `0x00566660`), as the game frames ask for it (`asked`).
+    /// After a turn, asks for Betty to say the armed missile's name, where it is live, ending what
+    /// she said last (`missile_name_voice`, `0x00566660`).
     pub fn sayName(ring: *Ring, asked: *hog_snd.commands.Commands) void {
         const armed = ring.armedEntry();
         if (armed.left() == null) return;
