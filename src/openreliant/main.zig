@@ -1020,7 +1020,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         };
         const console_up = if (console) |*shown| shown.isUp() else false;
 
-        world.cockpit = if (cockpit.shown) |*shown| &shown.model else null;
         world.mission = if (play.loaded) |loaded| &loaded.bound else null;
         world.events = if (play.loaded) |loaded| &loaded.events else null;
         world.variables = if (play.loaded) |loaded| &loaded.script.variables else null;
@@ -1355,7 +1354,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         if (drawn_objects) |copy| {
             game_display.subtarget.hold();
             // Drawing takes up what the game frames asked of it since the last drawn frame.
-            cues.takeUp(.{ .objects = copy, .trails = &trails, .atmospheres = &atmospheres, .escort_marker = escort_marker, .flashes = environment.flashes, .sky = sky, .space = space, .textures = &textures });
+            cues.takeUp(.{ .objects = copy, .trails = &trails, .atmospheres = &atmospheres, .escort_marker = escort_marker, .flashes = environment.flashes, .sky = sky, .space = space, .textures = &textures, .cockpit = if (cockpit.shown) |*shown| &shown.model else null });
         }
         if (viewed) |launch_step| {
             game.main.viewFrame(.{

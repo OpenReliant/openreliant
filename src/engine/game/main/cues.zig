@@ -1,9 +1,9 @@
 //! OpenReliant's: what the game frames ask of drawing, in the order they ask it, which drawing takes
 //! up as each drawn frame begins (`Cues.takeUp`). Drawing keeps the missiles' trails, the planets'
-//! atmospheres, the escort marker, Planet Bombard's flashes, the sky and the backdrop. The game
-//! frames only say when one starts or goes, which nebula to show, when to place the backdrop, and
-//! when a mission starts, so they write nothing into what drawing keeps. A world with nothing drawn
-//! has no cues, and its game frames give none.
+//! atmospheres, the escort marker, Planet Bombard's flashes, the sky, the backdrop and the cockpit's
+//! model. The game frames only say when one starts or goes, which nebula to show, when to place the
+//! backdrop, when the cockpit glows red and when a mission starts, so they write nothing into what
+//! drawing keeps. A world with nothing drawn has no cues, and its game frames give none.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -14,6 +14,8 @@ const create = @import("../create.zig");
 const atmosphere = @import("../create/atmosphere.zig");
 const escort = @import("../create/escort.zig");
 const bombard = @import("../environfx/bombard.zig");
+const objects = @import("../objects.zig");
+const cockpit = @import("cockpit.zig");
 const trail = @import("../missiles/trail.zig");
 const nebula = @import("../nebula.zig");
 
@@ -42,6 +44,9 @@ pub const Cue = union(enum) {
     /// The script asks for the backdrop to be placed again (`UpdateEnvironmentFXState`), for a
     /// mission of this many ships (`backdrop.Backdrop.place`).
     backdrop_placed: usize,
+    /// The player's ship is about to blow up with its pilot aboard, so the cockpit glows red until
+    /// the mission ends (`cockpit.lightEmergency`, `aieject.playerInit`).
+    cockpit_emergency,
 
     /// A planet's slot, how often the slot had been reused as the planet was made
     /// (`create.Objects.reuses`), which tells it from an object made later in its place, and the
@@ -95,6 +100,8 @@ pub const Cues = struct {
         sky: ?*nebula.Sky = null,
         space: ?*backdrop.Backdrop = null,
         textures: ?*srtexture.Table = null,
+        /// The cockpit's model, where the player's ship has one.
+        cockpit: ?*objects.Model = null,
     };
 
     /// As a drawn frame begins: each cue, in the order the game frames gave it, done to what drawing
@@ -123,6 +130,7 @@ pub const Cues = struct {
                 };
             },
             .backdrop_placed => |ships| if (kept.sky) |sky| if (kept.space) |space| space.place(sky, kept.objects, ships),
+            .cockpit_emergency => if (kept.cockpit) |model| cockpit.lightEmergency(model),
         };
     }
 };
@@ -170,6 +178,22 @@ test Cues {
     // The trails are numbered in turn.
     try std.testing.expectEqual(0, cues.trailNumber());
     try std.testing.expectEqual(1, cues.trailNumber());
+}
+
+test "the cockpit glows red as the game frames ask" {
+    var mission: @import("../gameobj.zig").testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var parts = [_]objects.Model.Part{.{ .hidden = false, .parent = null, .origin = @splat(0), .object = .{ .flags = .{}, .position = @splat(0), .radius = 1, .levels = &.{} } }};
+    var model: objects.Model = .{ .parts = &parts, .order = &.{0}, .lights = &.{}, .glows = &.{}, .mounts = &.{} };
+    var cues: Cues = .{ .gpa = std.testing.allocator };
+    defer cues.deinit();
+
+    // Drawing lights its cockpit as it takes the cue up.
+    cues.add(.cockpit_emergency);
+    try std.testing.expect(parts[0].object.colour[0] != 1 or parts[0].object.colour[1] != 0);
+    cues.takeUp(.{ .objects = mission.objects, .cockpit = &model });
+    try std.testing.expectEqual([3]f32{ 1, 0, 0 }, parts[0].object.colour[0..3].*);
 }
 
 test "the nebula and the backdrop, as the game frames ask" {

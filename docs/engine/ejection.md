@@ -22,8 +22,10 @@ ticks before it explodes. `order_eject_player_init` (`0x00416310`) lights the di
 ([HUD](hud.md#the-jump-prompt-the-eject-marker-and-the-scanner)) and has the cockpit glow red: every
 part of the cockpit's model takes the colour (1, 0, 0) (`0x00416383`) and light mask 1
 (`0x004163E1`), so the fill lights reach it but not the first key light, until the mission ends.
-Moose calls the pilot to eject on the radio, one of `ejt_001` to `ejt_008`
-([Remarks](radio.md#remarks)).
+In OpenReliant drawing keeps the cockpit's model, and the game frame asks it for the glow by a cue,
+which it takes up as the next drawn frame begins
+([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)). Moose calls the pilot to
+eject on the radio, one of `ejt_001` to `ejt_008` ([Remarks](radio.md#remarks)).
 
 An AI pilot ejects under Eject Spin (108), which `object_destroyed` gives a ship of the player's
 wing whose eject roll falls below 40, or one told to eject before exploding. `order_eject_spin_init`

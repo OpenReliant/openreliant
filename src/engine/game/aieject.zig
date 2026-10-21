@@ -499,8 +499,8 @@ const eject_calls = [_][]const u8{ "ejt_001.ut", "ejt_002.ut", "ejt_003.ut", "ej
 /// `order_eject_player_init` (`0x00416310`), as the player's ship's armour runs out: the ship
 /// drifts on unpowered for four to six seconds before it blows up, and the pilot has that long to
 /// eject (EJECT, `input.eject`). The display's eject marker flashes (`hud.State.ejected`), the
-/// cockpit glows red (`main.cockpit.lightEmergency`), and Moose calls the pilot to eject on the
-/// radio.
+/// cockpit glows red, which drawing does as it takes up the game frames' cue
+/// (`main.cues.Cue.cockpit_emergency`), and Moose calls the pilot to eject on the radio.
 pub fn playerInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.eject_player;
@@ -513,7 +513,7 @@ pub fn playerInit(ctx: Context, index: u16) void {
         display.ejected = true;
         display.events.ejections.happen();
     }
-    if (ctx.world.cockpit) |cockpit| main.cockpit.lightEmergency(cockpit);
+    if (ctx.world.cues) |cues| cues.add(.cockpit_emergency);
     radio.mooseSaysOneOf(ctx.world, &eject_calls);
 }
 
@@ -534,15 +534,22 @@ test player {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
-    const ctx = mission.orders();
+    var cues: main.cues.Cues = .{ .gpa = std.testing.allocator };
+    defer cues.deinit();
+    var ctx = mission.orders();
+    ctx.world.cues = &cues;
     const index = try mission.add(.of(.predator), @splat(0));
     const slot = &mission.objects.slots[index];
 
     // The player's ship ejects, and drifts until its end, which comes four to six seconds later.
+    // Drawing is asked to light the cockpit red.
     try std.testing.expect(try aigeneric.push(ctx, index, .eject_player, .none));
     aigeneric.objectOrders(ctx, index);
     try std.testing.expect(slot.object.flags.ejected and slot.object.flags.unpowered);
     try std.testing.expectEqual(.ejecting, mission.player.ending);
+    try std.testing.expect(for (cues.list.items) |cue| {
+        if (cue == .cockpit_emergency) break true;
+    } else false);
     const end = slot.state.eject_player.end;
     try std.testing.expect(end >= 400 and end < 600);
 
