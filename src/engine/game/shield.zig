@@ -319,7 +319,10 @@ const centre_turn_per_tick: f32 = 1e-4;
 const flicker_for = 100;
 const flicker_odds = 4;
 
-/// The bubbles' meshes, colours and textures (`0x0049EF10`), which every bubble shares.
+/// The bubbles' meshes, colours and textures (`0x0049EF10`), which every bubble shares, and what
+/// drawing keeps of each bubble and capital shield. Drawing keeps all of it: the game keeps the
+/// bubbles in their objects' slots (`Bubble`) and the capital shields in a table of their own
+/// (`Capital`).
 pub const Shields = struct {
     /// The game's levels, then the smooth style's finer one (`fine_level`).
     meshes: [all_grids.len]srapiext.Mesh,
@@ -333,10 +336,10 @@ pub const Shields = struct {
     /// as a force field is (`0x0059372C`).
     texture: *srtexture.Image,
     field: *srtexture.Image,
-    /// The capital ships' shields, made in `gpa`.
-    capital: Capital,
-    /// What drawing keeps of each slot's bubble (`Shown`), made in `gpa` as it is first drawn.
+    /// What drawing keeps of each slot's bubble (`Shown`) and of each capital shield
+    /// (`CapitalShown`), made in `gpa` as it is first drawn.
     shown: [gameobj.max_objects]?*Shown = @splat(null),
+    capital_shown: [capital_slots]?*CapitalShown = @splat(null),
     gpa: Allocator,
 
     /// `0x0049EF10`: the textures, each tint's ramp, and the levels' spheres (`0x0049EE90`), at the
@@ -358,7 +361,6 @@ pub const Shields = struct {
             .reaches = reaches.get(detail),
             .texture = texture,
             .field = field,
-            .capital = .{ .gpa = gpa },
             .gpa = gpa,
         };
     }
@@ -376,8 +378,8 @@ pub const Shields = struct {
     /// `0x0049EF60`: the meshes let go.
     pub fn deinit(shields: *Shields, gpa: Allocator) void {
         for (shields.meshes) |mesh| mesh.deinit(gpa);
-        shields.capital.deinit();
         for (shields.shown) |held| if (held) |shown| shown.destroy(shields.gpa);
+        for (&shields.capital_shown) |*held| table.letGo(CapitalShown, shields.gpa, held);
     }
 
     /// What drawing keeps of `bubble`, the bubble of slot `index`, whose reuse count is `reuse`:
@@ -429,7 +431,7 @@ pub const Shields = struct {
     /// First, what drawing keeps of the bubble takes up the hits it took since (`Shown.takeUp`),
     /// on the level it was last drawn at, which the game made as they struck.
     ///
-    /// Then the capital shields (`Capital.draw`).
+    /// Then, where `capital` is given, the capital shields (`drawCapital`).
     ///
     /// **Improvement:** a bubble past the last level's reach is left out; the game stops the pass
     /// there, leaving out every bubble in the slots after it and the capital shields.
@@ -437,7 +439,7 @@ pub const Shields = struct {
     /// The game moves a bubble's colours on as the renderer draws it; OpenReliant as it goes into
     /// the scene, so one out of view still fades. In the smooth style each bubble's colours and
     /// texture coordinates for the frame go in `arena`.
-    pub fn draw(shields: *Shields, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: *Objects, look: Look) Allocator.Error!void {
+    pub fn draw(shields: *Shields, gpa: Allocator, arena: Allocator, scene: *srcore.Scene, all: *const Objects, capital: ?*const Capital, look: Look) Allocator.Error!void {
         for (&shields.levels, &shields.meshes) |*level, *mesh| level.* = .{.{ .mesh = mesh, .until = std.math.inf(f32) }};
         for (&all.slots, 0..) |*slot, index| {
             if (slot.object.type.base() == .stand_in) continue;
@@ -480,7 +482,37 @@ pub const Shields = struct {
             shown.object.orientation = slot.drawn.orientation;
             try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &shown.object }, .world);
         }
-        try shields.capital.draw(shields, gpa, scene, all, look);
+        if (capital) |showing| try shields.drawCapital(showing, gpa, scene, all, look);
+    }
+
+    /// The drawing part of `capshields_draw`, once a drawn frame after the bubbles: each of
+    /// `capital`'s shields showing into the world's layer, where its part stands in `all`, with its
+    /// colours and texture moved on by the ticks since they last moved. What drawing keeps of it is
+    /// made the first time it is drawn, and again for a later shield in its slot (`CapitalShown`),
+    /// and takes up the strikes since, which the game made as they struck. The game frames let the
+    /// shields go (`Capital.frame`).
+    fn drawCapital(shields: *Shields, capital: *const Capital, gpa: Allocator, scene: *srcore.Scene, all: *const Objects, look: Look) Allocator.Error!void {
+        for (capital.slots, &shields.capital_shown, 0..) |held, *kept, index| {
+            const shield = held orelse {
+                table.letGo(CapitalShown, shields.gpa, kept);
+                continue;
+            };
+            const part = shield.standing(all, @intCast(index)) orelse continue;
+            const shown = table.keptFor(CapitalShown, shields.gpa, kept, shield.serial) orelse made: {
+                const made = try CapitalShown.create(shields.gpa, shields, &shield, part);
+                kept.* = made;
+                break :made made;
+            };
+            const ramp = shields.ramps.getPtrConst(capital_tint);
+            const ticks: f32 = @floatFromInt(look.frame_start -% shown.moved);
+            shown.takeUp(&shield, ramp);
+            shown.object.position = part.object.position;
+            shown.object.orientation = part.object.orientation;
+            shown.fade(ramp, @floatFromInt(look.frame_start -% shown.moved));
+            if (shown.force_field) shown.flicker(look.frame_start, look.random) else shown.swirl(ticks);
+            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &shown.object }, .world);
+            shown.moved = look.frame_start;
+        }
     }
 };
 
@@ -584,7 +616,7 @@ pub const Bubble = struct {
 /// What a slot's shield bubble (`Bubble`) shows, which drawing keeps from the first time it draws
 /// it: its scene object, its hits as its style keeps them, how many of the bubble's strikes it has
 /// made into them, and the flicker it has seen out. The game keeps all of it in the bubble
-/// (`0x0049EF90`). OpenReliant keeps it apart, for each object a slot holds
+/// (`0x0049EF90`). OpenReliant keeps it apart (`Shields.shown`), for each object a slot holds
 /// (`create.Objects.reuses`), so that drawing writes nothing into the bubble.
 pub const Shown = struct {
     /// The slot's reuse count as it was made, which tells it from the bubble of a later object.
@@ -885,24 +917,14 @@ pub fn hideForceFields(model: *objects.Model) void {
 /// The capital shields showing (`capshields`, `0x0058FB70`). A ship that lists components has no
 /// bubble. Where it is struck, a copy of the part struck glows round the hit instead, and a force
 /// field glows whole. The game keeps which part each slot shows on, until when, and its strikes
-/// (`CapitalShield`); drawing keeps what each shows (`CapitalShown`).
+/// (`CapitalShield`); drawing keeps what each shows (`CapitalShown`, `Shields.capital_shown`).
 pub const Capital = struct {
-    gpa: Allocator,
     slots: [capital_slots]?CapitalShield = @splat(null),
     /// The slot the next one takes (`capshield_next`, `0x00593728`), round and round, whatever
     /// shows there.
     next: CapitalSlot = 0,
     /// OpenReliant's: how many it has made, which numbers the next (`CapitalShield.serial`).
     made: u32 = 0,
-    /// What drawing keeps of each slot's capital shield (`CapitalShown`), made in `gpa` as it is
-    /// first drawn.
-    shown: [capital_slots]?*CapitalShown = @splat(null),
-
-    /// Lets every one go (`shields_deinit`).
-    pub fn deinit(capital: *Capital) void {
-        for (&capital.shown) |*held| table.letGo(CapitalShown, capital.gpa, held);
-        capital.slots = @splat(null);
-    }
 
     /// The one showing on part `ref`, where its node names one.
     ///
@@ -953,36 +975,6 @@ pub const Capital = struct {
             const shield = held orelse continue;
             const at: CapitalSlot = @intCast(index);
             if (!(now < shield.until) or shield.standing(all, at) == null) capital.free(all, at);
-        }
-    }
-
-    /// The drawing part of `capshields_draw`, once a drawn frame after the bubbles: each capital
-    /// shield showing into the world's layer, where its part stands in `all`, with its colours and
-    /// texture moved on by the ticks since they last moved. What drawing keeps of it is made the
-    /// first time it is drawn, and again for a later shield in its slot (`CapitalShown`), and
-    /// takes up the strikes since, which the game made as they struck. The game frames let the
-    /// shields go (`frame`).
-    fn draw(capital: *Capital, shields: *const Shields, gpa: Allocator, scene: *srcore.Scene, all: *const Objects, look: Shields.Look) Allocator.Error!void {
-        for (capital.slots, &capital.shown, 0..) |held, *kept, index| {
-            const shield = held orelse {
-                table.letGo(CapitalShown, capital.gpa, kept);
-                continue;
-            };
-            const part = shield.standing(all, @intCast(index)) orelse continue;
-            const shown = table.keptFor(CapitalShown, capital.gpa, kept, shield.serial) orelse made: {
-                const made = try CapitalShown.create(capital.gpa, shields, &shield, part);
-                kept.* = made;
-                break :made made;
-            };
-            const ramp = shields.ramps.getPtrConst(capital_tint);
-            const ticks: f32 = @floatFromInt(look.frame_start -% shown.moved);
-            shown.takeUp(&shield, ramp);
-            shown.object.position = part.object.position;
-            shown.object.orientation = part.object.orientation;
-            shown.fade(ramp, @floatFromInt(look.frame_start -% shown.moved));
-            if (shown.force_field) shown.flicker(look.frame_start, look.random) else shown.swirl(ticks);
-            try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &shown.object }, .world);
-            shown.moved = look.frame_start;
         }
     }
 };
@@ -1039,8 +1031,8 @@ pub const CapitalShield = struct {
 /// it: a copy of the part's finest mesh, over `shield128`, or `ffield` for a force field, which
 /// its last hits light, with its colours; and how many of the shield's strikes it has made into
 /// its hits. The game keeps all of it in the capital shield (`capshields`). OpenReliant keeps it
-/// apart, for each shield a slot holds (`CapitalShield.serial`), so that drawing writes nothing
-/// into the capital shields.
+/// apart (`Shields.capital_shown`), for each shield a slot holds (`CapitalShield.serial`), so that
+/// drawing writes nothing into the capital shields.
 pub const CapitalShown = struct {
     /// The shield's number (`CapitalShield.serial`), which tells it from a later one in the slot.
     serial: u32,
@@ -1221,8 +1213,8 @@ pub fn flareCapital(world: gameobj.World, index: u16, ref: objects.PartRef, poly
     const part = ref.part();
     if (part.force_field and object.flags.exploding) return;
     if (part.object.levels.len == 0) return;
-    const shields = world.shields orelse return;
-    shields.capital.flare(world.objects, index, ref, polygon, world.clock.frame_start);
+    const capital = world.capital_shields orelse return;
+    capital.flare(world.objects, index, ref, polygon, world.clock.frame_start);
 }
 
 test {
@@ -1402,15 +1394,12 @@ test "a hit ripples out from where it struck" {
 
 test flare {
     const gpa = std.testing.allocator;
-    var built: testing.Built = try .init(gpa);
-    defer built.deinit(gpa);
     var thrown: sparks.testing.Built = try .init(gpa);
     defer thrown.deinit(gpa);
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
     var world = mission.world();
-    world.shields = &built.shields;
     world.sparks = &thrown.sparks;
     world.player.viewing.seen_from = .{};
     mission.clock.frame_start = 50;
@@ -1456,7 +1445,7 @@ test "Shields.draw" {
     var look: Shields.Look = .{ .camera = @splat(0), .inside = true, .frame_start = 150, .random = null };
 
     // Both were struck within the last hundred ticks, but the camera is in the player's cockpit.
-    try built.shields.draw(gpa, arena, &scene, mission.objects, look);
+    try built.shields.draw(gpa, arena, &scene, mission.objects, null, look);
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
     const shown = built.shields.shown[other].?;
     try std.testing.expectEqual(&shown.object, scene.layers.get(.world).items[0].mesh);
@@ -1466,11 +1455,11 @@ test "Shields.draw" {
     // From outside, both; past a hundred ticks, neither.
     scene.clear();
     look.inside = false;
-    try built.shields.draw(gpa, arena, &scene, mission.objects, look);
+    try built.shields.draw(gpa, arena, &scene, mission.objects, null, look);
     try std.testing.expectEqual(2, scene.layers.get(.world).items.len);
     scene.clear();
     look.frame_start = 201;
-    try built.shields.draw(gpa, arena, &scene, mission.objects, look);
+    try built.shields.draw(gpa, arena, &scene, mission.objects, null, look);
     try std.testing.expectEqual(0, scene.layers.get(.world).items.len);
 
     // A later object in the other's slot has a bubble drawn afresh.
@@ -1478,7 +1467,7 @@ test "Shields.draw" {
     mission.slot(other).shield.?.struck = 250;
     scene.clear();
     look.frame_start = 260;
-    try built.shields.draw(gpa, arena, &scene, mission.objects, look);
+    try built.shields.draw(gpa, arena, &scene, mission.objects, null, look);
     try std.testing.expectEqual(mission.objects.reuses[other], built.shields.shown[other].?.reuse);
 }
 
@@ -1568,12 +1557,12 @@ test "capital shields" {
     var built: testing.Built = try .init(gpa);
     defer built.deinit(gpa);
     const shields = &built.shields;
-    const capital = &shields.capital;
+    var capital: Capital = .{};
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
     var world = mission.world();
-    world.shields = shields;
+    world.capital_shields = &capital;
     mission.clock.frame_start = 100;
     const index = try mission.add(.of(.kamov), @splat(0));
 
@@ -1600,15 +1589,15 @@ test "capital shields" {
     // triangle's middle and dark at the far one, which isn't drawn. The vertex at 0.6 glows three
     // times its ramp's brightest.
     // Drawn with an allocator of the frame's own, as the driver draws: what drawing keeps of a
-    // shield is the capital shields' own, made and let go of in theirs.
+    // shield is the shields' own, made and let go of in theirs.
     var frame: std.heap.ArenaAllocator = .init(gpa);
     defer frame.deinit();
     const drawing = frame.allocator();
     var scene: srcore.Scene = .{};
     defer scene.deinit(drawing);
     var look: Shields.Look = .{ .camera = @splat(0), .inside = false, .frame_start = 100, .random = null };
-    try capital.draw(shields, drawing, &scene, mission.objects, look);
-    const shown = capital.shown[0].?;
+    try shields.drawCapital(&capital, drawing, &scene, mission.objects, look);
+    const shown = shields.capital_shown[0].?;
     try std.testing.expectEqual(1, scene.layers.get(.world).items.len);
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, 500 }), shown.object.position);
     try std.testing.expectEqual(shields.texture, shown.mesh.surfaces[0].textures[0].image);
@@ -1629,8 +1618,8 @@ test "capital shields" {
     try std.testing.expectEqual(301, shield.until);
     try std.testing.expectEqual(1, capital.next);
     look.frame_start = 101;
-    try capital.draw(shields, drawing, &scene, mission.objects, look);
-    try std.testing.expectEqual(shown, capital.shown[0].?);
+    try shields.drawCapital(&capital, drawing, &scene, mission.objects, look);
+    try std.testing.expectEqual(shown, shields.capital_shown[0].?);
     try std.testing.expectApproxEqAbs(0.575, shown.strengths[6][0], 1e-4);
     const reach = math.length(mesh.bounds[1]) * capital_reach_share;
     try std.testing.expectApproxEqAbs(math.distance(Vector{ 1000, 0, 0 }, .{ 990, 10, 0 }) / reach * 2 - fade_per_tick, shown.strengths[3][1], 1e-4);
@@ -1640,7 +1629,7 @@ test "capital shields" {
     // there, and its strengths have faded ten ticks' worth.
     const before = shown.mesh.uv[0].?[1];
     look.frame_start = 111;
-    try capital.draw(shields, drawing, &scene, mission.objects, look);
+    try shields.drawCapital(&capital, drawing, &scene, mission.objects, look);
     const after = shown.mesh.uv[0].?[1];
     try std.testing.expect(!std.meta.eql(before, after));
     const from = [2]f32{ before[0] - 0.5, before[1] - 0.5 };
@@ -1651,13 +1640,13 @@ test "capital shields" {
     // Once its time is up, drawing leaves it be; the game frame lets it go, and its part shows
     // none. Then drawing lets go of what it showed.
     look.frame_start = 301;
-    try capital.draw(shields, drawing, &scene, mission.objects, look);
+    try shields.drawCapital(&capital, drawing, &scene, mission.objects, look);
     try std.testing.expect(capital.slots[0] != null);
     capital.frame(mission.objects, 301);
     try std.testing.expectEqual(null, capital.slots[0]);
     try std.testing.expectEqual(null, parts[0].capshield);
-    try capital.draw(shields, drawing, &scene, mission.objects, look);
-    try std.testing.expectEqual(null, capital.shown[0]);
+    try shields.drawCapital(&capital, drawing, &scene, mission.objects, look);
+    try std.testing.expectEqual(null, shields.capital_shown[0]);
 
     // A force field glows whole over its own texture, and its colours come out blue. Its texture
     // jumps in the first frame drawn at each tick, and stands in the frames drawn between.
@@ -1669,21 +1658,21 @@ test "capital shields" {
     try std.testing.expectEqual(0, capital.next);
     var random: Random = .{};
     look.random = &random;
-    try capital.draw(shields, drawing, &scene, mission.objects, look);
-    const glowing = capital.shown[capital_slots - 1].?;
+    try shields.drawCapital(&capital, drawing, &scene, mission.objects, look);
+    const glowing = shields.capital_shown[capital_slots - 1].?;
     try std.testing.expectEqual(shields.field, glowing.mesh.surfaces[0].textures[0].image);
     for (glowing.strengths) |hits| try std.testing.expectEqual(1, hits[0]);
     const jumped = glowing.mesh.uv[0].?[1];
-    try capital.draw(shields, drawing, &scene, mission.objects, look);
+    try shields.drawCapital(&capital, drawing, &scene, mission.objects, look);
     try std.testing.expectEqual(jumped, glowing.mesh.uv[0].?[1]);
     look.frame_start = 311;
-    try capital.draw(shields, drawing, &scene, mission.objects, look);
+    try shields.drawCapital(&capital, drawing, &scene, mission.objects, look);
     try std.testing.expect(!std.meta.eql(jumped, glowing.mesh.uv[0].?[1]));
     try std.testing.expectEqual(0, glowing.colours[0][1]);
     try std.testing.expect(glowing.colours[0][2] > 0);
 
     // None shows on an object exploding, nor on one whose invulnerability is the fifth.
-    capital.deinit();
+    capital.slots = @splat(null);
     slot.object.flags.exploding = true;
     flareCapital(world, index, field, null);
     try std.testing.expectEqual(null, capital.slots[0]);

@@ -241,9 +241,9 @@ pub const Ray = struct {
     }
 };
 
-/// OpenReliant's: what drawing keeps of a ray from one frame to the next (`Rays.draw`): its strands'
-/// meshes, the tick they last strayed at, and where its light stood then, in the frame of what the
-/// ray hangs from.
+/// OpenReliant's: what drawing keeps of a ray from one frame to the next (`Drawing.draw`): its
+/// strands' meshes, the tick they last strayed at, and where its light stood then, in the frame of
+/// what the ray hangs from.
 pub const Shown = struct {
     serial: u32,
     strands: []Strand,
@@ -420,8 +420,6 @@ pub const Rays = struct {
     laser: *srtexture.Image,
     /// OpenReliant's: how many rays it has made, which numbers the next (`Ray.serial`).
     made: u32 = 0,
-    /// What drawing keeps of each ray (`Shown`), made in `gpa` as it is first drawn.
-    shown: [max_rays]?*Shown = @splat(null),
 
     /// OpenReliant's: a ray kept from one frame to the next, as the ion cannon keeps its own: its
     /// slot and its number (`Ray.serial`). The rays let a ray go on their own, as its owner goes or
@@ -463,7 +461,6 @@ pub const Rays = struct {
 
     pub fn deinit(rays: *Rays) void {
         rays.reset();
-        for (&rays.shown) |*held| table.letGo(Shown, rays.gpa, held);
     }
 
     /// `eray_add` (`0x0046AC50`): a ray of `spec` in the first free slot, or in the first where
@@ -498,21 +495,33 @@ pub const Rays = struct {
             if (!ray.update(all, now, random) or ray.parent.gone(all)) rays.remove(ray);
         }
     }
+};
 
-    /// The drawing part of `erays_update`, once a drawn frame: each ray that is bright, where what
-    /// it hangs from stands in `all`, at tick `now` (`Shown.draw`). What drawing keeps of a ray is
-    /// made the first time it draws it (`Shown`). The rays move on and go in the game frames alone
-    /// (`frame`).
-    pub fn draw(rays: *Rays, gpa: Allocator, scene: *srcore.Scene, all: *const Objects, now: i32, random: *Random) Allocator.Error!void {
-        for (rays.slots, &rays.shown) |held, *record| {
+/// OpenReliant's: what drawing keeps of the rays from one drawn frame to the next, apart from the
+/// game's rays (`Rays`): what it keeps of each ray (`Shown`), made in `gpa` as it first draws the
+/// ray.
+pub const Drawing = struct {
+    gpa: Allocator,
+    shown: [max_rays]?*Shown = @splat(null),
+
+    pub fn deinit(drawing: *Drawing) void {
+        for (&drawing.shown) |*held| table.letGo(Shown, drawing.gpa, held);
+    }
+
+    /// The drawing part of `erays_update`, once a drawn frame: each of `rays` that is bright, where
+    /// what it hangs from stands in `all`, at tick `now` (`Shown.draw`). What drawing keeps of a
+    /// ray is made the first time it draws it (`Shown`). The rays move on and go in the game
+    /// frames alone (`Rays.frame`).
+    pub fn draw(drawing: *Drawing, rays: *const Rays, gpa: Allocator, scene: *srcore.Scene, all: *const Objects, now: i32, random: *Random) Allocator.Error!void {
+        for (rays.slots, &drawing.shown) |held, *record| {
             const ray = held orelse {
-                table.letGo(Shown, rays.gpa, record);
+                table.letGo(Shown, drawing.gpa, record);
                 continue;
             };
             if (ray.brightness == 0) continue;
             const standing = ray.parent.standing(all) orelse continue;
-            const shown = table.keptFor(Shown, rays.gpa, record, ray.serial) orelse made: {
-                const made = try Shown.create(rays.gpa, ray);
+            const shown = table.keptFor(Shown, drawing.gpa, record, ray.serial) orelse made: {
+                const made = try Shown.create(drawing.gpa, ray);
                 record.* = made;
                 break :made made;
             };
@@ -603,9 +612,6 @@ test Rays {
     var built: testing.Built = try .init(gpa);
     defer built.deinit(gpa);
     const rays = &built.rays;
-    var mission: gameobj.testing.Mission = undefined;
-    try mission.init(gpa);
-    defer mission.deinit();
     var random: Random = .{};
     const spec: Spec = .{ .life = 0, .jitter = 0.2, .width = 10, .flags = .{} };
 
@@ -615,7 +621,19 @@ test Rays {
     const next = try rays.add(spec, &random);
     try std.testing.expectEqual(next, rays.slots[0].?);
     try std.testing.expect(next != first or rays.slots[1] != null);
-    rays.reset();
+}
+
+test Drawing {
+    const gpa = std.testing.allocator;
+    var built: testing.Built = try .init(gpa);
+    defer built.deinit(gpa);
+    const rays = &built.rays;
+    var drawing: Drawing = .{ .gpa = gpa };
+    defer drawing.deinit();
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var random: Random = .{};
 
     // Hanging from a ship, its strand and its light go into the scene where the ship stands,
     // the light at the strand's middle.
@@ -626,7 +644,7 @@ test Rays {
     ray.hang(.{ .object = ship });
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try rays.draw(gpa, &scene, mission.objects, 0, &random);
+    try drawing.draw(rays, gpa, &scene, mission.objects, 0, &random);
     try std.testing.expectEqual(2, scene.layers.get(.world).items.len);
     try std.testing.expectEqual(1, scene.lights.items.len);
     try std.testing.expectEqual([3]f32{ 0.6, 1, 1 }, scene.lights.items[0].colour);
@@ -634,7 +652,7 @@ test Rays {
 
     // Drawing keeps each strand's mesh, whose segments run from one point to the next, its alpha
     // the strand's, and its colour the ray's.
-    const strand = &rays.shown[0].?.strands[0];
+    const strand = &drawing.shown[0].?.strands[0];
     try std.testing.expectEqual(segments * 3, strand.mesh.polygons.len);
     try std.testing.expectEqual(segments * 2, strand.mesh.surfaces[1].polygons);
     try std.testing.expectApproxEqAbs(100, strand.mesh.positions[5][2], 1e-3);
@@ -643,12 +661,17 @@ test Rays {
 
     // The strands stray afresh once a tick: drawn again at the same tick, they stand as they were.
     ray.jitter = 0.2;
-    try rays.draw(gpa, &scene, mission.objects, 1, &random);
+    try drawing.draw(rays, gpa, &scene, mission.objects, 1, &random);
     const strayed = strand.mesh.positions[5];
-    try rays.draw(gpa, &scene, mission.objects, 1, &random);
+    try drawing.draw(rays, gpa, &scene, mission.objects, 1, &random);
     try std.testing.expectEqual(strayed, strand.mesh.positions[5]);
-    try rays.draw(gpa, &scene, mission.objects, 2, &random);
+    try drawing.draw(rays, gpa, &scene, mission.objects, 2, &random);
     try std.testing.expect(@reduce(.Or, strayed != strand.mesh.positions[5]));
+
+    // Once the ray has gone, drawing lets go of what it kept of it.
+    rays.reset();
+    try drawing.draw(rays, gpa, &scene, mission.objects, 3, &random);
+    try std.testing.expectEqual(null, drawing.shown[0]);
 }
 
 test "Rays.frame" {
@@ -656,6 +679,8 @@ test "Rays.frame" {
     var built: testing.Built = try .init(gpa);
     defer built.deinit(gpa);
     const rays = &built.rays;
+    var drawing: Drawing = .{ .gpa = gpa };
+    defer drawing.deinit();
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
@@ -666,7 +691,7 @@ test "Rays.frame" {
     // A ray goes once its time is up, in a game frame; drawing leaves it be.
     const timed = try rays.add(.{ .life = 10, .jitter = 0.2, .width = 10, .flags = .{ .timed = true } }, &random);
     rays.frame(mission.objects, 1, &random);
-    try rays.draw(gpa, &scene, mission.objects, 20, &random);
+    try drawing.draw(rays, gpa, &scene, mission.objects, 20, &random);
     try std.testing.expectEqual(timed, rays.slots[0].?);
     rays.frame(mission.objects, 20, &random);
     try std.testing.expectEqual(null, rays.slots[0]);
@@ -678,7 +703,7 @@ test "Rays.frame" {
     const hung = try rays.add(.{ .life = 0, .jitter = 0.2, .width = 10, .flags = .{} }, &random);
     hung.hang(.{ .part = .{ .object = ship, .part = .{ .model = &model, .index = 0 } } });
     const lights = scene.lights.items.len;
-    try rays.draw(gpa, &scene, mission.objects, 21, &random);
+    try drawing.draw(rays, gpa, &scene, mission.objects, 21, &random);
     try std.testing.expectEqual(lights, scene.lights.items.len);
     try std.testing.expectEqual(hung, rays.slots[0].?);
     rays.frame(mission.objects, 21, &random);

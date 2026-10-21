@@ -64,8 +64,6 @@ pub const Rippers = struct {
     next_grip: Place = 0,
     /// OpenReliant's: how many sets of beams it has made, which numbers the next (`Grip.serial`).
     made: u32 = 0,
-    /// What drawing keeps of each set of beams (`GripShown`), made in `gpa` as it is first drawn.
-    shown: [capacity]?*GripShown = @splat(null),
 
     /// `airipper_init` (`0x0040FC90`), as a mission loads: nothing carried, no beams, and `laser2`
     /// (`tractor.Look.init`) from `textures`, where there are textures to draw with.
@@ -84,14 +82,13 @@ pub const Rippers = struct {
 
     pub fn deinit(rippers: *Rippers) void {
         rippers.reset();
-        for (&rippers.shown) |*held| table.letGo(GripShown, rippers.gpa, held);
     }
 
     /// `airipper_fx_take` (`0x00412140`), with `airipper_fx_pincers` (`0x00412390`): the next set
     /// of beams, let go first where one holds it, for the Ripper in slot `ripper`, one from the
     /// first point of each of its back pincers' first point lists (`pincers`), and its place;
     /// null where it can't be made. The game keeps where each beam comes from; drawing makes the
-    /// beams (`draw`).
+    /// beams (`Drawing.draw`).
     fn take(rippers: *Rippers, world: gameobj.World, ripper: u16) ?Taken {
         const index = rippers.next_grip;
         rippers.next_grip = if (index == capacity - 1) 0 else index + 1;
@@ -142,43 +139,6 @@ pub const Rippers = struct {
     fn gripAt(rippers: *Rippers, grip: GripRef) ?*Grip {
         const place = grip.place() orelse return null;
         return if (place < capacity) rippers.grips[place] else null;
-    }
-
-    /// OpenReliant's: each set of beams an order showed in the last game frame goes into `scene`,
-    /// where its Ripper and its pod are drawn in `all`: each beam, as solid as the order made it,
-    /// aimed from its pincer, in the pincer's frame, at the middle of its pair of the pod's points,
-    /// which the game takes in the frame the pod's part hangs from (`hungFrom`). What drawing keeps
-    /// of a set is made the first time it draws it (`GripShown`), and each beam as it first draws
-    /// it. The game aims and adds them as the order runs (`airipper_fx_show`).
-    pub fn draw(rippers: *Rippers, gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects) Allocator.Error!void {
-        for (rippers.grips, &rippers.shown) |held, *kept| {
-            const grip = held orelse {
-                table.letGo(GripShown, rippers.gpa, kept);
-                continue;
-            };
-            if (!grip.shown) continue;
-            const look = rippers.look orelse continue;
-            const shown = table.keptFor(GripShown, rippers.gpa, kept, grip.serial) orelse made: {
-                const made = try rippers.gpa.create(GripShown);
-                made.* = .{ .serial = grip.serial };
-                kept.* = made;
-                break :made made;
-            };
-            for (grip.beams, &shown.beams, 0..) |emitter, *made, n| {
-                const from = emitter orelse continue;
-                const target = grip.targets[n / beams_per_pair] orelse continue;
-                const start = drawnPart(all, from.ship, from.part) orelse continue;
-                const to = hungFrom(all, target.ship, target.part) orelse continue;
-                const beam = made.* orelse beam: {
-                    const beam = try tractor.Beam.create(rippers.gpa, look, from);
-                    made.* = beam;
-                    break :beam beam;
-                };
-                beam.fade(grip.solid);
-                beam.aim(start, to.point(target.point));
-                try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &beam.object }, .world);
-            }
-        }
     }
 
     /// The Ripper in slot `ripper` carries the object in slot `object`, in the next entry
@@ -291,8 +251,9 @@ pub const Grip = struct {
 };
 
 /// What a set of beams (`Grip`) shows, which drawing keeps from the first time it draws it: its
-/// beams. The game keeps them in the set (`airipper_fx`). OpenReliant keeps them apart, for each
-/// set a place holds (`Grip.serial`), so that drawing writes nothing into the sets.
+/// beams. The game keeps them in the set (`airipper_fx`). OpenReliant keeps them apart
+/// (`Drawing`), for each set a place holds (`Grip.serial`), so that drawing writes nothing into the
+/// sets.
 pub const GripShown = struct {
     serial: u32,
     beams: [pincers.len]?*tractor.Beam = @splat(null),
@@ -300,6 +261,55 @@ pub const GripShown = struct {
     pub fn destroy(shown: *GripShown, gpa: Allocator) void {
         tractor.destroyAll(&shown.beams, gpa);
         gpa.destroy(shown);
+    }
+};
+
+/// OpenReliant's: what drawing keeps of the Rippers' beams from one drawn frame to the next, apart
+/// from the game's (`Rippers`): what it keeps of each set of beams (`GripShown`), made in `gpa` as
+/// it first draws the set.
+pub const Drawing = struct {
+    gpa: Allocator,
+    shown: [capacity]?*GripShown = @splat(null),
+
+    pub fn deinit(drawing: *Drawing) void {
+        for (&drawing.shown) |*held| table.letGo(GripShown, drawing.gpa, held);
+    }
+
+    /// Each of `rippers`' sets of beams an order showed in the last game frame goes into `scene`,
+    /// where its Ripper and its pod are drawn in `all`: each beam, as solid as the order made it,
+    /// aimed from its pincer, in the pincer's frame, at the middle of its pair of the pod's points,
+    /// which the game takes in the frame the pod's part hangs from (`hungFrom`). What drawing keeps
+    /// of a set is made the first time it draws it (`GripShown`), and each beam as it first draws
+    /// it. The game aims and adds them as the order runs (`airipper_fx_show`).
+    pub fn draw(drawing: *Drawing, rippers: *const Rippers, gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects) Allocator.Error!void {
+        for (rippers.grips, &drawing.shown) |held, *kept| {
+            const grip = held orelse {
+                table.letGo(GripShown, drawing.gpa, kept);
+                continue;
+            };
+            if (!grip.shown) continue;
+            const look = rippers.look orelse continue;
+            const shown = table.keptFor(GripShown, drawing.gpa, kept, grip.serial) orelse made: {
+                const made = try drawing.gpa.create(GripShown);
+                made.* = .{ .serial = grip.serial };
+                kept.* = made;
+                break :made made;
+            };
+            for (grip.beams, &shown.beams, 0..) |emitter, *made, n| {
+                const from = emitter orelse continue;
+                const target = grip.targets[n / beams_per_pair] orelse continue;
+                const start = drawnPart(all, from.ship, from.part) orelse continue;
+                const to = hungFrom(all, target.ship, target.part) orelse continue;
+                const beam = made.* orelse beam: {
+                    const beam = try tractor.Beam.create(drawing.gpa, look, from);
+                    made.* = beam;
+                    break :beam beam;
+                };
+                beam.fade(grip.solid);
+                beam.aim(start, to.point(target.point));
+                try xtrabits.sceneAdd(gpa, scene, .{ .mesh = &beam.object }, .world);
+            }
+        }
     }
 };
 
@@ -1335,10 +1345,12 @@ test "the sets of beams keep their places where nothing is drawn" {
     try std.testing.expectEqual(0, first.place().?);
     try std.testing.expectEqual(1, second.place().?);
     rippers.gripAt(first).?.show(1);
+    var drawing: Drawing = .{ .gpa = gpa };
+    defer drawing.deinit();
     var scene: srcore.Scene = .{};
     defer scene.deinit(gpa);
-    try rippers.draw(gpa, &scene, mission.objects);
-    try std.testing.expectEqual(null, rippers.shown[0]);
+    try drawing.draw(&rippers, gpa, &scene, mission.objects);
+    try std.testing.expectEqual(null, drawing.shown[0]);
 }
 
 test "a Ripper grabs a pod ahead of it, and stows it aboard" {
@@ -1569,11 +1581,13 @@ test "a Ripper's beams are taken, let go, and let go again harmlessly" {
     freeGrip(&t.rippers, &last);
 }
 
-test "Rippers.draw" {
+test Drawing {
     const gpa = std.testing.allocator;
     var t: TestRipper = undefined;
     try t.init();
     defer t.deinit();
+    var drawing: Drawing = .{ .gpa = gpa };
+    defer drawing.deinit();
     const ripper = t.game.slot(t.ripper);
     ripper.model.?.place(ripper.drawn.position, ripper.drawn.orientation);
     try std.testing.expect(try aigeneric.push(t.orders(), t.ripper, .ripper_grabs_target_object, .at(t.pod, null)));
@@ -1584,14 +1598,14 @@ test "Rippers.draw" {
     defer scene.deinit(gpa);
     // Each of the four beams goes into the world, as solid as the order made them, in each frame
     // drawn until the next game frame begins.
-    try t.rippers.draw(gpa, &scene, t.game.objects);
+    try drawing.draw(&t.rippers, gpa, &scene, t.game.objects);
     try std.testing.expectEqual(pincers.len, scene.layers.get(.world).items.len);
     try std.testing.expect(grip.shown);
     t.rippers.beginFrame();
     try std.testing.expect(!grip.shown);
     // Each stands at its pincer's point and faces the middle of its pair of the pod's points, in
     // the pod's place: the first two the first pair's, the last two the second's.
-    const shown = t.rippers.shown[ripper.state.ripper_grab.grip.place().?].?;
+    const shown = drawing.shown[ripper.state.ripper_grab.grip.place().?].?;
     const pod = t.game.slot(t.pod).drawn;
     const points = [_]Vector{ .{ -50, 0, 0 }, .{ 50, 0, 0 }, .{ -50, 0, 100 }, .{ 50, 0, 100 } };
     for (shown.beams, points, 0..) |made, point, n| {
@@ -1602,7 +1616,7 @@ test "Rippers.draw" {
         try std.testing.expectApproxEqAbs(1, math.dot(math.forward(beam.object.orientation), math.normalize(middle - point)), 1e-5);
     }
     scene.clear();
-    try t.rippers.draw(gpa, &scene, t.game.objects);
+    try drawing.draw(&t.rippers, gpa, &scene, t.game.objects);
     try std.testing.expectEqual(0, scene.layers.get(.world).items.len);
 }
 

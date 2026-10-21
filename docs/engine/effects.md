@@ -17,7 +17,8 @@ either: the copies keep what is alive in them as the game frames left it
 (`particles.Pool.copy`, `sparks.Sparks.copy`). It
 draws the countermeasures, and the effects of the jumps, the ion cannons and the gates, the same way
 ([Gates](gates.md)). What drawing keeps from one drawn frame to the next, it keeps in records of its
-own: the electric rays' strands ([Electric rays](#electric-rays)), and the portals that cut the
+own, apart from the game's: the electric rays' strands ([Electric rays](#electric-rays)), what the
+shields' bubbles and the capital shields show ([Shields](#shields)), and the portals that cut the
 capital ships as they split ([Splits](#splits)).
 
 ## Where nothing is drawn
@@ -531,7 +532,7 @@ Once a frame, `erays_update` (`0x0046AC30`) runs `eray_update` (`0x0046AF40`) fo
 
 The game leaves unset when a ray last changed and how long it stays lit. OpenReliant starts both at nothing, so a flickering ray goes dark on its first frame, fading if it fades. The game also makes a 17th segment for each strand that it never places or lights. OpenReliant leaves it out, and draws each strand as a single mesh.
 
-OpenReliant moves the rays on and lets them go in the game frames (`Rays.frame`), and drawing strays the strands in the first frame drawn at each tick (`Rays.draw`). So the rays crackle at the same pace at any frame rate, and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)). The game keeps each strand's colour, alpha, width and texture; drawing keeps its mesh, in a record of its own for each ray, which it makes as it first draws the ray (`erayfx.Shown`).
+OpenReliant moves the rays on and lets them go in the game frames (`Rays.frame`), and drawing strays the strands in the first frame drawn at each tick (`erayfx.Drawing.draw`). So the rays crackle at the same pace at any frame rate, and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)). The game keeps each strand's colour, alpha, width and texture; drawing keeps its mesh, in a record of its own for each ray, which it makes as it first draws the ray (`erayfx.Shown`), apart from the game's rays (`erayfx.Drawing`).
 
 **Fix:** a ray hanging from a part that a split's portal cuts is cut by it too, so it shows only on what the sweep has laid bare. The game cuts the part alone, and its rays crackle over the stretch of the ship still whole.
 
@@ -762,8 +763,9 @@ cloaked ship's shields don't flare: the hit shows its hull instead ([The cloak](
 The game keeps a bubble's hits in the bubble and makes each as it strikes, on the level the bubble
 was last drawn at, and drawing writes into the bubble as it moves it on. OpenReliant splits the
 bubble: the game keeps when it was struck, its tint and its flicker, and records each hit
-(`shield.Bubble.strikes`). Drawing keeps the rest for each slot's bubble (`shield.Shown`): its
-scene object, its hits in either style, and the flicker it has seen out. As it next draws the
+(`shield.Bubble.strikes`). Drawing keeps the rest for each slot's bubble (`shield.Shown`), with the
+bubbles' meshes (`shield.Shields`): the bubble's scene object, its hits in either style, and the
+flicker it has seen out. As it next draws the
 bubble, it makes the hits it hasn't yet into its own, in the order they came and on the level it
 last drew the bubble at, which is what the game had made of them by then. So drawing writes
 nothing into the bubble.
@@ -792,7 +794,7 @@ Once a frame after the bubbles, `capshields_draw` (`0x0049F950`) lets go of each
 
 The game hands `capshield_create` the object's side but never stores it, so every capital shield glows in the friendly ramp. When a capital ship loses its hull, `force_field_mark` (`0x0049FCD0`) hides its force fields ([Splits](#splits)).
 
-OpenReliant lets the capital shields go in the game frames, where `capshields_draw` does (`Capital.frame`), and the game keeps each shield's part, until when it shows, and its strikes. Drawing keeps what each shows (`CapitalShown`): the copy, its hits and its colours, made as it first draws the shield, taking up each strike from the tick it struck at. A force field's coordinates jump once a tick, so they move at the same pace at any frame rate and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
+OpenReliant lets the capital shields go in the game frames, where `capshields_draw` does (`Capital.frame`), and the game keeps each shield's part, until when it shows, and its strikes, in a table of their own (`shield.Capital`). Drawing keeps what each shows (`CapitalShown`): the copy, its hits and its colours, made as it first draws the shield, taking up each strike from the tick it struck at. A force field's coordinates jump once a tick, so they move at the same pace at any frame rate and stand still while the game is paused ([Game frames and drawn frames](loop.md#game-frames-and-drawn-frames)).
 
 **Fixes:**
 

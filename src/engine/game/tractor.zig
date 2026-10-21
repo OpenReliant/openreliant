@@ -44,8 +44,6 @@ pub const Tractors = struct {
     look: Look,
     /// OpenReliant's: how many tractors it has made, which numbers the next (`Tractor.serial`).
     made: u32 = 0,
-    /// What drawing keeps of each tractor (`Shown`), made in `gpa` as it is first drawn.
-    shown: [capacity]?*Shown = @splat(null),
 
     pub const capacity = 5;
 
@@ -61,7 +59,6 @@ pub const Tractors = struct {
 
     pub fn deinit(tractors: *Tractors) void {
         tractors.reset();
-        for (&tractors.shown) |*held| table.letGo(Shown, tractors.gpa, held);
     }
 
     /// Before the frame's orders: no tractor shows until Scoop Up shows it again this frame
@@ -89,23 +86,35 @@ pub const Tractors = struct {
         tractors.gpa.destroy(tractor);
         tractors.slots[index] = null;
     }
+};
 
-    /// OpenReliant's: what each tractor showed in the last game frame goes into `scene`, where its
-    /// ship and its pod are drawn in `all`: its beams, as solid as Scoop Up made them, aimed at the
-    /// pod (`tractor_beam_aim`) where it aims them and otherwise hanging from their part as they
-    /// were last aimed; its light on the pod, reaching as far as Scoop Up has it; and its bubble
-    /// round the pod, glowing as Scoop Up has it, on `shields`' finest sphere. What drawing keeps
-    /// of a tractor is made the first time it draws it (`Shown`), and its beams and bubble as the
+/// OpenReliant's: what drawing keeps of the tractors from one drawn frame to the next, apart from
+/// the game's tractors (`Tractors`): what it keeps of each tractor (`Shown`), made in `gpa` as it
+/// first draws the tractor.
+pub const Drawing = struct {
+    gpa: Allocator,
+    shown: [Tractors.capacity]?*Shown = @splat(null),
+
+    pub fn deinit(drawing: *Drawing) void {
+        for (&drawing.shown) |*held| table.letGo(Shown, drawing.gpa, held);
+    }
+
+    /// What each of `tractors` showed in the last game frame goes into `scene`, where its ship and
+    /// its pod are drawn in `all`: its beams, as solid as Scoop Up made them, aimed at the pod
+    /// (`tractor_beam_aim`) where it aims them and otherwise hanging from their part as they were
+    /// last aimed; its light on the pod, reaching as far as Scoop Up has it; and its bubble round
+    /// the pod, glowing as Scoop Up has it, on `shields`' finest sphere. What drawing keeps of a
+    /// tractor is made the first time it draws it (`Shown`), and its beams and bubble as the
     /// tractor first has them. The game adds them to the scene as Scoop Up runs.
-    pub fn draw(tractors: *Tractors, gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, shields: ?*const shield.Shields) Allocator.Error!void {
-        for (tractors.slots, &tractors.shown) |held, *kept| {
+    pub fn draw(drawing: *Drawing, tractors: *const Tractors, gpa: Allocator, scene: *srcore.Scene, all: *const create.Objects, shields: ?*const shield.Shields) Allocator.Error!void {
+        for (tractors.slots, &drawing.shown) |held, *kept| {
             const tractor = held orelse {
-                table.letGo(Shown, tractors.gpa, kept);
+                table.letGo(Shown, drawing.gpa, kept);
                 continue;
             };
             if (!tractor.shown) continue;
-            const shown = table.keptFor(Shown, tractors.gpa, kept, tractor.serial) orelse made: {
-                const made = try tractors.gpa.create(Shown);
+            const shown = table.keptFor(Shown, drawing.gpa, kept, tractor.serial) orelse made: {
+                const made = try drawing.gpa.create(Shown);
                 made.* = .{ .serial = tractor.serial };
                 kept.* = made;
                 break :made made;
@@ -116,7 +125,7 @@ pub const Tractors = struct {
                 const model = if (all.slots[emitter.ship].model) |*live| live else continue;
                 const part = model.rootChild(emitter.part) orelse continue;
                 const beam = made.* orelse beam: {
-                    const beam = try Beam.create(tractors.gpa, tractors.look, emitter);
+                    const beam = try Beam.create(drawing.gpa, tractors.look, emitter);
                     made.* = beam;
                     break :beam beam;
                 };
@@ -129,7 +138,7 @@ pub const Tractors = struct {
             try xtrabits.sceneAdd(gpa, scene, .{ .light = &shown.light }, .world);
             if (tractor.bubble) |waves| if (shields) |spheres| {
                 const bubble = shown.bubble orelse bubble: {
-                    const bubble = try Bubble.create(tractors.gpa, spheres, waves.scale);
+                    const bubble = try Bubble.create(drawing.gpa, spheres, waves.scale);
                     shown.bubble = bubble;
                     break :bubble bubble;
                 };
@@ -193,8 +202,8 @@ pub const Waves = struct {
 
 /// What a tractor (`Tractor`) shows, which drawing keeps from the first time it draws it: its
 /// beams, its bubble and its light. The game keeps them in the tractor (`tractors`). OpenReliant
-/// keeps them apart, for each tractor a slot holds (`Tractor.serial`), so that drawing writes
-/// nothing into the tractors.
+/// keeps them apart (`Drawing`), for each tractor a slot holds (`Tractor.serial`), so that drawing
+/// writes nothing into the tractors.
 pub const Shown = struct {
     serial: u32,
     beams: [2]?*Beam = .{ null, null },
@@ -886,7 +895,6 @@ pub const testing = struct {
             try scoop.model.parts.fit(gpa, scoop.mission.slot(scoop.nanny));
             scoop.ctx = scoop.mission.orders();
             scoop.ctx.world.tractors = &scoop.built.tractors;
-            scoop.ctx.world.shields = &scoop.shields.shields;
             if (!try aigeneric.pushShip(scoop.ctx, scoop.nanny, .scoop_up, scoop.pod, null)) return error.TestUnexpectedResult;
             aigeneric.objectOrders(scoop.ctx, scoop.nanny);
         }
@@ -917,11 +925,13 @@ test Tractors {
     for (tractors.slots) |slot| try std.testing.expectEqual(null, slot);
 }
 
-test "Tractors.draw" {
+test Drawing {
     const gpa = std.testing.allocator;
     var scoop: testing.Scoop = undefined;
     try scoop.init(gpa);
     defer scoop.deinit(gpa);
+    var drawing: Drawing = .{ .gpa = gpa };
+    defer drawing.deinit();
     const pod = scoop.mission.slot(scoop.pod);
     objects.setPosition(&pod.object, &pod.drawn, .{ 0, 0, 300 });
     const tractors = &scoop.built.tractors;
@@ -937,19 +947,19 @@ test "Tractors.draw" {
     defer scene.deinit(gpa);
 
     // Not shown this frame, it draws nothing.
-    try tractors.draw(gpa, &scene, scoop.mission.objects, shields);
+    try drawing.draw(tractors, gpa, &scene, scoop.mission.objects, shields);
     try std.testing.expectEqual(0, scene.lights.items.len);
-    try std.testing.expectEqual(null, tractors.shown[0]);
+    try std.testing.expectEqual(null, drawing.shown[0]);
     // Shown, its light stands on the pod, reaching as far as the game has it, in each frame drawn
     // until the next game frame begins. Drawing makes the beam, as solid as the game has it, and
     // the bubble, as wide and glowing.
     tractor.show(light_reach / 2, .held);
-    try tractors.draw(gpa, &scene, scoop.mission.objects, shields);
+    try drawing.draw(tractors, gpa, &scene, scoop.mission.objects, shields);
     try std.testing.expectEqual(1, scene.lights.items.len);
     try std.testing.expectEqual([3]f32{ 0, 0, 300 }, scene.lights.items[0].kind.point.position);
     try std.testing.expectEqual(light_reach / 2, scene.lights.items[0].kind.point.range);
     try std.testing.expectEqual(2, scene.layers.get(.world).items.len);
-    const shown = tractors.shown[0].?;
+    const shown = drawing.shown[0].?;
     try std.testing.expectEqual(null, shown.beams[0]);
     try std.testing.expectEqual(0.5, shown.beams[1].?.colours[guns.blade_far[0]][3]);
     try std.testing.expectEqual(300, shown.bubble.?.object.scale);
@@ -958,12 +968,12 @@ test "Tractors.draw" {
     tractors.beginFrame();
     try std.testing.expect(!tractor.shown);
     scene.clear();
-    try tractors.draw(gpa, &scene, scoop.mission.objects, shields);
+    try drawing.draw(tractors, gpa, &scene, scoop.mission.objects, shields);
     try std.testing.expectEqual(0, scene.lights.items.len);
     // Once the game lets the tractor go, drawing lets go of what it showed.
     tractors.free(0);
-    try tractors.draw(gpa, &scene, scoop.mission.objects, shields);
-    try std.testing.expectEqual(null, tractors.shown[0]);
+    try drawing.draw(tractors, gpa, &scene, scoop.mission.objects, shields);
+    try std.testing.expectEqual(null, drawing.shown[0]);
 }
 
 test Look {

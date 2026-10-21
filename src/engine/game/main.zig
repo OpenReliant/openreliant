@@ -405,19 +405,27 @@ pub const Frame = struct {
     /// lead point they follow.
     chase: ?*hud.chase.Chase = null,
     display: ?*const hud.Drawing = null,
-    /// The shields' bubbles, which go into the world's layer after the objects.
+    /// The shields' bubbles, which go into the world's layer after the objects, then the capital
+    /// shields.
     shields: ?*shield.Shields = null,
+    capital_shields: ?*const shield.Capital = null,
     /// The gates' tunnels, which go into the world's layer before the shields' bubbles.
     gates: ?*const wgate.Gates = null,
-    /// The electric rays, which go into the world's layer after the explosions.
-    rays: ?*erayfx.Rays = null,
+    /// The electric rays, and what drawing keeps of them, which go into the world's layer after the
+    /// explosions.
+    rays: ?*const erayfx.Rays = null,
+    rays_drawing: ?*erayfx.Drawing = null,
     /// The ion cannons' lasers, glows, rings and lights, which go into the world's layer after the
     /// rays.
     ion_cannons: ?*const aiioncan.Cannons = null,
-    /// The tractors, which go into the world's layer after the objects.
-    tractors: ?*tractor.Tractors = null,
-    /// The Rippers' beams, which go into the world's layer after the objects.
-    rippers: ?*airipper.Rippers = null,
+    /// The tractors, and what drawing keeps of them, which go into the world's layer after the
+    /// objects.
+    tractors: ?*const tractor.Tractors = null,
+    tractors_drawing: ?*tractor.Drawing = null,
+    /// The Rippers' beams, and what drawing keeps of them, which go into the world's layer after
+    /// the objects.
+    rippers: ?*const airipper.Rippers = null,
+    rippers_drawing: ?*airipper.Drawing = null,
     /// What the jumps show, which goes into the world's layer after the Rippers' beams.
     jump_effects: ?*jump.effect.Effects = null,
     /// The planets' atmospheres, which go into the background layer after the backdrop, lit by its
@@ -769,7 +777,7 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     if (orders.world.forces) |forces| forces.pushFrame(orders.world.clock.frame_start);
     if (orders.world.rays) |rays| rays.frame(orders.world.objects, orders.world.clock.frame_start, orders.world.effectsRandom());
     if (orders.world.gates) |gates| gates.frame(orders.world.clock.frame_start);
-    if (orders.world.shields) |shields| shields.capital.frame(orders.world.objects, orders.world.clock.frame_start);
+    if (orders.world.capital_shields) |capital| capital.frame(orders.world.objects, orders.world.clock.frame_start);
     orders.world.objects.exhaust.burn(orders.world);
     if (orders.world.explosions) |explosions| explosions.frame(orders.world);
     if (orders.world.countermeasures) |dropped| dropped.frame(orders.world);
@@ -1283,8 +1291,8 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
     attachments.paused = frame.paused;
     const riding = wgate.ridingWorm(frame.gates);
     if (!riding) try drawObjects(gpa, arena, scene, frame.objects, attachments, frame.seat, if (frame.explosions) |explosions| &explosions.splits else null, frame.shown, frame.environment);
-    if (frame.tractors) |tractors| try tractors.draw(gpa, scene, frame.objects, frame.shields);
-    if (frame.rippers) |rippers| try rippers.draw(gpa, scene, frame.objects);
+    if (frame.tractors_drawing) |drawing| if (frame.tractors) |tractors| try drawing.draw(tractors, gpa, scene, frame.objects, frame.shields);
+    if (frame.rippers_drawing) |drawing| if (frame.rippers) |rippers| try drawing.draw(rippers, gpa, scene, frame.objects);
     if (frame.jump_effects) |effects| try effects.draw(gpa, arena, scene, frame.objects);
     try missiles.draw(frame.objects, gpa, scene, attachments);
     if (frame.trails) |trails| try trails.draw(gpa, scene);
@@ -1298,7 +1306,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
         try seen_behind.draw(gpa, scene, ship.drawn, display.reticle_bright, aim, display.chase_pointer, display.chase_nav_roll);
     };
     if (frame.gates) |gates| try gates.draw(gpa, arena, scene, frame.objects, frame.portals);
-    if (frame.shields) |bubbles| try bubbles.draw(gpa, arena, scene, frame.objects, .{
+    if (frame.shields) |bubbles| try bubbles.draw(gpa, arena, scene, frame.objects, frame.capital_shields, .{
         .camera = attachments.camera,
         .inside = camera.inCockpit(frame.view, frame.cockpit_mode),
         .frame_start = attachments.frame_start,
@@ -1315,7 +1323,7 @@ pub fn drawFrame(gpa: Allocator, arena: Allocator, scene: *srcore.Scene, context
         try explosions.draw(gpa, arena, scene, frame.ahead);
         try explosions.splits.draw(gpa, scene, frame.portals);
     }
-    if (frame.rays) |rays| if (attachments.random) |random| try rays.draw(gpa, scene, frame.objects, attachments.frame_start, random);
+    if (frame.rays_drawing) |drawing| if (frame.rays) |rays| if (attachments.random) |random| try drawing.draw(rays, gpa, scene, frame.objects, attachments.frame_start, random);
     if (frame.ion_cannons) |cannons| try cannons.draw(gpa, arena, scene, frame.objects);
     if (frame.flash) |lit| if (!frame.paused) {
         const shaken = frame.interference;

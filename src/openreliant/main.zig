@@ -641,13 +641,20 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer shockwaves.deinit(gpa);
     var trails: game.missiles.trail.Trails = .init(gpa, try .load(&textures));
     defer trails.deinit();
+    // The rays, the tractors and the Rippers' beams, and what drawing keeps of each.
     var rays: game.erayfx.Rays = try .init(gpa, &textures);
     defer rays.deinit();
+    var rays_drawing: game.erayfx.Drawing = .{ .gpa = gpa };
+    defer rays_drawing.deinit();
     var tractors: game.tractor.Tractors = try .init(gpa, &textures);
     defer tractors.deinit();
     tractors.look.glow = options.beam_glow;
+    var tractors_drawing: game.tractor.Drawing = .{ .gpa = gpa };
+    defer tractors_drawing.deinit();
     var rippers: game.airipper.Rippers = try .init(gpa, &textures);
     defer rippers.deinit();
+    var rippers_drawing: game.airipper.Drawing = .{ .gpa = gpa };
+    defer rippers_drawing.deinit();
     var jump_effects: game.jump.effect.Effects = undefined;
     try jump_effects.init(gpa, &textures);
     defer jump_effects.deinit();
@@ -671,8 +678,10 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer chase_objects.destroy(gpa);
     var sparks: game.sparks.Sparks = try .create(gpa, &textures);
     defer sparks.deinit();
+    // The bubbles' meshes, which drawing keeps, and the capital ships' shields, which the game keeps.
     var shields: game.shield.Shields = try .create(gpa, &textures, explosions.settings.detail, options.shields);
     defer shields.deinit(gpa);
+    var capital_shields: game.shield.Capital = .{};
     environment.ice_field = try .create(arena, &textures, explosions.settings.detail, options.ice_field, &rand);
     environment.flashes = try .create(arena, &textures, options.bombard, &rand, 0);
     var gates: game.wgate.Gates = try .init(gpa, &textures, explosions.settings.detail, options.gates);
@@ -694,7 +703,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     var cues: game.main.cues.Cues = .{ .gpa = gpa };
     defer cues.deinit();
     // What the objects run in.
-    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .shake = &hit_shake, .random = &rand, .effects_random = &drawn_random, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .sounds = &sound_commands, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .cues = &cues, .countermeasures = &countermeasures, .sparks = &sparks, .shields = &shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .extras = &extra_images, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
+    var world: game.gameobj.World = .{ .forces = &force_feedback, .objects = objects, .player = &player, .clock = &clock, .shake = &hit_shake, .random = &rand, .effects_random = &drawn_random, .difficulty = options.difficulty orelse .medium, .hangar_beacons = options.hangar_beacons, .touchdown = options.touchdown, .arrival_sound = options.arrival_sound, .light_maps = details.light_maps, .sounds = &sound_commands, .explosions = &explosions, .particles = &particles, .smoke = &smoke, .gun_particles = &gun_particles, .shockwaves = &shockwaves, .cues = &cues, .countermeasures = &countermeasures, .sparks = &sparks, .capital_shields = &capital_shields, .rays = &rays, .tractors = &tractors, .rippers = &rippers, .jump_effects = &jump_effects, .extras = &extra_images, .flash = &flash, .spawn = .{ .tables = tables, .types = types.types() }, .environment = &environment, .radio = &radio, .gates = &gates, .ion_cannons = &ion_cannons };
 
     world.launch_steam = options.launch_steam;
 
@@ -1446,10 +1455,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .chase = chase_objects,
                 .display = &display.drawing,
                 .shields = &shields,
+                .capital_shields = &capital_shields,
                 .rays = &rays,
+                .rays_drawing = &rays_drawing,
                 .ion_cannons = &ion_cannons,
                 .tractors = &tractors,
+                .tractors_drawing = &tractors_drawing,
                 .rippers = &rippers,
+                .rippers_drawing = &rippers_drawing,
                 .jump_effects = &jump_effects,
                 .atmospheres = &atmospheres,
                 .escort_marker = escort_marker,
