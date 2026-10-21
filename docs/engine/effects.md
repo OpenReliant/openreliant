@@ -13,14 +13,15 @@ copy it makes in the frame's arena, standing where the frame draws it (`xtrabits
 neither drawing nor the pipeline, as it picks a mesh's level, writes into the game's records. The
 particles, the smoke, the guns' flak and spent cases, the sparks, the shockwaves, the electric rays,
 the tractors, the Rippers' beams, the capital shields, the explosions, the countermeasures, the
-screen's flash, the ion cannons and the jumps' effects are copied whole as the drawn frame begins,
-with the objects (`main.Drawn`), so that drawing doesn't read them either: the copies keep what is
-alive in them as the game frames left it (`particles.Pool.copy`, `sparks.Sparks.copy`,
-`table.copySlots`, `explode.Explosions.copy`, `cloak.Countermeasures.copy`, `aiioncan.Cannons.copy`,
-`jump.effect.Effects.copy`). It draws the gates the same way ([Gates](gates.md)). What drawing keeps
-from one drawn frame to the next, it keeps in records of its own, apart from the game's: the
-electric rays' strands ([Electric rays](#electric-rays)), what the shields' bubbles and the capital
-shields show ([Shields](#shields)), and the portals that cut the capital ships as they split
+screen's flash, the ion cannons, the jumps' effects and the gates ([Gates](gates.md)) are copied
+whole as the drawn frame begins, with the objects (`main.Drawn`), so that drawing doesn't read them
+either: the copies keep what is alive in them as the game frames left it (`particles.Pool.copy`,
+`sparks.Sparks.copy`, `table.copySlots`, `explode.Explosions.copy`, `cloak.Countermeasures.copy`,
+`aiioncan.Cannons.copy`, `jump.effect.Effects.copy`, `wgate.Gates.copy`). An effect whose meshes the
+game reshapes has their shapes copied with it (`srapiext.Mesh.copyShape`). What drawing keeps from
+one drawn frame to the next, it keeps in records of its own, apart from the game's: the electric
+rays' strands ([Electric rays](#electric-rays)), what the shields' bubbles and the capital shields
+show ([Shields](#shields)), and the portals that cut the capital ships as they split
 ([Splits](#splits)).
 
 ## Where nothing is drawn

@@ -1429,7 +1429,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .space = space,
                 .sky = sky,
                 .environment = &environment,
-                .gates = &gates,
+                .gates = drawn_world.gates,
                 .view = drawn.player.viewing.view,
                 .cockpit_mode = drawn.player.viewing.cockpit_mode,
                 .jumping_in = drawn.player.jumping_in,

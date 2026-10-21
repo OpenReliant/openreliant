@@ -50,17 +50,34 @@ pub const Worm = struct {
         tunnel.tubeSurfaces(&mesh, 2 * worm_segments, image, worm_highlight, .off);
         const colours = try gpa.alloc([4]f32, grid.vertices());
         @memset(colours, @splat(0));
-        worm.* = .{ .mesh = mesh, .level = undefined, .object = undefined, .colours = colours };
-        worm.level = .{.{ .mesh = &worm.mesh, .until = std.math.inf(f32) }};
-        worm.object = .{
+        worm.* = .{ .mesh = mesh, .level = undefined, .object = .{
             .flags = .{ .normals_second = true, .not_culled = true, .unbounded = true, .owns_mesh = true, .baked_object = true },
             .position = @splat(0),
             .radius = mesh.radius,
-            .levels = &worm.level,
+            .levels = &.{},
             .baked = colours,
-        };
+        }, .colours = colours };
+        worm.point();
         worm.colour();
         return worm;
+    }
+
+    /// Points its level at its own mesh, and its object at its level, as it is made and as a drawn
+    /// frame copies it.
+    fn point(worm: *Worm) void {
+        worm.level = .{.{ .mesh = &worm.mesh, .until = std.math.inf(f32) }};
+        worm.object.levels = &worm.level;
+    }
+
+    /// OpenReliant's: a copy of it for a drawn frame (`wgate.Gates.copy`), made in `arena`, with
+    /// its mesh's shape, which the game wobbles and scrolls, its own. It shares its colours, which
+    /// the game leaves as they were made.
+    pub fn copy(worm: *const Worm, arena: Allocator) Allocator.Error!*Worm {
+        const own = try arena.create(Worm);
+        own.* = worm.*;
+        try own.mesh.copyShape(arena);
+        own.point();
+        return own;
     }
 
     /// Frees the worm, its mesh and its colours.

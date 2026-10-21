@@ -1161,7 +1161,7 @@ pub const Drawn = struct {
     /// Copies of the game's effects that drawing draws, as the game frames left them (`take`): the
     /// particles, the smoke, the guns' flak and spent cases, the sparks, the shockwaves, the
     /// electric rays, the tractors, the Rippers' beams, the capital shields, the explosions, the
-    /// countermeasures, the screen's flash, the ion cannons and the jumps' effects.
+    /// countermeasures, the screen's flash, the ion cannons, the jumps' effects and the gates.
     particles: ?particles.Pool = null,
     smoke: ?smoke.Pools = null,
     gun_particles: ?guns.effects.Pools = null,
@@ -1176,6 +1176,7 @@ pub const Drawn = struct {
     flash: ?flash.Flash = null,
     ion_cannons: ?aiioncan.Cannons = null,
     jump_effects: ?jump.effect.Effects = null,
+    gates: ?wgate.Gates = null,
     /// What the copy's models are made in, from one drawn frame to the next.
     arena: std.heap.ArenaAllocator,
     /// The portals the copy's parts are cut by: drawing's own, which stand in for the game's from
@@ -1227,6 +1228,7 @@ pub const Drawn = struct {
         drawn.flash = if (game.flash) |lit| lit.* else null;
         drawn.ion_cannons = if (game.ion_cannons) |cannons| try cannons.copy(arena) else null;
         drawn.jump_effects = if (game.jump_effects) |effects| try effects.copy(arena) else null;
+        drawn.gates = if (game.gates) |gates| try gates.copy(arena) else null;
         const now = game.clock.frame_start;
         const copy = drawn.objects;
         try game.objects.copyInto(copy, arena);
@@ -1277,6 +1279,7 @@ pub const Drawn = struct {
         shown.flash = if (drawn.flash) |*lit| lit else null;
         shown.ion_cannons = if (drawn.ion_cannons) |*cannons| cannons else null;
         shown.jump_effects = if (drawn.jump_effects) |*effects| effects else null;
+        shown.gates = if (drawn.gates) |*gates| gates else null;
         return shown;
     }
 };
