@@ -295,8 +295,9 @@ frames never touch the sound, which plays on the main thread.
   whatever plays on its voice by then, as ending a voice by its number does in the game. Where no
   voice is free, the lock's tone and the scanner's loop wait for one, as the game asks for them
   again until they play.
-- **Speech and music.** The radio's lines go the same way, each with its file, and the main thread
-  plays them on the speech sample. So does the script's music (`PlayMusic`).
+- **Speech and music.** The radio's lines go the same way, each with its file as the archive holds
+  it, which the main thread unscrambles as it plays the line on the speech sample
+  ([Speech](../formats/speech.md)). So does the script's music (`PlayMusic`).
 - **Timers.** What the sound kept for the game moves to the player: when the armour last warned
   and when a shot last sounded on the player's hull (`input.Player.armor_warned_at`,
   `hull_heard_at`).

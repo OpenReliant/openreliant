@@ -490,7 +490,7 @@ test "a line encoded plays back near what went in" {
     const copy = try gpa.dupe(u8, file);
     defer gpa.free(copy);
     const speech = cbox.Speech.parse(copy).?;
-    try std.testing.expectEqual(samples.len, speech.samples());
+    try std.testing.expectEqual(samples.len, speech.header.samples());
     const decoded = try cbox.decode(gpa, speech, .cut);
     defer gpa.free(decoded);
     try std.testing.expect(snr(&samples, decoded) > 6);
