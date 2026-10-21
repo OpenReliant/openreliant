@@ -383,9 +383,6 @@ pub const World = struct {
     dropping: bool = false,
     /// What the landing's views stand by, while the view's object lands (`ailand.seen`).
     landing: ?Landing = null,
-    /// What the mission's scene shows, which the view aside shows whole each frame; null where
-    /// there is no scene.
-    showing: ?*@import("main.zig").Showing = null,
     /// The force feedback the player's controller plays, which the shake from hits shakes too.
     forces: ?*input.force.Forces = null,
     /// The game's world, through which the director's view flies along the mission's curves; null
@@ -982,10 +979,7 @@ pub const Camera = struct {
             // `camera_ease_to_player` (`0x00461C60`) eases the view's angles toward looking at the
             // player's ship by a share, which every call gives as all the way: the look itself.
             .launch_below => camera.place = lookingAt(camera.place.position, world.player.position),
-            .launch_aside => {
-                if (world.showing) |showing| showing.* = .everything;
-                camera.place = lookingAt(camera.place.position, world.player.position);
-            },
+            .launch_aside => camera.place = lookingAt(camera.place.position, world.player.position),
             .yamato_beside => {
                 camera.place = yamatoBeside(world.player, world.shown());
                 if (world.game) |game| if (playerRunning(game, .launch)) |slot| if (slot.state.launch.style == .yamato) {
@@ -1086,8 +1080,9 @@ const missile_linger = 150;
 /// player's cockpit, forced (`switchView`). Those are the chase and spectator views of an object
 /// with no stats, the target view with no target, and the missile view of an object with no stats
 /// or once its missile has been gone `missile_linger` ticks. Until the player's ship drops out of
-/// its carrier's bay, the bay view holds its time at nothing (`launch.dropping`). In the director's
-/// view, the shot runs on, and the next waiting begins once it is over.
+/// its carrier's bay, the bay view holds its time at nothing (`launch.dropping`). The view aside
+/// shows the mission's scene whole (`main.Showing`). In the director's view, the shot runs on, and
+/// the next waiting begins once it is over.
 pub fn gameFrame(world: gameobj.World) void {
     const viewing = &world.player.viewing;
     const all = world.objects;
@@ -1107,6 +1102,10 @@ pub fn gameFrame(world: gameobj.World) void {
         },
         .launch_bay => back: {
             if (!launch.dropping(all, all.player)) viewing.switched = now;
+            break :back false;
+        },
+        .launch_aside => back: {
+            world.player.showing = .everything;
             break :back false;
         },
         // The director's shot runs on (`director.step`); once it is over, and the view with it,
@@ -2061,15 +2060,12 @@ test "the launch's views follow the ship" {
     camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 150, .dropping = true, .viewing = &viewing });
     try std.testing.expect(math.forward(camera.place.orientation)[1] > looking[1]);
 
-    // The views from below and aside keep looking at the ship as it goes, the view aside showing
-    // the whole scene.
-    var showing: @import("main.zig").Showing = .launch;
+    // The views from below and aside keep looking at the ship as it goes.
     _ = testingSwitch(&viewing, &camera, .launch_aside, 0, true, true, 200);
     camera.placeLaunch(.launch_aside, ship, ship, true);
     ship.position = .{ 0, 3000, 1000 };
-    camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 210, .showing = &showing, .viewing = &viewing });
+    camera.frame(.{ .object = ship, .player = ship, .ticks = 1, .now = 210, .viewing = &viewing });
     try expectVector(math.normalize(ship.position - camera.place.position), math.forward(camera.place.orientation));
-    try std.testing.expectEqual(.everything, showing);
 }
 
 test "the views that move with time go on between ticks" {
@@ -2489,6 +2485,11 @@ test gameFrame {
     gameFrame(world);
     try std.testing.expectEqual(View.cockpit, viewing.view);
     try std.testing.expectEqual(ship, viewing.object.?);
+    // The launch's view aside shows the whole scene.
+    mission.player.showing = .launch;
+    try std.testing.expect(switchView(world, .launch_aside, ship, true, true));
+    gameFrame(world);
+    try std.testing.expectEqual(.everything, mission.player.showing);
 }
 
 test "the missile view" {

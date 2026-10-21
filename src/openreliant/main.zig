@@ -682,9 +682,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     // The force feedback's effects, and what plays them on the player's controller.
     const forces_library = engine.input.force.load(io, arena, directory, &mods);
     var force_feedback: engine.input.force.Forces = .{ .library = &forces_library, .settings = options.forces };
-    // The copy of the objects each drawn frame draws, placed for smooth motion.
+    // The copy of the game each drawn frame draws: the objects, placed for smooth motion, and the
+    // game's records drawing reads.
     var drawn: game.main.Drawn = try .init(gpa);
     defer drawn.deinit();
+    // What drawing hands the game, which the game takes up before it next runs.
+    var handed: game.main.Handed = .{ .camera = &view };
+    // The display's state that the game keeps (`hud.cpp`'s globals), which drawing reads a copy of.
+    var game_display: game.hud.State = .{};
     // What the game frames ask of drawing, which each drawn frame takes up.
     var cues: game.main.cues.Cues = .{ .gpa = gpa };
     defer cues.deinit();
@@ -704,12 +709,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .device = undefined,
         .screen = .{ 0, 0 },
         .ui_scale = options.ui_scale,
-        .objects = objects,
-        .play = undefined,
-        .clock = &clock,
-        .player = &player,
+        .drawn = &drawn,
+        .handed = &handed,
         .view = &view,
-        .radio = &radio,
         .film = .init(gpa),
         .random = &drawn_random,
         .strings = &strings,
@@ -725,15 +727,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     defer display.resources.deinit(gpa);
     defer display.film.deinit();
     own.ui_scale = &display.ui_scale;
-    world.display = &display.state;
+    world.display = &game_display;
     // A switch of view picks the subtarget's parts out in red or puts them back, and is refused
     // while the player's ship rides the worm between gates (`camera_set_view`).
-    view.subtarget = .{ .shown = &display.state.subtarget, .all = objects };
+    view.subtarget = .{ .shown = &game_display.subtarget, .all = objects };
     // The parts picked out go back before the objects go, which lets their copies go: the next
     // mission's start puts them back, and quitting in a mission or after one leaves none.
     defer {
-        display.state.subtarget.clear(objects);
-        display.state.subtarget.letGo(objects.gpa);
+        game_display.subtarget.clear(objects);
+        game_display.subtarget.letGo(objects.gpa);
     }
 
     // The mods' global scripts, which run while a game runs: from the front end's start of a game,
@@ -789,14 +791,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .tables = tables,
         .types = &types,
         .cockpit = &cockpit,
-        .display = &display.state,
+        .display = &game_display,
         .loading = &loading,
         .objects = objects,
         .player = &player,
         .pilot = &front.pilot,
         .pilot_profile = &pilot_profile,
         .presentation = presentation,
-        .camera = &view,
+        .handed = &handed,
         .radio = &radio,
         .hearing = hearing,
         .sounds = &sound_commands,
@@ -805,7 +807,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         .io = io,
     };
     defer play.end();
-    display.play = &play;
     const asked_parts = try partsNamed(arena, play.number, play.file, if (options.mission != null) options.parts() else &.{});
     const watched = if (options.mission == null) null else options.watch;
     var watch: Watch = .{
@@ -951,12 +952,14 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 devices.mouse.wheel += turned;
             },
         };
-        // The switches of view that drawing asked for since the game last ran, from the mods'
-        // scripts and `--watch`, become the game's before anything else reads or changes its view.
-        camera.takeUp(world, &view);
-        // The events that the player and menu scripts sent to the global scripts since the game last
-        // ran go over to them before the game runs again.
+        // What drawing handed the game since the game last ran becomes the game's before anything
+        // else reads or changes it: the switches of view, from the mods' scripts and `--watch`,
+        // where the camera stood and what the player aimed at as the last frame was drawn
+        // (`Handed`), and the events the player and menu scripts sent to the global scripts.
+        // Drawing is done with the copies of the subtarget's parts that the frame showed.
+        handed.takeUp(world);
         if (presentation) |shown| shown.sendEvents();
+        game_display.subtarget.letGo(objects.gpa);
         // The editor link: an editor connecting or going, and its messages.
         if (editor) |session| {
             session.poll();
@@ -1221,7 +1224,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 clock.advanceBy(now / platform.window.tick_nanoseconds, PlayerLaunch.skip_ticks);
             } else if (frames_left != null) clock.advanceBy(now / platform.window.tick_nanoseconds, 1) else clock.advanceToFine(now, platform.window.tick_nanoseconds);
             // While the communications window is open the keys 1 to 8 are its menu's.
-            devices.keyboard.numbers_taken = display.state.commsOpen();
+            devices.keyboard.numbers_taken = game_display.commsOpen();
             // The main thread reads its devices for the game frames, which take up what it hands
             // over before each tick.
             if (!clock.paused) devices.handOver(&reading);
@@ -1291,19 +1294,21 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
 
                     // Foster's last stand, once the script has asked for it, which the game plays
                     // as its targeting keys end: here, after the game frames that read them.
-                    if (display.state.fosters_last_stand) {
+                    if (game_display.fosters_last_stand) {
                         if (!try movies.fostersLastStand(play.number, &clock, sound, &sound_commands.line)) return;
-                        display.state.fosters_last_stand = false;
+                        game_display.fosters_last_stand = false;
                     }
                     const launch_step = player_launch.step(slot, clock.mission_ticks);
                     switch (launch_step) {
-                        // The skipped frame isn't drawn, but the display still is, unseen, so
-                        // that what drawing keeps from one frame to the next, such as the flashes'
-                        // counts and blind fire's aim, moves on as it would.
+                        // The skipped frame isn't drawn, but the display still is, unseen, from the
+                        // copy of the game, so that what drawing keeps from one frame to the next,
+                        // such as the flashes' counts and blind fire's aim, moves on as it would.
                         .under_way => if (options.skip_launch) {
                             display.device = srd3d.device.unseen;
                             display.screen = size;
-                            display.drawing.takeUp(&display.state);
+                            display.drawing.takeUp(&game_display);
+                            _ = try drawn.take(world, .of(&clock, smooth_motion, options.riders));
+                            game_display.subtarget.hold();
                             try display.drawDisplay();
                             continue;
                         },
@@ -1318,26 +1323,23 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // copied: a switch of view picks the subtarget's parts out of them, or puts them back. The
         // display takes up what they started for it, before the scripts and the frame read it.
         view.notice(&player.viewing);
-        display.drawing.takeUp(&display.state);
-        // The frame draws a copy of the objects, which with smooth motion has what moves as far on
-        // as the clock has run past the tick, and the camera follows it there. Until the frame is
-        // drawn, the subtarget keeps the copies of its parts that the copy may show.
-        const drawn_objects: ?*game.create.Objects = if (flow.in_front_end) null else try drawn.take(objects, &player.viewing, .of(&clock, smooth_motion, options.riders), clock.frame_start, .{ .splits = &explosions.splits, .gates = &gates });
-        var drawn_world = world;
+        display.drawing.takeUp(&game_display);
+        // The frame draws a copy of the game: of the objects, which with smooth motion has what
+        // moves as far on as the clock has run past the tick, where the camera follows it, and of
+        // the records drawing reads. Until drawing is done with the frame, the subtarget keeps the
+        // copies of its parts that the copy may show.
+        const drawn_objects: ?*game.create.Objects = if (flow.in_front_end) null else try drawn.take(world, .of(&clock, smooth_motion, options.riders));
+        const drawn_world = if (drawn_objects != null) drawn.world(world) else world;
         if (drawn_objects) |copy| {
-            drawn_world.objects = copy;
-            display.state.subtarget.hold();
+            game_display.subtarget.hold();
             // Drawing takes up what the game frames asked of it since the last drawn frame.
             cues.takeUp(.{ .objects = copy, .trails = &trails, .atmospheres = &atmospheres, .escort_marker = escort_marker, .flashes = environment.flashes });
         }
         if (viewed) |launch_step| {
             game.main.viewFrame(.{
-                .orders = orders,
-                .objects = drawn_objects.?,
-                .viewing = &drawn.viewing,
+                .world = drawn_world,
                 .devices = &devices,
                 .camera = &view,
-                .display = &display.state,
                 .cockpit = if (cockpit.shown) |*shown| shown else null,
                 .forces = &force_feedback,
                 .random = &drawn_random,
@@ -1345,7 +1347,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .trails = &trails,
                 .hearing = hearing,
             });
-            if (launch_step != .under_way) watch.frame(drawn_world, &view, &drawn.viewing);
+            if (launch_step != .under_way) watch.frame(drawn_world, &view);
         }
 
         // The player and menu scripts' frame, before anything is drawn, with what each of their
@@ -1359,18 +1361,18 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             } else {
                 const layer: scripting.drawing.Which = if (pause_menu.isOpen()) .ui else .hud;
                 if (script_font) |*file| frames.show(&host, layer, &file.font, display.ui_scale.of(size), &display.resources.art, display.resources.scripts_ball);
-                host.camera = .{ .camera = &view, .viewing = &drawn.viewing, .bounds = .of(drawn_world), .now = clock.viewTime(), .player = objects.player };
+                host.camera = .{ .camera = &view, .viewing = &drawn.player.viewing, .bounds = .of(drawn_world), .now = drawn.clock.viewTime(), .player = drawn.objects.player };
                 host.scene = hearing.scene(drawn_world);
                 host.flight = .{
-                    .hud = &display.state,
+                    .hud = &drawn.display,
                     .drawing = &display.drawing,
-                    .player = display.player,
-                    .play = display.clock.play,
-                    .variables = if (display.play.loaded) |loaded| &loaded.script.variables else null,
-                    .last_view = drawn.viewing.last,
+                    .player = &drawn.player,
+                    .play = drawn.clock.play,
+                    .variables = drawn_world.variables,
+                    .last_view = drawn.player.viewing.last,
                     .strings = display.strings,
-                    .speaker = display.radio.speakingShip(&display.state.windows, objects),
-                    .speaker_name = display.radio.shownName(),
+                    .speaker = if (drawn.radio) |*on_air| on_air.speakingShip(&drawn.display.windows, drawn.objects) else null,
+                    .speaker_name = if (drawn.radio) |*on_air| on_air.shownName() else null,
                 };
             }
             if (shown.runtime.registries.selected_screen != null and host.views.get(.ui) == null) host.views.set(.ui, host.views.get(.hud));
@@ -1384,7 +1386,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             display.placements = shown.instrumentPlacements();
             display.parts = shown.partPlacements();
             if (host.camera != null) if (drawn_objects) |copy| {
-                copy.slots[copy.player].object.flags.hidden = drawn.viewing.inside(copy.player);
+                copy.slots[copy.player].object.flags.hidden = drawn.player.viewing.inside(copy.player);
             };
         }
 
@@ -1399,50 +1401,47 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         } else {
             const copy = drawn_objects.?;
             // The game takes where this frame is drawn from as input, for the effects that depend
-            // on the camera (`camera.Viewing.seen_from`).
-            player.viewing.seen_from = view.place;
+            // on the camera, as it next runs (`camera.Viewing.seen_from`, `Handed`).
+            handed.seen_from = view.place;
             context.camera = .{ .position = view.place.position, .orientation = view.place.orientation };
-            context.projection = view.projection(drawn.viewing.view, size[0], size[1], field_of_view);
+            context.projection = view.projection(drawn.player.viewing.view, size[0], size[1], field_of_view);
             // The cockpit's model hangs from the camera, and the radar's backing stands on the radar.
             if (cockpit.shown) |*shown| if (view.cockpit_place) |placed| game.main.cockpit.place(&shown.model, view.place, placed);
             backing.place(context.projection, view.place, display.ui_scale.of(size), display.placements.get(.radar));
             display.device = gpu.interface();
             display.screen = size;
             display.sight = .{ .place = view.place, .projection = context.projection };
-            display.cockpit_mode = drawn.viewing.cockpit_mode;
-            // The display draws the copy too, and the game's objects again once the frame is drawn.
-            display.objects = copy;
-            defer display.objects = objects;
+            display.cockpit_mode = drawn.player.viewing.cockpit_mode;
             try game.main.drawFrame(arena, frame_arena.allocator(), &scene, &context, .{
                 .objects = copy,
                 .portals = &drawn.portals,
                 .seat = if (copy.slots[copy.player].object.flags.hidden) copy.player else null,
-                .shown = .of(&player),
+                .shown = .of(&drawn.player),
                 .space = space,
                 .sky = sky,
                 .environment = &environment,
                 .gates = &gates,
-                .view = drawn.viewing.view,
-                .cockpit_mode = drawn.viewing.cockpit_mode,
-                .jumping_in = player.jumping_in,
-                .last_view = drawn.viewing.last,
+                .view = drawn.player.viewing.view,
+                .cockpit_mode = drawn.player.viewing.cockpit_mode,
+                .jumping_in = drawn.player.jumping_in,
+                .last_view = drawn.player.viewing.last,
                 .cut = view.cut,
                 .overlay = display.overlay(),
                 .cockpit = if (cockpit.shown) |*shown| &shown.model else null,
                 // The paused frame hides the radar's backing, whose radar the menu stands in place of,
                 // as does a mod's display that stands in for the radar.
-                .backing = if (clock.paused or display.placements.get(.radar).hidden) null else backing,
+                .backing = if (drawn.clock.paused or display.placements.get(.radar).hidden) null else backing,
                 .kills_shown = devices.active(.display_kills, false),
                 .particles = &particles,
                 .smoke = &smoke,
                 .gun_particles = &gun_particles,
                 .sparks = &sparks,
-                .ahead = game.objects.pastTick(&clock, smooth_motion),
+                .ahead = game.objects.pastTick(&drawn.clock, smooth_motion),
                 .explosions = &explosions,
                 .shockwaves = &shockwaves,
                 .trails = &trails,
                 .countermeasures = &countermeasures,
-                .lock = &display.state.lock,
+                .lock = &drawn.display.lock,
                 .lock_rings = lock_rings,
                 .chase = chase_objects,
                 .display = &display.drawing,
@@ -1456,18 +1455,16 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .escort_marker = escort_marker,
                 .flash = &flash,
                 .interference = &display.drawing.interference,
-                .ticks = @intCast(clock.drawnTicks()),
-                .paused = clock.paused,
+                .ticks = @intCast(drawn.clock.drawnTicks()),
+                .paused = drawn.clock.paused,
                 .attachments = .{
                     .camera = view.place.position,
-                    .frame_start = clock.frame_start,
+                    .frame_start = drawn.clock.frame_start,
                     .random = &drawn_random,
                 },
             }, driver.interface());
-            // The copies of the subtarget's parts put back while the frame was drawn can go.
-            display.state.subtarget.letGo(objects.gpa);
             // `mission_frame` ends with the 0 key, which saves the frame just drawn.
-            if (!clock.paused and game.main.screenshotAsked(&devices.keyboard)) presenter.saveScreenshot(gpa, &screenshots);
+            if (!drawn.clock.paused and game.main.screenshotAsked(&devices.keyboard)) presenter.saveScreenshot(gpa, &screenshots);
             view.cut = false;
             // What the menu's choice ends the pause in, as `mission_paused_frame` acts on it: the
             // mission starts again for RESTART, and for CONTINUE once it is over, and LEAVE MISSION
@@ -1647,12 +1644,13 @@ const Watch = struct {
     /// Whether the camera has been set on the ship.
     started: bool = false,
 
-    /// Places `view` by the ship, where it is one of `world`'s objects and is there, after the
-    /// camera's own frame. The first time, it switches `viewing`, the drawn frame's copy of the
-    /// view, and asks the game to switch its own (`camera.Camera.ask`), which the camera then cuts
-    /// to as it next frames.
-    fn frame(watch: *Watch, world: game.gameobj.World, view: *camera.Camera, viewing: *camera.Viewing) void {
+    /// Places `view` by the ship, where it is one of the objects of `world`, the drawn frame's
+    /// (`game.main.Drawn.world`), and is there, after the camera's own frame. The first time, it
+    /// switches the drawn frame's copy of the view, and asks the game to switch its own
+    /// (`camera.Camera.ask`), which the camera then cuts to as it next frames.
+    fn frame(watch: *Watch, world: game.gameobj.World, view: *camera.Camera) void {
         const all = world.objects;
+        const viewing = &world.player.viewing;
         const index = watch.slot orelse return;
         if (index >= all.slots.len) return;
         const slot = &all.slots[index];
@@ -1678,11 +1676,14 @@ test Watch {
     var view: camera.Camera = .{};
     const world = mission.world();
     const game_view = &mission.player.viewing;
-    // The drawn frame's copy of the view.
-    var viewing = game_view.*;
+    // The drawn frame's world, with its copy of the player's record and so of the view.
+    var drawn_player = mission.player;
+    var shown = world;
+    shown.player = &drawn_player;
+    const viewing = &drawn_player.viewing;
     // A ship not made yet is waited for.
     var watch: Watch = .{ .slot = 3, .from = .{ 0, 0, 2 } };
-    watch.frame(world, &view, &viewing);
+    watch.frame(shown, &view);
     try std.testing.expect(!watch.started);
     // Once it is there, the camera watches it from twice its radius ahead, and moves with it.
     const ship = try mission.add(.of(.predator), .{ 100, 0, 0 });
@@ -1690,7 +1691,7 @@ test Watch {
     const slot = mission.slot(ship);
     slot.drawn = .{ .position = .{ 100, 0, 0 }, .orientation = math.identity };
     slot.object.radius = 10;
-    watch.frame(world, &view, &viewing);
+    watch.frame(shown, &view);
     try std.testing.expectEqual(camera.View.watch, viewing.view);
     try std.testing.expectEqual(ship, viewing.object.?);
     try std.testing.expect(viewing.locked and viewing.lasting);
@@ -1703,14 +1704,14 @@ test Watch {
     try std.testing.expect(!view.cut);
     view.notice(game_view);
     try std.testing.expect(view.cut);
-    viewing = game_view.*;
+    drawn_player = mission.player;
     slot.drawn.position = .{ 100, 0, 50 };
-    watch.frame(world, &view, &viewing);
+    watch.frame(shown, &view);
     try std.testing.expectEqual(math.Vector{ 100, 0, 70 }, view.place.position);
     // Once the script takes the camera, it keeps it.
     try std.testing.expect(camera.switchView(world, .director, null, true, true));
-    viewing = game_view.*;
-    watch.frame(world, &view, &viewing);
+    drawn_player = mission.player;
+    watch.frame(shown, &view);
     try std.testing.expectEqual(null, watch.slot);
     try std.testing.expectEqual(camera.View.director, viewing.view);
 }
@@ -2292,9 +2293,10 @@ const Play = struct {
     pilot_profile: *game.gameflow.ProfileFile,
     /// The player and menu scripts, which hear as each mission starts and ends.
     presentation: ?*scripting.Presentation = null,
-    /// The camera, through which drawing asks the game for switches of view (`camera.Camera.ask`).
-    /// A script can ask for one as the mission ends, which the game makes before the next starts.
-    camera: *camera.Camera,
+    /// What drawing hands the game (`game.main.Handed`), which the game takes up before the next
+    /// mission starts and resets some of it, as it would have found it had drawing written it into
+    /// the game at once: a switch of view a script asks for as the mission ends, among others.
+    handed: *game.main.Handed,
     /// The radio, whose line playing stops as a mission ends (`letGo`).
     radio: *game.radio.Radio,
     /// The sound, which plays at once what a start or an end asks of it (`sounds`).
@@ -2318,9 +2320,7 @@ const Play = struct {
     /// (`game.xtrabits.loading.missionFrames`).
     fn start(play: *Play, orders: game.aigeneric.Context) !void {
         play.end();
-        // A switch of view the scripts asked for as the mission ended is the game's before the
-        // next mission starts.
-        camera.takeUp(orders.world, play.camera);
+        play.handed.takeUp(orders.world);
         play.over = false;
         var last_frame: ?game.xtrabits.loading.Frame = null;
         if (play.loading) |loading| {
@@ -2449,22 +2449,20 @@ const Display = struct {
     cockpit_mode: camera.CockpitMode = .cockpit,
     /// Where the line starts that places the marker for a target out of sight.
     edge_line: game.hud.EdgeLine,
-    /// The objects, whose player's ship the display shows, and the mission being played, whose
-    /// script has what is ready for JUMP DRIVE; filled in once the mission is ready to start.
-    objects: *game.create.Objects,
-    play: *const Play,
-    clock: *const game.main.Clock,
-    player: *const engine.input.Player,
+    /// The drawn frame's copy of the game, which the display draws: the objects, whose player's
+    /// ship it shows, the display's state, the player's record, the clock, the radio, whose window
+    /// shows the speaker's face, and the mission's variables, which have what is ready for JUMP
+    /// DRIVE (`game.main.Drawn`).
+    drawn: *const game.main.Drawn,
+    /// What drawing hands the game, which takes what the player aimed at as the display was drawn
+    /// (`game.main.Handed`).
+    handed: *game.main.Handed,
     /// The camera, whose shake shakes the power ball too.
     view: *const camera.Camera,
-    /// The radio, whose window shows the speaker's face.
-    radio: *const game.radio.Radio,
     /// The speaker's face film as drawing decodes it, following the radio's.
     film: game.hudmovie.Picture,
     /// The game's random numbers (`Random`), which the camera and the display both draw from.
     random: *engine.random.Random,
-    /// The display's own state, `hud.cpp`'s globals.
-    state: game.hud.State = .{},
     /// What drawing keeps of the display from one frame to the next.
     drawing: game.hud.Drawing = .{},
     /// The scene as it was last drawn, which the target is drawn over and the object under the
@@ -2530,34 +2528,36 @@ const Display = struct {
         });
     }
 
-    /// Draws the display, then hands the game what the player aimed at as it was drawn, which the
-    /// game frames take as input with the keys (`game.hud.State.aim`).
+    /// Draws the display from the drawn frame's copy of the game, then hands the game what the
+    /// player aimed at as it was drawn, which the game frames take as input with the keys
+    /// (`game.hud.State.aim`, `game.main.Handed`).
     fn drawDisplay(display: *Display) !void {
-        try game.hud.draw(&display.state, &display.drawing, &display.resources, .{
+        const drawn = display.drawn;
+        try game.hud.draw(&drawn.display, &display.drawing, &display.resources, .{
             .gpa = display.gpa,
             .device = display.device,
             .screen = display.screen,
             .ui_scale = display.ui_scale,
             .sight = display.sight,
-            .all = display.objects,
-            .player = display.player,
-            .clock = display.clock,
-            .last_view = display.player.viewing.last,
+            .all = drawn.objects,
+            .player = &drawn.player,
+            .clock = &drawn.clock,
+            .last_view = drawn.player.viewing.last,
             .mode = display.cockpit_mode,
             .strings = display.strings,
             .hit_shake = display.view.shake_left,
             .sound = display.settings.sound,
-            .radio = display.radio,
+            .radio = if (drawn.radio) |*on_air| on_air else null,
             .film = &display.film,
             .random = display.random,
-            .ready = if (display.play.loaded) |loaded| &loaded.script.variables.ready else &display.idle,
+            .ready = if (drawn.variables) |*variables| &variables.ready else &display.idle,
             .edge_line = display.edge_line,
-            .variables = if (display.play.loaded) |loaded| &loaded.script.variables else null,
+            .variables = if (drawn.variables) |*variables| variables else null,
             .placements = display.placements,
             .parts = display.parts,
             .devices = display.devices,
         });
-        display.state.aim = display.drawing.aim;
+        display.handed.aim = display.drawing.aim;
     }
 };
 

@@ -331,8 +331,8 @@ closes both.
 `hud_target_keys` first finds the object under the reticle (`hud_under_reticle`, `0x00566664`): the
 first other than the player's in front of the camera within `0x20` of the middle of the screen
 either way. OpenReliant's drawing finds it as it draws the display, in the scene it draws
-(`hud.underReticle`), and hands it to the game with the keys (`hud.State.aim`). The keys are then
-read in this order:
+(`hud.underReticle`), and hands it to the game with the keys (`hud.State.aim`), which the game
+takes up before it next runs (`main.Handed`). The keys are then read in this order:
 
 | Key | Does |
 | --- | --- |

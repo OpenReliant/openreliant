@@ -58,6 +58,7 @@ const betty = hog_snd.betty;
 const hud = @import("hud.zig");
 const hudoptions = @import("hudoptions.zig");
 const radio_module = @import("radio.zig");
+const vm = @import("../vm.zig");
 const sound3d = @import("sound3d.zig");
 const matmanager = @import("matmanager.zig");
 const nebula = @import("nebula.zig");
@@ -545,16 +546,13 @@ pub fn pausedFrame(devices: *input.Devices, hearing: hog_snd.Hearing, world: gam
 
 /// What the drawn frame's camera, trails and sound run with (`viewFrame`).
 pub const Drawing = struct {
-    /// The world, its clock, and the devices whose motors the effects turn.
-    orders: aigeneric.Context,
-    /// The copy of the objects the frame draws (`Drawn`).
-    objects: *create.Objects,
-    /// The copy of the view the frame shows (`Drawn.viewing`).
-    viewing: *const camera.Viewing,
+    /// The world as the drawn frame sees it (`Drawn.world`): the copies of the objects, the
+    /// player's record with the view, the display, whose target the target view goes round, and the
+    /// clock.
+    world: gameobj.World,
+    /// The devices whose motors the effects turn.
     devices: *input.Devices,
     camera: *camera.Camera,
-    /// The display, whose target the target view goes round.
-    display: *hud.State,
     /// The cockpit's model, where the player's ship has one, which the camera's frame moves.
     cockpit: ?*cockpit.Cockpit.Shown,
     forces: *input.force.Forces,
@@ -621,10 +619,8 @@ fn controlsFrame(orders: aigeneric.Context) void {
 /// music waiting its turn, the positional sounds gathered, and the 3D sounds placed again.
 /// OpenReliant's: the effects playing turn the controller's motors (`input.force`).
 pub fn viewFrame(drawing: Drawing) void {
-    const world = drawing.orders.world;
-    var shown = world;
-    shown.objects = drawing.objects;
-    const clock = world.clock;
+    const shown = drawing.world;
+    const clock = shown.clock;
     const all = shown.objects;
     const view = drawing.camera;
     const devices = drawing.devices;
@@ -636,16 +632,16 @@ pub fn viewFrame(drawing: Drawing) void {
         drawn.random = drawing.random;
         trails.frame(drawn);
     }
-    const viewing = drawing.viewing;
+    const viewing = &shown.player.viewing;
     const cockpit_input = if (drawing.cockpit) |seat| seat.inputFor(slot, viewing.view) else null;
     const subject = camera.Subject.of(slot);
     const seen = if (viewing.object) |object| camera.Subject.of(&all.slots[object]) else subject;
-    const marker = if (world.explosions) |explosions| if (explosions.marker) |left| left.position else null else null;
+    const marker = if (shown.explosions) |explosions| if (explosions.marker) |left| left.position else null else null;
     view.frame(.{
         .object = seen,
         .player = subject,
         // The target view goes round the player's target.
-        .target = if (drawing.display.target) |aimed| camera.Subject.of(&all.slots[aimed.slot]) else null,
+        .target = if (shown.display) |display| if (display.target) |aimed| camera.Subject.of(&all.slots[aimed.slot]) else null else null,
         .ticks = ticks,
         .now = at,
         .ahead = objects.pastTick(clock, drawing.smooth_motion),
@@ -655,15 +651,14 @@ pub fn viewFrame(drawing: Drawing) void {
         .forces = drawing.forces,
         .dropping = launch.dropping(all, all.player),
         .landing = ailand.seen(all, viewing.object orelse all.player),
-        .showing = &world.player.showing,
         .game = shown,
         .viewing = viewing,
-        .shake = world.shake.*,
+        .shake = shown.shake.*,
     });
     slot.object.flags.hidden = viewing.inside(all.player);
     if (drawing.hearing) |hearing| {
         hearing.sound.timerTick(clock.game_ticks);
-        hearing.sound.surround(world.player.showing.surroundings(viewing.view));
+        hearing.sound.surround(shown.player.showing.surroundings(viewing.view));
         if (hearing.sound.stdsmp) |bank| hearing.sound.frame(bank, hearing.scene(shown));
     }
     devices.joystick.rumble(drawing.forces.motors(clock.frame_start));
@@ -1134,29 +1129,31 @@ fn frameObject(slot: *create.Slot, timing: objects.Timing, glide: ?math.Vector, 
     cloak.wobble(slot, now);
 }
 
-/// OpenReliant's: the copy of the objects and the missiles that each drawn frame works on
-/// (`create.Objects.copyInto`), so that drawing changes nothing the game goes on from. With smooth
-/// motion, the copy is placed as far on as the platform's clock has run past the last tick
-/// (`objects.pastTick`), so that what moves moves on every drawn frame. A game frame frames the
-/// objects by the step's ticks alone (`gameFrames`).
+/// OpenReliant's: the copy of the game that each drawn frame works on: the objects and the missiles
+/// (`create.Objects.copyInto`), and the records drawing reads, so that drawing neither reads nor
+/// changes anything the game goes on from. With smooth motion, the copy of the objects is placed as
+/// far on as the platform's clock has run past the last tick (`objects.pastTick`), so that what
+/// moves moves on every drawn frame. A game frame frames the objects by the step's ticks alone
+/// (`gameFrames`).
 pub const Drawn = struct {
     gpa: Allocator,
     objects: *create.Objects,
-    /// The copy of the view the game has the camera show (`input.Player.viewing`), which drawing
-    /// reads. The drawing side's switches of view switch it at once, and the game's as it next
-    /// runs (`camera.Camera.ask`).
-    viewing: camera.Viewing = .{},
+    /// Copies of the game's records that drawing reads besides the objects, as the game frames left
+    /// them (`take`): the player's record, with the view, the display's state, the mission's
+    /// variables while one runs, the radio, the clock and the shake from hits. The drawing side's
+    /// switches of view switch the copy of the view at once, and the game's as it next runs
+    /// (`camera.Camera.ask`).
+    player: input.Player = .{},
+    display: hud.State = .{},
+    variables: ?vm.Variables = null,
+    radio: ?radio_module.Radio = null,
+    clock: Clock = .{},
+    shake: f32 = 0,
     /// What the copy's models are made in, from one drawn frame to the next.
     arena: std.heap.ArenaAllocator,
     /// The portals the copy's parts are cut by: drawing's own, which stand in for the game's from
     /// one drawn frame to the next (`xtrabits.Portals`).
     portals: xtrabits.Portals = .{},
-
-    /// What cuts the objects by portals of the game's: the splits and the gates.
-    pub const Cutting = struct {
-        splits: ?*const explode.split.Splits = null,
-        gates: ?*const wgate.Gates = null,
-    };
 
     comptime {
         std.debug.assert(xtrabits.Portals.capacity >= 2 * explode.split.Splits.max + wgate.max_records);
@@ -1172,18 +1169,24 @@ pub const Drawn = struct {
         drawn.gpa.destroy(drawn.objects);
     }
 
-    /// Copies `all`, and `viewing`, the view, for the drawn frame, and returns the copy of `all`.
-    /// Where there is time past the tick, every object and missile the game frame framed is framed
-    /// `timing` of the way through the step in the copy, as the game frame frames them
-    /// (`frameObjects`, `missiles.frame`), with nothing else the game frame does to them. Then
-    /// drawing's portals stand in for those of `cutting` (`explode.split.Splits.standPortals`,
-    /// `wgate.Gates.standPortals`), and the copy's parts that the game's cut are pointed at them
-    /// (`xtrabits.Portals.cut`).
-    pub fn take(drawn: *Drawn, all: *const create.Objects, viewing: *const camera.Viewing, timing: objects.Timing, now: i32, cutting: Cutting) Allocator.Error!*create.Objects {
+    /// Copies the objects of `game`, the game's world, and the records drawing reads besides, for the
+    /// drawn frame, and returns the copy of the objects. Where there is time past the tick, every
+    /// object and missile the game frame framed is framed `timing` of the way through the step in
+    /// the copy, as the game frame frames them (`frameObjects`, `missiles.frame`), with nothing else
+    /// the game frame does to them. Then drawing's portals stand in for those of the splits and the
+    /// gates (`explode.split.Splits.standPortals`, `wgate.Gates.standPortals`), and the copy's parts
+    /// that the game's cut are pointed at them (`xtrabits.Portals.cut`).
+    pub fn take(drawn: *Drawn, game: gameobj.World, timing: objects.Timing) Allocator.Error!*create.Objects {
         _ = drawn.arena.reset(.retain_capacity);
-        drawn.viewing = viewing.*;
+        drawn.player = game.player.*;
+        drawn.display = if (game.display) |display| display.* else .{};
+        drawn.variables = if (game.variables) |variables| variables.* else null;
+        drawn.radio = if (game.radio) |radio| radio.* else null;
+        drawn.clock = game.clock.*;
+        drawn.shake = game.shake.*;
+        const now = game.clock.frame_start;
         const copy = drawn.objects;
-        try all.copyInto(copy, drawn.arena.allocator());
+        try game.objects.copyInto(copy, drawn.arena.allocator());
         if (timing.ahead > 0) {
             var walk = copy.walk();
             while (walk.next()) |index| {
@@ -1197,12 +1200,50 @@ pub const Drawn = struct {
             }
         }
         drawn.portals.begin();
-        if (cutting.splits) |splits| splits.standPortals(&drawn.portals);
-        if (cutting.gates) |gates| gates.standPortals(&drawn.portals, copy);
+        if (game.explosions) |explosions| explosions.splits.standPortals(&drawn.portals);
+        if (game.gates) |gates| gates.standPortals(&drawn.portals, copy);
         drawn.portals.end();
         var walk = copy.walk();
         while (walk.next()) |index| if (copy.slots[index].model) |*model| drawn.portals.cut(model);
         return copy;
+    }
+
+    /// `game`, the game's world, as the drawn frame sees it: the objects, the player's record, the
+    /// display's state, the mission's variables, the radio, the clock and the shake from the
+    /// copies (`take`), and the rest as the game keeps it.
+    pub fn world(drawn: *Drawn, game: gameobj.World) gameobj.World {
+        var shown = game;
+        shown.objects = drawn.objects;
+        shown.player = &drawn.player;
+        if (game.display != null) shown.display = &drawn.display;
+        shown.variables = if (drawn.variables) |*variables| variables else null;
+        shown.radio = if (drawn.radio) |*radio| radio else null;
+        shown.clock = &drawn.clock;
+        shown.shake = &drawn.shake;
+        return shown;
+    }
+};
+
+/// OpenReliant's: what drawing hands the game for its next frames, which the game takes up at the
+/// start of the next pass and before a mission starts (`takeUp`), so the game finds them just as if
+/// drawing had written them into its records at once: the switches of view drawing asked for
+/// through the camera (`camera.Camera.ask`), where the camera stood as the last frame was drawn
+/// (`camera.Viewing.seen_from`), and what the player aimed at as the display was last drawn
+/// (`hud.State.aim`).
+pub const Handed = struct {
+    camera: *const camera.Camera,
+    seen_from: ?camera.Place = null,
+    aim: ?hud.Aim = null,
+
+    /// Gives the game, in `world`, what drawing has handed over since the game last took it up.
+    pub fn takeUp(handed: *Handed, world: gameobj.World) void {
+        camera.takeUp(world, handed.camera);
+        if (handed.seen_from) |place| world.player.viewing.seen_from = place;
+        if (handed.aim) |aim| if (world.display) |display| {
+            display.aim = aim;
+        };
+        handed.seen_from = null;
+        handed.aim = null;
     }
 };
 
@@ -2489,7 +2530,6 @@ test "a mod's ship type has its own cockpit and devices" {
 test startMission {
     const gpa = std.testing.allocator;
     const dte = @import("../../formats/dte.zig");
-    const vm = @import("../vm.zig");
     // The start part: the player's flight group, then the other ship's, which fights the player.
     var routine: vm.machine.testing.Routine = .init(gpa);
     defer routine.deinit();
@@ -2720,12 +2760,16 @@ test Drawn {
     var copies: Drawn = try .init(gpa);
     defer copies.deinit();
     // Half a tick past the tick, the drawn frame draws it an eighth of the step further on, and
-    // the game's ship stays where the game frame framed it. The frame shows the game's view.
+    // the game's ship stays where the game frame framed it. The frame reads copies of the game's
+    // records too: the player's, with the view, and the clock.
     mission.clock.past_tick = 0.5;
     mission.player.viewing.view = .chase;
-    const copy = try copies.take(mission.objects, &mission.player.viewing, .of(&mission.clock, true, .together), 0, .{});
+    const copy = try copies.take(mission.world(), .of(&mission.clock, true, .together));
     try std.testing.expectEqual(math.Vector{ 62.5, 0, 0 }, copy.slots[ship].drawn.position);
-    try std.testing.expectEqual(camera.View.chase, copies.viewing.view);
+    try std.testing.expectEqual(camera.View.chase, copies.player.viewing.view);
+    try std.testing.expectEqual(0.5, copies.clock.past_tick);
+    mission.player.viewing.view = .cockpit;
+    try std.testing.expectEqual(camera.View.chase, copies.world(mission.world()).player.viewing.view);
     try std.testing.expectEqual(drawn, slot.drawn);
     try std.testing.expectEqualSlices(u8, std.mem.asBytes(&framed), std.mem.asBytes(&slot.object));
     // The copy's model is its own: drawing it moves none of the game's parts.
@@ -2735,7 +2779,30 @@ test Drawn {
     try std.testing.expect(!std.meta.eql(part.object.position, slot.model.?.parts[0].object.position));
     // With no time past the tick, the copy stands where the game frame framed it.
     mission.clock.past_tick = 0;
-    try std.testing.expectEqual(drawn, (try copies.take(mission.objects, &mission.player.viewing, .of(&mission.clock, true, .together), 0, .{})).slots[ship].drawn);
+    try std.testing.expectEqual(drawn, (try copies.take(mission.world(), .of(&mission.clock, true, .together))).slots[ship].drawn);
+}
+
+test Handed {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var display: hud.State = .{};
+    var world = mission.world();
+    world.display = &display;
+    const view: camera.Camera = .{};
+    var handed: Handed = .{ .camera = &view };
+    // What drawing handed over becomes the game's as the game takes it up.
+    const place: camera.Place = .{ .position = .{ 1, 2, 3 }, .orientation = math.identity };
+    handed.seen_from = place;
+    handed.aim = .{ .under_reticle = 4, .blind_fire = true };
+    handed.takeUp(world);
+    try std.testing.expectEqual(place.position, mission.player.viewing.seen_from.?.position);
+    try std.testing.expectEqual(hud.Aim{ .under_reticle = 4, .blind_fire = true }, display.aim);
+    // It is taken up once: with nothing handed over since, the game's records stay as they are,
+    // as they would have had drawing written them itself.
+    display.aim = .{};
+    handed.takeUp(world);
+    try std.testing.expectEqual(hud.Aim{}, display.aim);
 }
 
 test "a mission plays the same way however often it is drawn" {
@@ -2756,7 +2823,7 @@ test "a mission plays the same way however often it is drawn" {
         _ = gameFrames(&mission.clock, &devices, null, mission.world(), .together, null);
         if (which > 0) continue;
         mission.clock.past_tick = 0.6;
-        _ = try copies.take(mission.objects, &mission.player.viewing, .of(&mission.clock, true, .together), mission.clock.frame_start, .{});
+        _ = try copies.take(mission.world(), .of(&mission.clock, true, .together));
     };
     const drawn = missions[0].slot(1);
     const undrawn = missions[1].slot(1);
