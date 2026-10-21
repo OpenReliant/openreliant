@@ -47,6 +47,7 @@ const tractor = @import("tractor.zig");
 const airipper = @import("airipper.zig");
 const jump = @import("jump.zig");
 pub const cues = @import("main/cues.zig");
+pub const game_thread = @import("main/game_thread.zig");
 pub const retired = @import("main/retired.zig");
 pub const flash = @import("main/flash.zig");
 pub const scanner = @import("main/scanner.zig");
@@ -263,6 +264,15 @@ pub const Clock = struct {
     pub fn advanceToFine(clock: *Clock, now: u64, per_tick: u64) void {
         clock.advanceTo(now / per_tick);
         clock.past_tick = @as(f32, @floatFromInt(now % per_tick)) / @as(f32, @floatFromInt(per_tick));
+    }
+
+    /// OpenReliant's: sets `past_tick` for `now`, a time on the finer count, as a drawn frame takes
+    /// its copies while the game frames run on the game thread (`game_thread.GameThread`): how far
+    /// `now` is past the last tick the timer reached, at most a whole tick, since the game thread
+    /// may not have run the next one yet.
+    pub fn pastTickAt(clock: *Clock, now: u64, per_tick: u64) void {
+        const since = now -| clock.timer_at * per_tick;
+        clock.past_tick = @min(@as(f32, @floatFromInt(since)) / @as(f32, @floatFromInt(per_tick)), 1);
     }
 
     /// Runs `ticks` ticks and takes `now` as where the platform's count has reached, for a
@@ -850,10 +860,10 @@ fn runLock(world: gameobj.World, display: *hud.State) void {
     if (world.player.viewing.last.showsLock()) display.lock.frame(world, &display.missiles);
 }
 
-/// OpenReliant's: runs the game frames (`gameFrames`) on a thread of their own, and waits for them.
-/// The main thread draws and reads the window, and the game frames run apart from it, though not
-/// yet at the same time: what the two share stays in one thread's hands at a time. Where `io` can't
-/// run them apart, they run on the caller's thread.
+/// OpenReliant's: runs the game frames (`gameFrames`) on a thread of their own, and waits for them,
+/// where they run in step with the drawn frames rather than at their own pace
+/// (`game_thread.GameThread.free`), as for a screenshot. Where `io` can't run them apart, they run
+/// on the caller's thread.
 pub fn runGameFrames(io: Io, clock: *Clock, devices: *input.Devices, reading: ?*input.Reading, world: gameobj.World, riders: objects.Riders, loaded: ?*Loaded) FrameEnd {
     var frames = io.concurrent(gameFrames, .{ clock, devices, reading, world, riders, loaded }) catch
         return gameFrames(clock, devices, reading, world, riders, loaded);
@@ -3096,6 +3106,17 @@ test "the clocks keep to the platform's count however the frames fall" {
     try std.testing.expectEqual(elapsed / 4, steps);
     // Frames shorter than a tick neither run one nor lose one: the count rules.
     try std.testing.expectEqual(now, clock.timer_at);
+}
+
+test "Clock.pastTickAt" {
+    var clock: Clock = .{};
+    // How far the finer count has run past the tick the timer last reached, as a share of a tick:
+    // half of one, then a whole tick at most where the timer has yet to run the next.
+    clock.advanceToFine(1000, 10);
+    clock.pastTickAt(1005, 10);
+    try std.testing.expectEqual(0.5, clock.past_tick);
+    clock.pastTickAt(1025, 10);
+    try std.testing.expectEqual(1, clock.past_tick);
 }
 
 test "starting the clocks again keeps the timer's counts running" {
