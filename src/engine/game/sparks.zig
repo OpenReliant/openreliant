@@ -163,6 +163,11 @@ pub const Spark = struct {
     carried: Vector,
 
     const max_corners = 12;
+
+    /// Points its bolt at its own colours, as it is thrown and as a drawn frame copies it.
+    fn point(spark: *Spark) void {
+        spark.object.baked = &spark.colours;
+    }
 };
 
 /// How a spray of sparks leaves: how fast, a tick, and up to how much faster or slower, half of
@@ -232,7 +237,7 @@ pub const Sparks = struct {
             .velocity = math.normalize(direction) * @as(Vector, @splat(speed)),
             .carried = carried,
         };
-        slot.*.?.object.baked = &slot.*.?.colours;
+        slot.*.?.point();
     }
 
     /// `sparks_update` (`0x004A1BB0`), which `particles_frame` runs first: each spark flies on by
@@ -259,10 +264,12 @@ pub const Sparks = struct {
     }
 
     /// OpenReliant's: the sparks as a drawn frame copies them (`main.Drawn.Effects`), the sparks
-    /// flying copied into `arena`. The copy shares the shapes, which last as long as the sparks.
+    /// flying copied into `arena`, each bolt pointed at the copy's own colours. The copy shares the
+    /// shapes, which last as long as the sparks.
     pub fn copy(all: *const Sparks, arena: Allocator) Allocator.Error!Sparks {
         var copied = all.*;
         copied.sparks = try table.copyRecord(Flying, arena, all.sparks);
+        for (&copied.sparks.slots) |*slot| if (slot.*) |*spark| spark.point();
         return copied;
     }
 
@@ -350,12 +357,13 @@ test Sparks {
     try all.draw(gpa, arena.allocator(), &scene, 0.5);
     const drawn = scene.layers.get(.world).items[0].mesh;
     try std.testing.expect(math.distance(drawn.position, spark.at + (spark.velocity + spark.carried) * @as(Vector, @splat(0.5))) < 1e-4);
-    // A drawn frame's copy draws the same.
+    // A drawn frame's copy draws the same, from its own colours.
     const copied = try all.copy(arena.allocator());
     var copied_scene: srcore.Scene = .{};
     defer copied_scene.deinit(gpa);
     try copied.draw(gpa, arena.allocator(), &copied_scene, 0.5);
     try std.testing.expectEqual(drawn.position, copied_scene.layers.get(.world).items[0].mesh.position);
+    try std.testing.expectEqual(@as([*][4]f32, &copied.sparks.slots[0].?.colours), copied_scene.layers.get(.world).items[0].mesh.baked.?.ptr);
     try std.testing.expectApproxEqAbs(10 * std.math.pow(f32, 0.995, 50), spark.velocity[2], 1e-3);
     try std.testing.expectApproxEqAbs(0.5, spark.colours[3][0], 1e-6);
     clock.frame_start = 101;
