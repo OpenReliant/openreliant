@@ -1363,7 +1363,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 .devices = &devices,
                 .camera = &view,
                 .cockpit = if (cockpit.shown) |*shown| shown else null,
-                .forces = &force_feedback,
                 .random = &drawn_random,
                 .smooth_motion = smooth_motion,
                 .trails = &trails,

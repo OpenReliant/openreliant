@@ -383,8 +383,6 @@ pub const World = struct {
     dropping: bool = false,
     /// What the landing's views stand by, while the view's object lands (`ailand.seen`).
     landing: ?Landing = null,
-    /// The force feedback the player's controller plays, which the shake from hits shakes too.
-    forces: ?*input.force.Forces = null,
     /// The game's world as the drawn frame sees it (`main.Drawn.world`), through which the
     /// director's view flies along the mission's curves and the missile view finds its missile;
     /// null where no game runs, as in a test.
@@ -911,17 +909,15 @@ pub const Camera = struct {
     }
 
     /// Places the camera for a drawn frame (`camera_frame`), once it has taken up the game's
-    /// changes (`notice`): while it shakes from hits by more than `shake_rumbles`, plays the shake
-    /// on the controller too (`force_shake`, `0x004BE000`); moves the bars, then puts the camera
-    /// where the view says. Where the view can't go on, it holds still until the game switches it
-    /// back (`gameFrame`).
+    /// changes (`notice`): moves the bars, then puts the camera where the view says. Where the view
+    /// can't go on, it holds still until the game switches it back. The game frames do the rest of
+    /// `camera_frame`, the shake from hits on the controller among it (`gameFrame`).
     ///
     /// **Improvement:** with smooth motion, the missile view keeps behind its missile where the
     /// frame draws it, between the ticks, as the other views follow their objects; the game keeps
     /// behind it where the last tick left it.
     pub fn frame(camera: *Camera, world: World) void {
         camera.notice(world.viewing);
-        if (world.forces) |forces| if (world.shake > shake_rumbles) forces.startUnlessPlaying(.shake, @intCast(world.now));
         const ticks: f32 = @floatFromInt(world.ticks);
         // What the shake from hits jitters by this frame, before it dies away some more, which the
         // game frames make it do (`main.gameFrames`).
@@ -1086,10 +1082,14 @@ const missile_linger = 150;
 /// its carrier's bay, the bay view holds its time at nothing (`launch.dropping`). The view aside
 /// shows the mission's scene whole (`main.Showing`). In the director's view, the shot runs on, and
 /// the next waiting begins once it is over.
+///
+/// First, while the camera shakes from hits by more than `shake_rumbles`, the controller plays the
+/// shake too (`force_shake`, `0x004BE000`), as `camera_frame` begins.
 pub fn gameFrame(world: gameobj.World) void {
     const viewing = &world.player.viewing;
     const all = world.objects;
     const now = world.clock.viewTime();
+    if (world.forces) |forces| if (world.shake.* > shake_rumbles) forces.startUnlessPlaying(.shake, @intCast(now));
     const stats = all.slots[viewing.object orelse all.player].object.type.hasStats();
     const back = switch (viewing.view) {
         .chase, .spectator => !stats,
@@ -2493,6 +2493,28 @@ test gameFrame {
     try std.testing.expect(switchView(world, .launch_aside, ship, true, true));
     gameFrame(world);
     try std.testing.expectEqual(.everything, mission.player.showing);
+}
+
+test "the shake from hits plays on the controller" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    mission.objects.player = try mission.add(.of(.predator), @splat(0));
+    var made: input.force.testing.Made = .{};
+    defer made.deinit(gpa);
+    try made.add(gpa, .shake, &.{.{ .id = 0, .name = "Cosine1", .kind = 2, .type = 103, .duration = 1000, .rest = &.{ 14, 30, @bitCast(@as(i32, -30)) } }});
+    var forces: input.force.Forces = .{ .library = &made.library, .feedback = true };
+    var world = mission.world();
+    world.forces = &forces;
+    // A light shake leaves the controller still; past `shake_rumbles`, the game frame plays it.
+    world.shake.* = shake_rumbles;
+    gameFrame(world);
+    try std.testing.expect(!forces.playing(.shake, 0));
+    world.shake.* = 0.5;
+    mission.clock.mission_ticks = 10;
+    gameFrame(world);
+    try std.testing.expect(forces.playing(.shake, 10));
 }
 
 test "the missile view" {

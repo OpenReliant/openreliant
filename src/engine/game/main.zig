@@ -558,15 +558,14 @@ pub fn pausedFrame(devices: *input.Devices, hearing: hog_snd.Hearing, world: gam
 /// What the drawn frame's camera, trails and sound run with (`viewFrame`).
 pub const Drawing = struct {
     /// The world as the drawn frame sees it (`Drawn.world`): the copies of the objects, the
-    /// player's record with the view, the display, whose target the target view goes round, and the
-    /// clock.
+    /// player's record with the view, the display, whose target the target view goes round, the
+    /// clock, and the force feedback, whose effects turn the motors.
     world: gameobj.World,
     /// The devices whose motors the effects turn.
     devices: *input.Devices,
     camera: *camera.Camera,
     /// The cockpit's model, where the player's ship has one, which the camera's frame moves.
     cockpit: ?*cockpit.Cockpit.Shown,
-    forces: *input.force.Forces,
     /// **Improvement:** the random numbers of what is only drawn, the camera's shake and the
     /// missiles' trails, apart from the game's, so that how often the screen is drawn leaves the
     /// game's numbers as they are.
@@ -659,7 +658,6 @@ pub fn viewFrame(drawing: Drawing) void {
         .marker = marker,
         .cockpit = cockpit_input,
         .random = drawing.random,
-        .forces = drawing.forces,
         .dropping = launch.dropping(all, all.player),
         .landing = ailand.seen(all, viewing.object orelse all.player),
         .game = shown,
@@ -672,7 +670,7 @@ pub fn viewFrame(drawing: Drawing) void {
         hearing.sound.surround(shown.player.showing.surroundings(viewing.view));
         if (hearing.sound.stdsmp) |bank| hearing.sound.frame(bank, hearing.scene(shown));
     }
-    devices.joystick.rumble(drawing.forces.motors(clock.frame_start));
+    if (shown.forces) |forces| devices.joystick.rumble(forces.motors(clock.frame_start));
 }
 
 /// `mission_frame` (`0x004924B0`), as far as the objects go: first what the game does after it
@@ -1161,15 +1159,16 @@ pub const Drawn = struct {
     objects: *create.Objects,
     /// Copies of the game's records that drawing reads besides the objects, as the game frames left
     /// them (`take`): the player's record, with the view, the display's state, the mission's
-    /// variables while one runs, the radio, the clock and the shake from hits. The drawing side's
-    /// switches of view switch the copy of the view at once, and the game's as it next runs
-    /// (`camera.Camera.ask`).
+    /// variables while one runs, the radio, the clock, the shake from hits and the force feedback,
+    /// whose effects turn the controller's motors. The drawing side's switches of view switch the
+    /// copy of the view at once, and the game's as it next runs (`camera.Camera.ask`).
     player: input.Player = .{},
     display: hud.State = .{},
     variables: ?vm.Variables = null,
     radio: ?radio_module.Radio = null,
     clock: Clock = .{},
     shake: f32 = 0,
+    forces: ?input.force.Forces = null,
     /// Copies of the game's effects, which drawing draws.
     effects: Effects = .{},
     /// What the copies are made in, emptied as each drawn frame takes them (`take`).
@@ -1256,6 +1255,7 @@ pub const Drawn = struct {
         drawn.radio = if (game.radio) |radio| radio.* else null;
         drawn.clock = game.clock.*;
         drawn.shake = game.shake.*;
+        drawn.forces = if (game.forces) |forces| forces.* else null;
         const arena = drawn.arena.allocator();
         try drawn.effects.take(game, arena);
         const now = game.clock.frame_start;
@@ -1283,8 +1283,8 @@ pub const Drawn = struct {
     }
 
     /// `game`, the game's world, as the drawn frame sees it: the objects, the player's record, the
-    /// display's state, the mission's variables, the radio, the clock, the shake and the effects
-    /// from the copies (`take`), and the rest as the game keeps it.
+    /// display's state, the mission's variables, the radio, the clock, the shake, the force
+    /// feedback and the effects from the copies (`take`), and the rest as the game keeps it.
     pub fn world(drawn: *Drawn, game: gameobj.World) gameobj.World {
         var shown = game;
         shown.objects = drawn.objects;
@@ -1294,6 +1294,7 @@ pub const Drawn = struct {
         shown.radio = if (drawn.radio) |*radio| radio else null;
         shown.clock = &drawn.clock;
         shown.shake = &drawn.shake;
+        shown.forces = if (drawn.forces) |*forces| forces else null;
         drawn.effects.show(&shown);
         return shown;
     }
