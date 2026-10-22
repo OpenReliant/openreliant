@@ -1,12 +1,12 @@
 .{
     .name = .libarchive,
-    .version = "3.7.9",
+    .version = "3.8.10",
     .fingerprint = 0x2cf9e53f30944fd,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .upstream = .{
-            .url = "git+https://github.com/libarchive/libarchive.git?ref=v3.7.9#8a7a9cc527fd1d6d8664315d3bed47c4259479cc",
-            .hash = "N-V-__8AAH_E8QDLkKWGIdKkIgKguYg2_Ya1UPeQE1PthYG5",
+            .url = "git+https://github.com/libarchive/libarchive.git?ref=v3.8.10#79c571f845dbdd250d69bff9d93ae034f674135e",
+            .hash = "N-V-__8AAKTIPwGHO-KTQxfMyhIEBeIHBARGacwN8CqTOuBd",
         },
         .zlib = .{
             .url = "git+https://github.com/allyourcodebase/zlib.git?ref=v1.3.2#d3b5519d3b73616a6bfece0712f080029d2a9244",

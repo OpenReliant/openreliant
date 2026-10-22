@@ -92,7 +92,7 @@ The install halts if a filename in the cabinet would extract outside the target 
 
 The original game reads its paths from the registry key `HKLM\Software\Microsoft\Microsoft Games\Starlancer\1.0` (`install_paths_read`). For a full install (`InstallType` 3) or when the key is absent, it opens `cd1.hog` and `cd2.hog` from the installation directory (`cd_hog_open`) rather than from the CD in the drive. OpenReliant reads them as a full install does, from the game's folder ([Movies](../engine/movies.md#the-discs-archives)).
 
-The cabinet is unpacked with [libarchive](https://libarchive.org), which [`deps/libarchive`](../../deps/libarchive) builds from source for the target, using the build script of the [allyourcodebase/libarchive](https://github.com/allyourcodebase/libarchive) package with libarchive pinned to the 3.7.9 release. The LZX decoder in libarchive 3.8.9 fails on `LANCER.CAB` ([libarchive#3542](https://github.com/libarchive/libarchive/issues/3542)).
+The cabinet is unpacked with [libarchive](https://libarchive.org), which [`deps/libarchive`](../../deps/libarchive) builds from source for the target, using the build script of the [allyourcodebase/libarchive](https://github.com/allyourcodebase/libarchive) package. It needs libarchive 3.8.10 or later: the LZX decoder of 3.7.9 fails on the German release's `LANCER.CAB`, and that of 3.8.9 on the North American release's ([libarchive#3542](https://github.com/libarchive/libarchive/issues/3542)).
 
 ## Missions
 
