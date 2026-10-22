@@ -2005,8 +2005,6 @@ pub const World = struct {
     /// The head-up display's state (`hud.cpp`'s globals), which smart targeting and the target
     /// display answer the player's hits through; null where there is none.
     display: ?*@import("hud.zig").State = null,
-    /// The cockpit's model (`cockpit_object`, `0x005883F4`), where the player's ship has one.
-    cockpit: ?*objects.Model = null,
     /// The pools a damaged ship's smoke comes from; null where none is sent out.
     smoke: ?*@import("main/smoke.zig").Pools = null,
     /// The guns' pools, a flak shell's burst's and the spent cases'; null where none are sent out.
