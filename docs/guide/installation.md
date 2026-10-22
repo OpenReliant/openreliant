@@ -59,11 +59,12 @@ The installer knows a release by the size of disc 1's `LANCER.CAB`, and says whi
 
 | Release | Size of `LANCER.CAB` |
 |---|---|
-| North American | 226,746,308 bytes |
+| English | 226,746,308 bytes |
 | French | 222,899,028 bytes |
 | German | 226,777,854 bytes |
 
-A French or German copy plays in its language: its text, its voices and its movies.
+The English discs sold in North America and in Europe share one cabinet. A French or German copy
+plays in its language: its text, its voices and its movies.
 
 If the installer doesn't recognize your disc because it's from another release, add `--force` to install from it anyway:
 

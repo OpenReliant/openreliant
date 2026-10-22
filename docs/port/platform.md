@@ -82,7 +82,7 @@ It identifies the discs by their files:
 
 | Disc | Identified by |
 |---|---|
-| Disc 1 of a known release | `LANCER.CAB` with that release's size: 226,746,308 bytes for the North American release |
+| Disc 1 of a known release | `LANCER.CAB` with the size of a release the installer knows ([Releases](../guide/installation.md#releases)) |
 | Disc 1 of another release | `LANCER.CAB` with any other size; only installed with `--force` |
 | Disc 2 | The volume label `SL_CD2`, or `GAME/CD2.HOG` |
 
@@ -92,7 +92,7 @@ The install halts if a filename in the cabinet would extract outside the target 
 
 The original game reads its paths from the registry key `HKLM\Software\Microsoft\Microsoft Games\Starlancer\1.0` (`install_paths_read`). For a full install (`InstallType` 3) or when the key is absent, it opens `cd1.hog` and `cd2.hog` from the installation directory (`cd_hog_open`) rather than from the CD in the drive. OpenReliant reads them as a full install does, from the game's folder ([Movies](../engine/movies.md#the-discs-archives)).
 
-The cabinet is unpacked with [libarchive](https://libarchive.org), which [`deps/libarchive`](../../deps/libarchive) builds from source for the target, using the build script of the [allyourcodebase/libarchive](https://github.com/allyourcodebase/libarchive) package. It needs libarchive 3.8.10 or later: the LZX decoder of 3.7.9 fails on the German release's `LANCER.CAB`, and that of 3.8.9 on the North American release's ([libarchive#3542](https://github.com/libarchive/libarchive/issues/3542)).
+The cabinet is unpacked with [libarchive](https://libarchive.org), which [`deps/libarchive`](../../deps/libarchive) builds from source for the target, using the build script of the [allyourcodebase/libarchive](https://github.com/allyourcodebase/libarchive) package. It needs libarchive 3.8.10 or later: the LZX decoder of 3.7.9 fails on the German release's `LANCER.CAB`, and that of 3.8.9 on the English release's ([libarchive#3542](https://github.com/libarchive/libarchive/issues/3542)).
 
 ## Missions
 
