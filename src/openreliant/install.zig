@@ -188,7 +188,7 @@ const Release = struct {
 /// The releases the installer knows, which the installation guide lists too
 /// (`docs/guide/installation.md`, "Releases").
 const releases = [_]Release{
-    .{ .name = "the North American release", .cabinet_size = 226_746_308 },
+    .{ .name = "the English release", .cabinet_size = 226_746_308 },
     .{ .name = "the French release", .cabinet_size = 222_899_028 },
     .{ .name = "the German release", .cabinet_size = 226_777_854 },
 };
