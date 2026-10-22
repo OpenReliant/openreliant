@@ -1419,7 +1419,7 @@ The catalogue's `Proximity`, condition 6. A trigger of it watches a ship.
 | Parameter | Label | Type | A trigger checks it |
 |---|---|---|---|
 | `approaching_ship` | ApproachingShip | `MissionShip` | Yes |
-| `proximity` | Proximity | `number` | No |
+| `proximity` | Proximity | `number` | No: a trigger sets it, how far it looks, in radii of the ship it watches |
 
 ### `object_scooped`
 

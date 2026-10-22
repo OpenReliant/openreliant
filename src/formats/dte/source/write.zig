@@ -370,13 +370,13 @@ const Source = struct {
         return length;
     }
 
-    /// The values a trigger's event must have, by their names, for the values its condition
-    /// checks.
+    /// The values a trigger keeps, by their names (`dte.Condition.keeps`): those its event must
+    /// have, for the values its condition checks, and a Proximity trigger's distance.
     fn filters(source: *Source, fields: *Fields, trigger: dte.Trigger) Error!void {
         const condition = trigger.condition.descriptor() orelse return;
         const event = source.eventsOf(trigger.condition);
         for (condition.values, event, 0..) |value, name, slot| {
-            if (!value.checked or slot >= trigger.operands.len) continue;
+            if (trigger.condition.keeps(slot) == .nothing or slot >= trigger.operands.len) continue;
             switch (dte.Operand.read(trigger.operands[slot], value.kinds)) {
                 .unset => {},
                 .number => |known| try fields.add(name, "{d}", .{known}),

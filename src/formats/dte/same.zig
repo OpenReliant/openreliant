@@ -210,8 +210,13 @@ const Comparison = struct {
         if ((x.deferred != 0) != (y.deferred != 0)) return "deferred";
         if (x.condition.descriptor()) |condition| {
             for (condition.values, 0..) |value, slot| {
-                if (!value.checked or slot >= x.operands.len) continue;
-                if (!std.meta.eql(dte.Operand.read(x.operands[slot], value.kinds), dte.Operand.read(y.operands[slot], value.kinds))) return "values it checks";
+                const what: []const u8 = switch (x.condition.keeps(slot)) {
+                    .nothing => continue,
+                    .check => "values it checks",
+                    .distance => "distance",
+                };
+                if (slot >= x.operands.len) continue;
+                if (!std.meta.eql(dte.Operand.read(x.operands[slot], value.kinds), dte.Operand.read(y.operands[slot], value.kinds))) return what;
             }
         }
         const left_owner = c.a.owners[index];
@@ -245,24 +250,32 @@ test difference {
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const first = try testMission(arena, .{ .ship = 0, .group = 1 }, 90);
+    var destroyed: dte.Trigger = .blank;
+    destroyed.condition = .destroyed;
+    const first = try testMission(arena, .{ .ship = 0, .group = 1 }, 90, destroyed);
     // The same records, with their objects numbered the other way round, are the same mission.
-    try std.testing.expectEqual(null, try difference(arena, first, try testMission(arena, .{ .ship = 1, .group = 0 }, 90)));
+    try std.testing.expectEqual(null, try difference(arena, first, try testMission(arena, .{ .ship = 1, .group = 0 }, 90, destroyed)));
     // A ship turned another way is not.
-    const turned = try testMission(arena, .{ .ship = 0, .group = 1 }, 45);
+    const turned = try testMission(arena, .{ .ship = 0, .group = 1 }, 45, destroyed);
     try std.testing.expectEqualStrings("ship 0 differs in its angles", (try difference(arena, first, turned)).?);
+    // Nor is a Proximity trigger that looks another distance, which the matcher doesn't check.
+    var near: dte.Trigger = .blank;
+    near.condition = .proximity_general;
+    near.operands[dte.Trigger.proximity_distance] = 3;
+    var far = near;
+    far.operands[dte.Trigger.proximity_distance] = 5;
+    const looking = try testMission(arena, .{ .ship = 0, .group = 1 }, 90, near);
+    try std.testing.expectEqualStrings("trigger 0 differs in its distance", (try difference(arena, looking, try testMission(arena, .{ .ship = 0, .group = 1 }, 90, far))).?);
 }
 
-/// A mission of a ship and its flight group, with a trigger on the group's destruction. The ship
-/// and the group take the object IDs `ids` gives, and the ship is turned `yaw` degrees.
-fn testMission(arena: Allocator, ids: struct { ship: u16, group: u16 }, yaw: i16) !dte.Mission {
+/// A mission of a ship and its flight group, with `trigger` on the group. The ship and the group
+/// take the object IDs `ids` gives, and the ship is turned `yaw` degrees.
+fn testMission(arena: Allocator, ids: struct { ship: u16, group: u16 }, yaw: i16, trigger: dte.Trigger) !dte.Mission {
     const gameobj = @import("../../engine/game/gameobj.zig");
     var ship = dte.testing.ship(ids.ship, 0, @intCast(@backingInt(gameobj.GameType.grendel)));
     ship.yaw = yaw;
     var group = dte.testing.flightGroup(ids.group, .player);
     group.name = "Player\x00".len;
-    var trigger: dte.Trigger = .blank;
-    trigger.condition = .destroyed;
     var objects: [2]dte.Object = undefined;
     objects[ids.ship] = dte.testing.object(.ship, dte.Object.no_triggers, 0);
     objects[ids.group] = dte.testing.object(.flight_group, 0, 1);

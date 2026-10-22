@@ -401,6 +401,7 @@ const patrol =
     \\    function(attacker, shield_damage, hull_damage, victim, weapon_fired)
     \\        return 1
     \\    end)
+    \\on(home, "proximity_general", { approaching_ship = player, proximity = 5 })
     \\
     \\-- Parts
     \\
@@ -480,6 +481,7 @@ test "the compiler's errors and their places" {
         .{ "g = global(\"g\", 0)\np = ship(\"P\", { type = \"grendel\", group = g })", "2:43: `g` is a global, not a flight group" },
         .{ "a = ship(\"A\", { type = \"grendel\" })\nb = ship(\"B\", { type = \"grendel\" })\non(a, \"destroyed\")\non(b, \"destroyed\")\non(a, \"destroyed\")", "5:1: an object's triggers follow one another" },
         .{ "on(nil, \"destroyed\", { attacker = any_ship })", "1:24: `attacker` isn't a field here, which takes `repeats`, `component`, `deferred`, `killer` and `victim`" },
+        .{ "on(nil, \"proximity_close\", { proximity = 5 })", "1:42: the event's `proximity` isn't checked, so it takes no value here" },
         .{ "p = part(\"p\", function()\n    while true do end\nend)", "2:5: a loop, which mission source doesn't use" },
         .{ "p = part(\"p\", function()\n    local roll = random()\n    return 1\nend)", "3:5: a random choice's roll is followed by the `if` over its arms" },
         .{ "on(nil, \"destroyed\", function(killer)\n    killer = 1\nend)", "2:5: `killer` is a value of the event, which can't be assigned" },

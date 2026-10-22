@@ -120,31 +120,41 @@ fn writeGameVariables(w: *Writer) Writer.Error!void {
     try w.writeAll("    [number]: number,\n}\n");
 }
 
-/// Writes the fields of a trigger's table for the values of its condition's events that it checks:
-/// each by the name the trigger's function gives it, with the conditions whose events carry it.
+/// Writes the fields of a trigger's table for the values it keeps of its condition's events
+/// (`dte.Condition.keeps`): each by the name the trigger's function gives it, with the conditions
+/// whose triggers keep it.
 fn writeEventFields(arena: Allocator, w: *Writer) Error!void {
-    const Checked = struct {
+    const Field = struct {
         label: []const u8,
         kinds: commands.Kinds,
+        kept: dte.Condition.Kept,
         conditions: std.ArrayList([]const u8) = .empty,
     };
-    var found: std.StringArrayHashMapUnmanaged(Checked) = .empty;
+    var found: std.StringArrayHashMapUnmanaged(Field) = .empty;
     for (conditions.table, 0..) |condition, number| {
         const event = try script.eventNames(arena, condition.values);
         const condition_name = vocabulary.name(.condition, @intCast(number)) orelse try arena.print("{d}", .{number});
-        for (condition.values, event) |value, name| {
-            if (!value.checked) continue;
-            const slot = try found.getOrPut(arena, name);
-            if (!slot.found_existing) slot.value_ptr.* = .{ .label = value.label, .kinds = value.kinds };
-            try slot.value_ptr.conditions.append(arena, condition_name);
+        const described: dte.Condition = @fromBackingInt(@intCast(number));
+        for (condition.values, event, 0..) |value, name, slot| {
+            const kept = described.keeps(slot);
+            if (kept == .nothing) continue;
+            const field = try found.getOrPut(arena, name);
+            if (!field.found_existing) field.value_ptr.* = .{ .label = value.label, .kinds = value.kinds, .kept = kept };
+            try field.value_ptr.conditions.append(arena, condition_name);
         }
     }
-    for (found.keys(), found.values()) |name, checked| {
-        const what = if (checked.kinds.ship) "a ship, a flight group, a squad or `any_ship`" else "a number";
-        try w.print("    --- What the event's \"{s}\" must be for the trigger to fire: {s}. In triggers of {f}.\n", .{
-            checked.label, what, names.Listed{ .items = checked.conditions.items },
-        });
-        try w.print("    {s}: {s},\n", .{ name, language.checkType(checked.kinds) });
+    for (found.keys(), found.values()) |name, field| {
+        const what = if (field.kinds.ship) "a ship, a flight group, a squad or `any_ship`" else "a number";
+        switch (field.kept) {
+            .nothing => continue,
+            .check => try w.print("    --- What the event's \"{s}\" must be for the trigger to fire: {s}. In triggers of {f}.\n", .{
+                field.label, what, names.Listed{ .items = field.conditions.items },
+            }),
+            .distance => try w.print("    --- How far the trigger looks, in radii of the ship it watches: {s}. In triggers of {f}.\n", .{
+                what, names.Listed{ .items = field.conditions.items },
+            }),
+        }
+        try w.print("    {s}: {s},\n", .{ name, language.checkType(field.kinds) });
     }
 }
 

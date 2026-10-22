@@ -317,6 +317,10 @@ Any other tag in a checked operand is a fatal error: the game reports `NULL enti
 script`, or `oh dear dear`, and exits. `sltool dte triggers` lists each trigger's set operands under
 their values' labels, naming referenced objects by object ID.
 
+The matcher doesn't check Proximity's distance, operand 1, but the trigger's watch reads it: how far
+it looks for ships, in the radii of the ship it watches (`0x0045AF60`). A Proximity trigger without
+it never fires. CloseProximity's watches look 20 radii, whatever its operand 1 holds.
+
 ### References in the records
 
 Some records hold references in the same form, with the tags of more tables. The tag is the number
