@@ -795,7 +795,7 @@ pub const Compiler = struct {
         if (details.get("deferred")) |deferred| record.deferred = @intFromBool(try c.boolean(deferred));
         for (event, 0..) |name, slot| {
             const filter = details.get(name) orelse continue;
-            if (!values[slot].checked or slot >= record.operands.len) return c.fail(filter, "the event's `{s}` isn't checked, so it takes no value here", .{name});
+            if (record.condition.keeps(slot) == .nothing or slot >= record.operands.len) return c.fail(filter, "the event's `{s}` isn't checked, so it takes no value here", .{name});
             record.operands[slot] = dte.Operand.write(try c.operand(filter, values[slot].kinds));
         }
     }

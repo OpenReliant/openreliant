@@ -620,11 +620,17 @@ pub const Trigger = extern struct {
     repeat_count: u8,
     _unknown_1b: u8,
     /// Condition arguments, four bytes each, checked against the event's values: those the
-    /// condition marks as checked, and of those, the ones whose low halfword is not `0xFFFF`.
+    /// condition marks as checked, and of those, the ones whose low halfword is not `0xFFFF`. A
+    /// Proximity trigger also keeps its distance in one (`proximity_distance`).
     operands: [5]u32,
 
     /// The qualifier of an event on the subject itself rather than one of its components.
     pub const whole_object: u8 = 0xFF;
+
+    /// The operand of a Proximity trigger that gives how far its watch looks, in the radii of the
+    /// ship it watches (`0x0045AF60`). The matcher doesn't check it against the event's value, and
+    /// a trigger without it never fires.
+    pub const proximity_distance = 1;
 
     /// A trigger on Shot At that runs nothing, fires once, watches the whole subject and checks no
     /// value of its event. The bytes the engine doesn't read hold what most of the shipped
@@ -1173,6 +1179,25 @@ pub const Condition = enum(u8) {
     pub fn descriptor(condition: Condition) ?conditions.Condition {
         return conditions.find(@backingInt(condition));
     }
+
+    /// What a trigger of the condition keeps in its operand for value `slot` of its events.
+    pub fn keeps(condition: Condition, slot: usize) Kept {
+        const described = condition.descriptor() orelse return .nothing;
+        if (slot >= described.values.len) return .nothing;
+        if (described.values[slot].checked) return .check;
+        if (condition == .proximity_general and slot == Trigger.proximity_distance) return .distance;
+        return .nothing;
+    }
+
+    /// What a trigger keeps in the operand of one of its condition's values.
+    pub const Kept = enum {
+        /// Nothing the engine reads.
+        nothing,
+        /// What the event's value must be for the trigger to fire, which the matcher checks.
+        check,
+        /// How far a Proximity trigger's watch looks (`Trigger.proximity_distance`).
+        distance,
+    };
 
     comptime {
         const tags = @typeInfo(Condition).@"enum";
@@ -2256,6 +2281,17 @@ test "condition names cover the scriptable range" {
     try std.testing.expectEqual(Condition.explosion_ship, @as(Condition, @fromBackingInt(0x22)));
     const internal: Condition = @fromBackingInt(0x23);
     try std.testing.expect(std.enums.tagName(Condition, internal) == null);
+}
+
+test "Condition.keeps" {
+    // A trigger keeps the values the matcher checks, and a Proximity trigger its distance too.
+    try std.testing.expectEqual(.check, Condition.proximity_general.keeps(0));
+    try std.testing.expectEqual(.distance, Condition.proximity_general.keeps(Trigger.proximity_distance));
+    // CloseProximity's watches look a fixed distance, so its triggers keep none.
+    try std.testing.expectEqual(.nothing, Condition.proximity_close.keeps(Trigger.proximity_distance));
+    // Shot At's shield damage isn't checked, and it carries no sixth value.
+    try std.testing.expectEqual(.nothing, Condition.shot_at.keeps(1));
+    try std.testing.expectEqual(.nothing, Condition.shot_at.keeps(5));
 }
 
 test "decodes a block down to its alignment padding" {

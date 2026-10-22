@@ -160,8 +160,14 @@ fn writeCondition(arena: Allocator, w: *Writer, condition: conditions.Condition,
     try w.writeAll("\n\n");
     if (condition.values.len == 0) return w.writeAll("Its events carry no values.\n");
     try w.writeAll("| Parameter | Label | Type | A trigger checks it |\n|---|---|---|---|\n");
-    for (condition.values, try script.eventNames(arena, condition.values)) |value, parameter| {
-        try w.print("| `{s}` | {f} | `{s}` | {s} |\n", .{ parameter, cell(value.label), language.eventValueType(value.kinds), if (value.checked) "Yes" else "No" });
+    const described: dte.Condition = @fromBackingInt(@intCast(number));
+    for (condition.values, try script.eventNames(arena, condition.values), 0..) |value, parameter, slot| {
+        const checks = switch (described.keeps(slot)) {
+            .nothing => "No",
+            .check => "Yes",
+            .distance => "No: a trigger sets it, how far it looks, in radii of the ship it watches",
+        };
+        try w.print("| `{s}` | {f} | `{s}` | {s} |\n", .{ parameter, cell(value.label), language.eventValueType(value.kinds), checks });
     }
 }
 

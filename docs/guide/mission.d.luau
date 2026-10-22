@@ -216,6 +216,8 @@ export type TriggerFields = {
     reached_ship: (Entity | number)?,
     --- What the event's "ApproachingShip" must be for the trigger to fire: a ship, a flight group, a squad or `any_ship`. In triggers of `proximity_close` and `proximity_general`.
     approaching_ship: (Entity | number)?,
+    --- How far the trigger looks, in radii of the ship it watches: a number. In triggers of `proximity_general`.
+    proximity: number?,
     --- What the event's "ObjectScooped" must be for the trigger to fire: a ship, a flight group, a squad or `any_ship`. In triggers of `object_scooped`.
     object_scooped: (Entity | number)?,
     --- What the event's "JumpedInShip" must be for the trigger to fire: a ship, a flight group, a squad or `any_ship`. In triggers of `jumped_in`.

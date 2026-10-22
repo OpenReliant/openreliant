@@ -321,7 +321,7 @@ ship `MissionShip`, apart from the scripting API's `Ship`, a ship type's record.
 be loaded together, and a test checks that the names they share are declared the same way.
 
 `on` has one signature for every condition: its code's parameters are `any`, and its table has a
-field for every value that a trigger can check, whatever the condition
+field for every value that a trigger can check or set, whatever the condition
 ([TriggerFields](../guide/mission-reference.md#triggerfields)). Luau can't type them by the
 trigger's condition:
 

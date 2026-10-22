@@ -218,7 +218,7 @@ pub const Events = struct {
                     },
                     .proximity => for (list) |each| {
                         if (each.object != id or !each.armed or each.trigger >= all_triggers.len) continue;
-                        const distance = all_triggers[each.trigger].operands[proximity_operand];
+                        const distance = all_triggers[each.trigger].operands[dte.Trigger.proximity_distance];
                         if (@as(u16, @truncate(distance)) == dte.Reference.unset) continue;
                         const reach = @as(f32, @floatFromInt(distance)) * object.radius;
                         events.scan(world, @intCast(index), reach * reach, .proximity_general);
@@ -320,9 +320,6 @@ const close_reach: f32 = 20;
 /// How far ShipReached's watches look (`0x4B742400`, its square). Public for tools, such as the
 /// editor's map, which rings each marker a ShipReached trigger watches.
 pub const reached_reach: f32 = 4000;
-
-/// The operand of a Proximity trigger that gives its distance, in the subject's radii.
-const proximity_operand = 1;
 
 /// What an event names no weapon by: ShotAt's weapon is always so.
 const no_weapon: u32 = 0xFFFF_FFFF;
