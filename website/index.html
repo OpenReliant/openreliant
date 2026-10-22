@@ -70,11 +70,11 @@
   <p class="intro">What works today, and what's coming next, in order. New features arrive in small releases, one after another, and 1.0 and 2.0 mark the two big steps.</p>
   <div class="timeline">
     <div class="panel today"><div class="when">Today</div><h3>Beta</h3><p>The whole campaign is playable, from the first mission to the end: the menus, the Reliant's and the Yamato's rooms, the briefings and loadout, the ITAC and saved games. Games you saved in the original carry on.</p><p>Mods work too: new ships, weapons and pilots, high-resolution textures and models, scripts that change how the game plays, and new missions for the campaign, or cut ones brought back, such as the <a href="https://openreliant.github.io/openreliant-mods/mods/cut-dreamcast-missions/">Cut Dreamcast Missions</a>.</p></div>
-    <div class="panel" data-milestone="v0."><div class="when">Next</div><h3>Mission editor</h3><p>Make your own missions with OpenReliant Editor: a visual builder, live editing and script debugging, saved as standard mission files that even the original plays. Its first parts are out as a preview (<a href="#editor">see below</a>), and the rest arrive over the next releases.</p></div>
-    <div class="panel" data-milestone="Release"><div class="when">Then · 1.0</div><h3>The release</h3><p>The beta and the mission editor, polished with your feedback, and the whole campaign played through from start to finish.</p></div>
+    <div class="panel" data-milestone="Release"><div class="when">Next · 1.0</div><h3>The release</h3><p>The beta and the mission editor, polished with your feedback, and the whole campaign played through from start to finish.</p></div>
     <div class="panel" data-milestone="Multiplayer"><div class="when">Later</div><h3>Multiplayer</h3><p>Multiplayer with the original game modes, and a public matchmaking server to find games. Join without port forwarding, or run your own dedicated server.</p></div>
     <div class="panel" data-milestone="Data-driven types"><div class="when">Later</div><h3>New kinds of ships</h3><p>How ships, guns and missiles behave read from data, so mods can add whole new kinds of ships and weapons, not only variants of the original's.</p></div>
     <div class="panel" data-milestone="Standalone engine"><div class="when">Further out · 2.0</div><h3>A standalone engine</h3><p>The engine apart from StarLancer, with StarLancer as one game on it, so other space games can be made with it or ported to it.</p></div>
+    <div class="panel"><div class="when">Along the way</div><h3>Mission editor</h3><p>Make your own missions with OpenReliant Editor, saved as standard mission files that even the original plays. Its script view, map and debugger are out as a preview (<a href="#editor">see below</a>), and it grows in releases of its own, with a visual builder and live editing still to come.</p></div>
     <div class="panel" data-milestone="Enhancements"><div class="when">Along the way</div><h3>Improvements</h3><p>More improvements over the original, such as triple-monitor setups and support for simulator pits: several controllers at once, telemetry for motion rigs, and a second screen for your ship's status.</p></div>
   </div>
   <p class="intro" style="margin-top: 20px">The bars below show the progress of each step.</p>
@@ -225,8 +225,7 @@
   fetch(repository + "/milestones?state=open&per_page=50").then((response) => response.ok ? response.json() : Promise.reject()).then((milestones) => {
     const holder = document.getElementById("milestones");
     // The milestones in the order of the road ahead, each found by the start of its title, such as
-    // "Release" for "Release (v1.0)" or "v0." for the current release's "v0.20", and any not on it
-    // after them.
+    // "Release" for "Release (v1.0)", and any not on it after them.
     const steps = [...document.querySelectorAll("#roadmap [data-milestone]")].map((step) => step.dataset.milestone);
     const place = (milestone) => {
       const found = steps.findIndex((name) => milestone.title.startsWith(name));
