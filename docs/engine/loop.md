@@ -103,7 +103,8 @@ leaves the game's numbers as they are ([Game frames and drawn frames](#game-fram
 So do the effects the game sets off, the particles, the explosions' fireballs and bits, the sparks,
 the rays and the shots' looks (`gameobj.World.effects_random`). The game draws those from its own
 numbers only where the effects are drawn, so without this a game that draws nothing would go on from
-other numbers. The explosions' sounds' pitch comes from the sound's own numbers
+other numbers. The effects' numbers are apart from drawing's too, so that drawing can run beside the
+game frames. The explosions' sounds' pitch comes from the sound's own numbers
 ([Sound](sound.md#playing)). Where nothing is drawn, the explosions run only their part in the game
 ([Effects](effects.md#where-nothing-is-drawn)).
 
