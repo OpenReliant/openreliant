@@ -283,9 +283,9 @@ The crew in the rooms speak their lines on voice 2, an MP3 file each, which Mile
 ## The game frames' sounds
 
 In OpenReliant the game frames ask for their sounds rather than play them
-(`hog_snd.commands.Commands`, `gameobj.World.sounds`). The main thread plays what they asked for
-right after them each pass, in the order they asked, and right after a mission's start. So the game
-frames never touch the sound, which plays on the main thread.
+(`hog_snd.commands.Commands`, `gameobj.World.sounds`). Each pass, the main thread plays what the game
+frames asked for since the pass before, in the order they asked, and it plays them right after a
+mission's start. So the game frames never touch the sound, which plays on the main thread.
 
 - **3D sounds.** The game frames place a sound by what it follows in their own objects as they ask
   for it (`sound3d.place`), so it starts where it would have started then. The main thread checks

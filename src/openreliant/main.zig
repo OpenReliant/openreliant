@@ -934,12 +934,36 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         _ = try movies.play(game.xtrabits.movie.splash_to_menu, .over_screen) orelse return;
     }
     var player_launch: PlayerLaunch = .{ .under_way = options.mission != null };
+    // The game frames on a thread of their own, at the game's own pace beside drawing
+    // (`GameThread`), but for a screenshot, which takes one tick a frame so that every run settles
+    // alike. Each pass of the main thread holds the game's records until it draws.
+    var game_thread: game.main.game_thread.GameThread = .{
+        .io = io,
+        .now = platform.window.nanoseconds,
+        .tick = platform.window.tick_nanoseconds,
+        .clock = &clock,
+        .devices = &game_devices,
+        .reading = &reading,
+        .world = &world,
+        .riders = options.riders,
+        .loaded = &play.loaded,
+    };
+    var game_running: ?Io.Future(void) = if (options.screenshot == null) io.concurrent(game.main.game_thread.GameThread.run, .{&game_thread}) catch null else null;
+    defer if (game_running) |*running| game_thread.stop(running);
     while (true) {
-        // The atlases the outline fonts outgrew last frame, which that frame may have drawn, go now,
-        // before this frame lays out any text, and each font keeps the sizes this frame draws. So
-        // does what the game let go of while the last drawn frame could still read it.
-        outlines.startFrame();
+        // From here until drawing begins, the main thread holds the game's records and the game
+        // frames wait. They run on afterwards only if this pass lets them (`GameThread.free`). What
+        // the game let go of while the last drawn frame could still read it goes now, and so do the
+        // pixels of the textures that frame sent up to the GPU. The game frames add textures as they
+        // load models.
+        game_thread.hold();
+        var holding = true;
+        defer if (holding) game_thread.unlock();
         retired.release();
+        textures.releaseHeld();
+        // The atlases the outline fonts outgrew last frame, which that frame may have drawn, go now,
+        // before this frame lays out any text, and each font keeps the sizes this frame draws.
+        outlines.startFrame();
         if (platform.window.nanoseconds() -| storage_written_at >= storage_interval) {
             storage.flush();
             storage_written_at = platform.window.nanoseconds();
@@ -1234,34 +1258,47 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // Whether the drawn frame's view frame runs this pass, with the step the launch is at.
         var viewed: ?PlayerLaunch.Step = null;
         if (!flow.in_front_end) {
-            // The timer's ticks since the last pass, then a game tick for each, as `mission_run` paces
-            // them: the simulation steps on every fourth, reading the devices as it goes, and runs the
-            // objects' updates. A screenshot takes one tick a frame so that the camera settles the same
-            // way on every run.
-            // While the editor pauses the mission, the timer's ticks pass unrun.
-            const now = platform.window.nanoseconds();
-            const editor_paused = if (play.loaded) |loaded| loaded.script.editor.paused else false;
-            if (editor_paused) {
-                clock.skipTo(now / platform.window.tick_nanoseconds);
-            } else if (options.skip_launch and player_launch.under_way) {
-                clock.advanceBy(now / platform.window.tick_nanoseconds, PlayerLaunch.skip_ticks);
-            } else if (frames_left != null) clock.advanceBy(now / platform.window.tick_nanoseconds, 1) else clock.advanceToFine(now, platform.window.tick_nanoseconds);
+            // The game frames run on the game thread at their own pace. A screenshot, the launch
+            // `--skip-launch` skips, a mission an editor links to and a paused game run them here
+            // instead, in step with the drawn frames.
+            const skipping = options.skip_launch and player_launch.under_way;
+            game_thread.free = game_running != null and frames_left == null and editor == null and !skipping and !clock.paused;
             // While the communications window is open the keys 1 to 8 are its menu's.
             devices.keyboard.numbers_taken = game_display.commsOpen();
-            // The main thread reads its devices for the game frames, which take up what it hands
-            // over before each tick.
-            if (!clock.paused) devices.handOver(&reading);
-            // A game frame for each tick: the tick, then `mission_frame`'s game work at it. That runs
-            // every object's orders, which fly the ships and read the player's controls, and frames
-            // every object between its last two places, as far into the step as the tick is. They
-            // run on a thread of their own, which this one waits for.
-            const frames_from = clock.frame_start;
-            const ended = game.main.runGameFrames(io, &clock, &game_devices, &reading, world, options.riders, play.loaded);
             // The presses the game frames took count as taken on the main thread too, once they
             // have run. They free their latches only as they step, so while they don't run, paused
             // or held by the editor, the main thread frees the presses it took up from them itself,
-            // as the keys come up.
-            if (clock.frame_start != frames_from) devices.takePresses(&game_devices);
+            // as the keys come up. First those of the frames the game thread ran since the last pass.
+            const done = game_thread.takeDone();
+            if (done.ran) devices.takePresses(&game_devices);
+            // A mission the game thread ended ends in this pass. Otherwise the main thread hands over
+            // what it read of its devices, which the game frames take up before each tick.
+            const ended: game.main.FrameEnd = if (done.over) .over else if (game_thread.free) free: {
+                devices.handOver(&reading);
+                break :free .played;
+            } else stepped: {
+                // The timer's ticks since the last pass, then a game tick for each, as `mission_run`
+                // paces them: the simulation steps on every fourth, reading the devices as it goes,
+                // and runs the objects' updates. A screenshot takes one tick a frame so that the
+                // camera settles the same way on every run. While the editor pauses the mission, the
+                // timer's ticks pass unrun.
+                const now = platform.window.nanoseconds();
+                const editor_paused = if (play.loaded) |loaded| loaded.script.editor.paused else false;
+                if (editor_paused) {
+                    clock.skipTo(now / platform.window.tick_nanoseconds);
+                } else if (skipping) {
+                    clock.advanceBy(now / platform.window.tick_nanoseconds, PlayerLaunch.skip_ticks);
+                } else if (frames_left != null) clock.advanceBy(now / platform.window.tick_nanoseconds, 1) else clock.advanceToFine(now, platform.window.tick_nanoseconds);
+                if (!clock.paused) devices.handOver(&reading);
+                // A game frame for each tick: the tick, then `mission_frame`'s game work at it. That
+                // runs every object's orders, which fly the ships and read the player's controls, and
+                // frames every object between its last two places, as far into the step as the tick
+                // is. They run on a thread of their own, which this one waits for.
+                const frames_from = clock.frame_start;
+                const played = game.main.runGameFrames(io, &clock, &game_devices, &reading, world, options.riders, play.loaded);
+                if (clock.frame_start != frames_from) devices.takePresses(&game_devices);
+                break :stepped played;
+            };
             // What the game frames asked of the sound plays now, in the order they asked, before a
             // pause holds the sound still.
             play.playSounds();
@@ -1351,7 +1388,9 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // The frame draws a copy of the game: of the objects, which with smooth motion has what
         // moves as far on as the clock has run past the tick, where the camera follows it, and of
         // the records drawing reads. Until drawing is done with the frame, the subtarget keeps the
-        // copies of its parts that the copy may show.
+        // copies of its parts that the copy may show. Where the game frames run on the game
+        // thread, the clock has run on past their last tick as the copy is taken.
+        if (game_thread.free) clock.pastTickAt(platform.window.nanoseconds(), platform.window.tick_nanoseconds);
         const drawn_objects: ?*game.create.Objects = if (flow.in_front_end) null else try drawn.take(world, .of(&clock, smooth_motion, options.riders));
         const drawn_world = if (drawn_objects != null) drawn.world(world) else world;
         if (drawn_objects) |copy| {
@@ -1377,7 +1416,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
         // layers is drawn on.
         if (script_frames) |*frames| {
             const shown = frames.presentation;
-            var host = frames.host(size, !flow.in_front_end and !clock.paused);
+            var host = frames.host(size, !flow.in_front_end and !drawn.clock.paused);
             if (flow.in_front_end) {
                 const fonts = &front_resources.?;
                 frames.show(&host, .ui, &fonts.small.font, game.interface.canvas.scaleFor(size), if (fonts.shapes) |*art| art else null, null);
@@ -1413,6 +1452,15 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             };
         }
 
+        // Drawing reads only its copies, so while the game plays, the game frames run on beside it.
+        // The player scripts' frame comes before this, since they share the mods' storage with the
+        // game's scripts. While the game is paused, which leaves the game frames nothing to run, the
+        // main thread holds the game's records through the frame, for the pause menu that acts on
+        // the game (`pause_menu.outcome`).
+        if (!clock.paused) {
+            holding = false;
+            game_thread.unlock();
+        }
         _ = frame_arena.reset(.retain_capacity);
         if (flow.in_front_end) {
             // The screen a transition's movie or a mission's end has just led to entered before
@@ -1547,8 +1595,6 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
                 return writeScreenshot(io, frame_arena.allocator(), options.screenshot.?, frame.rgba, frame.size);
             }
         }
-        // The pixels of the textures that went up to the GPU this frame are let go of.
-        textures.releaseHeld();
         if (pacing.rate(window)) |rate| pacer.wait(rate);
     }
 }
