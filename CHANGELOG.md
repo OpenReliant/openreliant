@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.20.0](https://github.com/OpenReliant/openreliant/compare/v0.19.4...v0.20.0) (2026-10-22)
+
+
+### Features
+
+* the game runs on a thread of its own, at its own pace beside drawing ([b134516](https://github.com/OpenReliant/openreliant/commit/b13451687f8377923d04c08a2e1de6197f53e196))
+
+
+### Fixes
+
+* a surface function a player script gives an object lasts however it was set ([#1292](https://github.com/OpenReliant/openreliant/issues/1292)) ([00b06b2](https://github.com/OpenReliant/openreliant/commit/00b06b27e554801017e35a20f7be46a8db619135))
+* mission source keeps a Proximity trigger's distance ([#1317](https://github.com/OpenReliant/openreliant/issues/1317)) ([ee3e747](https://github.com/OpenReliant/openreliant/commit/ee3e747728e81072ae57b71b55be915c0081b91e)), closes [#1313](https://github.com/OpenReliant/openreliant/issues/1313)
+* the installer calls the English discs the English release ([#1318](https://github.com/OpenReliant/openreliant/issues/1318)) ([050b8a0](https://github.com/OpenReliant/openreliant/commit/050b8a0ef0c4802e22cb7495b5764f9a7b500252))
+* the installer unpacks and knows the German release ([#1316](https://github.com/OpenReliant/openreliant/issues/1316)) ([11d8819](https://github.com/OpenReliant/openreliant/commit/11d8819661154363047c0e82e84a1cf6dc9d4a68)), closes [#1304](https://github.com/OpenReliant/openreliant/issues/1304) [#1306](https://github.com/OpenReliant/openreliant/issues/1306)
+* the missile view follows its missile where it is drawn ([#1297](https://github.com/OpenReliant/openreliant/issues/1297)) ([859aa36](https://github.com/OpenReliant/openreliant/commit/859aa3617a22cdc0bc6db9b18ac5bafc3b45dbf9))
+
+
+### Documentation
+
+* the website shows the mission editor and what it does today ([#1283](https://github.com/OpenReliant/openreliant/issues/1283)) ([830f0ae](https://github.com/OpenReliant/openreliant/commit/830f0ae4495ea514cbd156500c54697babf8fd0c))
+
+
+### Chores
+
+* release 0.20.0 ([#1319](https://github.com/OpenReliant/openreliant/issues/1319)) ([f6f84e5](https://github.com/OpenReliant/openreliant/commit/f6f84e59dd132c1188e18e99646b5ff4c59283a6))
+
 ## [0.19.4](https://github.com/OpenReliant/openreliant/compare/v0.19.3...v0.19.4) (2026-10-19)
 
 
