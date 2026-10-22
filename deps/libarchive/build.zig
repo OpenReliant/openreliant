@@ -1,13 +1,12 @@
 //! Builds libarchive for the installer, which reads the game's cabinet with it. Adapted from the
-//! allyourcodebase/libarchive package (MIT, see LICENSE), with the upstream pinned to the 3.7.9
-//! release: the LZX decoder in libarchive 3.8.9 fails on `LANCER.CAB` (libarchive issue 3542).
+//! allyourcodebase/libarchive package (MIT, see LICENSE).
 
 const std = @import("std");
 
 const version: std.SemanticVersion = .{
     .major = 3,
-    .minor = 7,
-    .patch = 9,
+    .minor = 8,
+    .patch = 10,
 };
 const version_string = std.fmt.comptimePrint("{f}", .{version});
 
@@ -58,6 +57,7 @@ pub fn build(b: *std.Build) void {
         .ARCHIVE_CRYPTO_SHA256_WIN = is_windows,
         .ARCHIVE_CRYPTO_SHA384_WIN = is_windows,
         .ARCHIVE_CRYPTO_SHA512_WIN = is_windows,
+        .ARCHIVE_CRYPTO_WIN = is_windows,
         .BSDCAT_VERSION_STRING = version_string,
         .BSDCPIO_VERSION_STRING = version_string,
         .BSDTAR_VERSION_STRING = version_string,
@@ -340,10 +340,13 @@ pub fn build(b: *std.Build) void {
         .HAVE__GET_TIMEZONE = null,
         .HAVE__MKGMTIME = null,
         .ICONV_CONST = {},
+        .LIBACL_PKGCONFIG_VERSION = null,
         .LIBARCHIVE_VERSION_NUMBER = std.fmt.comptimePrint("{d}{d:0>3}{d:0>3}", .{
             version.major, version.minor, version.patch,
         }),
         .LIBARCHIVE_VERSION_STRING = version_string,
+        .LIBATTR_PKGCONFIG_VERSION = null,
+        .LIBRICHACL_PKGCONFIG_VERSION = null,
         .LSTAT_FOLLOWS_SLASHED_SYMLINK = true,
         .MAJOR_IN_MKDEV = null,
         .MAJOR_IN_SYSMACROS = is_linux,
@@ -403,6 +406,7 @@ pub fn build(b: *std.Build) void {
             "archive_blake2sp_ref.c",
             "archive_check_magic.c",
             "archive_cmdline.c",
+            "archive_crc32.c",
             "archive_cryptor.c",
             "archive_digest.c",
             "archive_entry.c",
@@ -416,6 +420,7 @@ pub fn build(b: *std.Build) void {
             "archive_match.c",
             "archive_options.c",
             "archive_pack_dev.c",
+            "archive_parse_date.c",
             "archive_pathmatch.c",
             "archive_ppmd8.c",
             "archive_ppmd7.c",
@@ -469,6 +474,8 @@ pub fn build(b: *std.Build) void {
             "archive_read_support_format_zip.c",
             "archive_string.c",
             "archive_string_sprintf.c",
+            "archive_time.c",
+            "archive_umask.c",
             "archive_util.c",
             "archive_version_details.c",
             "archive_virtual.c",

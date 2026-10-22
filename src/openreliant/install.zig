@@ -190,6 +190,7 @@ const Release = struct {
 const releases = [_]Release{
     .{ .name = "the North American release", .cabinet_size = 226_746_308 },
     .{ .name = "the French release", .cabinet_size = 222_899_028 },
+    .{ .name = "the German release", .cabinet_size = 226_777_854 },
 };
 
 comptime {
@@ -899,7 +900,7 @@ fn unpack(io: Io, arena: Allocator, cabinet: Entry, target: Io.Dir, env: Environ
     defer _ = c.archive_read_free(archive);
     _ = c.archive_read_support_format_cab(archive);
     if (c.archive_read_open2(archive, &feed, null, &Feed.read, &Feed.skip, null) != c.ARCHIVE_OK) {
-        return failed(archive, &feed, env.err);
+        return failed(archive, &feed, null, env.err);
     }
 
     var data: [64 * 1024]u8 = undefined;
@@ -908,7 +909,7 @@ fn unpack(io: Io, arena: Allocator, cabinet: Entry, target: Io.Dir, env: Environ
         switch (c.archive_read_next_header(archive, &entry)) {
             c.ARCHIVE_OK, c.ARCHIVE_WARN => {},
             c.ARCHIVE_EOF => break,
-            else => return failed(archive, &feed, env.err),
+            else => return failed(archive, &feed, null, env.err),
         }
         const name = entryName(entry) orelse {
             try env.err.writeAll("openreliant: the cabinet has a file whose name can't be read.\n");
@@ -930,7 +931,7 @@ fn unpack(io: Io, arena: Allocator, cabinet: Entry, target: Io.Dir, env: Environ
         while (true) {
             const n = c.archive_read_data(archive, &data, data.len);
             if (n == 0) break;
-            if (n < 0) return failed(archive, &feed, env.err);
+            if (n < 0) return failed(archive, &feed, path, env.err);
             try writer.interface.writeAll(data[0..@intCast(n)]);
         }
         try writer.interface.flush();
@@ -948,13 +949,17 @@ fn entryName(entry: ?*c.struct_archive_entry) ?[]const u8 {
     return null;
 }
 
-/// Says why the cabinet couldn't be unpacked: the disc couldn't be read, or libarchive's reason.
-fn failed(archive: *c.struct_archive, feed: *const Feed, err: *Io.Writer) error{ InstallFailed, WriteFailed } {
+/// Says why the cabinet couldn't be unpacked: the disc couldn't be read, or libarchive's reason,
+/// with the file it was unpacking, where there was one.
+fn failed(archive: *c.struct_archive, feed: *const Feed, file: ?[]const u8, err: *Io.Writer) error{ InstallFailed, WriteFailed } {
     if (feed.failure) |failure| {
         try err.print("openreliant: the disc can't be read: {s}\n", .{@errorName(failure)});
     } else {
-        const reason = c.archive_error_string(archive);
-        try err.print("openreliant: the cabinet can't be unpacked: {s}\n", .{if (reason != null) std.mem.span(reason) else "no reason given"});
+        const said = c.archive_error_string(archive);
+        const reason = if (said != null) std.mem.span(said) else "no reason given";
+        if (file) |name| {
+            try err.print("openreliant: {s} can't be unpacked from the cabinet: {s}\n", .{ name, reason });
+        } else try err.print("openreliant: the cabinet can't be unpacked: {s}\n", .{reason});
     }
     return error.InstallFailed;
 }
@@ -1647,7 +1652,7 @@ test "what the installer refuses" {
         .{ .from = .{ "disc2", "disc2" }, .says = "openreliant: disc2 and disc2 are both StarLancer disc 2.\n" },
         .{ .from = .{ "escaping", null }, .says = "openreliant: the cabinet has a file named CAB/../../evil.dll, outside the install.\n" },
         .{ .from = .{ "garbage", null }, .says = "openreliant: the cabinet can't be unpacked: " },
-        .{ .from = .{ "damaged", null }, .says = "openreliant: the cabinet can't be unpacked: " },
+        .{ .from = .{ "damaged", null }, .says = "openreliant: music/Theme.fat can't be unpacked from the cabinet: " },
         .{ .from = .{ "unarchived", null }, .says = "openreliant: unarchived has no GAME/CD1.HOG.\n" },
     };
     for (cases) |case| {
