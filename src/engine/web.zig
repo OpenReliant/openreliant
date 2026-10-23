@@ -569,15 +569,30 @@ const testing = struct {
         }
     };
 
+    /// Adds to its progress `count` times, `gap_ms` apart, then answers the count: longer in all
+    /// than the quiet time the test gives it (`trickle_quiet_ms`), so that only its progress keeps
+    /// the download from giving up.
     const Trickles = struct {
+        const count = 40;
+        const gap_ms = 10;
+
         fn run(_: *Trickles, io: Io, progress: *Progress) Io.Cancelable!u32 {
-            for (0..8) |_| {
-                try io.sleep(.fromMilliseconds(40), .awake);
+            for (0..count) |_| {
+                try io.sleep(.fromMilliseconds(gap_ms), .awake);
                 progress.add(1);
             }
-            return 8;
+            return count;
         }
     };
+
+    /// The quiet time the test gives `Trickles`, many times its gap, so that a busy machine can hold
+    /// its thread up for most of a quarter of a second without failing the test
+    /// ([#1312](https://github.com/OpenReliant/openreliant/issues/1312)).
+    const trickle_quiet_ms = 250;
+
+    comptime {
+        std.debug.assert(Trickles.count * Trickles.gap_ms > trickle_quiet_ms);
+    }
 
     /// Polls `download` until it answers.
     fn answer(download: anytype) !(@TypeOf(download.*).Error!u32) {
@@ -602,8 +617,8 @@ test Download {
     try slow.start(.{}, .{ .quiet = .fromMilliseconds(30) });
     try std.testing.expectError(error.Timeout, try testing.answer(&slow));
     var trickles: Download(testing.Trickles) = .{};
-    try trickles.start(.{}, .{ .quiet = .fromMilliseconds(150) });
-    try std.testing.expectEqual(8, try (try testing.answer(&trickles)));
+    try trickles.start(.{}, .{ .quiet = .fromMilliseconds(testing.trickle_quiet_ms) });
+    try std.testing.expectEqual(testing.Trickles.count, try (try testing.answer(&trickles)));
 }
 
 test "a cancelled download stays busy until its thread has stopped, then answers so" {
