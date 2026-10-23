@@ -33,6 +33,8 @@ const ailand = @import("ailand.zig");
 const create = @import("create.zig");
 const pilots = @import("pilots.zig");
 const gameobj = @import("gameobj.zig");
+const additions = @import("additions.zig");
+const loadout_tables = @import("../interface/loadout/tables.zig");
 const guns = @import("guns.zig");
 const launch = @import("launch.zig");
 const cloak = @import("cloak.zig");
@@ -2191,10 +2193,11 @@ pub const PlayerShip = struct {
     /// The model of the cockpit's frame, which the start loads into `0x0057E048`.
     cockpit: []const u8,
     /// The gunnery display's wire frame of the ship, a shape of the display's set, which the start
-    /// keeps at `0x005883C0` (`hud.gunnery`).
-    wire_frame: u16,
+    /// keeps at `0x005883C0` (`hud.gunnery`); none for a mod's type based on a ship the player
+    /// can't fly that gives no wire frame of its own (`ownShip`).
+    wire_frame: ?u16,
     /// The shape the wing status window shows the ship by (`GameObject.wing_icon`), which the
-    /// start gives each ship of the player's wing from the table at `0x004F8890`.
+    /// start gives each ship of the player's wing from the table at `0x004F8890`; 0 for none.
     wing_icon: u16,
     spectral_shields: bool = false,
     blind_fire: bool = false,
@@ -2216,6 +2219,11 @@ pub const player_ships = [_]PlayerShip{
     .{ .cockpit = "phe2_frm.shp", .wire_frame = 0x112, .wing_icon = 0x104, .blind_fire = true },
 };
 
+comptime {
+    // They are the loadout's twelve, which the mods' manifests count on (`additions.readShip`).
+    std.debug.assert(player_ships.len == loadout_tables.ship_count);
+}
+
 /// What the start fits in mission 25's first part, where the player's wing flies Kamovs
 /// (`create.Objects.kamovPart`), whatever the loadout's ship (`0x00493761`): the Kamov's cockpit,
 /// and the Phoenix's wire frame on the gunnery display, with neither spectral shields nor blind
@@ -2236,21 +2244,49 @@ pub fn cockpitShip(all: *const create.Objects, ship_type: gameobj.Type) ?PlayerS
 /// The player's ship of `ship_type`, a twin as the ship it twins (`gameobj.GameType.untwinned`), or
 /// null for a type the start has none for. A type a mod adds is its base, or its template where it
 /// names no base, with the cockpit, blind fire and spectral shields its manifest gives
-/// (`additions.ShipExtra`); without a base it carries no device its manifest doesn't give.
+/// (`additions.ShipExtra`); without a base it carries no device its manifest doesn't give. A type
+/// based on a ship the player can't fly is flown with a cockpit of its own (`ownShip`).
 pub fn playerShip(ship_type: gameobj.Type) ?PlayerShip {
     const index = @backingInt(ship_type.base().untwinned());
-    if (index >= player_ships.len) return null;
+    const mod = ship_type.added();
+    if (index >= player_ships.len) return ownShip(mod orelse return null);
     var ship = player_ships[index];
-    const mod = ship_type.added() orelse return ship;
+    const added = mod orelse return ship;
     // A type without a base carries none of its template's devices.
-    if (!mod.based) {
+    if (!added.based) {
         ship.blind_fire = false;
         ship.spectral_shields = false;
     }
-    if (mod.extra.cockpit) |own| ship.cockpit = own;
-    if (mod.extra.blind_fire) |own| ship.blind_fire = own;
-    if (mod.extra.spectral_shields) |own| ship.spectral_shields = own;
+    giveOwn(&ship, added);
     return ship;
+}
+
+/// The ship whose display shapes the pictures of a mod's type based on a ship the player can't fly
+/// stand in for (`ownShip`): the Predator, as for a type without a base.
+const stand_in_ship = player_ships[@backingInt(gameobj.GameType.predator)];
+
+/// The player's ship of `added`, a mod's type based on a ship the player can't fly, such as the
+/// Basilisk: null unless its manifest gives a cockpit. Its base has no wire frame, wing icon or
+/// devices, so it has only those its manifest gives, and its pictures stand in for the Predator's
+/// shapes (`stand_in_ship`).
+///
+/// **Improvement:** the original has no mods' ship types, and fits a cockpit to the twelve and to
+/// mission 25's Kamovs alone ([#1004](https://github.com/OpenReliant/openreliant/issues/1004)).
+fn ownShip(added: *const additions.ships.Added) ?PlayerShip {
+    var ship: PlayerShip = .{
+        .cockpit = added.extra.cockpit orelse return null,
+        .wire_frame = if (added.extra.wire_frame != null) stand_in_ship.wire_frame else null,
+        .wing_icon = if (added.extra.wing_icon != null) stand_in_ship.wing_icon else 0,
+    };
+    giveOwn(&ship, added);
+    return ship;
+}
+
+/// Gives `ship` the cockpit, blind fire and spectral shields that the manifest of `added` gives.
+fn giveOwn(ship: *PlayerShip, added: *const additions.ships.Added) void {
+    if (added.extra.cockpit) |own| ship.cockpit = own;
+    if (added.extra.blind_fire) |own| ship.blind_fire = own;
+    if (added.extra.spectral_shields) |own| ship.spectral_shields = own;
 }
 
 /// `mission_start`'s part in the player's wing, once the mission has listed it: the player's ship
@@ -2588,7 +2624,6 @@ test cockpitShip {
 }
 
 test "a mod's ship type has its own cockpit and devices" {
-    const additions = @import("additions.zig");
     var list = [_]additions.ships.Added{
         .{ .name = "a:pot", .mod = "a", .base = .predator, .extra = .{ .model = "pot.shp", .cockpit = "pot_frm.shp" } },
         .{ .name = "a:plain", .mod = "a", .base = .predator, .extra = .{ .model = "plain.shp" } },
@@ -2596,6 +2631,10 @@ test "a mod's ship type has its own cockpit and devices" {
         .{ .name = "a:dim", .mod = "a", .base = .phoenix, .extra = .{ .model = "dim.shp", .blind_fire = false } },
         // Without a base: no device but those it gives.
         .{ .name = "a:bare", .mod = "a", .base = .predator, .based = false, .extra = .{ .model = "bare.shp", .blind_fire = true } },
+        // Based on the Basilisk, which the player can't fly: with a cockpit and a wire frame of its
+        // own, and without a cockpit.
+        .{ .name = "a:red", .mod = "a", .base = .basilisk, .extra = .{ .model = "red.shp", .cockpit = "kamg_frm.shp", .wire_frame = "redwire", .spectral_shields = true } },
+        .{ .name = "a:grey", .mod = "a", .base = .basilisk, .extra = .{ .model = "grey.shp", .wire_frame = "greywire" } },
     };
     additions.ships.install(&list);
     defer additions.ships.reset();
@@ -2609,6 +2648,16 @@ test "a mod's ship type has its own cockpit and devices" {
     try std.testing.expect(!dim.blind_fire and player_ships[11].blind_fire);
     const bare = playerShip(@fromBackingInt(additions.ships.first + 3)).?;
     try std.testing.expect(bare.blind_fire and !bare.spectral_shields);
+    // A type based on a ship the player can't fly is flown with its own cockpit, its wire frame
+    // standing in for the Predator's, no wing icon, and only the devices it gives.
+    try std.testing.expectEqualDeep(PlayerShip{
+        .cockpit = "kamg_frm.shp",
+        .wire_frame = player_ships[0].wire_frame,
+        .wing_icon = 0,
+        .spectral_shields = true,
+    }, playerShip(@fromBackingInt(additions.ships.first + 4)).?);
+    try std.testing.expectEqual(null, playerShip(@fromBackingInt(additions.ships.first + 5)));
+    try std.testing.expectEqual(null, playerShip(.of(.basilisk)));
 }
 
 test startMission {

@@ -440,7 +440,7 @@ pub const ShipExtra = struct {
     pub const default_crew: u8 = 1;
 };
 
-fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocator.Error!?ShipExtra {
+fn readShip(context: Context, section: []const u8, base: gameobj.GameType) Allocator.Error!?ShipExtra {
     const manifest = context.mod.manifest;
     const model = manifest.value(section, "Model") orelse {
         context.warn("ship type", "needs a Model in [{s}]", .{section});
@@ -477,6 +477,13 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
             return null;
         };
         made.missile = @fromBackingInt(@intCast(number));
+    }
+    // A type based on a ship the player can't fly is flown only with a cockpit of its own
+    // (`main.playerShip`), so without one, what it gives for the player's ship goes unused.
+    if (made.cockpit == null and @backingInt(base.untwinned()) >= loadout.ship_count) {
+        for ([_][]const u8{ "WireFrame", "WingIcon", "BlindFire", "SpectralShields" }) |key| {
+            if (manifest.value(section, key) != null) context.warn("ship type", "gives {s}, which a ship the player can't fly uses only with a Cockpit", .{key});
+        }
     }
     return made;
 }
@@ -991,6 +998,35 @@ test "a family reads what each mod lists" {
     try std.testing.expectEqual(null, ships.get(ships.first + 3));
     try std.testing.expectEqual(null, ships.get(0x0B));
     try std.testing.expectEqual(ships.first + 3, ships.count());
+}
+
+test "a type based on a ship the player can't fly, with and without a cockpit" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const mod: Mod = .{ .name = "red", .source = undefined, .manifest = .{ .text =
+        \\[ShipTypes]
+        \\red_basilisk=300
+        \\grey_basilisk=301
+        \\[ShipType red_basilisk]
+        \\Base=basilisk
+        \\Model=Rus_basalisk.SHP
+        \\Cockpit=kamg_frm.shp
+        \\WireFrame=redwire
+        \\[ShipType grey_basilisk]
+        \\Base=basilisk
+        \\Model=Rus_basalisk.SHP
+        \\WireFrame=greywire
+        \\BlindFire=yes
+    } };
+    try read(arena.allocator(), &.{mod});
+    defer reset();
+    // Both are read. The second, without a cockpit, leaves its wire frame and blind fire unused, which
+    // the log says.
+    const list = ships.all();
+    try std.testing.expectEqual(2, list.len);
+    try std.testing.expectEqualStrings("kamg_frm.shp", list[0].extra.cockpit.?);
+    try std.testing.expectEqual(null, list[1].extra.cockpit);
+    try std.testing.expectEqualStrings("greywire", list[1].extra.wire_frame.?);
 }
 
 test "a mod's files name the records of the mods it requires" {

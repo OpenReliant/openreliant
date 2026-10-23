@@ -907,6 +907,13 @@ When the player flies it, it can also give:
 - `BlindFire` and `SpectralShields`, `yes` or `no`, whether it carries blind fire and spectral
   shields. Without them, it carries what its base carries. The loadout lists them with its specials.
 
+A mission can put the player in a ship type based on a ship the player can't fly, such as the
+Basilisk. The player flies it with a cockpit only if it gives `Cockpit`. Its base has no wire frame,
+wing icon, blind fire or spectral shields, so it has only those it gives, and its `WireFrame` and
+`WingIcon` pictures are drawn over the Predator's rectangles, as for a type without a base. Without
+a `Cockpit`, the player flies it as the game's own such ships, without a cockpit, a wire frame or a
+wing icon, and the log names the keys it leaves unused.
+
 A mission can launch ships from a mod's ship type, the player's among them. One that keeps its
 base's model launches them as its base does, such as from the Reliant's tubes. One with a model of
 its own launches them as a hangar bay: each ship waits at the launch point of its gate, a
