@@ -154,19 +154,22 @@ pub const TypeCache = struct {
     }
 
     /// The display's shapes, with the pictures a mod's ship type gives in place of its base's
-    /// `which` (`additions.ShipExtra`): the picture numbered 0 stands for the base's shape
-    /// (`main.PlayerShip`), and for the wire frame, those after it for the shapes after it, the
-    /// groups of guns lit, each drawn over the whole frame. Null for a type that gives none, or a
-    /// base the player can't fly.
+    /// `which` (`additions.ShipExtra`): the picture numbered 0 stands for the shape the type is
+    /// flown with (`main.PlayerShip`), its base's, and for the wire frame, those after it for the
+    /// shapes after it, the groups of guns lit, each drawn over the whole frame. Null for a type
+    /// that gives none, or isn't flown (`main.playerShip`).
     fn ownShapes(cache: *const TypeCache, gpa: std.mem.Allocator, ship_type: create.TypeIndex, comptime which: enum { wire_frame, wing_icon }) std.mem.Allocator.Error!?hud.Art {
         const added = additions.ships.get(ship_type) orelse return null;
         const set = @field(added.extra, @tagName(which)) orelse return null;
         const shapes = cache.display_shapes orelse return null;
-        const player = main.playerShip(.of(added.base)) orelse return null;
+        const player = main.playerShip(@fromBackingInt(ship_type)) orelse return null;
         const pictures: hud.Art.Pictures = .{
             .files = cache.resources.mods.pictures(),
             .set = set,
-            .first = @field(player, @tagName(which)),
+            .first = switch (which) {
+                .wire_frame => player.wire_frame orelse return null,
+                .wing_icon => player.wing_icon,
+            },
             .over_first = which == .wire_frame,
         };
         return try .init(gpa, shapes, cache.global_palette, pictures);
