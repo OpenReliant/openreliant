@@ -183,7 +183,7 @@ pub const title_font_name = "ld_handel.fnt";
 test "Newtown stands in for the tooltip's font" {
     try std.testing.expect(hud.outline.standsIn(title_font_name));
 }
-const stats_font_name = "handels.fnt";
+pub const stats_font_name = "handels.fnt";
 const sounds_name = "ldsmp.fat";
 
 /// The textures the loadout requires (`0x004EAA5C` on): the disc's four quarters, the glow, the
@@ -230,7 +230,7 @@ const hum_pitch = -12;
 
 /// A panel's texture (`texture_create_transient`), and the pixels the loadout draws it with.
 const PanelTexture = struct {
-    pixels: *panels.Image,
+    pixels: panels.Image,
     image: srtexture.Image,
 
     /// A texture not made yet, as one is while the loadout loads.
@@ -545,8 +545,9 @@ pub const Loadout = struct {
     /// `bpanels`, which the buttons take their art from too (`0x00524214` on).
     info_textures: std.EnumArray(panels.Face, PanelTexture) = .initFill(.unmade),
     title_textures: std.EnumArray(panels.Face, PanelTexture) = .initFill(.unmade),
-    /// `fpanels.tga`'s pixels (`0x00523960`), which the name panels' textures start from.
-    panels_art: *panels.Image = undefined,
+    /// `fpanels.tga`'s pixels (`0x00523960`), which the name panels' textures start from, and
+    /// whose size the panels' textures take (`panels.Image`).
+    panels_art: panels.Image = undefined,
     /// Each ship's figures as the loadout works them out as it loads (`loadout_ship_stats`,
     /// `0x004EC278`).
     figures: []tables.ShipFigures = &.{},
@@ -726,19 +727,18 @@ pub const Loadout = struct {
         }
 
         loadout.backdrop = try matmanager.readImage(arena, resources.*, backdrop(context));
-        loadout.panels_art = try arena.create(panels.Image);
-        loadout.panels_art.* = @splat(.{ 0, 0, 0, 0 });
-        const art = try matmanager.readPixels(arena, resources.*, panels_name);
-        for (0..@min(art.height, panels.size)) |y| for (0..@min(art.width, panels.size)) |x| {
-            loadout.panels_art[y * panels.size + x] = art.pixel(x, y) ++ .{hud.Pane.opaque_alpha};
+        const art = try matmanager.readPixels(arena, resources.*, panels_name, .multiples);
+        loadout.panels_art = try .create(arena, @max(1, art.width / panels.size));
+        const side = loadout.panels_art.side();
+        for (0..@min(art.height, side)) |y| for (0..@min(art.width, side)) |x| {
+            loadout.panels_art.pixels[y * side + x] = art.pixel(x, y) ++ .{hud.Pane.opaque_alpha};
         };
         try loadout.openFonts();
         for (loadout.panelTextures()) |faces| {
             for (&faces.values) |*texture| {
-                texture.pixels = try arena.create(panels.Image);
-                texture.pixels.* = @splat(.{ 0, 0, 0, 0 });
+                texture.pixels = try .create(arena, loadout.panels_art.multiple);
                 const levels = try arena.alloc(srtexture.Level, 1);
-                levels[0] = .{ .width = panels.size, .height = panels.size, .texels = std.mem.asBytes(texture.pixels) };
+                levels[0] = .{ .width = side, .height = side, .texels = std.mem.sliceAsBytes(texture.pixels.pixels) };
                 texture.image = .{ .levels = levels };
             }
         }
@@ -897,10 +897,11 @@ pub const Loadout = struct {
         gunship.object.shown = false;
     }
 
-    /// Opens the loadout's two fonts (`font_open`), the title's taking VFX's palette through the
-    /// text remap for the tooltip, in 6-bit levels as a font's palette holds them, and the outline
-    /// font that stands in for it where the tooltip is written over the screen; the panels'
-    /// textures keep its glyphs.
+    /// Opens the loadout's two fonts (`font_open`), and the outline fonts that stand in for them
+    /// where the tooltip is written over the screen and in panels larger than the original's
+    /// (`hud.drawTextInto`). Both take VFX's palette through the text remap, in 6-bit levels as a
+    /// font's palette holds them: the title's for the tooltip, and both to fit their outline
+    /// fonts by.
     fn openFonts(loadout: *Loadout) !void {
         const arena = loadout.arena.allocator();
         const resources = loadout.context.rooms.resources;
@@ -910,9 +911,11 @@ pub const Loadout = struct {
             for (loadout.tooltip_palette[level * 3 ..][0..3], colour) |*to, from| to.* = from >> 2;
         }
         loadout.title_font = .open(try .parse(try resources.readFile(arena, title_font_name)), &loadout.tooltip_palette);
-        if (loadout.context.rooms.outlines) |outlines| try loadout.title_font.standIn(outlines, title_font_name);
-        loadout.stats_font = .open(try .parse(try resources.readFile(arena, stats_font_name)), null);
+        loadout.stats_font = .open(try .parse(try resources.readFile(arena, stats_font_name)), &loadout.tooltip_palette);
         loadout.fonts_open = true;
+        const outlines = loadout.context.rooms.outlines orelse return;
+        try loadout.title_font.standIn(outlines, title_font_name);
+        try loadout.stats_font.standIn(outlines, stats_font_name);
     }
 
     /// `loadout_glow_create` (`0x00444720`): the disc's glow, a square of `glow` 10 across, and its
@@ -1016,9 +1019,16 @@ pub const Loadout = struct {
         loadout.drawInfo(.front, .{ .ship = front });
         loadout.drawInfo(.back, .{ .ship = back });
         const title = &loadout.title_textures;
-        panels.drawTitle(title.get(.front).pixels, loadout.panels_art, loadout.kit(), loadout.shipRecord(front));
-        panels.drawTitle(title.get(.back).pixels, loadout.panels_art, loadout.kit(), loadout.shipRecord(back));
+        for ([_]panels.Face{ .front, .back }, [_]u8{ front, back }) |face, ship| {
+            panels.drawTitle(title.get(face).pixels, loadout.panels_art, loadout.kit(), loadout.shipRecord(ship)) catch |err| textLeftOut(err);
+        }
         for (&title.values) |*texture| texture.image.changed = true;
+    }
+
+    /// What drawing a panel does where it can't draw its text for want of memory for its outline
+    /// font's glyphs (`hud.drawTextInto`): the text is left out, which the log says.
+    fn textLeftOut(err: Allocator.Error) void {
+        log.warn("a panel's text is left out: {s}", .{@errorName(err)});
     }
 
     /// What the info panel shows on a face: a ship's figures, a missile's, or a ship's guns.
@@ -1032,11 +1042,12 @@ pub const Loadout = struct {
     /// `missile_info_draw`, `0x004456F0`; `guns_draw`, `0x00445490`).
     fn drawInfo(loadout: *Loadout, face: panels.Face, info: Info) void {
         const texture = loadout.info_textures.getPtr(face);
-        switch (info) {
+        const drawn = switch (info) {
             .ship => |ship| panels.drawStats(texture.pixels, loadout.kit(), loadout.shipRecord(ship), loadout.figures[ship]),
             .missile => |missile| panels.drawMissile(texture.pixels, loadout.kit(), missile, loadout.missile_figures[loadout.missilePlace(missile)]),
             .guns => |ship| panels.drawGuns(texture.pixels, loadout.kit(), loadout.shipRecord(ship)),
-        }
+        };
+        drawn catch |err| textLeftOut(err);
         texture.image.changed = true;
     }
 

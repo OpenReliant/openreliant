@@ -621,16 +621,25 @@ files, as is the loadout's backdrop. To replace one, add a PNG with its name, su
   bars beyond it.
 - **Opaque.** Pictures are drawn without their alpha channel, like the original pictures.
 
-A few TGA pictures are read pixel by pixel at their original size. A PNG replaces one of these only
-if it has the same size; otherwise it's skipped, with a message in the log
-([#509](https://github.com/OpenReliant/openreliant/issues/509)):
+Two TGA pictures are read pixel by pixel as data, one pixel for each star or for each colour of
+the sky. A PNG replaces one of these only if it has the same size; otherwise it's skipped, with a
+message in the log:
 
 | Picture | Size | What it is |
 |---|---|---|
-| `fpanels.tga` | 256x256 | The loadout's panels |
-| `powerball.tga` | 256x256 | The flight display's power ball |
 | `space.tga` | 360x360 | The star map |
 | `starref12.tga` | 256x256 | The sky colours |
+
+Two more are drawn pixel by pixel at their picture's size. A PNG for one of these can be the
+original's size or a whole multiple of it, the same across and down, up to 8192 pixels; another
+size is skipped, with a message in the log. At 1024x1024, `fpanels.png` draws the loadout's panels
+four times as sharp, with their text in the outline fonts ([Fonts](#fonts)), and `powerball.png`
+draws the flight display's power ball four times as sharp.
+
+| Picture | Size | What it is |
+|---|---|---|
+| `fpanels.tga` | 256x256 | The loadout's panels, the buttons and the scrollers |
+| `powerball.tga` | 256x256 | The flight display's power ball |
 
 **Improvement:** the original only draws its interface pictures at their original size, and
 stretches its backgrounds to fit the screen.
@@ -649,7 +658,8 @@ fonts](../formats/fnt.md#outline-fonts)):
 | `itacbig.fnt` | The ITAC's large text, and the titles of the CD player and the simulator pod |
 | `itacsml.fnt` | The ITAC's small text |
 | `blufont.fnt` | The flight display's text: readouts, clock, windows and objectives |
-| `ld_handel.fnt` | The loadout's tooltip |
+| `ld_handel.fnt` | The loadout's tooltip, and the titles and ship names on its panels |
+| `handels.fnt` | The figures on the loadout's info panel |
 | `font_01.fnt` | The developers' text on the main menu |
 
 - **Layout.** The game lays out text using the bitmap font's character widths, which don't change.
@@ -661,6 +671,9 @@ fonts](../formats/fnt.md#outline-fonts)):
 - **Colour.** The flight display's font and the loadout tooltip's font are drawn through palettes. A
   mod's font for them is drawn in the colour of the bitmap font's letters, and glyphs the bitmap
   font draws in other colours, such as symbols, keep their bitmaps.
+- **The loadout's panels.** The panels keep their bitmap text at the original's size. With a larger
+  `fpanels.png` ([Pictures](#pictures)), their text is drawn from the outline fonts at the panels'
+  size instead.
 - **Weight and outline.** A mod's font is drawn at its normal weight. Each character gets a black
   outline one bitmap pixel wide, like the text in the original.
 - **Built in.** OpenReliant draws all text except the developers' text with Newtown, a public domain
@@ -1454,6 +1467,7 @@ A script's messages and errors follow its mod's name, as above;
 | `skipping the mod <archive>: checking <file> failed: ...` | The archive doesn't match its checksum: download it again, or pack it again with `--checksum` ([Checksums](#checksums)) |
 | `<mod>: mod.ini: the <kind> '<name>' ...` | The entry the message names, and what it says is wrong ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots), [Game variables](#game-variables)) |
 | `skipping the picture that replaces <name>: it's <size>, and the original is <size>` | That picture must keep the original's size ([Pictures](#pictures)) |
+| `skipping the picture that replaces <name>: it's <size>, and it must be a whole multiple of the original's <size>, at most 8192 pixels across` | That picture must be the original's size or a whole multiple of it ([Pictures](#pictures)) |
 | `<set>: shape <n> is cut short: its rows run past the end of its block, so it draws nothing` | The set's file is broken at that shape: make the set again, or give a picture in its place ([Shapes](#shapes)) |
 | `the <map> of <texture> is left out: it is <size> and its picture <size>` | A map must be the same size as its texture ([Material maps](#material-maps)) |
 | `the <map> of <texture> is left out: it has <n> mipmap levels and its picture <n>` | Save the DDS or KTX2 map with all its mipmaps, as many as the picture has ([Compression](#compression)) |

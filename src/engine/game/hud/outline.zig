@@ -37,8 +37,8 @@ const log = std.log.scoped(.fonts);
 pub const newtown = @embedFile("Newtown.ttf");
 
 /// The game's Handel Gothic fonts, which Newtown replaces unless a mod has a font for them: the
-/// menu and ITAC fonts, drawn in one colour, and the flight display and loadout tooltip fonts,
-/// drawn through palettes.
+/// menu and ITAC fonts, drawn in one colour, and the flight display and loadout fonts, drawn
+/// through palettes.
 pub const handel_gothic = [_][]const u8{
     hud.large_menu_font,
     hud.small_menu_font,
@@ -46,6 +46,7 @@ pub const handel_gothic = [_][]const u8{
     itac.small_font_name,
     hud.Resources.font_name,
     loadout.title_font_name,
+    loadout.stats_font_name,
 };
 
 /// Whether Newtown replaces the game's font `name` (`handel_gothic`), ignoring folders and case, as
@@ -304,6 +305,16 @@ fn inkSpan(cover: *const Cover, pixels: []const u8, width: usize, axis: Axis) ?[
     return found;
 }
 
+/// Where a character's glyph is drawn from an outline font's atlas.
+pub const Placing = union(enum) {
+    /// Nothing: its glyph has no ink.
+    blank,
+    /// The bitmap glyph, since the outline font has none for it.
+    bitmap,
+    /// Its glyph in the atlas, and the pixel its top left corner falls on.
+    placed: struct { glyph: Atlas.Placed, corner: [2]f32 },
+};
+
 /// How a character is drawn from an outline font.
 pub const Shown = union(enum) {
     /// Nothing: its glyph has no ink.
@@ -470,21 +481,32 @@ pub const Sized = struct {
     outline: *const Outline,
     atlas: *Atlas,
 
-    /// How character `code` is drawn when its place on the line starts at `left`, the line's top is
-    /// at `top`, and the bitmap font is drawn at `scale` times its size: with its ink centred on
-    /// the bitmap glyph's ink, on the bitmap font's baseline, and its pixels aligned to the
+    /// Where character `code` is drawn when its place on the line starts at `left`, the line's top
+    /// is at `top`, and the bitmap font is drawn at `scale` times its size: with its ink centred
+    /// on the bitmap glyph's ink, on the bitmap font's baseline, and its pixels aligned to the
     /// window's.
-    pub fn shown(sized: Sized, code: u8, left: f32, top: f32, scale: f32) Shown {
-        const atlas = sized.atlas;
+    pub fn glyphAt(sized: Sized, code: u8, left: f32, top: f32, scale: f32) Placing {
         const fit = &sized.outline.fit;
-        const glyph = switch (atlas.glyphs[code]) {
+        const glyph = switch (sized.atlas.glyphs[code]) {
             .blank => return .blank,
             .bitmap => return .bitmap,
             .placed => |placed| placed,
         };
         const middle = fit.middles[code] orelse return .blank;
-        const x = @round(left + middle * scale - glyph.middle);
-        const y = @round(top + fit.baseline * scale) - @as(f32, @floatFromInt(glyph.top));
+        return .{ .placed = .{ .glyph = glyph, .corner = .{
+            @round(left + middle * scale - glyph.middle),
+            @round(top + fit.baseline * scale) - @as(f32, @floatFromInt(glyph.top)),
+        } } };
+    }
+
+    /// How character `code` is drawn (`glyphAt`) over the window.
+    pub fn shown(sized: Sized, code: u8, left: f32, top: f32, scale: f32) Shown {
+        const atlas = sized.atlas;
+        const glyph, const x, const y = switch (sized.glyphAt(code, left, top, scale)) {
+            .blank => return .blank,
+            .bitmap => return .bitmap,
+            .placed => |placed| .{ placed.glyph, placed.corner[0], placed.corner[1] },
+        };
         const width: f32 = @floatFromInt(glyph.width);
         const height: f32 = @floatFromInt(glyph.height);
         const across: f32 = @floatFromInt(atlas.image.width());

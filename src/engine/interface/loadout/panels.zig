@@ -4,6 +4,7 @@
 //! (`hud.Pane`), and the scene shows it on one face of a two-sided panel (`Face`).
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 const tga = @import("../../../formats/tga.zig");
 const hud = @import("../../game/hud.zig");
@@ -11,12 +12,42 @@ const language = @import("../../game/language.zig");
 const bars = @import("bars.zig");
 const tables = @import("tables.zig");
 
-/// The panels' textures' size, across and down (`0x00444D83`, `0x00444F40`).
+/// The panels' textures' size in the original, across and down (`0x00444D83`, `0x00444F40`).
 pub const size = 256;
 
-/// A panel's pixels: `size` across and down, four bytes a pixel (red, green, blue and alpha), rows
-/// from the top.
-pub const Image = [size * size][4]u8;
+/// A panel's pixels: `size` times `multiple` across and down, four bytes a pixel (red, green, blue
+/// and alpha), rows from the top.
+///
+/// **Improvement:** a mod's picture for `fpanels.tga` can be a whole multiple of its size
+/// (`matmanager.Sizes.multiples`), and the panels are then drawn as many times as large, with their
+/// text from the outline fonts that stand in for theirs (`hud.Pane`). The game's own have a
+/// `multiple` of 1.
+pub const Image = struct {
+    pixels: [][4]u8,
+    /// How many of its pixels across and down stand for each of the original's.
+    multiple: u32,
+
+    /// A clear image `multiple` times the original's size, in `gpa`.
+    pub fn create(gpa: Allocator, multiple: u32) Allocator.Error!Image {
+        const pixels = try gpa.alloc([4]u8, @as(usize, size * multiple) * size * multiple);
+        @memset(pixels, .{ 0, 0, 0, 0 });
+        return .{ .pixels = pixels, .multiple = multiple };
+    }
+
+    pub fn deinit(image: Image, gpa: Allocator) void {
+        gpa.free(image.pixels);
+    }
+
+    /// Its pixels across and down.
+    pub fn side(image: Image) u32 {
+        return size * image.multiple;
+    }
+
+    /// The pane its text is written through.
+    fn pane(image: Image) hud.Pane {
+        return .{ .rgba = image.pixels, .size = @splat(image.side()), .scale = image.multiple };
+    }
+};
 
 /// Which of a panel's two faces a texture is drawn for.
 pub const Face = enum {
@@ -78,23 +109,23 @@ const InfoPage = struct {
     pane: hud.Pane,
     remap: hud.Remap,
 
-    fn begin(image: *Image, kit: Kit) InfoPage {
-        image.* = @splat(.{ 0, 0, 0, 0 });
+    fn begin(image: Image, kit: Kit) InfoPage {
+        @memset(image.pixels, .{ 0, 0, 0, 0 });
         return .{
             .kit = kit,
-            .pane = .{ .rgba = image, .size = .{ size, size } },
+            .pane = image.pane(),
             .remap = .{ .table = &tables.text_remap, .palette = kit.palette },
         };
     }
 
     /// `text` from `at`, aligned as `alignment` says (`hud_text`).
-    fn write(page: InfoPage, at: [2]i32, text: []const u8, alignment: hud.Align) void {
-        _ = hud.drawTextInto(page.pane, page.kit.info_font, at, text, page.remap, alignment);
+    fn write(page: InfoPage, at: [2]i32, text: []const u8, alignment: hud.Align) Allocator.Error!void {
+        _ = try hud.drawTextInto(page.pane, page.kit.info_font, at, text, page.remap, alignment);
     }
 
     /// `text` from `at`, broken into lines at most `width` wide, `line_height` apart, at most
     /// `max_lines` of them (`hud_text_wrapped`); returns how many it took.
-    fn wrap(page: InfoPage, at: [2]i32, text: []const u8, width: i32, line_height: i32, max_lines: usize) usize {
+    fn wrap(page: InfoPage, at: [2]i32, text: []const u8, width: i32, line_height: i32, max_lines: usize) Allocator.Error!usize {
         return hud.drawWrappedInto(page.pane, page.kit.info_font, at, text, page.remap, .left, width, line_height, max_lines);
     }
 };
@@ -110,13 +141,13 @@ const name_at: [2]i32 = .{ 17, 28 };
 /// pixels of `fpanels.tga` from the top row down, which the game keeps as `SR_TGA_allocate_raw`
 /// gives them (`0x00523960`), then `SHIPS AND LOADOUT` and the ship's name in capitals, in the
 /// title's font and colours (`tables.title_remap`).
-pub fn drawTitle(image: *Image, panels: *const Image, kit: Kit, record: tables.Ship) void {
-    image.* = panels.*;
-    const pane: hud.Pane = .{ .rgba = image, .size = .{ size, size } };
+pub fn drawTitle(image: Image, panels: Image, kit: Kit, record: tables.Ship) Allocator.Error!void {
+    @memcpy(image.pixels, panels.pixels);
+    const pane = image.pane();
     const remap: hud.Remap = .{ .table = &tables.title_remap, .palette = kit.palette };
-    _ = hud.drawTextInto(pane, kit.title_font, title_at, kit.string(title_string), remap, .left);
+    _ = try hud.drawTextInto(pane, kit.title_font, title_at, kit.string(title_string), remap, .left);
     var name = kit.capitals(record.name);
-    _ = hud.drawTextInto(pane, kit.title_font, name_at, name.slice(), remap, .left);
+    _ = try hud.drawTextInto(pane, kit.title_font, name_at, name.slice(), remap, .left);
 }
 
 /// The labels before the class and the access, `CLASS : ` and `ACCESS : `.
@@ -149,43 +180,43 @@ const specials_separator = ", ";
 /// access after their labels; its rows (`tables.ship_rows`), each label in capitals and the
 /// figure of `figures` beside it, as a number and its suffix or as a bar (`drawBar`); and the
 /// specials it has, in capitals, one after another (`specialsLine`).
-pub fn drawStats(image: *Image, kit: Kit, record: tables.Ship, figures: tables.ShipFigures) void {
+pub fn drawStats(image: Image, kit: Kit, record: tables.Ship, figures: tables.ShipFigures) Allocator.Error!void {
     const page: InfoPage = .begin(image, kit);
 
     var class: Line = .{};
     class.append(kit.string(class_label));
     class.append(kit.string(record.class.string()));
-    page.write(class_at, class.slice(), .left);
+    try page.write(class_at, class.slice(), .left);
     var access: Line = .{};
     access.append(kit.string(access_label));
     access.append(kit.string(record.access.string()));
-    page.write(access_at, access.slice(), .left);
+    try page.write(access_at, access.slice(), .left);
 
     var y: i32 = first_row_y;
     for (tables.ship_rows, figures) |row, figure| {
-        drawRow(page, y, row, figure);
+        try drawRow(page, y, row, figure);
         y += row_step;
     }
 
     var specials = specialsLine(kit, record.specials);
     language.upperCase(specials.slice());
-    _ = page.wrap(specials_at, specials.slice(), specials_width, specials_line_height, specials_lines);
+    _ = try page.wrap(specials_at, specials.slice(), specials_width, specials_line_height, specials_lines);
 }
 
 /// A row of figures at `y` (`loadout_draw_stats`, `0x00445180` to `0x004452F4`;
 /// `missile_info_draw`, `0x0044593B` to `0x00445ADE`): its label in capitals, and beside it the
 /// figure, as a number and its suffix or as a bar (`drawBar`), or a dash where there is none.
-fn drawRow(page: InfoPage, y: i32, row: tables.Row, figure: ?i32) void {
+fn drawRow(page: InfoPage, y: i32, row: tables.Row, figure: ?i32) Allocator.Error!void {
     const kit = page.kit;
     var label = kit.capitals(row.label);
-    page.write(.{ label_x, y }, label.slice(), .left);
+    try page.write(.{ label_x, y }, label.slice(), .left);
     const shown = figure orelse return page.write(.{ figure_x, y }, no_figure, .left);
     switch (row.kind) {
         .number => {
             var number: Line = .{};
             number.print("{d}", .{shown});
             number.append(if (row.suffix) |suffix| kit.string(suffix) else "");
-            page.write(.{ figure_x, y }, number.slice(), .left);
+            try page.write(.{ figure_x, y }, number.slice(), .left);
         },
         .bar => drawBar(page.pane, kit.palette, .{ figure_x, y }, shown),
     }
@@ -216,20 +247,20 @@ const click_at = [2][2]i32{ .{ 128, 195 }, .{ 128, 210 } };
 /// capitals, the description wrapped; `CLICK MISSILE` and `TO ATTACH TO SHIP` centred low down;
 /// and its rows (`tables.missile_rows`), each with its figure of `figures`, or a dash for a figure
 /// of -1 and for every row of the fuel pod (`0x004459B2`).
-pub fn drawMissile(image: *Image, kit: Kit, missile: tables.Missile, figures: tables.MissileFigures) void {
+pub fn drawMissile(image: Image, kit: Kit, missile: tables.Missile, figures: tables.MissileFigures) Allocator.Error!void {
     const page: InfoPage = .begin(image, kit);
     const record = missile.record();
 
     var name = kit.capitals(record.name);
-    page.write(missile_name_at, name.slice(), .left);
+    try page.write(missile_name_at, name.slice(), .left);
     var description = kit.capitals(record.description);
-    _ = page.wrap(description_at, description.slice(), description_width, description_line_height, description_lines);
-    for (click_lines, click_at) |line, at| page.write(at, kit.string(line), .centre);
+    _ = try page.wrap(description_at, description.slice(), description_width, description_line_height, description_lines);
+    for (click_lines, click_at) |line, at| try page.write(at, kit.string(line), .centre);
 
     var y: i32 = missile_first_row_y;
     for (tables.missile_rows, figures) |row, figure| {
         const value: ?i32 = if (missile == .fuel_pod) null else if (row.dash_for_none) bars.MissileBars.shown(figure) else figure;
-        drawRow(page, y, row, value);
+        try drawRow(page, y, row, value);
         y += row_step;
     }
 }
@@ -253,20 +284,20 @@ const no_drain = ",";
 /// it, but for a rear turret (`tables.first_rear_turret` on), its description wrapped: its power,
 /// kind, range, rate and drain run together (`%s%s%s%s%s`, `0x004EAE9C`), in the strings' own
 /// case.
-pub fn drawGuns(image: *Image, kit: Kit, record: tables.Ship) void {
+pub fn drawGuns(image: Image, kit: Kit, record: tables.Ship) Allocator.Error!void {
     const page: InfoPage = .begin(image, kit);
     var y: i32 = 0;
     for (record.guns) |mount| {
         var line: Line = .{};
         line.print("{s} X {d}", .{ kit.string(mount.gun), mount.count });
         language.upperCase(line.slice());
-        page.write(.{ gun_x, y }, line.slice(), .left);
+        try page.write(.{ gun_x, y }, line.slice(), .left);
         y += gun_step;
         const description = tables.gunDescription(mount.gun) orelse continue;
         var sentence: Line = .{};
         for ([_]u16{ description.power, description.kind, description.range, description.rate }) |part| sentence.append(kit.string(part));
         sentence.append(if (description.drain) |drain| kit.string(drain) else no_drain);
-        const lines = page.wrap(.{ gun_x, y }, sentence.slice(), gun_description_width, gun_description_line_height, gun_description_lines);
+        const lines = try page.wrap(.{ gun_x, y }, sentence.slice(), gun_description_width, gun_description_line_height, gun_description_lines);
         y += @as(i32, @intCast(lines)) * gun_description_line_height + gun_description_gap;
     }
 }
@@ -394,22 +425,59 @@ test drawTitle {
     const strings = testStrings(&buffer);
     const kit: Kit = .{ .title_font = &opened, .info_font = &opened, .palette = &palette, .strings = &strings };
 
-    const panels = try std.testing.allocator.create(Image);
-    defer std.testing.allocator.destroy(panels);
-    panels.* = @splat(.{ 1, 2, 3, 4 });
-    const image = try std.testing.allocator.create(Image);
-    defer std.testing.allocator.destroy(image);
-    drawTitle(image, panels, kit, tables.ships[0]);
+    const gpa = std.testing.allocator;
+    const panels: Image = try .create(gpa, 1);
+    defer panels.deinit(gpa);
+    @memset(panels.pixels, .{ 1, 2, 3, 4 });
+    const image: Image = try .create(gpa, 1);
+    defer image.deinit(gpa);
+    try drawTitle(image, panels, kit, tables.ships[0]);
 
     // The title's letters' tops in black, their edges bright, and the panel's own pixels where
     // they are clear.
-    try std.testing.expectEqual(colourOf(&palette, 0), image[title_at[1] * size + title_at[0]]);
-    try std.testing.expectEqual(colourOf(&palette, 0xB8), image[title_at[1] * size + title_at[0] + 1]);
-    try std.testing.expectEqual([4]u8{ 1, 2, 3, 4 }, image[(title_at[1] + 1) * size + title_at[0]]);
+    try std.testing.expectEqual(colourOf(&palette, 0), image.pixels[title_at[1] * size + title_at[0]]);
+    try std.testing.expectEqual(colourOf(&palette, 0xB8), image.pixels[title_at[1] * size + title_at[0] + 1]);
+    try std.testing.expectEqual([4]u8{ 1, 2, 3, 4 }, image.pixels[(title_at[1] + 1) * size + title_at[0]]);
     // The name, `PREDATOR`: eight letters.
     const name_end = name_at[0] + 8 * 2;
-    try std.testing.expectEqual(colourOf(&palette, 0), image[name_at[1] * size + name_end - 2]);
-    try std.testing.expectEqual([4]u8{ 1, 2, 3, 4 }, image[name_at[1] * size + name_end]);
+    try std.testing.expectEqual(colourOf(&palette, 0), image.pixels[name_at[1] * size + name_end - 2]);
+    try std.testing.expectEqual([4]u8{ 1, 2, 3, 4 }, image.pixels[name_at[1] * size + name_end]);
+}
+
+test "a larger picture draws larger panels" {
+    const font = try @import("../../../formats/fnt.zig").Font.parse(comptime testFont());
+    const opened: hud.Opened = .open(font, null);
+    const palette = testPalette();
+    var buffer: [0x555][]const u8 = undefined;
+    const strings = testStrings(&buffer);
+    const kit: Kit = .{ .title_font = &opened, .info_font = &opened, .palette = &palette, .strings = &strings };
+    const gpa = std.testing.allocator;
+    const panels: Image = try .create(gpa, 2);
+    defer panels.deinit(gpa);
+    @memset(panels.pixels, .{ 1, 2, 3, 4 });
+    const image: Image = try .create(gpa, 2);
+    defer image.deinit(gpa);
+    const side = 2 * size;
+    try std.testing.expectEqual(side, image.side());
+
+    // Each of the original's pixels is a square of two by two: the title's letters' tops in black,
+    // their edges bright, over the panel's own pixels.
+    try drawTitle(image, panels, kit, tables.ships[0]);
+    const corner = 2 * title_at[1] * side + 2 * title_at[0];
+    for ([_]usize{ 0, 1, side, side + 1 }) |at| {
+        try std.testing.expectEqual(colourOf(&palette, 0), image.pixels[corner + at]);
+        try std.testing.expectEqual(colourOf(&palette, 0xB8), image.pixels[corner + 2 + at]);
+    }
+    try std.testing.expectEqual([4]u8{ 1, 2, 3, 4 }, image.pixels[corner + 2 * side]);
+
+    // So are the bars' segments: the first row's first, filled from its corner to the row above its
+    // foot.
+    try drawStats(image, kit, tables.ships[0], .{ 6, 6, 10, 5, 3, 5, 100, 2 });
+    const bar = colourOf(&palette, tables.bar_colour);
+    const segment = 2 * first_row_y * side + 2 * figure_x;
+    try std.testing.expectEqual(bar, image.pixels[segment]);
+    try std.testing.expectEqual(bar, image.pixels[segment + (2 * segment_foot - 1) * side + 2 * segment_right + 1]);
+    try std.testing.expectEqual([4]u8{ 0, 0, 0, 0 }, image.pixels[segment + 2 * segment_foot * side]);
 }
 
 test drawStats {
@@ -420,36 +488,37 @@ test drawStats {
     const strings = testStrings(&buffer);
     const kit: Kit = .{ .title_font = &opened, .info_font = &opened, .palette = &palette, .strings = &strings };
 
-    const image = try std.testing.allocator.create(Image);
-    defer std.testing.allocator.destroy(image);
-    image.* = @splat(.{ 9, 9, 9, 9 });
-    drawStats(image, kit, tables.ships[0], .{ 6, 6, 10, 5, 3, 5, 100, 2 });
+    const gpa = std.testing.allocator;
+    const image: Image = try .create(gpa, 1);
+    defer image.deinit(gpa);
+    @memset(image.pixels, .{ 9, 9, 9, 9 });
+    try drawStats(image, kit, tables.ships[0], .{ 6, 6, 10, 5, 3, 5, 100, 2 });
     const top = colourOf(&palette, tables.text_remap[15]);
     const bar = colourOf(&palette, tables.bar_colour);
     const clear: [4]u8 = .{ 0, 0, 0, 0 };
 
     // The class, `CLASS : LIGHT`, 13 letters from its corner, on a clear image.
-    try std.testing.expectEqual(top, image[class_at[1] * size + class_at[0]]);
-    try std.testing.expectEqual(top, image[class_at[1] * size + class_at[0] + 12 * 2]);
-    try std.testing.expectEqual(clear, image[class_at[1] * size + class_at[0] + 13 * 2]);
+    try std.testing.expectEqual(top, image.pixels[class_at[1] * size + class_at[0]]);
+    try std.testing.expectEqual(top, image.pixels[class_at[1] * size + class_at[0] + 12 * 2]);
+    try std.testing.expectEqual(clear, image.pixels[class_at[1] * size + class_at[0] + 13 * 2]);
     // The first row's label, and its bar: six segments filled, the seventh outlined.
-    try std.testing.expectEqual(top, image[first_row_y * size + label_x]);
+    try std.testing.expectEqual(top, image.pixels[first_row_y * size + label_x]);
     const row = first_row_y * size;
-    try std.testing.expectEqual(bar, image[row + figure_x]);
-    try std.testing.expectEqual(bar, image[row + 3 * size + figure_x + 5 * segment_step + 2]);
-    try std.testing.expectEqual(clear, image[row + segment_foot * size + figure_x + 5 * segment_step + 2]);
-    try std.testing.expectEqual(bar, image[row + figure_x + 6 * segment_step]);
-    try std.testing.expectEqual(clear, image[row + 3 * size + figure_x + 6 * segment_step + 2]);
-    try std.testing.expectEqual(bar, image[row + segment_foot * size + figure_x + 6 * segment_step + 2]);
-    try std.testing.expectEqual(bar, image[row + 3 * size + figure_x + 9 * segment_step + segment_right]);
-    try std.testing.expectEqual(clear, image[row + figure_x + 9 * segment_step + segment_right + 1]);
+    try std.testing.expectEqual(bar, image.pixels[row + figure_x]);
+    try std.testing.expectEqual(bar, image.pixels[row + 3 * size + figure_x + 5 * segment_step + 2]);
+    try std.testing.expectEqual(clear, image.pixels[row + segment_foot * size + figure_x + 5 * segment_step + 2]);
+    try std.testing.expectEqual(bar, image.pixels[row + figure_x + 6 * segment_step]);
+    try std.testing.expectEqual(clear, image.pixels[row + 3 * size + figure_x + 6 * segment_step + 2]);
+    try std.testing.expectEqual(bar, image.pixels[row + segment_foot * size + figure_x + 6 * segment_step + 2]);
+    try std.testing.expectEqual(bar, image.pixels[row + 3 * size + figure_x + 9 * segment_step + segment_right]);
+    try std.testing.expectEqual(clear, image.pixels[row + figure_x + 9 * segment_step + segment_right + 1]);
     // The afterburner fuel as a number and its seconds, `100 SECS`: eight letters.
     const fuel = (first_row_y + 6 * row_step) * size + figure_x;
-    try std.testing.expectEqual(top, image[fuel + 7 * 2]);
-    try std.testing.expectEqual(clear, image[fuel + 8 * 2]);
+    try std.testing.expectEqual(top, image.pixels[fuel + 7 * 2]);
+    try std.testing.expectEqual(clear, image.pixels[fuel + 8 * 2]);
     // The Predator's one special.
-    try std.testing.expectEqual(top, image[specials_at[1] * size + specials_at[0] + 9 * 2]);
-    try std.testing.expectEqual(clear, image[specials_at[1] * size + specials_at[0] + 10 * 2]);
+    try std.testing.expectEqual(top, image.pixels[specials_at[1] * size + specials_at[0] + 9 * 2]);
+    try std.testing.expectEqual(clear, image.pixels[specials_at[1] * size + specials_at[0] + 10 * 2]);
 }
 
 test drawMissile {
@@ -459,34 +528,35 @@ test drawMissile {
     var buffer: [0x555][]const u8 = undefined;
     const strings = testStrings(&buffer);
     const kit: Kit = .{ .title_font = &opened, .info_font = &opened, .palette = &palette, .strings = &strings };
-    const image = try std.testing.allocator.create(Image);
-    defer std.testing.allocator.destroy(image);
+    const gpa = std.testing.allocator;
+    const image: Image = try .create(gpa, 1);
+    defer image.deinit(gpa);
     const top = colourOf(&palette, tables.text_remap[15]);
     const bar = colourOf(&palette, tables.bar_colour);
     const clear: [4]u8 = .{ 0, 0, 0, 0 };
 
-    drawMissile(image, kit, .havoc, .{ 2, 5, 6, 4 });
+    try drawMissile(image, kit, .havoc, .{ 2, 5, 6, 4 });
     // Its name, `HAVOK`, five letters from its corner.
     const name = missile_name_at[1] * size + missile_name_at[0];
-    try std.testing.expectEqual(top, image[name + 4 * 2]);
-    try std.testing.expectEqual(clear, image[name + 5 * 2]);
+    try std.testing.expectEqual(top, image.pixels[name + 4 * 2]);
+    try std.testing.expectEqual(clear, image.pixels[name + 5 * 2]);
     // `CLICK MISSILE`, thirteen letters, centred.
     const click = click_at[0][1] * size + click_at[0][0];
-    try std.testing.expectEqual(top, image[click - 13]);
-    try std.testing.expectEqual(clear, image[click - 14]);
+    try std.testing.expectEqual(top, image.pixels[click - 13]);
+    try std.testing.expectEqual(clear, image.pixels[click - 14]);
     // The locking time in seconds, `2 SECS`, and the speed's bar, five segments filled.
     const locking = missile_first_row_y * size + figure_x;
-    try std.testing.expectEqual(top, image[locking + 5 * 2]);
-    try std.testing.expectEqual(clear, image[locking + 6 * 2]);
+    try std.testing.expectEqual(top, image.pixels[locking + 5 * 2]);
+    try std.testing.expectEqual(clear, image.pixels[locking + 6 * 2]);
     const speed = (missile_first_row_y + row_step + 3) * size + figure_x;
-    try std.testing.expectEqual(bar, image[speed + 4 * segment_step + 2]);
-    try std.testing.expectEqual(clear, image[speed + 5 * segment_step + 2]);
+    try std.testing.expectEqual(bar, image.pixels[speed + 4 * segment_step + 2]);
+    try std.testing.expectEqual(clear, image.pixels[speed + 5 * segment_step + 2]);
 
     // The fuel pod's rows are dashes, whatever its figures.
-    drawMissile(image, kit, .fuel_pod, .{ 2, 5, 6, 4 });
-    try std.testing.expectEqual(top, image[locking]);
-    try std.testing.expectEqual(clear, image[locking + 2]);
-    try std.testing.expectEqual(clear, image[speed + 2]);
+    try drawMissile(image, kit, .fuel_pod, .{ 2, 5, 6, 4 });
+    try std.testing.expectEqual(top, image.pixels[locking]);
+    try std.testing.expectEqual(clear, image.pixels[locking + 2]);
+    try std.testing.expectEqual(clear, image.pixels[speed + 2]);
 }
 
 test drawGuns {
@@ -496,25 +566,26 @@ test drawGuns {
     var buffer: [0x555][]const u8 = undefined;
     const strings = testStrings(&buffer);
     const kit: Kit = .{ .title_font = &opened, .info_font = &opened, .palette = &palette, .strings = &strings };
-    const image = try std.testing.allocator.create(Image);
-    defer std.testing.allocator.destroy(image);
-    image.* = @splat(.{ 9, 9, 9, 9 });
+    const gpa = std.testing.allocator;
+    const image: Image = try .create(gpa, 1);
+    defer image.deinit(gpa);
+    @memset(image.pixels, .{ 9, 9, 9, 9 });
     const top = colourOf(&palette, tables.text_remap[15]);
     const clear: [4]u8 = .{ 0, 0, 0, 0 };
 
     // The Predator's guns: two lasers, `LASER X 2`, nine letters at the top, on a clear image.
-    drawGuns(image, kit, tables.ships[0]);
-    try std.testing.expectEqual(top, image[gun_x + 8 * 2]);
-    try std.testing.expectEqual(clear, image[gun_x + 9 * 2]);
+    try drawGuns(image, kit, tables.ships[0]);
+    try std.testing.expectEqual(top, image.pixels[gun_x + 8 * 2]);
+    try std.testing.expectEqual(clear, image.pixels[gun_x + 9 * 2]);
     // Their description, one line of seven letters.
     const description = gun_step * size + gun_x;
-    try std.testing.expectEqual(top, image[description + 6 * 2]);
-    try std.testing.expectEqual(clear, image[description + 7 * 2]);
+    try std.testing.expectEqual(top, image.pixels[description + 6 * 2]);
+    try std.testing.expectEqual(clear, image.pixels[description + 7 * 2]);
     // Then the rear turret, `REAR X 1`, with no description under it.
     const turret = (gun_step + gun_description_line_height + gun_description_gap) * size + gun_x;
-    try std.testing.expectEqual(top, image[turret + 7 * 2]);
-    try std.testing.expectEqual(clear, image[turret + 8 * 2]);
-    try std.testing.expectEqual(clear, image[turret + gun_step * size]);
+    try std.testing.expectEqual(top, image.pixels[turret + 7 * 2]);
+    try std.testing.expectEqual(clear, image.pixels[turret + 8 * 2]);
+    try std.testing.expectEqual(clear, image.pixels[turret + gun_step * size]);
 }
 
 test specialsLine {

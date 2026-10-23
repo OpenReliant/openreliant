@@ -28,7 +28,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Give surfaces normal, material and glow maps, lit as today's games light them | [Material maps](modding.md#material-maps) | |
 | Draw the ships differently in the loadout | [Textures in the loadout](modding.md#textures-in-the-loadout) | |
 | Replace the interface's shapes, sharp at any window size | [Shapes](modding.md#shapes) | |
-| Replace the screens' backgrounds, widescreen ones included | [Pictures](modding.md#pictures) | |
+| Replace the screens' backgrounds, widescreen ones included, and the loadout's panels and the power ball at a multiple of their size | [Pictures](modding.md#pictures) | |
 | Replace the interface's fonts with TrueType or OpenType fonts | [Fonts](modding.md#fonts) | |
 | Change how surfaces are lit, with GLSL surface and lighting functions | [Surface and lighting functions](scripting.md#surface-and-lighting-functions) | [`cel-shading`](../../examples/mods/cel-shading) |
 | Draw post effects over the frame | [Post effects](scripting.md#post-effects) | [`crt`](../../examples/mods/crt) |
@@ -122,9 +122,7 @@ These are planned, each in an issue:
 - Campaigns of more than 28 missions ([#987](https://github.com/OpenReliant/openreliant/issues/987))
 - Post effects that read the scene's depth ([#633](https://github.com/OpenReliant/openreliant/issues/633))
 - KTX2 files with Basis Universal data ([#637](https://github.com/OpenReliant/openreliant/issues/637))
-- The loadout's panels and the power ball at any size
-  ([#509](https://github.com/OpenReliant/openreliant/issues/509))
-- Outline fonts for the loadout panels' text and the flight display's small fonts
+- Outline fonts for the flight display's small fonts
   ([#520](https://github.com/OpenReliant/openreliant/issues/520))
 - The game's models exported with all their detail levels and parts
   ([#697](https://github.com/OpenReliant/openreliant/issues/697))

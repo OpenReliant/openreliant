@@ -1584,16 +1584,81 @@ pub fn textLeft(opened: Opened, x: i32, text: []const u8, alignment: Align, scal
 /// `size` pixels, four bytes a pixel (red, green, blue and alpha), rows from the top. The pane is
 /// the whole image, and what is drawn past its edges is lost. The loadout writes its panels' text
 /// into their textures this way, where the display draws its own through the device (`drawText`).
+///
+/// **Improvement:** the image can be a whole multiple of the original's size, `scale` times as
+/// large across and down, as the loadout's panels are for a mod's larger picture. What is drawn
+/// is placed in the original's pixels, and each of those is a square of the pane's; text is drawn
+/// from the outline font that stands in for its font, where there is one (`drawTextInto`).
 pub const Pane = struct {
     rgba: [][4]u8,
     size: [2]u32,
+    /// How many of its pixels across and down stand for each of the original's.
+    scale: u32 = 1,
 
-    /// Sets the pixel at `at` to `colour`, opaque, where it lies in the pane.
+    /// Sets the pixel at `at`, in the original's pixels, to `colour`, opaque, where it lies in the
+    /// pane: the square of the pane's pixels that stands for it.
     pub fn plot(pane: Pane, at: [2]i32, colour: [3]u8) void {
         const x = std.math.cast(u32, at[0]) orelse return;
         const y = std.math.cast(u32, at[1]) orelse return;
+        if (x >= pane.size[0] / pane.scale or y >= pane.size[1] / pane.scale) return;
+        for (0..pane.scale) |down| {
+            const row = (@as(usize, y) * pane.scale + down) * pane.size[0] + @as(usize, x) * pane.scale;
+            @memset(pane.rgba[row..][0..pane.scale], .{ colour[0], colour[1], colour[2], opaque_alpha });
+        }
+    }
+
+    /// The outline font that stands in for `opened` at the pane's size; none for a font without
+    /// one, and none in a pane of the original's size, which keeps the bitmap glyphs as the game
+    /// draws them.
+    fn outlineOf(pane: Pane, opened: *const Opened) Allocator.Error!?outline.Sized {
+        if (pane.scale == 1) return null;
+        const shown = opened.outline orelse return null;
+        return shown.at(@floatFromInt(pane.scale));
+    }
+
+    /// Where character `code` of a line is drawn when its place on the line starts at `at`, in the
+    /// original's pixels: from `outlined`, the outline font at the pane's size, or as its bitmap
+    /// glyph where there is none, the outline font has none for it, or it keeps its own colours.
+    fn glyphPlacing(pane: Pane, opened: *const Opened, outlined: ?outline.Sized, code: u8, at: [2]f32) outline.Placing {
+        const glyphs = outlined orelse return .bitmap;
+        if (opened.own_colours.isSet(code)) return .bitmap;
+        const scale: f32 = @floatFromInt(pane.scale);
+        return glyphs.glyphAt(code, at[0] * scale, at[1] * scale, scale);
+    }
+
+    /// The outline glyph `glyph` of `atlas`, with its top left corner at `corner` in the pane's
+    /// own pixels, rounded, in `colour` as far as it covers each pixel (`blend`).
+    fn blendGlyph(pane: Pane, atlas: *const outline.Atlas, glyph: outline.Atlas.Placed, corner: [2]f32, colour: [3]u8) void {
+        const across = atlas.image.width();
+        const left: i64 = @intFromFloat(@round(corner[0]));
+        const top: i64 = @intFromFloat(@round(corner[1]));
+        for (0..glyph.height) |row| {
+            for (0..glyph.width) |column| {
+                const cover = atlas.pixels[((glyph.at[1] + row) * across + glyph.at[0] + column) * 4 + 3];
+                if (cover != 0) pane.blend(.{ left + @as(i64, @intCast(column)), top + @as(i64, @intCast(row)) }, colour, cover);
+            }
+        }
+    }
+
+    /// Lays `colour` over the pixel at `at`, in the pane's own pixels, as far as `cover` says, from
+    /// 0 for none to 255 for all, as alpha blending lays one colour over another; nothing past the
+    /// pane's edges.
+    fn blend(pane: Pane, at: [2]i64, colour: [3]u8, cover: u8) void {
+        const x = std.math.cast(u32, at[0]) orelse return;
+        const y = std.math.cast(u32, at[1]) orelse return;
         if (x >= pane.size[0] or y >= pane.size[1]) return;
-        pane.rgba[@as(usize, y) * pane.size[0] + x] = .{ colour[0], colour[1], colour[2], opaque_alpha };
+        const pixel = &pane.rgba[@as(usize, y) * pane.size[0] + x];
+        const most: f32 = std.math.maxInt(u8);
+        const over = @as(f32, @floatFromInt(cover)) / most;
+        const under = @as(f32, @floatFromInt(pixel[3])) / most * (1 - over);
+        const alpha = over + under;
+        if (alpha == 0) return;
+        const from: @Vector(3, f32) = @floatFromInt(@as(@Vector(3, u8), pixel[0..3].*));
+        const to: @Vector(3, f32) = @floatFromInt(@as(@Vector(3, u8), colour));
+        const over_share: @Vector(3, f32) = @splat(over / alpha);
+        const under_share: @Vector(3, f32) = @splat(under / alpha);
+        const mixed: @Vector(3, u8) = @intFromFloat(@round(to * over_share + from * under_share));
+        pixel.* = @as([3]u8, mixed) ++ .{@as(u8, @intFromFloat(@round(alpha * most)))};
     }
 
     /// `VFX_line_draw` (`winvfx16.dll`, `0x10002849`) of a line along a row or a column, as the
@@ -1639,6 +1704,21 @@ pub const Remap = struct {
         if (entry == clear) return null;
         return remap.palette[entry];
     }
+
+    /// The colour of its fullest level, which a glyph's strokes are drawn in; null where it leaves
+    /// that clear.
+    fn fullest(remap: Remap) ?[3]u8 {
+        return remap.colour(@intCast(remap.table.len -| 1));
+    }
+
+    /// The colour of the faintest level it draws past 0, which a glyph's strokes fade to at their
+    /// edges; null where it draws none.
+    fn faintest(remap: Remap) ?[3]u8 {
+        for (1..remap.table.len) |level| {
+            if (remap.colour(@intCast(level))) |found| return found;
+        }
+        return null;
+    }
 };
 
 /// `VFX_character_draw` (`winvfx16.dll`, `0x10008819`) with a remap table: `glyph` with its top
@@ -1656,15 +1736,38 @@ fn drawGlyphInto(pane: Pane, glyph: fnt.Glyph, at: [2]i32, remap: Remap) void {
 /// says, in `remap`'s colours, and returns where the line ends. The glyphs follow one another by
 /// their widths, as `VFX_string_draw` (`winvfx16.dll`, `0x10008A11`) moves along; a code past those
 /// `font_open` caches is left out, as `drawText` leaves it.
-pub fn drawTextInto(pane: Pane, opened: *const Opened, at: [2]i32, text: []const u8, remap: Remap, alignment: Align) i32 {
+///
+/// **Improvement:** in a pane larger than the original's (`Pane.scale`), the outline font that
+/// stands in for the font draws its glyphs at the pane's size over the font's layout. A bitmap
+/// glyph's strokes are drawn in the colour of the remap's fullest level and fade through the
+/// others to its faintest at their edges, so an outline glyph is drawn in the fullest's colour, on
+/// an edge in the faintest's, one of the original's pixels wide: the info panel's green text on a
+/// dark edge, and the title's black letters edged in green.
+pub fn drawTextInto(pane: Pane, opened: *const Opened, at: [2]i32, text: []const u8, remap: Remap, alignment: Align) Allocator.Error!i32 {
     if (text.len == 0) return at[0];
-    var x = textLeft(opened.*, at[0], text, alignment, 1);
-    for (text) |code| {
-        if (code >= cached_codes) continue;
-        if (opened.font.glyph(code)) |glyph| drawGlyphInto(pane, glyph, .{ x, at[1] }, remap);
-        x += opened.widths[code];
-    }
-    return x;
+    const left: f32 = @floatFromInt(textLeft(opened.*, at[0], text, alignment, 1));
+    const top: f32 = @floatFromInt(at[1]);
+    const outlined = try pane.outlineOf(opened);
+    // The edge the outline glyphs stand on, first, under every glyph of the line (`edge_width`).
+    if (outlined) |glyphs| if (remap.faintest()) |edge| {
+        const reach = edge_width * @as(f32, @floatFromInt(pane.scale));
+        var line: Line = .{ .opened = opened, .text = text, .scale = 1, .x = left };
+        while (line.next()) |glyph| switch (pane.glyphPlacing(opened, outlined, glyph.code, .{ glyph.left, top })) {
+            .placed => |placed| for (edge_directions) |direction| {
+                const corner = placed.corner + @as(@Vector(2, f32), direction) * @as(@Vector(2, f32), @splat(reach));
+                pane.blendGlyph(glyphs.atlas, placed.glyph, corner, edge);
+            },
+            .blank, .bitmap => {},
+        };
+    };
+    const ink = remap.fullest();
+    var line: Line = .{ .opened = opened, .text = text, .scale = 1, .x = left };
+    while (line.next()) |glyph| switch (pane.glyphPlacing(opened, outlined, glyph.code, .{ glyph.left, top })) {
+        .blank => {},
+        .placed => |placed| if (ink) |colour| pane.blendGlyph(outlined.?.atlas, placed.glyph, placed.corner, colour),
+        .bitmap => if (opened.font.glyph(glyph.code)) |bitmap| drawGlyphInto(pane, bitmap, .{ @intFromFloat(glyph.left), at[1] }, remap),
+    };
+    return @intFromFloat(line.x);
 }
 
 /// `hud_text_wrapped` (`0x00480FD0`) into `pane`: `text` broken into lines at most `width` pixels
@@ -1680,12 +1783,12 @@ pub fn drawWrappedInto(
     width: i32,
     line_height: i32,
     max_lines: usize,
-) usize {
+) Allocator.Error!usize {
     var lines: WrappedText = .init(&opened.widths, text, width, max_lines);
     var taken: usize = 0;
     var y = at[1];
     while (lines.next()) |line| : (y += line_height) {
-        _ = drawTextInto(pane, opened, .{ at[0], y }, line, remap, alignment);
+        _ = try drawTextInto(pane, opened, .{ at[0], y }, line, remap, alignment);
         taken += 1;
     }
     return taken;
@@ -1729,7 +1832,7 @@ test drawTextInto {
     var rgba: [8 * 3][4]u8 = @splat(empty);
     const pane: Pane = .{ .rgba = &rgba, .size = .{ 8, 3 } };
     // Each glyph after the last by its width; the line ends past the last.
-    try std.testing.expectEqual(7, drawTextInto(pane, &opened, .{ 1, 1 }, "A B", remap, .left));
+    try std.testing.expectEqual(7, try drawTextInto(pane, &opened, .{ 1, 1 }, "A B", remap, .left));
     const drawn = [_]struct { [2]u32, u8 }{
         .{ .{ 2, 1 }, 0x4F }, .{ .{ 3, 1 }, 0x40 }, .{ .{ 1, 2 }, 0x41 }, .{ .{ 3, 2 }, 0x4F },
     };
@@ -1748,17 +1851,78 @@ test drawTextInto {
     // Centred, half the width comes off; to the right, all of it. A glyph cut by the pane's edge
     // keeps the part inside: the `A`'s level 2 falls off to the left.
     rgba = @splat(empty);
-    try std.testing.expectEqual(3, drawTextInto(pane, &opened, .{ 1, 0 }, "AB", remap, .centre));
+    try std.testing.expectEqual(3, try drawTextInto(pane, &opened, .{ 1, 0 }, "AB", remap, .centre));
     try std.testing.expectEqual([4]u8{ 0x4F, 0xB0, 7, 255 }, rgba[0]);
     try std.testing.expectEqual([4]u8{ 0x40, 0xBF, 7, 255 }, rgba[1]);
     try std.testing.expectEqual([4]u8{ 0x4F, 0xB0, 7, 255 }, rgba[8 + 1]);
     try std.testing.expectEqual(empty, rgba[8]);
     rgba = @splat(empty);
-    try std.testing.expectEqual(8, drawTextInto(pane, &opened, .{ 8, 0 }, "AA", remap, .right));
+    try std.testing.expectEqual(8, try drawTextInto(pane, &opened, .{ 8, 0 }, "AA", remap, .right));
     try std.testing.expectEqual([4]u8{ 0x4F, 0xB0, 7, 255 }, rgba[3]);
     try std.testing.expectEqual([4]u8{ 0x41, 0xBE, 7, 255 }, rgba[8 + 5]);
     // Nothing to draw leaves the line where it starts.
-    try std.testing.expectEqual(5, drawTextInto(pane, &opened, .{ 5, 0 }, "", remap, .right));
+    try std.testing.expectEqual(5, try drawTextInto(pane, &opened, .{ 5, 0 }, "", remap, .right));
+}
+
+test "text in a pane larger than the original's" {
+    const gpa = std.testing.allocator;
+    const palette = paneTestPalette();
+    // Level 1, the faintest, to entry 0x40, and level 15, the fullest, to entry 0x4F.
+    var table: [16]u8 = @splat(Remap.clear);
+    table[1] = 0x40;
+    table[15] = 0x4F;
+    const remap: Remap = .{ .table = &table, .palette = &palette };
+    const ink: [4]u8 = .{ 0x4F, 0xB0, 7, 255 };
+    const edge: [4]u8 = .{ 0x40, 0xBF, 7, 255 };
+    const empty: [4]u8 = .{ 0, 0, 0, 0 };
+    const width = 24;
+    var rgba: [width * 16][4]u8 = @splat(empty);
+    const pane: Pane = .{ .rgba = &rgba, .size = .{ width, 16 }, .scale = 2 };
+
+    // Without an outline font, each of the bitmap's pixels is a square of two by two.
+    var opened: Opened = .open(try fnt.Font.parse(outline.testing.font), null);
+    defer opened.deinit(gpa);
+    try std.testing.expectEqual(12, try drawTextInto(pane, &opened, .{ 0, 0 }, "H#", remap, .left));
+    for ([_][2]usize{ .{ 2, 4 }, .{ 3, 5 }, .{ 9, 13 }, .{ 14, 4 }, .{ 21, 13 } }) |at| {
+        try std.testing.expectEqual(ink, rgba[at[1] * width + at[0]]);
+    }
+    try std.testing.expectEqual(empty, rgba[3 * width + 2]);
+    try std.testing.expectEqual(empty, rgba[4 * width + 1]);
+
+    // With one, H is drawn from it at the pane's size, on an edge two pixels wide, and `#`, which
+    // it has no glyph for, keeps its bitmap.
+    var boxes: outline.testing.Boxes = .{};
+    const rasterizer = boxes.rasterizer();
+    const face = rasterizer.open("face").?;
+    var shown: outline.Outline = .{ .gpa = gpa, .rasterizer = rasterizer, .face = face, .file = null, .fit = (try outline.Fit.of(rasterizer, face, opened.font, &outline.level_cover, .bitmap, gpa)).? };
+    defer shown.deinit();
+    opened.outline = &shown;
+    rgba = @splat(empty);
+    try std.testing.expectEqual(12, try drawTextInto(pane, &opened, .{ 0, 0 }, "H#", remap, .left));
+    const h = (try shown.at(2)).?.glyphAt('H', 0, 0, 2).placed;
+    const left: usize = @intFromFloat(h.corner[0]);
+    const top: usize = @intFromFloat(h.corner[1]);
+    try std.testing.expectEqual(ink, rgba[top * width + left]);
+    try std.testing.expectEqual(ink, rgba[(top + h.glyph.height - 1) * width + left + h.glyph.width - 1]);
+    // The edge reaches two pixels out across and down, and the diagonals' 1.4 round to one.
+    const right = left + h.glyph.width - 1;
+    const bottom = top + h.glyph.height - 1;
+    for ([_][2]usize{ .{ left, top - 1 }, .{ left, top - 2 }, .{ left - 2, top }, .{ right + 2, bottom }, .{ right + 1, bottom + 1 } }) |at| {
+        try std.testing.expectEqual(edge, rgba[at[1] * width + at[0]]);
+    }
+    try std.testing.expectEqual(empty, rgba[(top - 3) * width + left]);
+    try std.testing.expectEqual(empty, rgba[(bottom + 2) * width + right + 2]);
+    try std.testing.expectEqual(ink, rgba[4 * width + 14]);
+
+    // An outline glyph's edges blend with what lies under them: half covered over clear, its
+    // colour half opaque, and over the edge, the two mixed.
+    var pixel = [1][4]u8{empty};
+    const one: Pane = .{ .rgba = &pixel, .size = .{ 1, 1 } };
+    one.blend(.{ 0, 0 }, .{ 200, 100, 0 }, 128);
+    try std.testing.expectEqual([4]u8{ 200, 100, 0, 128 }, pixel[0]);
+    pixel[0] = .{ 0, 0, 0, 255 };
+    one.blend(.{ 0, 0 }, .{ 200, 100, 0 }, 128);
+    try std.testing.expectEqual([4]u8{ 100, 50, 0, 255 }, pixel[0]);
 }
 
 test drawWrappedInto {
@@ -1773,14 +1937,14 @@ test drawWrappedInto {
     const pane: Pane = .{ .rgba = &rgba, .size = .{ 8, 8 } };
 
     // "AA AA" is 14 wide: at 7 a line, it breaks at the space, the second line 3 below the first.
-    try std.testing.expectEqual(2, drawWrappedInto(pane, &opened, .{ 0, 1 }, "AA AA", remap, .left, 7, 3, 3));
+    try std.testing.expectEqual(2, try drawWrappedInto(pane, &opened, .{ 0, 1 }, "AA AA", remap, .left, 7, 3, 3));
     for ([_][2]u32{ .{ 1, 1 }, .{ 4, 1 }, .{ 1, 4 }, .{ 4, 4 } }) |at| {
         try std.testing.expectEqual([4]u8{ 0x4F, 0xB0, 7, 255 }, rgba[at[1] * 8 + at[0]]);
     }
     // A line feed last takes a line with nothing in it, and no more lines are drawn than allowed.
-    try std.testing.expectEqual(2, drawWrappedInto(pane, &opened, .{ 0, 0 }, "A\n", remap, .left, 7, 3, 3));
-    try std.testing.expectEqual(1, drawWrappedInto(pane, &opened, .{ 0, 0 }, "AA AA", remap, .left, 7, 3, 1));
-    try std.testing.expectEqual(0, drawWrappedInto(pane, &opened, .{ 0, 0 }, "", remap, .left, 7, 3, 3));
+    try std.testing.expectEqual(2, try drawWrappedInto(pane, &opened, .{ 0, 0 }, "A\n", remap, .left, 7, 3, 3));
+    try std.testing.expectEqual(1, try drawWrappedInto(pane, &opened, .{ 0, 0 }, "AA AA", remap, .left, 7, 3, 1));
+    try std.testing.expectEqual(0, try drawWrappedInto(pane, &opened, .{ 0, 0 }, "", remap, .left, 7, 3, 3));
 }
 
 test place {
@@ -2121,7 +2285,7 @@ pub const Resources = struct {
         errdefer closeFont(&small, gpa);
         var new = try openFont(gpa, archive, TargetFonts.new_name, global, null);
         errdefer closeFont(&new, gpa);
-        const picture = try matmanager.readPixels(gpa, archive, power.picture_name);
+        const picture = try matmanager.readPixels(gpa, archive, power.picture_name, .multiples);
         defer picture.deinit(gpa);
         const ball: *power.Ball = try .create(gpa, picture);
         errdefer ball.destroy(gpa);
