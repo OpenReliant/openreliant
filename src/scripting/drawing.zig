@@ -535,6 +535,7 @@ pub fn Package(comptime which: Which) type {
                 return @import("registries.zig").show(call, .display, name, enabled);
             }
         }.set) else {};
+        pub const set_display_layout = if (which == .hud) api.Native("Changes where the display `name` puts the game's instruments and their parts, after it registers: the calling mod's by its own name, or any mod's by the qualified one. `layout` and `parts` replace the display's, with the checks `register_display` makes; one left out stays as it was, and a mistake changes nothing. They go back as they were as soon as the display is turned off, fails or its mod stops. Returns whether it's registered.", "name: string, placement: {layout: { [HudInstrument]: HudLayout }?, parts: { [HudPart]: HudPartLayout }?}", "boolean", @import("registries.zig").setLayout) else {};
         pub const replaced = if (which == .hud) instruments.replaced else {};
         pub const bounds = if (which == .hud) instruments.bounds else {};
         pub const part_bounds = if (which == .hud) instruments.part_bounds else {};

@@ -1854,6 +1854,10 @@ hud.register_display("radar", {
   growing from where it stands on the screen, as the whole display grows with the window.
 - Everything goes back as it was as soon as the display is turned off, its `frame` fails, or its
   mod stops. Where two displays place the same instrument, the one registered later does.
+- `hud.set_display_layout(name, { layout = ..., parts = ... })` changes a display's `layout` and
+  `parts` after it registers, such as for a layout that follows the window's size, with the same
+  checks. Each one the table gives replaces the display's, one it leaves out stays as it was, and a
+  mistake changes nothing.
 - `hud.bounds(instrument)` gives where an instrument last drew, in the window's pixels, as the
   layouts place it, and also while a display stands in for it, so that a display can draw its own
   in the game's instrument's place.
