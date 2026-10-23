@@ -152,6 +152,14 @@ pub const Request = union(enum) {
     quit,
 };
 
+/// The sprite set `name` of `archive`, read as `file`, with the mods' pictures that replace its
+/// shapes, and its cut-short shapes logged (`hud.warnCutShort`).
+fn openShapes(gpa: Allocator, archive: bigfile.Hog, file: []const u8, name: []const u8) !hud.Art {
+    const set = try spr.Sprite.parse(file);
+    hud.warnCutShort(set, name);
+    return .init(gpa, set, null, .of(archive.mods, name));
+}
+
 /// What the front end draws with, which it opens as it starts and frees as it ends: the fonts its
 /// start-up opens (`interface_init`, `0x004288E0`), the developers' font the display opens
 /// (`font_01`), the dialog's shapes and ABOUT STARLANCER's box's, which `about_box` reads as it
@@ -204,11 +212,11 @@ pub const Resources = struct {
             .large = large,
             .small = small,
             .developer = developer,
-            .dialog = try .init(gpa, try spr.Sprite.parse(files.get(.dialog)), null, .of(archive.mods, names.get(.dialog))),
+            .dialog = try openShapes(gpa, archive, files.get(.dialog), names.get(.dialog)),
             .about = undefined,
         };
         errdefer resources.dialog.deinit(gpa);
-        resources.about = try .init(gpa, try spr.Sprite.parse(files.get(.about)), null, .of(archive.mods, names.get(.about)));
+        resources.about = try openShapes(gpa, archive, files.get(.about), names.get(.about));
         errdefer resources.about.deinit(gpa);
         try resources.show(.main_menu);
         return resources;
@@ -222,7 +230,7 @@ pub const Resources = struct {
         const gpa = resources.gpa;
         const file = try resources.archive.readFile(gpa, shown.shapes);
         errdefer gpa.free(file);
-        var art: hud.Art = try .init(gpa, try spr.Sprite.parse(file), null, .of(resources.archive.mods, shown.shapes));
+        var art = try openShapes(gpa, resources.archive, file, shown.shapes);
         errdefer art.deinit(gpa);
         try resources.background.set(gpa, resources.archive, shown.background);
         resources.dropShapes();

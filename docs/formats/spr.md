@@ -45,8 +45,9 @@ The placeholders hold bounds near `maxInt(i32)` and no pixel data. They occur in
 `ifhard.spr` and `ifsoft.spr`.
 
 A block with a shape's header but rows that run past the block, as a broken set from a mod can
-have, isn't a shape either, so OpenReliant draws nothing for it. The log doesn't say so yet
-([#1079](https://github.com/OpenReliant/openreliant/issues/1079)).
+have, isn't a shape either, so OpenReliant draws nothing for it. Its header's bounds are sane,
+unlike the placeholders', which tells it apart (`spr.Sprite.cutShort`), and as OpenReliant opens a
+set, the log names each such shape (`hud.warnCutShort`). None of the shipped sets has one.
 
 A remap table maps each palette index to another. The HUD sets open with a run of them, the first
 being the identity, `00 01 02 ... FF`.

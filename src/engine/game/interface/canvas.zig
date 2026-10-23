@@ -355,6 +355,7 @@ pub const Shapes = struct {
             gpa.free(bytes);
             return null;
         };
+        hud.warnCutShort(set, name);
         const art = hud.Art.init(gpa, set, null, pictures) catch {
             gpa.free(bytes);
             return null;
