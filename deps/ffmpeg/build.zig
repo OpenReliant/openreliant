@@ -95,7 +95,10 @@ pub fn build(b: *std.Build) void {
     module.addCSourceFiles(.{
         .root = upstream.path(""),
         .files = &sources,
-        .flags = &.{ "-std=c17", "-fno-math-errno", "-fno-sanitize=undefined" },
+        // FFmpeg's assertion messages hold their source files' paths (`__FILE__`), which name the
+        // package's folder with the separators of the system that builds it. Clang writes them with
+        // the target's separators instead, so that every system builds the same bytes.
+        .flags = &.{ "-std=c17", "-fno-math-errno", "-fno-sanitize=undefined", "-ffile-reproducible" },
     });
 
     lib.installHeadersDirectory(upstream.path("libavcodec"), "libavcodec", .{});
