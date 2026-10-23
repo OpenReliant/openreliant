@@ -789,9 +789,9 @@ pub const ModCatalogue = struct {
     }
 
     /// Draws the screen over the background: the title, the list, the panel, the buttons with the one
-    /// under the pointer highlighted and the ones that do nothing dimmed, OpenReliant's version, and
-    /// the pointer.
-    pub fn draw(screen: ModCatalogue, canvas: Canvas, art: *hud.Art, pointer: Pointer) canvas_module.Error!void {
+    /// under the pointer highlighted and the ones that do nothing dimmed, and OpenReliant's version.
+    /// The pointer goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    pub fn draw(screen: ModCatalogue, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         try title.write(canvas, canvas.fonts.large, canvas_module.white);
         list_frame.draw(canvas);
         details_frame.draw(canvas);
@@ -802,7 +802,6 @@ pub const ModCatalogue = struct {
             try button.shown(doing).draw(canvas.dimmedUnless(screen.usable(button)), art, settings.button_shapes, std.meta.eql(screen.lit, Item{ .button = button }));
         }
         try canvas.drawVersion();
-        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 
     /// Draws the visible rows: a group's heading in the large font, in blue, like the controls tab's

@@ -763,23 +763,33 @@ pub const Interface = struct {
         // A mod's screen stands in for the screen's own, drawn by its scripts over this.
         if (front.scripted_shown != null) return;
         switch (front.screen) {
-            .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, front.pointer, &resources.developer.font),
-            .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about, front.pointer),
-            .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown, front.pointer),
-            .mods => try front.mod_manager.draw(drawn, art, front.pointer),
-            .mod_options => try front.mod_options.draw(drawn, art, front.pointer),
-            .mod_catalog => try front.mod_catalogue.draw(drawn, art, front.pointer),
-            .game_modes => try front.game_modes.draw(drawn, art, front.pointer),
-            .pilot_roster => try front.pilot_roster.draw(drawn, art, &resources.dialog, front.pointer, front.pilot),
-            .saved_games => try front.saved_games.draw(drawn, art, &resources.dialog, front.pointer, front.pilot.call_sign.slice()),
+            .main_menu => try front.main_menu.draw(drawn, art, &resources.dialog, &resources.developer.font),
+            .game_options => try front.game_options.draw(drawn, art, &resources.dialog, &resources.about),
+            .audio, .controls, .video => try front.settings.draw(drawn, art, &resources.dialog, shown),
+            .mods => try front.mod_manager.draw(drawn, art),
+            .mod_options => try front.mod_options.draw(drawn, art),
+            .mod_catalog => try front.mod_catalogue.draw(drawn, art),
+            .game_modes => try front.game_modes.draw(drawn, art),
+            .pilot_roster => try front.pilot_roster.draw(drawn, art, &resources.dialog, front.pilot),
+            .saved_games => try front.saved_games.draw(drawn, art, &resources.dialog, front.pilot.call_sign.slice()),
             else => {},
         }
     }
 
-    /// The pointer over a mod's screen that stands in for the front end's own, which the front end
-    /// draws after the scripts' drawing, as each of its own screens draws the pointer last.
+    /// Whether the front end shows a screen, which `draw` draws, or a mod's screen in its place.
+    fn showsScreen(front: Interface) bool {
+        if (front.scripted_shown != null) return true;
+        return switch (front.screen) {
+            .main_menu, .game_options, .audio, .controls, .video, .mods, .mod_options, .mod_catalog, .game_modes, .pilot_roster, .saved_games => true,
+            else => false,
+        };
+    }
+
+    /// The pointer over the screen shown, its own or a mod's, which each of the front end's screens
+    /// draws last. The front end draws it after the scripts' drawing, so that it stays on top
+    /// (`canvas.Canvas.drawPointer`).
     pub fn drawPointer(front: Interface, resources: *Resources, target: device.Device, window: [2]u32, strings: *const language.Language) canvas.Error!void {
-        if (front.scripted_shown == null) return;
+        if (!front.showsScreen()) return;
         const art = if (resources.shapes) |*shapes| shapes else return;
         const drawn: canvas.Canvas = .{
             .gpa = resources.gpa,
@@ -788,7 +798,7 @@ pub const Interface = struct {
             .fonts = .{ .large = &resources.large.font, .small = &resources.small.font },
             .strings = strings,
         };
-        try drawn.onScreen().shape(art, front.pointer.shape(), front.pointer.at);
+        try drawn.drawPointer(art, front.pointer);
     }
 };
 

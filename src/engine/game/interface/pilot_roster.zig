@@ -468,9 +468,10 @@ pub const Roster = struct {
     /// `pilot_roster_draw`: the pilot chosen, lit; the labels in blue; the call sign's frame and
     /// the call sign, white while it is typed, with its cursor; the buttons and the list's arrow,
     /// and the button under the pointer lit with its label in white; the list, where it is open;
-    /// SET GAME DIFFICULTY or QUIT's question, where either is up; then the pointer. The roster's
-    /// background is drawn behind it all (`background_set`).
-    pub fn draw(roster: Roster, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, pointer: Pointer, pilot: Pilot) canvas_module.Error!void {
+    /// SET GAME DIFFICULTY or QUIT's question, where either is up. The roster's background is drawn
+    /// behind it all (`background_set`), and the pointer over it all, after what scripts draw
+    /// (`canvas.Canvas.drawPointer`).
+    pub fn draw(roster: Roster, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, pilot: Pilot) canvas_module.Error!void {
         const small = canvas.fonts.small;
         if (pilot.female) try canvas.shape(art, female_shape, female_at) else try canvas.shape(art, male_shape, male_at);
         for (labels.values) |held| if (held) |label| try writeLabel(canvas, label, canvas_module.blue);
@@ -497,7 +498,6 @@ pub const Roster = struct {
         if (roster.difficulty) |box| try box.draw(canvas, art, pilot.difficulty);
         if (roster.confirm) |confirm| try confirm.draw(canvas, dialog_art);
         try canvas.drawVersion();
-        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 };
 

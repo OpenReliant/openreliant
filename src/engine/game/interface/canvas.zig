@@ -216,6 +216,13 @@ pub const Canvas = struct {
         }
     };
 
+    /// Draws `pointer` with its shape in `art`. The screens of the front end and the menus draw
+    /// their pointer last, so OpenReliant draws it after what the scripts draw over a screen, which
+    /// keeps it on top ([#1171](https://github.com/OpenReliant/openreliant/issues/1171)).
+    pub fn drawPointer(canvas: Canvas, art: *hud.Art, pointer: Pointer) Error!void {
+        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
+    }
+
     /// **Improvement:** OpenReliant's version, where the canvas has one, in the window's bottom
     /// right corner as the pause menu writes it (`hud.drawVersion`), as large as the screen's text.
     /// A screen writes it before its pointer.

@@ -630,9 +630,9 @@ pub const ModManager = struct {
     }
 
     /// The screen's drawing, over the background: the title, the note while the mods wait for the
-    /// next start, the list and the panel, the buttons, the one under the pointer lit, OpenReliant's
-    /// version, then the pointer.
-    pub fn draw(screen: ModManager, canvas: Canvas, art: *hud.Art, pointer: Pointer) canvas_module.Error!void {
+    /// next start, the list and the panel, the buttons, the one under the pointer lit, and
+    /// OpenReliant's version. The pointer goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    pub fn draw(screen: ModManager, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         try title.write(canvas, canvas.fonts.large, canvas_module.white);
         if (screen.waits()) try restart_note.write(canvas, canvas.fonts.small, canvas_module.gold);
         list_frame.draw(canvas);
@@ -646,7 +646,6 @@ pub const ModManager = struct {
         }
         try movers.draw(canvas, art, screen.litArrow(.move));
         try canvas.drawVersion();
-        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 
     /// The rows whose mods load, as the rows stand: the mods that are on, aren't damaged, and have
