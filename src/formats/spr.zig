@@ -207,6 +207,14 @@ pub const Sprite = struct {
         return .classify(sprite.data, sprite.entries[index].offset, sprite.blockEnd(index));
     }
 
+    /// Whether block `index` is a shape whose rows run past its block, as a broken set from a mod
+    /// can hold: a block `classify` takes for a placeholder, but whose header's bounds are sane,
+    /// which the game's own placeholders' aren't. One of 256 bytes reads as a remap table instead.
+    pub fn cutShort(sprite: Sprite, index: usize) bool {
+        if (sprite.block(index) != .placeholder) return false;
+        return saneHeader(sprite.data, sprite.entries[index].offset, sprite.blockEnd(index)) != null;
+    }
+
     /// The palette a shape draws with: the nearest one at or before it, since a file may carry
     /// several and each group of shapes follows its own.
     pub fn paletteFor(sprite: Sprite, index: usize) ?*const [palette_size]u8 {
@@ -230,24 +238,30 @@ pub const Sprite = struct {
 
 /// Reads a shape at `offset`, or null if the bytes there are not one.
 fn readShape(data: []const u8, offset: usize, limit: usize) ?Shape {
+    const header = saneHeader(data, offset, limit) orelse return null;
+    // The rows must fit in the block. A block whose opcodes run past it is not a shape.
+    const rows = data[offset + @sizeOf(ShapeHeader) .. limit];
+    var pos: usize = 0;
+    var scratch: [coordinate_limit]u8 = undefined;
+    for (0..@intCast(header.height())) |_| {
+        pos = decodeRow(rows, pos, scratch[0..@intCast(header.width())], null) catch return null;
+    }
+    return .{ .header = header.*, .rows = rows };
+}
+
+/// The shape header at `offset` in the block that ends at `limit`, where its bounds are sane:
+/// within `coordinate_limit`, around at least one pixel. Null otherwise, as for the game's own
+/// placeholders.
+fn saneHeader(data: []const u8, offset: usize, limit: usize) ?*align(1) const ShapeHeader {
     if (offset > limit or limit > data.len) return null;
     const header = layout.view(ShapeHeader, data[offset..limit]) catch return null;
-
     for ([_]i32{ header.x1, header.y1, header.x2, header.y2 }) |value| {
         if (value < -coordinate_limit or value > coordinate_limit) return null;
     }
     const w = header.width();
     const h = header.height();
     if (w <= 0 or h <= 0 or w > coordinate_limit or h > coordinate_limit) return null;
-
-    // The rows must fit in the block. A block whose opcodes run past it is not a shape.
-    const rows = data[offset + @sizeOf(ShapeHeader) .. limit];
-    var pos: usize = 0;
-    var scratch: [coordinate_limit]u8 = undefined;
-    for (0..@intCast(h)) |_| {
-        pos = decodeRow(rows, pos, scratch[0..@intCast(w)], null) catch return null;
-    }
-    return .{ .header = header.*, .rows = rows };
+    return header;
 }
 
 /// Expands one row.
@@ -447,6 +461,20 @@ test "parses a sprite with a palette and a shape" {
     const pixels = try shape.decode(gpa);
     defer gpa.free(pixels);
     try std.testing.expectEqualSlices(u8, &.{ 1, 1, 1, 0, 0, 1 }, pixels);
+}
+
+test "Sprite.cutShort" {
+    const gpa = std.testing.allocator;
+    const file = try testing.paletteAndShapes(gpa, 4);
+    defer gpa.free(file);
+    // The last shape's second row runs past the end of the set, as in a broken set from a mod.
+    const sprite: Sprite = try .parse(file[0 .. file.len - 2]);
+    try std.testing.expect(sprite.block(3) == .placeholder and sprite.cutShort(3));
+    try std.testing.expect(!sprite.cutShort(0) and !sprite.cutShort(1));
+    // A placeholder with nonsense bounds, as the game's own hold, isn't one.
+    const header = std.mem.bytesAsValue(ShapeHeader, file[sprite.entries[2].offset..][0..@sizeOf(ShapeHeader)]);
+    header.x2 = std.math.maxInt(i32);
+    try std.testing.expect(sprite.block(2) == .placeholder and !sprite.cutShort(2));
 }
 
 test "rejects files that are not sprites" {

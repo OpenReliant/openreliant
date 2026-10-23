@@ -206,7 +206,9 @@ pub const Assets = struct {
         errdefer gpa.free(copied);
         const art = try gpa.create(hud.Art);
         errdefer gpa.destroy(art);
-        art.* = try .init(gpa, try openreliant.spr.Sprite.parse(file), null, .of(archive.mods, copied));
+        const set = try openreliant.spr.Sprite.parse(file);
+        hud.warnCutShort(set, member);
+        art.* = try .init(gpa, set, null, .of(archive.mods, copied));
         errdefer art.deinit(gpa);
         try assets.sprite_sets.append(gpa, .{ .name = copied, .file = file, .art = art });
         assets.bytes += file.len;

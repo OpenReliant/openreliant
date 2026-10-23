@@ -136,7 +136,9 @@ pub const TypeCache = struct {
                 log.warn("the schematic {s} is left out: {s}", .{ files.layout, @errorName(err) });
                 break :found null;
             };
-            break :found try .init(gpa, try spr.Sprite.parse(bytes), cache.global_palette, .of(cache.resources.mods, files.pictures));
+            const set = try spr.Sprite.parse(bytes);
+            hud.warnCutShort(set, files.layout);
+            break :found try .init(gpa, set, cache.global_palette, .of(cache.resources.mods, files.pictures));
         } else null;
         cached.wire_frame = try cache.ownShapes(gpa, ship_type, .wire_frame);
         cached.wing_icon = try cache.ownShapes(gpa, ship_type, .wing_icon);

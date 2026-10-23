@@ -555,6 +555,15 @@ test globalPalette {
     try std.testing.expectEqual(null, globalPalette(try .parse(&empty)));
 }
 
+/// Logs each shape of the set `name` whose rows run past its block (`spr.Sprite.cutShort`), as a
+/// broken set from a mod can hold: it draws nothing
+/// ([#1079](https://github.com/OpenReliant/openreliant/issues/1079)).
+pub fn warnCutShort(set: spr.Sprite, name: []const u8) void {
+    for (0..set.count()) |index| {
+        if (set.cutShort(index)) log.warn("{s}: shape {d} is cut short: its rows run past the end of its block, so it draws nothing", .{ name, index });
+    }
+}
+
 /// A set of the display's shapes, with an image made of each shape when it's first drawn. No entry
 /// in a shipped set names a palette, so VFX draws each shape with the global palette, which
 /// `hud_draw` takes from the display's set. Without a global palette, a shape uses the nearest
@@ -2103,6 +2112,7 @@ pub const Resources = struct {
     /// and the power ball, which `hud_init` works out.
     pub fn load(gpa: Allocator, archive: bigfile.Hog, shapes: spr.Sprite, outlines: ?*outline.Outlines) !Resources {
         const global = globalPalette(shapes);
+        warnCutShort(shapes, hardware_shapes);
         var art: Art = try .init(gpa, shapes, global, .of(archive.mods, hardware_shapes));
         errdefer art.deinit(gpa);
         var font = try openFont(gpa, archive, font_name, global, outlines);

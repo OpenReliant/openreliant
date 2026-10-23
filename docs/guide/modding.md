@@ -1454,6 +1454,7 @@ A script's messages and errors follow its mod's name, as above;
 | `skipping the mod <archive>: checking <file> failed: ...` | The archive doesn't match its checksum: download it again, or pack it again with `--checksum` ([Checksums](#checksums)) |
 | `<mod>: mod.ini: the <kind> '<name>' ...` | The entry the message names, and what it says is wrong ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots), [Game variables](#game-variables)) |
 | `skipping the picture that replaces <name>: it's <size>, and the original is <size>` | That picture must keep the original's size ([Pictures](#pictures)) |
+| `<set>: shape <n> is cut short: its rows run past the end of its block, so it draws nothing` | The set's file is broken at that shape: make the set again, or give a picture in its place ([Shapes](#shapes)) |
 | `the <map> of <texture> is left out: it is <size> and its picture <size>` | A map must be the same size as its texture ([Material maps](#material-maps)) |
 | `the <map> of <texture> is left out: it has <n> mipmap levels and its picture <n>` | Save the DDS or KTX2 map with all its mipmaps, as many as the picture has ([Compression](#compression)) |
 | `<file> is left out: it is compressed in <format>, which the device doesn't take` | The GPU doesn't take that format; use a PNG file instead ([Compression](#compression)) |
