@@ -753,6 +753,38 @@ test "a display stands in for the game's instruments and reads what they show" {
     fixture.shown.endGame();
 }
 
+test "a display changes its layout after it registers" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=player.luau\n" },
+            .{
+                "player.luau",
+                \\local hud = require("openreliant.hud")
+                \\hud.register_display("radio", {layout = {clock = {scale = 2}}, parts = {radio_face = {scale = 2}}, frame = function() end})
+                \\-- The layout follows the window, and the parts stay, as the table leaves them out.
+                \\assert(hud.set_display_layout("radio", {layout = {clock = {offset = vector.create(5, 0, 0)}}}))
+                \\-- A mistake changes nothing, and a name not registered isn't one.
+                \\assert(not pcall(hud.set_display_layout, "radio", {layout = {clock = {scale = 0}}, parts = {}}))
+                \\assert(not pcall(hud.set_display_layout, "radio", {placement = {}}))
+                \\assert(not hud.set_display_layout("b:radio", {}) and not hud.set_display_layout("nothing", {}))
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    defer fixture.shown.endGame();
+    // The displays place the instruments while the flight display's layer shows.
+    var view: engine.game.camera.Camera = .{};
+    var viewing: engine.game.camera.Viewing = .{};
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 } };
+    host.views.set(.hud, .{ .font = &fixture.font, .gpa = std.testing.allocator, .screen = .{ 640, 480 }, .scale = 1 });
+    fixture.shown.frame(host);
+    try std.testing.expectEqual(hud.Placement{ .offset = .{ 5, 0 } }, fixture.shown.instrumentPlacements().get(.clock));
+    try std.testing.expectEqual(hud.Placement{ .scale = 2 }, fixture.shown.partPlacements().get(.radio_face).place);
+}
+
 test "a display reads the cockpit's instruments in any view" {
     const gpa = std.testing.allocator;
     var fixture: Fixture = undefined;

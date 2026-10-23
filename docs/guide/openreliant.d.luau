@@ -880,6 +880,8 @@ export type Hud = {
     register_display: (name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?, parts: { [HudPart]: HudPartLayout }?}) -> string,
     --- Turns the display `name` on or off: the calling mod's by its own name, or any mod's by the qualified one. Returns whether it's registered.
     set_display_enabled: (name: string, enabled: boolean) -> boolean,
+    --- Changes where the display `name` puts the game's instruments and their parts, after it registers: the calling mod's by its own name, or any mod's by the qualified one. `layout` and `parts` replace the display's, with the checks `register_display` makes; one left out stays as it was, and a mistake changes nothing. They go back as they were as soon as the display is turned off, fails or its mod stops. Returns whether it's registered.
+    set_display_layout: (name: string, placement: {layout: { [HudInstrument]: HudLayout }?, parts: { [HudPart]: HudPartLayout }?}) -> boolean,
     --- Where the game's instrument `instrument` last drew, in the window's pixels, as the mods' displays place it, and even while one stands in for it; nil before it first draws, or outside a mission.
     bounds: (instrument: HudInstrument) -> HudBounds?,
     --- Where the part `part` of the game's instruments last drew, in the window's pixels, as the mods' displays place it, and even while one hides it; nil before it first draws, or outside a mission.
@@ -1161,6 +1163,7 @@ export type Interfaces = {
         height: number,
         register_display: (name: string, definition: {frame: (seconds: number) -> (), replaces: { HudInstrument }?, layout: { [HudInstrument]: HudLayout }?, parts: { [HudPart]: HudPartLayout }?}) -> string,
         set_display_enabled: (name: string, enabled: boolean) -> boolean,
+        set_display_layout: (name: string, placement: {layout: { [HudInstrument]: HudLayout }?, parts: { [HudPart]: HudPartLayout }?}) -> boolean,
         bounds: (instrument: HudInstrument) -> HudBounds?,
         part_bounds: (part: HudPart) -> HudBounds?,
         window_state: (instrument: HudInstrument) -> HudWindowState?,

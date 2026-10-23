@@ -359,6 +359,43 @@ pub fn registration(comptime kind: Kind) fn (api.Call) i32 {
     }.run;
 }
 
+/// `hud.set_display_layout(name, placement)`: replaces where the display `name` puts the
+/// instruments, its `layout`, and their parts, its `parts`, with the checks `register` makes. A
+/// field the table leaves out stays as it was, and a mistake changes nothing
+/// ([#1028](https://github.com/OpenReliant/openreliant/issues/1028)).
+pub fn setLayout(call: api.Call) i32 {
+    const state = call.state;
+    _ = presentation.Presentation.of(call);
+    const name = values.read(state, []const u8, 1, "name");
+    if (state.typeOf(2) != .table) call.raise("expected a table of layout and parts", .{});
+    var buffer: [runtime.max_name]u8 = undefined;
+    const registry = &call.runtime().registries;
+    const found = if (call.named(name, &buffer)) |qualified| registry.find(.display, qualified) else null;
+    const index = found orelse {
+        state.pushBoolean(false);
+        return 1;
+    };
+    var layout = registry.entries.items[index].layout;
+    var placed_parts = registry.entries.items[index].parts;
+    state.pushNil();
+    while (state.next(2)) {
+        const key = (if (state.typeOf(-2) == .string) state.toString(-2) else null) orelse call.raise("placement keys must be names", .{});
+        if (std.mem.eql(u8, key, "layout")) {
+            layout = .initFill(null);
+            readLayout(call, &layout);
+        } else if (std.mem.eql(u8, key, "parts")) {
+            placed_parts = .initFill(null);
+            readParts(call, &placed_parts);
+        } else call.raise("unknown placement field '{s}': a display's placement has layout and parts", .{key});
+        state.pop(1);
+    }
+    const entry = &registry.entries.items[index];
+    entry.layout = layout;
+    entry.parts = placed_parts;
+    state.pushBoolean(true);
+    return 1;
+}
+
 pub fn show(call: api.Call, kind: Kind, name: ?[]const u8, enabled: bool) bool {
     _ = presentation.Presentation.of(call);
     const registry = &call.runtime().registries;
