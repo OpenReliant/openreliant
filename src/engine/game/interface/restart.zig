@@ -119,15 +119,25 @@ pub const Restart = struct {
     }
 
     /// `restart_screen_draw` (`0x0043ED90`), at the screen's brightness over a cleared frame: its
-    /// picture, the button under the pointer lit, the three labels in the small font, and the
-    /// pointer until a choice is made.
-    pub fn draw(screen: Restart, canvas: Canvas, art: *hud.Art, pointer: Pointer) canvas_module.Error!void {
-        var faded = canvas;
-        faded.brightness = screen.brightness;
-        try faded.shape(art, picture_shape, picture_at);
-        if (screen.under) |under| try faded.shape(art, lit_shape, lit_at.get(under));
-        for (labels.values) |label| try label.write(faded, faded.fonts.small, label_colour);
-        if (screen.chosen == null) try faded.onScreen().shape(art, pointer.shape(), pointer.at);
+    /// picture, the button under the pointer lit, and the three labels in the small font. The
+    /// pointer goes over it, after what scripts draw (`drawPointer`).
+    pub fn draw(screen: Restart, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
+        try screen.faded(canvas).shape(art, picture_shape, picture_at);
+        if (screen.under) |under| try screen.faded(canvas).shape(art, lit_shape, lit_at.get(under));
+        for (labels.values) |label| try label.write(screen.faded(canvas), canvas.fonts.small, label_colour);
+    }
+
+    /// The end of `restart_screen_draw`: the pointer, at the screen's brightness, until a choice is
+    /// made (`canvas.Canvas.drawPointer`).
+    pub fn drawPointer(screen: Restart, canvas: Canvas, art: *hud.Art, pointer: Pointer) canvas_module.Error!void {
+        if (screen.chosen == null) try screen.faded(canvas).drawPointer(art, pointer);
+    }
+
+    /// `canvas` at the screen's brightness.
+    fn faded(screen: Restart, canvas: Canvas) Canvas {
+        var at_brightness = canvas;
+        at_brightness.brightness = screen.brightness;
+        return at_brightness;
     }
 };
 
@@ -150,4 +160,28 @@ test Restart {
     screen = .{};
     _ = screen.frame(.{ .at = .{ 250, 380 }, .down = true }, &keyboard, 1);
     try std.testing.expectEqual(null, screen.chosen);
+}
+
+test "Restart.drawPointer" {
+    const gpa = std.testing.allocator;
+    const device = @import("../../surrender/srd3d/device.zig");
+    const language = @import("../language.zig");
+    const spr = @import("../../../formats/spr.zig");
+    var recorder: device.testing.Recorder = .{ .gpa = gpa };
+    defer recorder.deinit();
+    const strings: language.Language = .{ .strings = &.{} };
+    var font: hud.Opened = undefined;
+    const drawn: Canvas = .{ .gpa = gpa, .target = recorder.interface(), .window = .{ 640, 480 }, .fonts = .{ .large = &font, .small = &font }, .strings = &strings };
+    // A set with a shape for each of the pointer's.
+    const bytes = try spr.testing.paletteAndShapes(gpa, 17);
+    defer gpa.free(bytes);
+    var art: hud.Art = try .init(gpa, try .parse(bytes), null, null);
+    defer art.deinit(gpa);
+    // The pointer shows until a choice is made.
+    var screen: Restart = .{};
+    try screen.drawPointer(drawn, &art, .{ .at = .{ 100, 100 } });
+    try std.testing.expectEqual(1, recorder.draws.items.len);
+    screen.chosen = .main_menu;
+    try screen.drawPointer(drawn, &art, .{ .at = .{ 100, 100 } });
+    try std.testing.expectEqual(1, recorder.draws.items.len);
 }

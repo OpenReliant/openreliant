@@ -486,8 +486,8 @@ pub const ModOptions = struct {
     }
 
     /// The screen's drawing, over the background: the title, the list, the buttons, the one under the
-    /// pointer lit, the text of the option under it, OpenReliant's version, then the pointer.
-    pub fn draw(screen: *const ModOptions, canvas: Canvas, art: *hud.Art, pointer: Pointer) canvas_module.Error!void {
+    /// pointer lit, the text of the option under it, and OpenReliant's version. The pointer goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    pub fn draw(screen: *const ModOptions, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         try (Label{ .text = .{ .words = screen.page.title }, .at = title_at, .alignment = .centre }).write(canvas, canvas.fonts.large, canvas_module.white);
         var buffer: [max_options]Line.Shown = undefined;
         var numbers: [max_options][number_words]u8 = undefined;
@@ -505,7 +505,6 @@ pub const ModOptions = struct {
             try canvas.wrapped(canvas.fonts.small, descriptionAt(screen.pane), description, canvas_module.blue, .centre, description_lines);
         };
         try canvas.drawVersion();
-        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 };
 

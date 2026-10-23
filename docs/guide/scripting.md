@@ -2170,7 +2170,8 @@ return {
 }
 ```
 
-The rooms draw their pointer over what scripts draw, as the front end does over a mod's screen.
+The pointer goes over what scripts draw, in the rooms and their places, on the front end's screens
+and a mod's, and on the menus over the rooms and over a mission.
 [`examples/mods/cd-player-pages`](../../examples/mods/cd-player-pages) gives the CD player its
 pages, with the front end's arrows under its screen.
 

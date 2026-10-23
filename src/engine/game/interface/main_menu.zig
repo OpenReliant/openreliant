@@ -341,9 +341,14 @@ pub const MainMenu = struct {
 
     /// `main_menu_draw`: the panels' labels in blue, QUIT's and INSTANT ACTION's buttons and labels,
     /// the item under the pointer lit and a panel's labels in gold, QUIT's question or the notice
-    /// of a newer release where it is up, then the pointer, and with the developers' keys on the
-    /// mission's number. The menu's background is drawn behind it all (`background_set`).
-    pub fn draw(menu: MainMenu, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, pointer: Pointer, developer_font: ?*hud.Opened) canvas_module.Error!void {
+    /// of a newer release where it is up, and with the developers' keys on the mission's number.
+    /// The menu's background is drawn behind it all (`background_set`), and the pointer over it
+    /// all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    ///
+    /// **Improvement:** the game draws the mission's number over the pointer. OpenReliant draws
+    /// the pointer last, over what scripts draw too
+    /// ([#1171](https://github.com/OpenReliant/openreliant/issues/1171)).
+    pub fn draw(menu: MainMenu, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, developer_font: ?*hud.Opened) canvas_module.Error!void {
         const large = canvas.fonts.large;
         const small = canvas.fonts.small;
         for (std.enums.values(Item)) |item| {
@@ -376,7 +381,6 @@ pub const MainMenu = struct {
             try asked.draw(canvas, dialog_art);
         }
         try canvas.drawVersion();
-        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
         if (menu.developer) if (developer_font) |font| {
             var buffer: [16]u8 = undefined;
             const number = std.mem.print(&buffer, "M{d}", .{menu.mission}) catch return;

@@ -140,8 +140,14 @@ pub const PauseMenu = struct {
     view_setting: camera.CockpitSetting = .cockpit,
     /// The archive the fonts came from, which the settings screen's shapes are read from.
     archive: ?bigfile.Hog = null,
-    /// The settings screen, while it is shown.
+    /// The settings screen, while it is shown, and on the frame that leaves it.
     settings: ?SettingsScreen = null,
+    /// The pointer that this frame's drawing ends with, which `drawPointer` draws: the main
+    /// screen's or the settings screen's; none once the pause has an outcome, or where the
+    /// settings screen's shapes are left out.
+    pointer_shown: ?PointerShown = null,
+
+    const PointerShown = enum { main, settings };
 
     /// `optfnt.fnt` and `smlfnt2.fnt`, as `hog_load` read them and `font_open` opened them
     /// (`menu_font_large`, `menu_font_small`), and what holds them and their glyphs' images.
@@ -195,24 +201,23 @@ pub const PauseMenu = struct {
     /// `pause_menu_draw` (`0x004906F0`), the overlay while paused, with the pointer brought up to
     /// date first as `mission_paused_frame` does (`menu_mouse_update`). A screen shown for the
     /// first time runs its enter routine; if its choice goes elsewhere, it runs its leave routine.
-    /// The pointer is drawn last.
+    /// The game draws the pointer last, which OpenReliant draws after what scripts draw over the
+    /// menu (`drawPointer`).
     pub fn draw(pause_menu: *PauseMenu, frame: Frame) menu.Error!void {
+        pause_menu.pointer_shown = null;
         const fonts = if (pause_menu.fonts) |*open_fonts| open_fonts else return;
         pause_menu.pointer.update(frame.devices.mouse, frame.screen);
-        const ui: menu.Ui = .{
-            .gpa = fonts.gpa,
-            .target = frame.target,
-            .screen = frame.screen,
-            .scale = frame.ui_scale.of(frame.screen),
-            .art = frame.art,
-            .fonts = .{ .display = frame.font, .small = &fonts.small.font, .large = &fonts.large.font },
-            .strings = frame.strings,
-        };
+        const ui = uiOf(frame, fonts);
         const screen = switch (pause_menu.at) {
             .screen => |shown| shown,
             .outcome => return,
         };
         const tab = SettingsScreen.tabOf(screen);
+        // The settings screen the frame before left goes, now that its pointer has been drawn.
+        if (tab == null) if (pause_menu.settings) |*shown| {
+            shown.close(fonts.gpa);
+            pause_menu.settings = null;
+        };
         if (pause_menu.entered != screen) {
             if (tab) |shown| pause_menu.enterSettings(frame, shown);
             pause_menu.entered = screen;
@@ -222,14 +227,51 @@ pub const PauseMenu = struct {
             .pointer = pause_menu.pointer,
             .escaped = frame.devices.keyboard.pressed(input.scan.escape, .none, true),
         });
-        if (next) |going| if (!std.meta.eql(going, pause_menu.at)) {
-            if (pause_menu.settings) |*shown| shown.close(fonts.gpa);
-            pause_menu.settings = null;
-            pause_menu.at = going;
-        };
+        if (next) |going| pause_menu.at = going;
         if (tab != null) return;
         if (frame.version) |version| try hud.drawVersion(ui.fonts.small, ui.gpa, ui.target, ui.screen, version, ui.scale);
-        try ui.drawPointer(pause_menu.pointer);
+        pause_menu.pointer_shown = .main;
+    }
+
+    /// The end of `pause_menu_draw`: the pointer of the screen drawn, which OpenReliant draws after
+    /// what the scripts draw over the menu, so that it stays on top
+    /// ([#1171](https://github.com/OpenReliant/openreliant/issues/1171)).
+    pub fn drawPointer(pause_menu: *PauseMenu, frame: Frame) menu.Error!void {
+        const fonts = if (pause_menu.fonts) |*open_fonts| open_fonts else return;
+        switch (pause_menu.pointer_shown orelse return) {
+            .main => try uiOf(frame, fonts).drawPointer(pause_menu.pointer),
+            .settings => {
+                const shown = if (pause_menu.settings) |*kept| kept else return;
+                const shapes = if (shown.shapes) |*read| &read.art else return;
+                try settingsCanvas(frame, fonts).drawPointer(shapes, shown.pointer);
+            },
+        }
+    }
+
+    /// What the main screen draws with.
+    fn uiOf(frame: Frame, fonts: *Fonts) menu.Ui {
+        return .{
+            .gpa = fonts.gpa,
+            .target = frame.target,
+            .screen = frame.screen,
+            .scale = frame.ui_scale.of(frame.screen),
+            .art = frame.art,
+            .fonts = .{ .display = frame.font, .small = &fonts.small.font, .large = &fonts.large.font },
+            .strings = frame.strings,
+        };
+    }
+
+    /// What the settings screen draws on.
+    fn settingsCanvas(frame: Frame, fonts: *Fonts) canvas.Canvas {
+        return .{
+            .gpa = fonts.gpa,
+            .target = frame.target,
+            .window = frame.screen,
+            .share = frame.ui_scale.share(),
+            .fonts = .{ .large = &fonts.large.font, .small = &fonts.small.font },
+            .strings = frame.strings,
+            .version = frame.version,
+        };
     }
 
     /// Opens the settings screen on `tab`: the front end's shapes and its dialog's read, and the
@@ -261,16 +303,8 @@ pub const PauseMenu = struct {
         hud.drawFilled(frame.target, .{ .left = 0, .top = 0, .right = @floatFromInt(frame.screen[0]), .bottom = @floatFromInt(frame.screen[1]) }, shade);
         const shapes = if (shown.shapes) |*read| &read.art else return .{ .screen = .main };
         const dialog_art = if (shown.dialog) |*read| &read.art else return .{ .screen = .main };
-        const drawn: canvas.Canvas = .{
-            .gpa = fonts.gpa,
-            .target = frame.target,
-            .window = frame.screen,
-            .share = frame.ui_scale.share(),
-            .fonts = .{ .large = &fonts.large.font, .small = &fonts.small.font },
-            .strings = frame.strings,
-            .version = frame.version,
-        };
-        try shown.screen.draw(drawn, shapes, dialog_art, .{ .devices = frame.devices, .sound = frame.settings.sound, .video = frame.settings.video }, shown.pointer);
+        try shown.screen.draw(settingsCanvas(frame, fonts), shapes, dialog_art, .{ .devices = frame.devices, .sound = frame.settings.sound, .video = frame.settings.video });
+        pause_menu.pointer_shown = .settings;
         return switch (end orelse return null) {
             .back, .main_menu => .{ .screen = .main },
             .continue_mission => .{ .outcome = .continue_mission },

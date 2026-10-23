@@ -560,8 +560,8 @@ pub const SavedGames = struct {
     /// title; saving, the name's frame and, while it is typed, the name with its cursor and OK;
     /// the labels and the date; the buttons, the one under the pointer lit with its label in white;
     /// the rows shown, the selected one white over a bar; the selected save's details; the arrows;
-    /// QUIT's question or the box saying a save failed; OpenReliant's version; then the pointer.
-    pub fn draw(screen: SavedGames, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, pointer: Pointer, call_sign: []const u8) canvas_module.Error!void {
+    /// QUIT's question or the box saying a save failed; and OpenReliant's version. The pointer goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    pub fn draw(screen: SavedGames, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, call_sign: []const u8) canvas_module.Error!void {
         const large = canvas.fonts.large;
         const small = canvas.fonts.small;
         canvas.box(list_box_at, list_box_size);
@@ -617,7 +617,6 @@ pub const SavedGames = struct {
         if (screen.confirm) |confirm| try confirm.draw(canvas, dialog_art);
         if (screen.save_error) |box| try box.draw(canvas, dialog_art);
         try canvas.drawVersion();
-        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 };
 

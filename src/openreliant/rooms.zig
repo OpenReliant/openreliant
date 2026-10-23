@@ -992,7 +992,17 @@ const Backdrop = struct {
     /// left out.
     fn draw(backdrop: *Backdrop, target: canvas.Canvas) ?*game.hud.Art {
         if (backdrop.background.image) |*shown| target.fill(shown);
+        return backdrop.art();
+    }
+
+    /// The shapes the screen draws with; null where they are left out.
+    fn art(backdrop: *Backdrop) ?*game.hud.Art {
         return if (backdrop.shapes) |*loaded| &loaded.art else null;
+    }
+
+    /// The screen's pointer, with its shapes (`canvas.Canvas.drawPointer`).
+    fn drawPointer(backdrop: *Backdrop, target: canvas.Canvas, pointer: canvas.Pointer) canvas.Error!void {
+        if (backdrop.art()) |shapes| try target.drawPointer(shapes, pointer);
     }
 };
 
@@ -1007,10 +1017,10 @@ const Menu = struct {
         if (menu.about_shapes) |*shapes| shapes.deinit(gpa);
     }
 
-    fn draw(menu: *Menu, target: canvas.Canvas, dialog: *game.hud.Art, pointer: canvas.Pointer) canvas.Error!void {
+    fn draw(menu: *Menu, target: canvas.Canvas, dialog: *game.hud.Art) canvas.Error!void {
         const shapes = menu.backdrop.draw(target) orelse return;
         const about = if (menu.about_shapes) |*loaded| &loaded.art else null;
-        try menu.state.draw(target, shapes, dialog, about, pointer);
+        try menu.state.draw(target, shapes, dialog, about);
     }
 };
 
@@ -1023,9 +1033,9 @@ const SavesScreen = struct {
         screen.backdrop.close(gpa);
     }
 
-    fn draw(screen: *SavesScreen, target: canvas.Canvas, dialog: *game.hud.Art, pointer: canvas.Pointer, call_sign: []const u8) canvas.Error!void {
+    fn draw(screen: *SavesScreen, target: canvas.Canvas, dialog: *game.hud.Art, call_sign: []const u8) canvas.Error!void {
         const shapes = screen.backdrop.draw(target) orelse return;
-        try screen.state.draw(target, shapes, dialog, pointer, call_sign);
+        try screen.state.draw(target, shapes, dialog, call_sign);
     }
 };
 
@@ -1038,9 +1048,9 @@ const SettingsScreen = struct {
         screen.backdrop.close(gpa);
     }
 
-    fn draw(screen: *SettingsScreen, target: canvas.Canvas, dialog: *game.hud.Art, shown: settings.Shown, pointer: canvas.Pointer) canvas.Error!void {
+    fn draw(screen: *SettingsScreen, target: canvas.Canvas, dialog: *game.hud.Art, shown: settings.Shown) canvas.Error!void {
         const shapes = screen.backdrop.draw(target) orelse return;
-        try screen.state.draw(target, shapes, dialog, shown, pointer);
+        try screen.state.draw(target, shapes, dialog, shown);
     }
 };
 
@@ -1049,9 +1059,14 @@ const Restarting = struct {
     state: restart_screen.Restart = .{},
     shapes: ?canvas.Shapes = null,
 
-    fn draw(screen: *Restarting, target: canvas.Canvas, pointer: canvas.Pointer) canvas.Error!void {
+    fn draw(screen: *Restarting, target: canvas.Canvas) canvas.Error!void {
         const shapes = if (screen.shapes) |*loaded| &loaded.art else return;
-        try screen.state.draw(target, shapes, pointer);
+        try screen.state.draw(target, shapes);
+    }
+
+    fn drawPointer(screen: *Restarting, target: canvas.Canvas, pointer: canvas.Pointer) canvas.Error!void {
+        const shapes = if (screen.shapes) |*loaded| &loaded.art else return;
+        try screen.state.drawPointer(target, shapes, pointer);
     }
 };
 
@@ -1124,11 +1139,11 @@ const Shown = struct {
         switch (shown.screen) {
             .induction => |tour| tour.draw(target),
             .rooms => |inside| try inside.draw(target, driver.clock.game_ticks),
-            .options => |menu| try menu.draw(target, &driver.front.dialog, driver.pointer),
-            .saved_games => |screen| try screen.draw(target, &driver.front.dialog, driver.pointer, driver.pilot.call_sign.slice()),
-            .settings => |screen| try screen.draw(target, &driver.front.dialog, .{ .devices = driver.movies.devices, .sound = driver.sound, .video = driver.video }, driver.pointer),
+            .options => |menu| try menu.draw(target, &driver.front.dialog),
+            .saved_games => |screen| try screen.draw(target, &driver.front.dialog, driver.pilot.call_sign.slice()),
+            .settings => |screen| try screen.draw(target, &driver.front.dialog, .{ .devices = driver.movies.devices, .sound = driver.sound, .video = driver.video }),
             .briefing => |meeting| try meeting.draw(target),
-            .restart => |screen| try screen.draw(target, driver.pointer),
+            .restart => |screen| try screen.draw(target),
             .credits => |screen| try screen.draw(target),
             .itac => |terminal| try terminal.draw(target),
             .pod => |pod| try pod.draw(target),
@@ -1136,15 +1151,19 @@ const Shown = struct {
             .cd_player => |player| try player.draw(target),
         }
         if (driver.movies.scripts) |scripts| try scripts.drawUi(target.target);
-        // The pointer of the rooms and their places goes over what scripts draw, as the front
-        // end's does over a mod's screen. The menus draw theirs as the front end's own screens do.
+        // The pointer of the rooms, their places and the menus goes over what scripts draw, as the
+        // front end's does.
         switch (shown.screen) {
             .rooms => |inside| try inside.drawPointer(target),
             .itac => |terminal| try terminal.drawPointer(target),
             .pod => |pod| try pod.drawPointer(target),
             .locker => |case| try case.drawPointer(target),
             .cd_player => |player| try player.drawPointer(target),
-            .induction, .options, .saved_games, .settings, .briefing, .restart, .credits => {},
+            .options => |menu| try menu.backdrop.drawPointer(target, driver.pointer),
+            .saved_games => |screen| try screen.backdrop.drawPointer(target, driver.pointer),
+            .settings => |screen| try screen.backdrop.drawPointer(target, driver.pointer),
+            .restart => |screen| try screen.drawPointer(target, driver.pointer),
+            .induction, .briefing, .credits => {},
         }
         if (driver.console) |console| try console.shown.draw(target.target, shown.window, driver.strings, .menus);
     }

@@ -181,8 +181,8 @@ pub const GameModes = struct {
     }
 
     /// The screen's drawing, over the background: the title, the list and the panel, the buttons,
-    /// the one under the pointer lit, OpenReliant's version, then the pointer.
-    pub fn draw(screen: GameModes, canvas: Canvas, art: *hud.Art, pointer: Pointer) canvas_module.Error!void {
+    /// the one under the pointer lit, and OpenReliant's version. The pointer goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    pub fn draw(screen: GameModes, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         const modes = screen.modes;
         try title.write(canvas, canvas.fonts.large, canvas_module.white);
         mod_manager.list_frame.draw(canvas);
@@ -195,7 +195,6 @@ pub const GameModes = struct {
             try shown.draw(canvas.dimmedUnless(playable), art, settings.button_shapes, std.meta.eql(screen.lit, Item{ .button = button }));
         }
         try canvas.drawVersion();
-        try canvas.onScreen().shape(art, pointer.shape(), pointer.at);
     }
 
     /// The rows shown, each a mode's label, the chosen one white, and the arrows, the one under the

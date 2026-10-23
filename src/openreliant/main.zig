@@ -2240,7 +2240,7 @@ const FrontEndDisplay = struct {
         const shown: *FrontEndDisplay = @ptrCast(@alignCast(context));
         try shown.front.draw(shown.resources, shown.target, shown.window, shown.strings, shown.settings, version.string);
         if (shown.presentation) |scripts| try scripts.draw(.ui, shown.target, null);
-        // The pointer over a mod's screen that stands in for the front end's own.
+        // The pointer, over what the scripts draw.
         try shown.front.drawPointer(shown.resources, shown.target, shown.window, shown.strings);
         if (shown.console) |console| try console.draw(shown.target, shown.window, shown.strings, .menus);
     }
@@ -2577,9 +2577,9 @@ const Display = struct {
     fn drawOverlay(display: *Display) !void {
         if (display.console) |console| if (console.isUp()) return console.draw(display.device, display.screen, display.strings, .mission);
         if (display.pause_menu.isOpen()) {
-            try display.drawPauseMenu();
+            try display.pause_menu.draw(display.pauseFrame());
             if (display.presentation) |scripts| try scripts.draw(.ui, display.device, null);
-            return;
+            return display.pause_menu.drawPointer(display.pauseFrame());
         }
         try display.drawDisplay();
         if (display.presentation) |scripts| {
@@ -2588,8 +2588,9 @@ const Display = struct {
         }
     }
 
-    fn drawPauseMenu(display: *Display) !void {
-        return display.pause_menu.draw(.{
+    /// What the pause menu draws with this frame.
+    fn pauseFrame(display: *Display) game.hudoptions.Frame {
+        return .{
             .target = display.device,
             .screen = display.screen,
             .ui_scale = display.ui_scale,
@@ -2600,7 +2601,7 @@ const Display = struct {
             .settings = display.settings,
             .version = version.string,
             .timer = platform.window.ticks(),
-        });
+        };
     }
 
     /// Draws the display from the drawn frame's copy of the game, then hands the game what the
