@@ -225,9 +225,11 @@
   fetch(repository + "/milestones?state=open&per_page=50").then((response) => response.ok ? response.json() : Promise.reject()).then((milestones) => {
     const holder = document.getElementById("milestones");
     // The milestones in the order of the road ahead, each found by the start of its title, such as
-    // "Release" for "Release (v1.0)", and any not on it after them.
+    // "Release" for "Release (v1.0)", and any not on it after them. A release's own milestone,
+    // named by its version alone, such as "v0.21", comes first, since it ships before them.
     const steps = [...document.querySelectorAll("#roadmap [data-milestone]")].map((step) => step.dataset.milestone);
     const place = (milestone) => {
+      if (/^v\d/.test(milestone.title)) return -1;
       const found = steps.findIndex((name) => milestone.title.startsWith(name));
       return found === -1 ? steps.length : found;
     };
