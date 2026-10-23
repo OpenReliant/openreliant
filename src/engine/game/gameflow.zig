@@ -17,6 +17,7 @@ const pilots = @import("pilots.zig");
 const files = @import("../files.zig");
 const input = @import("../input.zig");
 const vm = @import("../vm.zig");
+const additions = @import("additions.zig");
 const pilot_roster = @import("interface/pilot_roster.zig");
 const Ending = @import("main.zig").Ending;
 const create = @import("create.zig");
@@ -46,14 +47,83 @@ const campaign_flags = vm.Variables.numbers(.{
     "steiner_alive",   "kulov_alive", "ivan_petrov_alive", "nicolai_petrov_alive", "yamato_alive",
 });
 
+/// The game's variables that `mission_reset_variables` (`0x00475620`) clears before each attempt at
+/// a mission: the jump's and the warp's readiness, the backup, the mission's end, the clearance to
+/// land, the ion cannons' lock, the mission's rating, its objectives met, and the third news report
+/// after mission 11.
+const attempt_variables = [_]vm.GameVariable{
+    .jump_ready,            .warp_ready,      .backup_available, .mission_over,           .landing_cleared,
+    .ion_cannons_hold_lock, .mission_success, .objectives_met,   .chapter2_thread3_shown,
+};
+
+comptime {
+    // What `mission_reset_variables` gives them is 0 for each: no readiness, and a failure.
+    assert(@backingInt(hud.Ready.no) == 0 and @backingInt(vm.Variables.Outcome.failure) == 0);
+}
+
+/// What the campaign does with one of the game's variables (`vm.Variables`): the value a new
+/// campaign gives it, the value each attempt at a mission starts it at, and whether a saved game
+/// keeps it. There is one for each number a script names, which OpenReliant takes from the records
+/// once the load scripts have run (`installVariables`, `records.game_variables`). Mods add the
+/// records of their own game variables (`additions.variables`), and load scripts change any.
+///
+/// **Improvement:** the game's code holds these lists. OpenReliant keeps them as records
+/// (`original`), which mods add to and load scripts change.
+pub const VariableRecord = struct {
+    /// The value a new campaign gives it (`newCampaign`); null leaves it as it was.
+    start: ?i32 = null,
+    /// The value each attempt at a mission starts it at (`resetVariables`); null where the
+    /// campaign keeps it from one mission to the next.
+    attempt: ?i32 = null,
+    /// Whether a saved game keeps it (`save.Game`).
+    saved: bool = false,
+
+    /// The original's: `campaign_new` clears the first 32 and sets the campaign's flags to 1,
+    /// `mission_reset_variables` clears the attempt's own, and `game_save` keeps 25
+    /// (`save.kept_variables`).
+    pub const original: [vm.Variables.count]VariableRecord = original: {
+        var made: [vm.Variables.count]VariableRecord = @splat(.{});
+        for (made[0..cleared_variables]) |*record| record.start = 0;
+        for (campaign_flags) |number| made[number].start = 1;
+        for (attempt_variables) |variable| made[@backingInt(variable)].attempt = 0;
+        for (save.kept_variables) |number| made[number].saved = true;
+        break :original made;
+    };
+};
+
+/// The records the campaign goes by (`VariableRecord`): the original's until the load scripts have
+/// run.
+var installed_variables: *const [vm.Variables.count]VariableRecord = &VariableRecord.original;
+
+/// Makes `records` the ones the campaign goes by, once the load scripts have run. They must outlive
+/// every use.
+pub fn installVariables(records: *const [vm.Variables.count]VariableRecord) void {
+    installed_variables = records;
+}
+
+/// The record that the campaign goes by for the game's variable `number`. A campaign made at
+/// compile time, as a field's default, goes by the original's.
+pub fn variableRecord(number: u8) VariableRecord {
+    return if (@inComptime()) VariableRecord.original[number] else installed_variables[number];
+}
+
+/// Gives each game variable a mod adds its record in `records`, as its manifest gives it
+/// (`additions.variables`).
+pub fn addModVariables(records: *[vm.Variables.count]VariableRecord) void {
+    for (additions.variables.all(), additions.variables.first..) |each, number| records[number] = each.extra;
+}
+
 /// `campaign_new` (`0x004751B0`) as a new campaign begins, which `WinMain` also runs as the game
-/// starts: clears the first 32 of the game's variables, then sets the campaign's flags
-/// (`campaign_flags`). `Campaign.begin` sets up the rest of the campaign: mission 1 as the next,
+/// starts: gives each of the game's variables the value its record gives a new campaign
+/// (`VariableRecord.start`). The original's records clear the first 32 and set the campaign's
+/// flags (`campaign_flags`). `Campaign.begin` sets up the rest of the campaign: mission 1 as the next,
 /// and empty records for each mission. `save.Game.clearPilot` clears the pilot's tallies, and
 /// `ProfileFile.open` reads the pilot's profile.
 pub fn newCampaign(variables: *vm.Variables) void {
-    for (0..cleared_variables) |index| variables.slot(@intCast(index)).* = 0;
-    for (campaign_flags) |index| variables.slot(index).* = 1;
+    for (0..vm.Variables.count) |at| {
+        const number: u8 = @intCast(at);
+        if (variableRecord(number).start) |value| variables.slot(number).* = @bitCast(value);
+    }
 }
 
 /// The pilot's profile's file in the game's folder (`profile_name`, `0x00500ACC`), and its size.
@@ -203,17 +273,15 @@ pub const ProfileFile = struct {
 /// it.
 const mission_tiers = [last_mission]u2{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0 };
 
-/// `mission_reset_variables` (`0x00475620`) before each attempt at a mission: clears the variables
-/// that belong to the attempt.
+/// `mission_reset_variables` (`0x00475620`) before each attempt at a mission: starts each of the
+/// game's variables that belongs to the attempt at the value its record gives it
+/// (`VariableRecord.attempt`). The original's records clear the attempt's own
+/// (`attempt_variables`).
 pub fn resetVariables(variables: *vm.Variables) void {
-    variables.ready = .{};
-    variables.backup_available = 0;
-    variables.mission_over = 0;
-    variables.landing_cleared = 0;
-    variables.ion_cannons_hold_lock = 0;
-    variables.mission_success = .failure;
-    variables.objectives_met = 0;
-    variables.chapter2_thread3_shown = 0;
+    for (0..vm.Variables.count) |at| {
+        const number: u8 = @intCast(at);
+        if (variableRecord(number).attempt) |value| variables.slot(number).* = @bitCast(value);
+    }
 }
 
 /// The campaign as it goes from one mission to the next.
@@ -319,6 +387,52 @@ test restartPoint {
     try std.testing.expectEqual(1, start.ghost_alive);
     try std.testing.expectEqual(.failure, start.mission_success);
     try std.testing.expectEqual(0, start.countdown);
+}
+
+test "the campaign goes by the records of the game's variables" {
+    var list = [_]additions.variables.Added{
+        .{ .name = "a:kept", .mod = "a", .base = {}, .based = false, .extra = .{ .start = 1, .saved = true } },
+        .{ .name = "a:scratch", .mod = "a", .base = {}, .based = false, .extra = .{ .start = 0, .attempt = -1 } },
+    };
+    additions.variables.install(&list);
+    defer additions.variables.reset();
+    var records = VariableRecord.original;
+    addModVariables(&records);
+    // A load script starts a new campaign without the Krasnaya, and starts the countdown again in
+    // each attempt.
+    records[@backingInt(vm.GameVariable.krasnaya_alive)].start = 0;
+    records[@backingInt(vm.GameVariable.countdown)].attempt = 60;
+    installVariables(&records);
+    defer installVariables(&VariableRecord.original);
+    const first = additions.variables.first;
+    var campaign: Campaign = .begin();
+    try std.testing.expectEqual(0, campaign.variables.krasnaya_alive);
+    try std.testing.expectEqual(1, campaign.variables.rameses_alive);
+    try std.testing.expectEqual(1, campaign.variables.slot(first).*);
+    try std.testing.expectEqual(0, campaign.variables.slot(first + 1).*);
+    // The campaign keeps the first from one mission to the next, and each attempt starts the
+    // second again.
+    campaign.variables.slot(first).* = 5;
+    campaign.variables.slot(first + 1).* = 5;
+    var attempt = campaign.attempt();
+    try std.testing.expectEqual(5, attempt.slot(first).*);
+    try std.testing.expectEqual(-1, @as(i32, @bitCast(attempt.slot(first + 1).*)));
+    try std.testing.expectEqual(60, attempt.countdown);
+}
+
+test "the original's records of the game's variables" {
+    const original = VariableRecord.original;
+    // `campaign_new` clears the first 32, sets the flags, and leaves the rest.
+    try std.testing.expectEqual(0, original[@backingInt(vm.GameVariable.player_missiles_left)].start.?);
+    try std.testing.expectEqual(1, original[@backingInt(vm.GameVariable.yamato_alive)].start.?);
+    try std.testing.expectEqual(1, original[@backingInt(vm.GameVariable.mission_success)].start.?);
+    try std.testing.expectEqual(null, original[@backingInt(vm.GameVariable.countdown)].start);
+    // `mission_reset_variables` clears the attempt's own, and `game_save` keeps 25.
+    try std.testing.expectEqual(0, original[@backingInt(vm.GameVariable.warp_ready)].attempt.?);
+    try std.testing.expectEqual(null, original[@backingInt(vm.GameVariable.ghost_alive)].attempt);
+    var saved: usize = 0;
+    for (original) |record| saved += @intFromBool(record.saved);
+    try std.testing.expectEqual(save.kept_variables.len, saved);
 }
 
 /// Whether a mission that ends so keeps the pilot's kills: every ending but the player's ship

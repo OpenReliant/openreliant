@@ -25,6 +25,7 @@ make and change it. The other sections can be read in any order, as you need the
 - [The interface](#the-interface): [shapes](#shapes), [pictures](#pictures) and [fonts](#fonts)
 - [Faces and voices](#faces-and-voices)
 - [New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)
+- [Game variables](#game-variables)
 - [Models](#models) from OBJ and glTF files
 - [Missions](#missions)
 - [Scripts](#scripts)
@@ -123,6 +124,7 @@ The manifest's other sections list what the mod runs and adds:
 | `[Scripts]` | The mod's scripts, by kind ([Kinds of scripts](scripting.md#kinds-of-scripts)) |
 | `[Missions]` | The scripts that run with a mission ([Kinds of scripts](scripting.md#kinds-of-scripts)) |
 | `[ShipTypes]`, `[Guns]`, `[Missiles]`, `[Pilots]` | The ship types, guns, missiles and pilots the mod adds, each described in a section of its own ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)) |
+| `[GameVariables]` | The game variables the mod adds, each described in a section of its own ([Game variables](#game-variables)) |
 
 The original never reads a file called `mod.ini`, so an archive with a manifest still works with it,
 and the manifest doesn't replace any game file. Neither does the thumbnail, `mod.png`
@@ -829,7 +831,7 @@ realistic-planets:mars=300
 - The other mod must be in `Requires`, which makes sure that it's on and loads first, and the entry
   needs a number. An entry that names a mod this mod doesn't require, or a record that mod doesn't
   add, is left out, and the log says why.
-- It works the same way for guns, missiles and pilots.
+- It works the same way for guns, missiles, pilots and game variables.
 
 **Improvement:** the original's ship types, guns, missiles and pilots are its own.
 
@@ -1040,6 +1042,55 @@ missions use the mod's pilots by the numbers in `[Pilots]`. A script can set the
   pilot uses it on either side, in place of its base's two voices. It can be one of the game's,
   such as `ban` for Bandit's or `rus` for the Coalition's, or a new one, whose lines the mod
   gives.
+
+## Game variables
+
+A mission's script keeps the state of the campaign in the game's variables, such as whether the
+Krasnaya got away (`krasnaya_alive`), and the campaign keeps them from one mission to the next
+([The game's variables](../engine/script-vm.md#the-games-variables)). A mod can add game variables
+of its own, such as a flag that says whether the player beat the pirates in the mod's first
+mission. The manifest lists them as it lists ship types and guns
+([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)), but they have no
+`Base` and no `Name`:
+
+```ini
+[GameVariables]
+pirates_beaten=40
+alarm=41
+
+[GameVariable pirates_beaten]
+Start=1
+
+[GameVariable alarm]
+Attempt=0
+Saved=no
+```
+
+- The number after a name is the number the mod's missions use for it, from 38 to 255, as in
+  `game[40]` in mission source. Numbers 38 to 63 are spare in the original's block of 64, so a
+  mission that uses only those also runs in the original, which doesn't keep them with its saved
+  games. OpenReliant numbers the mods' variables from 64 on, and changes the numbers in a mod's
+  missions as it loads them, so two mods never clash. Leave the number empty for a variable that
+  only scripts use.
+- `Start` is the value a new campaign gives it, 0 without it.
+- `Attempt` is the value each attempt at a mission starts it at, as the game's own
+  `objectives_met` starts at 0. Without it, the campaign keeps the variable from one mission to the
+  next.
+- `Saved` says whether a saved game keeps it, `yes` without it. A saved game keeps a mod's variables
+  in its `.mods` file, by their qualified names, such as `pirates:pirates_beaten`. Loading a saved
+  game from before the mod was on gives a variable its `Start`.
+- These make the variable's record, beside the game's own in `records.game_variables`, which load
+  scripts can change, the game's variables too
+  ([The game's variables](scripting.md#the-games-variables)).
+- Scripts read and set the values with `world.variable` and `world.set_variable`, a mod's by its
+  qualified name, or by its own name in the mod's own scripts ([Objects](scripting.md#objects)). The
+  news reports after a chapter's movie can wait on them and set them too
+  (`chapter_reports`, [Each mission of the campaign](scripting.md#each-mission-of-the-campaign)).
+- Another mod's missions can use them through that mod's own list
+  ([Another mod's records](#another-mods-records)).
+
+**Improvement:** the original's game variables are its own, and its code holds what the campaign
+does with them.
 
 ## Models
 
@@ -1394,7 +1445,7 @@ A script's messages and errors follow its mod's name, as above;
 | `skipping the mod <mod>: it needs OpenReliant <version>, and this is <version>` | Update OpenReliant, or check the mod's `OpenReliant=` ([The manifest](#the-manifest)) |
 | `skipping the mod <mod>: it needs the mod <name>, which doesn't load before it` | Add that mod, turn it on, or move it above this one on the mods screen ([The manifest](#the-manifest)) |
 | `skipping the mod <archive>: checking <file> failed: ...` | The archive doesn't match its checksum: download it again, or pack it again with `--checksum` ([Checksums](#checksums)) |
-| `<mod>: mod.ini: the <kind> '<name>' ...` | The entry the message names, and what it says is wrong ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots)) |
+| `<mod>: mod.ini: the <kind> '<name>' ...` | The entry the message names, and what it says is wrong ([New ships, guns, missiles and pilots](#new-ships-guns-missiles-and-pilots), [Game variables](#game-variables)) |
 | `skipping the picture that replaces <name>: it's <size>, and the original is <size>` | That picture must keep the original's size ([Pictures](#pictures)) |
 | `the <map> of <texture> is left out: it is <size> and its picture <size>` | A map must be the same size as its texture ([Material maps](#material-maps)) |
 | `the <map> of <texture> is left out: it has <n> mipmap levels and its picture <n>` | Save the DDS or KTX2 map with all its mipmaps, as many as the picture has ([Compression](#compression)) |

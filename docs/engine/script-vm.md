@@ -92,6 +92,18 @@ it in the game; OpenReliant gives every number a byte names a variable of its ow
 ([`vm.Variables`](../../src/engine/vm.zig)). Mods' scripts name a variable by its name in the
 table below, or by its number (`GameVariable`).
 
+**Improvement:** what a new campaign, each attempt at a mission and a saved game do with each
+variable comes from its record (`gameflow.VariableRecord`), which load scripts can change
+([The game's variables](../guide/scripting.md#the-games-variables)). The original's records hold
+the lists the game's code holds: `campaign_new` clears the first 32 and sets the campaign's flags
+to 1 (`gameflow.newCampaign`), `mission_reset_variables` clears the attempt's own
+(`gameflow.resetVariables`), and `game_save` keeps 25 ([Saved games](../formats/save.md)).
+
+**Improvement:** mods add game variables of their own, which OpenReliant numbers from 64 on
+(`additions.variables`, [Game variables](../guide/modding.md#game-variables)). A mod's missions
+number them from 38 on, and OpenReliant changes those numbers in the operands of `push_array` and
+`select_array` as it loads the mission (`additions.remapMission`).
+
 | Number | Name | What it holds |
 |---|---|---|
 | 0, 1 | `jump_ready`, `warp_ready` | Whether the mission has a jump or a warp ready for JUMP DRIVE, which the display's prompt reads ([Jumps](jump.md)) |

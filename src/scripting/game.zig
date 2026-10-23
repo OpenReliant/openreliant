@@ -1049,6 +1049,49 @@ test "a script sets the state of a mission's objectives, as SetObjective does" {
     try std.testing.expectEqual(2, display.objectives.shown);
 }
 
+test "a script reads and sets the game's variables, a mod's by its name" {
+    const variables_added = openreliant.engine.game.additions.variables;
+    var added = [_]variables_added.Added{.{ .name = "a:pirates_beaten", .mod = "a", .base = {}, .based = false, .extra = .{} }};
+    variables_added.install(&added);
+    defer variables_added.reset();
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local world = require("openreliant.world")
+                \\-- Between missions, there are none.
+                \\assert(world.variable("krasnaya_alive") == nil and not world.set_variable("krasnaya_alive", 1))
+                \\return {
+                \\    engine_handlers = {
+                \\        on_mission_start = function()
+                \\            assert(world.variable("krasnaya_alive") == 1 and world.variable(17) == 1)
+                \\            assert(world.variable("mission_success") == -1)
+                \\            assert(world.set_variable("krasnaya_alive", 0))
+                \\            -- The mod's own, by its own name or its qualified one.
+                \\            assert(world.set_variable("pirates_beaten", 3))
+                \\            assert(world.variable("a:pirates_beaten") == 3)
+                \\            assert(not pcall(world.variable, "pirates"))
+                \\        end,
+                \\    },
+                \\}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    var variables: openreliant.engine.vm.Variables = .{};
+    variables.krasnaya_alive = 1;
+    variables.mission_success = .total_failure;
+    var shown = fixture.mission.world();
+    shown.variables = &variables;
+    fixture.game.scripts.begin(.of(shown), .{ .number = 22, .file = "mission22.dte" }, 1);
+    fixture.game.scripts.started(.{ .number = 22, .file = "mission22.dte" });
+    try std.testing.expectEqual(0, variables.krasnaya_alive);
+    try std.testing.expectEqual(3, variables.slot(variables_added.first).*);
+}
+
 test "scripts list a ship's parts, destroy it, and set the player's targets" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{

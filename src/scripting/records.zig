@@ -32,10 +32,12 @@
 //! maneuvers, planets and the CD player's tracks.
 //!
 //! `cd_player` holds the CD player's tracks, the Reliant's list, the Yamato's, then those mods add
-//! (`game.interface.cd_player.Track`), and `room_views` the rooms' views
-//! (`game.interface.rooms.View`): proxies whose fields load scripts change in place too
-//! ([#1167](https://github.com/OpenReliant/openreliant/issues/1167),
-//! [#1169](https://github.com/OpenReliant/openreliant/issues/1169)).
+//! (`game.interface.cd_player.Track`), `room_views` the rooms' views
+//! (`game.interface.rooms.View`), and `game_variables` what the campaign does with each of the
+//! game's variables (`game.gameflow.VariableRecord`): proxies whose fields load scripts change in
+//! place too ([#1167](https://github.com/OpenReliant/openreliant/issues/1167),
+//! [#1169](https://github.com/OpenReliant/openreliant/issues/1169),
+//! [#1322](https://github.com/OpenReliant/openreliant/issues/1322)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -45,6 +47,7 @@ const stats = openreliant.stats;
 const game = openreliant.engine.game;
 const language = game.language;
 const gameflow = game.gameflow;
+const vm = openreliant.engine.vm;
 const luau = @import("luau.zig");
 const State = luau.State;
 const bind = @import("bind.zig");
@@ -57,10 +60,11 @@ pub const maneuvers = @import("records/maneuvers.zig");
 pub const planets = @import("records/planets.zig");
 pub const cd_player = @import("records/cd_player.zig");
 pub const room_views = @import("records/room_views.zig");
+pub const game_variables = @import("records/game_variables.zig");
 
 /// The tables whose entries have named fields (`records/table.zig`), each a module that declares
 /// `script_name`, `list_name`, `Field`, `TypeOf`, `about`, `each` and `entries_about`.
-pub const field_tables = .{ missions, killboard, maneuvers, planets, cd_player, room_views };
+pub const field_tables = .{ missions, killboard, maneuvers, planets, cd_player, room_views, game_variables };
 
 /// The proxies for records.
 pub const Values = bind.Binding(&.{ stats.Ship, game.create.combat_stats.Static, stats.Gun, stats.Missile, stats.Pilot, game.pilots.FaceRecord }, @backingInt(runtime.Tag.record_value), "record");
@@ -109,6 +113,10 @@ pub const Records = struct {
     /// The rooms' views, which the game takes once the load scripts have run
     /// (`interface.rooms.install`). The names, words and exits scripts give are in `arena`.
     room_views: game.interface.rooms.Views,
+    /// What the campaign does with each of the game's variables, by its number, the mods' included
+    /// (`gameflow.addModVariables`), which the game takes once the load scripts have run
+    /// (`gameflow.installVariables`).
+    game_variables: *[vm.Variables.count]gameflow.VariableRecord,
     /// Where text from scripts is allocated. It must live as long as the game's original strings.
     arena: Allocator,
 
@@ -129,6 +137,7 @@ pub const Records = struct {
         planets: []const game.create.planets.Planet = &game.create.planets.original,
         cd_player: []const game.interface.cd_player.Track = &game.interface.cd_player.original,
         room_views: game.interface.rooms.Views = game.interface.rooms.views.views,
+        game_variables: *const [vm.Variables.count]gameflow.VariableRecord = &gameflow.VariableRecord.original,
     };
 
     /// Copies `tables` into `arena`.
@@ -149,8 +158,18 @@ pub const Records = struct {
             .planets = try arena.dupe(game.create.planets.Planet, tables.planets),
             .cd_player = try arena.dupe(game.interface.cd_player.Track, tables.cd_player),
             .room_views = tables.room_views,
+            .game_variables = try gameVariables(arena, tables.game_variables),
             .arena = arena,
         };
+    }
+
+    /// A copy of `original`, the records of the game's variables, with those of the game variables
+    /// mods add (`gameflow.addModVariables`).
+    fn gameVariables(arena: Allocator, original: *const [vm.Variables.count]gameflow.VariableRecord) Allocator.Error!*[vm.Variables.count]gameflow.VariableRecord {
+        const made = try arena.create([vm.Variables.count]gameflow.VariableRecord);
+        made.* = original.*;
+        gameflow.addModVariables(made);
+        return made;
     }
 
     fn copy(arena: Allocator, comptime T: type, records: []align(1) const T) Allocator.Error![]T {
@@ -193,6 +212,7 @@ pub const Records = struct {
         errdefer gpa.free(saved.cd_player);
         saved.cd_player_held = records.cd_player;
         saved.room_views = records.room_views;
+        saved.game_variables = records.game_variables.*;
         inline for (comptime std.enums.values(Set), 0..) |set, made| {
             errdefer inline for (comptime std.enums.values(Set)[0..made]) |done| gpa.free(@field(saved, @tagName(done)));
             @field(saved, @tagName(set)) = try gpa.dupe(set.Element(), @field(records, @tagName(set)));
@@ -226,6 +246,7 @@ pub const Records = struct {
         /// planets' table.
         cd_player_held: []game.interface.cd_player.Track,
         room_views: game.interface.rooms.Views,
+        game_variables: [vm.Variables.count]gameflow.VariableRecord,
 
         pub fn restore(saved: Snapshot, records: *Records) void {
             inline for (comptime std.enums.values(Set)) |set| @memcpy(@field(records, @tagName(set)), @field(saved, @tagName(set)));
@@ -240,6 +261,7 @@ pub const Records = struct {
             records.cd_player = saved.cd_player_held;
             @memcpy(records.cd_player, saved.cd_player);
             records.room_views = saved.room_views;
+            records.game_variables.* = saved.game_variables;
         }
 
         pub fn deinit(saved: Snapshot, gpa: Allocator) void {
@@ -365,7 +387,8 @@ pub fn register(state: *State) void {
 /// campaign's missions (`campaign`), the settings of each (`missions`), the KILLBOARD's pilots
 /// (`killboard`), the combat maneuvers (`maneuvers`), the planets (`planets`), the colour of their
 /// light (`planet_light`), the CD player's tracks (`cd_player`) and the rooms' views
-/// (`room_views`), which scripts can change only if `writable`. Call `register` first.
+/// (`room_views`) and what the campaign does with the game's variables (`game_variables`), which
+/// scripts can change only if `writable`. Call `register` first.
 pub fn push(state: *State, records: *Records, writable: bool) void {
     state.newTable(0, std.enums.values(Set).len + field_tables.len);
     inline for (comptime std.enums.values(Set)) |set| {

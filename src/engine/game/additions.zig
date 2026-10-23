@@ -1,6 +1,7 @@
 //! OpenReliant's: the records mods add, each family numbered after the game's records: ship types
 //! ([#333](https://github.com/OpenReliant/openreliant/issues/333)), gun types, missile types and
-//! pilots ([#640](https://github.com/OpenReliant/openreliant/issues/640)).
+//! pilots ([#640](https://github.com/OpenReliant/openreliant/issues/640)), and game variables
+//! ([#1322](https://github.com/OpenReliant/openreliant/issues/1322)).
 //!
 //! A mod lists what it adds in its manifest, a section for each family, and describes each in a
 //! section of its own, with one of the game's records as its base:
@@ -18,12 +19,13 @@
 //!   so the numbers depend on which mods are on. Scripts name each by its qualified name, such as
 //!   `bananas:banana`, never by its number.
 //! - Each acts as its base wherever the code singles one out (`gameobj.Type.base`,
-//!   `guns.GunType.base`, `missiles.Type.base`), and starts with its base's records.
+//!   `guns.GunType.base`, `missiles.Type.base`), and starts with its base's records. A game
+//!   variable has no base.
 //! - The number after its name in the list is the number the mod's own files use for it: its
-//!   missions for ship types, the carriers ships launch from and pilots, its models' muzzles for
-//!   guns and their hardpoints for missiles. As OpenReliant loads one of the mod's files, it
-//!   changes that number to the one the record got (`remapMission`, `remapModel`), so the files
-//!   stay in the game's formats.
+//!   missions for ship types, the carriers ships launch from, pilots and game variables, its
+//!   models' muzzles for guns and their hardpoints for missiles. As OpenReliant loads one of the
+//!   mod's files, it changes that number to the one the record got (`remapMission`,
+//!   `remapModel`), so the files stay in the game's formats.
 //! - A mod can list a record that a mod it requires adds, by its qualified name, with the number
 //!   its own files use for it, so that its files can use that record too (`Family.Reference`):
 //!
@@ -54,6 +56,8 @@ const missiles_module = @import("missiles.zig");
 const pilots_module = @import("pilots.zig");
 const loadout = @import("../interface/loadout/tables.zig");
 const mods_module = @import("bigfile/mods.zig");
+const vm = @import("../vm.zig");
+const gameflow = @import("gameflow.zig");
 const Mod = mods_module.Mod;
 
 const log = std.log.scoped(.mods);
@@ -71,9 +75,12 @@ pub fn Spec(comptime Base: type, comptime Extra: type) type {
         /// Its first number, the one after the game's last, and the number past its last.
         first: u32,
         end: u32,
-        /// The game's record the manifest's text names, and the number of each.
-        baseOf: fn ([]const u8) ?Base,
-        baseNumber: fn (Base) u32,
+        /// The least number the mod's own files can give one, where that is below `first`.
+        own_first: ?u32 = null,
+        /// The game's record the manifest's text names, and the number of each. Null for a family
+        /// whose records have no base, such as the game variables, which take `template`.
+        baseOf: ?fn ([]const u8) ?Base = null,
+        baseNumber: ?fn (Base) u32 = null,
         /// What the mod's own files that use the number after a record's name are, for the log.
         numbered_in: []const u8,
         /// The game's record one without a `Base` starts from, where the family takes one without:
@@ -219,12 +226,20 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             return null;
         }
 
+        /// Whether the mod called `mod` gives any record of the family a number in its files
+        /// (`remapped`).
+        pub fn numbered(mod: []const u8) bool {
+            for (registered) |each| if (each.own_number != null and std.mem.eql(u8, each.mod, mod)) return true;
+            for (referenced) |each| if (std.mem.eql(u8, each.mod, mod)) return true;
+            return false;
+        }
+
         /// The number of what `text` names, for a record of the mod whose qualified names start
         /// with `mod` (`Mod.qualifier`): one of the game's by its name or number
         /// (`Spec.baseOf`), one the mods add by its qualified name, or one `mod` adds by its own
         /// name.
         pub fn named(text: []const u8, mod: []const u8) ?u32 {
-            if (spec.baseOf(text)) |base| return spec.baseNumber(base);
+            if (spec.baseOf) |of| if (of(text)) |base| return spec.baseNumber.?(base);
             if (find(text)) |number| return number;
             var buffer: [256]u8 = undefined;
             const qualified = std.mem.print(&buffer, "{s}:{s}", .{ mod, text }) catch return null;
@@ -273,8 +288,9 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
         /// `added` or `references`, which the log says.
         fn ownNumber(context: Context, text: []const u8, added: []const Added, references: []const Reference) ?u32 {
             const number = std.fmt.parseInt(u32, text, 0) catch 0;
-            if (number < first or number >= end) {
-                context.warn(spec.noun, "gives " ++ spec.numbered_in ++ " the number {s}, which isn't from {d} to {d}", .{ text, first, end - 1 });
+            const least = spec.own_first orelse first;
+            if (number < least or number >= end) {
+                context.warn(spec.noun, "gives " ++ spec.numbered_in ++ " the number {s}, which isn't from {d} to {d}", .{ text, least, end - 1 });
                 return null;
             }
             if (holder(context.mod.name, number, added, references)) |name| {
@@ -332,8 +348,8 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
                 return null;
             };
             const section = try context.arena.print("{s}{s}", .{ spec.item_section, own });
-            const base_text = manifest.value(section, "Base");
-            const base = if (base_text) |text| spec.baseOf(text) orelse {
+            const base_text = if (spec.baseOf == null) null else manifest.value(section, "Base");
+            const base = if (base_text) |text| spec.baseOf.?(text) orelse {
                 context.warn(spec.noun, "has the base '{s}', which isn't one of the game's", .{text});
                 return null;
             } else spec.template orelse {
@@ -364,7 +380,7 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             const kept = @min(game.len, own_count);
             for (made[0..kept], game[0..kept]) |*record, from| record.* = from;
             @memset(made[kept..own_count], std.mem.zeroes(Record));
-            for (made[own_count..], registered) |*record, each| record.* = made[spec.baseNumber(each.base) - numbered_from];
+            for (made[own_count..], registered) |*record, each| record.* = made[spec.baseNumber.?(each.base) - numbered_from];
             return made;
         }
     };
@@ -436,8 +452,8 @@ fn readShip(context: Context, section: []const u8, _: gameobj.GameType) Allocato
     if (manifest.value(section, "WingIcon")) |text| made.wing_icon = try context.arena.dupe(u8, files.stem(text));
     if (manifest.value(section, "EngineSound")) |name| made.engine_sound = try readSound(context, "ship type", name) orelse return null;
     if (manifest.value(section, "Tier")) |text| made.tier = try readTier(context, "ship type", text) orelse return null;
-    if (manifest.value(section, "BlindFire")) |text| made.blind_fire = readSwitch(context, "BlindFire", text) orelse return null;
-    if (manifest.value(section, "SpectralShields")) |text| made.spectral_shields = readSwitch(context, "SpectralShields", text) orelse return null;
+    if (manifest.value(section, "BlindFire")) |text| made.blind_fire = readSwitch(context, "ship type", "BlindFire", text) orelse return null;
+    if (manifest.value(section, "SpectralShields")) |text| made.spectral_shields = readSwitch(context, "ship type", "SpectralShields", text) orelse return null;
     if (manifest.value(section, "Class")) |text| made.class = readNamed(loadout.Class, context, "Class", text) orelse return null;
     if (manifest.value(section, "Access")) |text| made.access = readNamed(loadout.Access, context, "Access", text) orelse return null;
     if (manifest.value(section, "Crew")) |text| {
@@ -494,13 +510,13 @@ fn fileName(context: Context, text: []const u8) Allocator.Error![]const u8 {
     return context.arena.dupe(u8, files.leaf(text));
 }
 
-/// `text` as a switch: `yes`, `true`, `on` or `1`, or `no`, `false`, `off` or `0`, in any case;
-/// null where it is none of them, which the log says.
-fn readSwitch(context: Context, comptime key: []const u8, text: []const u8) ?bool {
+/// `text` as a switch of a record of `noun`: `yes`, `true`, `on` or `1`, or `no`, `false`, `off`
+/// or `0`, in any case; null where it is none of them, which the log says.
+fn readSwitch(context: Context, comptime noun: []const u8, comptime key: []const u8, text: []const u8) ?bool {
     const trimmed = std.mem.trim(u8, text, " \t");
     for ([_][]const u8{ "yes", "true", "on", "1" }) |word| if (std.ascii.eqlIgnoreCase(trimmed, word)) return true;
     for ([_][]const u8{ "no", "false", "off", "0" }) |word| if (std.ascii.eqlIgnoreCase(trimmed, word)) return false;
-    context.warn("ship type", "gives " ++ key ++ " the value '{s}', which isn't yes or no", .{text});
+    context.warn(noun, "gives " ++ key ++ " the value '{s}', which isn't yes or no", .{text});
     return null;
 }
 
@@ -699,11 +715,49 @@ pub const pilots = Family(u8, PilotExtra, .{
     .readExtra = readPilot,
 });
 
+/// A game variable's record (`gameflow.VariableRecord`) from its section: `Start`, the value a new
+/// campaign gives it, 0 without it; `Attempt`, the value each attempt at a mission starts it at,
+/// none without it, so that the campaign keeps it from one mission to the next; and `Saved`,
+/// whether a saved game keeps it, yes without it.
+fn readVariable(context: Context, section: []const u8, _: void) Allocator.Error!?gameflow.VariableRecord {
+    const manifest = context.mod.manifest;
+    var made: gameflow.VariableRecord = .{ .start = 0, .saved = true };
+    if (manifest.value(section, "Start")) |text| made.start = readValue(context, "Start", text) orelse return null;
+    if (manifest.value(section, "Attempt")) |text| made.attempt = readValue(context, "Attempt", text) orelse return null;
+    if (manifest.value(section, "Saved")) |text| made.saved = readSwitch(context, "game variable", "Saved", text) orelse return null;
+    return made;
+}
+
+/// The value `text` gives a game variable's `key`, a whole number; null where it isn't one, which
+/// the log says.
+fn readValue(context: Context, comptime key: []const u8, text: []const u8) ?i32 {
+    return std.fmt.parseInt(i32, std.mem.trim(u8, text, " \t"), 0) catch {
+        context.warn("game variable", "gives " ++ key ++ " the value '{s}', which isn't a whole number", .{text});
+        return null;
+    };
+}
+
+/// The game variables mods add, past the original's block of 64 up to the last number a script's
+/// byte names (`vm.Variables`). A mod's missions can also number them from the block's spare
+/// variables on, which neither the engine nor the shipped missions use, so that the missions run in
+/// the original too.
+pub const variables = Family(void, gameflow.VariableRecord, .{
+    .noun = "game variable",
+    .list_section = "GameVariables",
+    .item_section = "GameVariable ",
+    .first = vm.Variables.block_size,
+    .end = vm.Variables.count,
+    .own_first = vm.Variables.number("spare"),
+    .numbered_in = "its missions",
+    .template = {},
+    .readExtra = readVariable,
+});
+
 /// Reads what each mod in `mods` adds, and the records of other mods it names, family by family,
 /// in load order, as OpenReliant starts: the guns, missiles and pilots before the ship types, which
-/// can name them.
+/// can name them, then the game variables.
 pub fn read(arena: Allocator, mods: []const Mod) Allocator.Error!void {
-    inline for (.{ guns, missiles, pilots, ships }) |family| {
+    inline for (.{ guns, missiles, pilots, ships, variables }) |family| {
         const listed = try family.read(arena, mods);
         family.install(listed.added);
         family.installReferences(listed.references);
@@ -716,6 +770,7 @@ pub fn reset() void {
     guns.reset();
     missiles.reset();
     pilots.reset();
+    variables.reset();
 }
 
 /// The game's strings `text`, then the name of each record the mods add that has one, which each
@@ -741,12 +796,19 @@ pub fn addNames(arena: Allocator, text: []const []const u8) Allocator.Error![]co
     return made.items;
 }
 
-/// Replaces the numbers that the mod called `mod` gives the ship types and pilots it adds, in the
-/// ship records of the mission `image`, with the numbers they got: each ship's type, the type of
-/// the carrier it launches from, and its pilot. A mission that can't be read is left as it is, to
-/// fail as it loads.
-pub fn remapMission(image: []u8, mod: []const u8) void {
+/// Replaces the numbers that the mod called `mod` gives the records it adds, or names, in the
+/// mission `image`, with the numbers they got: in its ship records, each ship's type, the type of
+/// the carrier it launches from, and its pilot; in its script, the game variables
+/// (`remapVariables`). A mission that can't be read is left as it is, to fail as it loads.
+pub fn remapMission(gpa: Allocator, image: []u8, mod: []const u8) Allocator.Error!void {
     const mission = dte.Mission.parse(image) catch return;
+    remapShips(image, mission, mod);
+    try remapVariables(gpa, image, mission, mod);
+}
+
+/// Replaces the numbers that the mod called `mod` gives the ship types and pilots it adds, or
+/// names, in the ship records of the mission `image`.
+fn remapShips(image: []u8, mission: dte.Mission, mod: []const u8) void {
     const records = mission.ships() catch return;
     const start = (mission.span(.ships) catch return orelse return).offset;
     for (records, 0..) |record, at| {
@@ -760,6 +822,35 @@ pub fn remapMission(image: []u8, mod: []const u8) void {
             std.mem.writeInt(u16, image[place + @offsetOf(dte.Ship, "launch_from") ..][0..2], @intCast(number), .little);
         }
         if (pilots.remapped(mod, record.pilot)) |number| image[place + @offsetOf(dte.Ship, "pilot")] = @intCast(number);
+    }
+}
+
+/// Replaces the numbers that the mod called `mod` gives the game variables it adds, or names, in
+/// the script of the mission `image`, with the numbers they got: the operand of each `push_array`
+/// and `select_array` that its parts and its triggers' blocks reach.
+fn remapVariables(gpa: Allocator, image: []u8, mission: dte.Mission, mod: []const u8) Allocator.Error!void {
+    if (!variables.numbered(mod)) return;
+    const script = mission.script() catch return;
+    const offset = (mission.span(.script) catch return orelse return).offset;
+    const routines = mission.routines(gpa) catch |err| switch (err) {
+        error.OutOfMemory => |oom| return oom,
+        else => return,
+    };
+    defer gpa.free(routines);
+    // A block more than one routine runs is read once, so its variables change once.
+    var blocks: std.DynamicBitSetUnmanaged = try .initEmpty(gpa, script.len);
+    defer blocks.deinit(gpa);
+    for (routines) |routine| {
+        if (routine.start >= script.len or blocks.isSet(routine.start)) continue;
+        blocks.set(routine.start);
+        const listing = try dte.disassemble(gpa, script, routine.start) orelse continue;
+        defer gpa.free(listing.instructions);
+        for (listing.instructions) |instruction| switch (instruction.opcode) {
+            .push_array, .select_array => if (variables.remapped(mod, instruction.operands[0])) |number| {
+                image[offset + instruction.address + 1] = @intCast(number);
+            },
+            else => {},
+        };
     }
 }
 
@@ -1072,6 +1163,90 @@ test addNames {
     try std.testing.expectEqualStrings("Yellow.", text[missile_list[0].extra.description_string.? - 1]);
 }
 
+test "the game variables a mod adds" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const campaign: Mod = .{ .name = "campaign", .source = undefined, .manifest = .{ .text =
+        \\[GameVariables]
+        \\pirates_beaten=40
+        \\alarm=0x50
+        \\script_only=
+        \\bad_start=42
+        \\taken=17
+        \\[GameVariable pirates_beaten]
+        \\Start=1
+        \\Base=krasnaya_alive
+        \\[GameVariable alarm]
+        \\Attempt=-1
+        \\Saved=no
+        \\[GameVariable bad_start]
+        \\Start=lots
+    } };
+    const sequel: Mod = .{ .name = "sequel", .source = undefined, .manifest = .{ .text =
+        \\[Mod]
+        \\Requires=campaign
+        \\[GameVariables]
+        \\campaign:pirates_beaten=40
+        \\own=41
+    } };
+    try read(arena.allocator(), &.{ campaign, sequel });
+    defer reset();
+    // The ones with a start that isn't a number, or a number the game's own variables use, are left
+    // out. The rest are numbered past the original's block, in load order.
+    const all = variables.all();
+    try std.testing.expectEqual(4, all.len);
+    try std.testing.expectEqualStrings("campaign:pirates_beaten", all[0].name);
+    try std.testing.expectEqual(gameflow.VariableRecord{ .start = 1, .saved = true }, all[0].extra);
+    try std.testing.expect(!all[0].based);
+    try std.testing.expectEqual(gameflow.VariableRecord{ .start = 0, .attempt = -1, .saved = false }, all[1].extra);
+    try std.testing.expectEqual(null, all[2].own_number);
+    try std.testing.expectEqualStrings("sequel:own", all[3].name);
+    try std.testing.expectEqual(vm.Variables.block_size, variables.find("campaign:pirates_beaten").?);
+    // Each mod's missions number them their own way, the sequel's also the variable it requires.
+    try std.testing.expectEqual(variables.first, variables.remapped("campaign", 40).?);
+    try std.testing.expectEqual(variables.first + 1, variables.remapped("campaign", 0x50).?);
+    try std.testing.expectEqual(variables.first, variables.remapped("sequel", 40).?);
+    try std.testing.expectEqual(variables.first + 3, variables.remapped("sequel", 41).?);
+    try std.testing.expectEqual(null, variables.remapped("campaign", 41));
+    try std.testing.expect(variables.numbered("sequel") and !variables.numbered("other"));
+}
+
+test "remapMission changes a mod's game variables in its script" {
+    const gpa = std.testing.allocator;
+    var list = [_]variables.Added{
+        .{ .name = "a:x", .mod = "a", .base = {}, .based = false, .own_number = 40, .extra = .{} },
+        .{ .name = "z:x", .mod = "z", .base = {}, .based = false, .own_number = 40, .extra = .{} },
+    };
+    variables.install(&list);
+    defer reset();
+    // Mod `a`'s mission reads and sets its variable 40, and reads the spare variable 41, which it
+    // doesn't list, and the game's `krasnaya_alive`.
+    const krasnaya_alive = vm.Variables.number("krasnaya_alive");
+    var routine: dte.assemble.Routine = .init(gpa);
+    defer routine.deinit();
+    try routine.op(.push_array, &.{40});
+    try routine.op(.select_array, &.{40});
+    try routine.op(.push_array, &.{41});
+    try routine.op(.push_array, &.{krasnaya_alive});
+    try routine.op(.@"return", &.{});
+    const code = try routine.finish();
+    defer gpa.free(code);
+    var part = std.mem.zeroes(dte.Part);
+    part.flags.start = true;
+    part.length = @intCast(code.len / @sizeOf(u16));
+    var sections: dte.write.Sections = @splat(.{});
+    dte.write.set(&sections, .script, code.len / @sizeOf(u16), code);
+    dte.write.set(&sections, .parts, 1, std.mem.asBytes(&part));
+    const image = try dte.write.write(gpa, &sections, .{});
+    defer gpa.free(image);
+    try remapMission(gpa, image, "a");
+    const listing = (try dte.disassemble(gpa, try (try dte.Mission.parse(image)).script(), 0)).?;
+    defer gpa.free(listing.instructions);
+    var operands: [4]u8 = undefined;
+    for (listing.instructions[0..operands.len], &operands) |instruction, *operand| operand.* = instruction.operands[0];
+    try std.testing.expectEqualSlices(u8, &.{ variables.first, variables.first, 41, krasnaya_alive }, &operands);
+}
+
 test remapMission {
     const gpa = std.testing.allocator;
     var list = [_]ships.Added{
@@ -1103,7 +1278,7 @@ test remapMission {
     dte.write.set(&sections, .ships, records.len, std.mem.sliceAsBytes(&records));
     const image = try dte.write.write(gpa, &sections, .{});
     defer gpa.free(image);
-    remapMission(image, "a");
+    try remapMission(gpa, image, "a");
     const remapped_ships = try (try dte.Mission.parse(image)).ships();
     try std.testing.expectEqual(ships.first, remapped_ships[0].kind);
     try std.testing.expectEqual(pilots.first, remapped_ships[0].pilot);

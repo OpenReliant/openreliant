@@ -1,6 +1,7 @@
 //! The `openreliant.world` package ([#498](https://github.com/OpenReliant/openreliant/issues/498)),
 //! for global and mission scripts: the objects of the mission, its missiles in flight, the player's
-//! ship and target, the mission itself and its objectives (`package`).
+//! ship and target, the mission itself, its objectives, and the game's variables its script reads
+//! and sets ([#1237](https://github.com/OpenReliant/openreliant/issues/1237)) (`package`).
 
 const openreliant = @import("openreliant");
 const engine = openreliant.engine;
@@ -21,6 +22,8 @@ pub const package = struct {
     pub const set_player_target = api.Function("Makes `target`, or its component number `component`, the player's target, as a mission's SetPlayerTarget does: the display shows it, and the player stops matching speeds. Returns whether it worked: false for a target the player can't aim at, such as a destroyed component, and between missions.", &.{ "target", "component" }, setPlayerTarget);
     pub const set_primary_target = api.Function("Makes `target`, or its component number `component`, the mission's primary target, as a mission's SetPrimaryTarget does: the PRIMARY TARGET key selects it. Nil leaves the mission without one. Returns false between missions.", &.{ "target", "component" }, setPrimaryTarget);
     pub const set_objective = api.Function("Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names.", &.{ "objective", "state" }, setObjective);
+    pub const variable = api.Function("The value of the game's variable `name` in the mission that runs, as the mission's script reads it. Nil between missions.", &.{"name"}, readVariable);
+    pub const set_variable = api.Function("Sets the game's variable `name` to `value` in the mission that runs, as the mission's script sets it. The campaign keeps the value from one mission to the next where it keeps the variable. Returns false between missions.", &.{ "name", "value" }, setVariable);
 
     pub const player = api.Field(?Object, "The player's ship, while a mission runs; nil between missions.", struct {
         pub fn get(call: Call) ?Object {
@@ -45,6 +48,26 @@ fn setObjective(call: Call, objective: u8, state: hud.Objectives.Status) bool {
     const orders = call.runtime().orders orelse return false;
     const display = orders.world.display orelse return false;
     return display.objectives.set(objective, state);
+}
+
+/// `world.variable(name)`: the mission's variable `name`, as its script reads it (`push_array`).
+fn readVariable(call: Call, name: engine.vm.Variable) ?i32 {
+    const variables = missionVariables(call) orelse return null;
+    return @bitCast(variables.slot(@backingInt(name)).*);
+}
+
+/// `world.set_variable(name, value)`: sets the mission's variable `name`, as its script sets it
+/// (`select_array`).
+fn setVariable(call: Call, name: engine.vm.Variable, value: i32) bool {
+    const variables = missionVariables(call) orelse return false;
+    variables.slot(@backingInt(name)).* = @bitCast(value);
+    return true;
+}
+
+/// The game's variables the mission that runs reads and sets; null between missions.
+fn missionVariables(call: Call) ?*engine.vm.Variables {
+    const orders = call.runtime().orders orelse return null;
+    return orders.world.variables;
 }
 
 /// `world.set_player_target(target, component)`: `input.aimPlayer`, as a mission's

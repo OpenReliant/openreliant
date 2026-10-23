@@ -553,7 +553,11 @@ end
   that isn't valid is an error. `object:is_valid()` tells which.
 - `openreliant.world` gives global scripts `world.objects()`, the missiles in flight as
   `world.missiles()`, the player's ship as `world.player`, and the mission as `world.mission`, with
-  its `number` and its `file`'s name.
+  its `number` and its `file`'s name. `world.variable(name)` and `world.set_variable(name, value)`
+  read and set the game's variables, as the mission's script does: one of the game's by its name,
+  such as `"krasnaya_alive"`, or its number, and one a mod adds by its qualified name
+  ([Game variables](modding.md#game-variables)).
+
 - `type` is a name such as `"predator"`, or the qualified name of a mod's type, such as
   `"teapot:teapot"`.
 - `shields` and `armor` give each quadrant: `left`, `right`, `fore` and `aft`. `hull` is the share
@@ -1142,8 +1146,9 @@ The package also holds the campaign's order of missions, `campaign`
 ([Each mission of the campaign](#each-mission-of-the-campaign)), the KILLBOARD's pilots,
 `killboard` ([The KILLBOARD's pilots](#the-killboards-pilots)), the combat maneuvers,
 `maneuvers` ([Combat maneuvers](#combat-maneuvers)), the planets, `planets` ([Planets](#planets)),
-the CD player's tracks, `cd_player` ([The CD player's tracks](#the-cd-players-tracks)), and the
-rooms' views, `room_views` ([The rooms' views](#the-rooms-views)).
+the CD player's tracks, `cd_player` ([The CD player's tracks](#the-cd-players-tracks)), the
+rooms' views, `room_views` ([The rooms' views](#the-rooms-views)), and what the campaign does with
+the game's variables, `game_variables` ([The game's variables](#the-games-variables)).
 
 Records are looked up by number or by name, with the field names of the [stat
 tables](../formats/stats.md). The definitions file for editors ([Editors](#editors)) lists every
@@ -1357,7 +1362,8 @@ mission.fort_bear_ending = false
 - `landing_carrier` is where the landing plays after the mission, and `yamato_visit` whether the
   ship lands on the Yamato instead, as after missions 7 and 8. `chapter_reports` are the news
   reports after the chapter's movie, each waiting on the game's variables, such as
-  `rameses_alive`, and `alpha_5_pilot` and `alpha_6_pilot` the pilots the wing takes on.
+  `rameses_alive`, or a mod's own ([Game variables](modding.md#game-variables)), and
+  `alpha_5_pilot` and `alpha_6_pilot` the pilots the wing takes on.
 ### The KILLBOARD's pilots
 
 `records.killboard` holds the pilots of the ITAC's KILLBOARD, numbered from 1, in the game's order.
@@ -1546,6 +1552,39 @@ records.room_views[2].label = "Report for Duty"
 
 - The table always has its 125 views: a script changes views but can't add or remove them.
 - `rooms.view` and `on_room_changed` give a view by the same numbers ([The rooms](#the-rooms)).
+
+### The game's variables
+
+`records.game_variables` says what the campaign does with each of the game's variables, the ones a
+mission's script reads and sets by number ([The game's variables](../engine/script-vm.md#the-games-variables)).
+It holds one for each number, from 0 to 255, and a script also finds one by its name: the game's,
+such as `krasnaya_alive`, or the qualified name of one a mod adds
+([Game variables](modding.md#game-variables)). Each has:
+
+- `name`, its name, or nil for a number without one. It can't be changed.
+- `start`, the value a new campaign gives it, or nil to leave it as it was. The game's own clear
+  the first 32 variables and set the campaign's flags, such as `ghost_alive`, to 1.
+- `attempt`, the value each attempt at a mission starts it at, or nil where the campaign keeps it
+  from one mission to the next.
+- `saved`, whether a saved game keeps it.
+
+The campaign goes by them, so a load script changes what any variable does:
+
+```lua
+local records = require("openreliant.records")
+
+-- A replacement campaign starts without the Krasnaya, and gives each attempt a fresh countdown.
+records.game_variables.krasnaya_alive.start = 0
+records.game_variables.countdown = { attempt = 60 }
+```
+
+- The table always has its 256 variables: a script changes them but can't add or remove them. A mod
+  adds a variable of its own, with a name, in its manifest.
+- A saved game keeps the 25 variables the original keeps where the original keeps them, so that the
+  original can still read the save, and the others it keeps in its `.mods` file
+  ([Saved games](../formats/save.md#in-openreliant)).
+- Scripts read and set the values in a mission that runs with `world.variable` and
+  `world.set_variable` ([Objects](#objects)).
 
 ## Saved games
 

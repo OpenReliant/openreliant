@@ -166,6 +166,15 @@ Each of the rooms' views, `room_views[n]`, is a `RoomView` with these fields:
 | `hotspot` | [ScreenRect](#screenrect) | The area of the game's 640 by 480 screen where the pointer selects the way into this view, in each view that has it as an exit. |
 | `sound` | number, or nil | The number of the sound from the rooms' `vrsnd.fat` that plays on the way into the view; nil for none. |
 
+Each of the game's variables, `game_variables[n]`, is a `GameVariableRecord` with these fields:
+
+| Field | Type | What it is |
+|---|---|---|
+| `name` | string, or nil | Its name: the game's, such as `krasnaya_alive`, or the qualified name of one a mod adds; nil for a number without one. It can't be changed. |
+| `start` | number, or nil | The value a new campaign gives it; nil leaves it as it was. The game's own clear the first 32 variables and set the campaign's flags, such as `ghost_alive`, to 1. |
+| `attempt` | number, or nil | The value each attempt at a mission starts it at; nil where the campaign keeps it from one mission to the next, as it keeps the campaign's flags. |
+| `saved` | boolean | Whether a saved game keeps it. |
+
 ### `openreliant.hooks`
 
 Handlers on the game's functions and events. For global and object scripts.
@@ -183,6 +192,8 @@ The mission's objects, the player's ship and the mission itself. For global scri
 | `set_player_target(target: Object, component: number?)` | boolean | Makes `target`, or its component number `component`, the player's target, as a mission's SetPlayerTarget does: the display shows it, and the player stops matching speeds. Returns whether it worked: false for a target the player can't aim at, such as a destroyed component, and between missions. |
 | `set_primary_target(target: Object?, component: number?)` | boolean | Makes `target`, or its component number `component`, the mission's primary target, as a mission's SetPrimaryTarget does: the PRIMARY TARGET key selects it. Nil leaves the mission without one. Returns false between missions. |
 | `set_objective(objective: number, state: ObjectiveState)` | boolean | Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names. |
+| `variable(name: GameVariable)` | number, or nil | The value of the game's variable `name` in the mission that runs, as the mission's script reads it. Nil between missions. |
+| `set_variable(name: GameVariable, value: number)` | boolean | Sets the game's variable `name` to `value` in the mission that runs, as the mission's script sets it. The campaign keeps the value from one mission to the next where it keeps the variable. Returns false between missions. |
 
 ### `openreliant.self`
 
@@ -670,6 +681,8 @@ turret, and a turret's own scripts on their turret.
 | `set_player_target(target: Object, component: number?)` | boolean | Makes `target`, or its component number `component`, the player's target, as a mission's SetPlayerTarget does: the display shows it, and the player stops matching speeds. Returns whether it worked: false for a target the player can't aim at, such as a destroyed component, and between missions. |
 | `set_primary_target(target: Object?, component: number?)` | boolean | Makes `target`, or its component number `component`, the mission's primary target, as a mission's SetPrimaryTarget does: the PRIMARY TARGET key selects it. Nil leaves the mission without one. Returns false between missions. |
 | `set_objective(objective: number, state: ObjectiveState)` | boolean | Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names. |
+| `variable(name: GameVariable)` | number, or nil | The value of the game's variable `name` in the mission that runs, as the mission's script reads it. Nil between missions. |
+| `set_variable(name: GameVariable, value: number)` | boolean | Sets the game's variable `name` to `value` in the mission that runs, as the mission's script sets it. The campaign keeps the value from one mission to the next where it keeps the variable. Returns false between missions. |
 
 ### I.Campaign
 
@@ -1952,6 +1965,10 @@ number. A script can set a field to either.
 
 `hidden`, `listed`, `current`, or a number.
 
+### GameVariable
+
+`jump_ready`, `warp_ready`, `backup_available`, `player_missiles_left`, `mcgann_alive`, `nicolai_petrov_alive`, `ivan_petrov_alive`, `kulov_alive`, `mission_over`, `landing_cleared`, `al_rahan_alive`, `sharif_alive`, `steiner_alive`, `mission_success`, `players`, `krasnaya_alive`, `rameses_alive`, `kozah_alive`, `fixed_gate_alive`, `warp_gate_alive`, `last_success`, `objectives_met`, `czar_alive`, `ghost_alive`, `reliant_alive`, `countdown`, `chapter2_thread3_shown`, `red_dragon_alive`, `yamato_alive`, `ion_cannons_hold_lock`, the qualified name of one a mod adds, its own name in that mod's scripts, or a number.
+
 ### RadioMode
 
 `now`, `queued`, `if_idle`, or a number.
@@ -2047,10 +2064,6 @@ number. A script can set a field to either.
 ### YamatoVisit
 
 `never`, `always`, `when_reliant_lost`.
-
-### GameVariable
-
-`jump_ready`, `warp_ready`, `backup_available`, `player_missiles_left`, `mcgann_alive`, `nicolai_petrov_alive`, `ivan_petrov_alive`, `kulov_alive`, `mission_over`, `landing_cleared`, `al_rahan_alive`, `sharif_alive`, `steiner_alive`, `mission_success`, `players`, `krasnaya_alive`, `rameses_alive`, `kozah_alive`, `fixed_gate_alive`, `warp_gate_alive`, `last_success`, `objectives_met`, `czar_alive`, `ghost_alive`, `reliant_alive`, `countdown`, `chapter2_thread3_shown`, `red_dragon_alive`, `yamato_alive`, `ion_cannons_hold_lock`, or a number.
 
 ### RoomAction
 

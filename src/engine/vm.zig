@@ -12,6 +12,7 @@ const assert = std.debug.assert;
 
 const dte = @import("../formats/dte.zig");
 const layout = @import("../formats/layout.zig");
+const additions = @import("game/additions.zig");
 const commands = @import("game/executor/commands.zig");
 const engine = @import("../engine.zig");
 const hud = @import("game/hud.zig");
@@ -469,6 +470,66 @@ test GameVariable {
     try std.testing.expectEqual(Variables.number("rameses_alive"), @backingInt(GameVariable.rameses_alive));
     try std.testing.expectEqual(1, @backingInt(GameVariable.warp_ready));
     try std.testing.expectEqual(36, @backingInt(GameVariable.yamato_alive));
+}
+
+/// One of the game's variables by its number, as scripts name it: one of the game's by its name
+/// (`GameVariable`), one a mod adds by its qualified name (`additions.variables`), or any by its
+/// number.
+pub const Variable = enum(u8) {
+    /// The name scripts know these values by, and the names they know.
+    pub const script_name = "GameVariable";
+    pub const Named = GameVariable;
+    _,
+
+    /// The game's variable `game`.
+    pub fn of(game: GameVariable) Variable {
+        return @fromBackingInt(@backingInt(game));
+    }
+
+    /// The variable a mod adds that it is, if it is one.
+    pub fn added(variable: Variable) ?*const additions.variables.Added {
+        return additions.variables.get(@backingInt(variable));
+    }
+
+    /// The game's name for it: none for a number without one, or whose name is a placeholder,
+    /// such as `_unused_2`.
+    pub fn gameName(variable: Variable) ?[]const u8 {
+        const name = std.enums.tagName(GameVariable, @fromBackingInt(@backingInt(variable))) orelse return null;
+        return if (name[0] == '_') null else name;
+    }
+
+    /// The name scripts know it by: the qualified name of one a mod adds, else the game's name
+    /// (`gameName`).
+    pub fn scriptName(variable: Variable) ?[]const u8 {
+        if (variable.added()) |from_mod| return from_mod.name;
+        return variable.gameName();
+    }
+
+    /// The variable scripts name `text`, if there is one.
+    pub fn fromScriptName(text: []const u8) ?Variable {
+        if (additions.variables.find(text)) |found| return @fromBackingInt(@intCast(found));
+        return .of(std.meta.stringToEnum(GameVariable, text) orelse return null);
+    }
+
+    pub fn format(variable: Variable, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        if (variable.added()) |from_mod| return writer.writeAll(from_mod.name);
+        return layout.formatTagAs(GameVariable, @fromBackingInt(@backingInt(variable)), "variable", writer);
+    }
+};
+
+test Variable {
+    var list = [_]additions.variables.Added{.{ .name = "a:pirates_beaten", .mod = "a", .base = {}, .based = false, .extra = .{} }};
+    additions.variables.install(&list);
+    defer additions.variables.reset();
+    const first: Variable = @fromBackingInt(Variables.block_size);
+    try std.testing.expectEqual(first, Variable.fromScriptName("a:pirates_beaten").?);
+    try std.testing.expectEqualStrings("a:pirates_beaten", first.scriptName().?);
+    try std.testing.expectEqual(Variable.of(.krasnaya_alive), Variable.fromScriptName("krasnaya_alive").?);
+    try std.testing.expectEqualStrings("krasnaya_alive", Variable.of(.krasnaya_alive).scriptName().?);
+    // A placeholder's number, and one past the mods', have no name.
+    try std.testing.expectEqual(null, Variable.of(._unused_2).scriptName());
+    try std.testing.expectEqual(null, @as(Variable, @fromBackingInt(Variables.block_size + 1)).scriptName());
+    try std.testing.expectEqual(null, Variable.fromScriptName("b:pirates_beaten"));
 }
 
 test Variables {

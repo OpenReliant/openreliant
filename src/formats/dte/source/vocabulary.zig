@@ -122,11 +122,10 @@ pub fn value(kind: Kind, text: []const u8) ?u32 {
     };
 }
 
-/// The name of one of the game's variables (`vm.GameVariable`), where it has one that isn't a
-/// placeholder (`isPlaceholder`).
+/// The name of one of the game's variables, where it has one that isn't a placeholder
+/// (`vm.Variable.gameName`). A mod's own variable stays a number.
 pub fn variable(number: u8) ?[]const u8 {
-    const found = std.enums.tagName(vm.GameVariable, @fromBackingInt(number)) orelse return null;
-    return if (isPlaceholder(found)) null else found;
+    return vm.Variable.gameName(@fromBackingInt(number));
 }
 
 /// The number of the game's variable named `text`, the inverse of `variable`.
