@@ -221,7 +221,7 @@ pub const Name = pilot_roster.Text(name_room);
 pub const name_room = 47;
 
 /// What a saved game holds: its name, the records its chunks keep, and what OpenReliant keeps
-/// beside it of the mods' ship types and missiles (`ModChoice`).
+/// beside it of the mods' records (`Mods`).
 pub const Save = struct {
     name: Name = .{},
     miss: Miss,
@@ -229,16 +229,49 @@ pub const Save = struct {
     vars: Vars,
     pilo: Replacement,
     alph: Wing,
-    mods: ModChoice = .{},
+    mods: Mods = .{},
 };
 
-/// OpenReliant's: the mods' ship type and missiles in the loadout's saved choice
-/// ([#673](https://github.com/OpenReliant/openreliant/issues/673)). The save's own records keep
-/// them as their bases, so that the original can still read it (`tables.savedShip`,
-/// `tables.Missile.savedId`). OpenReliant keeps them beside it, in its `.mods` file, by their
-/// qualified names, and loading the save puts each back where its mod is still on.
+/// OpenReliant's: what a saved game holds of the mods' records. The save's own records keep a mod's
+/// ship type or missile as its base, and have no room for a mod's game variables, so OpenReliant
+/// keeps them beside the save, in its `.mods` file, a section each, by their qualified names. The
+/// original can still read the save, and loading it puts each record back where its mod is still
+/// on.
 ///
 /// **Improvement:** the original has no mods.
+pub const Mods = struct {
+    choice: ModChoice = .{},
+    variables: ModVariables = .{},
+
+    /// Whether it holds nothing to keep.
+    fn empty(mods: Mods) bool {
+        return mods.choice.empty() and mods.variables.empty();
+    }
+
+    /// The `.mods` file's text.
+    fn text(mods: Mods, gpa: std.mem.Allocator) std.mem.Allocator.Error![]u8 {
+        var out: std.Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        writeText(mods, &out.writer) catch return error.OutOfMemory;
+        return out.toOwnedSlice();
+    }
+
+    fn writeText(mods: Mods, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        if (!mods.choice.empty()) try mods.choice.writeText(w);
+        if (!mods.variables.empty()) try mods.variables.writeText(w);
+    }
+
+    /// What the `.mods` file `contents` keeps, of the mods that are on.
+    fn read(contents: []const u8) Mods {
+        const file: profile.Profile = .{ .text = contents };
+        return .{ .choice = .read(file), .variables = .read(file) };
+    }
+};
+
+/// The mods' ship type and missiles in the loadout's saved choice
+/// ([#673](https://github.com/OpenReliant/openreliant/issues/673)). The save's own records keep
+/// them as their bases (`tables.savedShip`, `tables.Missile.savedId`), and the `.mods` file
+/// (`Mods`) under `[Loadout]`.
 pub const ModChoice = struct {
     /// The ship type chosen, where a mod adds it.
     ship: ?create.TypeIndex = null,
@@ -284,14 +317,6 @@ pub const ModChoice = struct {
         return true;
     }
 
-    /// The `.mods` file's text.
-    fn text(choice: ModChoice, gpa: std.mem.Allocator) std.mem.Allocator.Error![]u8 {
-        var out: std.Io.Writer.Allocating = .init(gpa);
-        defer out.deinit();
-        writeText(choice, &out.writer) catch return error.OutOfMemory;
-        return out.toOwnedSlice();
-    }
-
     fn writeText(choice: ModChoice, w: *std.Io.Writer) std.Io.Writer.Error!void {
         try w.print("[{s}]\n", .{section});
         if (choice.ship) |ship| if (additions.ships.get(ship)) |added| try w.print("{s}={s}\n", .{ ship_key, added.name });
@@ -301,9 +326,8 @@ pub const ModChoice = struct {
         }
     }
 
-    /// What the `.mods` file `contents` keeps, of the mods that are on.
-    fn read(contents: []const u8) ModChoice {
-        const file: profile.Profile = .{ .text = contents };
+    /// What the `.mods` file `file` keeps, of the mods that are on.
+    fn read(file: profile.Profile) ModChoice {
         var choice: ModChoice = .{};
         if (file.value(section, ship_key)) |name| choice.ship = if (additions.ships.find(name)) |number| @intCast(number) else null;
         for (&choice.racks, 1..) |*rack, number| {
@@ -315,7 +339,91 @@ pub const ModChoice = struct {
     }
 };
 
-/// The extension of the file that keeps a saved game's `ModChoice`.
+/// The values of the game's variables that a saved game keeps (`gameflow.VariableRecord.saved`)
+/// but `VARS` has no room for: those mods add
+/// ([#1322](https://github.com/OpenReliant/openreliant/issues/1322)), and any other that a mod's
+/// load script has a saved game keep. The `.mods` file (`Mods`) keeps them under `[Variables]`, each
+/// by its name (`vm.Variable.scriptName`), or by its number where it has none.
+pub const ModVariables = struct {
+    /// Each variable's value, by its number; null where the save has none.
+    values: [vm.Variables.count]?i32 = @splat(null),
+
+    /// The `.mods` file's section.
+    const section = "Variables";
+
+    /// Whether the save keeps the variable `number` here: one the records have a saved game keep
+    /// that `VARS` has no room for.
+    fn keeps(number: u8) bool {
+        return gameflow.variableRecord(number).saved and !in_vars.isSet(number);
+    }
+
+    /// The values in `variables` of those the save keeps here.
+    fn of(variables: *vm.Variables) ModVariables {
+        var kept: ModVariables = .{};
+        for (&kept.values, 0..) |*value, at| {
+            const number: u8 = @intCast(at);
+            if (keeps(number)) value.* = @bitCast(variables.slot(number).*);
+        }
+        return kept;
+    }
+
+    /// Puts the values back into `variables`. A variable the save keeps here that it has no value
+    /// for, as in a save from before its mod was on, takes the value a new campaign gives it, if any.
+    fn apply(kept: ModVariables, variables: *vm.Variables) void {
+        for (kept.values, 0..) |value, at| {
+            const number: u8 = @intCast(at);
+            if (!keeps(number)) continue;
+            const given = value orelse gameflow.variableRecord(number).start orelse continue;
+            variables.slot(number).* = @bitCast(given);
+        }
+    }
+
+    /// Whether it holds no value.
+    fn empty(kept: ModVariables) bool {
+        for (kept.values) |value| if (value != null) return false;
+        return true;
+    }
+
+    fn writeText(kept: ModVariables, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        try w.print("[{s}]\n", .{section});
+        for (kept.values, 0..) |value, at| {
+            var buffer: [number_digits]u8 = undefined;
+            try w.print("{s}={d}\n", .{ key(@intCast(at), &buffer), value orelse continue });
+        }
+    }
+
+    /// What the `.mods` file `file` keeps of the variables the save keeps here.
+    fn read(file: profile.Profile) ModVariables {
+        var kept: ModVariables = .{};
+        for (&kept.values, 0..) |*value, at| {
+            const number: u8 = @intCast(at);
+            if (!keeps(number)) continue;
+            var buffer: [number_digits]u8 = undefined;
+            const text = file.value(section, key(number, &buffer)) orelse continue;
+            value.* = std.fmt.parseInt(i32, std.mem.trim(u8, text, " \t"), 0) catch continue;
+        }
+        return kept;
+    }
+
+    /// The most digits a variable's number takes.
+    const number_digits = 3;
+
+    /// The key the file gives the variable `number`: its name, or its number, written in `buffer`,
+    /// where it has none.
+    fn key(number: u8, buffer: *[number_digits]u8) []const u8 {
+        const variable: vm.Variable = @fromBackingInt(number);
+        return variable.scriptName() orelse std.mem.print(buffer, "{d}", .{number}) catch unreachable;
+    }
+
+    /// Which of the game's variables `VARS` keeps (`kept_variables`).
+    const in_vars = vars: {
+        var set: std.StaticBitSet(vm.Variables.count) = .empty;
+        for (kept_variables) |number| set.set(number);
+        break :vars set;
+    };
+};
+
+/// The extension of the file that keeps a saved game's `Mods`.
 const mods_extension = ".mods";
 
 /// The most OpenReliant reads of a `.mods` file.
@@ -424,7 +532,7 @@ pub const Game = struct {
             .alph = game.wingmen.alpha,
         };
         save.name.set(name);
-        save.mods = .of(game.saved.*);
+        save.mods = .{ .choice = .of(game.saved.*), .variables = .of(&game.campaign.variables) };
         for (kept_variables, save.vars[0..kept_variables.len]) |number, *value| value.* = @bitCast(game.campaign.variables.slot(number).*);
         return save;
     }
@@ -462,8 +570,10 @@ pub const Game = struct {
     }
 
     /// What `game_load` puts back of `save` (`0x00475488` to `0x004755F0`): each record, then the
-    /// game's variables 0 to 31 cleared and those the save keeps put back. Variables 33, 35 and
-    /// from 37 on keep what they held.
+    /// game's variables 0 to 31 cleared and those the save keeps put back. The rest keep what they
+    /// held. Which of them the save keeps is their records' (`gameflow.VariableRecord.saved`): the
+    /// original's keep the 25 of `VARS`, and OpenReliant puts back the others that a saved game
+    /// keeps from the `.mods` file (`ModVariables`).
     ///
     /// **Fix:** a ship or a missile past those the game has is taken as the Predator, or none,
     /// where the game reads past its tables with it; so are a rank and a tier (`Miss.pilotRank`).
@@ -493,12 +603,15 @@ pub const Game = struct {
         game.pilot.female = miss.female != 0;
         game.saved.ship = if (miss.saved_ship >= 0 and miss.saved_ship < loadout_tables.ship_count) @intCast(miss.saved_ship) else (loadout.Saved{}).ship;
         for (&game.saved.racks, miss.saved_racks) |*rack, missile| rack.* = if (std.math.cast(u32, missile)) |id| loadout_tables.Missile.ofId(id) else null;
-        save.mods.apply(game.saved);
+        save.mods.choice.apply(game.saved);
         game.wingmen.pool[0] = save.pilo;
         game.wingmen.alpha = save.alph;
         const variables = &campaign.variables;
         for (0..cleared_variables) |number| variables.slot(@intCast(number)).* = 0;
-        for (kept_variables, save.vars[0..kept_variables.len]) |number, value| variables.slot(number).* = @bitCast(value);
+        for (kept_variables, save.vars[0..kept_variables.len]) |number, value| {
+            if (gameflow.variableRecord(number).saved) variables.slot(number).* = @bitCast(value);
+        }
+        save.mods.variables.apply(variables);
     }
 };
 
@@ -632,7 +745,7 @@ pub const Folder = struct {
     }
 
     /// Reads saved game `slot` of `call_sign` into `save`, with its `.mods` file where it has
-    /// one (`ModChoice`); false where there is none, or it holds no `SAVE` form.
+    /// one (`Mods`); false where there is none, or it holds no `SAVE` form.
     pub fn load(folder: Folder, gpa: std.mem.Allocator, call_sign: []const u8, slot: u8, save: *Save) bool {
         const bytes = folder.file(gpa, call_sign, slot) orelse return false;
         defer gpa.free(bytes);
@@ -647,7 +760,7 @@ pub const Folder = struct {
     }
 
     /// Writes `save` as saved game `slot` of `call_sign` (`game_save`), with its `.mods` file
-    /// where the loadout's choice holds a mod's ship type or missile (`ModChoice`), and what
+    /// where it holds anything of the mods' records (`Mods`), and what
     /// `extra` keeps beside it. The files that go with the save are written first and the save
     /// next, so a new save is only listed once they're all there, and a failure of any of them
     /// fails the save and leaves the slot as it was. The files an earlier save of the slot had,
@@ -958,6 +1071,68 @@ test ModChoice {
     try folder.store(gpa, "Ace", 2, &save);
     folder.remove("Ace", 2);
     try std.testing.expectEqual(null, folder.companion(gpa, "Ace", 2, mods_extension, most_mods_read));
+}
+
+test ModVariables {
+    const gpa = std.testing.allocator;
+    var list = [_]additions.variables.Added{
+        .{ .name = "a:beaten", .mod = "a", .base = {}, .based = false, .extra = .{ .start = 1, .saved = true } },
+        .{ .name = "a:scratch", .mod = "a", .base = {}, .based = false, .extra = .{ .start = 0, .attempt = 0 } },
+        .{ .name = "a:later", .mod = "a", .base = {}, .based = false, .extra = .{ .start = 3, .saved = true } },
+    };
+    additions.variables.install(list[0..2]);
+    defer additions.variables.reset();
+    var records = gameflow.VariableRecord.original;
+    gameflow.addModVariables(&records);
+    // A load script has saved games keep the countdown too, which `VARS` has no room for, and not
+    // Ghost, which it has.
+    const countdown = @backingInt(vm.GameVariable.countdown);
+    records[countdown].saved = true;
+    records[@backingInt(vm.GameVariable.ghost_alive)].saved = false;
+    gameflow.installVariables(&records);
+    defer gameflow.installVariables(&gameflow.VariableRecord.original);
+    const first = additions.variables.first;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    const folder: Folder = .{ .io = std.testing.io, .dir = tmp.dir };
+    var state: TestGame = .{};
+    state.pilot.call_sign.set("Ace");
+    state.campaign.variables.slot(first).* = @bitCast(@as(i32, -7));
+    state.campaign.variables.slot(first + 1).* = 9;
+    state.campaign.variables.countdown = 30;
+    state.campaign.variables.ghost_alive = 0;
+    const save = state.game().capture("Variables");
+    // The .mods file keeps them by name.
+    try folder.store(gpa, "Ace", 1, &save);
+    const text = folder.companion(gpa, "Ace", 1, mods_extension, most_mods_read).?;
+    defer gpa.free(text);
+    try std.testing.expectEqualStrings("[Variables]\ncountdown=30\na:beaten=-7\n", text);
+
+    // Loaded with a variable the mod added since, that one starts as in a new campaign. Ghost's flag
+    // isn't put back, so the load clears it, as it clears the first 32.
+    additions.variables.install(&list);
+    gameflow.addModVariables(&records);
+    var back = empty();
+    try std.testing.expect(folder.load(gpa, "Ace", 1, &back));
+    var other: TestGame = .{};
+    other.campaign.variables.slot(first + 1).* = 4;
+    other.campaign.variables.ghost_alive = 1;
+    other.game().apply(&back);
+    try std.testing.expectEqual(-7, @as(i32, @bitCast(other.campaign.variables.slot(first).*)));
+    try std.testing.expectEqual(4, other.campaign.variables.slot(first + 1).*);
+    try std.testing.expectEqual(3, other.campaign.variables.slot(first + 2).*);
+    try std.testing.expectEqual(30, other.campaign.variables.countdown);
+    try std.testing.expectEqual(0, other.campaign.variables.ghost_alive);
+
+    // With the original's records, nothing comes back from it, and a save without any leaves no
+    // .mods file.
+    gameflow.installVariables(&gameflow.VariableRecord.original);
+    var without = empty();
+    try std.testing.expect(folder.load(gpa, "Ace", 1, &without));
+    try std.testing.expect(without.mods.empty());
+    try folder.store(gpa, "Ace", 1, &without);
+    try std.testing.expectEqual(null, folder.companion(gpa, "Ace", 1, mods_extension, most_mods_read));
 }
 
 test Folder {

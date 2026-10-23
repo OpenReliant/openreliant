@@ -338,7 +338,8 @@ own.
 - **The game's variables.** `game.landing_cleared = 1` lets the player land, and
   `game.mission_success` and `game.mission_over` end the mission
   ([Ending a mission](#ending-a-mission)). The reference lists them all
-  ([GameVariables](mission-reference.md#gamevariables)).
+  ([GameVariables](mission-reference.md#gamevariables)). A mod's own variables go by the numbers
+  its manifest gives them, as in `game[40]` ([Game variables](modding.md#game-variables)).
 - **Choices.** `if convoy_hits >= 3 then ... elseif ... else ... end`, with `==`, `~=`, `<`, `<=`,
   `>` and `>=`, and `and` and `or`. After a command that gives a result, such as
   `IsShipThisPlayer(ship)`, `result()` reads it.

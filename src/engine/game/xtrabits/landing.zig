@@ -177,8 +177,8 @@ const zoom_from_yamato = "rthread_zoom.bik";
 /// `unless` names is 1, and the variable it then sets to 1, if any.
 pub const Report = struct {
     movie: []const u8,
-    unless: []const vm.GameVariable = &.{},
-    sets: ?vm.GameVariable = null,
+    unless: []const vm.Variable = &.{},
+    sets: ?vm.Variable = null,
 
     /// The original's reports after the chapter mission `mission` ends.
     pub fn original(comptime mission: u16) []const Report {
@@ -192,17 +192,17 @@ pub const Report = struct {
 /// Mission 16's are never reached, as it ends no chapter.
 const news = [_]struct { mission: u16, reports: []const Report }{
     .{ .mission = 7, .reports = &.{
-        .{ .movie = "new_chapter1_thread1.bik", .unless = &.{.rameses_alive} },
+        .{ .movie = "new_chapter1_thread1.bik", .unless = &.{.of(.rameses_alive)} },
     } },
     .{ .mission = 11, .reports = &.{
-        .{ .movie = "new_chapter2_thread1.bik", .unless = &.{.czar_alive} },
-        .{ .movie = "new_chapter2_thread2.bik", .unless = &.{.krasnaya_alive} },
-        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{.nicolai_petrov_alive}, .sets = .chapter2_thread3_shown },
+        .{ .movie = "new_chapter2_thread1.bik", .unless = &.{.of(.czar_alive)} },
+        .{ .movie = "new_chapter2_thread2.bik", .unless = &.{.of(.krasnaya_alive)} },
+        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{.of(.nicolai_petrov_alive)}, .sets = .of(.chapter2_thread3_shown) },
     } },
     .{ .mission = 16, .reports = &.{
-        .{ .movie = "new_chapter3_thread1.bik", .unless = &.{.mcgann_alive} },
-        .{ .movie = "new_chapter3_thread2.bik", .unless = &.{.warp_gate_alive} },
-        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{ .nicolai_petrov_alive, .chapter2_thread3_shown } },
+        .{ .movie = "new_chapter3_thread1.bik", .unless = &.{.of(.mcgann_alive)} },
+        .{ .movie = "new_chapter3_thread2.bik", .unless = &.{.of(.warp_gate_alive)} },
+        .{ .movie = "new_chapter2_thread3.bik", .unless = &.{ .of(.nicolai_petrov_alive), .of(.chapter2_thread3_shown) } },
     } },
 };
 
@@ -365,7 +365,8 @@ test "a mod's landing and chapter news" {
     // Yamato where the Reliant is lost.
     missions[11].landing_carrier = .yamato;
     missions[11].chapter = 2;
-    const reports = [_]Report{.{ .movie = "dreamcast_news12.bik", .unless = &.{.krasnaya_alive}, .sets = ._unused_20 }};
+    const unless = [_]vm.Variable{.of(.krasnaya_alive)};
+    const reports = [_]Report{.{ .movie = "dreamcast_news12.bik", .unless = &unless, .sets = .of(._unused_20) }};
     missions[11].chapter_reports = &reports;
     missions[13].yamato_visit = .when_reliant_lost;
     gameflow.installMissions(&missions);

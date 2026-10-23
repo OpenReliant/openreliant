@@ -197,11 +197,7 @@ pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const
         },
         .@"enum" => |info| {
             if (state.toString(given)) |tag_name| {
-                if (byName(T, tag_name)) |value| return value;
-                if (comptime takesModNames(T)) {
-                    var buffer: [runtime_module.max_name]u8 = undefined;
-                    if (ownName(state, tag_name, &buffer)) |qualified| if (byName(T, qualified)) |value| return value;
-                }
+                if (lookUp(state, T, tag_name)) |value| return value;
                 state.raise("{s}: expected {s}, got '{s}'", .{ label, comptime choices(T), tag_name });
             }
             const number = state.toNumber(given) orelse wrongType(state, label, comptime choices(T), given);
@@ -377,6 +373,15 @@ pub fn byName(comptime T: type, tag_name: []const u8) ?T {
     if (!shown(tag_name)) return null;
     if (comptime @hasDecl(T, "fromScriptName")) return T.fromScriptName(tag_name);
     return std.meta.stringToEnum(T, tag_name);
+}
+
+/// The value of `T` that a script names `text`: by its name (`byName`), or for one a mod adds, by
+/// its own name in that mod's scripts (`ownName`); null where none has the name.
+pub fn lookUp(state: *State, comptime T: type, text: []const u8) ?T {
+    if (byName(T, text)) |value| return value;
+    if (comptime !takesModNames(T)) return null;
+    var buffer: [runtime_module.max_name]u8 = undefined;
+    return byName(T, ownName(state, text, &buffer) orelse return null);
 }
 
 /// Whether scripts see a tag or a field by its name: all but those that start with an underscore,

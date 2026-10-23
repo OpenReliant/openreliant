@@ -54,7 +54,7 @@ after the call sign's terminator, which OpenReliant writes as zeros.
 - **Improvement:** the record `MISS` keeps the loadout's choice as the game knows it, so a ship
   type or a missile a mod adds is written as its base (`tables.savedShip`,
   `tables.Missile.savedId`). OpenReliant keeps the mods' own beside the save, in a file of the same
-  name with the extension `.mods` (`save.ModChoice`), by their qualified names, under `[Loadout]`:
+  name with the extension `.mods` (`save.Mods`), by their qualified names, under `[Loadout]`:
 
   ```ini
   [Loadout]
@@ -63,9 +63,27 @@ after the call sign's terminator, which OpenReliant writes as zeros.
   ```
 
   `Rack1` to `Rack20` are the racks in `saved_racks`' order. Loading the save puts each back over
-  its base where its mod is still on, and keeps the base otherwise. A save without a mod's ship
-  type or missile has no `.mods` file, and removing a save removes it. If the `.mods` file can't be
-  read or removed, the log says so.
+  its base where its mod is still on, and keeps the base otherwise.
+- **Improvement:** which of the game's variables a saved game keeps is in their records
+  (`records.game_variables`, [The game's variables](../guide/scripting.md#the-games-variables)).
+  `VARS` always holds the original's 25, so that the original can still read the save, and a load
+  puts back those of them whose records say a saved game keeps them: all 25 with the original's
+  records.
+  `VARS` has no room for the others a saved game keeps, such as those mods add
+  ([Game variables](../guide/modding.md#game-variables)), so the `.mods` file keeps their values
+  under `[Variables]`, each by its name, or by its number where it has none
+  (`save.ModVariables`):
+
+  ```ini
+  [Variables]
+  countdown=30
+  pirates:pirates_beaten=1
+  ```
+
+  Loading the save puts each back. One that the file has no value for, as in a save from before its
+  mod was on, takes the value a new campaign gives it, if any. A save without a mod's ship type,
+  missile or variable has no `.mods` file, and removing a save removes it. If the `.mods` file
+  can't be read or removed, the log says so.
 - The wing's pilots and the pool of their replacements live beside the campaign, as the game's
   globals do (`pilots.Wingmen`, [Objects](../engine/objects.md#the-wings-pilots)). A load puts
   back the wing and the pool's first record; the rest of the pool stays as the session left it.

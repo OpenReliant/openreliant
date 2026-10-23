@@ -347,12 +347,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     const shared: scripting.runtime.Shared = .{ .storage = &storage, .files = resources, .game = .{ .io = io, .dir = directory }, .option_pages = &option_pages, .bindings_file = settings_file, .modes = &game_modes };
     try scripting.load.run(gpa, io, mods.list, &records, version.string, shared);
     // The campaign flies its missions in the order the load scripts leave (`records.campaign`), with
-    // the settings they leave for each (`records.missions`), the KILLBOARD holds the pilots they
-    // leave (`records.killboard`), the CD player plays the tracks they leave
-    // (`records.cd_player`), and the rooms lead through the views they leave
-    // (`records.room_views`).
+    // the settings they leave for each (`records.missions`) and their game's variables
+    // (`records.game_variables`), the KILLBOARD holds the pilots they leave (`records.killboard`),
+    // the CD player plays the tracks they leave (`records.cd_player`), and the rooms lead through
+    // the views they leave (`records.room_views`).
     game.gameflow.install(records.campaign);
     game.gameflow.installMissions(records.missions);
+    game.gameflow.installVariables(records.game_variables);
     game.itac.killboard.install(records.killboard);
     game.interface.cd_player.install(records.cd_player);
     game.interface.rooms.install(&records.room_views);
@@ -2497,8 +2498,9 @@ fn missionFile(io: Io, arena: Allocator, directory: Io.Dir, resources: *const ga
     var path_buffer: [game.winmain.mission_path_size]u8 = undefined;
     const path = game.winmain.missionPath(&path_buffer, number, second_part, false);
     if (try game.mission.bind.read(io, arena, directory, resources, path)) |file| {
-        // A mod's mission names the ship types the mod adds by the numbers its manifest gives them.
-        if (file.source == .mod) if (resources.mods.holder(engine.files.leaf(path))) |mod| game.additions.remapMission(file.image, mod.name);
+        // A mod's mission names the ship types, pilots and game variables the mod adds by the
+        // numbers its manifest gives them.
+        if (file.source == .mod) if (resources.mods.holder(engine.files.leaf(path))) |mod| try game.additions.remapMission(arena, file.image, mod.name);
         return file.image;
     }
     if (number == mission0.number) return mission0.file;

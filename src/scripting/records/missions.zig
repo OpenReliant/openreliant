@@ -189,9 +189,9 @@ pub const ChapterReport = struct {
     /// Its movie, a Bink file from the game or a mod.
     movie: []const u8,
     /// The game's variables that keep it from playing where one is 1.
-    unless: values.List(vm.GameVariable, most_conditions) = .{},
+    unless: values.List(vm.Variable, most_conditions) = .{},
     /// The variable it sets to 1 as it plays; nil for none.
-    sets: ?vm.GameVariable = null,
+    sets: ?vm.Variable = null,
 };
 
 /// The most variables a chapter's news report waits on.
@@ -535,6 +535,9 @@ test "a campaign mission's landing, chapter news and wing pilots" {
     const state = State.create(luau.testing.allocate, null).?;
     defer state.close();
     const thread = testThread(state, &held, true);
+    var added = [_]game.additions.variables.Added{.{ .name = "dc:news_seen", .mod = "dc", .base = {}, .based = false, .extra = .{} }};
+    game.additions.variables.install(&added);
+    defer game.additions.variables.reset();
 
     try bind.testing.runSource(thread,
         \\local missions = records.missions
@@ -549,14 +552,15 @@ test "a campaign mission's landing, chapter news and wing pilots" {
         \\local cut = missions[12]
         \\cut.landing_carrier = "yamato"
         \\cut.yamato_visit = "never"
-        \\cut.chapter_reports = { { movie = "dreamcast_news12.bik", unless = { "krasnaya_alive", 20 } } }
+        \\cut.chapter_reports = { { movie = "dreamcast_news12.bik", unless = { "krasnaya_alive", 20 }, sets = "dc:news_seen" } }
+        \\assert(cut.chapter_reports[1].sets == "dc:news_seen")
         \\cut.alpha_6_pilot = "none"
     );
     const twelve = held.missions[11];
     try std.testing.expectEqual(.yamato, twelve.landing_carrier);
     try std.testing.expectEqualStrings("dreamcast_news12.bik", twelve.chapter_reports[0].movie);
-    try std.testing.expectEqualSlices(vm.GameVariable, &.{ .krasnaya_alive, @fromBackingInt(20) }, twelve.chapter_reports[0].unless);
-    try std.testing.expectEqual(null, twelve.chapter_reports[0].sets);
+    try std.testing.expectEqualSlices(vm.Variable, &.{ .of(.krasnaya_alive), @fromBackingInt(20) }, twelve.chapter_reports[0].unless);
+    try std.testing.expectEqual(@as(vm.Variable, @fromBackingInt(game.additions.variables.first)), twelve.chapter_reports[0].sets.?);
     try std.testing.expectEqual(.none, twelve.alpha_6_pilot);
 
     try bind.testing.expectSourceError(thread, "records.missions[12].yamato_visit = 'sometimes'", "CampaignMission.yamato_visit");

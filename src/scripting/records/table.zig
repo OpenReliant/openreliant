@@ -38,7 +38,9 @@ pub const Item = struct {
 /// - `count(records)`, how many entries the table has;
 /// - `getField(state, item, field)`, which pushes a field's value, and `setField(state, item,
 ///   field, given)`, which sets it from the value at `given`;
-/// - optionally `first`, the number of the first entry, 1 if it has none; and
+/// - optionally `first`, the number of the first entry, 1 if it has none;
+/// - optionally `placeNamed(state, held, text)`, the index of the entry that a script names `text`,
+///   so that scripts can also index the table by name; and
 /// - optionally `append(state, records)`, which adds an entry at the end, for a table that can
 ///   grow, with `most`, the most entries it holds. Assigning a table of fields to the number after
 ///   the last adds an entry and fills it.
@@ -83,9 +85,12 @@ pub fn Table(comptime Spec: type) type {
             list.* = .{ .records = held, .writable = writable };
         }
 
-        /// The index in `held`'s table of the entry that the key at `key` numbers; null for any
-        /// other key.
+        /// The index in `held`'s table of the entry that the key at `key` numbers, or names where
+        /// the table takes names; null for any other key.
         fn placeOf(state: *State, held: *const Records, key: i32) ?usize {
+            if (comptime @hasDecl(Spec, "placeNamed")) {
+                if (state.typeOf(key) == .string) return Spec.placeNamed(state, held, state.toString(key).?);
+            }
             const number = bind.wholeIndex(state.toNumber(key) orelse return null) orelse return null;
             if (number < first) return null;
             const place = number - first;

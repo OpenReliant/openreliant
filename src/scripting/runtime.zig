@@ -75,6 +75,9 @@ pub const Tag = enum(luau.Tag) {
     /// The rooms' views (`records.room_views`), and one of them.
     room_views = 20,
     room_view = 21,
+    /// The game's variables (`records.game_variables`), and one of them.
+    game_variables = 22,
+    game_variable = 23,
 };
 
 /// What an object script's context runs on: an object of the mission, a missile in flight, or a

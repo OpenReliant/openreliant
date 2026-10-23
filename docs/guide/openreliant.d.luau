@@ -19,6 +19,7 @@ export type TurretKind = "aimed" | "spinning" | "launcher"
 export type GunType = "laser_cannon" | "pulse_cannon" | "messon_blaster" | "proton_cannon" | "gattling_lasers" | "tachyon_cannon" | "neutron_particle_gun" | "collapser_guns" | "gattling_plasma_cannon" | "vulcan_battery" | "nova_cannon" | "turret_flak" | "turret_lasers" | "allied_huge_gun" | "coalition_huge_gun" | number | string
 export type Carrier = "reliant" | "yamato"
 export type ObjectiveState = "hidden" | "listed" | "current" | number
+export type GameVariable = "jump_ready" | "warp_ready" | "backup_available" | "player_missiles_left" | "mcgann_alive" | "nicolai_petrov_alive" | "ivan_petrov_alive" | "kulov_alive" | "mission_over" | "landing_cleared" | "al_rahan_alive" | "sharif_alive" | "steiner_alive" | "mission_success" | "players" | "krasnaya_alive" | "rameses_alive" | "kozah_alive" | "fixed_gate_alive" | "warp_gate_alive" | "last_success" | "objectives_met" | "czar_alive" | "ghost_alive" | "reliant_alive" | "countdown" | "chapter2_thread3_shown" | "red_dragon_alive" | "yamato_alive" | "ion_cannons_hold_lock" | number | string
 export type RadioMode = "now" | "queued" | "if_idle" | number
 export type FaceFilm = "talking" | "laughing" | "squadron" | "dying" | number
 export type HudInstrument = "caption" | "key_prompt" | "jump_prompt" | "target_markers" | "eject_marker" | "scanner" | "lights" | "view_name" | "subtitle" | "messages" | "nav_marker" | "fuel" | "kills" | "countermeasures" | "ship_status" | "gauges" | "radar" | "reticle" | "clock" | "radio" | "gunnery" | "missiles" | "target_display" | "damage" | "power" | "big_target_display" | "objectives" | "comms" | "wing_status"
@@ -43,7 +44,6 @@ export type OptionKind = "toggle" | "choice" | "number" | "slider" | "text" | "h
 export type RoomPlace = "news" | "itac" | "simulator" | "locker" | "cd_player"
 export type Medal = "silver" | "black_eagle" | "valour" | "legion" | "navy_cross" | "medal_of_honour"
 export type YamatoVisit = "never" | "always" | "when_reliant_lost"
-export type GameVariable = "jump_ready" | "warp_ready" | "backup_available" | "player_missiles_left" | "mcgann_alive" | "nicolai_petrov_alive" | "ivan_petrov_alive" | "kulov_alive" | "mission_over" | "landing_cleared" | "al_rahan_alive" | "sharif_alive" | "steiner_alive" | "mission_success" | "players" | "krasnaya_alive" | "rameses_alive" | "kozah_alive" | "fixed_gate_alive" | "warp_gate_alive" | "last_success" | "objectives_met" | "czar_alive" | "ghost_alive" | "reliant_alive" | "countdown" | "chapter2_thread3_shown" | "red_dragon_alive" | "yamato_alive" | "ion_cannons_hold_lock" | number
 export type RoomAction = "none" | "briefing" | "itac" | "fish_tank" | "animated" | "simulator" | "locker" | "news" | "unused" | "cd_player" | number
 export type Ending = "playing" | "destroyed" | "rescued" | "captured" | "left" | "total_failure" | "friendly_fire" | "ejecting" | number
 export type Rating = "total_failure" | "failure" | "partial_failure" | "partial_success" | "success" | "success_bonus" | number
@@ -705,6 +705,12 @@ declare extern type RoomView with
     hotspot: ScreenRect
     sound: number?
 end
+declare extern type GameVariableRecord with
+    name: string?
+    start: number?
+    attempt: number?
+    saved: boolean
+end
 export type Records = {
     ships: { [number | string]: Ship },
     ship_types: { [number | string]: ShipTypeRecord },
@@ -730,6 +736,8 @@ export type Records = {
     cd_player: { [number]: CdPlayerTrack },
     --- The rooms' views, the Reliant's and the Yamato's, numbered 1 to 125 in the order they are stored in the executable. Load scripts can change their fields.
     room_views: { [number]: RoomView },
+    --- What the campaign does with each of the game's variables, by its number from 0 or by its name. Load scripts change their fields.
+    game_variables: { [number | string]: GameVariableRecord },
 }
 
 -- The packages made from declarations. `openreliant.self` is the script's own Object.
@@ -764,6 +772,10 @@ export type World = {
     set_primary_target: (target: Object?, component: number?) -> boolean,
     --- Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names.
     set_objective: (objective: number, state: ObjectiveState) -> boolean,
+    --- The value of the game's variable `name` in the mission that runs, as the mission's script reads it. Nil between missions.
+    variable: (name: GameVariable) -> number?,
+    --- Sets the game's variable `name` to `value` in the mission that runs, as the mission's script sets it. The campaign keeps the value from one mission to the next where it keeps the variable. Returns false between missions.
+    set_variable: (name: GameVariable, value: number) -> boolean,
 }
 
 --- The objects around the script's own object or missile.
@@ -1178,6 +1190,8 @@ export type Interfaces = {
         set_player_target: (target: Object, component: number?) -> boolean,
         set_primary_target: (target: Object?, component: number?) -> boolean,
         set_objective: (objective: number, state: ObjectiveState) -> boolean,
+        variable: (name: GameVariable) -> number?,
+        set_variable: (name: GameVariable, value: number) -> boolean,
     },
     Campaign: {
         mission: Mission?,
