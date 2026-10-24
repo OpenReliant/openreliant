@@ -1,11 +1,11 @@
 //! Decodes the movies' packets with FFmpeg's Bink decoders (`deps/ffmpeg`), for the engine's
-//! replacement of Bink ([`engine/bink.zig`](../engine/bink.zig)'s `Codec`), and audio files with
-//! FFmpeg's MP3, FLAC, Vorbis and Opus decoders. Each Bink decoder is set up the way FFmpeg's Bink
-//! demuxer sets it up. The video decoder gets the file's signature as its codec tag and the
-//! header's flags as extra data. An audio track's decoder gets the track's rate and channels, and
-//! the file's signature as extra data. The MP3 and FLAC decoders read everything they need from
-//! the data they are sent, and the Vorbis and Opus decoders get an Ogg stream's headers as extra
-//! data.
+//! replacement of Bink ([`engine/bink.zig`](../engine/bink.zig)'s `Codec`), mods' movies with its
+//! VP9 decoder, and audio files with FFmpeg's MP3, FLAC, Vorbis and Opus decoders. Each Bink
+//! decoder is set up the way FFmpeg's Bink demuxer sets it up. The video decoder gets the file's
+//! signature as its codec tag and the header's flags as extra data. An audio track's decoder gets
+//! the track's rate and channels, and the file's signature as extra data. The VP9, MP3 and FLAC
+//! decoders read everything they need from the data they are sent, and the Vorbis and Opus
+//! decoders get an Ogg stream's or a movie's audio track's headers as extra data.
 //!
 //! FFmpeg is built without threads, so it is only used from the game's thread.
 
@@ -38,11 +38,14 @@ pub const Decoders = struct {
     }
 };
 
-/// A stream's decoder, and the packet and frame it decodes through.
+/// A stream's decoder, and the packet and frame it decodes through. For a video, `shown` keeps the
+/// frame shown last, which stays on the screen while a packet shows none: a VP9 packet can hold
+/// only a hidden frame, which later frames refer to.
 const Stream = struct {
     context: *c.AVCodecContext,
     packet: *c.AVPacket,
     frame: *c.AVFrame,
+    shown: *c.AVFrame,
 
     fn of(stream: bink.Stream) *Stream {
         return @ptrCast(@alignCast(stream));
@@ -73,7 +76,10 @@ const Setup = union(enum) {
 /// the stream's headers.
 fn open(setup: Setup) bink.Error!bink.Stream {
     const id: c.enum_AVCodecID = switch (setup) {
-        .video => c.AV_CODEC_ID_BINKVIDEO,
+        .video => |video| switch (video) {
+            .bink => c.AV_CODEC_ID_BINKVIDEO,
+            .vp9 => c.AV_CODEC_ID_VP9,
+        },
         .audio => |audio| if (audio.dct) c.AV_CODEC_ID_BINKAUDIO_DCT else c.AV_CODEC_ID_BINKAUDIO_RDFT,
         .file => |encoding| switch (encoding) {
             .mp3 => c.AV_CODEC_ID_MP3,
@@ -87,12 +93,15 @@ fn open(setup: Setup) bink.Error!bink.Stream {
     errdefer c.avcodec_free_context(&context);
     const set_up = context.?;
     switch (setup) {
-        .video => |video| {
-            const extradata = try extraData(set_up, 4);
-            set_up.width = @intCast(video.width);
-            set_up.height = @intCast(video.height);
-            set_up.codec_tag = signature(video.revision);
-            std.mem.writeInt(u32, extradata[0..4], @bitCast(video.flags), .little);
+        .video => |video| switch (video) {
+            .bink => |coded| {
+                const extradata = try extraData(set_up, 4);
+                set_up.width = @intCast(coded.width);
+                set_up.height = @intCast(coded.height);
+                set_up.codec_tag = signature(coded.revision);
+                std.mem.writeInt(u32, extradata[0..4], @bitCast(coded.flags), .little);
+            },
+            .vp9 => {},
         },
         .audio => |audio| {
             const extradata = try extraData(set_up, 4);
@@ -116,8 +125,10 @@ fn open(setup: Setup) bink.Error!bink.Stream {
     errdefer c.av_packet_free(&packet);
     var frame: ?*c.AVFrame = c.av_frame_alloc() orelse return error.OutOfMemory;
     errdefer c.av_frame_free(&frame);
+    var shown: ?*c.AVFrame = c.av_frame_alloc() orelse return error.OutOfMemory;
+    errdefer c.av_frame_free(&shown);
     const stream = try std.heap.c_allocator.create(Stream);
-    stream.* = .{ .context = set_up, .packet = packet.?, .frame = frame.? };
+    stream.* = .{ .context = set_up, .packet = packet.?, .frame = frame.?, .shown = shown.? };
     return stream;
 }
 
@@ -147,11 +158,19 @@ fn send(stream: *Stream, packet: []const u8) bink.Error!void {
     if (c.avcodec_send_packet(stream.context, stream.packet) < 0) return error.Decoding;
 }
 
+/// The picture of the video's next `packet`: the frame it shows, or the one shown last where it
+/// shows none. Only pictures of 8 bits with their colour at half size across and down, with an
+/// alpha plane or without, are taken.
 fn picture(_: *anyopaque, handle: bink.Stream, packet: []const u8) bink.Error!bink.Picture {
     const stream: *Stream = .of(handle);
     try send(stream, packet);
-    if (c.avcodec_receive_frame(stream.context, stream.frame) < 0) return error.Decoding;
-    const frame = stream.frame;
+    const received = c.avcodec_receive_frame(stream.context, stream.frame);
+    if (received == 0) {
+        c.av_frame_unref(stream.shown);
+        c.av_frame_move_ref(stream.shown, stream.frame);
+    } else if (received != -c.EAGAIN or stream.shown.data[0] == null) return error.Decoding;
+    const frame = stream.shown;
+    if (frame.format != c.AV_PIX_FMT_YUV420P and frame.format != c.AV_PIX_FMT_YUVA420P) return error.Decoding;
     const width: u32 = @intCast(frame.width);
     const height: u32 = @intCast(frame.height);
     const half = @divCeil(height, 2);
@@ -165,6 +184,20 @@ fn picture(_: *anyopaque, handle: bink.Stream, packet: []const u8) bink.Error!bi
         .v = frame.data[2][0 .. strides[2] * half],
         .alpha = if (frame.format == c.AV_PIX_FMT_YUVA420P) frame.data[3][0 .. strides[3] * height] else null,
         .strides = strides,
+        .colour = colourOf(frame),
+    };
+}
+
+/// How `frame`'s levels make colours, as the video says: by BT.709 for BT.709, and for SMPTE 240M,
+/// which is close to it; by BT.601 for anything else, including a video that says nothing, such as
+/// every Bink movie; and in the full range where it says so, the limited range otherwise.
+fn colourOf(frame: *const c.AVFrame) bink.picture.Colour {
+    return .{
+        .matrix = switch (frame.colorspace) {
+            c.AVCOL_SPC_BT709, c.AVCOL_SPC_SMPTE240M => .bt709,
+            else => .bt601,
+        },
+        .range = if (frame.color_range == c.AVCOL_RANGE_JPEG) .full else .limited,
     };
 }
 
@@ -224,9 +257,11 @@ fn close(_: *anyopaque, handle: bink.Stream) void {
     var context: ?*c.AVCodecContext = stream.context;
     var packet: ?*c.AVPacket = stream.packet;
     var frame: ?*c.AVFrame = stream.frame;
+    var shown: ?*c.AVFrame = stream.shown;
     c.avcodec_free_context(&context);
     c.av_packet_free(&packet);
     c.av_frame_free(&frame);
+    c.av_frame_free(&shown);
     std.heap.c_allocator.destroy(stream);
 }
 
@@ -245,7 +280,7 @@ test sample16 {
 test "a damaged packet fails, and the decoder closes" {
     var decoders: Decoders = .init();
     const codec = decoders.codec();
-    const video = try codec.openVideo(.{ .revision = 'f', .width = 16, .height = 16, .flags = .{} });
+    const video = try codec.openVideo(.{ .bink = .{ .revision = 'f', .width = 16, .height = 16, .flags = .{} } });
     defer codec.close(video);
     try std.testing.expectError(error.Decoding, codec.picture(video, &.{ 0xFF, 0xFF }));
     const audio = try codec.openAudio(.{ .revision = 'f', .rate = 22050, .channels = 2, .dct = false });
@@ -253,6 +288,25 @@ test "a damaged packet fails, and the decoder closes" {
     defer pcm.deinit(std.testing.allocator);
     try std.testing.expectError(error.Decoding, codec.samples(audio, &.{ 1, 2 }, std.testing.allocator, &pcm));
     codec.close(audio);
+}
+
+test "VP9 frames decode to their pictures" {
+    var decoders: Decoders = .init();
+    const codec = decoders.codec();
+    const video = try codec.openVideo(.{ .vp9 = .{ .width = 16, .height = 16 } });
+    defer codec.close(video);
+    // Two frames of a grey picture 16 by 16, Y at 124 in the limited range, coded by libvpx: a key
+    // frame, then a frame that refers to it.
+    const key = [_]u8{ 0x82, 0x49, 0x83, 0x42, 0x00, 0x00, 0xF0, 0x00, 0xF6, 0x00, 0x38, 0x24, 0x1C, 0x18, 0x3E, 0x00, 0x00, 0x30, 0x60, 0x00, 0x00, 0x10, 0xBD, 0xC6, 0x00, 0x00 };
+    const next = [_]u8{ 0x86, 0x00, 0x40, 0x92, 0x9C, 0x00, 0x4F, 0x00, 0x00, 0x03, 0x20, 0x00, 0x00, 0x42, 0x40 };
+    for ([_][]const u8{ &key, &next }) |packet| {
+        const shown = try codec.picture(video, packet);
+        try std.testing.expectEqual(16, shown.width);
+        try std.testing.expectEqual(124, shown.y[0]);
+        try std.testing.expectEqual(128, shown.u[0]);
+        // The encoder said nothing of its colours: BT.601's limited range, as Bink's.
+        try std.testing.expectEqual(bink.picture.Colour{}, shown.colour);
+    }
 }
 
 test "MP3 frames decode to their samples" {

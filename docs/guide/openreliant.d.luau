@@ -924,7 +924,7 @@ export type Ui = {
     start_game_mode: (name: string) -> boolean,
     --- From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it.
     launch_mission: () -> (),
-    --- Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it.
+    --- Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, or a mod's WebM or Matroska file with the same name, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it.
     play_movie: (name: string) -> (),
     --- Asks the front end to quit the game. Only menu scripts can use it.
     quit: () -> (),

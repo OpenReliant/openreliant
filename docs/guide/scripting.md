@@ -2236,7 +2236,8 @@ ui.replace_screen("main_menu", screen)
   mode, and `ui.quit()` quits the game. If the front end can't show the screen asked for, nothing
   happens and the log says so.
 - `ui.play_movie(name)` plays a Bink movie from the game folder or a mod, such as
-  `"thread01.bik"`, on a cleared screen. Escape or the pointer's right button ends it.
+  `"thread01.bik"`, or a mod's WebM or Matroska movie with the same name
+  ([Movies](modding.md#movies)), on a cleared screen. Escape or the pointer's right button ends it.
 - `ui.replace_screen(screen, nil)` gives the screen back to the front end. If the mod's script
   stops, or its screen's callback fails, the front end shows its own screen again.
 - These functions are for menu scripts only.

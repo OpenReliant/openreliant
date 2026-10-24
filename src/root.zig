@@ -19,6 +19,7 @@ pub const fnt = @import("formats/fnt.zig");
 pub const numbered = @import("formats/numbered.zig");
 pub const frc = @import("formats/frc.zig");
 pub const hog = @import("formats/hog.zig");
+pub const matroska = @import("formats/matroska.zig");
 pub const mp3 = @import("formats/mp3.zig");
 pub const ogg = @import("formats/ogg.zig");
 pub const refpack = @import("formats/refpack.zig");

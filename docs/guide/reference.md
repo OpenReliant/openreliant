@@ -297,7 +297,7 @@ Drawing over the menus, the front end's screens and the pause menu, while they'r
 | `go_to(screen: FrontEndScreen)` | nothing | Asks the front end to go to its screen `screen`, or to the mod's screen that stands in for it. Only menu scripts can use it. |
 | `start_game_mode(name: string)` | boolean | Asks the front end to start the game mode `name`: the calling mod's by its own name, or any mod's by the qualified one. Only menu scripts can use it. Returns whether the mode is registered. |
 | `launch_mission()` | nothing | From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it. |
-| `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
+| `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, or a mod's WebM or Matroska file with the same name, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
 | `from_game_screen(at: vector)` | vector | Converts the point `at` on the game's 640 by 480 screen to window pixels, as the front end and the rooms centre that screen in the window. Use it to draw over a spot on one of their pictures. |
 | `to_game_screen(at: vector)` | vector | Converts the window pixel `at`, such as the pointer's position, to a point on the game's 640 by 480 screen. The inverse of `from_game_screen`. |
@@ -706,7 +706,7 @@ turret, and a turret's own scripts on their turret.
 | `go_to(screen: FrontEndScreen)` | nothing | Asks the front end to go to its screen `screen`, or to the mod's screen that stands in for it. Only menu scripts can use it. |
 | `start_game_mode(name: string)` | boolean | Asks the front end to start the game mode `name`: the calling mod's by its own name, or any mod's by the qualified one. Only menu scripts can use it. Returns whether the mode is registered. |
 | `launch_mission()` | nothing | From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it. |
-| `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
+| `play_movie(name: string)` | nothing | Plays the movie `name`, a Bink file of the game folder's or a mod's such as `"intro.bik"`, or a mod's WebM or Matroska file with the same name, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it. |
 | `quit()` | nothing | Asks the front end to quit the game. Only menu scripts can use it. |
 | `from_game_screen(at: vector)` | vector | Converts the point `at` on the game's 640 by 480 screen to window pixels, as the front end and the rooms centre that screen in the window. Use it to draw over a spot on one of their pictures. |
 | `to_game_screen(at: vector)` | vector | Converts the window pixel `at`, such as the pointer's position, to a point on the game's 640 by 480 screen. The inverse of `from_game_screen`. |

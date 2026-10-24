@@ -1,18 +1,22 @@
 //! Builds the part of FFmpeg that OpenReliant uses as a static library: the Bink video and audio
-//! decoders for the game's movies (`libavcodec/bink.c`, `libavcodec/binkaudio.c`), the MP3 decoder
-//! for the crew's lines and mods' recordings (`libavcodec/mpegaudiodec_float.c`), the FLAC, Vorbis
-//! and Opus decoders for mods' recordings (`libavcodec/flacdec.c`, `libavcodec/vorbisdec.c`,
-//! `libavcodec/opus/dec.c`), and the parts of `libavcodec`, `libavutil` and `libswresample` they
-//! need. The Opus decoder resamples with `libswresample`. It is plain C, without FFmpeg's assembly
-//! or threads. OpenReliant reads the Bink container, the MP3 frames and the Ogg pages itself
-//! (`src/formats/bink.zig`, `src/formats/mp3.zig`, `src/formats/ogg.zig`) and hands the FLAC
-//! decoder whole files, so none of `libavformat` is built. FFmpeg is LGPL-2.1 or later (the
-//! upstream's `LICENSE.md`), and none of its GPL parts are built.
+//! decoders for the game's movies (`libavcodec/bink.c`, `libavcodec/binkaudio.c`), the VP9 decoder
+//! for mods' movies (`libavcodec/vp9.c`), the MP3 decoder for the crew's lines and mods' recordings
+//! (`libavcodec/mpegaudiodec_float.c`), the FLAC, Vorbis and Opus decoders for mods' recordings
+//! and movies' sound (`libavcodec/flacdec.c`, `libavcodec/vorbisdec.c`, `libavcodec/opus/dec.c`),
+//! and the parts of `libavcodec`, `libavutil` and `libswresample` they need. The VP9 decoder reads
+//! its frames' headers through FFmpeg's coded bitstream reader (`libavcodec/cbs_vp9.c`) and splits
+//! superframes with a bitstream filter (`libavcodec/bsf/vp9_superframe_split.c`), and the Opus
+//! decoder resamples with `libswresample`. It is plain C, without FFmpeg's assembly or threads.
+//! OpenReliant reads the Bink and Matroska containers, the MP3 frames and the Ogg pages itself
+//! (`src/formats/bink.zig`, `src/formats/matroska.zig`, `src/formats/mp3.zig`,
+//! `src/formats/ogg.zig`) and hands the FLAC decoder whole files, so none of `libavformat` is
+//! built. FFmpeg is LGPL-2.1 or later (the upstream's `LICENSE.md`), and none of its GPL parts are
+//! built.
 //!
 //! The files and the configuration are the ones FFmpeg's `configure` gives for
 //! `--disable-everything --disable-asm --disable-pthreads --disable-autodetect
-//! --enable-decoder=bink,binkaudio_rdft,binkaudio_dct,mp3float,flac,vorbis,opus`, minus what the
-//! decoding calls never reach: the objects that a program using those calls links, and the
+//! --enable-decoder=bink,binkaudio_rdft,binkaudio_dct,mp3float,flac,vorbis,opus,vp9`, minus what
+//! the decoding calls never reach: the objects that a program using those calls links, and the
 //! settings those files read. The one addition is `libavutil/sha.c`, which the random seed falls
 //! back on when no system source of random numbers is set up, as here. The version is the upstream
 //! release that the manifest names.
@@ -35,6 +39,8 @@ pub fn build(b: *std.Build) void {
     // The settings the files read: plain C for any processor, and the aligned memory and the C99
     // maths every target has.
     const config = b.addConfigHeader(.{ .style = .blank, .include_path = "config.h" }, .{
+        .ARCH_AARCH64 = false,
+        .ARCH_ARM = false,
         .ARCH_X86 = false,
         .HAVE_BIGENDIAN = false,
         .HAVE_FAST_64BIT = false,
@@ -47,6 +53,7 @@ pub fn build(b: *std.Build) void {
         .CONFIG_LIBLCEVC_DEC = false,
         .CONFIG_MEMORY_POISONING = false,
         .CONFIG_SAFE_BITSTREAM_READER = true,
+        .CONFIG_CBS_VP9 = true,
     });
     for (maths) |name| config.addValue(b.fmt("HAVE_{s}", .{name}), bool, true);
     const components = b.addConfigHeader(.{ .style = .blank, .include_path = "config_components.h" }, .{
@@ -57,7 +64,11 @@ pub fn build(b: *std.Build) void {
         .CONFIG_FLAC_DECODER = true,
         .CONFIG_VORBIS_DECODER = true,
         .CONFIG_OPUS_DECODER = true,
+        .CONFIG_VP9_DECODER = true,
+        .CONFIG_VP9_SUPERFRAME_SPLIT_BSF = true,
     });
+    // The VP9 decoder counts the hardware decoders built, of which there are none.
+    for (vp9_hardware) |name| components.addValue(b.fmt("CONFIG_VP9_{s}_HWACCEL", .{name}), bool, false);
     const avconfig = b.addConfigHeader(.{ .style = .blank, .include_path = "libavutil/avconfig.h" }, .{
         .AV_HAVE_BIGENDIAN = false,
         .AV_HAVE_FAST_UNALIGNED = false,
@@ -78,11 +89,13 @@ pub fn build(b: *std.Build) void {
         \\    &ff_flac_decoder,
         \\    &ff_opus_decoder,
         \\    &ff_vorbis_decoder,
+        \\    &ff_vp9_decoder,
         \\    NULL };
         \\
     );
     _ = lists.add("libavcodec/bsf_list.c",
         \\static const FFBitStreamFilter * const bitstream_filters[] = {
+        \\    &ff_vp9_superframe_split_bsf,
         \\    NULL };
         \\
     );
@@ -106,6 +119,9 @@ pub fn build(b: *std.Build) void {
     lib.installConfigHeader(avconfig);
     b.installArtifact(lib);
 }
+
+/// The hardware decoders of VP9 that FFmpeg can build.
+const vp9_hardware = [_][]const u8{ "D3D11VA", "D3D11VA2", "D3D12VA", "DXVA2", "NVDEC", "VAAPI", "VDPAU", "VIDEOTOOLBOX", "VULKAN" };
 
 /// The C99 maths `libavutil/libm.h` stands in for where a system lacks them.
 const maths = [_][]const u8{
@@ -149,6 +165,9 @@ const sources = [_][]const u8{
     "libavcodec/bitstream_filters.c",
     "libavcodec/blockdsp.c",
     "libavcodec/bsf.c",
+    "libavcodec/bsf/vp9_superframe_split.c",
+    "libavcodec/cbs.c",
+    "libavcodec/cbs_vp9.c",
     "libavcodec/codec_desc.c",
     "libavcodec/codec_par.c",
     "libavcodec/dct32_fixed.c",
@@ -189,11 +208,24 @@ const sources = [_][]const u8{
     "libavcodec/threadprogress.c",
     "libavcodec/tiff_common.c",
     "libavcodec/utils.c",
+    "libavcodec/videodsp.c",
     "libavcodec/vlc.c",
     "libavcodec/vorbis.c",
     "libavcodec/vorbis_data.c",
     "libavcodec/vorbisdec.c",
     "libavcodec/vorbisdsp.c",
+    "libavcodec/vp9.c",
+    "libavcodec/vp9block.c",
+    "libavcodec/vp9data.c",
+    "libavcodec/vp9dsp.c",
+    "libavcodec/vp9dsp_10bpp.c",
+    "libavcodec/vp9dsp_12bpp.c",
+    "libavcodec/vp9dsp_8bpp.c",
+    "libavcodec/vp9lpf.c",
+    "libavcodec/vp9mvs.c",
+    "libavcodec/vp9prob.c",
+    "libavcodec/vp9recon.c",
+    "libavcodec/vpx_rac.c",
     "libavcodec/wma_freqs.c",
     "libavcodec/xiph.c",
 
@@ -238,6 +270,7 @@ const sources = [_][]const u8{
     "libavutil/tx_float.c",
     "libavutil/tx_int32.c",
     "libavutil/utils.c",
+    "libavutil/video_enc_params.c",
 
     "libswresample/audioconvert.c",
     "libswresample/dither.c",

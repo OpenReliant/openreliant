@@ -565,9 +565,11 @@ pub const Film = struct {
         if (film.player) |*player| player.draw(target.target, target.window, .screen);
     }
 
-    /// Its frame, at its size with its top left corner at `at` on the front end's screen.
+    /// Its frame, at its size with its top left corner at `at` on the front end's screen: a mod's
+    /// movie at the size of the movie it replaces (`movie.Player.size`).
     pub fn drawAt(film: *Film, target: canvas.Canvas, at: [2]i32) void {
-        if (film.player) |*player| target.image(&player.picture, at);
+        const player = &(film.player orelse return);
+        target.imageOver(&player.picture, at, .{ @intCast(player.size[0]), @intCast(player.size[1]) });
     }
 };
 

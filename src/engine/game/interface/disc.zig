@@ -83,6 +83,14 @@ pub const Disc = struct {
         return hog.readStored(gpa, name);
     }
 
+    /// Reads the start of the member `name`, as `readStored` finds it, into `buffer`: as much as
+    /// fits, or the whole member where it is shorter. Null if neither a mod nor the open archive
+    /// has it.
+    pub fn readStoredHead(disc: Disc, name: []const u8, buffer: []u8) bigfile.ReadError!?[]u8 {
+        const hog = disc.hog orelse return disc.mods.readStoredHead(name, buffer);
+        return hog.readStoredHead(name, buffer);
+    }
+
     /// Reads the file that `name` names in the open archive, decompressing RefPack data
     /// (`hog_read_file` on `cd_hog`), with a mod's file taking priority; null if neither has it.
     pub fn readFile(disc: Disc, gpa: Allocator, name: []const u8) bigfile.ReadError!?[]u8 {
@@ -161,4 +169,11 @@ test "a mod's movies replace the CD archives' movies" {
     const other = (try disc.readStored(gpa, "r_h_tb.bik")).?;
     defer gpa.free(other);
     try std.testing.expectEqualStrings("the disc's other", other);
+    // The start of each alone, as much as fits, or a whole file that's shorter.
+    var head: [5]u8 = undefined;
+    try std.testing.expectEqualStrings("a mod", (try disc.readStoredHead("r_h_ta.bik", &head)).?);
+    try std.testing.expectEqualStrings("the d", (try disc.readStoredHead("R_H_TB.BIK", &head)).?);
+    var long: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("a mod's", (try disc.readStoredHead("r_h_ta.bik", &long)).?);
+    try std.testing.expectEqual(null, try disc.readStoredHead("y_h_ta.bik", &head));
 }

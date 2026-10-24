@@ -79,6 +79,15 @@ pub fn readFile(io: Io, gpa: Allocator, dir: Io.Dir, path: []const u8, limit: Io
     return try dir.readFileAlloc(io, spelled, gpa, limit);
 }
 
+/// Reads the start of the game's file `path` under `dir`, found as `readFile` finds it, into
+/// `buffer`: as much as fits, or the whole file where it is shorter. Null where there's no such
+/// file.
+pub fn readHead(io: Io, dir: Io.Dir, path: []const u8, buffer: []u8) Io.Dir.ReadFileError!?[]u8 {
+    var name_buffer: [max_path]u8 = undefined;
+    const spelled = find(io, dir, path, &name_buffer) orelse return null;
+    return try dir.readFile(io, spelled, buffer);
+}
+
 /// Writes `data` to the game's file `path` under `dir`, as Windows does: over the file `find` finds,
 /// whatever the case of its name, or else as a new file named by `path`'s last name in the folder
 /// `find` finds. error.FileNotFound when that folder isn't there. The file is written safely

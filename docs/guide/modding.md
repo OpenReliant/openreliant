@@ -19,8 +19,8 @@ make and change it. The other sections can be read in any order, as you need the
 - [A first mod](#a-first-mod)
 - [Where mods go](#where-mods-go) and [the manifest](#the-manifest)
 - [Load order](#load-order) and [the mods screen](#the-mods-screen)
-- [How files are replaced](#how-files-are-replaced), their [formats](#formats), and
-  [music](#music)
+- [How files are replaced](#how-files-are-replaced), their [formats](#formats), [music](#music),
+  [sounds](#sounds) and [movies](#movies)
 - [Textures](#textures) and [material maps](#material-maps)
 - [The interface](#the-interface): [shapes](#shapes), [pictures](#pictures) and [fonts](#fonts)
 - [Faces and voices](#faces-and-voices)
@@ -372,9 +372,7 @@ and a few modern ones beside them:
 | Missions | `.dte` | A mission editor ([Missions](#missions)) |
 | Stats tables | `.bin` | Better changed from a load script ([The records](scripting.md#the-records)) |
 | Whole sound banks | `.fat` | No tool builds one: replace a bank's sounds one at a time instead ([Sounds](#sounds)) |
-| Movies | Bink (`.bik`) | RAD Game Tools' Bink tools |
-
-Movies in modern formats are planned ([#1179](https://github.com/OpenReliant/openreliant/issues/1179)).
+| Movies | WebM or Matroska, of VP9 video with Opus or Vorbis sound, or Bink (`.bik`) | FFmpeg ([Movies](#movies)), or RAD Game Tools' Bink tools |
 
 ### Music
 
@@ -419,6 +417,40 @@ narrows to a point as the ship moves away, while a shot, a missile or an explosi
 `--original`, which uses the plain software mixer, a stereo 3D sound plays in mono so that it can
 still be placed. Scripts can also play a sound file from their mod by name, in any of these
 formats, in 2D or 3D ([Sound](scripting.md#sound)).
+
+### Movies
+
+A movie can be a WebM or Matroska file of VP9 video, named after the game's movie: `warty_.webm` or
+`warty_.mkv` replaces the game's `warty_.bik`, the Warthog logo. If a mod has more than one,
+OpenReliant uses the first in this order: WebM, Matroska, then Bink. A movie that can't be played
+is left out, the log says why, and the Bink movie plays instead.
+
+- **Video.** VP9 of profile 0: 8 bits, with the colour at half size across and down (4:2:0), which
+  encoders make unless told otherwise. OpenReliant takes the colours as BT.601 in the limited range,
+  as the game's movies have them, unless the video is tagged as BT.709 or full range. AV1 is
+  planned ([#1334](https://github.com/OpenReliant/openreliant/issues/1334)).
+- **Size.** A movie is drawn in the place and at the size of the game's movie it replaces, so a
+  larger movie is sharper in the same place. Keep the game movie's shape, and use a whole multiple
+  of its size, such as 1280x960 or 1920x1440 for a movie of 640x480. VP9 is decoded on the
+  processor, on one thread, so a movie much larger than the window only costs time. A movie that
+  replaces none of the game's, such as a new one that a script plays, is drawn at its own size.
+- **Rate.** A movie's frames show at their own times, at any rate. The front end's transitions,
+  the landing, the ITAC's movies, and the movies of the rooms, a new pilot's induction, the news
+  reports and the locker play at 15 frames a second whatever the movie's rate, as the game plays
+  them. Make those at 15 frames a second, with as many frames as the game's: the rooms show the
+  crew on given frames.
+- **Sound.** Opus or Vorbis, at any rate, mono or stereo, or none. It is decoded whole as the movie
+  starts. Sound in another format, such as AAC, is left out, and the log says so.
+- **File size.** A movie is read whole into memory as it starts. A file in a mod's folder can be at
+  most 256 MiB.
+
+With [FFmpeg](https://ffmpeg.org), this makes `warty_.webm` from a sharper copy of the movie,
+`warty_hd.mov`, made with an upscaler say. `-crf` sets the quality: a lower number is better and
+makes a larger file. Add `-colorspace bt709` where the copy's colours are in BT.709.
+
+```bash
+ffmpeg -i warty_hd.mov -c:v libvpx-vp9 -crf 24 -b:v 0 -pix_fmt yuv420p -c:a libopus warty_.webm
+```
 
 ## Textures
 
@@ -1433,8 +1465,9 @@ report one. As it starts, it lists each mod it loads, in order, by its manifest'
 one, and then what each of the mod's files does: which game file, texture, shape, picture, font,
 line or sound it replaces, which earlier mod's file it replaces, or which file it adds. A recording
 in a different format from the game file it replaces, such as `New_Pensive.flac`, is listed as
-replacing `New_Pensive.wav`. A mod that the mods screen has turned off is listed as off, and none
-of it is used. When a font is loaded, the log says which outline font draws it.
+replacing `New_Pensive.wav`, and a movie such as `warty_.webm` as replacing the movie
+`warty_.bik`. A mod that the mods screen has turned off is listed as off, and none of it is used.
+When a font is loaded, the log says which outline font draws it.
 
 ```text
 info(mods): music.hog matches music.hog.sha256
@@ -1476,3 +1509,6 @@ A script's messages and errors follow its mod's name, as above;
 | `the radio's film <name> is left out: ...` | The film's name ([Faces](#faces)) |
 | `the dead channel's film pilots\static.fm8 is left out too: ...` | The game's `pilots.hog` is missing or damaged |
 | `the mod's music <path> may loop back to the wrong moment, since the game's piece can't be read: ...` | Keep the game's piece in the game folder ([Music](#music)) |
+| `the movie <name> is left out: its video isn't VP9 of profile 0, 8 bits with 4:2:0 colour` | Encode it again as VP9, with `-pix_fmt yuv420p` in FFmpeg ([Movies](#movies)) |
+| `the movie <name> is left out: ...` | The file is damaged, or isn't a WebM or Matroska file of the kind OpenReliant plays ([Movies](#movies)) |
+| `the movie <name> plays without its sound: it is <codec>, and OpenReliant plays Opus and Vorbis` | Encode its sound as Opus or Vorbis, with `-c:a libopus` in FFmpeg ([Movies](#movies)) |

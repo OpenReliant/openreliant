@@ -8,11 +8,16 @@
 //! packets: FFmpeg's decoders, in the platform (`platform/video.zig`). The stand-in decodes a
 //! movie's sound whole as the movie opens, and plays it as a Miles stream, where Bink fills a Miles
 //! sample as it plays.
+//!
+//! **Improvement:** the stand-in also plays a mod's movie in Matroska or WebM, of VP9 video with
+//! Opus or Vorbis sound (`formats/matroska.zig`), in a Bink movie's place
+//! ([#1179](https://github.com/OpenReliant/openreliant/issues/1179)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const container = @import("../formats/bink.zig");
+const matroska = @import("../formats/matroska.zig");
 const flac = @import("../formats/flac.zig");
 const mp3 = @import("../formats/mp3.zig");
 const ogg = @import("../formats/ogg.zig");
@@ -27,7 +32,12 @@ test {
     std.testing.refAllDecls(@This());
 }
 
-pub const Error = container.Error || Allocator.Error || error{Decoding};
+pub const Error = container.Error || matroska.Error || error{
+    Decoding,
+    /// A mod's movie's video isn't VP9 of profile 0, 8 bits with colour at half size across and
+    /// down, which alone OpenReliant decodes.
+    UnsupportedVideo,
+};
 
 /// A stream a `Codec` decodes: a movie's video, or one of its audio tracks.
 pub const Stream = *anyopaque;
@@ -98,9 +108,10 @@ pub const Encoding = union(enum) {
     mp3,
     /// A FLAC file (`formats/flac.zig`), sent whole as one packet. Used for mods' recordings.
     flac,
-    /// The packets of an Ogg stream of Vorbis or Opus (`formats/ogg.zig`), sent one at a time. The
-    /// payload is the stream's headers in the form the decoder takes them (`ogg.Stream.setup`).
-    /// Used for mods' recordings.
+    /// The packets of an Ogg stream of Vorbis or Opus (`formats/ogg.zig`), or of a mod's movie's
+    /// sound (`formats/matroska.zig`), sent one at a time. The payload is the stream's headers in
+    /// the form the decoder takes them (`ogg.Stream.setup`, `matroska.Audio.setup`). Used for mods'
+    /// recordings and movies.
     vorbis: []const u8,
     opus: []const u8,
 };
@@ -275,13 +286,27 @@ test AudioDecoding {
     try std.testing.expectEqual(0, decoders.streams);
 }
 
-/// A movie's video, as its decoder is set up: the header's revision, size and flags.
-pub const Video = struct {
-    revision: u8,
-    width: u32,
-    height: u32,
-    flags: container.VideoFlags,
+/// A movie's video, as its decoder is set up: a Bink movie's, with its header's revision, size and
+/// flags, or a mod's movie's VP9, at its size.
+pub const Video = union(enum) {
+    bink: struct { revision: u8, width: u32, height: u32, flags: container.VideoFlags },
+    vp9: struct { width: u32, height: u32 },
+
+    /// Its pictures' size, across and down.
+    pub fn size(video: Video) [2]u32 {
+        return switch (video) {
+            inline else => |coded| .{ coded.width, coded.height },
+        };
+    }
 };
+
+/// The profile of the VP9 frame `packet`, where it starts as a frame's header does: the frame's
+/// marker, `10`, then the profile's low bit and its high bit. Profile 0 is 8 bits with colour at
+/// half size across and down.
+fn vp9Profile(packet: []const u8) ?u2 {
+    if (packet.len == 0 or packet[0] >> 6 != 0b10) return null;
+    return @intCast((packet[0] >> 4 & 1) << 1 | (packet[0] >> 5 & 1));
+}
 
 /// One of a movie's audio tracks, as its decoder is set up.
 pub const Audio = struct {
@@ -318,13 +343,44 @@ pub const Options = struct {
 /// `play_bink_movie` sets (`0x004AB90F`).
 pub const full_volume = 0x8000;
 
+/// The file a movie plays from: one of the game's Bink movies, or a mod's movie in Matroska or
+/// WebM.
+const Source = union(enum) {
+    bink: container.Movie,
+    matroska: matroska.Movie,
+
+    /// Its video's frame `index`, from 0: the packet the decoder takes, and whether the frame is a
+    /// key frame, which decodes without the frames before it.
+    fn frame(source: Source, index: usize) Error!struct { packet: []const u8, keyframe: bool } {
+        return switch (source) {
+            .bink => |movie| {
+                const found = try movie.frame(index);
+                return .{ .packet = found.video, .keyframe = found.keyframe };
+            },
+            .matroska => |movie| .{ .packet = movie.frames[index].data, .keyframe = movie.frames[index].keyframe },
+        };
+    }
+
+    /// When its video's frame `number`, from 0, is due after the first, in nanoseconds: by a Bink
+    /// movie's rate, or at a mod's movie's frame's own time.
+    fn due(source: Source, number: u32) u64 {
+        return switch (source) {
+            .bink => |movie| {
+                const own: Rate = .{ .frames = movie.header.rate, .seconds = movie.header.rate_divisor };
+                return own.due(number);
+            },
+            .matroska => |movie| std.math.cast(u64, movie.frames[number].time - movie.frames[0].time) orelse 0,
+        };
+    }
+};
+
 /// A movie open (`HBINK`).
 pub const Bink = struct {
     gpa: Allocator,
     codec: Codec,
     /// The movie's file, which it keeps.
     file: []const u8,
-    movie: container.Movie,
+    source: Source,
     video: Stream,
     /// Its size (`Width`, `Height`), its frames (`Frames`), and the frame `doFrame` decodes next,
     /// counting from 1 (`FrameNum`).
@@ -332,7 +388,8 @@ pub const Bink = struct {
     height: u32,
     frames: u32,
     frame_number: u32 = 1,
-    rate: Rate,
+    /// The rate it plays at in place of its own (`BinkSetFrameRate`), where one is set.
+    rate: ?Rate,
     look: Look,
     /// The last frame decoded.
     picture: ?Picture = null,
@@ -340,6 +397,9 @@ pub const Bink = struct {
     /// each a row straight after another.
     deblocking: ?[]u8 = null,
     sound: ?Sound = null,
+    /// Not Bink's: the codec of a mod's movie's sound that it plays without, as the file names it,
+    /// for its player to log.
+    silent: ?[]const u8 = null,
     /// When the first frame was decoded, from which the others are due, in nanoseconds; and when
     /// it was paused.
     start: ?u64 = null,
@@ -353,23 +413,25 @@ pub const Bink = struct {
     };
 
     /// `BinkOpen`: the movie of `file`, which it takes, to be freed as it closes; its first frame
-    /// next. Its first audio track's sound is decoded whole, and waits for the first frame.
+    /// next. Its first audio track's sound is decoded whole, and waits for the first frame. A
+    /// mod's movie in Matroska or WebM opens in a Bink movie's place (`openMatroska`).
     pub fn open(gpa: Allocator, codec: Codec, file: []const u8, options: Options) Error!Bink {
         errdefer gpa.free(file);
+        if (matroska.isEbml(file)) return openMatroska(gpa, codec, file, options);
         const movie: container.Movie = try .parse(file);
         const header = movie.header;
-        const video = try codec.openVideo(.{ .revision = header.revision, .width = header.width, .height = header.height, .flags = header.flags });
+        const video = try codec.openVideo(.{ .bink = .{ .revision = header.revision, .width = header.width, .height = header.height, .flags = header.flags } });
         errdefer codec.close(video);
         var bink: Bink = .{
             .gpa = gpa,
             .codec = codec,
             .file = file,
-            .movie = movie,
+            .source = .{ .bink = movie },
             .video = video,
             .width = header.width,
             .height = header.height,
             .frames = header.frames,
-            .rate = options.rate orelse .{ .frames = header.rate, .seconds = header.rate_divisor },
+            .rate = options.rate,
             .look = options.look,
         };
         if (options.look.deblock) {
@@ -381,6 +443,57 @@ pub const Bink = struct {
         if (options.sound) |driver| if (movie.tracks.len > 0) {
             bink.sound = try openSound(gpa, codec, movie, driver);
         };
+        return bink;
+    }
+
+    /// **Improvement:** `open` for a mod's movie in Matroska or WebM: its first video track,
+    /// which must be VP9 of profile 0, and its first audio track's sound where it is Opus or
+    /// Vorbis. Its frames show at their own times, unless `options` sets a rate in place of its
+    /// own, as a Bink movie's would. Bink's blocks aren't VP9's, so the look's deblocking passes
+    /// it by. AV1 isn't played yet
+    /// ([#1334](https://github.com/OpenReliant/openreliant/issues/1334)).
+    fn openMatroska(gpa: Allocator, codec: Codec, file: []const u8, options: Options) Error!Bink {
+        var movie: matroska.Movie = try .parse(gpa, file);
+        errdefer movie.deinit(gpa);
+        if (movie.video.codec != .vp9 or vp9Profile(movie.frames[0].data) != 0) return error.UnsupportedVideo;
+        const width = movie.video.width;
+        const height = movie.video.height;
+        const video = try codec.openVideo(.{ .vp9 = .{ .width = width, .height = height } });
+        errdefer codec.close(video);
+        var look = options.look;
+        look.deblock = false;
+        var bink: Bink = .{
+            .gpa = gpa,
+            .codec = codec,
+            .file = file,
+            .source = .{ .matroska = movie },
+            .video = video,
+            .width = width,
+            .height = height,
+            .frames = std.math.cast(u32, movie.frames.len) orelse return error.UnsupportedVideo,
+            .rate = options.rate,
+            .look = look,
+        };
+        const audio = movie.audio orelse return bink;
+        const encoding: Encoding = switch (audio.codec) {
+            .opus => .{ .opus = audio.setup },
+            .vorbis => .{ .vorbis = audio.setup },
+            .other => |id| {
+                bink.silent = id;
+                return bink;
+            },
+        };
+        const driver = options.sound orelse return bink;
+        const stream = try codec.openFile(encoding);
+        defer codec.close(stream);
+        var pcm: std.ArrayList(i16) = .empty;
+        defer pcm.deinit(gpa);
+        for (movie.packets) |packet| try codec.samples(stream, packet, gpa, &pcm);
+        const rate: u32 = switch (audio.codec) {
+            .opus => ogg.opus_rate,
+            else => std.math.lossyCast(u32, @round(audio.rate)),
+        };
+        bink.sound = try soundOf(gpa, driver, rate, audio.channels, pcm.items);
         return bink;
     }
 
@@ -399,8 +512,14 @@ pub const Bink = struct {
             // A packet of fewer than 4 bytes holds no samples.
             if (packet.len >= 4) try codec.samples(audio, packet, gpa, &pcm);
         }
-        if (pcm.items.len == 0) return null;
-        const file = try wave.pcm16(gpa, track.rate, channels, pcm.items);
+        return soundOf(gpa, driver, track.rate, channels, pcm.items);
+    }
+
+    /// The samples `pcm`, at `rate` and with `channels`, as a stream of `driver`; none where there
+    /// are none, or the driver has no stream left.
+    fn soundOf(gpa: Allocator, driver: mss.Driver, rate: u32, channels: u8, pcm: []const i16) Allocator.Error!?Sound {
+        if (pcm.len == 0) return null;
+        const file = try wave.pcm16(gpa, rate, channels, pcm);
         const stream = driver.openStream(file) orelse {
             gpa.free(file);
             return null;
@@ -417,6 +536,10 @@ pub const Bink = struct {
             bink.gpa.free(sound.file);
         }
         if (bink.deblocking) |buffer| bink.gpa.free(buffer);
+        switch (bink.source) {
+            .bink => {},
+            .matroska => |*movie| movie.deinit(bink.gpa),
+        }
         bink.codec.close(bink.video);
         bink.gpa.free(bink.file);
         bink.* = undefined;
@@ -429,12 +552,12 @@ pub const Bink = struct {
             bink.start = now;
             if (bink.sound) |sound| sound.driver.startStream(sound.stream);
         }
-        const frame = try bink.movie.frame(bink.frame_number - 1);
-        bink.picture = try bink.codec.picture(bink.video, frame.video);
+        const frame = try bink.source.frame(bink.frame_number - 1);
+        bink.picture = try bink.codec.picture(bink.video, frame.packet);
     }
 
     /// `BinkCopyToBuffer`, in 32-bit RGBA: the last frame decoded into `rgba`, `pitch` bytes to a
-    /// row, its top left corner at `at`, turned into colours by BT.601 in its limited range
+    /// row, its top left corner at `at`, turned into colours as the picture says
     /// (`picture.convert`), deblocked first as its look has it.
     pub fn copyToBuffer(bink: Bink, rgba: []u8, pitch: usize, at: [2]usize) void {
         var shown = bink.picture orelse return;
@@ -474,14 +597,14 @@ pub const Bink = struct {
         if (next > 1) {
             const before = next - 2;
             var from = before;
-            while (from > 0 and !(try bink.movie.frame(from)).keyframe) from -= 1;
+            while (from > 0 and !(try bink.source.frame(from)).keyframe) from -= 1;
             for (from..before + 1) |index| {
-                const frame = try bink.movie.frame(index);
-                bink.picture = try bink.codec.picture(bink.video, frame.video);
+                const frame = try bink.source.frame(index);
+                bink.picture = try bink.codec.picture(bink.video, frame.packet);
             }
         }
         bink.frame_number = next;
-        bink.start = (now + bink.rate.due(1)) -| bink.rate.due(next - 1);
+        bink.start = (now + bink.due(1)) -| bink.due(next - 1);
     }
 
     /// `BinkWait`: whether the frame `frame_number` names is not yet due at `now`, which it never
@@ -489,7 +612,13 @@ pub const Bink = struct {
     pub fn wait(bink: Bink, now: u64) bool {
         if (bink.paused_at != null) return true;
         const start = bink.start orelse return false;
-        return now < start + bink.rate.due(bink.frame_number - 1);
+        return now < start + bink.due(bink.frame_number - 1);
+    }
+
+    /// When frame `number`, from 0, is due after the first, in nanoseconds: by the rate set in
+    /// place of its own, or else as its file has it (`Source.due`).
+    fn due(bink: Bink, number: u32) u64 {
+        return if (bink.rate) |rate| rate.due(number) else bink.source.due(number);
     }
 
     /// `BinkPause`: stops the movie at `now`, its sound too, or plays it on from where it stopped.
@@ -531,10 +660,11 @@ pub const Bink = struct {
 /// What the tests of Bink and of what plays it share.
 pub const testing = struct {
     /// A codec for the tests: each picture the movie's size, at most 8 by 6, and grey, its level
-    /// of Y 16 more than 16 times the video packet's first byte (in `container.testing.movie`, its
-    /// frame's number); each audio packet's bytes past the size, an MP3 frame's past its header, a
-    /// FLAC file's past its marker, or an Ogg packet's bytes, as samples. It counts the pictures it
-    /// makes, and the streams open.
+    /// of Y 16 more than 16 times the low four bits of the video packet's first byte (in
+    /// `container.testing.movie`, its frame's number); each audio packet's bytes past the size, an
+    /// MP3 frame's past its header, a FLAC file's past its marker, or an Ogg packet's or a mod's
+    /// movie's audio packet's bytes, as samples. It counts the pictures it makes, and the streams
+    /// open.
     pub const Decoders = struct {
         width: u32 = 0,
         height: u32 = 0,
@@ -564,7 +694,7 @@ pub const testing = struct {
         }
         fn openVideo(context: *anyopaque, video: Video) Error!Stream {
             const test_codec = of(context);
-            test_codec.width, test_codec.height = .{ video.width, video.height };
+            test_codec.width, test_codec.height = video.size();
             test_codec.streams += 1;
             return context;
         }
@@ -586,7 +716,7 @@ pub const testing = struct {
         fn pictureOf(context: *anyopaque, _: Stream, packet: []const u8) Error!Picture {
             const test_codec = of(context);
             test_codec.pictures += 1;
-            test_codec.y = @splat(@intCast(16 + 16 * @as(u32, packet[0])));
+            test_codec.y = @splat(@intCast(16 + 16 * @as(u32, packet[0] & 0x0F)));
             const half = @divCeil(test_codec.width, 2);
             return .{ .width = test_codec.width, .height = test_codec.height, .y = &test_codec.y, .u = &test_codec.chroma, .v = &test_codec.chroma, .strides = .{ test_codec.width, half, half, 0 } };
         }
@@ -654,6 +784,75 @@ test Bink {
     try std.testing.expectEqual(2, bink.frame_number);
     try std.testing.expect(bink.wait(later + std.time.ns_per_s / 15 - 1));
     try std.testing.expect(!bink.wait(later + std.time.ns_per_s / 15));
+}
+
+test "a mod's movie in Matroska or WebM" {
+    const gpa = std.testing.allocator;
+    var decoders: testing.Decoders = .{};
+    var mixer: mss.Mixer = .init(22050);
+    // Three frames of VP9 of profile 0, 8 by 6, a tick of 40 ms apart, each a level 16 above the
+    // last, and its sound in Opus, whose packets' bytes are its samples.
+    const opus_head = "OpusHead\x01\x02\x38\x01\x80\xBB\x00\x00\x00\x00\x00";
+    const bytes = try matroska.testing.movie(gpa, .{
+        .width = 8,
+        .height = 6,
+        .frames = &.{ &.{0x80}, &.{0x81}, &.{0x82} },
+        .audio = .{ .codec = "A_OPUS", .setup = opus_head, .packets = &.{ &.{ 3, 5 }, &.{ 7, 9 } } },
+    });
+    var bink: Bink = try .open(gpa, decoders.codec(), bytes, .{ .sound = mixer.driver() });
+    defer bink.close();
+    try std.testing.expectEqual(3, bink.frames);
+    try std.testing.expectEqual(8, bink.width);
+    try std.testing.expect(!bink.look.deblock);
+    // Its sound at Opus's rate, its four samples two to a channel.
+    const sound = try wave.Wave.parse(bink.sound.?.file);
+    try std.testing.expectEqual(ogg.opus_rate, sound.rate);
+    try std.testing.expectEqual(2, sound.frameCount());
+
+    // Each frame is due at its own time, 40 ms after the one before.
+    const start = 1_000;
+    try bink.doFrame(start);
+    try std.testing.expectEqual(16, bink.picture.?.y[0]);
+    bink.nextFrame();
+    try std.testing.expect(bink.wait(start + 40 * std.time.ns_per_ms - 1));
+    try std.testing.expect(!bink.wait(start + 40 * std.time.ns_per_ms));
+    // On to the last frame, decoded from the key frame, the first, up to the one before it.
+    try bink.goto(3, start + std.time.ns_per_s);
+    try std.testing.expectEqual(32, bink.picture.?.y[0]);
+    try bink.doFrame(start + std.time.ns_per_s);
+    try std.testing.expectEqual(48, bink.picture.?.y[0]);
+}
+
+test "a mod's movie at a rate set in place of its own, and what it can't play" {
+    const gpa = std.testing.allocator;
+    var decoders: testing.Decoders = .{};
+    const frames: []const []const u8 = &.{ &.{0x80}, &.{0x81} };
+    // At 15 frames a second, as the rooms play their movies, whatever its frames' times.
+    var paced: Bink = try .open(gpa, decoders.codec(), try matroska.testing.movie(gpa, .{ .frames = frames }), .{ .rate = .{ .frames = 15, .seconds = 1 } });
+    defer paced.close();
+    try paced.doFrame(0);
+    paced.nextFrame();
+    try std.testing.expect(paced.wait(std.time.ns_per_s / 15 - 1));
+    try std.testing.expect(!paced.wait(std.time.ns_per_s / 15));
+    // Sound it can't decode is left out, and named.
+    var silent: Bink = try .open(gpa, decoders.codec(), try matroska.testing.movie(gpa, .{
+        .frames = frames,
+        .audio = .{ .codec = "A_AAC", .setup = "", .packets = &.{"aac"} },
+    }), .{});
+    defer silent.close();
+    try std.testing.expectEqualStrings("A_AAC", silent.silent.?);
+    // Video other than VP9, or of another profile, isn't played.
+    try std.testing.expectError(error.UnsupportedVideo, Bink.open(gpa, decoders.codec(), try matroska.testing.movie(gpa, .{ .video_codec = "V_AV1", .frames = frames }), .{}));
+    try std.testing.expectError(error.UnsupportedVideo, Bink.open(gpa, decoders.codec(), try matroska.testing.movie(gpa, .{ .frames = &.{&.{0x90}} }), .{}));
+    try std.testing.expectEqual(2, decoders.streams);
+}
+
+test vp9Profile {
+    try std.testing.expectEqual(0, vp9Profile(&.{0x82}).?);
+    try std.testing.expectEqual(1, vp9Profile(&.{0xA2}).?);
+    try std.testing.expectEqual(2, vp9Profile(&.{0x92}).?);
+    try std.testing.expectEqual(null, vp9Profile(&.{0x42}));
+    try std.testing.expectEqual(null, vp9Profile(&.{}));
 }
 
 test "a movie's sound plays as a stream" {
