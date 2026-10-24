@@ -384,10 +384,10 @@ pub fn lookUp(state: *State, comptime T: type, text: []const u8) ?T {
     return byName(T, ownName(state, text, &buffer) orelse return null);
 }
 
-/// Whether scripts see a tag or a field by its name: all but those that start with an underscore,
-/// which hold what isn't understood yet.
+/// Whether scripts see a tag or a field by its name: all but the placeholders' names, which start
+/// with an underscore and hold what isn't understood yet (`layout.isPlaceholder`).
 pub fn shown(tag_name: []const u8) bool {
-    return tag_name.len > 0 and tag_name[0] != '_';
+    return tag_name.len > 0 and !openreliant.layout.isPlaceholder(tag_name);
 }
 
 /// The names of `T`'s values that scripts see.

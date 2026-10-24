@@ -34,7 +34,6 @@ const create = @import("create.zig");
 const pilots = @import("pilots.zig");
 const gameobj = @import("gameobj.zig");
 const additions = @import("additions.zig");
-const loadout_tables = @import("../interface/loadout/tables.zig");
 const guns = @import("guns.zig");
 const launch = @import("launch.zig");
 const cloak = @import("cloak.zig");
@@ -2220,8 +2219,8 @@ pub const player_ships = [_]PlayerShip{
 };
 
 comptime {
-    // They are the loadout's twelve, which the mods' manifests count on (`additions.readShip`).
-    std.debug.assert(player_ships.len == loadout_tables.ship_count);
+    // One for each ship the player can fly (`gameobj.GameType.playerFlies`).
+    std.debug.assert(player_ships.len == gameobj.GameType.player_twins);
 }
 
 /// What the start fits in mission 25's first part, where the player's wing flies Kamovs
@@ -2247,10 +2246,10 @@ pub fn cockpitShip(all: *const create.Objects, ship_type: gameobj.Type) ?PlayerS
 /// (`additions.ShipExtra`); without a base it carries no device its manifest doesn't give. A type
 /// based on a ship the player can't fly is flown with a cockpit of its own (`ownShip`).
 pub fn playerShip(ship_type: gameobj.Type) ?PlayerShip {
-    const index = @backingInt(ship_type.base().untwinned());
+    const base = ship_type.base();
     const mod = ship_type.added();
-    if (index >= player_ships.len) return ownShip(mod orelse return null);
-    var ship = player_ships[index];
+    if (!base.playerFlies()) return ownShip(mod orelse return null);
+    var ship = player_ships[base.untwinned().number()];
     const added = mod orelse return ship;
     // A type without a base carries none of its template's devices.
     if (!added.based) {
@@ -2261,8 +2260,8 @@ pub fn playerShip(ship_type: gameobj.Type) ?PlayerShip {
     return ship;
 }
 
-/// The ship whose display shapes the pictures of a mod's type based on a ship the player can't fly
-/// stand in for (`ownShip`): the Predator, as for a type without a base.
+/// The ship whose wire frame and wing icon the pictures of a mod's type replace, where the type is
+/// based on a ship the player can't fly (`ownShip`): the Predator, as for a type without a base.
 const stand_in_ship = player_ships[@backingInt(gameobj.GameType.predator)];
 
 /// The player's ship of `added`, a mod's type based on a ship the player can't fly, such as the

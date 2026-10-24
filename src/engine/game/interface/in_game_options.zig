@@ -243,7 +243,8 @@ pub const InGameOptions = struct {
 
     /// `in_game_options_draw` (`0x004398B0`), over the menu's background: the buttons and their
     /// labels, the item under the pointer lit, the panels' labels, ABOUT OPENRELIANT's box or
-    /// QUIT's question where either is up, and OpenReliant's version. The pointer goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    /// QUIT's question where either is up, and OpenReliant's version. The pointer goes over it
+    /// all, after what scripts draw (`canvas.Canvas.drawPointer`).
     pub fn draw(menu: InGameOptions, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, about_art: ?*hud.Art) canvas_module.Error!void {
         for (std.enums.values(Item)) |item| {
             const shown = button(item) orelse continue;

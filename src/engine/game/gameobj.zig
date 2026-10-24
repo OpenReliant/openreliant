@@ -745,6 +745,13 @@ pub const GameType = enum(u32) {
     /// How many of the player's ship types have twins: the first twelve, from 0.
     pub const player_twins = 0x100 - player_twins_first;
 
+    /// Whether the player can fly a ship of this type, a twin as the ship it twins: one of the
+    /// first twelve, the Predator to the Phoenix, which the start fits a cockpit to
+    /// (`main.player_ships`).
+    pub fn playerFlies(object_type: GameType) bool {
+        return object_type.untwinned().number() < player_twins;
+    }
+
     /// Its twin among the second set of the player's ship types, for one of the first set's; null
     /// for any other.
     pub fn twin(object_type: GameType) ?GameType {
@@ -869,8 +876,7 @@ pub const Type = enum(u32) {
     /// The name scripts know it by, if it has one: its qualified name for a type a mod adds.
     pub fn scriptName(object_type: Type) ?[]const u8 {
         if (object_type.added()) |from_mod| return from_mod.name;
-        const tag_name = std.enums.tagName(GameType, object_type.base()) orelse return null;
-        return if (tag_name[0] == '_') null else tag_name;
+        return layout.tagName(GameType, object_type.base());
     }
 
     /// The type scripts name `text`, if there is one.
@@ -1661,6 +1667,13 @@ test "Type.twin" {
     try std.testing.expectEqual(Type.of(.grendel), Type.of(.grendel).twin().?.untwinned());
     try std.testing.expectEqual(null, Type.of(.reliant).twin());
     try std.testing.expectEqual(null, Type.of(.t_phoenix).twin());
+}
+
+test "GameType.playerFlies" {
+    // The Predator to the Phoenix and their twins, and nothing past them.
+    try std.testing.expect(GameType.predator.playerFlies() and GameType.phoenix.playerFlies());
+    try std.testing.expect(GameType.t_phoenix.playerFlies());
+    try std.testing.expect(!GameType.reliant.playerFlies() and !GameType.basilisk.playerFlies());
 }
 
 test "GameType.rock" {

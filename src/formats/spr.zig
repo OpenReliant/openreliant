@@ -209,7 +209,8 @@ pub const Sprite = struct {
 
     /// Whether block `index` is a shape whose rows run past its block, as a broken set from a mod
     /// can hold: a block `classify` takes for a placeholder, but whose header's bounds are sane,
-    /// which the game's own placeholders' aren't. One of 256 bytes reads as a remap table instead.
+    /// unlike those of the game's own placeholders. A block of 256 bytes is read as a remap table
+    /// instead, so it is never one.
     pub fn cutShort(sprite: Sprite, index: usize) bool {
         if (sprite.block(index) != .placeholder) return false;
         return saneHeader(sprite.data, sprite.entries[index].offset, sprite.blockEnd(index)) != null;

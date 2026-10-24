@@ -77,10 +77,10 @@ pub fn Spec(comptime Base: type, comptime Extra: type) type {
         end: u32,
         /// The least number the mod's own files can give one, where that is below `first`.
         own_first: ?u32 = null,
-        /// The game's record the manifest's text names, and the number of each. Null for a family
-        /// whose records have no base, such as the game variables, which take `template`.
-        baseOf: ?fn ([]const u8) ?Base = null,
-        baseNumber: ?fn (Base) u32 = null,
+        /// How the manifest names the game's records that the family's records take as their base;
+        /// null for a family whose records have no base, such as the game variables, which take
+        /// `template`.
+        bases: ?Bases(Base) = null,
         /// What the mod's own files that use the number after a record's name are, for the log.
         numbered_in: []const u8,
         /// The game's record one without a `Base` starts from, where the family takes one without:
@@ -89,6 +89,17 @@ pub fn Spec(comptime Base: type, comptime Extra: type) type {
         /// Reads what a record has besides its base and its name from its section, or null where
         /// the section gets it wrong, which it logs.
         readExtra: ?fn (Context, []const u8, Base) Allocator.Error!?Extra = null,
+    };
+}
+
+/// How a family's manifest names the game's records that its records take as their base
+/// (`Spec.bases`).
+pub fn Bases(comptime Base: type) type {
+    return struct {
+        /// The game's record that the manifest's text names.
+        of: fn ([]const u8) ?Base,
+        /// The number of one of the game's records.
+        number: fn (Base) u32,
     };
 }
 
@@ -236,10 +247,10 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
 
         /// The number of what `text` names, for a record of the mod whose qualified names start
         /// with `mod` (`Mod.qualifier`): one of the game's by its name or number
-        /// (`Spec.baseOf`), one the mods add by its qualified name, or one `mod` adds by its own
+        /// (`Spec.bases`), one the mods add by its qualified name, or one `mod` adds by its own
         /// name.
         pub fn named(text: []const u8, mod: []const u8) ?u32 {
-            if (spec.baseOf) |of| if (of(text)) |base| return spec.baseNumber.?(base);
+            if (spec.bases) |bases| if (bases.of(text)) |base| return bases.number(base);
             if (find(text)) |number| return number;
             var buffer: [256]u8 = undefined;
             const qualified = std.mem.print(&buffer, "{s}:{s}", .{ mod, text }) catch return null;
@@ -348,8 +359,8 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
                 return null;
             };
             const section = try context.arena.print("{s}{s}", .{ spec.item_section, own });
-            const base_text = if (spec.baseOf == null) null else manifest.value(section, "Base");
-            const base = if (base_text) |text| spec.baseOf.?(text) orelse {
+            const base_text = if (spec.bases == null) null else manifest.value(section, "Base");
+            const base = if (base_text) |text| spec.bases.?.of(text) orelse {
                 context.warn(spec.noun, "has the base '{s}', which isn't one of the game's", .{text});
                 return null;
             } else spec.template orelse {
@@ -380,7 +391,7 @@ pub fn Family(comptime Base_: type, comptime Extra: type, comptime spec: Spec(Ba
             const kept = @min(game.len, own_count);
             for (made[0..kept], game[0..kept]) |*record, from| record.* = from;
             @memset(made[kept..own_count], std.mem.zeroes(Record));
-            for (made[own_count..], registered) |*record, each| record.* = made[spec.baseNumber.?(each.base) - numbered_from];
+            for (made[own_count..], registered) |*record, each| record.* = made[spec.bases.?.number(each.base) - numbered_from];
             return made;
         }
     };
@@ -451,17 +462,12 @@ fn readShip(context: Context, section: []const u8, base: gameobj.GameType) Alloc
     if (manifest.value(section, "WireFrame")) |text| made.wire_frame = try context.arena.dupe(u8, files.stem(text));
     if (manifest.value(section, "WingIcon")) |text| made.wing_icon = try context.arena.dupe(u8, files.stem(text));
     if (manifest.value(section, "EngineSound")) |name| made.engine_sound = try readSound(context, "ship type", name) orelse return null;
-    if (manifest.value(section, "Tier")) |text| made.tier = try readTier(context, "ship type", text) orelse return null;
+    if (manifest.value(section, "Tier")) |text| made.tier = readNumber(u2, context, "ship type", "Tier", text) orelse return null;
     if (manifest.value(section, "BlindFire")) |text| made.blind_fire = readSwitch(context, "ship type", "BlindFire", text) orelse return null;
     if (manifest.value(section, "SpectralShields")) |text| made.spectral_shields = readSwitch(context, "ship type", "SpectralShields", text) orelse return null;
     if (manifest.value(section, "Class")) |text| made.class = readNamed(loadout.Class, context, "Class", text) orelse return null;
     if (manifest.value(section, "Access")) |text| made.access = readNamed(loadout.Access, context, "Access", text) orelse return null;
-    if (manifest.value(section, "Crew")) |text| {
-        made.crew = std.fmt.parseInt(u8, std.mem.trim(u8, text, " \t"), 10) catch {
-            context.warn("ship type", "gives the Crew '{s}', which isn't a number from 0 to 255", .{text});
-            return null;
-        };
-    }
+    if (manifest.value(section, "Crew")) |text| made.crew = readNumber(u8, context, "ship type", "Crew", text) orelse return null;
     if (manifest.value(section, "Schematic")) |text| made.schematic = try fileName(context, text);
     if (manifest.value(section, "GunsModel")) |text| made.guns_model = try fileName(context, text);
     if (manifest.value(section, "Guns")) |text| {
@@ -480,7 +486,7 @@ fn readShip(context: Context, section: []const u8, base: gameobj.GameType) Alloc
     }
     // A type based on a ship the player can't fly is flown only with a cockpit of its own
     // (`main.playerShip`), so without one, what it gives for the player's ship goes unused.
-    if (made.cockpit == null and @backingInt(base.untwinned()) >= loadout.ship_count) {
+    if (made.cockpit == null and !base.playerFlies()) {
         for ([_][]const u8{ "WireFrame", "WingIcon", "BlindFire", "SpectralShields" }) |key| {
             if (manifest.value(section, key) != null) context.warn("ship type", "gives {s}, which a ship the player can't fly uses only with a Cockpit", .{key});
         }
@@ -506,7 +512,7 @@ fn readMissile(context: Context, section: []const u8, _: missiles_module.GameMis
     if (manifest.value(section, "Model")) |model| made.model = try fileName(context, model);
     if (manifest.value(section, "Pod")) |pod| made.pod = try fileName(context, pod);
     if (manifest.value(section, "Description")) |text| made.description = try context.arena.dupe(u8, text);
-    if (manifest.value(section, "Tier")) |text| made.tier = try readTier(context, "missile", text) orelse return null;
+    if (manifest.value(section, "Tier")) |text| made.tier = readNumber(u2, context, "missile", "Tier", text) orelse return null;
     return made;
 }
 
@@ -541,11 +547,11 @@ fn readNamed(comptime Named: type, context: Context, comptime key: []const u8, t
     return null;
 }
 
-/// The campaign tier `text` names, for a record of `noun`; null where it isn't one, which the log
-/// says.
-fn readTier(context: Context, comptime noun: []const u8, text: []const u8) Allocator.Error!?u2 {
-    return std.fmt.parseInt(u2, std.mem.trim(u8, text, " \t"), 10) catch {
-        context.warn(noun, "gives the tier '{s}', which isn't from 0 to 3", .{text});
+/// `text` as the whole number of `T` that a record of `noun` gives its `key`, such as a campaign
+/// tier, a `u2`; null where it isn't one, which the log says with the numbers `T` holds.
+fn readNumber(comptime T: type, context: Context, comptime noun: []const u8, comptime key: []const u8, text: []const u8) ?T {
+    return std.fmt.parseInt(T, std.mem.trim(u8, text, " \t"), 0) catch {
+        context.warn(noun, "gives " ++ key ++ " the value '{s}', which isn't a whole number from {d} to {d}", .{ text, std.math.minInt(T), std.math.maxInt(T) });
         return null;
     };
 }
@@ -557,16 +563,18 @@ pub const ships = Family(gameobj.GameType, ShipExtra, .{
     .item_section = "ShipType ",
     .first = 0x100,
     .end = @backingInt(gameobj.GameType.sun_marker),
-    .baseOf = struct {
-        fn of(text: []const u8) ?gameobj.GameType {
-            return gameNamed(gameobj.GameType, text, 0x100);
-        }
-    }.of,
-    .baseNumber = struct {
-        fn number(base: gameobj.GameType) u32 {
-            return @backingInt(base);
-        }
-    }.number,
+    .bases = .{
+        .of = struct {
+            fn of(text: []const u8) ?gameobj.GameType {
+                return gameNamed(gameobj.GameType, text, 0x100);
+            }
+        }.of,
+        .number = struct {
+            fn number(base: gameobj.GameType) u32 {
+                return @backingInt(base);
+            }
+        }.number,
+    },
     .numbered_in = "its missions",
     // A fighter the game singles out nowhere.
     .template = .predator,
@@ -636,21 +644,23 @@ pub const guns = Family(guns_module.GameGun, GunExtra, .{
     .item_section = "Gun ",
     .first = guns_module.max_types,
     .end = std.math.maxInt(u8) + 1,
-    .baseOf = struct {
-        fn of(text: []const u8) ?guns_module.GameGun {
-            const trimmed = std.mem.trim(u8, text, " \t");
-            if (std.fmt.parseInt(u32, trimmed, 0)) |number| {
-                if (number == 0 or number >= guns_module.max_types) return null;
-                return @fromBackingInt(@intCast(number - 1));
-            } else |_| {}
-            return gameNamed(guns_module.GameGun, trimmed, guns_module.max_types);
-        }
-    }.of,
-    .baseNumber = struct {
-        fn number(base: guns_module.GameGun) u32 {
-            return base.number();
-        }
-    }.number,
+    .bases = .{
+        .of = struct {
+            fn of(text: []const u8) ?guns_module.GameGun {
+                const trimmed = std.mem.trim(u8, text, " \t");
+                if (std.fmt.parseInt(u32, trimmed, 0)) |number| {
+                    if (number == 0 or number >= guns_module.max_types) return null;
+                    return @fromBackingInt(@intCast(number - 1));
+                } else |_| {}
+                return gameNamed(guns_module.GameGun, trimmed, guns_module.max_types);
+            }
+        }.of,
+        .number = struct {
+            fn number(base: guns_module.GameGun) u32 {
+                return base.number();
+            }
+        }.number,
+    },
     .readExtra = readGun,
     .numbered_in = "its models' muzzles",
 });
@@ -662,17 +672,19 @@ pub const missiles = Family(missiles_module.GameMissile, MissileExtra, .{
     .item_section = "Missile ",
     .first = missiles_module.type_count,
     .end = std.math.maxInt(u8) + 1,
-    .baseOf = struct {
-        fn of(text: []const u8) ?missiles_module.GameMissile {
-            const base = gameNamed(missiles_module.GameMissile, text, missiles_module.type_count) orelse return null;
-            return if (base == .none) null else base;
-        }
-    }.of,
-    .baseNumber = struct {
-        fn number(base: missiles_module.GameMissile) u32 {
-            return @intCast(@backingInt(base));
-        }
-    }.number,
+    .bases = .{
+        .of = struct {
+            fn of(text: []const u8) ?missiles_module.GameMissile {
+                const base = gameNamed(missiles_module.GameMissile, text, missiles_module.type_count) orelse return null;
+                return if (base == .none) null else base;
+            }
+        }.of,
+        .number = struct {
+            fn number(base: missiles_module.GameMissile) u32 {
+                return @intCast(@backingInt(base));
+            }
+        }.number,
+    },
     .numbered_in = "its models' hardpoints",
     .readExtra = readMissile,
 });
@@ -707,17 +719,19 @@ pub const pilots = Family(u8, PilotExtra, .{
     .item_section = "Pilot ",
     .first = pilots_module.Table.count,
     .end = dte.Ship.no_pilot,
-    .baseOf = struct {
-        fn of(text: []const u8) ?u8 {
-            const number = std.fmt.parseInt(u8, std.mem.trim(u8, text, " \t"), 0) catch return null;
-            return if (number < pilots_module.Table.count) number else null;
-        }
-    }.of,
-    .baseNumber = struct {
-        fn number(base: u8) u32 {
-            return base;
-        }
-    }.number,
+    .bases = .{
+        .of = struct {
+            fn of(text: []const u8) ?u8 {
+                const number = std.fmt.parseInt(u8, std.mem.trim(u8, text, " \t"), 0) catch return null;
+                return if (number < pilots_module.Table.count) number else null;
+            }
+        }.of,
+        .number = struct {
+            fn number(base: u8) u32 {
+                return base;
+            }
+        }.number,
+    },
     .numbered_in = "its missions",
     .readExtra = readPilot,
 });
@@ -729,19 +743,10 @@ pub const pilots = Family(u8, PilotExtra, .{
 fn readVariable(context: Context, section: []const u8, _: void) Allocator.Error!?gameflow.VariableRecord {
     const manifest = context.mod.manifest;
     var made: gameflow.VariableRecord = .{ .start = 0, .saved = true };
-    if (manifest.value(section, "Start")) |text| made.start = readValue(context, "Start", text) orelse return null;
-    if (manifest.value(section, "Attempt")) |text| made.attempt = readValue(context, "Attempt", text) orelse return null;
+    if (manifest.value(section, "Start")) |text| made.start = readNumber(i32, context, "game variable", "Start", text) orelse return null;
+    if (manifest.value(section, "Attempt")) |text| made.attempt = readNumber(i32, context, "game variable", "Attempt", text) orelse return null;
     if (manifest.value(section, "Saved")) |text| made.saved = readSwitch(context, "game variable", "Saved", text) orelse return null;
     return made;
-}
-
-/// The value `text` gives a game variable's `key`, a whole number; null where it isn't one, which
-/// the log says.
-fn readValue(context: Context, comptime key: []const u8, text: []const u8) ?i32 {
-    return std.fmt.parseInt(i32, std.mem.trim(u8, text, " \t"), 0) catch {
-        context.warn("game variable", "gives " ++ key ++ " the value '{s}', which isn't a whole number", .{text});
-        return null;
-    };
 }
 
 /// The game variables mods add, past the original's block of 64 up to the last number a script's
@@ -1020,8 +1025,8 @@ test "a type based on a ship the player can't fly, with and without a cockpit" {
     } };
     try read(arena.allocator(), &.{mod});
     defer reset();
-    // Both are read. The second, without a cockpit, leaves its wire frame and blind fire unused, which
-    // the log says.
+    // Both are read. The second, without a cockpit, leaves its wire frame and blind fire unused,
+    // which the log says.
     const list = ships.all();
     try std.testing.expectEqual(2, list.len);
     try std.testing.expectEqualStrings("kamg_frm.shp", list[0].extra.cockpit.?);

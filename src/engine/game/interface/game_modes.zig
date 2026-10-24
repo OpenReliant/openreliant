@@ -181,7 +181,8 @@ pub const GameModes = struct {
     }
 
     /// The screen's drawing, over the background: the title, the list and the panel, the buttons,
-    /// the one under the pointer lit, and OpenReliant's version. The pointer goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    /// the one under the pointer lit, and OpenReliant's version. The pointer goes over it all,
+    /// after what scripts draw (`canvas.Canvas.drawPointer`).
     pub fn draw(screen: GameModes, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         const modes = screen.modes;
         try title.write(canvas, canvas.fonts.large, canvas_module.white);

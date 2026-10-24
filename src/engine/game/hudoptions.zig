@@ -201,8 +201,8 @@ pub const PauseMenu = struct {
     /// `pause_menu_draw` (`0x004906F0`), the overlay while paused, with the pointer brought up to
     /// date first as `mission_paused_frame` does (`menu_mouse_update`). A screen shown for the
     /// first time runs its enter routine; if its choice goes elsewhere, it runs its leave routine.
-    /// The game draws the pointer last, which OpenReliant draws after what scripts draw over the
-    /// menu (`drawPointer`).
+    /// The game draws the pointer last; OpenReliant draws it after what scripts draw over the menu
+    /// (`drawPointer`).
     pub fn draw(pause_menu: *PauseMenu, frame: Frame) menu.Error!void {
         pause_menu.pointer_shown = null;
         const fonts = if (pause_menu.fonts) |*open_fonts| open_fonts else return;
@@ -213,7 +213,7 @@ pub const PauseMenu = struct {
             .outcome => return,
         };
         const tab = SettingsScreen.tabOf(screen);
-        // The settings screen the frame before left goes, now that its pointer has been drawn.
+        // The settings screen that the frame before left closes, now that its pointer is drawn.
         if (tab == null) if (pause_menu.settings) |*shown| {
             shown.close(fonts.gpa);
             pause_menu.settings = null;

@@ -486,16 +486,15 @@ pub const Variable = enum(u8) {
         return @fromBackingInt(@backingInt(game));
     }
 
-    /// The variable a mod adds that it is, if it is one.
+    /// The variable a mod adds with its number, if there is one.
     pub fn added(variable: Variable) ?*const additions.variables.Added {
         return additions.variables.get(@backingInt(variable));
     }
 
-    /// The game's name for it: none for a number without one, or whose name is a placeholder,
-    /// such as `_unused_2`.
+    /// The game's name for it: none for a number without one, or whose name is a placeholder's,
+    /// such as `_unused_2` (`layout.tagName`).
     pub fn gameName(variable: Variable) ?[]const u8 {
-        const name = std.enums.tagName(GameVariable, @fromBackingInt(@backingInt(variable))) orelse return null;
-        return if (name[0] == '_') null else name;
+        return layout.tagName(GameVariable, @fromBackingInt(@backingInt(variable)));
     }
 
     /// The name scripts know it by: the qualified name of one a mod adds, else the game's name
