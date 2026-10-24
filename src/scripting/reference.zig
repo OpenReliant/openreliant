@@ -385,7 +385,8 @@ pub fn writeDefinitions(w: *Writer) Writer.Error!void {
     try w.writeAll("    --- The colour of the light the planets get, nil for the key lights' colour, (1, 1, 0.8), as the original lights them. Only the planets and their atmospheres take this light, so a mod can light them without lighting any other model. Load scripts set it.\n");
     try w.writeAll("    planet_light: vector?,\n");
     inline for (field_tables) |Table| {
-        // A table whose entries scripts also find by name takes strings as keys too (`table.Table`).
+        // A table whose entries scripts also find by name takes strings as keys too
+        // (`table.Table`).
         const key = if (@hasDecl(Table, "placeNamed")) "number | string" else "number";
         try w.print("    --- {s}\n    {s}: {{ [{s}]: {s} }},\n", .{ Table.entries_about, Table.list_name, key, Table.script_name });
     }

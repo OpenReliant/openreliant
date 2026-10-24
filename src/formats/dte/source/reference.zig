@@ -9,6 +9,7 @@ const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 
 const dte = @import("../../dte.zig");
+const layout = @import("../../layout.zig");
 const commands = @import("../../../engine/game/executor/commands.zig");
 const conditions = @import("../../../engine/vm/conditions.zig");
 const vm = @import("../../../engine/vm.zig");
@@ -196,11 +197,11 @@ fn writeNames(w: *Writer) Writer.Error!void {
     try w.writeAll(", or a number, as in `game[37]`, for one without a name.\n");
 }
 
-/// Writes the names `tags` give, but placeholders (`vocabulary.isPlaceholder`), each in backticks.
+/// Writes the names `tags` give, but placeholders (`layout.isPlaceholder`), each in backticks.
 fn writeList(w: *Writer, tags: []const [:0]const u8) Writer.Error!void {
     var first = true;
     for (tags) |tag| {
-        if (vocabulary.isPlaceholder(tag)) continue;
+        if (layout.isPlaceholder(tag)) continue;
         try w.print("{s}`{s}`", .{ if (first) "" else ", ", tag });
         first = false;
     }

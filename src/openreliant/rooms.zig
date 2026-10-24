@@ -1060,13 +1060,16 @@ const Restarting = struct {
     shapes: ?canvas.Shapes = null,
 
     fn draw(screen: *Restarting, target: canvas.Canvas) canvas.Error!void {
-        const shapes = if (screen.shapes) |*loaded| &loaded.art else return;
-        try screen.state.draw(target, shapes);
+        try screen.state.draw(target, screen.art() orelse return);
     }
 
     fn drawPointer(screen: *Restarting, target: canvas.Canvas, pointer: canvas.Pointer) canvas.Error!void {
-        const shapes = if (screen.shapes) |*loaded| &loaded.art else return;
-        try screen.state.drawPointer(target, shapes, pointer);
+        try screen.state.drawPointer(target, screen.art() orelse return, pointer);
+    }
+
+    /// The shapes the screen draws with; null where they are left out.
+    fn art(screen: *Restarting) ?*game.hud.Art {
+        return if (screen.shapes) |*loaded| &loaded.art else null;
     }
 };
 

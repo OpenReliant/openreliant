@@ -585,8 +585,8 @@ const testing = struct {
         }
     };
 
-    /// The quiet time the test gives `Trickles`, many times its gap, so that a busy machine can hold
-    /// its thread up for most of a quarter of a second without failing the test
+    /// The quiet time the test gives `Trickles`, many times its gap, so that a busy machine can
+    /// hold its thread up for most of a quarter of a second without failing the test
     /// ([#1312](https://github.com/OpenReliant/openreliant/issues/1312)).
     const trickle_quiet_ms = 250;
 

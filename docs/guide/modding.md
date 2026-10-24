@@ -924,8 +924,8 @@ A mission can put the player in a ship type based on a ship the player can't fly
 Basilisk. The player flies it with a cockpit only if it gives `Cockpit`. Its base has no wire frame,
 wing icon, blind fire or spectral shields, so it has only those it gives, and its `WireFrame` and
 `WingIcon` pictures are drawn over the Predator's rectangles, as for a type without a base. Without
-a `Cockpit`, the player flies it as the game's own such ships, without a cockpit, a wire frame or a
-wing icon, and the log names the keys it leaves unused.
+a `Cockpit`, the player flies it like the game's own ships of that kind, without a cockpit, a wire
+frame or a wing icon, and the log names the keys it leaves unused.
 
 A mission can launch ships from a mod's ship type, the player's among them. One that keeps its
 base's model launches them as its base does, such as from the Reliant's tubes. One with a model of
@@ -1099,8 +1099,8 @@ Saved=no
 - `Saved` says whether a saved game keeps it, `yes` without it. A saved game keeps a mod's variables
   in its `.mods` file, by their qualified names, such as `pirates:pirates_beaten`. Loading a saved
   game from before the mod was on gives a variable its `Start`.
-- These make the variable's record, beside the game's own in `records.game_variables`, which load
-  scripts can change, the game's variables too
+- These keys make the variable's record in `records.game_variables`, beside the records of the
+  game's own variables. Load scripts can change any of them
   ([The game's variables](scripting.md#the-games-variables)).
 - Scripts read and set the values with `world.variable` and `world.set_variable`, a mod's by its
   qualified name, or by its own name in the mod's own scripts ([Objects](scripting.md#objects)). The

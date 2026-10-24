@@ -64,12 +64,11 @@ after the call sign's terminator, which OpenReliant writes as zeros.
 
   `Rack1` to `Rack20` are the racks in `saved_racks`' order. Loading the save puts each back over
   its base where its mod is still on, and keeps the base otherwise.
-- **Improvement:** which of the game's variables a saved game keeps is in their records
+- **Improvement:** the records of the game's variables say which of them a saved game keeps
   (`records.game_variables`, [The game's variables](../guide/scripting.md#the-games-variables)).
   `VARS` always holds the original's 25, so that the original can still read the save, and a load
   puts back those of them whose records say a saved game keeps them: all 25 with the original's
-  records.
-  `VARS` has no room for the others a saved game keeps, such as those mods add
+  records. `VARS` has no room for the others a saved game keeps, such as those mods add
   ([Game variables](../guide/modding.md#game-variables)), so the `.mods` file keeps their values
   under `[Variables]`, each by its name, or by its number where it has none
   (`save.ModVariables`):

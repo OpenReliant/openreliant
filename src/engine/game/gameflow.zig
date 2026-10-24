@@ -116,13 +116,19 @@ pub fn addModVariables(records: *[vm.Variables.count]VariableRecord) void {
 /// `campaign_new` (`0x004751B0`) as a new campaign begins, which `WinMain` also runs as the game
 /// starts: gives each of the game's variables the value its record gives a new campaign
 /// (`VariableRecord.start`). The original's records clear the first 32 and set the campaign's
-/// flags (`campaign_flags`). `Campaign.begin` sets up the rest of the campaign: mission 1 as the next,
-/// and empty records for each mission. `save.Game.clearPilot` clears the pilot's tallies, and
-/// `ProfileFile.open` reads the pilot's profile.
+/// flags (`campaign_flags`). `Campaign.begin` sets up the rest of the campaign: mission 1 as the
+/// next, and empty records for each mission. `save.Game.clearPilot` clears the pilot's tallies,
+/// and `ProfileFile.open` reads the pilot's profile.
 pub fn newCampaign(variables: *vm.Variables) void {
+    setFromRecords(variables, .start);
+}
+
+/// Sets each of the game's variables in `variables` to the value its record gives in `given`,
+/// where it gives one (`VariableRecord`).
+fn setFromRecords(variables: *vm.Variables, comptime given: enum { start, attempt }) void {
     for (0..vm.Variables.count) |at| {
         const number: u8 = @intCast(at);
-        if (variableRecord(number).start) |value| variables.slot(number).* = @bitCast(value);
+        if (@field(variableRecord(number), @tagName(given))) |value| variables.slot(number).* = @bitCast(value);
     }
 }
 
@@ -278,10 +284,7 @@ const mission_tiers = [last_mission]u2{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0
 /// (`VariableRecord.attempt`). The original's records clear the attempt's own
 /// (`attempt_variables`).
 pub fn resetVariables(variables: *vm.Variables) void {
-    for (0..vm.Variables.count) |at| {
-        const number: u8 = @intCast(at);
-        if (variableRecord(number).attempt) |value| variables.slot(number).* = @bitCast(value);
-    }
+    setFromRecords(variables, .attempt);
 }
 
 /// The campaign as it goes from one mission to the next.

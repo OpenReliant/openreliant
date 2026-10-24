@@ -1,10 +1,10 @@
 //! The game's variables as scripts see them in `openreliant.records.game_variables`
-//! ([#1322](https://github.com/OpenReliant/openreliant/issues/1322)): one for each number a mission's
-//! script names, from 0, each a proxy for its `gameflow.VariableRecord`, whose fields load scripts
-//! change in place, as they do a record's. Scripts also find a variable by its name: the game's,
-//! such as `krasnaya_alive`, or the qualified name of one a mod adds. The campaign goes by them:
-//! the value a new campaign gives each variable, the value each attempt at a mission starts it at,
-//! and whether a saved game keeps it.
+//! ([#1322](https://github.com/OpenReliant/openreliant/issues/1322)): one for each number a
+//! mission's script names, from 0, each a proxy for its `gameflow.VariableRecord`, whose fields
+//! load scripts change in place, as they do a record's. Scripts also find a variable by its name:
+//! the game's, such as `krasnaya_alive`, or the qualified name of one a mod adds. The campaign goes
+//! by them: the value a new campaign gives each variable, the value each attempt at a mission
+//! starts it at, and whether a saved game keeps it.
 
 const std = @import("std");
 

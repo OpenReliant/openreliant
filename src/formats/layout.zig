@@ -60,6 +60,32 @@ pub fn formatTagAs(comptime T: type, value: T, comptime noun: []const u8, writer
     };
 }
 
+/// Whether `tag` is a placeholder's name, for a value or a field not understood yet, such as
+/// `_unused_2`: one that starts with an underscore. Scripts and mission source never name one.
+pub fn isPlaceholder(tag: []const u8) bool {
+    return tag.len > 0 and tag[0] == '_';
+}
+
+/// The name of `value`'s tag, where the enum names it and the name isn't a placeholder's
+/// (`isPlaceholder`).
+pub fn tagName(comptime T: type, value: T) ?[]const u8 {
+    const name = std.enums.tagName(T, value) orelse return null;
+    return if (isPlaceholder(name)) null else name;
+}
+
+test isPlaceholder {
+    try std.testing.expect(isPlaceholder("_unused_2"));
+    try std.testing.expect(!isPlaceholder("grendel"));
+    try std.testing.expect(!isPlaceholder(""));
+}
+
+test tagName {
+    const Named = enum(u8) { grendel = 1, _unused_2 = 2, _ };
+    try std.testing.expectEqualStrings("grendel", tagName(Named, .grendel).?);
+    try std.testing.expectEqual(null, tagName(Named, ._unused_2));
+    try std.testing.expectEqual(null, tagName(Named, @fromBackingInt(3)));
+}
+
 /// An integer stored big-endian, as a field of an `extern struct`.
 pub fn Big(comptime T: type) type {
     return extern struct {

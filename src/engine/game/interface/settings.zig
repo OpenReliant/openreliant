@@ -566,7 +566,8 @@ pub const Settings = struct {
     /// The screen's drawing (`controls_screen_draw`, `0x0042CD30`, `audio_screen_draw`,
     /// `0x0042E2E0`, `video_screen_draw`, `0x0042F440`): the tabs' labels, the shown one white and
     /// one under the pointer gold, the tab, the buttons, the one under the pointer lit, Escape's
-    /// question where it is up, and OpenReliant's version. The pointer goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    /// question where it is up, and OpenReliant's version. The pointer goes over it all, after
+    /// what scripts draw (`canvas.Canvas.drawPointer`).
     pub fn draw(screen: Settings, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, shown: Shown) canvas_module.Error!void {
         for (std.enums.values(Tab)) |tab| {
             const colour = if (tab == screen.tab) canvas_module.white else if (screen.lit_tab == tab) canvas_module.gold else canvas_module.blue;

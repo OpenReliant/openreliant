@@ -10,6 +10,7 @@ const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 
 const dte = @import("../../dte.zig");
+const layout = @import("../../layout.zig");
 const commands = @import("../../../engine/game/executor/commands.zig");
 const conditions = @import("../../../engine/vm/conditions.zig");
 const vm = @import("../../../engine/vm.zig");
@@ -87,13 +88,13 @@ pub fn write(arena: Allocator, w: *Writer) Error!void {
     for (commands.table) |command| try writeCommand(arena, w, command);
 }
 
-/// Writes the type `name`: the names `tags` give, but placeholders (`vocabulary.isPlaceholder`),
+/// Writes the type `name`: the names `tags` give, but placeholders (`layout.isPlaceholder`),
 /// or a number for a value without a name, and any text where `text` is set
 /// (`vocabulary.Kind.hasModNames`).
 fn writeNames(w: *Writer, name: []const u8, tags: []const [:0]const u8, text: bool) Writer.Error!void {
     try w.print("export type {s} = ", .{name});
     for (tags) |tag| {
-        if (!vocabulary.isPlaceholder(tag)) try w.print("\"{s}\" | ", .{tag});
+        if (!layout.isPlaceholder(tag)) try w.print("\"{s}\" | ", .{tag});
     }
     try w.writeAll(if (text) "number | string\n" else "number\n");
 }

@@ -131,8 +131,9 @@ pub const GameOptions = struct {
 
     /// `game_options_draw` (`0x0042AFB0`), over the menu's background: the buttons, the item under
     /// the pointer lit, the title and the labels, ABOUT OPENRELIANT's box or QUIT's question where
-    /// either is up, and OpenReliant's version. The pointer goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`). The game writes the label under the
-    /// pointer white before the labels, which write over it in blue, so it stays blue.
+    /// either is up, and OpenReliant's version. The pointer goes over it all, after what scripts
+    /// draw (`canvas.Canvas.drawPointer`). The game writes the label under the pointer white
+    /// before the labels, which write over it in blue, so it stays blue.
     pub fn draw(menu: GameOptions, canvas: Canvas, art: *hud.Art, dialog_art: *hud.Art, about_art: *hud.Art) canvas_module.Error!void {
         for ([_]Item{ .about, .mods, .main_menu, .quit }) |item| {
             const rect = rects.get(item);

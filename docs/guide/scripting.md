@@ -557,7 +557,6 @@ end
   read and set the game's variables, as the mission's script does: one of the game's by its name,
   such as `"krasnaya_alive"`, or its number, and one a mod adds by its qualified name
   ([Game variables](modding.md#game-variables)).
-
 - `type` is a name such as `"predator"`, or the qualified name of a mod's type, such as
   `"teapot:teapot"`.
 - `shields` and `armor` give each quadrant: `left`, `right`, `fore` and `aft`. `hull` is the share
@@ -1556,9 +1555,10 @@ records.room_views[2].label = "Report for Duty"
 ### The game's variables
 
 `records.game_variables` says what the campaign does with each of the game's variables, the ones a
-mission's script reads and sets by number ([The game's variables](../engine/script-vm.md#the-games-variables)).
-It holds one for each number, from 0 to 255, and a script also finds one by its name: the game's,
-such as `krasnaya_alive`, or the qualified name of one a mod adds
+mission's script reads and sets by number
+([The game's variables](../engine/script-vm.md#the-games-variables)). It holds one for each
+number, from 0 to 255, and a script also finds one by its name: the game's, such as
+`krasnaya_alive`, or the qualified name of one a mod adds
 ([Game variables](modding.md#game-variables)). Each has:
 
 - `name`, its name, or nil for a number without one. It can't be changed.
@@ -1580,8 +1580,8 @@ records.game_variables.countdown = { attempt = 60 }
 
 - The table always has its 256 variables: a script changes them but can't add or remove them. A mod
   adds a variable of its own, with a name, in its manifest.
-- A saved game keeps the 25 variables the original keeps where the original keeps them, so that the
-  original can still read the save, and the others it keeps in its `.mods` file
+- A saved game keeps the original's 25 variables where the original keeps them, so that the
+  original can still read the save, and any others in its `.mods` file
   ([Saved games](../formats/save.md#in-openreliant)).
 - Scripts read and set the values in a mission that runs with `world.variable` and
   `world.set_variable` ([Objects](#objects)).

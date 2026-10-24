@@ -788,9 +788,10 @@ pub const ModCatalogue = struct {
         };
     }
 
-    /// Draws the screen over the background: the title, the list, the panel, the buttons with the one
-    /// under the pointer highlighted and the ones that do nothing dimmed, and OpenReliant's version.
-    /// The pointer goes over it all, after what scripts draw (`canvas.Canvas.drawPointer`).
+    /// Draws the screen over the background: the title, the list, the panel, the buttons with the
+    /// one under the pointer highlighted and the ones that do nothing dimmed, and OpenReliant's
+    /// version. The pointer goes over it all, after what scripts draw
+    /// (`canvas.Canvas.drawPointer`).
     pub fn draw(screen: ModCatalogue, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
         try title.write(canvas, canvas.fonts.large, canvas_module.white);
         list_frame.draw(canvas);

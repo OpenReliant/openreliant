@@ -2577,9 +2577,10 @@ const Display = struct {
     fn drawOverlay(display: *Display) !void {
         if (display.console) |console| if (console.isUp()) return console.draw(display.device, display.screen, display.strings, .mission);
         if (display.pause_menu.isOpen()) {
-            try display.pause_menu.draw(display.pauseFrame());
+            const frame = display.pauseFrame();
+            try display.pause_menu.draw(frame);
             if (display.presentation) |scripts| try scripts.draw(.ui, display.device, null);
-            return display.pause_menu.drawPointer(display.pauseFrame());
+            return display.pause_menu.drawPointer(frame);
         }
         try display.drawDisplay();
         if (display.presentation) |scripts| {

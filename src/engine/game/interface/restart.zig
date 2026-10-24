@@ -122,9 +122,10 @@ pub const Restart = struct {
     /// picture, the button under the pointer lit, and the three labels in the small font. The
     /// pointer goes over it, after what scripts draw (`drawPointer`).
     pub fn draw(screen: Restart, canvas: Canvas, art: *hud.Art) canvas_module.Error!void {
-        try screen.faded(canvas).shape(art, picture_shape, picture_at);
-        if (screen.under) |under| try screen.faded(canvas).shape(art, lit_shape, lit_at.get(under));
-        for (labels.values) |label| try label.write(screen.faded(canvas), canvas.fonts.small, label_colour);
+        const dimmed = screen.faded(canvas);
+        try dimmed.shape(art, picture_shape, picture_at);
+        if (screen.under) |under| try dimmed.shape(art, lit_shape, lit_at.get(under));
+        for (labels.values) |label| try label.write(dimmed, canvas.fonts.small, label_colour);
     }
 
     /// The end of `restart_screen_draw`: the pointer, at the screen's brightness, until a choice is

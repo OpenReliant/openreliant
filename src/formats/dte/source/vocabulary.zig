@@ -7,6 +7,7 @@
 const std = @import("std");
 
 const dte = @import("../../dte.zig");
+const layout = @import("../../layout.zig");
 const commands = @import("../../../engine/game/executor/commands.zig");
 const environfx = @import("../../../engine/game/environfx.zig");
 const gameobj = @import("../../../engine/game/gameobj.zig");
@@ -95,26 +96,20 @@ pub fn Names(comptime kind: Kind) ?type {
     };
 }
 
-/// Whether `tag` is a placeholder for a value not understood yet, such as `_unused_2`. Mission
-/// source writes such a value as a number, never by the placeholder's name.
-pub fn isPlaceholder(tag: []const u8) bool {
-    return tag.len > 0 and tag[0] == '_';
-}
-
-/// The name of value `number` of `kind`, where the game names it.
+/// The name of value `number` of `kind`, where the game names it. Mission source writes a value
+/// whose name is a placeholder's, such as `_unused_2`, as a number (`layout.isPlaceholder`).
 pub fn name(kind: Kind, number: u32) ?[]const u8 {
     return switch (kind) {
         inline else => |known| if (comptime Names(known)) |Enum| {
             const Backing = @typeInfo(Enum).@"enum".tag_type;
-            const found = std.enums.tagName(Enum, @fromBackingInt(std.math.cast(Backing, number) orelse return null)) orelse return null;
-            return if (isPlaceholder(found)) null else found;
+            return layout.tagName(Enum, @fromBackingInt(std.math.cast(Backing, number) orelse return null));
         } else null,
     };
 }
 
 /// The value of `kind` that the game names `text`, the inverse of `name`.
 pub fn value(kind: Kind, text: []const u8) ?u32 {
-    if (isPlaceholder(text)) return null;
+    if (layout.isPlaceholder(text)) return null;
     return switch (kind) {
         inline else => |known| if (comptime Names(known)) |Enum| {
             return std.math.cast(u32, @backingInt(std.meta.stringToEnum(Enum, text) orelse return null));
@@ -130,7 +125,7 @@ pub fn variable(number: u8) ?[]const u8 {
 
 /// The number of the game's variable named `text`, the inverse of `variable`.
 pub fn variableNumber(text: []const u8) ?u8 {
-    if (isPlaceholder(text)) return null;
+    if (layout.isPlaceholder(text)) return null;
     return @backingInt(std.meta.stringToEnum(vm.GameVariable, text) orelse return null);
 }
 
@@ -180,12 +175,6 @@ test value {
     }) |pair| try std.testing.expectEqual(pair[1], value(pair[0], name(pair[0], pair[1]).?).?);
     try std.testing.expectEqual(null, value(.ship_type, "rubber_duck"));
     try std.testing.expectEqual(null, value(.part, "start"));
-}
-
-test isPlaceholder {
-    try std.testing.expect(isPlaceholder("_unused_2"));
-    try std.testing.expect(!isPlaceholder("grendel"));
-    try std.testing.expect(!isPlaceholder(""));
 }
 
 test variable {

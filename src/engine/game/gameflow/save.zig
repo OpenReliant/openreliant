@@ -342,8 +342,8 @@ pub const ModChoice = struct {
 /// The values of the game's variables that a saved game keeps (`gameflow.VariableRecord.saved`)
 /// but `VARS` has no room for: those mods add
 /// ([#1322](https://github.com/OpenReliant/openreliant/issues/1322)), and any other that a mod's
-/// load script has a saved game keep. The `.mods` file (`Mods`) keeps them under `[Variables]`, each
-/// by its name (`vm.Variable.scriptName`), or by its number where it has none.
+/// load script marks as saved. The `.mods` file (`Mods`) keeps them under `[Variables]`, each by
+/// its name (`vm.Variable.scriptName`), or by its number where it has none.
 pub const ModVariables = struct {
     /// Each variable's value, by its number; null where the save has none.
     values: [vm.Variables.count]?i32 = @splat(null),
@@ -351,8 +351,8 @@ pub const ModVariables = struct {
     /// The `.mods` file's section.
     const section = "Variables";
 
-    /// Whether the save keeps the variable `number` here: one the records have a saved game keep
-    /// that `VARS` has no room for.
+    /// Whether the save keeps the variable `number` here: one whose record says a saved game keeps
+    /// it, and that `VARS` has no room for.
     fn keeps(number: u8) bool {
         return gameflow.variableRecord(number).saved and !in_vars.isSet(number);
     }
@@ -367,8 +367,8 @@ pub const ModVariables = struct {
         return kept;
     }
 
-    /// Puts the values back into `variables`. A variable the save keeps here that it has no value
-    /// for, as in a save from before its mod was on, takes the value a new campaign gives it, if any.
+    /// Puts the values back into `variables`. A variable the save keeps here but has no value for,
+    /// as in a save from before its mod was on, takes the value a new campaign gives it, if any.
     fn apply(kept: ModVariables, variables: *vm.Variables) void {
         for (kept.values, 0..) |value, at| {
             const number: u8 = @intCast(at);
@@ -571,9 +571,9 @@ pub const Game = struct {
 
     /// What `game_load` puts back of `save` (`0x00475488` to `0x004755F0`): each record, then the
     /// game's variables 0 to 31 cleared and those the save keeps put back. The rest keep what they
-    /// held. Which of them the save keeps is their records' (`gameflow.VariableRecord.saved`): the
-    /// original's keep the 25 of `VARS`, and OpenReliant puts back the others that a saved game
-    /// keeps from the `.mods` file (`ModVariables`).
+    /// held. Their records say which the save keeps (`gameflow.VariableRecord.saved`): with the
+    /// original's records, the 25 of `VARS`. OpenReliant puts back the others a saved game keeps
+    /// from the `.mods` file (`ModVariables`).
     ///
     /// **Fix:** a ship or a missile past those the game has is taken as the Predator, or none,
     /// where the game reads past its tables with it; so are a rank and a tier (`Miss.pilotRank`).
@@ -760,11 +760,11 @@ pub const Folder = struct {
     }
 
     /// Writes `save` as saved game `slot` of `call_sign` (`game_save`), with its `.mods` file
-    /// where it holds anything of the mods' records (`Mods`), and what
-    /// `extra` keeps beside it. The files that go with the save are written first and the save
-    /// next, so a new save is only listed once they're all there, and a failure of any of them
-    /// fails the save and leaves the slot as it was. The files an earlier save of the slot had,
-    /// and this one doesn't, are removed last.
+    /// where it holds anything of the mods' records (`Mods`), and what `extra` keeps beside it.
+    /// The files that go with the save are written first and the save next, so a new save is only
+    /// listed once they're all there, and a failure of any of them fails the save and leaves the
+    /// slot as it was. The files an earlier save of the slot had, and this one doesn't, are removed
+    /// last.
     pub fn store(folder: Folder, gpa: std.mem.Allocator, call_sign: []const u8, slot: u8, save: *const Save) StoreError!void {
         const bytes = try write(gpa, save);
         defer gpa.free(bytes);
@@ -1109,8 +1109,8 @@ test ModVariables {
     defer gpa.free(text);
     try std.testing.expectEqualStrings("[Variables]\ncountdown=30\na:beaten=-7\n", text);
 
-    // Loaded with a variable the mod added since, that one starts as in a new campaign. Ghost's flag
-    // isn't put back, so the load clears it, as it clears the first 32.
+    // Loaded with a variable the mod added since, that one starts as in a new campaign. Ghost's
+    // flag isn't put back, so the load clears it, as it clears the first 32.
     additions.variables.install(&list);
     gameflow.addModVariables(&records);
     var back = empty();
