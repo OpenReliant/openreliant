@@ -252,11 +252,12 @@ the movie opens the disc of the mission's carrier.
 
 [`engine/bink.zig`](../../src/engine/bink.zig) stands in for Bink, each function for the call it
 names; [`engine/bink/picture.zig`](../../src/engine/bink/picture.zig) turns a decoded picture into
-colours, by BT.601 in its limited range. It reads the container itself and hands the packets to a
-`Codec`: FFmpeg's decoders, in the platform ([Platform](../port/platform.md#movies)). It decodes a
-movie's sound whole as the movie opens and plays it as a Miles stream, where Bink fills a Miles
-sample as it plays; the sound starts with the first frame, and OpenAL Soft resamples it as it
-resamples every sound ([Sound](../port/sound.md#openal-soft)).
+colours, by BT.601 in its limited range, or by what a mod's movie says: BT.709, or the full range.
+It reads the container itself and hands the packets to a `Codec`: FFmpeg's decoders, in the
+platform ([Platform](../port/platform.md#movies)). It decodes a movie's sound whole as the movie
+opens and plays it as a Miles stream, where Bink fills a Miles sample as it plays; the sound starts
+with the first frame, and OpenAL Soft resamples it as it resamples every sound
+([Sound](../port/sound.md#openal-soft)).
 
 [`game/xtrabits/movie.zig`](../../src/engine/game/xtrabits/movie.zig) holds the game's players, one
 `Kind` each and one for the landing's loop, `bink_frame`, and the hangar's movies;
@@ -302,6 +303,18 @@ a bank.
 - On the GPU, a movie is magnified with FSR 1's edge-adaptive upscale (EASU, from AMD's FidelityFX
   Super Resolution 1.0), which keeps its edges sharp without steps
   ([Renderer](../port/renderer.md#improvements)).
+
+**Improvement:** a mod can give a movie in WebM or Matroska, of VP9 video with Opus or Vorbis sound,
+in place of a Bink movie ([Movies](../guide/modding.md#movies), [Matroska and WebM
+files](../formats/matroska.md)). For the movie `name.bik`, a mod's `name.webm` comes first, then
+its `name.mkv`, then the Bink movie, a mod's or the game's. Its frames show at their own times,
+unless the movie's kind sets a rate in place of its own, as the transitions' and the rooms' 15
+frames a second do. It is drawn in the place and at the size of the Bink movie it replaces, which
+OpenReliant reads from that movie's header, or at its own size where there is none. Like other
+mods' files, it is used under `--original` too. The deblocking above passes it by, as VP9 filters
+the edges of its own blocks. One that can't be played, such as one of AV1 video
+([#1334](https://github.com/OpenReliant/openreliant/issues/1334)), is left out with a message in
+the log, and the Bink movie plays.
 
 Not ported: the transitions of the multiplayer screens
 ([#404](https://github.com/OpenReliant/openreliant/issues/404)).

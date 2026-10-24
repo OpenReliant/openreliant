@@ -158,11 +158,18 @@ pub const Archive = struct {
     /// (`0x004C81F0`) reads it; null for a member the game reads as it is stored (one that doesn't
     /// start `10 FB`), or one too short for its header.
     pub fn expandedSize(archive: Archive, entry: Entry) !?u32 {
-        var head: [refpack.max_header_len]u8 = undefined;
-        const n = try archive.file.readPositionalAll(archive.io, head[0..@min(entry.size, head.len)], entry.offset);
-        if (!refpack.gameExpands(head[0..n])) return null;
-        const header = refpack.readHeader(head[0..n]) catch return null;
+        var buffer: [refpack.max_header_len]u8 = undefined;
+        const head = try archive.readHead(entry, &buffer);
+        if (!refpack.gameExpands(head)) return null;
+        const header = refpack.readHeader(head) catch return null;
         return header.decompressed_size;
+    }
+
+    /// Reads the start of a member as stored into `buffer`: as much as fits, or the whole member
+    /// where it is shorter.
+    pub fn readHead(archive: Archive, entry: Entry, buffer: []u8) ![]u8 {
+        const head = buffer[0..@min(buffer.len, entry.size)];
+        return head[0..try archive.file.readPositionalAll(archive.io, head, entry.offset)];
     }
 
     pub fn find(archive: Archive, name: []const u8) ?Entry {

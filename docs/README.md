@@ -28,6 +28,7 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`formats/fm8.md`](formats/fm8.md) | Face films: the pilots' faces the radio's window plays, their chunks and their codec. |
 | [`formats/fnt.md`](formats/fnt.md) | `.fnt` bitmap fonts. |
 | [`formats/bink.md`](formats/bink.md) | `.bik` movies: the Bink container. |
+| [`formats/matroska.md`](formats/matroska.md) | Matroska and WebM files: mods' movies, and the elements and blocks OpenReliant reads of them. |
 | [`formats/frc.md`](formats/frc.md) | `.frc` force-feedback effects. |
 | [`formats/dte.md`](formats/dte.md) | `.DTE` missions: directory, ships, triggers, and the script VM. |
 | [`formats/mission-source.md`](formats/mission-source.md) | Mission source: a mission as Luau text, which `sltool dte decompile` writes and `sltool dte build` compiles, its definitions for editors and its reference. |

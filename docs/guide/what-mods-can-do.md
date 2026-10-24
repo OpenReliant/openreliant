@@ -19,6 +19,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 | Replace the game's sounds one at a time, in WAV, FLAC, MP3, Ogg Vorbis or Opus, such as the guns, the explosions, the engines, the menus' sounds and Betty's warnings | [Sounds](modding.md#sounds) | |
 | Replace the pilots' faces, with sharper films than the game's if they like, and the lines they say | [Faces and voices](modding.md#faces-and-voices) | [`trent`](../../examples/mods/trent) |
 | Give lines of speech, briefings and Enriquez's scenes as WAV, FLAC, MP3, Ogg Vorbis or Opus recordings, which play as recorded | [Lines](modding.md#lines) | |
+| Replace the movies with WebM or Matroska files, sharper than the game's if they like | [Movies](modding.md#movies) | |
 
 ## Change the look
 
@@ -118,7 +119,7 @@ the mods screen ([The mods screen](modding.md#the-mods-screen)).
 
 These are planned, each in an issue:
 
-- Movies in modern formats ([#1179](https://github.com/OpenReliant/openreliant/issues/1179))
+- Movies in AV1 ([#1334](https://github.com/OpenReliant/openreliant/issues/1334))
 - Campaigns of more than 28 missions ([#987](https://github.com/OpenReliant/openreliant/issues/987))
 - Post effects that read the scene's depth ([#633](https://github.com/OpenReliant/openreliant/issues/633))
 - KTX2 files with Basis Universal data ([#637](https://github.com/OpenReliant/openreliant/issues/637))

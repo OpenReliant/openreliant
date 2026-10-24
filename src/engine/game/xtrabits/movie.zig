@@ -16,6 +16,10 @@
 //!
 //! **Improvement:** OpenReliant draws a movie as large as fits in the window, as it draws the front
 //! end, so that a 16:9 movie fills a wide window (`Size`).
+//!
+//! **Improvement:** a mod can give a movie in WebM or Matroska, of VP9 video with Opus or Vorbis
+//! sound, in place of a Bink movie (`Player.load`,
+//! [#1179](https://github.com/OpenReliant/openreliant/issues/1179)).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -25,12 +29,14 @@ const files = @import("../../files.zig");
 const input = @import("../../input.zig");
 const mss = @import("../../mss.zig");
 const hud = @import("../hud.zig");
+const bigfile = @import("../bigfile.zig");
 const canvas = @import("../interface/canvas.zig");
 const disc = @import("../interface/disc.zig");
 const rooms = @import("../interface/rooms.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const device = @import("../../surrender/srd3d/device.zig");
 const container = @import("../../../formats/bink.zig");
+const matroska = @import("../../../formats/matroska.zig");
 
 const log = std.log.scoped(.movies);
 
@@ -48,6 +54,11 @@ pub const splash_to_menu = "splash to mm.bik";
 pub const main_to_single = "interface\\main2sin.bik";
 pub const single_to_main = "interface\\sin2main.bik";
 pub const main_to_options = "interface\\main2opt.bik";
+
+/// The extensions of a mod's movie in a format other than Bink, in the order they are looked for
+/// (`Player.load`): WebM, then Matroska. A mod's Bink file of the same name comes after them, then
+/// the game's own.
+pub const modern_extensions = [_][]const u8{ matroska.webm_extension, matroska.extension };
 
 /// A movie to play in a loop of its own: its name, and how it plays.
 pub const Named = struct { name: []const u8, kind: Kind };
@@ -225,6 +236,10 @@ pub const Player = struct {
     /// The pointer's right button, which ends the movie only once it has come up since the movie
     /// began (`pass`).
     right: input.FreshPress = .{},
+    /// The size it is drawn at on the front end's screen of 640 by 480 (`draw`): its own, or for a
+    /// mod's movie in another format, the size of the game's movie it replaces (`load`), so that a
+    /// sharper movie is drawn in the same place.
+    size: [2]u32,
 
     /// Opens the movie of `file`, which it takes, to play as `kind` has it, its sound through
     /// `sound` where there is one, and its pictures with OpenReliant's `look`.
@@ -238,15 +253,21 @@ pub const Player = struct {
             return err;
         };
         picture.magnify = .edge_adaptive;
-        return .{ .gpa = gpa, .kind = kind, .bink = movie, .picture = picture, .pixels = rgba };
+        return .{ .gpa = gpa, .kind = kind, .bink = movie, .picture = picture, .pixels = rgba, .size = .{ movie.width, movie.height } };
     }
 
     /// Reads the movie `name` from where `kind` says, the game folder or the open CD archive
     /// (`archive`, in the game folder), with a mod file of the same name taking priority
     /// (`bigfile.Mods`), and opens it to play as `open` does; null if it can't be read or opened,
     /// which the log says.
+    ///
+    /// **Improvement:** a mod's movie in WebM or Matroska with the same name, `name.webm` or
+    /// `name.mkv`, takes priority over a Bink file (`modern_extensions`). It is drawn where the
+    /// movie it replaces would be, at that movie's size (`size`). One that can't be played is left
+    /// out, which the log says, and the Bink file plays.
     pub fn load(gpa: Allocator, codec: bink.Codec, archive: *const disc.Disc, name: []const u8, kind: Kind, sound: ?mss.Driver, look: bink.Look) ?Player {
         const source = kind.source();
+        if (loadModern(gpa, codec, archive, name, kind, sound, look)) |player| return player;
         const found = switch (source) {
             .folder => archive.mods.readLoose(archive.io, gpa, archive.directory, name, .limited(files.max_file_size)),
             .disc => archive.readStored(gpa, name),
@@ -264,6 +285,56 @@ pub const Player = struct {
         return open(gpa, codec, file, kind, sound, look) catch |err| {
             log.warn("the movie {s} is left out: {s}", .{ name, @errorName(err) });
             return null;
+        };
+    }
+
+    /// A mod's movie in a format other than Bink that replaces the movie `name`, the first that a
+    /// mod has (`modern_extensions`), opened to play as `open` does, at the size of the movie it
+    /// replaces where the game has it (`load`); null where no mod has one, or it can't be read or
+    /// played, which the log says. Unlike a Bink movie, which Bink reads as it is stored, it is
+    /// read as other mod files are, expanded where a mod's archive holds it compressed.
+    fn loadModern(gpa: Allocator, codec: bink.Codec, archive: *const disc.Disc, name: []const u8, kind: Kind, sound: ?mss.Driver, look: bink.Look) ?Player {
+        var buffer: [files.max_path]u8 = undefined;
+        for (modern_extensions) |extension| {
+            // A name longer than any path the game builds is in no mod (`bigfile.Mods`).
+            const modern = std.mem.print(&buffer, "{s}{s}", .{ files.stem(name), extension }) catch return null;
+            const file = archive.mods.readFile(gpa, modern) catch |err| {
+                log.warn("the movie {s} is left out: {s}", .{ modern, @errorName(err) });
+                continue;
+            } orelse continue;
+            var player = open(gpa, codec, file, kind, sound, look) catch |err| {
+                log.warn("the movie {s} is left out: {s}", .{ modern, problem(err) });
+                continue;
+            };
+            if (player.bink.silent) |unplayed| log.warn("the movie {s} plays without its sound: it is {s}, and OpenReliant plays Opus and Vorbis", .{ modern, unplayed });
+            if (replacedSize(archive, name, kind.source())) |size| player.size = size;
+            return player;
+        }
+        return null;
+    }
+
+    /// The size of the movie `name` as `load` reads it from `source` without a mod's movie in
+    /// another format, from its header alone; null where it has none, or its header can't be read.
+    fn replacedSize(archive: *const disc.Disc, name: []const u8, source: Source) ?[2]u32 {
+        var buffer: [@sizeOf(container.Header)]u8 = undefined;
+        const head = (switch (source) {
+            .folder => archive.mods.readLooseHead(archive.io, archive.directory, name, &buffer),
+            .disc => archive.readStoredHead(name, &buffer),
+        } catch return null) orelse return null;
+        const header = container.readHeader(head) catch return null;
+        return .{ header.width, header.height };
+    }
+
+    /// What the log says of an error opening a mod's movie in another format.
+    fn problem(err: bink.Error) []const u8 {
+        return switch (err) {
+            error.UnsupportedVideo => "its video isn't VP9 of profile 0, 8 bits with 4:2:0 colour",
+            error.NotMatroska => "it isn't a Matroska or WebM file",
+            error.NoVideo => "it has no video",
+            error.NoFrames => "its video has no frames, or doesn't start with a key frame",
+            error.Encoded => "its tracks are compressed or encrypted",
+            error.BadElement => "it is damaged",
+            else => @errorName(err),
         };
     }
 
@@ -309,12 +380,12 @@ pub const Player = struct {
     /// Draws the frame showing on `target`, a window `window` pixels across and down, as large as
     /// `how` has it, in the middle.
     pub fn draw(player: *Player, target: device.Device, window: [2]u32, how: Size) void {
-        const size: [2]u32 = .{ player.bink.width, player.bink.height };
+        const size = player.size;
         const scale = switch (how) {
             .fitted => hud.fit(window, size),
             .screen => canvas.scaleFor(window),
         };
-        hud.drawImage(target, &player.picture, hud.centred(window, size, scale), .{ 1, 1, 1, 1 }, scale, .{});
+        hud.drawImageAs(target, &player.picture, size, hud.centred(window, size, scale), .{ 1, 1, 1, 1 }, scale, .{});
     }
 };
 
@@ -335,6 +406,62 @@ test "a movie plays its frames as each falls due, and ends" {
     try std.testing.expectEqual(null, try player.pass(&keyboard, false, std.time.ns_per_s / 15));
     try std.testing.expect(player.ended);
     try std.testing.expectEqual(End.finished, try player.pass(&keyboard, false, std.time.ns_per_s));
+}
+
+test "a mod's movie in WebM or Matroska plays in a Bink movie's place" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    // The game's movies, 8 by 6: two in its folder, and one in the second disc's archive.
+    var buffer: [256]u8 = undefined;
+    const game_movie = container.testing.movie(&buffer, 2, &.{});
+    try tmp.dir.writeFile(io, .{ .sub_path = "intro.bik", .data = game_movie });
+    try tmp.dir.writeFile(io, .{ .sub_path = "broken.bik", .data = game_movie });
+    try bigfile.testing.write(gpa, io, tmp.dir, "CD2.HOG", &.{.{ .name = "r_vr.bik", .data = game_movie }});
+    // A mod's: the folder's intro in WebM, the disc's movie in WebM and in Matroska, one in AV1,
+    // which OpenReliant doesn't play, and one that replaces no movie of the game's.
+    try tmp.dir.createDirPath(io, "mods/movies");
+    const frames: []const []const u8 = &.{ &.{0x80}, &.{0x81} };
+    const files_made = [_]struct { []const u8, matroska.testing.Spec }{
+        .{ "intro.webm", .{ .width = 16, .height = 12, .frames = frames } },
+        .{ "r_vr.webm", .{ .width = 16, .height = 12, .frames = frames } },
+        .{ "r_vr.mkv", .{ .doc_type = "matroska", .width = 32, .height = 24, .frames = frames } },
+        .{ "broken.webm", .{ .video_codec = "V_AV1", .frames = frames } },
+        .{ "new.webm", .{ .width = 16, .height = 12, .frames = frames } },
+    };
+    for (files_made) |made| {
+        const name, const spec = made;
+        const bytes = try matroska.testing.movie(gpa, spec);
+        defer gpa.free(bytes);
+        var path: [64]u8 = undefined;
+        try tmp.dir.writeFile(io, .{ .sub_path = try std.mem.print(&path, "mods/movies/{s}", .{name}), .data = bytes });
+    }
+    var mods: bigfile.Mods = try .open(gpa, io, tmp.dir, null);
+    defer mods.close(gpa);
+    var archive: disc.Disc = .{ .gpa = gpa, .io = io, .directory = tmp.dir, .mods = &mods };
+    defer archive.close();
+    archive.open(.two);
+    var codec: bink.testing.Decoders = .{};
+
+    const Case = struct { name: []const u8, kind: Kind, pictures: [2]u32, size: [2]u32 };
+    const cases = [_]Case{
+        // In WebM in place of the folder's movie, drawn at its size.
+        .{ .name = "intro.bik", .kind = .cleared, .pictures = .{ 16, 12 }, .size = .{ 8, 6 } },
+        // The WebM file before the Matroska one, in place of the disc's movie.
+        .{ .name = "r_vr.bik", .kind = .screen, .pictures = .{ 16, 12 }, .size = .{ 8, 6 } },
+        // A movie it can't play is left out, and the game's plays.
+        .{ .name = "broken.bik", .kind = .cleared, .pictures = .{ 8, 6 }, .size = .{ 8, 6 } },
+        // One that replaces none of the game's is drawn at its own size.
+        .{ .name = "new.bik", .kind = .briefing, .pictures = .{ 16, 12 }, .size = .{ 16, 12 } },
+    };
+    for (cases) |case| {
+        var player = Player.load(gpa, codec.codec(), &archive, case.name, case.kind, null, .{}).?;
+        defer player.close();
+        try std.testing.expectEqual(case.pictures, [2]u32{ player.bink.width, player.bink.height });
+        try std.testing.expectEqual(case.size, player.size);
+    }
+    try std.testing.expectEqual(0, codec.streams);
 }
 
 test "Escape and the right button end a movie" {
@@ -365,7 +492,7 @@ test "the landing plays on with the right button down" {
     try std.testing.expectEqual(null, try player.pass(&keyboard, true, 0));
     try std.testing.expectEqual(1, codec.pictures);
     // At 15 frames a second, whatever the movie's rate.
-    try std.testing.expectEqual(transition_rate, player.bink.rate);
+    try std.testing.expectEqual(transition_rate, player.bink.rate.?);
     keyboard.down[input.scan.escape] = true;
     try std.testing.expectEqual(End.skipped, try player.pass(&keyboard, true, 0));
 }

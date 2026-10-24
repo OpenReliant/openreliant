@@ -61,7 +61,7 @@ pub const functions = struct {
     pub const go_to = api.Function("Asks the front end to go to its screen `screen`, or to the mod's screen that stands in for it. Only menu scripts can use it.", &.{"screen"}, goTo);
     pub const start_game_mode = api.Function("Asks the front end to start the game mode `name`: the calling mod's by its own name, or any mod's by the qualified one. Only menu scripts can use it. Returns whether the mode is registered.", &.{"name"}, startGameMode);
     pub const launch_mission = api.Function("From a game mode's briefing screen, asks the front end to fly the mode's next mission (`core.game_mode_mission`). Only menu scripts can use it.", &.{}, launchMission);
-    pub const play_movie = api.Function("Plays the movie `name`, a Bink file of the game folder's or a mod's such as `\"intro.bik\"`, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it.", &.{"name"}, playMovie);
+    pub const play_movie = api.Function("Plays the movie `name`, a Bink file of the game folder's or a mod's such as `\"intro.bik\"`, or a mod's WebM or Matroska file with the same name, on a cleared screen, as the front end shows its next frame. Escape or the pointer's right button ends it. Only menu scripts can use it.", &.{"name"}, playMovie);
     pub const quit = api.Function("Asks the front end to quit the game. Only menu scripts can use it.", &.{}, quitGame);
     pub const pointer = api.Field(?Pointer, "Where the pointer is, in pixels from the window's top left corner, and whether its left button is down; nil before it has been over the window.", struct {
         pub fn get(call: Call) ?Pointer {

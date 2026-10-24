@@ -11,6 +11,8 @@ const assert = std.debug.assert;
 
 const layout = @import("layout.zig");
 
+pub const extension = ".bik";
+
 pub const Error = error{ NotABink, Truncated, BadRate, TooManyTracks, BadIndex, BadFrame };
 
 /// The header's fixed part.
@@ -37,6 +39,13 @@ pub const Header = extern struct {
         assert(@sizeOf(Header) == 0x2C);
     }
 };
+
+/// The header at the start of `bytes`, which must start as a Bink file does.
+pub fn readHeader(bytes: []const u8) Error!*align(1) const Header {
+    const header = try layout.view(Header, bytes);
+    if (!std.mem.eql(u8, &header.signature, "BIK")) return error.NotABink;
+    return header;
+}
 
 /// The video's flags, which the video decoder takes as its extra data.
 pub const VideoFlags = packed struct(u32) {
@@ -79,8 +88,7 @@ pub const Movie = struct {
     index: []align(1) const u32,
 
     pub fn parse(bytes: []const u8) Error!Movie {
-        const header = try layout.view(Header, bytes);
-        if (!std.mem.eql(u8, &header.signature, "BIK")) return error.NotABink;
+        const header = try readHeader(bytes);
         if (header.rate == 0 or header.rate_divisor == 0) return error.BadRate;
         if (header.audio_tracks > max_audio_tracks) return error.TooManyTracks;
         const tracks_at = @sizeOf(Header) + header.audio_tracks * @sizeOf(u32);

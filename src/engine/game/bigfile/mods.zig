@@ -24,6 +24,7 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
+const bink = @import("../../../formats/bink.zig");
 const checksums = @import("../../../formats/checksums.zig");
 const fat = @import("../../../formats/fat.zig");
 const fnt = @import("../../../formats/fnt.zig");
@@ -39,6 +40,7 @@ const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const bigfile = @import("../bigfile.zig");
 const cbox = @import("../cbox.zig");
 const recordings = @import("../recordings.zig");
+const movie = @import("../xtrabits/movie.zig");
 const order_module = @import("order.zig");
 
 /// The order the mods load in and which are on (`Mods.openOrdered`).
@@ -302,6 +304,15 @@ pub const Mod = struct {
         return null;
     }
 
+    /// Reads the start of file number `file` as stored into `buffer`: as much as fits, or the
+    /// whole file where it is shorter.
+    fn readHead(mod: Mod, file: usize, buffer: []u8) bigfile.ReadError![]u8 {
+        return switch (mod.source) {
+            .archive => |archive| try archive.readHead(archive.entries[file], buffer),
+            .folder => |folder| try folder.readHead(folder.names[file], buffer),
+        };
+    }
+
     /// Reads file number `file` as `reading` says.
     fn read(mod: Mod, gpa: Allocator, file: usize, reading: Reading) bigfile.ReadError![]u8 {
         switch (mod.source) {
@@ -440,6 +451,14 @@ pub const Folder = struct {
         for (folder.names) |name| gpa.free(name);
         gpa.free(folder.names);
         folder.dir.close(folder.io);
+    }
+
+    /// Reads the start of its file `name` into `buffer`: as much as fits, or the whole file where
+    /// it is shorter.
+    fn readHead(folder: Folder, name: []const u8, buffer: []u8) bigfile.ReadError![]u8 {
+        const file = try folder.dir.openFile(folder.io, name, .{});
+        defer file.close(folder.io);
+        return buffer[0..try file.readPositionalAll(folder.io, buffer, 0)];
     }
 
     /// Reads its file `name` as `reading` says. Decompressing reads it the same way as the member
@@ -607,6 +626,21 @@ pub const Mods = struct {
         return try mods.list[found.mod].read(gpa, found.file, .stored);
     }
 
+    /// Reads the start of the mod file `name` as `readStored` reads it, into `buffer`: as much as
+    /// fits, or the whole file where it is shorter. Null if no mod has it.
+    pub fn readHead(mods: *const Mods, name: []const u8, buffer: []u8) bigfile.ReadError!?[]u8 {
+        const found = mods.place(name) orelse return null;
+        return try mods.list[found.mod].readHead(found.file, buffer);
+    }
+
+    /// Reads the start of the game's loose file `path`, as `readLoose` finds it, into `buffer`: as
+    /// much as fits, or the whole file where it is shorter. Null if neither a mod nor the game
+    /// folder has it.
+    pub fn readLooseHead(mods: *const Mods, io: Io, dir: Io.Dir, path: []const u8, buffer: []u8) bigfile.ReadError!?[]u8 {
+        if (try mods.readHead(files.leaf(path), buffer)) |head| return head;
+        return files.readHead(io, dir, path, buffer);
+    }
+
     /// Reads the mod file that replaces the game's loose file `path`: the file with the same name
     /// (the part of the path after the last `\` or `/`) from the last mod that has it, as
     /// `readFile` reads it. Null if no mod has it.
@@ -688,6 +722,7 @@ pub const Mods = struct {
                 .line => |line| log.info("{s} replaces the line {s}", .{ mod.name, line }),
                 .sound => |sound| log.info("{s} replaces sound {d} of the sound bank {s}", .{ mod.name, sound.index, sound.file }),
                 .recording => |replaced| log.info("{s} replaces {s}{s}", .{ mod.name, replaced.stem, replaced.extension }),
+                .movie => |replaced| log.info("{s} replaces the movie {s}" ++ bink.extension, .{ mod.name, replaced }),
                 .added => log.info("{s} adds {s}", .{ mod.name, name }),
             };
         }
@@ -770,6 +805,9 @@ const Effect = union(enum) {
     /// It's a recording (`recordings.Source.find`) that replaces a game file of another format: a
     /// piece of music or one of Enriquez's scenes.
     recording: GameFiles.Replaced,
+    /// It's a movie in WebM or Matroska (`movie.modern_extensions`) that replaces the game's Bink
+    /// movie with its name, given without the extension.
+    movie: []const u8,
     /// It adds a new file.
     added,
 };
@@ -789,6 +827,7 @@ fn effectOf(list: []const Mod, at: usize, own: GameFiles, name: []const u8) Effe
     if (own.lineOf(name)) |line| return .{ .line = line };
     if (own.soundOf(name)) |sound| return .{ .sound = sound };
     if (own.recordingOf(name)) |replaced| return .{ .recording = replaced };
+    if (own.movieOf(name)) |replaced| return .{ .movie = replaced };
     return .added;
 }
 
@@ -978,6 +1017,19 @@ const GameFiles = struct {
             var buffer: [files.max_path]u8 = undefined;
             const replaced = std.mem.print(&buffer, "{s}{s}", .{ stem, extension }) catch continue;
             if (gathered.kindOf(replaced) == .file) return .{ .stem = stem, .extension = extension };
+        }
+        return null;
+    }
+
+    /// The name, without the extension, of the game's Bink movie that the mod's movie `name`,
+    /// `<movie>.webm` or `<movie>.mkv` (`movie.modern_extensions`), replaces; null if it doesn't
+    /// replace one.
+    fn movieOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
+        for (movie.modern_extensions) |extension| {
+            const stem = withoutSuffix(name, extension) orelse continue;
+            var buffer: [files.max_path]u8 = undefined;
+            const replaced = std.mem.print(&buffer, "{s}" ++ bink.extension, .{stem}) catch return null;
+            if (gathered.kindOf(replaced) == .file) return stem;
         }
         return null;
     }
@@ -1594,7 +1646,7 @@ test effectOf {
     // Two mods: `a`, and `b`, which loads after it.
     try tmp.dir.createDirPath(io, "mods/a");
     try tmp.dir.createDirPath(io, "mods/b");
-    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga", "mods/b/OPTFNT.ttf", "mods/b/abrt_001.ut", "mods/b/abrt_009.ut", "mods/b/abrt_001.flac", "mods/b/theme.flac", "mods/b/theme.wav", "mods/b/0015.mp3", "mods/b/new.flac", "mods/b/stdsmp_012.wav", "mods/b/STDSMP_007.flac", "mods/b/stdsmp_12.wav" }) |path| {
+    for ([_][]const u8{ "mods/a/hull.tga", "mods/b/hull.tga", "mods/b/ship.shp", "mods/b/yank_2.png", "mods/b/yank_2_normal.png", "mods/b/hudhard_021.png", "mods/b/back.png", "mods/b/logo.tga", "mods/b/OPTFNT.ttf", "mods/b/abrt_001.ut", "mods/b/abrt_009.ut", "mods/b/abrt_001.flac", "mods/b/theme.flac", "mods/b/theme.wav", "mods/b/0015.mp3", "mods/b/new.flac", "mods/b/stdsmp_012.wav", "mods/b/STDSMP_007.flac", "mods/b/stdsmp_12.wav", "mods/b/warty_.webm", "mods/b/R_VR.MKV", "mods/b/new.webm" }) |path| {
         try tmp.dir.writeFile(io, .{ .sub_path = path, .data = path });
     }
     var mods: Mods = try .open(gpa, io, tmp.dir, null);
@@ -1610,6 +1662,8 @@ test effectOf {
     try own.add(gpa, "theme.wav", .file);
     try own.add(gpa, "0015.box", .file);
     try own.add(gpa, "stdsmp.fat", .file);
+    try own.add(gpa, "warty_.bik", .file);
+    try own.add(gpa, "r_vr.bik", .file);
 
     // An earlier mod's file, a game file, a texture and one of its maps, a sprite set shape, a
     // picture, an outline font, a line with the extension, and new files.
@@ -1639,6 +1693,10 @@ test effectOf {
     try std.testing.expectEqual(12, sound.index);
     try std.testing.expectEqual(7, effectOf(mods.list, 1, own, "STDSMP_007.flac").sound.index);
     try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "stdsmp_12.wav"));
+    // Movies in WebM and Matroska in place of the game's Bink movies, and a new one.
+    try std.testing.expectEqualStrings("warty_", effectOf(mods.list, 1, own, "warty_.webm").movie);
+    try std.testing.expectEqualStrings("R_VR", effectOf(mods.list, 1, own, "R_VR.MKV").movie);
+    try std.testing.expectEqual(.added, effectOf(mods.list, 1, own, "new.webm"));
     // The first mod has no earlier mod's files to replace.
     try std.testing.expectEqual(.added, effectOf(mods.list, 0, own, "hull.tga"));
 }
