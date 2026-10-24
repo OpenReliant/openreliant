@@ -217,6 +217,16 @@ The panels' textures are 256 by 256 (`panels.zig`), their text written into them
 
 The panels are added, so their black is clear and the room shows through.
 
+**Improvement:** a mod's `fpanels.png` can be a whole multiple of 256 by 256
+([Modding](../guide/modding.md#pictures)). The panels' textures are then as many times as large,
+and so is everything drawn on them: each of the original's pixels is a square of the texture's, and
+the text is drawn from the outline fonts that stand in for `ld_handel.fnt` and `handels.fnt`
+([Outline fonts](../formats/fnt.md#outline-fonts)). A bitmap glyph's strokes are drawn in the colour
+of the remap's fullest level and fade through the other levels at their edges, so an outline glyph
+is drawn in the fullest level's colour, on an edge one of the original's pixels wide in the colour
+of the faintest: the figures in green on a dark edge, and the titles in black edged in green.
+Without outline fonts (`--bitmap-fonts`), the bitmap glyphs are magnified.
+
 ### The figures
 
 `loadout_load` works out each ship's figures as it loads (`bars.zig`): speed, acceleration, agility, shield power, shield recharge and armour as bars of 3 to 10 segments, placing each ship's figure between the least and the most of the fighters the ITAC lists (`loadout_ship_bars_init`, `0x00426600`; `range_scale`, `0x004504F0`), its afterburner fuel in seconds, and its crew. The missiles' figures are worked out the same way, and the missile page's info panel shows them.

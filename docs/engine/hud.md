@@ -1060,6 +1060,13 @@ colour, while `hit_shake` is above zero, each row moves right by a random share 
 **Improvement:** OpenReliant writes the ball's pixels into an image each frame, in the same way, and
 draws the image with the rest of the display, so it scales with it.
 
+**Improvement:** a mod's `powerball.png` can be a whole multiple of 256 by 256
+([Modding](../guide/modding.md#pictures)). The ball's tables are then worked out at that multiple,
+for the ball's pixels and the texture's alike, and the scroll and the shake grow by the same
+factor, so the ball is as sharp as its picture. Each of the original's rows still takes one random
+shake, which moves every row of pixels that stands for it, and the colours are the same at any
+size.
+
 ## The launch's date
 
 From the drop of the player's launch from the Reliant to its end ([Launches](launch.md#the-date)),

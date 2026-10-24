@@ -49,14 +49,17 @@ renders the glyphs ([Platform](../port/platform.md#fonts)).
   ([Modding](../guide/modding.md#fonts)). Otherwise Newtown, which is built into OpenReliant
   ([`deps/newtown`](../../deps/newtown/README.md)), replaces the original Handel Gothic fonts:
   `optfnt.fnt` and `smlfnt2.fnt`, the large and small menu fonts; `itacbig.fnt` and `itacsml.fnt`,
-  the ITAC fonts; `blufont.fnt`, the flight display font; and `ld_handel.fnt`, the loadout tooltip
-  font. A `.fnt` file in a mod is drawn from its bitmaps.
-- **Palette fonts.** The flight display font and the loadout tooltip font are drawn through a
+  the ITAC fonts; `blufont.fnt`, the flight display font; and `ld_handel.fnt` and `handels.fnt`, the
+  loadout's fonts. A `.fnt` file in a mod is drawn from its bitmaps.
+- **Palette fonts.** The flight display font and the loadout's fonts are drawn through a
   palette, with each pixel of a glyph in its own colour. For these fonts, the ink is the brightest
   colour their digits and letters use, and each colour counts as partial coverage by how close it
   is to the ink, since the bitmap's pixels fade towards black where the glyph covers them less.
   Outline glyphs are drawn in the ink colour, and a glyph that uses colours the digits and letters
   don't use, such as a symbol, keeps its bitmap.
+- **The loadout's panels.** The loadout writes its panels' text into their textures, through remaps
+  of their own. Outline fonts draw it only in panels larger than the original's, from a mod's larger
+  picture, in the colours of the remap ([Loadout](../engine/loadout.md#the-panels)).
 - **Weight.** Newtown's strokes are made as heavy as the bitmap font's. OpenReliant makes them
   wider or narrower (FreeType's `FT_Outline_Embolden`) until its digits and letters, drawn at eight
   times the size with capitals of the same height, cover as many pixels as the bitmap font's. The

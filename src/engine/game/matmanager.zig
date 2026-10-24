@@ -92,21 +92,62 @@ pub fn readImage(gpa: Allocator, archive: bigfile.Hog, picture_name: []const u8)
 }
 
 /// Reads and decodes the game's TGA picture `picture_name` from `archive` for its pixels, or the
-/// mod picture that replaces it (`pictureName`), without its alpha channel, if it has the same
-/// size. A mod picture of a different size is skipped, which the log says.
+/// mod picture that replaces it (`pictureName`), without its alpha channel, if it has a size that
+/// `sizes` allows. A mod picture of another size is skipped, which the log says.
 ///
 /// **Improvement:** the original only reads the TGA.
-pub fn readPixels(gpa: Allocator, archive: bigfile.Hog, picture_name: []const u8) !tga.Image {
+pub fn readPixels(gpa: Allocator, archive: bigfile.Hog, picture_name: []const u8, sizes: Sizes) !tga.Image {
     const own = try readTga(gpa, archive, picture_name);
     errdefer own.deinit(gpa);
     const read = try modPicture(gpa, archive, picture_name) orelse return own;
     defer read.deinit(gpa);
-    if (read.width != own.width or read.height != own.height) {
-        log.warn("skipping the picture that replaces {s}: it's {d}x{d}, and the original is {d}x{d}", .{ picture_name, read.width, read.height, own.width, own.height });
+    if (!sizes.allows(.{ read.width, read.height }, .{ own.width, own.height })) {
+        switch (sizes) {
+            .original => log.warn("skipping the picture that replaces {s}: it's {d}x{d}, and the original is {d}x{d}", .{ picture_name, read.width, read.height, own.width, own.height }),
+            .multiples => log.warn("skipping the picture that replaces {s}: it's {d}x{d}, and it must be a whole multiple of the original's {d}x{d}, at most {d} pixels across", .{ picture_name, read.width, read.height, own.width, own.height, srtexture.max_side }),
+        }
         return own;
     }
-    for (0..@as(usize, own.width) * own.height) |at| own.rgb[at * 3 ..][0..3].* = read.rgba[at * 4 ..][0..3].*;
-    return own;
+    const pixels = @as(usize, read.width) * read.height;
+    const rgb = try gpa.alloc(u8, pixels * 3);
+    for (0..pixels) |at| rgb[at * 3 ..][0..3].* = read.rgba[at * 4 ..][0..3].*;
+    own.deinit(gpa);
+    return .{ .width = @intCast(read.width), .height = @intCast(read.height), .rgb = rgb };
+}
+
+/// The sizes a mod picture that `readPixels` reads can have.
+pub const Sizes = enum {
+    /// The original's only, as what is drawn from the picture is made for that size.
+    original,
+    /// The original's or a whole multiple of it, the same across and down, up to
+    /// `srtexture.max_side`: what is drawn from the picture is drawn at its size. A 1024x1024
+    /// picture replaces a 256x256 one, and draws it four times as sharp.
+    multiples,
+
+    /// Whether a mod picture `size` pixels in size can replace one of the original's `own`.
+    fn allows(sizes: Sizes, size: [2]u32, own: [2]u32) bool {
+        if (std.mem.eql(u32, &size, &own)) return true;
+        return switch (sizes) {
+            .original => false,
+            .multiples => own[0] != 0 and own[1] != 0 and
+                size[0] % own[0] == 0 and size[1] % own[1] == 0 and
+                size[0] / own[0] == size[1] / own[1] and
+                @max(size[0], size[1]) <= srtexture.max_side,
+        };
+    }
+};
+
+test Sizes {
+    try std.testing.expect(Sizes.original.allows(.{ 256, 256 }, .{ 256, 256 }));
+    try std.testing.expect(!Sizes.original.allows(.{ 512, 512 }, .{ 256, 256 }));
+    // Twice and four times the size, but not half, not one and a half, and not stretched.
+    try std.testing.expect(Sizes.multiples.allows(.{ 512, 512 }, .{ 256, 256 }));
+    try std.testing.expect(Sizes.multiples.allows(.{ 1440, 1440 }, .{ 360, 360 }));
+    try std.testing.expect(!Sizes.multiples.allows(.{ 128, 128 }, .{ 256, 256 }));
+    try std.testing.expect(!Sizes.multiples.allows(.{ 384, 384 }, .{ 256, 256 }));
+    try std.testing.expect(!Sizes.multiples.allows(.{ 512, 256 }, .{ 256, 256 }));
+    // A picture too large for every GPU.
+    try std.testing.expect(!Sizes.multiples.allows(.{ 16384, 16384 }, .{ 256, 256 }));
 }
 
 /// Reads and decodes the game's TGA picture `picture_name` from `archive` (`tga.decode`).
@@ -198,13 +239,17 @@ test "a mod's picture replaces one of the game's pictures" {
     try std.testing.expectEqual(4, modded.width());
     try std.testing.expectEqual(3, modded.levels.len);
     try std.testing.expectEqual(std.math.maxInt(u8), modded.levels[0].texels[3]);
-    // For its pixels, only at the original size.
-    const colours = try readPixels(gpa, archive, "dome.tga");
+    // For its pixels, at the original size, or at a whole multiple of it where that's allowed.
+    const colours = try readPixels(gpa, archive, "dome.tga", .original);
     defer colours.deinit(gpa);
     try std.testing.expectEqualSlices(u8, &.{ 0xFF, 0, 0, 0xFF, 0xFF, 0xFF }, colours.rgb);
-    const kept = try readPixels(gpa, archive, "back.tga");
+    const kept = try readPixels(gpa, archive, "back.tga", .original);
     defer kept.deinit(gpa);
     try std.testing.expectEqual([3]u8{ 0, 0, 0xFF }, kept.pixel(0, 0));
+    const doubled = try readPixels(gpa, archive, "back.tga", .multiples);
+    defer doubled.deinit(gpa);
+    try std.testing.expectEqual(4, doubled.width);
+    try std.testing.expectEqual([3]u8{ 0x80, 0x80, 0x80 }, doubled.pixel(3, 1));
 }
 
 test pictureName {

@@ -6,6 +6,10 @@
 //! texture scrolls with the power setting, so the ball looks as if it turns toward wherever the
 //! power is. The game writes it into the display a pixel at a time; OpenReliant writes the same
 //! pixels into an image each frame and draws that.
+//!
+//! **Improvement:** a mod's picture can be a whole multiple of the original's size
+//! (`matmanager.Sizes.multiples`), and the ball is drawn with as many pixels for each of the
+//! original's, as sharp as its picture.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -54,8 +58,15 @@ const sphere_squared: f32 = 2;
 const half_turn_texels: f32 = 138;
 
 /// What `hud_init` takes off each point of the sphere's offset into the texture, a number in its
-/// code: in 16 bits, the same as adding `0x8080`, the texture's middle, row 128 and column 128.
+/// code: in 16 bits, the same as adding `0x8080`, the texture's middle, row 128 and column 128
+/// (`textureMiddle`).
 const middle_offset = 0x7F80;
+
+/// The offset of the middle of a texture `side` texels across and down: its middle row, then its
+/// middle column.
+fn textureMiddle(side: u32) u32 {
+    return side / 2 * side + side / 2;
+}
 
 /// How `fillShade` lights the ball: each pixel stands for the point `shade_shift` further along
 /// either axis on a sphere of radius 1 (`0x004DC4C0`), so that the brightest spot is up and to the
@@ -79,35 +90,57 @@ comptime {
     // The tables' fractions are the game's own constants, worked out from the ball's sizes.
     std.debug.assert(step == 1.0 / 31.0);
     std.debug.assert(light_share == 1.0 / 63.0);
+    // Wrapped round the texture as 16 bits wrap, taking `middle_offset` off adds the middle.
+    std.debug.assert(@mod(-middle_offset, texture_size * texture_size) == textureMiddle(texture_size));
+    std.debug.assert(stepAt(1) == step);
 }
 
-/// The tables the ball is drawn from, and the image OpenReliant draws it into.
+/// The tables the ball is drawn from, and the image OpenReliant draws it into. The game's are
+/// `size` pixels across and down, and its texture `texture_size`; a mod's picture can make them
+/// `multiple` times as large.
 pub const Ball = struct {
+    /// How many of the ball's pixels stand for each of the original's, across and down: its
+    /// picture's size over `texture_size`, 1 for the game's own.
+    multiple: u32,
     /// `powerball.tga`'s levels, a byte a pixel, top row first (`0x00569984`). The image is grey,
     /// and `hud_init` keeps the top 5 bits of each pixel's first channel.
-    texture: [texture_size * texture_size]u8,
-    /// Where each pixel of the ball shows the texture: a sphere mapped onto it, an offset from the
-    /// texture's middle, 16 bits wide (`0x00579E2C`).
-    sphere: [size * size]u16,
+    texture: []u8,
+    /// Where each pixel of the ball shows the texture: a sphere mapped onto it, an offset into
+    /// the texture that wraps round its end, as the game's 16 bits wrap round its 256 by 256
+    /// texels (`0x00579E2C`).
+    sphere: []u32,
     /// How brightly each pixel is lit, 0 to 63 (`0x00567F90`).
-    shade: [size * size]u8,
+    shade: []u8,
     /// The colours: for each level of light, one for each of the texture's levels (`0x00566F90`,
     /// in the display's 16-bit format, and `0x00568E94` for the 8-bit one).
     colours: [lights][levels][3]u8,
     /// The ball, drawn afresh each frame, and the image the display draws it with.
-    pixels: [image_width * size * 4]u8,
+    pixels: []u8,
     level: [1]srtexture.Level,
     image: srtexture.Image,
 
-    /// What `hud_init` works out from `powerball.tga`.
+    /// What `hud_init` works out from `powerball.tga`, `picture`, at as many times the original's
+    /// size as the picture is (`multiple`).
     pub fn create(gpa: Allocator, picture: tga.Image) Allocator.Error!*Ball {
+        const multiple: u32 = @max(1, picture.width / texture_size);
         const ball = try gpa.create(Ball);
-        fillTexture(&ball.texture, picture);
-        fillSphere(&ball.sphere);
-        const left_over = fillShade(&ball.shade);
-        fillColours(&ball.colours, left_over);
-        @memset(&ball.pixels, 0);
-        ball.level = .{.{ .width = image_width, .height = size, .texels = &ball.pixels }};
+        errdefer gpa.destroy(ball);
+        const side = texture_size * @as(usize, multiple);
+        const ball_side = size * @as(usize, multiple);
+        const texture = try gpa.alloc(u8, side * side);
+        errdefer gpa.free(texture);
+        const sphere = try gpa.alloc(u32, ball_side * ball_side);
+        errdefer gpa.free(sphere);
+        const shade = try gpa.alloc(u8, ball_side * ball_side);
+        errdefer gpa.free(shade);
+        const pixels = try gpa.alloc(u8, image_width * multiple * ball_side * 4);
+        ball.* = .{ .multiple = multiple, .texture = texture, .sphere = sphere, .shade = shade, .colours = undefined, .pixels = pixels, .level = undefined, .image = undefined };
+        fillTexture(ball.texture, side, picture);
+        fillSphere(ball.sphere, multiple);
+        fillShade(ball.shade, multiple);
+        fillColours(&ball.colours, leftOver());
+        @memset(ball.pixels, 0);
+        ball.level = .{.{ .width = image_width * multiple, .height = size * multiple, .texels = ball.pixels }};
         ball.image = .{ .levels = &ball.level };
         return ball;
     }
@@ -115,6 +148,8 @@ pub const Ball = struct {
     /// Frees the ball, once its image has handed its texture back to the device.
     pub fn destroy(ball: *Ball, gpa: Allocator) void {
         ball.image.releaseTexture();
+        for ([_][]u8{ ball.texture, ball.shade, ball.pixels }) |table| gpa.free(table);
+        gpa.free(ball.sphere);
         gpa.destroy(ball);
     }
 
@@ -122,18 +157,27 @@ pub const Ball = struct {
     /// of the circle, the texture scrolled by half the setting, lit by `shade` and coloured by
     /// `colours`. While `hit_shake` is above zero, each row moves right by a random share of
     /// `10 * hit_shake` pixels, a number of `random` a row, as the game does in 16-bit colour.
+    /// At a larger `multiple`, the scroll and the shake are as many times larger, and each shake
+    /// moves the rows that stand for one of the original's.
     pub fn render(ball: *Ball, setting: [2]f32, hit_shake: f32, random: ?*Random) void {
-        @memset(&ball.pixels, 0);
-        const scroll = std.math.lossyCast(i32, setting[0] * 0.5) - std.math.lossyCast(i32, setting[1] * -0.5) * texture_size;
-        var row: i32 = -radius;
-        while (row < radius) : (row += 1) {
-            const span = std.math.lossyCast(i32, @sqrt(@as(f32, @floatFromInt(radius * radius - row * row))) + 0.5);
-            const jitter = @min(hud.rowShift(hit_shake, random), most_jitter);
-            const first: usize = @intCast((row + radius) * size + radius - span);
-            const into: usize = @intCast((row + radius) * image_width + radius - span + jitter);
+        @memset(ball.pixels, 0);
+        const multiple: i32 = @intCast(ball.multiple);
+        const scale: f32 = @floatFromInt(ball.multiple);
+        const side = texture_size * @as(i64, multiple);
+        const ball_radius = radius * multiple;
+        const ball_side = size * multiple;
+        const width = image_width * multiple;
+        const scroll = std.math.lossyCast(i32, setting[0] * 0.5 * scale) - std.math.lossyCast(i32, setting[1] * -0.5 * scale) * side;
+        var jitter: i32 = 0;
+        var row: i32 = -ball_radius;
+        while (row < ball_radius) : (row += 1) {
+            const span = std.math.lossyCast(i32, @sqrt(@as(f32, @floatFromInt(ball_radius * ball_radius - row * row))) + 0.5);
+            if (@mod(row + ball_radius, multiple) == 0) jitter = @min(hud.rowShift(hit_shake, random), most_jitter) * multiple;
+            const first: usize = @intCast((row + ball_radius) * ball_side + ball_radius - span);
+            const into: usize = @intCast((row + ball_radius) * width + ball_radius - span + jitter);
             for (0..@intCast(2 * span)) |across| {
                 const at = first + across;
-                const texel = ball.texture[@intCast(std.math.clamp(@as(i32, ball.sphere[at]) + scroll, 0, texture_size * texture_size - 1))];
+                const texel = ball.texture[@intCast(std.math.clamp(@as(i64, ball.sphere[at]) + scroll, 0, side * side - 1))];
                 const colour = ball.colours[ball.shade[at]][texel];
                 const pixel = ball.pixels[(into + across) * 4 ..][0..4];
                 pixel.* = .{ colour[0], colour[1], colour[2], 255 };
@@ -149,56 +193,71 @@ fn channel(x: f32) u8 {
     return @intCast(std.math.clamp(std.math.lossyCast(i32, x), 0, 255));
 }
 
-fn fillTexture(texture: *[texture_size * texture_size]u8, picture: tga.Image) void {
-    for (0..texture_size) |y| {
-        for (0..texture_size) |x| {
+/// The texture, `side` texels across and down, from `picture`; a texel past the picture's edges is
+/// black.
+fn fillTexture(texture: []u8, side: usize, picture: tga.Image) void {
+    for (0..side) |y| {
+        for (0..side) |x| {
             const grey = if (x < picture.width and y < picture.height) picture.pixel(x, y)[0] else 0;
-            texture[y * texture_size + x] = grey >> 3;
+            texture[y * side + x] = grey >> 3;
         }
     }
 }
 
 /// Each pixel of the ball as a point on a sphere of radius √2 seen from the front, and where it
 /// falls on the texture: `half_turn_texels` to the half turn from its middle, `x` to the right and
-/// `y` down. A pixel outside the circle is pulled in toward it.
-fn fillSphere(sphere: *[size * size]u16) void {
-    for (0..size) |row| {
-        const y = centred(row) * step;
+/// `y` down. A pixel outside the circle is pulled in toward it. At a larger `multiple`, the ball
+/// and the texture both are as many times larger.
+fn fillSphere(sphere: []u32, multiple: u32) void {
+    const ball_side = size * multiple;
+    const side: i64 = texture_size * multiple;
+    const ball_step = stepAt(multiple);
+    const half_turn = half_turn_texels * @as(f32, @floatFromInt(multiple));
+    for (0..ball_side) |row| {
+        const y = centred(row, multiple) * ball_step;
         const y_squared = y * y;
-        for (0..size) |column| {
-            const x = centred(column) * step;
+        for (0..ball_side) |column| {
+            const x = centred(column, multiple) * ball_step;
             const at = inside(x, y, x * x + y_squared);
             const z = @sqrt(sphere_squared - at.squared);
             const across: f32 = std.math.asin(at.x / z);
-            const down = std.math.lossyCast(i32, std.math.asin(at.y / z) * (1.0 / std.math.pi) * -half_turn_texels);
-            const offset = std.math.lossyCast(i32, across * (1.0 / std.math.pi) * half_turn_texels) - down * texture_size - middle_offset;
-            sphere[row * size + column] = @truncate(@as(u32, @bitCast(offset)));
+            const down = std.math.lossyCast(i32, std.math.asin(at.y / z) * (1.0 / std.math.pi) * -half_turn);
+            const offset = std.math.lossyCast(i32, across * (1.0 / std.math.pi) * half_turn) - down * side + textureMiddle(@intCast(side));
+            sphere[row * ball_side + column] = @intCast(@mod(offset, side * side));
         }
     }
 }
 
-/// How much light each pixel of the ball gets, from 0 to 63: the pixel at `x`, `y` stands for the
-/// point `(x + shade_shift, y + shade_shift)` on a sphere of radius 1, so the brightest spot is up
-/// and to the left of the middle, and gets `shade_scale` times the cosine of the angle between the
-/// sphere's surface there and a light `light_distance` in front. Returns the `x` of the last
-/// pixel's point, which the colours start from.
-fn fillShade(shade: *[size * size]u8) f32 {
+/// How much light each pixel of the ball gets, from 0 to 63: the point it stands for
+/// (`shadePoint`) gets `shade_scale` times the cosine of the angle between the sphere's surface
+/// there and a light `light_distance` in front.
+fn fillShade(shade: []u8, multiple: u32) void {
     const light: math.Vector = .{ 0, 0, light_distance };
-    var left_over: f32 = 0;
-    for (0..size) |row| {
-        const y = centred(row) * step + shade_shift;
-        const y_squared = y * y;
-        for (0..size) |column| {
-            const x = centred(column) * step + shade_shift;
-            const at = inside(x, y, x * x + y_squared);
+    const ball_side = size * multiple;
+    for (0..ball_side) |row| {
+        for (0..ball_side) |column| {
+            const at = shadePoint(row, column, multiple);
             const point: math.Vector = .{ at.x, at.y, @sqrt(1 - at.squared) };
             const towards = light - point;
             const lit = math.dot(towards, point) * shade_scale / math.length(towards);
-            shade[row * size + column] = @intCast(std.math.clamp(std.math.lossyCast(i32, lit), 0, lights - 1));
-            left_over = at.x;
+            shade[row * ball_side + column] = @intCast(std.math.clamp(std.math.lossyCast(i32, lit), 0, lights - 1));
         }
     }
-    return left_over;
+}
+
+/// The point the pixel at `row` and `column` stands for, `(x + shade_shift, y + shade_shift)` on a
+/// sphere of radius 1, so that the brightest spot is up and to the left of the middle.
+fn shadePoint(row: usize, column: usize, multiple: u32) Inside {
+    const ball_step = stepAt(multiple);
+    const y = centred(row, multiple) * ball_step + shade_shift;
+    const x = centred(column, multiple) * ball_step + shade_shift;
+    return inside(x, y, x * x + y * y);
+}
+
+/// What `hud_init` has left in the highlight's place from working out the shade, which the colours
+/// start from (`fillColours`): the `x` of the last pixel's point at the original's size.
+fn leftOver() f32 {
+    return shadePoint(size - 1, size - 1, 1).x;
 }
 
 /// The colours: orange shades of the texture's level, brighter with the light, and past three
@@ -221,9 +280,14 @@ fn fillColours(colours: *[lights][levels][3]u8, left_over: f32) void {
     }
 }
 
-/// A row or column of the ball, from its middle.
-fn centred(index: usize) f32 {
-    return @floatFromInt(@as(i32, @intCast(index)) - radius);
+/// A row or column of the ball, from its middle, for a ball `multiple` times the original's size.
+fn centred(index: usize, multiple: u32) f32 {
+    return @floatFromInt(@as(i64, @intCast(index)) - radius * @as(i64, multiple));
+}
+
+/// A step across a ball `multiple` times the original's size: `step` for the original's.
+fn stepAt(multiple: u32) f32 {
+    return 1.0 / @as(f32, @floatFromInt(radius * multiple));
 }
 
 const Inside = struct { x: f32, y: f32, squared: f32 };
@@ -375,7 +439,7 @@ test Ball {
     try std.testing.expectEqual(128 >> 3, ball.texture[0x8080]);
     // The light is brightest above and to the left of the middle, and none reaches the far edge.
     try std.testing.expect(ball.shade[20 * size + 20] > ball.shade[40 * size + 40]);
-    try std.testing.expectEqual(lights - 1, std.mem.max(u8, &ball.shade));
+    try std.testing.expectEqual(lights - 1, std.mem.max(u8, ball.shade));
     // Dark and unlit is black; the brightest light adds a white highlight.
     try std.testing.expectEqual([3]u8{ 0, 0, 0 }, ball.colours[0][0]);
     try std.testing.expect(ball.colours[lights - 1][0][2] > 0);
@@ -391,6 +455,61 @@ test Ball {
     const before = ball.pixels[middle..][0..3].*;
     ball.render(.{ -60, 1 }, 0, null);
     try std.testing.expect(!std.mem.eql(u8, &before, ball.pixels[middle..][0..3]));
+}
+
+test "a larger picture draws a larger ball" {
+    const gpa = std.testing.allocator;
+    const picture = try testing.picture(gpa);
+    defer gpa.free(picture.rgb);
+    const ball = try Ball.create(gpa, picture);
+    defer ball.destroy(gpa);
+    // The same gradient, twice as large.
+    const rgb = try gpa.alloc(u8, 4 * texture_size * texture_size * 3);
+    defer gpa.free(rgb);
+    for (0..4 * texture_size * texture_size) |at| @memset(rgb[at * 3 ..][0..3], @intCast(at % (2 * texture_size) / 2));
+    const large = try Ball.create(gpa, .{ .width = 2 * texture_size, .height = 2 * texture_size, .rgb = rgb });
+    defer large.destroy(gpa);
+    try std.testing.expectEqual(2, large.multiple);
+    try std.testing.expectEqual(2 * image_width, large.image.width());
+    try std.testing.expectEqual(2 * size, large.image.height());
+
+    // Its middle shows the texture's middle, and every other pixel stands for one of the
+    // original's, lit and coloured alike.
+    const large_side = 2 * size;
+    try std.testing.expectEqual(textureMiddle(2 * texture_size), large.sphere[size * large_side + size]);
+    try std.testing.expectEqual(ball.colours, large.colours);
+    for (0..size) |row| for (0..size) |column| {
+        try std.testing.expectEqual(ball.shade[row * size + column], large.shade[2 * row * large_side + 2 * column]);
+    };
+    // Drawn, the middle of each shows the same level.
+    ball.render(.{ 1, 1 }, 0, null);
+    large.render(.{ 1, 1 }, 0, null);
+    const middle_pixel = (radius * image_width + radius) * 4;
+    const large_middle = (size * 2 * image_width + size) * 4;
+    try std.testing.expectEqualSlices(u8, ball.pixels[middle_pixel..][0..4], large.pixels[large_middle..][0..4]);
+
+    // The shake moves the two rows that stand for one of the original's alike, twice as far.
+    var random: Random = .{};
+    large.render(.{ 1, 1 }, 2, &random);
+    var moved = false;
+    for (0..size) |pair| {
+        var shifts: [2]?usize = @splat(null);
+        for (&shifts, 0..) |*shift, half| {
+            const row = 2 * pair + half;
+            const start = for (0..2 * image_width) |x| {
+                if (large.pixels[(row * 2 * image_width + x) * 4 + 3] != 0) break x;
+            } else continue;
+            const from_middle: i32 = @as(i32, @intCast(row)) - size;
+            const span = std.math.lossyCast(i32, @sqrt(@as(f32, @floatFromInt(size * size - from_middle * from_middle))) + 0.5);
+            shift.* = start - @as(usize, @intCast(size - span));
+        }
+        // The top row is a single point, with no pixels.
+        const first = shifts[0] orelse continue;
+        try std.testing.expectEqual(first, shifts[1].?);
+        try std.testing.expect(first % 2 == 0);
+        if (first > 0) moved = true;
+    }
+    try std.testing.expect(moved);
 }
 
 test "the shake moves the ball's rows to the right" {
