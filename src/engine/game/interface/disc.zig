@@ -87,10 +87,8 @@ pub const Disc = struct {
     /// fits, or the whole member where it is shorter. Null if neither a mod nor the open archive
     /// has it.
     pub fn readStoredHead(disc: Disc, name: []const u8, buffer: []u8) bigfile.ReadError!?[]u8 {
-        if (try disc.mods.readHead(name, buffer)) |head| return head;
-        const hog = disc.hog orelse return null;
-        const entry = hog.archive.find(name) orelse return null;
-        return try hog.archive.readHead(entry, buffer);
+        const hog = disc.hog orelse return disc.mods.readStoredHead(name, buffer);
+        return hog.readStoredHead(name, buffer);
     }
 
     /// Reads the file that `name` names in the open archive, decompressing RefPack data

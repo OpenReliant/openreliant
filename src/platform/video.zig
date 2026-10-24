@@ -38,9 +38,9 @@ pub const Decoders = struct {
     }
 };
 
-/// A stream's decoder, the packet and frame it decodes through, and for a video, the frame shown
-/// last, which holds where a packet shows none, as one of VP9 that holds a frame kept hidden for
-/// the frames after it can.
+/// A stream's decoder, and the packet and frame it decodes through. For a video, `shown` keeps the
+/// frame shown last, which stays on the screen while a packet shows none: a VP9 packet can hold
+/// only a hidden frame, which later frames refer to.
 const Stream = struct {
     context: *c.AVCodecContext,
     packet: *c.AVPacket,
@@ -188,10 +188,9 @@ fn picture(_: *anyopaque, handle: bink.Stream, packet: []const u8) bink.Error!bi
     };
 }
 
-/// How `frame`'s levels make colours, as its decoder read them from the video: by BT.709 where the
-/// video says BT.709, or SMPTE 240M, which is close to it, and by BT.601 otherwise, as where it
-/// says nothing, as Bink's never does; in the full range where it says so, and the limited range
-/// otherwise.
+/// How `frame`'s levels make colours, as the video says: by BT.709 for BT.709, and for SMPTE 240M,
+/// which is close to it; by BT.601 for anything else, including a video that says nothing, such as
+/// every Bink movie; and in the full range where it says so, the limited range otherwise.
 fn colourOf(frame: *const c.AVFrame) bink.picture.Colour {
     return .{
         .matrix = switch (frame.colorspace) {

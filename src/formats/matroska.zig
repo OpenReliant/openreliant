@@ -30,7 +30,7 @@ pub const Error = error{
 
 /// The IDs of the elements OpenReliant reads, with the bits that mark their length, as the
 /// specifications write them.
-pub const Id = enum(u32) {
+const Id = enum(u32) {
     ebml = 0x1A45DFA3,
     doc_type = 0x4282,
     segment = 0x18538067,
@@ -105,7 +105,8 @@ pub const Movie = struct {
             else => {},
         };
         const video = read.video orelse return error.NoVideo;
-        if (video.encoded or (read.audio != null and read.audio.?.encoded)) return error.Encoded;
+        if (video.encoded) return error.Encoded;
+        if (read.audio) |audio| if (audio.encoded) return error.Encoded;
 
         var frames: std.ArrayList(Frame) = .empty;
         defer frames.deinit(gpa);
@@ -533,7 +534,7 @@ fn float(data: []const u8) Error!f64 {
 /// Matroska files for the tests, built by hand.
 pub const testing = struct {
     /// Appends the element `id` holding `data` to `file`, its size in 8 bytes.
-    pub fn element(gpa: Allocator, file: *std.ArrayList(u8), id: Id, data: []const u8) Allocator.Error!void {
+    fn element(gpa: Allocator, file: *std.ArrayList(u8), id: Id, data: []const u8) Allocator.Error!void {
         try appendId(gpa, file, id);
         try file.append(gpa, 0x01);
         try file.appendSlice(gpa, std.mem.asBytes(&std.mem.nativeToBig(u64, data.len))[1..]);
@@ -541,7 +542,7 @@ pub const testing = struct {
     }
 
     /// Appends the element `id` holding the unsigned integer `value` to `file`.
-    pub fn unsignedElement(gpa: Allocator, file: *std.ArrayList(u8), id: Id, value: u64) Allocator.Error!void {
+    fn unsignedElement(gpa: Allocator, file: *std.ArrayList(u8), id: Id, value: u64) Allocator.Error!void {
         try element(gpa, file, id, &std.mem.toBytes(std.mem.nativeToBig(u64, value)));
     }
 
@@ -553,7 +554,7 @@ pub const testing = struct {
     }
 
     /// A simple block of track `track`, `relative` ticks into its cluster, holding `frame`.
-    pub fn simpleBlock(gpa: Allocator, file: *std.ArrayList(u8), track: u8, relative: i16, keyframe: bool, frame: []const u8) Allocator.Error!void {
+    fn simpleBlock(gpa: Allocator, file: *std.ArrayList(u8), track: u8, relative: i16, keyframe: bool, frame: []const u8) Allocator.Error!void {
         var block: std.ArrayList(u8) = .empty;
         defer block.deinit(gpa);
         try block.append(gpa, 0x80 | track);

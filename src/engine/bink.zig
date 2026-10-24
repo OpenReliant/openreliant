@@ -360,6 +360,18 @@ const Source = union(enum) {
             .matroska => |movie| .{ .packet = movie.frames[index].data, .keyframe = movie.frames[index].keyframe },
         };
     }
+
+    /// When its video's frame `number`, from 0, is due after the first, in nanoseconds: by a Bink
+    /// movie's rate, or at a mod's movie's frame's own time.
+    fn due(source: Source, number: u32) u64 {
+        return switch (source) {
+            .bink => |movie| {
+                const own: Rate = .{ .frames = movie.header.rate, .seconds = movie.header.rate_divisor };
+                return own.due(number);
+            },
+            .matroska => |movie| std.math.cast(u64, movie.frames[number].time - movie.frames[0].time) orelse 0,
+        };
+    }
 };
 
 /// A movie open (`HBINK`).
@@ -376,8 +388,7 @@ pub const Bink = struct {
     height: u32,
     frames: u32,
     frame_number: u32 = 1,
-    /// The rate it plays at: a Bink movie's header's, or the one set in place of its own; null for
-    /// a mod's movie in Matroska or WebM, whose frames each show at its own time.
+    /// The rate it plays at in place of its own (`BinkSetFrameRate`), where one is set.
     rate: ?Rate,
     look: Look,
     /// The last frame decoded.
@@ -420,7 +431,7 @@ pub const Bink = struct {
             .width = header.width,
             .height = header.height,
             .frames = header.frames,
-            .rate = options.rate orelse .{ .frames = header.rate, .seconds = header.rate_divisor },
+            .rate = options.rate,
             .look = options.look,
         };
         if (options.look.deblock) {
@@ -546,7 +557,7 @@ pub const Bink = struct {
     }
 
     /// `BinkCopyToBuffer`, in 32-bit RGBA: the last frame decoded into `rgba`, `pitch` bytes to a
-    /// row, its top left corner at `at`, turned into colours by BT.601 in its limited range
+    /// row, its top left corner at `at`, turned into colours as the picture says
     /// (`picture.convert`), deblocked first as its look has it.
     pub fn copyToBuffer(bink: Bink, rgba: []u8, pitch: usize, at: [2]usize) void {
         var shown = bink.picture orelse return;
@@ -604,12 +615,10 @@ pub const Bink = struct {
         return now < start + bink.due(bink.frame_number - 1);
     }
 
-    /// When frame `number`, from 0, is due after the first, in nanoseconds: by its rate, or a
-    /// mod's movie's frame at its own time.
+    /// When frame `number`, from 0, is due after the first, in nanoseconds: by the rate set in
+    /// place of its own, or else as its file has it (`Source.due`).
     fn due(bink: Bink, number: u32) u64 {
-        if (bink.rate) |rate| return rate.due(number);
-        const frames = bink.source.matroska.frames;
-        return std.math.cast(u64, frames[number].time - frames[0].time) orelse 0;
+        return if (bink.rate) |rate| rate.due(number) else bink.source.due(number);
     }
 
     /// `BinkPause`: stops the movie at `now`, its sound too, or plays it on from where it stopped.

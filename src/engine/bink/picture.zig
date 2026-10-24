@@ -50,7 +50,7 @@ const Factors = struct {
         };
         const green = 1 - red - blue;
         const black: i32, const luma: f64, const chroma: f64 = switch (colour.range) {
-            .limited => .{ 16, 255.0 / 219.0, 255.0 / 224.0 },
+            .limited => .{ 16, 255.0 / (235.0 - 16.0), 255.0 / (240.0 - 16.0) },
             .full => .{ 0, 1, 1 },
         };
         return .{

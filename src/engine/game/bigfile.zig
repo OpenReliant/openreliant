@@ -73,6 +73,15 @@ pub const Hog = struct {
         const entry = archive.archive.find(name) orelse return null;
         return try archive.archive.readRaw(gpa, entry);
     }
+
+    /// Reads the start of the member for `name`, as `readStored` finds it, into `buffer`: as much
+    /// as fits, or the whole member where it is shorter. Null if neither a mod nor the archive has
+    /// it.
+    pub fn readStoredHead(archive: Hog, name: []const u8, buffer: []u8) ReadError!?[]u8 {
+        if (try archive.mods.readStoredHead(name, buffer)) |head| return head;
+        const entry = archive.archive.find(name) orelse return null;
+        return try archive.archive.readHead(entry, buffer);
+    }
 };
 
 /// `hog_open` (`0x004C7E20`): the archive at `path` under `dir`. The game opens it with `fopen` and

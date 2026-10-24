@@ -309,7 +309,7 @@ pub const Mod = struct {
     fn readHead(mod: Mod, file: usize, buffer: []u8) bigfile.ReadError![]u8 {
         return switch (mod.source) {
             .archive => |archive| try archive.readHead(archive.entries[file], buffer),
-            .folder => |folder| try folder.readHead(folder.names[file], buffer),
+            .folder => |folder| try folder.dir.readFile(folder.io, folder.names[file], buffer),
         };
     }
 
@@ -451,14 +451,6 @@ pub const Folder = struct {
         for (folder.names) |name| gpa.free(name);
         gpa.free(folder.names);
         folder.dir.close(folder.io);
-    }
-
-    /// Reads the start of its file `name` into `buffer`: as much as fits, or the whole file where
-    /// it is shorter.
-    fn readHead(folder: Folder, name: []const u8, buffer: []u8) bigfile.ReadError![]u8 {
-        const file = try folder.dir.openFile(folder.io, name, .{});
-        defer file.close(folder.io);
-        return buffer[0..try file.readPositionalAll(folder.io, buffer, 0)];
     }
 
     /// Reads its file `name` as `reading` says. Decompressing reads it the same way as the member
@@ -626,9 +618,9 @@ pub const Mods = struct {
         return try mods.list[found.mod].read(gpa, found.file, .stored);
     }
 
-    /// Reads the start of the mod file `name` as `readStored` reads it, into `buffer`: as much as
+    /// Reads the start of the mod file `name`, as `readStored` reads it, into `buffer`: as much as
     /// fits, or the whole file where it is shorter. Null if no mod has it.
-    pub fn readHead(mods: *const Mods, name: []const u8, buffer: []u8) bigfile.ReadError!?[]u8 {
+    pub fn readStoredHead(mods: *const Mods, name: []const u8, buffer: []u8) bigfile.ReadError!?[]u8 {
         const found = mods.place(name) orelse return null;
         return try mods.list[found.mod].readHead(found.file, buffer);
     }
@@ -637,7 +629,7 @@ pub const Mods = struct {
     /// much as fits, or the whole file where it is shorter. Null if neither a mod nor the game
     /// folder has it.
     pub fn readLooseHead(mods: *const Mods, io: Io, dir: Io.Dir, path: []const u8, buffer: []u8) bigfile.ReadError!?[]u8 {
-        if (try mods.readHead(files.leaf(path), buffer)) |head| return head;
+        if (try mods.readStoredHead(files.leaf(path), buffer)) |head| return head;
         return files.readHead(io, dir, path, buffer);
     }
 
@@ -938,9 +930,7 @@ const GameFiles = struct {
         const stem = textureStem(name) orelse return null;
         for (std.enums.values(srtexture.MapFile)) |kind| {
             const texture = withoutSuffix(stem, kind.suffix()) orelse continue;
-            var buffer: [files.max_path]u8 = undefined;
-            const picture = std.mem.print(&buffer, "{s}" ++ srtexture.picture_extension, .{texture}) catch continue;
-            if (gathered.kindOf(picture) == .texture) return .{ .texture = texture, .kind = kind };
+            if (gathered.has(.texture, texture, srtexture.picture_extension)) return .{ .texture = texture, .kind = kind };
         }
         return null;
     }
@@ -953,34 +943,22 @@ const GameFiles = struct {
 
     /// The numbered part of a game file with `extension` that `stem` names (`numbered.parse`);
     /// null if the game has no such file, or `stem` names no part.
-    fn partOf(gathered: GameFiles, stem: []const u8, comptime extension: []const u8) ?numbered.Part {
+    fn partOf(gathered: GameFiles, stem: []const u8, extension: []const u8) ?numbered.Part {
         const part = numbered.parse(stem) orelse return null;
-        var buffer: [files.max_path]u8 = undefined;
-        const file = std.mem.print(&buffer, "{s}" ++ extension, .{part.file}) catch return null;
-        return if (gathered.kindOf(file) == .file) part else null;
+        return if (gathered.has(.file, part.file, extension)) part else null;
     }
 
     /// The name, without the extension, of the game's TGA picture that the file `name`,
     /// `<picture>.png`, replaces; null if it doesn't replace one.
     fn pictureOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
-        const stem = pictureStem(name) orelse return null;
-        var buffer: [files.max_path]u8 = undefined;
-        const picture = std.mem.print(&buffer, "{s}" ++ tga.extension, .{stem}) catch return null;
-        if (gathered.kindOf(picture) != .file) return null;
-        return stem;
+        return gathered.stemReplacing(name, &.{srtexture.picture_extension}, tga.extension);
     }
 
     /// The name, without the extension, of the game's font that the outline font `name`,
     /// `<font>.ttf` or `<font>.otf` (`fnt.outline_extensions`), replaces; null if it doesn't
     /// replace one.
     fn fontOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
-        for (fnt.outline_extensions) |extension| {
-            const stem = withoutSuffix(name, extension) orelse continue;
-            var buffer: [files.max_path]u8 = undefined;
-            const font = std.mem.print(&buffer, "{s}" ++ fnt.extension, .{stem}) catch return null;
-            if (gathered.kindOf(font) == .file) return stem;
-        }
-        return null;
+        return gathered.stemReplacing(name, &fnt.outline_extensions, fnt.extension);
     }
 
     /// The file `name` without the extension of a texture's picture, a PNG, DDS or KTX2 file; null
@@ -1014,9 +992,7 @@ const GameFiles = struct {
     fn recordingOf(gathered: GameFiles, name: []const u8) ?Replaced {
         const stem = recordingStem(name) orelse return null;
         for (recordings.replaced_extensions) |extension| {
-            var buffer: [files.max_path]u8 = undefined;
-            const replaced = std.mem.print(&buffer, "{s}{s}", .{ stem, extension }) catch continue;
-            if (gathered.kindOf(replaced) == .file) return .{ .stem = stem, .extension = extension };
+            if (gathered.has(.file, stem, extension)) return .{ .stem = stem, .extension = extension };
         }
         return null;
     }
@@ -1025,11 +1001,16 @@ const GameFiles = struct {
     /// `<movie>.webm` or `<movie>.mkv` (`movie.modern_extensions`), replaces; null if it doesn't
     /// replace one.
     fn movieOf(gathered: GameFiles, name: []const u8) ?[]const u8 {
-        for (movie.modern_extensions) |extension| {
+        return gathered.stemReplacing(name, &movie.modern_extensions, bink.extension);
+    }
+
+    /// The name, without the extension, of the game file that the mod's file `name` replaces,
+    /// where `name` ends in one of `extensions` and the game file in `replaced`; null if it
+    /// doesn't replace one.
+    fn stemReplacing(gathered: GameFiles, name: []const u8, extensions: []const []const u8, replaced: []const u8) ?[]const u8 {
+        for (extensions) |extension| {
             const stem = withoutSuffix(name, extension) orelse continue;
-            var buffer: [files.max_path]u8 = undefined;
-            const replaced = std.mem.print(&buffer, "{s}" ++ bink.extension, .{stem}) catch return null;
-            if (gathered.kindOf(replaced) == .file) return stem;
+            if (gathered.has(.file, stem, replaced)) return stem;
         }
         return null;
     }
@@ -1044,6 +1025,13 @@ const GameFiles = struct {
     /// The file `name` without the picture extension; null if it has a different extension.
     fn pictureStem(name: []const u8) ?[]const u8 {
         return withoutSuffix(name, srtexture.picture_extension);
+    }
+
+    /// Whether the game has a file of `kind` named `stem` with `extension`, ignoring case.
+    fn has(gathered: GameFiles, kind: Kind, stem: []const u8, extension: []const u8) bool {
+        var buffer: [files.max_path]u8 = undefined;
+        const name = std.mem.print(&buffer, "{s}{s}", .{ stem, extension }) catch return false;
+        return gathered.kindOf(name) == kind;
     }
 
     /// The kind of the game file named `name`, ignoring case; null if there's no such file.

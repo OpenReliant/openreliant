@@ -40,6 +40,9 @@ const matroska = @import("../../../formats/matroska.zig");
 
 const log = std.log.scoped(.movies);
 
+/// What the log says of a movie that can't be played: its name, and why.
+const left_out = "the movie {s} is left out: {s}";
+
 /// The movies `renderer_load` plays as the renderer first starts (`0x004AB4D5` on), before its
 /// loading screens.
 pub const intro = [_][]const u8{ "new_nms.bik", "new_dalogo_fs_uncmpr.bik", "warty_.bik" };
@@ -266,24 +269,24 @@ pub const Player = struct {
     /// movie it replaces would be, at that movie's size (`size`). One that can't be played is left
     /// out, which the log says, and the Bink file plays.
     pub fn load(gpa: Allocator, codec: bink.Codec, archive: *const disc.Disc, name: []const u8, kind: Kind, sound: ?mss.Driver, look: bink.Look) ?Player {
-        const source = kind.source();
         if (loadModern(gpa, codec, archive, name, kind, sound, look)) |player| return player;
+        const source = kind.source();
         const found = switch (source) {
             .folder => archive.mods.readLoose(archive.io, gpa, archive.directory, name, .limited(files.max_file_size)),
             .disc => archive.readStored(gpa, name),
         } catch |err| {
-            log.warn("the movie {s} is left out: {s}", .{ name, @errorName(err) });
+            log.warn(left_out, .{ name, @errorName(err) });
             return null;
         };
         const file = found orelse {
-            log.warn("the movie {s} is left out: {s}", .{ name, switch (source) {
+            log.warn(left_out, .{ name, switch (source) {
                 .folder => "the game's folder has none",
                 .disc => "no disc's archive open holds it",
             } });
             return null;
         };
         return open(gpa, codec, file, kind, sound, look) catch |err| {
-            log.warn("the movie {s} is left out: {s}", .{ name, @errorName(err) });
+            log.warn(left_out, .{ name, problem(err) });
             return null;
         };
     }
@@ -299,11 +302,11 @@ pub const Player = struct {
             // A name longer than any path the game builds is in no mod (`bigfile.Mods`).
             const modern = std.mem.print(&buffer, "{s}{s}", .{ files.stem(name), extension }) catch return null;
             const file = archive.mods.readFile(gpa, modern) catch |err| {
-                log.warn("the movie {s} is left out: {s}", .{ modern, @errorName(err) });
+                log.warn(left_out, .{ modern, @errorName(err) });
                 continue;
             } orelse continue;
             var player = open(gpa, codec, file, kind, sound, look) catch |err| {
-                log.warn("the movie {s} is left out: {s}", .{ modern, problem(err) });
+                log.warn(left_out, .{ modern, problem(err) });
                 continue;
             };
             if (player.bink.silent) |unplayed| log.warn("the movie {s} plays without its sound: it is {s}, and OpenReliant plays Opus and Vorbis", .{ modern, unplayed });
@@ -325,7 +328,8 @@ pub const Player = struct {
         return .{ header.width, header.height };
     }
 
-    /// What the log says of an error opening a mod's movie in another format.
+    /// What the log says of an error opening a movie: why a mod's movie in another format can't
+    /// be played, or the error's name.
     fn problem(err: bink.Error) []const u8 {
         return switch (err) {
             error.UnsupportedVideo => "its video isn't VP9 of profile 0, 8 bits with 4:2:0 colour",
