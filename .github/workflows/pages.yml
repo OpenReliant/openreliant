@@ -1,7 +1,9 @@
 # Publishes the website, website/, on GitHub Pages: what OpenReliant is, the latest release's
 # downloads, the roadmap and the mods, and the documentation under docs/ at /docs/. The page reads
 # the release and the milestones from GitHub as it opens, so it needs publishing again only when
-# it or the documentation changes.
+# it or the documentation changes. Search engines find the pages through two sitemaps, the
+# website's own (website/sitemap.xml) and the docs' (docs/sitemap.xml), which robots.txt at the
+# root of openreliant.github.io names.
 name: Pages
 
 on:
@@ -26,7 +28,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      # The whole history, without the old files' contents, for the day each page of the docs last
+      # changed (website/docs_hooks.py).
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
       # The Predator's wire frame from the docs, drawn in the page's orange.
       - run: sed 's/#7d8590/#f08a2c/g' docs/images/predator-wireframe.svg > website/predator.svg
       # OpenReliant's icon (assets/icon) as the favicon of the site, its docs and the mods' site.

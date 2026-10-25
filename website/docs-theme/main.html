@@ -16,9 +16,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% if page.title and not page.is_homepage %}{{ page.title }} · {% endif %}OpenReliant docs</title>
-<meta name="description" content="{{ config.site_description }}">
-{%- if page.canonical_url %}<link rel="canonical" href="{{ page.canonical_url }}">{% endif %}
+{#- The page's title and description, for the browser's tab and for search engines: a page's own
+    description is the start of its first paragraph (docs_hooks.py). #}
+{%- set title = page.title ~ " · OpenReliant docs" if page.title and not page.is_homepage else "OpenReliant docs: install, play and mod StarLancer" %}
+{%- set description = page.meta.description or config.site_description %}
+<title>{{ title|e }}</title>
+<meta name="description" content="{{ description|e }}">
+{%- if page.canonical_url %}
+<link rel="canonical" href="{{ page.canonical_url }}">
+<meta property="og:url" content="{{ page.canonical_url }}">
+{%- endif %}
+{#- What a link to the page shows in chats and on social sites. #}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="OpenReliant">
+<meta property="og:title" content="{{ title|e }}">
+<meta property="og:description" content="{{ description|e }}">
+<meta property="og:image" content="https://openreliant.github.io/openreliant/icon/openreliant-256.png">
+<meta property="og:image:alt" content="OpenReliant's icon">
+<meta name="twitter:card" content="summary">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The website's own pages, for search engines. The docs have a sitemap of their own,
+     docs/sitemap.xml, and robots.txt at the root of openreliant.github.io names both. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://openreliant.github.io/openreliant/</loc></url>
+  <url><loc>https://openreliant.github.io/openreliant/contribute/</loc></url>
+</urlset>
