@@ -1342,7 +1342,8 @@ mission.fort_bear_ending = false
   gives a ribbon and a movie, and its `medal`. So are the special cases the game ties to missions 1
   and 23: the new pilot's `induction` and the loadout's `lesson` before mission 1, and the
   loadout's `only_ship`, the Shroud, before mission 23. A mod that moves or adds missions can move
-  these with them.
+  these with them. The `only_ship` is offered even before the tier opens it, so a campaign's first
+  mission can fly a ship the campaign only offers later.
 - `television_report` is Enriquez's report on the rooms' television before the mission, and
   `debriefing` her debriefing in the ITAC after it, with paragraphs for each rating.
 - `news` and `video_reports` are the ITAC's news items and video reports that appear in the rooms

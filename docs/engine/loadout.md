@@ -46,7 +46,7 @@ The loadout offers the first ships of its table, from the Predator on, as many a
 
 The ship the loadout starts on is the Shroud in mission 23, the Predator in mission 1, and the campaign's saved one otherwise (`loadout_reset`, `0x004439D0`). In mission 23 only the Shroud is shown or can be clicked.
 
-**Improvement:** OpenReliant takes each mission's tier, whether its loadout teaches as mission 1's does, and the only ship it offers from the mission's settings, which start with the original's values and which mods can change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)).
+**Improvement:** OpenReliant takes each mission's tier, whether its loadout teaches as mission 1's does, and the only ship it offers from the mission's settings, which start with the original's values and which mods can change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)). The only ship is offered even where the tier and the rank don't open it, such as a ship of a later tier or a mod's ship type: it is added after the ships they open. In the original, mission 23's Shroud is always among them.
 
 **Fix:** a saved ship the loadout does not offer, as a campaign begun again at an earlier mission leaves it, leaves the game without the chosen ship's object, which it then writes to. OpenReliant starts on the first ship offered, the Predator unless a game mode lists the ships.
 

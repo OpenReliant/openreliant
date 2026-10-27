@@ -119,14 +119,6 @@ pub const Context = struct {
     fn teaches(context: Context) bool {
         return gameflow.campaignField(context.mission, .rules).lesson;
     }
-
-    /// The only ship the mission's loadout offers, if any (`gameflow.CampaignMission.only_ship`).
-    /// In the original, mission 23 offers only the Shroud, which it names by its object
-    /// (`0x00523994`).
-    fn onlyShip(context: Context) ?create.TypeIndex {
-        const only = gameflow.campaignField(context.mission, .only_ship) orelse return null;
-        return @intCast(only.number());
-    }
 };
 
 /// The campaign's saved loadout (`0x00562F18`): the ship the pilot last chose and the missiles on
@@ -499,6 +491,11 @@ pub const Loadout = struct {
     offer_count: usize = 0,
     /// The ship chosen (`loadout_ship`, `0x00523E68`), by its place in `offers`.
     chosen: u8,
+    /// The only ship the mission offers, where it offers one (`gameflow.CampaignMission.only_ship`),
+    /// by its place in `offers`: the ship the loadout starts on, and the only one it shows or lets
+    /// be clicked. In the original, mission 23 offers only the Shroud, which it names by its
+    /// object (`0x00523994`).
+    only: ?u8 = null,
     /// The ships the tier or the rank offers (`0x00523E84`), from the Predator on, and the first
     /// slot of the arc they stand in (`0x00524754`).
     ships: []Ship = &.{},
@@ -641,6 +638,7 @@ pub const Loadout = struct {
         const loadout = try gpa.create(Loadout);
         const tier = @max(context.tier, tierBefore(context.mission));
         var offers: [tables.arc_slot_count]tables.Offer = undefined;
+        var only: ?u8 = null;
         const offered = offered: {
             if (context.ships) |listed| {
                 const offered, const left_out = tables.listedOffers(listed, &offers);
@@ -649,7 +647,14 @@ pub const Loadout = struct {
             }
             const offered, const left_out = tables.offers(tier, offeredShips(tier, context.rank), &offers);
             if (left_out > 0) log.warn("{d} of the mods' ship types are left out of the loadout: the arc has no room for them", .{left_out});
-            break :offered offered;
+            // The mission's only ship, which the tier and the rank needn't offer.
+            const only_ship = gameflow.campaignField(context.mission, .only_ship) orelse break :offered offered;
+            const with_only, const at = tables.including(only_ship, offered.len, &offers) orelse {
+                log.warn("the loadout offers its usual ships: the mission's only ship, {f}, isn't one the player can fly", .{only_ship});
+                break :offered offered;
+            };
+            only = at;
+            break :offered with_only;
         };
         loadout.* = .{
             .context = context,
@@ -661,7 +666,8 @@ pub const Loadout = struct {
             .tier = tier,
             .offers = offers,
             .offer_count = offered.len,
-            .chosen = chosenFor(context, offered),
+            .chosen = chosenFor(context, offered, only),
+            .only = only,
             .lights = hologram.lights(),
         };
         errdefer loadout.destroy();
@@ -1071,7 +1077,7 @@ pub const Loadout = struct {
         loadout.last = now;
         loadout.now = now;
         loadout.turned_back = false;
-        loadout.chosen = chosenFor(loadout.context, loadout.offers[0..loadout.ships.len]);
+        loadout.chosen = chosenFor(loadout.context, loadout.offers[0..loadout.ships.len], loadout.only);
         loadout.page = .ships;
         loadout.last_page = .ships;
         loadout.last_hovered = null;
@@ -1358,7 +1364,7 @@ pub const Loadout = struct {
     /// belong to another ship.
     fn fitStartingRacks(loadout: *Loadout) Allocator.Error!void {
         const context = loadout.context;
-        if (context.teaches() or context.onlyShip() != null or context.saved.ship != loadout.chosenType()) {
+        if (context.teaches() or loadout.only != null or context.saved.ship != loadout.chosenType()) {
             return loadout.fitTierDefault();
         }
         try loadout.fitSaved();
@@ -1411,9 +1417,9 @@ pub const Loadout = struct {
     }
 
     /// Whether the loadout shows ship `index`. It shows every ship it offers, unless the mission
-    /// offers only one ship (`Context.onlyShip`, `0x0044341E`).
+    /// offers only one ship (`only`, `0x0044341E`).
     fn showsShip(loadout: *const Loadout, index: usize) bool {
-        const only = loadout.context.onlyShip() orelse return true;
+        const only = loadout.only orelse return true;
         return index == only;
     }
 
@@ -2724,22 +2730,17 @@ fn reach(model: *const shp.Model) f32 {
 }
 
 /// Which of the `offered` ships the loadout starts on (`loadout_reset`, `0x004439D0`): the only
-/// ship the mission offers, if it offers one; the Predator, if the loadout teaches; otherwise the
-/// campaign's saved ship. In the original, these are the Shroud in mission 23 and the Predator in
-/// mission 1. A game mode that lists its ships (`Context.ships`) always starts on the saved one.
+/// ship the mission offers, if it offers one, at its place `only`; the Predator, if the loadout
+/// teaches; otherwise the campaign's saved ship. In the original, these are the Shroud in mission
+/// 23 and the Predator in mission 1. A game mode that lists its ships (`Context.ships`) always
+/// starts on the saved one.
 ///
 /// **Fix:** if the loadout doesn't offer the saved ship, which happens when a campaign starts again
 /// at an earlier mission, the original has no object for the chosen ship and writes to it anyway.
 /// OpenReliant starts on the first ship offered, the Predator unless a game mode lists the ships.
-fn chosenFor(context: Context, offered: []const tables.Offer) u8 {
-    const wanted: ?create.TypeIndex = if (context.ships != null)
-        context.saved.ship
-    else if (context.onlyShip()) |only|
-        only
-    else if (context.teaches())
-        predator
-    else
-        context.saved.ship;
+fn chosenFor(context: Context, offered: []const tables.Offer, only: ?u8) u8 {
+    if (only) |at| return at;
+    const wanted: ?create.TypeIndex = if (context.ships == null and context.teaches()) predator else context.saved.ship;
     for (offered, 0..) |offer, at| if (offer.ship_type == wanted) return @intCast(at);
     return 0;
 }
@@ -2912,38 +2913,30 @@ test chosenFor {
     var context: Context = .{ .rooms = undefined, .cache = undefined, .strings = undefined, .stats = undefined, .missile_stats = undefined, .mission = 5, .saved = &saved };
     var buffer: [tables.arc_slot_count]tables.Offer = undefined;
     const every, _ = tables.offers(3, tables.ship_count, &buffer);
-    try std.testing.expectEqual(7, chosenFor(context, every));
+    try std.testing.expectEqual(7, chosenFor(context, every, null));
     // A saved ship the loadout does not offer starts it on the Predator.
-    try std.testing.expectEqual(predator, chosenFor(context, every[0..4]));
-    // The first mission starts on the Predator, and mission 23 on the Shroud, whatever was saved.
+    try std.testing.expectEqual(predator, chosenFor(context, every[0..4], null));
+    // The first mission starts on the Predator, whatever was saved.
     context.mission = 1;
-    try std.testing.expectEqual(predator, chosenFor(context, every));
+    try std.testing.expectEqual(predator, chosenFor(context, every, null));
+    // A mission that offers only one ship, as mission 23 the Shroud, starts on it.
     context.mission = 23;
-    const shroud: create.TypeIndex = @intCast(gameobj.Type.of(.shroud).number());
-    try std.testing.expectEqual(shroud, chosenFor(context, every));
-    // A mission that offers only one ship starts on it.
-    var missions = gameflow.CampaignMission.original;
-    missions[4].only_ship = .of(.grendel);
-    gameflow.installMissions(&missions);
-    defer gameflow.installMissions(&gameflow.CampaignMission.original);
-    context.mission = 5;
-    try std.testing.expectEqual(2, chosenFor(context, every));
-    context.mission = 23;
+    try std.testing.expectEqual(10, chosenFor(context, every, 10));
     // Where a game mode lists the ships, the saved one in any mission, else the first listed.
     const listed = [_]gameobj.Type{ .of(.grendel), .of(.predator) };
     context.ships = &listed;
-    try std.testing.expectEqual(7, chosenFor(context, every));
+    try std.testing.expectEqual(7, chosenFor(context, every, null));
     saved.ship = 2;
     const first, _ = tables.listedOffers(&listed, &buffer);
-    try std.testing.expectEqual(0, chosenFor(context, first));
+    try std.testing.expectEqual(0, chosenFor(context, first, null));
     saved.ship = 7;
-    try std.testing.expectEqual(0, chosenFor(context, first));
+    try std.testing.expectEqual(0, chosenFor(context, first, null));
     // A game mode's first loadout has no choice saved yet.
     saved = .unchosen;
-    try std.testing.expectEqual(0, chosenFor(context, first));
+    try std.testing.expectEqual(0, chosenFor(context, first, null));
     context.ships = null;
     context.mission = 5;
-    try std.testing.expectEqual(predator, chosenFor(context, every));
+    try std.testing.expectEqual(predator, chosenFor(context, every, null));
 }
 
 test offeredShips {
