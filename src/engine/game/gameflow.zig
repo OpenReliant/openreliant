@@ -669,10 +669,10 @@ pub const CampaignMission = struct {
     /// plays when the pilot gets it. After a mission with a medal, the crew in the rooms honour the
     /// pilot, even if the pilot didn't get it (`crew.kindOf`).
     medal: ?Medal = null,
-    /// The only ship the loadout before this mission offers, as mission 23's offers the Shroud;
-    /// null for the ships the tier and the rank open. The loadout starts on it with the tier's
-    /// missiles.
-    only_ship: ?gameobj.Type = null,
+    /// The ships the loadout before the mission offers, in order, in place of those the tier and
+    /// the rank open, as mission 23's offers the Shroud alone; null for those. It can list ships
+    /// the tier and the rank don't open yet.
+    loadout_ships: ?[]const gameobj.Type = null,
     /// Enriquez's report on the rooms' television before the mission, in parts; empty for none.
     television_report: []const rooms.News.Part = &.{},
     /// Enriquez's debriefing of the mission in the ITAC, for each rating.
@@ -703,9 +703,9 @@ pub const CampaignMission = struct {
         /// A new pilot sees the intro and the induction before the mission, when a campaign starts
         /// with it (`winmain.CampaignStart`).
         induction: bool = false,
-        /// The loadout before the mission teaches the player: it starts on the Predator with the
-        /// tier's missiles, plays `loadout.ut` and blinks its exit button
-        /// (`loadout.Context.teaches`).
+        /// The loadout before the mission teaches the player: it starts on the Predator, unless the
+        /// mission lists `loadout_ships`, with the tier's missiles, plays `loadout.ut` and blinks
+        /// its exit button (`loadout.Context.teaches`).
         lesson: bool = false,
         /// The player's wing flies the `t_` twins of the player's ships
         /// (`create.Objects.slotType`).
@@ -808,7 +808,7 @@ pub const CampaignMission = struct {
                 .tier = if (mission_tiers[number - 1] == 0) null else mission_tiers[number - 1],
                 .chapter = ribbonOf(number),
                 .medal = Medal.of(number),
-                .only_ship = if (number == original_shroud) .of(.shroud) else null,
+                .loadout_ships = if (number == original_shroud) &shroud_only else null,
                 .television_report = rooms.News.original(number),
                 .debriefing = debriefing.original(number),
                 .news = news_reports.Item.original(number),
@@ -824,8 +824,10 @@ pub const CampaignMission = struct {
         break :missions missions;
     };
 
-    /// The mission whose loadout offers only the Shroud in the original (`0x0044341E`).
+    /// The mission whose loadout offers only the Shroud in the original (`0x0044341E`), and its
+    /// list of ships.
     const original_shroud = 23;
+    const shroud_only = [_]gameobj.Type{.of(.shroud)};
 };
 
 /// The highest loadout tier. The campaign's tier goes from 0 at the start up to it.

@@ -219,22 +219,6 @@ pub fn listedOffers(listed: []const gameobj.Type, buffer: *[arc_slot_count]Offer
     return .{ buffer[0..count], left_out };
 }
 
-/// The ships the loadout offers, the first `count` in `buffer`, with `ship_type` among them, the
-/// only ship a mission offers (`gameflow.CampaignMission.only_ship`), and its place: where they
-/// hold it already, there; else added after them, or in the last one's place where the arc has no
-/// room left. Null where the player can't fly it.
-///
-/// **Improvement:** in the original, the only ship, mission 23's Shroud, is always among the ships
-/// the tier offers. A mod's can be one that the tier and the rank don't offer, or a mod's ship type.
-pub fn including(ship_type: gameobj.Type, count: usize, buffer: *[arc_slot_count]Offer) ?struct { []Offer, u8 } {
-    for (buffer[0..count], 0..) |offer, at| {
-        if (offer.ship_type == ship_type.number()) return .{ buffer[0..count], @intCast(at) };
-    }
-    const at = @min(count, arc_slot_count - 1);
-    buffer[at] = offerOf(ship_type) orelse return null;
-    return .{ buffer[0 .. at + 1], @intCast(at) };
-}
-
 /// The offer of `ship_type`, if the player can fly it.
 fn offerOf(ship_type: gameobj.Type) ?Offer {
     const number = ship_type.number();
@@ -996,32 +980,6 @@ test "the mods' ship types" {
     // A saved game keeps a mod's ship type as its base.
     try std.testing.expectEqual(0, savedShip(additions.ships.first));
     try std.testing.expectEqual(11, savedShip(11));
-}
-
-test including {
-    var buffer: [arc_slot_count]Offer = undefined;
-    // Mission 23's Shroud is among the twelve the last tier offers, in its own place.
-    _ = offers(3, ship_count, &buffer);
-    const every, const shroud = including(.of(.shroud), ship_count, &buffer).?;
-    try std.testing.expectEqual(ship_count, every.len);
-    try std.testing.expectEqual(10, shroud);
-    // A Mirage, which the first tier's four don't offer, comes after them.
-    _ = offers(0, 4, &buffer);
-    const first, const mirage = including(.of(.mirage), 4, &buffer).?;
-    try std.testing.expectEqual(5, first.len);
-    try std.testing.expectEqual(4, mirage);
-    try std.testing.expectEqual(gameobj.Type.of(.mirage).number(), first[mirage].ship_type);
-    // With every place of the arc taken, a mod's ship type takes the last one's.
-    var list = [_]additions.ships.Added{.{ .name = "a:late", .mod = "a", .base = .predator, .extra = .{ .model = "late.shp", .tier = 3 } }};
-    additions.ships.install(&list);
-    defer additions.ships.reset();
-    _ = offers(3, ship_count, &buffer);
-    const full, const late = including(@fromBackingInt(additions.ships.first), ship_count, &buffer).?;
-    try std.testing.expectEqual(ship_count, full.len);
-    try std.testing.expectEqual(ship_count - 1, late);
-    try std.testing.expectEqual(additions.ships.first, full[late].ship_type);
-    // A capital ship, which the player can't fly, isn't offered.
-    try std.testing.expectEqual(null, including(.of(.yamato), 4, &buffer));
 }
 
 test modRecord {
