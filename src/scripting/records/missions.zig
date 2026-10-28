@@ -117,9 +117,9 @@ pub fn about(field: Field) []const u8 {
         .chapter => "The chapter of the story the mission ends, from 1 to 5; nil if it ends none. The pilot gets the chapter's ribbon, the debriefing mentions it, and the chapter's movie plays after the landing.",
         .medal => "The medal the mission awards for a success with its bonus, unless a nanny ship picked the pilot up; nil for none. The medal's ceremony plays when the pilot gets it. After a mission with a medal, the crew in the rooms honour the pilot, even if the pilot didn't get it.",
         .induction => "Whether a new pilot sees the intro and the induction before the mission, when a campaign starts with it.",
-        .lesson => "Whether the mission's loadout teaches the player, as mission 1's does: it starts on the Predator, unless the mission lists `loadout_ships`, with the tier's missiles, plays `loadout.ut` and blinks its exit button.",
-        .loadout_ships => "The ships the mission's loadout offers, in order, in place of those the tier and the rank open, as mission 23's offers the Shroud alone; nil for those. It can list ships the tier and the rank don't open yet, so a campaign's first mission can fly a ship the campaign offers later. The loadout starts on the ship chosen last where the list has it, else on the first, with the tier's missiles. The list stands in for a game mode's `loadout_ships`. Reading gives a new list; assign a list to change them.",
-        .only_ship => "Deprecated since 0.21: use `loadout_ships`. The ship `loadout_ships` lists where it lists one alone, else nil. Setting a ship sets `loadout_ships` to it alone, and nil clears `loadout_ships`.",
+        .lesson => "Whether the mission's loadout teaches the player, as mission 1's does: it fits the tier's missiles, starts on the Predator unless the mission lists `loadout_ships`, plays `loadout.ut` and blinks its exit button.",
+        .loadout_ships => "The ships the mission's loadout offers, in order, such as the Shroud alone before mission 23; nil for the ships the tier and the pilot's rank open. The list can hold ships the tier doesn't open yet, so a campaign's first mission can fly a ship the campaign offers later. The loadout starts on the ship chosen last where the list has it, else on the first, with the tier's missiles. A mission's list comes before a game mode's `loadout_ships`. Reading gives a new list; assign a list to change them.",
+        .only_ship => "Deprecated since 0.21: use `loadout_ships`. The ship in `loadout_ships` where the list holds one alone, else nil. Setting a ship makes `loadout_ships` a list of that ship, and nil clears `loadout_ships`.",
         .television_report => "Enriquez's report on the rooms' television before the mission, as a list of parts that play one after another; an empty list for none. Reading gives a new list; assign a list to change it.",
         .debriefing => "Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs.",
         .news => "The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them.",
@@ -268,7 +268,7 @@ pub fn getField(state: *State, mission: Mission, wanted: Field) void {
         .loadout_ships => if (settings.loadout_ships) |ships| table.pushItems(state, mission.records, ships) else state.pushNil(),
         .only_ship => {
             const ships = settings.loadout_ships orelse &.{};
-            if (ships.len == 1) values.push(state, gameobj.Type, ships[0]) else state.pushNil();
+            values.push(state, TypeOf(.only_ship), if (ships.len == 1) ships[0] else null);
         },
         inline .television_report, .news, .video_reports, .chapter_reports => |field| table.pushItems(state, mission.records, @field(settings, @tagName(field))),
         .debriefing => {
@@ -331,7 +331,7 @@ pub fn setField(state: *State, mission: Mission, field: Field, given: i32) void 
         },
         .only_ship => {
             const label = script_name ++ ".only_ship";
-            const ship = values.read(state, ?gameobj.Type, given, label) orelse {
+            const ship = values.read(state, TypeOf(.only_ship), given, label) orelse {
                 settings.loadout_ships = null;
                 return;
             };

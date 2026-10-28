@@ -669,9 +669,9 @@ pub const CampaignMission = struct {
     /// plays when the pilot gets it. After a mission with a medal, the crew in the rooms honour the
     /// pilot, even if the pilot didn't get it (`crew.kindOf`).
     medal: ?Medal = null,
-    /// The ships the loadout before the mission offers, in order, in place of those the tier and
-    /// the rank open, as mission 23's offers the Shroud alone; null for those. It can list ships
-    /// the tier and the rank don't open yet.
+    /// The ships the loadout before the mission offers, in order, such as the Shroud alone before
+    /// mission 23; null for those the tier and the rank open. The list can hold ships the tier and
+    /// the rank don't open yet.
     loadout_ships: ?[]const gameobj.Type = null,
     /// Enriquez's report on the rooms' television before the mission, in parts; empty for none.
     television_report: []const rooms.News.Part = &.{},
@@ -703,8 +703,8 @@ pub const CampaignMission = struct {
         /// A new pilot sees the intro and the induction before the mission, when a campaign starts
         /// with it (`winmain.CampaignStart`).
         induction: bool = false,
-        /// The loadout before the mission teaches the player: it starts on the Predator, unless the
-        /// mission lists `loadout_ships`, with the tier's missiles, plays `loadout.ut` and blinks
+        /// The loadout before the mission teaches the player: it fits the tier's missiles, starts
+        /// on the Predator unless the mission lists `loadout_ships`, plays `loadout.ut` and blinks
         /// its exit button (`loadout.Context.teaches`).
         lesson: bool = false,
         /// The player's wing flies the `t_` twins of the player's ships
@@ -824,9 +824,9 @@ pub const CampaignMission = struct {
         break :missions missions;
     };
 
-    /// The mission whose loadout offers only the Shroud in the original (`0x0044341E`), and its
-    /// list of ships.
+    /// The mission whose loadout shows only the Shroud in the original (`0x0044341E`).
     const original_shroud = 23;
+    /// The ships mission 23's loadout offers: the Shroud alone.
     const shroud_only = [_]gameobj.Type{.of(.shroud)};
 };
 

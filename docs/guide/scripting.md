@@ -1340,16 +1340,16 @@ mission.fort_bear_ending = false
   mode's missions alone.
 - A mission's awards are fields too: the loadout `tier` it unlocks, the `chapter` it ends, which
   gives a ribbon and a movie, and its `medal`. So are the special cases the game ties to missions 1
-  and 23: the new pilot's `induction` and the loadout's `lesson` before mission 1, and the ships
-  the loadout offers before mission 23, the Shroud alone. A mod that moves or adds missions can
-  move these with them.
+  and 23: the new pilot's `induction` and the loadout's `lesson` before mission 1, and the Shroud
+  alone in mission 23's `loadout_ships`. A mod that moves or adds missions can move these with
+  them.
 - Without `loadout_ships`, a mission's loadout offers the ships the tier and the pilot's rank open.
   With it, the loadout offers the ships it lists, even ships the tier doesn't open yet, so a
   campaign's first mission can fly a ship the campaign only offers later:
 
   ```lua
   records.missions[1].loadout_ships = { "mirage" }
-  records.missions[1].tier = 1 -- the missions after it offer the second tier's ships
+  records.missions[1].tier = 1 -- the missions after it offer tier 1's ships
   ```
 - `television_report` is Enriquez's report on the rooms' television before the mission, and
   `debriefing` her debriefing in the ITAC after it, with paragraphs for each rating.
@@ -2393,9 +2393,9 @@ The loadout offers what a new pilot gets for the number the mission flies as. It
 apart from the campaign's, and starts fresh as the mode starts. A mode can list the ships its
 loadout offers instead, in its own order, with `loadout_ships`, such as `{ "grendel", "predator" }`
 or ship type numbers. The loadout then starts on the first, and later on the ship the player chose
-last. Ships the player can't fly, such as capital ships, are left out. A mission whose own
-`loadout_ships` record lists ships offers those instead ([Each mission of the
-campaign](#each-mission-of-the-campaign)).
+last. Ships the player can't fly, such as capital ships, are left out. A mission that lists its own
+`loadout_ships` offers those instead, such as the Shroud alone in a mission flown as mission 23
+([Each mission of the campaign](#each-mission-of-the-campaign)).
 
 A mode's missions fly with a wing of their own, which starts anew as the mode starts, so the
 campaign's wing loses nobody to them. In missions flown as the campaign's numbers, 1 to 28, the
