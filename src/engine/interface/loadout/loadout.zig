@@ -84,8 +84,9 @@ pub const Context = struct {
     /// from a speech start it leaves at 0, so the exit never blinks.
     tutorial: bool = true,
     /// The ships it offers, in order, where a game mode lists them (`tables.listedOffers`), in
-    /// place of those the tier and the rank open. It then starts on the ship chosen last where the
-    /// list has it, else on the first (`chosenFor`).
+    /// place of those the tier and the rank open, unless the mission lists its own (`Offering`).
+    /// It then starts on the ship chosen last where the list has it, else on the first
+    /// (`chosenFor`).
     ships: ?[]const gameobj.Type = null,
     /// The campaign's tier as the loadout finds it (`campaign_tier`, `0x00562DF0`), which it raises
     /// by the mission (`tierBefore`).
@@ -114,18 +115,10 @@ pub const Context = struct {
     }
 
     /// Whether the mission's loadout teaches (`gameflow.CampaignMission.Rules.lesson`, mission 1
-    /// in the original). It then starts on the Predator with the tier's missiles, even with the
-    /// lesson turned off.
+    /// in the original). Even with the lesson turned off, the loadout then fits the tier's
+    /// missiles, and starts on the Predator unless the mission lists its ships (`chosenFor`).
     fn teaches(context: Context) bool {
         return gameflow.campaignField(context.mission, .rules).lesson;
-    }
-
-    /// The only ship the mission's loadout offers, if any (`gameflow.CampaignMission.only_ship`).
-    /// In the original, mission 23 offers only the Shroud, which it names by its object
-    /// (`0x00523994`).
-    fn onlyShip(context: Context) ?create.TypeIndex {
-        const only = gameflow.campaignField(context.mission, .only_ship) orelse return null;
-        return @intCast(only.number());
     }
 };
 
@@ -143,6 +136,19 @@ pub const Saved = struct {
     /// **Improvement:** the original's only saved loadout is the campaign's, which `campaign_new`
     /// makes the Predator with no missiles.
     pub const unchosen: Saved = .{ .ship = null };
+};
+
+/// Where the ships the loadout offers come from.
+const Offering = enum {
+    /// The campaign's tier and the pilot's rank, from the Predator on (`offeredShips`).
+    tier,
+    /// The mission's list (`gameflow.CampaignMission.loadout_ships`), which comes before a game
+    /// mode's. Mission 23's list holds the Shroud alone. The original offers every ship the tier
+    /// opens there but shows only the Shroud (`0x0044341E`), which looks the same, though its page
+    /// changes take longer (`arcEmpty`).
+    mission,
+    /// The game mode's list (`Context.ships`).
+    mode,
 };
 
 /// What the loadout leaves the mission (`player_loadouts[player_index]`, `0x00588400`): the ship
@@ -499,8 +505,10 @@ pub const Loadout = struct {
     offer_count: usize = 0,
     /// The ship chosen (`loadout_ship`, `0x00523E68`), by its place in `offers`.
     chosen: u8,
-    /// The ships the tier or the rank offers (`0x00523E84`), from the Predator on, and the first
-    /// slot of the arc they stand in (`0x00524754`).
+    /// Where the ships it offers come from.
+    offering: Offering,
+    /// The ships it offers (`0x00523E84`), in the order of `offers`, and the first slot of the arc
+    /// they stand in (`0x00524754`).
     ships: []Ship = &.{},
     first_slot: usize = 0,
     disc: hologram.Panel = undefined,
@@ -641,15 +649,17 @@ pub const Loadout = struct {
         const loadout = try gpa.create(Loadout);
         const tier = @max(context.tier, tierBefore(context.mission));
         var offers: [tables.arc_slot_count]tables.Offer = undefined;
-        const offered = offered: {
-            if (context.ships) |listed| {
+        const offered: []const tables.Offer, const offering: Offering = offered: {
+            const mission_ships = gameflow.campaignField(context.mission, .loadout_ships);
+            if (mission_ships orelse context.ships) |listed| {
+                const lister: Offering, const whose: []const u8 = if (mission_ships != null) .{ .mission, "mission's" } else .{ .mode, "game mode's" };
                 const offered, const left_out = tables.listedOffers(listed, &offers);
-                if (left_out > 0) log.warn("{d} of the game mode's ships are left out of the loadout: they are listed twice, or the player can't fly them", .{left_out});
-                if (offered.len > 0) break :offered offered;
+                if (left_out > 0) log.warn("{d} of the {s} ships are left out of the loadout: they are listed twice, or the player can't fly them", .{ left_out, whose });
+                if (offered.len > 0) break :offered .{ offered, lister };
             }
             const offered, const left_out = tables.offers(tier, offeredShips(tier, context.rank), &offers);
             if (left_out > 0) log.warn("{d} of the mods' ship types are left out of the loadout: the arc has no room for them", .{left_out});
-            break :offered offered;
+            break :offered .{ offered, .tier };
         };
         loadout.* = .{
             .context = context,
@@ -661,7 +671,8 @@ pub const Loadout = struct {
             .tier = tier,
             .offers = offers,
             .offer_count = offered.len,
-            .chosen = chosenFor(context, offered),
+            .chosen = chosenFor(context, offered, offering),
+            .offering = offering,
             .lights = hologram.lights(),
         };
         errdefer loadout.destroy();
@@ -1071,7 +1082,7 @@ pub const Loadout = struct {
         loadout.last = now;
         loadout.now = now;
         loadout.turned_back = false;
-        loadout.chosen = chosenFor(loadout.context, loadout.offers[0..loadout.ships.len]);
+        loadout.chosen = chosenFor(loadout.context, loadout.offers[0..loadout.ships.len], loadout.offering);
         loadout.page = .ships;
         loadout.last_page = .ships;
         loadout.last_hovered = null;
@@ -1131,13 +1142,14 @@ pub const Loadout = struct {
         return running;
     }
 
-    /// A frame but for its O key, as the Spin Disc's end runs one again (`0x00446753`): mission
-    /// 1's exit blinking and mission 23's ships but the Shroud put away; the scene made of the
-    /// objects shown (`0x00443BB0`); the animations stepped and the pointer followed
-    /// (`iinterface_frame`); the cursor shown while the interface is not busy; the scene made again
-    /// (`iinterface_scene`); the ships' rectangles made again once their frames are up; the red
-    /// light faded; the chosen ship turned on the ship page; and a sound as the pointer comes onto
-    /// another object.
+    /// Runs a frame apart from its O key, as the Spin Disc's end runs one again (`0x00446753`). It
+    /// blinks mission 1's exit, makes the scene of the objects shown (`0x00443BB0`), steps the
+    /// animations and follows the pointer (`iinterface_frame`), shows the cursor while the
+    /// interface isn't busy, makes the scene again (`iinterface_scene`), makes the ships'
+    /// rectangles again once their frames are up, fades the red light, turns the chosen ship on
+    /// the ship page, and plays a sound as the pointer comes onto another object. The original also
+    /// hides mission 23's ships other than the Shroud here, where OpenReliant offers the Shroud
+    /// alone (`Offering.mission`).
     fn step(loadout: *Loadout, in: Frame) Allocator.Error!bool {
         _ = loadout.frame_arena.reset(.retain_capacity);
         const arena = loadout.frame_arena.allocator();
@@ -1147,11 +1159,6 @@ pub const Loadout = struct {
             const since = in.now -% loadout.speech_start;
             const blinking = since > blink_from and since < blink_until and in.now % blink_period < blink_off;
             loadout.buttons.getPtr(.exit).object.shown = !blinking;
-        }
-        for (loadout.ships, 0..) |*ship, index| {
-            if (loadout.showsShip(index)) continue;
-            ship.object.clickable = false;
-            ship.object.shown = false;
         }
         try loadout.putInScene(false);
         try loadout.interface.frame(arena, &loadout.view, in.now, in.mouse);
@@ -1349,16 +1356,16 @@ pub const Loadout = struct {
     }
 
     /// Fits the chosen ship's missiles when the ship page is first built (`0x00446918`), glowing
-    /// in as the red light fades in. A loadout that teaches or offers only one ship (missions 1
-    /// and 23 in the original) fits the tier's missiles (`fitTierDefault`). Any other fits the
-    /// campaign's saved racks (`fitSaved`).
+    /// in as the red light fades in. A loadout that teaches, or that offers the mission's list of
+    /// ships, fits the tier's missiles (`fitTierDefault`), as missions 1 and 23 do in the original.
+    /// Any other fits the campaign's saved racks (`fitSaved`).
     ///
-    /// **Fix:** if the loadout doesn't offer the saved ship, OpenReliant starts on the Predator
-    /// (`chosenFor`) and fits it the tier's missiles. The original fits the saved racks, which
-    /// belong to another ship.
+    /// **Fix:** if the loadout doesn't offer the saved ship, OpenReliant starts on the first ship
+    /// offered (`chosenFor`) and fits it the tier's missiles. The original fits the saved racks,
+    /// which belong to another ship.
     fn fitStartingRacks(loadout: *Loadout) Allocator.Error!void {
         const context = loadout.context;
-        if (context.teaches() or context.onlyShip() != null or context.saved.ship != loadout.chosenType()) {
+        if (context.teaches() or loadout.offering == .mission or context.saved.ship != loadout.chosenType()) {
             return loadout.fitTierDefault();
         }
         try loadout.fitSaved();
@@ -1382,8 +1389,8 @@ pub const Loadout = struct {
         loadout.showPanels(false);
         if (loadout.page == .missiles) {
             loadout.missilesAvailable();
-        } else for (loadout.ships, 0..) |*ship, index| {
-            if (loadout.showsShip(index)) ship.object.shown = true;
+        } else for (loadout.ships) |*ship| {
+            ship.object.shown = true;
         }
         loadout.showStill(true);
         if (loadout.page != .missiles) loadout.ships[loadout.chosen].object.shown = false;
@@ -1408,13 +1415,6 @@ pub const Loadout = struct {
         loadout.hideShipsButChosen();
         loadout.showStill(false);
         loadout.interface.busy = false;
-    }
-
-    /// Whether the loadout shows ship `index`. It shows every ship it offers, unless the mission
-    /// offers only one ship (`Context.onlyShip`, `0x0044341E`).
-    fn showsShip(loadout: *const Loadout, index: usize) bool {
-        const only = loadout.context.onlyShip() orelse return true;
-        return index == only;
     }
 
     /// The three panels and the six buttons shown or put away.
@@ -1522,15 +1522,11 @@ pub const Loadout = struct {
         loadout.interface.busy = true;
     }
 
-    /// Every ship but `old` and `new` shown and those two put away where `before`, the other way
-    /// round otherwise; in mission 23 only the Shroud's changes.
+    /// Where `before`, shows every ship but `old` and `new` and hides those two; otherwise the
+    /// other way round.
     fn showOthers(loadout: *Loadout, old: u8, new: u8, before: bool) void {
         for (loadout.ships, 0..) |*ship, index| {
-            if (index == old or index == new) {
-                ship.object.shown = !before;
-            } else if (loadout.showsShip(index)) {
-                ship.object.shown = before;
-            }
+            ship.object.shown = if (index == old or index == new) !before else before;
         }
     }
 
@@ -1668,10 +1664,8 @@ pub const Loadout = struct {
         loadout.missilesAvailable();
         for (loadout.icons) |*icon| icon.object.clickable = false;
         for (loadout.ships, 0..) |*ship, index| {
-            if (loadout.showsShip(index)) {
-                ship.object.clickable = true;
-                if (index != loadout.chosen) ship.showLevel(loadout.coarse);
-            }
+            ship.object.clickable = true;
+            if (index != loadout.chosen) ship.showLevel(loadout.coarse);
         }
         for (loadout.shownMarkers()) |maybe| if (maybe) |marker| {
             marker.panel.object.clickable = false;
@@ -1688,23 +1682,22 @@ pub const Loadout = struct {
         loadout.flip_info.play(.back, now);
     }
 
-    /// `page_switch`'s way to the missile page (`0x00449F18` on): the interface busy; the missiles
-    /// offered; every ship the page offers shown but not clickable, those on the arc at the coarse
-    /// level; the backdrop behind the disc and its glow, shown; the info panel showing no missile;
-    /// Use Default Loadout and Remove All Missiles flying out of the glow; the chosen ship turning
-    /// belly up (`anims.bellyUp`); the missiles offered put on their slots of the arc, sunk into
-    /// the disc; and from the ship page, the ships on the arc sinking one after another, which the
-    /// missiles rise after; otherwise the missiles rising at once.
+    /// `page_switch`'s way to the missile page (`0x00449F18` on). The interface is busy and the
+    /// missiles offered are shown. Every ship the page offers is shown but can't be clicked, and
+    /// those on the arc are drawn at the coarse level. The backdrop stands behind the disc and its
+    /// glow, which are shown, and the info panel shows no missile. Use Default Loadout and Remove
+    /// All Missiles fly out of the glow, the chosen ship turns belly up (`anims.bellyUp`), and the
+    /// missiles offered are put on their slots of the arc, sunk into the disc. From the ship page,
+    /// the ships on the arc sink one after another and the missiles rise after them; otherwise, or
+    /// with the arc empty (`arcEmpty`), the missiles rise at once.
     fn toMissilePage(loadout: *Loadout) Allocator.Error!void {
         const now = loadout.now;
         loadout.interface.busy = true;
         loadout.missilesAvailable();
         for (loadout.ships, 0..) |*ship, index| {
-            if (loadout.showsShip(index)) {
-                ship.object.shown = true;
-                ship.object.clickable = false;
-                if (index != loadout.chosen) ship.showLevel(loadout.coarse);
-            }
+            ship.object.shown = true;
+            ship.object.clickable = false;
+            if (index != loadout.chosen) ship.showLevel(loadout.coarse);
         }
         loadout.showBackdrop();
         loadout.showStill(true);
@@ -1718,7 +1711,7 @@ pub const Loadout = struct {
         loadout.missilesAvailable();
         loadout.placeMissiles();
         for (loadout.icons) |*icon| icon.object.setPosition(icon.object.position() + Vector{ 0, anims.sink_depth, 0 });
-        if (loadout.last_page == .ships) loadout.nextShipSinks(null, .forward) else loadout.nextMissileRises(null);
+        if (loadout.last_page == .ships and !loadout.arcEmpty()) loadout.nextShipSinks(null, .forward) else loadout.nextMissileRises(null);
     }
 
     /// `loadout_exit` (`0x00447730`), once the disc has spun in: Enriquez stops, the interface is
@@ -1751,10 +1744,8 @@ pub const Loadout = struct {
             ship.zoom.frames[0].scale = .out;
             ship.zoom.play(.back, now);
             ship.clip(null);
-            if (loadout.showsShip(index)) {
-                ship.object.shown = true;
-                if (index != loadout.chosen) ship.showLevel(loadout.coarse);
-            }
+            ship.object.shown = true;
+            if (index != loadout.chosen) ship.showLevel(loadout.coarse);
         }
         loadout.showMarkers(false);
         for (&loadout.ship_missiles) |*object| object.shown = false;
@@ -1953,6 +1944,17 @@ pub const Loadout = struct {
         }
     }
 
+    /// Whether the arc is empty: the loadout offers only the chosen ship, which stands on the disc.
+    /// No ship then sinks or rises as the page changes. The missiles rise at once
+    /// (`toMissilePage`), and on the way back, the ship page is built again once the missiles have
+    /// sunk and the ship has turned back (`backWithEmptyArc`).
+    ///
+    /// **Improvement:** the original offers four ships or more. In mission 23 it hides all but the
+    /// Shroud, and the hidden ships still sink and rise, so its page changes take longer.
+    fn arcEmpty(loadout: *const Loadout) bool {
+        return loadout.ships.len == 1;
+    }
+
     /// `ships_sink_next` (`0x004479A0`) and `ships_rise_next` (`0x00447A10`): the ship on the arc
     /// after the one whose sinking is `after`, or with none the first, the chosen passed over,
     /// sinking `direction`'s way; none past the last.
@@ -2054,20 +2056,32 @@ pub const Loadout = struct {
         }
     }
 
-    /// Sink Missile's end (`0x00446FB0`): a missile sunk, every ship the page offers shown and the
-    /// first on the arc rising, which each missile's end starts again, the last's for good; the
-    /// first missile risen, the missile page ready (`missilesRisen`).
+    /// Sink Missile's end (`0x00446FB0`). As a missile has sunk, every ship the page offers is
+    /// shown and the first on the arc rises, which each missile's end starts again, the last's for
+    /// good. With the arc empty, the last missile's end can build the ship page again instead
+    /// (`backWithEmptyArc`). As the first missile has risen, the missile page is ready
+    /// (`missilesRisen`).
     fn sinkMissileEnded(context: *anyopaque, anim: *i3d.Anim) void {
         const loadout = of(context);
         switch (anim.direction) {
             .back => if (anim == &loadout.icons[0].sink.anim) loadout.missilesRisen(),
-            .forward => {
-                for (loadout.ships, 0..) |*ship, index| {
-                    if (loadout.showsShip(index)) ship.object.shown = true;
-                }
+            .forward => if (loadout.arcEmpty()) {
+                loadout.backWithEmptyArc();
+            } else {
+                for (loadout.ships) |*ship| ship.object.shown = true;
                 loadout.nextShipSinks(null, .back);
             },
         }
+    }
+
+    /// Builds the ship page again (`shipPageBack`) on the way back to it with the arc empty
+    /// (`arcEmpty`), where no ship rises to end the way: once the last missile has sunk and the
+    /// ship has turned back from belly up, whichever comes last.
+    fn backWithEmptyArc(loadout: *Loadout) void {
+        if (!loadout.arcEmpty() or !loadout.turned_back) return;
+        const last = &loadout.icons[loadout.icons.len - 1].sink;
+        if (!last.stopped() or last.anim.direction != .forward) return;
+        loadout.shipPageBack() catch |err| log.warn("the ship page is left unfinished: {s}", .{@errorName(err)});
     }
 
     /// `missiles_risen` (`0x00446950`): on the missile page, its objects shown and the interface
@@ -2115,12 +2129,10 @@ pub const Loadout = struct {
         }
         try loadout.interface.scene(gpa, &loadout.scene, false, treeToScene);
         try loadout.captureBackground();
-        for (loadout.ships, 0..) |*ship, index| {
+        for (loadout.ships) |*ship| {
             ship.object.shown = false;
-            if (loadout.showsShip(index)) {
-                ship.object.clickable = true;
-                try ship.object.updateRect(loadout.frame_arena.allocator(), &loadout.view);
-            }
+            ship.object.clickable = true;
+            try ship.object.updateRect(loadout.frame_arena.allocator(), &loadout.view);
         }
         loadout.showPanels(true);
         for (&loadout.scrollers) |*scroller| scroller.object.shown = true;
@@ -2143,8 +2155,10 @@ pub const Loadout = struct {
         belly_up.start(loadout.now);
     }
 
-    /// Ship to Belly Up's end (`0x00446C70`): turned over, the markers made (`makeMarkers`) and
-    /// the first zooming in; turned back, the ship's turn given it again (`turned_back`).
+    /// Ship to Belly Up's end (`0x00446C70`). As the ship has turned over, its markers are made
+    /// (`makeMarkers`) and the first zooms in. As it has turned back, it takes its turn again
+    /// (`turned_back`), and with the arc empty, the ship page can be built again
+    /// (`backWithEmptyArc`).
     fn bellyUpEnded(context: *anyopaque, anim: *i3d.Anim) void {
         const loadout = of(context);
         switch (anim.direction) {
@@ -2152,7 +2166,10 @@ pub const Loadout = struct {
                 loadout.makeMarkers() catch |err| log.warn("the hardpoints' markers are left out: {s}", .{@errorName(err)});
                 loadout.nextMarkerZooms(null, .forward);
             },
-            .back => loadout.turned_back = true,
+            .back => {
+                loadout.turned_back = true;
+                loadout.backWithEmptyArc();
+            },
         }
     }
 
@@ -2723,23 +2740,16 @@ fn reach(model: *const shp.Model) f32 {
     return farthest;
 }
 
-/// Which of the `offered` ships the loadout starts on (`loadout_reset`, `0x004439D0`): the only
-/// ship the mission offers, if it offers one; the Predator, if the loadout teaches; otherwise the
-/// campaign's saved ship. In the original, these are the Shroud in mission 23 and the Predator in
-/// mission 1. A game mode that lists its ships (`Context.ships`) always starts on the saved one.
+/// Which of the `offered` ships the loadout starts on (`loadout_reset`, `0x004439D0`): the
+/// Predator where the loadout teaches and offers the tier's ships, as in mission 1, and otherwise
+/// the campaign's saved ship. A list of ships (`offering`), such as mission 23's Shroud alone,
+/// starts on its first ship where it doesn't hold the saved one.
 ///
 /// **Fix:** if the loadout doesn't offer the saved ship, which happens when a campaign starts again
 /// at an earlier mission, the original has no object for the chosen ship and writes to it anyway.
-/// OpenReliant starts on the first ship offered, the Predator unless a game mode lists the ships.
-fn chosenFor(context: Context, offered: []const tables.Offer) u8 {
-    const wanted: ?create.TypeIndex = if (context.ships != null)
-        context.saved.ship
-    else if (context.onlyShip()) |only|
-        only
-    else if (context.teaches())
-        predator
-    else
-        context.saved.ship;
+/// OpenReliant starts on the first ship offered, the Predator unless the ships are listed.
+fn chosenFor(context: Context, offered: []const tables.Offer, offering: Offering) u8 {
+    const wanted: ?create.TypeIndex = if (offering == .tier and context.teaches()) predator else context.saved.ship;
     for (offered, 0..) |offer, at| if (offer.ship_type == wanted) return @intCast(at);
     return 0;
 }
@@ -2912,38 +2922,31 @@ test chosenFor {
     var context: Context = .{ .rooms = undefined, .cache = undefined, .strings = undefined, .stats = undefined, .missile_stats = undefined, .mission = 5, .saved = &saved };
     var buffer: [tables.arc_slot_count]tables.Offer = undefined;
     const every, _ = tables.offers(3, tables.ship_count, &buffer);
-    try std.testing.expectEqual(7, chosenFor(context, every));
+    try std.testing.expectEqual(7, chosenFor(context, every, .tier));
     // A saved ship the loadout does not offer starts it on the Predator.
-    try std.testing.expectEqual(predator, chosenFor(context, every[0..4]));
-    // The first mission starts on the Predator, and mission 23 on the Shroud, whatever was saved.
+    try std.testing.expectEqual(predator, chosenFor(context, every[0..4], .tier));
+    // The first mission starts on the Predator, whatever was saved.
     context.mission = 1;
-    try std.testing.expectEqual(predator, chosenFor(context, every));
-    context.mission = 23;
-    const shroud: create.TypeIndex = @intCast(gameobj.Type.of(.shroud).number());
-    try std.testing.expectEqual(shroud, chosenFor(context, every));
-    // A mission that offers only one ship starts on it.
-    var missions = gameflow.CampaignMission.original;
-    missions[4].only_ship = .of(.grendel);
-    gameflow.installMissions(&missions);
-    defer gameflow.installMissions(&gameflow.CampaignMission.original);
-    context.mission = 5;
-    try std.testing.expectEqual(2, chosenFor(context, every));
-    context.mission = 23;
-    // Where a game mode lists the ships, the saved one in any mission, else the first listed.
+    try std.testing.expectEqual(predator, chosenFor(context, every, .tier));
+    // A list, such as mission 23's Shroud alone, starts on the saved ship where it holds it, else
+    // on its first, in a mission that teaches too.
+    var listed_buffer: [tables.arc_slot_count]tables.Offer = undefined;
+    const shroud, _ = tables.listedOffers(&.{.of(.shroud)}, &listed_buffer);
+    try std.testing.expectEqual(0, chosenFor(context, shroud, .mission));
     const listed = [_]gameobj.Type{ .of(.grendel), .of(.predator) };
-    context.ships = &listed;
-    try std.testing.expectEqual(7, chosenFor(context, every));
-    saved.ship = 2;
-    const first, _ = tables.listedOffers(&listed, &buffer);
-    try std.testing.expectEqual(0, chosenFor(context, first));
+    const first, _ = tables.listedOffers(&listed, &listed_buffer);
+    try std.testing.expectEqual(0, chosenFor(context, first, .mission));
+    saved.ship = predator;
+    try std.testing.expectEqual(1, chosenFor(context, first, .mission));
+    context.mission = 5;
+    // Where a game mode lists the ships, the same.
+    try std.testing.expectEqual(1, chosenFor(context, first, .mode));
     saved.ship = 7;
-    try std.testing.expectEqual(0, chosenFor(context, first));
+    try std.testing.expectEqual(0, chosenFor(context, first, .mode));
     // A game mode's first loadout has no choice saved yet.
     saved = .unchosen;
-    try std.testing.expectEqual(0, chosenFor(context, first));
-    context.ships = null;
-    context.mission = 5;
-    try std.testing.expectEqual(predator, chosenFor(context, every));
+    try std.testing.expectEqual(0, chosenFor(context, first, .mode));
+    try std.testing.expectEqual(predator, chosenFor(context, every, .tier));
 }
 
 test offeredShips {

@@ -27,6 +27,7 @@ const values = @import("../values.zig");
 const runtime = @import("../runtime.zig");
 const records = @import("../records.zig");
 const table = @import("table.zig");
+const game_modes = @import("../game_modes.zig");
 const Records = records.Records;
 
 /// The name scripts know a mission by.
@@ -49,6 +50,7 @@ pub const Field = enum {
     medal,
     induction,
     lesson,
+    loadout_ships,
     only_ship,
     television_report,
     debriefing,
@@ -88,6 +90,7 @@ pub fn TypeOf(comptime field: Field) type {
         .objectives => values.List([]const u8, hud.Objectives.per_mission),
         .tier, .chapter => ?u8,
         .medal => ?gameflow.Medal,
+        .loadout_ships => ?values.List(gameobj.Type, game_modes.max_loadout_ships),
         .only_ship => ?gameobj.Type,
         .television_report => values.List(ReportPart, most_parts),
         .debriefing => Debriefing,
@@ -114,8 +117,9 @@ pub fn about(field: Field) []const u8 {
         .chapter => "The chapter of the story the mission ends, from 1 to 5; nil if it ends none. The pilot gets the chapter's ribbon, the debriefing mentions it, and the chapter's movie plays after the landing.",
         .medal => "The medal the mission awards for a success with its bonus, unless a nanny ship picked the pilot up; nil for none. The medal's ceremony plays when the pilot gets it. After a mission with a medal, the crew in the rooms honour the pilot, even if the pilot didn't get it.",
         .induction => "Whether a new pilot sees the intro and the induction before the mission, when a campaign starts with it.",
-        .lesson => "Whether the mission's loadout teaches the player, as mission 1's does: it starts on the Predator with the tier's missiles, plays `loadout.ut` and blinks its exit button.",
-        .only_ship => "The only ship the mission's loadout offers, as mission 23's offers the Shroud; nil for the ships the tier and the rank open. The loadout starts on it with the tier's missiles.",
+        .lesson => "Whether the mission's loadout teaches the player, as mission 1's does: it fits the tier's missiles, starts on the Predator unless the mission lists `loadout_ships`, plays `loadout.ut` and blinks its exit button.",
+        .loadout_ships => "The ships the mission's loadout offers, in order, such as the Shroud alone before mission 23; nil for the ships the tier and the pilot's rank open. The list can hold ships the tier doesn't open yet, so a campaign's first mission can fly a ship the campaign offers later. The loadout starts on the ship chosen last where the list has it, else on the first, with the tier's missiles. A mission's list comes before a game mode's `loadout_ships`. Reading gives a new list; assign a list to change them.",
+        .only_ship => "Deprecated since 0.21: use `loadout_ships`. The ship in `loadout_ships` where the list holds one alone, else nil. Setting a ship makes `loadout_ships` a list of that ship, and nil clears `loadout_ships`.",
         .television_report => "Enriquez's report on the rooms' television before the mission, as a list of parts that play one after another; an empty list for none. Reading gives a new list; assign a list to change it.",
         .debriefing => "Enriquez's debriefing of the mission in the ITAC: a list of paragraphs for each rating the mission's script can give. Reading gives a new table; assign a table to change it, and a rating left out has no paragraphs.",
         .news => "The news items that NEWS REPORTS in the ITAC adds in the rooms before the mission, and lists from then on. The news of how a mission went goes on the mission after it. Reading gives a new list; assign a list to change them.",
@@ -260,7 +264,12 @@ pub fn getField(state: *State, mission: Mission, wanted: Field) void {
             const value: ?u8 = if (@field(settings, @tagName(field))) |number| number else null;
             values.push(state, ?u8, value);
         },
-        inline .medal, .only_ship, .landing_carrier, .yamato_visit, .alpha_5_pilot, .alpha_6_pilot => |field| values.push(state, TypeOf(field), @field(settings, @tagName(field))),
+        inline .medal, .landing_carrier, .yamato_visit, .alpha_5_pilot, .alpha_6_pilot => |field| values.push(state, TypeOf(field), @field(settings, @tagName(field))),
+        .loadout_ships => if (settings.loadout_ships) |ships| table.pushItems(state, mission.records, ships) else state.pushNil(),
+        .only_ship => {
+            const ships = settings.loadout_ships orelse &.{};
+            values.push(state, TypeOf(.only_ship), if (ships.len == 1) ships[0] else null);
+        },
         inline .television_report, .news, .video_reports, .chapter_reports => |field| table.pushItems(state, mission.records, @field(settings, @tagName(field))),
         .debriefing => {
             state.newTable(0, debriefing.ratings);
@@ -308,8 +317,25 @@ pub fn setField(state: *State, mission: Mission, field: Field, given: i32) void 
         },
         .tier => settings.tier = readNumber(state, gameflow.CampaignMission.Tier, given, gameflow.last_tier, script_name ++ ".tier"),
         .chapter => settings.chapter = readNumber(state, gameflow.CampaignMission.Chapter, given, gameflow.last_chapter, script_name ++ ".chapter"),
-        inline .medal, .only_ship, .landing_carrier, .yamato_visit, .alpha_5_pilot, .alpha_6_pilot => |name| {
+        inline .medal, .landing_carrier, .yamato_visit, .alpha_5_pilot, .alpha_6_pilot => |name| {
             @field(settings, @tagName(name)) = values.read(state, TypeOf(name), given, script_name ++ "." ++ @tagName(name));
+        },
+        .loadout_ships => {
+            const label = script_name ++ ".loadout_ships";
+            const list = values.read(state, TypeOf(.loadout_ships), given, label) orelse {
+                settings.loadout_ships = null;
+                return;
+            };
+            if (list.len == 0) state.raise(label ++ ": expected at least one ship, or nil", .{});
+            settings.loadout_ships = table.kept([]const gameobj.Type, state, held, list, label);
+        },
+        .only_ship => {
+            const label = script_name ++ ".only_ship";
+            const ship = values.read(state, TypeOf(.only_ship), given, label) orelse {
+                settings.loadout_ships = null;
+                return;
+            };
+            settings.loadout_ships = held.arena.dupe(gameobj.Type, &.{ship}) catch state.raise(label ++ ": out of memory", .{});
         },
         inline .television_report, .news, .video_reports, .chapter_reports => |name| {
             const label = comptime script_name ++ "." ++ @tagName(name);
@@ -582,13 +608,13 @@ test "a campaign mission's awards and special cases" {
         \\assert(missions[11].tier == 1 and missions[11].chapter == 2 and missions[11].medal == "black_eagle")
         \\assert(missions[12].tier == nil and missions[12].chapter == nil and missions[12].medal == nil)
         \\assert(missions[1].induction and missions[1].lesson and not missions[2].induction)
-        \\assert(missions[23].only_ship == "shroud" and missions[22].only_ship == nil)
+        \\assert(#missions[23].loadout_ships == 1 and missions[23].loadout_ships[1] == "shroud" and missions[22].loadout_ships == nil)
         \\-- A restoration's changes.
         \\local cut = missions[12]
         \\cut.medal = "valour"
         \\cut.tier = 2
         \\cut.chapter = 3
-        \\cut.only_ship = "tempest"
+        \\cut.loadout_ships = { "tempest", "mirage" }
         \\-- A table sets only the fields it holds, so clearing a field takes its own assignment.
         \\missions[11] = { induction = true }
         \\missions[11].medal = nil
@@ -598,7 +624,7 @@ test "a campaign mission's awards and special cases" {
     try std.testing.expectEqual(.valour, twelve.medal);
     try std.testing.expectEqual(2, twelve.tier);
     try std.testing.expectEqual(3, twelve.chapter);
-    try std.testing.expectEqual(gameobj.Type.of(.tempest), twelve.only_ship);
+    try std.testing.expectEqualSlices(gameobj.Type, &.{ .of(.tempest), .of(.mirage) }, twelve.loadout_ships.?);
     try std.testing.expectEqual(null, held.missions[10].medal);
     try std.testing.expectEqual(null, held.missions[10].chapter);
     try std.testing.expect(held.missions[10].rules.induction);
@@ -607,6 +633,18 @@ test "a campaign mission's awards and special cases" {
     try bind.testing.expectSourceError(thread, "records.missions[12].chapter = 0", "CampaignMission.chapter: expected a number from 1 to 5");
     try bind.testing.expectSourceError(thread, "records.missions[12].medal = 'gold'", "CampaignMission.medal");
     try bind.testing.expectSourceError(thread, "records.missions[12].lesson = 'yes'", "CampaignMission.lesson");
+    try bind.testing.expectSourceError(thread, "records.missions[12].loadout_ships = {}", "CampaignMission.loadout_ships: expected at least one ship, or nil");
+
+    // The deprecated `only_ship` reads and sets a list of one ship.
+    try bind.testing.runSource(thread,
+        \\local missions = records.missions
+        \\assert(missions[23].only_ship == "shroud" and missions[12].only_ship == nil and missions[22].only_ship == nil)
+        \\missions[12].only_ship = "coyote"
+        \\assert(#missions[12].loadout_ships == 1 and missions[12].loadout_ships[1] == "coyote")
+        \\missions[23].only_ship = nil
+    );
+    try std.testing.expectEqualSlices(gameobj.Type, &.{.of(.coyote)}, held.missions[11].loadout_ships.?);
+    try std.testing.expectEqual(null, held.missions[22].loadout_ships);
 }
 
 test "the campaign's missions can only be changed by load scripts" {

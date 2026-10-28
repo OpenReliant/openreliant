@@ -46,9 +46,9 @@ The loadout offers the first ships of its table, from the Predator on, as many a
 
 The ship the loadout starts on is the Shroud in mission 23, the Predator in mission 1, and the campaign's saved one otherwise (`loadout_reset`, `0x004439D0`). In mission 23 only the Shroud is shown or can be clicked.
 
-**Improvement:** OpenReliant takes each mission's tier, whether its loadout teaches as mission 1's does, and the only ship it offers from the mission's settings, which start with the original's values and which mods can change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)).
+**Improvement:** OpenReliant takes each mission's tier, whether its loadout teaches as mission 1's does, and the ships it offers from the mission's settings, which start with the original's values and which mods can change ([Each mission of the campaign](../guide/scripting.md#each-mission-of-the-campaign)). A mission can list the ships its loadout offers (`loadout_ships`), in place of those the tier and the rank open, even ships they don't open yet, such as a ship of a later tier or a mod's ship type. A loadout that offers a mission's list starts on the ship chosen last where the list has it, else on the first, with the tier's missiles, as mission 23 does. Mission 23's list holds the Shroud alone. The original offers every ship the tier opens there but shows only the Shroud, which looks the same, though its page changes take longer ([The missile page](#the-missile-page)).
 
-**Fix:** a saved ship the loadout does not offer, as a campaign begun again at an earlier mission leaves it, leaves the game without the chosen ship's object, which it then writes to. OpenReliant starts on the first ship offered, the Predator unless a game mode lists the ships.
+**Fix:** when the loadout doesn't offer the saved ship, which happens when a campaign starts again at an earlier mission, the original has no object for the chosen ship and writes to it anyway. OpenReliant starts on the first ship offered: the Predator, unless the mission or the game mode lists the ships.
 
 ### In a game mode
 
@@ -57,7 +57,7 @@ The ship the loadout starts on is the Shroud in mission 23, the Predator in miss
 - It shows the backdrop of the room's carrier (`Context.carrier`). The original picks the backdrop by the mission's number alone, the Reliant's `rbackground.tga` up to mission 18 and the Yamato's `background.tga` after it (`0x004426A0`), so the StarLancer trial's missions 1 and 2 go from the Yamato's briefing room to the Reliant's loadout. Without a room's carrier, the loadout shows the backdrop of the mission's carrier ([The carrier](rooms.md#the-carrier)).
 - It leaves out the first mission's lesson, `loadout.ut` and the exit's blinking, like the trial's loadout. The trial's `loadout_enter` (`0x00408920` in its executable) has no speech, and its exit's blink times from a speech start it leaves at 0, so the exit never blinks.
 - It keeps the game modes' own saved loadout, apart from the campaign's, which starts without a ship as each mode starts (`Saved.unchosen`). A mode's first loadout then starts on the first ship offered, with the tier's missiles.
-- The mode can list the ships it offers, in its own order (`loadout_ships`, [Game modes](../guide/scripting.md#game-modes)). The loadout offers those the player can fly, each once, as many as the arc holds (`tables.listedOffers`), and starts on the ship chosen last in the mode where the list has it, else on the first.
+- The mode can list the ships it offers, in its own order (`loadout_ships`, [Game modes](../guide/scripting.md#game-modes)). The loadout offers those the player can fly, each once, as many as the arc holds (`tables.listedOffers`), and starts on the ship chosen last in the mode where the list has it, else on the first. A mission that lists its own ships offers those instead.
 
 ## The scene
 
@@ -125,6 +125,8 @@ Missile Loadout's release (`0x00447630`) turns to the missile page (`page_switch
 
 As the first missile has risen (`missiles_risen`, `0x00446950`), the page's objects are shown and the interface is free (`missile_page_show`, `0x00446B90`).
 
+**Improvement:** where the loadout offers one ship alone, such as mission 23's Shroud, the arc is empty, so no ship sinks and the missiles rise at once. The original offers four ships or more. In mission 23 it hides all but the Shroud, and the hidden ships still sink first, so its missiles rise a little later.
+
 A marker (`marker_create`, `0x00444BB0`) is a square 0.7 by 1.12 of `hpoints` over its whole texture, 0.05 along the hardpoint's Y axis from it and 0.3 nearer the camera, facing the camera, on the overlay, blended onto what lies behind and white whatever the lights, its faces sorted 10 nearer. It is shown while its rack holds nothing, and its tooltip is Hardpoint.
 
 A missile's icon is the missile's model loaded with its red textures, lit and opaque at 0.007, reached by the green and the ambient lights. Each missile the tier offers has its slot of the arc (`loadout_missile_slots`, `0x004EA480`), and its icon is shown and clickable while fewer than its limit are on the ship or flying to it or back: three Jack Hammers, any number of the rest (`missiles_available`, `0x0044B870`).
@@ -153,6 +155,8 @@ The racks are those of the chosen ship's missile hardpoints, in the order the fl
 ### Back to the ship page
 
 Ship Selection's release (`0x004475D0`) turns back to the ship page (`0x00449DB8`): the interface is busy; the ships on the arc can be clicked again, at the coarse level; the markers zoom away one after another, and the ship turns back from belly up after the last (`belly_up_back`, `0x00446E90`), or at once where it has none; the missiles sink one after another, and each missile's end shows the ships and starts the first on the arc rising again, so that they rise after the last missile has sunk; as the last ship has risen, the ship page is built again (`ship_page_rebuild`, `0x004469A0`). The info panel's front is drawn with the chosen ship and flips back to it, and the two buttons fly back into the glow.
+
+**Improvement:** with the arc empty, no ship rises, so the ship page is built again once the last missile has sunk and the ship has turned back from belly up. In mission 23, the original waits for its hidden ships to rise.
 
 ## The internal guns view
 
