@@ -1158,7 +1158,10 @@ A ship type's record (`ShipTypeRecord`) holds what the game keeps in its executa
 it; `class`, such as `fighter` or `support`; `side`, the side its objects start on; and `display`,
 how the target display draws it. The class decides more than how the type is targeted: fighters
 fly with the fighters' flight model, and only fighters turn on a fighter that hits them
-([Retaliation](../engine/orders.md#retaliation)).
+([Retaliation](../engine/orders.md#retaliation)). OpenReliant adds `landing`, how the player's ship
+lands on ships of the type ([Ship types](modding.md#ship-types)): the Reliant's and the Yamato's
+landings, as in the game, and nil for the other types. A load script can give a type a landing
+([Landing on another carrier](missions.md#landing-on-another-carrier)).
 
 A pilot's face (`Face`) has `name`, the id of the string the radio's window shows over the face,
 and the film the face plays for each way it moves as the pilot speaks: `talking`, `laughing`,

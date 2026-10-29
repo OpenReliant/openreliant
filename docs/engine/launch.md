@@ -129,8 +129,9 @@ fire](orders.md#friendly-fire)) go by it.
 
 **Improvement:** the game records the player's carrier only in the Reliant's and the Yamato's
 launches, the only ones the original's missions give the player. OpenReliant records it as any
-launch of the player's ship starts (`launch.init`), so that PERMISSION TO LAND and the bridge's
-lines work from any carrier a mission launches the player from, such as a mod's.
+launch of the player's ship starts (`launch.init`), so that the bridge's lines work from any
+carrier a mission launches the player from, such as a mod's. PERMISSION TO LAND lands the ship
+only where that carrier offers a landing ([Landing](orders.md#landing)).
 
 The hangar (`reliant_hang.shp`, type `0xD6`) is made in the cutaway slot, colliding with nothing,
 its hull and its two doors reached by no light of the backdrop's but the first ambient (light mask
@@ -314,6 +315,10 @@ From step 2 (`launch_badanov_run`, `0x0041A100`):
 
 **Fix:** if the model lacks the bay or its level, OpenReliant leaves the ship in place,
 riding the carrier's root. The original dereferences the missing part.
+
+A landing in the bay, where a mod or a mission's script lets the player land on the Badanov or the
+Krasny, comes to rest where a ship waits at the gate, through doors 1 and 2
+([Landing](orders.md#landing)).
 
 ## The escape pods
 

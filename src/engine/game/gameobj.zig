@@ -1955,7 +1955,7 @@ pub const World = struct {
     /// The Yamato launch steam's brightness, with the original emission behavior.
     launch_steam: @import("launch/yamato.zig").Steam = .soft,
     /// How the Reliant's landing brings the ship down.
-    touchdown: @import("ailand.zig").Touchdown = .level,
+    touchdown: @import("ailand.zig").reliant.Touchdown = .level,
     /// When the player hears their own ship jump in.
     arrival_sound: @import("jump.zig").ArrivalSound = .heard,
     /// `light_maps` (`0x005D5618`): whether the parts flagged `lightmap` are drawn with their light

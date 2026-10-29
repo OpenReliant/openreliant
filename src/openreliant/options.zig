@@ -320,7 +320,7 @@ pub const Options = struct {
     hangar_beacons: game.objects.HangarBeacons = .to_the_ship,
     launch_steam: game.launch.yamato.Steam = .soft,
     /// How the Reliant's landing brings the ship down.
-    touchdown: game.ailand.Touchdown = .level,
+    touchdown: game.ailand.reliant.Touchdown = .level,
     /// When the player hears their own ship jump in.
     arrival_sound: game.jump.ArrivalSound = .heard,
     /// How the radio's lines sound.

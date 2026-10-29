@@ -965,12 +965,31 @@ its own launches them as a hangar bay: each ship waits at the launch point of it
 `launch_point` object of the model ([Models from OBJ](#models-from-obj)), and flies out once its
 launch starts.
 
-PERMISSION TO LAND brings the player's ship back into such a carrier the same way, once the
-mission's script has cleared it to land (`game.landing_cleared = 1`): the carrier's bridge answers,
-and the ship flies in at the doors of gate 0 and down to its launch point, which ends the mission.
-A mission can land the ship at another gate, and at a moment of its own, with
+The player's ship lands only on a ship that offers a landing. A type's `Landing` says how the
+player's ship lands on it:
+
+- `bay`: the ship flies in at the doors of a gate and down to its launch point, as into a hangar
+  bay. The model needs `launch_point` objects ([Models from OBJ](#models-from-obj)).
+- `reliant`: the Reliant's landing, down its first launch tube, which needs the Reliant's model.
+- `yamato`: the Yamato's landing, onto a pad of the Yamato's landing bay.
+- `badanov`: the Badanov's landing, into the bay of the Badanov's or the Krasny's model.
+- `none`: no landing.
+
+Where the model lacks what its landing needs, nothing lands on it, and the log says so.
+
+Without the key, a type that keeps its base's model offers its base's landing, so a type based on
+the Reliant lands the player as the Reliant does. A type with a model of its own offers none.
+
+Where the player's carrier offers a landing, PERMISSION TO LAND brings the player's ship back into
+it once the mission's script has cleared it to land (`game.landing_cleared = 1`): the carrier's
+bridge answers, and the ship lands, which ends the mission. The Yamato's bridge officer answers for
+a Yamato and the Reliant's for any other carrier, a mod's too
+([#1340](https://github.com/OpenReliant/openreliant/issues/1340)). In a bay, the ship flies in at
+gate 0. A mission can land the ship at another gate, and at a moment of its own, with
 `SetAI(player, "land", 1, component(carrier, gate))`
-([Landing](../engine/orders.md#landing)).
+([Landing](../engine/orders.md#landing)). A mission can also let the player land on a ship that
+offers no landing, such as the Victorious, or keep the player off one that does
+([Landing on another carrier](missions.md#landing-on-another-carrier)).
 
 #### Ship types without a base
 

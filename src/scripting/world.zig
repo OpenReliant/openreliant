@@ -24,6 +24,7 @@ pub const package = struct {
     pub const set_objective = api.Function("Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names.", &.{ "objective", "state" }, setObjective);
     pub const variable = api.Function("The value of the game's variable `name` in the mission that runs, as the mission's script reads it. Nil between missions.", &.{"name"}, readVariable);
     pub const set_variable = api.Function("Sets the game's variable `name` to `value` in the mission that runs, as the mission's script sets it. The campaign keeps the value from one mission to the next where it keeps the variable. Returns false between missions.", &.{ "name", "value" }, setVariable);
+    pub const set_player_carrier = api.Function("Makes `ship` the player's carrier (`player_carrier`): PERMISSION TO LAND asks it, its bridge answers, and the player's ship lands on it where it offers a landing (its `landing`). Nil leaves the player without a carrier. Returns false between missions.", &.{"ship"}, setPlayerCarrier);
 
     pub const player = api.Field(?Object, "The player's ship, while a mission runs; nil between missions.", struct {
         pub fn get(call: Call) ?Object {
@@ -39,7 +40,22 @@ pub const package = struct {
             return if (held.mission) |*running| running.view() else null;
         }
     });
+
+    pub const player_carrier = api.Field(?Object, "The player's carrier: the ship the player launched from, unless a script sets another (`set_player_carrier`). PERMISSION TO LAND asks it, and its bridge speaks to the player. Nil where there is none, as in a mission the player starts in flight, and between missions.", struct {
+        pub fn get(call: Call) ?Object {
+            const orders = call.runtime().orders orelse return null;
+            return .of(orders.world.player.carrier orelse return null);
+        }
+    });
 };
+
+/// `world.set_player_carrier(ship)`: `gameobj.Player.carrier`, which a launch of the player's ship
+/// sets (`launch.init`).
+fn setPlayerCarrier(call: Call, ship: ?Object) bool {
+    const orders = call.runtime().orders orelse return false;
+    orders.world.player.carrier = if (ship) |carrier| carrier.slot() else null;
+    return true;
+}
 
 /// `world.set_objective(objective, state)`: `hud.Objectives.set`, as a mission's `SetObjective`
 /// calls it.

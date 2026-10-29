@@ -758,14 +758,30 @@ of a door closing (`0x36`, `doorclos`).
 PERMISSION TO LAND does nothing where the player's ship launched from no carrier, where the game
 reads through a null pointer.
 
-**Improvement:** the player's ship lands in a hangar bay of any other carrier that ships launch
-from as one ([Hangar bays](launch.md#hangar-bays)), the Victorious or a mod's carrier among them,
-so that PERMISSION TO LAND ends a mod's mission on the carrier the mission launched the player
-from. The landing aims at a gate: the component of its order's target, which a mission's `SetAI`
+**Improvement:** the game lands only on the Reliant and the Yamato, by their types. OpenReliant
+lands on a ship that offers a landing (`ailand.Style`): `reliant`, `yamato`, `bay` or `badanov`.
+Each ship type's record says which one it offers (`ShipTypeRecord.landing`). The Reliant and the
+Yamato offer theirs, as in the game, and no other type offers one. A mod's ship type can give its
+own ([Ship types](../guide/modding.md#ship-types)), and a mission's script can change it for a
+single ship ([Landing on another carrier](../guide/missions.md#landing-on-another-carrier)).
+This holds for every Land order, whether PERMISSION TO LAND, a mission's `SetAI` or the friendly
+fire's sending home gives it. A Land order aimed at a ship that offers none ends at once, and so
+does one aimed at a ship whose model lacks what its landing needs: the Reliant's first launch tube,
+a bay's launch point for the gate, or the Badanov's bay. PERMISSION TO LAND asks nothing where the
+player's carrier offers none, and the friendly fire's sending home lets the ship fly on, as where
+there is no carrier. A script can make another ship the player's carrier
+(`world.set_player_carrier`), and answer PERMISSION TO LAND its own way (the `permission_to_land`
+hook). The game's missions launch the player only from the Reliant and the Yamato, so they land as
+they do in the game.
+
+**Improvement:** a ship that offers a bay's landing (`bay`) takes the player's ship into a hangar
+bay that ships launch from ([Hangar bays](launch.md#hangar-bays)), such as the Victorious or a
+mod's carrier, so that PERMISSION TO LAND can end a mod's mission there. The landing aims at a
+gate: the component of its order's target, which a mission's `SetAI`
 names with `component(carrier, gate)`, or gate 0 when the order aims at the carrier as a whole, as
 the player's request does. Aimed at the whole carrier, the landing is due 700 ticks on, as the
 Reliant's is; aimed at a gate, it begins at once, so that a mission's script lands the ship at its
-own moment. A carrier whose model has no launch point for the gate is one that nothing lands on.
+own moment.
 A ship other than the player's lets the landing go at once, as on the Yamato.
 
 The cutaway is the Reliant's: one of its two views, picked at random, standing by the bay
@@ -778,6 +794,11 @@ the point, and the gate's doors open as the launch opens them. The ship then ste
 point, upright, its throttle 0.0001 for each unit it has to go, at most the throttle that flies it
 at the Yamato's bay speed of 100, and stops within 200 of the point, sounding its landing. The
 doors close behind it, and 270 ticks later the mission is over.
+
+**Improvement:** the Badanov's landing (`badanov`) is the same in the Badanov's or the Krasny's bay
+([The Badanov and the Krasny](launch.md#the-badanov-and-the-krasny)). The ship comes to rest where
+the launch sets a ship at the gate, and the bay's doors, parts 1 and 2, open and close as a hangar
+bay's do.
 
 The Yamato's style lands the ship in the Yamato's landing bay, ship type `0xD5` (Jap Yam Landing
 Bay, `yamhanger.shp`), whose part 6 is the hangar and part 1 the pad. Its init
@@ -809,7 +830,7 @@ leaves the ship turned as it was.
 
 **Improvement:** the angles come from `std.math.atan2` rather than the engine's table (`sr_atan2`).
 OpenReliant has no parent frames, so the ship on the pad is put back on it each frame
-(`ailand.hold`), as the launches hold their ships ([Launches](launch.md)).
+(`ailand.yamato.hold`), as the launches hold their ships ([Launches](launch.md)).
 
 ### Friendly fire
 

@@ -413,8 +413,35 @@ The objectives' names come from the game's table, which has a row for each of th
 - `TerminateMission()` ends it too. In the missions numbered below 28, the game then counts the
   player's ship as destroyed.
 - `game.landing_cleared = 1` lets the player land on the carrier with PERMISSION TO LAND, which ends
-  the mission.
+  the mission. The carrier is the ship the player launched from, and it has to offer a landing: the
+  Reliant and the Yamato do, as in the game, and any other ship only where a mod or a script gives
+  it one ([Landing on another carrier](#landing-on-another-carrier)).
 - The mission also ends once the player's ship is destroyed.
+
+### Landing on another carrier
+
+A mission that launches the player from another carrier, such as the Victorious or the Badanov, can
+let the player land there with a script of its own. A mod lists it under `[Missions]` beside the
+mission ([Scripting](scripting.md)), and the script gives the carrier a landing as it joins the
+mission:
+
+```lua
+return {
+    engine_handlers = {
+        on_object_added = function(object)
+            if object.type == "victorious" then object.landing = "bay" end
+        end,
+    },
+}
+```
+
+- `landing` takes the values of a ship type's `Landing` ([Ship types](modding.md#ship-types)), such
+  as `bay` for a hangar bay. Nil keeps the player from landing on the ship, even on the Reliant.
+- `world.set_player_carrier(ship)` makes another ship the one PERMISSION TO LAND asks, such as a
+  carrier that jumps in later. Until then, it is the ship the player launched from, if any.
+- A mod's own carrier type gives its landing in its section ([Ship types](modding.md#ship-types)),
+  and a load script can give every ship of one of the game's types a landing:
+  `records.ship_types.victorious.landing = "bay"`.
 
 ## Checking a mission
 

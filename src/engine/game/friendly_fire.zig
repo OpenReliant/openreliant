@@ -15,6 +15,7 @@ const assert = std.debug.assert;
 const math = @import("../surrender/math.zig");
 const ai = @import("ai.zig");
 const aigeneric = @import("aigeneric.zig");
+const ailand = @import("ailand.zig");
 const collision = @import("collision.zig");
 const gameobj = @import("gameobj.zig");
 const input = @import("../input.zig");
@@ -184,7 +185,9 @@ const jump_beyond: f32 = 1_000_000;
 /// carrier's stand-in flag.
 ///
 /// **Fix:** the game reads the carrier through a null pointer where the player launched from
-/// none; OpenReliant lets the ship fly on as the player has it, and then ends the order.
+/// none; OpenReliant lets the ship fly on as the player has it, and then ends the order. It does
+/// the same where the player's carrier offers no landing (`ailand.landingCarrier`), which only a
+/// mod or a mission's script makes so.
 pub fn update(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -203,13 +206,13 @@ pub fn update(ctx: aigeneric.Context, index: u16) void {
                 return;
             }
             input.playerControlOrder(ctx, index);
-            const carrier = world.player.carrier orelse return;
+            const carrier = ailand.landingCarrier(world) orelse return;
             steerHome(world, index, all.slots[carrier].object.nextPosition());
         },
         .landing => {
             slot.object.flags.sent_off = false;
             aigeneric.end(ctx, index);
-            const carrier = world.player.carrier orelse return;
+            const carrier = ailand.landingCarrier(world) orelse return;
             const home = &all.slots[carrier].object;
             home.flags.stand_in = false;
             _ = aigeneric.giveShip(ctx, index, .land, carrier, null);
@@ -342,4 +345,28 @@ test "a player who destroys a friend is sent home, and lands" {
     try std.testing.expectEqual(.land, player.current().?.order);
     try std.testing.expectEqual(reliant, player.current().?.target.slotIn(all).?);
     try std.testing.expect(player.object.flags.sent_off);
+}
+
+test "a player sent home to a carrier that offers no landing flies on" {
+    var heard: radio.testing.Heard = undefined;
+    try heard.init();
+    defer heard.deinit();
+    const world = heard.world();
+    const all = heard.mission.objects;
+    const ctx: aigeneric.Context = .of(world);
+    const player = &all.slots[0];
+    heard.mission.player.carrier = try heard.mission.add(.of(.victorious), .{ 0, 0, 5000 });
+    _ = try aigeneric.pushShip(ctx, 0, .player_control, heard.enemy, null);
+    friendDestroyed(world);
+    sendHome(ctx);
+    heard.mission.clock.frame_start = 1000;
+    init(ctx, 0);
+    // Past Moose's words and the steering, the order ends, and the player flies on as before.
+    heard.mission.clock.frame_start += speaking_ticks + 1;
+    update(ctx, 0);
+    heard.mission.clock.frame_start += steering_ticks + 1;
+    update(ctx, 0);
+    update(ctx, 0);
+    try std.testing.expectEqual(.player_control, player.current().?.order);
+    try std.testing.expect(!player.object.flags.sent_off);
 }

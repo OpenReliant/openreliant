@@ -18,6 +18,7 @@ const log = std.log.scoped(.radio);
 const hog = @import("../../formats/hog.zig");
 const bigfile = @import("bigfile.zig");
 const aigeneric = @import("aigeneric.zig");
+const ailand = @import("ailand.zig");
 const cbox = @import("cbox.zig");
 const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
@@ -64,20 +65,26 @@ pub const permission_every: u32 = 500;
 /// In training (`create.Objects.training`), where the script's `landing_cleared` is set, the pilot
 /// asks (`playerSays`, `hud_012`), and the flight instructor answers in `report_delay` ticks
 /// (`trnglnd_001`) and clears the player's ship to land. Otherwise, unless the ship is landing
-/// already, the pilot asks, and the bridge of the carrier it launched from answers in
-/// `report_delay` ticks (`bridgeLine`): where `landing_cleared` is set it clears the ship, by a
-/// line the script's `mission_success` picks at random from its lines, and otherwise it refuses,
-/// by one of the refusals. A ship cleared lands on that carrier (`ailand`). A report
+/// already, the pilot asks, and the bridge of the player's carrier, the ship it launched from,
+/// answers in `report_delay` ticks (`bridgeLine`): where `landing_cleared` is set it clears the
+/// ship, by a line the script's `mission_success` picks at random from its lines, and otherwise it
+/// refuses, by one of the refusals. A ship cleared lands on that carrier (`ailand`). A report
 /// that finds the radio's reports all taken is not said, and a ship refused that way is not
-/// cleared either. The radio's menu asks too (`menu.Page.permission_to_land`).
+/// cleared either. The radio's menu asks too (`menu.Page.permission_to_land`). Mods' scripts can
+/// hook it (`permission_to_land`).
 ///
 /// **Fix:** the game reads through a null pointer where the player's ship launched from no
 /// carrier; OpenReliant asks nothing.
+///
+/// **Improvement:** the game records the carrier only after a launch from the Reliant or the
+/// Yamato. OpenReliant asks only where the player's carrier offers a landing
+/// (`ailand.landingCarrier`), and asks nothing otherwise, as where there is no carrier.
 ///
 /// Not ported: the debug line it writes naming the mission's rating, which nothing shows; and a
 /// multiplayer game's side of it, in which a remote player's ship is cleared whatever the script
 /// says ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn permissionToLand(world: gameobj.World, game_ticks: u32) void {
+    if (hooks.enter(.permission_to_land, permissionToLand, .{ world, game_ticks })) |done| return done;
     const player = world.player;
     if (game_ticks < player.permission_heard_from) return;
     player.permission_heard_from = game_ticks + permission_every;
@@ -103,7 +110,7 @@ pub fn permissionToLand(world: gameobj.World, game_ticks: u32) void {
         return;
     }
     if (landing(all)) return;
-    const carrier = player.carrier orelse return;
+    const carrier = ailand.landingCarrier(world) orelse return;
     playerSays(world, request_line);
     const cleared = variables.landing_cleared != 0;
     if (radio) |heard| {
@@ -116,7 +123,9 @@ pub fn permissionToLand(world: gameobj.World, game_ticks: u32) void {
 /// A report of the bridge of `carrier` to the player, said `report_delay` ticks after
 /// `game_ticks`: one of `lines`, as its officer says it (`bridgeLine`), under the name of the
 /// Yamato's officer where the carrier is a Yamato and the Reliant's otherwise. False where the
-/// radio's reports are all taken.
+/// radio's reports are all taken. A carrier's type can't name an officer of its own yet, so a
+/// mod's carrier answers in the Reliant's voice
+/// ([#1340](https://github.com/OpenReliant/openreliant/issues/1340)).
 fn reportBridge(world: gameobj.World, radio: *Radio, carrier: u16, lines: []const []const u8, game_ticks: u32) bool {
     const place = radio.freeReport() orelse return false;
     const all = world.objects;
@@ -688,7 +697,8 @@ const training_launch_line = "trnlch_001.ut";
 /// `radio_launch_line` (`0x00456E50`), as the player's ship's launch from the ship in slot
 /// `carrier` goes (`launch.update`), while the script lets the remarks be said and the radio is
 /// free: the flight instructor speaks in training, and in any other mission the bridge officer
-/// of the carrier, a Reliant or a Yamato. A launch from anything else goes unremarked.
+/// of the carrier, a Reliant or a Yamato. A launch from anything else goes unremarked, a mod's
+/// carrier included ([#1340](https://github.com/OpenReliant/openreliant/issues/1340)).
 pub fn launchLine(world: gameobj.World, carrier: u16) void {
     if (world.player.remarks.generic_comms_disabled) return;
     const all = world.objects;
@@ -1682,6 +1692,17 @@ test permissionToLand {
     mission.player.carrier = null;
     permissionToLand(world, 10000);
     try std.testing.expectEqual(0, slot.object.order_count);
+
+    // Nor does one whose carrier offers no landing, as the Victorious does until a mod or a script
+    // gives it one; then the ship lands on it.
+    const victorious = try mission.add(.of(.victorious), .{ 0, 0, 2000 });
+    mission.player.carrier = victorious;
+    permissionToLand(world, 20000);
+    try std.testing.expectEqual(0, slot.object.order_count);
+    mission.slot(victorious).landing = .bay;
+    permissionToLand(world, 30000);
+    try std.testing.expectEqual(.land, slot.current().?.order);
+    try std.testing.expectEqual(victorious, slot.current().?.target.slotIn(mission.objects).?);
 }
 
 /// What the tests of the radio's users share.

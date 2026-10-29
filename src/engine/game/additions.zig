@@ -50,6 +50,7 @@ const shp = @import("../../formats/shp.zig");
 const stats = @import("../../formats/stats.zig");
 const wave = @import("../../formats/wave.zig");
 const files = @import("../files.zig");
+const ailand = @import("ailand.zig");
 const gameobj = @import("gameobj.zig");
 const guns_module = @import("guns.zig");
 const missiles_module = @import("missiles.zig");
@@ -444,6 +445,24 @@ pub const ShipExtra = struct {
     class: ?loadout.Class = null,
     access: ?loadout.Access = null,
     crew: ?u8 = null,
+    /// How the player lands on its ships (`Landing`). Without the key, it offers its base's
+    /// landing where it keeps its base's model, and none where it has a model of its own
+    /// (`ailand.Style.of`).
+    landing: ?Landing = null,
+
+    /// What `Landing=` gives: one of the landings (`ailand.Style`), or `none`.
+    pub const Landing = union(enum) {
+        none,
+        offers: ailand.Style,
+
+        /// The landing it gives; null for none.
+        pub fn style(given: Landing) ?ailand.Style {
+            return switch (given) {
+                .none => null,
+                .offers => |offered| offered,
+            };
+        }
+    };
 
     /// What the loadout's panel shows for a ship type without a base, unless its manifest says.
     pub const default_class: loadout.Class = .light;
@@ -468,6 +487,7 @@ fn readShip(context: Context, section: []const u8, base: gameobj.GameType) Alloc
     if (manifest.value(section, "Class")) |text| made.class = readNamed(loadout.Class, context, "Class", text) orelse return null;
     if (manifest.value(section, "Access")) |text| made.access = readNamed(loadout.Access, context, "Access", text) orelse return null;
     if (manifest.value(section, "Crew")) |text| made.crew = readNumber(u8, context, "ship type", "Crew", text) orelse return null;
+    if (manifest.value(section, "Landing")) |text| made.landing = readLanding(context, text) orelse return null;
     if (manifest.value(section, "Schematic")) |text| made.schematic = try fileName(context, text);
     if (manifest.value(section, "GunsModel")) |text| made.guns_model = try fileName(context, text);
     if (manifest.value(section, "Guns")) |text| {
@@ -531,6 +551,13 @@ fn readSwitch(context: Context, comptime noun: []const u8, comptime key: []const
     for ([_][]const u8{ "no", "false", "off", "0" }) |word| if (std.ascii.eqlIgnoreCase(trimmed, word)) return false;
     context.warn(noun, "gives " ++ key ++ " the value '{s}', which isn't yes or no", .{text});
     return null;
+}
+
+/// `Landing=`'s `text`: `none`, in any case, or one of the landings (`readNamed`); null where it is
+/// neither, which the log says.
+fn readLanding(context: Context, text: []const u8) ?ShipExtra.Landing {
+    if (std.ascii.eqlIgnoreCase(std.mem.trim(u8, text, " \t"), "none")) return .none;
+    return .{ .offers = readNamed(ailand.Style, context, "Landing", text) orelse return null };
 }
 
 /// `text` as a value of `Named`, by its name in any case or by its number (`gameNamed`); null
@@ -1032,6 +1059,46 @@ test "a type based on a ship the player can't fly, with and without a cockpit" {
     try std.testing.expectEqualStrings("kamg_frm.shp", list[0].extra.cockpit.?);
     try std.testing.expectEqual(null, list[1].extra.cockpit);
     try std.testing.expectEqualStrings("greywire", list[1].extra.wire_frame.?);
+}
+
+test "a ship type's Landing" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const mod: Mod = .{ .name = "fleet", .source = undefined, .manifest = .{ .text =
+        \\[ShipTypes]
+        \\dock=
+        \\closed=
+        \\plain=
+        \\wrong=
+        \\[ShipType dock]
+        \\Base=victorious
+        \\Model=dock.shp
+        \\Landing=Bay
+        \\[ShipType closed]
+        \\Base=reliant
+        \\Model=RELIANT.SHP
+        \\Landing=none
+        \\[ShipType plain]
+        \\Base=reliant
+        \\Model=RELIANT.SHP
+        \\[ShipType wrong]
+        \\Base=reliant
+        \\Model=RELIANT.SHP
+        \\Landing=runway
+    } };
+    try read(arena.allocator(), &.{mod});
+    defer reset();
+    // A landing in any case, or none; without the key, none given, so the type takes the rule
+    // (`ailand.Style.of`). A type whose Landing isn't one is left out, which the log says.
+    const list = ships.all();
+    try std.testing.expectEqual(3, list.len);
+    try std.testing.expectEqual(ailand.Style.bay, list[0].extra.landing.?.style().?);
+    try std.testing.expectEqual(ShipExtra.Landing.none, list[1].extra.landing.?);
+    try std.testing.expectEqual(null, list[1].extra.landing.?.style());
+    try std.testing.expectEqual(null, list[2].extra.landing);
+    try std.testing.expectEqual(ailand.Style.bay, ailand.Style.of(@fromBackingInt(ships.first)).?);
+    try std.testing.expectEqual(null, ailand.Style.of(@fromBackingInt(ships.first + 1)));
+    try std.testing.expectEqual(ailand.Style.reliant, ailand.Style.of(@fromBackingInt(ships.first + 2)).?);
 }
 
 test "a mod's files name the records of the mods it requires" {

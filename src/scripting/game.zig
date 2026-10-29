@@ -956,6 +956,40 @@ test "a script stops or changes the radio's lines" {
     try std.testing.expectEqualStrings("mphud_001.ut", radio.queue[1].speech.slice());
 }
 
+test "a script answers PERMISSION TO LAND its own way" {
+    const radio_module = openreliant.engine.game.radio;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local hooks = require("openreliant.hooks")
+                \\local stopped = false
+                \\hooks.add("permission_to_land", function()
+                \\    if not stopped then
+                \\        stopped = true
+                \\        return false
+                \\    end
+                \\end)
+            },
+        },
+    }});
+    defer fixture.deinit();
+    var variables: openreliant.engine.vm.Variables = .{};
+    variables.landing_cleared = 1;
+    var asking = fixture.mission.world();
+    asking.variables = &variables;
+    fixture.mission.player.carrier = try fixture.mission.add(.of(.reliant), .{ 0, 0, 5000 });
+    const player = &fixture.mission.objects.slots[fixture.mission.objects.player];
+    // Stopped, the request goes unanswered, and the ship lands on nothing; let through, it lands.
+    radio_module.permissionToLand(asking, 100);
+    try std.testing.expectEqual(0, player.object.order_count);
+    radio_module.permissionToLand(asking, 100 + radio_module.permission_every);
+    try std.testing.expectEqual(.land, player.current().?.order);
+}
+
 test "a script says lines on the radio, as the comms commands do" {
     const radio_module = openreliant.engine.game.radio;
     const hog_snd = openreliant.engine.game.hog_snd;
@@ -1143,6 +1177,38 @@ test "scripts list a ship's parts, destroy it, and set the player's targets" {
     try std.testing.expectEqual(fixture.sabre, fixture.mission.player.primary_target.?.index);
     try std.testing.expectEqual(1, fixture.mission.player.primary_target.?.component);
     try std.testing.expect(slot.object.flags.exploding);
+}
+
+test "a script lets the player land on a ship, and makes it the player's carrier" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local world = require("openreliant.world")
+                \\return {
+                \\    engine_handlers = {
+                \\        on_mission_start = function()
+                \\            local sabre = world.objects()[2]
+                \\            assert(world.player_carrier == nil and sabre.landing == nil)
+                \\            sabre.landing = "bay"
+                \\            assert(sabre.landing == "bay")
+                \\            assert(not pcall(function() sabre.landing = "runway" end))
+                \\            assert(world.set_player_carrier(sabre))
+                \\            assert(world.player_carrier == sabre)
+                \\        end,
+                \\    },
+                \\}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    fixture.begin();
+    fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    try std.testing.expectEqual(fixture.sabre, fixture.mission.player.carrier.?);
+    try std.testing.expectEqual(openreliant.engine.game.ailand.Style.bay, fixture.mission.objects.slots[fixture.sabre].landing.?);
 }
 
 test "a script chooses the movies of a mission's end, and the restart screen's choice" {

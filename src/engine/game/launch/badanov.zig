@@ -1,7 +1,8 @@
 //! The Badanov and Krasny launches (`launch_badanov_init`, `0x00419F60`, and
 //! `launch_badanov_run`, `0x0041A100`): a ship waits at one of ten positions along the bay,
 //! facing out with its nose tilted down. The doors open, and the ship flies out with a yaw
-//! input based on its gate. Normal flight resumes after 300 ticks.
+//! input based on its gate. Normal flight resumes after 300 ticks. A landing in the bay comes to
+//! rest where a ship waits, through the same doors (`ailand.bay`).
 
 const std = @import("std");
 const log = std.log.scoped(.launch);
@@ -30,7 +31,11 @@ pub const Step = enum(i32) {
 /// The part of the carrier's root's child list that the ship waits at (`0x00419F8D`), and the two
 /// parts that are the bay's doors (`0x0041A1CB`, `0x0041A2FF`).
 const bay_part = 4;
-const doors = [_]usize{ 1, 2 };
+const doors = [_]u8{ 1, 2 };
+
+/// The bay's doors as a landing in it opens and closes them, as a hangar bay's
+/// (`bay.playDoors`).
+pub const landing_doors: bay.Doors = .{ .first = doors[0], .second = doors[1] };
 
 /// Each side has five positions. Gates below this number use one side; the rest use the other
 /// (`0x00419FFB`).
@@ -66,10 +71,8 @@ const out_throttle: f32 = 2;
 const steer: f32 = 0.2;
 const steer_middle: f32 = 2.5;
 
-/// `launch_badanov_init` (`0x00419F60`): places the ship in slot `index` at its gate's position
-/// in `carrier`'s bay (`bay_part`), riding that part. The position uses the bounds of the last
-/// drawn level. The ship turns a quarter turn about the part's Y axis, with opposite signs for
-/// the two sides, then tilts down about its X axis.
+/// `launch_badanov_init` (`0x00419F60`): places the ship in slot `index` where it waits at its
+/// gate in `carrier`'s bay (`gatePlace`), riding the bay's part (`bay_part`).
 ///
 /// **Fix:** if the model lacks the bay or its level, the ship stays where it is and rides the
 /// carrier's root instead of dereferencing the missing part.
@@ -78,13 +81,24 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const slot = &all.slots[index];
     const holder = &all.slots[carrier];
     slot.riding = .{ .object = carrier };
-    const model = if (holder.model) |*held| held else return;
-    const bounds = model.partBounds(bay_part) orelse {
+    if (holder.model == null) return;
+    const place = gatePlace(holder, slot.orders[0].target.component) orelse {
         log.warn("the carrier in slot {d} has no bay to launch from", .{carrier});
         return;
     };
     slot.riding = .{ .object = carrier, .part = bay_part };
-    const gate = slot.orders[0].target.component;
+    objects.setPlace(&slot.object, &slot.drawn, place);
+}
+
+/// Where a ship waits at gate `gate` of the carrier in `holder` to launch, in the world, and how it
+/// is turned there (`init`). It stands in the bay (`bay_part`), by the bounds of the level the bay
+/// drew last: on one side for the first `gates_a_side` gates and on the other for the rest, turned
+/// a quarter turn about the part's Y axis to face out of its side, then tilted down about its X
+/// axis. A landing in the bay comes to rest there (`ailand.bay`). Null where the carrier's model
+/// lacks the bay or its level.
+pub fn gatePlace(holder: *const create.Slot, gate: i16) ?math.Place {
+    const model = if (holder.model) |*held| held else return null;
+    const bounds = model.partBounds(bay_part) orelse return null;
     const number: f32 = @floatFromInt(gate);
     const size = bounds[1] - bounds[0];
     var at = (bounds[1] + bounds[0]) * @as(math.Vector, @splat(0.5));
@@ -95,7 +109,7 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const part = model.frameAt(bay_part, holder.drawn);
     var turned = math.turned(part.orientation, .y, if (near) quarter_turn else -quarter_turn);
     turned = math.turned(turned, .x, tilt);
-    objects.setPlace(&slot.object, &slot.drawn, .{ .position = part.point(at), .orientation = turned });
+    return .{ .position = part.point(at), .orientation = turned };
 }
 
 /// `launch_badanov_run` (`0x0041A100`): opens the doors unless they are already moving, then
@@ -148,18 +162,20 @@ fn openDoors(world: gameobj.World, carrier: *create.Slot) void {
     sound3d.playFrom(world, first.drawn(), .dooropen, .not_reserved);
 }
 
-/// A Badanov's model for the tests: its bay (part 4) 200 wide and high and 600 long, and its
-/// doors (parts 1 and 2) with the doors' track.
-const TestBadanov = launch.testing.Bounded(5);
-const test_bounds: [2]math.Vector = .{ .{ -100, -100, -300 }, .{ 100, 100, 300 } };
+/// A Badanov's model for the tests, here and of the landings (`ailand.bay`): its bay (part 4) 200
+/// wide and high and 600 long, and its doors (parts 1 and 2) with the doors' track.
+pub const testing = struct {
+    pub const Badanov = launch.testing.Bounded(5);
+    pub const bounds: [2]math.Vector = .{ .{ -100, -100, -300 }, .{ 100, 100, 300 } };
+};
 
 test openDoors {
     const gpa = std.testing.allocator;
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    var badanov_model: TestBadanov = undefined;
-    try badanov_model.init(gpa, test_bounds);
+    var badanov_model: testing.Badanov = undefined;
+    try badanov_model.init(gpa, testing.bounds);
     defer badanov_model.deinit(gpa);
     const badanov = try mission.add(.of(.badanov), .{ 0, 0, 10000 });
     try badanov_model.parts.fit(gpa, mission.slot(badanov));
@@ -186,8 +202,8 @@ test "a ship launches from the Badanov's bay" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(gpa);
     defer mission.deinit();
-    var badanov_model: TestBadanov = undefined;
-    try badanov_model.init(gpa, test_bounds);
+    var badanov_model: testing.Badanov = undefined;
+    try badanov_model.init(gpa, testing.bounds);
     defer badanov_model.deinit(gpa);
     _ = try mission.add(.of(.predator), @splat(0));
     const badanov = try mission.add(.of(.badanov), .{ 0, 0, 10000 });
