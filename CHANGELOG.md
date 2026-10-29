@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.21.0](https://github.com/OpenReliant/openreliant/compare/v0.20.0...v0.21.0) (2026-10-29)
+
+
+### Features
+
+* a HUD display can change its layout after it registers ([#1331](https://github.com/OpenReliant/openreliant/issues/1331)) ([c8b34f2](https://github.com/OpenReliant/openreliant/commit/c8b34f25b7a01b04d590a37a941d2c67a56be6a0)), closes [#1028](https://github.com/OpenReliant/openreliant/issues/1028)
+* a mission lists the ships its loadout offers, even ones its tier doesn't open yet ([#1337](https://github.com/OpenReliant/openreliant/issues/1337)) ([8e374b5](https://github.com/OpenReliant/openreliant/commit/8e374b5773c49a1ad63869602d74b305e9213ee1))
+* a mod's ship type based on any ship flies with the cockpit it gives ([#1326](https://github.com/OpenReliant/openreliant/issues/1326)) ([827b446](https://github.com/OpenReliant/openreliant/commit/827b44654eca38ce37b0392c127a29ebc3fb67ed)), closes [#1004](https://github.com/OpenReliant/openreliant/issues/1004)
+* CampaignMission.only_ship is deprecated in favour of loadout_ships ([8e374b5](https://github.com/OpenReliant/openreliant/commit/8e374b5773c49a1ad63869602d74b305e9213ee1))
+* mods and missions choose which ships the player can land on ([#758](https://github.com/OpenReliant/openreliant/issues/758)) ([a5da736](https://github.com/OpenReliant/openreliant/commit/a5da736d0ae48e8e19aae84cc28441e771f39e0b))
+* mods give movies in WebM or Matroska ([#1335](https://github.com/OpenReliant/openreliant/issues/1335)) ([aa9f972](https://github.com/OpenReliant/openreliant/commit/aa9f9721ef826da6bc6643a2aa8e13b9255263d3)), closes [#1179](https://github.com/OpenReliant/openreliant/issues/1179)
+* scripts can hook PERMISSION TO LAND and choose the player's carrier ([a5da736](https://github.com/OpenReliant/openreliant/commit/a5da736d0ae48e8e19aae84cc28441e771f39e0b))
+* the game's variables are records that mods add to and scripts read and set ([#1325](https://github.com/OpenReliant/openreliant/issues/1325)) ([4aabbec](https://github.com/OpenReliant/openreliant/commit/4aabbec2c359cb66ee77eda3c92edb1c9ff105bc)), closes [#1237](https://github.com/OpenReliant/openreliant/issues/1237) [#1322](https://github.com/OpenReliant/openreliant/issues/1322)
+* the loadout's panels and the power ball draw a mod's larger picture at its size ([#1332](https://github.com/OpenReliant/openreliant/issues/1332)) ([84657d0](https://github.com/OpenReliant/openreliant/commit/84657d004160e72125eef01f3f38c70f4feb89c5)), closes [#509](https://github.com/OpenReliant/openreliant/issues/509)
+* the log names a mod's sprite shape that is cut short ([#1329](https://github.com/OpenReliant/openreliant/issues/1329)) ([99ff9a2](https://github.com/OpenReliant/openreliant/commit/99ff9a2ae19d251e77a70cb324415f79462fedb6)), closes [#1079](https://github.com/OpenReliant/openreliant/issues/1079)
+* the player's ship can land in the Badanov's and the Krasny's bay ([a5da736](https://github.com/OpenReliant/openreliant/commit/a5da736d0ae48e8e19aae84cc28441e771f39e0b))
+
+
+### Fixes
+
+* a loadout that offers one ship turns to the missile page and back ([8e374b5](https://github.com/OpenReliant/openreliant/commit/8e374b5773c49a1ad63869602d74b305e9213ee1))
+* the pointer stays over what scripts draw on the menus ([#1330](https://github.com/OpenReliant/openreliant/issues/1330)) ([611e21d](https://github.com/OpenReliant/openreliant/commit/611e21de9d6b30fd38db84194260a9552202c40e)), closes [#1171](https://github.com/OpenReliant/openreliant/issues/1171)
+
+
+### Documentation
+
+* the roadmap shows 1.0 as the next step ([#1320](https://github.com/OpenReliant/openreliant/issues/1320)) ([fcab949](https://github.com/OpenReliant/openreliant/commit/fcab9494af0f032f80e2c91cdc120d84f5adc839))
+* the website and its docs describe each page to search engines ([#1336](https://github.com/OpenReliant/openreliant/issues/1336)) ([b88666c](https://github.com/OpenReliant/openreliant/commit/b88666c46db8f64a1ebb1155b6c6ca6ea0c93200))
+* the website lists a release's own milestone first ([#1323](https://github.com/OpenReliant/openreliant/issues/1323)) ([e2da113](https://github.com/OpenReliant/openreliant/commit/e2da1130b444d40c5cf8dd94116a6e8622676c29))
+
 ## [0.20.0](https://github.com/OpenReliant/openreliant/compare/v0.19.4...v0.20.0) (2026-10-22)
 
 
