@@ -4,7 +4,8 @@
 //!
 //! The record tables are `ships`, `guns`, `missiles` and `pilots` from the stat files
 //! ([Stat tables](../../docs/formats/stats.md)); `ship_types`, the class and the other words the
-//! game's executable holds for each ship type; `faces`, the pilots' faces from the executable;
+//! game's executable holds for each ship type, and how the player lands on its ships; `faces`, the
+//! pilots' faces from the executable;
 //! `text` from `language.dll`; and `itac_text` from the ITAC's `itaclang.dll`. Records are indexed
 //! by the game's numbers: guns and text from 1, the rest from 0. All but the text can also be
 //! looked up by OpenReliant's names, such as `records.guns.laser_cannon` or
@@ -74,7 +75,8 @@ pub const Records = struct {
     ships: []stats.Ship,
     /// Each ship type's words that the game keeps in its executable rather than `shipstats.bin`:
     /// its class, its side, the string that names it, whether it can be targeted and which form of
-    /// the target display shows it (`ship_combat_stats`).
+    /// the target display shows it (`ship_combat_stats`); and OpenReliant's own, how the player
+    /// lands on its ships (`ailand.Style.of`).
     ship_types: []game.create.combat_stats.Static,
     guns: []stats.Gun,
     missiles: []stats.Missile,
@@ -830,9 +832,13 @@ test "the ship types' words the executable holds" {
         \\assert(shuttle.class == "support" and shuttle.side == "hostile" and tostring(shuttle) == "ShipTypeRecord")
         \\assert(records.ship_types[0].class == "fighter")
         \\shuttle.class = "fighter"
+        \\assert(records.ship_types.victorious.landing == nil)
+        \\records.ship_types.victorious.landing = "bay"
     );
     try std.testing.expectEqual(.fighter, records.ship_types[@backingInt(game.gameobj.GameType.yakob_shuttle)].class);
+    try std.testing.expectEqual(game.ailand.Style.bay, records.ship_types[@backingInt(game.gameobj.GameType.victorious)].landing.?);
     try bind.testing.expectSourceError(thread, "records.ship_types.yakob_shuttle.class = 'gunboat'", "class");
+    try bind.testing.expectSourceError(thread, "records.ship_types.victorious.landing = 'runway'", "landing");
 }
 
 test "the pilots' faces" {
@@ -891,7 +897,7 @@ test "the field names scripts see don't change" {
         .{ stats.Missile, "name,speed,turn_rate,flight_time,damage,lock_time,decoy_chance,lock_range,component_damage" },
         .{ stats.Pilot, "name,tier_a,tier_b,tier_c,skill" },
         .{ game.pilots.FaceRecord, "name,talking,laughing,squadron,dying" },
-        .{ game.create.combat_stats.Static, "targetable,name,class,side,display" },
+        .{ game.create.combat_stats.Static, "targetable,name,class,side,display,landing" },
     };
     inline for (expected) |pinned| {
         comptime var names: []const u8 = "";

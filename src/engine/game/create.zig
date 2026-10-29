@@ -24,6 +24,7 @@ const Vector = math.Vector;
 const Pointer = engine.Pointer;
 const Random = @import("../random.zig").Random;
 const ai = @import("ai.zig");
+const ailand = @import("ailand.zig");
 const camera = @import("camera.zig");
 const cloak = @import("cloak.zig");
 const aigeneric = @import("aigeneric.zig");
@@ -86,17 +87,23 @@ pub fn shipFiles(number: TypeIndex) models.ShipType {
 pub const Stats = struct {
     flight: [max_ship_types]FlightModel,
     combat: [max_ship_types]ShipCombat,
+    /// OpenReliant's own: how the player lands on each type's ships, which each new object of the
+    /// type starts with (`Slot.landing`); null where the player can't land on them.
+    landing: [max_ship_types]?ailand.Style,
 
     /// The tables as the executable holds them before `stats_load_ships` runs: every figure zero,
-    /// and each record's own words, how the AI turns the type and what its combat record says it is.
+    /// and each record's own words, how the AI turns the type and what its combat record says it
+    /// is, with the landing the game offers on it (`ailand.Style.original`).
     pub const initial: Stats = built: {
-        @setEvalBranchQuota(ship_type_count * 20);
+        @setEvalBranchQuota(ship_type_count * 30);
         var tables: Stats = .{
             .flight = @splat(std.mem.zeroes(FlightModel)),
             .combat = @splat(std.mem.zeroes(ShipCombat)),
+            .landing = @splat(null),
         };
         for (tables.flight[0..ship_type_count], 0..) |*flight, ship_type| flight.turns = flight_stats.turns(ship_type);
         for (tables.combat[0..ship_type_count], combat_stats.ship_types) |*record, static| record.take(static);
+        for (tables.landing[0..ship_type_count], 0..) |*landing, ship_type| landing.* = ailand.Style.original(@fromBackingInt(ship_type));
         break :built tables;
     };
 
@@ -137,12 +144,15 @@ pub const Stats = struct {
     }
 
     /// OpenReliant's: gives each type the words of its type record (`typeRecords`), which the mods'
-    /// scripts can change (`records.ship_types`).
+    /// scripts can change (`records.ship_types`), and the landing the record offers.
     ///
     /// **Improvement:** the game keeps them fixed in its executable.
     pub fn loadTypes(tables: *Stats, types: []const combat_stats.Static) void {
         const count = @min(types.len, max_ship_types);
-        for (tables.combat[0..count], types[0..count]) |*record, static| record.take(static);
+        for (tables.combat[0..count], tables.landing[0..count], types[0..count]) |*record, *landing, static| {
+            record.take(static);
+            landing.* = static.landing;
+        }
     }
 
     /// What `create_object` does for a type that is `from` under another number (`donor`): the
@@ -161,11 +171,13 @@ pub const Stats = struct {
 /// The type records that the mods' scripts can change (`records.ship_types`, `Stats.loadTypes`):
 /// the words the executable holds for each of the game's types (`combat_stats.Static`), then one
 /// for each type a mod adds, copied from its base's, with its own name where the mod gives one.
+/// Each holds the landing its type offers before scripts change it (`ailand.Style.of`).
 pub fn typeRecords(arena: Allocator) Allocator.Error![]combat_stats.Static {
     const made = try additions.ships.records(combat_stats.Static, arena, &combat_stats.ship_types, 0);
     for (made[additions.ships.first..], additions.ships.all()) |*record, added| {
         if (added.label_string) |name| record.name = name;
     }
+    for (made, 0..) |*record, number| record.landing = ailand.Style.of(@fromBackingInt(@as(u32, @intCast(number))));
     return made;
 }
 
@@ -470,6 +482,10 @@ pub const Slot = struct {
     /// Its type's stats in `Stats` (`GameObject.combat`, `flight`); null for a stand-in.
     combat: ?*const ShipCombat = null,
     flight: ?*const FlightModel = null,
+    /// OpenReliant's own: how the player's ship lands on it (`ailand`). It starts as its type's
+    /// (`Stats.landing`), and a mission's script can change it. Null where the player can't land
+    /// on it, as on a stand-in.
+    landing: ?ailand.Style = null,
     /// Its type's model as loaded (`GameObject.model`), and the nodes of the model's parts, which
     /// hang from its root; null for a stand-in, or a type the game has no model for.
     type: ?*const Type = null,
@@ -1008,25 +1024,49 @@ test "Stats.loadTypes" {
     tables.* = .initial;
     var types = combat_stats.ship_types;
     const shuttle = @backingInt(gameobj.GameType.yakob_shuttle);
+    const victorious = @backingInt(gameobj.GameType.victorious);
     try std.testing.expectEqual(.support, tables.combat[shuttle].class);
+    // Before the records, the game's landings: the Reliant's and the Yamato's alone.
+    try std.testing.expectEqual(ailand.Style.reliant, tables.landing[@backingInt(gameobj.GameType.reliant)].?);
+    try std.testing.expectEqual(ailand.Style.yamato, tables.landing[@backingInt(gameobj.GameType.yamato)].?);
+    try std.testing.expectEqual(null, tables.landing[victorious]);
     types[shuttle].class = .fighter;
     types[shuttle].side = .neutral;
+    types[victorious].landing = .bay;
     tables.loadTypes(&types);
     try std.testing.expectEqual(.fighter, tables.combat[shuttle].class);
     try std.testing.expectEqual(.neutral, tables.combat[shuttle].side);
+    try std.testing.expectEqual(ailand.Style.bay, tables.landing[victorious].?);
     try std.testing.expectEqual(combat_stats.ship_types[0].name, tables.combat[0].name);
 }
 
 test typeRecords {
     // A mod's type takes its base's words, under its own name.
-    var list = [_]additions.ships.Added{.{ .name = "a:pot", .mod = "a", .base = .predator, .label_string = 900, .extra = .{ .model = "pot.shp" } }};
+    var list = [_]additions.ships.Added{
+        .{ .name = "a:pot", .mod = "a", .base = .predator, .label_string = 900, .extra = .{ .model = "pot.shp" } },
+        // Based on the Reliant: in its model, in a model of its own, and in its model with a bay's
+        // landing.
+        .{ .name = "a:refit", .mod = "a", .base = .reliant, .extra = .{ .model = "RELIANT.SHP" } },
+        .{ .name = "a:ark", .mod = "a", .base = .reliant, .extra = .{ .model = "ark.shp" } },
+        .{ .name = "a:dock", .mod = "a", .base = .reliant, .extra = .{ .model = "RELIANT.SHP", .landing = .{ .offers = .bay } } },
+    };
     additions.ships.install(&list);
     defer additions.ships.reset();
     const made = try typeRecords(std.testing.allocator);
     defer std.testing.allocator.free(made);
-    try std.testing.expectEqual(additions.ships.first + 1, made.len);
-    try std.testing.expectEqual(combat_stats.ship_types[0].class, made[additions.ships.first].class);
-    try std.testing.expectEqual(900, made[additions.ships.first].name);
+    try std.testing.expectEqual(additions.ships.first + list.len, made.len);
+    const pot = made[additions.ships.first];
+    try std.testing.expectEqual(combat_stats.ship_types[0].class, pot.class);
+    try std.testing.expectEqual(900, pot.name);
+    // The game's types offer the game's landings, the Reliant's and the Yamato's alone. A mod's type
+    // offers its base's in its base's model, none in a model of its own, and the one it gives.
+    try std.testing.expectEqual(ailand.Style.reliant, made[@backingInt(gameobj.GameType.reliant)].landing.?);
+    try std.testing.expectEqual(ailand.Style.yamato, made[@backingInt(gameobj.GameType.yamato)].landing.?);
+    try std.testing.expectEqual(null, made[@backingInt(gameobj.GameType.victorious)].landing);
+    try std.testing.expectEqual(null, pot.landing);
+    try std.testing.expectEqual(ailand.Style.reliant, made[additions.ships.first + 1].landing.?);
+    try std.testing.expectEqual(null, made[additions.ships.first + 2].landing);
+    try std.testing.expectEqual(ailand.Style.bay, made[additions.ships.first + 3].landing.?);
 }
 
 test "ShipCombat.nameString" {
@@ -1364,6 +1404,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
         object.armor = .all(0);
         object.flags = .standing_in;
         object.radius = stand_in_radius;
+        slot.landing = null;
         hooks.tell(all, .object_added, .{ .object = .of(index) });
         return index;
     };
@@ -1372,6 +1413,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     const combat = &tables.combat[stats_type];
     slot.combat = combat;
     slot.flight = &tables.flight[stats_type];
+    slot.landing = tables.landing[stats_type];
     slot.motion = .forward;
     object.side = @fromBackingInt(@backingInt(combat.side));
 
@@ -2574,20 +2616,28 @@ test createObject {
     try std.testing.expectEqual(.hostile, all.slots[enemy].object.side);
     try std.testing.expectEqual(coalition_pilot, all.slots[enemy].object.pilot);
     try std.testing.expect(all.slots[enemy].object.flags.ecm);
+    // It offers no landing; a ship of a type the tables give one offers that.
+    try std.testing.expectEqual(null, all.slots[enemy].landing);
+    mission.tables.landing[@backingInt(gameobj.GameType.sabre)] = .bay;
+    const carrier = try createObject(all, &mission.tables, model.types(), null, .of(.sabre), 0, .{ 0, 0, 0 }, &mission.random);
+    try std.testing.expectEqual(ailand.Style.bay, all.slots[carrier].landing.?);
 
     // A slot filled once is not filled again, and nothing lies past the last.
     try std.testing.expectError(error.CreatedTwice, createObject(all, &mission.tables, model.types(), player, .of(.predator), 0, @splat(0), &mission.random));
     try std.testing.expectError(error.Overrun, createObject(all, &mission.tables, model.types(), gameobj.max_objects, .of(.predator), 0, @splat(0), &mission.random));
 
-    // Above the last ship type, a stand-in for a marker, at a slot of its own.
+    // Above the last ship type, a stand-in for a marker, at a slot of its own, which offers no
+    // landing.
+    all.slots[20].landing = .reliant;
     const marker = try createObject(all, &mission.tables, model.types(), 20, .of(.marker), 0, @splat(0), &mission.random);
     try std.testing.expectEqual(20, marker);
-    try std.testing.expectEqual(2, all.count);
+    try std.testing.expectEqual(3, all.count);
     const stand_in = all.slots[marker];
     try std.testing.expectEqual(GameObject.Flags.standing_in, stand_in.object.flags);
     try std.testing.expectEqual(stand_in_radius, stand_in.object.radius);
     try std.testing.expectEqual(null, stand_in.model);
     try std.testing.expectEqual(null, stand_in.combat);
+    try std.testing.expectEqual(null, stand_in.landing);
 
     // Reset, the slot stands in again, and can be filled anew.
     resetSlot(mission.orders(), player);

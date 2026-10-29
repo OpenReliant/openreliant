@@ -1145,10 +1145,10 @@ fn holdRiders(all: *create.Objects, timing: objects.Timing, now: i32) void {
 }
 
 /// Places the ship in slot `index` on the node it rides, as a launch holds it in its carrier's bay
-/// (`launch.hold`) or the Yamato's landing on its bay's pad (`ailand.hold`). Returns whether it
-/// placed the ship.
+/// (`launch.hold`) or the Yamato's landing on its bay's pad (`ailand.yamato.hold`). Returns
+/// whether it placed the ship.
 fn holdRider(all: *create.Objects, index: u16) bool {
-    return launch.hold(all, index) or ailand.hold(all, index);
+    return launch.hold(all, index) or ailand.yamato.hold(all, index);
 }
 
 /// Frames the object in `slot` as far through the simulation's step as `timing` says

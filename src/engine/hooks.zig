@@ -242,6 +242,13 @@ pub const functions = struct {
         .subject = null,
     };
 
+    pub const permission_to_land: Declaration = .{
+        .address = 0x00453DE0,
+        .about = "The player asks for PERMISSION TO LAND, with its key or the radio's menu, heard at most once in 500 ticks. The pilot asks, and the flight instructor answers in training, or else the player's carrier, where it offers a landing (`world.player_carrier`, the object's `landing`). Once the mission's script has set `landing_cleared`, the answer clears the ship, which lands; otherwise the carrier refuses. A handler that stops it can answer and land the ship its own way, such as with an order of its own.",
+        .Fields = struct { _game_ticks: u32 },
+        .subject = null,
+    };
+
     pub const missile_launch: Declaration = .{
         .address = 0x00496290,
         .about = "`launcher` launches a missile from one of its racks at `target`.",

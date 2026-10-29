@@ -195,8 +195,8 @@ launch tube the ship lands in, which the landing keeps, turned as the carrier is
 The display names view `0x23`, but not `0x26`. **Improvement:** from within the tube, the sound is
 heard as in a hangar ([Sound](../port/sound.md)).
 
-**Improvement:** a landing in a hangar bay ([Landing](orders.md#landing)) picks one of the same
-two views, which stand by the bay instead, in the frame of the launch point of the gate the ship
+**Improvement:** a landing in a hangar bay or in the Badanov's bay ([Landing](orders.md#landing))
+picks one of the same two views, which stand by the bay instead, in the frame of the place the ship
 lands at. They go by the ship and the bay rather than by fixed distances, so that they frame a
 landing on any carrier. View `0x23` stands in the bay off the launch point, by the landing ship's
 radius: one radius to the right, a third of one above and one and three quarters out towards the

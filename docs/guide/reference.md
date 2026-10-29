@@ -188,6 +188,7 @@ The mission's objects, the player's ship and the mission itself. For global scri
 |---|---|---|
 | `player` | [object](#objects), or nil | The player's ship, while a mission runs; nil between missions. |
 | `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
+| `player_carrier` | [object](#objects), or nil | The player's carrier: the ship the player launched from, unless a script sets another (`set_player_carrier`). PERMISSION TO LAND asks it, and its bridge speaks to the player. Nil where there is none, as in a mission the player starts in flight, and between missions. |
 | `objects()` | list of [objects](#objects) | Every object in the mission, in the order of their slots. |
 | `missiles()` | list of [missile](#missiles) | Every missile in flight, newest first. |
 | `set_player_target(target: Object, component: number?)` | boolean | Makes `target`, or its component number `component`, the player's target, as a mission's SetPlayerTarget does: the display shows it, and the player stops matching speeds. Returns whether it worked: false for a target the player can't aim at, such as a destroyed component, and between missions. |
@@ -195,6 +196,7 @@ The mission's objects, the player's ship and the mission itself. For global scri
 | `set_objective(objective: number, state: ObjectiveState)` | boolean | Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names. |
 | `variable(name: GameVariable)` | number, or nil | The value of the game's variable `name` in the mission that runs, as the mission's script reads it. Nil between missions. |
 | `set_variable(name: GameVariable, value: number)` | boolean | Sets the game's variable `name` to `value` in the mission that runs, as the mission's script sets it. The campaign keeps the value from one mission to the next where it keeps the variable. Returns false between missions. |
+| `set_player_carrier(ship: Object?)` | boolean | Makes `ship` the player's carrier (`player_carrier`): PERMISSION TO LAND asks it, its bridge answers, and the player's ship lands on it where it offers a landing (its `landing`). Nil leaves the player without a carrier. Returns false between missions. |
 
 ### `openreliant.self`
 
@@ -485,6 +487,7 @@ scripts on their object.
 | `cloaked` | boolean | *Changes.* Whether it's cloaked. Setting it cloaks or uncloaks it, as a mission's Cloak does, where its model can. |
 | `targetable` | boolean | *Changes.* Whether ships can target it. Setting it is what a mission's SetTargetable does: a type that can't be targeted stays so. |
 | `lights` | boolean | *Changes.* Whether its lights are on. Setting it is what a mission's DisableLights does. |
+| `landing` | [Landing](#landing), or nil | *Changes.* How the player's ship lands on it, as its type's record has it when it's made (`ShipTypeRecord.landing`); nil where the player can't land on it. Setting it lets the player land on this ship, or keeps the player off it, for the rest of the mission. PERMISSION TO LAND and a mission's land order only bring the player's ship down on a ship that offers a landing. |
 | `disabled` | boolean | *Changes.* Whether it's left out of the mission's work, as a mission's DisableObject leaves it. |
 | `guns_disabled` | boolean | *Changes.* Whether its guns don't fire and its turrets rest, as a mission's DisableGuns sets. |
 | `missiles_disabled` | boolean | *Changes.* Whether it can't launch missiles, as a mission's DisableMissiles sets. |
@@ -679,6 +682,7 @@ turret, and a turret's own scripts on their turret.
 |---|---|---|
 | `player` | [object](#objects), or nil | The player's ship, while a mission runs; nil between missions. |
 | `mission` | [Mission](#mission), or nil | The mission that runs, with its `number` and its `file`'s name; nil between missions. |
+| `player_carrier` | [object](#objects), or nil | The player's carrier: the ship the player launched from, unless a script sets another (`set_player_carrier`). PERMISSION TO LAND asks it, and its bridge speaks to the player. Nil where there is none, as in a mission the player starts in flight, and between missions. |
 | `objects()` | list of [objects](#objects) | Every object in the mission, in the order of their slots. |
 | `missiles()` | list of [missile](#missiles) | Every missile in flight, newest first. |
 | `set_player_target(target: Object, component: number?)` | boolean | Makes `target`, or its component number `component`, the player's target, as a mission's SetPlayerTarget does: the display shows it, and the player stops matching speeds. Returns whether it worked: false for a target the player can't aim at, such as a destroyed component, and between missions. |
@@ -686,6 +690,7 @@ turret, and a turret's own scripts on their turret.
 | `set_objective(objective: number, state: ObjectiveState)` | boolean | Objective `objective` of the mission that runs, numbered from 0 to 9 as a mission's SetObjective numbers them, takes `state`, as SetObjective does: `hidden`, `listed`, or `current`, which the objectives window then shows. Returns whether it changed: false between missions, and in a mission whose objectives nothing names. |
 | `variable(name: GameVariable)` | number, or nil | The value of the game's variable `name` in the mission that runs, as the mission's script reads it. Nil between missions. |
 | `set_variable(name: GameVariable, value: number)` | boolean | Sets the game's variable `name` to `value` in the mission that runs, as the mission's script sets it. The campaign keeps the value from one mission to the next where it keeps the variable. Returns false between missions. |
+| `set_player_carrier(ship: Object?)` | boolean | Makes `ship` the player's carrier (`player_carrier`): PERMISSION TO LAND asks it, its bridge answers, and the player's ship lands on it where it offers a landing (its `landing`). Nil leaves the player without a carrier. Returns false between missions. |
 
 ### I.Campaign
 
@@ -801,6 +806,11 @@ The radio says a line: the speech file `speech`, its speaker's face playing the 
 | `speech` | string |
 | `film` | string |
 | `mode` | [RadioMode](#radiomode) |
+
+### permission_to_land
+
+The player asks for PERMISSION TO LAND, with its key or the radio's menu, heard at most once in 500 ticks. The pilot asks, and the flight instructor answers in training, or else the player's carrier, where it offers a landing (`world.player_carrier`, the object's `landing`). Once the mission's script has set `landing_cleared`, the answer clears the ship, which lands; otherwise the carrier refuses. A handler that stops it can answer and land the ship its own way, such as with an order of its own.
+
 
 ### missile_launch
 
@@ -1939,6 +1949,10 @@ number. A script can set a field to either.
 ### Invulnerability
 
 `none`, `player_can_hit`, `full`, `eject_before_exploding`, or a number.
+
+### Landing
+
+`yamato`, `reliant`, `bay`, `badanov`.
 
 ### PartClass
 

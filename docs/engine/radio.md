@@ -177,6 +177,11 @@ answer 300 ticks on:
   from `_lnd_017` to `_lnd_024` for any other; refusing it, from `_lnd_den_01` to `_lnd_den_04`.
   It also writes "DEBUG: Mission is flagged as a" and the rating's name into a line nothing shows.
 
+**Improvement:** outside training, OpenReliant asks only where the player's carrier offers a
+landing, and asks nothing otherwise ([Landing](orders.md#landing)). A ship type can't name a bridge
+officer of its own yet, so any carrier other than a Yamato answers with the Reliant's officer, a
+mod's carrier too ([#1340](https://github.com/OpenReliant/openreliant/issues/1340)).
+
 ## The wingmen's commands
 
 ATTACK MY TARGET (`0x00454C20`), BACK OFF (`0x00454FA0`) and HELP ME (`0x00455330`) go to the

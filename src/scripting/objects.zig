@@ -306,6 +306,16 @@ pub const fields = struct {
         }
     });
 
+    pub const landing = api.Field(?engine.game.ailand.Style, "How the player's ship lands on it, as its type's record has it when it's made (`ShipTypeRecord.landing`); nil where the player can't land on it. Setting it lets the player land on this ship, or keeps the player off it, for the rest of the mission. PERMISSION TO LAND and a mission's land order only bring the player's ship down on a ship that offers a landing.", struct {
+        pub fn get(all: *const create.Objects, index: u16) ?engine.game.ailand.Style {
+            return all.slots[index].landing;
+        }
+
+        pub fn set(_: Call, all: *create.Objects, index: u16, value: ?engine.game.ailand.Style) void {
+            all.slots[index].landing = value;
+        }
+    });
+
     pub const disabled = Flag("disabled", "Whether it's left out of the mission's work, as a mission's DisableObject leaves it.");
     pub const guns_disabled = Flag("guns_disabled", "Whether its guns don't fire and its turrets rest, as a mission's DisableGuns sets.");
     pub const missiles_disabled = Flag("missiles_disabled", "Whether it can't launch missiles, as a mission's DisableMissiles sets.");
