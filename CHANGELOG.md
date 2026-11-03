@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0-rc.1](https://github.com/OpenReliant/openreliant/compare/v0.21.0...v1.0.0-rc.1) (2026-11-03)
+
+
+### Chores
+
+* start the 1.0 release candidate cycle ([#1342](https://github.com/OpenReliant/openreliant/issues/1342)) ([9554c0d](https://github.com/OpenReliant/openreliant/commit/9554c0d491b03604d8df54ca5ce4ce84c1dcf583)), closes [#77](https://github.com/OpenReliant/openreliant/issues/77)
+
 ## [0.21.0](https://github.com/OpenReliant/openreliant/compare/v0.20.0...v0.21.0) (2026-10-29)
 
 
