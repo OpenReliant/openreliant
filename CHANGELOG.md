@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/OpenReliant/openreliant/compare/v1.0.0-rc.1...v1.0.0) (2026-11-10)
+
+
+### Chores
+
+* publish the 1.0.0 release ([#1344](https://github.com/OpenReliant/openreliant/issues/1344)) ([ece3666](https://github.com/OpenReliant/openreliant/commit/ece36668d25a3d2615057f439940f8e60453762f))
+
 ## [1.0.0-rc.1](https://github.com/OpenReliant/openreliant/compare/v0.21.0...v1.0.0-rc.1) (2026-11-03)
 
 
