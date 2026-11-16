@@ -580,6 +580,8 @@ pub const InStep = enum(u32) {
     waiting = 0,
     coming = 1,
     done = 2,
+    /// OpenReliant's: no gate has a tunnel to come in through, and the order ends.
+    stranded = 3,
     _,
 };
 
@@ -630,14 +632,18 @@ const Aimed = struct { gate: u16, record: *Record };
 /// straight ahead, and leaves the spread as it is.
 ///
 /// **Fix:** the game asserts where the order names nothing, and reads the record before the first
-/// where the object has no tunnel; OpenReliant logs either, and the order ends at its update.
+/// where the object has no tunnel; OpenReliant logs either, and the order takes the `stranded`
+/// step, which ends it at its update without holding the ship.
 pub fn jumpInInit(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
     const gates = world.gates orelse return;
     const slot = &all.slots[index];
     const state = &slot.state.gate;
-    const record = (aimed(gates, all, index) orelse return).record;
+    const record = (aimed(gates, all, index) orelse {
+        state.step = .{ .in = .stranded };
+        return;
+    }).record;
     state.let_go = false;
     if (slot.model) |*model| xtrabits.clipTree(model, &record.portal);
     const player = index == all.player;
@@ -709,6 +715,12 @@ const krasny_missions = [2]u16{ 0x10, 0x42 };
 /// `krasny_split_at` of the way, a Krasny that a collapse has caught splits (`splitKrasny`);
 /// otherwise it is too late for a collapse to catch one (`Gates.krasny_in_time`), which is logged
 /// once, where the game logs it every frame.
+///
+/// A tunnel let go of while the ship waits its turn or comes through ends the order the same way,
+/// the ship let go with its event
+/// ([#1346](https://github.com/OpenReliant/openreliant/issues/1346)); the game, finding no record,
+/// read past its records' table and went on anyway, and what it did with a ship in the first fifth
+/// of its way, or one still waiting, is unknown.
 pub fn jumpIn(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -716,7 +728,15 @@ pub fn jumpIn(ctx: aigeneric.Context, index: u16) void {
     const state = &slot.state.gate;
     const elapsed = gameobj.progressSince(&state.updated, world.clock.frame_start);
     const gates = world.gates orelse return aigeneric.end(ctx, index);
-    const found = aimed(gates, all, index) orelse return aigeneric.end(ctx, index);
+    const found = aimed(gates, all, index) orelse {
+        switch (state.step.in) {
+            .waiting, .coming, .done => {
+                const gate = slot.orders[0].target.slotIn(all) orelse return aigeneric.end(ctx, index);
+                return jumpedIn(ctx, index, gate, true);
+            },
+            else => return aigeneric.end(ctx, index),
+        }
+    };
     const record = found.record;
     switch (state.step.in) {
         .waiting => {
@@ -758,6 +778,7 @@ pub fn jumpIn(ctx: aigeneric.Context, index: u16) void {
             if (!krasnyRun(all, index)) record.squares_shown = true;
         },
         .done => jumpedIn(ctx, index, found.gate, true),
+        .stranded => aigeneric.end(ctx, index),
         _ => {},
     }
 }
@@ -1694,6 +1715,62 @@ test "a ship comes in through a gate" {
     try std.testing.expect(!object.flags.frozen and !object.flags.unpowered and object.flags.targetable);
     // It overshoots by the last update's step past the end, as the game's ships do.
     try std.testing.expectApproxEqRel(53000, math.length(object.position()), 0.05);
+}
+
+test "a ship is let go when its gate closes before it is through" {
+    const gpa = std.testing.allocator;
+    var run: testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    const mission = &run.mission;
+    _ = try mission.add(.of(.predator), @splat(0));
+    const coming = try mission.add(.of(.predator), .{ 0, 0, -100000 });
+    const waiting = try mission.add(.of(.predator), .{ 0, 0, -100000 });
+    const gate = try mission.add(.of(.proto_gate), @splat(0));
+    const ctx = run.orders();
+    _ = (try run.built.gates.make(ctx.world, gate, .proto, @splat(0))).?;
+
+    _ = try aigeneric.pushShip(ctx, coming, .fixed_gate_jump_in, gate, null);
+    _ = try aigeneric.pushShip(ctx, waiting, .fixed_gate_jump_in, gate, null);
+    aigeneric.objectOrders(ctx, coming);
+    aigeneric.objectOrders(ctx, waiting);
+    try std.testing.expect(mission.slot(coming).object.flags.frozen);
+    try std.testing.expect(mission.slot(waiting).object.flags.frozen);
+    mission.ordersAfter(ctx, coming, 25);
+    mission.ordersAfter(ctx, waiting, 25);
+    _ = try aigeneric.push(ctx, gate, .fixed_gate_close, .none);
+    while (mission.slot(gate).object.order_count > 0) {
+        mission.ordersAfter(ctx, gate, 1);
+        run.built.gates.endFrame(mission.clock.frame_start);
+    }
+    try std.testing.expectEqual(null, run.built.gates.of(gate));
+
+    mission.ordersAfter(ctx, coming, 1);
+    mission.ordersAfter(ctx, waiting, 1);
+    for ([_]u16{ coming, waiting }) |ship| {
+        const object = &mission.slot(ship).object;
+        try std.testing.expectEqual(0, object.order_count);
+        try std.testing.expect(!object.flags.frozen and !object.flags.unpowered and object.flags.targetable);
+    }
+}
+
+test "a ship whose gate has no tunnel ends its jump in alone" {
+    const gpa = std.testing.allocator;
+    var run: testing.Run = undefined;
+    try run.init(gpa);
+    defer run.deinit(gpa);
+    const mission = &run.mission;
+    _ = try mission.add(.of(.predator), @splat(0));
+    const ship = try mission.add(.of(.predator), @splat(0));
+    const gate = try mission.add(.of(.proto_gate), @splat(0));
+    const ctx = run.orders();
+
+    _ = try aigeneric.pushShip(ctx, ship, .fixed_gate_jump_in, gate, null);
+    aigeneric.objectOrders(ctx, ship);
+    // The order never takes hold, so the ship is not held, and it is not let go either.
+    const object = &mission.slot(ship).object;
+    try std.testing.expect(!object.flags.frozen and !object.flags.unpowered);
+    try std.testing.expectEqual(0, object.order_count);
 }
 
 test "the player's ship goes out through the nearest gate and rides the worm" {
