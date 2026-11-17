@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/OpenReliant/openreliant/compare/v1.0.0...v1.0.1) (2026-11-16)
+
+
+### Fixes
+
+* let a ship go whose gate closes before it is through ([#1348](https://github.com/OpenReliant/openreliant/issues/1348)) ([d2c62de](https://github.com/OpenReliant/openreliant/commit/d2c62de0e27b6ee0c896c87d703cba94e79c4f0c))
+
 ## [1.0.0](https://github.com/OpenReliant/openreliant/compare/v1.0.0-rc.1...v1.0.0) (2026-11-10)
 
 
