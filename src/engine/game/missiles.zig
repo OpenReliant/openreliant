@@ -989,7 +989,7 @@ fn collide(world: gameobj.World, at: u8) bool {
         if (object.shields.get(struck) < 0 or object.invulnerable == ._unknown_4) return hitHull(world, at, index, struck);
         const stats = missile.stats(&all.missile_stats);
         if (stats.damage.shield > 0) {
-            const reaches = index != all.player or !world.player.shield_reserves.spare(struck, stats.damage.shield);
+            const reaches = if (all.playerState(index)) |state| !state.shield_reserves.spare(struck, stats.damage.shield) else true;
             if (reaches) collision.damageFrom(world, index, struck, stats.damage.shield, stats.damage.hullShare(), missile.launcher, damageKind(missile.type));
         }
         if (!object.flags.cloaked) shield.flare(world, index, point);
@@ -1455,6 +1455,7 @@ test collide {
     const enemy = try armed.add(.hostile, .{ 0, 0, 5000 });
     all.slots[enemy].object.radius = 100;
 
+    all.player_states[enemy].shield_reserves.aft = 10000;
     // A missile passing through its sphere with its shields up spends itself on them.
     launch(world, player, 0, .none);
     var missile = armed.missile(0);
@@ -1474,8 +1475,10 @@ test collide {
 
     // The enemy's on the player's fore shield is taken off the fore reserve while it holds,
     // sparing the shield.
+    all.players = 2;
+    all.player = enemy;
     all.slots[player].object.radius = 100;
-    const reserves = &world.player.shield_reserves;
+    const reserves = &all.playerState(player).?.shield_reserves;
     const fore = all.slots[player].object.shields.fore;
     launch(world, enemy, 0, .none);
     var theirs: u8 = all.missiles.newest.?;

@@ -550,7 +550,8 @@ pub const gauges = api.Field(?Gauges, "The targeting cluster about the middle of
 pub const ship_status = api.Field(?ShipStatus, "The ship status indicator, as it shows the player's shields and armour; nil for a ship without them, or outside a mission.", struct {
     pub fn get(call: Call) ?ShipStatus {
         const flight, const slot = flightOf(call) orelse return null;
-        const found, const shifted = hud.ShipStatus.playerRings(slot, flight.player.shield_reserves);
+        const all = call.runtime().objects orelse return null;
+        const found, const shifted = hud.ShipStatus.playerRings(slot, all.localPlayerState().shield_reserves);
         const rings = found orelse return null;
         const reserves = shifted orelse .{ 0, 0 };
         return .{

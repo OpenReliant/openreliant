@@ -209,7 +209,9 @@ pub const Shockwave = struct {
         object.shockwave_until = world.clock.frame_start + harm_pause;
         const value = wave.harm(world.objects, 1 - done);
         for (std.enums.values(collision.Quadrant)) |quadrant| {
-            const through = if (world.player.shield_reserves.of(quadrant)) |reserve| through: {
+            // Local-only victims still need the per-player effects audit
+            // ([#1368](https://github.com/OpenReliant/openreliant/issues/1368)).
+            const through = if (all.player_states[all.player].shield_reserves.of(quadrant)) |reserve| through: {
                 if (reserve.* <= 0) break :through value;
                 reserve.* -= value;
                 if (reserve.* >= 0) continue;
@@ -540,7 +542,7 @@ test "a split's shockwave" {
     const slot = &mission.objects.slots[player];
     slot.drawn.position = .{ 0, 0, 1000 };
     slot.object.shields = .all(1000);
-    mission.player.shield_reserves = .{ .fore = 0, .aft = 0 };
+    mission.objects.player_states[mission.objects.player].shield_reserves = .{ .fore = 0, .aft = 0 };
 
     // A fifth through its life it passes the player: each quadrant takes the cube of what is left
     // of its life times its size, 0.015 of it for a Badanov's, half of that landing at medium
@@ -590,7 +592,7 @@ test "a torpedo's shockwave" {
     const slot = &mission.objects.slots[player];
     slot.drawn.position = .{ 0, 0, 1000 };
     slot.object.shields = .all(1000);
-    mission.player.shield_reserves = .{ .fore = 100, .aft = 1000 };
+    mission.objects.player_states[mission.objects.player].shield_reserves = .{ .fore = 100, .aft = 1000 };
 
     // A fifth through its life it passes the player: each quadrant takes 240, which lands on the
     // player's ship at half at medium difficulty; the fore's reserve runs out and the shield takes
@@ -603,8 +605,8 @@ test "a torpedo's shockwave" {
     try std.testing.expectApproxEqAbs(880, shields.at(.right).*, 1e-3);
     try std.testing.expectApproxEqAbs(950, shields.at(.fore).*, 1e-3);
     try std.testing.expectEqual(1000, shields.at(.aft).*);
-    try std.testing.expectEqual(0, mission.player.shield_reserves.fore);
-    try std.testing.expectApproxEqAbs(760, mission.player.shield_reserves.aft, 1e-3);
+    try std.testing.expectEqual(0, mission.objects.player_states[mission.objects.player].shield_reserves.fore);
+    try std.testing.expectApproxEqAbs(760, mission.objects.player_states[mission.objects.player].shield_reserves.aft, 1e-3);
     try std.testing.expectEqual(torpedo, slot.object.last_attacker.index());
     try std.testing.expectEqual(2, mission.shake);
     try std.testing.expectEqual(20 + harm_pause, slot.object.shockwave_until);

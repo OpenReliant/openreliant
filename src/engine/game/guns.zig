@@ -1851,11 +1851,13 @@ fn bulletHit(world: gameobj.World, bullet: *Bullet) void {
         defer if (!object.flags.cloaked) shield.flare(world, target, point);
         if (!object.flags.spectral_shields and record.damage.shield > 0) {
             const value = record.damage.shield;
-            // What the player has shifted fore or aft takes the hit before the quadrant does, and
-            // a hit it swallows whole leaves the shields alone.
-            if (target == all.player and world.player.shield_reserves.spare(struck, value)) {
-                bullet.dies_at = spent;
-                return;
+            // A shifted fore or aft reserve takes the hit first. If it still holds charge
+            // afterwards, the shield takes no damage.
+            if (all.playerState(target)) |state| {
+                if (state.shield_reserves.spare(struck, value)) {
+                    bullet.dies_at = spent;
+                    return;
+                }
             }
             collision.damageFrom(world, target, struck, dealt(all, target, bullet.kind, value), record.damage.hullShare(), bullet.owner, .bullet);
         }
@@ -2273,28 +2275,33 @@ test "a shot striking a hull throws sparks from where it struck" {
 }
 
 test "the player's shifted shields take a hit before the quadrant does" {
-    const gpa = std.testing.allocator;
-    var ship: testing.Ship = undefined;
-    try ship.init(gpa);
-    defer ship.deinit(gpa);
-    const world = ship.world();
-    // The ship that fires is the player's, so the target here is another slot shooting back.
-    const shooter = try ship.add(.of(.reaper), .{ 0, 0, 500 });
-    const player = &ship.mission.objects.slots[ship.mission.objects.player];
-    player.drawn = .{ .position = @splat(0), .orientation = math.identity };
-    ship.mission.player.shield_reserves = .{ .fore = 25, .aft = 0 };
+    for ([_]u16{ 0, 1 }) |displayed| {
+        const gpa = std.testing.allocator;
+        var ship: testing.Ship = undefined;
+        try ship.init(gpa);
+        defer ship.deinit(gpa);
+        const world = ship.world();
+        const all = world.objects;
+        all.players = 2;
+        all.player = displayed;
+        // A second ship fires back at the first, whether the first is local or remote.
+        const shooter = try ship.add(.of(.reaper), .{ 0, 0, 500 });
+        const player = &all.slots[0];
+        player.drawn = .{ .position = @splat(0), .orientation = math.identity };
+        all.player_states[0].shield_reserves = .{ .fore = 25, .aft = 0 };
 
-    // A shot into the player's fore quadrant comes off the reserve, and the shields are untouched.
-    ship.mission.objects.slots[shooter].guns[0].turret.fixed.fire(world, shooter, false);
-    const bullet = &world.objects.bullets.pool[0];
-    bullet.last = .{ 0, 0, 500 };
-    bullet.at = .{ 0, 0, -100 };
-    bullet.candidates[0] = .{ .object = .of(world.objects, world.objects.player) };
-    bullet.candidate_count = 1;
-    const shields = player.object.shields;
-    bulletsFrame(world, &ship.mission.clock, 0);
-    try std.testing.expectEqual(15, ship.mission.player.shield_reserves.fore);
-    try std.testing.expectEqual(shields, player.object.shields);
+        // A shot into the player's fore quadrant comes off the reserve, and the shields are untouched.
+        ship.mission.objects.slots[shooter].guns[0].turret.fixed.fire(world, shooter, false);
+        const bullet = &world.objects.bullets.pool[0];
+        bullet.last = .{ 0, 0, 500 };
+        bullet.at = .{ 0, 0, -100 };
+        bullet.candidates[0] = .{ .object = .of(all, 0) };
+        bullet.candidate_count = 1;
+        const shields = player.object.shields;
+        bulletsFrame(world, &ship.mission.clock, 0);
+        try std.testing.expectEqual(15, all.player_states[0].shield_reserves.fore);
+        try std.testing.expectEqual(shields, player.object.shields);
+    }
 }
 
 test "a heard shot sounds, following it" {

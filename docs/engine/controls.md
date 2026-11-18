@@ -357,6 +357,9 @@ to its reserve, which holds as much again. A reserve keeps the other side's shie
 [recharging](objects.md#shields) to full. The ship status display shows each reserve as a second arc
 outside the fore or aft shield's ([Head-up display](hud.md#the-elements)).
 
+OpenReliant keeps these reserves in each [player's simulation state](players.md), rather than
+in local input state. The HUD reads the displayed player's reserves from the drawing snapshot.
+
 ## Force feedback
 
 With a force-feedback joystick, `load_force_effects` reads 13 of the files in `forces\`
