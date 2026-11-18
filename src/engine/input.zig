@@ -1454,6 +1454,7 @@ test {
 // --- The player's controls -----------------------------------------------------------------
 
 const gameobj = @import("game/gameobj.zig");
+const players = @import("game/players.zig");
 const create = @import("game/create.zig");
 const gameflow = @import("game/gameflow.zig");
 const camera = @import("game/camera.zig");
@@ -1627,8 +1628,7 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
         }
         flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
         matchSpeedFor(world, index, command.match_speed, if (index == all.player) world.view() else .cockpit);
-        // Weapon selection and lock state still belong to the local display
-        // ([#1370](https://github.com/OpenReliant/openreliant/issues/1370)).
+        applyWeaponCommand(world, index, command.weapons);
         return;
     };
     // Remote participants never read this machine's devices. Non-player Player Control orders
@@ -2019,23 +2019,9 @@ test nextNavPoint {
 /// Not ported: in a multiplayer game, FIRE LASERS firing from under the cloak, and typing a
 /// message, which leaves them unread ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
-    const slot = &world.objects.slots[index];
-    const object = &slot.object;
     const mouse = if (devices.controlMode() == .mouse) devices.mouse.state.buttons else Mouse.Buttons{};
-    if (devices.active(.fire_lasers, false) or mouse.left) {
-        if (!object.flags.jumping) {
-            if (world.display) |display| _ = display.windows.open(.gunnery, false);
-            if (object.flags.cloaked) {
-                setCloak(world, false);
-            } else {
-                var trigger = slot.trigger(world.clock.frame_start);
-                trigger.shake = world.shake;
-                guns.fire(object, trigger, guns.held_ticks);
-            }
-        }
-    } else if (!object.flags.jumping and object.nova_charge > 0 and object.type.base().carriesNova()) {
-        guns.nova.release(world, index);
-    }
+    const fire = devices.active(.fire_lasers, false) or mouse.left;
+    fireGuns(world, index, fire, .local_devices);
     if (devices.active(.launch_missile, true)) launchMissile(world, index);
     if (mouse.right) {
         if (!world.player.mouse_launched) {
@@ -2045,26 +2031,87 @@ pub fn playerWeapons(world: gameobj.World, devices: *Devices, index: u16) void {
     } else {
         world.player.mouse_launched = false;
     }
-    if (devices.active(.cloak_ship, true) and world.view() != .director and cloak.canCloak(slot)) {
-        const settled = if (slot.cloak) |cloaking| !cloaking.changing else true;
-        const on = !object.flags.cloaked;
-        setCloak(world, on);
-        if (settled) {
-            hud.beep(world, if (on) .on else .off);
-            betty.sayIn(world, cloak_said.of(on));
-        }
+    if (devices.active(.cloak_ship, true) and world.view() != .director) {
+        toggleLocalCloak(world, index);
     }
     if (devices.active(.jump_drive, true) and world.player.ending == .playing) playerJump(world);
     if (devices.active(.eject, true)) eject(world, index);
     if (devices.active(.countermeasures, true) and world.player.ending == .playing) {
-        const left = world.objects.slots[index].object.countermeasures;
-        switch (left) {
-            0 => betty.sayIn(world, .countermeasures_gone),
-            2, 4, 6 => betty.sayIn(world, .countermeasures_low),
-            else => {},
-        }
-        if (world.countermeasures) |dropped| dropped.spend(world, index);
+        spendCountermeasure(world, index, true);
     }
+}
+
+const WeaponSource = enum {
+    local_devices,
+    submitted,
+
+    fn presents(source: WeaponSource, all: *const create.Objects, index: u16) bool {
+        return source == .local_devices or index == all.player;
+    }
+
+    fn setCloakFor(source: WeaponSource, world: gameobj.World, index: u16, on: bool) void {
+        switch (source) {
+            .local_devices => setCloak(world, on),
+            .submitted => cloak.set(world, index, on),
+        }
+    }
+};
+
+fn applyWeaponCommand(world: gameobj.World, index: u16, command: players.WeaponCommand) void {
+    const all = world.objects;
+    const object = &all.slots[index].object;
+    if (object.flags.stand_in or object.flags.disabled or object.flags.outOfFrame()) return;
+    const weapons = all.commandedWeapons(index) orelse return;
+    if (command.rotate_missiles) |way| _ = weapons.ring.turn(way);
+    fireGuns(world, index, command.fire_guns, .submitted);
+    if (command.launch_missile) launchSelected(world, index, weapons, .submitted);
+    // Explicit cloak activation needs participant-owned device charge
+    // ([#1372](https://github.com/OpenReliant/openreliant/issues/1372)).
+    if (command.countermeasures) spendCountermeasure(world, index, index == all.player);
+}
+
+fn fireGuns(world: gameobj.World, index: u16, held: bool, source: WeaponSource) void {
+    const all = world.objects;
+    const slot = &all.slots[index];
+    const object = &slot.object;
+    if (object.flags.jumping) return;
+    const presents = source.presents(all, index);
+    if (held) {
+        if (presents) if (world.display) |display| {
+            _ = display.windows.open(.gunnery, false);
+        };
+        if (object.flags.cloaked) {
+            source.setCloakFor(world, index, false);
+        } else {
+            var trigger = slot.trigger(world.clock.frame_start);
+            if (presents) trigger.shake = world.shake;
+            guns.fire(object, trigger, guns.held_ticks);
+        }
+    } else if (object.nova_charge > 0 and object.type.base().carriesNova()) {
+        guns.nova.releaseWithFeedback(world, index, presents);
+    }
+}
+
+fn toggleLocalCloak(world: gameobj.World, index: u16) void {
+    const all = world.objects;
+    const slot = &all.slots[index];
+    if (!cloak.canCloak(slot)) return;
+    const settled = if (slot.cloak) |cloaking| !cloaking.changing else true;
+    const on = !slot.object.flags.cloaked;
+    setCloak(world, on);
+    if (settled) {
+        hud.beep(world, if (on) .on else .off);
+        betty.sayIn(world, cloak_said.of(on));
+    }
+}
+
+fn spendCountermeasure(world: gameobj.World, index: u16, presents: bool) void {
+    if (presents) switch (world.objects.slots[index].object.countermeasures) {
+        0 => betty.sayIn(world, .countermeasures_gone),
+        2, 4, 6 => betty.sayIn(world, .countermeasures_low),
+        else => {},
+    };
+    if (world.countermeasures) |dropped| dropped.spend(world, index);
 }
 
 /// EJECT (`0x00413D88`), while the mission goes on, or the pilot's ship is breaking up and the
@@ -2117,30 +2164,54 @@ const gone_pause = 500;
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn launchMissile(world: gameobj.World, index: u16) void {
     const all = world.objects;
-    const ship = &all.slots[index].object;
+    const weapons = &all.player_states[all.player].weapons;
+    launchSelected(world, index, weapons, .local_devices);
+}
+
+fn launchSelected(world: gameobj.World, index: u16, weapons: *players.Weapons, source: WeaponSource) void {
+    const all = world.objects;
+    const slot = &all.slots[index];
+    const ship = &slot.object;
     if (ship.flags.missiles_disabled or ship.flags.jumping) return;
-    if (ship.type.base() == .kamov) return launchCarried(world, index);
-    const display = world.display orelse return;
-    const ring = &display.missiles;
+    if (ship.type.base() == .kamov) return launchCarried(world, index, source);
+    const display = if (source.presents(all, index)) world.display else null;
+    if (source == .local_devices and display == null) return;
+    const ring = &weapons.ring;
     const armed = ring.armedEntry();
-    const locked = display.lock.locked();
+    const current = slot.current();
+    const locked = weapons.lock.locked() and switch (source) {
+        .local_devices => true,
+        .submitted => if (current) |entry| weapons.lock.holds(world, index, ring, entry.target) != null else false,
+    };
     if (armed.type.base().needsLock() and !locked) {
-        if (world.sounds) |asked| asked.add(.{ .sample = .{ .bank = .stdsmp, .index = refused_sample } });
-        if (armed.count != 0 or world.clock.game_ticks <= ring.empty_warned_until) return;
-        betty.sayIn(world, .missiles_gone);
-        ring.empty_warned_until = world.clock.game_ticks + gone_pause;
+        if (display) |shown| {
+            if (world.sounds) |asked| asked.add(.{ .sample = .{ .bank = .stdsmp, .index = refused_sample } });
+            if (armed.count == 0 and world.clock.game_ticks > shown.missile_empty_warned_until) {
+                betty.sayIn(world, .missiles_gone);
+                shown.missile_empty_warned_until = world.clock.game_ticks + gone_pause;
+            }
+        }
         return;
     }
-    if (ship.flags.cloaked) return setCloak(world, false);
-    if (display.windows.open(.missiles, false)) display.windows.status.getPtr(.missiles).held = true;
-    if (armed.count == 0) betty.sayIn(world, .missiles_gone);
+    if (ship.flags.cloaked) return source.setCloakFor(world, index, false);
+    if (display) |shown| {
+        if (shown.windows.open(.missiles, false)) shown.windows.status.getPtr(.missiles).held = true;
+        if (armed.count == 0) betty.sayIn(world, .missiles_gone);
+    }
     for (ship.fittedRacks(), 0..) |rack, at| {
         if (rack.type != armed.type or rack.count < 1) continue;
-        const current = if (locked) all.slots[index].current() else null;
-        const target: aigeneric.Target = if (current) |entry| entry.target.resolve(all) else .none;
+        const target: aigeneric.Target = if (locked) aimed: {
+            const entry = current orelse break :aimed .none;
+            break :aimed entry.target.resolve(all);
+        } else .none;
         missiles.launch(world, index, at, target);
-        armed.count -= 1;
-        ring.left -= 1;
+        switch (source) {
+            .local_devices => {
+                armed.count -= 1;
+                ring.left -= 1;
+            },
+            .submitted => ring.refreshCounts(ship),
+        }
         return;
     }
 }
@@ -2150,10 +2221,10 @@ pub fn launchMissile(world: gameobj.World, index: u16) void {
 /// uncloaks first (`setCloak`) and goes on. Each part of its root plays `objects.deploy_track` on from
 /// where it stands, in the track's own mode, at `deploy_speed`, and the waiting ship's launch
 /// starts (`launch.start`). Where none waits, nothing happens.
-fn launchCarried(world: gameobj.World, index: u16) void {
+fn launchCarried(world: gameobj.World, index: u16, source: WeaponSource) void {
     const all = world.objects;
     const waiting = waitingLaunch(all, index) orelse return;
-    if (all.slots[index].object.flags.cloaked) setCloak(world, false);
+    if (all.slots[index].object.flags.cloaked) source.setCloakFor(world, index, false);
     if (all.slots[index].model) |*model| model.playNamedTree(objects.deploy_track, objects.Model.keep_time, null, deploy_speed);
     launch.start(all, waiting);
 }
@@ -3165,8 +3236,9 @@ test "the mouse's right button launches once a press, in its mode" {
     const enemy = try armed.add(.hostile, .{ 0, 0, 20000 });
     _ = try aigeneric.push(armed.mission.orders(), index, .player_control, .at(enemy, null));
     var display: hud.State = .{};
-    display.missiles.build(&armed.mission.slot(index).object);
-    display.lock.phase = .locked;
+    const weapons = &armed.mission.objects.player_states[index].weapons;
+    weapons.ring.build(&armed.mission.slot(index).object);
+    weapons.lock.phase = .locked;
     var world = armed.mission.world();
     world.display = &display;
     var devices: Devices = .{ .settings = .{ .control_mode = .keyboard } };
@@ -3366,7 +3438,8 @@ test launchMissile {
     const target: aigeneric.Target = .at(enemy, null);
     _ = try aigeneric.push(armed.mission.orders(), player, .player_control, target);
     var display: hud.State = .{};
-    display.missiles.build(&armed.mission.slot(player).object);
+    const weapons = &armed.mission.objects.player_states[player].weapons;
+    weapons.ring.build(&armed.mission.slot(player).object);
     var world = armed.mission.world();
     world.display = &display;
 
@@ -3374,10 +3447,10 @@ test launchMissile {
     launchMissile(world, player);
     try std.testing.expectEqual(0, armed.live());
     // Locked, it flies at the target, the display holds its window open, and counts one off.
-    display.lock.phase = .locked;
+    weapons.lock.phase = .locked;
     launchMissile(world, player);
     try std.testing.expectEqual(target, armed.missile(0).target.resolve(armed.mission.objects));
-    try std.testing.expectEqual(0, display.missiles.armedEntry().count);
+    try std.testing.expectEqual(0, weapons.ring.armedEntry().count);
     try std.testing.expect(display.windows.status.get(.missiles).held);
     // None left on its rack, the next launches nothing.
     launchMissile(world, player);

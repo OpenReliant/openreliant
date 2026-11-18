@@ -1315,7 +1315,7 @@ fn replenishWeapons(call: Call, game: aigeneric.Context) void {
     else
         all.tierFit(ship, if (ship < all.players) 0 else std.math.lossyCast(u2, slot.object.loadout_tier));
     create.arm(all.gpa, slot, fit) catch |err| log.warn("mission ship {d} is not armed again: {s}", .{ ship, @errorName(err) });
-    if (ship == all.player) if (world.display) |display| display.missiles.build(&slot.object);
+    all.fitPlayerWeapons(ship);
     if (slot.combat) |combat| create.makeWhole(&slot.object, combat);
 }
 

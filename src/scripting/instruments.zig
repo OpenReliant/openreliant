@@ -426,8 +426,9 @@ pub const guns = api.Field(?Guns, "The player's guns as the gunnery window and t
 
 pub const missiles = api.Field(?Missiles, "The player's missiles as the missile window shows them; nil outside a mission.", struct {
     pub fn get(call: Call) ?Missiles {
-        const flight, _ = flightOf(call) orelse return null;
-        const ring = &flight.hud.missiles;
+        _ = flightOf(call) orelse return null;
+        const all = call.runtime().objects orelse return null;
+        const ring = &all.player_states[all.player].weapons.ring;
         var shown: Missiles = .{ .armed = null, .left = 0, .ring = .{} };
         for (ring.entries) |entry| {
             const left = entry.left() orelse continue;

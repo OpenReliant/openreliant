@@ -72,12 +72,28 @@ Target search, subtarget cycling, range checks and speed matching use the partic
 The display follows target changes only for the displayed participant. Automatic target upkeep
 runs for every participant, without adding a second selected-target field to `players.State`.
 
+## Weapon commands
+
+**Improvement:** each participant's simulation state owns missile selection and lock progress.
+The HUD and the scripting instruments read the displayed player's selection from the drawing
+snapshot. The HUD keeps the lock tone, missile name and warning sounds.
+
+The host receives a held gun trigger and presses to rotate missiles, launch a missile or drop
+a countermeasure. The host applies the ship's existing weapon rules. It takes ammunition from
+the ship's racks and checks the selected weapon, lock and current target before a guided launch.
+Changing the selected missile or target in the same command as a launch cannot reuse the old
+lock. A replacement ship starts with its own loadout and a fresh lock.
+
+Submitted commands advance locks on the game frame, including on a headless host. Local
+single-player controls keep the existing camera and wormhole checks, button latches and input
+order.
+
 ## Remaining work
 
 The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/955).
 
-- [#1370](https://github.com/OpenReliant/openreliant/issues/1370): weapon commands and per-player
-  missile selection and lock state. The existing local weapon path still uses the local display.
+- [#1372](https://github.com/OpenReliant/openreliant/issues/1372): per-player device charge and
+  activation, including explicit cloak activation. Weapon commands still respect the ship's cloak.
 - [#1367](https://github.com/OpenReliant/openreliant/issues/1367): scanner, mission ending and
   participant lifecycle, including joining and leaving.
 - [#1368](https://github.com/OpenReliant/openreliant/issues/1368): effects addressed to the player

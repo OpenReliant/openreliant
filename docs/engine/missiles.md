@@ -511,6 +511,10 @@ game's power-up, and what the Kamov's launch tells the other players.
 
 ### The lock
 
+**Improvement:** the [participant's simulation state](players.md#weapon-commands) owns the missile
+selection and lock. Submitted commands use the host's lock and rack state. The HUD reads the
+displayed player's state to show the ring and play the tone.
+
 The player's lock is `main.cpp`'s, by where its code lies: `hud_missile_lock` (`0x00491520`), once
 a frame from `mission_frame` while the last frame's view (`camera_view_last`, `0x00539A64`) is one of
 the cockpit's or the chase view, views 0 to 4 (`0x004933D7`), and while the player's ship has its
