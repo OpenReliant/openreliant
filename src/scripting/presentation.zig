@@ -713,7 +713,7 @@ test "a display stands in for the game's instruments and reads what they show" {
     state.missiles.entries[1] = .{ .count = 4, .type = .of(.raptor) };
     state.missiles.armed = 1;
     state.windows.status.getPtr(.gunnery).phase = .open;
-    state.target = .{ .target = .at(0, 3), .slot = 0 };
+    state.target = .{ .target = .at(0, 3), .slot = 0, .reference = .of(fixture.mission.objects, 0) };
     hud_drawing.bounds.set(.radar, .{ .left = 1, .top = 2, .right = 30, .bottom = 40 });
     hud_drawing.part_bounds.set(.radio_speaker, .{ .left = 5, .top = 6, .right = 50, .bottom = 16 });
     var player: input.Player = .{};
@@ -901,14 +901,14 @@ test "a display reads the radar's contacts and the target display" {
     part.armor = 50;
     slot.components[0] = &part;
     slot.object.component_count = 1;
-    fixture.mission.slot(0).orders[0].target = .at(sabre, 0);
+    fixture.mission.slot(0).orders[0].target = .at(all, sabre, 0);
     strings_table[hud.target_display.named(.engine).?.name - 1] = "Engine";
     // Its pilot, as the game gives a hostile ship until the mission names another.
     strings_table[hud.target_display.pilotName(all, slot).? - 1] = "Ace";
     const strings: engine.game.language.Language = .{ .strings = &strings_table };
     var state: hud.State = .{};
     var hud_drawing: hud.Drawing = .{};
-    state.target = .{ .target = .at(sabre, null), .slot = sabre };
+    state.target = .{ .target = .at(sabre, null), .slot = sabre, .reference = .of(all, sabre) };
     // Its fore quadrant flashes on its schematic.
     hud_drawing.flashes.target_hits = .initOne(.fore);
     var player: input.Player = .{};
@@ -934,6 +934,49 @@ test "a display reads the radar's contacts and the target display" {
     try std.testing.expectEqualStrings(text, fixture.shown.layers.get(.hud).text.items);
     try std.testing.expect(contact.at[1] < 0);
     fixture.shown.endGame();
+}
+
+test "cached HUD targets do not describe replacement objects" {
+    const gpa = std.testing.allocator;
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=a.luau\n" },
+            .{
+                "a.luau",
+                \\local hud = require("openreliant.hud")
+                \\local saved
+                \\return {engine_handlers = {on_frame = function()
+                \\    if saved == nil then
+                \\        saved = hud.target
+                \\        assert(saved.object:is_valid() and hud.target_display ~= nil)
+                \\        hud.text(vector.zero, "selected")
+                \\    else
+                \\        assert(not saved.object:is_valid())
+                \\        assert(hud.target == nil and hud.target_display == nil)
+                \\        hud.text(vector.zero, "gone")
+                \\    end
+                \\end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const all = fixture.mission.objects;
+    const ship = try fixture.mission.add(.of(.sabre), .{ 0, 0, 2000 });
+    fixture.mission.slot(ship).object.flags.targetable = true;
+    try fixture.shown.startGame(null, all, false);
+    const state: hud.State = .{ .target = engine.game.ai.ValidTarget.of(all, .at(ship, null), .{}) };
+    const hud_drawing: hud.Drawing = .{};
+    const host_flight: Host.Flight = .{ .hud = &state, .drawing = &hud_drawing, .player = &fixture.mission.player };
+    var host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .flight = host_flight };
+    host.views.set(.hud, .{ .font = &fixture.font, .gpa = gpa, .screen = .{ 640, 480 }, .scale = 1 });
+    fixture.shown.frame(host);
+    try std.testing.expectEqualStrings("selected", fixture.shown.layers.get(.hud).text.items);
+    create.resetSlot(fixture.mission.orders(), ship);
+    _ = try create.createObject(all, &fixture.mission.tables, create.testing.no_models, ship, .of(.sabre), 0, @splat(0), &fixture.mission.random);
+    fixture.shown.frame(host);
+    try std.testing.expectEqualStrings("gone", fixture.shown.layers.get(.hud).text.items);
 }
 
 test "a display reads the windows and the display's text" {

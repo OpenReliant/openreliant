@@ -91,7 +91,7 @@ pub fn set(world: gameobj.World, index: u16, on: bool) void {
     for (0..all.count) |at| {
         const other: u16 = @intCast(at);
         const entry = all.slots[other].current() orelse continue;
-        if (entry.order == .launch and entry.target.slot() == index) set(world, other, on);
+        if (entry.order == .launch and entry.target.resolve(all).slot() == index) set(world, other, on);
     }
 }
 
@@ -913,7 +913,7 @@ pub const Countermeasures = struct {
 
         for (&all.missiles.records) |*record| {
             const missile = &(record.* orelse continue);
-            if (missile.decoy != null or missile.target.slot() != slot) continue;
+            if (missile.decoy != null or missile.target.resolve(all).slot() != slot) continue;
             var chance = missile.stats(&all.missile_stats).decoy_chance;
             if (slot < all.players) {
                 chance += player_bonus;

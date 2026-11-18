@@ -84,7 +84,7 @@ test "the wing waits in the Reliant's tubes as the mission starts, its launch st
     for (world.objects.slots[0..4]) |*slot| {
         const entry = slot.current().?;
         try std.testing.expectEqual(Order.launch, entry.order);
-        try std.testing.expectEqual(reliant, entry.target.slot().?);
+        try std.testing.expectEqual(reliant, entry.target.slotIn(world.objects).?);
         try std.testing.expect(entry.data.launch.go);
     }
     // The capital ships wait with the script for the wing to be out, their guns held.

@@ -513,13 +513,15 @@ pub const Slot = struct {
     riding: ?objects.NodeOf = null,
     /// Its stack of orders, the current one first, `GameObject.order_count` of them
     /// (`GameObject.orders`), which the game allocates with the object's first order.
-    orders: [aigeneric.max_stack]aigeneric.Entry = @splat(std.mem.zeroes(aigeneric.Entry)),
+    orders: [aigeneric.max_stack]aigeneric.OrderState = @splat(.{}),
+    /// The ship chosen by Escort, including when its order names a group.
+    escort_target: aigeneric.Aim = .none,
     /// What the current order keeps between its updates (`GameObject.order_state`), allocated with
     /// the stack.
     state: aigeneric.State = .{ .bytes = @splat(0) },
     /// Its queue of orders waiting for their tick, `GameObject.queued_order_count` of them
     /// (`GameObject.queued_orders`), which the game allocates with the first (`aigeneric.queue`).
-    queued: [aigeneric.max_queued]aigeneric.Queued = @splat(std.mem.zeroes(aigeneric.Queued)),
+    queued: [aigeneric.max_queued]aigeneric.PendingOrder = @splat(.{}),
     /// Its guns, one for each muzzle of its model (`GameObject.guns`), made in the objects'
     /// allocator.
     guns: []guns.Fitted = &.{},
@@ -587,19 +589,19 @@ pub const Slot = struct {
 
     /// The entries of a stack, as mutable as the slot pointed at by `SlotPointer` is.
     fn Entries(comptime SlotPointer: type) type {
-        return if (@typeInfo(SlotPointer).pointer.attrs.@"const") []const aigeneric.Entry else []aigeneric.Entry;
+        return if (@typeInfo(SlotPointer).pointer.attrs.@"const") []const aigeneric.OrderState else []aigeneric.OrderState;
     }
 
     /// The orders waiting in its queue: `GameObject.queued_order_count` of them, none for a count
     /// below 0 and no more than the queue holds.
-    pub fn waiting(slot: *Slot) []aigeneric.Queued {
+    pub fn waiting(slot: *Slot) []aigeneric.PendingOrder {
         const count = std.math.cast(usize, slot.object.queued_order_count) orelse 0;
         return slot.queued[0..@min(count, slot.queued.len)];
     }
 
     /// The first entry of its stack that is `order`, where there is one (`player_control_entry`,
     /// `0x00402860`, and `launch_start`, `0x00418DB0`).
-    pub fn firstOrder(slot: *Slot, order: Order) ?*aigeneric.Entry {
+    pub fn firstOrder(slot: *Slot, order: Order) ?*aigeneric.OrderState {
         for (slot.stack()) |*entry| {
             if (entry.order == order) return entry;
         }

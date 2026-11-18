@@ -82,7 +82,7 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const holder = &all.slots[carrier];
     slot.riding = .{ .object = carrier };
     if (holder.model == null) return;
-    const place = gatePlace(holder, slot.orders[0].target.component) orelse {
+    const place = gatePlace(holder, slot.orders[0].target.resolve(all).component) orelse {
         log.warn("the carrier in slot {d} has no bay to launch from", .{carrier});
         return;
     };
@@ -134,9 +134,9 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
             slot.object.velocity = carrier_slot.object.velocity;
             state.advance(.of(Step.end), now, out_ticks);
             slot.object.throttle = out_throttle;
-            const number: f32 = @floatFromInt(@rem(slot.orders[0].target.component, gates_a_side));
+            const number: f32 = @floatFromInt(@rem(slot.orders[0].target.resolve(all).component, gates_a_side));
             slot.object.yaw_input = (number - steer_middle) * steer;
-            if (slot.orders[0].target.component < gates_a_side) slot.object.yaw_input *= -1;
+            if (slot.orders[0].target.resolve(all).component < gates_a_side) slot.object.yaw_input *= -1;
             state.attached = false;
             slot.motion = .plain;
         },

@@ -198,7 +198,7 @@ fn separate(ctx: Context, index: u16, cockpit: usize) void {
     object.flags.unpowered = true;
     object.flags.ejected = true;
     object.passes_through[0] = .of(left);
-    pod.orders[0].target.index = @intCast(left);
+    pod.orders[0].target = pod.orders[0].target.retarget(all, @intCast(left), pod.orders[0].target.resolve(all).component);
     object.rack_count = 0;
     object.shield_factor = 0;
     object.shields = .all(0);
@@ -636,7 +636,7 @@ test "a pilot ejects in the cockpit, which leaves the ship as the pod" {
     try std.testing.expect(pod.object.flags.unpowered and pod.object.flags.ejected);
     try std.testing.expectEqual(.full, pod.object.invulnerable);
     try std.testing.expectEqual(.player_can_hit, pod.state.eject.invulnerable);
-    try std.testing.expectEqual(left, pod.orders[0].target.ship());
+    try std.testing.expectEqual(left, pod.orders[0].target.shipIn(all));
     try std.testing.expectEqual(null, pod.motion);
     try std.testing.expectEqual(kick, pod.object.velocity.z);
     try std.testing.expectEqual(.clearing, pod.state.eject.stage);
@@ -767,7 +767,7 @@ test pickUp {
         try std.testing.expectEqual(fate.ending(), mission.player.ending);
         try std.testing.expectEqual(cutaway_place, pod.drawn.position);
         const ship = mission.slot(create.cutaway_slot);
-        try std.testing.expectEqual(index, ship.orders[0].target.ship());
+        try std.testing.expectEqual(index, ship.orders[0].target.shipIn(mission.objects));
         try std.testing.expectEqual(create.cutaway_slot, mission.player.viewing.object);
         switch (fate) {
             // A nanny ship, or the Antanov, short of the pod along Z, scoops it up, watched round

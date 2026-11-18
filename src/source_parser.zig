@@ -657,7 +657,7 @@ test "the guide's first mission plays as the guide says" {
     for (sabres) |sabre| {
         const entry = slots[sabre].current().?;
         try std.testing.expectEqual(Order.fight, entry.order);
-        try std.testing.expectEqual(player, entry.target.slot().?);
+        try std.testing.expectEqual(player, entry.target.slotIn(world.objects).?);
     }
     // Once both are destroyed, the mission is a success, and five seconds later, it is over.
     game.mission.events.destroyed(orders.world, sabres[0], null);

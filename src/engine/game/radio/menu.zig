@@ -383,7 +383,7 @@ fn taunt(ctx: aigeneric.Context, which: usize, addressed: i16) void {
     const combat = slot.combat orelse return;
     if (combat.class != .fighter) return;
     if (slot.current()) |current| {
-        if (aigeneric.prioritised(all, current.order) or current.target.index == @as(i16, @intCast(all.player))) return;
+        if (aigeneric.prioritised(all, current.order) or current.target.resolve(all).index == @as(i16, @intCast(all.player))) return;
     }
     switch (all.pilots.get(object.pilot)._unknown_20) {
         0, 1 => _ = world.random.rand(),
@@ -640,7 +640,7 @@ test "a taunt turns the enemy on the player" {
     menu.run(ctx);
     const current = all.slots[heard.enemy].current().?;
     try std.testing.expectEqual(.fight, current.order);
-    try std.testing.expectEqual(@as(i16, @intCast(all.player)), current.target.index);
+    try std.testing.expectEqual(@as(i16, @intCast(all.player)), current.target.resolve(all).index);
     // It answers in its pilot's voice.
     const report = heard.radio.reports[0] orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(i32, heard.enemy), report.object);

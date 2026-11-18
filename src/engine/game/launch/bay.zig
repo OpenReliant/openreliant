@@ -119,7 +119,7 @@ pub const Doors = struct {
     fn ofLaunch(all: *const create.Objects, slot: *const create.Slot) Doors {
         const target = slot.orders[0].target;
         const carrier = target.slotIn(all) orelse return .{};
-        return .of(all.slots[carrier].object.type, target.component);
+        return .of(all.slots[carrier].object.type, target.resolve(all).component);
     }
 };
 
@@ -141,7 +141,7 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     launch.attachAtGate(ctx, index, carrier);
     const all = ctx.world.objects;
     const slot = &all.slots[index];
-    const gate = slot.orders[0].target.component;
+    const gate = slot.orders[0].target.resolve(all).component;
     const carrier_type = all.slots[carrier].object.type;
     if (slot.riding == null and launch.Style.ofCarrier(carrier_type, gate) == null) log.warn("slot {d} launches from where it stands: {f} has no launch point {d}", .{ index, carrier_type, gate });
 }
@@ -223,11 +223,11 @@ pub fn playDoors(world: gameobj.World, carrier: *create.Slot, doors: Doors, way:
 /// same `doors`, from its delay until it closes them itself (`0x0041AB5D` on): its current order
 /// is Launch, aimed at the same carrier, in a bay's style, at step 1 to 4.
 fn doorsInUse(all: *const create.Objects, index: u16, doors: Doors) bool {
-    const carrier = all.slots[index].orders[0].target.index;
+    const carrier = all.slots[index].orders[0].target.resolve(all).index;
     for (all.slots[0..all.count], 0..) |*other, other_index| {
         if (other_index == index) continue;
         const entry = other.current() orelse continue;
-        if (entry.order != .launch or entry.target.index != carrier) continue;
+        if (entry.order != .launch or entry.target.resolve(all).index != carrier) continue;
         const state = other.state.launch;
         if (state.style != .bay or !std.meta.eql(Doors.ofLaunch(all, other), doors)) continue;
         const step = @backingInt(state.step);

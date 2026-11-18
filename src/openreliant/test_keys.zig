@@ -92,7 +92,7 @@ test bringWing {
     for (all.slots[1..all.count]) |slot| {
         try std.testing.expectEqual(game.gameobj.Type.of(.sabre), slot.object.type);
         try std.testing.expectEqual(wing_pilot.number(), slot.object.pilot);
-        try std.testing.expectEqual(player, slot.orders[0].target.ship());
+        try std.testing.expectEqual(player, slot.orders[0].target.shipIn(all));
         try std.testing.expectApproxEqAbs(-1, math.forward(slot.object.root.orientation)[2], 1e-6);
     }
 }

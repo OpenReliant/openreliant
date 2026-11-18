@@ -446,7 +446,7 @@ fn shipTarget(machine: *const vm.Machine, thread: u8, aim: u32, argument: u8) ai
 
 /// Gives the ship `order` aimed at `target` (`aigeneric.give`), and the entry on top of its stack
 /// that took it, which the command then fills in; null where the ship does not take it.
-fn given(ship: Ship, order: Order, target: aigeneric.Target) ?*aigeneric.Entry {
+fn given(ship: Ship, order: Order, target: aigeneric.Target) ?*aigeneric.OrderState {
     if (!aigeneric.give(ship.game, ship.index, order, target)) return null;
     return ship.slot.current();
 }
@@ -1293,8 +1293,7 @@ fn turretSetTargetShip(call: Call, ship: Ship) void {
     const aimed_at = aigeneric.Target.indexOf(machine.mission.shipIndex(call.args[0]));
     for (slot.guns) |*gun| switch (gun.turret) {
         .aimed => |*aimed| if (&aimed.model.parts[aimed.base] == component) {
-            aimed.target.index = aimed_at;
-            aimed.target.component = aigeneric.Target.whole;
+            aimed.target = aimed.target.retarget(ship.game.world.objects, aimed_at, aigeneric.Target.whole);
         },
         .fixed, .spin, .missile, .gone => {},
     };
@@ -1392,7 +1391,7 @@ fn setPrimaryTarget(call: Call, game: aigeneric.Context) void {
         game.world.player.primary_target = null;
         return;
     };
-    game.world.player.primary_target = .{ .index = index, .component = machine.argumentComponent(call.thread, 0) };
+    game.world.player.primary_target = .at(all, index, if (machine.argumentComponent(call.thread, 0)) |part| @as(u16, part) else null);
 }
 
 /// `cmd_SnapToPoint` (`0x004596A0`, command `0x3E`): the ship the first argument names, unless it
@@ -1711,7 +1710,7 @@ test "a mission's start part makes its ships and gives them their orders" {
     for ([_]u16{ 2, 3 }, 0..) |at, n| {
         const entry = all.slots[at].orders[0];
         try std.testing.expectEqual(Order.fight, entry.order);
-        try std.testing.expectEqual(0, entry.target.ship());
+        try std.testing.expectEqual(0, entry.target.shipIn(all));
         try std.testing.expectEqual(@as(i16, @intCast(n)), entry.sequence);
         try std.testing.expectEqual(42, all.slots[at].object.pilot);
     }
@@ -1723,7 +1722,7 @@ test "a mission's start part makes its ships and gives them their orders" {
     try std.testing.expectApproxEqAbs(-1, @import("../surrender/math.zig").forward(all.slots[2].object.root.orientation)[2], 1e-6);
     // The Reliant flies at 10, at nothing.
     try std.testing.expectEqual(Order.fly, all.slots[5].orders[0].order);
-    try std.testing.expectEqual(null, all.slots[5].orders[0].target.ship());
+    try std.testing.expectEqual(null, all.slots[5].orders[0].target.shipIn(all));
     try std.testing.expectEqual(10, all.slots[5].orders[0].data.fly);
     // The player's flight group is the player's wing.
     try std.testing.expectEqual(mission.WingSlots{ 0, 1, null, null, null, null }, all.wing);
@@ -1804,7 +1803,7 @@ test "an order SetAI aims past the last slot finds no ship there" {
     const all = game.mission.objects;
     const entry = all.slots[1].orders[0];
     try std.testing.expectEqual(Order.scoop_up, entry.order);
-    try std.testing.expectEqual(past, entry.target.ship());
+    try std.testing.expectEqual(past, entry.target.resolve(all).ship());
     // Its start and its updates find no pod there, and read no slot past the last.
     for (0..3) |_| aigeneric.objectOrders(game.orders(), 1);
 }
@@ -1851,8 +1850,8 @@ test "the launch commands set ships up, start them, and wait for them" {
     for ([_]u16{ 2, 3 }, 3..) |ship, gate| {
         const entry = all.slots[ship].orders[0];
         try std.testing.expectEqual(Order.launch, entry.order);
-        try std.testing.expectEqual(4, entry.target.ship());
-        try std.testing.expectEqual(@as(i16, @intCast(gate)), entry.target.component);
+        try std.testing.expectEqual(4, entry.target.shipIn(all));
+        try std.testing.expectEqual(@as(i16, @intCast(gate)), entry.target.resolve(all).component);
         try std.testing.expect(entry.data.launch.go);
     }
     // The script waits while they launch, and runs on once they are out.
@@ -2009,9 +2008,9 @@ test "the commands mission 1 runs at the convoy" {
     try game.start(game.spawning());
 
     const all = world.objects;
-    try std.testing.expectEqual(2, ai.playerControlEntry(all).?.target.slot());
-    try std.testing.expectEqual(2, world.player.primary_target.?.index);
-    try std.testing.expectEqual(null, world.player.primary_target.?.component);
+    try std.testing.expectEqual(2, ai.playerControlEntry(all).?.target.slotIn(all));
+    try std.testing.expectEqual(2, world.player.primary_target.?.resolve(world.objects).index);
+    try std.testing.expectEqual(null, world.player.primary_target.?.part());
     try std.testing.expectEqual(1, all.action_sphere.centre);
     try std.testing.expectEqual(50000, all.action_sphere.radius);
     try std.testing.expect(all.slots[1].object.flags.guns_disabled and all.slots[2].object.flags.guns_disabled);
@@ -2057,7 +2056,7 @@ test "SetPlayerTarget keeps the player's target where its second argument names 
     try std.testing.expect(try aigeneric.push(game.orders(), player, .player_control, .at(sabre, null)));
     try game.start(game.orders());
 
-    try std.testing.expectEqual(aigeneric.Target.at(sabre, null), ai.playerControlEntry(world.objects).?.target);
+    try std.testing.expectEqual(aigeneric.Target.at(sabre, null), ai.playerControlEntry(world.objects).?.target.resolve(world.objects));
 }
 
 test "the commands that move ships, change their sides and leave them be" {
@@ -2262,7 +2261,7 @@ test "the commands of the simulator's training, and those no shipped mission run
     try std.testing.expectEqual(5, all.slots[2].object.pilot);
     const patrol = all.slots[2].current().?;
     try std.testing.expectEqual(Order.patrol_route, patrol.order);
-    try std.testing.expectEqual(0, patrol.target.index);
+    try std.testing.expectEqual(0, patrol.target.resolve(all).index);
     try std.testing.expectEqual(0x3A0, display.subtitle.string);
     try std.testing.expectEqual(camera.View.chase, ctx.world.view());
     try std.testing.expectEqual(2, ctx.world.player.viewing.object);
@@ -2432,7 +2431,7 @@ test "the commands of Instant Action's bosses and its end" {
     try std.testing.expect(parts[2].removed and !parts[3].removed and !parts[3].hidden);
     try std.testing.expectEqual(0, slot.object.engines_intact);
     try std.testing.expectEqual(null, slot.component(0));
-    try std.testing.expectEqual(@as(i16, @intCast(player)), slot.guns[0].turret.aimed.target.index);
+    try std.testing.expectEqual(@as(i16, @intCast(player)), slot.guns[0].turret.aimed.target.resolve(world.objects).index);
     try std.testing.expectEqual(gameobj.countermeasures_when_created, ship.countermeasures);
     try std.testing.expectEqual(100, ship.gun_charge);
     try std.testing.expectEqual(6000, ship.afterburner_fuel);
@@ -2656,8 +2655,8 @@ test "Dock gives its order at a port, or at a flight group's ports" {
 
     const all = game.mission.objects;
     try std.testing.expectEqual(Order.dock, all.slots[1].orders[0].order);
-    try std.testing.expectEqual(aigeneric.Target.at(3, 3), all.slots[1].orders[0].target);
-    try std.testing.expectEqual(aigeneric.Target.group(.flight_group, 1), all.slots[2].orders[0].target);
+    try std.testing.expectEqual(aigeneric.Target.at(3, 3), all.slots[1].orders[0].target.resolve(all));
+    try std.testing.expectEqual(aigeneric.Target.group(.flight_group, 1), all.slots[2].orders[0].target.resolve(all));
 }
 
 test "the follow commands give their orders along the curves" {
@@ -2911,7 +2910,7 @@ test "Fly aims at the halfword its target gives, and gives no speed where it is 
     try std.testing.expect(world.slot(exploding).orders[0].data.destroyed.may_spin);
     const fly = world.slot(flying).orders[0];
     try std.testing.expectEqual(Order.fly, fly.order);
-    try std.testing.expectEqual(@as(i16, @bitCast(game.fixture.machine.mission.shipIndex(1).?)), fly.target.index);
+    try std.testing.expectEqual(@as(i16, @bitCast(game.fixture.machine.mission.shipIndex(1).?)), fly.target.resolve(world.objects).index);
     try std.testing.expectEqual(20, fly.data.fly);
 }
 

@@ -3999,7 +3999,7 @@ pub const State = struct {
     /// only while the lead cursor is near the middle of the screen (`drawReticle`), so its shots
     /// fly at the same point.
     fn leadTarget(state: *State, all: *const create.Objects) void {
-        const aimed = state.target orelse return;
+        const aimed = (state.target orelse return).resolve(all) orelse return;
         state.lead_point = leadPoint(all, aimed) orelse return;
     }
 
@@ -4063,7 +4063,7 @@ pub const State = struct {
                 break;
             }
         };
-        state.show(all, entry.target, multiplayer);
+        state.show(all, entry.target.resolve(all), multiplayer);
     }
 
     /// Whether the communications window is open. Its menu then runs (`targetKeys`) and has the
@@ -4078,7 +4078,7 @@ pub const State = struct {
     /// held open, closing the other; with no target it closes both.
     pub fn targetChanged(state: *State, all: *create.Objects, multiplayer: bool) void {
         const entry = ai.playerControlEntry(all) orelse return;
-        state.show(all, entry.target, multiplayer);
+        state.show(all, entry.target.resolve(all), multiplayer);
         const index = state.shown.slot() orelse {
             state.windows.close(.target);
             state.windows.close(.big_target);
@@ -4755,7 +4755,10 @@ pub fn targetKeys(state: *State, keys: Keys) void {
     if (devices.active(.target_torpedo, true)) {
         if (ai.playerControlEntry(all)) |entry| {
             beep(keys.world, .done);
-            if (input.seekTarget(all, &entry.target, .next, .torpedo)) state.targetChanged(all, keys.multiplayer);
+            var target = entry.target.resolve(all);
+            const found = input.seekTarget(all, &target, .next, .torpedo);
+            entry.target = .selected(all, target);
+            if (found) state.targetChanged(all, keys.multiplayer);
         } else beep(keys.world, .refused);
     }
     const current = &all.slots[all.player].orders[0];
@@ -4779,7 +4782,7 @@ pub fn targetKeys(state: *State, keys: Keys) void {
             .target => |among| pickTarget(state, all, key.step, among, key.holds, keys.multiplayer),
             .subtarget => subtarget: {
                 input.cycleSubtarget(state, all, key.step, keys.multiplayer);
-                break :subtarget listsComponents(all, current.target);
+                break :subtarget listsComponents(all, current.target.resolve(all));
             },
         };
         beep(keys.world, if (found) .done else .refused);
@@ -4790,8 +4793,7 @@ pub fn targetKeys(state: *State, keys: Keys) void {
         if (aimed) |index| {
             beep(keys.world, .done);
             if (controlled) {
-                current.target.index = under.index;
-                current.target.component = aigeneric.Target.whole;
+                current.target = current.target.retarget(all, under.index, aigeneric.Target.whole);
                 _ = state.bringUp(targetWindow(&all.slots[index]), keys.multiplayer);
             }
         } else beep(keys.world, .refused);
@@ -4916,7 +4918,7 @@ const StepKey = struct {
 /// player can aim at, it brings up the target's form, held open for NEXT ENEMY TARGET alone;
 /// otherwise it steps the target. Returns whether it brought the display up or found a target.
 fn pickTarget(state: *State, all: *create.Objects, step: input.Step, among: input.Among, hold: bool, multiplayer: bool) bool {
-    const current = all.slots[all.player].orders[0].target;
+    const current = all.slots[all.player].orders[0].target.resolve(all);
     const shut = state.windows.status.get(.target).phase == .shut and state.windows.status.get(.big_target).phase == .shut;
     if (shut and ai.targetValid(all, current, .{})) {
         const window = targetWindow(&all.slots[@intCast(current.index)]);
@@ -5035,7 +5037,7 @@ test "State.gameFrame" {
     defer t.deinit();
     const all = t.mission.objects;
     const sabre = try t.add(.of(.sabre), .{ 0, 0, 5000 });
-    all.slots[all.player].orders[0].target = .at(sabre, null);
+    all.slots[all.player].orders[0].target = .at(all, sabre, null);
     t.mission.clock.frame_duration = 1;
     _ = t.state.windows.open(.damage, false);
     t.state.messages.add("gone", t.mission.clock.frame_start - Messages.shown_for - 1);
@@ -5123,44 +5125,44 @@ test targetKeys {
 
     // The nearest enemy, from the cockpit.
     t.tap(.target_nearest_enemy, null);
-    try std.testing.expectEqual(@as(i32, near), current.index);
+    try std.testing.expectEqual(@as(i32, near), current.resolve(all).index);
     try std.testing.expectEqual(.opening, t.phase(.target));
 
     // With the display up, the next enemy target steps on, past the friend, the Kamov and the
     // Sabre out of reach, and round; and stops MATCH SPEED.
     t.mission.player.matching_speed = true;
     t.tap(.next_enemy_target, null);
-    try std.testing.expectEqual(@as(i32, ahead), current.index);
+    try std.testing.expectEqual(@as(i32, ahead), current.resolve(all).index);
     try std.testing.expect(!t.mission.player.matching_speed);
     t.tap(.next_enemy_target, null);
-    try std.testing.expectEqual(@as(i32, bomber), current.index);
+    try std.testing.expectEqual(@as(i32, bomber), current.resolve(all).index);
     t.tap(.previous_enemy_target, null);
-    try std.testing.expectEqual(@as(i32, ahead), current.index);
+    try std.testing.expectEqual(@as(i32, ahead), current.resolve(all).index);
 
     // With it shut, the key brings it up rather than stepping.
     t.state.windows = .{};
     t.tap(.next_enemy_target, null);
-    try std.testing.expectEqual(@as(i32, ahead), current.index);
+    try std.testing.expectEqual(@as(i32, ahead), current.resolve(all).index);
     try std.testing.expectEqual(.opening, t.phase(.target));
 
     // The nearest friend comes up in the large form.
     t.tap(.target_nearest_friendly, null);
-    try std.testing.expectEqual(@as(i32, friend), current.index);
+    try std.testing.expectEqual(@as(i32, friend), current.resolve(all).index);
     try std.testing.expectEqual(.opening, t.phase(.big_target));
 
     // TARGET TORPEDO finds the Kamov.
     t.tap(.target_torpedo, null);
-    try std.testing.expectEqual(@as(i32, bomber), current.index);
+    try std.testing.expectEqual(@as(i32, bomber), current.resolve(all).index);
 
     // The Sabre dead ahead stands under the reticle; the near one stands off to the side.
     t.tap(.target_under_reticule, testSight());
     try std.testing.expectEqual(ahead, t.state.aim.under_reticle.?);
-    try std.testing.expectEqual(@as(i32, ahead), current.index);
+    try std.testing.expectEqual(@as(i32, ahead), current.resolve(all).index);
 
     // Stepping from a lone target that the player cannot aim at leaves none.
     for ([_]u16{ near, ahead, bomber }) |index| all.slots[index].object.flags.exploding = true;
     t.tap(.next_enemy_target, null);
-    try std.testing.expectEqual(-1, current.index);
+    try std.testing.expectEqual(-1, current.resolve(all).index);
     try std.testing.expectEqual(null, t.state.target);
 }
 
@@ -6205,7 +6207,7 @@ pub fn drawTarget(drawing: *Drawing, state: *const State, pen: Pen, fonts: *Targ
             drawArrow(pen, sight, way, pen.art.paletteColour(nav_colour));
         }
     };
-    const aimed = state.target orelse return .none;
+    const aimed = (state.target orelse return .none).resolve(all) orelse return .none;
     const index = aimed.slot;
     const struck = &all.slots[index];
     const hostile = struck.object.side == .hostile;
@@ -6546,7 +6548,7 @@ pub const Radar = struct {
                 const at: [2]i32 = .{ round(placed[0]), round(-placed[2]) + height };
                 const look: Look = if (nav_point)
                     .nav_point
-                else if (index == own.orders[0].target.index)
+                else if (index == own.orders[0].target.resolve(all).index)
                     .target
                 else if (index == it.speaker)
                     .speaker
@@ -6826,7 +6828,7 @@ test "the radar's contacts" {
     const friend = try mission.add(.of(.predator), .{ 0, 0, -66000 });
     _ = try mission.add(.of(.sabre), .{ 0, 0, 300000 });
     for ([_]u16{ target, hostile, friend, 4 }) |index| mission.slot(index).object.flags.targetable = true;
-    mission.slot(player).orders[0].target = .at(target, null);
+    mission.slot(player).orders[0].target = .at(all, target, null);
 
     var contacts: Radar.Contacts = .of(all, 2, null);
     const ahead = contacts.next().?;

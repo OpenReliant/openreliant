@@ -455,7 +455,7 @@ fn placeOut(ctx: aigeneric.Context, index: u16) void {
     const state = &slot.state.jump;
     const entry = slot.orders[0];
     const player = &all.slots[all.player];
-    const leading = jumpsOutAt(player, entry.target.index);
+    const leading = jumpsOutAt(all, player, entry.target.resolve(all).index);
     const named = entry.target.slotIn(all);
     if (!leading) {
         if (named) |target| if (target != index) {
@@ -495,7 +495,7 @@ fn placeOut(ctx: aigeneric.Context, index: u16) void {
     const end_at = next.ahead(clearing_reach);
     for (all.slots[0..all.count], 0..) |*other, at| {
         if (other.object.flags.outOfFrame()) continue;
-        if (jumpsOutAt(other, entry.target.index)) continue;
+        if (jumpsOutAt(all, other, entry.target.resolve(all).index)) continue;
         const model = if (other.model) |*live| live else continue;
         if (objects.Box.ofBounds(model, other.drawn).meetsSegment(start, end_at)) markJumping(all, @intCast(at));
     }
@@ -503,9 +503,9 @@ fn placeOut(ctx: aigeneric.Context, index: u16) void {
 
 /// Whether the current order of the ship in `slot` is Jump Out at the target of index `target`, as
 /// `jump_out_place` asks of the player's ship and of those in the way.
-fn jumpsOutAt(slot: *const create.Slot, target: i16) bool {
+fn jumpsOutAt(all: *const create.Objects, slot: *const create.Slot, target: i16) bool {
     const going = slot.running(.jump_out) orelse return false;
-    return going.target.index == target;
+    return going.target.resolve(all).index == target;
 }
 
 /// `jump_mark` (`0x00418470`): the object in slot `index`, in the way of a jump, is marked jumping,
@@ -515,7 +515,7 @@ pub fn markJumping(all: *create.Objects, index: u16) void {
     all.slots[index].object.flags.jumping = true;
     for (all.slots[0..all.count], 0..) |*other, at| {
         if (other.object.flags.outOfFrame()) continue;
-        const follows = if (other.current()) |running| running.target.slot() == index and switch (running.order) {
+        const follows = if (other.current()) |running| running.target.resolve(all).slot() == index and switch (running.order) {
             .launch, .dock => true,
             else => false,
         } else false;
@@ -776,7 +776,7 @@ test "a jump out that names a ship gives way to a jump in beside it" {
     // Jump In of the matching number takes over, at the same place in the group.
     try std.testing.expectEqual(Order.jump_in_spread, slot.orders[0].order);
     try std.testing.expectEqual(1, slot.orders[0].sequence);
-    try std.testing.expectEqual(target, slot.orders[0].target.slot());
+    try std.testing.expectEqual(target, slot.orders[0].target.slotIn(mission.objects));
     try std.testing.expect(!slot.object.flags.disabled);
 
     // It arrives to the target's left, turned as the target is, and is placed far behind that to

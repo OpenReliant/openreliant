@@ -74,7 +74,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
             state.attached = false;
             slot.motion = .plain;
             slot.object.throttle = world.random.fraction() * drift_spread + drift_throttle;
-            slot.object.yaw_input = turnOf(slot.orders[0].target.component);
+            slot.object.yaw_input = turnOf(slot.orders[0].target.resolve(ctx.world.objects).component);
             sound3d.playIn(world, null, null, index, leave_sound, 1, .not_reserved);
             state.advance(.of(Step.drift), now, drift_ticks);
         },

@@ -1031,7 +1031,7 @@ pub fn jumpOut(ctx: aigeneric.Context, index: u16) void {
             release(slot);
             const gate = slot.orders[0].target;
             aigeneric.end(ctx, index);
-            _ = aigeneric.giveShip(ctx, index, .fixed_gate_jump_in, gate.slot() orelse return, null);
+            _ = aigeneric.giveShip(ctx, index, .fixed_gate_jump_in, gate.resolve(all).slot() orelse return, null);
         },
         .stranded => aigeneric.end(ctx, index),
         _ => {},
@@ -1808,7 +1808,7 @@ test "the player's ship goes out through the nearest gate and rides the worm" {
     for (0..420) |_| mission.ordersAfter(ctx, player, 1);
     try std.testing.expect(!built.gates.riding and !built.gates.exiting);
     try std.testing.expectEqual(@import("ai/orders.zig").Order.fixed_gate_jump_in, slot.orders[0].order);
-    try std.testing.expectEqual(@as(i16, @intCast(far)), slot.orders[0].target.index);
+    try std.testing.expectEqual(@as(i16, @intCast(far)), slot.orders[0].target.resolve(mission.objects).index);
 }
 
 /// Runs the collapse of the gate in slot `gate` a tick at a time to its end, and how many ticks

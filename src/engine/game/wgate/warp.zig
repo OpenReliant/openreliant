@@ -355,7 +355,7 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
                 const end = slot.drawn.ahead(clearing_reach);
                 for (all.slots[0..all.count], 0..) |*other, n| {
                     if (other.object.flags.outOfFrame()) continue;
-                    if (other.running(.warp_out)) |order| if (order.target.slot() == target) continue;
+                    if (other.running(.warp_out)) |order| if (order.target.resolve(all).slot() == target) continue;
                     const model = if (other.model) |*held| held else continue;
                     if (objects.Box.ofBounds(model, other.drawn).meetsSegment(slot.drawn.position, end)) jump.markJumping(all, @intCast(n));
                 }

@@ -196,6 +196,179 @@ test "Target.slotIn" {
     try std.testing.expectEqual(null, Target.group(.flight_group, 0).shipIn(all));
 }
 
+/// A retained runtime target. Ship targets keep an object's identity; group targets and unknown
+/// kinds keep their original record. `Target` remains the original six-byte binary layout.
+/// **Fix:** a removed target cannot become the next object created in the same slot.
+pub const Aim = union(enum) {
+    none,
+    object: struct { reference: gameobj.ObjectRef, record: Target, pending: bool },
+    other: Target,
+
+    pub fn of(all: *const create.Objects, target: Target) Aim {
+        if (target.eql(.none)) return .none;
+        return if (target.kind == .ship) selected(all, target) else .{ .other = target };
+    }
+
+    /// Captures a selected object's identity while keeping the original target fields. Dock and
+    /// Launch select a ship from a group but leave the target's kind unchanged.
+    pub fn selected(all: *const create.Objects, target: Target) Aim {
+        const index = target.slotIn(all) orelse return .{ .other = target };
+        const pending = all.slots[index].object.type.base() == .stand_in;
+        var reference: gameobj.ObjectRef = .of(all, index);
+        if (pending) reference.reuse +%= 1;
+        return .{ .object = .{ .reference = reference, .record = target, .pending = pending } };
+    }
+
+    /// The original target record, or no target after the captured object has left its slot.
+    pub fn resolve(aim: Aim, all: *const create.Objects) Target {
+        return switch (aim) {
+            .none => .none,
+            .object => |ship| object: {
+                const index = ship.reference.slot;
+                // Mission scripts may name a ship before its flight group is created. Keep
+                // that slot's first creation, but never a later replacement.
+                const waiting = ship.pending and index < all.reuses.len and all.reuses[index] +% 1 == ship.reference.reuse and all.slots[index].object.type.base() == .stand_in;
+                if (waiting or ship.reference.valid(all)) break :object ship.record;
+                break :object .none;
+            },
+            .other => |target| target,
+        };
+    }
+
+    pub fn at(all: *const create.Objects, index: u16, component: ?u16) Aim {
+        return .of(all, .at(index, component));
+    }
+
+    /// Changes the selected slot and component, keeping the original target kind.
+    pub fn retarget(aim: Aim, all: *const create.Objects, index: i16, component: i16) Aim {
+        return .selected(all, .{ .kind = aim.resolve(all).kind, .index = index, .component = component });
+    }
+
+    /// Patrol's target indexes a waypoint, rather than an object slot.
+    pub fn forOrder(all: *const create.Objects, order: Order, target: Target) Aim {
+        return if (order == .patrol_route) .{ .other = target } else .of(all, target);
+    }
+
+    pub fn slotIn(aim: Aim, all: *const create.Objects) ?u16 {
+        return aim.resolve(all).slotIn(all);
+    }
+
+    pub fn shipIn(aim: Aim, all: *const create.Objects) ?u16 {
+        return aim.resolve(all).shipIn(all);
+    }
+
+    pub fn part(aim: Aim) ?u16 {
+        return switch (aim) {
+            .none => null,
+            .object => |ship| ship.record.part(),
+            .other => |target| target.part(),
+        };
+    }
+
+    pub fn asShip(aim: Aim, all: *const create.Objects) Target {
+        return aim.resolve(all).asShip();
+    }
+
+    pub fn isWhole(aim: Aim) bool {
+        return switch (aim) {
+            .none => true,
+            .object => |ship| ship.record.isWhole(),
+            .other => |target| target.isWhole(),
+        };
+    }
+};
+
+test "retained targets keep their fields until their object leaves" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const ship = try mission.addOther(@splat(0));
+    const record: Target = .of(.ship, ship, -2);
+    const aim: Aim = .of(all, record);
+    try std.testing.expectEqual(record, aim.resolve(all));
+    // A selected group member keeps the group kind, as Dock and Launch do.
+    const selected_record: Target = .of(.flight_group, ship, 3);
+    const selected: Aim = .selected(all, selected_record);
+    try std.testing.expectEqual(selected_record, selected.resolve(all));
+    const group: Aim = .of(all, selected_record);
+    const patrol: Aim = .forOrder(all, .patrol_route, record);
+
+    create.resetSlot(mission.orders(), ship);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, ship, .of(.sabre), 0, @splat(0), &mission.random);
+    try std.testing.expectEqual(Target.none, aim.resolve(all));
+    try std.testing.expectEqual(Target.none, selected.resolve(all));
+    // A group still names the group, and Patrol still names its waypoint.
+    try std.testing.expectEqual(selected_record, group.resolve(all));
+    try std.testing.expectEqual(record, patrol.resolve(all));
+    try std.testing.expectEqual(record, Aim.of(all, record).resolve(all));
+}
+
+test "a mission can target a ship before its first creation" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    _ = try mission.add(.of(.predator), @splat(0));
+    const future = all.count;
+    const record: Target = .at(future, 2);
+    const aim: Aim = .of(all, record);
+    try std.testing.expectEqual(record, aim.resolve(all));
+    try std.testing.expectEqual(future, try mission.add(.of(.sabre), @splat(0)));
+    try std.testing.expectEqual(record, aim.resolve(all));
+    create.resetSlot(mission.orders(), future);
+    try std.testing.expectEqual(Target.none, aim.resolve(all));
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, future, .of(.sabre), 0, @splat(0), &mission.random);
+    try std.testing.expectEqual(Target.none, aim.resolve(all));
+}
+
+test "retained targets preserve unknown kinds and out of range records" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    for ([_]Target{ .none, .of(@fromBackingInt(@intCast(27)), 3, -2), .at(gameobj.max_objects, 5), .of(.ship, null, 7) }) |record| {
+        try std.testing.expectEqual(record, Aim.of(mission.objects, record).resolve(mission.objects));
+    }
+}
+
+/// An order kept by the engine, with a checked target instead of a bare binary slot.
+pub const OrderState = struct {
+    order: Order = .do_nothing,
+    // Inactive records retain the original zeroed target fields. Pushed orders capture an identity.
+    target: Aim = .{ .other = std.mem.zeroes(Target) },
+    sequence: i16 = 0,
+    data: Entry.Data = .{ .words = @splat(0) },
+
+    pub fn of(all: *const create.Objects, entry: Entry) OrderState {
+        return .{ .order = entry.order, .target = .forOrder(all, entry.order, entry.target), .sequence = entry.sequence, .data = entry.data };
+    }
+
+    pub fn placesOut(entry: OrderState, first: i32) i32 {
+        return placesOutFor(entry.sequence, first);
+    }
+
+    pub fn abreast(entry: OrderState, first: i32) i32 {
+        return abreastFor(entry.sequence, first);
+    }
+};
+
+/// A queued runtime order. The checked target moves with it when the queue is reordered.
+pub const PendingOrder = struct {
+    entry: OrderState = .{},
+    value: u8 = 0,
+    due: i32 = 0,
+};
+
+fn placesOutFor(sequence: i16, first: i32) i32 {
+    return @divTrunc(@as(i32, sequence) + first, 2);
+}
+
+fn abreastFor(sequence: i16, first: i32) i32 {
+    const counted = @as(i32, sequence) + first;
+    const side: i32 = if (counted & 1 != 0) 1 else -1;
+    return side * placesOutFor(sequence, first);
+}
+
 /// How far apart ships fly abreast, in the places `Entry.abreast` counts: Formation's and Jump In's
 /// (`0x004DC508`).
 pub const abreast_spacing: f32 = 3000;
@@ -232,15 +405,13 @@ pub const Entry = extern struct {
     /// abreast, counting from `first`: half the count, as Jump In's settling pitches by it
     /// (`order_jump_in`).
     pub fn placesOut(entry: Entry, first: i32) i32 {
-        return @divTrunc(@as(i32, entry.sequence) + first, 2);
+        return placesOutFor(entry.sequence, first);
     }
 
     /// Its place abreast (`placesOut`), signed: to the right for an odd count, to the left for an
     /// even one (`order_formation_init`, `jump_in_place`, and Jump In's settling's roll).
     pub fn abreast(entry: Entry, first: i32) i32 {
-        const counted = @as(i32, entry.sequence) + first;
-        const side: i32 = if (counted & 1 != 0) 1 else -1;
-        return side * @divTrunc(counted, 2);
+        return abreastFor(entry.sequence, first);
     }
 
     comptime {
@@ -488,14 +659,14 @@ pub fn pushOrder(ctx: Context, index: u16, order: Order, target: Target) Pushed 
     const slot = &all.slots[index];
     const object = &slot.object;
     if (refused(all, index, order)) return .refused;
-    if (slot.current()) |running| if (running.order == order and running.target.eql(target)) return .taken;
+    if (slot.current()) |running| if (running.order == order and running.target.resolve(all).eql(target)) return .taken;
     const gives = giveWay(ctx, index, order) catch return .conflict;
     if (!gives) return .refused;
 
     // The same order aimed the same way, deeper in the stack, is dropped rather than left to come
     // back once this one is done.
     for (slot.stack(), 0..) |entry, deeper| {
-        if (deeper == 0 or entry.order != order or !entry.target.eql(target)) continue;
+        if (deeper == 0 or entry.order != order or !entry.target.resolve(all).eql(target)) continue;
         remove(slot, deeper);
         break;
     }
@@ -507,7 +678,7 @@ pub fn pushOrder(ctx: Context, index: u16, order: Order, target: Target) Pushed 
         defer next.* +%= 1;
         break :numbered @truncate(next.*);
     } else 0;
-    slot.orders[0] = .{ .order = order, .target = target, .sequence = sequence, .data = .{ .words = @splat(0) } };
+    slot.orders[0] = .{ .order = order, .target = .forOrder(all, order, target), .sequence = sequence, .data = .{ .words = @splat(0) } };
     if (infoOf(all, order)) |info| if (!info.flags.one_shot) start(slot);
     object.order_count += 1;
     return .taken;
@@ -588,9 +759,9 @@ pub fn end(ctx: Context, index: u16) void {
 }
 
 /// `order_queue` (`0x00402660`): queues `entry` for the object in slot `index`, due `delay` ticks
-/// after the frame's start, with `value`, a byte a network game sends on. An equal order already
-/// queued, the same order at the same target, stays where it is due no sooner, and otherwise
-/// leaves the queue for this one. `object_orders` starts it once it is due (`startQueued`).
+/// after the frame's start. `value` is a byte sent in a network game. If the same order and target
+/// are already queued, the later due time wins: an earlier or equal time leaves the existing
+/// entry alone, and a later time replaces it. `object_orders` starts it when due (`startQueued`).
 ///
 /// **Fix:** past `max_queued` the game stops with a fatal error, "DPStack Overflow on %s";
 /// OpenReliant logs it and leaves the order out.
@@ -605,19 +776,18 @@ pub fn queue(ctx: Context, index: u16, entry: Entry, delay: i32, value: u8) void
     }
     const due = ctx.world.clock.frame_start + delay;
     for (slot.waiting(), 0..) |waiting, at| {
-        if (waiting.entry.order != entry.order or !waiting.entry.target.eql(entry.target)) continue;
+        if (waiting.entry.order != entry.order or !waiting.entry.target.resolve(ctx.world.objects).eql(entry.target)) continue;
         if (due <= waiting.due) return;
         removeQueued(slot, at);
         break;
     }
-    slot.queued[slot.waiting().len] = .{ .entry = entry, ._unknown_1a = 0, ._unknown_1c = value, .due = due };
+    slot.queued[slot.waiting().len] = .{ .entry = .of(ctx.world.objects, entry), .value = value, .due = due };
     slot.object.queued_order_count += 1;
 }
 
-/// `object_orders`' start: each order waiting in the object's queue that is due by `mission_ticks`
-/// and of no lower priority than the current order (`queuedStarts`), in turn, is pushed (`give`)
-/// with the data it was queued with, and leaves the queue; an object not yet created lets it go
-/// unpushed.
+/// `object_orders` starts each queued order due by `mission_ticks` whose priority is at least the
+/// current order's (`queuedStarts`). It pushes the order (`give`) with its saved data and removes
+/// it from the queue. If the object has not been created, it removes the entry without pushing it.
 ///
 /// **Fix:** the game writes the queued order's data over the order on top of the stack whether
 /// the push took or not; OpenReliant writes it to the order pushed alone.
@@ -631,7 +801,7 @@ fn startQueued(ctx: Context, index: u16) void {
             at += 1;
             continue;
         }
-        if (slot.object.created and give(ctx, index, waiting.entry.order, waiting.entry.target)) {
+        if (slot.object.created and give(ctx, index, waiting.entry.order, waiting.entry.target.resolve(all))) {
             slot.orders[0].data = waiting.entry.data;
         }
         removeQueued(slot, at);
@@ -852,7 +1022,7 @@ pub fn retaliate(ctx: Context, index: u16) void {
     const attacking = object.last_attacker.index() orelse return;
     const attacker: Target = .at(attacking, null);
     if (!ai.targetValid(all, attacker, .{})) return;
-    if (attacker.index == slot.orders[0].target.index) return;
+    if (attacker.index == slot.orders[0].target.resolve(all).index) return;
     const other = &all.slots[attacking];
     if (other.object.side == object.side) return;
     const other_combat = other.combat orelse return;
@@ -1449,6 +1619,41 @@ test queue {
     try std.testing.expectEqual(max_queued, slot.waiting().len);
 }
 
+test "targets move with stacked and queued orders without rebinding" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const ctx = mission.orders();
+    const ship = try mission.addOther(@splat(0));
+    const first = try mission.add(.of(.sabre), @splat(0));
+    const second = try mission.add(.of(.sabre), @splat(0));
+    const slot = mission.slot(ship);
+    try std.testing.expect(try push(ctx, ship, .fly, .at(first, 2)));
+    try std.testing.expect(try push(ctx, ship, .slow_rotate, .at(second, null)));
+    const entry: Entry = .{ .order = .fly, .target = .at(first, 3), .sequence = 0, .data = .{ .words = @splat(7) } };
+    queue(ctx, ship, entry, 10, 0);
+    var later = entry;
+    later.target = .at(second, null);
+    queue(ctx, ship, later, 20, 0);
+    removeQueued(slot, 0);
+    try std.testing.expectEqual(second, slot.waiting()[0].entry.target.slotIn(all));
+    queue(ctx, ship, entry, 0, 0);
+
+    create.resetSlot(ctx, first);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, first, .of(.sabre), 0, @splat(0), &mission.random);
+    try std.testing.expectEqual(second, slot.orders[0].target.slotIn(all));
+    try std.testing.expect(pop(ctx, ship));
+    try std.testing.expectEqual(Target.none, slot.orders[0].target.resolve(all));
+    startQueued(ctx, ship);
+    try std.testing.expectEqual(Order.fly, slot.orders[0].order);
+    try std.testing.expectEqual(Target.none, slot.orders[0].target.resolve(all));
+    try std.testing.expectEqual(7, slot.orders[0].data.words[0]);
+    // A newly issued order can deliberately select the replacement.
+    try std.testing.expect(try push(ctx, ship, .fly, .at(first, null)));
+    try std.testing.expectEqual(first, slot.orders[0].target.slotIn(all));
+}
+
 test retaliate {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
@@ -1477,7 +1682,7 @@ test retaliate {
     slot.object.flags.do_not_disturb = false;
     retaliate(ctx, ship);
     try std.testing.expectEqual(Order.fight, slot.orders[0].order);
-    try std.testing.expectEqual(attacker, slot.orders[0].target.ship());
+    try std.testing.expectEqual(attacker, slot.orders[0].target.shipIn(mission.objects));
     // Not on its own side.
     try std.testing.expect(try push(ctx, ship, .do_nothing, .none));
     mission.slot(attacker).object.side = .hostile;

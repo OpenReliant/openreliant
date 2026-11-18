@@ -309,19 +309,18 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     const slot = &all.slots[index];
     const entry = &slot.orders[0];
     const state = &slot.state.launch;
-    if (entry.target.kind != .ship or entry.target.isWhole()) {
+    if (entry.target.resolve(all).kind != .ship or entry.target.isWhole()) {
         state.carrier = 0;
         state.gate = 0;
         state.sequence = entry.sequence;
         var search: GateSearch = .{ .all = all, .state = state };
-        _ = ai.eachShip(ctx.world, entry.target, &search);
-        entry.target.index = @truncate(state.carrier);
-        entry.target.component = @truncate(state.gate);
+        _ = ai.eachShip(ctx.world, entry.target.resolve(all), &search);
+        entry.target = .selected(all, .{ .kind = entry.target.resolve(all).kind, .index = @truncate(state.carrier), .component = @truncate(state.gate) });
     }
     const carrier = entry.target.slotIn(all) orelse return;
     if (index == all.player) ctx.world.player.carrier = carrier;
     const carrier_type = all.slots[carrier].object.type;
-    state.style = Style.of(slot.object.type, carrier_type, entry.target.component);
+    state.style = Style.of(slot.object.type, carrier_type, entry.target.resolve(all).component);
     state.step = .waiting;
     slot.riding = null;
     if (state.style.routines()) |found| found.init(ctx, index, carrier);
@@ -584,7 +583,7 @@ pub fn gateOf(all: *const create.Objects, on: u16, gate: i16) ?Gate {
 /// the torpedoes and the Zakov start the same way.
 pub fn attachAtGate(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const all = ctx.world.objects;
-    attach(all, index, carrier, all.slots[index].orders[0].target.component);
+    attach(all, index, carrier, all.slots[index].orders[0].target.resolve(all).component);
 }
 
 test {

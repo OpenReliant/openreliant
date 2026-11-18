@@ -159,7 +159,7 @@ pub const fields = struct {
     pub const target = api.Field(?Target, "What the order it's following is aimed at; nil while it follows none.", struct {
         pub fn get(all: *const create.Objects, index: u16) ?Target {
             const entry = all.slots[index].current() orelse return null;
-            return .of(entry.target);
+            return .of(entry.target.resolve(all));
         }
     });
 

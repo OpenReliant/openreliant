@@ -1534,7 +1534,7 @@ pub const Player = struct {
     /// `primary_target` (`0x005883DC`): the mission's primary target, which its script names
     /// (`SetPrimaryTarget`) and PRIMARY TARGET makes the player's target; none from the mission's
     /// start (`mission_start`, `0x004935C9`).
-    primary_target: ?PrimaryTarget = null,
+    primary_target: ?aigeneric.Aim = null,
     /// The scanner the mission's script sets off (`Scanner`), and its beep; off from a mission's
     /// start.
     scanner: @import("game/main.zig").scanner.Scanner = .{},
@@ -1554,12 +1554,6 @@ pub const Player = struct {
     /// sets how many ships the loadout offers. A new pilot starts at 0 (`campaign_new`,
     /// `0x004751DE`).
     rank: gameflow.Rank = 0,
-
-    /// A mission's primary target: a ship's slot, and one of its components or the whole ship.
-    pub const PrimaryTarget = struct {
-        index: u16,
-        component: ?u8 = null,
-    };
 
     /// The pilot's kills over the whole campaign. Only a new pilot starts them again from 0.
     pub const Kills = struct {
@@ -1901,8 +1895,7 @@ pub fn setCloak(world: gameobj.World, on: bool) void {
 /// Not yet ported: what it tells a multiplayer game (`0x004BB980`).
 pub fn setPlayerTarget(display: *hud.State, all: *create.Objects, index: i16, component: i16, multiplayer: bool) void {
     const entry = ai.playerControlEntry(all) orelse return;
-    entry.target.index = index;
-    entry.target.component = component;
+    entry.target = entry.target.retarget(all, index, component);
     display.targetChanged(all, multiplayer);
 }
 
@@ -1914,8 +1907,7 @@ pub fn aimPlayer(world: gameobj.World, target: aigeneric.Target) bool {
     const all = world.objects;
     if (!ai.targetValid(all, target, .{})) return false;
     const entry = ai.playerControlEntry(all) orelse return false;
-    entry.target.index = target.index;
-    entry.target.component = target.component;
+    entry.target = entry.target.retarget(all, target.index, target.component);
     if (world.display) |display| display.targetChanged(all, false);
     world.player.matching_speed = false;
     return true;
@@ -2174,7 +2166,7 @@ pub fn launchMissile(world: gameobj.World, index: u16) void {
     for (ship.fittedRacks(), 0..) |rack, at| {
         if (rack.type != armed.type or rack.count < 1) continue;
         const current = if (locked) all.slots[index].current() else null;
-        const target: aigeneric.Target = if (current) |entry| entry.target else .none;
+        const target: aigeneric.Target = if (current) |entry| entry.target.resolve(all) else .none;
         missiles.launch(world, index, at, target);
         armed.count -= 1;
         ring.left -= 1;
@@ -2206,7 +2198,7 @@ fn waitingLaunch(all: *const create.Objects, carrier: u16) ?u16 {
         const flags = slot.object.flags;
         if (flags.stand_in or flags.exploding or flags.disabled) continue;
         const entry = slot.current() orelse continue;
-        if (entry.order != .launch or entry.target.index != carrier or entry.data.launch.go) continue;
+        if (entry.order != .launch or entry.target.resolve(all).index != carrier or entry.data.launch.go) continue;
         return @intCast(at);
     }
     return null;
@@ -2251,7 +2243,7 @@ pub fn matchSpeed(world: gameobj.World, devices: *Devices) void {
     if (!devices.active(.match_speed, true)) return;
     player.matching_speed = !player.matching_speed;
     if (player.matching_speed) {
-        const aimed = if (ai.playerControlEntry(all)) |entry| ai.targetValid(all, entry.target, .{}) else false;
+        const aimed = if (ai.playerControlEntry(all)) |entry| ai.targetValid(all, entry.target.resolve(all), .{}) else false;
         hud.beep(world, if (aimed) .on else .refused);
         matchTargetSpeed(player, all, world.view());
     } else {
@@ -2313,8 +2305,10 @@ pub const Among = enum { any, hostile, friendly, torpedo };
 /// one was found. Not yet ported: what it tells a multiplayer game.
 pub fn cycleTarget(display: ?*hud.State, all: *create.Objects, step: Step, among: Among, multiplayer: bool) bool {
     const entry = ai.playerControlEntry(all) orelse return true;
-    const found = seekTarget(all, &entry.target, step, among);
-    if (!found) entry.target.index = -1;
+    var target = entry.target.resolve(all);
+    const found = seekTarget(all, &target, step, among);
+    if (!found) target.index = -1;
+    entry.target = .selected(all, target);
     if (display) |shown| shown.targetChanged(all, multiplayer);
     return found;
 }
@@ -2367,7 +2361,9 @@ pub fn cycleSubtarget(display: ?*hud.State, all: *create.Objects, step: Step, mu
 
     const count = slot.object.component_count;
     if (count <= 0) return;
-    const component = &entry.target.component;
+    var target = entry.target.resolve(all);
+    defer entry.target = entry.target.retarget(all, target.index, target.component);
+    const component = &target.component;
     for (0..@intCast(count)) |_| {
         component.* = step.from(component.*, count);
         const part = slot.components[@intCast(component.*)] orelse continue;
@@ -2388,12 +2384,12 @@ test aimPlayer {
     // A ship that can't be targeted isn't taken.
     mission.slot(sabre).object.flags.targetable = false;
     try std.testing.expect(!aimPlayer(world, .at(sabre, null)));
-    try std.testing.expectEqual(null, target.slot());
+    try std.testing.expectEqual(null, target.slotIn(mission.objects));
     // One that can is, and the player stops matching speeds.
     mission.slot(sabre).object.flags.targetable = true;
     mission.player.matching_speed = true;
     try std.testing.expect(aimPlayer(world, .at(sabre, null)));
-    try std.testing.expectEqual(sabre, target.slot().?);
+    try std.testing.expectEqual(sabre, target.slotIn(mission.objects).?);
     try std.testing.expect(!mission.player.matching_speed);
     // A component the ship doesn't have isn't taken either.
     try std.testing.expect(!aimPlayer(world, .at(sabre, 2)));
@@ -2463,20 +2459,21 @@ test cycleTarget {
 
     // Hostile, the cloaked one passed over, round and round.
     try std.testing.expect(cycleTarget(&display, all, .next, .hostile, false));
-    try std.testing.expectEqual(@as(i32, enemy), target.index);
+    try std.testing.expectEqual(@as(i32, enemy), target.resolve(all).index);
     try std.testing.expect(cycleTarget(&display, all, .previous, .hostile, false));
-    try std.testing.expectEqual(@as(i32, enemy), target.index);
+    try std.testing.expectEqual(@as(i32, enemy), target.resolve(all).index);
     try std.testing.expectEqual(enemy, display.target.?.slot);
     // A friend is taken cloaked too; never the player's own ship.
     mission.slot(friend).object.flags.cloaked = true;
     try std.testing.expect(cycleTarget(&display, all, .next, .friendly, false));
-    try std.testing.expectEqual(@as(i32, friend), target.index);
-    try std.testing.expect(!seekTarget(all, target, .next, .torpedo));
-    try std.testing.expectEqual(@as(i32, friend), target.index);
+    try std.testing.expectEqual(@as(i32, friend), target.resolve(all).index);
+    var probe = target.resolve(all);
+    try std.testing.expect(!seekTarget(all, &probe, .next, .torpedo));
+    try std.testing.expectEqual(@as(i32, friend), probe.index);
     // None to be found leaves no target.
     mission.slot(enemy).object.flags.exploding = true;
     try std.testing.expect(!cycleTarget(&display, all, .next, .hostile, false));
-    try std.testing.expectEqual(-1, target.index);
+    try std.testing.expectEqual(-1, target.resolve(all).index);
     try std.testing.expectEqual(null, display.target);
 }
 
@@ -2506,18 +2503,18 @@ test cycleSubtarget {
     // From none, the first; then past the one not targetable, and round.
     display.windows = .{};
     cycleSubtarget(&display, all, .next, false);
-    try std.testing.expectEqual(0, target.component);
+    try std.testing.expectEqual(0, target.resolve(all).component);
     try std.testing.expectEqual(.opening, display.windows.status.get(.big_target).phase);
     cycleSubtarget(&display, all, .next, false);
-    try std.testing.expectEqual(2, target.component);
+    try std.testing.expectEqual(2, target.resolve(all).component);
     cycleSubtarget(&display, all, .next, false);
-    try std.testing.expectEqual(0, target.component);
+    try std.testing.expectEqual(0, target.resolve(all).component);
     cycleSubtarget(&display, all, .previous, false);
-    try std.testing.expectEqual(2, target.component);
+    try std.testing.expectEqual(2, target.resolve(all).component);
     // A friendly target's are not stepped through.
     slot.object.side = .friendly;
     cycleSubtarget(&display, all, .next, false);
-    try std.testing.expectEqual(2, target.component);
+    try std.testing.expectEqual(2, target.resolve(all).component);
 }
 
 /// The power keys and the preset each puts the power at, in the order `frame_controls` reads them.
@@ -2744,11 +2741,12 @@ pub fn frameKeys(keys: FrameKeys) void {
 /// (`hud.Objectives.current`); with none, the display sounds `refused`.
 fn primaryTarget(keys: FrameKeys) void {
     const primary = keys.player.primary_target orelse return hud.beep(keys.world, .refused);
+    if (keys.all) |all| if (primary.slotIn(all) == null) return hud.beep(keys.world, .refused);
     hud.beep(keys.world, .done);
     const display = keys.display;
     if (keys.all) |all| {
-        const component: i16 = if (primary.component) |part| part else aigeneric.Target.whole;
-        setPlayerTarget(display, all, @intCast(primary.index), component, keys.multiplayer);
+        const target = primary.resolve(all);
+        setPlayerTarget(display, all, target.index, target.component, keys.multiplayer);
     }
     if (display.objectives.current()) |current| display.objectives.shown = current;
     const windows = &display.windows;
@@ -2771,13 +2769,18 @@ test primaryTarget {
     const keys: FrameKeys = .{ .display = &display, .player = &mission.player, .devices = &devices, .slot = mission.slot(player), .view = .cockpit, .game_ticks = 0, .multiplayer = false, .all = mission.objects };
     // With no primary target, nothing changes.
     primaryTarget(keys);
-    try std.testing.expectEqual(null, ai.playerControlEntry(mission.objects).?.target.slot());
+    try std.testing.expectEqual(null, ai.playerControlEntry(mission.objects).?.target.slotIn(mission.objects));
     // With one, it becomes the player's target, and the objectives open on the current one.
-    mission.player.primary_target = .{ .index = target };
+    mission.player.primary_target = .at(mission.objects, target, null);
     primaryTarget(keys);
-    try std.testing.expectEqual(target, ai.playerControlEntry(mission.objects).?.target.slot());
+    try std.testing.expectEqual(target, ai.playerControlEntry(mission.objects).?.target.slotIn(mission.objects));
     try std.testing.expectEqual(2, display.objectives.shown);
     try std.testing.expect(display.windows.status.get(.objectives).phase != .shut);
+    // A later ship in the same slot is not the mission's primary target.
+    create.resetSlot(mission.orders(), target);
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, target, .of(.sabre), 0, @splat(0), &mission.random);
+    primaryTarget(keys);
+    try std.testing.expectEqual(null, ai.playerControlEntry(mission.objects).?.target.slotIn(mission.objects));
 }
 
 test frameKeys {
@@ -3338,7 +3341,7 @@ test "the Kamov's LAUNCH MISSILE lets its torpedoes go, one at a time" {
     try std.testing.expect(!mission.slot(third).orders[0].data.launch.go);
     // A launch aimed at another carrier isn't the Kamov's.
     mission.slot(kamov).object.flags.missiles_disabled = false;
-    mission.slot(third).orders[0].target.index = @intCast(first);
+    mission.slot(third).orders[0].target = .at(mission.objects, first, null);
     try std.testing.expectEqual(null, waitingLaunch(mission.objects, kamov));
 }
 
@@ -3361,7 +3364,7 @@ test launchMissile {
     // Locked, it flies at the target, the display holds its window open, and counts one off.
     display.lock.phase = .locked;
     launchMissile(world, player);
-    try std.testing.expectEqual(target, armed.missile(0).target);
+    try std.testing.expectEqual(target, armed.missile(0).target.resolve(armed.mission.objects));
     try std.testing.expectEqual(0, display.missiles.armedEntry().count);
     try std.testing.expect(display.windows.status.get(.missiles).held);
     // None left on its rack, the next launches nothing.

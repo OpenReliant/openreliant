@@ -107,7 +107,7 @@ pub fn give(world: gameobj.World, command: Command, to: Addressee) void {
     const all = world.objects;
     var found: [most_attackers]u16 = undefined;
     const aim: Aim = switch (command) {
-        .attack_my_target, .back_off => .{ .target = (ai.playerControlEntry(all) orelse return).target },
+        .attack_my_target, .back_off => .{ .target = (ai.playerControlEntry(all) orelse return).target.resolve(all) },
         .help_me => .{ .attackers = attackers(all, &found) orelse return },
     };
     const wingman = switch (to) {
@@ -142,7 +142,7 @@ fn setAside(world: gameobj.World, wingman: u16) void {
     const all = world.objects;
     const current = all.slots[all.player].current() orelse return;
     const object = &all.slots[wingman].object;
-    object.set_aside = .from(std.math.cast(u16, current.target.index));
+    object.set_aside = .from(std.math.cast(u16, current.target.resolve(all).index));
     object.set_aside_until = world.clock.game_ticks + back_off_ticks;
 }
 
@@ -206,7 +206,7 @@ fn standing(all: *const create.Objects, command: Command, index: u16, aim: Aim) 
     const slot = &all.slots[index];
     if (slot.object.flags.do_not_disturb) return .busy;
     const current = slot.current() orelse return if (command == .back_off) .done else .free;
-    const target = current.target;
+    const target = current.target.resolve(all);
     return switch (command) {
         .attack_my_target => if (aigeneric.prioritised(all, current.order)) .busy else if (target.index == aim.target.index and target.component == aim.target.component) .done else .free,
         .back_off => if (target.index == aim.target.index and current.order == .fight) .free else .done,
@@ -218,7 +218,7 @@ fn standing(all: *const create.Objects, command: Command, index: u16, aim: Aim) 
 /// wingmen's keys need one (`frame_controls`, `0x0041457D`) and HELP ME takes one; or null.
 pub fn hostileTarget(all: *create.Objects) ?u16 {
     const entry = ai.playerControlEntry(all) orelse return null;
-    if (!ai.targetValid(all, entry.target, .{})) return null;
+    if (!ai.targetValid(all, entry.target.resolve(all), .{})) return null;
     const target = entry.target.slotIn(all) orelse return null;
     return if (all.slots[target].object.side == .hostile) target else null;
 }
@@ -230,7 +230,7 @@ fn attackers(all: *create.Objects, out: *[most_attackers]u16) ?[]const u16 {
     var count: usize = 0;
     for (all.slots[0..all.count], 0..) |*slot, index| {
         const current = slot.current() orelse continue;
-        if (current.order != .fight or current.target.index != all.player) continue;
+        if (current.order != .fight or current.target.resolve(all).index != all.player) continue;
         const whole: aigeneric.Target = .at(@intCast(index), null);
         if (!ai.targetValid(all, whole, .{}) or slot.object.side != .hostile) continue;
         out[count] = @intCast(index);

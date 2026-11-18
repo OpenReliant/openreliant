@@ -422,7 +422,7 @@ fn stateOf(arena: std.mem.Allocator, loaded: *mission.Loaded) std.mem.Allocator.
             try ships.append(arena, .{
                 .index = @intCast(index),
                 .order = if (entry) |current| try orderName(arena, current.order) else "none",
-                .target = if (entry) |current| current.target.ship() else null,
+                .target = if (entry) |current| current.target.shipIn(playing.world.objects) else null,
             });
         }
     }
@@ -768,9 +768,9 @@ test "the state gives the ships' orders, and what the script did since the last 
     const wreck = try world.add(.of(.sabre), .{ 0, 0, 4000 });
     // The Sabre fights the player, and the other Sabre is destroyed.
     const fighting = world.slot(sabre);
-    fighting.orders[0] = std.mem.zeroes(@TypeOf(fighting.orders[0]));
+    fighting.orders[0] = .{};
     fighting.orders[0].order = .fight;
-    fighting.orders[0].target = .at(player, null);
+    fighting.orders[0].target = .at(world.objects, player, null);
     fighting.object.order_count = 1;
     var ships = dte.testing.ships(3, 0);
     ships[wreck].flags.destroyed = true;

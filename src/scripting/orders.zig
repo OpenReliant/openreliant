@@ -108,7 +108,7 @@ pub const Registry = struct {
         const callbacks = held.callbacks orelse return false;
         registry.running = true;
         defer registry.running = false;
-        const aim = ctx.world.objects.slots[index].orders[0].target.ship();
+        const aim = ctx.world.objects.slots[index].orders[0].target.shipIn(ctx.world.objects);
         const target: ?Object = if (aim) |slot| world.objectIn(ctx.world.objects, slot) else null;
         const ship_ref = scripts.make(pushObject, .{@as(?Object, .of(index))}) orelse return false;
         defer scripts.release(ship_ref);
@@ -247,7 +247,7 @@ fn stackOf(call: Call, object: Object) Stack {
     const all = call.runtime().objects orelse call.raise("can only be used while a game runs", .{});
     var found: Stack = .{};
     for (all.slots[object.slot()].stack()) |entry| {
-        found.append(.{ .order = identifierOf(all, entry.order), .target = .of(entry.target) });
+        found.append(.{ .order = identifierOf(all, entry.order), .target = .of(entry.target.resolve(all)) });
     }
     return found;
 }

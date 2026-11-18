@@ -108,7 +108,7 @@ pub fn sendHome(ctx: aigeneric.Context) void {
     const current = slot.current() orelse return;
     if (aigeneric.prioritised(all, current.order)) return;
     world.player.ending = if (object.sent_home == ._unknown_3) ._unknown_7 else .friendly_fire;
-    _ = aigeneric.give(ctx, all.player, .friendly_fire, current.target.asShip());
+    _ = aigeneric.give(ctx, all.player, .friendly_fire, current.target.asShip(all));
     object.flags.sent_off = true;
 }
 

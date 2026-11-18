@@ -443,7 +443,7 @@ pub fn patrolInit(ctx: Context, index: u16) void {
     setPace(slot, set_off_pace, 0);
     const bound = world.mission orelse return;
     state.formation_point = if (bound.ship(index)) |ship| ship.formation_point else dte.Ship.no_formation_point;
-    const waypoint = std.math.cast(u16, slot.orders[0].target.index) orelse return;
+    const waypoint = std.math.cast(u16, slot.orders[0].target.resolve(ctx.world.objects).index) orelse return;
     if (waypoint < bound.waypoints.len) setOff(world, index, waypoint);
     state.close = false;
 }

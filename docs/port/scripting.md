@@ -772,6 +772,13 @@ keeps its original identity, even if it has expired. Saved handles keep their ex
 a `u16` slot followed by a `u32` reuse count, both little-endian. The player scripts' `self` is
 separate from the cached handles and deliberately follows the player's ship when a mission starts.
 
+Retained engine targets use `aigeneric.Aim`, which checks the selected object's identity before
+returning its original target record. `object.target`, `orders.stack`, `missile.target`,
+`turret.target` and `hud.target` keep their existing fields and optional values. After the selected
+object leaves, target records have no object or component, and the HUD has no target. Custom
+order callbacks receive no target object. A target table already copied into script data keeps
+its original object handle, which becomes invalid. It never becomes a handle for a replacement.
+
 Every script can read a handle's fields. A field with a setter can be changed by a global script on
 any object, and by an object's own scripts on their object (`objects.mayChange`); the setter checks
 the value's range, such as the throttle's (`motion.reverse_throttle` to

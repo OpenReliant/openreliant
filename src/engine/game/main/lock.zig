@@ -62,7 +62,7 @@ pub const Lock = struct {
     turn: i32 = 0,
     /// What the lock began on: the target and its component (`0x0057E024`, `0x0057E026`), and the
     /// armed type (`0x0057DFB8`).
-    target: aigeneric.Target = .none,
+    target: aigeneric.Aim = .none,
     type: missiles.Type = .none,
     /// Where the rings close in on (`0x0057DFC8`): the target's node, while the lock holds.
     point: Vector = @splat(0),
@@ -102,7 +102,7 @@ pub const Lock = struct {
         const aimed: ai.ValidTarget = switch (lock.phase) {
             .idle => held: {
                 lock.count = idle_count;
-                const valid = possible(world, ring, entry.target) orelse return;
+                const valid = possible(world, ring, entry.target.resolve(world.objects)) orelse return;
                 lock.phase = .closing;
                 lock.target = entry.target;
                 lock.turn = 0;
@@ -143,15 +143,17 @@ pub const Lock = struct {
     }
 
     /// The target, checked, where the lock may go on: still `possible`, and `same`.
-    fn holds(lock: *const Lock, world: gameobj.World, ring: *missile_display.Ring, target: aigeneric.Target) ?ai.ValidTarget {
-        const valid = possible(world, ring, target) orelse return null;
-        return if (lock.same(ring, target)) valid else null;
+    fn holds(lock: *const Lock, world: gameobj.World, ring: *missile_display.Ring, target: aigeneric.Aim) ?ai.ValidTarget {
+        const valid = possible(world, ring, target.resolve(world.objects)) orelse return null;
+        return if (lock.same(world.objects, ring, target)) valid else null;
     }
 
     /// `missile_lock_same` (`0x004914D0`): whether the player's target, its component and the armed
     /// type are still those the lock began on. Turning the ring loses the lock.
-    fn same(lock: *const Lock, ring: *missile_display.Ring, target: aigeneric.Target) bool {
-        return target.index == lock.target.index and target.component == lock.target.component and ring.armedEntry().type == lock.type;
+    fn same(lock: *const Lock, all: *const create.Objects, ring: *missile_display.Ring, target: aigeneric.Aim) bool {
+        const current = target.resolve(all);
+        const held = lock.target.resolve(all);
+        return current.index == held.index and current.component == held.component and ring.armedEntry().type == lock.type;
     }
 
     fn lose(lock: *Lock) void {
@@ -217,7 +219,7 @@ pub fn guiding(all: *create.Objects) bool {
     var walk = all.missiles.walk();
     while (walk.next()) |index| {
         const missile = all.missiles.get(index) orelse continue;
-        if (missile.launcher.slot == all.player and missile.target.slot() != null) return true;
+        if (missile.launcher.slot == all.player and missile.target.resolve(all).slot() != null) return true;
     }
     return false;
 }

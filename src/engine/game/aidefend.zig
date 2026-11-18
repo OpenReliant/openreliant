@@ -1012,12 +1012,12 @@ test startAttackRun {
     slot.model.?.place(slot.drawn.position, slot.drawn.orientation);
 
     // At a component its model gives a firing arc, the way out the arc names.
-    fighter.slot.orders[0].target = .at(target, 0);
+    fighter.slot.orders[0].target = .at(mission.objects, target, 0);
     startAttackRun(aifight.Fighter.unchecked(fighter.ctx, fighter.index).?);
     try std.testing.expectEqual(arcs[0].way_out, fighter.state.point);
     // At the whole ship, the way clear of its hull, in its own frame: ahead, away from the box
     // behind it, however it is turned.
-    fighter.slot.orders[0].target = .at(target, null);
+    fighter.slot.orders[0].target = .at(mission.objects, target, null);
     startAttackRun(aifight.Fighter.unchecked(fighter.ctx, fighter.index).?);
     try std.testing.expectApproxEqAbs(0, fighter.state.point.x, 1e-5);
     try std.testing.expectApproxEqAbs(0, fighter.state.point.y, 1e-5);
