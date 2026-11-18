@@ -64,7 +64,7 @@ const mill_pace: f32 = 5e-6;
 pub fn millInit(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
-    const target = ai.ValidTarget.of(all, slot.orders[0].target, .{ .cloaked = true }) orelse return;
+    const target = ai.ValidTarget.of(all, slot.orders[0].target.resolve(ctx.world.objects), .{ .cloaked = true }) orelse return;
     const state = &slot.state.mill;
     state.started = ctx.world.clock.frame_start;
     state.circle = math.lookAt(slot.object.nextPosition() - ai.aimedAt(all, target).position);
@@ -208,26 +208,26 @@ const escort_near: f32 = 5000;
 const escort_near_limit: f32 = 0.5;
 const escort_catch_up: f32 = 0.0001;
 
-/// `order_escort_init` (`0x0040AA80`): the init of Escort (9). The ship escorts the ship its order
-/// names; or for a flight group or a squad, the ship at the order's place among the group's ships
-/// (`aigeneric.Entry.sequence`), counting round them again past the last (`ai.eachShip`,
-/// `escort_count_place`).
+/// `order_escort_init` (`0x0040AA80`): starts Escort (9). A ship target selects that ship. A flight
+/// group or squad target selects the member at the order's `sequence`, wrapping past the last
+/// member (`ai.eachShip`, `escort_count_place`). The selected member keeps its object identity.
 ///
-/// **Fix:** where the group has no ships, the game walks it again for ever; OpenReliant escorts
-/// none, which ends the order at its first update.
+/// **Fix:** an empty group makes the game repeat its search forever. OpenReliant selects no ship,
+/// so the order ends on its first update.
 pub fn escortInit(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.escort;
+    defer slot.escort_target = .of(ctx.world.objects, .of(.ship, state.escortedIn(ctx.world.objects), aigeneric.Target.whole));
     const entry = slot.orders[0];
-    if (entry.target.kind == .ship) {
-        state.escorted = entry.target.index;
+    if (entry.target.resolve(ctx.world.objects).kind == .ship) {
+        state.escorted = entry.target.resolve(ctx.world.objects).index;
         return;
     }
     state.escorted = -1;
     state.place = entry.sequence;
     while (state.place >= 0) {
         var counting: EscortCount = .{ .state = state };
-        _ = ai.eachShip(ctx.world, entry.target, &counting);
+        _ = ai.eachShip(ctx.world, entry.target.resolve(ctx.world.objects), &counting);
         if (!counting.visited) return;
     }
 }
@@ -257,7 +257,7 @@ const EscortCount = struct {
 pub fn escort(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
-    const escorted = slot.state.escort.escortedIn(all) orelse return aigeneric.end(ctx, index);
+    const escorted = slot.escort_target.slotIn(all) orelse return aigeneric.end(ctx, index);
     const other = &all.slots[escorted];
     if (other.object.type.base() == .stand_in) return aigeneric.end(ctx, index);
     const lead = other.drawn.ahead(escort_lead);
@@ -445,7 +445,7 @@ pub fn findNewTarget(ctx: Context, index: u16) void {
     state.fight = .none;
     state.mill = .none;
     var weighing: Weighing = .{ .ctx = ctx, .index = index };
-    _ = ai.eachShip(ctx.world, slot.orders[0].target, &weighing);
+    _ = ai.eachShip(ctx.world, slot.orders[0].target.resolve(ctx.world.objects), &weighing);
     const milled = state.mill.kept() orelse {
         if (state.fight.kept() == null) return aigeneric.end(ctx, index);
         slot.object.letGo();
@@ -496,7 +496,8 @@ fn weighTarget(ctx: Context, index: u16, target: aigeneric.Target) void {
     for (all.slots[0..all.count]) |*other| {
         if (!other.object.type.hasStats()) continue;
         const entry = (other.current() orelse continue).*;
-        if (entry.target.index != target.index or entry.target.component != target.component) continue;
+        const aimed_target = entry.target.resolve(all);
+        if (aimed_target.index != target.index or aimed_target.component != target.component) continue;
         if (entry.order == .fight) fights += 1;
         if (entry.order == .mill) mills += 1;
     }
@@ -567,7 +568,7 @@ pub fn findScoopUp(ctx: Context, index: u16) void {
         .search => {
             state.scoop = .none;
             var scooping: Scooping = .{ .ctx = ctx, .index = index };
-            _ = ai.eachShip(ctx.world, slot.orders[0].target, &scooping);
+            _ = ai.eachShip(ctx.world, slot.orders[0].target.resolve(ctx.world.objects), &scooping);
             const nearest = state.scoop.kept() orelse return aigeneric.end(ctx, index);
             _ = aigeneric.give(ctx, index, .scoop_up, nearest);
         },
@@ -824,7 +825,7 @@ fn launchFrom(ctx: Context, index: u16, jack_hammer: bool) void {
     const ship = &slot.object;
     for (ship.fittedRacks(), 0..) |rack, at| {
         if (rack.count < 1 or (rack.type.base() == .jack_hammer) != jack_hammer) continue;
-        missiles.launch(ctx.world, index, at, slot.orders[0].target);
+        missiles.launch(ctx.world, index, at, slot.orders[0].target.resolve(ctx.world.objects));
         return;
     }
 }
@@ -1106,7 +1107,7 @@ pub fn darkReignShoot(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     slot.state.dark_reign.nearest = .none;
     var shooting: DarkReignShooting = .{ .all = ctx.world.objects, .index = index };
-    _ = ai.eachShip(ctx.world, slot.orders[0].target, &shooting);
+    _ = ai.eachShip(ctx.world, slot.orders[0].target.resolve(ctx.world.objects), &shooting);
     const nearest = slot.state.dark_reign.nearest.kept() orelse return aigeneric.end(ctx, index);
     // The game queues it numbered 1 (`aigeneric.Entry.sequence`), which the push numbers anew.
     const entry: aigeneric.Entry = .{ .order = .fire_ion_cannon, .target = nearest, .sequence = 1, .data = .{ .words = @splat(0) } };
@@ -1574,12 +1575,12 @@ test launchMissile {
     defer armed.deinit();
     const ship = try armed.add(.hostile, @splat(0));
     const target = try armed.add(.friendly, .{ 0, 0, 20000 });
-    armed.mission.slot(ship).orders[0] = .{ .order = .launch_missile, .target = .at(target, null), .sequence = 0, .data = .{ .words = @splat(0) } };
+    armed.mission.slot(ship).orders[0] = .{ .order = .launch_missile, .target = .at(armed.mission.objects, target, null), .sequence = 0, .data = .{ .words = @splat(0) } };
     const ctx = armed.mission.orders();
     // The first rack with missiles, the Raptor pod, at the order's target.
     launchMissile(ctx, ship);
     try std.testing.expectEqual(missiles.Type.of(.raptor), armed.missile(0).type);
-    try std.testing.expectEqual(@as(i16, @intCast(target)), armed.missile(0).target.index);
+    try std.testing.expectEqual(@as(i16, @intCast(target)), armed.missile(0).target.resolve(armed.mission.objects).index);
     // The fixture carries no Jack Hammer.
     launchJackHammer(ctx, ship);
     try std.testing.expectEqual(1, armed.live());
@@ -1656,7 +1657,7 @@ test "Find New Target fights what it may, mills round the rest, and pops with no
     findNewTarget(ctx, searcher);
     const fought = game.slot(searcher).orders[0];
     try std.testing.expectEqual(Order.fight, fought.order);
-    try std.testing.expectEqual(far, fought.target.slot());
+    try std.testing.expectEqual(far, fought.target.slotIn(game.objects));
 
     // With that one set aside, it mills round the least crowded for its distance: the nearest.
     _ = aigeneric.pop(ctx, searcher);
@@ -1665,7 +1666,7 @@ test "Find New Target fights what it may, mills round the rest, and pops with no
     findNewTarget(ctx, searcher);
     const milled = game.slot(searcher).orders[0];
     try std.testing.expectEqual(Order.mill, milled.order);
-    try std.testing.expectEqual(near, milled.target.slot());
+    try std.testing.expectEqual(near, milled.target.slotIn(game.objects));
 
     // Once none can be aimed at, it pops.
     _ = aigeneric.pop(ctx, searcher);
@@ -1700,7 +1701,7 @@ test "Find Scoop Up scoops up the nearest it may, one after another, and pops wi
         try std.testing.expectEqual(.search, slot.state.find_scoop_up.step);
         findScoopUp(ctx, searcher);
         try std.testing.expectEqual(Order.scoop_up, slot.orders[0].order);
-        try std.testing.expectEqual(scooped, slot.orders[0].target.slot());
+        try std.testing.expectEqual(scooped, slot.orders[0].target.slotIn(game.objects));
         game.slot(scooped).object.flags.targetable = false;
         _ = aigeneric.pop(ctx, searcher);
     }
@@ -1733,7 +1734,7 @@ test "Dark Reign shoot queues the ion cannon's order at the nearest ship it may 
     try std.testing.expectEqual(1, slot.waiting().len);
     const queued = slot.waiting()[0];
     try std.testing.expectEqual(Order.fire_ion_cannon, queued.entry.order);
-    try std.testing.expectEqual(far, queued.entry.target.slot());
+    try std.testing.expectEqual(far, queued.entry.target.slotIn(game.objects));
     try std.testing.expectEqual(game.clock.frame_start, queued.due);
 
     // With none it may fire at, it pops.
@@ -1844,6 +1845,24 @@ test "Escort takes its place in the group, follows, and ends with its ship" {
 
     // Once its ship has gone, it ends.
     lead.object.type = .of(.stand_in);
+    aigeneric.objectOrders(ctx, escort_ship);
+    try std.testing.expectEqual(0, game.slot(escort_ship).object.order_count);
+}
+
+test "Escort keeps its selected group member's identity" {
+    var mission: GroupMission = undefined;
+    try mission.init(4, 2);
+    defer mission.game.deinit();
+    const game = &mission.game.mission;
+    const ctx = mission.game.orders();
+    const escort_ship = try game.addOther(@splat(0));
+    const first = try game.add(.of(.predator), .{ 0, 0, 20000 });
+    _ = try game.add(.of(.predator), .{ 0, 0, 20000 });
+    _ = try aigeneric.push(ctx, escort_ship, .escort, GroupMission.group);
+    aigeneric.objectOrders(ctx, escort_ship);
+    try std.testing.expectEqual(first, game.slot(escort_ship).escort_target.slotIn(game.objects));
+    create.resetSlot(ctx, first);
+    _ = try create.createObject(game.objects, &game.tables, create.testing.no_models, first, .of(.sabre), 0, @splat(0), &game.random);
     aigeneric.objectOrders(ctx, escort_ship);
     try std.testing.expectEqual(0, game.slot(escort_ship).object.order_count);
 }

@@ -444,7 +444,8 @@ pub const missiles = api.Field(?Missiles, "The player's missiles as the missile 
 pub const target = api.Field(?Target, "The target the display shows, with its subtarget as `component`; nil for none, or outside a mission.", struct {
     pub fn get(call: Call) ?Target {
         const flight, _ = flightOf(call) orelse return null;
-        const shown = flight.hud.target orelse return null;
+        const all = call.runtime().objects orelse return null;
+        const shown = (flight.hud.target orelse return null).resolve(all) orelse return null;
         return .of(shown.target);
     }
 });
@@ -476,7 +477,7 @@ pub const target_display = api.Field(?TargetDisplay, "What the target display sh
     pub fn get(call: Call) ?TargetDisplay {
         const flight, _ = flightOf(call) orelse return null;
         const all = call.runtime().objects orelse return null;
-        const index = (flight.hud.target orelse return null).slot;
+        const index = ((flight.hud.target orelse return null).resolve(all) orelse return null).slot;
         const slot = &all.slots[index];
         const form = target_forms.Form.of(hud.targetWindow(slot)) orelse return null;
         if (form == .small and target_forms.hidden(slot)) return null;

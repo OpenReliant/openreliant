@@ -128,7 +128,7 @@ pub fn targetPart(all: *const create.Objects, aimed: ValidTarget) ?*const object
 
 /// `player_control_entry` (`0x00402860`): the entry of the player's orders that is Player Control,
 /// which holds the player's target, or null for none.
-pub fn playerControlEntry(all: *create.Objects) ?*aigeneric.Entry {
+pub fn playerControlEntry(all: *create.Objects) ?*aigeneric.OrderState {
     return all.slots[all.player].firstOrder(.player_control);
 }
 
@@ -433,7 +433,7 @@ pub fn objectDestroyed(ctx: aigeneric.Context, index: u16, may_spin: bool, no_ej
     if (slot.orders[0].order == .explode) return;
     if (index == all.player and !object.flags.ejected and !no_eject and object.type.base() != .kamov) {
         if (slot.orders[0].order != .eject_player) {
-            _ = aigeneric.give(ctx, index, .eject_player, slot.orders[0].target.asShip());
+            _ = aigeneric.give(ctx, index, .eject_player, slot.orders[0].target.asShip(all));
             object.flags.ejected = true;
             return;
         }
@@ -1142,6 +1142,12 @@ pub fn targetValid(all: *const create.Objects, target: aigeneric.Target, allowed
 pub const ValidTarget = struct {
     target: aigeneric.Target,
     slot: u16,
+    reference: gameobj.ObjectRef,
+
+    /// Keeps a cached target tied to the object that was checked.
+    pub fn resolve(target: ValidTarget, all: *const create.Objects) ?ValidTarget {
+        return if (target.reference.valid(all)) target else null;
+    }
 
     /// `order_target_valid`, with the slot: `target` and its slot where it can still be aimed at
     /// (`targetValid`, save the flags in `allowed`), or null.
@@ -1152,7 +1158,7 @@ pub const ValidTarget = struct {
         const object = &slot.object;
         if (!object.flags.targetable) return null;
         if (object.flags.without(allowed).within(target_barred).any()) return null;
-        const valid: ValidTarget = .{ .target = target, .slot = index };
+        const valid: ValidTarget = .{ .target = target, .slot = index, .reference = .of(all, index) };
         const component = target.part() orelse return valid;
         const part = slot.component(component) orelse return null;
         return if (part.standing()) valid else null;
@@ -1166,7 +1172,7 @@ pub const ValidTarget = struct {
 /// `order_target_valid`, then `order_pop` where it fails.
 pub fn targetOrPop(ctx: aigeneric.Context, index: u16, allowed: GameObject.Flags) ?ValidTarget {
     const all = ctx.world.objects;
-    return ValidTarget.of(all, all.slots[index].orders[0].target, allowed) orelse {
+    return ValidTarget.of(all, all.slots[index].orders[0].target.resolve(all), allowed) orelse {
         aigeneric.end(ctx, index);
         return null;
     };
@@ -1185,7 +1191,7 @@ test ValidTarget {
     const sabre = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
     mission.slot(sabre).object.flags.targetable = true;
     // A target that can be aimed at gives itself and its slot.
-    const valid: ValidTarget = .{ .target = .at(sabre, null), .slot = sabre };
+    const valid: ValidTarget = .{ .target = .at(sabre, null), .slot = sabre, .reference = .of(all, sabre) };
     try std.testing.expectEqual(valid, ValidTarget.of(all, .at(sabre, null), .{}));
     try std.testing.expect(targetValid(all, .at(sabre, null), .{}));
     // None, a slot past the objects and a component it lacks give none.
@@ -1378,9 +1384,9 @@ test targetPart {
     const slot = mission.slot(ship);
     const model = &slot.model.?;
 
-    const whole: ValidTarget = .{ .target = .at(ship, null), .slot = ship };
-    const listed: ValidTarget = .{ .target = .at(ship, 0), .slot = ship };
-    const past: ValidTarget = .{ .target = .at(ship, 1), .slot = ship };
+    const whole: ValidTarget = .{ .target = .at(ship, null), .slot = ship, .reference = .of(all, ship) };
+    const listed: ValidTarget = .{ .target = .at(ship, 0), .slot = ship, .reference = .of(all, ship) };
+    const past: ValidTarget = .{ .target = .at(ship, 1), .slot = ship, .reference = .of(all, ship) };
 
     // A component names its part; otherwise a type aimed at by no part is aimed at as a whole.
     try std.testing.expect(targetPart(all, listed).? == &model.parts[0]);
@@ -1484,7 +1490,7 @@ test intercept {
     const struck = mission.slot(target);
     objects.setOrientation(&struck.object, &struck.drawn, math.identity);
     struck.object.speed = 10;
-    const aimed: ValidTarget = .{ .target = .at(target, null), .slot = target };
+    const aimed: ValidTarget = .{ .target = .at(target, null), .slot = target, .reference = .of(mission.objects, target) };
     // A shot at 100 a tick from the origin takes 10 ticks, in which the target flies 100.
     const met = intercept(mission.objects, aimed, @splat(0), 100, 1);
     try std.testing.expectEqual(10, met.ticks);
@@ -1604,7 +1610,7 @@ test "aiming at a target" {
     const struck = &all.slots[target];
     struck.drawn = .{ .position = .{ 0, 0, 1000 }, .orientation = math.rotation(.y, std.math.pi / 2.0) };
     struck.object.speed = 10;
-    const aimed: ValidTarget = .{ .target = .at(target, null), .slot = target };
+    const aimed: ValidTarget = .{ .target = .at(target, null), .slot = target, .reference = .of(mission.objects, target) };
     try std.testing.expectEqual(Vector{ 0, 0, 1000 }, aimedAt(all, aimed).position);
 
     // With no gun fast enough to reach it in a quarter of its life, it isn't led.

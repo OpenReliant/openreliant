@@ -230,13 +230,12 @@ const port_speed: f32 = 4;
 pub fn init(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const entry = &all.slots[index].orders[0];
-    if (entry.target.kind != .ship or entry.target.isWhole()) {
+    if (entry.target.resolve(all).kind != .ship or entry.target.isWhole()) {
         entry.data.dock.found_ship = 0;
         entry.data.dock.found_port = 0;
         var search: PortSearch = .{ .all = all, .searcher = index };
-        _ = ai.eachShip(ctx.world, entry.target, &search);
-        entry.target.index = entry.data.dock.found_ship;
-        entry.target.component = entry.data.dock.found_port;
+        _ = ai.eachShip(ctx.world, entry.target.resolve(all), &search);
+        entry.target = .selected(all, .{ .kind = entry.target.resolve(all).kind, .index = entry.data.dock.found_ship, .component = entry.data.dock.found_port });
     }
     const target = entry.target.slotIn(all) orelse return;
     entry.data.dock.style = .of(all.slots[index].object.type, all.slots[target].object.type);
@@ -279,7 +278,7 @@ const PortSearch = struct {
         for (all.slots[0..all.count], 0..) |*slot, index| {
             if (index == searcher) continue;
             const entry = (slot.current() orelse continue).*;
-            if (entry.order == .dock and entry.target.index == at and entry.target.component == port) return true;
+            if (entry.order == .dock and entry.target.resolve(all).index == at and entry.target.resolve(all).component == port) return true;
         }
         return false;
     }
@@ -539,7 +538,7 @@ fn limpetUpdate(ctx: Context, index: u16, at_berth: LimpetBerth) void {
     const world = ctx.world;
     const all = world.objects;
     const slot = &all.slots[index];
-    const target = slot.orders[0].target;
+    const target = slot.orders[0].target.resolve(all);
     const carrier = target.slotIn(all) orelse return aigeneric.end(ctx, index);
     const state = &slot.state.dock;
     const step = state.step.limpet;
@@ -714,7 +713,7 @@ fn nannyInit(ctx: Context, index: u16) void {
     const all = ctx.world.objects;
     const slot = &all.slots[index];
     const state = &slot.state.nanny_dock;
-    const target = slot.orders[0].target;
+    const target = slot.orders[0].target.resolve(all);
     slot.object.passes_through[0] = .from(target.slotIn(all));
     state.step = .no_port;
     slot.motion = .plain;
@@ -735,7 +734,7 @@ fn nannyUpdate(ctx: Context, index: u16) void {
     const slot = &all.slots[index];
     const object = &slot.object;
     const state = &slot.state.nanny_dock;
-    const target = slot.orders[0].target;
+    const target = slot.orders[0].target.resolve(all);
     const now = world.clock.frame_start;
     const at = target.slotIn(all) orelse return nannyEnd(ctx, index);
     const nanny = &all.slots[at];
@@ -1037,8 +1036,8 @@ test "a ship without a port given takes the first free one" {
         try std.testing.expect(try aigeneric.push(dock.orders(), index, .dock, .at(dock.station, null)));
         aigeneric.objectOrders(dock.orders(), index);
     }
-    try std.testing.expectEqual(0, dock.game.slot(dock.freighters[0]).orders[0].target.component);
-    try std.testing.expectEqual(1, dock.game.slot(dock.freighters[1]).orders[0].target.component);
+    try std.testing.expectEqual(0, dock.game.slot(dock.freighters[0]).orders[0].target.resolve(dock.game.objects).component);
+    try std.testing.expectEqual(1, dock.game.slot(dock.freighters[1]).orders[0].target.resolve(dock.game.objects).component);
 }
 
 test "a ship docks nowhere at a port that is not there" {

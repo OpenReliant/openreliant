@@ -63,6 +63,21 @@ needs between updates.
 ship number, past the last of the 400 slots too. OpenReliant reads a target's slot only where it is
 one of the slots (`aigeneric.Target.slotIn`), so an order aimed past them aims at nothing.
 
+**Fix:** retained ship targets keep the identity of the object they selected. The original
+six-byte `Target`, 26-byte `Entry` and 36-byte `Queued` records keep their binary layouts.
+OpenReliant stores active and queued orders as native `OrderState` and `PendingOrder` records.
+Their `Aim` targets hold the original target fields and a `gameobj.ObjectRef`. Removing or
+replacing the object leaves no target, rather than selecting the next object in that slot.
+This also applies to the player's primary target, missile locks, missiles, turrets and the HUD's
+cached target.
+
+A mission can name a ship before it is created. A target captured on a stand-in accepts that
+slot's next creation, then expires when that object leaves. Flight group and squad targets keep
+their group meaning. Patrol keeps its waypoint index. Dock and Launch keep the original target
+kind when they select a group member, and Escort keeps the selected member's identity separately
+from its original state record. Target selection, steering, timing and order priorities use the
+same routines and values.
+
 `order_push` (`0x0040CC10`) takes a slot, an order and its target, and:
 
 1. fails if the ship refuses the order (`order_refused`, `0x0040CA00`): the ship is a player's,

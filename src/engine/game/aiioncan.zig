@@ -700,7 +700,7 @@ pub fn init(ctx: Context, index: u16) void {
         .record = 0,
         .step = .start,
         .step_began = 0,
-        .target = slot.orders[0].target.index,
+        .target = slot.orders[0].target.resolve(ctx.world.objects).index,
         .updated = world.clock.frame_start,
         ._unknown_14 = @splat(0),
     };

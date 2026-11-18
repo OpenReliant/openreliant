@@ -369,7 +369,7 @@ pub const Missile = struct {
     /// Its order, and what it flies at: the one entry of its object's order stack
     /// (`GameObject + 0x684`), whose target is at `+0x04` and its component at `+0x06`.
     order: Order = .pod_launch,
-    target: aigeneric.Target = .none,
+    target: aigeneric.Aim = .none,
     /// Whether it homes on its target and lights the target's missile warning (`run`, `frame`);
     /// one that doesn't flies straight on. The launch sets it as the game decides
     /// (`homesAtLaunch`).
@@ -467,7 +467,7 @@ pub fn launch(world: gameobj.World, launcher: u16, rack: usize, target: aigeneri
     if (order == .pod_launch) startTrail(world, at);
     setOrder(world, at, order);
     if (order == .rail_launch) startTrail(world, at);
-    if (missiles.get(at)) |live| live.target = target;
+    if (missiles.get(at)) |live| live.target = .of(world.objects, target);
     launched(world, at);
     if (pod and racked.count == 0) launch(world, launcher, rack, .none);
 }
@@ -495,7 +495,7 @@ pub fn launchFromTurret(world: gameobj.World, ship: u16, model: *const objects.M
     const at = spawn(world, ship, .of(.screamer), built, places) orelse return;
     startTrail(world, at);
     setOrder(world, at, .pod_launch);
-    if (all.missiles.get(at)) |live| live.target = target;
+    if (all.missiles.get(at)) |live| live.target = .of(world.objects, target);
     launched(world, at);
 }
 
@@ -695,7 +695,7 @@ fn home(world: gameobj.World, at: u8) void {
     const missile = all.missiles.get(at) orelse return;
     const object = missile.object();
     const allowed: GameObject.Flags = if (missile.type.base() == .vagabond) .{ .cloaked = true } else .{};
-    if (ai.ValidTarget.of(all, missile.target, allowed)) |valid| {
+    if (ai.ValidTarget.of(all, missile.target.resolve(all), allowed)) |valid| {
         const from = missile.slot.drawn.position;
         const aim = if (decoyAt(world, missile)) |decoy| decoyed: {
             if (math.lengthSquared(decoy.place().position - from) < caught_range * caught_range) {
@@ -775,8 +775,8 @@ fn steer(object: *GameObject, orientation: math.Matrix, toward: Vector) void {
 fn solomon(world: gameobj.World, at: u8) void {
     const all = world.objects;
     const missile = all.missiles.get(at) orelse return;
-    if (!ai.targetValid(all, missile.target, .{})) {
-        missile.target = choose(all, missile) orelse return steady(missile.object(), 1);
+    if (!ai.targetValid(all, missile.target.resolve(all), .{})) {
+        missile.target = .of(all, choose(all, missile) orelse return steady(missile.object(), 1));
     }
     home(world, at);
 }
@@ -1155,7 +1155,7 @@ test launchFromTurret {
     const missile = armed.missile(0);
     try std.testing.expectEqual(Type.of(.screamer), missile.type);
     try std.testing.expectEqual(Order.pod_launch, missile.order);
-    try std.testing.expectEqual(target, missile.target);
+    try std.testing.expectEqual(target, missile.target.resolve(world.objects));
     try std.testing.expectEqual(ship, missile.launcher.slot);
     try std.testing.expectEqual(30, missile.object().velocity.z);
     const next = model.partPlace(0, .next).within(slot.object.placeAt(.next));
@@ -1185,7 +1185,7 @@ test launch {
     const first = armed.missile(0);
     try std.testing.expectEqual(Type.of(.raptor), first.type);
     try std.testing.expectEqual(Order.pod_launch, first.order);
-    try std.testing.expectEqual(target, first.target);
+    try std.testing.expectEqual(target, first.target.resolve(world.objects));
     try std.testing.expectEqual(2, first.object().throttle);
     try std.testing.expect(first.object().root.flags.committed);
 
@@ -1203,7 +1203,7 @@ test launch {
     try std.testing.expectEqual(5, armed.live());
     const pod = armed.missile(4);
     try std.testing.expectEqual(Order.jettison, pod.order);
-    try std.testing.expectEqual(aigeneric.Target.none, pod.target);
+    try std.testing.expectEqual(aigeneric.Target.none, pod.target.resolve(world.objects));
     // An empty rack launches nothing more.
     launch(world, ship, 0, target);
     try std.testing.expectEqual(5, armed.live());
@@ -1354,7 +1354,7 @@ test "a torpedo flies at where it meets its target, less its own drift" {
     aigeneric.objectOrders(ctx, fired);
     try std.testing.expectEqual(ai.full_throttle, mission.slot(fired).object.throttle);
     const flight = mission.slot(fired).flight.?;
-    const aimed = ai.ValidTarget.of(mission.objects, mission.slot(fired).orders[0].target, .{}).?;
+    const aimed = ai.ValidTarget.of(mission.objects, mission.slot(fired).orders[0].target.resolve(mission.objects), .{}).?;
     const met = ai.intercept(mission.objects, aimed, @splat(0), flight.max_speed, 1);
     try std.testing.expectApproxEqRel(20000 / flight.max_speed, met.ticks, 1e-5);
     try std.testing.expectApproxEqAbs(met.ticks * 40, math.dot(met.at - Vector{ 0, 0, 20000 }, math.forward(target.drawn.orientation)), 1e-2);

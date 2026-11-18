@@ -162,7 +162,7 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     slot.riding = .{ .object = carrier };
     const object = &slot.object;
     object.letGo();
-    const gate = slot.orders[0].target.component;
+    const gate = slot.orders[0].target.resolve(all).component;
     const reliant = &all.slots[carrier];
     const in_tube = tube(reliant, gate) orelse {
         log.warn("the Reliant in slot {d} has no tube {d}", .{ carrier, gate });
@@ -385,7 +385,7 @@ fn playSample(world: gameobj.World, index: u16) void {
 fn switchView(ctx: aigeneric.Context, view: camera.View, object: u16) void {
     const all = ctx.world.objects;
     const seen = &all.slots[object];
-    const gate = seen.orders[0].target.component;
+    const gate = seen.orders[0].target.resolve(all).component;
     _ = camera.switchLaunch(ctx.world, view, object, .of(seen), .of(&all.slots[all.player]), evenGate(gate));
 }
 
@@ -580,7 +580,7 @@ test "the player's launch shows the hangar and the cutaways, and ends in view 0"
     try std.testing.expectEqual(.cockpit, mission.player.viewing.cockpit_mode);
     try std.testing.expect(mission.player.viewing.locked);
     // The gate stays the order's own once the hangar is laid over the tube.
-    try std.testing.expectEqual(0, mission.slot(player).orders[0].target.component);
+    try std.testing.expectEqual(0, mission.slot(player).orders[0].target.resolve(mission.objects).component);
 
     launch.start(mission.objects, player);
     aigeneric.objectOrders(ctx, player);

@@ -690,6 +690,80 @@ test "custom orders use qualified names, lifecycle callbacks and the engine stac
     try std.testing.expect(fixture.game.runtime.custom_orders.entries.items[0].enabled);
 }
 
+test "retained targets and custom callbacks never select a replacement object" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local world = require("openreliant.world")
+                \\local orders = require("openreliant.orders")
+                \\local ship, saved, stacked, fired, turret, expected
+                \\local own = orders.register("track", {
+                \\    init = function(_, target) assert(target == expected) end,
+                \\    update = function(object, target)
+                \\        if expected:is_valid() then assert(target == expected)
+                \\        else assert(target == nil); object.throttle = 0.25 end
+                \\        return true
+                \\    end,
+                \\})
+                \\return {engine_handlers = {
+                \\    on_mission_start = function()
+                \\        ship, expected = world.objects()[2], world.objects()[3]
+                \\        assert(ship:give_order(own, expected))
+                \\        saved, stacked = ship.target, orders.stack(ship)[1].target
+                \\        fired, turret = world.missiles()[1].target, ship:turrets()[1].target
+                \\        for _, target in {saved, stacked, fired, turret} do
+                \\            assert(target.object == expected and target.component == nil)
+                \\        end
+                \\    end,
+                \\    on_update = function()
+                \\        for _, target in {saved, stacked, fired, turret} do assert(not target.object:is_valid()) end
+                \\        for _, target in {ship.target, orders.stack(ship)[1].target,
+                \\                world.missiles()[1].target, ship:turrets()[1].target} do
+                \\            assert(target ~= nil and target.object == nil and target.component == nil)
+                \\        end
+                \\        assert(world.objects()[3]:is_valid() and world.objects()[3] ~= expected)
+                \\        assert(ship.throttle == 0.25)
+                \\        ship.throttle = 0.5
+                \\    end,
+                \\}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const gpa = std.testing.allocator;
+    const all = fixture.mission.objects;
+    const target = try fixture.mission.add(.of(.sabre), .{ 0, 0, 2000 });
+    var parts: openreliant.engine.game.objects.testing.Parts(2) = undefined;
+    parts.init();
+    parts.turret(0, .missile_turret, .missile, 1, 0);
+    parts.member(1, 1, 1);
+    var model = try parts.create(gpa);
+    defer model.deinit(gpa);
+    const slot = fixture.mission.slot(fixture.sabre);
+    slot.guns = try gpa.alloc(openreliant.engine.game.guns.Fitted, 1);
+    slot.guns[0] = .{ .turret = .{ .missile = .{ .model = &model, .base = 0, .launcher = 1, .target = .at(all, target, null) } } };
+    _ = all.missiles.add(.{
+        .slot = .{ .object = std.mem.zeroes(gameobj.GameObject) },
+        .launcher = .of(all, fixture.sabre),
+        .type = .of(.raptor),
+        .target = .at(all, target, null),
+    }).?;
+    fixture.begin();
+    fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    aigeneric.objectOrders(fixture.mission.orders(), fixture.sabre);
+    create.resetSlot(fixture.mission.orders(), target);
+    _ = try create.createObject(all, &fixture.mission.tables, create.testing.no_models, target, .of(.sabre), 0, @splat(0), &fixture.mission.random);
+    aigeneric.objectOrders(fixture.mission.orders(), fixture.sabre);
+    try std.testing.expectEqual(0.25, slot.object.throttle);
+    fixture.game.scripts.update(0.1);
+    try std.testing.expectEqual(0.5, slot.object.throttle);
+    try std.testing.expect(fixture.game.runtime.custom_orders.entries.items[0].enabled);
+}
+
 test "a script launches a ship from a carrier's gate" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{
@@ -900,10 +974,10 @@ test "a script stops and retargets the orders given, and keeps one from ending" 
     try std.testing.expectEqual(pushed_before, slot.stack().len);
     // Aimed at the player, it is aimed at the Sabre itself.
     try std.testing.expect(aigeneric.give(ctx, fixture.sabre, .escort, .at(0, null)));
-    try std.testing.expectEqual(aigeneric.Target.at(fixture.sabre, null), slot.current().?.target);
+    try std.testing.expectEqual(aigeneric.Target.at(fixture.sabre, null), slot.current().?.target.resolve(fixture.mission.objects));
     // A target the scripts don't change goes through as it was, a squad's too.
     try std.testing.expect(aigeneric.give(ctx, fixture.sabre, .fly_aimlessly, .group(.squad, 3)));
-    try std.testing.expectEqual(aigeneric.Target.group(.squad, 3), slot.current().?.target);
+    try std.testing.expectEqual(aigeneric.Target.group(.squad, 3), slot.current().?.target.resolve(fixture.mission.objects));
     // The order on top ends, and the escort under it doesn't.
     try std.testing.expect(aigeneric.pop(ctx, fixture.sabre));
     try std.testing.expect(!aigeneric.pop(ctx, fixture.sabre));
@@ -1174,8 +1248,8 @@ test "scripts list a ship's parts, destroy it, and set the player's targets" {
     fixture.begin();
     fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
     try std.testing.expect(slot.model.?.destroyed and slot.model.?.parts[1].armor < 0);
-    try std.testing.expectEqual(fixture.sabre, fixture.mission.player.primary_target.?.index);
-    try std.testing.expectEqual(1, fixture.mission.player.primary_target.?.component);
+    try std.testing.expectEqual(fixture.sabre, fixture.mission.player.primary_target.?.slotIn(fixture.mission.objects));
+    try std.testing.expectEqual(1, fixture.mission.player.primary_target.?.part());
     try std.testing.expect(slot.object.flags.exploding);
 }
 
@@ -1634,7 +1708,7 @@ test "a mod's scripts that fail to start leave no context open" {
     openreliant.engine.hooks.tell(fixture.mission.world(), .object_added, .{ .object = .of(fixture.sabre) });
     const all = fixture.mission.objects;
     const slot: create.Slot = .{ .object = std.mem.zeroes(gameobj.GameObject) };
-    const record = all.missiles.add(.{ .slot = slot, .launcher = .of(all, 0), .type = .of(.raptor), .target = .at(fixture.sabre, null) }).?;
+    const record = all.missiles.add(.{ .slot = slot, .launcher = .of(all, 0), .type = .of(.raptor), .target = .at(all, fixture.sabre, null) }).?;
     openreliant.engine.hooks.tell(fixture.mission.world(), .missile_added, .{ .missile = .of(record), .launcher = .of(0) });
     fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
     // Only the global script's context stays open.
@@ -1787,7 +1861,7 @@ test "missile scripts run on each missile from its launch to its end, and see it
     fixture.begin();
     const all = fixture.mission.objects;
     const slot: create.Slot = .{ .object = std.mem.zeroes(gameobj.GameObject) };
-    const record = all.missiles.add(.{ .slot = slot, .launcher = .of(all, 0), .type = .of(.raptor), .target = .at(fixture.sabre, null) }).?;
+    const record = all.missiles.add(.{ .slot = slot, .launcher = .of(all, 0), .type = .of(.raptor), .target = .at(all, fixture.sabre, null) }).?;
     openreliant.engine.hooks.tell(fixture.mission.world(), .missile_added, .{ .missile = .of(record), .launcher = .of(0) });
     try std.testing.expectEqual(1, fixture.game.onMissile(record).items.len);
     fixture.game.scripts.update(0.1);
@@ -1851,7 +1925,7 @@ test "turret scripts run on each turret of an object, and aim it" {
     openreliant.engine.hooks.tell(fixture.mission.world(), .object_added, .{ .object = .of(fixture.sabre) });
     // Each turret's script runs with its own globals, and the launcher's aims it at the Predator.
     try std.testing.expectEqual(2, fixture.game.onObject(fixture.sabre).items.len);
-    try std.testing.expectEqual(0, slot.guns[1].turret.missile.target.slot().?);
+    try std.testing.expectEqual(0, slot.guns[1].turret.missile.target.slotIn(fixture.mission.objects).?);
     fixture.game.scripts.update(0.1);
     try std.testing.expectEqual(0.5, slot.object.throttle);
 }
@@ -2072,11 +2146,11 @@ test "the wingmen example: a badly damaged wingman runs from its attacker, and r
     slot.object.last_attacker = .of(fixture.sabre);
     scripts.update(0.1);
     try std.testing.expectEqual(.run_away, slot.current().?.order);
-    try std.testing.expectEqual(fixture.sabre, @as(u16, @intCast(slot.current().?.target.index)));
+    try std.testing.expectEqual(fixture.sabre, @as(u16, @intCast(slot.current().?.target.resolve(fixture.mission.objects).index)));
     // Its report reaches the global script at the next update, and 20 seconds on it rejoins the
     // player's formation.
     scripts.update(0.1);
     scripts.update(20);
     try std.testing.expectEqual(.formation, slot.current().?.order);
-    try std.testing.expectEqual(0, slot.current().?.target.index);
+    try std.testing.expectEqual(0, slot.current().?.target.resolve(fixture.mission.objects).index);
 }

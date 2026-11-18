@@ -466,9 +466,9 @@ pub fn armorDamage(world: gameobj.World, index: u16, struck: Quadrant, value: f3
         if (friendly_fire.destroyedFriend(world, index, attacker, kind)) friendly_fire.friendDestroyed(world);
     }
     const current = &all.slots[all.player].orders[0].target;
-    if (smartTargeting(world, attacker, kind) != null) current.index = @intCast(index);
+    if (smartTargeting(world, attacker, kind) != null) current.* = current.retarget(all, @intCast(index), current.resolve(all).component);
     if (world.display) |display| {
-        if (current.slot() == index) {
+        if (current.slotIn(all) == index) {
             _ = display.bringUp(hud.targetWindow(slot), false);
             display.events.target_hits.getPtr(struck).happen();
         }
@@ -622,7 +622,7 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     if (object.side != .hostile) return;
     if (std.mem.findScalar(?*objects.Model.Part, slot.listed(), struck)) |n| {
         input.setPlayerTarget(display, all, @intCast(index), @intCast(n), false);
-    } else if (all.slots[all.player].orders[0].target.slot() != index) {
+    } else if (all.slots[all.player].orders[0].target.slotIn(all) != index) {
         input.setPlayerTarget(display, all, @intCast(index), aigeneric.Target.whole, false);
     }
 }
@@ -1105,15 +1105,15 @@ test "smart targeting takes what the player's ship hits" {
 
     // Off, a shot takes nothing.
     damage(world, index, .fore, 1, 1, player, .bullet);
-    try std.testing.expectEqual(-1, target.index);
+    try std.testing.expectEqual(-1, target.resolve(all).index);
     // On, a collision takes nothing either, and another's shot nothing.
     display.smart_targeting = true;
     damage(world, index, .fore, 1, 1, player, .collision);
     damage(world, index, .fore, 1, 1, index, .bullet);
-    try std.testing.expectEqual(-1, target.index);
+    try std.testing.expectEqual(-1, target.resolve(all).index);
     // The player's shot makes it the target, and brings up the target display.
     damage(world, index, .fore, 1, 1, player, .bullet);
-    try std.testing.expectEqual(@as(i32, index), target.index);
+    try std.testing.expectEqual(@as(i32, index), target.resolve(all).index);
     try std.testing.expectEqual(index, display.target.?.slot);
     try std.testing.expect(display.windows.up(.target));
 

@@ -38,7 +38,7 @@ pub const Aimed = struct {
     pitch: usize,
     slots: [3]?usize,
     /// What it aims at (`+0x18`), or none.
-    target: aigeneric.Target = .none,
+    target: aigeneric.Aim = .none,
     /// When it next looks for a target while it has none (`+0x4C`).
     looks_at: i32 = 0,
     /// The yaw and pitch it has still to turn toward its aim (`+0x50`, `+0x54`).
@@ -80,7 +80,7 @@ pub const Launcher = struct {
     base: usize,
     launcher: usize,
     /// What it launches at (`+0x18`), or none.
-    target: aigeneric.Target = .none,
+    target: aigeneric.Aim = .none,
     /// When its state's wait is over (`+0x4C`).
     until: i32 = 0,
     /// The missiles it has left (`+0x58`). It starts empty, and so reloads first.
@@ -234,7 +234,7 @@ const look_spread = 100;
 /// the frame before.
 fn aimedStep(world: gameobj.World, index: u16, gun: *guns.Fitted, aimed: *Aimed) void {
     const clock = world.clock;
-    if (aimed.target.slot() != null) {
+    if (aimed.target.resolve(world.objects).slot() != null) {
         track(world, index, gun, aimed);
         const rate = @as(f32, @floatFromInt(clock.frame_duration)) * turn_rate;
         const model = aimed.model;
@@ -244,7 +244,7 @@ fn aimedStep(world: gameobj.World, index: u16, gun: *guns.Fitted, aimed: *Aimed)
         if (aimed.slots[0]) |part| turn(model, part, pitch);
     }
     if (aimed.looks_at < clock.frame_start) {
-        if (aimed.target.slot() == null) pickTarget(world, index, aimed);
+        if (aimed.target.resolve(world.objects).slot() == null) pickTarget(world, index, aimed);
         aimed.looks_at = clock.frame_start + look_least + world.random.below(look_spread);
     }
 }
@@ -274,7 +274,7 @@ const fire_speed: f32 = 2;
 /// **Quirk:** the muzzle points along its own nose, from where the base stands.
 fn track(world: gameobj.World, index: u16, gun: *guns.Fitted, aimed: *Aimed) void {
     const all = world.objects;
-    const valid = ai.ValidTarget.of(all, aimed.target, .{}) orelse return drop(aimed);
+    const valid = ai.ValidTarget.of(all, aimed.target.resolve(all), .{}) orelse return drop(aimed);
     const struck = &all.slots[valid.slot];
     const lead: f32 = if (struck.object.flags.ecm) world.random.fraction() * ecm_lead_spread + ecm_lead_least else 1;
     const model = aimed.model;
@@ -408,16 +408,16 @@ fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed) void {
     for (all.slots[0..all.count], 0..) |*slot, at| {
         const candidate: u16 = @intCast(at);
         const object = &slot.object;
-        if (aimed.target.slot() == candidate or candidate == index) continue;
+        if (aimed.target.resolve(all).slot() == candidate or candidate == index) continue;
         if (!object.type.hasStats() or object.side == own.side or object.side == .neutral) continue;
         if (huge and !object.flags.components) continue;
-        aimed.target = .at(candidate, null);
+        aimed.target = .at(all, candidate, null);
         if (object.component_count < 1 or huge) {
             if (reaches(all, aimed, from, anywhere)) return;
         } else if (components_aimed) {
             for (slot.listed(), 0..) |component, number| {
                 if (component == null) continue;
-                aimed.target = .at(candidate, @intCast(number));
+                aimed.target = .at(all, candidate, @intCast(number));
                 if (reaches(all, aimed, from, anywhere)) return;
             }
         }
@@ -428,7 +428,7 @@ fn pickTarget(world: gameobj.World, index: u16, aimed: *Aimed) void {
 /// Whether an aimed turret can lead its target, where it is valid, from `from`, and aim at where it
 /// leads it, its firing arc aside where it aims `anywhere` (`aimAngles`).
 fn reaches(all: *const create.Objects, aimed: *const Aimed, from: Vector, anywhere: bool) bool {
-    const valid = ai.ValidTarget.of(all, aimed.target, .{}) orelse return false;
+    const valid = ai.ValidTarget.of(all, aimed.target.resolve(all), .{}) orelse return false;
     const aim = ai.leadAimWithGun(all, from, valid, aimed.barrel.type, 1) orelse return false;
     return aimAngles(aimed, aim, anywhere) != null;
 }
@@ -536,22 +536,22 @@ fn missileStep(world: gameobj.World, index: u16, launcher: *Launcher) void {
                 if (seen.distance > reach or !seen.level()) continue;
                 if (seen.distance * best < seen.local[2]) {
                     best = seen.local[2] / seen.distance;
-                    launcher.target = .at(@intCast(candidate), null);
+                    launcher.target = .at(all, @intCast(candidate), null);
                 }
             }
-            if (launcher.target.slot() != null) launcher.state = .tracking;
+            if (launcher.target.resolve(all).slot() != null) launcher.state = .tracking;
         },
         .tracking => {
             if (launcher.missiles == 0) return empty(launcher, now);
-            const target = launcher.target.slot() orelse return lose(launcher, now);
-            if (!ai.targetValid(all, launcher.target, .{})) return lose(launcher, now);
+            const target = launcher.target.resolve(all).slot() orelse return lose(launcher, now);
+            if (!ai.targetValid(all, launcher.target.resolve(all), .{})) return lose(launcher, now);
             const seen: Bearing = .of(from, all.slots[target].object.nextPosition());
             if (seen.distance > reach * keep_range or !seen.level()) return lose(launcher, now);
             if (seen.local[0] < seen.distance * -missile_band) turn(model, launcher.base, .{ 0, -missile_turn, 0 });
             if (seen.local[0] > seen.distance * missile_band) turn(model, launcher.base, .{ 0, missile_turn, 0 });
             if (seen.local[2] <= seen.distance * missile_cone or launcher.until >= now) return;
             if (world.random.fraction() < launch_odds) {
-                missiles.launchFromTurret(world, index, model, launcher.launcher, launcher.target);
+                missiles.launchFromTurret(world, index, model, launcher.launcher, launcher.target.resolve(all));
                 launcher.missiles -= 1;
             }
             launcher.until = now + if (world.objects.rules().hurried_turrets) hurried_launch_wait else launch_wait;
@@ -658,7 +658,7 @@ test fit {
     try std.testing.expectEqual(3, aimed.barrel.muzzle.part);
     try std.testing.expectEqual(guns.GunType.of(.turret_lasers), aimed.barrel.type);
     try std.testing.expect(model.parts[1].turret and !model.parts[2].turret);
-    try std.testing.expectEqual(null, aimed.target.ship());
+    try std.testing.expect(aimed.target == .none);
     try std.testing.expectEqual(null, aimed.arc);
 
     const launcher = fitted[2].turret.missile;
@@ -840,7 +840,7 @@ test "an aimed turret passes over a ship the track would drop" {
     stage.mission.slot(later).drawn.position = .{ 0, 0, 2500 };
     stage.mission.slot(stage.target).object.flags.targetable = false;
     pickTarget(stage.mission.world(), stage.ship, aimed);
-    try std.testing.expectEqual(later, aimed.target.ship());
+    try std.testing.expectEqual(later, aimed.target.shipIn(stage.mission.objects));
 }
 
 test "an aimed turret fires where its muzzle points, and turns toward its target" {
@@ -860,7 +860,7 @@ test "an aimed turret fires where its muzzle points, and turns toward its target
     // With no target, it looks for one: the hostile ship, not its own side's.
     _ = try stage.mission.add(.of(.predator), .{ 0, 0, 2000 });
     step(world, stage.ship);
-    try std.testing.expectEqual(stage.target, aimed.target.ship());
+    try std.testing.expectEqual(stage.target, aimed.target.shipIn(stage.mission.objects));
     try std.testing.expect(aimed.looks_at >= 1100 and aimed.looks_at < 1200);
 
     // Its muzzle points along Z at the target, so it fires: the trigger held for a tick, and the
@@ -879,7 +879,7 @@ test "an aimed turret fires where its muzzle points, and turns toward its target
     // A target that is no longer valid is dropped.
     stage.mission.slot(stage.target).object.flags.targetable = false;
     step(world, stage.ship);
-    try std.testing.expectEqual(null, aimed.target.ship());
+    try std.testing.expectEqual(null, aimed.target.shipIn(stage.mission.objects));
 }
 
 test "a spinning gun spins up while its trigger is held" {
@@ -944,7 +944,7 @@ test "a missile turret reloads, then tracks and launches" {
     // It finds the hostile ship ahead, and tracks it.
     step(world, stage.ship);
     try std.testing.expectEqual(Launcher.State.tracking, launcher.state);
-    try std.testing.expectEqual(stage.target, launcher.target.ship());
+    try std.testing.expectEqual(stage.target, launcher.target.shipIn(stage.mission.objects));
     // Each time its wait is over it launches one time in five, then waits 2000 ticks, or 1000 in
     // mission 28. Where the ship can't build the Screamer, the missile is spent all the same.
     var tries: usize = 0;

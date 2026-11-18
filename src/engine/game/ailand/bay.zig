@@ -78,10 +78,10 @@ pub fn init(ctx: Context, index: u16) void {
     const target = slot.orders[0].target;
     const carrier = target.slotIn(all) orelse return;
     const kind: Bay = .of(state);
-    if (gatePlace(all, carrier, kind, aimedGate(target)) == null) {
+    if (gatePlace(all, carrier, kind, aimedGate(target.resolve(all))) == null) {
         state.setLanding(null);
         switch (kind) {
-            .hangar => log.warn("object {d} cannot land on what its order aims at: it has no launch point {d}", .{ index, aimedGate(target) }),
+            .hangar => log.warn("object {d} cannot land on what its order aims at: it has no launch point {d}", .{ index, aimedGate(target.resolve(all)) }),
             .badanov => log.warn("object {d} cannot land on what its order aims at: it has no bay", .{index}),
         }
         return;
@@ -112,7 +112,7 @@ fn doorsOf(all: *const create.Objects, slot: *const create.Slot) bay_launch.Door
     const target = slot.orders[0].target;
     const carrier = target.slotIn(all) orelse return .{};
     return switch (Bay.of(&slot.state.land)) {
-        .hangar => .of(all.slots[carrier].object.type, aimedGate(target)),
+        .hangar => .of(all.slots[carrier].object.type, aimedGate(target.resolve(all))),
         .badanov => badanov_launch.landing_doors,
     };
 }
@@ -181,7 +181,7 @@ fn cutaway(ctx: Context, index: u16, carrier: u16) void {
     ailand.watch(world, index, .{ .landing_aside, .landing_tube });
     const holder = &all.slots[carrier];
     ailand.moveAway(holder);
-    const gate = gatePlace(all, carrier, .of(state), aimedGate(slot.orders[0].target)) orelse return;
+    const gate = gatePlace(all, carrier, .of(state), aimedGate(slot.orders[0].target.resolve(all))) orelse return;
     state.gate_place = gate.position;
     state.gate_orientation = gate.orientation;
     const at_mouth = mouth(&holder.object, gate);
@@ -194,9 +194,9 @@ fn cutaway(ctx: Context, index: u16, carrier: u16) void {
     ailand.stopCarrier(ctx, carrier);
     const set = object.nextPosition();
     log.debug("object {d} of radius {d:.0} lands at gate {d} of object {d}: there at ({d:.0}, {d:.0}, {d:.0}), the bay's mouth at ({d:.0}, {d:.0}, {d:.0}), the ship set at ({d:.0}, {d:.0}, {d:.0})", .{
-        index,            object.radius,    aimedGate(slot.orders[0].target), carrier,
-        gate.position[0], gate.position[1], gate.position[2],                 at_mouth[0],
-        at_mouth[1],      at_mouth[2],      set[0],                           set[1],
+        index,            object.radius,    aimedGate(slot.orders[0].target.resolve(all)), carrier,
+        gate.position[0], gate.position[1], gate.position[2],                              at_mouth[0],
+        at_mouth[1],      at_mouth[2],      set[0],                                        set[1],
         set[2],
     });
 }

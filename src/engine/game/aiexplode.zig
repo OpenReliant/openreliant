@@ -129,7 +129,7 @@ pub const Data = extern struct {
 pub fn init(ctx: Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const state = &slot.state.explode;
-    state.mode = .of(&slot.object, slot.orders[0].target);
+    state.mode = .of(&slot.object, slot.orders[0].target.resolve(ctx.world.objects));
     switch (state.mode) {
         .ship => shipInit(ctx, index),
         .hull => hullInit(ctx, index),

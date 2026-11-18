@@ -82,11 +82,11 @@ pub const fields = struct {
 
     pub const target = api.Field(Target, "What it flies at. Its guidance turns to a new target from the next frame.", struct {
         pub fn get(all: *const create.Objects, record: u8) Target {
-            return .of(missileIn(all, record).target);
+            return .of(missileIn(all, record).target.resolve(all));
         }
 
         pub fn set(_: Call, all: *create.Objects, record: u8, value: Target) void {
-            all.missiles.records[record].?.target = value.aimed();
+            all.missiles.records[record].?.target = .of(all, value.aimed());
         }
     });
 
@@ -292,7 +292,7 @@ test "handles name missiles until their flight ends" {
     var slot: create.Slot = .{ .object = std.mem.zeroes(gameobj.GameObject) };
     slot.object.root.position = .of(.{ 0, 0, 500 });
     slot.object.velocity = .of(.{ 0, 3, 4 });
-    const record = all.missiles.add(.{ .slot = slot, .launcher = .of(all, launcher), .type = .of(.raptor), .target = .at(launcher, null) }).?;
+    const record = all.missiles.add(.{ .slot = slot, .launcher = .of(all, launcher), .type = .of(.raptor), .target = .at(all, launcher, null) }).?;
 
     const scripts = try Runtime.create(gpa, std.testing.io, &.{}, runtime_module.testing.options);
     defer scripts.destroy();
@@ -331,7 +331,7 @@ test "handles name missiles until their flight ends" {
         \\missile.velocity = vector.create(0, 0, 9)
         \\assert(missile.position == vector.create(1, 2, 3) and missile.speed == 9)
     );
-    try std.testing.expectEqual(engine.game.aigeneric.Target.none, all.missiles.records[record].?.target);
+    try std.testing.expectEqual(engine.game.aigeneric.Target.none, all.missiles.records[record].?.target.resolve(all));
     try std.testing.expect(!all.missiles.records[record].?.homes);
 
     // Once its launcher leaves, the missile has none; once its record is freed, the handle is no

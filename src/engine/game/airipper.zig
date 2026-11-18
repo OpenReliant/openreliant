@@ -960,9 +960,9 @@ pub fn drop(ctx: Context, index: u16) void {
     const all = world.objects;
     const slot = &all.slots[index];
     const target = slot.orders[0].target;
-    if (target.slot() != null) {
+    if (target.resolve(all).slot() != null) {
         aigeneric.end(ctx, index);
-        _ = aigeneric.give(ctx, index, .ripper_attach_cargo_pod_to_mammoth, target.asShip());
+        _ = aigeneric.give(ctx, index, .ripper_attach_cargo_pod_to_mammoth, target.asShip(all));
         return;
     }
     const rippers = world.rippers orelse return;
@@ -1078,7 +1078,7 @@ pub fn attachInit(ctx: Context, index: u16) void {
     state.step = .starting;
     state.since = ctx.world.clock.frame_start;
     state.grip = if (world.rippers) |rippers| rippers.takeFor(world, index, rippers.carried(index)) else .none;
-    if (portOf(all, slot.orders[0].target)) |port| {
+    if (portOf(all, slot.orders[0].target.resolve(all))) |port| {
         const ship = &all.slots[port.ship];
         const by: f32 = if (ship.object.type.base() == .sharov or ship.object.type.base() == .boridin) -beside_by else beside_by;
         state.beside = port.place.point(.{ 0, by, 0 });
@@ -1154,7 +1154,7 @@ pub fn attach(ctx: Context, index: u16) void {
     const rippers = world.rippers orelse return;
     const pod_at = rippers.carried(index) orelse return attachGiveUp(ctx, index);
     const pod = &all.slots[pod_at];
-    const port = portOf(all, slot.orders[0].target) orelse return attachGiveUp(ctx, index);
+    const port = portOf(all, slot.orders[0].target.resolve(all)) orelse return attachGiveUp(ctx, index);
     if (pod.model == null) return attachGiveUp(ctx, index);
     const grip = rippers.gripAt(state.grip);
     switch (state.step) {
@@ -1533,8 +1533,8 @@ test "a Ripper told to drop its pod onto a ship passes its target on as a ship's
     drop(t.orders(), t.ripper);
     const entry = t.game.slot(t.ripper).current().?;
     try std.testing.expectEqual(Order.ripper_attach_cargo_pod_to_mammoth, entry.order);
-    try std.testing.expectEqual(named.asShip(), entry.target);
-    try std.testing.expectEqual(-2, entry.target.component);
+    try std.testing.expectEqual(named.asShip(), entry.target.resolve(t.game.objects));
+    try std.testing.expectEqual(-2, entry.target.resolve(t.game.objects).component);
 }
 
 test "a Ripper gives up its grab where the object goes" {

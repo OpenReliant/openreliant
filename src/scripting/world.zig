@@ -97,7 +97,7 @@ fn setPlayerTarget(call: Call, target: Object, component: ?u8) bool {
 /// `SetPrimaryTarget` sets it.
 fn setPrimaryTarget(call: Call, target: ?Object, component: ?u8) bool {
     const orders = call.runtime().orders orelse return false;
-    orders.world.player.primary_target = if (target) |aimed| .{ .index = aimed.slot(), .component = component } else null;
+    orders.world.player.primary_target = if (target) |aimed| .at(orders.world.objects, aimed.slot(), if (component) |part| @as(u16, part) else null) else null;
     return true;
 }
 

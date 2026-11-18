@@ -87,11 +87,12 @@ an object that may be absent.
 
 This is an **Improvement:** the original keeps slot numbers alone. Script object handles, the
 missile launcher's identity exposed to scripts and the highlighted subtarget use the checked
-reference. The original's fixed layouts stay unchanged. Other retained references, including
-order targets ([#1351](https://github.com/OpenReliant/openreliant/issues/1351)), attackers and
-weapon damage owners ([#1352](https://github.com/OpenReliant/openreliant/issues/1352)), and radio,
-camera and sound subjects ([#1353](https://github.com/OpenReliant/openreliant/issues/1353)), still
-need the same checks. These changes are tracked under
+reference. [Retained targets](orders.md#the-stack) use it too, including stacked and queued orders,
+missiles, turrets, the player's primary target and the HUD's cached target. The original's fixed
+layouts stay unchanged. Attackers and weapon damage owners
+([#1352](https://github.com/OpenReliant/openreliant/issues/1352)), and radio, camera and sound
+subjects ([#1353](https://github.com/OpenReliant/openreliant/issues/1353)), still need the same
+checks. These changes are tracked under
 [#946](https://github.com/OpenReliant/openreliant/issues/946).
 
 ## Creating an object

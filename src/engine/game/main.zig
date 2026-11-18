@@ -970,7 +970,7 @@ fn objectsPass(orders: aigeneric.Context) void {
         const slot = &all.slots[index];
         if (slot.object.flags.outOfFrame() or riding) continue;
         if (slot.current()) |entry| {
-            if (entry.order == .fight and entry.target.slot() == all.player and slot.state.fight.missile_ready) enemy_lock = true;
+            if (entry.order == .fight and entry.target.resolve(all).slot() == all.player and slot.state.fight.missile_ready) enemy_lock = true;
         }
         cloak.frame(slot, world.clock.frame_start);
         objects.loseComponents(orders, index);
@@ -1013,7 +1013,7 @@ fn keepPlayerTarget(world: gameobj.World) void {
         if (away > hud.pick_reach) _ = input.cycleTarget(world.display, all, .next, if (target.side == .hostile) .hostile else .friendly, false);
     }
     const display = world.display orelse return;
-    if (!display.subtarget.shows(entry.target) and world.view() == .cockpit) display.subtarget.pick(all);
+    if (!display.subtarget.shows(entry.target.resolve(all)) and world.view() == .cockpit) display.subtarget.pick(all);
 }
 
 test keepPlayerTarget {
@@ -1032,12 +1032,12 @@ test keepPlayerTarget {
     const entry = ai.playerControlEntry(all).?;
 
     // A target past the reach moves on to the next hostile one within it.
-    entry.target = .at(far, null);
+    entry.target = .at(all, far, null);
     keepPlayerTarget(mission.world());
-    try std.testing.expectEqual(near, entry.target.slot().?);
+    try std.testing.expectEqual(near, entry.target.resolve(all).slot().?);
     // One within it stays.
     keepPlayerTarget(mission.world());
-    try std.testing.expectEqual(near, entry.target.slot().?);
+    try std.testing.expectEqual(near, entry.target.resolve(all).slot().?);
 
     // An exploding one stops MATCH SPEED and moves on too: here to none, the other being past
     // the reach.
@@ -1045,12 +1045,12 @@ test keepPlayerTarget {
     mission.slot(near).object.flags.exploding = true;
     keepPlayerTarget(mission.world());
     try std.testing.expect(!mission.player.matching_speed);
-    try std.testing.expectEqual(null, entry.target.slot());
+    try std.testing.expectEqual(null, entry.target.resolve(all).slot());
 
     // A subtarget whose component has no part moves on; a ship that lists no components keeps it,
     // as the game's step does.
     mission.slot(near).object.flags.exploding = false;
-    entry.target = .at(near, 3);
+    entry.target = .at(all, near, 3);
     keepPlayerTarget(mission.world());
     try std.testing.expectEqual(3, entry.target.part().?);
 }

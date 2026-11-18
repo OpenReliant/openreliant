@@ -271,7 +271,7 @@ pub fn seen(all: *const create.Objects, index: u16) ?camera.Landing {
     const entry = slot.running(.land) orelse return null;
     const state = &slot.state.land;
     return switch (state.landing() orelse return null) {
-        .reliant => reliant.seen(all, entry.target, state),
+        .reliant => reliant.seen(all, entry.target.resolve(all), state),
         .yamato => yamato.seen(all, state),
         .bay, .badanov => bay.seen(state),
     };

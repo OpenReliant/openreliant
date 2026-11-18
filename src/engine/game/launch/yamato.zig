@@ -158,7 +158,7 @@ pub fn init(ctx: aigeneric.Context, index: u16, carrier: u16) void {
     const holder = &all.slots[carrier];
     slot.riding = .{ .object = carrier };
     slot.object.letGo();
-    const gate = std.math.cast(usize, slot.orders[0].target.component) orelse return;
+    const gate = std.math.cast(usize, slot.orders[0].target.resolve(world.objects).component) orelse return;
     const model = if (holder.model) |*held| held else return;
     const bay = gate + first_bay;
     const bounds = model.partBounds(bay) orelse return;
@@ -259,7 +259,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
             slot.object.throttle = out_throttle;
             if (player) world.shake.* = accelerate_shake;
             if (slot.orders[0].target.slotIn(all)) |carrier| {
-                if (std.math.cast(usize, slot.orders[0].target.component)) |gate| {
+                if (std.math.cast(usize, slot.orders[0].target.resolve(world.objects).component)) |gate| {
                     const first = gate * door_count + first_door;
                     playDoors(world, &all.slots[carrier], first, if (player) .{ .part = first, .kind = .doorclos } else null);
                 }
@@ -284,7 +284,7 @@ pub fn run(ctx: aigeneric.Context, index: u16) void {
         .fly => advance(state, .fly, now),
         .end => {
             if (slot.orders[0].target.slotIn(all)) |carrier| if (all.slots[carrier].model) |*model| {
-                if (std.math.cast(usize, slot.orders[0].target.component)) |gate| setBay(model, gate, false);
+                if (std.math.cast(usize, slot.orders[0].target.resolve(world.objects).component)) |gate| setBay(model, gate, false);
             };
             slot.object.letGo();
             if (player) launch.endForPlayer(world, index, &.{ .yamato_beside, .yamato_ahead, .yamato_aside });
@@ -316,7 +316,7 @@ fn setMarker(world: gameobj.World, slot: *create.Slot) void {
     const carrier = slot.orders[0].target.slotIn(world.objects) orelse return;
     const holder = &world.objects.slots[carrier];
     const model = if (holder.model) |*held| held else return;
-    const gate = std.math.cast(usize, slot.orders[0].target.component) orelse return;
+    const gate = std.math.cast(usize, slot.orders[0].target.resolve(world.objects).component) orelse return;
     const bounds = model.partBounds(gate + first_bay) orelse return;
     const local: math.Vector = .{
         if (gate < side_split) bounds[1][0] + marker_margin else bounds[0][0] - marker_margin,

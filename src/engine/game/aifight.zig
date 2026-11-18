@@ -170,7 +170,7 @@ pub const Fighter = struct {
         const all = ctx.world.objects;
         const read = all.slots[index].orders[0].target;
         const slot = read.slotIn(all) orelse return null;
-        return .of(ctx, index, .{ .target = read, .slot = slot });
+        return .of(ctx, index, .{ .target = read.resolve(all), .slot = slot, .reference = .of(all, slot) });
     }
 
     /// The objects of the world it fights in.
@@ -204,7 +204,7 @@ pub const Fighter = struct {
     }
 
     /// Its current order, Fight.
-    pub fn entry(fighter: Fighter) *aigeneric.Entry {
+    pub fn entry(fighter: Fighter) *aigeneric.OrderState {
         return &fighter.slot.orders[0];
     }
 
@@ -936,7 +936,7 @@ test outOfSphere {
     const player = &all.slots[0].object;
     // The Sabre fights a ship near it, far out of a small sphere around the player.
     const other = try mission.add(.of(.sabre), .{ 0, 0, 310000 });
-    started.entry().target = .at(other, null);
+    started.entry().target = .at(all, other, null);
     const fighter = Fighter.unchecked(started.ctx, started.index).?;
     all.action_sphere = .{ .centre = 0, .radius = 1000 };
 
@@ -951,7 +951,7 @@ test outOfSphere {
     try std.testing.expectEqual(null, outOfSphere(fighter));
     // A ship fighting a player's ship fights on wherever it is.
     player.root.next_position = .{ .x = 0, .y = 0, .z = 0 };
-    started.entry().target = .at(0, null);
+    started.entry().target = .at(all, 0, null);
     try std.testing.expectEqual(null, outOfSphere(Fighter.unchecked(started.ctx, started.index).?));
 }
 

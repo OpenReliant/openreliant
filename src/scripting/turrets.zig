@@ -137,8 +137,8 @@ pub const fields = struct {
     pub const target = api.Field(?Target, "What it aims at: an aimed turret's and a missile turret's own target; nil for a spinning gun, which fires where its object points, or once it's destroyed. Setting it aims the turret, which turns to it, and nil leaves it to look for one.", struct {
         pub fn get(all: *const create.Objects, turret: Turret) ?Target {
             return switch (gunOf(all, turret).turret) {
-                .aimed => |aimed| .of(aimed.target),
-                .missile => |launcher| .of(launcher.target),
+                .aimed => |aimed| .of(aimed.target.resolve(all)),
+                .missile => |launcher| .of(launcher.target.resolve(all)),
                 .spin, .fixed, .gone => null,
             };
         }
@@ -146,8 +146,8 @@ pub const fields = struct {
         pub fn set(call: Call, all: *create.Objects, turret: Turret, value: ?Target) void {
             const aimed_at: engine.game.aigeneric.Target = if (value) |given| given.aimed() else .none;
             switch (gunOf(all, turret).turret) {
-                .aimed => |*aimed| aimed.target = aimed_at,
-                .missile => |*launcher| launcher.target = aimed_at,
+                .aimed => |*aimed| aimed.target = .of(all, aimed_at),
+                .missile => |*launcher| launcher.target = .of(all, aimed_at),
                 .spin, .fixed, .gone => call.raise("only an aimed turret or a missile turret has a target", .{}),
             }
         }

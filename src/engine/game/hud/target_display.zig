@@ -68,7 +68,7 @@ pub const Scene = struct {
 
     /// What the small form shows now: nothing for a target it hides (`hidden`).
     pub fn small(scene: Scene) ?Small {
-        const index = (scene.state.target orelse return null).slot;
+        const index = ((scene.state.target orelse return null).resolve(scene.all) orelse return null).slot;
         const slot = &scene.all.slots[index];
         if (hidden(slot)) return null;
         const status = hud.ShipStatus.ofTarget(slot, .{ .counts = &scene.state.events.target_hits, .seen = &scene.drawing.target_hits });
@@ -78,7 +78,7 @@ pub const Scene = struct {
 
     /// What the large form shows now.
     pub fn large(scene: Scene) ?Large {
-        const index = (scene.state.target orelse return null).slot;
+        const index = ((scene.state.target orelse return null).resolve(scene.all) orelse return null).slot;
         const slot = &scene.all.slots[index];
         return .{
             .picture = if (slot.type) |loaded| loaded.schematic else null,
@@ -250,7 +250,7 @@ pub const Bar = struct {
 /// The subtarget of the player's current order, as the large form shows it: a component the
 /// target lists, whose part's class has a name and an icon.
 pub fn subtarget(all: *const create.Objects) ?Subtarget {
-    const current = all.slots[all.player].orders[0].target;
+    const current = all.slots[all.player].orders[0].target.resolve(all);
     const component = current.part() orelse return null;
     if (current.index < 0) return null;
     const holder = &all.slots[@intCast(current.index)];
@@ -370,7 +370,7 @@ test "the forms show the target" {
     const sabre = try mission.add(.of(.sabre), .{ 0, 0, 3400 });
     const slot = mission.slot(sabre);
     slot.object.speed = 212.6;
-    var state: hud.State = .{ .target = .{ .target = .at(sabre, null), .slot = sabre } };
+    var state: hud.State = .{ .target = .{ .target = .at(sabre, null), .slot = sabre, .reference = .of(all, sabre) } };
     var drawing: hud.Drawing = .{};
     const scene: Scene = .{ .state = &state, .drawing = &drawing, .all = all };
 
@@ -396,7 +396,7 @@ test "the forms show the target" {
     part.armor = 50;
     slot.components[0] = &part;
     slot.object.component_count = 1;
-    mission.slot(player).orders[0].target = .at(sabre, 0);
+    mission.slot(player).orders[0].target = .at(all, sabre, 0);
     const shown = scene.large().?.subtarget.?;
     try std.testing.expectEqual(.engine, shown.class);
     try std.testing.expectEqual(named(.engine).?, shown.named);

@@ -795,7 +795,7 @@ pub fn engineUpdate(sound: *Sound, scene: Scene) void {
 fn flybys(sound: *Sound, scene: Scene) void {
     const all = scene.objects;
     // The slot the player's order aims at, which the game takes for a ship's whatever its kind.
-    const aimed_at: ?u16 = if (all.slots[all.player].current()) |entry| entry.target.slot() else null;
+    const aimed_at: ?u16 = if (all.slots[all.player].current()) |entry| entry.target.resolve(all).slot() else null;
     const looking = math.forward(scene.camera.orientation);
     for (all.slots[0..all.count], 0..) |*slot, index| {
         const combat = slot.combat orelse continue;

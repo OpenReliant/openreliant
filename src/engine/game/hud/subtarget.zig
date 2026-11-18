@@ -81,9 +81,9 @@ pub const Subtarget = struct {
     pub fn pick(subtarget: *Subtarget, all: *create.Objects) void {
         subtarget.clear(all);
         const entry = ai.playerControlEntry(all) orelse return;
-        if (!ai.targetValid(all, entry.target, .{})) return;
+        if (!ai.targetValid(all, entry.target.resolve(all), .{})) return;
         const component = entry.target.part() orelse return;
-        const index = entry.target.slot() orelse return;
+        const index = entry.target.slotIn(all) orelse return;
         subtarget.target = .{ .object = .of(all, index), .component = component };
         var walk = Assembly.of(all, index, component) orelse return;
         while (walk.next()) |part| {
@@ -245,7 +245,7 @@ test Subtarget {
     const own = live.parts[0].object.levels;
     const own_mask = live.parts[0].object.light_mask;
     live.parts[0].object.colour = .{ 0.1, 0.2, 0.3, 0.4 };
-    ai.playerControlEntry(all).?.target = .at(index, 0);
+    ai.playerControlEntry(all).?.target = .at(all, index, 0);
 
     // Picked out: the assembly's two parts show copies drawn in one lit pass, in red, out of the
     // first six lights' reach; the other part and the shared mesh stay as they were.
@@ -274,17 +274,22 @@ test Subtarget {
     try std.testing.expectEqual(@as([4]f32, @splat(0)), live.parts[1].object.colour);
 
     // A target that names no component picks nothing out.
-    ai.playerControlEntry(all).?.target = .at(index, null);
+    ai.playerControlEntry(all).?.target = .at(all, index, null);
     subtarget.pick(all);
     try std.testing.expectEqual(null, subtarget.target);
 
     // Where the object has left its slot since, putting back only lets the copies go.
-    ai.playerControlEntry(all).?.target = .at(index, 0);
+    ai.playerControlEntry(all).?.target = .at(all, index, 0);
     subtarget.pick(all);
     all.reuses[index] +%= 1;
     subtarget.clear(all);
     try std.testing.expect(live.parts[0].object.levels.ptr != own.ptr);
     for (live.parts[0..2]) |*part| part.object.levels = own;
+
+    // The old order no longer selects the object. Select it again for a new highlight.
+    subtarget.pick(all);
+    try std.testing.expectEqual(null, subtarget.target);
+    ai.playerControlEntry(all).?.target = .at(all, index, 0);
 
     // While a drawn frame may show the copies, those of the parts put back are kept until the
     // frame is drawn.
