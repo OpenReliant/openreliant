@@ -2157,6 +2157,8 @@ pub const World = struct {
     /// which drawing takes up as the next drawn frame begins (`main.cues`); null where nothing is
     /// drawn.
     cues: ?*@import("main/cues.zig").Cues = null,
+    /// Optional host output for notifications addressed to a participant and their ship.
+    hit_feedback: ?collision.HitFeedback.Sink = null,
     /// The countermeasures in flight (`cloak.cpp`); null where none are dropped.
     countermeasures: ?*@import("cloak.zig").Countermeasures = null,
     /// The capital ships' shields showing (`shield.cpp`); null where none show.

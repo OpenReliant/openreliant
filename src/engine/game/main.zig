@@ -1349,6 +1349,7 @@ pub const Drawn = struct {
         shown.clock = &drawn.clock;
         shown.shake = &drawn.shake;
         shown.forces = if (drawn.forces) |*forces| forces else null;
+        shown.hit_feedback = null;
         drawn.effects.show(&shown);
         return shown;
     }
