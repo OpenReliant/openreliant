@@ -14,7 +14,6 @@ const srapi = @import("../surrender/surrenderlib/srapi.zig");
 const srapiext = @import("../surrender/surrenderlib/srapiext.zig");
 const srcore = @import("../surrender/surrenderlib/srcore.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
-const camera = @import("camera.zig");
 const aigeneric = @import("aigeneric.zig");
 const collision = @import("collision.zig");
 const create = @import("create.zig");
@@ -115,10 +114,6 @@ pub const Shockwave = struct {
         return wave.reach <= distance and distance < reach;
     }
 
-    fn passesPlayer(wave: *const Shockwave, world: gameobj.World, reach: f32) bool {
-        return wave.passes(world.objects.slots[world.objects.player].drawn.position, reach);
-    }
-
     /// Whether a shockwave can harm the object now: not one that lists components, a stand-in, one
     /// exploding or disabled, or one another shockwave harmed less than `harm_pause` ticks ago.
     fn harms(object: *const gameobj.GameObject, frame_start: i32) bool {
@@ -146,7 +141,7 @@ pub const Shockwave = struct {
             if (wave.side) |own| if (object.side == own) continue;
             if (!wave.passes(slot.drawn.position, reach)) continue;
             object.shockwave_until = now + harm_pause;
-            if (index == all.player) shake(world, done);
+            shake(world, index, done);
             switch (how) {
                 .disrupt => wave.disrupt(world, index, done),
                 .drain => {
@@ -193,25 +188,37 @@ pub const Shockwave = struct {
         return left * wave.size * left * left * scale;
     }
 
-    /// A torpedo's or a split's shockwave passing the player's ship shakes the view and damages
-    /// each quadrant (`harm`), unless the ship lists components, is a stand-in, exploding or
-    /// disabled, or another shockwave harmed it less than `harm_pause` ticks ago. A shield's
-    /// reserve takes it first: while the reserve holds, the shield is spared, and once the reserve
-    /// runs out the shield takes what the reserve held.
+    const PilotEffect = enum { shake_only, damage };
+
+    fn passPilots(wave: *const Shockwave, world: gameobj.World, done: f32, reach: f32, effect: PilotEffect) void {
+        const all = world.objects;
+        switch (world.damage_rules) {
+            .campaign => wave.passPilot(world, all.player, done, reach, effect),
+            .cooperative, .arena => for (0..@min(all.players, all.slots.len)) |slot| {
+                const index: u16 = @intCast(slot);
+                if (all.playerBinding(index) != null) wave.passPilot(world, index, done, reach, effect);
+            },
+        }
+    }
+
+    /// A wave that reaches a pilot shakes their view. A torpedo or split also damages the ship
+    /// if it can take a shockwave hit. The reserve absorbs the hit while it holds. If it runs out,
+    /// the shield takes the amount the reserve held.
     ///
     /// **Improvement:** the game damages the player as if the attacker were object 16, whatever a
     /// loop left in a register; OpenReliant names the shockwave's owner.
-    fn harmPlayer(wave: *const Shockwave, world: gameobj.World, done: f32, reach: f32) void {
+    fn passPilot(wave: *const Shockwave, world: gameobj.World, index: u16, done: f32, reach: f32, effect: PilotEffect) void {
         const all = world.objects;
-        const object = &all.slots[all.player].object;
-        if (!harms(object, world.clock.frame_start) or !wave.passesPlayer(world, reach)) return;
-        shake(world, done);
-        object.shockwave_until = world.clock.frame_start + harm_pause;
-        const value = wave.harm(world.objects, 1 - done);
+        const slot = &all.slots[index];
+        if (effect == .damage and !harms(&slot.object, world.clock.frame_start)) return;
+        if (!wave.passes(slot.drawn.position, reach)) return;
+        shake(world, index, done);
+        if (effect == .shake_only) return;
+        slot.object.shockwave_until = world.clock.frame_start + harm_pause;
+        const value = wave.harm(all, 1 - done);
+        const reserves = &all.player_states[index].shield_reserves;
         for (std.enums.values(collision.Quadrant)) |quadrant| {
-            // Local-only victims still need the per-player effects audit
-            // ([#1368](https://github.com/OpenReliant/openreliant/issues/1368)).
-            const through = if (all.player_states[all.player].shield_reserves.of(quadrant)) |reserve| through: {
+            const through = if (reserves.of(quadrant)) |reserve| through: {
                 if (reserve.* <= 0) break :through value;
                 reserve.* -= value;
                 if (reserve.* >= 0) continue;
@@ -219,7 +226,7 @@ pub const Shockwave = struct {
                 reserve.* = 0;
                 break :through held;
             } else value;
-            collision.damageFrom(world, all.player, quadrant, through, 1, wave.owner, .collision);
+            collision.damageFrom(world, index, quadrant, through, 1, wave.owner, .collision);
         }
     }
 };
@@ -360,8 +367,8 @@ pub const Shockwaves = struct {
             wave.colours = @splat(@splat(1 - done));
             const reach = done * wave.size;
             switch (wave.kind) {
-                .blast_02, .blast_03, .blast_04 => if (wave.passesPlayer(world, reach)) shake(world, done),
-                .torpedo, .split => wave.harmPlayer(world, done, reach),
+                .blast_02, .blast_03, .blast_04 => wave.passPilots(world, done, reach, .shake_only),
+                .torpedo, .split => wave.passPilots(world, done, reach, .damage),
                 .havoc => wave.strike(world, done, reach, .disrupt),
                 .imp => wave.strike(world, done, reach, .drain),
                 .uber, ._unknown_4 => {},
@@ -396,14 +403,10 @@ pub fn setOff(world: gameobj.World, at: math.Place, spec: Spec) void {
     waves.add(at, spec, world.clock);
 }
 
-/// Shakes the player's view by how far through its life the shockwave passing is, where it shakes
-/// no harder already.
-///
-/// **Improvement:** the player's controller plays `Shock`, unless it is playing already
-/// (`input.force.Unread.played`).
-fn shake(world: gameobj.World, done: f32) void {
-    world.shake.* = @max(world.shake.*, @min(done * shake_scale, camera.Cockpit.shake_most));
-    if (world.forces) |forces| forces.startUnlessPlaying(.shock, world.clock.frame_start);
+/// Sends the passing wave's camera shake and controller effect to this pilot.
+fn shake(world: gameobj.World, index: u16, done: f32) void {
+    const effect: collision.HitFeedback = .{ .shockwave = done * shake_scale };
+    effect.sendTo(world, index);
 }
 
 /// `0x004A0B30`: a ring's mesh, over `image`.
@@ -616,4 +619,86 @@ test "a torpedo's shockwave" {
     mission.clock.frame_start = 40;
     built.waves.frame(world);
     try std.testing.expectApproxEqAbs(880, shields.at(.left).*, 1e-3);
+}
+
+test "hosted shockwaves use each bound pilot's ship and reserves" {
+    const gpa = std.testing.allocator;
+    var built: testing.Built = try .init(gpa);
+    defer built.deinit(gpa);
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var world = mission.world();
+    world.damage_rules = .{ .arena = null };
+    world.shockwaves = &built.waves;
+    const all = world.objects;
+    const first = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+    const second = try mission.add(.of(.predator), .{ 0, 0, 1100 });
+    const vacant = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+    const owner = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    all.players = 3;
+    all.player = vacant;
+    var bindings: [2]@import("players.zig").ControlRef = undefined;
+    for ([_]u16{ first, second }, &bindings) |index, *binding| {
+        const pilot = all.joinParticipant(index).?;
+        binding.* = all.bindParticipant(pilot, .of(all, index)).?;
+    }
+    for ([_]u16{ first, second, vacant, owner }) |index| all.slots[index].object.shields = .all(1000);
+    const first_state = all.playerState(first).?;
+    const second_state = all.playerState(second).?;
+    first_state.shield_reserves = .{ .fore = 100, .aft = 0 };
+    second_state.shield_reserves = .{ .fore = 500, .aft = 0 };
+    all.slots[second].object.shockwave_until = 30;
+
+    const Notice = collision.HitFeedback.Addressed;
+    const Recorded = struct {
+        waves: [4]Notice = undefined,
+        count: usize = 0,
+
+        fn enqueue(context: *anyopaque, notice: Notice) void {
+            if (notice.effect != .shockwave) return;
+            const recorded: *@This() = @ptrCast(@alignCast(context));
+            recorded.waves[recorded.count] = notice;
+            recorded.count += 1;
+        }
+    };
+    var recorded: Recorded = .{};
+    world.hit_feedback = .{ .context = &recorded, .enqueue = Recorded.enqueue };
+
+    const torpedo: Spec = .{ .kind = .torpedo, .size = 6000, .life = 100, .owner = .of(all, owner) };
+    setOff(world, .{}, torpedo);
+    mission.clock.frame_start = 20;
+    built.waves.frame(world);
+    try std.testing.expectEqual(1, recorded.count);
+    try std.testing.expectEqual(bindings[0], recorded.waves[0].recipient);
+    try std.testing.expectEqual(0, first_state.shield_reserves.fore);
+    try std.testing.expectEqual(900, all.slots[first].object.shields.get(.fore));
+    try std.testing.expectEqual(1000, all.slots[second].object.shields.get(.aft));
+
+    setOff(world, .{}, torpedo);
+    mission.clock.frame_start = 40;
+    built.waves.frame(world);
+    try std.testing.expectEqual(2, recorded.count);
+    try std.testing.expectEqual(bindings[1], recorded.waves[1].recipient);
+    try std.testing.expectEqual(40, recorded.waves[1].tick);
+    try std.testing.expectEqual(20 + harm_pause, all.slots[first].object.shockwave_until);
+    try std.testing.expectEqual(40 + harm_pause, all.slots[second].object.shockwave_until);
+    try std.testing.expectEqual(260, second_state.shield_reserves.fore);
+    try std.testing.expectEqual(1000, all.slots[second].object.shields.get(.fore));
+    try std.testing.expectEqual(760, all.slots[second].object.shields.get(.aft));
+    try std.testing.expectEqual(1000, all.slots[vacant].object.shields.get(.aft));
+    try std.testing.expectEqual(1000, all.slots[owner].object.shields.get(.aft));
+
+    // An ordinary blast shakes both pilots even during their damage cooldowns.
+    setOff(world, .{}, .{ .kind = .blast_02, .size = 6000, .life = 100, .owner = .of(all, owner) });
+    mission.clock.frame_start = 60;
+    built.waves.frame(world);
+    try std.testing.expectEqual(4, recorded.count);
+    try std.testing.expectEqual(bindings[0], recorded.waves[2].recipient);
+    try std.testing.expectEqual(bindings[1], recorded.waves[3].recipient);
+    try std.testing.expectEqual(0, world.shake.*);
+    all.player = first;
+    try std.testing.expect(!recorded.waves[3].present(world));
+    try std.testing.expect(recorded.waves[2].present(world));
+    try std.testing.expectEqual(2, world.shake.*);
 }

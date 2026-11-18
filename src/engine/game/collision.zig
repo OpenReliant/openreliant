@@ -335,6 +335,16 @@ pub const Difficulty = enum(i16) {
 /// The share of a hit the player's ship takes, whatever the difficulty (`0x004DC408`).
 const player_share: f32 = 0.5;
 
+/// The mission's damage rules. Hosted missions use the bound ships as their pilots.
+pub const DamageRules = union(enum) {
+    /// The standalone campaign uses the local pilot's slot.
+    campaign,
+    /// The original starts network campaign missions on Easy (WinMain `0x004A99F3`).
+    cooperative,
+    /// Arenas use full damage by default. The host can opt into a difficulty grade.
+    arena: ?Difficulty,
+};
+
 /// `damage_by_difficulty` (`0x00463D70`): damage as the difficulty scales it. A shot lands on a
 /// hostile object harder the easier the game is, and anything that hits the player's ship lands
 /// at half, then harder or softer by the difficulty: at medium, half as hard.
@@ -342,14 +352,22 @@ const player_share: f32 = 0.5;
 /// The game compares the damage's kind with the player's slot, which in a single-player game is 0,
 /// a shot's kind; OpenReliant asks for a shot.
 ///
-/// Not ported: multiplayer, where nothing is scaled
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// The original returns the incoming value when `multiplayer_mission` is set, as in the arenas.
 pub fn byDifficulty(world: gameobj.World, index: u16, kind: Kind, value: f32) f32 {
     if (hooks.enter(.damage_by_difficulty, byDifficulty, .{ world, index, kind, value })) |result| return result;
     const all = world.objects;
+    const difficulty: Difficulty = switch (world.damage_rules) {
+        .campaign => world.difficulty,
+        .cooperative => .easy,
+        .arena => |grade| grade orelse return value,
+    };
+    const pilot = if (world.damage_rules == .campaign) index == all.player else all.playerBinding(index) != null;
     var scaled = value;
-    if (kind == .bullet and all.slots[index].object.side == .hostile) scaled *= world.difficulty.onHostile();
-    if (index == all.player) scaled *= world.difficulty.onPlayer() * player_share;
+    // In an arena the same preset applies to pilots on either side.
+    if (kind == .bullet and all.slots[index].object.side == .hostile and !(world.damage_rules == .arena and pilot)) {
+        scaled *= difficulty.onHostile();
+    }
+    if (pilot) scaled *= difficulty.onPlayer() * player_share;
     return scaled;
 }
 
@@ -497,6 +515,7 @@ pub const HitFeedback = union(enum) {
     interference,
     impact: Impact,
     armour_hit: Quadrant,
+    shockwave: f32,
 
     pub const Impact = struct {
         struck: Quadrant,
@@ -532,7 +551,7 @@ pub const HitFeedback = union(enum) {
 
         fn of(world: gameobj.World, index: u16) ?Audience {
             const all = world.objects;
-            if (index == all.player and all.readsLocalPlayerInput()) return .local;
+            if (world.damage_rules == .campaign and index == all.player and all.readsLocalPlayerInput()) return .local;
             if (world.hit_feedback == null) return null;
             return .{ .participant = all.playerBinding(index) orelse return null };
         }
@@ -548,12 +567,20 @@ pub const HitFeedback = union(enum) {
         }
     };
 
+    pub fn sendTo(effect: HitFeedback, world: gameobj.World, index: u16) void {
+        if (Audience.of(world, index)) |audience| audience.send(world, effect);
+    }
+
     fn show(effect: HitFeedback, world: gameobj.World) void {
         switch (effect) {
             .interference => if (world.display) |display| display.startInterference(world),
             .impact => |hit| feedback(world, hit.struck, hit.kind, hit.value, hit.shielded),
             .armour_hit => |struck| if (world.display) |display| {
                 display.events.ship_hits.getPtr(struck).happen();
+            },
+            .shockwave => |strength| {
+                world.shake.* = @max(world.shake.*, @min(strength, camera.Cockpit.shake_most));
+                if (world.forces) |forces| forces.startUnlessPlaying(.shock, world.clock.frame_start);
             },
         }
     }
@@ -1337,6 +1364,40 @@ test byDifficulty {
     armorDamage(world, player, .fore, 40, enemy, .bullet);
     try std.testing.expectEqual(90, object.armor.fore);
     try std.testing.expectEqual(20, object.recent_damage);
+}
+
+test "hosted damage rules do not depend on the viewer" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var world = mission.world();
+    const all = world.objects;
+    const first = try mission.add(.of(.predator), @splat(0));
+    const second = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+    const enemy = try mission.add(.of(.sabre), .{ 0, 0, 2000 });
+    all.players = 2;
+    for ([_]u16{ first, second }) |index| {
+        const pilot = all.joinParticipant(index).?;
+        _ = all.bindParticipant(pilot, .of(all, index)).?;
+    }
+
+    all.slots[second].object.side = .hostile;
+    world.difficulty = .hard;
+    for ([_]u16{ first, second, enemy }) |viewer| {
+        all.player = viewer;
+        world.damage_rules = .cooperative;
+        try std.testing.expectEqual(37.5, byDifficulty(world, first, .collision, 100));
+        try std.testing.expectEqual(37.5, byDifficulty(world, second, .collision, 100));
+        try std.testing.expectEqual(150, byDifficulty(world, enemy, .bullet, 100));
+        world.damage_rules = .{ .arena = null };
+        try std.testing.expectEqual(100, byDifficulty(world, first, .collision, 100));
+        try std.testing.expectEqual(100, byDifficulty(world, second, .bullet, 100));
+        try std.testing.expectEqual(100, byDifficulty(world, enemy, .bullet, 100));
+        world.damage_rules = .{ .arena = .hard };
+        try std.testing.expectEqual(75, byDifficulty(world, first, .bullet, 100));
+        try std.testing.expectEqual(75, byDifficulty(world, second, .bullet, 100));
+        try std.testing.expectEqual(75, byDifficulty(world, enemy, .bullet, 100));
+    }
 }
 
 test quadrant {
