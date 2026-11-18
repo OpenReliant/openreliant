@@ -1012,7 +1012,7 @@ fn stop(world: gameobj.World, at: u8) bool {
 
 /// `missile_hit_hull` (`0x00495BB0`): the part of the object's hull the missile reaches, the first
 /// of its parts, hidden or not, whose box the segment meets; the quadrant's armour takes the type's
-/// hull damage, but a Havoc's or an Imp's, and the hit is heard (`shieldfx.hullHit`), and the
+/// hull damage, but a Havoc's or an Imp's, and the hit is heard (`shieldfx.HullImpact`), and the
 /// missile stops and ends.
 ///
 /// **Fix:** Where the segment meets no part's box, the game still reports contact without ending
@@ -1026,8 +1026,9 @@ fn hitHull(world: gameobj.World, at: u8, index: u16, struck: collision.Quadrant)
     const to = missile.object().root.next_position.vector();
     const entry = objects.partEntry(model, from, to, .first) orelse return false;
     if (missile.type.base().shockwave() == null) {
+        const impact = shieldfx.HullImpact.of(world, index);
         collision.armorDamageFrom(world, index, struck, missile.stats(&all.missile_stats).damage.hull, missile.launcher, damageKind(missile.type));
-        shieldfx.hullHit(world, index, math.lerp(from, to, entry));
+        impact.emit(world, math.lerp(from, to, entry));
     }
     return stop(world, at);
 }

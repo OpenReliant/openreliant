@@ -3,7 +3,7 @@
 //!
 //! | Kind | Struck by | What it leaves |
 //! |---|---|---|
-//! | 2 | A shot or a missile through to a hull (`bullet_hull_hit`, `missile_hit_hull`) | The hit's sound (`hullHit`), and an emitter of the orange template (`shieldfx_orange`) on the part's surface nearest the point (`0x0049FEF0`), facing out from it |
+//! | 2 | A shot or a missile through to a hull (`bullet_hull_hit`, `missile_hit_hull`) | The hit's sound (`HullImpact`), and an emitter of the orange template (`shieldfx_orange`) on the part's surface nearest the point (`0x0049FEF0`), facing out from it |
 //! | 3 | A shot or a missile on a component (`bullet_hit`, `0x0047B840`, `0x00495AC0`) | On an object with a shield generator that isn't exploding, its capital shield instead (`componentHit`); otherwise a burst of 20 of the orange template's particles |
 //! | 4 | Nothing | An emitter of the grey template |
 //! | 5 | A shot on a component of an asteroid, a turret asteroid or a hole (`bullet_hit`, `0x0047B840`) | Sound 71, and `0x00472780` |
@@ -30,6 +30,8 @@ const objects = @import("objects.zig");
 const particles = @import("particles.zig");
 const shield = @import("shield.zig");
 const sound3d = @import("sound3d.zig");
+const collision = @import("collision.zig");
+const players = @import("players.zig");
 
 /// What a hit leaves where it struck, which `0x004992D0` is handed (the table above).
 pub const Kind = enum(i32) {
@@ -122,35 +124,74 @@ fn outFrom(normal: Vector) math.Matrix {
     return math.fromAxes(up, across, forward);
 }
 
-/// How long after a shot last sounded on the player's hull another does (`0x00593794`).
+/// The cooldown for the player's hull impact sound (`0x004A04FF`, `0x00593794`).
 const player_hit_pause = 30;
+const hull_impact_range = sound3d.sounds.definitions[@backingInt(sound3d.sounds.Sound.armour01)].max_distance;
 
-/// `0x004A0310`'s sound for a shot through to the hull of the object in slot `index` at `at`:
-/// `ARMOUR01` there, facing the camera; on the player's own ship `PLAYERHIT` instead, following it,
-/// no more than once in `player_hit_pause` ticks.
+/// `shieldfx_create` (`0x004A0310`) plays `PLAYERHIT` on the player's ship when the cooldown
+/// allows it. For other ships it plays `ARMOUR01` at the hit, facing the listener.
 ///
-/// **Improvement:** the game plays `ARMOUR01` at the point struck in the part's own frame, taken
-/// for one in the world, so it is heard from near the world's origin; OpenReliant plays it where
-/// the shot struck.
-/// Multiplayer impact sounds are tracked in
-/// [#1383](https://github.com/OpenReliant/openreliant/issues/1383).
-pub fn hullHit(world: gameobj.World, index: u16, at: Vector) void {
-    if (world.sounds == null) return;
-    const seen = world.seenFrom() orelse return;
-    const all = world.objects;
+/// **Improvement:** OpenReliant places `ARMOUR01` at the hit in world coordinates. The host sends
+/// it to pilots whose ships are in range. Each recipient places the audio using their own camera.
+pub const HullImpact = struct {
+    index: u16,
+    pilot: ?players.ControlRef,
+
+    /// Capture the struck pilot before damage and mod hooks can change the ship binding.
+    pub fn of(world: gameobj.World, index: u16) HullImpact {
+        return .{
+            .index = index,
+            .pilot = if (world.hit_feedback != null) world.objects.playerBinding(index) else null,
+        };
+    }
+
+    pub fn emit(hit: HullImpact, world: gameobj.World, at: Vector) void {
+        const all = world.objects;
+        if (world.damage_rules == .campaign and all.readsLocalPlayerInput()) {
+            if (world.sounds == null or world.seenFrom() == null) return;
+            if (hit.index != all.player) return playHullHitAt(world, at);
+            if (ownHitDue(world, hit.index)) playOwnHullHit(world);
+            return;
+        }
+
+        const sink = world.hit_feedback orelse return;
+        const tick = world.clock.frame_start;
+        for (0..@min(all.players, all.slots.len)) |slot| {
+            const index: u16 = @intCast(slot);
+            const recipient = all.playerBinding(index) orelse continue;
+            if (index == hit.index) {
+                const pilot = hit.pilot orelse continue;
+                if (std.meta.eql(pilot, recipient) and ownHitDue(world, index)) sink.send(recipient, tick, .own_hull_impact);
+            } else if (math.distanceSquared(all.slots[index].object.placeAt(.now).position, at) <= hull_impact_range * hull_impact_range) {
+                sink.send(recipient, tick, .{ .hull_impact = at });
+            }
+        }
+    }
+};
+
+fn ownHitDue(world: gameobj.World, index: u16) bool {
+    const heard_at = &world.objects.player_states[index].hull_heard_at;
     const now = world.clock.frame_start;
-    const facing = math.normalize(seen.position - at);
-    if (index != all.player) return sound3d.playIn(world, at, facing, null, .armour01, 1, .not_reserved);
-    if (now - world.player.hull_heard_at < player_hit_pause) return;
-    world.player.hull_heard_at = now;
-    sound3d.playIn(world, all.slots[index].drawn.position, facing, index, .playerhit, 1, .guaranteed);
+    if (now -% heard_at.* < player_hit_pause) return false;
+    heard_at.* = now;
+    return true;
+}
+
+pub fn playOwnHullHit(world: gameobj.World) void {
+    if (world.seenFrom() == null) return;
+    sound3d.playIn(world, null, null, world.objects.player, .playerhit, 1, .guaranteed);
+}
+
+pub fn playHullHitAt(world: gameobj.World, at: Vector) void {
+    const seen = world.seenFrom() orelse return;
+    sound3d.playIn(world, at, math.normalize(seen.position - at), null, .armour01, 1, .not_reserved);
 }
 
 test {
     std.testing.refAllDecls(@This());
 }
 
-test hullHit {
+test "campaign hull impact sounds" {
     const hog_snd = @import("hog_snd.zig");
     var speaker: hog_snd.testing.Speaker = undefined;
     try speaker.init(2, null);
@@ -162,22 +203,122 @@ test hullHit {
     speaker.hear(&world);
     const player = try mission.add(.of(.predator), @splat(0));
     const other = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
-    const heard_at = &mission.player.hull_heard_at;
+    const state = mission.objects.playerState(player).?;
+    const own = HullImpact.of(world, player);
+    const impact_at: Vector = .{ 0, 0, 10 };
 
     // The player's hull sounds a hit, then none for thirty ticks.
     mission.clock.frame_start = 100;
-    hullHit(world, player, .{ 0, 0, 10 });
-    try std.testing.expectEqual(100, heard_at.*);
+    own.emit(world, impact_at);
+    try std.testing.expectEqual(100, state.hull_heard_at);
+    state.resetMission();
     mission.clock.frame_start = 120;
-    hullHit(world, player, .{ 0, 0, 10 });
-    try std.testing.expectEqual(100, heard_at.*);
+    own.emit(world, impact_at);
+    try std.testing.expectEqual(100, state.hull_heard_at);
     mission.clock.frame_start = 130;
-    hullHit(world, player, .{ 0, 0, 10 });
-    try std.testing.expectEqual(130, heard_at.*);
+    own.emit(world, impact_at);
+    try std.testing.expectEqual(130, state.hull_heard_at);
     // Another ship's hull sounds every hit, and leaves the player's pause alone.
-    hullHit(world, other, .{ 0, 0, 990 });
-    try std.testing.expectEqual(130, heard_at.*);
+    HullImpact.of(world, other).emit(world, .{ 0, 0, 990 });
+    try std.testing.expectEqual(130, state.hull_heard_at);
     try std.testing.expectEqual(3, speaker.asked.list.items.len);
+    try std.testing.expectEqual(.playerhit, speaker.asked.list.items[0].effect.which);
+    try std.testing.expectEqual(.armour01, speaker.asked.list.items[2].effect.which);
+}
+
+test "hosted hull sounds reach the struck pilot and nearby listeners" {
+    const create = @import("create.zig");
+    const hog_snd = @import("hog_snd.zig");
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var world = mission.world();
+    world.damage_rules = .{ .arena = null };
+    const all = world.objects;
+    const first = try mission.add(.of(.predator), @splat(0));
+    const second = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+    const far = try mission.add(.of(.predator), .{ 0, 0, 2 * hull_impact_range });
+    all.players = 3;
+    all.player = far;
+    const first_pilot = all.joinParticipant(first).?;
+    const second_pilot = all.joinParticipant(second).?;
+    const third_pilot = all.joinParticipant(far).?;
+    const first_binding = all.bindParticipant(first_pilot, .of(all, first)).?;
+    const second_binding = all.bindParticipant(second_pilot, .of(all, second)).?;
+    _ = all.bindParticipant(third_pilot, .of(all, far)).?;
+
+    const Notice = collision.HitFeedback.Addressed;
+    const Recorded = struct {
+        notices: [8]Notice = undefined,
+        count: usize = 0,
+
+        fn enqueue(context: *anyopaque, notice: Notice) void {
+            const recorded: *@This() = @ptrCast(@alignCast(context));
+            recorded.notices[recorded.count] = notice;
+            recorded.count += 1;
+        }
+    };
+    var recorded: Recorded = .{};
+    world.hit_feedback = .{ .context = &recorded, .enqueue = Recorded.enqueue };
+
+    const first_at: Vector = .{ 0, 0, 10 };
+    const second_at: Vector = .{ 0, 0, 990 };
+    const first_hit = HullImpact.of(world, first);
+    const second_hit = HullImpact.of(world, second);
+    mission.clock.frame_start = 100;
+    first_hit.emit(world, first_at);
+    try std.testing.expectEqual(2, recorded.count);
+    const own = recorded.notices[0];
+    const nearby = recorded.notices[1];
+    try std.testing.expectEqual(first_binding, own.recipient);
+    try std.testing.expectEqual(.own_hull_impact, std.meta.activeTag(own.effect));
+    try std.testing.expectEqual(second_binding, nearby.recipient);
+    try std.testing.expectEqual(first_at, nearby.effect.hull_impact);
+    try std.testing.expectEqual(100, nearby.tick);
+
+    mission.clock.frame_start = 110;
+    first_hit.emit(world, first_at);
+    try std.testing.expectEqual(3, recorded.count);
+    try std.testing.expectEqual(second_binding, recorded.notices[2].recipient);
+    second_hit.emit(world, second_at);
+    try std.testing.expectEqual(5, recorded.count);
+    try std.testing.expectEqual(second_binding, recorded.notices[4].recipient);
+    try std.testing.expectEqual(.own_hull_impact, std.meta.activeTag(recorded.notices[4].effect));
+
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, null);
+    defer speaker.deinit();
+    speaker.listener.position = .{ 0, 100, 1000 };
+    speaker.hear(&world);
+    try std.testing.expect(!own.present(world));
+    try std.testing.expect(!nearby.present(world));
+    all.player = second;
+    try std.testing.expect(!own.present(world));
+    try std.testing.expect(nearby.present(world));
+    all.player = first;
+    try std.testing.expect(own.present(world));
+    try std.testing.expectEqual(2, speaker.asked.list.items.len);
+    const positioned = speaker.asked.list.items[0].effect;
+    try std.testing.expectEqual(.armour01, positioned.which);
+    try std.testing.expectEqual(first_at, positioned.placed.position);
+    try std.testing.expectEqual(math.normalize(speaker.listener.position - first_at), positioned.placed.direction.?);
+    const attached = speaker.asked.list.items[1].effect;
+    try std.testing.expectEqual(.playerhit, attached.which);
+    try std.testing.expectEqual(first_binding.ship, attached.placed.object.?);
+
+    create.resetSlot(mission.orders(), first);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, first, .of(.predator), 0, @splat(0), &mission.random);
+    const replacement = all.bindParticipant(first_pilot, .of(all, first)).?;
+    try std.testing.expect(!own.present(world));
+    try std.testing.expectEqual(0, all.playerState(first).?.hull_heard_at);
+    mission.clock.frame_start = 130;
+    first_hit.emit(world, first_at);
+    try std.testing.expectEqual(6, recorded.count);
+    try std.testing.expectEqual(second_binding, recorded.notices[5].recipient);
+    HullImpact.of(world, first).emit(world, first_at);
+    try std.testing.expectEqual(8, recorded.count);
+    try std.testing.expectEqual(replacement, recorded.notices[6].recipient);
+    try std.testing.expectEqual(.own_hull_impact, std.meta.activeTag(recorded.notices[6].effect));
 }
 
 test componentHit {
