@@ -353,11 +353,10 @@ pub const Missile = struct {
     started: i32 = 0,
     /// Its object (`+0x04`), with the model it flies with and where that is drawn.
     slot: create.Slot,
-    /// Its launcher's slot (`+0x08`), which it never strikes and which its damage is credited to.
-    launcher: u16,
-    /// The count of reuses of its launcher's slot as it was launched (`create.Objects.reuses`),
-    /// which tells whether its launcher is still in the mission. OpenReliant's own.
-    launcher_reuses: u32 = 0,
+    /// Its launcher (`+0x08`), which it never strikes and which its damage is credited to.
+    /// OpenReliant also keeps the slot's reuse count for scripts (`launcherIn`). The damage
+    /// paths still use the slot alone until [#1352](https://github.com/OpenReliant/openreliant/issues/1352).
+    launcher: gameobj.ObjectRef,
     /// Whether its end has begun, while the scripts hear of it, so that it ends once.
     /// OpenReliant's own.
     ending: bool = false,
@@ -411,7 +410,7 @@ pub const Missile = struct {
 
     /// Its launcher's slot, while the object that launched it is still in the mission.
     pub fn launcherIn(missile: *const Missile, all: *const create.Objects) ?u16 {
-        return if (all.reuses[missile.launcher] == missile.launcher_reuses) missile.launcher else null;
+        return missile.launcher.resolve(all);
     }
 };
 
@@ -533,7 +532,7 @@ fn spawn(world: gameobj.World, launcher: u16, kind: Type, built: objects.Model, 
     object.root.next_orientation = places.next.orientation;
     object.root.markMoved();
     slot.drawn = places.drawn;
-    return all.missiles.add(.{ .slot = slot, .launcher = launcher, .launcher_reuses = all.reuses[launcher], .type = kind, .homes = homesAtLaunch(all, kind, launcher) }) orelse {
+    return all.missiles.add(.{ .slot = slot, .launcher = .of(all, launcher), .type = kind, .homes = homesAtLaunch(all, kind, launcher) }) orelse {
         slot.release(all.gpa, null);
         return null;
     };
@@ -931,8 +930,8 @@ pub fn end(world: gameobj.World, at: u8) void {
         .kind = kind,
         .size = end_wave_size,
         .life = end_wave_life,
-        .owner = missile.launcher,
-        .side = all.slots[missile.launcher].object.side,
+        .owner = missile.launcher.slot,
+        .side = all.slots[missile.launcher.slot].object.side,
     });
     explode.missileBlast(world, missile.slot.drawn.position, object.velocity.vector(), object.radius);
     if (missile.trail) |number| if (world.cues) |cues| cues.add(.{ .trail_left = number });
@@ -976,7 +975,7 @@ fn collide(world: gameobj.World, at: u8) bool {
     while (walk.next()) |index| {
         const slot = &all.slots[index];
         const object = &slot.object;
-        if (!object.type.hasStats() or object.flags.no_collisions or index == missile.launcher) continue;
+        if (!object.type.hasStats() or object.flags.no_collisions or index == missile.launcher.slot) continue;
         if (object.flags.components) {
             if (hitComponents(world, at, index)) return true;
             continue;
@@ -991,7 +990,7 @@ fn collide(world: gameobj.World, at: u8) bool {
         const stats = missile.stats(&all.missile_stats);
         if (stats.damage.shield > 0) {
             const reaches = index != all.player or !world.player.shield_reserves.spare(struck, stats.damage.shield);
-            if (reaches) collision.damage(world, index, struck, stats.damage.shield, stats.damage.hullShare(), missile.launcher, damageKind(missile.type));
+            if (reaches) collision.damage(world, index, struck, stats.damage.shield, stats.damage.hullShare(), missile.launcher.slot, damageKind(missile.type));
         }
         if (!object.flags.cloaked) shield.flare(world, index, point);
         return stop(world, at);
@@ -1027,7 +1026,7 @@ fn hitHull(world: gameobj.World, at: u8, index: u16, struck: collision.Quadrant)
     const to = missile.object().root.next_position.vector();
     const entry = objects.partEntry(model, from, to, .first) orelse return false;
     if (missile.type.base().shockwave() == null) {
-        collision.armorDamage(world, index, struck, missile.stats(&all.missile_stats).damage.hull, missile.launcher, damageKind(missile.type));
+        collision.armorDamage(world, index, struck, missile.stats(&all.missile_stats).damage.hull, missile.launcher.slot, damageKind(missile.type));
         shieldfx.hullHit(world, index, math.lerp(from, to, entry));
     }
     return stop(world, at);
@@ -1045,7 +1044,7 @@ fn hitComponents(world: gameobj.World, at: u8, index: u16) bool {
     const hit = objects.hitSegment(model, slot.object.placeAt(.next), missile.slot.drawn.position, missile.object().root.next_position.vector()) orelse return false;
     if (missile.type.base().shockwave() == null) {
         shieldfx.componentHit(world, index, hit, .component);
-        collision.componentDamage(world, index, hit.part, missile.stats(&all.missile_stats).component_damage, missile.launcher, damageKind(missile.type));
+        collision.componentDamage(world, index, hit.part, missile.stats(&all.missile_stats).component_damage, missile.launcher.slot, damageKind(missile.type));
     }
     return stop(world, at);
 }
@@ -1157,7 +1156,7 @@ test launchFromTurret {
     try std.testing.expectEqual(Type.of(.screamer), missile.type);
     try std.testing.expectEqual(Order.pod_launch, missile.order);
     try std.testing.expectEqual(target, missile.target);
-    try std.testing.expectEqual(ship, missile.launcher);
+    try std.testing.expectEqual(ship, missile.launcher.slot);
     try std.testing.expectEqual(30, missile.object().velocity.z);
     const next = model.partPlace(0, .next).within(slot.object.placeAt(.next));
     try std.testing.expectEqual(next.position, missile.object().root.next_position.vector());
@@ -1273,7 +1272,7 @@ test "a player's Screamer flies straight" {
     frame(world, 0);
     // The player's flies on at nothing; another's has nothing to home on and ends.
     try std.testing.expectEqual(1, armed.live());
-    try std.testing.expectEqual(player, armed.missile(0).launcher);
+    try std.testing.expectEqual(player, armed.missile(0).launcher.slot);
     try std.testing.expectEqual(1, armed.missile(0).object().throttle);
 }
 

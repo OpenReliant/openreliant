@@ -1,14 +1,13 @@
-//! Objects as scripts see them ([#498](https://github.com/OpenReliant/openreliant/issues/498)):
-//! handles. A handle holds an object's slot, and how often the slot had had its object replaced
-//! when the handle was made (`create.Objects.reuses`). It's valid until its object is removed, or
-//! its mission ends: the game reuses its slots, so an old handle never points at whatever took the
-//! slot. Reading a field of a handle that isn't valid raises an error; `object:is_valid()` says
-//! whether it is.
+//! Scripts hold objects through opaque handles
+//! ([#498](https://github.com/OpenReliant/openreliant/issues/498)). Each handle captures the
+//! object's slot and reuse count (`gameobj.ObjectRef`). It expires when the object is removed or
+//! its mission ends, and never points to a replacement object. Reading an expired handle's fields
+//! raises an error; `object:is_valid()` checks whether the handle is still valid.
 //!
-//! There's one handle for each object while scripts hold it, so handles compare equal for the same
-//! object, and work as table keys. Every script can read its fields (`fields`); global scripts can
-//! change the fields that have a setter on any object, and an object's own scripts on their object
-//! (`mayChange`). Its methods are `methods`.
+//! Each live object has one cached handle while scripts hold it, so handles compare equal and
+//! work as table keys. Every script can read `fields`. Global scripts can change fields with a
+//! setter on any object; object scripts can change only their own object (`mayChange`). `methods`
+//! declares the operations scripts can call.
 
 const std = @import("std");
 
@@ -40,24 +39,11 @@ const Target = engine.hooks.Target;
 
 const Vector = @Vector(3, f32);
 
-/// An object as scripts hold it.
-pub const Handle = struct {
-    slot: u16,
-    /// The slot's count of reuses when the handle was made.
-    count: u32,
+/// An object as scripts hold it. The Luau value stays opaque while its identity uses the
+/// engine's checked reference.
+pub const Handle = gameobj.ObjectRef;
 
-    pub const tag = @backingInt(runtime_module.Tag.object);
-
-    /// Whether its object is still the one in its slot.
-    pub fn valid(handle: Handle, all: *const create.Objects) bool {
-        return handle.slot < all.reuses.len and all.reuses[handle.slot] == handle.count;
-    }
-
-    /// The handle of the object in slot `index` of `all` now.
-    pub fn of(all: *const create.Objects, index: u16) Handle {
-        return .{ .slot = index, .count = all.reuses[index] };
-    }
-};
+pub const tag = @backingInt(runtime_module.Tag.object);
 
 /// Several objects, which scripts get as a table of handles, in order (`values.push`).
 pub const List = values.List(Object, gameobj.max_objects);
@@ -524,7 +510,7 @@ pub fn mayChange(context: *const Context, index: u16) bool {
 /// Registers the handles' metatable, and makes the table that keeps one handle for each object.
 pub fn register(runtime: *Runtime) void {
     const state = runtime.state;
-    state.registerUserdata(Handle.tag, "object", &.{
+    state.registerUserdata(tag, "object", &.{
         .{ "__index", luau.wrap(getField) },
         .{ "__newindex", luau.wrap(setField) },
         .{ "__tostring", luau.wrap(describe) },
@@ -544,16 +530,16 @@ pub fn register(runtime: *Runtime) void {
 pub fn push(state: *State, index: u16) void {
     const runtime = state.callbackData(Runtime).?;
     const all = runtime.objects orelse return state.pushNil();
-    const count = all.reuses[index];
+    const reference: Handle = .of(all, index);
     _ = state.pushRef(runtime.handles.?);
     const table = state.top();
     const key: i32 = @as(i32, index) + 1;
     if (state.rawGetIndex(table, key) == .userdata) {
-        if (state.toUserdata(Handle, -1, Handle.tag).?.count == count) return state.remove(table);
+        if (std.meta.eql(state.toUserdata(Handle, -1, tag).?.*, reference)) return state.remove(table);
     }
     state.pop(1);
-    const handle = state.newUserdata(Handle, Handle.tag);
-    handle.* = .{ .slot = index, .count = count };
+    const handle = state.newUserdata(Handle, tag);
+    handle.* = reference;
     state.pushCopy(-1);
     state.rawSetIndex(table, key);
     state.remove(table);
@@ -562,12 +548,12 @@ pub fn push(state: *State, index: u16) void {
 /// Pushes a handle of its own to the player's ship, outside the handles kept by slot, so that
 /// `follow` can point it at the player's ship of each mission.
 pub fn pushFollowing(state: *State, all: *const create.Objects) void {
-    state.newUserdata(Handle, Handle.tag).* = .of(all, all.player);
+    state.newUserdata(Handle, tag).* = .of(all, all.player);
 }
 
 /// Points the handle at `index` at the player's ship in `all` now.
 pub fn follow(state: *State, index: i32, all: *const create.Objects) void {
-    const handle = state.toUserdata(Handle, index, Handle.tag) orelse return;
+    const handle = state.toUserdata(Handle, index, tag) orelse return;
     handle.* = .of(all, all.player);
 }
 
@@ -576,13 +562,13 @@ pub fn follow(state: *State, index: i32, all: *const create.Objects) void {
 pub fn pushHandle(state: *State, handle: Handle) void {
     const runtime = state.callbackData(Runtime).?;
     if (runtime.objects) |all| if (handle.valid(all)) return push(state, handle.slot);
-    state.newUserdata(Handle, Handle.tag).* = handle;
+    state.newUserdata(Handle, tag).* = handle;
 }
 
 /// The slot of the object whose handle is at `given`. Raises an error if it isn't a valid handle;
 /// `label` names the value in the message.
 pub fn read(state: *State, given: i32, comptime label: []const u8) u16 {
-    const handle = state.toUserdata(Handle, given, Handle.tag) orelse state.raise("{s}: expected an object, got {s}", .{ label, state.typeName(given) });
+    const handle = state.toUserdata(Handle, given, tag) orelse state.raise("{s}: expected an object, got {s}", .{ label, state.typeName(given) });
     const all = objectsOf(state);
     if (!handle.valid(all)) state.raise("{s}: the object is no longer in the mission", .{label});
     return handle.slot;
@@ -594,7 +580,7 @@ fn objectsOf(state: *State) *const create.Objects {
 
 /// `__index`: reads a field, or finds a method.
 fn getField(state: *State) i32 {
-    const handle = state.checkUserdata(Handle, 1, Handle.tag, "an object");
+    const handle = state.checkUserdata(Handle, 1, tag, "an object");
     const key = state.toString(2) orelse state.raise("object: expected a field name, got {s}", .{state.typeName(2)});
     inline for (comptime api.declared(methods, .function)) |name| {
         if (std.mem.eql(u8, key, name)) {
@@ -617,7 +603,7 @@ fn getField(state: *State) i32 {
 /// `__newindex`: changes a field that has a setter, where the script may change the object
 /// (`mayChange`).
 fn setField(state: *State) i32 {
-    const handle = state.checkUserdata(Handle, 1, Handle.tag, "an object");
+    const handle = state.checkUserdata(Handle, 1, tag, "an object");
     const key = state.toString(2) orelse state.raise("object: expected a field name, got {s}", .{state.typeName(2)});
     var call: Call = .of(state, "object");
     const all = call.runtime().objects orelse state.raise("objects only exist while a game runs", .{});
@@ -637,7 +623,7 @@ fn setField(state: *State) i32 {
 
 /// `__tostring`: `object 12`, with the object's type while it's valid.
 fn describe(state: *State) i32 {
-    const handle = state.checkUserdata(Handle, 1, Handle.tag, "an object");
+    const handle = state.checkUserdata(Handle, 1, tag, "an object");
     const runtime = state.callbackData(Runtime).?;
     var buffer: [64]u8 = undefined;
     const valid = if (runtime.objects) |all| handle.valid(all) else false;
@@ -733,4 +719,61 @@ test "handles name objects until they are removed" {
     create.resetSlot(mission.orders(), sabre);
     try bind.testing.runSource(thread, "assert(not sabre:is_valid() and tostring(sabre) == 'object 1 (gone)')");
     try bind.testing.expectSourceError(thread, "local x = sabre.type", "no longer in the mission");
+
+    // Reusing the slot gives scripts a different object, still represented by an opaque handle.
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, sabre, .of(.predator), 0, @splat(0), &mission.random);
+    values.push(thread, gameobj.ObjectRef, .of(mission.objects, sabre));
+    thread.setGlobal("replacement");
+    push(thread, sabre);
+    thread.setGlobal("replacement_again");
+    try bind.testing.runSource(thread,
+        \\local old, fresh = sabre, replacement
+        \\assert(not old:is_valid() and fresh:is_valid())
+        \\assert(typeof(fresh) == "object" and fresh.slot == 1)
+        \\assert(old ~= fresh and fresh == replacement_again)
+        \\local seen = {[old] = "old", [fresh] = "new"}
+        \\assert(seen[old] == "old" and seen[replacement_again] == "new")
+    );
+    try bind.testing.expectSourceError(thread, "local x = replacement.reuse", "no field 'reuse'");
+    try bind.testing.expectSourceError(thread, "sabre:give_order('fly_aimlessly')", "no longer in the mission");
+}
+
+test "copied script data keeps an expired object's identity" {
+    const gpa = std.testing.allocator;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const index = try mission.add(.of(.predator), @splat(0));
+
+    const source = try Runtime.create(gpa, std.testing.io, &.{}, runtime_module.testing.options);
+    defer source.destroy();
+    const destination = try Runtime.create(gpa, std.testing.io, &.{}, runtime_module.testing.options);
+    defer destination.destroy();
+    register(source);
+    register(destination);
+    source.objects = mission.objects;
+    destination.objects = mission.objects;
+    const thread = source.state.newSandboxedThread();
+    var context: Context = .{ .runtime = source, .mod = 0, .family = .global, .thread = thread, .thread_ref = undefined };
+    thread.setThreadData(&context);
+    push(thread, index);
+    const original = thread.toUserdata(Handle, -1, tag).?.*;
+    const sent = thread.ref(-1);
+    defer source.release(sent);
+    thread.pop(1);
+
+    create.resetSlot(mission.orders(), index);
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, index, .of(.sabre), 0, @splat(0), &mission.random);
+    const received = data.transfer(thread, sent, destination).?;
+    defer destination.release(received);
+    _ = destination.state.pushRef(received);
+    const copied = destination.state.toUserdata(Handle, -1, tag).?.*;
+    try std.testing.expectEqual(original, copied);
+    try std.testing.expect(!copied.valid(mission.objects));
+    destination.state.pop(1);
+    push(destination.state, index);
+    const replacement = destination.state.toUserdata(Handle, -1, tag).?.*;
+    try std.testing.expect(replacement.valid(mission.objects));
+    try std.testing.expect(!std.meta.eql(copied, replacement));
+    destination.state.pop(1);
 }

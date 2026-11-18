@@ -292,7 +292,7 @@ test "handles name missiles until their flight ends" {
     var slot: create.Slot = .{ .object = std.mem.zeroes(gameobj.GameObject) };
     slot.object.root.position = .of(.{ 0, 0, 500 });
     slot.object.velocity = .of(.{ 0, 3, 4 });
-    const record = all.missiles.add(.{ .slot = slot, .launcher = launcher, .launcher_reuses = all.reuses[launcher], .type = .of(.raptor), .target = .at(launcher, null) }).?;
+    const record = all.missiles.add(.{ .slot = slot, .launcher = .of(all, launcher), .type = .of(.raptor), .target = .at(launcher, null) }).?;
 
     const scripts = try Runtime.create(gpa, std.testing.io, &.{}, runtime_module.testing.options);
     defer scripts.destroy();
@@ -337,6 +337,8 @@ test "handles name missiles until their flight ends" {
     // Once its launcher leaves, the missile has none; once its record is freed, the handle is no
     // longer valid.
     create.resetSlot(mission.orders(), launcher);
+    try bind.testing.runSource(thread, "assert(raptor.launcher == nil)");
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, launcher, .of(.sabre), 0, @splat(0), &mission.random);
     try bind.testing.runSource(thread, "assert(raptor.launcher == nil)");
     all.missiles.remove(gpa, record);
     try bind.testing.runSource(thread, "assert(not raptor:is_valid() and tostring(raptor) == 'missile 0 (gone)')");

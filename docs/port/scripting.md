@@ -327,11 +327,11 @@ menu comes back, or the game quits. Each game gets a new Luau state.
   `missile_added`, as `missile_launch` and `missile_launch_turret` finish, and `missile_removed`,
   as `missile_end` begins. A context runs on an object, a missile or a turret (`RunsOn`), which
   `self`, `nearby`, the interfaces' scope and what a script may change follow. A missile's handle
-  ([`missiles.zig`](../../src/scripting/missiles.zig)) holds its record and the record's count of
-  reuses (`Linked.reuses`, OpenReliant's own), as an object's holds its slot's. Each missile notes
-  its launcher slot's count as it's launched (`Missile.launcher_reuses`), so that its `launcher`
-  is nil once that object has left, and `missile_end` runs once even where a script sets the
-  missile off as it hears of its end (`Missile.ending`).
+  ([`missiles.zig`](../../src/scripting/missiles.zig)) captures its record number and reuse count
+  (`Linked.reuses`, OpenReliant's own). Each missile also captures its launcher's identity
+  (`Missile.launcher`, a `gameobj.ObjectRef`), so the script's `launcher` field becomes nil when
+  that object leaves the mission. `Missile.ending` ensures `missile_end` runs once, even if a
+  script detonates the missile while handling its removal event.
 - Turret scripts start as an object is added, after its own scripts, on each of its guns that is a
   turret (`turrets.isTurret`: any but a fixed gun), each turret with the mod opened for it. They
   run in the object's list, so they stop with its scripts. A turret's handle
@@ -760,12 +760,17 @@ Load scripts and the manifests are read only as OpenReliant starts.
 
 ## Object handles
 
-[`objects.zig`](../../src/scripting/objects.zig) gives scripts objects as handles: a slot, and the
-slot's count of reuses when the handle was made (`create.Objects.reuses`). The count goes up as
-`create_object` fills a slot, as `object_reset` and `create.retire` remove its object, and for
-every slot as a mission starts. A handle is valid while its count matches. The state keeps one
-handle per slot in a table with weak values, so the same object always gives the same handle while
-a script holds it.
+[`objects.zig`](../../src/scripting/objects.zig) represents a script's object handle with the
+engine's `gameobj.ObjectRef`: its slot and the slot's reuse count (`create.Objects.reuses`).
+The count increases when an object is created, reset or retired, and for every slot when a mission
+starts. `ObjectRef.resolve` checks the slot's bounds and its reuse count. The Luau value remains
+an opaque `Object`; scripts do not see the reuse count. A weak-value table keeps one handle for
+each live object while scripts hold it, so equality and table keys keep identifying that object.
+
+Events, timers and storage keep the whole reference. Copying a handle to another script state
+keeps its original identity, even if it has expired. Saved handles keep their existing encoding:
+a `u16` slot followed by a `u32` reuse count, both little-endian. The player scripts' `self` is
+separate from the cached handles and deliberately follows the player's ship when a mission starts.
 
 Every script can read a handle's fields. A field with a setter can be changed by a global script on
 any object, and by an object's own scripts on their object (`objects.mayChange`); the setter checks
