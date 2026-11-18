@@ -8,6 +8,7 @@ const std = @import("std");
 
 const create = @import("create.zig");
 const gameobj = @import("gameobj.zig");
+const radio = @import("radio.zig");
 const input = @import("../input.zig");
 
 /// `kills_add` (`0x004B14F0`): adds `count` kills to the player of `slot`: to the pilot's own,
@@ -22,6 +23,22 @@ pub fn addKills(player: *input.Player, all: *const create.Objects, slot: u16, co
     if (slot != all.player) return;
     player.kills.count += count;
     if (all.rules().counts_kills) player.kills.mission +|= 1;
+}
+
+/// Credits an eligible destruction. The campaign tally follows its local channel rules. A
+/// co-op remark follows the admission that owned the damage. Multiplayer tallies are tracked
+/// in [#1367](https://github.com/OpenReliant/openreliant/issues/1367).
+pub fn creditDestruction(world: gameobj.World, index: u16, channels: radio.KillChannels) void {
+    const all = world.objects;
+    const slot = &all.slots[index];
+    if ((channels == .any or world.player.remarks.kill_credit) and slot.attacker(all) == all.player) {
+        addKills(world.player, all, all.player, 1);
+        if (world.damage_rules == .campaign) radio.killRemark(world, index);
+    }
+    if (world.damage_rules == .cooperative) {
+        const recipient = slot.attackerBinding(all) orelse return;
+        radio.hostedKillRemark(world, index, recipient, channels);
+    }
 }
 
 test addKills {

@@ -1076,6 +1076,8 @@ test "a script stops or changes the radio's lines" {
                 \\    if e.speech:find("ms_hudtr", 1, true) then return false end
                 \\    if e.speech:find("plck_", 1, true) then e.speech = "moolnd_001.ut" end
                 \\    if e.speech == "host_line.ut" then return false end
+                \\    if e.speech:find("dth_", 1, true) then return false end
+                \\    if e.speech:find("plyrkl_", 1, true) then e.speech = "host_kill.ut" end
                 \\    if e.speech:find("tnt_", 1, true) then
                 \\        taunts += 1
                 \\        if taunts > 1 then return false end
@@ -1125,7 +1127,7 @@ test "a script stops or changes the radio's lines" {
         notice: ?Notice = null,
 
         fn enqueue(context: *anyopaque, notice: Notice) void {
-            if (notice.effect != .radio_line) return;
+            if (notice.effect != .radio_line and notice.effect != .kill_remarks) return;
             const recorder: *@This() = @ptrCast(@alignCast(context));
             recorder.notice = notice;
         }
@@ -1155,6 +1157,13 @@ test "a script stops or changes the radio's lines" {
     const warning = recorder.notice.?;
     try std.testing.expectEqual(binding, warning.recipient);
     try std.testing.expectEqualStrings("moolnd_001.ut", std.mem.sliceTo(&warning.effect.radio_line.speech, 0));
+
+    fixture.mission.clock.game_ticks = 10;
+    fixture.mission.slot(fixture.sabre).setAttacker(.of(all, all.player));
+    openreliant.engine.game.aiexplode.killCredit(host, fixture.sabre);
+    const remarks = recorder.notice.?.effect.kill_remarks;
+    try std.testing.expectEqualStrings("host_kill.ut", std.mem.sliceTo(&remarks.lines[0].?.speech, 0));
+    try std.testing.expect(remarks.lines[1] == null);
 }
 
 test "a script answers PERMISSION TO LAND its own way" {

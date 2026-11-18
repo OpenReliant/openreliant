@@ -378,6 +378,12 @@ flags in the radio phase, before missiles advance, and applies `DisableGenericCo
 `radio_say` hook. The receiving radio keeps the deadline from the host's frame tick. Arenas follow
 the original's suppression of pilot radio at `0x00456250`.
 
+In co-op, kill remarks go to the pilot who owned the last damage source. The host keeps the
+cooldown and runs `radio_say` for each line. The receiving radio checks whether it is idle before
+queuing a fighter's last words and Moose's follow-up together. Each line keeps its own deadline.
+Ship destruction respects the recipient's channel setting. Component hull loss follows its
+separate campaign rule. The original skips kill remarks in competitive arenas at `0x004085BA`.
+
 The ejection has Moose's words too ([The ejection](ejection.md)): `ejt_001` to `ejt_008` calling
 the pilot to eject, `ejt_015` or `ejt_016` as the pilot calls from the pod, and `nanpkup`,
 `antpkup` or `ejtkll` on the pilot's fate, each queued.

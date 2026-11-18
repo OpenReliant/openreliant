@@ -45,7 +45,6 @@ const ai = @import("ai.zig");
 const aigeneric = @import("aigeneric.zig");
 const cloak = @import("cloak.zig");
 const deathmatch = @import("deathmatch.zig");
-const radio = @import("radio.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -1267,10 +1266,8 @@ pub fn loseComponent(ctx: aigeneric.Context, index: u16, routine: ComponentLoss,
     }
 }
 
-/// A ship that lists components losing its hull, as both `node_draw` and the capital ships'
-/// routine end one: where the player took it from a Kurgan, an Antanov or a Gurevich, the kill is
-/// theirs (`kills_add`), which the radio remarks on (`radio.killRemark`), and the ship is
-/// lost (`ai.hullLost`).
+/// Handles the loss of a component ship's hull. A Kurgan, Antanov or Gurevich can count as a kill
+/// for its last attacker. The ship is then lost (`ai.hullLost`).
 pub fn loseHull(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const all = world.objects;
@@ -1279,10 +1276,7 @@ pub fn loseHull(ctx: aigeneric.Context, index: u16) void {
         .kurgan, .antanov, .gurevich => true,
         else => false,
     };
-    if (all.slots[index].attacker(all) == all.player and credited) {
-        deathmatch.addKills(world.player, all, all.player, 1);
-        radio.killRemark(world, index);
-    }
+    if (credited) deathmatch.creditDestruction(world, index, .any);
     ai.hullLost(ctx, index);
 }
 

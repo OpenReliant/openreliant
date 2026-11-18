@@ -401,7 +401,7 @@ pub fn damageFrom(world: gameobj.World, index: u16, struck: Quadrant, value: f32
     const through = @max(value - held.*, 0);
     if (held.* >= 0 and object.invulnerable != ._unknown_4) held.* -= scaled;
     if (held.* < 0) armorDamageFrom(world, index, struck, through * factor, attacker, kind);
-    all.slots[index].setAttacker(attacker.object);
+    all.slots[index].setAttacker(attacker);
     if (smartTargeting(world, attacker, kind)) |display| input.setPlayerTarget(display, all, @intCast(index), aigeneric.Target.whole, false);
     shotAt(world, index, attacker);
 }
@@ -490,7 +490,7 @@ pub fn armorDamageFrom(world: gameobj.World, index: u16, struck: Quadrant, value
         main.armorConditions(object, combat);
         if (blow.audience) |audience| audience.warnOfArmourDamage(world, index, combat);
     }
-    all.slots[index].setAttacker(attacker.object);
+    all.slots[index].setAttacker(attacker);
     if (armor.* < 0) {
         ai.objectDestroyed(.of(world), index, true, taken > heavy_blow);
         if (attacker.resolve(all)) |by| if (friendly_fire.destroyedFriend(world, index, by, kind)) friendly_fire.friendDestroyed(world);
@@ -521,6 +521,7 @@ pub const HitFeedback = union(enum) {
     own_hull_impact,
     hull_impact: Vector,
     radio_line: radio.RoutedLine,
+    kill_remarks: radio.KillRemarks,
     shockwave: f32,
 
     pub const Impact = struct {
@@ -612,6 +613,7 @@ pub const HitFeedback = union(enum) {
             .own_hull_impact => shieldfx.playOwnHullHit(world),
             .hull_impact => |at| shieldfx.playHullHitAt(world, at),
             .radio_line => |*line| line.present(world, tick),
+            .kill_remarks => |*remarks| remarks.present(world, tick),
             .shockwave => |strength| {
                 world.shake.* = @max(world.shake.*, @min(strength, camera.Cockpit.shake_most));
                 if (world.forces) |forces| forces.startUnlessPlaying(.shock, world.clock.frame_start);
@@ -758,7 +760,7 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
 
     const left = struck.armor - share;
     if (left >= 0 or !protected) struck.armor = left;
-    all.slots[index].setAttacker(attacker.object);
+    all.slots[index].setAttacker(attacker);
     if (struck.armor < 0) {
         model.destroyed = true;
         if (attacker.resolve(all)) |by| if (friendly_fire.destroyedFriend(world, index, by, kind)) friendly_fire.friendDestroyed(world);

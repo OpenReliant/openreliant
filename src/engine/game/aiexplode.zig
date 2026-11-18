@@ -351,30 +351,23 @@ fn shipInit(ctx: Context, index: u16) void {
     }
 }
 
-/// `explode_kill_credit` (`0x00408500`), as a ship's end begins: a kill for the player
-/// (`deathmatch.addKills`) where the player's ship struck it last and it is hostile, and a fighter
-/// by its type's class, a Kamov, a Kurgan or a Gurevich, which the radio remarks on
-/// (`radio.killRemark`); and where the ship flies in the player's wing, the radio's words on
-/// its loss (`radio.shipLost`). Meanwhile the ship is not marked exploding, so that its
-/// pilot may speak (`radio.Radio.sayShip`).
+/// `explode_kill_credit` (`0x00408500`) credits an eligible hostile ship to its last attacker.
+/// The local campaign also remarks on the loss of a ship from the player's wing. Clear the
+/// exploding flag while preparing the lines so that the dying pilot can speak.
 ///
-/// It does nothing while the radio's channels are closed (`radio.Remarks.kill_credit`).
-///
-/// Not ported: the other players' kills in a multiplayer game
-/// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
+/// The campaign skips this when the radio channels are closed. A co-op client applies its own
+/// channel setting to the kill remark.
 pub fn killCredit(world: gameobj.World, index: u16) void {
-    if (!world.player.remarks.kill_credit) return;
+    const channels_open = world.player.remarks.kill_credit;
+    if (!channels_open and world.damage_rules != .cooperative) return;
     const all = world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
     const flags = object.flags;
     object.flags.exploding = false;
     defer object.flags = flags;
-    if (slot.attacker(all) == all.player and object.side == .hostile and credited(slot)) {
-        deathmatch.addKills(world.player, all, all.player, 1);
-        radio.killRemark(world, index);
-    }
-    if (object.wing == .player) radio.shipLost(world, index);
+    if (object.side == .hostile and credited(slot)) deathmatch.creditDestruction(world, index, .open_only);
+    if (channels_open and object.wing == .player) radio.shipLost(world, index);
 }
 
 /// Whether the player's kill of the ship in `slot` counts: a fighter by its type's class, a Kamov,
