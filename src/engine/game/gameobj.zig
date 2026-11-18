@@ -81,6 +81,53 @@ pub const Routine = engine.Code("void __fastcall (int slot)");
 /// Slots in `game_objects`. `create_object` stops the game with a fatal error past the last.
 pub const max_objects = 400;
 
+/// OpenReliant's reference to one object, including the reuse count of its slot. Unlike a slot
+/// number, it cannot resolve to the next object created there. `null` represents no reference.
+/// The remaining engine references move to this type under
+/// [#946](https://github.com/OpenReliant/openreliant/issues/946).
+pub const ObjectRef = struct {
+    slot: u16,
+    reuse: u32,
+
+    /// Captures the identity of the object currently in `slot`.
+    pub fn of(all: *const create.Objects, slot: u16) ObjectRef {
+        return .{ .slot = slot, .reuse = all.reuses[slot] };
+    }
+
+    /// Its slot while it still holds the same object; null after removal or a mission reset.
+    pub fn resolve(reference: ObjectRef, all: *const create.Objects) ?u16 {
+        if (reference.slot >= all.reuses.len) return null;
+        return if (all.reuses[reference.slot] == reference.reuse) reference.slot else null;
+    }
+
+    pub fn valid(reference: ObjectRef, all: *const create.Objects) bool {
+        return reference.resolve(all) != null;
+    }
+};
+
+test "object references expire when a slot is reused or a mission starts" {
+    var mission: testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const index = try mission.add(.of(.predator), @splat(0));
+    const all = mission.objects;
+    const first: ObjectRef = .of(all, index);
+    try std.testing.expectEqual(index, first.resolve(all));
+
+    create.resetSlot(mission.orders(), index);
+    try std.testing.expectEqual(null, first.resolve(all));
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, index, .of(.sabre), 0, @splat(0), &mission.random);
+    const second: ObjectRef = .of(all, index);
+    try std.testing.expect(!first.valid(all));
+    try std.testing.expect(second.valid(all));
+
+    all.reset(&mission.random);
+    try std.testing.expect(!first.valid(all));
+    try std.testing.expect(!second.valid(all));
+    const outside: ObjectRef = .{ .slot = max_objects, .reuse = 0 };
+    try std.testing.expectEqual(null, outside.resolve(all));
+}
+
 /// Whose side something is on: an object's (`GameObject.side`, four bytes) and a ship type's
 /// (`create.ShipCombat.side`, two). The Alliance's types start friendly and the Coalition's
 /// hostile; `SetHostile` makes an object one or the other. Two objects on different sides are

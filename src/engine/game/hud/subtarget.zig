@@ -38,16 +38,14 @@ pub const red: [4]f32 = .{ 1, 0, 0, 0 };
 
 /// The target and the component whose parts are picked out, and what those parts had before.
 ///
-/// **Fix:** the game saves each part's scene object to one place (`0x005656C0`), each over the
-/// last, but puts back the colour and light mask of the part `n` it walks from `n` records past it,
-/// so the first part gets the last one's and the others what lies beyond; and it puts back only
-/// three of the colour's four values. OpenReliant keeps each part's own and puts all of it back.
+/// **Fix:** the game overwrites one saved scene object (`0x005656C0`) for every part. When
+/// restoring part `n`, it reads the colour and light mask from record `n` past that address.
+/// The first part gets the last one's values, and later parts read past the saved record. It also
+/// restores only three colour channels. OpenReliant saves each part and restores all four channels.
 pub const Subtarget = struct {
-    /// `0x0057999C` and `0x0057999E`: the object and the component picked out; -1 for none.
-    object: i16 = -1,
-    component: i16 = -1,
-    /// The object's slot's reuse count as its parts were picked out (`create.Objects.reuses`).
-    reuse: u32 = 0,
+    /// The object and component picked out (`0x0057999C`, `0x0057999E`). OpenReliant keeps the
+    /// object's identity, and uses null where the original keeps -1.
+    target: ?struct { object: gameobj.ObjectRef, component: u16 } = null,
     saved: [max_parts]Saved = undefined,
     count: usize = 0,
     /// OpenReliant's: whether a drawn frame's copy of the objects may show the parts' copies
@@ -68,20 +66,25 @@ pub const Subtarget = struct {
     /// Whether it shows `target`'s parts: the same object and component (`mission_frame`,
     /// `0x00493298`).
     pub fn shows(subtarget: *const Subtarget, target: aigeneric.Target) bool {
-        return target.index == subtarget.object and target.component == subtarget.component;
+        const picked = subtarget.target orelse return target.index == aigeneric.Target.none.index and target.isWhole();
+        return target.slot() == picked.object.slot and target.part() == picked.component;
     }
 
-    /// `hud_subtarget` (`0x0048CC30`): puts back what is picked out, then, where the player's
-    /// target is valid and names a component, picks out its parts.
+    /// Whether the highlighted parts still belong to the object in `index`.
+    pub fn belongsTo(subtarget: *const Subtarget, all: *const create.Objects, index: u16) bool {
+        const picked = subtarget.target orelse return false;
+        return picked.object.resolve(all) == index;
+    }
+
+    /// `hud_subtarget` (`0x0048CC30`): restores the previous highlight, then highlights the
+    /// selected component's parts if the player's target is valid.
     pub fn pick(subtarget: *Subtarget, all: *create.Objects) void {
         subtarget.clear(all);
         const entry = ai.playerControlEntry(all) orelse return;
         if (!ai.targetValid(all, entry.target, .{})) return;
         const component = entry.target.part() orelse return;
         const index = entry.target.slot() orelse return;
-        subtarget.object = entry.target.index;
-        subtarget.component = entry.target.component;
-        subtarget.reuse = all.reuses[index];
+        subtarget.target = .{ .object = .of(all, index), .component = component };
         var walk = Assembly.of(all, index, component) orelse return;
         while (walk.next()) |part| {
             if (subtarget.count == max_parts) return;
@@ -99,21 +102,21 @@ pub const Subtarget = struct {
         }
     }
 
-    /// `hud_subtarget_clear` (`0x0048CA80`): puts back the parts picked out, in the order it walks
-    /// them, and lets their copies go.
+    /// `hud_subtarget_clear` (`0x0048CA80`): restores the highlighted parts in traversal order
+    /// and frees their copied levels.
     ///
-    /// **Fix:** the game walks the slot whatever object now holds it. Where the object has gone
-    /// from its slot since, OpenReliant only lets the copies go, the parts having gone with it.
+    /// **Fix:** the game restores parts through the saved slot even if another object has taken
+    /// it. OpenReliant checks the original object's identity first. If it has gone, its parts
+    /// have gone too, so only the copied levels need freeing.
     pub fn clear(subtarget: *Subtarget, all: *create.Objects) void {
-        if (subtarget.object < 0) return;
+        const picked = subtarget.target orelse return;
         defer {
             for (subtarget.saved[0..subtarget.count]) |saved| subtarget.spend(all.gpa, saved.copies);
             subtarget.count = 0;
-            subtarget.object = -1;
+            subtarget.target = null;
         }
-        const index: u16 = @intCast(subtarget.object);
-        if (all.reuses[index] != subtarget.reuse) return;
-        var walk = Assembly.of(all, index, @intCast(subtarget.component)) orelse return;
+        const index = picked.object.resolve(all) orelse return;
+        var walk = Assembly.of(all, index, picked.component) orelse return;
         var at: usize = 0;
         while (walk.next()) |part| : (at += 1) {
             if (at == subtarget.count) return;
@@ -261,7 +264,7 @@ test Subtarget {
 
     // Put back: each part has its own again, and none is picked out.
     subtarget.clear(all);
-    try std.testing.expectEqual(-1, subtarget.object);
+    try std.testing.expectEqual(null, subtarget.target);
     for (live.parts) |part| {
         try std.testing.expectEqual(own.ptr, part.object.levels.ptr);
         try std.testing.expectEqual(own_mask, part.object.light_mask);
@@ -273,7 +276,7 @@ test Subtarget {
     // A target that names no component picks nothing out.
     ai.playerControlEntry(all).?.target = .at(index, null);
     subtarget.pick(all);
-    try std.testing.expectEqual(-1, subtarget.object);
+    try std.testing.expectEqual(null, subtarget.target);
 
     // Where the object has left its slot since, putting back only lets the copies go.
     ai.playerControlEntry(all).?.target = .at(index, 0);

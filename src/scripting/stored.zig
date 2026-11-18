@@ -134,7 +134,7 @@ fn check(state: *State, at: i32, label: []const u8, depth: u32, left: *usize) vo
     left.* -= takes;
     switch (kind) {
         .nil, .none, .boolean, .number, .vector, .string => {},
-        .userdata => if (state.toUserdata(objects.Handle, at, objects.Handle.tag) == null)
+        .userdata => if (state.toUserdata(objects.Handle, at, objects.tag) == null)
             state.raise("{s}: only plain data can be kept, not {s}", .{ label, state.typeName(at) }),
         .table => {
             if (depth == max_depth) state.raise("{s}: tables nest more than {d} deep, or a table holds itself", .{ label, max_depth });
@@ -157,7 +157,7 @@ fn copy(state: *State, gpa: Allocator, at: i32, depth: u32) Allocator.Error!Valu
         .number => .{ .number = state.toNumber(at).? },
         .vector => .{ .vector = state.toVector(at).? },
         .string => .{ .string = try gpa.dupe(u8, state.toString(at).?) },
-        .userdata => .{ .handle = state.toUserdata(objects.Handle, at, objects.Handle.tag).?.* },
+        .userdata => .{ .handle = state.toUserdata(objects.Handle, at, objects.tag).?.* },
         .table => table: {
             var pairs: std.ArrayList(Value.Pair) = .empty;
             errdefer {
@@ -230,7 +230,7 @@ pub fn encode(w: *Io.Writer, value: Value) Io.Writer.Error!void {
         .handle => |handle| {
             try w.writeByte(@backingInt(Kind.handle));
             try w.writeInt(u16, handle.slot, .little);
-            try w.writeInt(u32, handle.count, .little);
+            try w.writeInt(u32, handle.reuse, .little);
         },
         .table => |pairs| {
             try w.writeByte(@backingInt(Kind.table));
@@ -280,7 +280,7 @@ fn decodeAt(r: *Io.Reader, gpa: Allocator, depth: u32) DecodeError!Value {
         },
         .handle => .{ .handle = .{
             .slot = r.takeInt(u16, .little) catch return error.Damaged,
-            .count = r.takeInt(u32, .little) catch return error.Damaged,
+            .reuse = r.takeInt(u32, .little) catch return error.Damaged,
         } },
         .table => table: {
             if (depth == max_depth) return error.Damaged;
@@ -394,4 +394,18 @@ test encodedSize {
     try std.testing.expectEqual(1 + @sizeOf(u32) + 3, encodedSize(encode, .{Value{ .string = "abc" }}));
     const long: [1000]u8 = @splat('x');
     try std.testing.expectEqual(1 + @sizeOf(u32) + long.len, encodedSize(encode, .{Value{ .string = &long }}));
+}
+
+test "saved object handles keep their existing binary form" {
+    const gpa = std.testing.allocator;
+    const original: Value = .{ .handle = .{ .slot = 0x123, .reuse = 0x12345678 } };
+    const bytes = [_]u8{ 6, 0x23, 0x01, 0x78, 0x56, 0x34, 0x12 };
+    var writer: std.Io.Writer.Allocating = .init(gpa);
+    defer writer.deinit();
+    try encode(&writer.writer, original);
+    try std.testing.expectEqualSlices(u8, &bytes, writer.written());
+    var reader: std.Io.Reader = .fixed(&bytes);
+    const restored = try decode(&reader, gpa);
+    defer restored.deinit(gpa);
+    try std.testing.expectEqual(original.handle, restored.handle);
 }

@@ -77,6 +77,23 @@ again and again, and the game's loops never end; OpenReliant walks it once.
 | `0xB95` | 1 | Nonzero while invulnerable: `SetInvulnerability` |
 | `0xB96` | 2 | The 3D voice it holds, `0xFFFF` for none |
 
+## Object references
+
+OpenReliant's `gameobj.ObjectRef` identifies an object by its slot and the slot's reuse count
+(`create.Objects.reuses`). `ObjectRef.of` captures both, and `resolve` returns the slot only while
+the count still matches. Resetting or retiring an object changes its count, as does creating an
+object in that slot. A mission reset changes every slot's count. An optional reference represents
+an object that may be absent.
+
+This is an **Improvement:** the original keeps slot numbers alone. Script object handles, the
+missile launcher's identity exposed to scripts and the highlighted subtarget use the checked
+reference. The original's fixed layouts stay unchanged. Other retained references, including
+order targets ([#1351](https://github.com/OpenReliant/openreliant/issues/1351)), attackers and
+weapon damage owners ([#1352](https://github.com/OpenReliant/openreliant/issues/1352)), and radio,
+camera and sound subjects ([#1353](https://github.com/OpenReliant/openreliant/issues/1353)), still
+need the same checks. These changes are tracked under
+[#946](https://github.com/OpenReliant/openreliant/issues/946).
+
 ## Creating an object
 
 `create_object(slot, type, tier, x, y, z)` fills the slot's object and returns the slot. It clears

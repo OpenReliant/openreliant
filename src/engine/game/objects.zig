@@ -1088,7 +1088,7 @@ fn loseRoot(ctx: aigeneric.Context, index: u16, model: *Model, root: math.Place)
     const slot = &world.objects.slots[index];
     const object = &slot.object;
     const shown = if (world.display) |display| &display.subtarget else null;
-    if (shown) |subtarget| if (subtarget.object == index) subtarget.clear(world.objects);
+    if (shown) |subtarget| if (subtarget.belongsTo(world.objects, index)) subtarget.clear(world.objects);
     for (model.parts, 0..) |*part, n| {
         if (part.removed or part.spent or !(part.armor < 0)) continue;
         part.spent = true;
@@ -1114,7 +1114,7 @@ fn loseRoot(ctx: aigeneric.Context, index: u16, model: *Model, root: math.Place)
             destroyPart(slot, .{ .model = model, .index = at });
         }
     }
-    if (shown) |subtarget| if (subtarget.object == index) subtarget.pick(world.objects);
+    if (shown) |subtarget| if (subtarget.belongsTo(world.objects, index)) subtarget.pick(world.objects);
     model.destroyed = false;
 }
 

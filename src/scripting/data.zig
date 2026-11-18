@@ -51,7 +51,7 @@ fn copyFrom(to: *State, from: *State, at: i32, depth: u32) void {
         .number => to.pushNumber(from.toNumber(at).?),
         .string => to.pushString(from.toString(at).?),
         .vector => to.pushVector(from.toVector(at).?),
-        .userdata => objects.pushHandle(to, from.toUserdata(objects.Handle, at, objects.Handle.tag).?.*),
+        .userdata => objects.pushHandle(to, from.toUserdata(objects.Handle, at, objects.tag).?.*),
         .table => {
             if (depth == max_depth) to.raise("tables nest more than {d} deep", .{max_depth});
             to.newTable(0, 0);
@@ -76,7 +76,7 @@ fn copyAt(state: *State, at: i32, comptime label: []const u8, depth: u32) void {
         // These can't change, so the value itself serves.
         .nil, .none, .boolean, .number, .string, .vector => state.pushCopy(at),
         .userdata => {
-            if (state.toUserdata(objects.Handle, at, objects.Handle.tag) == null) state.raise("{s}: only plain data can be passed on, not {s}", .{ label, state.typeName(at) });
+            if (state.toUserdata(objects.Handle, at, objects.tag) == null) state.raise("{s}: only plain data can be passed on, not {s}", .{ label, state.typeName(at) });
             state.pushCopy(at);
         },
         .table => {

@@ -1634,7 +1634,7 @@ test "a mod's scripts that fail to start leave no context open" {
     openreliant.engine.hooks.tell(fixture.mission.world(), .object_added, .{ .object = .of(fixture.sabre) });
     const all = fixture.mission.objects;
     const slot: create.Slot = .{ .object = std.mem.zeroes(gameobj.GameObject) };
-    const record = all.missiles.add(.{ .slot = slot, .launcher = 0, .launcher_reuses = all.reuses[0], .type = .of(.raptor), .target = .at(fixture.sabre, null) }).?;
+    const record = all.missiles.add(.{ .slot = slot, .launcher = .of(all, 0), .type = .of(.raptor), .target = .at(fixture.sabre, null) }).?;
     openreliant.engine.hooks.tell(fixture.mission.world(), .missile_added, .{ .missile = .of(record), .launcher = .of(0) });
     fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
     // Only the global script's context stays open.
@@ -1787,7 +1787,7 @@ test "missile scripts run on each missile from its launch to its end, and see it
     fixture.begin();
     const all = fixture.mission.objects;
     const slot: create.Slot = .{ .object = std.mem.zeroes(gameobj.GameObject) };
-    const record = all.missiles.add(.{ .slot = slot, .launcher = 0, .launcher_reuses = all.reuses[0], .type = .of(.raptor), .target = .at(fixture.sabre, null) }).?;
+    const record = all.missiles.add(.{ .slot = slot, .launcher = .of(all, 0), .type = .of(.raptor), .target = .at(fixture.sabre, null) }).?;
     openreliant.engine.hooks.tell(fixture.mission.world(), .missile_added, .{ .missile = .of(record), .launcher = .of(0) });
     try std.testing.expectEqual(1, fixture.game.onMissile(record).items.len);
     fixture.game.scripts.update(0.1);

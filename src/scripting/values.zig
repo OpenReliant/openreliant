@@ -79,6 +79,7 @@ pub fn isList(comptime T: type) bool {
 /// Pushes `value`.
 pub fn push(state: *State, comptime T: type, value: T) void {
     if (T == Object) return objects.push(state, value.slot());
+    if (T == objects.Handle) return objects.pushHandle(state, value);
     if (T == Missile) return missiles.push(state, value.record());
     if (T == Turret) return turrets.push(state, value);
     if (comptime isList(T)) return pushList(state, T, value);
@@ -166,7 +167,7 @@ pub fn shownFields(comptime T: type) []const Field {
 /// the message.
 pub fn read(state: *State, comptime T: type, given: i32, comptime label: []const u8) T {
     if (T == Object) return .of(objects.read(state, given, label));
-    if (T == objects.Handle) return (state.toUserdata(objects.Handle, given, objects.Handle.tag) orelse wrongType(state, label, "an object", given)).*;
+    if (T == objects.Handle) return (state.toUserdata(objects.Handle, given, objects.tag) orelse wrongType(state, label, "an object", given)).*;
     if (T == Missile) return .of(missiles.read(state, given, label));
     if (T == missiles.Handle) return (state.toUserdata(missiles.Handle, given, missiles.Handle.tag) orelse wrongType(state, label, "a missile", given)).*;
     if (T == Turret) return turrets.read(state, given, label);

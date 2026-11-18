@@ -1133,7 +1133,7 @@ fn nextMissile(records: *const missiles.Missiles, from: u8, launcher: u16) ?u8 {
     for (0..missiles.max_missiles) |_| {
         at = @intCast((@as(usize, at) + 1) % missiles.max_missiles);
         const missile = records.records[at] orelse continue;
-        if (missile.launcher == launcher) return at;
+        if (missile.launcher.slot == launcher) return at;
     }
     return null;
 }

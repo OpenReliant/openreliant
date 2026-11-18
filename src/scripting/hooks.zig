@@ -625,7 +625,7 @@ fn readFilter(state: *State, comptime verb: []const u8, access: *const Access, a
         const key = state.toString(-2) orelse state.raise("{s}: a filter's keys are names, not {s}", .{ verb, state.typeName(-2) });
         const test_name = std.meta.stringToEnum(Test, key) orelse state.raise("{s}: a filter has no test '{s}': it takes object, type, class and side", .{ verb, key });
         switch (test_name) {
-            .object => filter.object = (state.toUserdata(objects.Handle, -1, objects.Handle.tag) orelse
+            .object => filter.object = (state.toUserdata(objects.Handle, -1, objects.tag) orelse
                 state.raise("{s}: a filter's object must be an object, not {s}", .{ verb, state.typeName(-1) })).*,
             .type => readList(state, verb, gameobj.Type, &filter.types),
             .class => readList(state, verb, create.ShipCombat.Class, &filter.classes),
