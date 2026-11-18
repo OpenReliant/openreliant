@@ -346,9 +346,10 @@ flight instructor's reminder to land and the ejection's words, and `DisableTaunt
   every 2000 game ticks (`0x00529D44`), four times (`0x00529598`), from `moo_w1001` to `moo_w1004`
   the first time to `moo_w4001` to `moo_w4004` the fourth; 300 ticks after the fourth, the player's
   ship jumps (`player_jump`).
-- `radio_missile_warning` (`0x00456A80`): while a missile homes on the player's ship and the ship is
-  neither exploding, ejected nor sent off, at most once in 1000 ticks of `frame_start`
-  (`0x005297E4`), Moose says one of `plck_001` to `plck_008`, mode 2, kept 500 ticks.
+- `radio_missile_warning` (`0x00456A80`): Moose warns a pilot whose ship is in action and has an
+  incoming homing missile. The radio must be idle, and more than 1000 ticks must have passed since
+  the last warning (`0x005297E4`). The line is one of `plck_001` to `plck_008` and expires after
+  500 ticks.
 - `radio_rescue` (`0x00456B10`): 1000 ticks of `frame_start` after a wingman's pilot ejects
   (`0x00529880`), unless the pilot's pod is exploding, the pilot of the ship in the last place of
   the player's wing (`0x00515D92`) says `res_001` to `res_003` in its voice, mode 2. **Fix:** the
@@ -371,6 +372,11 @@ In hosted co-op, the host keeps the taunt cooldown for each pilot and runs the `
 before sending the line. The client checks the ship binding and applies the line to its own radio.
 An idle-only line is dropped if that radio is busy. The original skips ship radio in competitive
 arenas at `0x004561C0`, so arenas keep taunts quiet.
+
+Missile warnings also use each pilot's binding and cooldown in co-op. The host checks the homing
+flags in the radio phase, before missiles advance, and applies `DisableGenericComms` and the
+`radio_say` hook. The receiving radio keeps the deadline from the host's frame tick. Arenas follow
+the original's suppression of pilot radio at `0x00456250`.
 
 The ejection has Moose's words too ([The ejection](ejection.md)): `ejt_001` to `ejt_008` calling
 the pilot to eject, `ejt_015` or `ejt_016` as the pilot calls from the pod, and `nanpkup`,

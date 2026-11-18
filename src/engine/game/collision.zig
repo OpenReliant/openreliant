@@ -520,7 +520,7 @@ pub const HitFeedback = union(enum) {
     armour_warning,
     own_hull_impact,
     hull_impact: Vector,
-    radio_taunt: radio.RoutedLine,
+    radio_line: radio.RoutedLine,
     shockwave: f32,
 
     pub const Impact = struct {
@@ -540,7 +540,7 @@ pub const HitFeedback = union(enum) {
             const all = world.objects;
             const viewer = all.playerBinding(all.player) orelse return false;
             if (!std.meta.eql(notice.recipient, viewer)) return false;
-            notice.effect.show(world);
+            notice.effect.show(world, notice.tick);
             return true;
         }
     };
@@ -568,7 +568,7 @@ pub const HitFeedback = union(enum) {
 
         fn send(audience: Audience, world: gameobj.World, effect: HitFeedback) void {
             switch (audience) {
-                .local => effect.show(world),
+                .local => effect.show(world, world.clock.frame_start),
                 .participant => |recipient| {
                     const sink = world.hit_feedback orelse return;
                     sink.send(recipient, world.clock.frame_start, effect);
@@ -576,7 +576,7 @@ pub const HitFeedback = union(enum) {
             }
         }
 
-        fn matches(audience: Audience, world: gameobj.World, index: u16) bool {
+        pub fn matches(audience: Audience, world: gameobj.World, index: u16) bool {
             return switch (audience) {
                 .local => world.objects.player == index,
                 .participant => |recipient| if (world.objects.playerBinding(index)) |current|
@@ -601,7 +601,7 @@ pub const HitFeedback = union(enum) {
         if (Audience.of(world, index)) |audience| audience.send(world, effect);
     }
 
-    fn show(effect: HitFeedback, world: gameobj.World) void {
+    fn show(effect: HitFeedback, world: gameobj.World, tick: i32) void {
         switch (effect) {
             .interference => if (world.display) |display| display.startInterference(world),
             .impact => |hit| feedback(world, hit.struck, hit.kind, hit.value, hit.shielded),
@@ -611,7 +611,7 @@ pub const HitFeedback = union(enum) {
             .armour_warning => betty.sayIn(world, .armor_failing),
             .own_hull_impact => shieldfx.playOwnHullHit(world),
             .hull_impact => |at| shieldfx.playHullHitAt(world, at),
-            .radio_taunt => |*line| line.present(world),
+            .radio_line => |*line| line.present(world, tick),
             .shockwave => |strength| {
                 world.shake.* = @max(world.shake.*, @min(strength, camera.Cockpit.shake_most));
                 if (world.forces) |forces| forces.startUnlessPlaying(.shock, world.clock.frame_start);
@@ -1687,7 +1687,7 @@ test "hit feedback follows the struck participant and rejects an old binding" {
             try std.testing.expectEqual(20, entry.tick);
         }
         try std.testing.expectEqual(.interference, std.meta.activeTag(entries[0].effect));
-        try std.testing.expectEqual(.radio_taunt, std.meta.activeTag(entries[1].effect));
+        try std.testing.expectEqual(.radio_line, std.meta.activeTag(entries[1].effect));
         try std.testing.expectEqual(.impact, std.meta.activeTag(entries[2].effect));
         try std.testing.expectEqual(.armour_hit, std.meta.activeTag(entries[3].effect));
     }
