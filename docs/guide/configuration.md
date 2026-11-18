@@ -88,11 +88,14 @@ player doesn't launch, the launch counts as over 600 ticks, six seconds, into th
 | `--editor-link` | Listen for a mission editor or a script debugger, such as `openreliant debug`, on this computer's own address, 127.0.0.1, which can then pause the mission and stop and step its script, as the original's editor link does ([Debugging mission scripts](debugging.md)) |
 | `--editor-link-port <port>` | With `--editor-link`, the port to listen at; 22539 by default |
 | `--no-update-check` | Don't check for a newer release of OpenReliant, and don't read the catalogue of mods on the mods screen. By default it checks as it starts, logs a newer release and shows it once in the main menu, and the mods screen says which mods have an update ([Newer releases](#newer-releases)) |
-| `--screenshot <file.png>` | Draw one frame, with the camera settled, to a PNG, and quit; the controls, the `[OpenReliant]` settings and the details in `[Device]` are not read, so that it comes out the same each time |
+| `--screenshot <file.png>` | Save a PNG from a hidden window and quit. Use `--size` to set the image size. The run skips controls and `[OpenReliant]` settings, uses the highest `[Device]` details, and leaves disabled mods off |
 | `--screenshot-ticks <ticks>` | With `--screenshot`, how many game ticks to run first, one a frame, so that the scene plays out; 2 by default |
 | `--seed <number>` | Start each mission's random numbers from this seed, so that a run comes out the same each time, for testing; by default, as in the game, from the clock as the mission starts, and from a fixed seed with `--screenshot` |
 | `--version` | Show the version |
 | `-h`, `--help` | Show the help page |
+
+`--screenshot` uses the hidden window's size by default, including when `--fullscreen` is present.
+For automated captures, add `--no-sound` to mute the run.
 
 ## Commands
 

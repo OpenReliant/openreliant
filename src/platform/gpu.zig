@@ -16,6 +16,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const c = @import("sdl");
+const Window = @import("window.zig").Window;
 
 const openreliant = @import("openreliant");
 const device = openreliant.engine.surrender.srd3d.device;
@@ -525,6 +526,7 @@ pub const Gpu = struct {
     gpa: Allocator,
     handle: *c.SDL_GPUDevice,
     window: *c.SDL_Window,
+    capture_only: bool,
     settings: Settings,
     samples: c.SDL_GPUSampleCount,
     /// Lights in linear light, into a frame of floats (`Settings.linear_light`).
@@ -682,7 +684,9 @@ pub const Gpu = struct {
     /// One GPU device a run: the textures' slots it keeps in their images are its own. It draws
     /// with the mods' replacements for OpenReliant's shaders, `replaced`, whose code must outlast
     /// it.
-    pub fn init(gpa: Allocator, handle: *c.SDL_GPUDevice, window: *c.SDL_Window, settings: Settings, replaced: *const programs.Replacements) Error!Gpu {
+    pub fn init(gpa: Allocator, window: *const Window, settings: Settings, replaced: *const programs.Replacements) Error!Gpu {
+        const handle = window.gpu;
+        const capture_only = window.mode == .capture;
         const formats = c.SDL_GetGPUShaderFormats(handle);
         const spirv = formats & c.SDL_GPU_SHADERFORMAT_SPIRV != 0;
         if (!spirv and formats & c.SDL_GPU_SHADERFORMAT_MSL == 0) {
@@ -721,7 +725,7 @@ pub const Gpu = struct {
         else
             c.SDL_GPU_TEXTUREFORMAT_D24_UNORM;
         const samples = sampleCount(handle, colour_format, depth_format, settings.samples);
-        if (!c.SDL_SetGPUSwapchainParameters(handle, window, c.SDL_GPU_SWAPCHAINCOMPOSITION_SDR, presentMode(handle, window, settings.vsync))) return fail("SDL_SetGPUSwapchainParameters");
+        if (!capture_only and !c.SDL_SetGPUSwapchainParameters(handle, window.handle, c.SDL_GPU_SWAPCHAINCOMPOSITION_SDR, presentMode(handle, window.handle, settings.vsync))) return fail("SDL_SetGPUSwapchainParameters");
 
         var screen_info = std.mem.zeroes(c.SDL_GPUSamplerCreateInfo);
         screen_info.min_filter = c.SDL_GPU_FILTER_LINEAR;
@@ -737,7 +741,8 @@ pub const Gpu = struct {
             .gpa = gpa,
             .screen_sampler = screen_sampler,
             .handle = handle,
-            .window = window,
+            .window = window.handle,
+            .capture_only = capture_only,
             .spirv = spirv,
             .settings = settings,
             .samples = samples,
@@ -805,6 +810,7 @@ pub const Gpu = struct {
     fn setVsync(gpu: *Gpu, vsync: bool) void {
         if (gpu.settings.vsync == vsync) return;
         gpu.settings.vsync = vsync;
+        if (gpu.capture_only) return;
         if (!c.SDL_SetGPUSwapchainParameters(gpu.handle, gpu.window, c.SDL_GPU_SWAPCHAINCOMPOSITION_SDR, presentMode(gpu.handle, gpu.window, vsync)))
             log.warn("vsync is left as it was: {s}", .{c.SDL_GetError()});
     }
@@ -1427,11 +1433,15 @@ pub const Gpu = struct {
         return rendered;
     }
 
-    /// Records the frame into `commands`: its copies and its passes (`encode`), then, once the
-    /// display has a swapchain texture free, the finished frame put on it (`present`). Where that
-    /// fails, the texture is cleared, so that the window shows nothing rather than what it held.
+    /// Records the frame into `commands`. Capture runs finish the frame in a texture. Interactive
+    /// runs acquire a swapchain texture and present the finished frame to it, or clear it if
+    /// presentation fails.
     fn render(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, size: [2]u32, targets: Targets) Error!void {
         try gpu.encode(commands, size, targets);
+        if (gpu.capture_only) {
+            _ = try gpu.finishFrame(commands, targets);
+            return;
+        }
         // The swapchain's texture, once the display has one free: with vsync, what paces the frames.
         var swapchain: ?*c.SDL_GPUTexture = null;
         var width: u32 = 0;
@@ -1460,9 +1470,7 @@ pub const Gpu = struct {
     /// ramp, where the brightness is other than 1, as the display's ramp showed the game's whole
     /// screen.
     fn present(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, targets: Targets, swapchain: *c.SDL_GPUTexture, width: u32, height: u32) Error!void {
-        try gpu.finish(commands, targets);
-        const shown = try gpu.compose(commands, targets);
-        gpu.shown = shown;
+        const shown = try gpu.finishFrame(commands, targets);
         if (gpu.brightness != 1 and !gpu.gamma_failed) {
             const format = c.SDL_GetGPUSwapchainTextureFormat(gpu.handle, gpu.window);
             if (gpu.gammaPipeline(format)) |pipeline_| {
@@ -1480,10 +1488,10 @@ pub const Gpu = struct {
         c.SDL_BlitGPUTexture(commands, &blit);
     }
 
-    /// Draws the mods' post effects and the display over the finished frame, and returns the
-    /// texture to show: the effects before the display, then the display, then the effects after
-    /// it (`effects.Effects.draw`). Without effects this is the finished frame, as before.
-    fn compose(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, targets: Targets) Error!*c.SDL_GPUTexture {
+    /// Finishes the scene, draws the HUD between any before-HUD and after-HUD effects, and keeps
+    /// the composed texture for presentation or capture.
+    fn finishFrame(gpu: *Gpu, commands: *c.SDL_GPUCommandBuffer, targets: Targets) Error!*c.SDL_GPUTexture {
+        try gpu.finish(commands, targets);
         const finished = targets.finished();
         var shown = finished;
         if (gpu.effect_source) |source| {
@@ -1495,6 +1503,7 @@ pub const Gpu = struct {
         if (screen) |drawn| shown = gpu.post.draw(commands, drawn, .before_hud, shown, finished);
         try gpu.drawOverlay(commands, targets, shown);
         if (screen) |drawn| shown = gpu.post.draw(commands, drawn, .after_hud, shown, finished);
+        gpu.shown = shown;
         return shown;
     }
 
