@@ -288,14 +288,16 @@ fn impact(world: gameobj.World, first: u16, second: u16, impulse: Vector, contac
 /// after.
 const Flare = enum { before, after };
 
-/// What a knock does to one object (`collision_damage`, `collision_test_hull`): the player's shield
-/// reserve in the quadrant struck is drawn by `drain` first, and while it holds, that is all. A
-/// shield that is down leaves the armour to take `value`; one that is up takes it
-/// (`object_damage`), and flares at `contact`.
+/// What a knock does to one object (`collision_damage`, `collision_test_hull`): subtracts `drain`
+/// from the struck player's shield reserve first. If the reserve still holds charge, the shield
+/// takes no damage. Otherwise a shield that is down leaves the armour to take `value`; a shield
+/// that is up takes the damage (`object_damage`) and flares at `contact`.
 fn knockDamage(world: gameobj.World, index: u16, struck: Quadrant, value: f32, drain: f32, attacker: u16, contact: Vector, flare: Flare) void {
     const all = world.objects;
     const object = &all.slots[index].object;
-    if (index == all.player and world.player.shield_reserves.spare(struck, drain)) return;
+    if (all.playerState(index)) |state| {
+        if (state.shield_reserves.spare(struck, drain)) return;
+    }
     if (object.shields.get(struck) < 0) return armorDamage(world, index, struck, value, attacker, .collision);
     if (flare == .before) shield.flare(world, index, contact);
     damage(world, index, struck, value, 1, attacker, .collision);
@@ -1181,16 +1183,16 @@ test knockDamage {
     const bubble = mission.slot(player).shield.?;
     object.shields = .all(50);
     object.armor = .all(50);
-    mission.player.shield_reserves = .{ .fore = 20, .aft = 0 };
+    mission.objects.player_states[mission.objects.player].shield_reserves = .{ .fore = 20, .aft = 0 };
 
     // The fore reserve takes the knock while it holds, and nothing else happens.
     knockDamage(world, player, .fore, 10, 10, other, .{ 0, 0, 100 }, .after);
-    try std.testing.expectEqual(10, mission.player.shield_reserves.fore);
+    try std.testing.expectEqual(10, mission.objects.player_states[mission.objects.player].shield_reserves.fore);
     try std.testing.expectEqual(50, object.shields.fore);
     try std.testing.expectEqual(null, bubble.struck);
     // Once it runs out, the shield takes the whole knock, halved at medium, and flares.
     knockDamage(world, player, .fore, 30, 30, other, .{ 0, 0, 100 }, .after);
-    try std.testing.expectEqual(0, mission.player.shield_reserves.fore);
+    try std.testing.expectEqual(0, mission.objects.player_states[mission.objects.player].shield_reserves.fore);
     try std.testing.expectEqual(35, object.shields.fore);
     try std.testing.expectEqual(mission.clock.frame_start, bubble.struck);
     // With the shield down the armour takes it, twice halved, and nothing flares.
@@ -1448,4 +1450,28 @@ test crossTriggers {
     all.slots[other].object.root.next_position = .{ .x = 0, .y = 0, .z = -50 };
     crossTriggers(world, other, stalag);
     try std.testing.expect(!all.in_stalag);
+}
+
+test "a knock draws only on the struck player's reserves" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const first = try testing.ship(&mission, @splat(0), 100);
+    const second = try testing.ship(&mission, .{ 0, 0, 1000 }, 100);
+    const ordinary = try testing.ship(&mission, .{ 0, 0, 2000 }, 100);
+    all.players = 2;
+    all.player = second;
+    all.playerState(first).?.shield_reserves.fore = 20;
+    all.playerState(second).?.shield_reserves.fore = 100;
+    all.player_states[ordinary].shield_reserves.fore = 100;
+    all.slots[first].object.shields = .all(50);
+    all.slots[ordinary].object.shields = .all(50);
+    knockDamage(mission.world(), first, .fore, 10, 10, ordinary, .{ 0, 0, 100 }, .after);
+    try std.testing.expectEqual(10, all.playerState(first).?.shield_reserves.fore);
+    try std.testing.expectEqual(100, all.playerState(second).?.shield_reserves.fore);
+    try std.testing.expectEqual(50, all.slots[first].object.shields.fore);
+    knockDamage(mission.world(), ordinary, .fore, 10, 10, first, .{ 0, 0, 2100 }, .after);
+    try std.testing.expectEqual(40, all.slots[ordinary].object.shields.fore);
+    try std.testing.expectEqual(100, all.player_states[ordinary].shield_reserves.fore);
 }

@@ -2442,7 +2442,6 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     world.player.remarks = .{};
     world.player.friendly_fire = .{};
     if (world.flash) |lit| lit.* = .{};
-    world.player.shield_reserves = .{};
     start.display.reset(world.clock.game_ticks);
     start.display.interference = .{};
     start.display.subtitle = .{};

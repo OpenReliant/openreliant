@@ -40,6 +40,7 @@ const motion = @import("motion.zig");
 const objects = @import("objects.zig");
 const Order = @import("ai/orders.zig").Order;
 const pilots = @import("pilots.zig");
+const players = @import("players.zig");
 const shield = @import("shield.zig");
 const environfx = @import("environfx.zig");
 const explode = @import("explode.zig");
@@ -736,6 +737,9 @@ pub const Objects = struct {
     players: u16 = 1,
     /// `player_index` (`0x005883FA`): the player's slot, the first in a single-player game.
     player: u16 = 0,
+    /// OpenReliant's: each participant's simulation state. Only the first `players` entries
+    /// belong to participants, independently of which player this machine displays (`player`).
+    player_states: [gameobj.max_objects]players.State = @splat(.{}),
     /// `camera_marker` (`0x00588390`): the slot of the camera's marker, which the mission's start
     /// makes in the slot after the mission's ships, and which the Yamato's launch moves beside the
     /// player's bay; null until a mission's start makes it.
@@ -869,11 +873,25 @@ pub const Objects = struct {
         for (&all.reuses) |*count| count.* +%= 1;
         all.types = @splat(.{});
         all.count = 0;
+        all.player_states = @splat(.{});
         all.camera_marker = null;
         all.bombarded = null;
         all.in_stalag = false;
         // The game lets the exhaust's list go as the mission before ends (`exhaust_ships_reset`).
         all.exhaust.reset();
+    }
+
+    /// The simulation state of the participant in `index`, or null for an ordinary object.
+    /// Player roles use the first `players` slots, as in the original (`player_slots`). They
+    /// survive ship replacement, unlike an `ObjectRef`.
+    pub fn playerState(all: *Objects, index: u16) ?*players.State {
+        if (index >= all.players or index >= all.player_states.len) return null;
+        return &all.player_states[index];
+    }
+
+    /// The displayed player's simulation state, also available in the immutable drawing copy.
+    pub fn localPlayerState(all: *const Objects) players.State {
+        return all.player_states[all.player];
     }
 
     /// Whether the object in slot `index` is a Stalag with the player's ship inside it
@@ -2888,4 +2906,32 @@ test "the tables hold the executable's words until the file fills in the figures
 
 test {
     std.testing.refAllDecls(@This());
+}
+
+test "player state follows participants across ship replacement and is copied for drawing" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const first = try mission.add(.of(.predator), @splat(0));
+    const second = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    all.players = 2;
+    all.player = second;
+    all.playerState(first).?.shield_reserves.fore = 20;
+    all.playerState(second).?.shield_reserves.aft = 30;
+    try std.testing.expectEqual(null, all.playerState(all.players));
+    try std.testing.expectEqual(null, all.playerState(gameobj.max_objects));
+    try std.testing.expectEqual(30, all.localPlayerState().shield_reserves.aft);
+
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const drawn = try arena.allocator().create(Objects);
+    try all.copyInto(drawn, arena.allocator());
+    resetSlot(mission.orders(), second);
+    try std.testing.expectEqual(30, all.playerState(second).?.shield_reserves.aft);
+    all.playerState(second).?.shield_reserves.aft = 10;
+    try std.testing.expectEqual(30, drawn.localPlayerState().shield_reserves.aft);
+    all.reset(&mission.random);
+    try std.testing.expectEqual(players.State{}, all.playerState(first).?.*);
+    try std.testing.expectEqual(players.State{}, all.playerState(second).?.*);
 }

@@ -1492,8 +1492,6 @@ pub const Player = struct {
     /// `0x0051CEFC`: set while SHIELD BALANCING is held. The stick then shifts the shields fore and
     /// aft instead of steering.
     balancing_shields: bool = false,
-    /// What SHIELD BALANCING has shifted beyond the fore and aft shields' full charge.
-    shield_reserves: gameobj.ShieldReserves = .{},
     /// When the player's armour last warned (`0x00588334`, `main.armorWarning`). A mission's start
     /// leaves it, as the game leaves its global.
     armor_warned_at: i32 = 0,
@@ -1642,8 +1640,11 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
     const world = ctx.world;
     const slot = &world.objects.slots[index];
     const combat = slot.combat orelse return;
+    // Controls still read local devices and state; normalised per-player commands follow in
+    // [#1366](https://github.com/OpenReliant/openreliant/issues/1366).
     // The current order's data keeps the mouse's stick position.
-    playerControls(world.player, devices, &slot.object, combat, slot.orders[0].data.words[0..2], world.view(), world.clock.frame_duration);
+    const reserves = &world.objects.player_states[world.objects.player].shield_reserves;
+    playerControls(world.player, reserves, devices, &slot.object, combat, slot.orders[0].data.words[0..2], world.view(), world.clock.frame_duration);
     matchSpeed(world, devices);
     playerWeapons(world, devices, index);
 }
@@ -1669,6 +1670,7 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
 /// (`0x00413200`).
 pub fn playerControls(
     player: *Player,
+    reserves: *gameobj.ShieldReserves,
     devices: *Devices,
     object: *gameobj.GameObject,
     combat: *const create.ShipCombat,
@@ -1677,7 +1679,7 @@ pub fn playerControls(
     frame_duration: i32,
 ) void {
     if (player.balancing_shields or player.power_held) {
-        holdStick(player, devices, object, combat, frame_duration);
+        holdStick(player, reserves, devices, object, combat, frame_duration);
     } else {
         steer(player, devices, object, stick, view);
     }
@@ -1782,7 +1784,7 @@ fn steer(player: *Player, devices: *Devices, object: *gameobj.GameObject, stick:
 /// as a whole deflection each, or the mouse's last movement times `mouse_hold_scale` over
 /// `mouse_range`, move the power (`power.move`) or, while SHIELD BALANCING is held, shift the
 /// shields (`power.balanceShields`).
-fn holdStick(player: *Player, devices: *Devices, object: *gameobj.GameObject, combat: *const create.ShipCombat, frame_duration: i32) void {
+fn holdStick(player: *Player, reserves: *gameobj.ShieldReserves, devices: *Devices, object: *gameobj.GameObject, combat: *const create.ShipCombat, frame_duration: i32) void {
     object.holdTurns();
     var stick: [2]f32 = .{ 0, 0 };
     switch (devices.controlMode()) {
@@ -1808,7 +1810,7 @@ fn holdStick(player: *Player, devices: *Devices, object: *gameobj.GameObject, co
         },
     }
     if (player.balancing_shields) {
-        power.balanceShields(object, &player.shield_reserves, combat, stick[1]);
+        power.balanceShields(object, reserves, combat, stick[1]);
     } else {
         power.move(object, stick[0], stick[1], frame_duration);
     }
@@ -2995,13 +2997,14 @@ test "held, the stick moves the power or shifts the shields" {
     object.shields = .{ .left = 47, .right = 47, .fore = 47, .aft = 47 };
     var devices: Devices = .{ .settings = .{ .control_mode = .keyboard } };
     const keyboard = &devices.keyboard;
+    var reserves: gameobj.ShieldReserves = .{};
     var player: Player = .{ .throttle = 0.5, .power_held = true };
     keyboard.down[controls.binding(.rotate_clockwise).key] = true;
     keyboard.down[controls.binding(.accelerate).key] = true;
     devices.read();
     // With POWERBALL WINDOW held, the yaw keys move the power a whole deflection, by the frame's
     // ticks, instead of steering, and the throttle keys do nothing.
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(17, object.power_setting.x);
     try std.testing.expectEqual(0, object.yaw_input);
     try std.testing.expectEqual(0.5, object.throttle);
@@ -3009,7 +3012,7 @@ test "held, the stick moves the power or shifts the shields" {
     player.balancing_shields = true;
     keyboard.down[controls.binding(.nose_down).key] = true;
     devices.read();
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(17, object.power_setting.x);
     try std.testing.expectEqual(45, object.shields.fore);
     try std.testing.expectEqual(40, object.shields.aft);
@@ -3021,54 +3024,55 @@ test playerControls {
     var object: gameobj_test.GameObject = std.mem.zeroes(gameobj_test.GameObject);
     var devices: Devices = .{ .settings = .{ .control_mode = .keyboard } };
     const keyboard = &devices.keyboard;
+    var reserves: gameobj.ShieldReserves = .{};
     var player: Player = .{};
     const nose_up = controls.binding(.nose_up).key;
     const accelerate = controls.binding(.accelerate).key;
 
     // A held key steps its input, and the fourth run has it past full deflection.
     keyboard.down[nose_up] = true;
-    for (0..4) |_| playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    for (0..4) |_| playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(1.2, object.pitch_input, 1e-6);
     // Released, the input falls back to nothing on the next run.
     keyboard.down[nose_up] = false;
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(0, object.pitch_input);
 
     // The orbiting views take the arrow keys for themselves.
     keyboard.down[nose_up] = true;
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .external, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .external, 16);
     try std.testing.expectEqual(0, object.pitch_input);
     keyboard.down[nose_up] = false;
 
     // Half the yaw banks the ship into its turn.
     keyboard.down[controls.binding(.rotate_anti_clockwise).key] = true;
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(0.3, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.15, object.roll_input, 1e-6);
     keyboard.down[controls.binding(.rotate_anti_clockwise).key] = false;
 
     // ACCELERATE steps the throttle, fifty runs from none to full.
     keyboard.down[accelerate] = true;
-    for (0..50) |_| playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    for (0..50) |_| playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(1, object.throttle, 1e-5);
     keyboard.down[accelerate] = false;
     // FULL THROTTLE and ZERO THROTTLE set it outright, once for each press.
     keyboard.down[controls.binding(.zero_throttle).key] = true;
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(0, object.throttle);
     keyboard.down[controls.binding(.zero_throttle).key] = false;
 
     // With JoystickInvert off, the nose keys pitch the other way.
     devices.settings.joystick_invert = false;
     keyboard.down[nose_up] = true;
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(-0.3, object.pitch_input, 1e-6);
     keyboard.down[nose_up] = false;
 
     // Both strafe keys held, STRAFE RIGHT wins.
     keyboard.down[controls.binding(.strafe_left).key] = true;
     keyboard.down[controls.binding(.strafe_right).key] = true;
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(1, object.lateral_input);
 }
 
@@ -3078,13 +3082,14 @@ test "steering with the joystick" {
     var stick = testStick();
     var devices: Devices = .{};
     devices.joystick.open(stick.device(), default_dead_zone);
+    var reserves: gameobj.ShieldReserves = .{};
     var player: Player = .{};
 
     // X yaws (and banks the ship by half as much), Y pitches, and the slider sets the throttle
     // directly: 1000 is none and 0 is full.
     stick.state = .{ .x = 500, .y = -250, .z = 0, .rx = 0, .ry = 0, .rz = 800, .sliders = .{ 250, 0 }, .pov = @splat(JoystickState.centred), .buttons = @splat(0) };
     devices.read();
-    playerControls(&player, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(0.5, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(-0.25, object.pitch_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.25, object.roll_input, 1e-6);
@@ -3092,21 +3097,21 @@ test "steering with the joystick" {
 
     // Holding JOYSTICK ROLL makes X roll instead.
     devices.keyboard.down[controls.binding(.joystick_roll).key] = true;
-    playerControls(&player, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
     try std.testing.expectEqual(0, object.yaw_input);
     try std.testing.expectApproxEqAbs(0.5, object.roll_input, 1e-6);
     devices.keyboard.down[controls.binding(.joystick_roll).key] = false;
 
     // With TwistEnable, the twist rolls, and X still yaws and banks.
     devices.settings.twist_enabled = true;
-    playerControls(&player, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(0.5, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.8 + 0.25, object.roll_input, 1e-6);
     devices.settings.twist_enabled = false;
 
     // Turning JoystickInvert off reverses pitch; in the orbiting views the stick still steers.
     devices.settings.joystick_invert = false;
-    playerControls(&player, &devices, &object, &testing_combat, &mouse_stick, .external, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &mouse_stick, .external, 16);
     try std.testing.expectApproxEqAbs(0.25, object.pitch_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.5, object.yaw_input, 1e-6);
 }
@@ -3115,31 +3120,32 @@ test "steering with the mouse" {
     var stick: [2]i16 = .{ 0, 0 };
     var object: gameobj.GameObject = std.mem.zeroes(gameobj.GameObject);
     var devices: Devices = .{ .settings = .{ .control_mode = .mouse } };
+    var reserves: gameobj.ShieldReserves = .{};
     var player: Player = .{};
 
     // Half the range to the right yaws at 0.35, and three quarters of it up pitches at 0.675.
     devices.mouse.motion = .{ 400, -600 };
     devices.read();
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual([2]i16{ 400, -600 }, stick);
     try std.testing.expectApproxEqAbs(0.35, object.yaw_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.675, object.pitch_input, 1e-6);
     try std.testing.expectApproxEqAbs(0.175, object.roll_input, 1e-6);
     // Run again before the next read, the stick stays where it is.
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual([2]i16{ 400, -600 }, stick);
 
     // Held at the edge of the range, the deflection is whole.
     devices.mouse.motion = .{ 1000, 0 };
     devices.read();
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual(mouse_range, stick[0]);
     try std.testing.expectApproxEqAbs(1, object.yaw_input, 1e-6);
 
     // Back within the dead band, it steers nothing.
     devices.mouse.motion = .{ -700, 400 };
     devices.read();
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expectEqual([2]i16{ 100, -200 }, stick);
     try std.testing.expectEqual(0, object.yaw_input);
     try std.testing.expectEqual(0, object.pitch_input);
@@ -3190,10 +3196,11 @@ test "a joystick without a throttle leaves the throttle to the keys" {
     var stick: TestDevice = .{ .capabilities = .{ .name = "Two Axes", .axes = .initMany(&.{ .x, .y }), .buttons = 2, .hats = 0 } };
     var devices: Devices = .{};
     devices.joystick.open(stick.device(), default_dead_zone);
+    var reserves: gameobj.ShieldReserves = .{};
     var player: Player = .{};
     devices.read();
     devices.keyboard.down[controls.binding(.accelerate).key] = true;
-    for (0..5) |_| playerControls(&player, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
+    for (0..5) |_| playerControls(&player, &reserves, &devices, &object, &testing_combat, &mouse_stick, .cockpit, 16);
     try std.testing.expectApproxEqAbs(0.1, object.throttle, 1e-6);
 }
 
@@ -3202,27 +3209,28 @@ test "the burns last while their keys are held, and stop without fuel" {
     var object: gameobj.GameObject = std.mem.zeroes(gameobj.GameObject);
     var devices: Devices = .{ .settings = .{ .control_mode = .keyboard } };
     const keyboard = &devices.keyboard;
+    var reserves: gameobj.ShieldReserves = .{};
     var player: Player = .{};
     object.afterburner_fuel = 100;
 
     keyboard.down[controls.binding(.afterburners).key] = true;
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expect(object.afterburner);
     keyboard.down[controls.binding(.afterburners).key] = false;
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expect(!object.afterburner);
 
     // The toggle holds it on until it is pressed again.
     keyboard.down[controls.binding(.afterburner_toggle).key] = true;
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expect(object.afterburner);
     keyboard.read();
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expect(object.afterburner);
 
     // Out of fuel, neither burn runs.
     object.afterburner_fuel = 0;
-    playerControls(&player, &devices, &object, &testing_combat, &stick, .cockpit, 16);
+    playerControls(&player, &reserves, &devices, &object, &testing_combat, &stick, .cockpit, 16);
     try std.testing.expect(!object.afterburner);
     try std.testing.expect(!object.reverse_thrust);
 }

@@ -2283,7 +2283,7 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
         var live = world;
         updateTree(&object.root, if (slot.model) |*model| model else null, guns.clipEvents(&live, @intCast(index)));
         const combat = slot.combat orelse continue;
-        rechargeShields(object, combat, if (index == all.player) world.player.shield_reserves else null);
+        rechargeShields(object, combat, if (all.playerState(index)) |state| state.shield_reserves else null);
         guns.step(world, clock, index);
     }
     // The player's own order runs again here, before the objects move, so the controls tell on
@@ -3117,4 +3117,28 @@ test "where an object stands, and where it will stand at the next step" {
     object.root.next_position = .{ .x = 4, .y = 5, .z = 6 };
     try std.testing.expectEqual(Vector{ 1, 2, 3 }, object.position());
     try std.testing.expectEqual(Vector{ 4, 5, 6 }, object.nextPosition());
+}
+
+test "a simulation step recharges each player from their own reserves" {
+    var mission: testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const first = try mission.add(.of(.predator), @splat(0));
+    const second = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+    const ordinary = try mission.add(.of(.predator), .{ 0, 0, 2000 });
+    all.players = 2;
+    all.player = second;
+    const full = all.slots[first].combat.?.fullShields() - 1;
+    for ([_]u16{ first, second, ordinary }) |index| all.slots[index].object.shields = .all(full);
+    all.playerState(first).?.shield_reserves.aft = 9;
+    all.playerState(second).?.shield_reserves.aft = 3;
+    // Unused records cannot affect an ordinary object's recharge.
+    all.player_states[ordinary].shield_reserves.aft = 20;
+    mission.clock.simulation_counter = ticks_per_step - 1;
+    var devices: input.Devices = .{};
+    try std.testing.expect(simulationStep(&mission.clock, &devices, mission.world()));
+    try std.testing.expectEqual(full - 9, all.slots[first].object.shields.fore);
+    try std.testing.expectEqual(full - 3, all.slots[second].object.shields.fore);
+    try std.testing.expectEqual(full, all.slots[ordinary].object.shields.fore);
 }

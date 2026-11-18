@@ -60,6 +60,7 @@ The [user guide](guide/README.md) covers installing, configuring and playing Ope
 | [`engine/briefing.md`](engine/briefing.md) | The briefing: the door, the way into the briefing room, Enriquez with the mission's movie, her last word, and the campaign's end. |
 | [`engine/loadout.md`](engine/loadout.md) | The loadout: its hologram, GenILib's 3D interface, the ship page, choosing a ship, the missile page and the racks, the internal guns view, the exit, its panels and figures, and the ship and racks it leaves the mission. |
 | [`engine/movies.md`](engine/movies.md) | Movies: how the game plays them, the discs' archives, the intro, the transitions, the hangar's, the landing and the chapters' ends, and the stand-in for Bink. |
+| [`engine/players.md`](engine/players.md) | Player simulation state and a comparison with the original. |
 | [`engine/controls.md`](engine/controls.md) | Player input: devices, bindings, settings, steering and throttle. |
 | [`engine/screenshots.md`](engine/screenshots.md) | Screenshots: the keys that save the screen, and where the pictures go. |
 | [`engine/hud.md`](engine/hud.md) | The head-up display: how it is reached, where an element stands, its text and its art. |

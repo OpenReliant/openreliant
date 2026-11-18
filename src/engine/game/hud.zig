@@ -4157,7 +4157,7 @@ pub const State = struct {
             try readout.draw(placing.pen(pen, readout.instrument()), readout.value(slot, frame.player));
         }
         const hits: NewHits = .{ .counts = &state.events.ship_hits, .seen = &drawing.ship_hits };
-        const status = ShipStatus.ofPlayer(slot, frame.all.rules().kamov_wing, hits, frame.player.shield_reserves);
+        const status = ShipStatus.ofPlayer(slot, frame.all.rules().kamov_wing, hits, frame.all.localPlayerState().shield_reserves);
         drawing.flashes.hits = status.hits;
         const status_pen = placing.pen(pen, .ship_status);
         try ShipStatus.draw(status, .player, status_pen, status_pen.placed(ShipStatus.offset, ShipStatus.across, ShipStatus.down), null);

@@ -594,6 +594,9 @@ over the type's `shield_recharge` seconds of steps, and stops at the full charge
 ship, the full charge of the fore shield, the third, is lower by however far the aft shield and its
 [reserve](controls.md#the-shield-balance) together go beyond it, and the aft shield's likewise.
 
+OpenReliant applies these limits using each [player's own reserves](players.md). Ordinary objects
+recharge without reserves.
+
 An object whose components are listed recharges no shields here, and neither does one holding
 the `no_shield_recharge` power-up (8). One whose `0xB95` is 5 has its shields emptied instead. In a
 multiplayer game, the player's shields don't recharge while `0x5D76F0` is 4 and `0x5DB538` names
