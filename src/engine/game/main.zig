@@ -168,7 +168,7 @@ pub const Showing = enum(u8) {
 /// player launched from, which a launch's cutaway leaves out.
 pub const Shown = struct {
     showing: Showing = .everything,
-    carrier: ?u16 = null,
+    carrier: ?gameobj.ObjectRef = null,
 
     pub fn of(player: *const input.Player) Shown {
         return .{ .showing = player.showing, .carrier = player.carrier };
@@ -179,7 +179,7 @@ pub const Shown = struct {
     /// player's ejection all but the player's pod and the cutaway slot's ship.
     pub fn leavesOut(shown: Shown, all: *const create.Objects, index: u16) bool {
         return switch (shown.showing) {
-            .launch => index == shown.carrier,
+            .launch => if (shown.carrier) |carrier| carrier.resolve(all) == index else false,
             .ejection => index != all.player and index != create.cutaway_slot,
             else => false,
         };
@@ -656,13 +656,14 @@ pub fn viewFrame(drawing: Drawing) void {
     const viewing = &shown.player.viewing;
     const cockpit_input = if (drawing.cockpit) |seat| seat.inputFor(slot, viewing.view) else null;
     const subject = camera.Subject.of(slot);
-    const seen = if (viewing.object) |object| camera.Subject.of(&all.slots[object]) else subject;
+    const seen = if (viewing.objectIn(all)) |object| camera.Subject.of(&all.slots[object]) else subject;
     const marker = if (shown.explosions) |explosions| if (explosions.marker) |left| left.position else null else null;
     view.frame(.{
         .object = seen,
+        .object_lost = viewing.object != null and viewing.objectIn(all) == null,
         .player = subject,
         // The target view goes round the player's target.
-        .target = if (shown.display) |display| if (display.target) |aimed| camera.Subject.of(&all.slots[aimed.slot]) else null else null,
+        .target = if (shown.display) |display| if (display.target) |aimed| if (aimed.resolve(all)) |live| camera.Subject.of(&all.slots[live.slot]) else null else null else null,
         .ticks = ticks,
         .now = at,
         .ahead = objects.pastTick(clock, drawing.smooth_motion),
@@ -670,12 +671,12 @@ pub fn viewFrame(drawing: Drawing) void {
         .cockpit = cockpit_input,
         .random = drawing.random,
         .dropping = launch.dropping(all, all.player),
-        .landing = ailand.seen(all, viewing.object orelse all.player),
+        .landing = ailand.seen(all, viewing.objectIn(all) orelse all.player),
         .game = shown,
         .viewing = viewing,
         .shake = shown.shake.*,
     });
-    slot.object.flags.hidden = viewing.inside(all.player);
+    slot.object.flags.hidden = viewing.inside(all, all.player);
     if (drawing.hearing) |hearing| {
         hearing.sound.timerTick(clock.game_ticks);
         hearing.sound.surround(shown.player.showing.surroundings(viewing.view));
@@ -893,13 +894,15 @@ test missionRunEnd {
 
 /// `mission_frame`'s care of the ship the player launched from (`0x004932D4`): once that ship
 /// explodes, the first Yamato among the objects takes its place, where there is one.
+/// **Fix:** a removed carrier also allows this fallback. An unrelated replacement cannot become
+/// the player's carrier by taking its slot.
 pub fn followCarrier(world: gameobj.World) void {
     const all = world.objects;
-    const carrier = world.player.carrier orelse return;
-    if (carrier >= all.slots.len or !all.slots[carrier].object.flags.exploding) return;
+    const previous = world.player.carrier orelse return;
+    if (previous.resolve(all)) |carrier| if (!all.slots[carrier].object.flags.exploding) return;
     for (all.slots[0..all.count], 0..) |*slot, index| {
         if (slot.object.type.base() != .yamato) continue;
-        world.player.carrier = @intCast(index);
+        world.player.carrier = .of(all, @intCast(index));
         return;
     }
 }
@@ -911,14 +914,14 @@ test followCarrier {
     _ = try mission.add(.of(.predator), @splat(0));
     const reliant = try mission.add(.of(.reliant), @splat(0));
     const yamato = try mission.add(.of(.yamato), @splat(0));
-    mission.player.carrier = reliant;
+    mission.player.carrier = .of(mission.objects, reliant);
     // While the Reliant holds, it stays the ship the player launched from.
     followCarrier(mission.world());
-    try std.testing.expectEqual(reliant, mission.player.carrier.?);
+    try std.testing.expectEqual(reliant, mission.player.carrierIn(mission.objects).?);
     // Once it explodes, the Yamato takes its place.
     mission.slot(reliant).object.flags.exploding = true;
     followCarrier(mission.world());
-    try std.testing.expectEqual(yamato, mission.player.carrier.?);
+    try std.testing.expectEqual(yamato, mission.player.carrierIn(mission.objects).?);
 }
 
 /// How long the camera watches the player's ship's end, the pilot's pod picked up, and the pod
@@ -1648,7 +1651,7 @@ test "the objects are framed and drawn, save those left out" {
 
     // A launch's cutaway leaves out the ship the player launches from.
     scene.clear();
-    try drawObjects(gpa, arena.allocator(), &scene, all, .{}, null, null, .{ .showing = .launch, .carrier = 3 }, null);
+    try drawObjects(gpa, arena.allocator(), &scene, all, .{}, null, null, .{ .showing = .launch, .carrier = .of(all, 3) }, null);
     for (scene.layers.get(.world).items) |item| try std.testing.expect(!std.meta.eql(item.mesh.position, all.slots[3].drawn.position));
     try std.testing.expectEqual(2, scene.layers.get(.world).items.len);
 }
@@ -2473,7 +2476,9 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     // cockpit, unlocked.
     const viewing = &world.player.viewing;
     viewing.view = .cockpit;
-    viewing.object = all.player;
+    // The player's mission slot is filled after this setup. Explicit camera switches capture
+    // the particular object present when they happen.
+    viewing.object = .{ .slot = all.player };
     viewing.last = .cockpit;
     viewing.locked = false;
     viewing.cockpit_mode = viewing.cockpit_setting.mode();
@@ -3284,4 +3289,20 @@ test givePilots {
     all.simulator.mode = .training;
     givePilots(all, 2, &.{});
     try std.testing.expectEqual(0, all.slots[wingman].object.pilot);
+}
+
+test "a removed carrier does not become the replacement in its slot" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const carrier = try mission.add(.of(.reliant), @splat(0));
+    mission.player.carrier = .of(mission.objects, carrier);
+    create.resetSlot(mission.orders(), carrier);
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, carrier, .of(.reliant), 0, @splat(0), &mission.random);
+    try std.testing.expectEqual(null, mission.player.carrierIn(mission.objects));
+    followCarrier(mission.world());
+    try std.testing.expectEqual(null, mission.player.carrierIn(mission.objects));
+    const yamato = try mission.add(.of(.yamato), @splat(0));
+    followCarrier(mission.world());
+    try std.testing.expectEqual(yamato, mission.player.carrierIn(mission.objects).?);
 }

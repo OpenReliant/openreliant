@@ -1512,7 +1512,7 @@ pub const Player = struct {
     viewing: camera.Viewing = .{},
     /// `player_carrier` (`0x0057E05C`): the ship the player's ship launched from, which the
     /// launch's cutaway leaves out, and none from the mission's start until a launch names it.
-    carrier: ?u16 = null,
+    carrier: ?gameobj.ObjectRef = null,
     /// `0x0052987C`: the timer's tick from which PERMISSION TO LAND is heard again
     /// (`radio.permissionToLand`).
     permission_heard_from: u32 = 0,
@@ -1554,6 +1554,10 @@ pub const Player = struct {
     /// sets how many ships the loadout offers. A new pilot starts at 0 (`campaign_new`,
     /// `0x004751DE`).
     rank: gameflow.Rank = 0,
+
+    pub fn carrierIn(player: *const Player, all: *const create.Objects) ?u16 {
+        return (player.carrier orelse return null).resolve(all);
+    }
 
     /// The pilot's kills over the whole campaign. Only a new pilot starts them again from 0.
     pub const Kills = struct {
@@ -3301,7 +3305,7 @@ test eject {
     try std.testing.expectEqual(.eject, slot.orders[0].order);
     try std.testing.expectEqual(.eject, mission.player.viewing.view);
     try std.testing.expect(mission.player.viewing.locked);
-    try std.testing.expectEqual(index, mission.player.viewing.object.?);
+    try std.testing.expectEqual(index, mission.player.viewing.objectIn(mission.objects).?);
     // Once the mission is over, it can't.
     mission.player.ending = .destroyed;
     _ = aigeneric.pop(mission.orders(), index);

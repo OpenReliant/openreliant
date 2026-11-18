@@ -161,7 +161,7 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     slot.state.friendly_fire.until = ctx.world.clock.frame_start + speaking_ticks;
     switch (slot.object.sent_home) {
         .told, ._unknown_3 => {
-            const reliant = if (world.player.carrier) |carrier| world.objects.slots[carrier].object.type.base() == .reliant else false;
+            const reliant = if (world.player.carrierIn(world.objects)) |carrier| world.objects.slots[carrier].object.type.base() == .reliant else false;
             const pilot = if (reliant) reliant_aborts else other_aborts;
             radio.pilotSays(world, pilot, .talking, abort_line, .queued, .looping, radio.no_expiry);
         },
@@ -312,7 +312,7 @@ test "a player who destroys a friend is sent home, and lands" {
     const ctx: aigeneric.Context = .of(world);
     const player = &all.slots[0];
     const reliant = try heard.mission.add(.of(.reliant), .{ 0, 0, 5000 });
-    heard.mission.player.carrier = reliant;
+    heard.mission.player.carrier = .of(heard.mission.objects, reliant);
     _ = try aigeneric.pushShip(ctx, 0, .player_control, heard.enemy, null);
 
     // Unmarked, the ship flies on.
@@ -355,7 +355,7 @@ test "a player sent home to a carrier that offers no landing flies on" {
     const all = heard.mission.objects;
     const ctx: aigeneric.Context = .of(world);
     const player = &all.slots[0];
-    heard.mission.player.carrier = try heard.mission.add(.of(.victorious), .{ 0, 0, 5000 });
+    heard.mission.player.carrier = .of(heard.mission.objects, try heard.mission.add(.of(.victorious), .{ 0, 0, 5000 }));
     _ = try aigeneric.pushShip(ctx, 0, .player_control, heard.enemy, null);
     friendDestroyed(world);
     sendHome(ctx);

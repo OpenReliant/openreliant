@@ -862,7 +862,7 @@ pub fn flare(world: gameobj.World, index: u16, at: Vector) void {
     if (std.mem.allEqual(f32, &shields, 0)) return;
     if (object.flags.cloaked) return cloak.reveal(world, index, at);
     const bubble = slot.shield orelse return;
-    const inside = world.player.viewing.inside(index);
+    const inside = world.player.viewing.inside(world.objects, index);
     if (!inside) {
         const carried = object.velocity.vector() * @as(Vector, @splat(sparks_carry));
         sparks.spray(world, .shield, at, at - slot.drawn.position, carried, shield_sparks);

@@ -22,6 +22,20 @@ OpenReliant keeps the factor down and chooses the factor across that keeps pixel
 
 `camera_view` (`0x539A34`) holds the view and `camera_object` (`0x539A8C`) the object it shows. `camera_set_view` (`0x0045F1B0`) switches view and places the camera at once; `camera_frame` (`0x0045FC90`) places it once a frame. Views from 7 on are the game's cutaways, of launches, landings, jumps and deaths among others.
 
+**Fix:** explicit camera switches keep the subject's `ObjectRef`, including switches waiting for
+the next game frame. A removed subject cannot become the next object in its slot. A cinematic
+view holds its last position and orientation when its subject disappears; its lock, elapsed time
+and mission end rules keep running. Chase and spectator views keep their existing cockpit
+fallback. The missile view checks the selected missile's record generation and keeps its existing
+linger time after that missile ends. It only selects missiles launched by the original object.
+Custom script cameras use the same subject check.
+
+The cockpit selected at mission startup follows the player's mission slot, which is filled after
+the camera is set up. Director paths, tracked ships and pacing ships name mission ship records;
+they keep that meaning, including shots queued before a ship appears. A shot's hold captures the
+particular ships it finds when it starts. **Fix:** ending or starting that hold cannot change a
+replacement ship's jumping flag. Curve events and shot durations stay unchanged.
+
 | View | Key | Camera | Named |
 |---|---|---|---|
 | 0 | Cockpit | From the cockpit, ahead, as the cockpit mode says | Cockpit View |

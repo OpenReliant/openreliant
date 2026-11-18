@@ -20,6 +20,7 @@ const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.scripts);
 
 const openreliant = @import("openreliant");
+const gameobj = openreliant.engine.game.gameobj;
 const ModSurface = openreliant.engine.surrender.surrenderlib.srtexture.ModSurface;
 const create = openreliant.engine.game.create;
 const atmosphere = create.atmosphere;
@@ -165,10 +166,9 @@ pub const Registry = struct {
     /// them.
     given: [max_objects]?Given = @splat(null),
 
-    /// A surface function given to the object in a slot, and the slot's reuse count then
-    /// (`create.Objects.reuses`), so that the object that takes the slot next doesn't get it.
+    /// A surface function and the particular object it was given to.
     const Given = struct {
-        reuse: u32,
+        object: gameobj.ObjectRef,
         surface: ModSurface,
     };
 
@@ -233,9 +233,9 @@ pub const Registry = struct {
     /// player script gave it (`object:set_surface`), over every part of its model. A function given
     /// to an object that has gone since, whose slot another object takes now, is let go.
     pub fn dress(registry: *Registry, all: *create.Objects) void {
-        for (&registry.given, &all.slots, all.reuses) |*given, *slot, reuse| {
+        for (&registry.given, &all.slots) |*given, *slot| {
             const held = given.* orelse continue;
-            if (held.reuse != reuse) {
+            if (!held.object.valid(all)) {
                 given.* = null;
                 continue;
             }
@@ -431,7 +431,7 @@ pub fn setSurface(call: Call, object: Object, name: ?[]const u8, given: ?Paramet
         if (entry.function) |function| surface = entry.surface(function, parameters);
     }
     const slot = object.slot();
-    registryOf(call).given[slot] = if (surface) |chosen| .{ .reuse = all.reuses[slot], .surface = chosen } else null;
+    registryOf(call).given[slot] = if (surface) |chosen| .{ .object = .of(all, slot), .surface = chosen } else null;
     return true;
 }
 

@@ -768,7 +768,7 @@ test pickUp {
         try std.testing.expectEqual(cutaway_place, pod.drawn.position);
         const ship = mission.slot(create.cutaway_slot);
         try std.testing.expectEqual(index, ship.orders[0].target.shipIn(mission.objects));
-        try std.testing.expectEqual(create.cutaway_slot, mission.player.viewing.object);
+        try std.testing.expectEqual(create.cutaway_slot, mission.player.viewing.objectIn(mission.objects));
         switch (fate) {
             // A nanny ship, or the Antanov, short of the pod along Z, scoops it up, watched round
             // the ship.

@@ -40,8 +40,7 @@ fn setView(call: Call, wanted: Identifier, object: ?Object) bool {
         },
         .number => |number| if (number < engine_camera.views.records.len) @fromBackingInt(@intCast(number)) else return false,
     };
-    if (!held.camera.ask(held.viewing, .{ .view = view, .object = of, .now = held.now }, held.bounds)) return false;
+    if (!held.camera.ask(held.viewing, .{ .view = view, .object = of, .now = held.now }, held.boundsFor(call.runtime().objects))) return false;
     call.runtime().registries.selected_camera = null;
-    call.runtime().registries.camera_subject = null;
     return true;
 }

@@ -168,7 +168,10 @@ The Phoenix's Nova Cannon charges while the trigger is held and strikes when it 
 
 Each frame `bullets_frame` places the beams (`nova_beams_frame`, `0x00480690`). The beam is four blades on `ionc`, 150 wide either side narrowed by the square of the charge and 40000 long, standing 50 above and 20680 ahead of the ship, turned with it. Each blade's texture runs along it at 0.01 a tick more than the blade before's, and the blades are lit at the ship's end, dark at the far one, fading out over the last fifth of the beam's time. After a full charge 30 strands follow a helix along it (`nova_helix`), each two blades on `laser2` from one point of the helix to the next, radius 100, six turns a unit and 15000 long a unit from 600 ahead, the points 0.03 apart from 0.3 behind how far through its time the beam is. The strands rise and fall in brightness over the beam's time (`ease_rise_fall`); the game lights their first blades alone.
 
-**Fix:** the game takes where the beam enters an object's box, which is in the object's frame, for a point in the world's, so the quadrant struck and the flare land wherever that puts them; OpenReliant takes the point where it enters. The game also keeps drawing a beam from a ship that has gone.
+**Fix:** the original uses the beam's local entry point as a world position, which puts the hit
+quadrant and shield flare in the wrong place. OpenReliant uses the actual world entry point. The
+original also keeps drawing a beam after its ship leaves. OpenReliant keeps the firing ship's
+`ObjectRef` and ends the visual beam after removal, even if another ship takes the slot.
 
 **Improvement:** the helix turns six times a unit exactly, where the game rounds its angle.
 

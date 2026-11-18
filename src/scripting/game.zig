@@ -1124,7 +1124,7 @@ test "a script answers PERMISSION TO LAND its own way" {
     variables.landing_cleared = 1;
     var asking = fixture.mission.world();
     asking.variables = &variables;
-    fixture.mission.player.carrier = try fixture.mission.add(.of(.reliant), .{ 0, 0, 5000 });
+    fixture.mission.player.carrier = .of(fixture.mission.objects, try fixture.mission.add(.of(.reliant), .{ 0, 0, 5000 }));
     const player = &fixture.mission.objects.slots[fixture.mission.objects.player];
     // Stopped, the request goes unanswered, and the ship lands on nothing; let through, it lands.
     radio_module.permissionToLand(asking, 100);
@@ -1180,11 +1180,11 @@ test "a script says lines on the radio, as the comms commands do" {
     try std.testing.expectEqual(2, radio.count);
     const diceman = radio.queue[0];
     try std.testing.expectEqualStrings("ms_dice22_001.ut", diceman.speech.slice());
-    try std.testing.expectEqual(radio_module.pilot_base + @backingInt(openreliant.engine.game.pilots.GamePilot.diceman), diceman.object);
+    try std.testing.expectEqual(radio_module.pilot_base + @backingInt(openreliant.engine.game.pilots.GamePilot.diceman), diceman.speaker.number());
     try std.testing.expectEqual(openreliant.engine.game.hudmovie.Flags.looping, diceman.flags);
     const ship = radio.queue[1];
     try std.testing.expectEqualStrings("ms_dice22_002.ut", ship.speech.slice());
-    try std.testing.expectEqual(@as(i32, fixture.mission.objects.player), ship.object);
+    try std.testing.expectEqual(@as(i32, fixture.mission.objects.player), ship.speaker.number());
     try std.testing.expectEqual(openreliant.engine.game.hudmovie.Flags.once, ship.flags);
 }
 
@@ -1342,6 +1342,10 @@ test "a script lets the player land on a ship, and makes it the player's carrier
                 \\            assert(world.set_player_carrier(sabre))
                 \\            assert(world.player_carrier == sabre)
                 \\        end,
+                \\        on_update = function()
+                \\            assert(world.player_carrier == nil)
+                \\            world.objects()[1].throttle = 0.37
+                \\        end,
                 \\    },
                 \\}
             },
@@ -1350,8 +1354,12 @@ test "a script lets the player land on a ship, and makes it the player's carrier
     defer fixture.deinit();
     fixture.begin();
     fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
-    try std.testing.expectEqual(fixture.sabre, fixture.mission.player.carrier.?);
+    try std.testing.expectEqual(fixture.sabre, fixture.mission.player.carrierIn(fixture.mission.objects).?);
     try std.testing.expectEqual(openreliant.engine.game.ailand.Style.bay, fixture.mission.objects.slots[fixture.sabre].landing.?);
+    create.resetSlot(fixture.mission.orders(), fixture.sabre);
+    _ = try create.createObject(fixture.mission.objects, &fixture.mission.tables, create.testing.no_models, fixture.sabre, .of(.sabre), 0, @splat(0), &fixture.mission.random);
+    fixture.game.scripts.update(0.01);
+    try std.testing.expectEqual(@as(f32, 0.37), fixture.mission.slot(fixture.mission.objects.player).object.throttle);
 }
 
 test "a script chooses the movies of a mission's end, and the restart screen's choice" {

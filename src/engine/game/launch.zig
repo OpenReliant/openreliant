@@ -318,7 +318,7 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
         entry.target = .selected(all, .{ .kind = entry.target.resolve(all).kind, .index = @truncate(state.carrier), .component = @truncate(state.gate) });
     }
     const carrier = entry.target.slotIn(all) orelse return;
-    if (index == all.player) ctx.world.player.carrier = carrier;
+    if (index == all.player) ctx.world.player.carrier = .of(all, carrier);
     const carrier_type = all.slots[carrier].object.type;
     state.style = Style.of(slot.object.type, carrier_type, entry.target.resolve(all).component);
     state.step = .waiting;
@@ -790,7 +790,7 @@ test "the player's launch records the carrier, whatever its style" {
     _ = try aigeneric.pushShip(ctx, player, .launch, carrier, 0);
     aigeneric.objectOrders(ctx, player);
     try std.testing.expectEqual(Style.bay, mission.slot(player).state.launch.style);
-    try std.testing.expectEqual(carrier, mission.player.carrier.?);
+    try std.testing.expectEqual(carrier, mission.player.carrierIn(mission.objects).?);
 }
 
 test "a launch's search for a gate counts the launch points on" {

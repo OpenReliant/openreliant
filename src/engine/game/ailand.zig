@@ -258,7 +258,7 @@ pub fn endAfter(world: gameobj.World, due: i32) void {
 /// carrier. PERMISSION TO LAND (`radio.permissionToLand`) and the friendly fire's sending home
 /// (`friendly_fire.update`) land the ship on it.
 pub fn landingCarrier(world: gameobj.World) ?u16 {
-    const carrier = world.player.carrier orelse return null;
+    const carrier = world.player.carrierIn(world.objects) orelse return null;
     return if (world.objects.slots[carrier].landing != null) carrier else null;
 }
 
@@ -362,10 +362,10 @@ test landingCarrier {
     const victorious = try mission.add(.of(.victorious), .{ 0, 0, 2000 });
     const world = mission.world();
     try std.testing.expectEqual(null, landingCarrier(world));
-    mission.player.carrier = reliant_carrier;
+    mission.player.carrier = .of(mission.objects, reliant_carrier);
     try std.testing.expectEqual(reliant_carrier, landingCarrier(world).?);
     // The Victorious offers no landing until a script gives it one.
-    mission.player.carrier = victorious;
+    mission.player.carrier = .of(mission.objects, victorious);
     try std.testing.expectEqual(null, landingCarrier(world));
     mission.slot(victorious).landing = .bay;
     try std.testing.expectEqual(victorious, landingCarrier(world).?);

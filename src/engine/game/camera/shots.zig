@@ -83,7 +83,7 @@ pub fn start(world: gameobj.World) void {
 /// The ships a shot holds still, and the objects they are in.
 pub const Held = struct {
     objects: *create.Objects,
-    ships: std.bit_set.Static(gameobj.max_objects) = .empty,
+    ships: [gameobj.max_objects]?gameobj.ObjectRef = @splat(null),
 
     /// The ships `target` names (`ai.eachShip`), as `camera_hold_ships` walks them: a ship, each
     /// ship of a flight group, and each of a squad's.
@@ -94,7 +94,7 @@ pub const Held = struct {
 
             pub fn visit(collect: @This(), ship: aigeneric.Target) bool {
                 const index = ship.ship() orelse return false;
-                if (index < gameobj.max_objects) collect.held.ships.set(index);
+                if (index < gameobj.max_objects) collect.held.ships[index] = .of(collect.held.objects, index);
                 return false;
             }
         };
@@ -104,9 +104,13 @@ pub const Held = struct {
 
     /// `camera_hold_ships` (`0x0045EC40`, a squad's in `0x0045EAD0`): each ship is marked jumping,
     /// which holds it still and keeps it from firing, or is let go.
+    /// **Fix:** a ship that replaces one held by the shot is left alone.
     pub fn hold(held: Held, on: bool) void {
-        var ships = held.ships.iterator(.{});
-        while (ships.next()) |index| held.objects.slots[index].object.flags.jumping = on;
+        for (held.ships) |maybe_ship| {
+            const ship = maybe_ship orelse continue;
+            const index = ship.resolve(held.objects) orelse continue;
+            held.objects.slots[index].object.flags.jumping = on;
+        }
     }
 };
 
@@ -139,4 +143,19 @@ test "a shot holds its ships still while it is on screen" {
     try std.testing.expect(!mission.slot(other).object.flags.jumping);
     held.hold(false);
     try std.testing.expect(!mission.slot(ship).object.flags.jumping);
+}
+
+test "a shot cannot release or hold a replacement ship" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ship = try mission.addOther(@splat(0));
+    const held: Held = .of(mission.world(), .at(ship, null));
+    create.resetSlot(mission.orders(), ship);
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, ship, .of(.predator), 0, @splat(0), &mission.random);
+    held.hold(true);
+    try std.testing.expect(!mission.slot(ship).object.flags.jumping);
+    mission.slot(ship).object.flags.jumping = true;
+    held.hold(false);
+    try std.testing.expect(mission.slot(ship).object.flags.jumping);
 }

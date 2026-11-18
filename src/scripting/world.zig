@@ -44,7 +44,7 @@ pub const package = struct {
     pub const player_carrier = api.Field(?Object, "The player's carrier: the ship the player launched from, unless a script sets another (`set_player_carrier`). PERMISSION TO LAND asks it, and its bridge speaks to the player. Nil where there is none, as in a mission the player starts in flight, and between missions.", struct {
         pub fn get(call: Call) ?Object {
             const orders = call.runtime().orders orelse return null;
-            return .of(orders.world.player.carrier orelse return null);
+            return .of(orders.world.player.carrierIn(orders.world.objects) orelse return null);
         }
     });
 };
@@ -53,7 +53,7 @@ pub const package = struct {
 /// sets (`launch.init`).
 fn setPlayerCarrier(call: Call, ship: ?Object) bool {
     const orders = call.runtime().orders orelse return false;
-    orders.world.player.carrier = if (ship) |carrier| carrier.slot() else null;
+    orders.world.player.carrier = if (ship) |carrier| .of(orders.world.objects, carrier.slot()) else null;
     return true;
 }
 

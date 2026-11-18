@@ -380,6 +380,8 @@ pub const Placed = struct {
     radius: f32 = 0,
     /// For a missile's sound, the missile it can follow (`MissileSound.follows`).
     missile: ?Missile = null,
+    /// The original object for an attached sound, including while it waits in the command queue.
+    object: ?gameobj.ObjectRef = null,
 
     pub const Missile = struct {
         record: u16,
@@ -426,6 +428,7 @@ pub fn place(objects: *create.Objects, definition: *const Definition, at: ?Vecto
                 .velocity = slot.object.velocity.vector(),
                 .direction = math.forward(slot.drawn.orientation),
                 .radius = if (slot.model) |model| model.radius else 0,
+                .object = .of(objects, followed),
             };
         },
     }
@@ -490,6 +493,7 @@ fn start(sound: *Sound, heard: Heard, definition: *const Definition, played: Pla
         .script => |own| rateScale(sample, true) * own.pitch,
     };
     voice.follows = definition.follows;
+    sound.object_voices[v] = placed.object;
     voice.owner = if (owner) |held| held else switch (played) {
         .game => hog_snd.Voice3D.no_owner,
         .script => hog_snd.Voice3D.script_owner,
@@ -1254,4 +1258,31 @@ test "a fighter flying past the camera is heard" {
     try std.testing.expectEqual(900, sound.flybyAt(other, reuse));
     // An object new to the slot hasn't been heard yet.
     try std.testing.expectEqual(0, sound.flybyAt(other, reuse + 1));
+}
+
+test "attached and queued sounds never follow a replacement object" {
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try testing.open(&speaker);
+    defer speaker.deinit();
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ship = try mission.addOther(.{ 0, 0, 1000 });
+    const scene = testing.scene(&mission);
+    const file = comptime wave.testing.pcm(&@as([4410 * @sizeOf(i16)]u8, @splat(0)));
+    const sound = &speaker.sound;
+    const v = playOwn(sound, scene, file, .{ .at = .{ .object = ship }, .loops = hog_snd.forever, .starter = @fromBackingInt(5) }).?;
+    const queued = effectIn(mission.world(), null, null, ship, .jumpout, null, 1, .guaranteed).?;
+    mission.slot(ship).drawn.position = .{ 0, 0, 2000 };
+    sound.update3D(scene);
+    try std.testing.expectApproxEqAbs(2000 * hog_snd.distance_scale, speaker.mixer.samples_3d[@backingInt(sound.voices_3d[v].sample)].state.placing.position[2], 1e-6);
+    create.resetSlot(mission.orders(), ship);
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, ship, .of(.predator), 0, .{ 0, 0, 3000 }, &mission.random);
+    sound.update3D(scene);
+    try std.testing.expect(sound.voices_3d[v].isFree());
+    try std.testing.expectEqual(null, sound.object_voices[v]);
+    const later = startEffect(sound, scene.camera, queued).?;
+    try std.testing.expectApproxEqAbs(1000 * hog_snd.distance_scale, speaker.mixer.samples_3d[@backingInt(sound.voices_3d[later].sample)].state.placing.position[2], 1e-6);
+    sound.update3D(scene);
+    try std.testing.expect(sound.voices_3d[later].isFree());
 }

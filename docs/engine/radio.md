@@ -34,6 +34,13 @@ and the film plays. A line that is nobody's leaves the window open with nothing 
 closes. The game also leaves out a line of object `0x3E9`, which no slot reaches. A sixth line
 queued is dropped.
 
+**Fix:** active lines, queued lines and delayed ship reports keep the speaker's `ObjectRef`.
+Removing the ship clears its HUD and radar marker, even if its slot is immediately reused. A line
+already active or queued keeps its captured name, face, speech and timing, so mission waits still
+end at the same time. A queued line uses the speaker's current side while it exists and its
+captured side after removal. A delayed report from a removed ship is dropped instead of borrowing
+the replacement's pilot. Pilot faces and bridge speaker codes keep their existing meaning.
+
 **Improvement:** the game times the radio by what is heard and drawn. A line lasts as long as its
 sound plays (`speech_playing`), so without sound it ends at once, and the window's wait and its
 closes run as `hud_draw` draws it. OpenReliant runs the whole radio in the game frame, once a tick

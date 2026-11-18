@@ -98,7 +98,7 @@ pub fn permissionToLand(world: gameobj.World, game_ticks: u32) void {
             const place = heard.freeReport() orelse return;
             var film: [report_text_size]u8 = undefined;
             heard.reports[place] = .{
-                .object = instructor,
+                .speaker = .of(all, instructor),
                 .about = all.player,
                 .name = instructor_name,
                 .due = game_ticks + report_delay,
@@ -132,7 +132,7 @@ fn reportBridge(world: gameobj.World, radio: *Radio, carrier: u16, lines: []cons
     var speech: [report_text_size]u8 = undefined;
     const said = bridgeLine(&speech, all, carrier, pick(world, lines));
     radio.reports[place] = .{
-        .object = if (all.slots[carrier].object.type.base() == .yamato) yamato_bridge else reliant_bridge,
+        .speaker = .of(all, if (all.slots[carrier].object.type.base() == .yamato) yamato_bridge else reliant_bridge),
         .about = all.player,
         .name = bridge_name,
         .due = game_ticks + report_delay,
@@ -170,14 +170,14 @@ pub fn requestBackup(world: gameobj.World) void {
         events.wantsBackup(world);
         remarks.backup_called = true;
     }
-    const carrier = world.player.carrier orelse return;
+    const carrier = world.player.carrierIn(world.objects) orelse return;
     const radio = world.radio orelse return;
     _ = reportBridge(world, radio, carrier, if (sent) &backup_lines.sent else &backup_lines.refused, world.clock.game_ticks);
 }
 
 /// The player's ship lands on the carrier it launched from (`order_push`, Land).
 fn land(world: gameobj.World) void {
-    const carrier = world.player.carrier orelse return;
+    const carrier = world.player.carrierIn(world.objects) orelse return;
     const ctx: aigeneric.Context = .of(world);
     _ = aigeneric.giveShip(ctx, world.objects.player, .land, carrier, null);
 }
@@ -395,7 +395,7 @@ pub fn reportShipIn(world: gameobj.World, ship: u16, lines: Lines, delay: u32) v
     };
     var film: [film_path_size]u8 = undefined;
     radio.reports[place] = .{
-        .object = ship,
+        .speaker = .of(all, ship),
         .about = all.player,
         .due = world.clock.game_ticks + delay,
         .film = .of(filmPath(&film, all.faces.of(all.slots[ship].object.pilot), .talking)),
@@ -738,17 +738,52 @@ pub const speech_delay: i32 = 92;
 /// The expiry the commands give a line: none (`0x00458AF0`).
 pub const no_expiry: i32 = -1;
 
-/// How a line is said (`radio_say`, `0x004562D0`).
 /// How many reports wait their time (`0x00529D48`), and the room each gives its film's path and
 /// its speech file's name (`+0x18`, `+0x4A`).
 pub const report_count = 5;
 const report_text_size = 50;
 
+/// A particular ship, or one of the radio's pilot and special speaker codes.
+/// **Fix:** queued and active lines cannot borrow the identity of a replacement ship.
+pub const Speaker = union(enum) {
+    ship: struct { object: gameobj.ObjectRef, side: gameobj.Side(u16) },
+    other: i32,
+
+    pub fn of(all: *const create.Objects, code: i32) Speaker {
+        if (code >= 0 and code < pilot_base and code < all.slots.len) {
+            return .{ .ship = .{ .object = .of(all, @intCast(code)), .side = sideOf(all, code) } };
+        }
+        return .{ .other = code };
+    }
+
+    pub fn number(speaker: Speaker) i32 {
+        return switch (speaker) {
+            .ship => |ship| ship.object.slot,
+            .other => |value| value,
+        };
+    }
+
+    pub fn shipIn(speaker: Speaker, all: *const create.Objects) ?u16 {
+        const index = switch (speaker) {
+            .ship => |ship| ship.object.resolve(all) orelse return null,
+            .other => return null,
+        };
+        return if (index < all.count) index else null;
+    }
+
+    fn sideIn(speaker: Speaker, all: *const create.Objects) gameobj.Side(u16) {
+        return switch (speaker) {
+            .ship => |ship| if (ship.object.valid(all)) sideOf(all, ship.object.slot) else ship.side,
+            .other => |value| sideOf(all, value),
+        };
+    }
+};
+
 /// A report (`0x00529D48`, `0x7C` bytes each): a line that waits its time, then goes to the queue
 /// (`Radio.stepReports`).
 pub const Report = struct {
-    /// Whose it is, as a line's (`Line.object`).
-    object: i32,
+    /// The ship or speaker code captured when the report is scheduled.
+    speaker: Speaker,
     /// **Unknown.** Whom it concerns (`+0x08`): PERMISSION TO LAND and the wingmen's replies put
     /// the player's ship there, and nothing reads it.
     about: i32 = nobody,
@@ -790,6 +825,7 @@ pub const ReportRecord = extern struct {
 const said_report: u16 = 1;
 const unsaid_object: i32 = 0x3E9;
 
+/// How a line is said (`radio_say`, `0x004562D0`).
 pub const Mode = enum(u32) {
     /// At once, ending the line playing.
     now = 0,
@@ -832,6 +868,8 @@ pub const Line = struct {
     /// Whose it is (`comms_object`): a ship's slot, a pilot of the pilots' table from `pilot_base`
     /// on, or `nobody`.
     object: i32,
+    /// Captured before hooks and retained through the queue; null for an immediate input line.
+    speaker: ?Speaker = null,
     /// The ticks from the frame's start past which a queued line is dropped unsaid; none below 1.
     expiry: i32 = no_expiry,
 };
@@ -871,7 +909,7 @@ pub const Queued = struct {
     name: ?u16,
     film: Text(film_size),
     speech: Text(name_size),
-    object: i32,
+    speaker: Speaker,
     expiry: ?i32,
 
     /// Whether it is still to be said at `frame_start`.
@@ -950,7 +988,7 @@ pub const Radio = struct {
     /// The string that names whoever says the line (`0x0057BC4C`), whose it is (`comms_object`,
     /// `0x0057BDF4`), and their side (`0x0056993C`), which the window shows.
     name: ?u16 = null,
-    object: i32 = nobody,
+    speaker: Speaker = .{ .other = nobody },
     side: gameobj.Side(u16) = .friendly,
     /// The frame's tick the line playing ends at (`speaking`), heard or not; null where none plays.
     until: ?i32 = null,
@@ -1005,7 +1043,7 @@ pub const Radio = struct {
         radio.movie.stop();
         radio.movie.waiting = false;
         radio.name = null;
-        radio.object = nobody;
+        radio.speaker = .{ .other = nobody };
         radio.held = false;
         radio.count = 0;
         radio.write = 0;
@@ -1043,7 +1081,9 @@ pub const Radio = struct {
     /// dropped past its expiry from the frame's start where it has one, or where the queue is
     /// full.
     pub fn say(radio: *Radio, ctx: Context, line: Line, mode: Mode) void {
-        sayIn(ctx, radio, keptName(line.speech), keptName(line.film), line, mode);
+        var captured = line;
+        if (captured.speaker == null) captured.speaker = .of(ctx.all, line.object);
+        sayIn(ctx, radio, keptName(line.speech), keptName(line.film), captured, mode);
     }
 
     /// `say` as the scripts hook it (`hooks.functions.radio_say`): the line's `speech` and `film`
@@ -1056,8 +1096,8 @@ pub const Radio = struct {
         said.film = std.mem.sliceTo(&film, 0);
         switch (mode) {
             .now => radio.sayNow(ctx, said),
-            .queued => radio.enqueue(said, ctx.frame_start),
-            .if_idle => if (!radio.busy(ctx.frame_start)) radio.enqueue(said, ctx.frame_start),
+            .queued => radio.enqueue(ctx, said),
+            .if_idle => if (!radio.busy(ctx.frame_start)) radio.enqueue(ctx, said),
             _ => {},
         }
     }
@@ -1070,8 +1110,8 @@ pub const Radio = struct {
         if (ctx.windows) |windows| if (windows.status.get(.radio).phase != .open) windows.hold(.radio);
         radio.stopSpeech(ctx.sounds);
         radio.name = line.name;
-        radio.object = line.object;
-        radio.side = sideOf(ctx.all, line.object);
+        radio.speaker = line.speaker orelse .of(ctx.all, line.object);
+        radio.side = radio.speaker.sideIn(ctx.all);
         radio.load(line.speech);
         radio.start(ctx, line.film, line.flags);
     }
@@ -1145,10 +1185,10 @@ pub const Radio = struct {
         if (line.due(ctx.frame_start)) {
             radio.hold(ctx);
             radio.dropLine();
-            radio.object = line.object;
+            radio.speaker = line.speaker;
             radio.name = line.name;
-            if (line.object != nobody) {
-                radio.side = sideOf(ctx.all, line.object);
+            if (line.speaker.number() != nobody) {
+                radio.side = line.speaker.sideIn(ctx.all);
                 radio.load(line.speech.slice());
                 radio.start(ctx, line.film.slice(), line.flags);
             }
@@ -1174,11 +1214,12 @@ pub const Radio = struct {
             const report = held.* orelse continue;
             if (game_ticks <= report.due) continue;
             held.* = null;
-            if (report.kind != said_report or report.object == nobody or report.object == unsaid_object) continue;
+            if (report.kind != said_report or report.speaker.number() == nobody or report.speaker.number() == unsaid_object) continue;
             var name: ?u16 = report.name;
-            if (report.object < pilot_base) {
-                if (report.object < 0 or report.object >= ctx.all.slots.len) continue;
-                const object = &ctx.all.slots[@intCast(report.object)].object;
+            if (report.speaker.number() < pilot_base) {
+                if (report.speaker.number() < 0 or report.speaker.number() >= ctx.all.slots.len) continue;
+                const index = report.speaker.shipIn(ctx.all) orelse continue;
+                const object = &ctx.all.slots[index].object;
                 if (object.flags.exploding) continue;
                 name = ctx.all.faces.nameOf(object.pilot);
             }
@@ -1186,7 +1227,8 @@ pub const Radio = struct {
                 .film = report.film.slice(),
                 .speech = report.speech.slice(),
                 .name = name,
-                .object = report.object,
+                .object = report.speaker.number(),
+                .speaker = report.speaker,
             }, .queued);
         }
     }
@@ -1263,21 +1305,20 @@ pub const Radio = struct {
     /// OpenReliant marks only a ship whose line it is.
     pub fn speakingShip(radio: *const Radio, windows: *const Windows, all: *const create.Objects) ?u16 {
         if (!windows.up(.radio)) return null;
-        if (radio.object < 0 or radio.object >= all.count) return null;
-        const ship: u16 = @intCast(radio.object);
+        const ship = radio.speaker.shipIn(all) orelse return null;
         if (all.slots[ship].object.flags.cloaked) return null;
         return ship;
     }
 
-    fn enqueue(radio: *Radio, line: Line, frame_start: i32) void {
+    fn enqueue(radio: *Radio, ctx: Context, line: Line) void {
         if (radio.count >= queue_size) return;
         radio.queue[radio.write] = .{
             .flags = line.flags,
             .name = line.name,
             .film = .of(line.film),
             .speech = .of(line.speech),
-            .object = line.object,
-            .expiry = if (line.expiry < 1) null else frame_start + line.expiry,
+            .speaker = line.speaker orelse .of(ctx.all, line.object),
+            .expiry = if (line.expiry < 1) null else ctx.frame_start + line.expiry,
         };
         radio.count += 1;
         radio.write = (radio.write + 1) % queue_size;
@@ -1376,7 +1417,7 @@ test Radio {
     try std.testing.expectEqual(.opening, windows.status.get(.radio).phase);
     try std.testing.expect(windows.status.get(.radio).held and radio.held);
     try std.testing.expectEqual(pilots.faces[0].name, radio.name.?);
-    try std.testing.expectEqual(@as(i32, wingman), radio.object);
+    try std.testing.expectEqual(@as(i32, wingman), radio.speaker.number());
     try std.testing.expect(radio.movie.playing and radio.movie.waiting);
     var picture: hudmovie.Picture = .init(gpa);
     defer picture.deinit();
@@ -1610,14 +1651,14 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     world.variables = &variables;
     world.radio = &radio;
     speaker.hear(&world);
-    mission.player.carrier = reliant;
+    mission.player.carrier = .of(mission.objects, reliant);
 
     // The pilot asks at once, and the Reliant's bridge answers in its time, clearing the ship by one
     // of the lines for a success.
     permissionToLand(world, 100);
     try std.testing.expect(radio.speaking(mission.clock.frame_start));
     const report = radio.reports[0].?;
-    try std.testing.expectEqual(reliant_bridge, report.object);
+    try std.testing.expectEqual(reliant_bridge, report.speaker.number());
     try std.testing.expectEqual(bridge_name, report.name);
     try std.testing.expectEqual(100 + report_delay, report.due);
     try std.testing.expectEqualStrings("pilots\\Rel_Brdge_Off.fm8", report.film.slice());
@@ -1630,7 +1671,7 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     radio.stepReports(ctx, 101 + report_delay);
     try std.testing.expectEqual(null, radio.reports[0]);
     try std.testing.expectEqual(1, radio.count);
-    try std.testing.expectEqual(reliant_bridge, radio.queue[radio.read].object);
+    try std.testing.expectEqual(reliant_bridge, radio.queue[radio.read].speaker.number());
     try std.testing.expectEqual(bridge_name, radio.queue[radio.read].name.?);
 
     // Not cleared, it refuses; and with the reports all taken, nothing answers and nothing lands.
@@ -1652,7 +1693,7 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     mission.player.female = true;
     permissionToLand(world, 3000);
     try std.testing.expect(radio.speaking(mission.clock.frame_start));
-    try std.testing.expectEqual(instructor, radio.reports[0].?.object);
+    try std.testing.expectEqual(instructor, radio.reports[0].?.speaker.number());
     try std.testing.expectEqualStrings("pilots\\VirtFlt_Ins.fm8", radio.reports[0].?.film.slice());
     try std.testing.expectEqualStrings(instructor_line, radio.reports[0].?.speech.slice());
     // So does the simulator's training, whatever its mission.
@@ -1660,7 +1701,7 @@ test "PERMISSION TO LAND's answers wait their time, then the radio says them" {
     mission.objects.mission_number = 1;
     mission.objects.simulator.mode = .training;
     permissionToLand(world, 4000);
-    try std.testing.expectEqual(instructor, radio.reports[0].?.object);
+    try std.testing.expectEqual(instructor, radio.reports[0].?.speaker.number());
 }
 
 test permissionToLand {
@@ -1675,7 +1716,7 @@ test permissionToLand {
     const slot = mission.slot(player);
 
     // Not yet cleared, the ship lands on nothing, and the key goes unheard for a while.
-    mission.player.carrier = reliant;
+    mission.player.carrier = .of(mission.objects, reliant);
     permissionToLand(world, 100);
     try std.testing.expectEqual(0, slot.object.order_count);
     try std.testing.expectEqual(100 + permission_every, mission.player.permission_heard_from);
@@ -1696,7 +1737,7 @@ test permissionToLand {
     // Nor does one whose carrier offers no landing, as the Victorious does until a mod or a script
     // gives it one; then the ship lands on it.
     const victorious = try mission.add(.of(.victorious), .{ 0, 0, 2000 });
-    mission.player.carrier = victorious;
+    mission.player.carrier = .of(mission.objects, victorious);
     permissionToLand(world, 20000);
     try std.testing.expectEqual(0, slot.object.order_count);
     mission.slot(victorious).landing = .bay;
@@ -1808,7 +1849,7 @@ pub const testing = struct {
         /// starts: the suffix a ship's pilot's voice ends.
         pub fn expectLine(heard: *const Heard, back: usize, speaker: i32, lines: []const []const u8) !void {
             const line = heard.queued(back);
-            try std.testing.expectEqual(speaker, line.object);
+            try std.testing.expectEqual(speaker, line.speaker.number());
             const speech = line.speech.slice();
             for (lines) |suffix| {
                 if (std.mem.endsWith(u8, speech, suffix)) return;
@@ -1916,7 +1957,7 @@ test "the missile warning and the landing reminder" {
     heard.variables.landing_cleared = 1;
     remarksFrame(world);
     try std.testing.expectEqual(1, radio.count);
-    try std.testing.expectEqual(instructor, heard.queued(0).object);
+    try std.testing.expectEqual(instructor, heard.queued(0).speaker.number());
     try std.testing.expectEqualStrings(training_landing_reminder, heard.queued(0).speech.slice());
     clock.frame_start += 2 * landing_wait;
     remarksFrame(world);
@@ -2076,4 +2117,46 @@ test "a kill, a loss, an ejection, a taunt and a launch have their words" {
     clock.game_ticks += kill_wait + 1;
     killRemark(world, enemy);
     try std.testing.expectEqual(0, radio.count);
+}
+
+test "active and queued radio lines keep their speaker when its slot is reused" {
+    const gpa = std.testing.allocator;
+    var archives: testing.Archives = undefined;
+    try archives.init(gpa, std.testing.io, &.{"PLCK_001"}, &.{.{ .name = "static.fm8", .frames = 2, .colour = 0x40 }});
+    defer archives.deinit();
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    const ship = try mission.add(.of(.predator), @splat(0));
+    mission.slot(ship).object.side = .hostile;
+    var radio = archives.radio(gpa, std.testing.io);
+    defer radio.deinit();
+    var windows: Windows = .{};
+    var ctx: Context = .{ .all = mission.objects, .windows = &windows, .sounds = null, .frame_start = 100 };
+    const line: Line = .{ .film = hudmovie.static_film, .speech = "plck_001.ut", .name = 42, .object = ship };
+    radio.say(ctx, line, .now);
+    radio.waitForWindow(ctx, speech_delay);
+    try std.testing.expectEqual(ship, radio.speakingShip(&windows, mission.objects).?);
+    const until = radio.until.?;
+    radio.say(ctx, line, .queued);
+    radio.reports[0] = .{ .speaker = .of(mission.objects, ship), .due = 100, .film = .of(hudmovie.static_film), .speech = .of("plck_001.ut") };
+    create.resetSlot(mission.orders(), ship);
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, ship, .of(.predator), 0, @splat(0), &mission.random);
+    try std.testing.expectEqual(null, radio.speakingShip(&windows, mission.objects));
+    try std.testing.expectEqual(until, radio.until);
+    try std.testing.expectEqual(.hostile, radio.side);
+    try std.testing.expectEqual(42, radio.name.?);
+    try std.testing.expect(radio.speaking(100));
+    radio.stepReports(ctx, 101);
+    try std.testing.expectEqual(null, radio.reports[0]);
+    try std.testing.expectEqual(1, radio.count);
+    ctx.frame_start = until;
+    radio.closeOver(ctx);
+    radio.frame(ctx);
+    radio.waitForWindow(ctx, speech_delay);
+    try std.testing.expectEqual(0, radio.count);
+    try std.testing.expectEqual(.hostile, radio.side);
+    try std.testing.expectEqual(42, radio.name.?);
+    try std.testing.expectEqual(null, radio.speakingShip(&windows, mission.objects));
+    try std.testing.expectEqual(until + 20, radio.until);
 }

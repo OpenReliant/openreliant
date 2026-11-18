@@ -574,7 +574,7 @@ test "the player's launch shows the hangar and the cutaways, and ends in view 0"
     aigeneric.objectOrders(ctx, player);
     try std.testing.expectEqual(gameobj.Type.of(.reliant_hangar), mission.objects.slots[create.cutaway_slot].object.type);
     try std.testing.expect(mission.objects.slots[create.cutaway_slot].object.flags.no_collisions);
-    try std.testing.expectEqual(reliant, mission.player.carrier.?);
+    try std.testing.expectEqual(reliant, mission.player.carrierIn(mission.objects).?);
     try std.testing.expectEqual(.launch, mission.player.showing);
     try std.testing.expectEqual(camera.View.cockpit, mission.player.viewing.view);
     try std.testing.expectEqual(.cockpit, mission.player.viewing.cockpit_mode);
