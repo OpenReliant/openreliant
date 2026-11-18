@@ -18,6 +18,7 @@ const dte = @import("../../../formats/dte.zig");
 const math = @import("../../surrender/math.zig");
 const vm = @import("../../vm.zig");
 const gameobj = @import("../gameobj.zig");
+const create = @import("../create.zig");
 const hooks = @import("../../hooks.zig");
 const bind = @import("bind.zig");
 
@@ -379,13 +380,19 @@ fn Told(comptime condition: dte.Condition) type {
 /// ship, its own damage value for the shields and for the hull alike (`vm.triggers.damageValue`),
 /// the ship itself, and no weapon. A hit by what stands for no mission's ship posts nothing.
 pub fn shotAt(world: gameobj.World, index: u16, attacker: u16, component: ?u8) void {
+    shotAtFrom(world, index, .of(world.objects, attacker), component);
+}
+
+/// Posts the hit with its original attacker handle. Mission ship records persist after their
+/// objects leave, so numeric event arguments still name the original ship record.
+pub fn shotAtFrom(world: gameobj.World, index: u16, attacker: gameobj.ObjectRef, component: ?u8) void {
     const events = world.events orelse return;
     const ship = events.shipOf(index) orelse return;
-    if (events.shipOf(attacker) == null) return;
-    hooks.tell(world, .shot_at, .{ .object = .of(index), .attacker = .of(attacker), .component = component });
+    if (events.shipOf(attacker.slot) == null) return;
+    hooks.tell(world, .shot_at, .{ .object = .of(index), .attacker = .retained(attacker), .component = component });
     const qualifier = component orelse dte.Trigger.whole_object;
     const damage = triggers.damageValue(world, ship, qualifier);
-    var values = [_]u32{ events.value(attacker), damage, damage, events.value(index), no_weapon };
+    var values = [_]u32{ events.value(attacker.slot), damage, damage, events.value(index), no_weapon };
     events.postGroup(ship, .{ .condition = .shot_at, .qualifier = qualifier, .values = &values });
 }
 
@@ -399,7 +406,8 @@ pub fn destroyed(world: gameobj.World, index: u16, component: ?u8) void {
     const ship = events.shipOf(index) orelse return;
     if (index >= world.objects.slots.len) return;
     const record = events.script.mission.ship(ship) orelse return;
-    var values = [_]u32{ events.value(world.objects.slots[index].object.last_attacker.index()), events.value(index) };
+    const slot = &world.objects.slots[index];
+    var values = [_]u32{ events.value(if (slot.last_attacker) |reference| reference.slot else null), events.value(index) };
     if (component) |part| {
         record.loseComponent(part);
     } else {
@@ -409,7 +417,7 @@ pub fn destroyed(world: gameobj.World, index: u16, component: ?u8) void {
     hooks.tell(world, .destroyed, .{
         .object = .of(index),
         .component = component,
-        .attacker = if (world.objects.slots[index].object.last_attacker.index()) |slot| .of(slot) else null,
+        .attacker = if (slot.last_attacker) |reference| .retained(reference) else null,
     });
     events.postGroup(ship, .{ .condition = .destroyed, .qualifier = component orelse dte.Trigger.whole_object, .values = &values });
 }
@@ -438,7 +446,12 @@ pub fn ripperDropped(world: gameobj.World, index: u16, object: u16) void {
 /// `event_post_explosion` (`0x0045AB50`): the explosion that the object in slot `index` set off is
 /// over. Its ship's ExplosionShip, with the ship, goes on to its groups.
 pub fn exploded(world: gameobj.World, index: u16) void {
-    postNaming(world, index, .explosion_ship, index, .{ .object = .of(index) });
+    explodedFrom(world, .of(world.objects, index));
+}
+
+/// A delayed explosion keeps its original object handle and mission ship record.
+pub fn explodedFrom(world: gameobj.World, source: gameobj.ObjectRef) void {
+    postNaming(world, source.slot, .explosion_ship, source.slot, .{ .object = .retained(source) });
 }
 
 /// The object in slot `index` cloaks, or uncloaks (`object_cloak`, `object_uncloak`): its ship's
@@ -666,7 +679,7 @@ test "a ship's Destroyed comes once, and a component's clears its bit" {
     const records = try mission.game.fixture.mission.ships();
 
     // Ship 1 struck it last: the event names it the killer, and the ship keeps the event.
-    mission.game.mission.slot(0).object.last_attacker = .of(1);
+    mission.game.mission.slot(0).setAttacker(.of(mission.game.mission.objects, 1));
     destroyed(mission.world(), 0, null);
     destroyed(mission.world(), 0, null);
     mission.events.flush();
@@ -679,6 +692,46 @@ test "a ship's Destroyed comes once, and a component's clears its bit" {
     try std.testing.expectEqual(1, mission.game.fixture.global(0));
     try std.testing.expectEqual(1, mission.game.fixture.global(1));
     try std.testing.expectEqual(~@as(u32, 1 << 3), records[0].intact_components);
+    // The mission event still names its original ship record after the physical object leaves.
+    const game = &mission.game.mission;
+    create.resetSlot(game.orders(), 1);
+    _ = try create.createObject(game.objects, &game.tables, create.testing.no_models, 1, .of(.sabre), 0, @splat(0), &game.random);
+    destroyed(mission.world(), 0, 3);
+    mission.events.flush();
+    try std.testing.expectEqual(machine.mission.recordPlace(.ships, 1), machine.event_values[0].destroyed[0]);
+    try std.testing.expectEqual(2, mission.game.fixture.global(1));
+    try std.testing.expectEqual(null, game.slot(0).attacker(game.objects));
+}
+
+test "delayed hits and explosions keep their original mission ship records" {
+    const gpa = std.testing.allocator;
+    const hit = try vm.machine.testing.counting(gpa, 0);
+    defer gpa.free(hit);
+    const blast = try vm.machine.testing.counting(gpa, 1);
+    defer gpa.free(blast);
+    const parts = [_]vm.machine.testing.Part{ .{ .code = hit }, .{ .code = blast } };
+    var on_hit = triggers.testing.trigger(&parts, 0, .shot_at, .always);
+    on_hit.qualifier = dte.Trigger.whole_object;
+    var mission: TestMission = undefined;
+    try mission.init(&parts, .{
+        .globals = &.{ 0, 0 },
+        .ships = &dte.testing.ships(2, 0),
+        .objects = &.{ dte.testing.object(.ship, 0, 1), dte.testing.object(.ship, 1, 1) },
+        .triggers = &.{ on_hit, triggers.testing.trigger(&parts, 1, .explosion_ship, .always) },
+    }, &.{ @splat(0), .{ 1000, 0, 0 } });
+    defer mission.deinit();
+    const game = &mission.game.mission;
+    const source: gameobj.ObjectRef = .of(game.objects, 1);
+    create.resetSlot(game.orders(), 1);
+    _ = try create.createObject(game.objects, &game.tables, create.testing.no_models, 1, .of(.sabre), 0, @splat(0), &game.random);
+    shotAtFrom(mission.world(), 0, source, null);
+    explodedFrom(mission.world(), source);
+    mission.events.flush();
+    try std.testing.expectEqual(1, mission.game.fixture.global(0));
+    try std.testing.expectEqual(1, mission.game.fixture.global(1));
+    const machine = &mission.game.fixture.machine;
+    try std.testing.expectEqual(machine.mission.recordPlace(.ships, 1), machine.event_values[0].shot_at[0]);
+    try std.testing.expectEqual(null, source.resolve(game.objects));
 }
 
 test "JUMP DRIVE takes the jump the mission has ready" {

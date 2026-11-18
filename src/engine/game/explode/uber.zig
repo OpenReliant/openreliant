@@ -204,6 +204,8 @@ pub const Images = struct {
 };
 
 /// A ship a blast listed, and whether the ball has reached it (the game adds 1000 to its slot).
+/// Retained victim identities are still tracked in
+/// [#1357](https://github.com/OpenReliant/openreliant/issues/1357).
 pub const Caught = struct {
     index: u16,
     reached: bool = false,
@@ -211,9 +213,10 @@ pub const Caught = struct {
 
 /// A blast going off.
 pub const Blast = struct {
-    /// Whose it is (`0x00558718`), where it went off, how far it reaches (`0x00558714`), and from
-    /// when for how long (`0x0055870C`, `0x00558710`).
-    owner: u16,
+    /// The original owner (`0x00558718`). **Fix:** completion events and sound cannot follow a
+    /// replacement object in the owner's slot.
+    owner: gameobj.ObjectRef,
+    /// The blast's origin, reach (`0x00558714`), start tick and duration (`0x0055870C`, `0x00558710`).
     place: math.Place,
     size: f32,
     started: i32,
@@ -510,7 +513,7 @@ pub const Uber = struct {
     /// `max_caught`; OpenReliant lists the first `max_caught`.
     pub fn start(uber: *Uber, world: gameobj.World, owner: u16, place: math.Place, size: f32, duration: i32, style: Style) void {
         const now = world.clock.frame_start;
-        uber.blast = .{ .owner = owner, .place = place, .size = size, .started = now, .duration = duration };
+        uber.blast = .{ .owner = .of(world.objects, owner), .place = place, .size = size, .started = now, .duration = duration };
         const blast = &uber.blast.?;
         if (uber.look) |*look| blast.show(look, style, now);
 
@@ -527,7 +530,7 @@ pub const Uber = struct {
             .kind = .uber,
             .size = size * wave.size,
             .life = @intFromFloat(@as(f32, @floatFromInt(duration)) * wave.life),
-            .owner = owner,
+            .owner = .of(world.objects, owner),
         });
         sound3d.playIn(world, null, null, owner, .uberexp, 1, .guaranteed);
     }
@@ -577,7 +580,8 @@ pub const Uber = struct {
     fn end(uber: *Uber, world: gameobj.World) void {
         const blast = &uber.blast.?;
         defer uber.blast = null;
-        sound3d.playIn(world, null, null, blast.owner, .capexp, 1, .player_fx);
+        const owner = blast.owner.resolve(world.objects);
+        sound3d.playIn(world, if (owner == null) blast.place.position else null, null, owner, .capexp, 1, .player_fx);
         const ctx: aigeneric.Context = .of(world);
         for (blast.listed()) |caught| {
             if (!caught.reached) continue;
@@ -589,7 +593,7 @@ pub const Uber = struct {
             const entry = world.objects.slots[caught.index].current() orelse continue;
             if (entry.order != .explode) ai.objectDestroyed(ctx, caught.index, false, true);
         }
-        events.exploded(world, blast.owner);
+        events.explodedFrom(world, blast.owner);
     }
 
     /// The blast's objects, in the world's layer, where it shows: the halves until `faded`, with

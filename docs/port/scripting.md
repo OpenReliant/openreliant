@@ -764,13 +764,21 @@ Load scripts and the manifests are read only as OpenReliant starts.
 engine's `gameobj.ObjectRef`: its slot and the slot's reuse count (`create.Objects.reuses`).
 The count increases when an object is created, reset or retired, and for every slot when a mission
 starts. `ObjectRef.resolve` checks the slot's bounds and its reuse count. The Luau value remains
-an opaque `Object`; scripts do not see the reuse count. A weak-value table keeps one handle for
-each live object while scripts hold it, so equality and table keys keep identifying that object.
+an opaque `Object`; scripts do not see the reuse count. A weak-value table uses the full identity
+as its key and keeps one handle while scripts hold it, including after expiration. Equality and
+table keys therefore keep identifying the original object.
 
 Events, timers and storage keep the whole reference. Copying a handle to another script state
 keeps its original identity, even if it has expired. Saved handles keep their existing encoding:
 a `u16` slot followed by a `u32` reuse count, both little-endian. The player scripts' `self` is
 separate from the cached handles and deliberately follows the player's ship when a mission starts.
+
+Damage hooks keep their required `Object` attacker. If the shooter has left, `e.attacker` is an
+expired handle, not nil or a handle for a replacement. Scripts can test `is_valid()`, keep the
+handle as a table key, assign it back to `e.attacker`, and call `e:original()`. The original call
+keeps the damage source's captured data. Assigning a different live attacker deliberately changes
+the source. `object.last_attacker` remains nil once that attacker has left. Destruction events
+keep the original attacker handle when one was recorded, including an expired one.
 
 Retained engine targets use `aigeneric.Aim`, which checks the selected object's identity before
 returning its original target record. `object.target`, `orders.stack`, `missile.target`,

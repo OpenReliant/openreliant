@@ -328,6 +328,7 @@ pub fn release(world: gameobj.World, index: u16) void {
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 fn strike(world: gameobj.World, owner: u16, fired: f32, kind: guns.GunType) void {
     const all = world.objects;
+    const source: gameobj.DamageSource = .of(all, owner);
     const shooter = &all.slots[owner];
     const from = shooter.drawn.position;
     const to = shooter.drawn.point(.{ 0, 0, beam_reach });
@@ -344,14 +345,14 @@ fn strike(world: gameobj.World, owner: u16, fired: f32, kind: guns.GunType) void
         const local_to = slot.drawn.inverse(to);
         const along = objects.boxEntry(local_from, local_to, .{ object.bounds_min.vector(), object.bounds_max.vector() }) orelse continue;
         if (object.flags.components) {
-            strikeParts(world, index, owner, model, from, to, record.damage.hull * fired);
+            strikeParts(world, index, source, model, from, to, record.damage.hull * fired);
             continue;
         }
         // Where it enters, as `segment_meets_box` works it out: the span times the share, plus the
         // start.
         const entry = math.lerp(local_from, local_to, along);
         const value = strength * record.damage.shield;
-        collision.damage(world, index, collision.quadrant(object, entry), value, record.damage.hullShare(), owner, .bullet);
+        collision.damageFrom(world, index, collision.quadrant(object, entry), value, record.damage.hullShare(), source, .bullet);
         if (!object.flags.cloaked) shield.flare(world, index, math.lerp(from, to, along));
     }
 }
@@ -367,7 +368,7 @@ const max_leaves = 64;
 ///
 /// Not ported: the object's `visibility`, which the game scales the segment by and nothing moves
 /// off 1.
-fn strikeParts(world: gameobj.World, index: u16, owner: u16, model: *objects.Model, from: Vector, to: Vector, value: f32) void {
+fn strikeParts(world: gameobj.World, index: u16, owner: gameobj.DamageSource, model: *objects.Model, from: Vector, to: Vector, value: f32) void {
     const kind: shieldfx.Kind = .onComponentOf(world.objects.slots[index].object.type);
     for (model.parts, 0..) |*part, at| {
         if (part.removed or part.object.levels.len == 0) continue;
@@ -377,7 +378,7 @@ fn strikeParts(world: gameobj.World, index: u16, owner: u16, model: *objects.Mod
         var crossed: [max_leaves]objects.Crossing = undefined;
         for (objects.leafCrossings(ref, place, from, to, &crossed)) |crossing| {
             shieldfx.componentHit(world, index, crossing, kind);
-            collision.componentDamage(world, index, ref, value, owner, .bullet);
+            collision.componentDamageFrom(world, index, ref, value, owner, .bullet);
             cloak.reveal(world, index, crossing.inWorld());
         }
     }

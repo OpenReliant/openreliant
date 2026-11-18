@@ -350,33 +350,34 @@ pub fn byDifficulty(world: gameobj.World, index: u16, kind: Kind, value: f32) f3
     return scaled;
 }
 
-/// `object_damage` (`0x00463EE0`): damage to an object, which its shields take first, as the
-/// difficulty scales it. What passes through wears the armour instead, times `factor`, which every
-/// caller here gives as 1; it is reckoned from the damage before the scaling, which the armour's
-/// damage then does. A shield that is already down adds its own deficit to what passes through, and
-/// an object in its last state (`Invulnerability._unknown_4`) keeps its shields. Damage of kinds 0,
-/// 1 and 5 counts toward what the object has taken lately, which is what sends a ship after its
-/// attacker. The player's blow on a friend mounts toward Moose's warning (`friendly_fire.warn`).
+/// `object_damage` (`0x00463EE0`): applies a hit to an object's shields, scaled by difficulty.
+/// The unscaled damage that passes through, times `factor`, goes to the armour. A shield already
+/// below zero adds its deficit to that damage. Invulnerability state `_unknown_4` preserves the
+/// shields. Kinds 0, 1 and 5 count towards the recent damage used for retaliation.
 ///
-/// With smart targeting on, a blow the player's ship deals, but by colliding, makes what it
-/// struck the player's target (`input.setPlayerTarget`). A blow the player's ship takes shakes it
-/// and its controller (`feedback`), and the display (`hud.State.startInterference`). Last, the
-/// object's ShotAt is posted (`shotAt`).
+/// Player hits on friends count towards Moose's warning (`friendly_fire.warn`). Smart targeting
+/// selects what the player hits, except in collisions. Hits on the player shake the ship and
+/// controller and start HUD interference. Finally, the object's ShotAt event is posted (`shotAt`).
 ///
 /// Not ported: what a multiplayer game adds, the damage a network session keeps for the other
 /// players among it (`net_quadrant_damage`, `0x004BA9F0`)
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn damage(world: gameobj.World, index: u16, struck: Quadrant, value: f32, factor: f32, attacker: u16, kind: Kind) void {
-    if (hooks.enter(.object_damage, damage, .{ world, index, struck, value, factor, attacker, kind })) |done| return done;
+    damageFrom(world, index, struck, value, factor, .of(world.objects, attacker), kind);
+}
+
+/// The same damage with a retained source, including after its shooter has left the mission.
+pub fn damageFrom(world: gameobj.World, index: u16, struck: Quadrant, value: f32, factor: f32, attacker: gameobj.DamageSource, kind: Kind) void {
+    if (hooks.enter(.object_damage, damageFrom, .{ world, index, struck, value, factor, attacker, kind })) |done| return done;
     const all = world.objects;
     const object = &all.slots[index].object;
     const held = object.shields.at(struck);
     const scaled = scaledBlow(world, index, struck, value, attacker, kind, held.* >= 0) orelse return;
-    friendly_fire.warn(world, index, attacker, kind, scaled);
+    if (attacker.resolve(all)) |by| friendly_fire.warn(world, index, by, kind, scaled);
     const through = @max(value - held.*, 0);
     if (held.* >= 0 and object.invulnerable != ._unknown_4) held.* -= scaled;
-    if (held.* < 0) armorDamage(world, index, struck, through * factor, attacker, kind);
-    object.last_attacker = .of(attacker);
+    if (held.* < 0) armorDamageFrom(world, index, struck, through * factor, attacker, kind);
+    all.slots[index].setAttacker(attacker.object);
     if (smartTargeting(world, attacker, kind)) |display| input.setPlayerTarget(display, all, @intCast(index), aigeneric.Target.whole, false);
     shotAt(world, index, attacker);
 }
@@ -384,9 +385,9 @@ pub fn damage(world: gameobj.World, index: u16, struck: Quadrant, value: f32, fa
 /// The ShotAt of a blow to the object in slot `index` by `attacker`, on the object itself
 /// (`events.shotAt`), unless a collision's test against a hull runs again
 /// (`events.Events.shots_held`).
-fn shotAt(world: gameobj.World, index: u16, attacker: u16) void {
+fn shotAt(world: gameobj.World, index: u16, attacker: gameobj.DamageSource) void {
     if (world.events) |waiting| if (waiting.shots_held) return;
-    events.shotAt(world, index, attacker, null);
+    events.shotAtFrom(world, index, attacker.object, null);
 }
 
 /// Holds back the ShotAt of the blows a collision deals, or lets it go again (`0x00545860`).
@@ -401,14 +402,14 @@ fn holdShots(world: gameobj.World, held: bool) void {
 /// the radio (`radio.enemyTaunt`); it shakes the player's ship and its controller (`feedback`,
 /// where `shielded` says whether the shields took it), and counts toward what the object has taken
 /// lately where its kind does. Returns the scaled blow, or null where the object takes nothing.
-fn scaledBlow(world: gameobj.World, index: u16, struck: Quadrant, value: f32, attacker: u16, kind: Kind, shielded: bool) ?f32 {
+fn scaledBlow(world: gameobj.World, index: u16, struck: Quadrant, value: f32, attacker: gameobj.DamageSource, kind: Kind, shielded: bool) ?f32 {
     const all = world.objects;
     const slot = &all.slots[index];
     if (slot.object.flags.jumping) return null;
     if (index == all.player) if (world.display) |display| display.startInterference(world);
     if (slot.combat) |combat| if (combat.class == .debris) return null;
     const scaled = byDifficulty(world, index, kind, value);
-    if (index == all.player and counted(kind)) radio.enemyTaunt(world, attacker);
+    if (index == all.player and counted(kind)) if (attacker.resolve(all)) |by| radio.enemyTaunt(world, by);
     if (index == all.player) feedback(world, struck, kind, scaled, shielded);
     if (counted(kind)) slot.object.recent_damage += scaled;
     return scaled;
@@ -416,40 +417,42 @@ fn scaledBlow(world: gameobj.World, index: u16, struck: Quadrant, value: f32, at
 
 /// The display, while smart targeting is on and the blow is the player's ship's but for a
 /// collision; null otherwise.
-fn smartTargeting(world: gameobj.World, attacker: u16, kind: Kind) ?*hud.State {
+fn smartTargeting(world: gameobj.World, attacker: gameobj.DamageSource, kind: Kind) ?*hud.State {
     const display = world.display orelse return null;
-    if (attacker != world.objects.player or !display.smart_targeting or kind == .collision) return null;
+    if (attacker.resolve(world.objects) != world.objects.player or !display.smart_targeting or kind == .collision) return null;
     return display;
 }
 
-/// `object_armor_damage` (`0x004641F0`): damage to an object's armour, once its shields are down.
-/// The game scales it by the difficulty twice: once for what the object has taken lately, and that
-/// again for the armour, so at medium the player's armour takes a quarter. An exploding object
-/// takes no more, and a shot's damage to an object listing components goes to the component
-/// instead (`componentDamage`). An invulnerable object takes it only while it leaves armour to
-/// spare, and one in its last state (`Invulnerability._unknown_4`) not at all. The armour's
-/// conditions follow it (`object_armor_conditions`), and armour below zero destroys the object
-/// (`ai.objectDestroyed`), which may spin out; a blow heavier than `heavy_blow` leaves the player
-/// no time to eject. Smart targeting makes what the player's ship struck, but by colliding, the
-/// target of its current order. A hit on that target brings up its form of the target display,
-/// and a hit on it or on the player's ship marks the quadrant struck for the ship status indicator
-/// to flash (`hud.Events.target_hits`, `ship_hits`). A blow the player's ship takes shakes it and
-/// its controller (`feedback`), and the display (`hud.State.startInterference`). The player's blow
-/// on a friend not exploding mounts toward Moose's warning (`friendly_fire.warn`), and one that
-/// destroys it has the player sent home (`friendly_fire.friendDestroyed`). Last, the object's
-/// ShotAt is posted (`shotAt`); a shot's on an object listing components, at once, and even while a
-/// collision's test against a hull runs again.
+/// `object_armor_damage` (`0x004641F0`): applies damage to an object's armour after its shields
+/// fail. Difficulty is applied twice: once to recent damage, then again to armour damage. At
+/// medium difficulty the player's armour therefore takes a quarter of the hit.
+///
+/// Exploding objects take no more damage. Bullet hits on objects that list components only post
+/// ShotAt here; `componentDamage` handles the actual hit. Invulnerability can prevent armour from
+/// falling below zero, and state `_unknown_4` prevents all armour damage. Armour conditions and
+/// warnings follow the hit. Armour below zero destroys the object (`ai.objectDestroyed`), with no
+/// time for the player to eject if the hit exceeds `heavy_blow`.
+///
+/// Player hits on friends count towards Moose's warning. Destroying a friend sends the player
+/// home. Smart targeting selects what the player hit, except in collisions. Hits mark the HUD's
+/// ship or target quadrant and open the target display when appropriate. Finally, ShotAt is
+/// posted, including for component hits while collision ShotAt events are held.
 pub fn armorDamage(world: gameobj.World, index: u16, struck: Quadrant, value: f32, attacker: u16, kind: Kind) void {
-    if (hooks.enter(.object_armor_damage, armorDamage, .{ world, index, struck, value, attacker, kind })) |done| return done;
+    armorDamageFrom(world, index, struck, value, .of(world.objects, attacker), kind);
+}
+
+/// The same damage with a retained source, including after its shooter has left the mission.
+pub fn armorDamageFrom(world: gameobj.World, index: u16, struck: Quadrant, value: f32, attacker: gameobj.DamageSource, kind: Kind) void {
+    if (hooks.enter(.object_armor_damage, armorDamageFrom, .{ world, index, struck, value, attacker, kind })) |done| return done;
     const all = world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
     const scaled = scaledBlow(world, index, struck, value, attacker, kind, false) orelse return;
     if (object.flags.exploding) return;
-    friendly_fire.warn(world, index, attacker, kind, scaled);
-    if (kind == .bullet and object.flags.components) return events.shotAt(world, index, attacker, null);
+    if (attacker.resolve(all)) |by| friendly_fire.warn(world, index, by, kind, scaled);
+    if (kind == .bullet and object.flags.components) return events.shotAtFrom(world, index, attacker.object, null);
 
-    const shielded = object.invulnerable.protects(attacker < all.players);
+    const shielded = object.invulnerable.protects(attacker.player);
     const worn = byDifficulty(world, index, kind, scaled);
     const armor = object.armor.at(struck);
     const left = armor.* - worn;
@@ -460,10 +463,10 @@ pub fn armorDamage(world: gameobj.World, index: u16, struck: Quadrant, value: f3
         main.armorConditions(object, combat);
         if (index == all.player) main.armorWarning(world, object, combat);
     }
-    object.last_attacker = .of(attacker);
+    all.slots[index].setAttacker(attacker.object);
     if (armor.* < 0) {
         ai.objectDestroyed(.of(world), index, true, taken > heavy_blow);
-        if (friendly_fire.destroyedFriend(world, index, attacker, kind)) friendly_fire.friendDestroyed(world);
+        if (attacker.resolve(all)) |by| if (friendly_fire.destroyedFriend(world, index, by, kind)) friendly_fire.friendDestroyed(world);
     }
     const current = &all.slots[all.player].orders[0].target;
     if (smartTargeting(world, attacker, kind) != null) current.* = current.retarget(all, @intCast(index), current.resolve(all).component);
@@ -563,7 +566,12 @@ const shielded_hit: f32 = 1000;
 /// session keeps for the other players (`net_component_damage`, `0x004BA810`)
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn componentDamage(world: gameobj.World, index: u16, struck_part: objects.PartRef, value: f32, attacker: u16, kind: Kind) void {
-    if (hooks.enter(.component_damage, componentDamage, .{ world, index, struck_part, value, attacker, kind })) |done| return done;
+    componentDamageFrom(world, index, struck_part, value, .of(world.objects, attacker), kind);
+}
+
+/// The same damage with a retained source, including after its shooter has left the mission.
+pub fn componentDamageFrom(world: gameobj.World, index: u16, struck_part: objects.PartRef, value: f32, attacker: gameobj.DamageSource, kind: Kind) void {
+    if (hooks.enter(.component_damage, componentDamageFrom, .{ world, index, struck_part, value, attacker, kind })) |done| return done;
     const object = &world.objects.slots[index].object;
     if (object.flags.jumping or kind == .collision or struck_part.part().flags.damaged) return;
     wearComponent(world, index, struck_part, value, attacker, kind);
@@ -574,23 +582,23 @@ pub fn componentDamage(world: gameobj.World, index: u16, struck_part: objects.Pa
 /// but for a hit of kind `_unknown_4`, then the ShotAt of the component the part counts against
 /// (`objects.Model.countedAgainst`), where the object lists it (`create.Slot.componentIndex`), both
 /// even while a collision's test against a hull runs again.
-fn componentShotAt(world: gameobj.World, index: u16, struck_part: objects.PartRef, attacker: u16, kind: Kind) void {
-    if (kind != ._unknown_4) events.shotAt(world, index, attacker, null);
+fn componentShotAt(world: gameobj.World, index: u16, struck_part: objects.PartRef, attacker: gameobj.DamageSource, kind: Kind) void {
+    if (kind != ._unknown_4) events.shotAtFrom(world, index, attacker.object, null);
     const against = struck_part.model.countedAgainst(struck_part.index);
     const component = world.objects.slots[index].componentIndex(against) orelse return;
-    events.shotAt(world, index, attacker, component);
+    events.shotAtFrom(world, index, attacker.object, component);
 }
 
 /// What `component_damage` does to the component `struck_part` belongs to, as `componentDamage`
 /// describes it.
-fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef, value: f32, attacker: u16, kind: Kind) void {
+fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef, value: f32, attacker: gameobj.DamageSource, kind: Kind) void {
     const all = world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
     const model = struck_part.model;
     const component = struck_part.part();
     var share = byDifficulty(world, index, kind, value);
-    if (!object.flags.exploding) friendly_fire.warn(world, index, attacker, kind, share);
+    if (!object.flags.exploding) if (attacker.resolve(all)) |by| friendly_fire.warn(world, index, by, kind, share);
 
     // The assembly's first part that has armour takes the hit.
     const struck = model.hitPart(component);
@@ -603,7 +611,7 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     }
 
     if (object.invulnerable != ._unknown_5 and object.flags.shield_generator and share < shielded_hit) share *= shielded_damage;
-    const player_hit = attacker < all.players;
+    const player_hit = attacker.player;
     var protected = object.invulnerable.protects(player_hit);
     // The game reads the invulnerability of the part that takes the hit, the assembly's first with
     // armour, rather than the part struck (`0x00464800`).
@@ -613,10 +621,10 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
 
     const left = struck.armor - share;
     if (left >= 0 or !protected) struck.armor = left;
-    object.last_attacker = .of(attacker);
+    all.slots[index].setAttacker(attacker.object);
     if (struck.armor < 0) {
         model.destroyed = true;
-        if (friendly_fire.destroyedFriend(world, index, attacker, kind)) friendly_fire.friendDestroyed(world);
+        if (attacker.resolve(all)) |by| if (friendly_fire.destroyedFriend(world, index, by, kind)) friendly_fire.friendDestroyed(world);
     }
     const display = smartTargeting(world, attacker, kind) orelse return;
     if (object.side != .hostile) return;
@@ -1043,6 +1051,40 @@ test passedTo {
     // A hull part struck passes nothing on.
     live.parts[0].class = .hull;
     try std.testing.expectEqual(null, passedTo(mission.objects, hull, struck));
+}
+
+test "damage from a removed shooter still lands without crediting its replacement" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const player = try mission.add(.of(.predator), @splat(0));
+    const victim = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    const slot = mission.slot(victim);
+    slot.object.side = .friendly;
+    slot.object.shields = .all(100);
+    const source: gameobj.DamageSource = .of(all, player);
+    create.resetSlot(mission.orders(), player);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, player, .of(.predator), 0, @splat(0), &mission.random);
+
+    damageFrom(mission.world(), victim, .fore, 20, 1, source, .bullet);
+    try std.testing.expectEqual(80, slot.object.shields.fore);
+    try std.testing.expectEqual(0, mission.player.friendly_fire.damage);
+    try std.testing.expectEqual(source.object, slot.last_attacker.?);
+    try std.testing.expectEqual(null, slot.attacker(all));
+    // Retaliation must not pick the new ship, even when it is an eligible enemy fighter.
+    mission.slot(player).object.side = .hostile;
+    mission.slot(player).object.flags.targetable = true;
+    slot.object.recent_damage = 10000;
+    _ = try aigeneric.push(mission.orders(), victim, .slow_rotate, .none);
+    aigeneric.retaliate(mission.orders(), victim);
+    try std.testing.expectEqual(.slow_rotate, slot.current().?.order);
+    // Killing an enemy with the old source does not give the replacement player a kill.
+    slot.object.side = .hostile;
+    slot.object.armor = .all(1);
+    armorDamageFrom(mission.world(), victim, .fore, 20, source, .missile);
+    @import("aiexplode.zig").killCredit(mission.world(), victim);
+    try std.testing.expectEqual(0, mission.player.kills.count);
 }
 
 test damage {

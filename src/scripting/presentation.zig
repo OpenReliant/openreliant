@@ -2018,7 +2018,7 @@ test "the wingmen example's panel lists the wingmen nearby, and calls them back"
     // next update.
     const slot = &fixture.mission.objects.slots[wingman];
     slot.object.armor = .all(1);
-    slot.object.last_attacker = .of(0);
+    slot.setAttacker(.of(fixture.mission.objects, 0));
     game.scripts.update(0.1);
     try std.testing.expectEqual(.run_away, slot.current().?.order);
     game.scripts.update(0.1);

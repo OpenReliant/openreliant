@@ -40,16 +40,26 @@ const movie = @import("game/xtrabits/movie.zig");
 const orders = ai.orders;
 const routines = ai.routines;
 
-/// An object, by its slot, as a hook passes it. Scripts see it as an object handle.
-pub const Object = enum(u16) {
-    _,
+/// An object passed to scripts as an opaque handle. Retained references keep their identity even
+/// after the object leaves the mission.
+pub const Object = struct {
+    index: u16,
+    reuse: ?u32 = null,
 
     pub fn of(index: u16) Object {
-        return @fromBackingInt(index);
+        return .{ .index = index };
     }
 
     pub fn slot(object: Object) u16 {
-        return @backingInt(object);
+        return object.index;
+    }
+
+    pub fn retained(held: gameobj.ObjectRef) Object {
+        return .{ .index = held.slot, .reuse = held.reuse };
+    }
+
+    pub fn reference(object: Object, all: *const create.Objects) gameobj.ObjectRef {
+        return .{ .slot = object.index, .reuse = object.reuse orelse all.reuses[object.index] };
     }
 };
 
@@ -828,7 +838,7 @@ fn run(scripts: *Scripts, hook: Hook, comptime F: type, comptime function: anyty
             const pending: *@This() = @alignCast(@fieldParentPtr("call", call));
             var given = pending.arguments;
             inline for (@typeInfo(F).@"struct".field_names, 1..) |name, at| {
-                given[at] = parameterOf(@TypeOf(given[at]), @field(pending.fields, name));
+                given[at] = parameterOf(@TypeOf(given[at]), @field(pending.fields, name), given[at], given[0]);
             }
             call.scripts.passing = call.hook;
             defer call.scripts.passing = null;
@@ -880,7 +890,7 @@ fn fieldsOf(comptime F: type, arguments: anytype) F {
 /// A parameter as a field of type `T`: a slot as an `Object`, and an order's target as a `Target`.
 fn fieldOf(comptime T: type, parameter: anytype) T {
     return switch (T) {
-        Object => .of(parameter),
+        Object => if (@TypeOf(parameter) == gameobj.DamageSource) .retained(parameter.object) else .of(parameter),
         ?Object => if (parameter) |slot| .of(slot) else null,
         Target => .of(parameter),
         else => parameter,
@@ -889,7 +899,13 @@ fn fieldOf(comptime T: type, parameter: anytype) T {
 
 /// A field as a parameter of type `T`: an `Object` as its slot, and a `Target` as the game holds
 /// one.
-fn parameterOf(comptime T: type, field: anytype) T {
+fn parameterOf(comptime T: type, field: anytype, previous: T, source: anytype) T {
+    if (T == gameobj.DamageSource) {
+        const reference = field.reference(source.objects);
+        // Wrapping a call must not discard a removed shooter's captured data.
+        if (std.meta.eql(reference, previous.object)) return previous;
+        return .fromReference(source.objects, reference);
+    }
     return switch (@TypeOf(field)) {
         Object => field.slot(),
         ?Object => if (field) |object| object.slot() else null,
@@ -918,6 +934,7 @@ fn checkFunction(comptime hook: Hook, comptime Function: type) void {
     if (!declaration(hook).on.isFunction()) @compileError(name ++ " is an event, which `tell` tells");
     if (info.param_types.len != fields.field_names.len + 1) @compileError("the fields of " ++ name ++ " don't follow its function's parameters");
     for (fields.field_names, fields.field_types, info.param_types[1..]) |field_name, Field, Param| {
+        if (Field == Object and Param.? == gameobj.DamageSource) continue;
         if (Param.? != ParameterType(Field)) @compileError("the field " ++ field_name ++ " of " ++ name ++ " doesn't follow its parameter");
     }
     if (info.return_type.? != Result(hook)) @compileError("the result of " ++ name ++ " isn't its function's");

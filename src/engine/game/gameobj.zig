@@ -105,6 +105,62 @@ pub const ObjectRef = struct {
     }
 };
 
+/// The identity and fallback data of a damage source. Effects can outlive their shooter.
+/// **Fix:** a replacement object cannot inherit the original shooter's damage or attribution.
+pub const DamageSource = struct {
+    object: ObjectRef,
+    side: Side(i32),
+    type: Type,
+    player: bool,
+
+    pub fn of(all: *const create.Objects, index: u16) DamageSource {
+        return .{
+            .object = .of(all, index),
+            .side = all.slots[index].object.side,
+            .type = all.slots[index].object.type,
+            .player = index < all.players,
+        };
+    }
+
+    /// Keeps an expired identity without reading the object now occupying its slot.
+    pub fn fromReference(all: *const create.Objects, reference: ObjectRef) DamageSource {
+        if (reference.resolve(all)) |index| return .of(all, index);
+        return .{ .object = reference, .side = .neutral, .type = .of(.stand_in), .player = reference.slot < all.players };
+    }
+
+    pub fn resolve(source: DamageSource, all: *const create.Objects) ?u16 {
+        return source.object.resolve(all);
+    }
+
+    /// Live allegiance changes still apply. After removal, use the last captured side.
+    pub fn sideIn(source: DamageSource, all: *const create.Objects) Side(i32) {
+        return if (source.resolve(all)) |index| all.slots[index].object.side else source.side;
+    }
+
+    pub fn typeIn(source: DamageSource, all: *const create.Objects) Type {
+        return if (source.resolve(all)) |index| all.slots[index].object.type else source.type;
+    }
+};
+
+test "damage sources preserve fallback data without reading a replacement" {
+    var mission: testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const all = mission.objects;
+    const ship = try mission.add(.of(.predator), @splat(0));
+    mission.slot(ship).object.side = .friendly;
+    const source: DamageSource = .of(all, ship);
+    mission.slot(ship).object.side = .hostile;
+    try std.testing.expectEqual(Side(i32).hostile, source.sideIn(all));
+    create.resetSlot(mission.orders(), ship);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, ship, .of(.stalag), 0, @splat(0), &mission.random);
+    mission.slot(ship).object.side = .neutral;
+    try std.testing.expectEqual(null, source.resolve(all));
+    try std.testing.expectEqual(Side(i32).friendly, source.sideIn(all));
+    try std.testing.expectEqual(Type.of(.predator), source.typeIn(all));
+    try std.testing.expect(source.player);
+}
+
 test "object references expire when a slot is reused or a mission starts" {
     var mission: testing.Mission = undefined;
     try mission.init(std.testing.allocator);

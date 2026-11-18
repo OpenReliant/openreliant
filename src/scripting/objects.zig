@@ -165,7 +165,7 @@ pub const fields = struct {
 
     pub const last_attacker = api.Field(?Object, "The object that last hit it; nil for none, or once that one has left the mission.", struct {
         pub fn get(all: *const create.Objects, index: u16) ?Object {
-            const attacker = all.slots[index].object.last_attacker.index() orelse return null;
+            const attacker = all.slots[index].attacker(all) orelse return null;
             return world.objectIn(all, attacker);
         }
     });
@@ -516,7 +516,7 @@ pub fn register(runtime: *Runtime) void {
         .{ "__tostring", luau.wrap(describe) },
     });
 
-    // The handles, by slot, which the table lets go once nothing else holds them.
+    // Handles by full identity, including expired ones. Weak values let unused handles go.
     state.newTable(0, 0);
     state.newTable(0, 1);
     state.pushString("v");
@@ -530,23 +530,11 @@ pub fn register(runtime: *Runtime) void {
 pub fn push(state: *State, index: u16) void {
     const runtime = state.callbackData(Runtime).?;
     const all = runtime.objects orelse return state.pushNil();
-    const reference: Handle = .of(all, index);
-    _ = state.pushRef(runtime.handles.?);
-    const table = state.top();
-    const key: i32 = @as(i32, index) + 1;
-    if (state.rawGetIndex(table, key) == .userdata) {
-        if (std.meta.eql(state.toUserdata(Handle, -1, tag).?.*, reference)) return state.remove(table);
-    }
-    state.pop(1);
-    const handle = state.newUserdata(Handle, tag);
-    handle.* = reference;
-    state.pushCopy(-1);
-    state.rawSetIndex(table, key);
-    state.remove(table);
+    pushHandle(state, .of(all, index));
 }
 
-/// Pushes a handle of its own to the player's ship, outside the handles kept by slot, so that
-/// `follow` can point it at the player's ship of each mission.
+/// Pushes a separate handle for the player's ship, outside the identity cache. `follow` updates
+/// this handle at each mission's start.
 pub fn pushFollowing(state: *State, all: *const create.Objects) void {
     state.newUserdata(Handle, tag).* = .of(all, all.player);
 }
@@ -557,12 +545,25 @@ pub fn follow(state: *State, index: i32, all: *const create.Objects) void {
     handle.* = .of(all, all.player);
 }
 
-/// Pushes `handle`, as another state's script held it: the object's own handle while it's in the
-/// mission, or else a handle that isn't valid.
+/// Pushes the same handle for this identity while any script holds it. Expiration keeps equality
+/// and table keys stable, including when a damage hook reads its removed attacker again.
 pub fn pushHandle(state: *State, handle: Handle) void {
     const runtime = state.callbackData(Runtime).?;
-    if (runtime.objects) |all| if (handle.valid(all)) return push(state, handle.slot);
+    var key: [@sizeOf(u16) + @sizeOf(u32)]u8 = undefined;
+    std.mem.writeInt(u16, key[0..@sizeOf(u16)], handle.slot, .little);
+    std.mem.writeInt(u32, key[@sizeOf(u16)..], handle.reuse, .little);
+    _ = state.pushRef(runtime.handles.?);
+    const table = state.top();
+    state.pushString(&key);
+    if (state.rawGet(table) == .userdata) return state.remove(table);
+    state.pop(1);
+    state.pushString(&key);
     state.newUserdata(Handle, tag).* = handle;
+    state.pushCopy(-1);
+    // Keep the returned userdata above the cache's key/value pair.
+    state.insert(-3);
+    state.rawSet(table);
+    state.remove(table);
 }
 
 /// The slot of the object whose handle is at `given`. Raises an error if it isn't a valid handle;

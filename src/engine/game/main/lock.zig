@@ -219,7 +219,7 @@ pub fn guiding(all: *create.Objects) bool {
     var walk = all.missiles.walk();
     while (walk.next()) |index| {
         const missile = all.missiles.get(index) orelse continue;
-        if (missile.launcher.slot == all.player and missile.target.resolve(all).slot() != null) return true;
+        if (missile.launcher.resolve(all) == all.player and missile.target.resolve(all).slot() != null) return true;
     }
     return false;
 }

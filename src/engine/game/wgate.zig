@@ -847,7 +847,7 @@ fn splitKrasny(ctx: aigeneric.Context, index: u16, gate: u16) void {
     }
     explode.burnPart(world, index, krasny_slice, .{ .forever = false, .flickers = true, .lights = true });
     sliceBursts(world, slot);
-    object.last_attacker = .of(gate);
+    slot.setAttacker(.of(all, gate));
     ai.hullLost(ctx, index);
     if (world.gates) |gates| gates.krasny_caught = false;
 }

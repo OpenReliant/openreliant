@@ -78,7 +78,10 @@ pub fn isList(comptime T: type) bool {
 
 /// Pushes `value`.
 pub fn push(state: *State, comptime T: type, value: T) void {
-    if (T == Object) return objects.push(state, value.slot());
+    if (T == Object) {
+        if (value.reuse) |reuse| return objects.pushHandle(state, .{ .slot = value.slot(), .reuse = reuse });
+        return objects.push(state, value.slot());
+    }
     if (T == objects.Handle) return objects.pushHandle(state, value);
     if (T == Missile) return missiles.push(state, value.record());
     if (T == Turret) return turrets.push(state, value);

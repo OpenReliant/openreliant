@@ -354,9 +354,9 @@ pub const Missile = struct {
     /// Its object (`+0x04`), with the model it flies with and where that is drawn.
     slot: create.Slot,
     /// Its launcher (`+0x08`), which it never strikes and which its damage is credited to.
-    /// OpenReliant also keeps the slot's reuse count for scripts (`launcherIn`). The damage
-    /// paths still use the slot alone until [#1352](https://github.com/OpenReliant/openreliant/issues/1352).
-    launcher: gameobj.ObjectRef,
+    /// Its identity and fallback side survive removal. **Fix:** a replacement ship cannot receive
+    /// the launcher's damage credit or supply the side its shockwave spares.
+    launcher: gameobj.DamageSource,
     /// Whether its end has begun, while the scripts hear of it, so that it ends once.
     /// OpenReliant's own.
     ending: bool = false,
@@ -930,8 +930,8 @@ pub fn end(world: gameobj.World, at: u8) void {
         .kind = kind,
         .size = end_wave_size,
         .life = end_wave_life,
-        .owner = missile.launcher.slot,
-        .side = all.slots[missile.launcher.slot].object.side,
+        .owner = missile.launcher,
+        .side = missile.launcher.sideIn(all),
     });
     explode.missileBlast(world, missile.slot.drawn.position, object.velocity.vector(), object.radius);
     if (missile.trail) |number| if (world.cues) |cues| cues.add(.{ .trail_left = number });
@@ -975,7 +975,7 @@ fn collide(world: gameobj.World, at: u8) bool {
     while (walk.next()) |index| {
         const slot = &all.slots[index];
         const object = &slot.object;
-        if (!object.type.hasStats() or object.flags.no_collisions or index == missile.launcher.slot) continue;
+        if (!object.type.hasStats() or object.flags.no_collisions or index == missile.launcher.resolve(all)) continue;
         if (object.flags.components) {
             if (hitComponents(world, at, index)) return true;
             continue;
@@ -990,7 +990,7 @@ fn collide(world: gameobj.World, at: u8) bool {
         const stats = missile.stats(&all.missile_stats);
         if (stats.damage.shield > 0) {
             const reaches = index != all.player or !world.player.shield_reserves.spare(struck, stats.damage.shield);
-            if (reaches) collision.damage(world, index, struck, stats.damage.shield, stats.damage.hullShare(), missile.launcher.slot, damageKind(missile.type));
+            if (reaches) collision.damageFrom(world, index, struck, stats.damage.shield, stats.damage.hullShare(), missile.launcher, damageKind(missile.type));
         }
         if (!object.flags.cloaked) shield.flare(world, index, point);
         return stop(world, at);
@@ -1026,7 +1026,7 @@ fn hitHull(world: gameobj.World, at: u8, index: u16, struck: collision.Quadrant)
     const to = missile.object().root.next_position.vector();
     const entry = objects.partEntry(model, from, to, .first) orelse return false;
     if (missile.type.base().shockwave() == null) {
-        collision.armorDamage(world, index, struck, missile.stats(&all.missile_stats).damage.hull, missile.launcher.slot, damageKind(missile.type));
+        collision.armorDamageFrom(world, index, struck, missile.stats(&all.missile_stats).damage.hull, missile.launcher, damageKind(missile.type));
         shieldfx.hullHit(world, index, math.lerp(from, to, entry));
     }
     return stop(world, at);
@@ -1044,7 +1044,7 @@ fn hitComponents(world: gameobj.World, at: u8, index: u16) bool {
     const hit = objects.hitSegment(model, slot.object.placeAt(.next), missile.slot.drawn.position, missile.object().root.next_position.vector()) orelse return false;
     if (missile.type.base().shockwave() == null) {
         shieldfx.componentHit(world, index, hit, .component);
-        collision.componentDamage(world, index, hit.part, missile.stats(&all.missile_stats).component_damage, missile.launcher.slot, damageKind(missile.type));
+        collision.componentDamageFrom(world, index, hit.part, missile.stats(&all.missile_stats).component_damage, missile.launcher, damageKind(missile.type));
     }
     return stop(world, at);
 }
@@ -1156,7 +1156,7 @@ test launchFromTurret {
     try std.testing.expectEqual(Type.of(.screamer), missile.type);
     try std.testing.expectEqual(Order.pod_launch, missile.order);
     try std.testing.expectEqual(target, missile.target.resolve(world.objects));
-    try std.testing.expectEqual(ship, missile.launcher.slot);
+    try std.testing.expectEqual(ship, missile.launcher.object.slot);
     try std.testing.expectEqual(30, missile.object().velocity.z);
     const next = model.partPlace(0, .next).within(slot.object.placeAt(.next));
     try std.testing.expectEqual(next.position, missile.object().root.next_position.vector());
@@ -1272,7 +1272,7 @@ test "a player's Screamer flies straight" {
     frame(world, 0);
     // The player's flies on at nothing; another's has nothing to home on and ends.
     try std.testing.expectEqual(1, armed.live());
-    try std.testing.expectEqual(player, armed.missile(0).launcher.slot);
+    try std.testing.expectEqual(player, armed.missile(0).launcher.object.slot);
     try std.testing.expectEqual(1, armed.missile(0).object().throttle);
 }
 
@@ -1395,6 +1395,54 @@ test choose {
     try std.testing.expectEqual(@as(i16, @intCast(behind)), choose(all, armed.missile(0)).?.index);
     all.slots[behind].object.flags.targetable = false;
     try std.testing.expectEqual(null, choose(all, armed.missile(0)));
+}
+
+test "a missile keeps dealing damage after its launcher is replaced" {
+    var armed: testing.Armed = undefined;
+    try armed.init(std.testing.allocator);
+    defer armed.deinit();
+    const world = armed.mission.world();
+    const all = world.objects;
+    const player = try armed.add(.friendly, @splat(0));
+    const enemy = try armed.add(.hostile, .{ 0, 0, 5000 });
+    all.slots[enemy].object.radius = 100;
+    launch(world, player, 0, .none);
+    const missile = armed.missile(0);
+    const source = missile.launcher.object;
+    const dealt = missile.stats(&all.missile_stats).damage.shield;
+    const shields = all.slots[enemy].object.shields.aft;
+    create.resetSlot(armed.mission.orders(), player);
+    _ = try create.createObject(all, &armed.mission.tables, create.testing.no_models, player, .of(.predator), 0, @splat(0), &armed.mission.random);
+    missile.slot.drawn.position = .{ 0, 0, 4800 };
+    missile.object().root.next_position = .{ .x = 0, .y = 0, .z = 5200 };
+    try std.testing.expect(collide(world, 0));
+    try std.testing.expectApproxEqAbs(shields - dealt, all.slots[enemy].object.shields.aft, 1e-5);
+    try std.testing.expectEqual(source, all.slots[enemy].last_attacker.?);
+    try std.testing.expectEqual(null, all.slots[enemy].attacker(all));
+}
+
+test "a missile's shockwave keeps its side after its launcher is replaced" {
+    const gpa = std.testing.allocator;
+    var armed: testing.Armed = undefined;
+    try armed.init(gpa);
+    defer armed.deinit();
+    var built: shockwave_mod.testing.Built = try .init(gpa);
+    defer built.deinit(gpa);
+    var world = armed.mission.world();
+    world.shockwaves = &built.waves;
+    const all = world.objects;
+    const player = try armed.add(.friendly, @splat(0));
+    launch(world, player, 1, .none);
+    const record = all.missiles.newest.?;
+    const source = all.missiles.get(record).?.launcher.object;
+    create.resetSlot(armed.mission.orders(), player);
+    _ = try create.createObject(all, &armed.mission.tables, create.testing.no_models, player, .of(.predator), 0, @splat(0), &armed.mission.random);
+    all.slots[player].object.side = .hostile;
+    end(world, record);
+    const wave = built.waves.waves[0].?;
+    try std.testing.expectEqual(gameobj.Side(i32).friendly, wave.side.?);
+    try std.testing.expectEqual(source, wave.owner.object);
+    try std.testing.expectEqual(null, wave.owner.resolve(all));
 }
 
 test collide {

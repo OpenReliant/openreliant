@@ -1301,6 +1301,8 @@ pub const max_candidates = 20;
 pub const spent: i32 = -1;
 
 /// An object a shot may reach, and which of its parts, as `bullet_place` leaves it.
+/// Retained candidate identities are still tracked in
+/// [#1357](https://github.com/OpenReliant/openreliant/issues/1357).
 pub const Candidate = struct {
     /// The object's slot.
     object: u16 = 0,
@@ -1326,8 +1328,9 @@ pub const Bullet = struct {
     at: Vector = @splat(0),
     /// How far it flies each simulation step (`+0x28`).
     velocity: Vector = @splat(0),
-    /// The slot that fired it (`+0x34`), which the damage is charged to.
-    owner: u16 = 0,
+    /// The original shooter (`+0x34`), with its identity and fallback data until impact.
+    /// **Fix:** a replacement in its slot cannot inherit its damage credit.
+    owner: gameobj.DamageSource = undefined,
     /// That ship's side (`+0x38`).
     side: gameobj.Side(i32) = .neutral,
     /// The objects it may reach (`+0x68`), as many as `candidate_count` (`+0x64`).
@@ -1483,7 +1486,7 @@ pub fn shoot(world: gameobj.World, owner: u16, muzzle: Muzzle, gun_type: GunType
         .fired_at = clock.mission_ticks,
         .last = at,
         .at = at,
-        .owner = owner,
+        .owner = .of(all, owner),
         .side = slot.object.side,
         .place = at,
     };
@@ -1631,7 +1634,7 @@ fn candidates(world: gameobj.World, bullet: *Bullet, record: Gun, lifetime: i32)
         const slot = &all.slots[index];
         const object = &slot.object;
         if (!object.type.hasStats() or object.flags.no_collisions) continue;
-        if (index == bullet.owner and !all.holdsPlayer(index)) continue;
+        if (index == bullet.owner.resolve(all) and !all.holdsPlayer(index)) continue;
         const to = object.nextPosition() - bullet.at;
         const when = std.math.clamp(math.dot(to, bullet.velocity) * along, 0, life);
         const nearest = bullet.velocity * @as(Vector, @splat(when));
@@ -1850,7 +1853,7 @@ fn bulletHit(world: gameobj.World, bullet: *Bullet) void {
                 bullet.dies_at = spent;
                 return;
             }
-            collision.damage(world, candidate.object, struck, dealt(all, candidate.object, bullet.kind, value), record.damage.hullShare(), bullet.owner, .bullet);
+            collision.damageFrom(world, candidate.object, struck, dealt(all, candidate.object, bullet.kind, value), record.damage.hullShare(), bullet.owner, .bullet);
         }
         bullet.dies_at = spent;
         return;
@@ -1919,7 +1922,7 @@ fn componentHit(world: gameobj.World, bullet: *Bullet, index: u16, crossing: obj
     }
     sparks.spray(world, .component, at, normal, @splat(0), component_sparks);
     const record = bullet.stats(&world.objects.gun_stats);
-    collision.componentDamage(world, index, crossing.part, record.damage.hull, bullet.owner, .bullet);
+    collision.componentDamageFrom(world, index, crossing.part, record.damage.hull, bullet.owner, .bullet);
     cloak.reveal(world, index, at);
 }
 
@@ -1937,7 +1940,7 @@ fn hullHit(world: gameobj.World, bullet: *Bullet, index: u16, struck: collision.
     const model = if (slot.model) |*live| live else return;
     const along = objects.partEntry(model, bullet.last, bullet.at, .last_shown) orelse return;
     const record = bullet.stats(&world.objects.gun_stats);
-    collision.armorDamage(world, index, struck, dealt(all, index, bullet.kind, record.damage.hull), bullet.owner, .bullet);
+    collision.armorDamageFrom(world, index, struck, dealt(all, index, bullet.kind, record.damage.hull), bullet.owner, .bullet);
     const at = math.lerp(bullet.last, bullet.at, along);
     shieldfx.hullHit(world, index, at);
     const inside = world.player.viewing.inside(index);
@@ -1963,7 +1966,7 @@ test clipEventMuzzles {
     const events = clipEvents(&world, ship.index);
     events.fire(events.context, events.owner, model, 0, .muzzles);
     try std.testing.expectEqual(2, flying(world));
-    for (world.objects.bullets.pool[0..2]) |bullet| try std.testing.expectEqual(ship.index, bullet.owner);
+    for (world.objects.bullets.pool[0..2]) |bullet| try std.testing.expectEqual(ship.index, bullet.owner.object.slot);
     // A puff fires nothing.
     events.fire(events.context, events.owner, model, 0, .puff);
     try std.testing.expectEqual(2, flying(world));
@@ -1986,7 +1989,7 @@ test shoot {
     try std.testing.expectEqual(@as(Vector, .{ 0, 0, 500 }), bullet.velocity);
     try std.testing.expectEqual(ship.mission.clock.mission_ticks + 100, bullet.dies_at);
     try std.testing.expectEqual(ship.mission.clock.mission_ticks, bullet.fired_at);
-    try std.testing.expectEqual(ship.index, bullet.owner);
+    try std.testing.expectEqual(ship.index, bullet.owner.object.slot);
     // The record keeps the type less one, as the game does.
     try std.testing.expectEqual(testing.gun_type, bullet.kind);
 
@@ -2069,6 +2072,30 @@ test bulletsFrame {
     ship.mission.clock.frame_start += 1000;
     bulletsFrame(world, &ship.mission.clock, 0);
     try std.testing.expectEqual(0, flying(world));
+}
+
+test "a shot still damages its target after its shooter is replaced" {
+    const gpa = std.testing.allocator;
+    var ship: testing.Ship = undefined;
+    try ship.init(gpa);
+    defer ship.deinit(gpa);
+    const world = ship.world();
+    const all = world.objects;
+    const target = try ship.add(.of(.reaper), .{ 0, 0, 500 });
+    const struck = &all.slots[target];
+    struck.drawn = .{ .position = .{ 0, 0, 500 }, .orientation = math.identity };
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
+    const bullet = &all.bullets.pool[0];
+    const source = bullet.owner.object;
+    create.resetSlot(ship.mission.orders(), ship.index);
+    _ = try create.createObject(all, &ship.mission.tables, create.testing.no_models, ship.index, .of(.predator), 0, @splat(0), &ship.mission.random);
+    bullet.last = @splat(0);
+    bullet.at = .{ 0, 0, 600 };
+    bulletsFrame(world, &ship.mission.clock, 0);
+    try std.testing.expectEqual(10, struck.object.recent_damage);
+    try std.testing.expectEqual(0, flying(world));
+    try std.testing.expectEqual(source, struck.last_attacker.?);
+    try std.testing.expectEqual(null, struck.attacker(all));
 }
 
 test "Turret.base" {

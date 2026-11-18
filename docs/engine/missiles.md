@@ -203,6 +203,11 @@ whose lock is broken, and ends one whose launcher is gone.
 
 ### Contact
 
+**Fix:** a missile keeps its launcher's identity and fallback side until impact. A removed
+launcher cannot be replaced by another object for collision immunity, damage credit or a
+shockwave's spared side. The missile still deals its normal damage after the launcher leaves.
+Live allegiance changes still apply before removal.
+
 `missile_collide` (`0x00495CF0`) tests the segment from the missile's drawn place to its next place
 against every object of type below 256 that collides, but its launcher, of any side:
 

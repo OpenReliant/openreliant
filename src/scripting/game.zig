@@ -938,6 +938,75 @@ test "handlers run newest mod first, in the order each mod added them" {
     try std.testing.expectEqual(100, shields.get(.fore));
 }
 
+test "damage hooks can wrap damage from an expired attacker" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nGlobal=a.luau\n" },
+            .{
+                "a.luau",
+                \\local hooks = require("openreliant.hooks")
+                \\local world = require("openreliant.world")
+                \\local saved, other, seen, calls, afters
+                \\calls, afters = 0, 0
+                \\for _, name in {"object_damage", "object_armor_damage", "component_damage"} do
+                \\    hooks.add(name, function(e)
+                \\        assert(e.attacker ~= nil and e.attacker == saved and not e.attacker:is_valid())
+                \\        assert(seen[e.attacker])
+                \\        assert(not pcall(function() e.attacker = other end))
+                \\        e.attacker = e.attacker
+                \\        e.value = 5
+                \\        e:original()
+                \\        assert(e.attacker == saved and not e.attacker:is_valid())
+                \\        calls += 1
+                \\    end)
+                \\    hooks.after(name, function(e)
+                \\        assert(e.attacker == saved and not e.attacker:is_valid())
+                \\        afters += 1
+                \\    end)
+                \\end
+                \\return {engine_handlers = {
+                \\    on_mission_start = function() saved, other = world.objects()[1], world.objects()[3]; seen = {[saved] = true} end,
+                \\    on_update = function()
+                \\        assert(calls == 3 and afters == 3 and not saved:is_valid())
+                \\        assert(world.objects()[2].last_attacker == nil)
+                \\        world.objects()[2].throttle = 0.5
+                \\    end,
+                \\}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    const all = fixture.mission.objects;
+    const other = try fixture.mission.add(.of(.sabre), @splat(0));
+    const source: gameobj.DamageSource = .of(all, 0);
+    fixture.begin();
+    fixture.game.scripts.started(.{ .number = 5, .file = "mission5.dte" });
+    create.resetSlot(fixture.mission.orders(), other);
+    create.resetSlot(fixture.mission.orders(), 0);
+    _ = try create.createObject(all, &fixture.mission.tables, create.testing.no_models, 0, .of(.predator), 0, @splat(0), &fixture.mission.random);
+    const slot = fixture.mission.slot(fixture.sabre);
+    slot.object.shields = .all(100);
+    slot.object.armor = .all(100);
+    const collision = openreliant.engine.game.collision;
+    collision.damageFrom(fixture.mission.world(), fixture.sabre, .fore, 20, 1, source, .missile);
+    collision.armorDamageFrom(fixture.mission.world(), fixture.sabre, .right, 20, source, .missile);
+    try std.testing.expectEqual(95, slot.object.shields.fore);
+    try std.testing.expectEqual(95, slot.object.armor.right);
+    var parts: openreliant.engine.game.objects.testing.Parts(1) = undefined;
+    parts.init();
+    var model = try parts.create(std.testing.allocator);
+    defer model.deinit(std.testing.allocator);
+    model.parts[0].component_armor = 100;
+    model.parts[0].armor = 100;
+    collision.componentDamageFrom(fixture.mission.world(), fixture.sabre, .{ .model = &model, .index = 0 }, 20, source, .missile);
+    try std.testing.expectEqual(95, model.parts[0].armor);
+    try std.testing.expectEqual(null, slot.attacker(all));
+    fixture.game.scripts.update(0.1);
+    try std.testing.expectEqual(0.5, slot.object.throttle);
+}
+
 test "a script stops and retargets the orders given, and keeps one from ending" {
     var fixture: Fixture = undefined;
     try fixture.init(&.{.{
@@ -2143,7 +2212,7 @@ test "the wingmen example: a badly damaged wingman runs from its attacker, and r
     try std.testing.expect(slot.current() == null or slot.current().?.order != .run_away);
     // With its armour nearly gone, it runs from the Sabre that hit it.
     slot.object.armor = .all(1);
-    slot.object.last_attacker = .of(fixture.sabre);
+    slot.setAttacker(.of(fixture.mission.objects, fixture.sabre));
     scripts.update(0.1);
     try std.testing.expectEqual(.run_away, slot.current().?.order);
     try std.testing.expectEqual(fixture.sabre, @as(u16, @intCast(slot.current().?.target.resolve(fixture.mission.objects).index)));
