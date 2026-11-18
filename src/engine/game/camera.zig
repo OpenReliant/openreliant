@@ -430,10 +430,10 @@ pub const Landing = union(enum) {
 /// **Fix:** a retained camera subject cannot become a replacement object.
 pub const SubjectRef = union(enum) {
     slot: u16,
-    object: gameobj.ObjectRef,
+    object: gameobj.ObjectSelection,
 
-    /// A mission camera selected before a ship's first spawn still needs to keep that expected
-    /// creation ([#1362](https://github.com/OpenReliant/openreliant/issues/1362)).
+    /// **Fix:** a mission camera selected before a ship spawns keeps its first creation, without
+    /// following later replacements.
     pub fn of(all: ?*const create.Objects, at: u16) SubjectRef {
         return if (all) |objects_all| .{ .object = .of(objects_all, at) } else .{ .slot = at };
     }
@@ -441,16 +441,47 @@ pub const SubjectRef = union(enum) {
     pub fn index(subject: SubjectRef) u16 {
         return switch (subject) {
             .slot => |at| at,
-            .object => |reference| reference.slot,
+            .object => |selection| selection.reference().slot,
         };
     }
 
     pub fn resolve(subject: SubjectRef, all: ?*const create.Objects) ?u16 {
         return switch (subject) {
             .slot => |at| if (all) |objects_all| (if (at < objects_all.slots.len) at else null) else at,
-            .object => |reference| reference.resolve(all orelse return null),
+            .object => |selection| selection.resolve(all orelse return null),
         };
     }
+
+    /// Pending and existing selections can name the same first creation.
+    fn same(left: ?SubjectRef, right: ?SubjectRef) bool {
+        const a = left orelse return right == null;
+        const b = right orelse return false;
+        return switch (a) {
+            .slot => |slot| b == .slot and b.slot == slot,
+            .object => |selection| b == .object and std.meta.eql(selection.reference(), b.object.reference()),
+        };
+    }
+};
+
+/// The particular missile selected for a view, including when its switch is still queued.
+const MissileRef = struct {
+    record: u8,
+    reuse: u32,
+
+    fn of(records: *const missiles.Missiles, record: u8) MissileRef {
+        return .{ .record = record, .reuse = records.reuses[record] };
+    }
+
+    fn resolve(held: MissileRef, records: *const missiles.Missiles) ?u8 {
+        if (records.reuses[held.record] != held.reuse or records.records[held.record] == null) return null;
+        return held.record;
+    }
+};
+
+/// A fresh switch cycles to the next missile. Replaying a request keeps its original selection.
+const MissileChoice = union(enum) {
+    next,
+    retained: MissileRef,
 };
 
 /// The view, subject, timing, lock and director state shared by the game and drawing. Mission
@@ -479,7 +510,7 @@ pub const Viewing = struct {
     /// back to the cockpit (`gameFrame`).
     missile: u8 = 0,
     /// The selected missile instance, separate from the record used to cycle the view.
-    missile_subject: ?struct { record: u8, reuse: u32 } = null,
+    missile_subject: ?MissileRef = null,
     missile_gone: bool = false,
     /// The director's shots waiting, the first on screen (`shots.Shots`), and what the director
     /// keeps of that one (`director.Director`).
@@ -533,45 +564,47 @@ pub const Viewing = struct {
     }
 
     pub fn missileIn(viewing: *const Viewing, records: *const missiles.Missiles) ?u8 {
-        const subject = viewing.missile_subject orelse return null;
-        if (records.reuses[subject.record] != subject.reuse or records.records[subject.record] == null) return null;
-        return subject.record;
+        return (viewing.missile_subject orelse return null).resolve(records);
     }
 
-    /// The game's part of `camera_set_view`: the view's own part (`turn`), then, out of the
-    /// director's view, the ships its shot held go (`shots.Held.hold`), and into it, the shot's own
-    /// are held. The camera takes up the switch as it next frames (`Camera.cutTo`).
+    /// Updates the game's view (`camera_set_view`), releases ships held by the director's old
+    /// shot and holds those in its new shot. Records the cut for drawing (`Camera.notice`).
     pub fn set(viewing: *Viewing, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Bounds) bool {
-        const cut = viewing.make(view, object, lock, force, now, by) orelse return false;
+        const cut = viewing.make(view, object, lock, force, now, by, .next) orelse return false;
         viewing.changes.add(.{ .cut = cut });
         return true;
     }
 
     /// `set` without the change for the camera: returns the cut, or null where the switch is
     /// refused.
-    fn make(viewing: *Viewing, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Bounds) ?Cut {
+    fn make(viewing: *Viewing, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Bounds, missile: MissileChoice) ?Cut {
         const leaving: ?shots.Held = if (viewing.view == .director) viewing.held else null;
-        const cut = viewing.turn(view, object, lock, force, now, by) orelse return null;
+        const cut = viewing.turnWith(view, object, lock, force, now, by, missile) orelse return null;
         if (leaving) |held| held.hold(false);
         if (view == .director) if (viewing.held) |held| held.hold(true);
         return cut;
     }
 
-    /// The view's own part of a switch (`set`): switches to `view` at tick `now`, `object` the one
-    /// it shows, `lock` keeping the camera keys off it. Refused while the player's ship rides the
-    /// worm between gates, forced or not (`wgate.ridingWorm`, `0x0045F1B0`), and while the camera
-    /// is locked, unless `force`. The missile view follows the next missile in flight, from the one
-    /// it last followed, that `object` launched; with none, it is refused. The target and external
-    /// views start their orbit again. It leaves the ships the director's shots hold as they are,
-    /// which is how the drawn frame's copy of the view takes a switch (`Camera.ask`). Returns the
-    /// cut for the camera, or null where the switch is refused.
+    /// Switches the runtime view (`camera_set_view`, `0x0045F1B0`) without changing the ships
+    /// held by the director. Refuses switches while the player rides a gate's worm, and while
+    /// locked unless forced. A fresh missile view selects the next flight launched by `object`;
+    /// with none available, it refuses the switch. Target and external views reset their orbit.
+    /// Returns the cut that drawing applies in `Camera.cutTo`.
     pub fn turn(viewing: *Viewing, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Bounds) ?Cut {
+        return viewing.turnWith(view, object, lock, force, now, by, .next);
+    }
+
+    fn turnWith(viewing: *Viewing, view: View, object: ?u16, lock: bool, force: bool, now: u32, by: Bounds, missile: MissileChoice) ?Cut {
         if (wgate.ridingWorm(by.gates)) return null;
         if (viewing.locked and !force) return null;
         if (view == .missile) {
             const records = by.missiles orelse return null;
-            viewing.missile = nextMissile(records, by.objects, viewing.missile, object orelse return null) orelse return null;
-            viewing.missile_subject = .{ .record = viewing.missile, .reuse = records.reuses[viewing.missile] };
+            const selected = switch (missile) {
+                .next => nextMissile(records, by.objects, viewing.missile, object orelse return null) orelse return null,
+                .retained => |held| held,
+            };
+            viewing.missile = selected.record;
+            viewing.missile_subject = selected;
             viewing.missile_gone = false;
         }
         const subject: ?SubjectRef = if (object) |at| .of(by.objects, at) else null;
@@ -586,25 +619,22 @@ pub const Viewing = struct {
         return cut;
     }
 
-    /// OpenReliant's: makes the switches of view the drawing side asked for since the game last
-    /// took them up (`Camera.requests`), in the order they were asked, as `set` makes the game's
-    /// own. The game's view then ends up as it would have if drawing had switched it directly.
-    /// Where the camera cut to a switch as it was asked (`Request.cut_at_once`), `subtarget`
-    /// follows the switch here (`Camera.Subtarget.follow`), and the camera gets no change to take
-    /// up. Otherwise the camera takes the switch up as it next frames, as for the game's own.
-    /// The missile selected by a drawn-frame request still needs to be retained across this
-    /// handoff ([#1361](https://github.com/OpenReliant/openreliant/issues/1361)).
+    /// Replays drawing's queued switches before the next game frame, in request order. Checks
+    /// locks and gates again. Cuts already applied by drawing update the subtarget without
+    /// recording another cut; the other cuts wait for `Camera.notice`.
+    ///
+    /// **Fix:** missile requests keep their selected flight through the handoff. If it has ended,
+    /// the game starts its existing linger rather than selecting another missile.
     pub fn takeUp(viewing: *Viewing, requests: *const Requests, by: Bounds, subtarget: ?Camera.Subtarget) void {
         var asked = requests.since(viewing.requests_seen);
         while (asked.next()) |retained| {
             const request = retained.request;
             if (retained.subject) |subject| if (subject.resolve(by.objects) == null) continue;
-            const made = if (request.cut_at_once) made: {
-                const cut = viewing.make(request.view, request.object, request.lock, request.force, request.now, by) orelse break :made false;
+            const cut = viewing.make(request.view, request.object, request.lock, request.force, request.now, by, retained.missile) orelse continue;
+            if (request.cut_at_once) {
                 if (subtarget) |sub| sub.follow(cut.view);
-                break :made true;
-            } else viewing.set(request.view, request.object, request.lock, request.force, request.now, by);
-            if (made and request.lasting) viewing.lasting = true;
+            } else viewing.changes.add(.{ .cut = cut });
+            if (request.lasting) viewing.lasting = true;
         }
         viewing.requests_seen = requests.count;
     }
@@ -743,7 +773,7 @@ const most_requests = 16;
 
 /// OpenReliant's: the latest switches of view the drawing side asked for (`Request`), which the
 /// game takes up before it next runs (`Viewing.takeUp`).
-pub const Requests = table.Latest(struct { request: Request, subject: ?SubjectRef }, most_requests);
+pub const Requests = table.Latest(struct { request: Request, subject: ?SubjectRef, missile: MissileChoice }, most_requests);
 
 /// Switches the world's view (`camera_set_view`, `Viewing.set`) at the mission's tick.
 pub fn switchView(world: gameobj.World, view: View, object: ?u16, lock: bool, force: bool) bool {
@@ -858,17 +888,16 @@ pub const Camera = struct {
         camera.seen = viewing.changes.count;
     }
 
-    /// OpenReliant's: a switch of view the drawing side makes, as `request` asks: `viewing`, the
-    /// drawn frame's copy of the view, switches at once (`Viewing.turn`), and the game makes the
-    /// same switch before it next runs (`requests`, `Viewing.takeUp`). Where the request says so,
-    /// the camera cuts to it at once too. Refused where the game would refuse it, and past
-    /// `most_requests` the game hasn't taken up yet. Returns whether it switched.
+    /// Switches the drawn frame's view and queues the request for the game (`Viewing.takeUp`).
+    /// Uses the same lock and gate checks as a game switch. Captures the selected object and
+    /// missile identities, and cuts at once when requested. Refuses further requests once
+    /// `most_requests` await the game.
     pub fn ask(camera: *Camera, viewing: *Viewing, request: Request, by: Viewing.Bounds) bool {
         if (camera.requests.count -% viewing.requests_seen >= most_requests) return false;
         const cut = viewing.turn(request.view, request.object, request.lock, request.force, request.now, by) orelse return false;
         if (request.lasting) viewing.lasting = true;
         if (request.cut_at_once) camera.cutTo(cut);
-        camera.requests.add(.{ .request = request, .subject = viewing.object });
+        camera.requests.add(.{ .request = request, .subject = viewing.object, .missile = if (request.view == .missile) .{ .retained = viewing.missile_subject.? } else .next });
         return true;
     }
 
@@ -884,7 +913,7 @@ pub const Camera = struct {
             camera.bars = 0;
             camera.bar_speed = 0;
         }
-        if (view == .chase and (cut.from != .chase or !std.meta.eql(cut.from_object, cut.object))) {
+        if (view == .chase and (cut.from != .chase or !SubjectRef.same(cut.from_object, cut.object))) {
             camera.chase.distance = Chase.start_distance;
         }
         switch (view) {
@@ -1174,13 +1203,13 @@ pub fn gameFrame(world: gameobj.World) void {
 
 /// The next missile in flight after `from`, going round the records, that `launcher` launched
 /// (`camera_set_view`), or null for none.
-fn nextMissile(records: *const missiles.Missiles, all: ?*const create.Objects, from: u8, launcher: u16) ?u8 {
+fn nextMissile(records: *const missiles.Missiles, all: ?*const create.Objects, from: u8, launcher: u16) ?MissileRef {
     var at = from;
     for (0..missiles.max_missiles) |_| {
         at = @intCast((@as(usize, at) + 1) % missiles.max_missiles);
         const missile = records.records[at] orelse continue;
         const owner = if (all) |objects_all| missile.launcher.resolve(objects_all) else missile.launcher.object.slot;
-        if (owner == launcher) return at;
+        if (owner == launcher) return .of(records, at);
     }
     return null;
 }
@@ -2646,4 +2675,107 @@ test "the missile camera loses a removed missile even when its record is reused"
     try std.testing.expect(armed.mission.player.viewing.missile_gone);
     try std.testing.expectEqual(View.missile, armed.mission.player.viewing.view);
     try std.testing.expectEqual(missile_linger, armed.mission.player.viewing.switched);
+}
+
+test "queued missile views keep the selected flight after removal or record reuse" {
+    for ([_]bool{ false, true }) |cut_at_once| {
+        for ([_]bool{ false, true }) |reuse_record| {
+            var armed: missiles.testing.Armed = undefined;
+            try armed.init(std.testing.allocator);
+            defer armed.deinit();
+            const player = try armed.add(.friendly, @splat(0));
+            const mission = &armed.mission;
+            const world = mission.world();
+            missiles.launch(world, player, 0, .none);
+            missiles.launch(world, player, 0, .none);
+            var camera: Camera = .{};
+            const game = &mission.player.viewing;
+            var copy = game.*;
+            try std.testing.expect(camera.ask(&copy, .{ .view = .missile, .object = player, .now = 10, .lock = true, .force = true, .cut_at_once = cut_at_once }, .of(world)));
+            const original = copy.missile_subject.?;
+            missiles.end(world, original.record);
+            if (reuse_record) missiles.launch(world, player, 0, .none);
+            game.takeUp(&camera.requests, .of(world), null);
+            try std.testing.expectEqual(View.missile, game.view);
+            try std.testing.expectEqual(original, game.missile_subject.?);
+            try std.testing.expectEqual(null, game.missileIn(&world.objects.missiles));
+            try std.testing.expect(game.locked);
+            try std.testing.expectEqual(10, game.switched);
+            // The existing linger starts when the game observes that this flight has ended.
+            mission.clock.mission_ticks = 20;
+            gameFrame(world);
+            try std.testing.expect(game.missile_gone);
+            try std.testing.expectEqual(20 + missile_linger, game.switched);
+            mission.clock.mission_ticks = 20 + missile_linger;
+            gameFrame(world);
+            try std.testing.expectEqual(View.missile, game.view);
+            mission.clock.mission_ticks += 1;
+            gameFrame(world);
+            try std.testing.expectEqual(View.cockpit, game.view);
+        }
+    }
+}
+
+test "a mission camera keeps the first ship created in its selected stand-in slot" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const player = try mission.add(.of(.predator), @splat(0));
+    const future = player + 1;
+    const all = mission.objects;
+    const viewing = &mission.player.viewing;
+    try std.testing.expect(viewing.set(.chase, future, true, true, 10, .of(mission.world())));
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, future, .of(.sabre), 0, .{ 0, 0, 5000 }, &mission.random);
+    try std.testing.expectEqual(@as(?u16, future), viewing.objectIn(all));
+    gameFrame(mission.world());
+    try std.testing.expectEqual(View.chase, viewing.view);
+    try std.testing.expect(viewing.locked);
+    try std.testing.expectEqual(10, viewing.switched);
+    create.resetSlot(mission.orders(), future);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, future, .of(.sabre), 0, @splat(0), &mission.random);
+    try std.testing.expectEqual(null, viewing.objectIn(all));
+    gameFrame(mission.world());
+    try std.testing.expectEqual(View.cockpit, viewing.view);
+    // Without a first creation, the original no-stats fallback still applies.
+    try std.testing.expect(viewing.set(.chase, future + 1, true, true, 20, .of(mission.world())));
+    gameFrame(mission.world());
+    try std.testing.expectEqual(View.cockpit, viewing.view);
+}
+
+test "a queued camera switch keeps a first creation that happens before take-up" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const player = try mission.add(.of(.predator), @splat(0));
+    const future = player + 1;
+    mission.player.viewing = .{};
+    var camera: Camera = .{};
+    var copy = mission.player.viewing;
+    try std.testing.expect(camera.ask(&copy, .{ .view = .chase, .object = future, .now = 10 }, .of(mission.world())));
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, future, .of(.sabre), 0, @splat(0), &mission.random);
+    mission.player.viewing.takeUp(&camera.requests, .of(mission.world()), null);
+    try std.testing.expectEqual(View.chase, mission.player.viewing.view);
+    try std.testing.expectEqual(@as(?u16, future), mission.player.viewing.objectIn(mission.objects));
+}
+
+test "a first creation keeps chase distance while a later replacement resets it" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const player = try mission.add(.of(.predator), @splat(0));
+    const future = player + 1;
+    const viewing = &mission.player.viewing;
+    var camera: Camera = .{};
+    try std.testing.expect(viewing.set(.chase, future, false, true, 10, .of(mission.world())));
+    camera.notice(viewing);
+    camera.chase.distance = Chase.start_distance / 2;
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, future, .of(.sabre), 0, @splat(0), &mission.random);
+    try std.testing.expect(viewing.set(.chase, future, false, true, 20, .of(mission.world())));
+    camera.notice(viewing);
+    try std.testing.expectEqual(Chase.start_distance / 2, camera.chase.distance);
+    create.resetSlot(mission.orders(), future);
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, future, .of(.sabre), 0, @splat(0), &mission.random);
+    try std.testing.expect(viewing.set(.chase, future, false, true, 30, .of(mission.world())));
+    camera.notice(viewing);
+    try std.testing.expectEqual(Chase.start_distance, camera.chase.distance);
 }

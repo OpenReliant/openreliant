@@ -201,7 +201,7 @@ test "Target.slotIn" {
 /// **Fix:** a removed target cannot become the next object created in the same slot.
 pub const Aim = union(enum) {
     none,
-    object: struct { reference: gameobj.ObjectRef, record: Target, pending: bool },
+    object: struct { subject: gameobj.ObjectSelection, record: Target },
     other: Target,
 
     pub fn of(all: *const create.Objects, target: Target) Aim {
@@ -213,24 +213,14 @@ pub const Aim = union(enum) {
     /// Launch select a ship from a group but leave the target's kind unchanged.
     pub fn selected(all: *const create.Objects, target: Target) Aim {
         const index = target.slotIn(all) orelse return .{ .other = target };
-        const pending = all.slots[index].object.type.base() == .stand_in;
-        var reference: gameobj.ObjectRef = .of(all, index);
-        if (pending) reference.reuse +%= 1;
-        return .{ .object = .{ .reference = reference, .record = target, .pending = pending } };
+        return .{ .object = .{ .subject = .of(all, index), .record = target } };
     }
 
     /// The original target record, or no target after the captured object has left its slot.
     pub fn resolve(aim: Aim, all: *const create.Objects) Target {
         return switch (aim) {
             .none => .none,
-            .object => |ship| object: {
-                const index = ship.reference.slot;
-                // Mission scripts may name a ship before its flight group is created. Keep
-                // that slot's first creation, but never a later replacement.
-                const waiting = ship.pending and index < all.reuses.len and all.reuses[index] +% 1 == ship.reference.reuse and all.slots[index].object.type.base() == .stand_in;
-                if (waiting or ship.reference.valid(all)) break :object ship.record;
-                break :object .none;
-            },
+            .object => |ship| if (ship.subject.resolve(all) != null) ship.record else .none,
             .other => |target| target,
         };
     }

@@ -1063,11 +1063,13 @@ const destroyed_armor: f32 = -1;
 ///
 /// Then the root's flag is cleared.
 ///
-/// Around the pass, where the object's parts are the player's subtarget picked out in red, they
-/// are put back first (`hud_subtarget_clear`, called at `0x0049ACED`) and picked out again
-/// after (`hud_subtarget`, called at `0x0049B302`), as the game does. Putting them back leaves no
-/// object picked out, so the second never runs: `mission_frame` picks them out again on its next
-/// frame (`hud.subtarget`).
+/// Restores highlighted parts before the pass (`hud_subtarget_clear`, called at `0x0049ACED`)
+/// and highlights surviving parts afterwards (`hud_subtarget`, called at `0x0049B302`).
+///
+/// **Fix:** the original checks the cleared highlight state, so its second call never runs and
+/// the highlight waits for the next mission frame. OpenReliant captures the original object's
+/// identity before clearing, then refreshes only while that object still exists. Copies used by
+/// a drawn frame stay alive until the frame finishes (`hud.subtarget`).
 pub fn loseComponents(ctx: aigeneric.Context, index: u16) void {
     const slot = &ctx.world.objects.slots[index];
     const model = if (slot.model) |*live| live else return;
@@ -1088,7 +1090,11 @@ fn loseRoot(ctx: aigeneric.Context, index: u16, model: *Model, root: math.Place)
     const slot = &world.objects.slots[index];
     const object = &slot.object;
     const shown = if (world.display) |display| &display.subtarget else null;
-    if (shown) |subtarget| if (subtarget.belongsTo(world.objects, index)) subtarget.clear(world.objects);
+    const highlighted: ?gameobj.ObjectRef = if (shown) |subtarget|
+        if (subtarget.belongsTo(world.objects, index)) subtarget.target.?.object else null
+    else
+        null;
+    if (highlighted != null) shown.?.clear(world.objects);
     for (model.parts, 0..) |*part, n| {
         if (part.removed or part.spent or !(part.armor < 0)) continue;
         part.spent = true;
@@ -1114,9 +1120,7 @@ fn loseRoot(ctx: aigeneric.Context, index: u16, model: *Model, root: math.Place)
             destroyPart(slot, .{ .model = model, .index = at });
         }
     }
-    // Clearing the highlight above loses the state this refresh checks. Keep that state across
-    // component loss ([#1363](https://github.com/OpenReliant/openreliant/issues/1363)).
-    if (shown) |subtarget| if (subtarget.belongsTo(world.objects, index)) subtarget.pick(world.objects);
+    if (highlighted) |held| if (held.valid(world.objects)) shown.?.pick(world.objects);
     model.destroyed = false;
 }
 
@@ -4746,4 +4750,56 @@ test stepFraction {
     // Paused, nothing moves, so the time past the tick doesn't count.
     clock.paused = true;
     try std.testing.expectEqual(0.5, stepFraction(&clock, true));
+}
+
+test "losing another component refreshes the surviving highlight and keeps drawn copies" {
+    const gpa = std.testing.allocator;
+    const ai = @import("ai.zig");
+    const hud = @import("hud.zig");
+    const srmesh = @import("../surrender/surrenderlib/srmesh.zig");
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    mission.player.viewing.view = .cockpit;
+    const player = try mission.add(.of(.predator), @splat(0));
+    _ = try aigeneric.push(mission.orders(), player, .player_control, .none);
+    const index = try mission.add(.of(.kamov), .{ 0, 0, 5000 });
+    const slot = mission.slot(index);
+    slot.object.flags.targetable = true;
+    slot.object.flags.components = true;
+    const mesh = try srmesh.testing.square(gpa);
+    defer mesh.deinit(gpa);
+    var three: testing.Three = undefined;
+    three.init(&mesh, &.{});
+    var model: Model = try .create(gpa, &three.source, &three.loaded, .{});
+    defer model.deinit(gpa);
+    const kept = slot.model;
+    slot.model = model;
+    defer slot.model = kept;
+    const live = &slot.model.?;
+    for (live.parts, [_]u32{ 1, 1, 2 }) |*part, link| {
+        part.parent = null;
+        part.link_id = link;
+        part.armor = 100;
+        part.class = .comms_transmitter;
+    }
+    slot.components[0] = &live.parts[0];
+    slot.object.component_count = 1;
+    ai.playerControlEntry(mission.objects).?.target = .at(mission.objects, index, 0);
+    var display: hud.State = .{};
+    defer display.subtarget.clear(mission.objects);
+    defer display.subtarget.letGo(gpa);
+    display.subtarget.pick(mission.objects);
+    try std.testing.expectEqual(2, display.subtarget.count);
+    display.subtarget.hold();
+    live.parts[2].armor = -1;
+    live.destroyed = true;
+    var world = mission.world();
+    world.display = &display;
+    loseComponents(.of(world), index);
+    try std.testing.expect(live.parts[2].removed);
+    try std.testing.expect(display.subtarget.target != null);
+    try std.testing.expectEqual(2, display.subtarget.count);
+    try std.testing.expectEqual(2, display.subtarget.spent.items.len);
+    for (live.parts[0..2]) |part| try std.testing.expectEqual(hud.subtarget.red, part.object.colour);
 }

@@ -63,13 +63,11 @@ pub const Subtarget = struct {
         colour: [4]f32,
     };
 
-    /// Whether it shows `target`'s parts: the same object and component (`mission_frame`,
-    /// `0x00493298`).
-    /// The refresh comparison still needs to check the saved object's identity
-    /// ([#1363](https://github.com/OpenReliant/openreliant/issues/1363)).
-    pub fn shows(subtarget: *const Subtarget, target: aigeneric.Target) bool {
+    /// Whether the same object and component are already highlighted (`mission_frame`,
+    /// `0x00493298`). **Fix:** selecting the same component on a replacement refreshes its parts.
+    pub fn shows(subtarget: *const Subtarget, all: *const create.Objects, target: aigeneric.Target) bool {
         const picked = subtarget.target orelse return target.index == aigeneric.Target.none.index and target.isWhole();
-        return target.slot() == picked.object.slot and target.part() == picked.component;
+        return subtarget.belongsTo(all, target.slot() orelse return false) and target.part() == picked.component;
     }
 
     /// Whether the highlighted parts still belong to the object in `index`.
@@ -253,7 +251,7 @@ test Subtarget {
     // first six lights' reach; the other part and the shared mesh stay as they were.
     var subtarget: Subtarget = .{};
     subtarget.pick(all);
-    try std.testing.expect(subtarget.shows(.at(index, 0)));
+    try std.testing.expect(subtarget.shows(all, .at(index, 0)));
     for (live.parts[0..2]) |part| {
         try std.testing.expect(part.object.levels.ptr != own.ptr);
         const material = part.object.levels[0].mesh.surfaces[0].material;
