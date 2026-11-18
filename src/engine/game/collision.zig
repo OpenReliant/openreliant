@@ -493,7 +493,7 @@ pub fn armorDamageFrom(world: gameobj.World, index: u16, struck: Quadrant, value
     all.slots[index].setAttacker(attacker);
     if (armor.* < 0) {
         ai.objectDestroyed(.of(world), index, true, taken > heavy_blow);
-        if (attacker.resolve(all)) |by| if (friendly_fire.destroyedFriend(world, index, by, kind)) friendly_fire.friendDestroyed(world);
+        friendly_fire.destroyed(world, index, attacker, kind, true);
     }
     const current = &all.slots[all.player].orders[0].target;
     if (smartTargeting(world, attacker, kind) != null) current.* = current.retarget(all, @intCast(index), current.resolve(all).component);
@@ -689,7 +689,7 @@ const shielded_hit: f32 = 1000;
 /// still has armour, and a component whose armour runs out marks its model's root as destroyed,
 /// for `objects.loseComponents` to act on. The player's hit on a friend not exploding mounts toward
 /// Moose's warning (`friendly_fire.warn`), and one that destroys its component has the player sent
-/// home (`friendly_fire.friendDestroyed`).
+/// home (`friendly_fire.destroyed`).
 ///
 /// With smart targeting on, the player's hit on a hostile ship makes the component struck, if it
 /// is one the ship lists, the player's target and subtarget, or else the ship alone, unless it is
@@ -763,7 +763,7 @@ fn wearComponent(world: gameobj.World, index: u16, struck_part: objects.PartRef,
     all.slots[index].setAttacker(attacker);
     if (struck.armor < 0) {
         model.destroyed = true;
-        if (attacker.resolve(all)) |by| if (friendly_fire.destroyedFriend(world, index, by, kind)) friendly_fire.friendDestroyed(world);
+        friendly_fire.destroyed(world, index, attacker, kind, struck.class == .hull);
     }
     const display = smartTargeting(world, attacker, kind) orelse return;
     if (object.side != .hostile) return;

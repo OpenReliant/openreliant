@@ -3,8 +3,7 @@
 //! original source file. The code follows the motion routines, between `explode.cpp` and
 //! `gameflow.cpp`. See `docs/engine/orders.md`.
 //!
-//! Co-op warnings follow the pilot who dealt the damage. Co-op recall and carrier abort are
-//! tracked in [#1395](https://github.com/OpenReliant/openreliant/issues/1395).
+//! In co-op the host owns recall decisions and addresses radio lines to the affected pilots.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -13,6 +12,8 @@ const math = @import("../surrender/math.zig");
 const ai = @import("ai.zig");
 const aigeneric = @import("aigeneric.zig");
 const ailand = @import("ailand.zig");
+const create = @import("create.zig");
+const players = @import("players.zig");
 const collision = @import("collision.zig");
 const gameobj = @import("gameobj.zig");
 const input = @import("../input.zig");
@@ -60,11 +61,7 @@ fn friendlyHit(world: gameobj.World, index: u16, kind: collision.Kind) bool {
 pub fn warn(world: gameobj.World, index: u16, attacker: gameobj.DamageSource, kind: collision.Kind, damage: f32) void {
     if (!friendlyHit(world, index, kind)) return;
     const all = world.objects;
-    const audience: collision.HitFeedback.Audience = switch (world.damage_rules) {
-        .campaign => if (attacker.resolve(all) == all.player) .local else return,
-        .cooperative => .{ .participant = all.playerBindingFor(attacker.object, attacker.participant_generation) orelse return },
-        .arena => return,
-    };
+    const audience = shooter(world, attacker) orelse return;
     const kept = &all.player_states[attacker.object.slot].friendly_fire;
     kept.damage += damage;
     if (kept.damage <= warn_over or kept.quiet_until >= world.clock.game_ticks) return;
@@ -74,38 +71,119 @@ pub fn warn(world: gameobj.World, index: u16, attacker: gameobj.DamageSource, ki
     radio.mooseSaysOneOfTo(world, audience, &warnings);
 }
 
-/// `player_friend_destroyed` (`0x00474E00`) marks the player's ship for recall. A qualifying
-/// friendly kill or the script's `FriendlyFire` command can set the mark.
-pub fn friendDestroyed(world: gameobj.World) void {
+fn shooter(world: gameobj.World, source: gameobj.DamageSource) ?collision.HitFeedback.Audience {
     const all = world.objects;
-    all.slots[all.player].object.sent_home = .friend_destroyed;
+    return switch (world.damage_rules) {
+        .campaign => if (source.resolve(all) == all.player) .local else null,
+        .cooperative => .{ .participant = all.playerBindingFor(source.object, source.participant_generation) orelse return null },
+        .arena => null,
+    };
 }
 
-/// `object_armor_damage` (`0x0046446D`) checks if the local player's hit destroyed a friend.
-/// A collision with a pod counts only if its invulnerability allows only player hits.
-pub fn destroyedFriend(world: gameobj.World, index: u16, attacker: u16, kind: collision.Kind) bool {
-    const object = &world.objects.slots[index].object;
-    if (attacker != world.objects.player or !friendlyHit(world, index, kind)) return false;
-    return !(object.flags.ejected and kind == .collision and object.invulnerable != .player_can_hit);
+/// `cmd_FriendlyFire` (0x00459F30) has no target and calls `player_friend_destroyed(0)`.
+/// The original mission command recalls the local pilot on each machine running the script.
+/// The host applies that command once to the bound co-op pilots.
+pub fn scriptRecall(world: gameobj.World) void {
+    const all = world.objects;
+    switch (world.damage_rules) {
+        .campaign => all.slots[all.player].object.sent_home = .friend_destroyed,
+        .cooperative => markCrew(world, .friend_destroyed),
+        .arena => {},
+    }
 }
 
-/// `mission_frame`'s care of a player's ship to be sent home (`0x0049298C`), each frame after the
-/// orders, with `friendly_fire_send_home` (`0x00474B40`): where the player's ship is in the action
-/// and marked, the mission goes on and the ship's current order has no priority, the mission's
-/// ending becomes the friendly fire's, and the ship takes Friendly Fire aimed at its current
-/// order's index and component taken as a ship's (`order_push_ship`), out of the action.
+/// `player_friend_destroyed` (0x00474E00). Armour damage checks the object's protection;
+/// component damage also checks that the part whose armour ran out was the hull (0x00464951).
+pub fn destroyed(world: gameobj.World, index: u16, source: gameobj.DamageSource, kind: collision.Kind, hull: bool) void {
+    if (!friendlyHit(world, index, kind)) return;
+    const all = world.objects;
+    const object = &all.slots[index].object;
+    const player_only = object.invulnerable == .player_can_hit;
+    if (object.flags.ejected and kind == .collision and !player_only) return;
+    const audience = shooter(world, source) orelse return;
+    switch (audience) {
+        .local => all.slots[all.player].object.sent_home = .friend_destroyed,
+        .participant => |binding| {
+            const state = &all.player_states[binding.participant.slot];
+            if (state.membership.joined.ending != .playing) return;
+            if (hull and player_only) {
+                state.recall = .told;
+                markCrew(world, .crew_abort);
+            } else if (state.recall == .none) state.recall = .friend_destroyed;
+        },
+    }
+}
+
+/// The original message 0x49 leaves an existing mark intact (0x004B9389).
+fn markCrew(world: gameobj.World, mark: gameobj.SentHome) void {
+    const all = world.objects;
+    for (all.player_states[0..all.players], 0..) |*state, i| {
+        if (all.playerBinding(@intCast(i)) == null) continue;
+        if (state.recall == .none and state.membership.joined.ending == .playing) state.recall = mark;
+    }
+}
+
+/// `friendly_fire_send_home` (0x00474B40) runs after orders. The campaign runs the
+/// pilot's return to the carrier. In shared flight the original gives the recalled ship
+/// Jump Out (0x00474C5A). **Improvement:** the host makes that decision for each pilot.
 pub fn sendHome(ctx: aigeneric.Context) void {
     const world = ctx.world;
     const all = world.objects;
-    const slot = &all.slots[all.player];
-    const object = &slot.object;
-    if (object.flags.outOfAction() or object.sent_home == .none) return;
-    if (world.player.ending != .playing) return;
-    const current = slot.current() orelse return;
-    if (aigeneric.prioritised(all, current.order)) return;
-    world.player.ending = if (object.sent_home == ._unknown_3) ._unknown_7 else .friendly_fire;
-    _ = aigeneric.give(ctx, all.player, .friendly_fire, current.target.asShip(all));
-    object.flags.sent_off = true;
+    switch (world.damage_rules) {
+        .campaign => {
+            const slot = &all.slots[all.player];
+            const object = &slot.object;
+            if (object.flags.outOfAction() or object.sent_home == .none or world.player.ending != .playing) return;
+            const current = slot.current() orelse return;
+            if (aigeneric.prioritised(all, current.order)) return;
+            world.player.ending = endingFor(object.sent_home);
+            _ = aigeneric.give(ctx, all.player, .friendly_fire, current.target.asShip(all));
+            object.flags.sent_off = true;
+        },
+        .cooperative => {
+            for (all.player_states[0..all.players], 0..) |*state, i| {
+                if (state.recall == .none) continue;
+                const binding = all.playerBinding(@intCast(i)) orelse continue;
+                sendParticipantHome(ctx, binding, state.recall);
+            }
+        },
+        .arena => {},
+    }
+}
+
+/// Finish a co-op recall after the last active pilot leaves and the shared jumps finish.
+pub fn recallComplete(all: *const create.Objects) bool {
+    var recalled = false;
+    for (all.player_states[0..all.players], 0..) |state, i| {
+        if (state.membership != .joined) continue;
+        recalled = recalled or state.membership.joined.ending.sentHome();
+        if (all.playerBinding(@intCast(i)) == null) continue;
+        const slot = &all.slots[i];
+        if (!slot.object.flags.outOfAction() or slot.running(.jump_out) != null) return false;
+    }
+    return recalled;
+}
+
+fn endingFor(mark: gameobj.SentHome) @import("main.zig").Ending {
+    return if (mark == .crew_abort) ._unknown_7 else .friendly_fire;
+}
+
+fn sendParticipantHome(ctx: aigeneric.Context, binding: players.ControlRef, mark: gameobj.SentHome) void {
+    const world = ctx.world;
+    const all = world.objects;
+    const index = binding.participant.slot;
+    const slot = &all.slots[index];
+    if (slot.object.flags.outOfAction()) return;
+    if (slot.current()) |order| if (aigeneric.prioritised(all, order.order)) return;
+    if (!aigeneric.give(ctx, index, .jump_out, .none)) return;
+    // An order hook can change the ship before the push returns.
+    if (!std.meta.eql(all.playerBinding(index), @as(?players.ControlRef, binding))) return;
+    const state = &all.player_states[index];
+    state.recall = .none;
+    state.membership.joined.ending = endingFor(mark);
+    slot.object.sent_home = mark;
+    slot.object.flags.sent_off = true;
+    recallLine(world, .{ .participant = binding }, mark, state.carrier);
 }
 
 /// What Friendly Fire keeps in the object's order state.
@@ -155,13 +233,17 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     const slot = &world.objects.slots[index];
     slot.state.friendly_fire.stage = .speaking;
     slot.state.friendly_fire.until = ctx.world.clock.frame_start + speaking_ticks;
-    switch (slot.object.sent_home) {
-        .told, ._unknown_3 => {
-            const reliant = if (world.player.carrierIn(world.objects)) |carrier| world.objects.slots[carrier].object.type.base() == .reliant else false;
-            const pilot = if (reliant) reliant_aborts else other_aborts;
-            radio.pilotSays(world, pilot, .talking, abort_line, .queued, .looping, radio.no_expiry);
+    recallLine(world, .local, slot.object.sent_home, world.player.carrier);
+}
+
+fn recallLine(world: gameobj.World, audience: collision.HitFeedback.Audience, mark: gameobj.SentHome, carrier: ?gameobj.ObjectRef) void {
+    switch (mark) {
+        .told, .crew_abort => {
+            const index = if (carrier) |ship| ship.resolve(world.objects) else null;
+            const reliant = if (index) |i| world.objects.slots[i].object.type.base() == .reliant else false;
+            radio.pilotSaysTo(world, audience, if (reliant) reliant_aborts else other_aborts, .talking, abort_line, .queued, .looping, radio.no_expiry);
         },
-        else => radio.mooseSaysOneOf(world, &home_lines),
+        else => radio.mooseSaysOneOfTo(world, audience, &home_lines),
     }
 }
 
@@ -281,7 +363,6 @@ test warn {
 }
 
 test "hosted friendly-fire warnings track each shooter across damage paths" {
-    const create = @import("create.zig");
     const objects = @import("objects.zig");
     const gpa = std.testing.allocator;
     var model: create.testing.Model = undefined;
@@ -382,22 +463,20 @@ test mix {
     try std.testing.expectApproxEqAbs(players_share, mix(0, 1), 1e-6);
 }
 
-test destroyedFriend {
+test "a collision with a friendly pod recalls the pilot only when the pod takes player hits alone" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const world = mission.world();
     _ = try mission.add(.of(.predator), @splat(0));
     const friend = try mission.add(.of(.predator), .{ 0, 0, 1000 });
-    try std.testing.expect(destroyedFriend(world, friend, 0, .bullet));
-    // A collision with a pilot's pod that anything could harm is no friend destroyed; with one only
-    // a player could, it is.
+    const by: gameobj.DamageSource = .of(world.objects, 0);
     mission.slot(friend).object.flags.ejected = true;
-    try std.testing.expect(!destroyedFriend(world, friend, 0, .collision));
+    destroyed(world, friend, by, .collision, true);
+    try std.testing.expectEqual(.none, mission.slot(0).object.sent_home);
     mission.slot(friend).object.invulnerable = .player_can_hit;
-    try std.testing.expect(destroyedFriend(world, friend, 0, .collision));
-    mission.slot(friend).object.side = .hostile;
-    try std.testing.expect(!destroyedFriend(world, friend, 0, .bullet));
+    destroyed(world, friend, by, .collision, true);
+    try std.testing.expectEqual(.friend_destroyed, mission.slot(0).object.sent_home);
 }
 
 test "a player who destroys a friend is sent home, and lands" {
@@ -416,7 +495,7 @@ test "a player who destroys a friend is sent home, and lands" {
     sendHome(ctx);
     try std.testing.expectEqual(.playing, heard.mission.player.ending);
     // Marked, the mission ends with the friendly fire, and the ship takes Friendly Fire.
-    friendDestroyed(world);
+    scriptRecall(world);
     sendHome(ctx);
     try std.testing.expectEqual(.friendly_fire, heard.mission.player.ending);
     try std.testing.expectEqual(.friendly_fire, player.current().?.order);
@@ -454,7 +533,7 @@ test "a player sent home to a carrier that offers no landing flies on" {
     const player = &all.slots[0];
     heard.mission.player.carrier = .of(heard.mission.objects, try heard.mission.add(.of(.victorious), .{ 0, 0, 5000 }));
     _ = try aigeneric.pushShip(ctx, 0, .player_control, heard.enemy, null);
-    friendDestroyed(world);
+    scriptRecall(world);
     sendHome(ctx);
     heard.mission.clock.frame_start = 1000;
     init(ctx, 0);
@@ -466,4 +545,172 @@ test "a player sent home to a carrier that offers no landing flies on" {
     update(ctx, 0);
     try std.testing.expectEqual(.player_control, player.current().?.order);
     try std.testing.expect(!player.object.flags.sent_off);
+}
+
+test "co-op recall, crew abort and mission-script recall follow the pilots across cockpit changes" {
+    const main = @import("main.zig");
+    const Notice = collision.HitFeedback.Addressed;
+    const Recorder = struct {
+        lines: [2]Notice = undefined,
+        count: usize = 0,
+
+        fn enqueue(context: *anyopaque, notice: Notice) void {
+            if (notice.effect != .radio_line) return;
+            const recorder: *@This() = @ptrCast(@alignCast(context));
+            recorder.lines[recorder.count] = notice;
+            recorder.count += 1;
+        }
+    };
+    const Case = enum { ordinary, crew_abort, scripted };
+    for (std.enums.values(Case)) |case| {
+        for ([_]u16{ 0, 1 }) |viewer| {
+            var heard: radio.testing.Heard = undefined;
+            try heard.init();
+            defer heard.deinit();
+            const mission = &heard.mission;
+            var world = mission.world();
+            world.damage_rules = .cooperative;
+            const all = world.objects;
+            all.players = 2;
+            all.player = viewer;
+            var recorder: Recorder = .{};
+            world.hit_feedback = .{ .context = &recorder, .enqueue = Recorder.enqueue };
+            const ctx: aigeneric.Context = .of(world);
+            for (0..2) |i| {
+                const index: u16 = @intCast(i);
+                const ref = all.joinParticipant(index).?;
+                _ = all.bindParticipant(ref, .of(all, index)).?;
+                _ = try aigeneric.push(ctx, index, .multiplayer_control, .none);
+            }
+            const reliant = try mission.add(.of(.reliant), @splat(0));
+            all.player_states[1].carrier = .of(all, reliant);
+            const target = mission.slot(heard.enemy);
+            target.object.side = .friendly;
+            target.object.armor = .all(1);
+            switch (case) {
+                .scripted => scriptRecall(world),
+                .ordinary, .crew_abort => {
+                    if (case == .crew_abort) {
+                        target.object.invulnerable = .player_can_hit;
+                        target.object.flags.ejected = true;
+                    }
+                    collision.armorDamage(world, heard.enemy, .fore, 50, 1, .bullet);
+                },
+            }
+            sendHome(ctx);
+            sendHome(ctx);
+            try std.testing.expectEqual(.playing, world.player.ending);
+            try std.testing.expectEqual(.friendly_fire, all.player_states[1].membership.joined.ending);
+            try std.testing.expectEqual(if (case == .ordinary) @as(usize, 1) else 2, recorder.count);
+            try std.testing.expectEqual(switch (case) {
+                .ordinary => main.Ending.playing,
+                .crew_abort => main.Ending._unknown_7,
+                .scripted => main.Ending.friendly_fire,
+            }, all.player_states[0].membership.joined.ending);
+            for (recorder.lines[0..recorder.count], 0..) |line, i| {
+                const index: u16 = if (case == .ordinary) 1 else @intCast(i);
+                try std.testing.expectEqual(all.playerBinding(index).?, line.recipient);
+                try std.testing.expect(all.slots[index].running(.jump_out) != null);
+                try std.testing.expect(all.slots[index].object.flags.sent_off);
+                const client = heard.world();
+                all.player = index;
+                try std.testing.expect(line.present(client));
+                if (case == .crew_abort) {
+                    const pilot: i32 = if (index == 1) reliant_aborts else other_aborts;
+                    try heard.expectLine(i, radio.pilot_base + pilot, &.{abort_line});
+                } else try heard.expectLine(i, radio.pilot_base + 4, &home_lines);
+            }
+
+            all.player = viewer;
+            try std.testing.expect(!main.missionOver(world));
+            for (0..300) |_| {
+                mission.clock.frame_duration = 10;
+                mission.clock.frame_start += 10;
+                for (0..2) |i| if (all.slots[i].running(.jump_out) != null) {
+                    aigeneric.objectOrders(ctx, @intCast(i));
+                };
+                if (all.slots[1].object.flags.disabled and
+                    (case == .ordinary or all.slots[0].object.flags.disabled)) break;
+            }
+            try std.testing.expect(all.slots[1].object.flags.disabled);
+            try std.testing.expectEqual(case != .ordinary, all.slots[0].object.flags.disabled);
+            try std.testing.expectEqual(case != .ordinary, main.missionOver(world));
+            if (case != .ordinary) {
+                try std.testing.expectEqual(.friendly_fire, world.player.ending);
+                try std.testing.expectEqual(all.player_states[viewer].membership.joined.ending, main.displayedEnding(all, world.player));
+            }
+            all.reset(&mission.random);
+            try std.testing.expectEqual(.playing, all.player_states[1].membership.joined.ending);
+            try std.testing.expect(!main.missionOver(world));
+        }
+    }
+}
+
+test "a pending co-op recall and old damage cannot follow a new admission on the same ship" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var world = mission.world();
+    world.damage_rules = .cooperative;
+    const ctx: aigeneric.Context = .of(world);
+    const all = world.objects;
+    const pilot = try mission.add(.of(.predator), @splat(0));
+    const friend = try mission.add(.of(.predator), @splat(0));
+    const ref = all.joinParticipant(pilot).?;
+    const binding = all.bindParticipant(ref, .of(all, pilot)).?;
+    const old: gameobj.DamageSource = .of(all, pilot);
+    _ = try aigeneric.push(ctx, pilot, .jump_in, .none);
+    destroyed(world, friend, old, .bullet, true);
+    sendHome(ctx);
+    const state = &all.player_states[pilot];
+    try std.testing.expectEqual(.friend_destroyed, state.recall);
+    try std.testing.expectEqual(.playing, state.membership.joined.ending);
+    try std.testing.expect(create.Objects.leaveParticipant(world, ref));
+    const next = all.joinParticipant(pilot).?;
+    _ = all.bindParticipant(next, binding.ship).?;
+    mission.slot(friend).object.invulnerable = .player_can_hit;
+    destroyed(world, friend, old, .bullet, true);
+    try std.testing.expectEqual(.none, state.recall);
+    world.damage_rules = .{ .arena = null };
+    destroyed(world, friend, .of(all, pilot), .bullet, true);
+    scriptRecall(world);
+    sendHome(ctx);
+    try std.testing.expectEqual(.none, state.recall);
+    try std.testing.expectEqual(.none, mission.slot(pilot).object.sent_home);
+}
+
+test "losing a player-only friendly component aborts co-op only for a hull" {
+    const objects = @import("objects.zig");
+    const gpa = std.testing.allocator;
+    var model: create.testing.Model = undefined;
+    try model.init(gpa);
+    defer model.deinit(gpa);
+    model.data[0].part.flags.component = true;
+    model.data[0].part.component_armor = 100;
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(gpa);
+    defer mission.deinit();
+    var host = mission.world();
+    host.damage_rules = .cooperative;
+    const all = host.objects;
+    all.players = 2;
+    for (0..2) |_| {
+        const ship = try mission.add(.of(.predator), @splat(0));
+        const pilot = all.joinParticipant(ship).?;
+        _ = all.bindParticipant(pilot, .of(all, ship)).?;
+    }
+    const friend = try mission.addWith(model.types(), .of(.kamov), @splat(0));
+    const slot = mission.slot(friend);
+    slot.object.side = .friendly;
+    slot.object.invulnerable = .player_can_hit;
+    const part: objects.PartRef = .{ .model = &slot.model.?, .index = 0 };
+    part.part().class = .none;
+    collision.componentDamage(host, friend, part, 150, 0, .bullet);
+    try std.testing.expectEqual(.friend_destroyed, all.player_states[0].recall);
+    try std.testing.expectEqual(.none, all.player_states[1].recall);
+    part.part().class = .hull;
+    part.part().armor = 100;
+    collision.componentDamage(host, friend, part, 150, 1, .screamer);
+    try std.testing.expectEqual(.told, all.player_states[1].recall);
+    try std.testing.expectEqual(.friend_destroyed, all.player_states[0].recall);
 }

@@ -138,6 +138,11 @@ pilot's binding. The host keeps each warning's state and runs the `radio_say` ho
 radio applies the checks and deadlines for each type of line. See [Radio remarks](radio.md#remarks)
 and [Friendly fire](orders.md#friendly-fire).
 
+In co-op the host records each pilot's mission ending. A friendly-fire recall waits for the
+bound ship's priority order to finish. Replacing the ship or leaving the session cancels a
+pending recall. Once the ship is sent off, its pilot keeps the outcome until the next mission.
+The other pilots can keep flying. See [Friendly fire](orders.md#friendly-fire).
+
 ## Kill credit
 
 `explode_kill_credit` (0x00408500) calls `kills_add` (0x004B14F0) before the radio remark.
@@ -165,8 +170,7 @@ The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/95
   participant outcomes and game mode rules for ship disposition and respawn.
 - [#1368](https://github.com/OpenReliant/openreliant/issues/1368): wingman loss, target feedback,
   device notifications and the remaining local combat rules.
-- [#1395](https://github.com/OpenReliant/openreliant/issues/1395): co-op friendly-fire recall and
-  the carrier's abort message.
+- [#1401](https://github.com/OpenReliant/openreliant/issues/1401): the recalled pilot's cockpit return to the carrier.
 
 This state split does not add a network session or change mission files. Single player remains
 one participant running the existing simulation and presentation paths.

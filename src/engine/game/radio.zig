@@ -334,8 +334,12 @@ fn busy(world: gameobj.World) bool {
 
 /// `Radio.sayPilot` on the world's radio, where it has one.
 pub fn pilotSays(world: gameobj.World, pilot: u16, head: pilots.Head, speech: []const u8, mode: Mode, flags: hudmovie.Flags, expiry: i32) void {
-    const radio, const ctx = onAir(world) orelse return;
-    radio.sayPilot(ctx, pilot, head, speech, mode, flags, expiry);
+    pilotSaysTo(world, .local, pilot, head, speech, mode, flags, expiry);
+}
+
+pub fn pilotSaysTo(world: gameobj.World, audience: collision.HitFeedback.Audience, pilot: u16, head: pilots.Head, speech: []const u8, mode: Mode, flags: hudmovie.Flags, expiry: i32) void {
+    const route = Destination.of(world, audience) orelse return;
+    route.sayPilot(.of(world), pilot, head, speech, mode, flags, expiry);
 }
 
 /// `Radio.sayShip` on the world's radio, where it has one.

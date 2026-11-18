@@ -442,14 +442,13 @@ pub const NetworkFlags = packed struct(u32) {
 /// `+0x678`), which `friendly_fire.sendHome` reads.
 pub const SentHome = enum(i32) {
     none = 0,
-    /// It destroyed a friend (`friendly_fire.friendDestroyed`).
+    /// The pilot destroyed a friend or the mission script ordered a recall.
     friend_destroyed = 1,
     /// In a multiplayer game, it destroyed a pilot's pod only a player could harm, which the
     /// other players are told of; its carrier aborts the mission.
     told = 2,
-    /// **Unknown:** as `told`, which a multiplayer game's code sets; the mission's ending is then
-    /// `main.Ending._unknown_7`.
-    _unknown_3 = 3,
+    /// Another pilot triggered the crew abort (message 0x49). This pilot receives ending 7.
+    crew_abort = 3,
     _,
 };
 

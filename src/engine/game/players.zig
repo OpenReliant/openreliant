@@ -34,6 +34,7 @@ pub const Membership = union(enum) {
         generation: u64,
         ship: ?gameobj.ObjectRef = null,
         kills: Kills = .{},
+        ending: @import("main.zig").Ending = .playing,
     };
 };
 
@@ -77,11 +78,16 @@ pub const State = struct {
     /// The game tick past which this pilot can receive another kill remark (`0x00529CB8`).
     kill_remark_next: u32 = 0,
     friendly_fire: friendly_fire.Warnings = .{},
+    /// A recall waiting for the bound ship's current order to give way.
+    recall: gameobj.SentHome = .none,
+    carrier: ?gameobj.ObjectRef = null,
 
     /// Drops all state tied to the old ship while keeping the participant's admission.
     pub fn unbindShip(state: *State) void {
         if (state.membership != .joined) return;
         state.membership.joined.ship = null;
+        state.recall = .none;
+        state.carrier = null;
         state.command = null;
         state.controls = .{};
         state.weapons = .{};
@@ -98,6 +104,7 @@ pub const State = struct {
     pub fn resetMission(state: *State) void {
         if (state.membership == .joined) {
             state.membership.joined.kills.mission = 0;
+            state.membership.joined.ending = .playing;
             return state.unbindShip();
         }
         state.shield_reserves = .{};

@@ -260,6 +260,17 @@ const settle_ticks = 200;
 /// place along its formation (`0x004DC408`).
 const settle_input: f32 = 0.5;
 
+/// A co-op recall runs the original's remote Jump Out in the shared world (0x00474C5A).
+/// It leaves the mission independently of the ship displayed on the host.
+fn recalled(world: gameobj.World, index: u16) bool {
+    const object = &world.objects.slots[index].object;
+    return world.damage_rules == .cooperative and object.flags.sent_off and object.sent_home != .none;
+}
+
+fn localJump(world: gameobj.World, index: u16) bool {
+    return index == world.objects.player and !recalled(world, index);
+}
+
 /// `order_jump_out_init` (`0x00416D50`): the ship in slot `index` jumps out. Its throttle goes, it
 /// is placed for its jump (`placeOut`), and it is heard (`jumponline`, among the player's own
 /// sounds for the player's ship, whose camera watches it from the jump's view, locked). A player's
@@ -275,7 +286,7 @@ pub fn outInit(ctx: aigeneric.Context, index: u16) void {
     state.with_player = false;
     placeOut(ctx, index);
     sound3d.playIn(world, null, null, index, .jumponline, 1, sound3d.fxClass(all, index));
-    if (index == all.player) _ = camera.switchJump(world, .jump_out, index, .of(slot), .of(slot));
+    if (localJump(world, index)) _ = camera.switchJump(world, .jump_out, index, .of(slot), .of(slot));
     if (index < all.players) cloak.set(world, index, false);
 }
 
@@ -312,7 +323,7 @@ pub fn outUpdate(ctx: aigeneric.Context, index: u16) void {
     const now = ctx.world.clock.frame_start;
     const dt = gameobj.progressSince(&state.updated, now);
     object.nova_charge = 0;
-    if (index == all.player) if (world.events) |waiting| {
+    if (localJump(world, index)) if (world.events) |waiting| {
         waiting.script.variables.ready.jump = .no;
     };
     switch (state.step.out) {
@@ -394,7 +405,8 @@ fn end(ctx: aigeneric.Context, index: u16) void {
     object.flags.thaw();
     slot.motion = slot.motion_aside;
     const entry = slot.orders[0];
-    if (index == all.player) {
+    const local = localJump(ctx.world, index);
+    if (local) {
         for (all.slots[0..all.count]) |*each| each.object.flags.jumping = false;
     }
     freeEffect(ctx.world, state);
@@ -407,7 +419,7 @@ fn end(ctx: aigeneric.Context, index: u16) void {
         return;
     };
     object.flags.jumping = false;
-    if (index != all.player or !object.flags.sent_off) object.flags.disabled = true;
+    if (!local or !object.flags.sent_off) object.flags.disabled = true;
     state.destination.y = gone_depth;
     objects.setPosition(object, &slot.drawn, state.destination.vector());
     aigeneric.end(ctx, index);
@@ -455,7 +467,7 @@ fn placeOut(ctx: aigeneric.Context, index: u16) void {
     const state = &slot.state.jump;
     const entry = slot.orders[0];
     const player = &all.slots[all.player];
-    const leading = jumpsOutAt(all, player, entry.target.resolve(all).index);
+    const leading = !recalled(world, index) and !recalled(world, all.player) and jumpsOutAt(all, player, entry.target.resolve(all).index);
     const named = entry.target.slotIn(all);
     if (!leading) {
         if (named) |target| if (target != index) {

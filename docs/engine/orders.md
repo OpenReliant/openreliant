@@ -883,10 +883,29 @@ Friendly Fire keeps its stage (`+0x00`) and the frame's tick it ends at (`+0x04`
 **Fix:** the game reads the carrier through a null pointer where the player launched from none;
 OpenReliant lets the ship fly on as the player has it, and then ends the order.
 
-Co-op recall and carrier abort are tracked in [#1395](https://github.com/OpenReliant/openreliant/issues/1395).
-The original sends a friendly-fire message from `net_send_friendly_fire` (`0x004BB920`). A
-qualifying pod kill marks the offender for the carrier's abort line and tells the other players
-to abort too. The Reliant uses pilot 27 for `abrt_001` (`0x00500990`). Other carriers use pilot 28.
+#### Co-op recall
+
+The original sends message 0x49 from `net_send_friendly_fire` (0x004BB920). On receipt, a
+clear bit marks only the sender for recall. A set bit marks every unmarked pilot for a crew
+abort (0x004B933E). Armour damage requests this abort when only a player can harm the victim
+(0x004644B1). Component damage also requires the destroyed part to be the hull (0x00464951).
+
+| Cause | Offending pilot | Other active pilots |
+| --- | --- | --- |
+| Ordinary friendly kill or component loss | Moose recalls the pilot, ending 6 | Keep flying |
+| Qualifying armour or hull kill | Carrier abort, ending 6 | Each unmarked pilot gets the carrier abort, ending 7 |
+
+**Improvement:** the host checks the admission and ship that owned the hit. It queues each
+recall until the ship can leave. A new admission or a replacement ship cannot inherit the mark.
+The script command has no arguments and issues the local recall in the original (0x00459F30).
+The host runs it once for the bound co-op pilots. Arenas skip friendly-fire recalls.
+
+In the shared world, a recalled ship gets Jump Out with no target (0x00474C5A). Each pilot
+hears the line for their own outcome. The Reliant uses pilot 27 for `abrt_001`; other carriers
+use pilot 28. The host waits for the shared departures before ending a recall that leaves
+nobody in action. The mission-end hook receives the shared friendly-fire ending. Each pilot's
+presentation receives their own ending. The original pilot's cockpit return is tracked in
+[#1401](https://github.com/OpenReliant/openreliant/issues/1401).
 
 ### The Ripper
 
