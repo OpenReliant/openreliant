@@ -243,7 +243,7 @@ pub const functions = struct {
         .address = 0x004562D0,
         .about = "The radio says a line: the speech file `speech`, its speaker's face playing the film `film`, as `mode` has it, at once (`now`), queued, or queued unless the radio is busy (`if_idle`). A handler can change the names, to say another line, or stop it, so that nothing is said and what waits for it goes on.",
         .Fields = struct {
-            _radio: *radio.Radio,
+            _destination: radio.Destination,
             speech: radio.LineName,
             film: radio.LineName,
             _line: radio.Line,

@@ -55,6 +55,8 @@ pub const State = struct {
     /// Tick of the last sound on this pilot's hull (`0x00593794`). It resets with the armour
     /// warning cooldown when a hosted ship is replaced.
     hull_heard_at: i32 = 0,
+    /// The frame tick past which an enemy may taunt this pilot again (`0x005297EC`).
+    taunt_next: i32 = 0,
 
     /// Drops all state tied to the old ship while keeping the participant's admission.
     pub fn unbindShip(state: *State) void {
@@ -67,6 +69,7 @@ pub const State = struct {
         state.shield_reserves = .{};
         state.armor_warned_at = 0;
         state.hull_heard_at = 0;
+        state.taunt_next = 0;
     }
 
     pub fn resetMission(state: *State) void {
@@ -75,6 +78,7 @@ pub const State = struct {
         state.command = null;
         state.weapons.lock.reset();
         state.charges = ship_devices.full;
+        state.taunt_next = 0;
     }
 };
 
