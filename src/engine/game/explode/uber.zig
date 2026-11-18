@@ -27,7 +27,8 @@ const srcore = @import("../../surrender/surrenderlib/srcore.zig");
 const srtexture = @import("../../surrender/surrenderlib/srtexture.zig");
 const ai = @import("../ai.zig");
 const aigeneric = @import("../aigeneric.zig");
-const Slot = @import("../create.zig").Slot;
+const create = @import("../create.zig");
+const Slot = create.Slot;
 const events = @import("../mission/events.zig");
 const explode = @import("../explode.zig");
 const gameobj = @import("../gameobj.zig");
@@ -204,10 +205,9 @@ pub const Images = struct {
 };
 
 /// A ship a blast listed, and whether the ball has reached it (the game adds 1000 to its slot).
-/// Retained victim identities are still tracked in
-/// [#1357](https://github.com/OpenReliant/openreliant/issues/1357).
+/// **Fix:** a replacement object cannot inherit a victim's place in an existing blast.
 pub const Caught = struct {
-    index: u16,
+    object: gameobj.ObjectRef,
     reached: bool = false,
 };
 
@@ -283,11 +283,12 @@ pub const Blast = struct {
         for (blast.listed()) |*caught| if (!caught.reached) blast.strike(world, caught);
     }
 
-    /// The ball reaching a ship it listed, unless the ship is exploding already or gone: a knock
-    /// away from the blast, off its middle; a spin about each axis; five fireballs about it, one
-    /// after another; and its orders dropped for Do Nothing.
+    /// Reaches an original victim that still exists and is not exploding. The blast knocks it
+    /// away from the origin, spins it, starts five fireballs in sequence and replaces its orders
+    /// with Do Nothing.
     fn strike(blast: *const Blast, world: gameobj.World, caught: *Caught) void {
-        const slot = &world.objects.slots[caught.index];
+        const index = caught.object.resolve(world.objects) orelse return;
+        const slot = &world.objects.slots[index];
         const object = &slot.object;
         if (object.type.base() == .stand_in) return;
         if (slot.running(.explode) != null) return;
@@ -303,8 +304,8 @@ pub const Blast = struct {
             explode.fireballAt(world, at, .{ .size = object.radius * fireball_share, .light = true, .delay = @intCast(n * fireball_gap) });
         }
         const ctx: aigeneric.Context = .of(world);
-        aigeneric.popAll(ctx, caught.index);
-        _ = aigeneric.give(ctx, caught.index, .do_nothing, .none);
+        aigeneric.popAll(ctx, index);
+        _ = aigeneric.give(ctx, index, .do_nothing, .none);
         caught.reached = true;
     }
 
@@ -521,7 +522,7 @@ pub const Uber = struct {
         for (all.slots[0..all.count], 0..) |*slot, index| {
             if (blast.caught_count == max_caught) break;
             if (index == all.player or !catches(slot, place.position, size)) continue;
-            blast.caught[blast.caught_count] = .{ .index = @intCast(index) };
+            blast.caught[blast.caught_count] = .{ .object = .of(all, @intCast(index)) };
             blast.caught_count += 1;
         }
 
@@ -585,13 +586,14 @@ pub const Uber = struct {
         const ctx: aigeneric.Context = .of(world);
         for (blast.listed()) |caught| {
             if (!caught.reached) continue;
-            const object = &world.objects.slots[caught.index].object;
+            const index = caught.object.resolve(world.objects) orelse continue;
+            const object = &world.objects.slots[index].object;
             object.rotation = math.identity;
             object.roll_rate = 0;
             object.pitch_rate = 0;
             object.yaw_rate = 0;
-            const entry = world.objects.slots[caught.index].current() orelse continue;
-            if (entry.order != .explode) ai.objectDestroyed(ctx, caught.index, false, true);
+            const entry = world.objects.slots[index].current() orelse continue;
+            if (entry.order != .explode) ai.objectDestroyed(ctx, index, false, true);
         }
         events.explodedFrom(world, blast.owner);
     }
@@ -763,7 +765,7 @@ test Uber {
     const blast = &uber.blast.?;
     const shown = &blast.shown.?;
     try std.testing.expectEqual(1, blast.caught_count);
-    try std.testing.expectEqual(near, blast.caught[0].index);
+    try std.testing.expectEqual(near, blast.caught[0].object.resolve(all).?);
     // Its halves start dark and faint, their rims clear; the rings spread.
     const rim = Shape.of(.original).hemisphere.ring(game_rings, 0);
     try std.testing.expectEqual([4]f32{ 0, 0, 0, half_alpha }, shown.half_colours[0]);
@@ -901,4 +903,55 @@ test "a blast where nothing is drawn" {
     stage.mission.clock.frame_start = 2001;
     uber.frame(world);
     try std.testing.expectEqual(.explode, world.objects.slots[near].current().?.order);
+}
+
+test "a blast cannot reach or destroy a replacement victim" {
+    for ([_]bool{ false, true }) |reached_before_removal| {
+        var stage: explode.testing.Stage = undefined;
+        try stage.initShowing(null);
+        defer stage.deinit();
+        const world = stage.world();
+        const all = world.objects;
+        const mission = &stage.mission;
+        const ctx: aigeneric.Context = .of(world);
+        _ = try mission.add(.of(.predator), @splat(0));
+        const replaced = try mission.add(.of(.sabre), .{ 0, 0, 3000 });
+        const live = try mission.add(.of(.sabre), .{ 0, 0, 4000 });
+        for ([_]u16{ replaced, live }) |index| _ = try aigeneric.push(ctx, index, .do_nothing, .none);
+        const uber = stage.explosions.uber;
+        mission.clock.frame_start = 1000;
+        uber.start(world, 0, .{ .position = @splat(0) }, 1000, 1000, .original);
+        try std.testing.expectEqual(2, uber.blast.?.caught_count);
+        if (reached_before_removal) {
+            mission.clock.frame_start = 1900;
+            uber.frame(world);
+            try std.testing.expect(uber.blast.?.caught[0].reached);
+        }
+        create.resetSlot(ctx, replaced);
+        _ = try create.createObject(all, &mission.tables, create.testing.no_models, replaced, .of(.sabre), 0, .{ 0, 0, 3000 }, &mission.random);
+        _ = try aigeneric.push(ctx, replaced, .fly_aimlessly, .none);
+        const replacement = &all.slots[replaced].object;
+        replacement.roll_rate = 0.1;
+        replacement.pitch_rate = 0.2;
+        replacement.yaw_rate = 0.3;
+        // A new ship in an unused slot also stays outside this blast's original list.
+        const later = try mission.add(.of(.sabre), .{ 0, 0, 3500 });
+        _ = try aigeneric.push(ctx, later, .fly_aimlessly, .none);
+        mission.clock.frame_start = 1900;
+        uber.frame(world);
+        try std.testing.expectEqual(reached_before_removal, uber.blast.?.caught[0].reached);
+        try std.testing.expectEqual(0, replacement.knocks);
+        try std.testing.expectEqual(.fly_aimlessly, all.slots[replaced].current().?.order);
+        try std.testing.expectEqual(0, all.slots[later].object.knocks);
+        try std.testing.expect(uber.blast.?.caught[1].reached);
+        mission.clock.frame_start = 2001;
+        uber.frame(world);
+        try std.testing.expectEqual(null, uber.blast);
+        try std.testing.expectEqual(@as(f32, 0.1), replacement.roll_rate);
+        try std.testing.expectEqual(@as(f32, 0.2), replacement.pitch_rate);
+        try std.testing.expectEqual(@as(f32, 0.3), replacement.yaw_rate);
+        try std.testing.expectEqual(.fly_aimlessly, all.slots[replaced].current().?.order);
+        try std.testing.expectEqual(.fly_aimlessly, all.slots[later].current().?.order);
+        try std.testing.expectEqual(.explode, all.slots[live].current().?.order);
+    }
 }

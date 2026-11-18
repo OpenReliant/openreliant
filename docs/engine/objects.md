@@ -91,9 +91,10 @@ reference. [Retained targets](orders.md#the-stack) use it too, including stacked
 missiles, turrets, the player's primary target and the HUD's cached target. The original's fixed
 layouts stay unchanged. Damage sources and last attackers also keep their original identities.
 Radio speakers, camera subjects, the player's carrier, attached sounds, NOVA beams and per-object
-shaders also use it. Camera shot holds capture each ship separately. Retained collision candidates
-and blast victims still need the same checks
-([#1357](https://github.com/OpenReliant/openreliant/issues/1357)).
+shaders also use it. Camera shot holds capture each ship separately. Projectile collision
+candidates and blast victims keep checked references too, from the initial search until impact
+or blast completion. These lists keep their original limits and order; later spawns do not enter
+an existing shot's or blast's search.
 These changes are tracked under
 [#946](https://github.com/OpenReliant/openreliant/issues/946).
 
