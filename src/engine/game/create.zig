@@ -919,7 +919,7 @@ pub const Objects = struct {
     /// leaves its input intact. The mission or game mode installs the ship's orders.
     pub fn bindParticipant(all: *Objects, ref: players.ParticipantRef, ship: gameobj.ObjectRef) ?players.ControlRef {
         const state = all.joinedParticipant(ref) orelse return null;
-        if (!all.canBindShip(ref.slot, ship)) return null;
+        if (state.membership.joined.ending != .playing or !all.canBindShip(ref.slot, ship)) return null;
         if (!std.meta.eql(state.membership.joined.ship, @as(?gameobj.ObjectRef, ship))) {
             state.unbindShip();
             state.membership.joined.ship = ship;

@@ -2192,6 +2192,11 @@ address	kind	name	type	comment
 00500850	data	friendly_fire_home_lines	char *[11]	Moose's words as the player is sent home, ff_013 to ff_023
 00500990	data	friendly_fire_abort_line	char[12]	The carrier's mission abort line, abrt_001.ut
 004bb920	function	net_send_friendly_fire	void __fastcall (int abort_mission)	Sends message 0x49. At 0x004B933E, a clear flag marks the sender for recall, and a set flag marks each player who has no recall mark for a mission abort
+005dcc98	data	net_message_sender_slot	int	The player slot matched to the incoming message's sender ID, used by message 0x49 for an individual recall
+004b6f20	function	net_read_unsigned_bits	uint __fastcall (int count)	Reads count bits from the message into a zeroed 32-bit integer and returns the unsigned value
+004b6e50	function	net_read_bits	int __fastcall (byte *out, int count)	Copies count bits from the received message to out and advances the read position
+005dcc9c	data	net_read_bit_position	int	The bit offset of the next field in the received message
+005dcce8	data	net_read_buffer	byte *	The buffer from which net_read_bits reads the received message
 004dc5ec	data	float_800	float	Shared constant 800.0 used as the friendly-fire damage threshold and the missile chase camera distance at idle throttle
 004287c0	function	interface_palette_ramp	void __fastcall (uint rgb)	The front end's copy of hud_palette_ramp: entries 1 to 15 of VFX's global palette, or on an 8-bit pane interface_text_remap, a ramp of rgb at palette_ramp_brightness, which its text is drawn through. The main menu writes in 0x40BCFF, gold 0xFDB951 under the pointer, and the developers' text in 0xFF0000
 004288e0	function	interface_init	void (void)	The front end's start-up: reads bank_stdsmp (stdsmp.fat), opens handel.fnt, interface\optfnt.fnt and interface\smlfnt2.fnt (interface_font_handel, interface_font_large, interface_font_small), and makes interface_text_remap

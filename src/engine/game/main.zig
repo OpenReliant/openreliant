@@ -112,8 +112,7 @@ pub const Ending = enum(u8) {
     /// The player's ship sent home for destroying a friend (`0x00474B40`), which gives it Friendly
     /// Fire, order 117; its landing begins at once (`ailand`).
     friendly_fire = 6,
-    /// **Unknown:** as `friendly_fire`, where the ship's `sent_home` is 3, which a multiplayer
-    /// game's code sets.
+    /// The crew's mission was aborted by another pilot (recall mark 3). Scripts read this as 7.
     _unknown_7 = 7,
     ejecting = 8,
     _,
@@ -756,7 +755,8 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     radio_module.remarksFrame(orders.world);
     input.nextNavPoint(orders.world);
     if (loaded) |playing| {
-        if (orders.world.clock.frame_duration != 0 and player.ending == .playing and player.showing != .landing) {
+        const running = orders.world.damage_rules == .cooperative or (player.ending == .playing and player.showing != .landing);
+        if (orders.world.clock.frame_duration != 0 and running) {
             playing.tickClock(orders.world.clock.game_ticks);
             playing.flush(orders);
             playing.process(orders);
@@ -932,11 +932,18 @@ test missionRunEnd {
 /// the player's carrier by taking its slot.
 pub fn followCarrier(world: gameobj.World) void {
     const all = world.objects;
-    const previous = world.player.carrier orelse return;
+    followLaunchCarrier(all, &world.player.carrier);
+    if (world.damage_rules == .cooperative) {
+        for (all.player_states[0..all.players]) |*state| followLaunchCarrier(all, &state.carrier);
+    }
+}
+
+fn followLaunchCarrier(all: *const create.Objects, tracked: *?gameobj.ObjectRef) void {
+    const previous = tracked.* orelse return;
     if (previous.resolve(all)) |carrier| if (!all.slots[carrier].object.flags.exploding) return;
     for (all.slots[0..all.count], 0..) |*slot, index| {
         if (slot.object.type.base() != .yamato) continue;
-        world.player.carrier = .of(all, @intCast(index));
+        tracked.* = .of(all, @intCast(index));
         return;
     }
 }
@@ -974,6 +981,11 @@ const shot_watched = 500;
 /// Not ported: a multiplayer game, where the camera goes on to watch another player
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
 pub fn missionOver(world: gameobj.World) bool {
+    if (world.damage_rules == .cooperative) {
+        if (!friendly_fire.recallComplete(world.objects)) return false;
+        world.player.ending = .friendly_fire;
+        return true;
+    }
     const viewing = &world.player.viewing;
     const now = world.clock.viewTime();
     const watched: u32 = switch (viewing.view) {
@@ -2564,7 +2576,7 @@ pub fn scriptSeed(random: *const Random, number: u16) u64 {
 /// ended (`hooks.Scripts.ended`): for the player (`player.ending`), and as the mission's script
 /// rated it.
 pub fn endMission(all: *create.Objects, player: *const input.Player, loaded: *Loaded) void {
-    if (all.scripts) |scripts| scripts.ended(scriptOutcome(player, loaded));
+    if (all.scripts) |scripts| scripts.ended(scriptOutcome(player.ending, loaded));
     loaded.destroy();
 }
 
@@ -2574,10 +2586,16 @@ pub fn scriptMission(buffer: *[winmain.mission_path_size]u8, all: *const create.
     return .{ .number = number, .file = winmain.missionFileName(buffer, file, all.mission25_second_part) };
 }
 
-/// OpenReliant's: how the mission `loaded` ended as the mods' scripts hear of it: for the player
-/// (`player.ending`), and as the mission's script rated it.
-pub fn scriptOutcome(player: *const input.Player, loaded: *const Loaded) hooks.Outcome {
-    return .{ .ending = player.ending, .rating = loaded.script.variables.mission_success };
+/// The displayed pilot's own outcome takes precedence over the shared mission ending.
+pub fn displayedEnding(all: *const create.Objects, player: *const input.Player) Ending {
+    const membership = all.player_states[all.player].membership;
+    if (membership == .joined and membership.joined.ending != .playing) return membership.joined.ending;
+    return player.ending;
+}
+
+/// The pilot or session ending and the mission script's rating, as reported to mods.
+pub fn scriptOutcome(ending: Ending, loaded: *const Loaded) hooks.Outcome {
+    return .{ .ending = ending, .rating = loaded.script.variables.mission_success };
 }
 
 /// Fits the ship's devices as the mission starts. The HUD also takes the ship's blind fire and

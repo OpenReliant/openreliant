@@ -802,9 +802,9 @@ fn halfwordSet(argument: u32) bool {
 }
 
 /// `cmd_FriendlyFire` (`0x00459F30`, command `0x57`): the player's ship is to be sent home as for
-/// destroying a friend (`friendly_fire.friendDestroyed`).
+/// destroying a friend (`friendly_fire.scriptRecall`).
 fn friendlyFire(_: Call, game: aigeneric.Context) void {
-    friendly_fire.friendDestroyed(game.world);
+    friendly_fire.scriptRecall(game.world);
 }
 
 /// The commands that set a flag of the radio's remarks (`radio.Remarks`) while the argument,

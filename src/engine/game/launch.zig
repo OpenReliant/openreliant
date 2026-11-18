@@ -319,6 +319,7 @@ pub fn init(ctx: aigeneric.Context, index: u16) void {
     }
     const carrier = entry.target.slotIn(all) orelse return;
     if (index == all.player) ctx.world.player.carrier = .of(all, carrier);
+    if (all.playerBinding(index) != null) all.player_states[index].carrier = .of(all, carrier);
     const carrier_type = all.slots[carrier].object.type;
     state.style = Style.of(slot.object.type, carrier_type, entry.target.resolve(all).component);
     state.step = .waiting;
@@ -781,6 +782,8 @@ test "the player's launch records the carrier, whatever its style" {
     const player = try mission.add(.of(.wolverine), @splat(0));
     const carrier = try mission.add(.of(.kamov), .{ 1000, 0, 0 });
     try carrier_model.parts.fit(gpa, mission.slot(carrier));
+    const pilot = mission.objects.joinParticipant(player).?;
+    _ = mission.objects.bindParticipant(pilot, .of(mission.objects, player)).?;
     mission.objects.player = player;
     const ctx = mission.orders();
 
@@ -791,6 +794,7 @@ test "the player's launch records the carrier, whatever its style" {
     aigeneric.objectOrders(ctx, player);
     try std.testing.expectEqual(Style.bay, mission.slot(player).state.launch.style);
     try std.testing.expectEqual(carrier, mission.player.carrierIn(mission.objects).?);
+    try std.testing.expectEqual(gameobj.ObjectRef.of(mission.objects, carrier), mission.objects.player_states[player].carrier.?);
 }
 
 test "a launch's search for a gate counts the launch points on" {

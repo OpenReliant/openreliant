@@ -2480,7 +2480,7 @@ const Play = struct {
 
     fn end(play: *Play) void {
         if (play.loaded) |loaded| {
-            if (play.presentation) |shown| shown.missionEnded(game.main.scriptOutcome(play.player, loaded));
+            if (play.presentation) |shown| shown.missionEnded(game.main.scriptOutcome(game.main.displayedEnding(play.objects, play.player), loaded));
             game.main.endMission(play.objects, play.player, loaded);
         }
         play.loaded = null;
