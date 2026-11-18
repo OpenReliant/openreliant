@@ -1527,8 +1527,6 @@ pub const Player = struct {
     /// What the radio's remarks keep, and what the mission's script has them leave unsaid, which a
     /// mission's start clears.
     remarks: radio.Remarks = .{},
-    /// What Moose's warnings of the player's hits on friends keep, which a mission's start clears.
-    friendly_fire: @import("game/friendly_fire.zig").Warnings = .{},
     /// The radio's menu, which the display's window 11 shows.
     menu: radio.menu.Menu = .{},
     /// The mission's odds of how the pilot fares after ejecting.
@@ -1748,7 +1746,7 @@ pub fn sampleFlight(player: *const Player, devices: *Devices, stick: *[2]i16, vi
     return command;
 }
 
-/// The stick used by SHIELD BALANCING or POWERBALL WINDOW (`0x00413200`), after resolving devices.
+/// The stick passed to `shield_balance` (`0x00412D40`) or `power_move` (`0x00413180`).
 fn heldStick(devices: *Devices) [2]f32 {
     switch (devices.controlMode()) {
         .joystick => {

@@ -1078,6 +1078,7 @@ test "a script stops or changes the radio's lines" {
                 \\    if e.speech == "host_line.ut" then return false end
                 \\    if e.speech:find("dth_", 1, true) then return false end
                 \\    if e.speech:find("plyrkl_", 1, true) then e.speech = "host_kill.ut" end
+                \\    if e.speech:find("ff_00", 1, true) then e.speech = "host_friendly.ut" end
                 \\    if e.speech:find("tnt_", 1, true) then
                 \\        taunts += 1
                 \\        if taunts > 1 then return false end
@@ -1164,6 +1165,14 @@ test "a script stops or changes the radio's lines" {
     const remarks = recorder.notice.?.effect.kill_remarks;
     try std.testing.expectEqualStrings("host_kill.ut", std.mem.sliceTo(&remarks.lines[0].?.speech, 0));
     try std.testing.expect(remarks.lines[1] == null);
+
+    const friend = &fixture.mission.slot(fixture.sabre).object;
+    friend.side = .friendly;
+    friend.shields = .all(1000);
+    Fixture.collision.damage(host, fixture.sabre, .fore, 900, 1, all.player, .bullet);
+    const friendly_warning = recorder.notice.?;
+    try std.testing.expectEqual(binding, friendly_warning.recipient);
+    try std.testing.expectEqualStrings("host_friendly.ut", std.mem.sliceTo(&friendly_warning.effect.radio_line.speech, 0));
 }
 
 test "a script answers PERMISSION TO LAND its own way" {

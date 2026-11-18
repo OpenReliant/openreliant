@@ -356,7 +356,12 @@ fn mooseTo(world: gameobj.World, destination: ?Destination, speech: []const u8, 
 
 /// Moose says one of `lines`, picked at random (`pick`), in turn on the radio, never expiring.
 pub fn mooseSaysOneOf(world: gameobj.World, lines: []const []const u8) void {
-    mooseSays(world, pick(world, lines), .queued, no_expiry);
+    mooseSaysOneOfTo(world, .local, lines);
+}
+
+/// Chooses a queued Moose line for this pilot. The host applies the normal radio hook.
+pub fn mooseSaysOneOfTo(world: gameobj.World, audience: collision.HitFeedback.Audience, lines: []const []const u8) void {
+    mooseTo(world, Destination.of(world, audience), pickRemark(world, audience, lines), .queued, no_expiry);
 }
 
 /// A report of the wingman in slot `ship` to the player, said `report_delay` ticks after the

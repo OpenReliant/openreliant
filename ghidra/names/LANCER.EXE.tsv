@@ -1121,6 +1121,12 @@ address	kind	name	type	comment
 00412560	function	power_distribute	void __fastcall (GameObject *object)	Sets the object's shield, gun and speed factors from its power setting: each system's share of the three reaches, s, gives (1.75 - 0.75 s) s + 0.5
 00412d40	function	shield_balance	void __cdecl (float x, float y)	SHIELD BALANCING held: past half-way, the stick's y shifts a quarter of the shield power a step between the fore and aft shields, through their reserves
 00413180	function	power_move	void __cdecl (float x, float y)	POWERBALL WINDOW held: moves the player's power setting against the stick by the frame's ticks, keeps it within the disc and distributes the power
+00413200	function	held_stick_accumulate	void __stdcall (float x, float y)	Accumulates held stick movement in two floats using twice the frame duration and wraps both values. player_controls calls this for flag 0x0051CF04 when the shield and power controls are inactive
+00414f70	function	order_multiplayer_control	ObjectRoutine	Updates order 101, Multiplayer Control. Sets disabled when sent_off is set
+004dc408	data	float_half	float	Shared constant 0.5. player_controls uses it to add half the yaw to the roll
+004dc4ac	data	float_0_02	float	Shared constant 0.02. player_throttle_keys uses it for one throttle step
+004dc4c0	data	float_0_3	float	Shared constant 0.3. player_controls uses it for one keyboard steering step
+004dc554	data	float_64	float	Shared constant 64.0. player_controls uses it with mouse_range to scale held mouse movement
 00476fc0	function	object_recharge_shields	void __fastcall (GameObject *object)	Each simulation step: each shield gains its full charge times the shield factor and condition over the recharge time, up to the full charge, less what SHIELD BALANCING shifted to the other side for the player
 00482de0	function	hud_channel	uchar __cdecl (float x)	A colour channel: x cut to a whole number and kept within 0 and 255
 0051cefc	data	shield_balancing_held	short	Set while SHIELD BALANCING is held: the stick shifts the shields instead of steering
@@ -1487,7 +1493,7 @@ address	kind	name	type	comment
 004b2d30	function	dm_scenario_mission	bool (void)	Whether mission_number is the mission of one of dm_scenarios, which mission_start keeps as multiplayer_mission
 0050c790	data	dm_scenarios	byte[384]	The multiplayer game's six scenarios, 0x40 bytes each: three ids, then at offset 8 the mission each is played in (85, 82, 81, 83, 84 and 87). The code reads the mission field, at 0x0050C798 in the first
 00474e00	function	player_friend_destroyed	void __fastcall (int told)	Sets +0x678 of the player's ship to 1, or to 2 and sends it in a multiplayer game when told is 1: object_armor_damage and component_damage call it as the player's shot destroys a friend or a friend's component
-00474c80	function	friendly_fire_warning	void (float damage)	Outside a multiplayer game, adds the player's damage to a friend to 0x00562CEC; past 800 (0x004DC5EC), at most once every 3000 game ticks (0x00562CE8), Moose warns the player with one of ff_001 to ff_004, drawn with rand. Its count at 0x00562CF0 is held at 1, so the second and third sets of lines (ff_005 on, ff_009 on) never play
+00474c80	function	friendly_fire_warning	void __stdcall (float damage)	Adds the local pilot's damage to a friend except in arena missions. Once damage exceeds 800 and the cooldown has passed, Moose queues one of ff_001 to ff_004 and resets the damage. The cooldown is 3000 game ticks. The count stays at 1, so the later sets of lines never play
 00491350	function	missile_lock_possible	bool (void)	Whether the armed missile of the ring can lock on the target: one is armed, not of type 6, the target can be aimed at, the player's missiles are not disabled, outside a multiplayer game the target is hostile and the type not 0, and the target's node is within the type's range (+0x1C of its stats) and ahead of the ship
 004914d0	function	missile_lock_same	bool (void)	Whether the lock building is still on the target, the component and the missile type it began on (0x0057E024, 0x0057E026, 0x0057DFB8)
 0057bf40	data	hud_display_target	short	The target the target display last drew, which hud_window_close draws the closing form's picture for and hud_subtarget picks out
@@ -2068,7 +2074,7 @@ address	kind	name	type	comment
 0052a480	data	yamato_alive	int	Script variable 36, a campaign flag: whether the Yamato lives; once it is clear, missions 25 and 27 end without the landing, and a total failure in them in the shuttle at Fort Bear
 0052a474	data	countdown	int	Script variable 33: seconds left, which mission 29's script sets; game_tick takes one off at every 100th of mission_ticks (0x00477889) and the display shows it as a clock in mission 29 (0x00486221)
 0052a484	data	ion_cannons_hold_lock	int	Script variable 37: while it is set, the Dark Reign's ion cannon (aiioncan.cpp, order 110) keeps its target rather than losing it or giving up its search (0x0040D40F, 0x0040D7D9)
-00474b40	function	friendly_fire_send_home	void __fastcall (int slot)	Outside a multiplayer game, for the player's ship while mission_ending is 0 and its current order has no priority: the mission's ending 6, or 7 where +0x678 is 3, Friendly Fire pushed aimed as the current order, and flag 0x10000000 set; for another player's slot without a prioritised order, Jump Out and the flag
+00474b40	function	friendly_fire_send_home	void __fastcall (int slot)	Skips arena missions. For the local pilot, while the mission is running and the current order has no priority, sets ending 6 or 7, gives Friendly Fire and sets sent_off. In a network session it also sends a recall message. Gives other pilots Jump Out and sets sent_off if they have no priority order
 004a7290	function	voice_init	void __fastcall (byte *stream, VoiceState *state)	Starts decoding a speech stream (voice.zig): the bit reader on its first byte, the header's step, coded levels, first gain and ratio, and the coefficients, the filter's memory and the past excitation cleared
 004a7360	function	voice_read_bits	uint __fastcall (VoiceState *state, int bits)	The stream's next bits, eight at most, least significant first, taking the next byte below eight held
 004a73b0	function	voice_frame	void __fastcall (VoiceState *state)	Decodes a frame of 432 samples: twelve coefficient levels, then each subframe's lag, pitch gain, gain and pulses into the excitation, the last 324 kept, and the synthesis filter over four blocks as the coefficients step
@@ -2154,6 +2160,13 @@ address	kind	name	type	comment
 00529880	data	rescue_at	int	The frame_start past which radio_rescue says the rescue's words
 00529cb8	data	kill_remark_next	int	The game tick past which a kill draws radio_kill_remark's remark again
 005297ec	data	taunt_next	int	The frame_start past which radio_enemy_taunt may taunt again
+004ef834	data	radio_missile_warning_lines	char *[8]	Moose's incoming missile warnings, plck_001 to plck_008
+004ef854	data	radio_fighter_kill_lines	char *[9]	Moose's fighter kill remarks, plyrkl_001 to plyrkl_009
+004ef878	data	radio_pod_kill_lines	char *[3]	Moose's pod kill remarks, enmejt_001 to enmejt_003
+004ef884	data	radio_torpedo_kill_lines	char *[6]	Moose's torpedo kill remarks, trpkl_001 to trpkl_006
+004ef8cc	data	radio_rescue_lines	char *[3]	Wingman rescue lines, res_001 to res_003
+004ef8d8	data	radio_last_words_lines	char *[6]	The dying fighter pilot's last words, dth_001 to dth_006
+004ef8f0	data	radio_taunt_lines	char *[13]	Enemy taunts, tnt_001 to tnt_013
 00529cc0	data	radio_line_buffer	char[128]	Where ship_line, bridge_line and pilot_line write the lines they name
 00529538	data	generic_comms_disabled	short	The script's DisableGenericComms: set, the radio's remarks but the jump reminder's are left unsaid; radio_reset clears it
 00529cb4	data	taunts_disabled	short	The script's DisableTaunts: set, radio_enemy_taunt says nothing; radio_reset clears it
@@ -2177,6 +2190,9 @@ address	kind	name	type	comment
 00562ce8	data	friendly_fire_quiet_until	int	The game tick up to which friendly_fire_warning gives no warning
 00500820	data	friendly_fire_warnings	char *[3][4]	Moose's warnings of the player's hits on friends, a set of four for each count: ff_001 to ff_012
 00500850	data	friendly_fire_home_lines	char *[11]	Moose's words as the player is sent home, ff_013 to ff_023
+00500990	data	friendly_fire_abort_line	char[12]	The carrier's mission abort line, abrt_001.ut
+004bb920	function	net_send_friendly_fire	void __fastcall (int abort_mission)	Sends message 0x49. At 0x004B933E, a clear flag marks the sender for recall, and a set flag marks each player who has no recall mark for a mission abort
+004dc5ec	data	float_800	float	Shared constant 800.0 used as the friendly-fire damage threshold and the missile chase camera distance at idle throttle
 004287c0	function	interface_palette_ramp	void __fastcall (uint rgb)	The front end's copy of hud_palette_ramp: entries 1 to 15 of VFX's global palette, or on an 8-bit pane interface_text_remap, a ramp of rgb at palette_ramp_brightness, which its text is drawn through. The main menu writes in 0x40BCFF, gold 0xFDB951 under the pointer, and the developers' text in 0xFF0000
 004288e0	function	interface_init	void (void)	The front end's start-up: reads bank_stdsmp (stdsmp.fat), opens handel.fnt, interface\optfnt.fnt and interface\smlfnt2.fnt (interface_font_handel, interface_font_large, interface_font_small), and makes interface_text_remap
 004289d0	function	interface_run	int __fastcall (int screen)	The front end: runs the screen of interface_screen, from screen, each until it returns nonzero, the render hook 0x0043E730 between them. Returns 1 to fly without the briefing, 2 to fly, 3 to quit, 4 or 5 to set the display up again

@@ -11,6 +11,7 @@ const aigeneric = @import("aigeneric.zig");
 const missile_display = @import("hud/missile_display.zig");
 const lock = @import("main/lock.zig");
 const ship_devices = @import("ship_devices.zig");
+const friendly_fire = @import("friendly_fire.zig");
 
 /// Identifies one admission to the session. The host keeps this independently of the ship.
 pub const ParticipantRef = struct {
@@ -61,6 +62,7 @@ pub const State = struct {
     missile_warning_next: i32 = 0,
     /// The game tick past which this pilot can receive another kill remark (`0x00529CB8`).
     kill_remark_next: u32 = 0,
+    friendly_fire: friendly_fire.Warnings = .{},
 
     /// Drops all state tied to the old ship while keeping the participant's admission.
     pub fn unbindShip(state: *State) void {
@@ -76,6 +78,7 @@ pub const State = struct {
         state.taunt_next = 0;
         state.missile_warning_next = 0;
         state.kill_remark_next = 0;
+        state.friendly_fire = .{};
     }
 
     pub fn resetMission(state: *State) void {
@@ -87,6 +90,7 @@ pub const State = struct {
         state.taunt_next = 0;
         state.missile_warning_next = 0;
         state.kill_remark_next = 0;
+        state.friendly_fire = .{};
     }
 };
 

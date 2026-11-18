@@ -2451,7 +2451,6 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     if (world.jump_effects) |effects| effects.reset();
     if (world.radio) |radio| radio.reset(world.sounds);
     world.player.remarks = .{};
-    world.player.friendly_fire = .{};
     if (world.flash) |lit| lit.* = .{};
     start.display.reset(world.clock.game_ticks);
     start.display.interference = .{};
