@@ -931,6 +931,13 @@ test "handlers run newest mod first, in the order each mod added them" {
     try std.testing.expectEqual(1231, fixture.scaled(fixture.sabre, 0));
     // The player's ship takes half at medium difficulty.
     try std.testing.expectEqual(115.5, fixture.scaled(0, 0));
+    // Arena rules skip difficulty scaling, but both script hooks still run.
+    var arena = fixture.mission.world();
+    arena.damage_rules = .{ .arena = null };
+    try std.testing.expectEqual(1231, Fixture.collision.byDifficulty(arena, fixture.sabre, .bullet, 0));
+    try std.testing.expectEqual(231, Fixture.collision.byDifficulty(arena, 0, .bullet, 0));
+    arena.damage_rules = .{ .arena = .hard };
+    try std.testing.expectEqual(1173.25, Fixture.collision.byDifficulty(arena, fixture.sabre, .bullet, 0));
 
     const shields = &fixture.mission.objects.slots[fixture.sabre].object.shields;
     shields.* = .all(100);

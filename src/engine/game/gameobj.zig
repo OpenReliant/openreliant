@@ -2114,8 +2114,10 @@ pub const World = struct {
     player: *input.Player,
     /// The mission's clocks, whose `frame_start` the game's code reads as a global.
     clock: *const Clock,
-    /// The game's difficulty, which scales damage (`collision.byDifficulty`).
+    /// The standalone campaign difficulty (`collision.byDifficulty`).
     difficulty: collision.Difficulty = .medium,
+    /// The host selects these rules for the mission before stepping the simulation.
+    damage_rules: collision.DamageRules = .campaign,
     /// How far the launch's hangar's beacons reach.
     hangar_beacons: objects.HangarBeacons = .to_the_ship,
     /// The Yamato launch steam's brightness, with the original emission behavior.
