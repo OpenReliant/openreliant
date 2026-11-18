@@ -519,6 +519,7 @@ pub const Slot = struct {
     orders: [aigeneric.max_stack]aigeneric.OrderState = @splat(.{}),
     /// The original last attacker. `GameObject.last_attacker` keeps the binary slot field.
     last_attacker: ?gameobj.ObjectRef = null,
+    last_attacker_generation: ?u64 = null,
     /// The ship chosen by Escort, including when its order names a group.
     escort_target: aigeneric.Aim = .none,
     /// What the current order keeps between its updates (`GameObject.order_state`), allocated with
@@ -547,13 +548,21 @@ pub const Slot = struct {
     extra: ?*extra.Extra = null,
 
     /// Records the original attacker in native state and in the binary slot field.
-    pub fn setAttacker(slot: *Slot, by: ?gameobj.ObjectRef) void {
-        slot.last_attacker = by;
-        slot.object.last_attacker = .from(if (by) |reference| reference.slot else null);
+    pub fn setAttacker(slot: *Slot, by: ?gameobj.DamageSource) void {
+        slot.last_attacker = if (by) |source| source.object else null;
+        slot.last_attacker_generation = if (by) |source| source.participant_generation else null;
+        slot.object.last_attacker = .from(if (slot.last_attacker) |reference| reference.slot else null);
     }
 
     pub fn attacker(slot: *const Slot, all: *const Objects) ?u16 {
         return (slot.last_attacker orelse return null).resolve(all);
+    }
+
+    pub fn attackerBinding(slot: *const Slot, all: *const Objects) ?players.ControlRef {
+        const generation = slot.last_attacker_generation orelse return null;
+        const index = slot.attacker(all) orelse return null;
+        const binding = all.playerBinding(index) orelse return null;
+        return if (binding.participant.generation == generation) binding else null;
     }
 
     /// Lets go of what the slot holds for its object: its cloak (`cloak.drop`), its model, its
@@ -1540,8 +1549,7 @@ pub fn createObject(all: *Objects, tables: *Stats, types: Types, wanted: ?u16, a
     object.order_count = 0;
     object.orders = .null;
     object.created = true;
-    object.last_attacker = .none;
-    slot.last_attacker = null;
+    slot.setAttacker(null);
     object.nav_point = .none;
     object.escort_point = .none;
     object.fought_by = 0;

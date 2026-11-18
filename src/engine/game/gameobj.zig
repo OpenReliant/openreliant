@@ -175,6 +175,8 @@ pub const DamageSource = struct {
     side: Side(i32),
     type: Type,
     player: bool,
+    /// The admission that owned the source when it was captured. The ship can outlive it.
+    participant_generation: ?u64 = null,
 
     pub fn of(all: *const create.Objects, index: u16) DamageSource {
         return .{
@@ -182,6 +184,7 @@ pub const DamageSource = struct {
             .side = all.slots[index].object.side,
             .type = all.slots[index].object.type,
             .player = index < all.players,
+            .participant_generation = if (all.playerBinding(index)) |binding| binding.participant.generation else null,
         };
     }
 

@@ -133,10 +133,10 @@ Hull impacts use the same recipient checks. The host keeps the struck pilot's so
 sends the positional impact to other bound ships within the sound's range. The recipient places
 the sound using their camera. Network delivery is tracked in [#954](https://github.com/OpenReliant/openreliant/issues/954).
 
-Co-op taunts and missile warnings follow the affected pilot's binding. The host owns each
-cooldown and applies the mission flags and `radio_say` hook. The client queues the approved line
-when its radio is idle. A missile warning keeps the deadline set by the host. See
-[Radio remarks](radio.md#remarks).
+Co-op taunts, missile warnings and kill remarks follow the affected pilot's binding. The host
+owns each cooldown and applies the mission flags and `radio_say` hook. The receiving radio
+applies its idle and channel checks. The warning and kill lines keep their deadlines from the
+host. See [Radio remarks](radio.md#remarks).
 
 ## Remaining work
 
@@ -144,8 +144,8 @@ The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/95
 
 - [#1367](https://github.com/OpenReliant/openreliant/issues/1367): scanner, mission ending,
   participant tallies and game mode rules for ship disposition and respawn.
-- [#1368](https://github.com/OpenReliant/openreliant/issues/1368): kill remarks, friendly-fire radio,
-  target feedback, device notifications and the remaining local combat rules.
+- [#1368](https://github.com/OpenReliant/openreliant/issues/1368): friendly-fire radio, wingman
+  loss, target feedback, device notifications and the remaining local combat rules.
 
 This state split does not add a network session or change mission files. Single player remains
 one participant running the existing simulation and presentation paths.

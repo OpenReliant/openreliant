@@ -59,6 +59,8 @@ pub const State = struct {
     taunt_next: i32 = 0,
     /// The frame tick past which this pilot can receive another missile warning (`0x005297E4`).
     missile_warning_next: i32 = 0,
+    /// The game tick past which this pilot can receive another kill remark (`0x00529CB8`).
+    kill_remark_next: u32 = 0,
 
     /// Drops all state tied to the old ship while keeping the participant's admission.
     pub fn unbindShip(state: *State) void {
@@ -73,6 +75,7 @@ pub const State = struct {
         state.hull_heard_at = 0;
         state.taunt_next = 0;
         state.missile_warning_next = 0;
+        state.kill_remark_next = 0;
     }
 
     pub fn resetMission(state: *State) void {
@@ -83,6 +86,7 @@ pub const State = struct {
         state.charges = ship_devices.full;
         state.taunt_next = 0;
         state.missile_warning_next = 0;
+        state.kill_remark_next = 0;
     }
 };
 
