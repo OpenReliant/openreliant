@@ -304,10 +304,9 @@ mission's start. So the game frames never touch the sound, which plays on the ma
 - **Speech and music.** The radio's lines go the same way, each with its file as the archive holds
   it, which the main thread unscrambles as it plays the line on the speech sample
   ([Speech](../formats/speech.md)). So does the script's music (`PlayMusic`).
-- **Timers.** Each pilot's armour warning cooldown lives in `players.State.armor_warned_at`.
-  The local input state still tracks when a shot last sounded on the player's hull
-  (`input.Player.hull_heard_at`). Multiplayer hull impact sounds are tracked in
-  [#1383](https://github.com/OpenReliant/openreliant/issues/1383).
+- **Timers.** Each pilot's armour warning and hull impact cooldowns live in
+  `players.State.armor_warned_at` and `players.State.hull_heard_at`. A replacement ship on a host
+  starts with fresh cooldowns. The standalone campaign keeps them across missions.
 
 ## Where the sounds come from
 
@@ -317,9 +316,11 @@ mission's start. So the game frames never touch the sound, which plays on the ma
 - A pilot hears sound 1 of `betty.fat` when a quadrant has no shields and less than half its
   starting armour. A host sends the warning to the pilot whose ship was hit ([Objects](objects.md)).
 - A Huge Gun's shot striking a component plays `EXPLOSION01` where it strikes.
-- A shot through to a hull plays `ARMOUR01` where it struck, facing the camera, or `PLAYERHIT` on
-  the player's ship, following it, at most every 30 ticks (`shieldfx_create`, `0x004A0310`). The
-  game plays `ARMOUR01` at the point in the part's own frame, taken for one in the world.
+- A bullet or missile that hits the player's hull plays `PLAYERHIT` on their ship, with at least
+  30 ticks between sounds (`shieldfx_create`, `0x004A0310`). Other listeners hear `ARMOUR01` at the
+  hit. The host uses the sound's range and each pilot's ship position to choose who receives it.
+  Each listener faces the sound towards their own camera. OpenReliant uses the hit's world
+  position because the original treats the part's local coordinates as a world position.
   **Improvement:** OpenReliant plays it where the shot struck.
 - A shield generator whose part `node_draw` finds destroyed plays `SHLDDOWN` at the part, facing
   its way, and its object loses flag `0x4000`.

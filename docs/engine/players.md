@@ -129,16 +129,18 @@ The local game applies the same effects at their existing points in the damage r
 host's feedback sink only receives presentation events. Damage calculations and mission
 notifications still run on the simulation side.
 
+Hull impacts use the same recipient checks. The host keeps the struck pilot's sound cooldown and
+sends the positional impact to other bound ships within the sound's range. The recipient places
+the sound using their camera. Network delivery is tracked in [#954](https://github.com/OpenReliant/openreliant/issues/954).
+
 ## Remaining work
 
 The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/955).
 
 - [#1367](https://github.com/OpenReliant/openreliant/issues/1367): scanner, mission ending,
   participant tallies and game mode rules for ship disposition and respawn.
-- [#1368](https://github.com/OpenReliant/openreliant/issues/1368): armour warnings, radio taunts,
-  target feedback, device notifications, damage scaling and local-only damage such as shockwaves.
-  Shockwaves still strike only the displayed player, using that player's reserves with the
-  existing damage arithmetic.
+- [#1368](https://github.com/OpenReliant/openreliant/issues/1368): radio taunts, target feedback,
+  device notifications and the remaining local combat rules.
 
 This state split does not add a network session or change mission files. Single player remains
 one participant running the existing simulation and presentation paths.

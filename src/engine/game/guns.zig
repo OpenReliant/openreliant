@@ -1934,7 +1934,7 @@ fn componentHit(world: gameobj.World, bullet: *Bullet, index: u16, crossing: obj
 
 /// `0x00479940`: a shot that has passed an object's shields. It finds the last of the object's
 /// parts the segment crosses, by the box each part's mesh stands in, and wears the quadrant's
-/// armour by the type's hull damage. The hit is heard (`shieldfx.hullHit`), and it throws sparks
+/// armour by the type's hull damage. The hit is heard (`shieldfx.HullImpact`), and it throws sparks
 /// from where it struck, unless the camera is in the object's cockpit.
 ///
 /// **Improvement:** the game takes where the shot struck in the part's own frame for where it
@@ -1946,9 +1946,10 @@ fn hullHit(world: gameobj.World, bullet: *Bullet, index: u16, struck: collision.
     const model = if (slot.model) |*live| live else return;
     const along = objects.partEntry(model, bullet.last, bullet.at, .last_shown) orelse return;
     const record = bullet.stats(&world.objects.gun_stats);
+    const impact = shieldfx.HullImpact.of(world, index);
     collision.armorDamageFrom(world, index, struck, dealt(all, index, bullet.kind, record.damage.hull), bullet.owner, .bullet);
     const at = math.lerp(bullet.last, bullet.at, along);
-    shieldfx.hullHit(world, index, at);
+    impact.emit(world, at);
     const inside = world.player.viewing.inside(world.objects, index);
     if (!inside) {
         const carried = slot.object.velocity.vector() * @as(Vector, @splat(hull_sparks_carry));

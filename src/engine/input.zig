@@ -1486,9 +1486,6 @@ pub const Player = struct {
     /// `0x0051CEFC`: set while SHIELD BALANCING is held. The stick then shifts the shields fore and
     /// aft instead of steering.
     balancing_shields: bool = false,
-    /// When a shot last sounded on the player's hull (`0x00593794`, `shieldfx.hullHit`). A
-    /// mission's start leaves it too.
-    hull_heard_at: i32 = 0,
     /// How the mission is ending, which the player's ship's end decides.
     ending: @import("game/main.zig").Ending = .playing,
     /// `0x00588338`: how many times the script has ended the mission (`TerminateMission`), which

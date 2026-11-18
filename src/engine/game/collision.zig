@@ -27,6 +27,7 @@ const friendly_fire = @import("friendly_fire.zig");
 const radio = @import("radio.zig");
 const players = @import("players.zig");
 const betty = @import("hog_snd/betty.zig");
+const shieldfx = @import("shieldfx.zig");
 
 /// How far apart a collision sets two objects, as a share of each one's radius from the point
 /// between them (`0x004DC7C0` and `0x004DC7C4`): a tenth further than touching, so that the next
@@ -517,6 +518,8 @@ pub const HitFeedback = union(enum) {
     impact: Impact,
     armour_hit: Quadrant,
     armour_warning,
+    own_hull_impact,
+    hull_impact: Vector,
     shockwave: f32,
 
     pub const Impact = struct {
@@ -545,6 +548,10 @@ pub const HitFeedback = union(enum) {
     pub const Sink = struct {
         context: *anyopaque,
         enqueue: *const fn (*anyopaque, Addressed) void,
+
+        pub fn send(sink: Sink, recipient: players.ControlRef, tick: i32, effect: HitFeedback) void {
+            sink.enqueue(sink.context, .{ .recipient = recipient, .tick = tick, .effect = effect });
+        }
     };
 
     const Audience = union(enum) {
@@ -563,7 +570,7 @@ pub const HitFeedback = union(enum) {
                 .local => effect.show(world),
                 .participant => |recipient| {
                     const sink = world.hit_feedback orelse return;
-                    sink.enqueue(sink.context, .{ .recipient = recipient, .tick = world.clock.frame_start, .effect = effect });
+                    sink.send(recipient, world.clock.frame_start, effect);
                 },
             }
         }
@@ -597,6 +604,8 @@ pub const HitFeedback = union(enum) {
                 display.events.ship_hits.getPtr(struck).happen();
             },
             .armour_warning => betty.sayIn(world, .armor_failing),
+            .own_hull_impact => shieldfx.playOwnHullHit(world),
+            .hull_impact => |at| shieldfx.playHullHitAt(world, at),
             .shockwave => |strength| {
                 world.shake.* = @max(world.shake.*, @min(strength, camera.Cockpit.shake_most));
                 if (world.forces) |forces| forces.startUnlessPlaying(.shock, world.clock.frame_start);
