@@ -1301,11 +1301,10 @@ pub const max_candidates = 20;
 pub const spent: i32 = -1;
 
 /// An object a shot may reach, and which of its parts, as `bullet_place` leaves it.
-/// Retained candidate identities are still tracked in
-/// [#1357](https://github.com/OpenReliant/openreliant/issues/1357).
+/// **Fix:** a replacement object cannot inherit a fired shot's candidate or component number.
 pub const Candidate = struct {
-    /// The object's slot.
-    object: u16 = 0,
+    /// The particular object selected when the shot was fired.
+    object: gameobj.ObjectRef,
     /// For an object that lists components, the part's number (`objects.Model.numbered`), which
     /// is found again each frame in the model the object has then, as the game keeps its node's
     /// number (`object_number_parts`); null for any other object, which is taken whole.
@@ -1334,7 +1333,7 @@ pub const Bullet = struct {
     /// That ship's side (`+0x38`).
     side: gameobj.Side(i32) = .neutral,
     /// The objects it may reach (`+0x68`), as many as `candidate_count` (`+0x64`).
-    candidates: [max_candidates]Candidate = @splat(.{}),
+    candidates: [max_candidates]Candidate = undefined,
     candidate_count: u8 = 0,
     /// Where the frame draws it, between its last place and its next (`bulletsFrame`).
     place: Vector = @splat(0),
@@ -1619,8 +1618,9 @@ fn shotSound(world: gameobj.World, index: u8, kind: GunType, sound: i32, player:
 /// collision tree's root box that path meets, or that plays a track, is a candidate of its own
 /// (`0x0047BC90`).
 ///
-/// A shot never strikes the ship that fired it, but for a Stalag's with the player's ship inside it
-/// (`create.Objects.holdsPlayer`).
+/// A shot never strikes its shooter, except a Stalag with the player inside it
+/// (`create.Objects.holdsPlayer`). The list is captured once, when fired. Later spawns do not join
+/// an existing shot's search.
 ///
 /// **Quirk:** the object's velocity, a step's worth, is taken off the shot's, a tick's.
 fn candidates(world: gameobj.World, bullet: *Bullet, record: Gun, lifetime: i32) void {
@@ -1643,10 +1643,10 @@ fn candidates(world: gameobj.World, bullet: *Bullet, record: Gun, lifetime: i32)
         if (math.lengthSquared(nearest - to) >= reach * reach) continue;
         if (componentModel(slot)) |model| {
             const end = bullet.at + (bullet.velocity - object.velocity.vector()) * @as(Vector, @splat(life));
-            var listing: Listing = .{ .bullet = bullet, .object = index, .model = model, .from = bullet.at, .to = end };
+            var listing: Listing = .{ .bullet = bullet, .object = .of(all, index), .model = model, .from = bullet.at, .to = end };
             objects.hitWalk(model, object.placeAt(.next), &listing);
         } else {
-            bullet.candidates[bullet.candidate_count] = .{ .object = index };
+            bullet.candidates[bullet.candidate_count] = .{ .object = .of(all, index) };
             bullet.candidate_count += 1;
         }
     }
@@ -1664,7 +1664,7 @@ fn componentModel(slot: *create.Slot) ?*objects.Model {
 /// is a candidate, while there is room.
 const Listing = struct {
     bullet: *Bullet,
-    object: u16,
+    object: gameobj.ObjectRef,
     model: *objects.Model,
     from: Vector,
     to: Vector,
@@ -1806,7 +1806,11 @@ fn bulletHit(world: gameobj.World, bullet: *Bullet) void {
     var index: usize = 0;
     while (index < bullet.candidate_count) {
         const candidate = bullet.candidates[index];
-        const slot = &all.slots[candidate.object];
+        const target = candidate.object.resolve(all) orelse {
+            index += 1;
+            continue;
+        };
+        const slot = &all.slots[target];
         const object = &slot.object;
         if (!object.type.hasStats()) {
             index += 1;
@@ -1828,9 +1832,9 @@ fn bulletHit(world: gameobj.World, bullet: *Bullet) void {
         // An object whose components are listed is tested part by part, its candidates in a run.
         if (object.flags.components) {
             var end = index;
-            while (end < bullet.candidate_count and bullet.candidates[end].object == candidate.object) end += 1;
-            if (componentStruck(world, bullet, segment, candidate.object, bullet.candidates[index..end])) |crossing| {
-                return componentHit(world, bullet, candidate.object, crossing);
+            while (end < bullet.candidate_count and std.meta.eql(bullet.candidates[end].object, candidate.object)) end += 1;
+            if (componentStruck(world, bullet, segment, target, bullet.candidates[index..end])) |crossing| {
+                return componentHit(world, bullet, target, crossing);
             }
             index = end;
             continue;
@@ -1840,20 +1844,20 @@ fn bulletHit(world: gameobj.World, bullet: *Bullet) void {
         const struck = collision.quadrant(object, slot.drawn.inverse(point));
 
         if (!bullet.kind.base().huge() and (object.shields.get(struck) <= 0 or object.invulnerable == ._unknown_4 or object.invulnerable == ._unknown_5)) {
-            hullHit(world, bullet, candidate.object, struck);
+            hullHit(world, bullet, target, struck);
             return;
         }
-        cloak.reveal(world, candidate.object, point);
-        defer if (!object.flags.cloaked) shield.flare(world, candidate.object, point);
+        cloak.reveal(world, target, point);
+        defer if (!object.flags.cloaked) shield.flare(world, target, point);
         if (!object.flags.spectral_shields and record.damage.shield > 0) {
             const value = record.damage.shield;
             // What the player has shifted fore or aft takes the hit before the quadrant does, and
             // a hit it swallows whole leaves the shields alone.
-            if (candidate.object == all.player and world.player.shield_reserves.spare(struck, value)) {
+            if (target == all.player and world.player.shield_reserves.spare(struck, value)) {
                 bullet.dies_at = spent;
                 return;
             }
-            collision.damageFrom(world, candidate.object, struck, dealt(all, candidate.object, bullet.kind, value), record.damage.hullShare(), bullet.owner, .bullet);
+            collision.damageFrom(world, target, struck, dealt(all, target, bullet.kind, value), record.damage.hullShare(), bullet.owner, .bullet);
         }
         bullet.dies_at = spent;
         return;
@@ -2046,7 +2050,7 @@ test bulletsFrame {
     ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     const bullet = &world.objects.bullets.pool[0];
     try std.testing.expectEqual(1, bullet.candidate_count);
-    try std.testing.expectEqual(target, bullet.candidates[0].object);
+    try std.testing.expectEqual(target, bullet.candidates[0].object.resolve(world.objects).?);
     bullet.last = .{ 0, 0, 0 };
     bullet.at = .{ 0, 0, 600 };
     bulletsFrame(world, &ship.mission.clock, 0);
@@ -2199,7 +2203,7 @@ test "a shot strikes a component of a ship that lists them" {
     ship.guns()[0].turret.fixed.fire(world, ship.index, false);
     const bullet = &world.objects.bullets.pool[0];
     try std.testing.expectEqual(1, bullet.candidate_count);
-    try std.testing.expectEqual(target, bullet.candidates[0].object);
+    try std.testing.expectEqual(target, bullet.candidates[0].object.resolve(world.objects).?);
     try std.testing.expectEqual(0, bullet.candidates[0].part.?);
     bullet.last = .{ -100, 0, 0 };
     bullet.at = .{ -100, 0, 600 };
@@ -2285,7 +2289,7 @@ test "the player's shifted shields take a hit before the quadrant does" {
     const bullet = &world.objects.bullets.pool[0];
     bullet.last = .{ 0, 0, 500 };
     bullet.at = .{ 0, 0, -100 };
-    bullet.candidates[0] = .{ .object = ship.mission.objects.player };
+    bullet.candidates[0] = .{ .object = .of(world.objects, world.objects.player) };
     bullet.candidate_count = 1;
     const shields = player.object.shields;
     bulletsFrame(world, &ship.mission.clock, 0);
@@ -3542,3 +3546,92 @@ const srcore = @import("../surrender/surrenderlib/srcore.zig");
 const srlight = @import("../surrender/surrenderlib/srlight.zig");
 const srtexture = @import("../surrender/surrenderlib/srtexture.zig");
 const xtrabits = @import("xtrabits.zig");
+
+test "a shot skips a replacement candidate and keeps the remaining collision order" {
+    const gpa = std.testing.allocator;
+    var ship: testing.Ship = undefined;
+    try ship.init(gpa);
+    defer ship.deinit(gpa);
+    const world = ship.world();
+    const all = world.objects;
+    const replaced = try ship.add(.of(.reaper), .{ 0, 0, 500 });
+    const next = try ship.add(.of(.reaper), .{ 0, 0, 700 });
+    const last = try ship.add(.of(.reaper), .{ 0, 0, 900 });
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
+    const bullet = &all.bullets.pool[0];
+    try std.testing.expectEqual(3, bullet.candidate_count);
+    create.resetSlot(ship.mission.orders(), replaced);
+    _ = try create.createObject(all, &ship.mission.tables, ship.model.types(), replaced, .of(.reaper), 0, .{ 0, 0, 500 }, &ship.mission.random);
+    bullet.last = .{ 0, 0, 0 };
+    bullet.at = .{ 0, 0, 1000 };
+    bulletsFrame(world, &ship.mission.clock, 0);
+    try std.testing.expectEqual(0, all.slots[replaced].object.recent_damage);
+    try std.testing.expectEqual(10, all.slots[next].object.recent_damage);
+    try std.testing.expectEqual(0, all.slots[last].object.recent_damage);
+    try std.testing.expectEqual(0, flying(world));
+}
+
+test "a shot's component candidate belongs to the original object" {
+    const gpa = std.testing.allocator;
+    var ship: testing.Ship = undefined;
+    try ship.init(gpa);
+    defer ship.deinit(gpa);
+    var hull: create.testing.Model = undefined;
+    try hull.init(gpa);
+    defer hull.deinit(gpa);
+    hull.withHull();
+    hull.withComponent();
+    hull.data[0].part.component_armor = 100;
+    const mission = &ship.mission;
+    const world = ship.world();
+    const target = try mission.addWith(hull.types(), .of(.reaper), .{ -50, 0, 500 });
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
+    const bullet = &world.objects.bullets.pool[0];
+    try std.testing.expectEqual(1, bullet.candidate_count);
+    try std.testing.expectEqual(0, bullet.candidates[0].part.?);
+    create.resetSlot(mission.orders(), target);
+    _ = try create.createObject(world.objects, &mission.tables, hull.types(), target, .of(.reaper), 0, .{ -50, 0, 500 }, &mission.random);
+    const slot = mission.slot(target);
+    slot.model.?.place(slot.drawn.position, slot.drawn.orientation);
+    const part = &slot.model.?.parts[0];
+    part.object.radius = 150;
+    bullet.last = .{ -100, 0, 0 };
+    bullet.at = .{ -100, 0, 600 };
+    bulletsFrame(world, &mission.clock, 0);
+    try std.testing.expectEqual(100, part.armor);
+    try std.testing.expectEqual(0, slot.object.recent_damage);
+    try std.testing.expect(bullet.live);
+    // A new shot selects the replacement and can hit its component normally.
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
+    const fresh = &world.objects.bullets.pool[1];
+    fresh.last = .{ -100, 0, 0 };
+    fresh.at = .{ -100, 0, 600 };
+    bulletsFrame(world, &mission.clock, 0);
+    try std.testing.expect(part.armor < 100);
+    try std.testing.expect(!fresh.live);
+}
+
+test "ships created after firing do not enter an existing shot's collision search" {
+    const gpa = std.testing.allocator;
+    var ship: testing.Ship = undefined;
+    try ship.init(gpa);
+    defer ship.deinit(gpa);
+    const world = ship.world();
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
+    const bullet = &world.objects.bullets.pool[0];
+    try std.testing.expectEqual(0, bullet.candidate_count);
+    const target = try ship.add(.of(.reaper), .{ 0, 0, 500 });
+    bullet.last = .{ 0, 0, 0 };
+    bullet.at = .{ 0, 0, 600 };
+    bulletsFrame(world, &ship.mission.clock, 0);
+    try std.testing.expect(bullet.live);
+    try std.testing.expectEqual(0, world.objects.slots[target].object.recent_damage);
+    ship.guns()[0].turret.fixed.fire(world, ship.index, false);
+    const fresh = &world.objects.bullets.pool[1];
+    try std.testing.expectEqual(1, fresh.candidate_count);
+    fresh.last = .{ 0, 0, 0 };
+    fresh.at = .{ 0, 0, 600 };
+    bulletsFrame(world, &ship.mission.clock, 0);
+    try std.testing.expectEqual(10, world.objects.slots[target].object.recent_damage);
+    try std.testing.expect(!fresh.live);
+}

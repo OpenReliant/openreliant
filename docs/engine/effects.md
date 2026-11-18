@@ -501,9 +501,11 @@ and tells the players the kills.
 
 **Fix:** the blast keeps its original owner's identity. If that object has left, the completion
 sound plays at the captured blast position, and the explosion event keeps the original handle
-and mission ship record. A replacement cannot become the blast's owner. The blast's retained
-victim list still needs the checks tracked in
-[#1357](https://github.com/OpenReliant/openreliant/issues/1357).
+and mission ship record. A replacement cannot become the blast's owner. Each listed victim also
+keeps its original `ObjectRef`. A replacement is not knocked or given new orders when the ball
+spreads, and is not stopped or destroyed when the blast ends, even if the old victim was already
+reached. The blast keeps its initial list of up to 80 victims; later spawns do not enter it.
+Victims whose identities still match keep the original order, timing and effects.
 
 **Fix:** the game lists every object in reach, running past the end of its list with more than 80;
 OpenReliant lists the first 80. It colours one vertex of the halves' last ring with the rest, which

@@ -59,9 +59,11 @@ Special gun rules:
 Potential targets are assigned at spawn: up to 20 objects whose radius, expanded by movement during flight time, intersects the projectile trajectory, never the ship that fired it but a Stalag with the player's ship inside it ([Collisions](loop.md#collisions)). Objects listing components are checked part by part ([The hit tests](objects.md#the-hit-tests)): along the projectile ray, each part whose collision tree root box intersects the path, or that plays a track, registers as a candidate with its node index (`bullet_candidate_test`, `0x0047BC90`). The target velocity subtracted is per-step, while the shot velocity is per-tick. Entities that move into the path after firing are not tested.
 
 **Fix:** the shot retains its original shooter's identity until impact. It still deals damage
-after the shooter leaves, without crediting a replacement in that slot. The candidate list still
-uses bare object slots, which is tracked separately in
-[#1357](https://github.com/OpenReliant/openreliant/issues/1357).
+after the shooter leaves, without crediting a replacement in that slot. Each candidate also
+keeps the original object's `ObjectRef`. A replacement cannot inherit its collision entry or
+component number. Expired entries are skipped in their existing order. The list is still built
+only when the shot is fired, with the same limit of 20 candidates; later spawns do not enter an
+existing shot's search. A newly fired shot can select those objects normally.
 
 `bullets_move` (`0x0047A4E0`) advances all active shots by their velocity each simulation step, after objects move. `bullets_frame` (`0x0047A510`) renders them, tests collisions, and frees expired projectiles once per frame.
 

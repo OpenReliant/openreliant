@@ -65,6 +65,8 @@ pub const Subtarget = struct {
 
     /// Whether it shows `target`'s parts: the same object and component (`mission_frame`,
     /// `0x00493298`).
+    /// The refresh comparison still needs to check the saved object's identity
+    /// ([#1363](https://github.com/OpenReliant/openreliant/issues/1363)).
     pub fn shows(subtarget: *const Subtarget, target: aigeneric.Target) bool {
         const picked = subtarget.target orelse return target.index == aigeneric.Target.none.index and target.isWhole();
         return target.slot() == picked.object.slot and target.part() == picked.component;
