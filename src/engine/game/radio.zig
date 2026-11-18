@@ -21,10 +21,12 @@ const aigeneric = @import("aigeneric.zig");
 const ailand = @import("ailand.zig");
 const cbox = @import("cbox.zig");
 const create = @import("create.zig");
+const collision = @import("collision.zig");
 const gameobj = @import("gameobj.zig");
 const hog_snd = @import("hog_snd.zig");
 const hudmovie = @import("hudmovie.zig");
 const pilots = @import("pilots.zig");
+const players = @import("players.zig");
 const recordings = @import("recordings.zig");
 const additions = @import("additions.zig");
 const hooks = @import("../hooks.zig");
@@ -281,8 +283,6 @@ pub const Remarks = struct {
     rescue_at: i32 = 0,
     /// The game's tick past which a kill draws a remark again (`0x00529CB8`).
     kill_next: u32 = 0,
-    /// The frame's start past which an enemy may taunt again (`0x005297EC`).
-    taunt_next: i32 = 0,
     /// Whether REQUEST BACKUP has brought backup this mission (`0x00529CB0`, `requestBackup`).
     backup_called: bool = false,
     /// Whether a kill is credited and remarked on (`kill_credit_on`, `0x00529C6C`,
@@ -319,12 +319,7 @@ pub fn pick(world: gameobj.World, lines: []const []const u8) []const u8 {
 /// heard where the world is heard, and timed by the game's ticks either way (`Radio.until`).
 pub fn onAir(world: gameobj.World) ?struct { *Radio, Context } {
     const radio = world.radio orelse return null;
-    return .{ radio, .{
-        .sounds = world.sounds,
-        .windows = if (world.display) |display| &display.windows else null,
-        .all = world.objects,
-        .frame_start = world.clock.frame_start,
-    } };
+    return .{ radio, .of(world) };
 }
 
 /// `radio_busy` on the world's radio: whether a line plays or waits; never where it has none.
@@ -669,23 +664,37 @@ const taunt_wait: i32 = 2000;
 /// The enemy's taunts (`0x004EF8F0`).
 const taunts = [_][]const u8{ "tnt_001.ut", "tnt_002.ut", "tnt_003.ut", "tnt_004.ut", "tnt_005.ut", "tnt_006.ut", "tnt_007.ut", "tnt_008.ut", "tnt_009.ut", "tnt_010.ut", "tnt_011.ut", "tnt_012.ut", "tnt_013.ut" };
 
-/// `radio_enemy_taunt` (`0x00456DD0`), as the ship in slot `attacker` hits the player's ship with a
-/// shot or a missile (`collision.damage`, `collision.armorDamage`): a hostile ship, but one that
-/// lists components, taunts the pilot at most once in `taunt_wait` ticks, unless the radio is busy
-/// or the script has the taunts or the remarks unsaid.
-pub fn enemyTaunt(world: gameobj.World, attacker: u16) void {
+/// `radio_enemy_taunt` (`0x00456DD0`) lets a hostile ship taunt the pilot it hits. Ships that list
+/// components are silent. A taunt uses up its cooldown before the mission flags are checked. The
+/// line plays only if the radio is idle.
+/// The original skips ship radio in arena missions (`radio_say_ship`, `0x004561C0`).
+pub fn enemyTaunt(world: gameobj.World, attacker: u16, audience: collision.HitFeedback.Audience) void {
+    if (world.damage_rules == .arena) return;
     const all = world.objects;
     if (attacker >= all.slots.len) return;
     const object = &all.slots[attacker].object;
     if (object.side != .hostile or object.flags.components) return;
     const remarks = &world.player.remarks;
     const now = world.clock.frame_start;
-    if (now <= remarks.taunt_next) return;
-    remarks.taunt_next = now + taunt_wait;
+    const index = switch (audience) {
+        .local => all.player,
+        .participant => |recipient| recipient.participant.slot,
+    };
+    const next = &all.player_states[index].taunt_next;
+    if (now <= next.*) return;
+    next.* = now +% taunt_wait;
     if (remarks.generic_comms_disabled or remarks.taunts_disabled) return;
+    // Keep the standalone draw in the simulation's sequence. A headless host can choose a
+    // line without advancing that sequence even if it has no separate effects generator.
+    var fallback = world.random.*;
+    const random = if (audience == .local) world.random else world.effects_random orelse &fallback;
     var buffer: [ship_line_size]u8 = undefined;
-    const speech = shipLine(&buffer, all, attacker, pick(world, &taunts)) orelse return;
-    shipSays(world, attacker, .talking, speech, .if_idle, .looping, no_expiry);
+    const speech = shipLine(&buffer, all, attacker, random.pick(&taunts)) orelse return;
+    const destination: Destination = switch (audience) {
+        .local => .{ .local = world.radio orelse return },
+        .participant => |recipient| .{ .participant = .{ .recipient = recipient, .sink = world.hit_feedback orelse return } },
+    };
+    destination.sayShip(.of(world), attacker, .talking, speech, .if_idle, .looping, no_expiry);
 }
 
 /// The bridge officers' words as the player's ship launches, the Reliant's (`0x004EF924`) and the
@@ -874,6 +883,88 @@ pub const Line = struct {
     expiry: i32 = no_expiry,
 };
 
+/// The approved line from the host. It keeps its names and speaker after the hook call returns.
+pub const RoutedLine = struct {
+    speech: LineName,
+    film: LineName,
+    name: ?u16,
+    flags: hudmovie.Flags,
+    speaker: Speaker,
+    expiry: i32,
+    mode: Mode,
+
+    pub fn present(line: *const RoutedLine, world: gameobj.World) void {
+        const radio, const ctx = onAir(world) orelse return;
+        radio.deliver(ctx, .{
+            .speech = std.mem.sliceTo(&line.speech, 0),
+            .film = std.mem.sliceTo(&line.film, 0),
+            .name = line.name,
+            .flags = line.flags,
+            .object = line.speaker.number(),
+            .speaker = line.speaker,
+            .expiry = line.expiry,
+        }, line.mode);
+    }
+};
+
+/// Where a line goes after the `radio_say` hook has run.
+pub const Destination = union(enum) {
+    local: *Radio,
+    participant: struct {
+        recipient: players.ControlRef,
+        sink: collision.HitFeedback.Sink,
+    },
+
+    fn say(destination: Destination, ctx: Context, line: Line, mode: Mode) void {
+        var captured = line;
+        if (captured.speaker == null) captured.speaker = .of(ctx.all, line.object);
+        sayIn(ctx, destination, keptName(line.speech), keptName(line.film), captured, mode);
+    }
+
+    /// The existing hook can change the line or stop it before it reaches either radio.
+    fn sayIn(ctx: Context, destination: Destination, speech: LineName, film: LineName, line: Line, mode: Mode) void {
+        if (hooks.enter(.radio_say, sayIn, .{ ctx, destination, speech, film, line, mode })) |_| return;
+        switch (destination) {
+            .local => |radio| {
+                var said = line;
+                said.speech = std.mem.sliceTo(&speech, 0);
+                said.film = std.mem.sliceTo(&film, 0);
+                radio.deliver(ctx, said, mode);
+            },
+            .participant => |route| {
+                const current = ctx.all.playerBinding(route.recipient.participant.slot) orelse return;
+                if (!std.meta.eql(current, route.recipient)) return;
+                route.sink.send(route.recipient, ctx.frame_start, .{ .radio_taunt = .{
+                    .speech = speech,
+                    .film = film,
+                    .name = line.name,
+                    .flags = line.flags,
+                    .speaker = line.speaker.?,
+                    .expiry = line.expiry,
+                    .mode = mode,
+                } });
+            },
+        }
+    }
+
+    fn sayShip(destination: Destination, ctx: Context, ship: u16, head: pilots.Head, speech: []const u8, mode: Mode, flags: hudmovie.Flags, expiry: i32) void {
+        const all = ctx.all;
+        if (ship >= all.slots.len) return;
+        const object = &all.slots[ship].object;
+        if (object.flags.stand_in or object.flags.exploding) return;
+        const face = all.faces.of(object.pilot);
+        var buffer: [film_path_size]u8 = undefined;
+        destination.say(ctx, .{
+            .film = filmPath(&buffer, face, head),
+            .speech = speech,
+            .name = if (face) |found| found.name else null,
+            .flags = flags,
+            .object = ship,
+            .expiry = expiry,
+        }, mode);
+    }
+};
+
 /// What the radio reaches of the game as a line is said.
 pub const Context = struct {
     /// Where the lines are asked for; null where nothing is heard, as on a server.
@@ -883,6 +974,15 @@ pub const Context = struct {
     all: *const create.Objects,
     /// The frame's start (`frame_start`), from which a queued line's expiry counts.
     frame_start: i32,
+
+    fn of(world: gameobj.World) Context {
+        return .{
+            .sounds = world.sounds,
+            .windows = if (world.display) |display| &display.windows else null,
+            .all = world.objects,
+            .frame_start = world.clock.frame_start,
+        };
+    }
 };
 
 /// Text of at most `size` bytes, kept in place, as the queue keeps a line's names.
@@ -1081,23 +1181,16 @@ pub const Radio = struct {
     /// dropped past its expiry from the frame's start where it has one, or where the queue is
     /// full.
     pub fn say(radio: *Radio, ctx: Context, line: Line, mode: Mode) void {
-        var captured = line;
-        if (captured.speaker == null) captured.speaker = .of(ctx.all, line.object);
-        sayIn(ctx, radio, keptName(line.speech), keptName(line.film), captured, mode);
+        const destination: Destination = .{ .local = radio };
+        destination.say(ctx, line, mode);
     }
 
-    /// `say` as the scripts hook it (`hooks.functions.radio_say`): the line's `speech` and `film`
-    /// apart, which a handler can change, or the line stopped, so that nothing is said. Names
-    /// longer than `LineName` holds are cut short.
-    fn sayIn(ctx: Context, radio: *Radio, speech: LineName, film: LineName, line: Line, mode: Mode) void {
-        if (hooks.enter(.radio_say, sayIn, .{ ctx, radio, speech, film, line, mode })) |_| return;
-        var said = line;
-        said.speech = std.mem.sliceTo(&speech, 0);
-        said.film = std.mem.sliceTo(&film, 0);
+    /// Applies a line after the hook. Idle-only lines use the receiving radio's queue.
+    fn deliver(radio: *Radio, ctx: Context, line: Line, mode: Mode) void {
         switch (mode) {
-            .now => radio.sayNow(ctx, said),
-            .queued => radio.enqueue(ctx, said),
-            .if_idle => if (!radio.busy(ctx.frame_start)) radio.enqueue(ctx, said),
+            .now => radio.sayNow(ctx, line),
+            .queued => radio.enqueue(ctx, line),
+            .if_idle => if (!radio.busy(ctx.frame_start)) radio.enqueue(ctx, line),
             _ => {},
         }
     }
@@ -1139,20 +1232,8 @@ pub const Radio = struct {
     /// line with the dead channel's film and no name. Where the game's ship has no pilot record it
     /// says nothing; every ship OpenReliant makes has a pilot.
     pub fn sayShip(radio: *Radio, ctx: Context, ship: u16, head: pilots.Head, speech: []const u8, mode: Mode, flags: hudmovie.Flags, expiry: i32) void {
-        const all = ctx.all;
-        if (ship >= all.slots.len) return;
-        const object = &all.slots[ship].object;
-        if (object.flags.stand_in or object.flags.exploding) return;
-        const face = all.faces.of(object.pilot);
-        var buffer: [film_path_size]u8 = undefined;
-        radio.say(ctx, .{
-            .film = filmPath(&buffer, face, head),
-            .speech = speech,
-            .name = if (face) |found| found.name else null,
-            .flags = flags,
-            .object = ship,
-            .expiry = expiry,
-        }, mode);
+        const destination: Destination = .{ .local = radio };
+        destination.sayShip(ctx, ship, head, speech, mode, flags, expiry);
     }
 
     /// The radio's work for a game frame of `ticks`, at the game's tick `game_ticks`, as
@@ -1964,6 +2045,95 @@ test "the missile warning and the landing reminder" {
     try std.testing.expectEqual(1, radio.count);
 }
 
+test "hosted combat taunts follow each pilot's cooldown and radio" {
+    var heard: testing.Heard = undefined;
+    try heard.init();
+    defer heard.deinit();
+    const mission = &heard.mission;
+    var host = mission.world();
+    host.damage_rules = .cooperative;
+    const all = host.objects;
+    const first = all.player;
+    const second = heard.wingman;
+    all.players = 2;
+    const first_pilot = all.joinParticipant(first).?;
+    const second_pilot = all.joinParticipant(second).?;
+    const first_binding = all.bindParticipant(first_pilot, .of(all, first)).?;
+    const second_binding = all.bindParticipant(second_pilot, .of(all, second)).?;
+    const enemy = heard.enemy;
+
+    const Notice = collision.HitFeedback.Addressed;
+    const Recorded = struct {
+        lines: [2]Notice = undefined,
+        count: usize = 0,
+
+        fn enqueue(context: *anyopaque, notice: Notice) void {
+            if (notice.effect != .radio_taunt) return;
+            const recorded: *@This() = @ptrCast(@alignCast(context));
+            recorded.lines[recorded.count] = notice;
+            recorded.count += 1;
+        }
+    };
+    var recorded: Recorded = .{};
+    host.hit_feedback = .{ .context = &recorded, .enqueue = Recorded.enqueue };
+    const before = mission.random.fingerprint();
+    mission.clock.frame_start = 10;
+    collision.armorDamage(host, first, .fore, 1, enemy, .bullet);
+    collision.armorDamage(host, second, .fore, 1, enemy, .missile);
+    try std.testing.expectEqual(2, recorded.count);
+    try std.testing.expectEqual(first_binding, recorded.lines[0].recipient);
+    try std.testing.expectEqual(second_binding, recorded.lines[1].recipient);
+    try std.testing.expectEqual(10, recorded.lines[1].tick);
+    try std.testing.expectEqual(before, mission.random.fingerprint());
+
+    const first_state = all.playerState(first).?;
+    const second_state = all.playerState(second).?;
+    mission.clock.frame_start = 10 + taunt_wait;
+    collision.armorDamage(host, first, .fore, 1, enemy, .bullet);
+    try std.testing.expectEqual(2, recorded.count);
+    try std.testing.expectEqual(10 + taunt_wait, first_state.taunt_next);
+
+    mission.clock.frame_start += 1;
+    host.player.remarks.taunts_disabled = true;
+    collision.armorDamage(host, first, .fore, 1, enemy, .bullet);
+    host.player.remarks.taunts_disabled = false;
+    host.player.remarks.generic_comms_disabled = true;
+    collision.armorDamage(host, second, .fore, 1, enemy, .bullet);
+    host.player.remarks.generic_comms_disabled = false;
+    try std.testing.expectEqual(2, recorded.count);
+    try std.testing.expectEqual(mission.clock.frame_start + taunt_wait, first_state.taunt_next);
+    try std.testing.expectEqual(first_state.taunt_next, second_state.taunt_next);
+
+    host.damage_rules = .{ .arena = null };
+    mission.clock.frame_start += taunt_wait + 1;
+    collision.armorDamage(host, first, .fore, 1, enemy, .bullet);
+    try std.testing.expectEqual(2, recorded.count);
+
+    const client = heard.world();
+    try std.testing.expect(!recorded.lines[1].present(client));
+    try std.testing.expect(recorded.lines[0].present(client));
+    try std.testing.expect(recorded.lines[0].present(client));
+    try std.testing.expectEqual(1, heard.radio.count);
+    try heard.expectLine(0, enemy, &taunts);
+
+    // A delayed line keeps the original speaker and its recorded voice when that slot is reused.
+    const old_speaker = recorded.lines[1].effect.radio_taunt.speaker;
+    create.resetSlot(mission.orders(), enemy);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, enemy, .of(.sabre), 0, @splat(0), &mission.random);
+    all.player = second;
+    heard.radio.reset(client.sounds);
+    try std.testing.expect(recorded.lines[1].present(client));
+    try heard.expectLine(0, enemy, &taunts);
+    try std.testing.expectEqual(old_speaker, heard.queued(0).speaker);
+    try std.testing.expectEqual(null, heard.queued(0).speaker.shipIn(all));
+
+    create.resetSlot(mission.orders(), second);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, second, .of(.predator), 0, @splat(0), &mission.random);
+    _ = all.bindParticipant(second_pilot, .of(all, second)).?;
+    try std.testing.expect(!recorded.lines[1].present(client));
+    try std.testing.expectEqual(0, second_state.taunt_next);
+}
+
 test "the jump reminder calls the pilot to jump, then jumps" {
     const gpa = std.testing.allocator;
     var heard: testing.Heard = undefined;
@@ -2088,18 +2258,18 @@ test "a kill, a loss, an ejection, a taunt and a launch have their words" {
 
     // An enemy's hit taunts the pilot, at most once a while, and never once the script has the
     // taunts unsaid.
-    enemyTaunt(world, enemy);
+    enemyTaunt(world, enemy, .local);
     try heard.expectLine(0, enemy, &taunts);
     try std.testing.expect(std.mem.startsWith(u8, heard.queued(0).speech.slice(), "rustnt_0"));
     radio.reset(asked);
     clock.frame_start += taunt_wait;
-    enemyTaunt(world, enemy);
+    enemyTaunt(world, enemy, .local);
     try std.testing.expectEqual(0, radio.count);
     remarks.taunts_disabled = true;
     clock.frame_start += 1;
-    enemyTaunt(world, enemy);
+    enemyTaunt(world, enemy, .local);
     try std.testing.expectEqual(0, radio.count);
-    try std.testing.expectEqual(clock.frame_start + taunt_wait, remarks.taunt_next);
+    try std.testing.expectEqual(clock.frame_start + taunt_wait, world.objects.localPlayerState().taunt_next);
 
     // A launch from the Reliant has its bridge officer's words; from anything else, none.
     const reliant = try heard.mission.add(.of(.reliant), .{ 0, 0, 5000 });

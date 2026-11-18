@@ -361,11 +361,16 @@ The others answer what happens:
 | `radio_kill_remark` (`0x00456BB0`) | The player's kill is credited (`explode_kill_credit`, and a hull lost from a Kurgan, an Antanov or a Gurevich) | A pilot's pod: Moose, `enmejt_001` to `enmejt_003`, mode 2. Anything else, at most once in 600 game ticks (`0x00529CB8`), then only while the radio is free: a fighter's pilot says `dth_001` to `dth_006` in its voice, dying, once (flags 6), kept 200 ticks, and Moose `plyrkl_001` to `plyrkl_009`, kept 500; a torpedo has Moose say `trpkl_001` to `trpkl_006`, mode 2, kept 500 |
 | `radio_ship_lost` (`0x00456CF0`) | A ship of the player's wing is lost, but the player's, while the radio is free | Its pilot, `dth_001` in its voice, dying, once, mode 2; then Moose, `npcdth_001` to `npcdth_004` |
 | `radio_wingman_ejected` (`0x00456D80`) | The pilot of a ship of the player's wing ejects, but the player's (`order_eject_init`) | The pilot, `ejt_001` in its voice, mode 2; the rescue waits its time |
-| `radio_enemy_taunt` (`0x00456DD0`) | A ship's shot or missile, damage of kind 0, 1 or 5, strikes the player's ship (`object_damage`, `object_armor_damage`) | A hostile ship not listing components, at most once in 2000 ticks of `frame_start` (`taunt_next`, `0x005297EC`): `tnt_001` to `tnt_013` in its voice, mode 2, unless the taunts are unsaid |
+| `radio_enemy_taunt` (`0x00456DD0`) | A shot, missile or Screamer hits the player's ship (`object_damage`, `object_armor_damage`) | A hostile ship that does not list components says `tnt_001` to `tnt_013` in its own voice if the radio is idle. The next taunt requires more than 2000 ticks (`taunt_next`, `0x005297EC`). Both mission flags can suppress the line |
 | `radio_launch_line` (`0x00456E50`) | The player's launch goes (`order_launch`) | The flight instructor in training, `trnlch_001`; otherwise the Reliant's bridge officer, pilot `0x3C`, `relbdg_001` to `relbdg_006`, or the Yamato's, `0x54`, `yambdg_001` to `yambdg_005`, mode 2; from anything else none |
 
 `explode_kill_credit` clears the ship's exploding flag while it runs, so that the dying pilot may
 speak (`radio_say_ship` passes over an exploding ship), and puts back the flags it found.
+
+In hosted co-op, the host keeps the taunt cooldown for each pilot and runs the `radio_say` hook
+before sending the line. The client checks the ship binding and applies the line to its own radio.
+An idle-only line is dropped if that radio is busy. The original skips ship radio in competitive
+arenas at `0x004561C0`, so arenas keep taunts quiet.
 
 The ejection has Moose's words too ([The ejection](ejection.md)): `ejt_001` to `ejt_008` calling
 the pilot to eject, `ejt_015` or `ejt_016` as the pilot calls from the pod, and `nanpkup`,
