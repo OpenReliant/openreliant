@@ -837,7 +837,7 @@ test "a display reads the cockpit's instruments in any view" {
     var hud_drawing: hud.Drawing = .{};
     state.smart_targeting = true;
     state.showIcon(.ecm, .flash);
-    state.devices.getPtr(.cloak).setting = .absent;
+    fixture.mission.objects.player_states[0].charges.getPtr(.cloak).setting = .absent;
     state.caption = .{ .on = true };
     hud_drawing.caption = .{ .shown = 6 };
     // The strings for the date of mission 1 and the name of the chase view.
@@ -1118,8 +1118,8 @@ test "a display reads what flashes, the charges, and how far the windows and the
     var state: hud.State = .{};
     var hud_drawing: hud.Drawing = .{};
     hud_drawing.flashes = .{ .lights = .{ .enemy_lock = true, .ecm = true }, .countermeasures = true, .hits = .initMany(&.{ .left, .aft }) };
-    state.devices.getPtr(.ecm).ticks = @divExact(hud.Device.ecm.spec().full, 2);
-    state.devices.getPtr(.cloak).setting = .absent;
+    fixture.mission.objects.player_states[0].charges.getPtr(.ecm).ticks = @divExact(engine.game.ship_devices.Device.ecm.spec().full, 2);
+    fixture.mission.objects.player_states[0].charges.getPtr(.cloak).setting = .absent;
     // The radar's rings two steps out from the closest range's.
     state.radar_rings = hud.Radar.range_rings[0] + 2;
     // A Screamer one place round from the armed Raptor.

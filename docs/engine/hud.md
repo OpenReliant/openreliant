@@ -685,10 +685,11 @@ OpenReliant draws all nine by these conditions.
 
 ## The devices
 
-Three devices run off a charge in ticks, which `hud_draw` keeps in every view: charging a tick a
-tick while off, up to full, and draining while on. One that runs dry is turned off, and the
-player's ship uncloaks as the cloak's runs dry. **Improvement:** OpenReliant runs the charges in
-the game frame, once a tick (`hud.State.runCharges`), rather than as the display is drawn.
+`hud_draw` updates three devices in every view. A device regains one tick of charge per tick
+while off and drains while on. When it runs dry it switches off, and an empty cloak starts
+decloaking. **Improvement:** OpenReliant advances these charges in the game frame
+(`ship_devices.advance`). The [host keeps each participant's charges](players.md#ship-devices)
+and the display reads them from its snapshot.
 
 | Device | State | Charge | Full | Drains a tick |
 | --- | --- | --- | --- | --- |
@@ -721,7 +722,7 @@ picks the cockpit's frame model ([`main.zig`](../../src/engine/game/main.zig)).
   told it.
 - CLOAK SHIP is read by `player_controls`; `player_cloak_set` (`0x004153E0`) cloaks or uncloaks the
   ship through `object_set_cloak`, which sets `cloak_state` for the player
-  ([The cloak](cloak.md#who-cloaks)). The cloak running dry uncloaks the ship the same way.
+  ([The cloak](cloak.md#who-cloaks)). In single player, the cloak running dry uncloaks the ship the same way.
 
 Ported: the charges, the fitting, SMART TARGET, TOGGLE BLINDFIRE, ECM, SPECTRAL SHIELDS and CLOAK
 SHIP ([`input.zig`](../../src/engine/input.zig)), with their sounds ([The display's

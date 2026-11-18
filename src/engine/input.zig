@@ -1455,6 +1455,7 @@ test {
 
 const gameobj = @import("game/gameobj.zig");
 const players = @import("game/players.zig");
+const ship_devices = @import("game/ship_devices.zig");
 const create = @import("game/create.zig");
 const gameflow = @import("game/gameflow.zig");
 const camera = @import("game/camera.zig");
@@ -1630,7 +1631,11 @@ pub fn playerControlOrder(ctx: aigeneric.Context, index: u16) void {
         }
         flight.apply(&state.controls, &state.shield_reserves, &slot.object, combat, command.flight, world.clock.frame_duration);
         matchSpeedFor(world, index, command.match_speed, if (index == all.player) world.view() else .cockpit);
+        for ([_]ship_devices.Device{ .ecm, .spectral_shields }) |kind| {
+            if (command.devices.contains(kind)) ship_devices.toggle(world, index, kind);
+        }
         applyWeaponCommand(world, index, command.weapons);
+        if (command.devices.contains(.cloak)) ship_devices.toggle(world, index, .cloak);
         return;
     }
     // Non-player Player Control orders retain their local-input behaviour in single player.
@@ -1783,11 +1788,13 @@ fn rollKeys(devices: *Devices) f32 {
 
 // --- The player's devices ------------------------------------------------------------------
 
+const DeviceSubject = struct { all: *const create.Objects, index: u16 };
+
 /// `player_ecm_set` (`0x00415370`): turns the ECM on or off, on a ship that carries one: the
-/// object's `ecm` flag and the display's setting. Not yet ported: what it tells a multiplayer
+/// object's `ecm` flag and the charge's setting. Not yet ported: what it tells a multiplayer
 /// game.
-pub fn setEcm(display: *hud.State, object: *gameobj.GameObject, on: bool) void {
-    const ecm = display.devices.getPtr(.ecm);
+pub fn setEcm(charges: *ship_devices.Charges, object: *gameobj.GameObject, on: bool) void {
+    const ecm = charges.getPtr(.ecm);
     if (ecm.setting == .absent) return;
     object.flags.ecm = on;
     ecm.setting = if (on) .on else .off;
@@ -1795,18 +1802,18 @@ pub fn setEcm(display: *hud.State, object: *gameobj.GameObject, on: bool) void {
 
 /// `player_spectral_shields_set` (`0x00415430`): turns the spectral shields of the player's ship,
 /// `object`, on or off, where it carries them: the object's `spectral_shields` flag and the
-/// display's setting. Turning them on tunes them to the gun most dangerous near the ship among
+/// charge setting. Turning them on tunes them to the gun most dangerous near the ship among
 /// `near`'s objects (`spectralTuning`); turning them off needs none.
 ///
 /// Not ported: what it tells a multiplayer game
 /// ([#55](https://github.com/OpenReliant/openreliant/issues/55)).
-pub fn setSpectralShields(display: *hud.State, object: *gameobj.GameObject, on: bool, near: ?*const create.Objects) void {
-    const shields = display.devices.getPtr(.spectral_shields);
+pub fn setSpectralShields(charges: *ship_devices.Charges, object: *gameobj.GameObject, on: bool, near: ?DeviceSubject) void {
+    const shields = charges.getPtr(.spectral_shields);
     if (shields.setting == .absent) return;
     object.flags.spectral_shields = on;
     shields.setting = if (on) .on else .off;
-    if (on) if (near) |all| {
-        object.spectral_gun_type = @backingInt(spectralTuning(all));
+    if (on) if (near) |subject| {
+        object.spectral_gun_type = @backingInt(spectralTuning(subject.all, subject.index));
     };
 }
 
@@ -1819,9 +1826,9 @@ pub fn setSpectralShields(display: *hud.State, object: *gameobj.GameObject, on: 
 /// only a multiplayer game is told it.
 ///
 /// A gun a mod adds counts as the game's gun it is based on.
-pub fn spectralTuning(all: *const create.Objects) guns.GameGun {
+pub fn spectralTuning(all: *const create.Objects, index: u16) guns.GameGun {
     var weights: std.EnumArray(guns.GameGun, f32) = .initFill(0);
-    const from = all.slots[all.player].object.nextPosition();
+    const from = all.slots[index].object.nextPosition();
     for (all.slots[0..all.count]) |*slot| {
         const object = &slot.object;
         if (object.flags.stand_in or object.flags.exploding or object.flags.disabled) continue;
@@ -1846,9 +1853,9 @@ pub fn spectralTuning(all: *const create.Objects) guns.GameGun {
 /// it carries a cloak (`cloak.set`), which the display's cloak follows. Not yet ported: a
 /// multiplayer game, in which it does nothing, and what it tells one.
 pub fn setCloak(world: gameobj.World, on: bool) void {
-    const display = world.display orelse return;
-    if (display.devices.get(.cloak).setting == .absent) return;
-    cloak.set(world, world.objects.player, on);
+    const all = world.objects;
+    if (all.player_states[all.player].charges.get(.cloak).setting == .absent) return;
+    cloak.set(world, all.player, on);
 }
 
 // --- The player's target --------------------------------------------------------------------
@@ -1937,14 +1944,14 @@ pub fn nextNavPoint(world: gameobj.World) void {
     } else .none;
 }
 
-test spectralTuning {
+test "spectral tuning counts nearby hostile weapons" {
     var mission: gameobj.testing.Mission = undefined;
     try mission.init(std.testing.allocator);
     defer mission.deinit();
     const all = mission.objects;
     _ = try mission.add(.of(.predator), @splat(0));
     // With no hostile guns near, the Laser Cannon.
-    try std.testing.expectEqual(.laser_cannon, spectralTuning(all));
+    try std.testing.expectEqual(.laser_cannon, spectralTuning(all, all.player));
     // Two Pulse Cannons near, against one Proton Cannon of three times the damage to a shield.
     all.gun_stats.types[guns.GunType.of(.pulse_cannon).number()].damage.shield = 10;
     all.gun_stats.types[guns.GunType.of(.proton_cannon).number()].damage.shield = 30;
@@ -1957,16 +1964,16 @@ test spectralTuning {
     const kept = slot.guns;
     slot.guns = &fitted;
     defer slot.guns = kept;
-    try std.testing.expectEqual(.proton_cannon, spectralTuning(all));
+    try std.testing.expectEqual(.proton_cannon, spectralTuning(all, all.player));
     // Three Pulse Cannons outweigh it; the Huge Gun never counts.
     fitted[2] = barrel(.of(.pulse_cannon));
-    try std.testing.expectEqual(.pulse_cannon, spectralTuning(all));
+    try std.testing.expectEqual(.pulse_cannon, spectralTuning(all, all.player));
     // A friendly ship's guns, or a hostile ship's out of range, don't count.
     slot.object.side = .friendly;
-    try std.testing.expectEqual(.laser_cannon, spectralTuning(all));
+    try std.testing.expectEqual(.laser_cannon, spectralTuning(all, all.player));
     slot.object.side = .hostile;
     objects.setPosition(&slot.object, &slot.drawn, .{ 0, 0, 2 * hud.pick_range });
-    try std.testing.expectEqual(.laser_cannon, spectralTuning(all));
+    try std.testing.expectEqual(.laser_cannon, spectralTuning(all, all.player));
 }
 
 test nextNavPoint {
@@ -2065,8 +2072,6 @@ fn applyWeaponCommand(world: gameobj.World, index: u16, command: players.WeaponC
     if (command.rotate_missiles) |way| _ = weapons.ring.turn(way);
     fireGuns(world, index, command.fire_guns, .submitted);
     if (command.launch_missile) launchSelected(world, index, weapons, .submitted);
-    // Explicit cloak activation needs participant-owned device charge
-    // ([#1372](https://github.com/OpenReliant/openreliant/issues/1372)).
     if (command.countermeasures) spendCountermeasure(world, index, index == all.player);
 }
 
@@ -2599,6 +2604,7 @@ const power_keys = [_]struct { action: controls.Action, preset: power.Preset }{
 /// What `frameKeys` reads the keys for, and heard where.
 pub const FrameKeys = struct {
     display: *hud.State,
+    charges: *ship_devices.Charges,
     player: *Player,
     devices: *Devices,
     /// The player's ship.
@@ -2678,6 +2684,7 @@ const cloak_said: Said = .{ .on = .cloak_on, .off = .cloak_off };
 /// OpenReliant's frame rates make a din; OpenReliant sounds it as it is pressed.
 pub fn frameKeys(keys: FrameKeys) void {
     const display = keys.display;
+    const charges = keys.charges;
     const player = keys.player;
     const devices = keys.devices;
     const slot = keys.slot;
@@ -2741,10 +2748,10 @@ pub fn frameKeys(keys: FrameKeys) void {
         object.gun_mode.synchronised = !object.gun_mode.synchronised;
         hud.beep(keys.world, if (object.gun_mode.synchronised) .on else .off);
     }
-    if (devices.active(.ecm, true) and display.devices.get(.ecm).setting != .absent) {
+    if (devices.active(.ecm, true) and charges.get(.ecm).setting != .absent) {
         const on = !object.flags.ecm;
         hud.beep(keys.world, if (on) .on else .off);
-        setEcm(display, object, on);
+        setEcm(charges, object, on);
     }
     for ([_]controls.Action{ .damage_window, .damage_window_locked }) |action| {
         if (!devices.active(action, true)) continue;
@@ -2797,12 +2804,12 @@ pub fn frameKeys(keys: FrameKeys) void {
         }
     }
     if (!multiplayer and devices.active(.spectral_shields, true) and
-        display.devices.get(.spectral_shields).setting != .absent)
+        charges.get(.spectral_shields).setting != .absent)
     {
         const on = !object.flags.spectral_shields;
         hud.beep(keys.world, if (on) .on else .off);
         betty.sayIn(keys.world, spectral_shields_said.of(on));
-        setSpectralShields(display, object, on, keys.all);
+        setSpectralShields(charges, object, on, if (keys.all) |all| .{ .all = all, .index = all.player } else null);
     }
 }
 
@@ -2837,7 +2844,7 @@ test primaryTarget {
     _ = display.objectives.set(0, .listed);
     _ = display.objectives.set(2, .current);
     display.objectives.shown = 0;
-    const keys: FrameKeys = .{ .display = &display, .player = &mission.player, .devices = &devices, .slot = mission.slot(player), .view = .cockpit, .game_ticks = 0, .multiplayer = false, .all = mission.objects };
+    const keys: FrameKeys = .{ .display = &display, .charges = &mission.objects.player_states[player].charges, .player = &mission.player, .devices = &devices, .slot = mission.slot(player), .view = .cockpit, .game_ticks = 0, .multiplayer = false, .all = mission.objects };
     // With no primary target, nothing changes.
     primaryTarget(keys);
     try std.testing.expectEqual(null, ai.playerControlEntry(mission.objects).?.target.slotIn(mission.objects));
@@ -2861,41 +2868,42 @@ test frameKeys {
     const keyboard = &devices.keyboard;
     var display: hud.State = .{};
     var player: Player = .{};
+    var charges = ship_devices.full;
 
     // ECM turns the ECM on, and again off.
     const ecm = controls.binding(.ecm).key;
     keyboard.down[ecm] = true;
-    frameKeys(.{ .display = &display, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
+    frameKeys(.{ .display = &display, .charges = &charges, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
     try std.testing.expect(object.flags.ecm);
-    try std.testing.expectEqual(.on, display.devices.get(.ecm).setting);
+    try std.testing.expectEqual(.on, charges.get(.ecm).setting);
     keyboard.read();
-    frameKeys(.{ .display = &display, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
+    frameKeys(.{ .display = &display, .charges = &charges, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
     try std.testing.expect(object.flags.ecm);
     keyboard.down[ecm] = false;
     keyboard.read();
     keyboard.down[ecm] = true;
-    frameKeys(.{ .display = &display, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
+    frameKeys(.{ .display = &display, .charges = &charges, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
     try std.testing.expect(!object.flags.ecm);
     keyboard.down[ecm] = false;
 
     // A ship without spectral shields ignores the key, and a multiplayer game ignores it anyway.
     const shields = controls.binding(.spectral_shields).key;
-    display.devices.getPtr(.spectral_shields).setting = .absent;
+    charges.getPtr(.spectral_shields).setting = .absent;
     keyboard.down[shields] = true;
-    frameKeys(.{ .display = &display, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
+    frameKeys(.{ .display = &display, .charges = &charges, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
     try std.testing.expect(!object.flags.spectral_shields);
     keyboard.down[shields] = false;
     keyboard.read();
-    display.devices.getPtr(.spectral_shields).setting = .off;
+    charges.getPtr(.spectral_shields).setting = .off;
     keyboard.down[shields] = true;
-    frameKeys(.{ .display = &display, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = true });
+    frameKeys(.{ .display = &display, .charges = &charges, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = true });
     try std.testing.expect(!object.flags.spectral_shields);
     keyboard.down[shields] = false;
     keyboard.read();
     keyboard.down[shields] = true;
-    frameKeys(.{ .display = &display, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
+    frameKeys(.{ .display = &display, .charges = &charges, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
     try std.testing.expect(object.flags.spectral_shields);
-    try std.testing.expectEqual(.on, display.devices.get(.spectral_shields).setting);
+    try std.testing.expectEqual(.on, charges.get(.spectral_shields).setting);
 }
 
 test "the wingmen's keys go unheard in the simulator" {
@@ -2907,7 +2915,7 @@ test "the wingmen's keys go unheard in the simulator" {
     var devices: Devices = .{};
     var display: hud.State = .{};
     const key = controls.binding(.attack_my_target).key;
-    const keys: FrameKeys = .{ .display = &display, .player = world.player, .devices = &devices, .slot = &all.slots[all.player], .view = .cockpit, .game_ticks = 0, .multiplayer = false, .world = world, .all = all };
+    const keys: FrameKeys = .{ .display = &display, .charges = &all.player_states[all.player].charges, .player = world.player, .devices = &devices, .slot = &all.slots[all.player], .view = .cockpit, .game_ticks = 0, .multiplayer = false, .world = world, .all = all };
     const orders = wingman.object.order_count;
     all.simulator = .{ .mode = .instant_action, .instant_action = true };
     devices.keyboard.down[key] = true;
@@ -2929,9 +2937,11 @@ test "the window keys" {
     var devices: Devices = .{};
     var display: hud.State = .{};
     var player: Player = .{};
+    var charges = ship_devices.full;
     const Press = struct {
         devices: *Devices,
         display: *hud.State,
+        charges: *ship_devices.Charges,
         player: *Player,
         slot: *create.Slot,
 
@@ -2946,13 +2956,13 @@ test "the window keys" {
             };
             press.devices.keyboard.down[key] = true;
             if (modifier) |held| press.devices.keyboard.down[held] = true;
-            frameKeys(.{ .display = press.display, .player = press.player, .devices = press.devices, .slot = press.slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
+            frameKeys(.{ .display = press.display, .charges = press.charges, .player = press.player, .devices = press.devices, .slot = press.slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
             press.devices.keyboard.down[key] = false;
             if (modifier) |held| press.devices.keyboard.down[held] = false;
             press.devices.read();
         }
     };
-    const press: Press = .{ .devices = &devices, .display = &display, .player = &player, .slot = &slot };
+    const press: Press = .{ .devices = &devices, .display = &display, .charges = &charges, .player = &player, .slot = &slot };
     const windows = &display.windows;
 
     // DAMAGE WINDOW opens the damage window, and pressed while it is up closes it.
@@ -3034,7 +3044,7 @@ test "the window keys" {
     // SHIELD BALANCING lets the stick shift the shields for as long as it is held.
     press.once(.shield_balancing);
     try std.testing.expect(player.balancing_shields);
-    frameKeys(.{ .display = &display, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
+    frameKeys(.{ .display = &display, .charges = &charges, .player = &player, .devices = &devices, .slot = &slot, .view = .cockpit, .game_ticks = 0, .multiplayer = false });
     try std.testing.expect(!player.balancing_shields);
 
     // RADAR RANGES moves the radar round to its closest range, and its rings start moving.
@@ -3314,7 +3324,8 @@ test "the player's cloak" {
     defer stage.deinit(gpa);
     const slot = stage.slot();
     var display: hud.State = .{};
-    display.devices.getPtr(.cloak).setting = .off;
+    const charges = &stage.mission.objects.player_states[stage.index].charges;
+    charges.getPtr(.cloak).setting = .off;
     var world = stage.mission.world();
     world.display = &display;
     var devices: Devices = .{};
@@ -3325,7 +3336,7 @@ test "the player's cloak" {
     keyboard.down[cloak_key] = true;
     playerWeapons(world, &devices, stage.index);
     try std.testing.expect(slot.object.flags.cloaked);
-    try std.testing.expectEqual(.on, display.devices.get(.cloak).setting);
+    try std.testing.expectEqual(.on, charges.get(.cloak).setting);
     keyboard.down[cloak_key] = false;
     keyboard.read();
     // Once it has come on, FIRE LASERS uncloaks the ship rather than firing.
@@ -3334,7 +3345,7 @@ test "the player's cloak" {
     keyboard.down[fire_key] = true;
     playerWeapons(world, &devices, stage.index);
     try std.testing.expect(slot.cloak.?.going);
-    try std.testing.expectEqual(.off, display.devices.get(.cloak).setting);
+    try std.testing.expectEqual(.off, charges.get(.cloak).setting);
     keyboard.down[fire_key] = false;
     keyboard.read();
 
@@ -3351,13 +3362,13 @@ test "the player's cloak" {
     stage.mission.clock.frame_start = 2000;
     setCloak(world, true);
     cloak.frame(slot, 2000 + cloak.change_ticks);
-    display.devices.getPtr(.cloak).ticks = 1;
-    display.runCharges(world, 10, false);
+    charges.getPtr(.cloak).ticks = 1;
+    ship_devices.advance(world, stage.index, 10, .local);
     try std.testing.expect(slot.cloak.?.going);
 
     // A ship that carries no cloak can't.
     cloak.frame(slot, 2000 + 2 * cloak.change_ticks);
-    display.devices.getPtr(.cloak).setting = .absent;
+    charges.getPtr(.cloak).setting = .absent;
     setCloak(world, true);
     try std.testing.expect(!slot.object.flags.cloaked);
 }

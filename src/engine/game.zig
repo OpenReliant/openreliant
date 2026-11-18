@@ -55,6 +55,7 @@ pub const pilots = @import("game/pilots.zig");
 pub const players = @import("game/players.zig");
 pub const radio = @import("game/radio.zig");
 pub const recordings = @import("game/recordings.zig");
+pub const ship_devices = @import("game/ship_devices.zig");
 pub const shield = @import("game/shield.zig");
 pub const shieldfx = @import("game/shieldfx.zig");
 pub const shockwave = @import("game/shockwave.zig");

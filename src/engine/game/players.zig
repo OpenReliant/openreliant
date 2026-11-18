@@ -10,6 +10,7 @@ const flight = @import("../input/flight.zig");
 const aigeneric = @import("aigeneric.zig");
 const missile_display = @import("hud/missile_display.zig");
 const lock = @import("main/lock.zig");
+const ship_devices = @import("ship_devices.zig");
 
 /// Identifies one admission to the session. The host keeps this independently of the ship.
 pub const ParticipantRef = struct {
@@ -41,6 +42,7 @@ pub const State = struct {
     membership: Membership = .local_rules,
     controls: flight.State = .{},
     weapons: Weapons = .{},
+    charges: ship_devices.Charges = ship_devices.full,
     /// Validated input from the bound participant. Held input lasts across game frames and steps.
     command: ?Command = null,
 
@@ -55,6 +57,7 @@ pub const State = struct {
         state.command = null;
         state.controls = .{};
         state.weapons = .{};
+        state.charges = ship_devices.full;
         state.shield_reserves = .{};
     }
 
@@ -63,6 +66,7 @@ pub const State = struct {
         state.shield_reserves = .{};
         state.command = null;
         state.weapons.lock.reset();
+        state.charges = ship_devices.full;
     }
 };
 
@@ -73,12 +77,14 @@ pub const Command = struct {
     flight: flight.Command = .{},
     match_speed: bool = false,
     weapons: WeaponCommand = .{},
+    devices: ship_devices.Requests = .empty,
     target: union(enum) { keep, clear, aim: aigeneric.Aim } = .keep,
 
     pub fn consumePresses(command: *Command) void {
         command.flight.consumePresses();
         command.match_speed = false;
         command.target = .keep;
+        command.devices = .empty;
         command.weapons = .{ .fire_guns = command.weapons.fire_guns };
     }
 };

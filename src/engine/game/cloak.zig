@@ -76,18 +76,17 @@ pub fn canCloak(slot: *const create.Slot) bool {
     return if (slot.model) |*model| model.source.header.flags.cloak else false;
 }
 
-/// `object_set_cloak` (`0x00463560`): the object in slot `index`, where it can cloak, cloaked or
-/// not as `on` says, where it isn't already (`toggle`); for the player's ship the display's cloak
-/// with it. The ships launching from it follow it.
+/// `object_set_cloak` (`0x00463560`): asks the ship to cloak or decloak. Ships launching from it
+/// follow the same request. Local controls record the request in the player's cloak setting.
 pub fn set(world: gameobj.World, index: u16, on: bool) void {
     const all = world.objects;
     const slot = &all.slots[index];
     if (!canCloak(slot)) return;
     if (slot.object.flags.cloaked == on) return;
     toggle(world, index);
-    if (index == all.player) if (world.display) |display| {
-        display.devices.getPtr(.cloak).setting = if (on) .on else .off;
-    };
+    if (index == all.player and all.readsLocalPlayerInput()) {
+        all.player_states[index].charges.getPtr(.cloak).setting = if (on) .on else .off;
+    }
     for (0..all.count) |at| {
         const other: u16 = @intCast(at);
         const entry = all.slots[other].current() orelse continue;
