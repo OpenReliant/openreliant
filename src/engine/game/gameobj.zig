@@ -2289,7 +2289,7 @@ pub fn simulationStep(clock: *Clock, devices: *input.Devices, world: World) bool
     for (0..@min(all.players, all.slots.len)) |at| {
         const index: u16 = @intCast(at);
         const slot = &all.slots[index];
-        const remote = slot.running(.multiplayer_control) != null and all.player_states[index].command != null;
+        const remote = slot.running(.multiplayer_control) != null and all.playerCommand(index) != null;
         if (slot.running(.player_control) != null or remote) {
             aigeneric.objectOrders(.{ .world = world, .devices = devices }, index);
         }
@@ -3155,7 +3155,9 @@ test "each participant receives the extra physical-step control update" {
     all.players = 2;
     for ([_]u16{ first, second }) |index| {
         try std.testing.expect(try aigeneric.push(mission.orders(), index, .multiplayer_control, .none));
-        try std.testing.expect(all.playerState(index).?.submit(.{ .flight = .{ .throttle = .{ .keys = .{ .accelerate = true } } } }));
+        const participant = all.joinParticipant(index).?;
+        const source = all.bindParticipant(participant, .of(all, index)).?;
+        try std.testing.expect(all.submitPlayerCommand(source, .{ .flight = .{ .throttle = .{ .keys = .{ .accelerate = true } } } }));
     }
     var devices: input.Devices = .{};
     mission.clock.simulation_counter = ticks_per_step - 1;

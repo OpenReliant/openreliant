@@ -11,33 +11,58 @@ const aigeneric = @import("aigeneric.zig");
 const missile_display = @import("hud/missile_display.zig");
 const lock = @import("main/lock.zig");
 
+/// Identifies one admission to the session. The host keeps this independently of the ship.
+pub const ParticipantRef = struct {
+    slot: u16,
+    generation: u64,
+};
+
+/// Identifies the participant and the ship a command was sampled for.
+pub const ControlRef = struct {
+    participant: ParticipantRef,
+    ship: gameobj.ObjectRef,
+};
+
+pub const Membership = union(enum) {
+    local_rules,
+    vacant,
+    joined: Joined,
+
+    pub const Joined = struct {
+        generation: u64,
+        ship: ?gameobj.ObjectRef = null,
+    };
+};
+
 /// A participant's simulation state, kept by `create.Objects` beside the simulated ships.
-/// This belongs to the player's slot, so replacing its physical ship leaves it intact.
-/// A mission reset clears reserves and pending commands, preserving the control globals.
-/// It contains no device, camera or display state.
+/// A managed participant keeps their membership across a ship replacement. Each new ship
+/// starts with fresh input and weapons. The local path keeps its existing control persistence.
 pub const State = struct {
+    membership: Membership = .local_rules,
     controls: flight.State = .{},
     weapons: Weapons = .{},
-    /// Commands supplied at the simulation boundary. Null uses local devices for the displayed
-    /// player and leaves remote players alone. A held command survives frames and physical steps.
+    /// Validated input from the bound participant. Held input lasts across game frames and steps.
     command: ?Command = null,
 
     /// What SHIELD BALANCING has shifted beyond the fore and aft shields' full charge
     /// (`shield_reserve_fore`, `0x0051CF78`, and `shield_reserve_aft`, `0x0051CF34`).
     shield_reserves: gameobj.ShieldReserves = .{},
 
-    /// Installs a command from the host's input source, after resolving device bindings.
-    pub fn submit(state: *State, command: Command) bool {
-        if (!command.flight.valid()) return false;
-        state.command = command;
-        return true;
+    /// Drops all state tied to the old ship while keeping the participant's admission.
+    pub fn unbindShip(state: *State) void {
+        if (state.membership != .joined) return;
+        state.membership.joined.ship = null;
+        state.command = null;
+        state.controls = .{};
+        state.weapons = .{};
+        state.shield_reserves = .{};
     }
 
     pub fn resetMission(state: *State) void {
+        if (state.membership == .joined) return state.unbindShip();
         state.shield_reserves = .{};
         state.command = null;
         state.weapons.lock.reset();
-        state.weapons.ship = null;
     }
 };
 
@@ -68,8 +93,6 @@ pub const WeaponCommand = struct {
 };
 
 pub const Weapons = struct {
-    /// The ship whose loadout supplied this selection.
-    ship: ?gameobj.ObjectRef = null,
     ring: missile_display.Ring = .{},
     lock: lock.Lock = .{},
 };
