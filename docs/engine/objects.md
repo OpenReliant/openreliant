@@ -95,6 +95,9 @@ shaders also use it. Camera shot holds capture each ship separately. Projectile 
 candidates and blast victims keep checked references too, from the initial search until impact
 or blast completion. These lists keep their original limits and order; later spawns do not enter
 an existing shot's or blast's search.
+The component highlight's refresh decision still needs an identity check, and its component-loss
+path needs to keep the highlight state across clearing
+([#1363](https://github.com/OpenReliant/openreliant/issues/1363)).
 These changes are tracked under
 [#946](https://github.com/OpenReliant/openreliant/issues/946).
 

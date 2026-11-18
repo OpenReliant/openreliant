@@ -36,6 +36,11 @@ they keep that meaning, including shots queued before a ship appears. A shot's h
 particular ships it finds when it starts. **Fix:** ending or starting that hold cannot change a
 replacement ship's jumping flag. Curve events and shot durations stay unchanged.
 
+The request handoff still needs to retain the particular missile selected by the drawn frame
+([#1361](https://github.com/OpenReliant/openreliant/issues/1361)). A mission camera selected before
+a ship's first spawn also needs to keep that expected creation without following later
+replacements ([#1362](https://github.com/OpenReliant/openreliant/issues/1362)).
+
 | View | Key | Camera | Named |
 |---|---|---|---|
 | 0 | Cockpit | From the cockpit, ahead, as the cockpit mode says | Cockpit View |

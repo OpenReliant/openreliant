@@ -1114,6 +1114,8 @@ fn loseRoot(ctx: aigeneric.Context, index: u16, model: *Model, root: math.Place)
             destroyPart(slot, .{ .model = model, .index = at });
         }
     }
+    // Clearing the highlight above loses the state this refresh checks. Keep that state across
+    // component loss ([#1363](https://github.com/OpenReliant/openreliant/issues/1363)).
     if (shown) |subtarget| if (subtarget.belongsTo(world.objects, index)) subtarget.pick(world.objects);
     model.destroyed = false;
 }

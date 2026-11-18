@@ -432,6 +432,8 @@ pub const SubjectRef = union(enum) {
     slot: u16,
     object: gameobj.ObjectRef,
 
+    /// A mission camera selected before a ship's first spawn still needs to keep that expected
+    /// creation ([#1362](https://github.com/OpenReliant/openreliant/issues/1362)).
     pub fn of(all: ?*const create.Objects, at: u16) SubjectRef {
         return if (all) |objects_all| .{ .object = .of(objects_all, at) } else .{ .slot = at };
     }
@@ -590,6 +592,8 @@ pub const Viewing = struct {
     /// Where the camera cut to a switch as it was asked (`Request.cut_at_once`), `subtarget`
     /// follows the switch here (`Camera.Subtarget.follow`), and the camera gets no change to take
     /// up. Otherwise the camera takes the switch up as it next frames, as for the game's own.
+    /// The missile selected by a drawn-frame request still needs to be retained across this
+    /// handoff ([#1361](https://github.com/OpenReliant/openreliant/issues/1361)).
     pub fn takeUp(viewing: *Viewing, requests: *const Requests, by: Bounds, subtarget: ?Camera.Subtarget) void {
         var asked = requests.since(viewing.requests_seen);
         while (asked.next()) |retained| {
