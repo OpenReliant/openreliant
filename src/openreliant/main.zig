@@ -369,7 +369,13 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     const strings = records.language(.text);
     const itac_strings = records.language(.itac_text);
 
-    var window: platform.window.Window = try .open("OpenReliant", initial_size[0], initial_size[1], options.fullscreen);
+    const window_mode: platform.window.Window.Mode = if (options.screenshot != null)
+        .capture
+    else if (options.fullscreen)
+        .fullscreen
+    else
+        .windowed;
+    var window: platform.window.Window = try .open("OpenReliant", initial_size[0], initial_size[1], window_mode);
     defer window.close();
     window.setIcon(&icon.pngs);
     // The compiled shaders of the mods, kept in the game folder, and their replacements for
@@ -378,7 +384,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
     const whole: WholeShaders = if (options.mod_effects) try whole_shaders.load(arena, shader_cache, mods.list) else .{ .template = .builtin() };
     // The GPU the driver draws with, and the driver.
     const gpu = try arena.create(platform.gpu.Gpu);
-    gpu.* = try .init(gpa, window.gpu, window.handle, options.settings, &whole.replacements);
+    gpu.* = try .init(gpa, &window, options.settings, &whole.replacements);
     defer gpu.deinit();
     var driver: srd3d.srd3d.Driver = try .init(arena, gpu.interface());
     defer driver.deinit();

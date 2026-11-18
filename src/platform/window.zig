@@ -46,6 +46,7 @@ pub const Event = union(enum) {
 pub const Window = struct {
     handle: *c.SDL_Window,
     gpu: *c.SDL_GPUDevice,
+    mode: Mode,
     /// Whether it takes text (`takeText`), the text the system's input made that `poll` has yet to
     /// hand out a character at a time, and a backspace to hand out after its key.
     taking_text: bool = false,
@@ -60,24 +61,39 @@ pub const Window = struct {
     /// The most of one of the system's text events kept, the room SDL gives one.
     const text_room = 32;
 
-    /// A window of `width` by `height` points, or filling the display, drawn into at the display's
-    /// own density.
-    pub fn open(title: [*:0]const u8, width: u32, height: u32, fullscreen: bool) Error!Window {
-        if (builtin.target.os.tag == .macos) macos.ignoreSavedState();
+    pub const Mode = enum {
+        windowed,
+        fullscreen,
+        capture,
+
+        fn flags(mode: Mode) c.SDL_WindowFlags {
+            const common = c.SDL_WINDOW_RESIZABLE | c.SDL_WINDOW_HIGH_PIXEL_DENSITY;
+            return common | switch (mode) {
+                .windowed => 0,
+                .fullscreen => c.SDL_WINDOW_FULLSCREEN,
+                .capture => c.SDL_WINDOW_HIDDEN,
+            };
+        }
+    };
+
+    /// Create an interactive window or a hidden window that supplies the capture size.
+    pub fn open(title: [*:0]const u8, width: u32, height: u32, mode: Mode) Error!Window {
+        if (builtin.target.os.tag == .macos) {
+            if (mode == .capture) _ = c.SDL_SetHintWithPriority(c.SDL_HINT_MAC_BACKGROUND_APP, "1", c.SDL_HINT_OVERRIDE);
+            macos.ignoreSavedState();
+        }
         if (!c.SDL_Init(c.SDL_INIT_VIDEO)) return fail("SDL_Init");
         errdefer c.SDL_Quit();
-        var flags: c.SDL_WindowFlags = c.SDL_WINDOW_RESIZABLE | c.SDL_WINDOW_HIGH_PIXEL_DENSITY;
-        if (fullscreen) flags |= c.SDL_WINDOW_FULLSCREEN;
-        const handle = c.SDL_CreateWindow(title, @intCast(width), @intCast(height), flags) orelse return fail("SDL_CreateWindow");
+        const handle = c.SDL_CreateWindow(title, @intCast(width), @intCast(height), mode.flags()) orelse return fail("SDL_CreateWindow");
         errdefer c.SDL_DestroyWindow(handle);
-        if (builtin.target.os.tag == .macos) macos.fillMenus();
+        if (builtin.target.os.tag == .macos and mode != .capture) macos.fillMenus();
         // The formats the game's shader comes in: Vulkan's everywhere it runs, Metal's on Apple's
         // systems.
         const formats = c.SDL_GPU_SHADERFORMAT_SPIRV | c.SDL_GPU_SHADERFORMAT_MSL;
         const gpu = c.SDL_CreateGPUDevice(formats, false, null) orelse return fail("SDL_CreateGPUDevice");
         errdefer c.SDL_DestroyGPUDevice(gpu);
-        if (!c.SDL_ClaimWindowForGPUDevice(gpu, handle)) return fail("SDL_ClaimWindowForGPUDevice");
-        return .{ .handle = handle, .gpu = gpu, .pointer_moved_at = nanoseconds() };
+        if (mode != .capture and !c.SDL_ClaimWindowForGPUDevice(gpu, handle)) return fail("SDL_ClaimWindowForGPUDevice");
+        return .{ .handle = handle, .gpu = gpu, .mode = mode, .pointer_moved_at = nanoseconds() };
     }
 
     /// Shows `pictures`, PNG files of one picture, as the window's icon, and on macOS as the
@@ -87,14 +103,14 @@ pub const Window = struct {
     /// can't take a window's icon, such as a Wayland compositor without the protocol for it, shows
     /// its own.
     pub fn setIcon(window: Window, pictures: []const []const u8) void {
-        if (builtin.target.os.tag == .windows) return;
+        if (builtin.target.os.tag == .windows or window.mode == .capture) return;
         const icon = iconOf(pictures) catch return;
         defer c.SDL_DestroySurface(icon);
         _ = c.SDL_SetWindowIcon(window.handle, icon);
     }
 
     pub fn close(window: *Window) void {
-        c.SDL_ReleaseWindowFromGPUDevice(window.gpu, window.handle);
+        if (window.mode != .capture) c.SDL_ReleaseWindowFromGPUDevice(window.gpu, window.handle);
         c.SDL_DestroyGPUDevice(window.gpu);
         c.SDL_DestroyWindow(window.handle);
         c.SDL_Quit();
@@ -209,6 +225,7 @@ pub const Window = struct {
     /// (`drawn`), in full screen, and once it has rested over the window (`pointerShows`). It
     /// shows again as soon as it moves.
     pub fn showPointer(window: *Window, drawn: bool) void {
+        if (window.mode == .capture) return;
         const shown = pointerShows(drawn, window.fillsDisplay(), nanoseconds() -| window.pointer_moved_at);
         if (shown == window.pointer_shown) return;
         window.pointer_shown = shown;
@@ -228,6 +245,7 @@ pub const Window = struct {
 
     /// Fills the display, or goes back to the window.
     pub fn setFullscreen(window: *Window, on: bool) void {
+        if (window.mode == .capture) return;
         if (!c.SDL_SetWindowFullscreen(window.handle, on)) std.log.scoped(.sdl).warn("SDL_SetWindowFullscreen: {s}", .{c.SDL_GetError()});
     }
 
@@ -245,6 +263,14 @@ pub const Window = struct {
         return mode.*.refresh_rate;
     }
 };
+
+test "capture windows start hidden and outside fullscreen" {
+    const flags = Window.Mode.capture.flags();
+    try std.testing.expect(flags & c.SDL_WINDOW_HIDDEN != 0);
+    try std.testing.expect(flags & c.SDL_WINDOW_FULLSCREEN == 0);
+    try std.testing.expect(Window.Mode.windowed.flags() & c.SDL_WINDOW_HIDDEN == 0);
+    try std.testing.expect(Window.Mode.fullscreen.flags() & c.SDL_WINDOW_FULLSCREEN != 0);
+}
 
 /// Holds frames to a rate where the display does not: with vsync off, or at a rate asked for.
 pub const Pacer = struct {
