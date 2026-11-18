@@ -244,7 +244,7 @@ fn attackers(all: *create.Objects, out: *[most_attackers]u16) ?[]const u16 {
 /// Whether the report waiting first is the wingman's, one of `lines` in Bandit's voice.
 fn expectReply(heard: *const radio.testing.Heard, lines: []const []const u8) !void {
     const report = heard.radio.reports[0] orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(i32, heard.wingman), report.object);
+    try std.testing.expectEqual(@as(i32, heard.wingman), report.speaker.number());
     try std.testing.expectEqual(heard.mission.clock.game_ticks + radio.report_delay, report.due);
     const speech = report.speech.slice();
     try std.testing.expect(std.mem.startsWith(u8, speech, "ban_"));

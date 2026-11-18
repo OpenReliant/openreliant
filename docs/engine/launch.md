@@ -379,6 +379,13 @@ passes through the Zakov.
 OpenReliant stores a riding node as an object slot and optional part index
 (`create.Slot.riding`). The original stores the node's address.
 
+The player's carrier uses `ObjectRef`, captured when a launch or `world.set_player_carrier`
+selects it. **Fix:** a replacement in that slot cannot receive landing requests or backup calls,
+be hidden by the launch cutaway, or become the player's carrier. The original fallback to the
+first Yamato still applies when the old carrier explodes, and also after it is removed. Script
+names and arguments stay unchanged; `world.player_carrier` is nil after removal until a carrier
+is explicitly selected or the Yamato fallback finds one.
+
 **Fix:** the original stops with a fatal assertion, "Error. Trying to launch from %s.", for a
 carrier with no style of its own. The game's own missions never reach it: in every shipped mission,
 each launch other than a torpedo's or a pod's is from a carrier with a style, once a type under

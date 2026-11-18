@@ -643,7 +643,7 @@ test "a taunt turns the enemy on the player" {
     try std.testing.expectEqual(@as(i16, @intCast(all.player)), current.target.resolve(all).index);
     // It answers in its pilot's voice.
     const report = heard.radio.reports[0] orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqual(@as(i32, heard.enemy), report.object);
+    try std.testing.expectEqual(@as(i32, heard.enemy), report.speaker.number());
     try std.testing.expect(std.mem.startsWith(u8, report.speech.slice(), "rus_res_"));
 
     // Aimed at the player already, it is not taunted again.

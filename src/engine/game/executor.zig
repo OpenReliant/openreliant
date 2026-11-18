@@ -2264,7 +2264,7 @@ test "the commands of the simulator's training, and those no shipped mission run
     try std.testing.expectEqual(0, patrol.target.resolve(all).index);
     try std.testing.expectEqual(0x3A0, display.subtitle.string);
     try std.testing.expectEqual(camera.View.chase, ctx.world.view());
-    try std.testing.expectEqual(2, ctx.world.player.viewing.object);
+    try std.testing.expectEqual(2, ctx.world.player.viewing.objectIn(ctx.world.objects));
     try std.testing.expect(ctx.world.player.viewing.locked);
 
     // On, the afterburner fills, and the script waits for the key, prompting for it.
@@ -3078,11 +3078,11 @@ test "PlayCommsMovie and CommsFromPilot say their lines on the radio" {
     on_air.wire(&ctx);
     try game.start(ctx);
 
-    try std.testing.expectEqual(radio_module.pilot_base, radio.object);
+    try std.testing.expectEqual(radio_module.pilot_base, radio.speaker.number());
     try std.testing.expect(radio.movie.playing);
     game.fixture.second();
     try std.testing.expectEqual(9, radio.name);
-    try std.testing.expectEqual(radio_module.nobody, radio.object);
+    try std.testing.expectEqual(radio_module.nobody, radio.speaker.number());
     try std.testing.expectEqual(hudmovie.Flags.looping, radio.movie.flags);
     try std.testing.expect(game.fixture.machine.finished);
     try std.testing.expect(game.fixture.machine.warned.contains(.long_name));

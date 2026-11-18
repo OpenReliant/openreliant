@@ -516,6 +516,8 @@ pub const Sound = struct {
     /// The 3D voices, as many as the provider has, up to 64 (`0x00565684`); none while no
     /// provider is open (`0x0056567C`).
     voices_3d: [max_voices_3d]Voice3D = @splat(Voice3D.free),
+    /// Checked object owners beside the original fixed voice records.
+    object_voices: [max_voices_3d]?gameobj.ObjectRef = @splat(null),
     voice_3d_count: u8 = 0,
     /// The voices set aside for the player's engine and its afterburner, of classes
     /// `player_engines` and `player_burners` (`0x00565674`, `0x00565060`).
@@ -960,6 +962,7 @@ pub const Sound = struct {
             driver.release3DSample(voice.sample);
             voice.* = Voice3D.free;
         }
+        sound.object_voices = @splat(null);
         sound.voice_3d_count = 0;
         sound.engine_voice = null;
         sound.burner_voice = null;
@@ -972,6 +975,7 @@ pub const Sound = struct {
     pub fn end3D(sound: *Sound, v: u8) void {
         const driver = sound.driver orelse return;
         const voice = &sound.voices_3d[v];
+        sound.object_voices[v] = null;
         if (voice.isFree()) return;
         if (voice.follows == .missile) if (voice.ownerIndex()) |at| if (at < sound.missile_voices.len) {
             if (sound.missile_voices[at]) |held| if (held.value == v) {
@@ -1041,6 +1045,8 @@ pub const Sound = struct {
     /// looping one plays until it's stopped. It fades out toward the edge of its range
     /// (`sound3d.fadeToFar`), stays silent beyond it, and becomes audible again when it comes back
     /// in range.
+    /// **Fix:** an attached sound ends when its original object is removed, even if another
+    /// object immediately takes the slot. The fixed voice record stays unchanged.
     pub fn update3D(sound: *Sound, scene: Scene) void {
         const driver = sound.driver orelse return;
         if (sound.voice_3d_count == 0) return;
@@ -1110,8 +1116,13 @@ pub const Sound = struct {
                     move = false;
                 },
                 .object => {
-                    // `sound3d.play` gives an object's voice its slot.
-                    const at = voice.ownerIndex() orelse {
+                    // The binary voice record keeps its slot. The native reference prevents an
+                    // attached sound from following a replacement object.
+                    const reference = sound.object_voices[v] orelse {
+                        sound.end3D(v);
+                        continue;
+                    };
+                    const at = reference.resolve(scene.objects) orelse {
                         sound.end3D(v);
                         continue;
                     };

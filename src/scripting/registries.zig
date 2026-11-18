@@ -57,7 +57,6 @@ pub const Registry = struct {
     entries: std.ArrayList(Entry) = .empty,
     selected_camera: ?usize = null,
     selected_screen: ?usize = null,
-    camera_subject: ?objects.Handle = null,
     updating: bool = false,
 
     pub fn deinit(registry: *Registry, scripts: *runtime.Runtime) void {
@@ -120,11 +119,10 @@ pub const Registry = struct {
     pub fn resetCamera(registry: *Registry, scripts: *runtime.Runtime) void {
         if (scripts.presentation) |shown| if (shown.host) |host| if (host.camera) |held| {
             if (registry.selected_camera) |index| if (held.viewing.view == viewId(index) and !held.viewing.locked) {
-                _ = held.camera.ask(held.viewing, .{ .view = .cockpit, .object = held.player, .now = held.now }, held.bounds);
+                _ = held.camera.ask(held.viewing, .{ .view = .cockpit, .object = held.player, .now = held.now }, held.boundsFor(scripts.objects));
             };
         };
         registry.selected_camera = null;
-        registry.camera_subject = null;
     }
 
     pub fn viewId(index: usize) camera.View {
@@ -143,9 +141,8 @@ pub const Registry = struct {
     pub fn selectCamera(registry: *Registry, scripts: *runtime.Runtime, index: usize, object: ?engine.hooks.Object) bool {
         const host = scripts.presentation.?.host orelse return false;
         const held = host.camera orelse return false;
-        if (!held.camera.ask(held.viewing, .{ .view = viewId(index), .object = if (object) |ship| ship.slot() else held.player, .now = held.now }, held.bounds)) return false;
+        if (!held.camera.ask(held.viewing, .{ .view = viewId(index), .object = if (object) |ship| ship.slot() else held.player, .now = held.now }, held.boundsFor(scripts.objects))) return false;
         registry.selected_camera = index;
-        if (scripts.objects) |all| registry.camera_subject = .of(all, held.viewing.object.?);
         return true;
     }
 
@@ -156,7 +153,6 @@ pub const Registry = struct {
             if (registry.selected_camera) |index| {
                 if (held.viewing.view != viewId(index)) {
                     registry.selected_camera = null;
-                    registry.camera_subject = null;
                 } else if (!held.viewing.locked) registry.cameraFrame(scripts, index, seconds);
             }
         };
@@ -214,9 +210,15 @@ pub const Registry = struct {
         const entry = registry.entries.items[index];
         const callbacks = entry.callbacks orelse return;
         const held = scripts.presentation.?.host.?.camera.?;
-        const ship = held.viewing.object orelse held.player;
-        const subject = registry.camera_subject;
-        if (scripts.objects == null or subject == null or !subject.?.valid(scripts.objects.?) or @import("world.zig").objectIn(scripts.objects.?, ship) == null) {
+        const all = scripts.objects orelse {
+            registry.disable(scripts, index);
+            return;
+        };
+        const ship = held.viewing.objectIn(all) orelse {
+            registry.disable(scripts, index);
+            return;
+        };
+        if (@import("world.zig").objectIn(all, ship) == null) {
             registry.disable(scripts, index);
             return;
         }

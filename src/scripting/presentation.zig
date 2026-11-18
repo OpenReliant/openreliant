@@ -140,6 +140,13 @@ pub const Host = struct {
         now: u32,
         /// The player's ship, which a view follows unless a script names another object.
         player: u16,
+
+        /// Includes the script runtime's objects when the host supplies no object bounds.
+        pub fn boundsFor(held: Camera, all: ?*const create.Objects) camera.Viewing.Bounds {
+            var bounds = held.bounds;
+            if (bounds.objects == null) bounds.objects = all;
+            return bounds;
+        }
     };
 };
 
@@ -2245,7 +2252,7 @@ test "player scripts register surface and lighting functions, which the host dra
     try std.testing.expectEqual(null, names.find(names.context, "cel:nothing"));
     // The game's end stops the player scripts, and their functions go, as do those they gave the
     // objects.
-    shaders_registry.given[0] = .{ .reuse = 0, .surface = .{ .function = 2 } };
+    shaders_registry.given[0] = .{ .object = .of(fixture.mission.objects, 0), .surface = .{ .function = 2 } };
     fixture.shown.endGame();
     try std.testing.expectEqual(null, shaders_registry.given[0]);
     try std.testing.expectEqual(0, host.drawn.items.len);
@@ -2517,4 +2524,40 @@ test "the campaign example briefs each of its missions, and plays its movie firs
     fixture.shown.key(.enter, true);
     try std.testing.expectEqual(interf.Request{ .go = .main_menu }, scripted.vtable.take(scripted.context).?);
     for (fixture.shown.runtime.contexts.items) |context| try std.testing.expect(!context.closed);
+}
+
+test "a custom camera stops before calling its callback on a replacement subject" {
+    var fixture: Fixture = undefined;
+    try fixture.init(&.{.{
+        "a",
+        &.{
+            .{ "mod.ini", "[Scripts]\nPlayer=a.luau\n" },
+            .{
+                "a.luau",
+                \\local camera = require("openreliant.camera")
+                \\local util = require("openreliant.util")
+                \\local selected = false
+                \\local view = camera.register_view("subject", {frame = function(ship)
+                \\    return {position = ship.position, orientation = util.from_angles(vector.zero)}
+                \\end})
+                \\return {engine_handlers = {on_frame = function()
+                \\    if not selected then selected = camera.set_view(view) end
+                \\end}}
+            },
+        },
+    }});
+    defer fixture.deinit();
+    try fixture.shown.startGame(null, fixture.mission.objects, false);
+    var view: camera.Camera = .{};
+    var viewing: camera.Viewing = .{};
+    const host: Host = .{ .seconds = 0.04, .devices = &fixture.devices, .window = .{ 640, 480 }, .camera = .{ .camera = &view, .viewing = &viewing, .now = 1, .player = 0 } };
+    fixture.shown.frame(host);
+    try std.testing.expectEqualStrings("a:subject", fixture.shown.runtime.registries.cameraName(viewing.view).?);
+    const before = view.place;
+    create.resetSlot(fixture.mission.orders(), 0);
+    _ = try create.createObject(fixture.mission.objects, &fixture.mission.tables, create.testing.no_models, 0, .of(.predator), 0, .{ 1000, 0, 0 }, &fixture.mission.random);
+    fixture.shown.frame(host);
+    try std.testing.expectEqual(null, fixture.shown.runtime.registries.selected_camera);
+    try std.testing.expectEqual(camera.View.cockpit, viewing.view);
+    try std.testing.expectEqual(before.position, view.place.position);
 }

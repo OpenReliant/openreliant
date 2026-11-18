@@ -1449,7 +1449,7 @@ fn run(io: Io, gpa: Allocator, arena: Allocator, options: Options, game_path: []
             display.placements = shown.instrumentPlacements();
             display.parts = shown.partPlacements();
             if (host.camera != null) if (drawn_objects) |copy| {
-                copy.slots[copy.player].object.flags.hidden = drawn.player.viewing.inside(copy.player);
+                copy.slots[copy.player].object.flags.hidden = drawn.player.viewing.inside(copy, copy.player);
             };
         }
 
@@ -1733,7 +1733,7 @@ const Watch = struct {
             const asked: camera.Request = .{ .view = .watch, .object = index, .lock = true, .force = true, .now = world.clock.viewTime(), .lasting = true, .cut_at_once = false };
             if (!view.ask(viewing, asked, .of(world))) return;
             watch.started = true;
-        } else if (viewing.view != .watch or viewing.object != index) {
+        } else if (viewing.view != .watch or viewing.objectIn(all) != index) {
             watch.slot = null;
             return;
         }
@@ -1767,7 +1767,7 @@ test Watch {
     slot.object.radius = 10;
     watch.frame(shown, &view);
     try std.testing.expectEqual(camera.View.watch, viewing.view);
-    try std.testing.expectEqual(ship, viewing.object.?);
+    try std.testing.expectEqual(ship, viewing.objectIn(mission.objects).?);
     try std.testing.expect(viewing.locked and viewing.lasting);
     try std.testing.expectEqual(math.Vector{ 100, 0, 20 }, view.place.position);
     // The game's view switches as the game next runs, and the camera cuts to it as it frames.

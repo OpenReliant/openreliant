@@ -141,7 +141,7 @@ const strand_flags: srapiext.ObjectFlags = .{ .not_culled = true, .baked_object 
 
 /// A beam showing: whose it is, until when, and the charge it fired with.
 pub const Beam = struct {
-    owner: u16,
+    owner: gameobj.ObjectRef,
     until: i32,
     charge: f32,
     ion: srapiext.MeshObject,
@@ -162,7 +162,7 @@ pub const Beam = struct {
         return beam.strands != null;
     }
 
-    fn init(looks: *const Looks, owner: u16, until: i32, fired: f32) Beam {
+    fn init(looks: *const Looks, owner: gameobj.ObjectRef, until: i32, fired: f32) Beam {
         var beam: Beam = .{
             .owner = owner,
             .until = until,
@@ -254,11 +254,15 @@ pub const Beams = struct {
     /// `nova_beams_frame` (`0x00480690`), each frame from `bullets_frame`: each beam past its time
     /// goes, as does one whose ship is gone, and the rest stand where their ships are.
     ///
-    /// **Fix:** the game keeps drawing a beam from the record of a ship that has gone.
+    /// **Fix:** a beam ends when its original ship leaves, even if another ship takes the slot.
     pub fn frame(beams: *Beams, all: *const create.Objects, now: i32) void {
         for (&beams.slots) |*slot| {
             const beam = &(slot.* orelse continue);
-            const ship = &all.slots[beam.owner];
+            const owner = beam.owner.resolve(all) orelse {
+                slot.* = null;
+                continue;
+            };
+            const ship = &all.slots[owner];
             if (beam.until < now or ship.object.type.base() == .stand_in) {
                 slot.* = null;
                 continue;
@@ -306,7 +310,7 @@ pub fn release(world: gameobj.World, index: u16) void {
     if (world.forces) |forces| forces.start(.nc, now);
     strike(world, index, fired, charged(ship));
     const looks = all.bullets.looks orelse return;
-    slot.* = .init(&looks.nova, index, now + beam_ticks, fired);
+    slot.* = .init(&looks.nova, .of(world.objects, index), now + beam_ticks, fired);
 }
 
 /// Damages every object whose bounding box the beam crosses, up to `beam_reach` straight ahead of
@@ -437,7 +441,7 @@ test helix {
 
 test "a beam stands on its ship and fades" {
     const looks: Looks = .{ .ion = std.mem.zeroes(srapiext.Mesh), .strand = std.mem.zeroes(srapiext.Mesh) };
-    var beam: Beam = .init(&looks, 0, beam_ticks, 0.5);
+    var beam: Beam = .init(&looks, .{ .slot = 0, .reuse = 0 }, beam_ticks, 0.5);
     try std.testing.expect(!beam.full());
     const ship: math.Place = .{ .position = .{ 0, 0, 100 } };
     beam.place(ship, 0);
@@ -456,9 +460,25 @@ test "a beam stands on its ship and fades" {
     try std.testing.expectApproxEqAbs(0.5, beam.ion_colours[0][0], 1e-6);
 
     // A full charge's strands spiral along it.
-    var full: Beam = .init(&looks, 0, beam_ticks, 1);
+    var full: Beam = .init(&looks, .{ .slot = 0, .reuse = 0 }, beam_ticks, 1);
     try std.testing.expect(full.full());
     full.place(ship, beam_ticks / 2);
     try std.testing.expectEqual(1, full.strands.?[0].colours[0][0]);
     try std.testing.expectEqual(0, full.strands.?[0].colours[4][0]);
+}
+
+test "a beam ends when its ship's slot is reused" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    const ship = try mission.add(.of(.predator), @splat(0));
+    const looks: Looks = .{ .ion = std.mem.zeroes(srapiext.Mesh), .strand = std.mem.zeroes(srapiext.Mesh) };
+    var beams: Beams = .{};
+    beams.slots[0] = .init(&looks, .of(mission.objects, ship), beam_ticks, 0.5);
+    beams.frame(mission.objects, 0);
+    try std.testing.expect(beams.slots[0] != null);
+    create.resetSlot(mission.orders(), ship);
+    _ = try create.createObject(mission.objects, &mission.tables, create.testing.no_models, ship, .of(.predator), 0, @splat(0), &mission.random);
+    beams.frame(mission.objects, 1);
+    try std.testing.expectEqual(null, beams.slots[0]);
 }

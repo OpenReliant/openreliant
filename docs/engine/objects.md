@@ -90,9 +90,10 @@ missile launcher's identity exposed to scripts and the highlighted subtarget use
 reference. [Retained targets](orders.md#the-stack) use it too, including stacked and queued orders,
 missiles, turrets, the player's primary target and the HUD's cached target. The original's fixed
 layouts stay unchanged. Damage sources and last attackers also keep their original identities.
-Radio, camera and sound subjects ([#1353](https://github.com/OpenReliant/openreliant/issues/1353)),
-and retained collision candidates and blast victims
-([#1357](https://github.com/OpenReliant/openreliant/issues/1357)), still need the same checks.
+Radio speakers, camera subjects, the player's carrier, attached sounds, NOVA beams and per-object
+shaders also use it. Camera shot holds capture each ship separately. Retained collision candidates
+and blast victims still need the same checks
+([#1357](https://github.com/OpenReliant/openreliant/issues/1357)).
 These changes are tracked under
 [#946](https://github.com/OpenReliant/openreliant/issues/946).
 

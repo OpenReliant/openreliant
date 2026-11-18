@@ -149,6 +149,12 @@ placed again by what they follow, and freed once beyond their maximum distance o
 has gone. Nothing gives an object its voice (`+0xB96` stays `0xFFFF`), so `missile_end`, which ends
 a missile's, never does.
 
+**Fix:** an object-attached sound keeps the original object's `ObjectRef`, both in a queued sound
+command and beside the fixed `Voice3D` record. The next sound update ends it after object removal,
+including a looping sound whose slot has already been filled by another object. Queued effects
+start at their captured position and cannot move to a replacement. Voice allocation, pitch, gain,
+loop counts and the original voice layout stay unchanged.
+
 **Improvement:** a missile's voice follows it as an object's does, and is its own, so it ends with
 it; it keeps its full volume 1.5 times as far (`sound3d.MissileSound.follows`). The game would keep
 the voice in the missile's object (`+0xB96`). OpenReliant's sound keeps it itself, by the missile's

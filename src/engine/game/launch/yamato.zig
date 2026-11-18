@@ -409,7 +409,7 @@ test "the player's Yamato launch opens the hangar, starts steam and restores the
     ctx.world.spawn = mission.spawn(create.testing.no_models);
     _ = try aigeneric.pushShip(ctx, player, .launch, carrier, 0);
     aigeneric.objectOrders(ctx, player);
-    try std.testing.expectEqual(carrier, mission.player.carrier.?);
+    try std.testing.expectEqual(carrier, mission.player.carrierIn(mission.objects).?);
     try std.testing.expectEqual(gameobj.Type.of(.yamato_hangar), mission.slot(create.cutaway_slot).object.type);
     try std.testing.expectEqual(.launch, mission.player.showing);
     try std.testing.expect(mission.player.viewing.locked);
