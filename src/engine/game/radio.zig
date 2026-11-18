@@ -275,8 +275,6 @@ pub const Remarks = struct {
     jump_reminded: bool = false,
     jump_calls: std.math.IntFittingRange(0, jump_call_count) = 0,
     jump_next: u32 = 0,
-    /// The frame's start past which the missile warning may speak again (`0x005297E4`).
-    missile_next: i32 = 0,
     /// The slot of the pilot's pod that ejected last from the player's wing, until the rescue's
     /// words (`0x00529590`), and the frame's start past which they come (`0x00529880`).
     ejected: ?u16 = null,
@@ -313,6 +311,14 @@ fn squadron(all: *const create.Objects) hudmovie.Squadron {
 /// `pick_line` (`0x00453A50`): one of `lines`, at random.
 pub fn pick(world: gameobj.World, lines: []const []const u8) []const u8 {
     return world.random.pick(lines);
+}
+
+/// Keep the campaign's random draw order. A hosted remark uses the effects generator or a copy
+/// of the simulation generator, so it does not advance the simulation's random sequence.
+fn pickRemark(world: gameobj.World, audience: collision.HitFeedback.Audience, lines: []const []const u8) []const u8 {
+    if (audience == .local) return pick(world, lines);
+    var fallback = world.random.*;
+    return (world.effects_random orelse &fallback).pick(lines);
 }
 
 /// The radio and what it reaches as a line is said, where the world has a radio: the lines are
@@ -428,7 +434,7 @@ pub fn shipLine(buffer: []u8, all: *const create.Objects, ship: u16, suffix: []c
 pub fn remarksFrame(world: gameobj.World) void {
     landingReminder(world);
     jumpReminder(world);
-    missileWarning(world);
+    missileWarnings(world);
     rescue(world);
 }
 
@@ -530,19 +536,42 @@ const missile_expiry: i32 = 500;
 /// Moose's warnings of a missile coming (`0x004EF834`).
 const missile_warnings = [_][]const u8{ "plck_001.ut", "plck_002.ut", "plck_003.ut", "plck_004.ut", "plck_005.ut", "plck_006.ut", "plck_007.ut", "plck_008.ut" };
 
-/// `radio_missile_warning` (`0x00456A80`), each frame: while a missile homes on the player's ship
-/// (`gameobj.GameObject.missile_homing`) and the ship is in the action, at most once in
-/// `missile_wait` ticks, Moose warns the pilot, unless the radio is busy or the script has the
-/// remarks unsaid.
-fn missileWarning(world: gameobj.World) void {
+/// `radio_missile_warning` (`0x00456A80`) runs before the missile update, using the homing flags
+/// from the preceding frame. The original suppresses the line in arenas (`radio_say_pilot`,
+/// `0x00456250`).
+fn missileWarnings(world: gameobj.World) void {
     const all = world.objects;
-    const object = &all.slots[all.player].object;
+    switch (world.damage_rules) {
+        .campaign => missileWarning(world, all.player, .local),
+        .cooperative => {
+            if (world.hit_feedback == null) return;
+            for (0..@min(all.players, all.slots.len)) |slot| {
+                const index: u16 = @intCast(slot);
+                const recipient = all.playerBinding(index) orelse continue;
+                missileWarning(world, index, .{ .participant = recipient });
+            }
+        },
+        .arena => {},
+    }
+}
+
+/// Moose warns a pilot in action when a missile is homing on their ship and the cooldown allows
+/// it. The cooldown advances even if the mission silences the warning or the radio is busy.
+fn missileWarning(world: gameobj.World, index: u16, audience: collision.HitFeedback.Audience) void {
+    const all = world.objects;
+    const object = &all.slots[index].object;
     if (object.flags.outOfAction() or object.missile_homing == 0) return;
-    const remarks = &world.player.remarks;
     const now = world.clock.frame_start;
-    if (now <= remarks.missile_next) return;
-    if (!remarks.generic_comms_disabled) mooseSays(world, pick(world, &missile_warnings), .if_idle, missile_expiry);
-    remarks.missile_next = now + missile_wait;
+    const next = &all.player_states[index].missile_warning_next;
+    if (now <= next.*) return;
+    if (!world.player.remarks.generic_comms_disabled) {
+        const speech = pickRemark(world, audience, &missile_warnings);
+        if (Destination.of(world, audience)) |destination| {
+            destination.sayPilot(.of(world), moose(all), .talking, speech, .if_idle, .looping, missile_expiry);
+        }
+    }
+    // The hook can change the ship. A replacement keeps its own cooldown.
+    if (audience == .local or audience.matches(world, index)) next.* = now +% missile_wait;
 }
 
 /// How long after a wingman's pilot ejects the rescue's words come, from the frame's start
@@ -684,16 +713,9 @@ pub fn enemyTaunt(world: gameobj.World, attacker: u16, audience: collision.HitFe
     if (now <= next.*) return;
     next.* = now +% taunt_wait;
     if (remarks.generic_comms_disabled or remarks.taunts_disabled) return;
-    // Keep the standalone draw in the simulation's sequence. A headless host can choose a
-    // line without advancing that sequence even if it has no separate effects generator.
-    var fallback = world.random.*;
-    const random = if (audience == .local) world.random else world.effects_random orelse &fallback;
     var buffer: [ship_line_size]u8 = undefined;
-    const speech = shipLine(&buffer, all, attacker, random.pick(&taunts)) orelse return;
-    const destination: Destination = switch (audience) {
-        .local => .{ .local = world.radio orelse return },
-        .participant => |recipient| .{ .participant = .{ .recipient = recipient, .sink = world.hit_feedback orelse return } },
-    };
+    const speech = shipLine(&buffer, all, attacker, pickRemark(world, audience, &taunts)) orelse return;
+    const destination = Destination.of(world, audience) orelse return;
     destination.sayShip(.of(world), attacker, .talking, speech, .if_idle, .looping, no_expiry);
 }
 
@@ -883,6 +905,10 @@ pub const Line = struct {
     expiry: i32 = no_expiry,
 };
 
+fn lineDeadline(tick: i32, expiry: i32) ?i32 {
+    return if (expiry < 1) null else tick +% expiry;
+}
+
 /// The approved line from the host. It keeps its names and speaker after the hook call returns.
 pub const RoutedLine = struct {
     speech: LineName,
@@ -893,8 +919,11 @@ pub const RoutedLine = struct {
     expiry: i32,
     mode: Mode,
 
-    pub fn present(line: *const RoutedLine, world: gameobj.World) void {
+    /// The receiving world uses simulation ticks. Keep the host's deadline for delayed lines.
+    pub fn present(line: *const RoutedLine, world: gameobj.World, sent_at: i32) void {
         const radio, const ctx = onAir(world) orelse return;
+        const deadline = lineDeadline(sent_at, line.expiry);
+        if (deadline) |expires| if (ctx.frame_start > expires) return;
         radio.deliver(ctx, .{
             .speech = std.mem.sliceTo(&line.speech, 0),
             .film = std.mem.sliceTo(&line.film, 0),
@@ -902,8 +931,7 @@ pub const RoutedLine = struct {
             .flags = line.flags,
             .object = line.speaker.number(),
             .speaker = line.speaker,
-            .expiry = line.expiry,
-        }, line.mode);
+        }, line.mode, deadline);
     }
 };
 
@@ -914,6 +942,13 @@ pub const Destination = union(enum) {
         recipient: players.ControlRef,
         sink: collision.HitFeedback.Sink,
     },
+
+    fn of(world: gameobj.World, audience: collision.HitFeedback.Audience) ?Destination {
+        return switch (audience) {
+            .local => .{ .local = world.radio orelse return null },
+            .participant => |recipient| .{ .participant = .{ .recipient = recipient, .sink = world.hit_feedback orelse return null } },
+        };
+    }
 
     fn say(destination: Destination, ctx: Context, line: Line, mode: Mode) void {
         var captured = line;
@@ -929,12 +964,12 @@ pub const Destination = union(enum) {
                 var said = line;
                 said.speech = std.mem.sliceTo(&speech, 0);
                 said.film = std.mem.sliceTo(&film, 0);
-                radio.deliver(ctx, said, mode);
+                radio.deliver(ctx, said, mode, lineDeadline(ctx.frame_start, said.expiry));
             },
             .participant => |route| {
                 const current = ctx.all.playerBinding(route.recipient.participant.slot) orelse return;
                 if (!std.meta.eql(current, route.recipient)) return;
-                route.sink.send(route.recipient, ctx.frame_start, .{ .radio_taunt = .{
+                route.sink.send(route.recipient, ctx.frame_start, .{ .radio_line = .{
                     .speech = speech,
                     .film = film,
                     .name = line.name,
@@ -945,6 +980,19 @@ pub const Destination = union(enum) {
                 } });
             },
         }
+    }
+
+    fn sayPilot(destination: Destination, ctx: Context, pilot: u16, head: pilots.Head, speech: []const u8, mode: Mode, flags: hudmovie.Flags, expiry: i32) void {
+        const face = ctx.all.faces.of(pilot);
+        var buffer: [film_path_size]u8 = undefined;
+        destination.say(ctx, .{
+            .film = filmPath(&buffer, face, head),
+            .speech = speech,
+            .name = if (face) |found| found.name else null,
+            .flags = flags,
+            .object = pilot_base + @as(i32, pilot),
+            .expiry = expiry,
+        }, mode);
     }
 
     fn sayShip(destination: Destination, ctx: Context, ship: u16, head: pilots.Head, speech: []const u8, mode: Mode, flags: hudmovie.Flags, expiry: i32) void {
@@ -1186,11 +1234,11 @@ pub const Radio = struct {
     }
 
     /// Applies a line after the hook. Idle-only lines use the receiving radio's queue.
-    fn deliver(radio: *Radio, ctx: Context, line: Line, mode: Mode) void {
+    fn deliver(radio: *Radio, ctx: Context, line: Line, mode: Mode, deadline: ?i32) void {
         switch (mode) {
             .now => radio.sayNow(ctx, line),
-            .queued => radio.enqueue(ctx, line),
-            .if_idle => if (!radio.busy(ctx.frame_start)) radio.enqueue(ctx, line),
+            .queued => radio.enqueue(ctx, line, deadline),
+            .if_idle => if (!radio.busy(ctx.frame_start)) radio.enqueue(ctx, line, deadline),
             _ => {},
         }
     }
@@ -1212,16 +1260,8 @@ pub const Radio = struct {
     /// `radio_say_pilot` (`0x00456250`): `speech` said by pilot `pilot` of the pilots' table, its
     /// face moving as `head` says, outside a multiplayer mission.
     pub fn sayPilot(radio: *Radio, ctx: Context, pilot: u16, head: pilots.Head, speech: []const u8, mode: Mode, flags: hudmovie.Flags, expiry: i32) void {
-        const face = ctx.all.faces.of(pilot);
-        var buffer: [film_path_size]u8 = undefined;
-        radio.say(ctx, .{
-            .film = filmPath(&buffer, face, head),
-            .speech = speech,
-            .name = if (face) |found| found.name else null,
-            .flags = flags,
-            .object = pilot_base + @as(i32, pilot),
-            .expiry = expiry,
-        }, mode);
+        const destination: Destination = .{ .local = radio };
+        destination.sayPilot(ctx, pilot, head, speech, mode, flags, expiry);
     }
 
     /// `radio_say_ship` (`0x004561C0`): `speech` said by the ship in slot `ship`, its pilot's face
@@ -1391,7 +1431,7 @@ pub const Radio = struct {
         return ship;
     }
 
-    fn enqueue(radio: *Radio, ctx: Context, line: Line) void {
+    fn enqueue(radio: *Radio, ctx: Context, line: Line, deadline: ?i32) void {
         if (radio.count >= queue_size) return;
         radio.queue[radio.write] = .{
             .flags = line.flags,
@@ -1399,7 +1439,7 @@ pub const Radio = struct {
             .film = .of(line.film),
             .speech = .of(line.speech),
             .speaker = line.speaker orelse .of(ctx.all, line.object),
-            .expiry = if (line.expiry < 1) null else ctx.frame_start + line.expiry,
+            .expiry = deadline,
         };
         radio.count += 1;
         radio.write = (radio.write + 1) % queue_size;
@@ -2045,6 +2085,100 @@ test "the missile warning and the landing reminder" {
     try std.testing.expectEqual(1, radio.count);
 }
 
+test "hosted missile warnings keep their recipient, cooldown and expiry" {
+    var heard: testing.Heard = undefined;
+    try heard.init();
+    defer heard.deinit();
+    const mission = &heard.mission;
+    var host = mission.world();
+    host.damage_rules = .cooperative;
+    const all = host.objects;
+    const first = all.player;
+    const second = heard.wingman;
+    all.players = 2;
+    all.player = heard.enemy;
+    const first_pilot = all.joinParticipant(first).?;
+    const second_pilot = all.joinParticipant(second).?;
+    const first_binding = all.bindParticipant(first_pilot, .of(all, first)).?;
+    const second_binding = all.bindParticipant(second_pilot, .of(all, second)).?;
+
+    const Notice = collision.HitFeedback.Addressed;
+    const Recorded = struct {
+        lines: [2]Notice = undefined,
+        count: usize = 0,
+
+        fn enqueue(context: *anyopaque, notice: Notice) void {
+            const recorded: *@This() = @ptrCast(@alignCast(context));
+            recorded.lines[recorded.count] = notice;
+            recorded.count += 1;
+        }
+    };
+    var recorded: Recorded = .{};
+    host.hit_feedback = .{ .context = &recorded, .enqueue = Recorded.enqueue };
+    const before = mission.random.fingerprint();
+    const first_state = all.playerState(first).?;
+    const second_state = all.playerState(second).?;
+    mission.slot(heard.enemy).object.missile_homing = 1;
+    mission.slot(first).object.missile_homing = 1;
+    mission.clock.frame_start = 10;
+    remarksFrame(host);
+    try std.testing.expectEqual(1, recorded.count);
+    try std.testing.expectEqual(first_binding, recorded.lines[0].recipient);
+    try std.testing.expectEqual(0, second_state.missile_warning_next);
+
+    mission.slot(second).object.missile_homing = 1;
+    mission.clock.frame_start = 20;
+    remarksFrame(host);
+    try std.testing.expectEqual(2, recorded.count);
+    try std.testing.expectEqual(second_binding, recorded.lines[1].recipient);
+    try std.testing.expectEqual(before, mission.random.fingerprint());
+    try std.testing.expectEqual(10 + missile_wait, first_state.missile_warning_next);
+    try std.testing.expectEqual(20 + missile_wait, second_state.missile_warning_next);
+
+    mission.clock.frame_start = 10 + missile_wait;
+    remarksFrame(host);
+    mission.clock.frame_start += 1;
+    mission.slot(first).object.flags.ejected = true;
+    remarksFrame(host);
+    try std.testing.expectEqual(10 + missile_wait, first_state.missile_warning_next);
+    mission.slot(first).object.flags.ejected = false;
+    host.player.remarks.generic_comms_disabled = true;
+    remarksFrame(host);
+    host.player.remarks.generic_comms_disabled = false;
+    const silenced_until = mission.clock.frame_start + missile_wait;
+    try std.testing.expectEqual(silenced_until, first_state.missile_warning_next);
+
+    host.damage_rules = .{ .arena = null };
+    mission.clock.frame_start = silenced_until + 1;
+    remarksFrame(host);
+    try std.testing.expectEqual(2, recorded.count);
+    try std.testing.expectEqual(silenced_until, first_state.missile_warning_next);
+
+    const client = heard.world();
+    all.player = first;
+    mission.clock.frame_start = 10 + missile_expiry - 1;
+    try std.testing.expect(!recorded.lines[1].present(client));
+    try std.testing.expect(recorded.lines[0].present(client));
+    try heard.expectLine(0, pilot_base + volunteers_moose, &missile_warnings);
+    try std.testing.expectEqual(10 + missile_expiry, heard.queued(0).expiry.?);
+    heard.radio.reset(client.sounds);
+    mission.clock.frame_start = 10 + missile_expiry + 1;
+    try std.testing.expect(recorded.lines[0].present(client));
+    try std.testing.expectEqual(0, heard.radio.count);
+
+    all.player = second;
+    mission.clock.frame_start = 20 + missile_expiry;
+    try std.testing.expect(recorded.lines[1].present(client));
+    try std.testing.expect(recorded.lines[1].present(client));
+    try std.testing.expectEqual(1, heard.radio.count);
+    try std.testing.expectEqual(20 + missile_expiry, heard.queued(0).expiry.?);
+    create.resetSlot(mission.orders(), second);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, second, .of(.predator), 0, @splat(0), &mission.random);
+    _ = all.bindParticipant(second_pilot, .of(all, second)).?;
+    try std.testing.expect(!recorded.lines[1].present(client));
+    try std.testing.expectEqual(0, second_state.missile_warning_next);
+}
+
 test "hosted combat taunts follow each pilot's cooldown and radio" {
     var heard: testing.Heard = undefined;
     try heard.init();
@@ -2068,7 +2202,7 @@ test "hosted combat taunts follow each pilot's cooldown and radio" {
         count: usize = 0,
 
         fn enqueue(context: *anyopaque, notice: Notice) void {
-            if (notice.effect != .radio_taunt) return;
+            if (notice.effect != .radio_line) return;
             const recorded: *@This() = @ptrCast(@alignCast(context));
             recorded.lines[recorded.count] = notice;
             recorded.count += 1;
@@ -2117,7 +2251,7 @@ test "hosted combat taunts follow each pilot's cooldown and radio" {
     try heard.expectLine(0, enemy, &taunts);
 
     // A delayed line keeps the original speaker and its recorded voice when that slot is reused.
-    const old_speaker = recorded.lines[1].effect.radio_taunt.speaker;
+    const old_speaker = recorded.lines[1].effect.radio_line.speaker;
     create.resetSlot(mission.orders(), enemy);
     _ = try create.createObject(all, &mission.tables, create.testing.no_models, enemy, .of(.sabre), 0, @splat(0), &mission.random);
     all.player = second;

@@ -1074,7 +1074,7 @@ test "a script stops or changes the radio's lines" {
                 \\local taunts = 0
                 \\hooks.add("radio_say", function(e)
                 \\    if e.speech:find("ms_hudtr", 1, true) then return false end
-                \\    if e.speech == "plck_001.ut" then e.speech = "moolnd_001.ut" end
+                \\    if e.speech:find("plck_", 1, true) then e.speech = "moolnd_001.ut" end
                 \\    if e.speech == "host_line.ut" then return false end
                 \\    if e.speech:find("tnt_", 1, true) then
                 \\        taunts += 1
@@ -1125,7 +1125,7 @@ test "a script stops or changes the radio's lines" {
         notice: ?Notice = null,
 
         fn enqueue(context: *anyopaque, notice: Notice) void {
-            if (notice.effect != .radio_taunt) return;
+            if (notice.effect != .radio_line) return;
             const recorder: *@This() = @ptrCast(@alignCast(context));
             recorder.notice = notice;
         }
@@ -1136,7 +1136,7 @@ test "a script stops or changes the radio's lines" {
     Fixture.collision.armorDamage(host, all.player, .fore, 1, fixture.sabre, .bullet);
     const approved = recorder.notice.?;
     try std.testing.expectEqual(binding, approved.recipient);
-    try std.testing.expectEqualStrings("host_line.ut", std.mem.sliceTo(&approved.effect.radio_taunt.speech, 0));
+    try std.testing.expectEqualStrings("host_line.ut", std.mem.sliceTo(&approved.effect.radio_line.speech, 0));
     fixture.mission.clock.frame_start = all.playerState(all.player).?.taunt_next + 1;
     recorder.notice = null;
     Fixture.collision.armorDamage(host, all.player, .fore, 1, fixture.sabre, .bullet);
@@ -1149,6 +1149,12 @@ test "a script stops or changes the radio's lines" {
     try std.testing.expectEqual(1, radio.count);
     try std.testing.expectEqualStrings("host_line.ut", radio.queue[0].speech.slice());
     try std.testing.expectEqualStrings("pilots\\static.fm8", radio.queue[0].film.slice());
+
+    all.slots[all.player].object.missile_homing = 1;
+    radio_module.remarksFrame(host);
+    const warning = recorder.notice.?;
+    try std.testing.expectEqual(binding, warning.recipient);
+    try std.testing.expectEqualStrings("moolnd_001.ut", std.mem.sliceTo(&warning.effect.radio_line.speech, 0));
 }
 
 test "a script answers PERMISSION TO LAND its own way" {
