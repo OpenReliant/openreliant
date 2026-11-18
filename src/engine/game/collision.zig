@@ -26,6 +26,7 @@ const camera = @import("camera.zig");
 const friendly_fire = @import("friendly_fire.zig");
 const radio = @import("radio.zig");
 const players = @import("players.zig");
+const betty = @import("hog_snd/betty.zig");
 
 /// How far apart a collision sets two objects, as a share of each one's radius from the point
 /// between them (`0x004DC7C0` and `0x004DC7C4`): a tenth further than touching, so that the next
@@ -486,7 +487,7 @@ pub fn armorDamageFrom(world: gameobj.World, index: u16, struck: Quadrant, value
     const taken = if (blocked) 0 else worn;
     if (slot.combat) |combat| {
         main.armorConditions(object, combat);
-        if (index == all.player) main.armorWarning(world, object, combat);
+        if (blow.audience) |audience| audience.warnOfArmourDamage(world, index, combat);
     }
     all.slots[index].setAttacker(attacker.object);
     if (armor.* < 0) {
@@ -515,6 +516,7 @@ pub const HitFeedback = union(enum) {
     interference,
     impact: Impact,
     armour_hit: Quadrant,
+    armour_warning,
     shockwave: f32,
 
     pub const Impact = struct {
@@ -565,6 +567,22 @@ pub const HitFeedback = union(enum) {
                 },
             }
         }
+
+        fn warnOfArmourDamage(audience: Audience, world: gameobj.World, index: u16, combat: *const create.ShipCombat) void {
+            const all = world.objects;
+            switch (audience) {
+                .local => if (world.sounds == null or all.player != index) return,
+                .participant => |recipient| {
+                    const current = all.playerBinding(index) orelse return;
+                    if (!std.meta.eql(recipient, current)) return;
+                },
+            }
+            const warned_at = &all.player_states[index].armor_warned_at;
+            const now = world.clock.frame_start;
+            if (!main.armorWarningDue(&all.slots[index].object, combat, now, warned_at.*)) return;
+            warned_at.* = now;
+            audience.send(world, .armour_warning);
+        }
     };
 
     pub fn sendTo(effect: HitFeedback, world: gameobj.World, index: u16) void {
@@ -578,6 +596,7 @@ pub const HitFeedback = union(enum) {
             .armour_hit => |struck| if (world.display) |display| {
                 display.events.ship_hits.getPtr(struck).happen();
             },
+            .armour_warning => betty.sayIn(world, .armor_failing),
             .shockwave => |strength| {
                 world.shake.* = @max(world.shake.*, @min(strength, camera.Cockpit.shake_most));
                 if (world.forces) |forces| forces.startUnlessPlaying(.shock, world.clock.frame_start);
@@ -1680,4 +1699,106 @@ test "hit feedback follows the struck participant and rejects an old binding" {
     const delayed: HitFeedback.Addressed = .{ .recipient = respawn, .tick = 20, .effect = .{ .armour_hit = .aft } };
     try std.testing.expect(!delayed.present(world));
     try std.testing.expectEqual(0, display.events.ship_hits.get(.aft).count);
+}
+
+test "a campaign armour warning uses the local speaker and keeps its cooldown across missions" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var world = mission.world();
+    const all = world.objects;
+    const pilot = try mission.add(.of(.predator), @splat(0));
+    const attacker = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    const slot = &all.slots[pilot];
+    slot.object.shields.fore = 0;
+    slot.object.armor.fore = slot.combat.?.startingArmor() / 2;
+    const state = all.playerState(pilot).?;
+
+    mission.clock.frame_start = 1000;
+    armorDamage(world, pilot, .fore, 1, attacker, .collision);
+    try std.testing.expectEqual(0, state.armor_warned_at);
+
+    const hog_snd = @import("hog_snd.zig");
+    var speaker: hog_snd.testing.Speaker = undefined;
+    try speaker.init(2, null);
+    defer speaker.deinit();
+    const bytes = comptime hog_snd.testing.bank(2);
+    speaker.sound.betty = try @import("../../formats/fat.zig").Bank.parse(&bytes);
+    speaker.hear(&world);
+    armorDamage(world, pilot, .fore, 1, attacker, .collision);
+    try std.testing.expectEqual(1000, state.armor_warned_at);
+    try std.testing.expectEqual(1, speaker.asked.list.items.len);
+    speaker.heard();
+    try std.testing.expect(speaker.playing());
+
+    state.resetMission();
+    mission.clock.frame_start = 1500;
+    armorDamage(world, pilot, .fore, 1, attacker, .collision);
+    try std.testing.expectEqual(1000, state.armor_warned_at);
+    try std.testing.expectEqual(0, speaker.asked.list.items.len);
+}
+
+test "a headless host warns each pilot with their own armour cooldown" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var world = mission.world();
+    world.damage_rules = .{ .arena = null };
+    const all = world.objects;
+    const first = try mission.add(.of(.predator), @splat(0));
+    const second = try mission.add(.of(.predator), .{ 0, 0, 1000 });
+    const attacker = try mission.add(.of(.sabre), .{ 0, 0, 2000 });
+    all.players = 2;
+    const first_pilot = all.joinParticipant(first).?;
+    const second_pilot = all.joinParticipant(second).?;
+    const first_binding = all.bindParticipant(first_pilot, .of(all, first)).?;
+    const second_binding = all.bindParticipant(second_pilot, .of(all, second)).?;
+    for ([_]u16{ first, second }) |index| {
+        const slot = &all.slots[index];
+        slot.object.shields.fore = 0;
+        slot.object.armor.fore = slot.combat.?.startingArmor() / 2;
+    }
+
+    const Recorded = struct {
+        last_warning: ?HitFeedback.Addressed = null,
+        warnings: usize = 0,
+
+        fn enqueue(context: *anyopaque, notice: HitFeedback.Addressed) void {
+            if (notice.effect != .armour_warning) return;
+            const recorded: *@This() = @ptrCast(@alignCast(context));
+            recorded.last_warning = notice;
+            recorded.warnings += 1;
+        }
+    };
+    var recorded: Recorded = .{};
+    world.hit_feedback = .{ .context = &recorded, .enqueue = Recorded.enqueue };
+
+    mission.clock.frame_start = 1000;
+    armorDamage(world, first, .fore, 1, attacker, .collision);
+    const first_warning = recorded.last_warning.?;
+    try std.testing.expectEqual(first_binding, first_warning.recipient);
+    try std.testing.expectEqual(1, recorded.warnings);
+
+    mission.clock.frame_start = 1500;
+    armorDamage(world, first, .fore, 1, attacker, .collision);
+    try std.testing.expectEqual(1, recorded.warnings);
+    armorDamage(world, second, .fore, 1, attacker, .collision);
+    const second_warning = recorded.last_warning.?;
+    try std.testing.expectEqual(second_binding, second_warning.recipient);
+    try std.testing.expectEqual(1500, second_warning.tick);
+    try std.testing.expectEqual(2, recorded.warnings);
+
+    mission.clock.frame_start = 1501;
+    armorDamage(world, first, .fore, 1, attacker, .collision);
+    try std.testing.expectEqual(first_binding, recorded.last_warning.?.recipient);
+    try std.testing.expectEqual(3, recorded.warnings);
+    try std.testing.expect(!second_warning.present(world));
+    try std.testing.expect(first_warning.present(world));
+
+    create.resetSlot(mission.orders(), first);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, first, .of(.predator), 0, @splat(0), &mission.random);
+    _ = all.bindParticipant(first_pilot, .of(all, first)).?;
+    try std.testing.expect(!first_warning.present(world));
+    try std.testing.expectEqual(0, all.playerState(first).?.armor_warned_at);
+    try std.testing.expectEqual(1500, all.playerState(second).?.armor_warned_at);
 }

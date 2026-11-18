@@ -132,6 +132,8 @@ const player_hit_pause = 30;
 /// **Improvement:** the game plays `ARMOUR01` at the point struck in the part's own frame, taken
 /// for one in the world, so it is heard from near the world's origin; OpenReliant plays it where
 /// the shot struck.
+/// Multiplayer impact sounds are tracked in
+/// [#1383](https://github.com/OpenReliant/openreliant/issues/1383).
 pub fn hullHit(world: gameobj.World, index: u16, at: Vector) void {
     if (world.sounds == null) return;
     const seen = world.seenFrom() orelse return;

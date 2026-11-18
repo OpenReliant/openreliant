@@ -1486,9 +1486,6 @@ pub const Player = struct {
     /// `0x0051CEFC`: set while SHIELD BALANCING is held. The stick then shifts the shields fore and
     /// aft instead of steering.
     balancing_shields: bool = false,
-    /// When the player's armour last warned (`0x00588334`, `main.armorWarning`). A mission's start
-    /// leaves it, as the game leaves its global.
-    armor_warned_at: i32 = 0,
     /// When a shot last sounded on the player's hull (`0x00593794`, `shieldfx.hullHit`). A
     /// mission's start leaves it too.
     hull_heard_at: i32 = 0,
