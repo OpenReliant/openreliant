@@ -26,6 +26,7 @@ const backdrop = @import("backdrop.zig");
 const environfx = @import("environfx.zig");
 const wgate = @import("wgate.zig");
 const camera = @import("camera.zig");
+const ship_devices = @import("ship_devices.zig");
 const ai = @import("ai.zig");
 const aigeneric = @import("aigeneric.zig");
 const aiioncan = @import("aiioncan.zig");
@@ -619,6 +620,7 @@ fn controlsFrame(orders: aigeneric.Context) void {
     });
     input.frameKeys(.{
         .display = display,
+        .charges = &all.player_states[all.player].charges,
         .player = world.player,
         .devices = devices,
         .slot = &all.slots[all.player],
@@ -799,7 +801,9 @@ pub fn missionFrame(orders: aigeneric.Context, timing: objects.Timing, loaded: ?
     runLock(orders.world);
     camera.gameFrame(orders.world);
     player.viewing.last = player.viewing.view;
-    if (orders.world.display) |display| display.gameFrame(orders.world, if (loaded) |playing| &playing.script.variables.ready else null);
+    if (orders.world.display) |display| display.beginGameFrame(orders.world, if (loaded) |playing| &playing.script.variables.ready else null);
+    runDeviceCharges(orders.world);
+    if (orders.world.display) |display| display.finishGameFrame(orders.world);
     if (orders.world.gates) |gates| gates.endFrame(orders.world.clock.frame_start);
     return if (over or player.terminated != 0) .over else .played;
 }
@@ -853,6 +857,21 @@ pub fn gameFrames(clock: *Clock, devices: *input.Devices, reading: ?*input.Readi
     }
     if (!ran) if (loaded) |playing| if (playing.script.editor.leavesFrame()) return missionFrame(orders, .atTick(clock, riders), loaded);
     return ended;
+}
+
+/// Advances device charges at the same point in the frame as the original HUD update.
+fn runDeviceCharges(world: gameobj.World) void {
+    const all = world.objects;
+    for (0..@min(all.players, all.slots.len)) |at| {
+        const index: u16 = @intCast(at);
+        const mode: ship_devices.Control = if (all.hasBoundPlayerShip(index))
+            .host
+        else if (index == all.player and all.readsLocalPlayerInput())
+            .local
+        else
+            continue;
+        ship_devices.advance(world, index, world.clock.frame_duration, mode);
+    }
 }
 
 /// `mission_frame`'s missile lock (`hud_missile_lock`, `0x00491520`), which runs while the last
@@ -2535,7 +2554,7 @@ pub fn startMission(gpa: Allocator, start: Start, image: []u8, number: u16) !*Lo
     const player_type = all.slotType(all.player, if (try loaded.bound.file.player()) |record| @fromBackingInt(record.kind) else player.object.type);
     const ship = cockpitShip(all, player_type);
     try start.cockpit.load(start.types.resources, start.types.textures, ship, start.types.models);
-    fitDevices(start.display, ship, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
+    fitDevices(&all.player_states[all.player].charges, start.display, ship, if (player.type) |loaded_type| loaded_type.model.header.flags.cloak else false);
     all.fitPlayerWeapons(all.player);
     if (player.firstOrder(.launch) == null) sound3d.hearEngine(world);
     if (start.profile) |profile| profile.saveWith(start.call_sign);
@@ -2591,16 +2610,10 @@ pub fn scriptOutcome(player: *const input.Player, loaded: *const Loaded) hooks.O
     return .{ .ending = player.ending, .rating = loaded.script.variables.mission_success };
 }
 
-/// Fits the display's devices to the player's ship, `ship` (`cockpitShip`), as the start does
-/// after the loading has set the display up (`hud.State.reset`): every ship carries an ECM, the
-/// ships of `player_ships` that say so spectral shields and blind fire, and a ship whose model can
-/// cloak (`shp.Header.Flags.cloak`) a cloak. Blind fire starts on where it is carried; elsewhere it is
-/// left as it was.
-pub fn fitDevices(display: *hud.State, ship: ?PlayerShip, can_cloak: bool) void {
-    display.devices.getPtr(.ecm).setting = .off;
-    const spectral = if (ship) |known| known.spectral_shields else false;
-    display.devices.getPtr(.spectral_shields).setting = if (spectral) .off else .absent;
-    display.devices.getPtr(.cloak).setting = if (can_cloak) .off else .absent;
+/// Fits the ship's devices as the mission starts. The HUD also takes the ship's blind fire and
+/// wire frame. Blind fire starts on where fitted.
+pub fn fitDevices(charges: *ship_devices.Charges, display: *hud.State, ship: ?PlayerShip, can_cloak: bool) void {
+    charges.* = ship_devices.fitted(if (ship) |known| known.spectral_shields else false, can_cloak);
     display.blind_fire_fitted = if (ship) |known| known.blind_fire else false;
     display.wire_frame = if (ship) |known| known.wire_frame else null;
     if (display.blind_fire_fitted) display.blind_fire = true;
@@ -2610,17 +2623,18 @@ test fitDevices {
     // The Shroud carries all three, and a cloak where its model has one.
     const shroud: gameobj.Type = .of(.shroud);
     var display: hud.State = .{ .blind_fire = false };
-    fitDevices(&display, playerShip(shroud), true);
-    try std.testing.expectEqual(.off, display.devices.get(.spectral_shields).setting);
-    try std.testing.expectEqual(.off, display.devices.get(.cloak).setting);
+    var charges = ship_devices.full;
+    fitDevices(&charges, &display, playerShip(shroud), true);
+    try std.testing.expectEqual(.off, charges.get(.spectral_shields).setting);
+    try std.testing.expectEqual(.off, charges.get(.cloak).setting);
     try std.testing.expect(display.blind_fire_fitted and display.blind_fire);
     // Its twin is the same ship.
     try std.testing.expectEqual(playerShip(shroud), playerShip(.of(.t_shroud)));
     // The Grendel carries only the ECM.
-    fitDevices(&display, playerShip(.of(.grendel)), false);
-    try std.testing.expectEqual(.off, display.devices.get(.ecm).setting);
-    try std.testing.expectEqual(.absent, display.devices.get(.spectral_shields).setting);
-    try std.testing.expectEqual(.absent, display.devices.get(.cloak).setting);
+    fitDevices(&charges, &display, playerShip(.of(.grendel)), false);
+    try std.testing.expectEqual(.off, charges.get(.ecm).setting);
+    try std.testing.expectEqual(.absent, charges.get(.spectral_shields).setting);
+    try std.testing.expectEqual(.absent, charges.get(.cloak).setting);
     try std.testing.expect(!display.blind_fire_fitted);
     // A capital ship is none of the player's.
     try std.testing.expectEqual(null, playerShip(.of(.yamato)));
@@ -2636,10 +2650,11 @@ test cockpitShip {
     // spectral shields nor blind fire.
     try std.testing.expectEqualDeep(kamov_ship, cockpitShip(all, .of(.kamov)).?);
     var display: hud.State = .{ .blind_fire = false };
-    fitDevices(&display, cockpitShip(all, .of(.kamov)), false);
+    var charges = ship_devices.full;
+    fitDevices(&charges, &display, cockpitShip(all, .of(.kamov)), false);
     try std.testing.expectEqual(playerShip(.of(.phoenix)).?.wire_frame, display.wire_frame.?);
     try std.testing.expect(!display.blind_fire_fitted);
-    try std.testing.expectEqual(.absent, display.devices.get(.spectral_shields).setting);
+    try std.testing.expectEqual(.absent, charges.get(.spectral_shields).setting);
     // Its second part fits the ship's own, and a Kamov there has none.
     all.mission25_second_part = true;
     try std.testing.expectEqualDeep(playerShip(.of(.phoenix)).?, cockpitShip(all, .of(.phoenix)).?);
@@ -3441,4 +3456,60 @@ test "a headless host builds a lock for the requesting pilot and launches only w
     try std.testing.expectEqual(missiles.Type.of(.raptor), state.weapons.ring.armedEntry().type);
     try std.testing.expectEqual(1, stage.armed.live());
     try std.testing.expectEqual(null, state.command.?.weapons.rotate_missiles);
+}
+
+test "a headless host fits and drains devices independently for two pilots" {
+    const gpa = std.testing.allocator;
+    var stage: cloak.testing.Cloaked = undefined;
+    try stage.init(gpa);
+    defer stage.deinit(gpa);
+    const mission = &stage.mission;
+    const all = mission.objects;
+    const first = stage.index;
+    const second = try mission.add(.of(.shroud), .{ 0, 0, 1000 });
+    all.players = 2;
+    var sources: [2]@import("players.zig").ControlRef = undefined;
+    for ([_]u16{ first, second }, &sources) |index, *source| {
+        try std.testing.expect(try aigeneric.push(mission.orders(), index, .multiplayer_control, .none));
+        const participant = all.joinParticipant(index).?;
+        source.* = all.bindParticipant(participant, .of(all, index)).?;
+        try std.testing.expect(all.submitPlayerCommand(source.*, .{ .devices = .full }));
+        input.multiplayerControlOrder(mission.orders(), index);
+    }
+
+    const cloaked = &all.slots[first];
+    const shielded = &all.slots[second];
+    const first_charges = &all.player_states[first].charges;
+    const second_charges = &all.player_states[second].charges;
+    try std.testing.expect(cloaked.object.flags.cloaked and cloaked.object.flags.ecm);
+    try std.testing.expect(!cloaked.object.flags.spectral_shields);
+    try std.testing.expect(!shielded.object.flags.cloaked and shielded.object.flags.ecm);
+    try std.testing.expect(shielded.object.flags.spectral_shields);
+    try std.testing.expectEqual(.absent, first_charges.get(.spectral_shields).setting);
+    try std.testing.expectEqual(.absent, second_charges.get(.cloak).setting);
+
+    // The press is consumed even if the same order runs again at the next physical step.
+    input.multiplayerControlOrder(mission.orders(), second);
+    try std.testing.expect(shielded.object.flags.spectral_shields and shielded.object.flags.ecm);
+
+    first_charges.getPtr(.cloak).ticks = 1;
+    first_charges.getPtr(.ecm).ticks = 1;
+    second_charges.getPtr(.spectral_shields).ticks = 1;
+    mission.clock.frame_duration = 2;
+    runDeviceCharges(mission.world());
+    try std.testing.expect(cloaked.cloak.?.going);
+    try std.testing.expect(!cloaked.object.flags.ecm);
+    try std.testing.expect(!shielded.object.flags.spectral_shields);
+    try std.testing.expect(shielded.object.flags.ecm);
+    try std.testing.expectEqual(0, first_charges.get(.cloak).ticks);
+
+    // A further press cannot turn an empty device back on before it has recharged.
+    const spectral: ship_devices.Requests = .init(.{ .spectral_shields = true });
+    try std.testing.expect(all.submitPlayerCommand(sources[1], .{ .devices = spectral }));
+    input.multiplayerControlOrder(mission.orders(), second);
+    try std.testing.expect(!shielded.object.flags.spectral_shields);
+    runDeviceCharges(mission.world());
+    try std.testing.expect(all.submitPlayerCommand(sources[1], .{ .devices = spectral }));
+    input.multiplayerControlOrder(mission.orders(), second);
+    try std.testing.expect(shielded.object.flags.spectral_shields);
 }

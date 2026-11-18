@@ -69,6 +69,7 @@ pub const damage = @import("hud/damage.zig");
 pub const gunnery = @import("hud/gunnery.zig");
 pub const key_prompt = @import("hud/key_prompt.zig");
 pub const missile_display = @import("hud/missile_display.zig");
+const ship_devices = @import("ship_devices.zig");
 const missile_lock = @import("main/lock.zig");
 pub const objectives_window = @import("hud/objectives_window.zig");
 pub const power = @import("hud/power.zig");
@@ -2825,8 +2826,9 @@ pub fn draw(state: *const State, drawing: *Drawing, resources: *Resources, frame
         }
         try drawing.drawEjectMarker(state, placing.pen(pen, .eject_marker), frame_duration);
         try drawing.drawScanner(frame.player.scanner.object != null, frame.clock.game_ticks, placing.pen(pen, .scanner));
-        const lit = drawing.lit(state, live, frame.all.localPlayerState().controls.matching_speed, frame.multiplayer, frame_duration);
-        try drawing.drawLights(state, placing.pen(pen, .lights), lit, frame_duration);
+        const participant = &frame.all.player_states[frame.all.player];
+        const lit = drawing.lit(state, live, &participant.charges, participant.controls.matching_speed, frame.multiplayer, frame_duration);
+        try drawing.drawLights(&participant.charges, placing.pen(pen, .lights), lit, frame_duration);
         lock_lit = lit.enemy_lock;
     }
     if (frame.sound) |sound| drawing.warnOfLock(sound, lock_lit, live.missile_homing != 0);
@@ -3753,85 +3755,22 @@ pub const Icons = struct {
     }
 };
 
-/// A device a ship may carry that runs off a charge, which its light shows as a bar.
-pub const Device = enum {
-    ecm,
-    cloak,
-    spectral_shields,
+const Device = ship_devices.Device;
+const Charge = ship_devices.Charge;
 
-    pub const Spec = struct {
-        /// The charge when full, in ticks, where `hud_init` starts it.
-        full: i32,
-        /// What it spends of the charge a tick while it is on. It charges at one a tick while off.
-        drain: i32,
-        /// The bar's length for a tick of charge, in the display's own pixels, and how far below
-        /// the light's point it runs.
-        bar_scale: f32,
-        bar_down: i32,
+fn chargeBarSpec(kind: Device) struct { scale: f32, down: i32 } {
+    return switch (kind) {
+        .ecm => .{ .scale = 1.0 / 62.0, .down = 0x23 },
+        .cloak => .{ .scale = 1.0 / 312.0, .down = 0x20 },
+        .spectral_shields => .{ .scale = 1.0 / 187.0, .down = 0x20 },
     };
+}
 
-    /// Twenty seconds of ECM, a hundred of the cloak and ten of the spectral shields, each bar
-    /// about 32 pixels long when full.
-    pub fn spec(kind: Device) Spec {
-        return switch (kind) {
-            .ecm => .{ .full = 2000, .drain = 1, .bar_scale = 1.0 / 62.0, .bar_down = 0x23 },
-            .cloak => .{ .full = 10000, .drain = 1, .bar_scale = 1.0 / 312.0, .bar_down = 0x20 },
-            .spectral_shields => .{ .full = 6000, .drain = 6, .bar_scale = 1.0 / 187.0, .bar_down = 0x20 },
-        };
-    }
-};
-
-/// Whether the ship carries a device, and whether it is on: `ecm_state` (`0x0057BF4C`),
-/// `cloak_state` (`0x00566638`) and `spectral_shields_state` (`0x0057BF20`).
-pub const Setting = enum(i32) {
-    absent = -1,
-    off = 0,
-    on = 1,
-    _,
-};
-
-/// A device's setting and its charge in ticks: `ecm_charge` (`0x005665F8`), `cloak_charge`
-/// (`0x0056663C`) and `spectral_shields_charge` (`0x00566620`).
-pub const Charge = struct {
-    setting: Setting = .off,
-    ticks: i32,
-
-    /// Carried, off and full, as `hud_init` leaves each device.
-    pub fn full(kind: Device) Charge {
-        return .{ .ticks = kind.spec().full };
-    }
-
-    /// `hud_draw`'s work on the charge for a frame of `frame_duration`: while the device is off it
-    /// charges up to full, and while it is on it drains. Says whether it has just run dry, which
-    /// leaves the charge at nothing for the device to be turned off.
-    pub fn run(charge: *Charge, kind: Device, frame_duration: i32) bool {
-        const at = kind.spec();
-        switch (charge.setting) {
-            .off => charge.ticks = @min(charge.ticks + frame_duration, at.full),
-            .on => {
-                charge.ticks -= frame_duration * at.drain;
-                if (charge.ticks < 0) {
-                    charge.ticks = 0;
-                    return true;
-                }
-            },
-            else => {},
-        }
-        return false;
-    }
-
-    /// The bar's length in the display's own pixels: the charge times the bar's scale, rounded as
-    /// `0x004C3330` does, and nothing for less than nothing.
-    pub fn bar(charge: Charge, kind: Device) i32 {
-        const length = @as(f32, @floatFromInt(charge.ticks)) * kind.spec().bar_scale;
-        return if (length < 0) 0 else round(length);
-    }
-
-    /// How much of a full charge is left, from 0 to 1, which the bar shows.
-    pub fn share(charge: Charge, kind: Device) f32 {
-        return @as(f32, @floatFromInt(charge.ticks)) / @as(f32, @floatFromInt(kind.spec().full));
-    }
-};
+/// Rounds the charge bar's length to display pixels (`0x004C3330`).
+fn chargeBar(charge: Charge, kind: Device) i32 {
+    const length = @as(f32, @floatFromInt(charge.ticks)) * chargeBarSpec(kind).scale;
+    return if (length < 0) 0 else round(length);
+}
 
 /// The colour the charge bars are drawn in: `hud_colour(0xE7, 0x68, 0x00)` (`0x0048D780`).
 pub const bar_colour: [4]f32 = .{ 0xE7.0 / 255.0, 0x68.0 / 255.0, 0, 1 };
@@ -3849,11 +3788,6 @@ pub const Ready = enum(i32) {
 /// The display's own state: `hud.cpp`'s globals, as `hud_init` sets them when it sets the display
 /// up. The mission's start then fits the devices to the player's ship.
 pub const State = struct {
-    devices: std.EnumArray(Device, Charge) = .init(.{
-        .ecm = .full(.ecm),
-        .cloak = .full(.cloak),
-        .spectral_shields = .full(.spectral_shields),
-    }),
     /// The player's subtarget picked out in red on its target's model (`hud_subtarget`).
     subtarget: subtarget.Subtarget = .{},
     /// `blind_fire_fitted` (`0x00566F8C`): whether the ship carries blind fire.
@@ -3939,8 +3873,7 @@ pub const State = struct {
         const fresh: State = .{};
         inline for (.{
             "messages",   "icons",   "enemy_lock", "fosters_last_stand", "radar_range", "radar_rings",
-            "radar_zoom", "devices", "ejected",    "key_prompt",         "caption",     "blind_fire",
-            "aim",
+            "radar_zoom", "ejected", "key_prompt", "caption",            "blind_fire",  "aim",
         }) |name| @field(state, name) = @field(fresh, name);
         state.missile_empty_warned_until = game_ticks;
         state.missile_name_kept = false;
@@ -3953,15 +3886,14 @@ pub const State = struct {
     /// or ends the missile lock's tone (`missile_lock.Lock.sound`). In the view ahead from the
     /// cockpit, a jump or warp the mission has newly readied (`ready`) brings up the jump prompt
     /// (`readyPrompt`), and the lead point follows the target (`leadTarget`). Then the devices'
-    /// charges run (`runCharges`), the windows move on (`windows.Windows.run`), and last, the
-    /// windows' sounds play.
+    /// charge update runs in the simulation. `finishGameFrame` then advances the windows and plays
+    /// their sounds.
     ///
     /// **Improvement:** the game does this as it draws the display, over the drawn frame's ticks.
     /// OpenReliant does it once a tick, so the devices drain, the windows open and close and the
     /// message lines go at the same pace at any frame rate, and none of it depends on drawing.
-    pub fn gameFrame(state: *State, world: gameobj.World, ready: ?*Readiness) void {
+    pub fn beginGameFrame(state: *State, world: gameobj.World, ready: ?*Readiness) void {
         const all = world.objects;
-        const frame_duration = world.clock.frame_duration;
         const ahead = instrumented(world.player.viewing.last);
         state.messages.expire(world.clock.frame_start);
         state.followTarget(all, false);
@@ -3970,8 +3902,10 @@ pub const State = struct {
             if (ready) |set| state.readyPrompt(set);
             state.leadTarget(all);
         }
-        state.runCharges(world, frame_duration, false);
-        state.windows.run(frame_duration, all.kamovPart());
+    }
+
+    pub fn finishGameFrame(state: *State, world: gameobj.World) void {
+        state.windows.run(world.clock.frame_duration, world.objects.kamovPart());
         state.windows.beeps.play(world.sounds, world.view());
     }
 
@@ -4003,23 +3937,10 @@ pub const State = struct {
         state.lead_point = leadPoint(all, aimed) orelse return;
     }
 
-    /// `hud_draw`'s work on the devices' charges for a frame of `frame_duration` ticks, which it
-    /// does in every view (`gameFrame`): a device that runs dry is turned off, and the player's
-    /// ship uncloaks as the cloak's runs dry (`input.setCloak`). The cloak's charge runs only
-    /// outside a multiplayer game.
-    pub fn runCharges(state: *State, world: gameobj.World, frame_duration: i32, multiplayer: bool) void {
-        const object = &world.objects.slots[world.objects.player].object;
-        if (state.devices.getPtr(.ecm).run(.ecm, frame_duration)) input.setEcm(state, object, false);
-        if (!multiplayer and state.devices.getPtr(.cloak).run(.cloak, frame_duration)) input.setCloak(world, false);
-        if (state.devices.getPtr(.spectral_shields).run(.spectral_shields, frame_duration)) {
-            input.setSpectralShields(state, object, false, null);
-        }
-    }
-
     /// Which lights show for the player's `object`, steady or flashing, as `Drawing.lit` tests them
     /// but with every icon `ShowHudIcon` sets counted as lit, and no flash moved on.
-    pub fn lightsShown(state: *const State, object: *const gameobj.GameObject, matching: bool, multiplayer: bool) Lit {
-        return state.lightsWith(object, matching, multiplayer, .{ .set = &state.icons });
+    pub fn lightsShown(state: *const State, object: *const gameobj.GameObject, charges: *const ship_devices.Charges, matching: bool, multiplayer: bool) Lit {
+        return state.lightsWith(object, charges, matching, multiplayer, .{ .set = &state.icons });
     }
 
     /// How a test of the lights reads `ShowHudIcon`'s icons: moving drawing's flashes on by a frame
@@ -4036,7 +3957,7 @@ pub const State = struct {
         }
     };
 
-    fn lightsWith(state: *const State, object: *const gameobj.GameObject, matching: bool, multiplayer: bool, icons: IconTest) Lit {
+    fn lightsWith(state: *const State, object: *const gameobj.GameObject, charges: *const ship_devices.Charges, matching: bool, multiplayer: bool, icons: IconTest) Lit {
         const homing = object.missile_homing != 0;
         var found: Lit = .{};
         found.match_speed = matching;
@@ -4044,9 +3965,9 @@ pub const State = struct {
         found.smart_targeting = state.smart_targeting or icons.lit(.smart_targeting);
         found.enemy_lock = (state.enemy_lock and !homing) or icons.lit(.enemy_lock);
         found.missile_incoming = homing or icons.lit(.missile_incoming);
-        found.ecm = state.devices.get(.ecm).setting == .on or icons.lit(.ecm);
-        found.cloak = !multiplayer and state.devices.get(.cloak).setting != .absent;
-        found.spectral_shields = state.devices.get(.spectral_shields).setting == .on;
+        found.ecm = charges.get(.ecm).setting == .on or icons.lit(.ecm);
+        found.cloak = !multiplayer and charges.get(.cloak).setting != .absent;
+        found.spectral_shields = charges.get(.spectral_shields).setting == .on;
         found.reverse_thrust = object.reverse_thrust;
         return found;
     }
@@ -4178,13 +4099,9 @@ pub const State = struct {
 test "State.reset" {
     // A mission ends with the cloak on and half drained, the radar zoomed in and the pilot out.
     var state: State = .{ .smart_targeting = true, .blind_fire = false, .ejected = true, .radar_range = 0 };
-    state.devices.getPtr(.cloak).* = .{ .setting = .on, .ticks = @divExact(Charge.full(.cloak).ticks, 2) };
-    state.devices.getPtr(.spectral_shields).setting = .absent;
     state.missile_empty_warned_until = 900;
     state.missile_name_kept = true;
     state.reset(500);
-    // The next one, a restart too, starts with each device off and fully charged.
-    for (std.enums.values(Device)) |kind| try std.testing.expectEqual(Charge.full(kind), state.devices.get(kind));
     try std.testing.expect(!state.ejected and state.blind_fire);
     try std.testing.expectEqual(Radar.first_range, state.radar_range);
     try std.testing.expectEqual(500, state.missile_empty_warned_until);
@@ -4378,8 +4295,8 @@ pub const Drawing = struct {
     /// Which lights' conditions hold for the player's `object`, tested as `hud_draw` tests them,
     /// in its order: an icon's flash moves on only when `hud_draw` asks for it. `matching` is
     /// `matching_speed`.
-    pub fn lit(drawing: *Drawing, state: *const State, object: *const gameobj.GameObject, matching: bool, multiplayer: bool, frame_duration: i32) Lit {
-        return state.lightsWith(object, matching, multiplayer, .{ .step = .{ .drawing = drawing, .icons = &state.icons, .frame_duration = frame_duration } });
+    pub fn lit(drawing: *Drawing, state: *const State, object: *const gameobj.GameObject, charges: *const ship_devices.Charges, matching: bool, multiplayer: bool, frame_duration: i32) Lit {
+        return state.lightsWith(object, charges, matching, multiplayer, .{ .step = .{ .drawing = drawing, .icons = &state.icons, .frame_duration = frame_duration } });
     }
 
     /// Whether `icon` is lit in a frame of `frame_duration` (`hud_icon_lit`, `0x00482F50`): always
@@ -4414,7 +4331,7 @@ pub const Drawing = struct {
 
     /// Draws the lights `lit` has, each in the next place of the grid, the warnings flashing and
     /// the devices' charges as bars under their lights.
-    pub fn drawLights(drawing: *Drawing, state: *const State, pen: Pen, shown: Lit, frame_duration: i32) Error!void {
+    pub fn drawLights(drawing: *Drawing, charges: *const ship_devices.Charges, pen: Pen, shown: Lit, frame_duration: i32) Error!void {
         var index: i32 = 0;
         inline for (comptime std.enums.values(Light)) |light| {
             if (@field(shown, @tagName(light))) {
@@ -4430,7 +4347,7 @@ pub const Drawing = struct {
                 const how: Draw = .{ .shake = if (light == .reverse_thrust) null else pen.shake };
                 if (drawn) try pen.shapeWith(@backingInt(light), at, how);
                 if (comptime light.charged()) |kind| {
-                    drawBar(pen, at, kind.spec().bar_down, state.devices.get(kind).bar(kind));
+                    drawBar(pen, at, chargeBarSpec(kind).down, chargeBar(charges.get(kind), kind));
                 }
             }
         }
@@ -5045,7 +4962,8 @@ test "State.gameFrame" {
     var ready: Readiness = .{ .jump = .newly };
     // In any view, the message line whose time is up goes, the display follows the player's
     // target, and the windows move on and play their sounds.
-    t.state.gameFrame(t.mission.world(), &ready);
+    t.state.beginGameFrame(t.mission.world(), &ready);
+    t.state.finishGameFrame(t.mission.world());
     try std.testing.expectEqual(0, t.state.messages.count);
     try std.testing.expectEqual(sabre, t.state.target.?.slot);
     try std.testing.expectEqual(1, t.state.windows.status.get(.damage).progress);
@@ -5053,7 +4971,8 @@ test "State.gameFrame" {
     // The jump prompt comes up only in the view ahead.
     try std.testing.expectEqual(.newly, ready.jump);
     t.mission.player.viewing.last = .cockpit;
-    t.state.gameFrame(t.mission.world(), &ready);
+    t.state.beginGameFrame(t.mission.world(), &ready);
+    t.state.finishGameFrame(t.mission.world());
     try std.testing.expectEqual(.shown, ready.jump);
     try std.testing.expectEqual(1, t.state.events.prompts.count);
 }
@@ -5216,7 +5135,7 @@ test Charge {
     for (std.enums.values(Device)) |kind| {
         const charge: Charge = .full(kind);
         try std.testing.expectEqual(.off, charge.setting);
-        try std.testing.expectEqual(32, charge.bar(kind));
+        try std.testing.expectEqual(32, chargeBar(charge, kind));
         try std.testing.expectEqual(1, charge.share(kind));
     }
     // On, the spectral shields spend six ticks a tick, so ten seconds run them dry.
@@ -5226,7 +5145,7 @@ test Charge {
     try std.testing.expectEqual(6, shields.ticks);
     try std.testing.expect(shields.run(.spectral_shields, 2));
     try std.testing.expectEqual(0, shields.ticks);
-    try std.testing.expectEqual(0, shields.bar(.spectral_shields));
+    try std.testing.expectEqual(0, chargeBar(shields, .spectral_shields));
     try std.testing.expectEqual(0, shields.share(.spectral_shields));
     // Off, a device charges a tick a tick and stops at full.
     shields.setting = .off;
@@ -5265,45 +5184,45 @@ test "drawLights notes the lights it lights" {
     var recorder: device.testing.Recorder = .{ .gpa = gpa };
     defer recorder.deinit();
     const pen = testing.pen(&art, gpa, recorder.interface());
-    const state: State = .{};
     var drawing: Drawing = .{};
     // The lock warning is lit for the first 50 ticks of its flash, and the ECM's light steady.
     const shown: Lit = .{ .enemy_lock = true, .ecm = true };
-    try drawing.drawLights(&state, pen, shown, 10);
+    try drawing.drawLights(&ship_devices.full, pen, shown, 10);
     try std.testing.expectEqual(shown, drawing.flashes.lights);
     // Past them, the warning is dark, though it keeps its place.
-    try drawing.drawLights(&state, pen, shown, 50);
+    try drawing.drawLights(&ship_devices.full, pen, shown, 50);
     try std.testing.expectEqual(Lit{ .ecm = true }, drawing.flashes.lights);
 }
 
 test "the lights hold as hud_draw tests them" {
     var state: State = .{};
+    var charges = ship_devices.full;
     var drawing: Drawing = .{};
     var object: gameobj.GameObject = std.mem.zeroes(gameobj.GameObject);
     // A ship that carries every device but has none on shows only its cloak.
-    try std.testing.expectEqual(Lit{ .cloak = true }, drawing.lit(&state, &object, false, false, 1));
+    try std.testing.expectEqual(Lit{ .cloak = true }, drawing.lit(&state, &object, &charges, false, false, 1));
     // ... and not even that in a multiplayer game.
-    try std.testing.expectEqual(Lit{}, drawing.lit(&state, &object, false, true, 1));
+    try std.testing.expectEqual(Lit{}, drawing.lit(&state, &object, &charges, false, true, 1));
 
     // Blind fire, carried and on, shows while the guns are not all firing.
     state.blind_fire_fitted = true;
-    try std.testing.expect(drawing.lit(&state, &object, false, true, 1).blind_fire);
+    try std.testing.expect(drawing.lit(&state, &object, &charges, false, true, 1).blind_fire);
     object.gun_mode.all = true;
-    try std.testing.expect(!drawing.lit(&state, &object, false, true, 1).blind_fire);
+    try std.testing.expect(!drawing.lit(&state, &object, &charges, false, true, 1).blind_fire);
 
     // A missile homing on the ship takes the lock warning's place.
     state.enemy_lock = true;
-    try std.testing.expect(drawing.lit(&state, &object, false, true, 1).enemy_lock);
+    try std.testing.expect(drawing.lit(&state, &object, &charges, false, true, 1).enemy_lock);
     object.missile_homing = 1;
-    const both = drawing.lit(&state, &object, false, true, 1);
+    const both = drawing.lit(&state, &object, &charges, false, true, 1);
     try std.testing.expect(!both.enemy_lock and both.missile_incoming);
 
     // The spectral shields show only while on; an icon lights the ECM's light without it.
-    state.devices.getPtr(.spectral_shields).setting = .on;
-    try std.testing.expect(drawing.lit(&state, &object, false, true, 1).spectral_shields);
-    try std.testing.expect(!drawing.lit(&state, &object, false, true, 1).ecm);
+    charges.getPtr(.spectral_shields).setting = .on;
+    try std.testing.expect(drawing.lit(&state, &object, &charges, false, true, 1).spectral_shields);
+    try std.testing.expect(!drawing.lit(&state, &object, &charges, false, true, 1).ecm);
     state.showIcon(.ecm, .on);
-    try std.testing.expect(drawing.lit(&state, &object, false, true, 1).ecm);
+    try std.testing.expect(drawing.lit(&state, &object, &charges, false, true, 1).ecm);
 }
 
 test "an icon flashes only as it is asked for" {
@@ -5313,10 +5232,10 @@ test "an icon flashes only as it is asked for" {
     const object: gameobj.GameObject = std.mem.zeroes(gameobj.GameObject);
     state.showIcon(.smart_targeting, .flash);
     state.smart_targeting = true;
-    _ = drawing.lit(&state, &object, false, false, 30);
+    _ = drawing.lit(&state, &object, &ship_devices.full, false, false, 30);
     try std.testing.expectEqual(0, drawing.icon_ticks[4]);
     state.smart_targeting = false;
-    _ = drawing.lit(&state, &object, false, false, 30);
+    _ = drawing.lit(&state, &object, &ship_devices.full, false, false, 30);
     try std.testing.expectEqual(30, drawing.icon_ticks[4]);
 }
 
@@ -5680,7 +5599,7 @@ test "what the instruments show, worked out without drawing" {
     var state: State = .{};
     state.showIcon(.ecm, .flash);
     const before = state.icons;
-    try std.testing.expect(state.lightsShown(&slot.object, false, false).ecm);
+    try std.testing.expect(state.lightsShown(&slot.object, &ship_devices.full, false, false).ecm);
     try std.testing.expectEqual(before, state.icons);
 }
 

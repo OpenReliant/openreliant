@@ -42,6 +42,7 @@ const objects = @import("objects.zig");
 const Order = @import("ai/orders.zig").Order;
 const pilots = @import("pilots.zig");
 const players = @import("players.zig");
+const ship_devices = @import("ship_devices.zig");
 const shield = @import("shield.zig");
 const environfx = @import("environfx.zig");
 const explode = @import("explode.zig");
@@ -917,15 +918,21 @@ pub const Objects = struct {
             state.unbindShip();
             state.membership.joined.ship = ship;
             all.fitPlayerWeapons(ref.slot);
+            const slot = &all.slots[ref.slot];
+            const spectral = if (main.playerShip(slot.object.type)) |kind| kind.spectral_shields else false;
+            state.charges = ship_devices.fitted(spectral, cloak.canCloak(slot));
         }
         return .{ .participant = ref, .ship = ship };
     }
 
     /// Revokes the participant's control and clears held input. The game mode decides what
     /// happens to the ship after that.
-    pub fn leaveParticipant(all: *Objects, ref: players.ParticipantRef) bool {
+    pub fn leaveParticipant(world: gameobj.World, ref: players.ParticipantRef) bool {
+        const all = world.objects;
         const state = all.joinedParticipant(ref) orelse return false;
-        if (state.membership.joined.ship) |ship| if (ship.resolve(all)) |index| {
+        const bound = state.membership.joined.ship;
+        state.* = .{ .membership = .vacant };
+        if (bound) |ship| if (ship.resolve(all)) |index| {
             const slot = &all.slots[index];
             slot.object.letGo();
             slot.object.lateral_input = 0;
@@ -935,8 +942,10 @@ pub const Objects = struct {
             slot.object.blind_fire_aim = 0;
             for (slot.guns) |*gun| gun.firing_until = std.math.minInt(i32);
             if (ai.controlEntry(all, index)) |entry| entry.target = .none;
+            slot.object.flags.ecm = false;
+            slot.object.flags.spectral_shields = false;
+            ship_devices.endCloak(world, index);
         };
-        state.* = .{ .membership = .vacant };
         return true;
     }
 
@@ -955,10 +964,15 @@ pub const Objects = struct {
     /// Reads accepted commands only while the same binding is live.
     pub fn playerCommand(all: *Objects, index: u16) ?*players.Command {
         const state = all.playerState(index) orelse return null;
-        if (state.membership != .joined) return null;
-        const ship = state.membership.joined.ship orelse return null;
-        if (!all.canBindShip(index, ship)) return null;
+        if (!all.hasBoundPlayerShip(index)) return null;
         return if (state.command) |*command| command else null;
+    }
+
+    pub fn hasBoundPlayerShip(all: *Objects, index: u16) bool {
+        const state = all.playerState(index) orelse return false;
+        if (state.membership != .joined) return false;
+        const ship = state.membership.joined.ship orelse return false;
+        return all.canBindShip(index, ship);
     }
 
     fn canBindShip(all: *const Objects, index: u16, ship: gameobj.ObjectRef) bool {
@@ -3060,7 +3074,7 @@ test "leaving revokes commands even when the next participant binds the same shi
     input.playerControlOrder(mission.orders(), index);
     try std.testing.expectEqual(1, all.slots[index].object.throttle);
 
-    try std.testing.expect(all.leaveParticipant(first));
+    try std.testing.expect(Objects.leaveParticipant(mission.world(), first));
     try std.testing.expectEqual(null, all.playerCommand(index));
     var devices: input.Devices = .{ .settings = .{ .control_mode = .keyboard } };
     devices.keyboard.down[input.controls.binding(.full_throttle).key] = true;
@@ -3070,7 +3084,7 @@ test "leaving revokes commands even when the next participant binds the same shi
     const second = all.joinParticipant(index).?;
     const current = all.bindParticipant(second, ship).?;
     try std.testing.expectEqual(null, all.bindParticipant(first, ship));
-    try std.testing.expect(!all.leaveParticipant(first));
+    try std.testing.expect(!Objects.leaveParticipant(mission.world(), first));
     try std.testing.expect(!all.submitPlayerCommand(old, .{ .flight = .{ .throttle = .{ .axis = 1 } } }));
     try std.testing.expectEqual(null, all.playerCommand(index));
     try std.testing.expect(all.submitPlayerCommand(current, .{ .flight = .{ .throttle = .{ .axis = 0.5 } } }));

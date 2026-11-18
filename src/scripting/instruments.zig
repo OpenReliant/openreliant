@@ -21,6 +21,7 @@ const language = engine.game.language;
 const gameobj = engine.game.gameobj;
 const Object = engine.hooks.Object;
 const gun_types = engine.game.guns;
+const ship_devices = engine.game.ship_devices;
 const missile_display = hud.missile_display;
 const gunnery = hud.gunnery;
 const create = engine.game.create;
@@ -569,7 +570,8 @@ pub const lights = api.Field(Lights, "The status lights that show, steady or fla
     pub fn get(call: Call) Lights {
         const flight, const slot = flightOf(call) orelse return .{};
         const all = call.runtime().objects orelse return .{};
-        return lightsOf(flight.hud.lightsShown(&slot.object, all.localPlayerState().controls.matching_speed, flight.multiplayer));
+        const participant = &all.player_states[all.player];
+        return lightsOf(flight.hud.lightsShown(&slot.object, &participant.charges, participant.controls.matching_speed, flight.multiplayer));
     }
 });
 
@@ -600,16 +602,17 @@ pub const Charges = struct {
 
 pub const charges = api.Field(?Charges, "The charges of the player's ECM, cloak and spectral shields, which their lights show as bars under them, each from 0 to 1, or nil where the ship doesn't carry the device; nil outside a mission.", struct {
     pub fn get(call: Call) ?Charges {
-        const flight, _ = flightOf(call) orelse return null;
-        const state = flight.hud;
-        return .{ .ecm = chargeOf(state, .ecm), .cloak = chargeOf(state, .cloak), .spectral_shields = chargeOf(state, .spectral_shields) };
+        _ = flightOf(call) orelse return null;
+        const all = call.runtime().objects orelse return null;
+        const live = &all.player_states[all.player].charges;
+        return .{ .ecm = chargeOf(live, .ecm), .cloak = chargeOf(live, .cloak), .spectral_shields = chargeOf(live, .spectral_shields) };
     }
 });
 
 /// How much of a full charge the device `kind` has left, from 0 to 1; null where the ship doesn't
 /// carry it.
-fn chargeOf(state: *const hud.State, kind: hud.Device) ?f32 {
-    const charge = state.devices.get(kind);
+fn chargeOf(device_charges: *const ship_devices.Charges, kind: ship_devices.Device) ?f32 {
+    const charge = device_charges.get(kind);
     return if (charge.setting == .absent) null else charge.share(kind);
 }
 

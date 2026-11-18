@@ -105,16 +105,26 @@ Submitted commands advance locks on the game frame, including on a headless host
 single-player controls keep the existing camera and wormhole checks, button latches and input
 order.
 
+## Ship devices
+
+**Improvement:** the host owns cloak, ECM and spectral shield charges for each participant.
+The host fits them from the ship definition and model, then checks fitting and charge before
+accepting an activation. It consumes each device press once. The game frame advances the
+charges even on a headless host. Empty devices switch off and recharge. An empty cloak starts
+decloaking, including when its charge runs out during activation.
+
+The HUD and scripting instruments read the displayed participant's charges from the snapshot.
+Local input keeps its existing device timing and presentation. The rules and original addresses
+are in [The devices](hud.md#the-devices).
+
 ## Remaining work
 
 The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/955).
 
-- [#1372](https://github.com/OpenReliant/openreliant/issues/1372): per-player device charge and
-  activation, including explicit cloak activation. Weapon commands still respect the ship's cloak.
 - [#1367](https://github.com/OpenReliant/openreliant/issues/1367): scanner, mission ending,
   participant tallies and game mode rules for ship disposition and respawn.
 - [#1368](https://github.com/OpenReliant/openreliant/issues/1368): effects addressed to the player
-  they concern, local-player damage scaling, and local-only damage paths such as shockwaves.
+  they concern, including device beeps and warnings, local-player damage scaling, and local-only damage paths such as shockwaves.
   Shockwaves still strike only the displayed player, using that player's reserves with the
   existing damage arithmetic.
 
