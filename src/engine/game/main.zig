@@ -59,7 +59,6 @@ const sparks = @import("sparks.zig");
 const bigfile = @import("bigfile.zig");
 const hog_snd = @import("hog_snd.zig");
 const hooks = @import("../hooks.zig");
-const betty = hog_snd.betty;
 const hud = @import("hud.zig");
 const hudoptions = @import("hudoptions.zig");
 const radio_module = @import("radio.zig");
@@ -2125,14 +2124,11 @@ test "the radar's backing stands where the radar does" {
 
 // --- The armour ---------------------------------------------------------------------------
 
-/// `0x00492370`: what an object's armour does to it, from how much of each quadrant's armour is
-/// left of its full armour, `6 * ShipCombat.armor_class - 1`, the fore quadrant being the third
-/// and the aft the fourth: the guns' condition (`gun_condition`), half the fore one's share and a
-/// quarter of each side's; the cruise speed (`armor_speed_factor`), a quarter plus three quarters
-/// of the aft one's; and the shields' recharge (`shield_condition`), a quarter of each quadrant's.
-/// `create_object` runs it once the armour is full, and the damage as it wears. **Unverified:** it
-/// lies after `language.cpp`'s code, where `main.cpp`'s begins, next to `mission_frame`. For the
-/// player's ship it goes on to the warning (`armorWarning`).
+/// `object_armor_conditions` (`0x00492370`) updates gun condition, cruise speed and shield recharge
+/// using the fraction of armour left in each quadrant. Gun condition uses the fore and sides.
+/// Cruise speed uses the aft. Shield recharge uses all four. Creation and armour damage both run
+/// this calculation. After a hit, the pilot can also get a warning (`armorWarningDue`).
+/// **Unverified:** the function lies after `language.cpp`, near `mission_frame` in `main.cpp`.
 pub fn armorConditions(object: *gameobj.GameObject, combat: *const create.ShipCombat) void {
     const full = combat.startingArmor();
     const fore = object.armor.fore / full;
@@ -2152,21 +2148,16 @@ const fore_gun_share: f32 = 0.5;
 const aft_speed_share: f32 = 0.75;
 const least_speed_share: f32 = 0.25;
 
-/// The rest of `object_armor_conditions` (`0x00492370`), for the player's ship: once a quadrant has
-/// lost its shield and `armor_warning_share` of its armour, the cockpit's warning, sound 1 of
-/// `betty.fat`, no more than once in `armor_warning_interval` ticks, where anything is heard in
-/// `world`.
-pub fn armorWarning(world: gameobj.World, object: *const gameobj.GameObject, combat: *const create.ShipCombat) void {
-    if (world.sounds == null) return;
-    const frame_start = world.clock.frame_start;
-    if (frame_start - world.player.armor_warned_at <= armor_warning_interval) return;
+/// `object_armor_conditions` (`0x00492415`) checks for a quadrant with no shields and less than
+/// half its starting armour. Warn only after more than 500 ticks have passed since the last warning.
+pub fn armorWarningDue(object: *const gameobj.GameObject, combat: *const create.ShipCombat, tick: i32, warned_at: i32) bool {
+    if (tick -% warned_at <= armor_warning_interval) return false;
     const half = combat.startingArmor() * armor_warning_share;
     for (object.shields.values(), object.armor.values()) |held, armor| {
         if (held > 0 or armor >= half) continue;
-        betty.sayIn(world, .armor_failing);
-        world.player.armor_warned_at = frame_start;
-        return;
+        return true;
     }
+    return false;
 }
 
 /// How long the armour's warning keeps quiet once given, in ticks (`0x00492432`), and the share of
@@ -2174,41 +2165,20 @@ pub fn armorWarning(world: gameobj.World, object: *const gameobj.GameObject, com
 const armor_warning_interval = 500;
 const armor_warning_share: f32 = 0.5;
 
-test armorWarning {
-    var mission: gameobj.testing.Mission = undefined;
-    try mission.init(std.testing.allocator);
-    defer mission.deinit();
-    var speaker: hog_snd.testing.Speaker = undefined;
-    try speaker.init(2, null);
-    defer speaker.deinit();
-    const bytes = comptime hog_snd.testing.bank(2);
-    speaker.sound.betty = try @import("../../formats/fat.zig").Bank.parse(&bytes);
-    var world = mission.world();
-    speaker.hear(&world);
-    const asked = &speaker.asked;
-    mission.clock.frame_start = 1000;
+test armorWarningDue {
     const combat = std.mem.zeroInit(create.ShipCombat, .{ .armor_class = 5 });
     var object = gameobj.testing.object();
     object.shields = .all(10);
     object.armor = .all(29);
 
-    // Whole, or with its shields up, no warning.
-    armorWarning(world, &object, &combat);
-    object.armor.left = 10;
-    armorWarning(world, &object, &combat);
-    try std.testing.expectEqual(0, mission.player.armor_warned_at);
-    try std.testing.expectEqual(0, asked.list.items.len);
-    // A quadrant with its shield gone and under half its armour warns, and not again for 500
-    // ticks.
+    object.armor.left = 14.5;
     object.shields.left = 0;
-    armorWarning(world, &object, &combat);
-    try std.testing.expectEqual(1000, mission.player.armor_warned_at);
-    speaker.heard();
-    try std.testing.expect(speaker.playing());
-    mission.clock.frame_start = 1400;
-    armorWarning(world, &object, &combat);
-    try std.testing.expectEqual(1000, mission.player.armor_warned_at);
-    try std.testing.expectEqual(0, asked.list.items.len);
+    try std.testing.expect(!armorWarningDue(&object, &combat, 501, 0));
+    object.armor.left = 14;
+    try std.testing.expect(!armorWarningDue(&object, &combat, 500, 0));
+    try std.testing.expect(armorWarningDue(&object, &combat, 501, 0));
+    object.shields.left = 1;
+    try std.testing.expect(!armorWarningDue(&object, &combat, 501, 0));
 }
 
 test armorConditions {

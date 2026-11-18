@@ -304,17 +304,18 @@ mission's start. So the game frames never touch the sound, which plays on the ma
 - **Speech and music.** The radio's lines go the same way, each with its file as the archive holds
   it, which the main thread unscrambles as it plays the line on the speech sample
   ([Speech](../formats/speech.md)). So does the script's music (`PlayMusic`).
-- **Timers.** What the sound kept for the game moves to the player: when the armour last warned
-  and when a shot last sounded on the player's hull (`input.Player.armor_warned_at`,
-  `hull_heard_at`).
+- **Timers.** Each pilot's armour warning cooldown lives in `players.State.armor_warned_at`.
+  The local input state still tracks when a shot last sounded on the player's hull
+  (`input.Player.hull_heard_at`). Multiplayer hull impact sounds are tracked in
+  [#1383](https://github.com/OpenReliant/openreliant/issues/1383).
 
 ## Where the sounds come from
 
 - A shot the step hears (`guns.heard`) plays its gun type's sound following it, on a voice of the
   player's guns for the player's shots, of the guaranteed ones for the Huge Guns'.
 - A flak shell plays `FLAK01` as it bursts.
-- The player's ship warns, sound 1 of `betty.fat`, once a quadrant has lost its shield and half its
-  armour ([Objects](objects.md)).
+- A pilot hears sound 1 of `betty.fat` when a quadrant has no shields and less than half its
+  starting armour. A host sends the warning to the pilot whose ship was hit ([Objects](objects.md)).
 - A Huge Gun's shot striking a component plays `EXPLOSION01` where it strikes.
 - A shot through to a hull plays `ARMOUR01` where it struck, facing the camera, or `PLAYERHIT` on
   the player's ship, following it, at most every 30 ticks (`shieldfx_create`, `0x004A0310`). The

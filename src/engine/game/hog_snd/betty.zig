@@ -16,7 +16,7 @@ pub const Line = enum(u8) {
 
     /// The armed missile run out.
     missiles_gone = 0,
-    /// A quadrant has lost its shield and half its armour (`main.armorWarning`).
+    /// A quadrant has lost its shields and more than half its armour (`main.armorWarningDue`).
     armor_failing = 1,
     /// The armed missile's name, as the missile ring turns to it.
     screamer = 2,

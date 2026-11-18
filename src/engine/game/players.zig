@@ -49,6 +49,9 @@ pub const State = struct {
     /// What SHIELD BALANCING has shifted beyond the fore and aft shields' full charge
     /// (`shield_reserve_fore`, `0x0051CF78`, and `shield_reserve_aft`, `0x0051CF34`).
     shield_reserves: gameobj.ShieldReserves = .{},
+    /// Tick of the last armour warning (`0x00588334`). The standalone campaign keeps it across
+    /// missions. A newly bound ship starts with a fresh cooldown.
+    armor_warned_at: i32 = 0,
 
     /// Drops all state tied to the old ship while keeping the participant's admission.
     pub fn unbindShip(state: *State) void {
@@ -59,6 +62,7 @@ pub const State = struct {
         state.weapons = .{};
         state.charges = ship_devices.full;
         state.shield_reserves = .{};
+        state.armor_warned_at = 0;
     }
 
     pub fn resetMission(state: *State) void {

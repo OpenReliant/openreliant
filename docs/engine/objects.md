@@ -600,19 +600,25 @@ recharge without reserves.
 An object whose components are listed recharges no shields here, and neither does one holding
 the `no_shield_recharge` power-up (8). One whose `0xB95` is 5 has its shields emptied instead. In a
 multiplayer game, the player's shields don't recharge while `0x5D76F0` is 4 and `0x5DB538` names
-the player. **Unknown:** what those values mean.
+the player. That arena rule is tracked in [#55](https://github.com/OpenReliant/openreliant/issues/55).
 
-`object_armor_conditions` (`0x00492370`) works out three conditions from each quadrant's armor over
-its full armor, `6 * armor_class - 1`, the fore quadrant being the third and the aft the fourth:
-the shields' (`0x664`), a quarter of each quadrant's; the guns' (`0x66C`), half the fore one's and
-a quarter of each side's; and the cruise speed's (`0x668`), a quarter plus three quarters of the
-aft one's. `create_object` runs it once the armor is full. For the player's ship it also sounds a
-warning, sound 1 of `betty.fat`, at most every 500 ticks (`0x00588334`), while a quadrant has lost
-its shield and half its armor.
+`object_armor_conditions` (`0x00492370`) uses the armour left in each quadrant as a fraction of
+its starting armour, `6 * armor_class - 1`. Shield recharge (`0x664`) adds a quarter of each
+quadrant's fraction. Gun condition (`0x66C`) adds half the fore fraction and a quarter of each
+side's. Cruise speed (`0x668`) is a quarter plus three quarters of the aft fraction. `create_object`
+runs this calculation after filling the armour.
+
+The original also plays sound 1 of `betty.fat` for the player's ship when a quadrant has no shields
+and less than half its starting armour. More than 500 ticks must pass before another warning
+(`0x00588334`).
 
 [`gameobj.zig`](../../src/engine/game/gameobj.zig) ports the recharge as `rechargeShields`, which
-`simulationStep` runs, and [`main.zig`](../../src/engine/game/main.zig) the conditions as
-`armorConditions` and the warning as `armorWarning`. Not ported: the multiplayer case.
+`simulationStep` runs. [`main.zig`](../../src/engine/game/main.zig) has `armorConditions` and
+`armorWarningDue`.
+
+**Improvement:** the host checks the warning after armour damage and sends it to the participant
+bound to the damaged ship. Each pilot has their own cooldown. The standalone campaign keeps the
+existing cooldown across missions.
 
 ## Destruction
 
