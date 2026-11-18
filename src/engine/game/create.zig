@@ -968,15 +968,28 @@ pub const Objects = struct {
         return if (state.command) |*command| command else null;
     }
 
-    pub fn hasBoundPlayerShip(all: *Objects, index: u16) bool {
-        const state = all.playerState(index) orelse return false;
-        if (state.membership != .joined) return false;
-        const ship = state.membership.joined.ship orelse return false;
-        return all.canBindShip(index, ship);
+    /// Identifies the current recipient for this ship. It remains valid during an explosion
+    /// until the ship leaves its slot, so the final hit can still reach the pilot.
+    pub fn playerBinding(all: *const Objects, index: u16) ?players.ControlRef {
+        if (index >= all.players or index >= all.player_states.len) return null;
+        const membership = all.player_states[index].membership;
+        if (membership != .joined) return null;
+        const joined = membership.joined;
+        const ship = joined.ship orelse return null;
+        if (ship.resolve(all) != index) return null;
+        return .{ .participant = .{ .slot = index, .generation = joined.generation }, .ship = ship };
+    }
+
+    pub fn hasBoundPlayerShip(all: *const Objects, index: u16) bool {
+        _ = all.playerBinding(index) orelse return false;
+        return all.shipAcceptsInput(index);
     }
 
     fn canBindShip(all: *const Objects, index: u16, ship: gameobj.ObjectRef) bool {
-        if (ship.resolve(all) != index) return false;
+        return ship.resolve(all) == index and all.shipAcceptsInput(index);
+    }
+
+    fn shipAcceptsInput(all: *const Objects, index: u16) bool {
         const object = &all.slots[index].object;
         const flags = object.flags;
         return object.created and !flags.stand_in and !flags.disabled and

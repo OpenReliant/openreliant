@@ -117,14 +117,26 @@ The HUD and scripting instruments read the displayed participant's charges from 
 Local input keeps its existing device timing and presentation. The rules and original addresses
 are in [The devices](hud.md#the-devices).
 
+## Combat hit feedback
+
+**Improvement:** hits address HUD interference, camera shake, controller feedback and armour
+quadrant markers to the struck pilot. A headless host emits these effects in simulation order,
+labelled with the participant's admission, ship reference and game tick. A presentation consumer
+checks its current binding before applying an effect. A respawn or slot reuse invalidates
+delayed feedback for the previous ship or participant.
+
+The local game applies the same effects at their existing points in the damage routine. The
+host's feedback sink only receives presentation events. Damage calculations and mission
+notifications still run on the simulation side.
+
 ## Remaining work
 
 The overall split is [#955](https://github.com/OpenReliant/openreliant/issues/955).
 
 - [#1367](https://github.com/OpenReliant/openreliant/issues/1367): scanner, mission ending,
   participant tallies and game mode rules for ship disposition and respawn.
-- [#1368](https://github.com/OpenReliant/openreliant/issues/1368): effects addressed to the player
-  they concern, including device beeps and warnings, local-player damage scaling, and local-only damage paths such as shockwaves.
+- [#1368](https://github.com/OpenReliant/openreliant/issues/1368): armour warnings, radio taunts,
+  target feedback, device notifications, damage scaling and local-only damage such as shockwaves.
   Shockwaves still strike only the displayed player, using that player's reserves with the
   existing damage arithmetic.
 

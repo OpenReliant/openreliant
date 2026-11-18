@@ -25,6 +25,7 @@ const input = @import("../input.zig");
 const camera = @import("camera.zig");
 const friendly_fire = @import("friendly_fire.zig");
 const radio = @import("radio.zig");
+const players = @import("players.zig");
 
 /// How far apart a collision sets two objects, as a share of each one's radius from the point
 /// between them (`0x004DC7C0` and `0x004DC7C4`): a tenth further than touching, so that the next
@@ -374,7 +375,8 @@ pub fn damageFrom(world: gameobj.World, index: u16, struck: Quadrant, value: f32
     const all = world.objects;
     const object = &all.slots[index].object;
     const held = object.shields.at(struck);
-    const scaled = scaledBlow(world, index, struck, value, attacker, kind, held.* >= 0) orelse return;
+    const blow = scaledBlow(world, index, struck, value, attacker, kind, held.* >= 0) orelse return;
+    const scaled = blow.value;
     if (attacker.resolve(all)) |by| friendly_fire.warn(world, index, by, kind, scaled);
     const through = @max(value - held.*, 0);
     if (held.* >= 0 and object.invulnerable != ._unknown_4) held.* -= scaled;
@@ -403,18 +405,20 @@ fn holdShots(world: gameobj.World, held: bool) void {
 /// difficulty scales it, of a kind that counts, to the player's ship draws the attacker's taunt on
 /// the radio (`radio.enemyTaunt`); it shakes the player's ship and its controller (`feedback`,
 /// where `shielded` says whether the shields took it), and counts toward what the object has taken
-/// lately where its kind does. Returns the scaled blow, or null where the object takes nothing.
-fn scaledBlow(world: gameobj.World, index: u16, struck: Quadrant, value: f32, attacker: gameobj.DamageSource, kind: Kind, shielded: bool) ?f32 {
+/// lately where its kind does. Returns the scaled blow and its audience, or null where the
+/// object takes nothing.
+fn scaledBlow(world: gameobj.World, index: u16, struck: Quadrant, value: f32, attacker: gameobj.DamageSource, kind: Kind, shielded: bool) ?struct { value: f32, audience: ?HitFeedback.Audience } {
     const all = world.objects;
     const slot = &all.slots[index];
     if (slot.object.flags.jumping) return null;
-    if (index == all.player) if (world.display) |display| display.startInterference(world);
+    const audience = HitFeedback.Audience.of(world, index);
+    if (audience) |towards| towards.send(world, .interference);
     if (slot.combat) |combat| if (combat.class == .debris) return null;
     const scaled = byDifficulty(world, index, kind, value);
     if (index == all.player and counted(kind)) if (attacker.resolve(all)) |by| radio.enemyTaunt(world, by);
-    if (index == all.player) feedback(world, struck, kind, scaled, shielded);
+    if (audience) |towards| towards.send(world, .{ .impact = .{ .struck = struck, .kind = kind, .value = scaled, .shielded = shielded } });
     if (counted(kind)) slot.object.recent_damage += scaled;
-    return scaled;
+    return .{ .value = scaled, .audience = audience };
 }
 
 /// The display, while smart targeting is on and the blow is the player's ship's but for a
@@ -449,7 +453,8 @@ pub fn armorDamageFrom(world: gameobj.World, index: u16, struck: Quadrant, value
     const all = world.objects;
     const slot = &all.slots[index];
     const object = &slot.object;
-    const scaled = scaledBlow(world, index, struck, value, attacker, kind, false) orelse return;
+    const blow = scaledBlow(world, index, struck, value, attacker, kind, false) orelse return;
+    const scaled = blow.value;
     if (object.flags.exploding) return;
     if (attacker.resolve(all)) |by| friendly_fire.warn(world, index, by, kind, scaled);
     if (kind == .bullet and object.flags.components) return events.shotAtFrom(world, index, attacker.object, null);
@@ -477,13 +482,82 @@ pub fn armorDamageFrom(world: gameobj.World, index: u16, struck: Quadrant, value
             _ = display.bringUp(hud.targetWindow(slot), false);
             display.events.target_hits.getPtr(struck).happen();
         }
-        if (index == all.player) display.events.ship_hits.getPtr(struck).happen();
     }
+    if (blow.audience) |towards| towards.send(world, .{ .armour_hit = struck });
     shotAt(world, index, attacker);
 }
 
 /// A blow to the armour heavier than this leaves the player's ship no time to eject (`0x004DC44C`).
 const heavy_blow: f32 = 1000;
+
+/// **Improvement:** a hit's presentation effects follow the struck pilot's ship binding.
+/// The local game applies them immediately. For admitted participants the host delivers them
+/// through the sink, including on a host without any presentation.
+pub const HitFeedback = union(enum) {
+    interference,
+    impact: Impact,
+    armour_hit: Quadrant,
+
+    pub const Impact = struct {
+        struck: Quadrant,
+        kind: Kind,
+        value: f32,
+        shielded: bool,
+    };
+
+    pub const Addressed = struct {
+        recipient: players.ControlRef,
+        tick: i32,
+        effect: HitFeedback,
+
+        /// Applies an event for the current viewer. An old ship or admission cannot receive it.
+        pub fn present(notice: Addressed, world: gameobj.World) bool {
+            const all = world.objects;
+            const viewer = all.playerBinding(all.player) orelse return false;
+            if (!std.meta.eql(notice.recipient, viewer)) return false;
+            notice.effect.show(world);
+            return true;
+        }
+    };
+
+    /// The host receives events in simulation order. The receiver can enqueue them for delivery.
+    pub const Sink = struct {
+        context: *anyopaque,
+        enqueue: *const fn (*anyopaque, Addressed) void,
+    };
+
+    const Audience = union(enum) {
+        local,
+        participant: players.ControlRef,
+
+        fn of(world: gameobj.World, index: u16) ?Audience {
+            const all = world.objects;
+            if (index == all.player and all.readsLocalPlayerInput()) return .local;
+            if (world.hit_feedback == null) return null;
+            return .{ .participant = all.playerBinding(index) orelse return null };
+        }
+
+        fn send(audience: Audience, world: gameobj.World, effect: HitFeedback) void {
+            switch (audience) {
+                .local => effect.show(world),
+                .participant => |recipient| {
+                    const sink = world.hit_feedback orelse return;
+                    sink.enqueue(sink.context, .{ .recipient = recipient, .tick = world.clock.frame_start, .effect = effect });
+                },
+            }
+        }
+    };
+
+    fn show(effect: HitFeedback, world: gameobj.World) void {
+        switch (effect) {
+            .interference => if (world.display) |display| display.startInterference(world),
+            .impact => |hit| feedback(world, hit.struck, hit.kind, hit.value, hit.shielded),
+            .armour_hit => |struck| if (world.display) |display| {
+                display.events.ship_hits.getPtr(struck).happen();
+            },
+        }
+    }
+};
 
 /// How much each point of a hit's damage shakes the camera (`0x004DC500`), and the most a shot
 /// shakes it to.
@@ -1474,4 +1548,75 @@ test "a knock draws only on the struck player's reserves" {
     knockDamage(mission.world(), ordinary, .fore, 10, 10, first, .{ 0, 0, 2100 }, .after);
     try std.testing.expectEqual(40, all.slots[ordinary].object.shields.fore);
     try std.testing.expectEqual(100, all.player_states[ordinary].shield_reserves.fore);
+}
+
+test "hit feedback follows the struck participant and rejects an old binding" {
+    var mission: gameobj.testing.Mission = undefined;
+    try mission.init(std.testing.allocator);
+    defer mission.deinit();
+    var world = mission.world();
+    const all = world.objects;
+    const first = try mission.add(.of(.predator), @splat(0));
+    const second = try mission.add(.of(.sabre), .{ 0, 0, 1000 });
+    const attacker = try mission.add(.of(.sabre), .{ 0, 0, 2000 });
+    all.players = 2;
+    const first_pilot = all.joinParticipant(first).?;
+    const second_pilot = all.joinParticipant(second).?;
+    const first_binding = all.bindParticipant(first_pilot, .of(all, first)).?;
+    const second_binding = all.bindParticipant(second_pilot, .of(all, second)).?;
+
+    const Recorded = struct {
+        events: [8]HitFeedback.Addressed = undefined,
+        count: usize = 0,
+
+        fn enqueue(context: *anyopaque, notice: HitFeedback.Addressed) void {
+            const recorded: *@This() = @ptrCast(@alignCast(context));
+            recorded.events[recorded.count] = notice;
+            recorded.count += 1;
+        }
+    };
+    var recorded: Recorded = .{};
+    world.hit_feedback = .{ .context = &recorded, .enqueue = Recorded.enqueue };
+    mission.clock.frame_start = 20;
+    all.slots[first].object.armor = .all(100);
+    all.slots[second].object.armor = .all(100);
+    armorDamage(world, first, .fore, 10, attacker, .bullet);
+    armorDamage(world, second, .aft, 10, attacker, .bullet);
+    armorDamage(world, attacker, .left, 1, first, .bullet);
+    try std.testing.expectEqual(6, recorded.count);
+    try std.testing.expectEqual(0, world.shake.*);
+    for ([_]players.ControlRef{ first_binding, second_binding }, 0..) |binding, index| {
+        const entries = recorded.events[index * 3 ..][0..3];
+        for (entries) |entry| {
+            try std.testing.expectEqual(binding, entry.recipient);
+            try std.testing.expectEqual(20, entry.tick);
+        }
+        try std.testing.expectEqual(.interference, std.meta.activeTag(entries[0].effect));
+        try std.testing.expectEqual(.impact, std.meta.activeTag(entries[1].effect));
+        try std.testing.expectEqual(.armour_hit, std.meta.activeTag(entries[2].effect));
+    }
+
+    // Viewing the first ship delivers its effects and ignores the second pilot's.
+    var display: hud.State = .{};
+    world.display = &display;
+    try std.testing.expect(!recorded.events[3].present(world));
+    for (recorded.events[0..3]) |notice| try std.testing.expect(notice.present(world));
+    try std.testing.expectEqual(1, display.events.interference_hits.count);
+    try std.testing.expectEqual(1, display.events.ship_hits.get(.fore).count);
+    try std.testing.expectEqual(0, display.events.ship_hits.get(.aft).count);
+    try std.testing.expectApproxEqAbs(0.25, world.shake.*, 1e-6);
+
+    // After respawn, the same participant's new ship cannot receive the previous ship's hit.
+    create.resetSlot(mission.orders(), first);
+    _ = try create.createObject(all, &mission.tables, create.testing.no_models, first, .of(.predator), 0, @splat(0), &mission.random);
+    const respawn = all.bindParticipant(first_pilot, .of(all, first)).?;
+    try std.testing.expect(!recorded.events[2].present(world));
+
+    // After a disconnect, a new participant cannot receive a hit even on the same ship.
+    try std.testing.expect(create.Objects.leaveParticipant(world, first_pilot));
+    const next = all.joinParticipant(first).?;
+    _ = all.bindParticipant(next, respawn.ship).?;
+    const delayed: HitFeedback.Addressed = .{ .recipient = respawn, .tick = 20, .effect = .{ .armour_hit = .aft } };
+    try std.testing.expect(!delayed.present(world));
+    try std.testing.expectEqual(0, display.events.ship_hits.get(.aft).count);
 }
